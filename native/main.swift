@@ -561,9 +561,9 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             guard let id=data["id"] as? String, UUID(uuidString:id) != nil, let url=URL(string:"codex://threads/"+id) else{return}
             if NSWorkspace.shared.open(url){deliver("session-focused",id,reveal:false)}
             else {deliver("live-error","Install the ChatGPT desktop app to open this chat.",reveal:false)}
-        case "focus-session":
+        case "focus-session","reopen-session":
             guard let id=data["id"] as? String else {return}
-            runtime.focusSession(id){[weak self] error in
+            runtime.focusSession(id,reopen:type=="reopen-session"){[weak self] error in
                 if let error {self?.deliver("live-error",error,reveal:false)}
                 else {self?.deliver("session-focused",id,reveal:false)}
             }

@@ -9,6 +9,7 @@ import tempfile
 from unittest.mock import patch
 import time
 import uuid
+from datetime import datetime, timezone
 
 import visible_session as session
 from cmux_sessions import owned_rows
@@ -51,7 +52,11 @@ import json,os,signal,sys,time
 from pathlib import Path
 assert sys.stdin.isatty() and sys.stdout.isatty()
 assert "-p" not in sys.argv
-assert sys.argv[-1]=="Fixture prompt with quotes and $HOME"
+if "--resume" in sys.argv:
+    assert "Fixture prompt with quotes and $HOME" not in sys.argv
+    (Path.cwd()/"resumed").write_text(sys.argv[sys.argv.index("--resume")+1])
+else:
+    assert sys.argv[-1]=="Fixture prompt with quotes and $HOME"
 p=Path.cwd()
 if os.environ.get('TERM_PROGRAM')=='Apple_Terminal':
     assert os.get_terminal_size().lines>0 and os.get_terminal_size().columns>0
@@ -64,13 +69,14 @@ for i in range(350):
 """)
     fake.chmod(0o700)
     env=dict(os.environ,PATH=str(base)+os.pathsep+os.environ['PATH'])
+    env['CLAUDE_CONFIG_DIR']=str(base/'fixture-claude-config')
     before=terminal_window_ids() if host=='terminal' else set()
     if host=='pty':
         nogui=subprocess.run([sys.executable,str(RUNNER),'present',str(path),str(fake)],capture_output=True)
         assert nogui.returncode and not (project/'started').exists()
         receipt.unlink()
         master,slave=pty.openpty()
-        proc=subprocess.Popen([sys.executable,str(RUNNER),'present',str(path),str(fake)],stdin=slave,stdout=slave,stderr=slave)
+        proc=subprocess.Popen([sys.executable,str(RUNNER),'present',str(path),str(fake)],stdin=slave,stdout=slave,stderr=slave,env=env)
     else:
         subprocess.run([sys.executable,str(RUNNER),str(folder)],env=env,check=True)
     try:
@@ -126,6 +132,32 @@ for i in range(350):
         result=subprocess.run([bridge['command'],*bridge['args']],input=json.dumps(msg)+'\n',capture_output=True,text=True,check=True)
         assert not json.loads(result.stdout)['result'].get('isError') and session.load(receipt)['state']=='Complete'
         subprocess.run([sys.executable,str(RUNNER),str(folder)],env=env,check=True)
+        if host=='pty':
+            from session_lifecycle import completed_handoff
+            def line(kind, timestamp, **values):
+                return json.dumps(dict(type=kind,cwd=str(project),sessionId=job['session'],
+                    timestamp=datetime.fromtimestamp(timestamp,timezone.utc).isoformat(),**values))+'\n'
+            stamp=receipt.stat().st_mtime
+            turn=line('user',stamp-1,message={'content':'fixture'})+line('assistant',stamp+1,message={'stop_reason':'end_turn'})
+            with patch.dict(os.environ,{'CLAUDE_CONFIG_DIR':str(base/'fixture-claude-config')}):
+                transcript.write_text(turn+line('user',stamp+2,message={'content':'another turn'}))
+                assert not completed_handoff(folder,job)
+                transcript.write_text(turn)
+                later=folder/'2-pending.job';session.save(later,dict(job,mode='nudge'))
+                assert not completed_handoff(folder,job)
+                later.unlink()
+                assert completed_handoff(folder,job)==path.name
+            assert proc.wait(timeout=15)==0
+            with patch.object(session,'open_window') as launch:
+                session.reopen(folder)
+                ticket=launch.call_args.args[2]
+                try:session.reopen(folder)
+                except ValueError:pass
+                else:raise AssertionError('Duplicate resume opened')
+            proc=subprocess.Popen([sys.executable,str(RUNNER),'present',str(path),str(fake),'--reopen',ticket],
+                                  stdin=slave,stdout=slave,stderr=slave,env=env)
+            until(lambda:(project/'resumed').read_text()==job['session'])
+            assert session.endpoint(folder)['open'] and session.load(receipt)['state']=='Complete'
     finally:
         (project/'finish').touch()
         if host=='pty':
@@ -135,7 +167,8 @@ for i in range(350):
     if host=='terminal':
         until(lambda:window['window'] not in terminal_window_ids())
         assert before.issubset(terminal_window_ids()),'Another terminal window disappeared'
-    assert list(owned_rows(root,runs,[]))[0]['state']=='Closed' and session.load(receipt)['state']=='Complete'
+    history=list(owned_rows(root,runs,[]))[0]
+    assert history['state']=='Complete' and history['resumable']=='yes' and session.load(receipt)['state']=='Complete'
     try:session.focus(folder)
     except ValueError:pass
     else:raise AssertionError('Focused a closed session')

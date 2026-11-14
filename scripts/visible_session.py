@@ -8,8 +8,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 
+from session_lifecycle import completed_handoff
 from session_models import model_id
 
 HOST_NAMES={'terminal':'Terminal','cmux':'cmux','ghostty':'Ghostty','warp':'Warp','iterm2':'iTerm2','wezterm':'WezTerm','kitty':'kitty'}
@@ -102,12 +104,12 @@ def codex_prompt(job):
     return job['outgoing']+'\n\n'+job['instructions']
 
 
-def cli_command(job, folder, executable=None):
+def cli_command(job, folder, executable=None, resume=None):
     agent = job['agent']
     cli = executable or shutil.which(agent)
     if agent not in ('codex','claude','agy','cursor-agent','pi') or not cli:
         raise ValueError('Install the selected CLI and sign in before starting a session.')
-    model = model_id(job.get('model',''))
+    model = '' if resume else model_id(job.get('model',''))
     args = ['--model', model] if model else []
     bridge = dict(command=str(Path(__file__).resolve().with_name('agent-tools')),
                   args=['--agent',agent,'--workspace',job['folder'],'--session',job['session'],
@@ -119,10 +121,10 @@ def cli_command(job, folder, executable=None):
     if agent == 'pi':
         return [cli, *args, '--session-id', job['session'], '--', prompt]
     if agent == 'claude':
-        return [cli, *args, '--permission-mode', 'auto', '--session-id', job['session'], '--mcp-config', servers,
-                '--append-system-prompt', job['instructions'], '--', prompt]
+        options = [cli, *args, '--permission-mode', 'auto', '--mcp-config', servers, '--append-system-prompt', job['instructions']]
+        return options + (['--resume', resume] if resume else ['--session-id', job['session'], '--', prompt])
     if agent == 'codex':
-        reviewed = job.get('reviewedFolder')
+        reviewed = None if resume else job.get('reviewedFolder')
         if reviewed is not None:
             if job.get('mode') != 'ask' or reviewed != str(Path(job['folder']).resolve(strict=True)):
                 raise ValueError('The folder changed. Review its location again before starting Codex.')
@@ -133,11 +135,11 @@ def cli_command(job, folder, executable=None):
         return [cli, *args, '--approve-for-me', '-c', 'mcp_servers.workspace_assistant.command='+json.dumps(bridge['command']),
                 '-c', 'mcp_servers.workspace_assistant.args='+json.dumps(bridge['args']),
                 '-c', 'mcp_servers.workspace_assistant.tool_timeout_sec=86400',
-                '--', codex_prompt(job)]
+                *(('resume', resume) if resume else ('--', codex_prompt(job)))]
     return [cli,*args,'--prompt-interactive',prompt]
 
 
-def open_window(path, job):
+def open_window(path, job, ticket=None):
     folder = path.parent
     cli = shutil.which(job['agent'])
     if not cli:
@@ -145,6 +147,8 @@ def open_window(path, job):
     runner = Path(__file__).resolve().with_name('run-agent')
     # The terminal command contains only quoted local paths. The prompt is read from the private job.
     argv=[sys.executable,str(runner),'present',str(path),cli]
+    if ticket:
+        argv += ['--reopen', ticket]
     title='Tasktap · '+''.join(c for c in job['task'][:70] if c.isprintable())
     if job.get('hostApp'):
         os.environ['TASKTAP_TERMINAL_APP']=job['hostApp']
@@ -160,7 +164,41 @@ def open_window(path, job):
         adapter(job['host']).open_terminal(job['host'],argv,job['folder'],title,folder)
 
 
-def present(path, executable):
+def resume_id(folder, job):
+    if (job.get('delivery') != 'interactive' or job.get('mode') != 'ask' or job.get('external')
+            or job.get('session') != folder.name):
+        return None
+    if job['agent']=='codex' and (folder/'thread.json').is_file():
+        return str(uuid.UUID(load(folder/'thread.json')['id']))
+    if job['agent']=='claude' and ((folder/'claude-turn-started').is_file() or
+            any(load(p).get('state')=='Complete' for p in folder.glob('*.receipt'))):
+        return str(uuid.UUID(job['session']))
+    return None
+
+
+def reopen(folder):
+    with (folder/'.reopen.lock').open('a') as guard:
+        fcntl.flock(guard,fcntl.LOCK_EX)
+        if locked(folder):
+            return focus(folder)
+        path = min(folder.glob('*.job'))
+        job = load(path)
+        if not resume_id(folder, job):
+            raise ValueError('This agent has no saved conversation to reopen.')
+        request = folder/'reopen.json'
+        if request.exists() and time.time()-request.stat().st_mtime < 90:
+            raise ValueError('This conversation is already opening.')
+        ticket = str(uuid.uuid4())
+        save(request, {'ticket':ticket})
+        try:
+            open_window(path, job, ticket)
+        except Exception:
+            if request.exists() and load(request).get('ticket')==ticket:
+                request.unlink(missing_ok=True)
+            raise
+
+
+def present(path, executable, ticket=None):
     job = load(path)
     folder = path.parent
     if job.get('mode') != 'ask' or not sys.stdin.isatty() or not sys.stdout.isatty():
@@ -168,7 +206,18 @@ def present(path, executable):
     with (folder/'surface.lock').open('a') as guard:
         fcntl.flock(guard,fcntl.LOCK_EX | fcntl.LOCK_NB)
         # Double-clicking the launcher or retrying delivery must never rerun the original task.
-        if (folder/'surface.json').exists() or (path.with_suffix('.receipt').exists() and load(path.with_suffix('.receipt')).get('state')!='Opening'):
+        handle = None
+        keep_through = ''
+        if ticket:
+            request = folder/'reopen.json'
+            if not request.is_file() or load(request).get('ticket') != ticket:
+                raise ValueError('This request to reopen the conversation has expired.')
+            handle = resume_id(folder, job)
+            if not handle:
+                raise ValueError('This agent has no saved conversation to reopen.')
+            keep_through = max(folder.glob('*.job')).name
+            request.unlink()
+        elif (folder/'surface.json').exists() or (path.with_suffix('.receipt').exists() and load(path.with_suffix('.receipt')).get('state')!='Opening'):
             raise ValueError('This handoff has already opened. Use its session in Tasktap.')
         host = job['host']
         surface = dict(host=host,open=False,tty=os.ttyname(0),pid=os.getpid())
@@ -182,25 +231,39 @@ def present(path, executable):
         os.environ['WORKSPACE_ASSISTANT_INBOX'] = str(folder.parent.parent/'Agent Inbox')
         if not Path(executable).is_absolute() or not os.access(executable,os.X_OK):
             raise ValueError('The reviewed CLI is unavailable.')
-        argv = cli_command(job,folder,executable)
+        argv = cli_command(job,folder,executable,handle)
         title='Tasktap · '+''.join(c for c in job['task'][:70] if c.isprintable())
         # Erase the shell launch banner from this fresh Terminal window before the
         # TUI draws. Input, colors, resize events and interrupts stay on its real tty.
         clear='\033[2J\033[H' if host=='terminal' else ''
         print(clear+'\033]0;'+title+'\007',end='',flush=True)
         # No shell between the reviewed prompt and the agent. The CLI owns the actual terminal.
-        proc = subprocess.Popen(argv,cwd=job.get('reviewedFolder') or job['folder'])
+        proc = subprocess.Popen(argv,cwd=job['folder'] if handle else job.get('reviewedFolder') or job['folder'])
         surface['open'] = True
         save(folder/'surface.json',surface)
         # A very fast result still belongs to the agent.
         receipt=path.with_suffix('.receipt')
-        if not receipt.exists() or load(receipt).get('state')=='Opening':
+        if not handle and (not receipt.exists() or load(receipt).get('state')=='Opening'):
             save(receipt,dict(state='Opened',message='Interactive session opened in '+HOST_NAMES[host]+'.'))
+        candidate = None
+        closed_after_report = False
         try:
             while True:
                 try:
-                    code = proc.wait()
+                    code = proc.wait(timeout=4 if job['agent'] in ('codex','claude') else None)
                     break
+                except subprocess.TimeoutExpired:
+                    finished = completed_handoff(folder, job, keep_through)
+                    if finished and finished == candidate and not closed_after_report:
+                        # Serialize with delivery; a new nudge takes precedence over retiring the CLI.
+                        with (folder/'.lock').open('a') as delivery:
+                            fcntl.flock(delivery, fcntl.LOCK_EX)
+                            if completed_handoff(folder, job, keep_through) == finished:
+                                surface['open'] = False
+                                save(folder/'surface.json',surface)
+                                proc.terminate()
+                                closed_after_report = True
+                    candidate = finished
                 except KeyboardInterrupt:
                     # The foreground CLI receives Ctrl-C too and owns the interrupt decision.
                     continue
@@ -208,10 +271,10 @@ def present(path, executable):
             surface['open'] = False
             save(folder/'surface.json',surface)
         receipt=path.with_suffix('.receipt')
-        if load(receipt).get('state')=='Opened':
+        if not handle and load(receipt).get('state')=='Opened':
             message='The terminal session closed.' if code==0 else 'The agent exited before reporting a result. Check the error in '+HOST_NAMES[host]+'.'
             save(receipt,dict(state='Closed' if code==0 else 'Failed',message=message))
-        return code
+        return 0 if closed_after_report else code
 
 
 def close_finished_terminal(folder, tty):

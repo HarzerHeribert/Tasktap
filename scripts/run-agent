@@ -42,14 +42,16 @@ def drain(folder):
                         note='Paste at the agent prompt and press Return.'
                     except Exception:
                         note='Open the original session, paste at the agent prompt and press Return.'
-                    visible.save(receipt,dict(state='Copied',message='Copied to clipboard. '+note))
+                    if visible.load(receipt)['state']=='Running':
+                        visible.save(receipt,dict(state='Copied',message='Copied to clipboard. '+note))
                     continue
                 if job.get('external'):
                     import cmux_sessions as cmux
                     message=cmux.deliver(dict(job,brief=job['outgoing']))
                 else:
                     message=visible.nudge(folder,job)
-                visible.save(receipt,dict(state='Delivered',message=message))
+                if visible.load(receipt)['state']=='Running':
+                    visible.save(receipt,dict(state='Delivered',message=message))
             except Exception as exc:
                 detail = (exc.stderr or '') if isinstance(exc,subprocess.CalledProcessError) else ''
                 if isinstance(detail,bytes):detail=detail.decode(errors='replace')
@@ -71,21 +73,23 @@ if __name__=='__main__':
     os.umask(0o077)
     if sys.argv[1]=='present':
         path=Path(sys.argv[2])
+        flags=sys.argv[4:]
+        ticket=flags[1] if flags[:1]==['--reopen'] and len(flags)>=2 else None
         try:
-            code=visible.present(path,sys.argv[3])
-            if code==0 and sys.argv[4:]==['--dedicated-window']:
+            code=visible.present(path,sys.argv[3],ticket)
+            if code==0 and '--dedicated-window' in flags:
                 # Let the presenter release its TTY before asking Terminal to close the empty window.
                 subprocess.Popen([sys.executable,__file__,'close-finished-terminal',str(path.parent),os.ttyname(0)],
                                  stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
             sys.exit(code if code>=0 else 128-code)
         except Exception as error:
-            if not visible.locked(path.parent) and (not (path.parent/'surface.json').exists() or visible.load(path.with_suffix('.receipt')).get('state')=='Opened'):
+            if not ticket and not visible.locked(path.parent) and (not (path.parent/'surface.json').exists() or visible.load(path.with_suffix('.receipt')).get('state')=='Opened'):
                 visible.save(path.with_suffix('.receipt'),dict(state='Failed',message=str(error)))
             sys.exit(str(error))
     elif sys.argv[1]=='close-finished-terminal':
         visible.close_finished_terminal(Path(sys.argv[2]),sys.argv[3])
-    elif sys.argv[1]=='focus':
-        try: visible.focus(Path(sys.argv[2]))
+    elif sys.argv[1] in ('focus','reopen'):
+        try: (visible.reopen if sys.argv[1]=='reopen' else visible.focus)(Path(sys.argv[2]))
         except Exception as error:
             detail=error.stderr if isinstance(error,subprocess.CalledProcessError) else ''
             if isinstance(detail,bytes):detail=detail.decode(errors='replace')

@@ -194,6 +194,19 @@ const { chromium } = require('playwright');
       return [Boolean(sess(owned)),Boolean(sess(thread))];
     });
     assert.deepEqual(identity,[true,false],'A newly identified worker should appear once in Sessions');
+    await page.evaluate(()=>{
+      dismissCard();
+      externalSessions([{id:'owned-session',owned:'yes',agent:'codex',folder:'/projects/Lighting',task:'Finish the lights',
+        host:'ghostty',conversation:'discovered-thread',state:'Complete',available:'no',resumable:'yes',updatedAt:'1794669251000'}]);
+      state.captures.unshift({id:'saved-nudge',session:'owned-session',brief:'Polish the reflections',kind:'Session nudge'});
+      go('sessions');
+    });
+    const filter=page.getByLabel('Find a session');
+    await filter.fill('Lighting reflections');
+    assert.equal(await page.locator('#session-history .session-row').count(),1);
+    await page.locator('#session-history .session-row').click();
+    await click('Resume in Ghostty');
+    assert.deepEqual(await page.evaluate(()=>sent.at(-1)),{type:'reopen-session',id:'owned-session'});
     await page.setViewportSize({width:390,height:750});
     await page.evaluate(()=>aiConnections.show('chatgpt'));
     assert.ok(await page.locator('#ai-route').isVisible());

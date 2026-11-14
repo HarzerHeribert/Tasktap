@@ -182,6 +182,17 @@ def owned_rows(root, runs, observed):
                 except (OSError,ValueError,sqlite3.Error): pass
             if thread_file.exists(): thread=str(uuid.UUID(visible.load(thread_file)["id"]))
             row["conversation"]=thread
+            if not alive and visible.resume_id(folder, job):
+                row["resumable"]="yes"
+            latest = max(folder.glob("*.job"))
+            receipt = latest.with_suffix(".receipt")
+            if receipt.exists() and visible.load(receipt).get("state")=="Delivered" and thread:
+                from session_lifecycle import recover_codex_followup
+                try: recover_codex_followup(folder,job,latest)
+                except (OSError, sqlite3.Error, KeyError, TypeError, ValueError): pass
+            row["updatedAt"] = str(int(max(latest.stat().st_mtime, receipt.stat().st_mtime if receipt.exists() else 0)*1000))
+            if not alive and receipt.is_file() and visible.load(receipt).get("state")=="Complete":
+                row["state"]="Complete"
             sibling=next((r for r in observed if r.get("conversation")==thread and thread and r["agent"]==row["agent"] and r["folder"]==row["folder"]),None)
             if sibling:
                 if alive: row["state"]=sibling["state"]

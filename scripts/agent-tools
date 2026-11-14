@@ -2,6 +2,7 @@
 """A session-scoped MCP stdio server, launched by the agent adapter."""
 import argparse
 import concurrent.futures
+import fcntl
 import json
 import uuid
 import os
@@ -31,6 +32,13 @@ outcome_tool={'name':'report_result','description':'Report the completed Tasktap
 
 
 def report_result(args):
+    # Delivery and its acknowledgement can race on quick follow-ups.
+    with (config.run_dir/'.lock').open('a') as guard:
+        fcntl.flock(guard,fcntl.LOCK_EX)
+        return store_result(args)
+
+
+def store_result(args):
     capture=str(uuid.UUID(args['capture']))
     summary=args['summary'].strip()
     if not summary or len(summary)>32000 or config.run_dir.name!=config.session:raise ValueError('Invalid report.')

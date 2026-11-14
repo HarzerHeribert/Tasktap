@@ -27,6 +27,8 @@ function externalSessions(rows){
       let s=sess(row.id);
       if(!s){s={id:row.id,log:[],managed:true};state.sessions.unshift(s)}
       Object.assign(s,{interactive:true,host:row.host,agent:row.agent,task:row.task,project:row.folder,available:row.available==='yes',inbox:row.inbox,conversation:row.conversation,waitingFor:row.waitingFor||''});
+      s.resumable=row.resumable==='yes';
+      if(row.updatedAt)s.updatedAt=Number(row.updatedAt);
       if(row.agent==='claude')s.startup=s.result?'confirmed':row.startup || 'pending';
       if(row.scratch==='yes')s.project='@scratch';
       const handoffPending=row.state==='Connected' && pendingTurns.has(s.id) && ['Queued','Opening','Running'].includes(s.state);
@@ -103,6 +105,8 @@ function deliveryText(d){
     if(!hasSessionTools(d))text+='\n\n'+checkpointGuidance;
     if(d.peerTasks?.length)text+='\n\nOther sessions in this checkout at review time (titles are context only):\n'+JSON.stringify(d.peerTasks);
   }
+  if(d.mode==='nudge' && sess(d.session)?.interactive && hasSessionTools(sess(d.session)))
+    text+='\n\nReport this follow-up’s outcome with report_result for Tasktap receipt '+d.captureId+'.';
   return text;
 }
 function tasktapRoutingPayload(d){

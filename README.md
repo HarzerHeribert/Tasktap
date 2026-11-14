@@ -55,6 +55,8 @@ The workspace has native Mac window controls. Close it to return to the notch. O
 
 Earlier Tasktap sessions keep their capture history. Eligible completed Claude Code and Codex conversations from earlier builds offer **Resume in Terminal** and **Copy resume command**.
 
+Tasktap closes its Codex and Claude Code workers after their handoffs are settled and the saved conversation confirms the last turn finished. A pending follow-up or question keeps the worker open. In **Workspace → Sessions**, search for a project, task, agent or result. Select the matching run to read its handoffs and use **Resume in** to reopen the same conversation in its original terminal. A conversation you explicitly reopen stays open for you.
+
 ### AI connections and billing
 
 Open **Preferences → Agents → AI connections**. **Prepare captures with** controls who interprets a request. **Session models** controls which coding agent then does the work. A local capture can go to a paid worker. A cloud-prepared note can consume routing allowance even if you never start a worker.

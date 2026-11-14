@@ -211,7 +211,7 @@ final class LiveWorkspace {
         }}
         try p.run();workers[folder.path]=p
     }
-    func focusSession(_ id:String, completion:@escaping (String?)->Void) {
+    func focusSession(_ id:String, reopen:Bool=false, completion:@escaping (String?)->Void) {
         guard UUID(uuidString:id) != nil else {completion("Invalid session.");return}
         let external=lastDiscovery?.first{$0["id"]==id && $0["owned"] != "yes"}
         let script=external == nil ? "run-agent" : "cmux-sessions"
@@ -223,7 +223,7 @@ final class LiveWorkspace {
             }
             guard external["surface"] != nil else {completion("Open this conversation in its original client.");return}
             arguments=["focus",root.path,id]
-        } else {arguments=["focus",data.appendingPathComponent(id).path]}
+        } else {arguments=[reopen ? "reopen":"focus",data.appendingPathComponent(id).path]}
         DispatchQueue.global(qos:.userInitiated).async {
             let p=Process(),pipe=Pipe()
             p.executableURL=url;p.arguments=arguments

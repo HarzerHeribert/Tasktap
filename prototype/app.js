@@ -79,7 +79,8 @@ function renderNav(projects){
 }
 function sessionRow(s,{question,fixture=false,title=question?.q || s.task,status=question?'Needs input':s.state}={}){
   const agent=s.interactive?providers[s.agent]+' · '+sessionLocation(s):s.source==='desktop'?'Codex · ChatGPT desktop':s.source==='terminal'?'Codex · Terminal':s.source==='claude'?'Claude Code · External':providers[s.agent]||'Agent',p=proj(s.project);
-  const subtitle=title!==s.task?[s.task,agent].filter(Boolean).join(' · '):agent;
+  const lastRun=view==='sessions' && s.updatedAt?new Date(s.updatedAt).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'}):'';
+  const subtitle=[title!==s.task?s.task:'',agent,lastRun].filter(Boolean).join(' · ');
   return '<button class="session-row" data-action="'+(question?'notch':'session')+'" data-id="'+attr(question?.id || s.id)+'">'+(s.agent?'<span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span>':'<span aria-hidden="true"></span>')+'<span><span class="row-title">'+esc(title)+'</span><span class="row-sub">'+esc(subtitle)+'</span></span><span class="row-project">'+esc(p?.name||'Project')+'</span>'+(fixture?'<span class="fixture-amount">'+esc(s.amount)+'</span>':'<span class="row-state '+statusClass(question?'Needs input':s.state)+'"><i class="state-dot"></i>'+esc(status)+'</span>')+icon('right')+'</button>';
 }
 function workOverview(active){
@@ -105,6 +106,22 @@ function workOverview(active){
 function sessionList(rows){return rows.length?'<div class="session-list">'+rows.map(s=>sessionRow(s)).join('')+'</div>':'<p class="empty">No sessions here yet.</p>'}
 function noteList(notes){return notes.length?notes.map(n=>'<button class="note" data-action="note" data-id="'+attr(n.id)+'"><span class="eyebrow">'+esc(proj(n.project)?.name||'Scratch')+'</span><strong>'+esc(n.title)+'</strong><span class="hint">'+esc(n.text)+'</span></button>').join(''):'<p class="empty">No notes here yet.</p>'}
 let projectFilter='';
+let sessionFilter='';
+function renderSessionHistory(){
+  const words=sessionFilter.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  const history=new Map();
+  if(words.length){
+    for(const c of state.captures){
+      const entries=history.get(c.session) || [];
+      entries.push(c.brief,c.text,c.result);history.set(c.session,entries);
+    }
+  }
+  const rows=state.sessions.filter(s=>{
+    const text=[s.task,proj(s.project)?.name,providers[s.agent],s.result,...(history.get(s.id)||[])].join(' ').toLocaleLowerCase();
+    return words.every(word=>text.includes(word));
+  }).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+  $('#session-history').innerHTML=rows.length || !words.length?sessionList(rows):'<p class="empty">No matching sessions.</p>';
+}
 function renderProjectList(projects){
   const rows=projects.filter(p=>p.name.toLowerCase().includes(projectFilter.trim().toLowerCase()));
   $('#project-list').innerHTML=rows.map(p=>button(p.name,'view',p.id,'note','folder')).join('')||'<p class="empty">'+(projectFilter.trim()?'No matching projects.':state.showIdleProjects?'No project folders found.':'No projects have active sessions.')+'</p>';
@@ -117,10 +134,10 @@ function render(){
   let body='';
   if(view==='overview')body=workOverview(active);
   else if(view==='projects')body='<section class="block"><label class="field">Find a project<input id="project-filter" type="search" placeholder="Folder name" value="'+attr(projectFilter)+'"></label><label class="check-line"><input type="checkbox" id="include-idle" '+(state.showIdleProjects?'checked':'')+'>Show idle projects</label><div id="project-list"></div></section>';
-  else if(view==='sessions')body=sessionList(state.sessions);
+  else if(view==='sessions')body='<section class="block"><label class="field">Find a session<input id="session-filter" type="search" placeholder="Task, project, agent or result" value="'+attr(sessionFilter)+'"></label><div id="session-history"></div></section>';
   else if(view==='notes')body='<section class="block">'+noteList(state.notes)+'</section>';
   else if(p)body='<section class="block"><div class="group-head"><h2>Sessions</h2>'+(p.available!==false?button('Start session','start-session',p.id,'primary','plus'):'')+'</div>'+sessionList(state.sessions.filter(s=>s.project===p.id))+'</section><section class="block"><h2>Project notes</h2>'+noteList(state.notes.filter(n=>n.project===p.id))+'</section>';
-  const activeFilter=document.activeElement?.id==='project-filter';
+  const activeFilter=['project-filter','session-filter'].includes(document.activeElement?.id)?document.activeElement.id:'';
   const caret=activeFilter?document.activeElement.selectionStart:0;
   const main=$('#main');
   if(view==='overview'){
@@ -142,7 +159,15 @@ function render(){
       $('#include-idle').focus({preventScroll:true});
     };
     renderProjectList(projects);
-    if(activeFilter){input.focus({preventScroll:true});input.setSelectionRange(caret,caret)}
+  }
+  if(view==='sessions'){
+    const input=$('#session-filter');
+    input.oninput=()=>{sessionFilter=input.value;renderSessionHistory()};
+    renderSessionHistory();
+  }
+  if(activeFilter){
+    const input=document.getElementById(activeFilter);
+    if(input){input.focus({preventScroll:true});input.setSelectionRange(caret,caret)}
   }
 }
 function toast(message){$('#toast').textContent=message;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').textContent='',3000)}
@@ -207,6 +232,7 @@ function showSession(id){
   if(live && (s.interactive && s.available===true && !['Closed','Queued','Opening'].includes(s.state) || s.source==='cmux' && s.available)){
     actions.push(button(s.host==='warp'?'Reattach in Warp':'Open in '+sessionLocation(s),'focus-session',id,'primary','out'));
   }
+  if(live && s.resumable && !s.available)actions.push(button('Resume in '+sessionLocation(s),'reopen-session',id,'primary','out'));
   if(!live || canNudge(s))actions.push(button('Follow up','follow',id,actions.length?'btn':'primary','mic'));
   const latest=state.captures.find(c=>c.session===id);
   const retry=failedStart(s);
@@ -219,7 +245,7 @@ function showSession(id){
   if(s.result)actions.push(button('Read aloud','speakresult',id,'btn','sound'),button('Open in '+(s.viewer||(live?'Finder':'editor')),'openresult',id));
   const turns=state.captures.filter(c=>c.session===id);
   const history=turns.length>1?'<details class="route-evidence"><summary>Handoff history · '+turns.length+'</summary><ul>'+turns.map(c=>'<li>'+button(c.kind+' · '+(c.brief||c.text||'Sketch').slice(0,70),'detailcapture',c.id,'text-btn')+'</li>').join('')+'</ul></details>':'';
-  const location=s.interactive && !retry?'<p class="hint">'+esc(s.state==='Closed'?'The terminal session has closed.':s.state==='Failed'?'Check the terminal for the launch error.':s.available===false?'Waiting for the terminal session.':s.state==='Awaiting agent'?'Open '+sessionLocation(s)+' to check for a sign-in or folder trust prompt.':'You can type, interrupt, and answer approvals in '+sessionLocation(s)+'.')+'</p>':'';
+  const location=s.interactive && !retry && !s.resumable?'<p class="hint">'+esc(s.state==='Closed' || s.state==='Complete' && !s.available?'The terminal session has closed.':s.state==='Failed'?'Check the terminal for the launch error.':s.available===false?'Waiting for the terminal session.':s.state==='Awaiting agent'?'Open '+sessionLocation(s)+' to check for a sign-in or folder trust prompt.':'You can type, interrupt, and answer approvals in '+sessionLocation(s)+'.')+'</p>':'';
   const waiting=s.waitingFor?'<p class="hint">'+esc('Waiting in the original session · '+s.waitingFor)+'</p>':'';
   const turn=state.captures.find(c=>c.session===s.id);
   const status=activityBand('<strong class="session-state '+statusClass(s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(s.state)+'</strong>',proj(s.project)?.folder,['Running','Queued'].includes(s.state),live?handoffRelay.forCapture(turn):'');
@@ -594,6 +620,7 @@ document.addEventListener('click',e=>{
     case 'preview-voice':speak('Tasktap is ready. What would you like to work on?');break;
     case 'terminal':postLive('resume-terminal',{id});break;
     case 'focus-session':postLive('focus-session',{id});break;
+    case 'reopen-session':postLive('reopen-session',{id});break;
     case 'review-retry':{const c=failedStart(sess(id));if(c)postLive('review-failed-handoff',{session:id,capture:c.id});break}
     case 'copyresume':postLive('copy-resume',{id});break;
     case 'openresult':if(live){const s=sess(id);postLive('open-result',{id,viewer:s.viewer||'Finder',text:s.result||''});break}dialog('Result preview',sess(id).viewer||'Editor','<p>'+esc(sess(id).result)+'</p><p class="hint">Opening an external app is simulated here.</p>'+button('Back to session','session',id));break;

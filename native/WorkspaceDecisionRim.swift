@@ -76,6 +76,7 @@ final class WorkspaceDecisionRim {
                 layer.contentsScale=drawnScale
             }
             CATransaction.commit()
+            if panel.isVisible {updateMotion()}
         }
         if !panel.isVisible {panel.orderFrontRegardless();updateMotion()}
     }
@@ -84,7 +85,7 @@ final class WorkspaceDecisionRim {
         halo.removeAnimation(forKey:"attention")
         guard panel.isVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
         let pulse=CABasicAnimation(keyPath:"opacity")
-        pulse.fromValue=0.45;pulse.toValue=1;pulse.duration=2.4;pulse.autoreverses=true
+        pulse.fromValue=0.45;pulse.toValue=1;pulse.duration=2.8 + min(2, Double(drawnTab?.width ?? 0) / 200);pulse.autoreverses=true
         pulse.repeatCount = .infinity;pulse.timingFunction=CAMediaTimingFunction(name:.easeInEaseOut)
         halo.add(pulse,forKey:"attention")
     }

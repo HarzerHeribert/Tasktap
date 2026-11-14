@@ -5,10 +5,10 @@ const handoffRelay = (() => {
   const stops = {review: .02, submitting: .18, queued: .40, opening:.60, opened:.985, copied:.985, closed:.985, running: .76, complete: .985, delivered: .985};
   const transitions = new Map();
   const reduce = matchMedia('(prefers-reduced-motion: reduce)');
-  const duration = 480;
+  const durationFor = width => 460 / artworkPlaybackRate(width);
   const viewWidth = 736, viewHeight = 352;
 
-  function progress(entry, now) {
+  function progress(entry, now, duration) {
     const t = Math.max(0, Math.min(1, (now - entry.at) / duration));
     return entry.from + (entry.to - entry.from) * t * (2 - t);
   }
@@ -17,7 +17,7 @@ const handoffRelay = (() => {
     const old = transitions.get(id);
     if (old?.phase === phase) return;
     const now = performance.now();
-    const previous = old ? progress(old, now) : stops.review;
+    const previous = old ? progress(old, now, durationFor(220)) : stops.review;
     const next = stops[phase] ?? previous;
     transitions.delete(id);
     transitions.set(id, {phase, at: now, from: restored ? next : previous, to: next});
@@ -72,7 +72,8 @@ const handoffRelay = (() => {
       const transition = entry?.phase === phase ? entry : null;
       const now = performance.now();
       const resting = stops[phase] ?? transition?.to ?? .18;
-      const u = transition && !reduce.matches ? progress(transition, now) : resting;
+      const duration = durationFor(this.getBoundingClientRect().width);
+      const u = transition && !reduce.matches ? progress(transition, now, duration) : resting;
       const canvas = this.querySelector('canvas');
       if (!canvas) return;
       const g = canvas.getContext('2d');

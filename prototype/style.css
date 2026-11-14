@@ -65,7 +65,7 @@ main{padding:var(--s-section) var(--s-gutter);display:grid;gap:var(--s-group);al
 }
 .needs-decision .island button::after{
   border:var(--attention-width) solid #e9c59a;border-top:0;
-  box-shadow:0 1px 4px 1px #eaa95e9e;opacity:.92;animation:attention-edge 2.4s ease-in-out infinite alternate;
+  box-shadow:0 1px 4px 1px #eaa95e9e;opacity:.92;animation:attention-edge 3.6s ease-in-out infinite alternate;
 }
 @supports (mask-composite:exclude){
   .needs-decision .island button::after{
@@ -106,8 +106,8 @@ main{padding:var(--s-section) var(--s-gutter);display:grid;gap:var(--s-group);al
 .signal-light i{inset:29%;background:radial-gradient(ellipse at 30% 24%,#fff1db 0%,#efc99a 28%,#b38661 56%,#756856 76%,#393632 97%);box-shadow:inset 0 0 2px #ffe0a0b0}
 body[data-signal="working"] .signal-light i,body[data-signal="sending"] .signal-light i,
 body[data-signal="speaking"] .signal-light i,body[data-signal="listening"] .signal-light i{animation:signal-breathe var(--signal-cycle) ease-in-out infinite alternate}
-body[data-signal="listening"],body[data-signal="speaking"]{--signal-cycle:780ms}
-body[data-signal="sending"]{--signal-cycle:1100ms}
+body[data-signal="listening"],body[data-signal="speaking"]{--signal-cycle:1200ms}
+body[data-signal="sending"]{--signal-cycle:1650ms}
 @keyframes signal-breathe{from{opacity:.78;transform:scale(.94)}to{opacity:1;transform:scale(1.06)}}
 .request-preview,.notch-first #notch .decision-btn{background:var(--notch-raised);border-color:var(--notch-line)}
 .request-preview:hover,.notch-first #notch .decision-btn:hover{background:#202020}
@@ -176,9 +176,9 @@ button[data-action="dictate"]{touch-action:none;user-select:none;-webkit-user-se
 .example-slot span:first-child{opacity:1}
 #guide-input:not(:placeholder-shown) ~ .example-slot,.guide-editor:has(.voice-wave) .example-slot{display:none}
 @media(prefers-reduced-motion:no-preference){
-  #guide-input:placeholder-shown:not(:focus) + .example-slot span{animation:guide-roll 12s cubic-bezier(.45,.06,.25,1) var(--roll-delay,0s) infinite both}
-  .example-slot span:nth-child(2){--roll-delay:-8s}
-  .example-slot span:nth-child(3){--roll-delay:-4s}
+  #guide-input:placeholder-shown:not(:focus) + .example-slot span{animation:guide-roll 18s cubic-bezier(.45,.06,.25,1) var(--roll-delay,0s) infinite both}
+  .example-slot span:nth-child(2){--roll-delay:-12s}
+  .example-slot span:nth-child(3){--roll-delay:-6s}
   @keyframes guide-roll{
     0%,26%,100%{opacity:1;transform:none}
     33%,88%{opacity:0;transform:translateY(-112%) rotate(-2deg)}

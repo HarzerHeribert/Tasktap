@@ -413,6 +413,11 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             refreshWorkers()
         case "worker-usage":
             refreshUsage()
+        case "open-docs":
+            guard !verifying,!liveTest,let section=data["section"] as? String,
+                  ["agents","capture","voice","appearance","install"].contains(section),
+                  let url=URL(string:"https://harzerheribert.github.io/Tasktap/docs/#"+section) else {return}
+            if !NSWorkspace.shared.open(url){deliver("live-error","Couldn’t open the documentation.",reveal:false)}
         case "worker-install":
             let guides=["codex":"https://learn.chatgpt.com/docs/cli","claude":"https://code.claude.com/docs/en/setup","agy":"https://antigravity.google/docs/getting-started?tab=cli","cursor-agent":"https://cursor.com/docs/cli/installation","pi":"https://docs.pi.dev/latest/quickstart"]
             guard !verifying,!liveTest,let agent=data["agent"] as? String,let page=guides[agent],let url=URL(string:page) else {return}

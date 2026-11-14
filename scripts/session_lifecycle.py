@@ -70,47 +70,53 @@ def report_turn_finished(path, job, reported):
     return False
 
 
-def recover_codex_followup(folder, owner, latest):
-    """Older queued nudges had no report ID. Match the exact user turn and its final answer."""
+def recover_codex_followups(folder, owner, jobs):
+    """Recover queue receipts only from unique user prompts inside matching, completed turns."""
     from visible_session import load, save
-    receipt = latest.with_suffix('.receipt')
-    if owner['agent'] != 'codex' or latest == min(folder.glob('*.job')) or not receipt.exists():
+    if owner['agent'] != 'codex' or len(jobs) < 2:
         return
-    if load(receipt).get('state') != 'Delivered':
+    by_prompt = {}
+    for path in jobs[1:]:
+        job = load(path)
+        if (job.get('mode') == 'nudge' and not job.get('external') and job.get('agent') == 'codex'
+                and job.get('folder') == owner['folder'] and job.get('session') == owner['session'] and job.get('outgoing')):
+            by_prompt.setdefault(job['outgoing'], []).append(path.with_suffix('.receipt'))
+    pending = {prompt: items[0] for prompt, items in by_prompt.items() if len(items) == 1
+               and items[0].is_file() and load(items[0]).get('state') == 'Delivered'}
+    if not pending:
         return
-    job = load(latest)
-    if (job.get('mode') != 'nudge' or job.get('external') or job.get('session') != owner['session']
-            or job.get('folder') != owner['folder'] or not job.get('outgoing')):
+    transcript = conversation_path(folder, owner)
+    if not transcript:
         return
-    path = conversation_path(folder, owner)
-    if not path:
-        return
-    completion = None
-    matched = False
-    for event in recent_events(path):
+    completed = None
+    prompt = None
+    matches = {}
+    for event in recent_events(transcript):
         entry = event.get('payload', {})
         kind = entry.get('type')
-        if event.get('type') == 'event_msg' and kind in ('task_complete','task_started','turn_aborted','turn_failed'):
-            if completion is None:
-                if kind != 'task_complete' or not entry.get('last_agent_message'):
-                    return
-                ended = datetime.fromisoformat(event['timestamp'].replace('Z','+00:00')).timestamp()
-                if ended < receipt.stat().st_mtime:
-                    return
-                completion = entry
-            else:
-                if not matched or kind != 'task_started' or not entry.get('turn_id') or entry['turn_id'] != completion.get('turn_id'):
-                    return
-                with (folder/'.lock').open('a') as guard:
-                    fcntl.flock(guard, fcntl.LOCK_EX)
-                    if load(receipt).get('state') == 'Delivered':
-                        save(receipt, dict(state='Complete', message=completion['last_agent_message'][:32000],
-                                           turnFinishedAt=str(ended)))
-                return
-        elif completion and event.get('type') == 'response_item' and kind == 'message' and entry.get('role') == 'user':
+        if event.get('type') == 'event_msg':
+            if kind == 'task_complete':
+                completed = (entry, event['timestamp'])
+                prompt = None
+            elif kind in ('task_started', 'turn_failed', 'turn_aborted'):
+                if (kind == 'task_started' and completed and prompt in pending and entry.get('turn_id')
+                        and entry['turn_id'] == completed[0].get('turn_id') and completed[0].get('last_agent_message')):
+                    end = datetime.fromisoformat(completed[1].replace('Z','+00:00')).timestamp()
+                    if end >= pending[prompt].stat().st_mtime:
+                        matches.setdefault(prompt, []).append((end, completed[0]['last_agent_message']))
+                completed = prompt = None
+        elif completed and event.get('type') == 'response_item' and kind == 'message' and entry.get('role') == 'user':
             content = entry.get('content', [])
-            if len(content)==1 and content[0].get('text') == job['outgoing']:
-                matched = True
+            if len(content) == 1 and content[0].get('text') in pending:
+                prompt = content[0]['text']
+    if matches:
+        with (folder/'.lock').open('a') as guard:
+            fcntl.flock(guard, fcntl.LOCK_EX)
+            for prompt, turns in matches.items():
+                receipt = pending[prompt]
+                if len(turns) == 1 and load(receipt).get('state') == 'Delivered':
+                    end, message = turns[0]
+                    save(receipt, dict(state='Complete', message=message[:32000], turnFinishedAt=str(end)))
 
 
 def completed_handoff(folder, job, keep_through=''):

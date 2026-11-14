@@ -162,7 +162,8 @@ def owned_rows(root, runs, observed):
         if not surface_path.exists(): continue
         try:
             surface=visible.load(surface_path)
-            path=next(p for p in sorted(folder.glob("*.job")) if visible.load(p)["mode"]=="ask")
+            jobs=sorted(folder.glob("*.job"))
+            path=next(p for p in jobs if visible.load(p)["mode"]=="ask")
             job=visible.load(path)
             row=dict(id=job["session"],agent=job["agent"],host=job["host"],folder=job["folder"],owned="yes",source="interactive",
                      task=job["task"],inbox="manual",state="Connected",available="yes",scratch="yes" if Path(job["folder"])==runs.parent/"Scratch" else "no")
@@ -184,11 +185,11 @@ def owned_rows(root, runs, observed):
             row["conversation"]=thread
             if not alive and visible.resume_id(folder, job):
                 row["resumable"]="yes"
-            latest = max(folder.glob("*.job"))
+            latest = jobs[-1]
             receipt = latest.with_suffix(".receipt")
-            if receipt.exists() and visible.load(receipt).get("state")=="Delivered" and thread:
-                from session_lifecycle import recover_codex_followup
-                try: recover_codex_followup(folder,job,latest)
+            if len(jobs)>1 and thread and job["agent"]=="codex":
+                from session_lifecycle import recover_codex_followups
+                try: recover_codex_followups(folder,job,jobs)
                 except (OSError, sqlite3.Error, KeyError, TypeError, ValueError): pass
             row["updatedAt"] = str(int(max(latest.stat().st_mtime, receipt.stat().st_mtime if receipt.exists() else 0)*1000))
             if not alive and receipt.is_file() and visible.load(receipt).get("state")=="Complete":

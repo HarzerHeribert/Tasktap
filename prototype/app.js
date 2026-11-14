@@ -587,7 +587,7 @@ function prefs(group='agents'){
       '<div class="check-line"><input id="narration" type="checkbox" '+(state.speak?'checked':'')+'><label for="narration">Read completion summaries aloud</label></div>'+
       surfaceButton('Notification settings','notifications','bell','btn');
   }
-  dialog('Preferences','Tasktap','<div id="preferences" class="settings-form">'+nav+'<section aria-label="'+preferenceGroups[group]+'" class="settings-section">'+body+'</section></div>');
+  dialog('Preferences','Tasktap','<div id="preferences" class="settings-form">'+nav+'<section aria-label="'+preferenceGroups[group]+'" class="settings-section">'+body+'</section>'+button('Documentation','open-docs',group,'text-btn','out')+'</div>');
   settingsHeader();
   if(group==='agents' && live)aiConnections.refresh();
   if(group==='capture')captureContext.bindPreference();
@@ -619,6 +619,7 @@ document.addEventListener('click',e=>{
     case 'worker-install':case 'worker-login':if(live && Object.hasOwn(providers,id))postLive(a,{agent:id});break;
     case 'preview-voice':speak('Tasktap is ready. What would you like to work on?');break;
     case 'terminal':postLive('resume-terminal',{id});break;
+    case 'open-docs':{const section=({agents:'agents',capture:'capture',voice:'voice',appearance:'appearance'})[id]||'install';if(live)postLive('open-docs',{section});else window.open('https://harzerheribert.github.io/Tasktap/docs/#'+section,'_blank','noopener');break}
     case 'focus-session':postLive('focus-session',{id});break;
     case 'reopen-session':postLive('reopen-session',{id});break;
     case 'review-retry':{const c=failedStart(sess(id));if(c)postLive('review-failed-handoff',{session:id,capture:c.id});break}

@@ -50,7 +50,9 @@ const {chromium}=require('playwright');
     await page.emulateMedia({reducedMotion:'no-preference'});
     const frames=await page.locator('.example-slot').evaluate(el=>{
       const lines=[...el.children];
-      return [0,3700,4000,8000].map(time=>{
+      const cycle=lines[0].getAnimations()[0].effect.getTiming().duration;
+      return [0,0.3083,1/3,2/3].map(phase=>{
+        const time=phase*cycle;
         lines.forEach(line=>{const animation=line.getAnimations()[0];animation.pause();animation.currentTime=time});
         const box=el.getBoundingClientRect();
         return {y:box.y,height:box.height,opacities:lines.map(line=>Number(getComputedStyle(line).opacity))};

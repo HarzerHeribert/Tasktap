@@ -1,5 +1,7 @@
 # Tasktap
 
+[Tasktap for Mac](https://harzerheribert.github.io/Tasktap/) · [User guide](https://harzerheribert.github.io/Tasktap/docs/)
+
 Tasktap is a voice-first macOS menu-bar app for working with coding agents in your local projects. Type a request in the notch, or hold **Control + Option + Space** to dictate and release to finish. Review the proposed workspace, instruction and agent in the notch. Confirm to start the work.
 
 ![The decision rim expands around the Mac camera housing](design/notch-hover.gif)
@@ -47,7 +49,7 @@ When Claude opens a folder for the first time, answer its trust prompt in the te
 
 On Warp, **Reattach in Warp** opens another tab on the same agent using the copy of GNU screen included with macOS. Ghostty and iTerm2 address the original surface or session, and WezTerm and kitty address the recorded pane or window. Each host runs the same interactive worker. Closing Warp’s last attached view ends the worker. [Ghostty scripting](https://ghostty.org/docs/features/applescript) · [WezTerm pane activation](https://wezterm.org/cli/cli/activate-pane.html) · [kitty remote control](https://sw.kovidgoyal.net/kitty/remote-control/)
 
-The private queue under `~/Library/Application Support/Tasktap/Runs` records the reviewed text, routing evidence and delivery receipts. **Opened** means the terminal launched the agent, **Delivered** means its inbox accepted a nudge, and **Copied** means you still need to paste it. Claude Code and Codex can use Tasktap’s session-scoped question and completion tools. A **Complete** result comes from an explicit agent report. Antigravity, Cursor CLI and Pi show decisions and replies in their terminals. For follow-ups, Tasktap copies your reviewed nudge and opens the original terminal. If there is no report, read the outcome in the original session. Local notes are stored in the sibling `Notes` and `Scratch` folders.
+The private queue under `~/Library/Application Support/Tasktap/Runs` records the reviewed text, routing evidence and delivery receipts. **Opened** means the terminal launched the agent, **Delivered** means its inbox accepted a nudge, and **Copied** means you still need to paste it. Claude Code and Codex can use Tasktap’s session-scoped question and completion tools. A **Complete** result comes from an agent report or from the saved final answer to an exactly matched Codex follow-up. Antigravity, Cursor CLI and Pi show decisions and replies in their terminals. For follow-ups, Tasktap copies your reviewed nudge and opens the original terminal. If there is no report, read the outcome in the original session. Local notes are stored in the sibling `Notes` and `Scratch` folders.
 
 Tasktap also discovers live, locally registered Claude Code and Codex surfaces in cmux under `~/projects`. It can send a confirmed nudge through the agent inbox when cmux permits the connection and the receiving agent supports messages. With cmux-only access, launch the built executable directly from a cmux terminal using `./build/Tasktap.app/Contents/MacOS/Tasktap`. A delivery receipt means cmux accepted the message. External sessions need their own question integration and do not stream completion reports to Tasktap. The cmux CLI uses the same socket API and access rules as a direct JSON client. Tasktap creates a named workspace and addresses the specific surface on return. Standalone Ghostty uses its own macOS integration. [cmux API](https://cmux.com/docs/api) · [cmux agent messaging](https://cmux.com/docs/changelog/0.65.0)
 
@@ -146,3 +148,9 @@ Tasktap’s launcher passes its question tool in the arguments for that session.
 - `node scripts/verify-voice-wave.cjs`, `node scripts/verify-relay.cjs` and `node scripts/verify-decision-rim.cjs` exercise the three live signals in Chromium with deterministic inputs.
 - `build/Tasktap.app/Contents/MacOS/Tasktap --verify-interface` checks native hover, focus, shortcut dispatch and a question round trip using temporary data.
 - `build/Tasktap.app/Contents/MacOS/Tasktap --verify-live` uses an authenticated Codex CLI to run a synthetic end-to-end capture in a temporary workspace. It consumes a real agent turn.
+
+### Public pages and checks
+
+The landing page and user guide live in `site/`. Run `python3 scripts/build-site.py` to assemble `build/pages/` with the same Glyph wave render and motion curve as the app. The hero anchors the chrome glyphs in a notch capture alongside stationary controls; a narrow layout stacks the capture below the heading, and Reduce Motion displays the still render.
+
+Pull requests and pushes to main run design-token lint, responsive and keyboard checks, motion and session regressions, and a signed macOS build. App changes must include a reader-visible update to the published guide in `site/docs/index.html`. The check detects a changed guide; reviewers check that the explanation describes the behavior. GitHub Pages deploys the tested site from main after both jobs pass.

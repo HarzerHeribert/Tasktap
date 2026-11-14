@@ -63,6 +63,7 @@ function motionOverview(heading) {
   const visible = new Set();
   const tracked = new Set();
   let observer;
+  const resize = new ResizeObserver(synchronize);
   function synchronize() {
     const dialogs = [...document.querySelectorAll('dialog[open]')];
     const topDialog = dialogs.at(-1);
@@ -85,7 +86,7 @@ function motionOverview(heading) {
         film.preload = 'auto';
         film.src = TasktapArt.movie(film.dataset.study,film.dataset.film);
       }
-      const rate = notchMiniature && !['listening','sending'].includes(signal) ? 0.75 : 1;
+      const rate = artworkPlaybackRate(film.getBoundingClientRect().width);
       if (film.playbackRate !== rate) film.playbackRate = rate;
       film.muted = true;
       if (film.paused) film.play().catch(() => {});
@@ -97,6 +98,7 @@ function motionOverview(heading) {
         film.pause();
         film.removeEventListener('canplay', synchronize);
         observer.unobserve(film);
+        resize.unobserve(film);
         visible.delete(film);
         tracked.delete(film);
       }
@@ -105,6 +107,7 @@ function motionOverview(heading) {
       if (tracked.has(film)) continue;
       film.addEventListener('canplay', synchronize);
       observer.observe(film);
+      resize.observe(film);
       tracked.add(film);
     }
     synchronize();

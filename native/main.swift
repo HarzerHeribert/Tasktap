@@ -97,6 +97,13 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private var screenObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if !verifying && !liveTest,
+           let identifier = Bundle.main.bundleIdentifier,
+           let existing = NSRunningApplication.runningApplications(withBundleIdentifier: identifier).first(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
+            existing.activate(options: [.activateAllWindows])
+            NSApp.terminate(nil)
+            return
+        }
         NSApp.setActivationPolicy(.accessory)
         if CommandLine.arguments.contains("--verify-kokoro") {
             var played=false

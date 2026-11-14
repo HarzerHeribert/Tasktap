@@ -147,7 +147,6 @@ function submitLive(d){
     routingEvidence:routingEvidence(d).join('\n'),routingPayload:tasktapRoutingPayload(d),transcript:d.text,accounts:d.accountReceipt,session:d.runId,capture:d.captureId,task:(d.mode==='nudge' && prior?.task)||d.brief.slice(0,78)||'Review sketch',agent:(d.mode==='nudge' && prior?.agent)||d.agent,folder,
     external:d.mode==='nudge' && !!prior?.external,brief:captureContext.brief(d),reference:d.reference,strokes:d.strokes,note:d.mode==='note'?captureContext.brief(d):d.note||d.brief,mode:d.mode,keep:d.keep,create};
   if(d.mode==='ask')job.model=modelPlanFor(d).model;
-  if(d.mode==='ask' && hasSessionTools(d))job.autoReviewActions=true;
   const trust=$('#modal[open] #folder-trust:checked');
   if(d.mode==='ask' && d.agent==='codex' && trust)job.reviewedFolder=trust.dataset.folder;
   if(d.mode==='ask' && d.retryOf)job.retryOf=d.retryOf;

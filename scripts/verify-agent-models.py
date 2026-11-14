@@ -16,13 +16,13 @@ base=dict(agent='codex',session='conversation',folder='/tmp',task='test',outgoin
 with tempfile.TemporaryDirectory() as directory:
     checkout=Path(directory).resolve()/'My "café".repo'
     checkout.mkdir()
-    job=dict(base,folder=str(checkout),reviewedFolder=str(checkout),mode='ask',autoReviewActions=True)
+    job=dict(base,folder=str(checkout),reviewedFolder=str(checkout),mode='ask')
     argv=cli_command(job,checkout,'/agent')
     assert '--approve-for-me' in argv and not any('dangerously' in a for a in argv)
     override=next(a for a in argv if a.startswith('projects='))
     assert override=='projects={'+json.dumps(str(checkout),ensure_ascii=False)+'={trust_level="trusted"}}'
     legacy=cli_command(base,checkout,'/agent')
-    assert '--approve-for-me' not in legacy and not any(a.startswith('projects=') for a in legacy)
+    assert legacy.count('--approve-for-me')==1 and not any(a.startswith('projects=') for a in legacy)
     other_job=dict(job,folder=str(checkout.parent))
     try:cli_command(other_job,checkout,'/agent')
     except ValueError:pass
@@ -35,6 +35,8 @@ for provider in ('codex','claude','agy','cursor-agent','pi'):
     fresh=cli_command(job,Path('/tools'),'/agent')
     if provider=='codex':
         assert fresh[-1]==base['outgoing']+'\n\n'+base['instructions']
+    if provider=='claude':
+        assert fresh[fresh.index('--permission-mode')+1]=='auto'
     if provider in ('cursor-agent','pi'):
         assert fresh[-2:]==['--',base['outgoing']] and not {'--trust','--approve','--force'}.intersection(fresh)
     assert fresh[fresh.index('--model')+1]=='selected'

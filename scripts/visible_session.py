@@ -114,17 +114,12 @@ def cli_command(job, folder, executable=None):
                         '--task',job['task'],'--run-dir',str(folder)])
     servers = json.dumps({'mcpServers':{'workspace_assistant':bridge}})
     prompt = job['outgoing']
-    if job.get('mode')=='ask' and job.get('autoReviewActions') is True:
-        if agent=='codex':
-            args.append('--approve-for-me')
-        elif agent=='claude':
-            args += ['--permission-mode','auto']
     if agent == 'cursor-agent':
         return [cli, *args, 'agent', '--', prompt]
     if agent == 'pi':
         return [cli, *args, '--session-id', job['session'], '--', prompt]
     if agent == 'claude':
-        return [cli, *args, '--session-id', job['session'], '--mcp-config', servers,
+        return [cli, *args, '--permission-mode', 'auto', '--session-id', job['session'], '--mcp-config', servers,
                 '--append-system-prompt', job['instructions'], '--', prompt]
     if agent == 'codex':
         reviewed = job.get('reviewedFolder')
@@ -135,7 +130,7 @@ def cli_command(job, folder, executable=None):
             # The override belongs to this CLI process and is never written to its config.
             key = json.dumps(reviewed, ensure_ascii=False).replace(chr(127), '\\u007f')
             args += ['-c', 'projects={'+key+'={trust_level="trusted"}}']
-        return [cli, *args, '-c', 'mcp_servers.workspace_assistant.command='+json.dumps(bridge['command']),
+        return [cli, *args, '--approve-for-me', '-c', 'mcp_servers.workspace_assistant.command='+json.dumps(bridge['command']),
                 '-c', 'mcp_servers.workspace_assistant.args='+json.dumps(bridge['args']),
                 '-c', 'mcp_servers.workspace_assistant.tool_timeout_sec=86400',
                 '--', codex_prompt(job)]

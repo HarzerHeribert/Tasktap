@@ -51,6 +51,8 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private let liveTest = CommandLine.arguments.contains("--verify-live")
     private let verifying = CommandLine.arguments.contains("--verify-interface")
     private var ready = false
+    private var routeTask: Task<Void, Never>?
+    private var routeID: String?
     private var queue: [(String, String)] = []
     private var pendingCount = 0
     private var isWorkspace = false
@@ -64,6 +66,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private var lightingEnabled=false
     private var lightingActive=false
     private let micro=Micro()
+    private let screenContext=ScreenContext()
     @MainActor private lazy var dictation=Dictation()
     private lazy var runtime=LiveWorkspace(root:(liveTest ? inbox.directory.deletingLastPathComponent():FileManager.default.homeDirectoryForCurrentUser).appendingPathComponent("projects"),data:inbox.directory.deletingLastPathComponent().appendingPathComponent("Runs"))
     private func js(_ name:String,_ args:[String:Any]){
@@ -94,8 +97,10 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             DispatchQueue.main.asyncAfter(deadline:.now()+60){fputs("Kokoro playback timed out.\n",stderr);exit(1)}
             return
         }
+        if !verifying && !liveTest {screenContext.start()}
         notifications.delegate = self
         let config = WKWebViewConfiguration()
+        config.mediaTypesRequiringUserActionForPlayback = .audio
         if liveTest {config.websiteDataStore = .nonPersistent()}
         if verifying {
             config.websiteDataStore = .nonPersistent()
@@ -116,7 +121,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         panel.hasShadow = false
         panel.delegate = self
         panel.contentView = web
-        status.button?.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Tasktap")
+        status.button?.image = TasktapMark.menuImage()
         updateMenu()
         micro.statusChanged={ [weak self] s in self?.deliver("micro-status",s,reveal:false) }
         micro.keyPressed={ [weak self] action in
@@ -363,16 +368,45 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             collapsed=data["collapsed"] as? Bool ?? false
             height=CGFloat(data["height"] as? Double ?? 290)
             position()
+        case "context-begin":
+            if !verifying && !liveTest, let id=data["id"] as? String {screenContext.begin(id)}
+        case "context-resolve":
+            guard let id=data["id"] as? String, let request=data["request"] as? String,let kind=data["kind"] as? String else {return}
+            if verifying || liveTest {js("captureContext.receive(id,result)",["id":request,"result":["message":"Choose a reference for this test."]]);return}
+            screenContext.resolve(id,kind:kind,allowPermission:data["allowPermission"] as? Bool==true) { [weak self] result in
+                self?.js("captureContext.receive(id,result)",["id":request,"result":result])
+            }
+        case "context-file":
+            guard !verifying && !liveTest,let request=data["request"] as? String else {return}
+            let chooser=NSOpenPanel();chooser.canChooseDirectories=true;chooser.allowsMultipleSelection=false
+            chooser.begin { [weak self] response in
+                if response == .OK,let file=chooser.url {
+                    self?.js("captureContext.receive(id,result)",["id":request,"result":["kind":"file","value":file.path,"app":"Chosen file"]])
+                }
+            }
         case "dictation-start":if let id=data["id"] as? String {dictation.start(id)}
         case "dictation-finish":if let id=data["id"] as? String {dictation.finish(id)}
         case "dictation-cancel":dictation.cancel()
         case "refresh":if !verifying {runtime.refresh();if !liveTest {runtime.refreshExternal()}}
         case "route":
             guard let id=data["id"] as? String,let input=data["input"] as? [String:Any] else {return}
-            Task { @MainActor in
-                var result=[String:Any]()
-                if #available(macOS 26.0,*) {result=await HandoffRouter.suggest(input)}
+            routeTask?.cancel()
+            routeID = id
+            routeTask = Task { @MainActor in
+                let result = await HandoffRouter.suggest(input) { event in
+                    guard self.routeID == id, !Task.isCancelled else { return }
+                    self.js("routingProgress(id,event)", ["id":id,"event":event])
+                }
+                guard routeID == id, !Task.isCancelled else { return }
+                routeID = nil
+                routeTask = nil
                 js("finishRouting(id,r)",["id":id,"r":result])
+            }
+        case "cancel-route":
+            if let id=data["id"] as? String, id == routeID {
+                routeID = nil
+                routeTask?.cancel()
+                routeTask = nil
             }
         case "assign-note":
             guard let id=data["id"] as? String,let capture=data["capture"] as? String,let folder=data["folder"] as? String else {return}
@@ -455,9 +489,9 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     // Run the packaged web view with ephemeral storage and synthetic controller commands.
     @MainActor private func verifyInterface() async {
         do {
-            guard Micro.verifyWire() else {throw Check.failed}
+            guard Micro.verifyWire() else {throw Check.failed(#line)}
             let start = try await web.evaluateJavaScript("document.body.classList.contains('native-host') && document.querySelector('#notch-home').hidden")
-            guard start as? Bool == true else { throw Check.failed }
+            guard start as? Bool == true else { throw Check.failed(#line) }
             let front=NSWorkspace.shared.frontmostApplication?.processIdentifier
             let responder=panel.firstResponder
             let key=panel.isKeyWindow
@@ -466,7 +500,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             let outside=NSPoint(x:panel.frame.midX+450,y:panel.frame.minY-30)
             // Inject coordinates into the same observation path without moving the user's mouse.
             updateHover(at:NSPoint(x:panel.frame.midX,y:panel.frame.midY),dragging:true)
-            guard !pointerInside else { throw Check.failed }
+            guard !pointerInside else { throw Check.failed(#line) }
             let hotRegion=anchorScreen.map(cameraRegion) ?? .zero
             let point=hotRegion.isEmpty ? NSPoint(x:panel.frame.midX,y:panel.frame.midY) : NSPoint(x:hotRegion.midX,y:hotRegion.midY)
             updateHover(at:point,dragging:false)
@@ -474,19 +508,19 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             let peek=try await web.evaluateJavaScript("!document.querySelector('#notch-home').hidden")
             guard peek as? Bool == true, panel.frame.width>compactWidth, abs(panel.frame.maxY-compactTop)<1,
                   panel.isKeyWindow==key, panel.firstResponder===responder,
-                  NSWorkspace.shared.frontmostApplication?.processIdentifier==front else { throw Check.failed }
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier==front else { throw Check.failed(#line) }
             updateHover(at:outside,dragging:false)
             try await Task.sleep(nanoseconds:650_000_000)
             let shut=try await web.evaluateJavaScript("document.querySelector('#notch-home').hidden")
             guard shut as? Bool == true, panel.frame.width==compactWidth, panel.isKeyWindow==key,
-                  NSWorkspace.shared.frontmostApplication?.processIdentifier==front else { throw Check.failed }
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier==front else { throw Check.failed(#line) }
             for action in ["requests","next","confirm"] {
                 let index = bindings.firstIndex(where: { $0.action == action })!
                 onKey(UInt32(index),pressed:true);onKey(UInt32(index),pressed:false)
                 try await Task.sleep(nanoseconds:180_000_000)
             }
             let resolved = try await web.evaluateJavaScript("state.decisions.length === 0 && sess('s2').log.filter(x => x.includes('Clear glass')).length === 1")
-            guard resolved as? Bool == true else { throw Check.failed }
+            guard resolved as? Bool == true else { throw Check.failed(#line) }
             let file=inbox.directory.appendingPathComponent("requests/75d25406-e98e-43f2-bf12-665fb0cccedd.json")
             let event=["agent":"claude","workspace":"~/projects/glasshouse","sessionId":"smoke","requestId":"lighting","question":"Keep the rim light?"]
             try JSONSerialization.data(withJSONObject:event).write(to:file,options:.atomic)
@@ -494,44 +528,63 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             _ = try await web.evaluateJavaScript("postHost('lightingPreference',{enabled:true});openRequest(state.decisions[0].id);true")
             try await Task.sleep(nanoseconds:220_000_000)
             let id=binaryID
-            guard !id.isEmpty,lightingActive else {throw Check.failed}
+            guard !id.isEmpty,lightingActive else {throw Check.failed(#line)}
             let cutout=anchorScreen.map(cameraRegion) ?? .zero
             if !cutout.isEmpty {
                 let offset=try await web.evaluateJavaScript("document.querySelector('#notch').getBoundingClientRect().top")
-                guard let top=offset as? Double, panel.frame.maxY-top <= cutout.minY+1 else {throw Check.failed}
+                guard let top=offset as? Double, panel.frame.maxY-top <= cutout.minY+1 else {throw Check.failed(#line)}
             }
             let talk=UInt32(bindings.firstIndex{$0.action=="discuss"}!)
             onKey(talk,pressed:true);onKey(talk,pressed:false)
             try await Task.sleep(nanoseconds:180_000_000)
-            guard binaryID.isEmpty,!lightingActive else {throw Check.failed}
+            guard binaryID.isEmpty,!lightingActive else {throw Check.failed(#line)}
             _ = try await web.evaluateJavaScript("document.querySelector('#comment').value='What changes?';document.querySelector('#discussion').requestSubmit();document.querySelector('[data-action=notch][type=button]').click();true")
             try await Task.sleep(nanoseconds:150_000_000)
-            guard binaryID==id else {throw Check.failed}
+            guard binaryID==id else {throw Check.failed(#line)}
             let yes=UInt32(bindings.firstIndex{$0.action=="yes"}!)
             onKey(yes,pressed:true);onKey(yes,pressed:false)
             try await Task.sleep(nanoseconds:250_000_000)
             let response=inbox.directory.appendingPathComponent("responses").appendingPathComponent(file.lastPathComponent)
             let reply=try JSONSerialization.jsonObject(with:Data(contentsOf:response)) as? [String:Any]
             let binaryResolved=try await web.evaluateJavaScript("state.decisions.length===0")
-            guard reply?["answer"] as? String=="Yes",reply?["discussion"] as? [String]==["What changes?"] else {throw Check.failed}
+            guard reply?["answer"] as? String=="Yes",reply?["discussion"] as? [String]==["What changes?"] else {throw Check.failed(#line)}
             guard binaryResolved as? Bool==true, binaryID.isEmpty, !lightingActive,
-                  verifiedLights==[true,false,true,false] else {throw Check.failed}
+                  verifiedLights==[true,false,true,false] else {throw Check.failed(#line)}
             deliver("hw-capture");try await Task.sleep(nanoseconds:180_000_000)
             let captured = try await web.evaluateJavaScript("document.querySelector('#modal').open && !!document.querySelector('#transcript')")
-            guard captured as? Bool == true else { throw Check.failed }
+            guard captured as? Bool == true else { throw Check.failed(#line) }
             deliver("workspace")
             try await Task.sleep(nanoseconds:300_000_000)
-            guard isWorkspace,workspace.isVisible,workspace.standardWindowButton(.closeButton) != nil,workspace.styleMask.contains(.resizable) else {throw Check.failed}
+            guard isWorkspace,workspace.isVisible,workspace.standardWindowButton(.closeButton) != nil,workspace.styleMask.contains(.resizable) else {throw Check.failed(#line)}
+            var motionReady=false
+            for _ in 0..<42 {
+                let value=try await web.evaluateJavaScript("""
+                    (()=>{const v=document.querySelector('[data-film=stage]');
+                    return !!v && (matchMedia('(prefers-reduced-motion: reduce)').matches ?
+                        !v.hasAttribute('src') && !!v.poster : v.currentTime>0 && !v.paused)})()
+                    """)
+                if value as? Bool==true {motionReady=true;break}
+                try await Task.sleep(nanoseconds:120_000_000)
+            }
+            if !motionReady {
+                let diagnostic=try await web.evaluateJavaScript("""
+                    (()=>{const v=document.querySelector('[data-film=stage]');
+                    return JSON.stringify({view,hidden:document.hidden,modal:!!document.querySelector('dialog[open]'),
+                        video:v?{src:v.currentSrc,state:v.readyState,error:v.error?.message,paused:v.paused,time:v.currentTime}:null})})()
+                    """)
+                print("Motion verification",diagnostic ?? "unavailable")
+                throw Check.failed(#line)
+            }
             workspace.setContentSize(NSSize(width:760,height:480))
             let resized=workspace.frame
             deliver("prefs")
             try await Task.sleep(nanoseconds:200_000_000)
             _ = try await web.evaluateJavaScript("document.querySelector('#modal [aria-label=\"Close dialog\"]').click();true")
             let cardClosed=try await web.evaluateJavaScript("!document.querySelector('#modal').open")
-            guard cardClosed as? Bool==true,workspace.frame==resized else {throw Check.failed}
+            guard cardClosed as? Bool==true,workspace.frame==resized else {throw Check.failed(#line)}
             workspace.performClose(nil)
             try await Task.sleep(nanoseconds:250_000_000)
-            guard !isWorkspace,!workspace.isVisible,panel.isVisible else {throw Check.failed}
+            guard !isWorkspace,!workspace.isVisible,panel.isVisible else {throw Check.failed(#line)}
             print("Workspace resized, dialog dismissed, and native close returned to the resident notch.")
             print("Passive hover, focus, decisions, discussion, agent inbox round trip and four lighting state changes and capture verified. Shortcut conflicts: \(unavailable)")
             NSApp.terminate(nil)
@@ -543,29 +596,34 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
             runtime.refresh()
             _ = try await web.evaluateJavaScript("""
-                newDraft('');draft.text='Ask Codex to respond with exactly READY and do not use tools. For test-lighting.';
+                showWorkspace();go('projects');
+                if(document.querySelector('#project-list button'))throw Error('Idle project visible before opting in');
+                document.querySelector('#include-idle').click();
+                document.querySelector('#project-list button').click();
+                document.querySelector('[data-action="start-session"]').click();
+                draft.text='Ask Codex to respond with exactly READY and do not use tools.';
                 document.querySelector('#transcript').value=draft.text;document.querySelector('#transcript').dispatchEvent(new Event('input'));document.querySelector('[data-action=review]').click();true
                 """)
             let review=try await web.evaluateJavaScript("!!document.querySelector('#review-brief') && draft.agent==='codex' && draft.project.endsWith('test-lighting')")
-            guard review as? Bool==true else {throw Check.failed}
+            guard review as? Bool==true else {throw Check.failed(#line)}
             _ = try await web.evaluateJavaScript("document.querySelector('[data-action=commit-review]').click();true")
             for _ in 0..<120 {
                 try await Task.sleep(nanoseconds:1_000_000_000)
                 let result=try await web.evaluateJavaScript("state.sessions[0]?.state||''")
-                if result as? String=="Failed" {throw Check.failed}
+                if result as? String=="Failed" {throw Check.failed(#line)}
                 if result as? String=="Complete" {
                     let actual=try await web.evaluateJavaScript("state.sessions[0].result.trim()")
-                    guard actual as? String=="READY" else {throw Check.failed}
+                    guard actual as? String=="READY" else {throw Check.failed(#line)}
                     guard let id=try await web.evaluateJavaScript("state.sessions[0].id") as? String,
-                          try runtime.resumeCommand(id).contains("codex resume ") else {throw Check.failed}
-                    print("Live capture → inferred folder → confirmed Codex run → completed session result passed.")
+                          try runtime.resumeCommand(id).contains("codex resume ") else {throw Check.failed(#line)}
+                    print("Idle project → selected workspace → reviewed Codex session → real completed result passed.")
                     NSApp.terminate(nil);return
                 }
             }
-            throw Check.failed
+            throw Check.failed(#line)
         } catch {fputs("Live integration failed: \(error)\n",stderr);exit(1)}
     }
-    private enum Check: Error { case failed }
+    private enum Check: Error { case failed(Int) }
     func applicationWillFinishLaunching(_ notification: Notification){
         let review=UNNotificationAction(identifier:"review",title:"Review in notch",options:[.foreground])
         let open=UNNotificationAction(identifier:"open",title:"View result",options:[.foreground])

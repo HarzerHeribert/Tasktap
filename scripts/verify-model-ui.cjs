@@ -1,0 +1,82 @@
+const { chromium } = require('playwright');
+const assert = require('node:assert/strict');
+const { pathToFileURL } = require('node:url');
+const path = require('node:path');
+(async()=>{
+  const browser = await chromium.launch({headless:true,executablePath:process.env.BROWSER_EXECUTABLE||undefined});
+  try {
+    const context = await browser.newContext({viewport:{width:1100,height:850},reducedMotion:'reduce'});
+    await context.addInitScript(()=>{
+      window.sent=[];
+      window.webkit={messageHandlers:{workspace:{postMessage:message=>window.sent.push(message)}}};
+    });
+    const page = await context.newPage();
+    const errors=[];
+    page.on('pageerror',error=>errors.push(String(error)));
+    await page.goto(pathToFileURL(path.join(__dirname,'../prototype/index.html')).href+'#workspace');
+    await page.getByRole('button',{name:'Preferences',exact:true}).click();
+    await page.getByRole('button',{name:'Session models',exact:true}).click();
+    assert.ok(!await page.getByLabel('Choose models by task difficulty').isChecked());
+    await page.getByLabel('Default agent',{exact:true}).selectOption('codex');
+    await page.getByLabel('Fixed model').fill('fixed-codex');
+    await page.getByLabel('Choose models by task difficulty').check();
+    await page.getByLabel('Standard starts at').selectOption('3');
+    await page.getByLabel('Complex starts at').selectOption('7');
+    await page.getByLabel('Quick · 1–2').fill('small');
+    await page.getByLabel('Standard · 3–6').fill('medium');
+    await page.getByLabel('Complex · 7–10').fill('large');
+    await page.getByRole('button',{name:'Save models',exact:true}).click();
+    await page.getByRole('button',{name:'Close dialog'}).click();
+    await page.reload();
+    await page.evaluate(()=>projectsDiscovered([{name:'Example',folder:'/example/projects/example'}]));
+    await page.locator('[data-action="view"][data-id="projects"]').click();
+    await page.getByLabel('Show idle projects').check();
+    await page.locator('#project-list button').click();
+    await page.getByRole('button',{name:'Start session',exact:true}).click();
+    await page.getByLabel('What should the agent do?').fill('Migrate the database and preserve old clients.');
+    await page.getByRole('button',{name:'Review session',exact:true}).click();
+    assert.equal(await page.evaluate(()=>window.sent.findLast(m=>m.type==='route').input.estimateDifficulty),true);
+    await page.evaluate(()=>{
+      const route=window.sent.findLast(m=>m.type==='route');
+      finishRouting(route.id,{source:'apple',difficulty:9,scopeEvidence:'Migrate the database'});
+    });
+    await page.locator('#review-model').getByText('Complex · 9/10 · large',{exact:true}).waitFor();
+    await page.getByRole('button',{name:'Adjust',exact:true}).click();
+    await page.getByLabel('Model for this session').fill('one-off');
+    await page.getByRole('button',{name:'Review changes',exact:true}).click();
+    assert.equal(await page.locator('#review-model').textContent(),'one-off');
+    await page.locator('#modal').getByRole('button',{name:'Start session',exact:true}).click();
+    let job=await page.evaluate(()=>window.sent.findLast(m=>m.type==='enqueue').job);
+    assert.equal(job.model,'one-off');assert.equal(job.agent,'codex');
+    await page.evaluate(job=>acceptLive({capture:job.capture,folder:job.folder,name:'Example',task:job.task}),job);
+    await page.evaluate(id=>{agentReceipt({session:id,capture:state.captures[0].id,state:'Complete',message:'Done',model:'resolved-model'});showSession(id)},job.session);
+    assert.match(await page.locator('#modal').innerText(),/resolved-model/i);
+    await page.getByRole('button',{name:'Follow up',exact:true}).click();
+    await page.getByLabel('Transcript',{exact:true}).fill('Migrate another system too.');
+    await page.getByRole('button',{name:'Review capture',exact:true}).click();
+    assert.equal(await page.locator('#review-model').textContent(),'Current session model');
+    await page.getByRole('button',{name:'Send nudge',exact:true}).click();
+    job=await page.evaluate(()=>window.sent.findLast(m=>m.type==='enqueue').job);
+    assert.equal(job.mode,'nudge');assert.ok(!Object.hasOwn(job,'model'));
+    await page.evaluate(job=>acceptLive({capture:job.capture,folder:job.folder,name:'Example',task:job.task}),job);
+    await page.getByRole('button',{name:'Preferences',exact:true}).click();
+    await page.getByRole('button',{name:'Session models',exact:true}).click();
+    await page.getByLabel('Choose models by task difficulty').uncheck();
+    assert.equal(await page.getByLabel('Fixed model').inputValue(),'fixed-codex');
+    await page.getByRole('button',{name:'Save models',exact:true}).click();
+    assert.equal(await page.evaluate(()=>modelPlanFor({mode:'ask',agent:'codex',brief:'Migrate everything'}).model),'fixed-codex');
+    await page.getByRole('button',{name:'Session models',exact:true}).click();
+    await page.getByLabel('Choose models by task difficulty').check();
+    for (const width of [1100,600,390]) {
+      await page.setViewportSize({width,height:850});
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+      await page.getByRole('button',{name:'Save models',exact:true}).scrollIntoViewIfNeeded();
+      assert.ok(await page.getByRole('button',{name:'Save models',exact:true}).isVisible());
+    }
+    if(process.env.TASKTAP_SCREENSHOTS)await page.screenshot({path:path.join(process.env.TASKTAP_SCREENSHOTS,'session-models.png')});
+    await page.evaluate(()=>document.documentElement.style.zoom='200%');
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    assert.deepEqual(errors,[]);
+    console.log('Model preferences, persistence, real handoff payload, override, resume preservation, 390px and 200% zoom passed.');
+  } finally { await browser.close() }
+})().catch(error=>{console.error(error);process.exitCode=1});

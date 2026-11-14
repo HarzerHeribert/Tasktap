@@ -157,6 +157,7 @@ final class LiveWorkspace {
                 event["scratch"]=(job["folder"] as? String==data.deletingLastPathComponent().appendingPathComponent("Scratch").path) ? "true":"false"
                 event["external"]=(job["external"] as? Bool==true) ? "true":"false"
                 for key in ["task","folder","agent","brief","mode"] {event[key]=job[key] as? String}
+                if event["model"]==nil {event["model"]=job["model"] as? String}
             }
             changed(event)
         }

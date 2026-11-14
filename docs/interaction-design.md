@@ -4,6 +4,10 @@ Use [requirements](requirements.md) for behavior and [the prototype](../prototyp
 
 ## Implementation brief
 
+In Overview, a bank of brass and jade resonator rings flexes along the right side of a black stage while the title and session count stay still. The open notch shows the same object in miniature. Narrow screens crop the stage and Reduce Motion uses a still render.
+
+While preparing a handoff, a small aperture turns beside a stable activity label while the draft grows below, with the same stacked layout on narrow screens and a still aperture with Reduce Motion.
+
 Leave the camera housing blank and trace its outside edge on working display pixels with a slow amber pulse only while someone needs to answer. The panel opens below the housing on hover or tap. Reduce Motion uses a steady outline.
 
 The ink sidebar holds persistent destinations. The light work surface holds the latest spoken handoff and session rows. An amber waveform marks recorded speech. Colored status marks always appear with words. The desktop background is a deterministic abstract landscape made from layered contour lines. The light rests when idle, breathes slowly during agent work, and quickens for listening, speech or a queued handoff. Pending decisions remain identifiable by text. The workspace starts hidden and the notch starts collapsed. The template supports controls at the top of displays without a physical notch.
@@ -25,6 +29,9 @@ The ink sidebar holds persistent destinations. The light work surface holds the 
 | Unknown workspace | Review → no match → select a registered folder, choose a new project, or keep scratch | Explicit new-project choice previews a folder under the configured root. Scratch can be promoted later. |
 | Agent needs a decision | Notch marks a pending request → expand → see task, consequence, and choices → click or request a voice reply | Decision applies to that request once. Close defers. A stale request is discarded. The next pending decision has its own card. |
 | Receive or explain a result | Open completed session → read outcome → optionally hear explanation or select the preferred result viewer → follow up | The result stays silent until requested, unless completion narration is enabled. Follow-up keeps the agent’s session context. |
+| Refer to the current app | Say “this website” or “this file” → resolve the source app’s URL or document → review exact reference → send | Enter or choose the reference when access is unavailable. Change or remove it at review. |
+| Choose a model policy | Preferences → Session models → fixed model or difficulty curve → adjust thresholds and provider models → save | Fresh sessions show the proposed model before launch. Existing conversations retain their recorded model. |
+| Inspect routing | Review capture → observe local matching or on-device draft stream → inspect final destination, scope and model | Review now cancels inference. How this was routed exposes source evidence. Routing narration is independently optional. |
 
 ## UI trees
 
@@ -48,8 +55,8 @@ Mac desktop
 └── Workspace window
     ├── Navigation
     │   ├── Overview / Sessions / Notebook
-    │   ├── Projects → project sessions and notes
-    │   └── Preferences → audio and workspace root
+    │   ├── Projects → active projects / show idle projects → sessions / start session / notes
+    │   └── Preferences → session models / narration / source context / workspace root
     ├── Workspace toolbar → return to notch / new capture / toggle sidebar
     └── Current view
         ├── Overview → latest capture / waveform / destination / active sessions
@@ -61,7 +68,11 @@ Mac desktop
 ~~~text
 New capture
 ├── Capture editor → transcript / dictation / drawing pad / cancel
+├── Reference when mentioned → URL or document / change / remove / manual entry
+├── Preparing handoff → activity cue / streaming draft / review now
 └── Review → inferred destination / brief / confirm / optional Adjust
+    ├── Proposed model → fixed or estimated tier / override in Adjust
+    ├── How this was routed → source / destination evidence / scope cue
     ├── Save note → project / scratch → notebook
     ├── Ask an agent → workspace / agent / result viewer → new session
     ├── Nudge → matching live session → existing conversation
@@ -74,6 +85,20 @@ Session detail
 ├── Pending request → open notch
 ├── Completed → outcome / read aloud / open result
 └── Follow up → capture with session preselected
+~~~
+
+~~~text
+Preferences
+├── Session models
+│   ├── Default agent
+│   ├── Fixed model per provider
+│   └── Difficulty curve → Quick / Standard / Complex
+│       ├── Standard and Complex thresholds from 1 to 10
+│       └── Model ID for each tier and provider
+├── Narration voice → exposed Siri voice / local Kokoro
+│   ├── Routing updates and final handoff
+│   └── Completion summaries
+└── Source context → resolve explicit website or file references
 ~~~
 
 ## Interaction and review criteria

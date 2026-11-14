@@ -1,0 +1,67 @@
+/* Overview and the open notch share one studio-lit object. The heading stays fixed. */
+.resonator-stage{
+  --studio-ink:#101515;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  align-items:center;
+  isolation:isolate;
+  position:relative;
+  overflow:hidden;
+  min-height:128px;
+  border:1px solid #28312d;
+  border-radius:var(--r-card);
+  background:var(--studio-ink);
+  color:#f6f5ed;
+}
+.resonator-stage .page-heading{
+  z-index:1;
+  padding:var(--s-block) 0 var(--s-block) var(--s-group);
+}
+.resonator-stage .page-heading .eyebrow{color:#b9c9bd}
+.resonator-stage .page-heading h1{color:inherit}
+.resonator-stage .page-heading .subtitle{color:#d6dcd6}
+.resonator-film{display:block;pointer-events:none;overflow:hidden}
+.resonator-film video{
+  display:block;
+  width:100%;
+  height:100%;
+  object-fit:contain;
+  pointer-events:none;
+}
+.resonator-stage .resonator-film{
+  position:absolute;
+  inset:0 0 0 48%;
+  mix-blend-mode:screen;
+}
+.resonator-stage .resonator-film video{object-fit:cover}
+.brand .brand-mark{
+  width:44px;
+  height:36px;
+  overflow:hidden;
+  border:0;
+  background:transparent;
+  border-radius:0;
+}
+.brand-mark img{display:block;width:100%;height:100%;object-fit:cover;mix-blend-mode:screen}
+.home-heading .signal-light{
+  width:76px;
+  height:44px;
+  isolation:isolate;
+}
+.home-heading .signal-light::before,.home-heading .signal-light::after{display:none}
+.home-heading .signal-light i{
+  inset:0;
+  opacity:1;
+  border-radius:0;
+  background:none;
+  box-shadow:none;
+}
+.home-heading .signal-light .resonator-film{position:absolute;inset:0}
+@media (max-width:680px){
+  .resonator-stage .page-heading{padding:var(--s-panel) 0 var(--s-panel) var(--s-panel)}
+  .resonator-stage{grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr)}
+  .resonator-stage .resonator-film{left:55%;mask-image:linear-gradient(to right, transparent, black 14%)}
+}
+@media (prefers-reduced-motion:reduce){
+  .home-heading .signal-light i{animation:none!important}
+}

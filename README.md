@@ -33,16 +33,44 @@ Tasktap runs Claude Code and Codex through their structured CLI output and Antig
 
 Tasktap also discovers live, locally registered Claude Code and Codex surfaces in cmux under `~/projects`. It can send a confirmed nudge through the agent inbox when cmux permits the connection and the receiving agent supports messages. With cmux-only access, launch the built executable directly from a cmux terminal using `./build/Tasktap.app/Contents/MacOS/Tasktap`. A delivery receipt means cmux accepted the message. External sessions need their own question integration and do not stream completion reports to Tasktap. [cmux agent messaging](https://cmux.com/docs/changelog/0.65.0)
 
-The workspace has native Mac window controls. Close it to return to the notch. Open **Projects** to search the folder list. Preferences is also available directly in the menu bar.
+The workspace has native Mac window controls. Close it to return to the notch. Open **Projects** to see folders with a queued or running session, or a session waiting for input. **Show idle projects** includes the rest of your folders and remembers your choice. Open any available project and choose **Start session**, describe the task, then review the handoff. Voice routing can still find an idle folder by name. Preferences is also available directly in the menu bar.
 
 Completed Claude Code and Codex sessions have **Resume in Terminal** and **Copy resume command**. These reopen the provider’s saved conversation in its working folder. Tasktap keeps the headless runner as its default and cmux as an optional integration.
 
-Tasktap also lists recent local Codex chats from the ChatGPT desktop app in your projects. It reads the local desktop index and observes turn boundaries about every eight seconds. Chat titles and activity stay on this Mac. A stale open turn shows **Last seen**. **Open in ChatGPT** returns to the original chat for replies. This integration depends on the installed desktop version’s local file format. [Desktop chat links](https://learn.chatgpt.com/docs/app/commands)
+### Model selection and live routing
+
+Open **Preferences → Session models** to choose a default agent and a fixed model for each provider. Enable **Choose models by task difficulty** to map Quick, Standard and Complex tasks to your preferred models. Adjust the two thresholds on the 1–10 scale. Empty fields use the provider’s configured default. Adaptive selection starts off until you enable it.
+
+The review shows the proposed model and estimated difficulty. **Adjust** accepts a model override for this launch. When available, Apple’s on-device model estimates the task scope. Local scope cues provide a fallback. Estimates are advisory and use the capture rather than a codebase inspection. Existing-session nudges use the conversation’s recorded model. Available model IDs depend on the installed CLI and account.
+
+During an on-device call, the brief appears progressively beside an activity cue. **How this was routed** shows the source, destination evidence and model-selection explanation. **Review now** cancels the call and opens the locally prepared handoff. Preferences has separate switches for reading routing updates and completion summaries aloud. The written view remains available with speech off. [Apple response streaming](https://developer.apple.com/documentation/foundationmodels/languagemodelsession/responsestream)
+
+### Referencing the foreground app
+
+Say “this website” or “this file” during a capture. Tasktap remembers the source app and resolves the reference when you review. Supported Safari and Chromium browsers provide their active page URL. Finder provides one selected file. Other apps can provide a document URL through macOS Accessibility when access is available. An exact path inside a known project can suggest the destination.
+
+The review displays the URL or path, its source, and **Change reference** and **Remove reference**. A blocked lookup or ambiguous selection offers manual entry or a file picker. macOS Automation access is requested through the explicit **Allow source app access** button. Preferences can turn reference lookups off.
+
+This implementation captures reference metadata. Screenshot analysis, OCR, page contents, selected text and unsaved editor buffers remain future work. The selected agent can inspect the reviewed reference under its own permissions.
+
+### What Tasktap can observe without installing hooks
+
+| Session | Available signal | Where to act |
+| --- | --- | --- |
+| Started by Tasktap | Queue, current turn, final reply or failure, and questions submitted to the session’s question tool. Antigravity can also send supported one-time permission choices over ACP. | Review in the notch or workspace. |
+| Existing Claude Code terminal or background session | Supported versions expose working, idle or waiting status and sometimes the reason through `claude agents --json`. | Answer in the original session. A waiting indicator alone carries no reply channel. |
+| Existing Codex terminal or local Codex chat in ChatGPT | Tasktap checks recent indexed conversations in project folders and their recorded turn boundaries. A stale open turn shows **Last seen**. | Use the original terminal, or **Open in ChatGPT** for a desktop chat. Local storage formats vary by version. |
+| Existing cmux surface | Tasktap uses existing cmux records and merges provider status when available. An open surface alone shows **Connected**. | A nudge requires a working cmux agent inbox. |
+| Independently launched Antigravity session | Tasktap currently gets live ACP updates from sessions it launches. | Use the existing client for sessions it owns. |
+
+Tasktap’s launcher passes its question tool in the arguments for that session. There is no global hook installation step. Project filtering and agent discovery are separate. A folder can be available for new work while its session activity is unknown. [Claude Code agent status](https://code.claude.com/docs/en/agent-view#list-sessions-as-json) · [Desktop chat links](https://learn.chatgpt.com/docs/app/commands) · [Antigravity ACP](https://antigravity.google/docs/cli/acp/)
 
 ## Design and verification
 
 - [Interaction flows and UI trees](docs/interaction-design.md) · [Requirements](docs/requirements.md) · [Keyboard, Micro and narration setup](docs/controls.md) · [Agent question protocol](docs/agent-questions.md)
 - [Interactive browser demo](prototype/index.html) runs from disk with fictional data. Use the Mac app for dictation, real folders and agent execution.
 - `python3 scripts/verify-style.py` checks design tokens. With Playwright and Chromium installed, `node scripts/verify-ui.cjs` exercises the interaction flows and regenerates the design screenshots. Set `BROWSER_EXECUTABLE` to use an existing Chromium installation.
+- `node scripts/verify-model-policy.cjs` and `python3 scripts/verify-agent-models.py` check selection and resume invariants. `node scripts/verify-model-ui.cjs` checks saved preferences, review overrides and handoff payloads in the browser.
+- The original brass-and-jade animation, posters and app icon ship in `prototype/assets/resonator`. `scripts/render-resonator.py` reproduces the Blender scene. Visible activity plays the miniature, and hidden or covered media pauses. Reduce Motion displays the still render.
 - `build/Tasktap.app/Contents/MacOS/Tasktap --verify-interface` checks native hover, focus, shortcut dispatch and a question round trip using temporary data.
 - `build/Tasktap.app/Contents/MacOS/Tasktap --verify-live` uses an authenticated Codex CLI to run a synthetic end-to-end capture in a temporary workspace. It consumes a real agent turn.

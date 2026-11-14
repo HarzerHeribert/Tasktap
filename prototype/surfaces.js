@@ -72,8 +72,11 @@ matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change',()=>{
 function updateSignal(){
   const running=state.sessions.filter(session=>session.state==='Running').length;
   let mode='idle', label='Idle';
-  if(simVoice!==null){mode='listening';label='Listening to sample'}
+  if(live && recording?.phase==='recording'){mode='listening';label='Listening'}
+  else if(live && recording?.phase==='processing'){mode='sending';label='Transcribing'}
+  else if(simVoice!==null){mode='listening';label='Listening to sample'}
   else if(spoken){mode='speaking';label='Reading aloud'}
+  else if(draft?.routing){mode='working';label='Preparing handoff'}
   else if(state.captures.some(c=>c.receipt==='Queued')){mode='sending';label='Sending nudge'}
   else if(running){mode='working';label=running+' '+(running===1?'session':'sessions')+' working'}
   document.body.dataset.signal=mode;
@@ -90,7 +93,7 @@ function drawHome(){
   const recent=latest && sess(latest.session);
   const paneTitle=q?'Decision ready':recent?({Complete:'Result ready',Failed:'Session stopped',Running:'Agent working',Queued:'Handoff queued',Delivered:'Nudge delivered'}[latest.receipt]):'Ready to capture';
   const preview=q?'<button class="request-preview" data-surface="requests" data-target="'+attr(q.id)+'"><span class="preview-icon">'+icon('sessions')+'</span><span><small>'+esc(proj(s.project).name)+' / '+esc(providers[s.agent])+'</small><strong>'+esc(q.q)+'</strong></span>'+icon('right')+'</button>':recent?'<button class="request-preview" data-action="session" data-id="'+attr(recent.id)+'"><span class="preview-icon">'+icon('sessions')+'</span><span><small>'+esc(proj(recent.project)?.name||'Scratch')+' / '+esc(providers[recent.agent])+'</small><strong>'+esc(recent.task)+'</strong></span>'+icon('right')+'</button>':'<p class="home-idle">Capture an idea, ask about a project, or follow up with a session.</p>';
-  const content='<header class="home-meta"><span class="icon-label">Tasktap</span>'+surfaceButton('','collapse','down','collapse-button')+'</header><div class="home-heading"><div><h1>'+paneTitle+'</h1><small class="signal-caption"></small></div><span class="signal-light" aria-hidden="true"><i></i></span></div>'+preview+'<footer class="home-actions">'+surfaceButton('Capture','capture','mic','voice-trigger')+'<kbd>'+chords.capture[1]+'</kbd>'+surfaceButton('Workspace','workspace','out','workspace-link')+'</footer>';
+  const content='<header class="home-meta"><span class="icon-label">Tasktap</span>'+surfaceButton('','collapse','down','collapse-button')+'</header><div class="home-heading"><div><h1>'+paneTitle+'</h1><small class="signal-caption"></small></div><span class="signal-light" aria-hidden="true"><i>'+resonatorMarkup('miniature')+'</i></span></div>'+preview+'<footer class="home-actions">'+surfaceButton('Capture','capture','mic','voice-trigger')+'<kbd>'+chords.capture[1]+'</kbd>'+surfaceButton('Workspace','workspace','out','workspace-link')+'</footer>';
   // A session progress event must preserve focused controls and their tab order.
   if(homeContent!==content){root.innerHTML=content;homeContent=content}
   root.querySelector('.collapse-button').setAttribute('aria-label','Collapse notch');

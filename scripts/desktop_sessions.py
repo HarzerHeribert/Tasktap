@@ -1,4 +1,4 @@
-"""Read local Codex desktop chat metadata and the most recent turn boundary."""
+"""Read local Codex desktop and terminal conversation metadata and the most recent turn boundary."""
 import json
 import os
 from pathlib import Path
@@ -61,18 +61,20 @@ def sessions(root, cache_path):
     placeholders = ",".join("?" for _ in projects)
     db = sqlite3.connect(db_path.as_uri()+"?mode=ro", uri=True, timeout=1)
     try:
-        query = f"""SELECT id,cwd,coalesce(nullif(name,''),title),rollout_path FROM threads
-                    WHERE archived=0 AND originator IN ('Codex Desktop','ChatGPT Desktop')
-                    AND source IN ('vscode','appServer','cli') AND cwd IN ({placeholders})
+        query = f"""SELECT id,cwd,coalesce(nullif(name,''),title),rollout_path,originator FROM threads
+                    WHERE archived=0 AND cwd IN ({placeholders})
+                    AND (source='cli' OR (source IN ('vscode','appServer')
+                         AND originator IN ('Codex Desktop','ChatGPT Desktop','codex_work_desktop')))
                     ORDER BY updated_at DESC LIMIT 64"""
-        for sid, cwd, name, rollout in db.execute(query, sorted(projects)):
+        for sid, cwd, name, rollout, originator in db.execute(query, sorted(projects)):
             try:
                 conversation = str(uuid.UUID(sid))
             except (ValueError, TypeError):
                 continue
             path = Path(rollout or "").resolve()
             state = turn_state(path, cache) if home in path.parents else "Recent"
-            rows.append(dict(id=conversation, conversation=conversation, source="desktop", folder=cwd,
+            source = "desktop" if originator in ("Codex Desktop","ChatGPT Desktop","codex_work_desktop") else "terminal"
+            rows.append(dict(id=conversation, conversation=conversation, source=source, folder=cwd,
                              task=(name or Path(cwd).name).splitlines()[0][:112], agent="codex", state=state))
     finally:
         db.close()

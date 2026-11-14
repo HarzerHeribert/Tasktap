@@ -2,6 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>io.github.harzerheribert.tasktap</string>
+<key>CFBundleIconFile</key><string>Tasktap.icns</string>
 <key>CFBundleName</key><string>Tasktap</string>
 <key>CFBundleDisplayName</key><string>Tasktap</string>
 <key>CFBundleExecutable</key><string>Tasktap</string>
@@ -12,5 +13,6 @@
 <key>LSUIElement</key><true/>
 <key>NSMicrophoneUsageDescription</key><string>Record a thought for on-device transcription.</string>
 <key>NSSpeechRecognitionUsageDescription</key><string>Transcribe captured speech locally.</string>
+<key>NSAppleEventsUsageDescription</key><string>Read the active page URL or selected file when you refer to this website or this file in a capture.</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>

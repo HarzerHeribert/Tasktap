@@ -4,7 +4,7 @@ import re
 import sys
 
 root = pathlib.Path(__file__).resolve().parents[1]
-css = (root / "prototype/style.css").read_text()
+css = "\n".join(path.read_text() for path in sorted((root / "prototype").glob("*.css")))
 css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
 issues = []
 for match in re.finditer(r"(?:^|[;{])\s*((?:margin|padding)(?:-[\w-]+)?|(?:row-|column-)?gap|font-size|border(?:-[\w-]+)?-radius)\s*:\s*([^;}]+)",css):

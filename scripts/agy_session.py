@@ -3,7 +3,29 @@ import json
 import subprocess
 from pathlib import Path
 
-def run(cli,job,previous,bridge,prompt,save_id):
+def select_model(call, session, requested):
+    def values(options):
+        for item in options:
+            if 'options' in item:
+                yield from values(item['options'])
+            else:
+                yield item
+
+    for option in session.get('configOptions', []):
+        if option.get('category') != 'model' and option.get('id') != 'model':
+            continue
+        for entry in values(option.get('options', [])):
+            if requested in (entry.get('value'), entry.get('name')):
+                call(4, 'session/set_config_option', dict(sessionId=session['sessionId'],configId=option['id'],value=entry['value']))
+                return
+    # Antigravity also advertises exact model + effort IDs via the older ACP model selector.
+    for entry in session.get('models', {}).get('availableModels', []):
+        if requested in (entry.get('modelId'), entry.get('name')):
+            call(4, 'session/set_model', dict(sessionId=session['sessionId'],modelId=entry['modelId']))
+            return
+    raise ValueError('Antigravity does not offer '+requested+' for this session. Check agy models or choose Agent default.')
+
+def run(cli,job,previous,bridge,prompt,save_id,model=''):
     mcp=dict(bridge,name='workspace_assistant',env=[])
     current=previous
     text=[]
@@ -41,9 +63,16 @@ def run(cli,job,previous,bridge,prompt,save_id):
         try:
             call(1,'initialize',dict(protocolVersion=1,clientCapabilities={}))
             params=dict(cwd=job['folder'],mcpServers=[mcp])
-            if previous:call(2,'session/load',dict(params,sessionId=previous))
+            if previous:
+                session=call(2,'session/load',dict(params,sessionId=previous))
             else:
-                current=call(2,'session/new',params)['sessionId'];save_id(current)
+                session=call(2,'session/new',params)
+                current=session['sessionId']
+                if model:select_model(call,session,model)
+            observed = session.get('models', {}).get('currentModelId', '')
+            if not observed:
+                observed = next((o.get('currentValue', '') for o in session.get('configOptions', []) if o.get('category') == 'model'), '')
+            save_id(current, model if model and not previous else observed)
             text.clear()  # session/load may replay the preceding conversation.
             answer=call(3,'session/prompt',dict(sessionId=current,prompt=[{'type':'text','text':prompt}]))
             if answer.get('stopReason')!='end_turn':raise ValueError('Antigravity stopped: '+str(answer.get('stopReason')))

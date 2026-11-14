@@ -8,17 +8,25 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from session_models import conversation_model, model_id
 
 def save(path,value):
     with tempfile.NamedTemporaryFile('w',dir=path.parent,delete=False,prefix='.') as f:
         json.dump(value,f);tmp=f.name
     os.replace(tmp,path)
 
-def command(job,previous,tools):
+def command(job,previous,tools,previous_model=""):
     provider=job['agent']
     cli=shutil.which(provider)
     if not cli:raise ValueError('Install '+provider+' and sign in to its CLI.')
     session=job['session']
+    # A resumed conversation owns its model, even if an old or modified job includes one.
+    model = ''
+    if previous:
+        model = previous_model
+    elif not job.get('resume') and job.get('mode') == 'ask':
+        model = job.get('model', '')
+    model = model_id(model)
     bridge={'command':str(tools),'args':['--agent',provider,'--workspace',job['folder'],'--session',session,'--task',job['task']]}
     prompt=job['brief']
     if job.get('strokes'):
@@ -28,27 +36,37 @@ def command(job,previous,tools):
     if provider=='claude':
         cmd=[cli,'-p','--output-format','stream-json','--verbose','--mcp-config',servers,'--allowedTools','mcp__workspace_assistant__ask_user','--append-system-prompt',instruction]
         cmd+=['--resume',previous] if previous else ['--session-id',session]
+        if model:cmd+=['--model',model]
         return cmd+['--',prompt]
     if provider=='codex':
         cmd=[cli,'exec','-c','mcp_servers.workspace_assistant.command='+json.dumps(str(tools)),'-c','mcp_servers.workspace_assistant.args='+json.dumps(bridge['args']),'-c','mcp_servers.workspace_assistant.tool_timeout_sec=86400']
         if previous:cmd+=['resume']
         else:cmd+=['--sandbox','workspace-write']
         cmd+=['--json','--skip-git-repo-check']
+        if model:cmd+=['--model',model]
         if previous:cmd.append(previous)
         return cmd+['--',instruction+'\n\n'+prompt]
     if provider=='agy':
-        return (cli,bridge,instruction+'\n\n'+prompt)
+        return (cli,bridge,instruction+'\n\n'+prompt,'' if previous else model)
     raise ValueError('Unknown agent.')
 
 def execute(job,sessionpath):
     history=json.loads(sessionpath.read_text()) if sessionpath.exists() else {}
     if job['resume'] and not history.get('id'):
         raise ValueError('The provider did not return a resumable conversation ID. Start a new session.')
-    argv=command(job,history.get('id'),Path(__file__).resolve().with_name('agent-tools'))
+    previous = history.get('id')
+    previous_model = ''
+    if previous:
+        previous_model = conversation_model(job['agent'], previous) or history.get('model', '')
+    argv=command(job,previous,Path(__file__).resolve().with_name('agent-tools'),previous_model)
+    selected = previous_model if previous else job.get('model', '')
+    if selected:
+        history['model'] = selected
+        save(sessionpath, history)
     if isinstance(argv,tuple):
         from agy_session import run
-        cli,bridge,prompt=argv
-        return run(cli,job,history.get('id'),bridge,prompt,lambda session:save(sessionpath,{'id':session}))
+        cli,bridge,prompt,model=argv
+        return run(cli,job,history.get('id'),bridge,prompt,lambda session, observed:save(sessionpath,dict(history,id=session,model=observed or history.get('model',''))),model)
     result='';error='';warnings=[]
     if not Path(job['folder']).is_dir():raise ValueError('The workspace folder is no longer available.')
     with tempfile.TemporaryFile(mode='w+t') as err:
@@ -74,6 +92,10 @@ def execute(job,sessionpath):
                     warnings.append(str(e.get('message') or e.get('error') or 'Agent failed'))
             code=proc.wait()
         err.seek(0);diagnostic=err.read()[-2000:]
+    observed = conversation_model(job['agent'], history.get('id'))
+    if observed:
+        history['model'] = observed
+        save(sessionpath, history)
     if code or error or not isinstance(result,str) or not result.strip():
         raise ValueError((error or (warnings[-1] if warnings else '') or diagnostic or 'The agent returned no final message.')[-2000:])
     return result
@@ -100,7 +122,9 @@ def main():
                     save(receipt,dict(state='Delivered',message=delivery.stdout.strip()))
                 else:
                     result=execute(job,folder/'conversation.json')
-                    save(receipt,dict(state='Complete',message=result))
+                    conversation_path = folder/'conversation.json'
+                    conversation = json.loads(conversation_path.read_text()) if conversation_path.exists() else {}
+                    save(receipt,dict(state='Complete',message=result,model=conversation.get('model', '')))
             except Exception as exc:
                 save(receipt,dict(state='Failed',message=str(exc)))
 if __name__=='__main__':main()

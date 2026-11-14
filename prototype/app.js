@@ -46,11 +46,19 @@ const attr=(s)=>esc(s);
 const button=(label,action,id='',style='btn',sym='')=>'<button type="button" class="'+style+'" data-action="'+action+'" data-id="'+attr(id)+'">'+(sym?icon(sym):'')+esc(label)+'</button>';
 const option=(value,text,selected='')=>'<option value="'+attr(value)+'" '+(value===selected?'selected':'')+'>'+esc(text)+'</option>';
 const heading=(over,title,sub='')=>'<div class="page-heading"><div class="eyebrow">'+esc(over)+'</div><h1>'+esc(title)+'</h1>'+(sub?'<p class="subtitle">'+esc(sub)+'</p>':'')+'</div>';
-const statusClass=s=>s==='Needs input'?'waiting':s==='Complete'?'complete':['Unavailable','Failed'].includes(s)?'offline':'running';
+const statusClass=s=>s==='Needs input'?'waiting':s==='Complete'?'complete':['Running','Queued'].includes(s)?'running':'offline';
 const navLink=(id,label,sym,end='')=>'<button class="nav-link '+(view===id?'active':'')+'" '+(view===id?'aria-current="page"':'')+' data-action="view" data-id="'+attr(id)+'">'+sym+'<span class="label">'+esc(label)+'</span>'+end+'</button>';
 const count=n=>'<span class="nav-count">'+n+'</span>';
-function renderNav(){
-  $('#nav').innerHTML='<div class="nav-group"><span class="nav-kicker">Workspace</span>'+navLink('overview','Overview',icon('grid'))+navLink('sessions','Sessions',icon('sessions'),count(state.sessions.length))+navLink('notes','Notebook',icon('note'),count(state.notes.length))+navLink('projects','Projects',icon('folder'),count(state.projects.filter(p=>p.available!==false).length))+'</div>';
+function activeSessions(){
+  const pending=new Set(state.decisions.map(q=>q.session));
+  return state.sessions.filter(s=>pending.has(s.id)||['Running','Needs input','Queued'].includes(s.state));
+}
+function listedProjects(active){
+  const ids=new Set(active.map(s=>s.project));
+  return state.projects.filter(p=>p.available!==false && (state.showIdleProjects || ids.has(p.id)));
+}
+function renderNav(projects){
+  $('#nav').innerHTML='<div class="nav-group"><span class="nav-kicker">Workspace</span>'+navLink('overview','Overview',icon('grid'))+navLink('sessions','Sessions',icon('sessions'),count(state.sessions.length))+navLink('notes','Notebook',icon('note'),count(state.notes.length))+navLink('projects','Projects',icon('folder'),count(projects.length))+'</div>';
   $('#islandLabel').textContent=state.decisions.length?state.decisions.length+' decision'+(state.decisions.length>1?'s':''):'All clear';
 }
 function wave(){
@@ -62,42 +70,47 @@ function captureCard(c){
   return '<article class="capture-card"><div class="cap-meta"><span class="icon-label">'+icon('mic')+'Latest capture</span><span>'+esc(c.time)+'</span></div><blockquote>“'+esc(c.text||'Attached sketch')+'”</blockquote><div class="signal"><button class="play-btn" data-action="readcapture" aria-label="Read latest capture aloud">'+icon('play')+'</button>'+wave()+'<span>'+esc(c.duration||'Text')+'</span></div><div class="capture-foot"><span class="icon-label">'+icon(p?'folder':'note')+esc(p?.name||'Scratch')+(session?' / '+esc(session.task):'')+'</span>'+button('View capture','detailcapture',c.id,'text-btn','out')+'</div></article>';
 }
 function sessionRow(s,fixture=false){
-  const agent=s.source==='desktop'?'Codex · ChatGPT desktop':providers[s.agent]||'Agent',p=proj(s.project);
+  const agent=s.source==='desktop'?'Codex · ChatGPT desktop':s.source==='terminal'?'Codex · Terminal':s.source==='claude'?'Claude Code · External':providers[s.agent]||'Agent',p=proj(s.project);
   return '<button class="session-row" data-action="session" data-id="'+attr(s.id)+'">'+(s.agent?'<span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span>':'<span aria-hidden="true"></span>')+'<span><span class="row-title">'+esc(s.task)+'</span><span class="row-sub">'+esc(agent)+'</span></span><span class="row-project">'+esc(p?.name||'Project')+'</span>'+(fixture?'<span class="fixture-amount">'+esc(s.amount)+'</span>':'<span class="row-state '+statusClass(s.state)+'"><i class="state-dot"></i>'+esc(s.state)+'</span>')+icon('right')+'</button>';
 }
 function sessionList(rows){return rows.length?'<div class="session-list">'+rows.map(s=>sessionRow(s)).join('')+'</div>':'<p class="empty">No sessions here yet.</p>'}
 function noteList(notes){return notes.length?notes.map(n=>'<button class="note" data-action="note" data-id="'+attr(n.id)+'"><span class="eyebrow">'+esc(proj(n.project)?.name||'Scratch')+'</span><strong>'+esc(n.title)+'</strong><span class="hint">'+esc(n.text)+'</span></button>').join(''):'<p class="empty">No notes here yet.</p>'}
 let projectFilter='';
-function renderProjectList(){
-  const rows=state.projects.filter(p=>p.available!==false && p.name.toLowerCase().includes(projectFilter.toLowerCase()));
-  $('#project-list').innerHTML=rows.map(p=>button(p.name,'view',p.id,'note','folder')).join('')||'<p class="empty">No matching projects.</p>';
+function renderProjectList(projects){
+  const rows=projects.filter(p=>p.name.toLowerCase().includes(projectFilter.trim().toLowerCase()));
+  $('#project-list').innerHTML=rows.map(p=>button(p.name,'view',p.id,'note','folder')).join('')||'<p class="empty">'+(projectFilter.trim()?'No matching projects.':state.showIdleProjects?'No project folders found.':'No projects have active sessions.')+'</p>';
 }
 function render(){
-  renderNav();document.dispatchEvent(new Event('workspace-changed'));
+  const active=activeSessions(),projects=listedProjects(active);
+  renderNav(projects);document.dispatchEvent(new Event('workspace-changed'));
   const p=proj(view),name=({overview:'Overview',sessions:'Sessions',notes:'Notebook',projects:'Projects'})[view]||p?.name||'Workspace';$('#crumb').textContent=name;
-  const active=state.sessions.filter(s=>['Running','Needs input','Queued'].includes(s.state));
   const intro=heading(live?new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'}):'Saturday, 14 November',name,view==='overview'?active.length+' active sessions across '+new Set(active.map(s=>s.project)).size+' projects.':p?p.folder:'');
   let body='';
   if(view==='overview')body=(state.captures[0]?captureCard(state.captures[0]):'')+'<section class="block"><div class="group-head"><h2>Active sessions</h2>'+button('All sessions','view','sessions','text-btn','arrow')+'</div>'+sessionList(active)+'</section>';
-  else if(view==='projects')body='<section class="block"><label class="field">Find a project<input id="project-filter" type="search" placeholder="Folder name" value="'+attr(projectFilter)+'"></label><div id="project-list"></div></section>';
+  else if(view==='projects')body='<section class="block"><label class="field">Find a project<input id="project-filter" type="search" placeholder="Folder name" value="'+attr(projectFilter)+'"></label><label class="check-line"><input type="checkbox" id="include-idle" '+(state.showIdleProjects?'checked':'')+'>Show idle projects</label><div id="project-list"></div></section>';
   else if(view==='sessions')body=sessionList(state.sessions);
   else if(view==='notes')body='<section class="block">'+noteList(state.notes)+'</section>';
-  else if(p)body='<section class="block"><h2>Sessions</h2>'+sessionList(state.sessions.filter(s=>s.project===p.id))+'</section><section class="block"><h2>Project notes</h2>'+noteList(state.notes.filter(n=>n.project===p.id))+'</section>';
+  else if(p)body='<section class="block"><div class="group-head"><h2>Sessions</h2>'+(p.available!==false?button('Start session','start-session',p.id,'primary','plus'):'')+'</div>'+sessionList(state.sessions.filter(s=>s.project===p.id))+'</section><section class="block"><h2>Project notes</h2>'+noteList(state.notes.filter(n=>n.project===p.id))+'</section>';
   const activeFilter=document.activeElement?.id==='project-filter';
   const caret=activeFilter?document.activeElement.selectionStart:0;
-  $('#main').innerHTML=intro+body;
+  $('#main').innerHTML=(view==='overview' && typeof motionOverview==='function'?motionOverview(intro):intro)+body;
   if(view==='projects'){
     const input=$('#project-filter');
-    input.oninput=()=>{projectFilter=input.value;renderProjectList()};
-    renderProjectList();
+    input.oninput=()=>{projectFilter=input.value;renderProjectList(projects)};
+    $('#include-idle').onchange=e=>{
+      state.showIdleProjects=e.target.checked;persist();
+      render();
+      $('#include-idle').focus({preventScroll:true});
+    };
+    renderProjectList(projects);
     if(activeFilter){input.focus({preventScroll:true});input.setSelectionRange(caret,caret)}
   }
 }
 function toast(message){$('#toast').textContent=message;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').textContent='',3000)}
 function go(id){clearTimeout(toast.timer);$('#toast').textContent='';view=id;document.body.classList.remove('nav-open');render();if(document.body.classList.contains('notch-first'))$('#islandToggle').focus();else $('#main').focus()}
 function frame(title,over,body){return '<div class="dialog-body"><div class="dialog-title"><div><span class="eyebrow">'+esc(over)+'</span><h2 id="dialog-heading">'+esc(title)+'</h2></div><button class="icon-btn" data-action="close" aria-label="Close dialog">'+icon('x')+'</button></div>'+body+'</div>'}
-function dialog(title,over,body){clearTimeout(toast.timer);$('#toast').textContent='';const d=$('#modal');if(!d.open)returnFocus=document.activeElement;d.innerHTML=frame(title,over,body);d.setAttribute('aria-labelledby','dialog-heading');if(!d.open)d.showModal();else $('button',d)?.focus()}
-function dismissCard(){if(live)stopDictation();clearTimeout(simVoice);simVoice=null;document.dispatchEvent(new Event('voice-activity'));if($('#notch').open){$('#notch').close();$('#islandToggle').setAttribute('aria-expanded','false');if($('#modal').open)$('#modal button')?.focus();else $('#islandToggle').focus();return}if($('#modal').open)$('#modal').close();if(returnFocus?.isConnected)returnFocus.focus();else if(document.body.classList.contains('notch-first'))$('#islandToggle').focus();else $('#main').focus()}
+function dialog(title,over,body){if(draft?.routing && title!=='Preparing handoff')cancelRouting();clearTimeout(toast.timer);$('#toast').textContent='';const d=$('#modal');if(!d.open)returnFocus=document.activeElement;d.innerHTML=frame(title,over,body);d.setAttribute('aria-labelledby','dialog-heading');if(!d.open)d.showModal();else $('button',d)?.focus()}
+function dismissCard(){cancelRouting();stopRoutingSpeech();if(live)stopDictation();clearTimeout(simVoice);simVoice=null;document.dispatchEvent(new Event('voice-activity'));if($('#notch').open){$('#notch').close();$('#islandToggle').setAttribute('aria-expanded','false');if($('#modal').open)$('#modal button')?.focus();else $('#islandToggle').focus();return}if($('#modal').open)$('#modal').close();if(returnFocus?.isConnected)returnFocus.focus();else if(document.body.classList.contains('notch-first'))$('#islandToggle').focus();else $('#main').focus()}
 let siriVoices=[];
 let kokoro={status:'checking',detail:'Checking local voice…'};
 function updateKokoro(status,detail){
@@ -123,11 +136,16 @@ function voiceOptions(){
 function speak(text){
   const native=window.webkit?.messageHandlers?.workspace;
   if(spoken){if(native)native.postMessage({type:'stopSpeech'});else window.speechSynthesis?.cancel();finishSpeech();return}
+  readAloud(text);
+}
+function readAloud(text){
+  const native=window.webkit?.messageHandlers?.workspace;
   const voice=state.voiceEngine ?? siriVoices[0]?.id;
   if(!voice){toast('Choose an available narration voice in Preferences.');return}
   if(native){native.postMessage({type:'speak',voice,text});return}
   const selected=window.speechSynthesis?.getVoices().find(v=>v.localService && v.voiceURI===voice && /siri/i.test(v.voiceURI+' '+v.name));
   if(!selected){toast('This browser has no local Siri voice available.');return}
+  window.speechSynthesis.cancel();
   const u=new SpeechSynthesisUtterance(text);u.voice=selected;u.onend=finishSpeech;u.onerror=finishSpeech;
   spoken=true;document.dispatchEvent(new Event('voice-activity'));window.speechSynthesis.speak(u);
 }
@@ -145,13 +163,15 @@ function showSession(id){
   if(q)actions.push(button('Review decision','notch',q.id));
   if(!live && s.state==='Running' && !s.producerKey)actions.push(button('Simulate completion','complete',id));
   if(s.result)actions.push(button('Read aloud','speakresult',id,'btn','sound'),button('Open in '+(s.viewer||(live?'Finder':'editor')),'openresult',id));
-  dialog(s.task,providers[s.agent]+' · '+s.state,'<div class="detail-line">'+icon('folder')+'<span class="mono">'+esc(proj(s.project)?.folder)+'</span></div><section class="block"><h3>Activity</h3><ul class="time-line">'+s.log.map(e=>'<li><i class="state-dot"></i>'+esc(s.result && e==='Complete. '+s.result?'Complete':e)+'</li>').join('')+'</ul></section>'+(s.result?'<section class="notice"><strong>Agent summary</strong><p>'+esc(s.result)+'</p></section>':'')+'<div class="inline">'+actions.join('')+'</div>');
+  const waiting=s.external && s.waitingFor?'<p class="hint">'+esc('Claude is waiting in the original session ('+s.waitingFor+').')+'</p>':'';
+  dialog(s.task,[providers[s.agent],s.model,s.state].filter(Boolean).join(' · '),waiting+'<div class="detail-line">'+icon('folder')+'<span class="mono">'+esc(proj(s.project)?.folder)+'</span></div><section class="block"><h3>Activity</h3><ul class="time-line">'+s.log.map(e=>'<li><i class="state-dot"></i>'+esc(s.result && e==='Complete. '+s.result?'Complete':e)+'</li>').join('')+'</ul></section>'+(s.result?'<section class="notice"><strong>Agent summary</strong><p>'+esc(s.result)+'</p></section>':'')+'<div class="inline">'+actions.join('')+'</div>');
 }
 function routeDecision(candidates){
   const d=$('#notch');d.dataset.request=uid();
   const choices=candidates.map((s,i)=>'<button class="decision-btn" data-action="choose-target" data-id="'+attr(s.id)+'"><span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span><span><strong>'+esc(s.task)+'</strong><br><span class="hint">'+esc(proj(s.project).name)+' · '+esc(providers[s.agent])+'</span></span></button>').join('');
   d.innerHTML='<div class="dialog-body notch-content"><div class="dialog-title"><div><span class="eyebrow">Route follow-up</span><h2>Which session?</h2></div><button aria-label="Close decision" class="icon-btn" data-action="close">'+icon('x')+'</button></div><p>These sessions match your capture. Choose where the nudge belongs.</p><div class="block">'+choices+'</div><form id="route-voice" class="field"><label for="route-answer">' +(live?'Reply':'Voice reply simulation')+'</label><input id="route-answer" placeholder="Project, session name, or choice number" required>'+(live?button('Dictate','dictate','#route-answer','text-btn','mic'):'')+'<button class="btn">Use reply</button></form></div>';
   d.showModal();$('#islandToggle').setAttribute('aria-expanded','true');
+  if(draft)narrateRoute(draft,'session','Several sessions match. Choose the conversation you mean.');
   $('#route-voice').onsubmit=e=>{e.preventDefault();const input=$('#route-answer'),v=input.value.trim().toLowerCase();const found=candidates.filter((s,i)=>[s.task,proj(s.project).name,String(i+1)].some(x=>x.toLowerCase()===v));if(found.length===1){chooseTarget(found[0].id);return}input.setCustomValidity('Enter one project name, task name, or choice number.');input.reportValidity();input.oninput=()=>input.setCustomValidity('')};
 }
 function chooseTarget(id){if(!draft||!sess(id))return;draft.session=id;draft.project=sess(id).project;dismissCard();review()}
@@ -215,16 +235,18 @@ function decide(id,i){
   if(q.producerKey)window.webkit?.messageHandlers?.workspace.postMessage({type:'questionUpdated'});
   toast('Decision sent to '+s.task+'.');
 }
-function newDraft(target){
+function newDraft(target,sessionProject=''){
   const s=sess(target);
-  draft={text:'',brief:'',note:'',mode:s?'nudge':'ask',project:s?.project||(proj(view)?view:''),session:s?.id||'',agent:s?.agent||'claude',viewer:'',strokes:[],newName:'',keep:false,hasVoice:false,sketch:false};
+  draft={sessionProject,text:'',brief:'',note:'',mode:s?'nudge':'ask',project:sessionProject||s?.project||(proj(view)?view:''),session:s?.id||'',agent:s?.agent||sessionModelPolicy().defaultAgent,viewer:'',strokes:[],newName:'',keep:false,hasVoice:false,sketch:false};
+  captureContext.begin(draft);
   editDraft();
 }
 function sketchMarkup(strokes){
   return '<svg class="sketch-view" viewBox="0 0 600 176" role="img" aria-label="Captured sketch">'+strokes.map(line=>'<polyline fill="none" stroke="#2b5147" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="'+line.map(p=>p.map(Number).join(',')).join(' ')+'"/>').join('')+'</svg>';
 }
 function editDraft(){
-  dialog('New capture','Capture', '<div class="fields"><label>Transcript<textarea id="transcript" placeholder="Talk through an idea or type a follow-up…">'+esc(draft.text)+'</textarea></label><div class="inline">'+(live?button('Dictate','dictate','#transcript','btn','mic'):button('Use voice sample','sample','','btn','mic'))+button(draft.sketch?'Hide sketch pad':'Add sketch','sketch','','btn','pen')+'</div>'+(draft.sketch?'<div class="field"><span>Sketch</span><canvas id="pad" width="600" height="176" class="drawpad" aria-label="Sketch pad. Use pointer to draw, or add the keyboard sample below."></canvas><div class="inline">'+button('Add sample curve','curve')+button('Clear sketch','clearink')+'</div></div>':'')+'</div><div class="form-actions">'+button('Cancel','discard')+button('Review capture','review','','primary','arrow')+'</div>');
+  cancelRouting();stopRoutingSpeech();
+  dialog(draft.sessionProject?'New session':'New capture',draft.sessionProject?proj(draft.sessionProject).name:'Capture', '<div class="fields"><label>'+(draft.sessionProject?'What should the agent do?':'Transcript')+'<textarea id="transcript" placeholder="Talk through an idea or type a follow-up…">'+esc(draft.text)+'</textarea></label><div class="inline">'+(live?button('Dictate','dictate','#transcript','btn','mic'):button('Use voice sample','sample','','btn','mic'))+button(draft.sketch?'Hide sketch pad':'Add sketch','sketch','','btn','pen')+'</div>'+(draft.sketch?'<div class="field"><span>Sketch</span><canvas id="pad" width="600" height="176" class="drawpad" aria-label="Sketch pad. Use pointer to draw, or add the keyboard sample below."></canvas><div class="inline">'+button('Add sample curve','curve')+button('Clear sketch','clearink')+'</div></div>':'')+'</div><div class="form-actions">'+button('Cancel','discard')+button(draft.sessionProject?'Review session':'Review capture','review','','primary','arrow')+'</div>');
   $('#transcript').oninput=e=>draft.text=e.target.value;
   if(draft.sketch)setupPad();
 }
@@ -247,7 +269,7 @@ function interpret(){
   const d=draft,t=d.text.trim(),lower=t.toLowerCase(),ps=matchProjects(t),ss=matchSessions(t);
   d.brief=t;d.note='';d.keep=false;d.candidates=[];
   const instruction=/\b(?:ask (?:claude(?: code)?|codex|antigravity|agy)|tell (?:[^.!?]*?\b)?(?:session|agent)|nudge|follow up)\b/i.exec(t);
-  if(!d.session)d.mode=instruction?(/^(tell|nudge|follow)/i.test(instruction[0])?'nudge':'ask'):
+  if(!d.session && !d.sessionProject)d.mode=instruction?(/^(tell|nudge|follow)/i.test(instruction[0])?'nudge':'ask'):
     /\b(remember|note|save|idea)\b/.test(lower)||!t?'note':'ask';
   if(instruction){
     const before=t.slice(0,instruction.index).trim(), work=t.slice(instruction.index);
@@ -265,7 +287,7 @@ function interpret(){
   if(!d.project&&ps.length===1)d.project=ps[0].id;
   if(!d.session && /\bask (claude|codex|antigravity|agy)\b/i.test(t))d.mode='ask';
   if(d.mode==='nudge'&&!d.session){const choices=ps.length===1?ss.filter(s=>s.project===ps[0].id):ss;if(choices.length===1){d.session=choices[0].id;d.project=choices[0].project}else if(choices.length>1){d.candidates=choices.map(s=>s.id)}}
-  if(/codex/i.test(t))d.agent='codex';if(/antigravity|\bagy\b/i.test(t))d.agent='agy';const viewer=/\b(?:in|with|using|via|to)\s+(?:apple |the )?(xcode|preview|finder)\b/i.exec(t);if(viewer)d.viewer=['Xcode','Preview','Finder'].find(app=>app.toLowerCase()===viewer[1].toLowerCase());
+  if(/\bclaude(?: code)?\b/i.test(t))d.agent='claude';if(/codex/i.test(t))d.agent='codex';if(/antigravity|\bagy\b/i.test(t))d.agent='agy';const viewer=/\b(?:in|with|using|via|to)\s+(?:apple |the )?(xcode|preview|finder)\b/i.exec(t);if(viewer)d.viewer=['Xcode','Preview','Finder'].find(app=>app.toLowerCase()===viewer[1].toLowerCase());
 }
 function routingPrompt(){
   const d=draft;
@@ -284,6 +306,7 @@ function routingPrompt(){
     const field=$('#route-filter');
     const filter=()=>{$('#route-list').innerHTML=projects.filter(p=>p.name.toLowerCase().includes(field.value.toLowerCase())).map(p=>button(p.name,'route-project',p.id)).join('')||'<p class="empty">No matching projects.</p>'};
     field.oninput=filter;filter();
+    narrateRoute(d,'destination','Choose a workspace for this task.');
     return;
   }
   review();
@@ -294,8 +317,9 @@ function review(){
   const action=d.mode==='note'?'Save note':d.mode==='nudge'?'Send nudge':'Start session';
   const where=[d.mode==='nudge'?proj(s?.project)?.name:null,destination,d.mode==='note'?null:providers[d.mode==='nudge'?s?.agent:d.agent],d.viewer].filter(Boolean).join(' · ');
   const note=d.keep && d.mode!=='note'?'<p class="hint">Also save a note: '+esc(d.note||d.brief)+'</p>':'';
-  dialog('Review capture',where,'<p class="review-brief" id="review-brief">'+esc(d.brief||'Attached sketch')+'</p>'+(d.strokes.length?sketchMarkup(d.strokes):'')+note+
+  dialog('Review capture',where,'<p class="review-brief" id="review-brief">'+esc(d.brief||'Attached sketch')+'</p>'+(d.strokes.length?sketchMarkup(d.strokes):'')+modelReviewMarkup(d)+captureContext.review(d)+note+
     '<div class="form-actions">'+button('Adjust','adjust')+button(action,'commit-review','','primary')+'</div>');
+  reviewActivity(d);
 }
 function adjustReview(){
   const d=draft;
@@ -307,14 +331,16 @@ function adjustReview(){
   const projectField=field('Workspace','<select id="project" required>'+option('','Choose a workspace',d.project)+ps+option('@new','Create project folder…',d.project)+option('@scratch','Keep in scratch',d.project)+'</select>');
   const sessionField=field('Existing session','<select id="session" required>'+option('','Choose the matching session',d.session)+sessionChoices.map(s=>option(s.id,s.task+' · '+proj(s.project)?.name+' · '+providers[s.agent],d.session)).join('')+'</select>');
   const newField=d.project==='@new'?field('New project name','<input id="newName" value="'+attr(d.newName)+'" placeholder="Name under ~/projects" required pattern="[^/]+">'):'';
-  const providerFields=d.mode==='ask'?field('Agent','<select id="agent">'+Object.entries(providers).map(([k,v])=>option(k,v,d.agent)).join('')+'</select>')+field('Open result in','<select id="viewer">'+['','Xcode','Preview','Finder'].map(v=>option(v,v||'Choose later',d.viewer)).join('')+'</select>'):'';
+  const providerFields=d.mode==='ask'?field('Agent','<select id="agent">'+Object.entries(providers).map(([k,v])=>option(k,v,d.agent)).join('')+'</select>')+field('Model for this session',modelInput(d.agent,'override',d.modelOverride?.agent===d.agent?d.modelOverride.value:'',modelPlanFor({...d,modelOverride:null}).label))+modelSuggestions(d.agent)+field('Open result in','<select id="viewer">'+['','Xcode','Preview','Finder'].map(v=>option(v,v||'Choose later',d.viewer)).join('')+'</select>'):'';
   dialog('Adjust handoff','Routing','<form id="route-form" class="fields"><details><summary>Original capture'+(d.strokes.length?' · sketch attached':'')+'</summary><p class="body-copy">'+esc(d.text||'Sketch only')+'</p>'+(d.strokes.length?sketchMarkup(d.strokes):'')+'</details>'+field('Action','<select id="mode">'+routes.map(([k,v])=>option(k,v,d.mode)).join('')+'</select>')+field(d.mode==='note'?'Note':'Agent handoff','<textarea id="brief" '+(d.strokes.length?'':'required')+'>'+esc(d.brief)+'</textarea>')+(d.mode==='nudge'?sessionField:projectField+newField)+providerFields+(d.mode!=='note'?'<div class="check-line"><input id="keep" type="checkbox" '+(d.keep?'checked':'')+'><label for="keep">Save a separate project note</label></div>'+(d.keep?field('Project note','<textarea id="sideNote" required>'+esc(d.note)+'</textarea>'):''):'')+'<div class="form-actions">'+button('Edit capture','edit')+'<button class="primary" type="submit">Review changes</button></div></form>');
   const f=$('#route-form');
   f.querySelectorAll('button[data-action]').forEach(b=>b.type='button');
   const bind=(id,key)=>{const el=$('#'+id,f);if(el)el.oninput=()=>d[key]=el.value};
   [['brief','brief'],['sideNote','note'],['newName','newName'],['agent','agent'],['viewer','viewer']].forEach(([id,key])=>bind(id,key));
+  if($('#agent',f))$('#agent',f).onchange=e=>{d.agent=e.target.value;delete d.modelOverride;adjustReview();$('#agent').focus()};
+  if($('#model-override',f))$('#model-override',f).oninput=e=>{d.modelOverride={agent:d.agent,value:e.target.value.trim()}};
   $('#mode',f).onchange=e=>{d.mode=e.target.value;adjustReview()};
-  if($('#project',f))$('#project',f).onchange=e=>{d.project=e.target.value;adjustReview()};
+  if($('#project',f))$('#project',f).onchange=e=>{d.project=e.target.value;delete d.contextProject;adjustReview()};
   if($('#session',f))$('#session',f).onchange=e=>{d.session=e.target.value;d.project=sess(d.session)?.project||''};
   if($('#keep',f))$('#keep',f).onchange=e=>{d.keep=e.target.checked;adjustReview()};
   f.onsubmit=e=>{e.preventDefault();routingPrompt()};
@@ -327,11 +353,11 @@ function commitCapture(){
     const existing=state.projects.find(p=>p.name.toLowerCase()===name.toLowerCase());
     if(existing){d.project=existing.id}else{const p={id:uid(),name,folder:'~/projects/'+name,color:'#a8c3ae',aliases:[]};state.projects.push(p);d.project=p.id}
   }
-  const cid=uid(),time=new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),c={id:cid,time,text:d.text,brief:d.brief,project:d.project==='@scratch'?'':d.project,strokes:d.strokes,duration:d.hasVoice?'Sample':'Text',receipt:'Saved',kind:'Note'};
+  const cid=uid(),time=new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),c={id:cid,time,text:d.text,brief:captureContext.brief(d),reference:d.reference,project:d.project==='@scratch'?'':d.project,strokes:d.strokes,duration:d.hasVoice?'Sample':'Text',receipt:'Saved',kind:'Note'};
   let s;
-  if(d.mode==='ask'){s={id:uid(),project:d.project,agent:d.agent,task:d.brief.trim().slice(0,78)||'Review sketch',state:'Running',log:['Session started. '+d.brief],viewer:d.viewer,capture:cid};state.sessions.unshift(s);c.kind='Agent question';c.receipt='Started';c.session=s.id}
+  if(d.mode==='ask'){s={id:uid(),project:d.project,agent:d.agent,task:d.brief.trim().slice(0,78)||'Review sketch',state:'Running',model:modelPlanFor(d).model,log:['Session started. '+d.brief],viewer:d.viewer,capture:cid};state.sessions.unshift(s);c.kind='Agent question';c.receipt='Started';c.session=s.id}
   if(d.mode==='nudge'){s=sess(d.session);if(!s){toast('Choose an available session.');return}c.project=s.project;c.kind='Session nudge';c.receipt='Queued';c.session=s.id;s.log.push('Nudge queued. '+d.brief)}
-  if(d.mode==='note'||d.keep){const text=d.mode==='note'?d.brief:d.note;state.notes.unshift({id:uid(),project:c.project,text,title:text.trim().slice(0,64)||'Sketch',capture:cid})}
+  if(d.mode==='note'||d.keep){const text=d.mode==='note'?captureContext.brief(d):d.note;state.notes.unshift({id:uid(),project:c.project,text,title:text.trim().slice(0,64)||'Sketch',capture:cid})}
   state.captures.unshift(c);draft=null;persist();dismissCard();render();
   if(d.mode==='nudge'){toast('Nudge queued for '+s.task+'.');setTimeout(()=>deliver(cid),1400)}
   else if(d.mode==='ask'){showSession(s.id)}else{if(!document.body.classList.contains('notch-first'))go('notes');toast('Note saved.')}
@@ -350,7 +376,7 @@ function showNote(id){
   const f=$('#assign');if(f)f.onsubmit=e=>{e.preventDefault();const project=$('#assign-project').value;if(live){postLive('assign-note',{id,capture:n.capture,folder:proj(project).folder});return}noteAssigned(id,project)};
 }
 function noteAssigned(id,project){const n=byId(state.notes,id);if(!n)return;n.project=project;persist();render();showNote(id);toast('Note assigned to '+proj(project).name+'.')}
-function prefs(){dialog('Preferences','Tasktap','<div class="fields"><div class="field">Workspace root <span class="mono">~/projects</span></div><label class="field">Narration voice<select id="voice-engine"></select></label>'+(live?'<p id="voice-status" class="hint" role="status">'+esc(kokoro.detail)+'</p><div class="inline">'+button('Set up Kokoro','setup-voice')+button('Preview voice','preview-voice')+'</div>':'')+'<div class="check-line"><input id="narration" type="checkbox" '+(state.speak?'checked':'')+'><label for="narration">Read completion summaries aloud</label></div>'+(live?'':button('Reset sample data','reset'))+'</div>');voiceOptions();if(live){updateKokoro(kokoro.status,kokoro.detail);postLive('check-kokoro')}$('#voice-engine').onchange=e=>{state.voiceEngine=e.target.value;persist()};$('#narration').onchange=e=>{state.speak=e.target.checked;persist()}}
+function prefs(){dialog('Preferences','Tasktap','<div class="fields"><div class="field">Workspace root <span class="mono">~/projects</span></div>'+button('Session models','session-models')+'<label class="field">Narration voice<select id="voice-engine"></select></label>'+(live?'<p id="voice-status" class="hint" role="status">'+esc(kokoro.detail)+'</p><div class="inline">'+button('Set up Kokoro','setup-voice')+button('Preview voice','preview-voice')+'</div>':'')+'<div class="check-line"><input id="narration" type="checkbox" '+(state.speak?'checked':'')+'><label for="narration">Read completion summaries aloud</label></div>'+captureContext.preference()+(live?'':button('Reset sample data','reset'))+'</div>');captureContext.bindPreference();voiceOptions();if(live){updateKokoro(kokoro.status,kokoro.detail);postLive('check-kokoro')}$('#voice-engine').onchange=e=>{state.voiceEngine=e.target.value;persist()};$('#narration').onchange=e=>{state.speak=e.target.checked;persist()};routingVoicePreference()}
 function complete(id){const s=sess(id);if(s.state!=='Running')return;s.state='Complete';s.result='Demo result: the agent finished the requested review in '+proj(s.project).name+'. Open the conversation to inspect its work.';s.log.push('Simulated completion received.');persist();render();showSession(id);if(state.speak)speak(s.result)}
 function startSample(){
   const b=$('[data-action="sample"]');b.textContent='Listening to sample…';b.disabled=true;clearTimeout(simVoice);
@@ -360,7 +386,7 @@ document.addEventListener('click',e=>{
   const el=e.target.closest('[data-action]');if(!el)return;const a=el.dataset.action,id=el.dataset.id;
   switch(a){
     case 'view':go(id);break;case 'capture':newDraft('');break;case 'menu':document.body.classList.toggle('nav-open');break;
-    case 'follow':newDraft(id);break;case 'session':showSession(id);break;case 'close':dismissCard();break;case 'prefs':prefs();break;
+    case 'start-session':newDraft('',id);break;case 'follow':newDraft(id);break;case 'session':showSession(id);break;case 'close':dismissCard();break;case 'prefs':prefs();break;case 'session-models':sessionModelSettings();break;
     case 'readcapture':speak(state.captures[0].text||'Attached sketch');break;case 'speakresult':speak(sess(id).result);break;
     case 'openchat':postLive('open-desktop-chat',{id:sess(id).conversation});break;
     case 'setup-voice':postLive('install-kokoro');break;
@@ -372,9 +398,9 @@ document.addEventListener('click',e=>{
     case 'sketch':draft.sketch=!draft.sketch;editDraft();break;
     case 'curve':draft.strokes.push(Array.from({length:70},(_,i)=>[38+i*7.2,30+Math.pow(i/69,2)*112]));setupPad();break;
     case 'clearink':draft.strokes=[];setupPad();break;case 'discard':draft=null;dismissCard();break;
-    case 'review':if(recording){toast('Finish dictation before reviewing.');return}if(!draft.text.trim()&&!draft.strokes.length){toast('Add text or a sketch to continue.');$('#transcript').focus();return}if(!draft.session && !draft.strokes.length && /^(?:(?:well|um+|uh+|oh|okay|ok|h[ei]y|hi|hello|hallo|hey there|testing|test|mic check|thank you|thanks|good (?:morning|evening))[\s,.!?]*)+$/i.test(draft.text.trim())){dialog('What would you like to do?','Capture',button('Keep talking','continue-capture','','primary','mic')+button('Dismiss','discard'));break}interpret();if(live)prepareHandoff();else routingPrompt();break;
-    case 'skip-routing':delete draft.routing;routingPrompt();break;case 'adjust':adjustReview();break;
-    case 'route-project':draft.project=id;if(id==='@new'){
+    case 'review':if(recording){toast('Finish dictation before reviewing.');return}if(!draft.text.trim()&&!draft.strokes.length){toast('Add text or a sketch to continue.');$('#transcript').focus();return}if(!draft.session && !draft.strokes.length && /^(?:(?:well|um+|uh+|oh|okay|ok|h[ei]y|hi|hello|hallo|hey there|testing|test|mic check|thank you|thanks|good (?:morning|evening))[\s,.!?]*)+$/i.test(draft.text.trim())){dialog('What would you like to do?','Capture',button('Keep talking','continue-capture','','primary','mic')+button('Dismiss','discard'));break}interpret();captureContext.resolve(draft,()=>{if(live)prepareHandoff();else routingPrompt()});break;
+    case 'skip-routing':cancelRouting();stopRoutingSpeech();routingPrompt();break;case 'adjust':adjustReview();break;
+    case 'route-project':draft.project=id;delete draft.contextProject;if(id==='@new'){
       dialog('Name the workspace','Tasktap','<form id="workspace-name" class="field"><label>Folder under ~/projects<input id="newName" required></label><button class="primary">Review</button></form>');
       $('#workspace-name').onsubmit=e=>{e.preventDefault();const name=$('#newName').value.trim();if(!name||name.includes('/')||name==='.'||name==='..'){toast('Choose a folder name.');return}draft.newName=name;review()};
     }else review();break;

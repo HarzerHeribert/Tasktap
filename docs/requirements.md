@@ -1,6 +1,6 @@
 # Tasktap
 
-This is the first requirements draft for a personal Mac app. The linked [interaction design](interaction-design.md) and [notch-first prototype](../prototype/index.html) use fictional session activity.
+The linked [interaction design](interaction-design.md) describes the resident Mac app. The [browser prototype](../prototype/index.html) uses fictional session activity for reproducible review.
 
 ## Product purpose
 
@@ -16,6 +16,9 @@ Catch a thought while the user is speaking or drawing. Preserve it, connect it t
 | R2 | Resolve project, session, agent, and app independently. Rank exact names and aliases first, then task text and recent activity. Resolve against known local IDs. | “Ask Claude about lighting and show me the file in Xcode” has a project, agent, question, and separate result viewer. Xcode does not become the workspace. |
 | R3 | A unique eligible match may route directly with a visible destination. Multiple plausible matches require a choice. | Two sessions doing lighting in different worktrees prompt a choice showing project, task, and agent. A note can be filed without dispatching an agent. |
 | R4 | Offer a folder picker, a new project, or a scratch idea when no workspace fits. Confirm the destination before creating a folder. Keep project-linked notes outside the repo by default. | The user can keep an idea in the assistant’s scratch area today and assign it to a real project later. A missing workspace never silently becomes a newly created directory. |
+| R5 | Configure a fixed model or a difficulty curve for fresh sessions. Let the user set tier thresholds and model IDs per provider, inspect the estimated scope, and override the proposed model before launch. | A small edit can use a quick model. A migration can use the complex tier. An existing conversation uses its recorded model for a nudge. |
+| R6 | Show observable routing activity and a streaming draft during an on-device model call. Keep the final routing evidence readable with narration off. | Review now or closing the card cancels the model request. Late output cannot change another capture. Unavailable inference shows local matching as the source. |
+| R7 | Resolve an explicit reference such as “this website” or “this file” from the capture’s source app. Display the exact reference and permit change or removal before sending. | A supported browser provides its page URL. Finder provides one selected path. Missing access or ambiguous selection offers manual entry. A file inside a known project can suggest that destination. |
 | A1 | Start Claude Code, Codex, or Antigravity (agy) in the exact selected worktree. Use their existing interfaces and authentication. Record the returned session ID and adapter. | Two sessions in the same repo stay individually addressable. Unavailable or unsigned-in providers expose a recovery action and preserve the brief. |
 | A2 | A nudge follows up in the existing conversation. Track app-launched and discoverable external sessions with known delivery transports. | “Tell the session working on lighting to check reflections” reaches its stored session ID. A session visible but unreachable offers reconnect, open, or keep the draft. |
 | A3 | Distinguish queued, delivered, active, needs input, completed, interrupted, and failed from adapter evidence. Persist request IDs and deduplicate reconnects or retries. | Queueing a nudge does not claim delivery. A permission prompt stays bound to the original session, turn, request, and action. Dismissing the UI leaves it pending. |
@@ -33,11 +36,29 @@ Catch a thought while the user is speaking or drawing. Preserve it, connect it t
 | H4 | Use a blank camera housing. Render an amber outline just outside it while any decision is pending. Present every question, label and editable field below the camera safe area. | A resolved final request clears the edge. Reduce Motion keeps it steady. Agent work alone leaves the collapsed edge dark. |
 | H5 | Offer opt-in green and red cues on two independently lit Agent Keys. Clear them whenever their direct actions are unavailable. | Discuss, dismiss, resolve or quit clears the pair. The menu-bar count and visible labels convey decisions independently of color or connected devices. |
 | N8 | Present agent-originated questions and ask for missing routing information automatically. Attach the follow-up, draft and final answer to the original session and decision. | Sending or dictating a follow-up leaves the request pending. Sent follow-ups and drafts survive relaunch. |
+| N9 | Offer separate opt-ins for routing narration and completion narration using the selected available voice. | Routing narration reads a short progress update and the reviewable handoff. Muting it leaves every written status and reference available. |
 | P1 | Keep capture and routing local by default; send only the approved handoff and selected attachments to the chosen agent. | A scratch note stays local. Cloud-backed agents receive their selected content under the agent’s own settings. No continuous screen capture is needed. |
 | P2 | Preserve local notes and unresolved work across relaunch. Allow deletion of captures and drawings. Store contact with external agents separately from local notes. | Relaunch can reattach to a known session or truthfully show its last known state. Reopening a capture does not re-send it. |
+
+### Project visibility and integration scope
+
+Projects opens with folders that have queued work, a running turn, or an outstanding question. A discovered folder, an idle session, or a timestamp is insufficient evidence of activity. Show idle projects includes the full available list. Start session opens a brief scoped to the selected folder and submits only after review. A spoken project name still resolves against the full catalog.
+
+Use direct CLI or ACP events for managed sessions and scoped MCP registration for two-way questions. First-run setup requires no lifecycle hook installation. External state observations carry the capabilities of their actual source.
 
 ## Current implementation
 
 The resident Mac app uses Apple Speech, local project and task matching, and Apple Foundation Models for unstructured captures on supported Macs. Each handoff is reviewable. Tasktap delegates execution to installed CLIs and keeps an ordered queue and receipts on disk. Local notes and sketches can remain in Scratch or be linked to a project. See the [implementation and setup guide](../README.md) for transport and storage details.
 
 The standalone browser preview uses fixtures for reproducible design and interaction tests. The [controller guide](controls.md) includes the hands-on checks for physical lighting, notification delivery and shortcut conflicts. Open work includes broader routing evaluation, live mid-turn steering for managed agents and native permission forwarding across all providers.
+
+## Work packages
+
+| Package | Implemented | Remaining scope |
+| --- | --- | --- |
+| Workspace usability | Native resizing and close, bounded project list, persistent Preferences, active-project default and Start session | User feedback on daily usage |
+| Session integration | Managed CLI/ACP events, scoped question tool, read-only external status discovery | Universal external reply transport and native permission forwarding |
+| Models | Fixed or adaptive settings, per-provider models, review override, recorded-model resumes | Broader difficulty evaluation and provider model availability checks |
+| Routing feedback | On-device draft streaming, source evidence, cancellation, optional voice | Continuous task execution explanation beyond provider receipts |
+| Source context | Supported browser URLs, Finder selection, accessible document paths, manual recovery | Screenshot/OCR, selected text, visual regions and unsaved editor buffers |
+| Visual identity | Reproducible Blender animation, native icon, menu mark and reduced-motion stills | Further motion states as new product interactions require them |

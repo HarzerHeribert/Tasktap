@@ -51,6 +51,34 @@ def sessions(root):
     return rows
 
 
+def claude_sessions(root):
+    result = subprocess.run(["claude", "agents", "--json"], capture_output=True, text=True,
+                            stdin=subprocess.DEVNULL, timeout=5, check=True)
+    rows = []
+    for record in json.loads(result.stdout):
+        if not isinstance(record, dict) or not record.get("cwd"):
+            continue
+        folder = Path(record["cwd"]).resolve()
+        if folder.parent != root or not folder.is_dir():
+            continue
+        # Interactive sessions can be visible before they receive a conversation ID.
+        conversation = record.get("sessionId") or ""
+        identity = conversation or record.get("id")
+        if not identity and record.get("pid") and record.get("startedAt"):
+            identity = f"{record['pid']}/{record['startedAt']}"
+        if not identity:
+            continue
+        state = {"working":"Running", "blocked":"Needs input", "done":"Idle",
+                 "failed":"Failed", "stopped":"Stopped"}.get(record.get("state"))
+        if not state:
+            state = {"busy":"Running", "waiting":"Needs input", "idle":"Idle"}.get(record.get("status"), "Connected")
+        ident = uuid.uuid5(uuid.NAMESPACE_URL, f"tasktap/claude/{folder}/{identity}")
+        rows.append(dict(id=str(ident), conversation=conversation, source="claude", folder=str(folder),
+                         agent="claude", task=record.get("name") or folder.name+" · Claude Code", state=state,
+                         waitingFor=record.get("waitingFor") or ""))
+    return rows
+
+
 def deliver(job):
     root = Path(job["folder"]).parent.resolve()
     target = next((r for r in sessions(root) if r["id"] == job["session"] and r["folder"] == job["folder"] and r["agent"] == job["agent"]), None)
@@ -71,13 +99,24 @@ if __name__ == "__main__":
             rows = sessions(root)
         except (OSError, ValueError, subprocess.SubprocessError):
             rows = []
+        try:
+            observed = claude_sessions(root)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            observed = []
         if len(sys.argv) > 3:
             try:
-                desktop = desktop_sessions(root, Path(sys.argv[3]))
-                known = {r["conversation"] for r in rows}
-                rows.extend(r for r in desktop if r["conversation"] not in known)
+                observed.extend(desktop_sessions(root, Path(sys.argv[3])))
             except (OSError, ValueError, sqlite3.Error):
                 pass
+        # Retain cmux's address for nudges while using the provider's turn state.
+        surfaces = {(r["agent"], r["conversation"]):r for r in rows}
+        for item in observed:
+            surface = surfaces.get((item["agent"], item["conversation"]))
+            if surface:
+                surface["state"] = item["state"]
+                surface["waitingFor"] = item.get("waitingFor", "")
+            else:
+                rows.append(item)
         print(json.dumps(rows))
     else:
         try:

@@ -1,0 +1,15 @@
+/* A small aperture turns beside the stable activity label while the brief grows below.
+   Narrow layouts keep the same stack. Reduce Motion keeps the aperture still. */
+#route-activity{display:grid;gap:var(--s-panel);min-height:100px}
+.activity-heading{display:flex;align-items:center;gap:var(--s-row);min-height:36px}
+.activity-aperture{
+  width:22px;height:22px;flex:none;border:2px solid var(--gold);
+  border-radius:var(--r-control);transform:rotate(15deg);
+  box-shadow:inset 0 0 0 4px var(--paper);
+  background:#528472;animation:route-turn 2.8s ease-in-out infinite;
+}
+.activity-brief{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--t-copy);line-height:1.5}
+.route-evidence ul{display:grid;gap:var(--s-icon);padding-left:var(--s-panel);margin:var(--s-row) 0 0;font-size:var(--t-label);overflow-wrap:anywhere}
+.notch-first .activity-aperture{box-shadow:inset 0 0 0 4px #000}
+@keyframes route-turn{50%{transform:rotate(105deg);opacity:.6}100%{transform:rotate(195deg)}}
+@media(prefers-reduced-motion:reduce){.activity-aperture{animation:none}}

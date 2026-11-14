@@ -76,6 +76,7 @@ const path = require('node:path');
       const route=window.sent.findLast(m=>m.type==='route');
       finishRouting(route.id,{source:'apple',difficulty:9,scopeEvidence:'Migrate the database'});
     });
+    await page.getByText('Handoff details',{exact:true}).click();
     await page.locator('#review-model').getByText('Complex · 9/10 · large',{exact:true}).waitFor();
     await page.getByRole('button',{name:'Adjust',exact:true}).click();
     await page.getByLabel('Model for this session').fill('one-off');

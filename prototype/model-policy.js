@@ -31,6 +31,7 @@ function taskDifficulty(d) {
   const estimate = d.modelEstimate;
   if (estimate?.brief === brief && Number.isInteger(estimate.score) && estimate.score >= 1 && estimate.score <= 10) {
     const quote = typeof estimate.evidence === 'string' ? estimate.evidence.trim().slice(0, 160) : '';
+    if (estimate.origin) return {score:estimate.score,reason:'Scope estimated by '+estimate.origin+'.'};
     return {score: estimate.score, reason: quote && (brief+' '+d.text).toLowerCase().includes(quote.toLowerCase()) ? 'On-device estimate from “'+quote+'”.' : 'Estimated by the on-device handoff model.'};
   }
   // An explicit, bounded editorial change stays small even if its subject sounds complex.
@@ -88,6 +89,7 @@ function sessionModelSettings() {
   const profiles=settingsField('model-agent','Configure models for','<select id="model-agent">'+agents(agent)+'</select>');
   dialog('Session models','Preferences','<form id="session-models" class="settings-form">'+
     '<section class="settings-section">'+defaults+
+    settingsField('session-host','Open new sessions in','<select id="session-host">'+terminalHosts.options(state.sessionHost||'terminal')+'</select>')+
     '<label class="policy-switch" for="difficulty-curve"><span>Choose models by task difficulty</span><input id="difficulty-curve" type="checkbox" '+(policy.adaptive?'checked':'')+'></label>'+
     '<div class="curve-controls" id="curve-controls"></div></section>'+
     '<section class="settings-section"><div class="profile-fields">'+profiles+'<div id="model-fields"></div></div>'+
@@ -95,6 +97,7 @@ function sessionModelSettings() {
     '<div class="form-actions">'+button('Cancel','prefs')+'<button class="primary" type="submit">Save models</button></div></form>');
   settingsHeader();
   const form = $('#session-models');
+  if(live)postLive('terminal-catalog');
   function models() {
     const keys = policy.adaptive ? Object.keys(modelTiers) : ['fixed'];
     const ranges = {quick:'1–'+(policy.standardAt-1),standard:policy.standardAt+'–'+(policy.complexAt-1),complex:policy.complexAt+'–10'};
@@ -118,6 +121,6 @@ function sessionModelSettings() {
   $('#default-agent',form).onchange=e=>{policy.defaultAgent=e.target.value;agent=policy.defaultAgent;$('#model-agent',form).value=agent;settingsPickers.sync($('#model-agent',form));models()};
   $('#model-agent',form).onchange=e=>{agent=e.target.value;models()};
   $('#difficulty-curve',form).onchange=e=>{policy.adaptive=e.target.checked;limits();models()};
-  form.onsubmit=e=>{e.preventDefault();state.sessionModels=policy;persist();prefs();toast('Session models saved.')};
+  form.onsubmit=e=>{e.preventDefault();state.sessionHost=$('#session-host').value;state.sessionModels=policy;persist();prefs();toast('Session models saved.')};
   limits();models();settingsPickers.mount(form);
 }

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Exercise model arguments and ACP selection without launching paid agent turns."""
-import importlib.machinery
 import json
 import os
 import sqlite3
@@ -11,28 +10,19 @@ from pathlib import Path
 from unittest.mock import patch
 import agy_session
 
-runner = importlib.machinery.SourceFileLoader('runner', str(Path(__file__).with_name('run-agent'))).load_module()
-base = dict(agent='codex',session='conversation',folder='/tmp',task='test',brief='test',mode='ask',resume=False,model='selected')
-with patch.object(runner.shutil,'which',return_value='/agent'):
-    for provider in ('codex','claude'):
-        job=dict(base,agent=provider)
-        fresh=runner.command(job,None,Path('/tools'))
-        assert fresh[fresh.index('--model')+1]=='selected'
-        assert '--model' not in runner.command(job,'saved-conversation',Path('/tools'))
-        resumed=runner.command(dict(job,model='new-policy-model'),'saved-conversation',Path('/tools'),'recorded-model')
-        assert resumed[resumed.index('--model')+1]=='recorded-model'
-        assert '--model' not in runner.command(dict(job,resume=True,mode='nudge'),None,Path('/tools'))
-        assert '--model' not in runner.command(dict(job,model=''),None,Path('/tools'))
-        assert '--model' not in runner.command({k:v for k,v in job.items() if k!='model'},None,Path('/tools'))
-    assert runner.command(dict(base,agent='agy'),None,Path('/tools'))[-1]=='selected'
-    assert runner.command(dict(base,agent='agy'),'saved-conversation',Path('/tools'))[-1]==''
-    for model in ('--bad','bad\nmodel',['bad']):
-        try:
-            runner.command(dict(base,model=model),None,Path('/tools'))
-        except ValueError:
-            pass
-        else:
-            raise AssertionError('Invalid model accepted')
+from visible_session import cli_command
+
+base=dict(agent='codex',session='conversation',folder='/tmp',task='test',outgoing='reviewed prompt',instructions='fixture',model='selected',capture='test')
+for provider in ('codex','claude','agy'):
+    job=dict(base,agent=provider)
+    fresh=cli_command(job,Path('/tools'),'/agent')
+    assert fresh[fresh.index('--model')+1]=='selected'
+    assert '--model' not in cli_command(dict(job,model=''),Path('/tools'),'/agent')
+    assert not {'--print','exec','acp','app-server'}.intersection(fresh)
+    for bad in ('--bad','bad\nmodel',['bad']):
+        try: cli_command(dict(job,model=bad),Path('/tools'),'/agent')
+        except ValueError: pass
+        else: raise AssertionError('Invalid model accepted')
 
 calls=[]
 def call(*args):
@@ -92,4 +82,4 @@ with tempfile.TemporaryDirectory() as folder:
     path.write_text(json.dumps(dict(type='turn_context',payload=dict(model='from-context')))+'\n'+
                     json.dumps(dict(type='user',text='x'*140000))+'\n')
     assert last_transcript_model(path,'codex')=='from-context'
-print('Fresh Codex/Claude flags, legacy jobs, resume invariants, invalid IDs, and ACP selector contracts passed.')
+print('Interactive provider model flags, invalid model IDs, stored model lookups and legacy ACP selection passed.')

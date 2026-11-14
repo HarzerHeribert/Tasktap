@@ -14,8 +14,9 @@ function activityBand(titleMarkup, caption, active, receiptArt) {
 }
 
 function routingActivityCard(d) {
+  const checking=d.routing?.provider && d.routing.provider!=='local'?'Waiting for '+aiConnections.label(d.routing.provider)+'…':'Checking the on-device model…';
   dialog('Preparing handoff','Tasktap',
-    '<section id="route-activity" aria-label="Routing activity">'+activityBand('<strong id="route-phase" role="status">Checking the on-device model…</strong>',workspaceEvidence(d),true)+
+    '<section id="route-activity" aria-label="Routing activity">'+activityBand('<strong id="route-phase" role="status">'+esc(checking)+'</strong>',workspaceEvidence(d),true)+
     '<p class="activity-brief" id="partial-brief" hidden></p></section>'+
     '<div class="form-actions">'+button('Review now','skip-routing')+'</div>');
   updateSignal();
@@ -44,18 +45,23 @@ function cancelRouting() {
   updateSignal();
 }
 
-function reviewActivity(d) {
+function routingEvidence(d) {
   const source={
     apple:'Apple’s on-device model prepared the handoff.',
     estimate:'Apple’s on-device model estimated the scope of your selected task.',
     unavailable:'Apple’s on-device model is unavailable. Tasktap used local matching.',
     fallback:'The model couldn’t finish this handoff. Tasktap used local matching.',
-    skipped:'You skipped the model call. Tasktap used local matching.'
-  }[d.routingSource] || 'Tasktap used local matching.';
+    skipped:d.remoteAttempts?.length?'You stopped waiting for the remote request. Tasktap used local matching.':'You skipped the model call. Tasktap used local matching.'
+  }[d.routingSource] || (d.remoteAttempts?.length && !['local','skipped','error'].includes(d.routingSource)?aiConnections.label(d.routingSource)+' prepared the handoff.':'Tasktap used local matching.');
   const evidence=[source,workspaceEvidence(d)];
   if (d.reference?.value) evidence.push('Reference · '+d.reference.app+' · '+d.reference.value);
   const plan=modelPlanFor(d);
   if (plan) evidence.push(plan.reason);
+  return evidence;
+}
+function reviewActivity(d) {
+  const plan=modelPlanFor(d);
+  const evidence=routingEvidence(d);
   const detail=document.createElement('details');
   detail.className='route-evidence';
   detail.innerHTML='<summary>How this was routed</summary><ul>'+evidence.map(line=>'<li>'+esc(line)+'</li>').join('')+'</ul>';

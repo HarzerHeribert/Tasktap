@@ -73,7 +73,7 @@ function captureCard(c){
   return '<article class="capture-card"><div class="cap-meta"><span class="icon-label">'+icon('mic')+'Latest capture</span><span>'+esc(c.time)+'</span></div><blockquote>“'+esc(c.text||'Attached sketch')+'”</blockquote><div class="signal"><button class="play-btn" data-action="readcapture" aria-label="Read latest capture aloud">'+icon('play')+'</button>'+signal+'<span>'+esc(c.duration||'Text')+'</span></div><div class="capture-foot"><span class="icon-label">'+icon(p?'folder':'note')+esc(p?.name||'Scratch')+(session?' / '+esc(session.task):'')+'</span>'+button('View capture','detailcapture',c.id,'text-btn','out')+'</div></article>';
 }
 function sessionRow(s,fixture=false){
-  const agent=s.source==='desktop'?'Codex · ChatGPT desktop':s.source==='terminal'?'Codex · Terminal':s.source==='claude'?'Claude Code · External':providers[s.agent]||'Agent',p=proj(s.project);
+  const agent=s.interactive?providers[s.agent]+' · '+sessionLocation(s):s.source==='desktop'?'Codex · ChatGPT desktop':s.source==='terminal'?'Codex · Terminal':s.source==='claude'?'Claude Code · External':providers[s.agent]||'Agent',p=proj(s.project);
   return '<button class="session-row" data-action="session" data-id="'+attr(s.id)+'">'+(s.agent?'<span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span>':'<span aria-hidden="true"></span>')+'<span><span class="row-title">'+esc(s.task)+'</span><span class="row-sub">'+esc(agent)+'</span></span><span class="row-project">'+esc(p?.name||'Project')+'</span>'+(fixture?'<span class="fixture-amount">'+esc(s.amount)+'</span>':'<span class="row-state '+statusClass(s.state)+'"><i class="state-dot"></i>'+esc(s.state)+'</span>')+icon('right')+'</button>';
 }
 function sessionList(rows){return rows.length?'<div class="session-list">'+rows.map(s=>sessionRow(s)).join('')+'</div>':'<p class="empty">No sessions here yet.</p>'}
@@ -171,17 +171,26 @@ if(!window.webkit?.messageHandlers?.workspace && window.speechSynthesis){
 function showSession(id){
   const s=sess(id);if(!s)return;openedSession=id;
   const q=state.decisions.find(q=>q.session===id);
-  const actions=live&&!canNudge(s)?[]:[button('Follow up','follow',id,'primary','mic')];
+  const actions=[];
+  if(live && (s.interactive && s.available===true && !['Closed','Queued','Opening'].includes(s.state) || s.source==='cmux' && s.available)){
+    actions.push(button(s.host==='warp'?'Reattach in Warp':'Open in '+sessionLocation(s),'focus-session',id,'primary','out'));
+  }
+  if(!live || canNudge(s))actions.push(button('Follow up','follow',id,actions.length?'btn':'primary','mic'));
+  const latest=state.captures.find(c=>c.session===id);
+  if(live && latest)actions.push(button('View handoff','detailcapture',latest.id));
   if(live && s.source==='desktop')actions.push(button('Open in ChatGPT','openchat',id,'primary'));
-  if(live && s.managed && ['claude','codex'].includes(s.agent) && ['Failed','Complete'].includes(s.state))actions.push(button('Resume in Terminal','terminal',id),button('Copy resume command','copyresume',id));
+  if(live && s.managed && !s.interactive && !s.planAccount && ['claude','codex'].includes(s.agent) && ['Failed','Complete'].includes(s.state))actions.push(button('Resume in Terminal','terminal',id),button('Copy resume command','copyresume',id));
   if(q)actions.push(button('Review decision','notch',q.id));
   if(!live && s.state==='Running' && !s.producerKey)actions.push(button('Simulate completion','complete',id));
   if(s.result)actions.push(button('Read aloud','speakresult',id,'btn','sound'),button('Open in '+(s.viewer||(live?'Finder':'editor')),'openresult',id));
+  const turns=state.captures.filter(c=>c.session===id);
+  const history=live && turns.length>1?'<details class="route-evidence"><summary>Handoff history · '+turns.length+'</summary><ul>'+turns.map(c=>'<li>'+button(c.kind+' · '+(c.brief||c.text||'Sketch').slice(0,70),'detailcapture',c.id,'text-btn')+'</li>').join('')+'</ul></details>':'';
+  const location=s.interactive?'<p class="hint">'+esc(s.state==='Closed'?'The terminal session has closed.':s.available===false?'Waiting for the terminal session.':'You can type, interrupt, and answer approvals in '+sessionLocation(s)+'.')+'</p>':'';
   const waiting=s.external && s.waitingFor?'<p class="hint">'+esc('Claude is waiting in the original session ('+s.waitingFor+').')+'</p>':'';
   const turn=state.captures.find(c=>c.session===s.id);
   const status=activityBand('<strong class="session-state '+statusClass(s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(s.state)+'</strong>',proj(s.project)?.folder,['Running','Queued'].includes(s.state),live?handoffRelay.forCapture(turn):'');
   const activity=s.log.length?'<section class="block"><h3>Activity</h3><ul class="time-line">'+s.log.map(e=>'<li><i class="state-dot"></i>'+esc(s.result && e==='Complete. '+s.result?'Complete':e)+'</li>').join('')+'</ul></section>':'';
-  dialog(s.task,[providers[s.agent],s.model].filter(Boolean).join(' · '),status+waiting+activity+(s.result?'<section class="notice"><strong>Agent summary</strong><p>'+esc(s.result)+'</p></section>':'')+'<div class="inline">'+actions.join('')+'</div>');
+  dialog(s.task,[providers[s.agent],s.model].filter(Boolean).join(' · '),status+location+waiting+activity+history+(s.result?'<section class="notice"><strong>Agent summary</strong><p>'+esc(s.result)+'</p></section>':'')+'<div class="inline">'+actions.join('')+'</div>');
 }
 function routeDecision(candidates){
   const d=$('#notch');d.dataset.request=uid();
@@ -331,14 +340,14 @@ function routingPrompt(){
 function review(){
   const d=draft,s=sess(d.session);
   const destination=d.mode==='nudge'?s?.task:d.project==='@scratch'?'Scratch':d.project==='@new'?d.newName:proj(d.project)?.name;
-  const action=d.mode==='note'?'Save note':d.mode==='nudge'?'Send nudge':'Start session';
+  const action=d.mode==='note'?'Save note':d.mode==='nudge'?(manualNudge(d)?'Copy nudge & open session':'Send nudge'):'Start session';
   const where=[d.mode==='nudge'?proj(s?.project)?.name:null,destination,d.mode==='note'?null:providers[d.mode==='nudge'?s?.agent:d.agent],d.viewer].filter(Boolean).join(' · ');
   const note=d.keep && d.mode!=='note'?'<p class="hint">Also save a note: '+esc(d.note||d.brief)+'</p>':'';
   const agent=d.mode==='nudge'?s?.agent:d.agent;
   if (d.mode!=='note') d.captureId??=uid();
   const relay=d.mode==='note'?'':handoffRelay.markup(d.captureId,agent,d.relayPhase||'review');
   const route=relay?'<div class="review-rail">'+relay+'<span data-relay-label>'+(d.relayPhase==='failed'?'Handoff failed':'Ready for '+esc(providers[agent]))+'</span></div>':'';
-  dialog('Review capture',where,route+'<p class="review-brief" id="review-brief">'+esc(d.brief||'Attached sketch')+'</p>'+(d.strokes.length?sketchMarkup(d.strokes):'')+modelReviewMarkup(d)+captureContext.review(d)+note+
+  dialog('Review capture',where,route+'<p class="review-brief" id="review-brief">'+esc(d.brief||'Attached sketch')+'</p>'+(d.strokes.length?sketchMarkup(d.strokes):'')+modelReviewMarkup(d)+captureContext.review(d)+note+aiConnections.receipt(d)+(live?deliveryAudit(d):'')+
     '<div class="form-actions">'+button('Adjust','adjust')+button(action,'commit-review','','primary')+'</div>');
   reviewActivity(d);
 }
@@ -347,17 +356,18 @@ function adjustReview(){
   const routes=[['note','Save a note'],['ask','Ask an agent'],['nudge','Nudge a session']];
   const ps=state.projects.map(p=>option(p.id,p.name,d.project)).join('');
   const matches=matchSessions(d.text);
-  const sessionChoices=[...matches,...state.sessions.filter(s=>!matches.includes(s))];
+  const sessionChoices=[...matches,...state.sessions.filter(s=>!matches.includes(s) && (!live || canNudge(s)))];
   const field=(label,html)=>'<label>'+label+html+'</label>';
   const projectField=field('Workspace','<select id="project" required>'+option('','Choose a workspace',d.project)+ps+option('@new','Create project folder…',d.project)+option('@scratch','Keep in scratch',d.project)+'</select>');
   const sessionField=field('Existing session','<select id="session" required>'+option('','Choose the matching session',d.session)+sessionChoices.map(s=>option(s.id,s.task+' · '+proj(s.project)?.name+' · '+providers[s.agent],d.session)).join('')+'</select>');
   const newField=d.project==='@new'?field('New project name','<input id="newName" value="'+attr(d.newName)+'" placeholder="Name under ~/projects" required pattern="[^/]+">'):'';
-  const providerFields=d.mode==='ask'?field('Agent','<select id="agent">'+Object.entries(providers).map(([k,v])=>option(k,v,d.agent)).join('')+'</select>')+field('Model for this session',modelInput(d.agent,'override',d.modelOverride?.agent===d.agent?d.modelOverride.value:'',modelPlanFor({...d,modelOverride:null}).label))+modelSuggestions(d.agent)+field('Open result in','<select id="viewer">'+['','Xcode','Preview','Finder'].map(v=>option(v,v||'Choose later',d.viewer)).join('')+'</select>'):'';
+  const providerFields=d.mode==='ask'?field('Agent','<select id="agent">'+Object.entries(providers).map(([k,v])=>option(k,v,d.agent)).join('')+'</select>')+field('Model for this session',modelInput(d.agent,'override',d.modelOverride?.agent===d.agent?d.modelOverride.value:'',modelPlanFor({...d,modelOverride:null}).label))+modelSuggestions(d.agent)+(live?settingsField('handoff-host','Terminal for this session','<select id="handoff-host">'+terminalHosts.options(sessionHost(d))+'</select>'):'')+field('Open result in','<select id="viewer">'+['','Xcode','Preview','Finder'].map(v=>option(v,v||'Choose later',d.viewer)).join('')+'</select>'):'';
   dialog('Adjust handoff','Routing','<form id="route-form" class="fields"><details><summary>Original capture'+(d.strokes.length?' · sketch attached':'')+'</summary><p class="body-copy">'+esc(d.text||'Sketch only')+'</p>'+(d.strokes.length?sketchMarkup(d.strokes):'')+'</details>'+field('Action','<select id="mode">'+routes.map(([k,v])=>option(k,v,d.mode)).join('')+'</select>')+field(d.mode==='note'?'Note':'Agent handoff','<textarea id="brief" '+(d.strokes.length?'':'required')+'>'+esc(d.brief)+'</textarea>')+(d.mode==='nudge'?sessionField:projectField+newField)+providerFields+(d.mode!=='note'?'<div class="check-line"><input id="keep" type="checkbox" '+(d.keep?'checked':'')+'><label for="keep">Save a separate project note</label></div>'+(d.keep?field('Project note','<textarea id="sideNote" required>'+esc(d.note)+'</textarea>'):''):'')+'<div class="form-actions">'+button('Edit capture','edit')+'<button class="primary" type="submit">Review changes</button></div></form>');
   const f=$('#route-form');
   f.querySelectorAll('button[data-action]').forEach(b=>b.type='button');
   const bind=(id,key)=>{const el=$('#'+id,f);if(el)el.oninput=()=>d[key]=el.value};
-  [['brief','brief'],['sideNote','note'],['newName','newName'],['agent','agent'],['viewer','viewer']].forEach(([id,key])=>bind(id,key));
+  [['brief','brief'],['sideNote','note'],['newName','newName'],['agent','agent'],['viewer','viewer'],['handoff-host','host']].forEach(([id,key])=>bind(id,key));
+  if($('#handoff-host',f))postLive('terminal-catalog');
   if($('#agent',f))$('#agent',f).onchange=e=>{d.agent=e.target.value;delete d.modelOverride;adjustReview();$('#agent').focus()};
   if($('#model-override',f))$('#model-override',f).oninput=e=>{d.modelOverride={agent:d.agent,value:e.target.value.trim()}};
   $('#mode',f).onchange=e=>{d.mode=e.target.value;adjustReview()};
@@ -391,7 +401,7 @@ function deliver(id){
   if($('#modal').open&&$('#dialog-heading')?.textContent==='Capture detail'&&$('#receipt')?.dataset.capture===id)detailCapture(id);
   toast('Nudge delivered to '+s.task+'.');
 }
-function detailCapture(id){const c=byId(state.captures,id);if(!c)return;dialog('Capture detail',c.kind,handoffRelay.forCapture(c)+'<div class="detail-line">'+icon('folder')+esc(proj(c.project)?.name||'Scratch')+'<span id="receipt" data-capture="'+attr(id)+'" class="badge">'+esc(c.receipt)+'</span></div><div class="block"><h3>Original capture</h3><p class="body-copy">'+esc(c.text||'Sketch only')+'</p>'+(c.strokes?.length?sketchMarkup(c.strokes):'')+'</div><div class="block"><h3>Reviewed brief</h3><p class="body-copy">'+esc(c.brief)+'</p></div>'+(c.session?button('Open session','session',c.session):''))}
+function detailCapture(id){const c=byId(state.captures,id);if(!c)return;dialog('Capture detail',c.kind,handoffRelay.forCapture(c)+(c.accounts?'<p class="hint body-copy">'+esc(c.accounts)+'</p>':'')+'<div class="detail-line">'+icon('folder')+esc(proj(c.project)?.name||'Scratch')+'<span id="receipt" data-capture="'+attr(id)+'" class="badge">'+esc(c.receipt)+'</span></div><div class="block"><h3>Original capture</h3><p class="body-copy">'+esc(c.text||'Sketch only')+'</p>'+(c.strokes?.length?sketchMarkup(c.strokes):'')+'</div><div class="block"><h3>Reviewed brief</h3><p class="body-copy">'+esc(c.brief)+'</p></div>'+(c.routingEvidence?'<details class="route-evidence"><summary>How this was routed</summary><p class="body-copy">'+esc(c.routingEvidence)+'</p></details>':'')+(c.routingPayload?'<details class="route-evidence"><summary>Sent for preparation</summary><p class="body-copy">'+esc(c.routingPayload)+'</p></details>':'')+(c.outgoing?'<details class="route-evidence"><summary>Exact handoff</summary><p class="body-copy">'+esc(c.outgoing)+'</p><p class="body-copy">'+esc(c.instructions||'')+'</p></details>':'')+(c.session?button('Open session','session',c.session):''))}
 function showNote(id){
   const n=byId(state.notes,id),c=n.capture&&byId(state.captures,n.capture);
   dialog(n.title,proj(n.project)?.name||'Scratch','<p class="body-copy">'+esc(n.text)+'</p>'+(c?.strokes?.length?sketchMarkup(c.strokes):'')+(c?button('View original capture','detailcapture',c.id):'')+(!n.project?'<form id="assign" class="fields"><label>Assign to project<select id="assign-project" required>'+option('','Choose project')+state.projects.map(p=>option(p.id,p.name)).join('')+'</select></label><button class="primary">Move note</button></form>':''));
@@ -402,9 +412,9 @@ function prefs(){
   const current=TasktapArt.current(),policy=sessionModelPolicy();
   const themes=TasktapArt.catalog.map(theme=>'<option value="'+attr(theme.id)+'" data-art="'+attr(theme.id)+'" data-detail="'+attr(theme.medium)+'" '+(current===theme.id?'selected':'')+'>'+esc(theme.name)+'</option>').join('');
   const profile=policy.agents[policy.defaultAgent];
-  const policySummary=providers[policy.defaultAgent]+' · '+(policy.adaptive?'Difficulty curve':profile.fixed || 'Agent default');
+  const policySummary=providers[policy.defaultAgent]+' · '+(policy.adaptive?'Difficulty curve':profile.fixed || 'Agent default')+' · '+terminalHosts.label(state.sessionHost);
   dialog('Preferences','Tasktap','<div id="preferences" class="settings-form">'+
-    '<section class="settings-section"><button class="settings-jump" type="button" data-action="session-models" aria-label="Session models">'+
+    '<section class="settings-section">'+aiConnections.jump()+'<button class="settings-jump" type="button" data-action="session-models" aria-label="Session models">'+
     '<span class="jump-mark">'+icon('sessions')+'</span><span><strong>Session models</strong><small>'+esc(policySummary)+'</small></span>'+icon('right')+'</button>'+
     settingsField('visual-theme','Artwork','<select id="visual-theme">'+themes+'</select>')+'</section>'+
     '<section class="settings-section">'+settingsField('voice-engine','Narration voice','<select id="voice-engine"></select>')+
@@ -429,12 +439,13 @@ document.addEventListener('click',e=>{
   const el=e.target.closest('[data-action]');if(!el)return;const a=el.dataset.action,id=el.dataset.id;
   switch(a){
     case 'view':go(id);break;case 'capture':newDraft('');break;case 'menu':document.body.classList.toggle('nav-open');break;
-    case 'start-session':newDraft('',id);break;case 'follow':newDraft(id);break;case 'session':showSession(id);break;case 'close':dismissCard();break;case 'prefs':prefs();break;case 'session-models':sessionModelSettings();break;
+    case 'start-session':newDraft('',id);break;case 'follow':newDraft(id);break;case 'session':showSession(id);break;case 'close':dismissCard();break;case 'prefs':prefs();break;case 'session-models':sessionModelSettings();break;case 'ai-connections':aiConnections.show();break;
     case 'readcapture':speak(state.captures[0].text||'Attached sketch');break;case 'speakresult':speak(sess(id).result);break;
     case 'openchat':postLive('open-desktop-chat',{id:sess(id).conversation});break;
     case 'setup-voice':postLive('install-kokoro');break;
     case 'preview-voice':speak('Tasktap is ready. What would you like to work on?');break;
     case 'terminal':postLive('resume-terminal',{id});break;
+    case 'focus-session':postLive('focus-session',{id});break;
     case 'copyresume':postLive('copy-resume',{id});break;
     case 'openresult':if(live){const s=sess(id);postLive('open-result',{id,viewer:s.viewer||'Finder',text:s.result||''});break}dialog('Result preview',sess(id).viewer||'Editor','<p>'+esc(sess(id).result)+'</p><p class="hint">Opening an external app is simulated here.</p>'+button('Back to session','session',id));break;
     case 'detailcapture':detailCapture(id);break;case 'note':showNote(id);break;case 'sample':startSample();break;case 'dictate':dictate(id);break;

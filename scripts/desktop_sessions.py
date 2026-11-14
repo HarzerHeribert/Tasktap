@@ -51,7 +51,7 @@ def sessions(root, cache_path):
     if not db_path.is_file():
         return []
     try:
-        cache = json.loads(cache_path.read_text())
+        cache = json.loads(cache_path.read_text()) if cache_path else {}
     except (OSError, ValueError):
         cache = {}
     rows = []
@@ -78,6 +78,7 @@ def sessions(root, cache_path):
                              task=(name or Path(cwd).name).splitlines()[0][:112], agent="codex", state=state))
     finally:
         db.close()
+    if cache_path is None: return rows
     try:
         temp = cache_path.with_suffix(".tmp")
         temp.write_text(json.dumps(cache))

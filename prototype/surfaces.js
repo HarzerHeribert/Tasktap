@@ -110,9 +110,9 @@ function drawHome(){
   root.classList.toggle('retracting',homeMode==='retracting');
   $('#islandToggle').setAttribute('aria-expanded',String(!root.hidden || $('#notch').open));
   document.body.classList.toggle('notch-spread',!root.hidden);
-  const latest=live && state.captures.find(c=>c.session && ['Complete','Failed','Running','Queued','Delivered'].includes(c.receipt));
+  const latest=live && state.captures.find(c=>c.session && ['Complete','Failed','Running','Queued','Delivered','Opening','Opened','Copied','Closed'].includes(c.receipt));
   const recent=latest && sess(latest.session);
-  const paneTitle=q?'Decision ready':recent?({Complete:'Result ready',Failed:'Session stopped',Running:latest.external?'Sending nudge':'Agent working',Queued:'Handoff queued',Delivered:'Nudge delivered'}[latest.receipt]):'Ready to capture';
+  const paneTitle=q?'Decision ready':recent?({Complete:'Result ready',Failed:'Session stopped',Running:latest.external?'Sending nudge':'Agent working',Queued:'Handoff queued',Delivered:'Nudge delivered',Opened:'Session opened',Opening:'Opening session',Copied:'Nudge copied',Closed:'Session closed'}[latest.receipt]):'Ready to capture';
   const preview=q?'<button class="request-preview" data-surface="requests" data-target="'+attr(q.id)+'"><span class="preview-icon">'+icon('sessions')+'</span><span><small>'+esc(proj(s.project).name)+' / '+esc(providers[s.agent])+'</small><strong>'+esc(q.q)+'</strong></span>'+icon('right')+'</button>':recent?'<button class="request-preview" data-action="session" data-id="'+attr(recent.id)+'"><span class="preview-icon">'+icon('sessions')+'</span><span><small>'+esc(proj(recent.project)?.name||'Scratch')+' / '+esc(providers[recent.agent])+'</small><strong>'+esc(recent.task)+'</strong></span>'+icon('right')+'</button>':'<p class="home-idle">Capture an idea, ask about a project, or follow up with a session.</p>';
   const homeArt=recent && !q ? handoffRelay.forCapture(latest) : '';
   const content='<header class="home-meta"><span class="icon-label">Tasktap</span>'+surfaceButton('','collapse','down','collapse-button')+'</header><div class="home-heading"><div><h1>'+paneTitle+'</h1><small class="signal-caption"></small></div><span class="signal-light" aria-hidden="true"><i>'+(homeArt||resonatorMarkup('miniature'))+'</i></span></div>'+preview+'<footer class="home-actions">'+surfaceButton('Capture','capture','mic','voice-trigger')+'<kbd>'+chords.capture[1]+'</kbd>'+surfaceButton('Workspace','workspace','out','workspace-link')+'</footer>';
@@ -360,6 +360,6 @@ window.workspaceCommand=(action,id='')=>{
   command(action,id);
 };
 document.body.classList.toggle('native-host',!!host);
-if(live){const label=$('.local');if(label)label.innerHTML='<i></i>On this Mac'}
+if(live){const label=$('.local');if(label)label.innerHTML='<i></i>Local workspace'}
 if(['#workspace','#geometry'].includes(location.hash)){document.body.classList.remove('notch-first');$('#notch-home').hidden=true}
 syncSurfaces();postHost('lightingPreference',{enabled:!!state.microLights});postHost('ready');

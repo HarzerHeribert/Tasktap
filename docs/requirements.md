@@ -46,7 +46,7 @@ Catch a thought while the user is speaking or drawing. Preserve it, connect it t
 
 Projects opens with folders that have queued work, a running turn, or an outstanding question. A discovered folder, an idle session, or a timestamp is insufficient evidence of activity. Show idle projects includes the full available list. Start session opens a brief scoped to the selected folder and submits only after review. A spoken project name still resolves against the full catalog.
 
-Use direct CLI or ACP events for managed sessions and scoped MCP registration for two-way questions. First-run setup requires no lifecycle hook installation. External state observations carry the capabilities of their actual source.
+Every new task must open an interactive agent in the selected terminal. A user can open that same session from Sessions and type, interrupt or approve work directly. Routing credentials belong only to capture preparation. Show the reviewed prompt, routing evidence and destination, and retain them with the delivery receipt. A follow-up must address the existing conversation or explicitly offer to copy the text for manual submission. First-run setup requires no lifecycle hook installation. External state observations carry the capabilities of their actual source.
 
 ## Current implementation
 
@@ -59,7 +59,7 @@ The standalone browser preview uses fixtures for reproducible design and interac
 | Package | Implemented | Remaining scope |
 | --- | --- | --- |
 | Workspace usability | Native resizing and close, bounded project list, persistent Preferences, active-project default and Start session | User feedback on daily usage |
-| Session integration | Managed CLI/ACP events, scoped question tool, read-only external status discovery | Universal external reply transport and native permission forwarding |
+| Session integration | Interactive terminal delivery, scoped question and completion tools, read-only external status discovery | Universal external reply transport and native permission forwarding |
 | Models | Fixed or adaptive settings, per-provider models, review override, recorded-model resumes | Broader difficulty evaluation and provider model availability checks |
 | Routing feedback | On-device draft streaming, source evidence, cancellation, optional voice | Continuous task execution explanation beyond provider receipts |
 | Source context | Supported browser URLs, Finder selection, accessible document paths, manual recovery | Screenshot/OCR, selected text, visual regions and unsaved editor buffers |

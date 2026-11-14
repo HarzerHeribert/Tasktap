@@ -4,7 +4,7 @@ The Mac app receives questions in the background and keeps keyboard focus in the
 
 ## Connecting a session
 
-Tasktap registers the question tool automatically when it launches an agent. An external agent launcher can start the bundled **agent-tools** command as a standard MCP stdio server. Pass the actual provider, session ID, worktree and display title for that run. The example below illustrates the server entry for a Claude Code session. Use the same entry with `--agent codex` or `--agent agy` for a compatible agent client. The request channel is opt-in per integration. Existing terminal sessions need an adapter or the tool registration. Both bundled commands use Python 3.
+Tasktap registers the question tool when it opens an interactive Claude Code or Codex session. Antigravity shows decisions in its own terminal. An external agent launcher can start the bundled **agent-tools** command as a standard MCP stdio server. Pass the actual provider, session ID, worktree and display title for that run. The example below illustrates the server entry for a Claude Code session. Use the same entry with `--agent codex` or `--agent agy` for a compatible agent client. The request channel is opt-in per integration. Existing terminal sessions need an adapter or the tool registration. Both bundled commands use Python 3.
 
 ```json
 {
@@ -17,7 +17,7 @@ Tasktap registers the question tool automatically when it launches an agent. An 
 }
 ```
 
-The agent calls **ask_user** when it actually needs input. It supplies a stable request ID, the question, optional context and optional choices. Omitting choices yields Yes, No and Talk it through. A discussion returns the user's words and a cursor. The agent can address the follow-up, then wait again using the same request and the returned cursor. An `answer` result is the final decision. This integration forwards prompts that use the tool. Antigravity can also forward its supported one-time ACP permission choices. Claude Code and Codex retain their own permission policies.
+The agent calls **ask_user** when it actually needs input. It supplies a stable request ID, the question, optional context and optional choices. Omitting choices yields Yes, No and Talk it through. A discussion returns the user's words and a cursor. The agent can address the follow-up, then wait again using the same request and the returned cursor. An `answer` result is the final decision. This integration forwards prompts that use the tool. Permission prompts remain in the interactive agent. Tasktap also registers **report_result** for its own handoffs. The agent supplies the receipt ID from the prompt and its final summary, which the app can show and narrate.
 
 ## Scripted adapters
 

@@ -3,6 +3,9 @@
 import argparse
 import concurrent.futures
 import json
+import uuid
+import os
+import tempfile
 from pathlib import Path
 import subprocess
 import sys
@@ -13,7 +16,37 @@ parser.add_argument('--agent',choices=['claude','codex','agy'],required=True)
 parser.add_argument('--session',required=True,help='Stable agent session identifier')
 parser.add_argument('--workspace',default=str(Path.cwd()))
 parser.add_argument('--task')
+parser.add_argument('--run-dir',type=Path)
 config=parser.parse_args()
+outcome_tool={'name':'report_result','description':'Report the completed Tasktap handoff by its exact receipt ID and summarize the outcome for the person.',
+              'inputSchema':{'type':'object','properties':{'capture':{'type':'string'},'summary':{'type':'string'}},
+                             'required':['capture','summary'],'additionalProperties':False}}
+
+
+def report_result(args):
+    capture=str(uuid.UUID(args['capture']))
+    summary=args['summary'].strip()
+    if not summary or len(summary)>32000 or config.run_dir.name!=config.session:raise ValueError('Invalid report.')
+    path=next((p for p in config.run_dir.glob('*-'+capture+'.job')),None)
+    if not path: raise ValueError('Unknown handoff in this session.')
+    job=json.loads(path.read_text())
+    if job['session']!=config.session or job['agent']!=config.agent or job['folder']!=config.workspace or job.get('delivery')!='interactive':
+        raise ValueError('Handoff does not belong to this agent.')
+    if path.with_suffix('.receipt').exists() and json.loads(path.with_suffix('.receipt').read_text()).get('state')=='Complete':
+        return {'content':[{'type':'text','text':'Already reported.'}]}
+    with tempfile.NamedTemporaryFile('w',dir=config.run_dir,delete=False) as out:
+        json.dump({'state':'Complete','message':summary},out)
+    os.replace(out.name,path.with_suffix('.receipt'))
+    return {'content':[{'type':'text','text':'Reported in Tasktap.'}]}
+
+if config.run_dir and config.agent=='codex' and os.environ.get('CODEX_THREAD_ID'):
+    try:
+        thread=str(uuid.UUID(os.environ['CODEX_THREAD_ID']))
+        with tempfile.NamedTemporaryFile('w',dir=config.run_dir,delete=False) as out:
+            json.dump({'id':thread},out)
+        try: os.link(out.name,config.run_dir/'thread.json')
+        finally: os.unlink(out.name)
+    except (ValueError,OSError):pass
 lock=threading.Lock()
 active={}
 write_lock=threading.Lock()
@@ -70,7 +103,11 @@ try:
             version=p.get('protocolVersion')
             reply(i,{'protocolVersion':version if version in ('2024-11-05','2025-03-26','2025-06-18','2025-11-25') else '2025-11-25','capabilities':{'tools':{}},'serverInfo':{'name':'workspace-assistant','version':'0.3'}})
         elif method=='ping':reply(i,{})
-        elif method=='tools/list':reply(i,{'tools':[tool]})
+        elif method=='tools/list':reply(i,{'tools':[tool,outcome_tool] if config.run_dir else [tool]})
+        elif method=='tools/call' and config.run_dir and p.get('name')=='report_result':
+            try:reply(i,report_result(p.get('arguments',{})))
+            except (ValueError,KeyError,TypeError,AttributeError,OSError) as error:
+                reply(i,{'isError':True,'content':[{'type':'text','text':str(error)}]})
         elif method=='tools/call' and p.get('name')=='ask_user':
             with lock:active[i]=None
             pool.submit(ask,i,p.get('arguments',{}))

@@ -7,6 +7,7 @@ final class LiveWorkspace {
     private var workers=[String:Process]()
     private var seen=[URL:Date]()
     private var historical=Set<URL>()
+    private var opening=Set<URL>()
     private var pending=[URL:[String:String]]()
     private var timer:Timer?
     private var externalScan:Process?
@@ -17,16 +18,16 @@ final class LiveWorkspace {
         discoveryTimer=Timer.scheduledTimer(withTimeInterval:8,repeats:true){[weak self] _ in self?.refreshExternal()}
     }
     var externalChanged:([[String:String]])->Void = {_ in}
-    private var cliEnvironment:[String:String]{
+    static var cliEnvironment:[String:String]{
         var env=ProcessInfo.processInfo.environment
-        env["PATH"]=[fm.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin").path,"/opt/homebrew/bin","/usr/local/bin",env["PATH"] ?? "/usr/bin:/bin"].joined(separator:":")
+        env["PATH"]=[FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin").path,"/opt/homebrew/bin","/usr/local/bin",env["PATH"] ?? "/usr/bin:/bin"].joined(separator:":")
         return env
     }
     func refreshExternal() {
         guard externalScan==nil, let script=Bundle.main.url(forResource:"cmux-sessions",withExtension:nil) else{return}
         let process=Process()
         let output=Pipe()
-        process.executableURL=script;process.arguments=["list",root.path,data.deletingLastPathComponent().appendingPathComponent("desktop-activity.json").path];process.environment=cliEnvironment
+        process.executableURL=script;process.arguments=["list",root.path,data.deletingLastPathComponent().appendingPathComponent("desktop-activity.json").path,data.path];process.environment=Self.cliEnvironment
         process.standardOutput=output;process.standardError=FileHandle.nullDevice
         externalScan=process
         DispatchQueue.global(qos:.utility).async {
@@ -59,10 +60,10 @@ final class LiveWorkspace {
                 let receipt=job.deletingPathExtension().appendingPathExtension("receipt")
                 if let meta=try? JSONSerialization.jsonObject(with:Data(contentsOf:job)) as? [String:Any],let cid=meta["capture"] as? String{
                     pending[receipt]=["session":folder.lastPathComponent,"capture":cid]
-                    if ["Complete","Failed","Delivered"].contains(readState(receipt) ?? "") {historical.insert(receipt)}
+                    if ["Complete","Failed","Delivered","Opened","Copied","Opening","Closed"].contains(readState(receipt) ?? "") {historical.insert(receipt)}
                 }
             }
-            if pending.keys.contains(where:{ $0.deletingLastPathComponent().path==folder.path && readState($0) != "Complete" && !["Failed","Delivered"].contains(readState($0) ?? "") }) {try launch(folder)}
+            if pending.keys.contains(where:{ $0.deletingLastPathComponent().path==folder.path && readState($0) != "Complete" && !["Failed","Delivered","Opened","Copied","Opening","Closed"].contains(readState($0) ?? "") }) {try launch(folder)}
         }
         timer=Timer.scheduledTimer(withTimeInterval:0.7,repeats:true){[weak self] _ in self?.poll()}
     }
@@ -81,6 +82,16 @@ final class LiveWorkspace {
         guard let session=job["session"] as? String,UUID(uuidString:session) != nil,let capture=job["capture"] as? String,UUID(uuidString:capture) != nil,
               let path=job["folder"] as? String,let mode=job["mode"] as? String,["ask","nudge","note"].contains(mode),
               let provider=job["agent"] as? String,["claude","codex","agy"].contains(provider) else {throw Failure.reason("Invalid handoff.")}
+        if mode != "note" {
+            guard job["delivery"] as? String=="interactive", (job["planAccount"] as? String ?? "").isEmpty,
+                  let host=job["host"] as? String, (TerminalCatalog.applications[host] != nil || host=="desktop"),
+                  mode != "ask" || host != "desktop",
+                  let outgoing=job["outgoing"] as? String, !outgoing.isEmpty,
+                  job["instructions"] is String else {throw Failure.reason("Review the handoff to a visible agent session.")}
+        }
+        if mode=="ask",let host=job["host"] as? String, TerminalCatalog.app(host)==nil {
+            throw Failure.reason("Your chosen terminal is unavailable. Choose an installed app in Preferences → Session models.")
+        }
         let scratch=data.deletingLastPathComponent().appendingPathComponent("Scratch",isDirectory:true)
         let dir=path=="@scratch" ? scratch : URL(fileURLWithPath:path,isDirectory:true).standardizedFileURL
         guard dir==scratch || dir.deletingLastPathComponent().standardizedFileURL.path==root.standardizedFileURL.path else {throw Failure.reason("Choose a folder directly under ~/projects.")}
@@ -101,6 +112,14 @@ final class LiveWorkspace {
             let existing=files.first{$0.lastPathComponent.hasSuffix(capture+".job")}
             let url=existing ?? folder.appendingPathComponent(String(Int(Date().timeIntervalSince1970*1000000))+"-"+capture+".job")
             var record=job;record["folder"]=dir.path;record["resume"]=mode=="nudge"
+            record["hostApp"]=(record["host"] as? String).flatMap(TerminalCatalog.app)?.path
+            if mode=="nudge", job["external"] as? Bool != true {
+                guard let first=files.filter({$0.pathExtension=="job"}).sorted(by:{$0.lastPathComponent<$1.lastPathComponent}).first,
+                      let owner=try JSONSerialization.jsonObject(with:Data(contentsOf:first)) as? [String:Any],
+                      owner["mode"] as? String=="ask", owner["delivery"] as? String=="interactive",
+                      owner["agent"] as? String==provider,owner["folder"] as? String==dir.path,(owner["host"] as? String)==(job["host"] as? String)
+                else {throw Failure.reason("Select the original interactive session for this nudge.")}
+            }
             if existing==nil {try JSONSerialization.data(withJSONObject:record).write(to:url,options:.atomic)}
             pending[url.deletingPathExtension().appendingPathExtension("receipt")]=["session":session,"capture":capture]
             try launch(folder)
@@ -127,7 +146,7 @@ final class LiveWorkspace {
         if workers[folder.path] != nil{return}
         guard let url=Bundle.main.url(forResource:"run-agent",withExtension:nil) else {throw Failure.reason("The bundled agent runner is missing.")}
         let p=Process();p.executableURL=url;p.arguments=[folder.path]
-        var env=cliEnvironment
+        var env=Self.cliEnvironment
         env["WORKSPACE_ASSISTANT_INBOX"]=data.deletingLastPathComponent().appendingPathComponent("Agent Inbox").path
         p.environment=env;p.standardInput=FileHandle.nullDevice
         p.terminationHandler={ [weak self] _ in DispatchQueue.main.async {
@@ -144,11 +163,44 @@ final class LiveWorkspace {
         }}
         try p.run();workers[folder.path]=p
     }
+    func focusSession(_ id:String, completion:@escaping (String?)->Void) {
+        guard UUID(uuidString:id) != nil else {completion("Invalid session.");return}
+        let external=lastDiscovery?.first{$0["id"]==id && $0["owned"] != "yes"}
+        let script=external == nil ? "run-agent" : "cmux-sessions"
+        guard let url=Bundle.main.url(forResource:script,withExtension:nil) else {completion("Session helper is unavailable.");return}
+        let arguments:[String]
+        if let external {
+            if external["source"]=="desktop",let thread=external["conversation"],UUID(uuidString:thread) != nil,let url=URL(string:"codex://threads/"+thread) {
+                completion(NSWorkspace.shared.open(url) ? nil:"Could not open this ChatGPT chat.");return
+            }
+            guard external["surface"] != nil else {completion("Open this conversation in its original client.");return}
+            arguments=["focus",root.path,id]
+        } else {arguments=["focus",data.appendingPathComponent(id).path]}
+        DispatchQueue.global(qos:.userInitiated).async {
+            let p=Process(),pipe=Pipe()
+            p.executableURL=url;p.arguments=arguments
+            var env=Self.cliEnvironment
+            if external != nil {env["TASKTAP_TERMINAL_APP"]=TerminalCatalog.app("cmux")?.path}
+            p.environment=env;p.standardError=pipe;p.standardOutput=FileHandle.nullDevice
+            let problem:String?
+            do {try p.run();let bytes=pipe.fileHandleForReading.readDataToEndOfFile();p.waitUntilExit()
+                problem=p.terminationStatus==0 ? nil : String(data:bytes,encoding:.utf8)?.trimmingCharacters(in:.whitespacesAndNewlines) ?? "Could not open this session."
+            } catch {problem=error.localizedDescription}
+            DispatchQueue.main.async {completion(problem)}
+        }
+    }
     private func poll(){
         for url in pending.keys.sorted(by:{$0.lastPathComponent < $1.lastPathComponent}) {
             guard let meta=pending[url] else {continue}
+            if opening.contains(url), !fm.fileExists(atPath:url.deletingLastPathComponent().appendingPathComponent("surface.json").path),
+               let started=try? url.resourceValues(forKeys:[.contentModificationDateKey]).contentModificationDate,
+               Date().timeIntervalSince(started)>90 {
+                let failure=["state":"Failed","message":"The terminal did not confirm opening. Check its window and review the handoff again."]
+                try? JSONSerialization.data(withJSONObject:failure).write(to:url,options:.atomic)
+            }
             guard let date=try? url.resourceValues(forKeys:[.contentModificationDateKey]).contentModificationDate,date != seen[url],
                   let bytes=try? Data(contentsOf:url),let receipt=try? JSONSerialization.jsonObject(with:bytes) as? [String:String] else {continue}
+            if receipt["state"]=="Opening"{opening.insert(url)}else{opening.remove(url)}
             seen[url]=date
             var event=meta.merging(receipt){_,b in b}
             if historical.remove(url) != nil {event["recovered"]="true"}
@@ -156,7 +208,7 @@ final class LiveWorkspace {
                let job=try? JSONSerialization.jsonObject(with:bytes) as? [String:Any] {
                 event["scratch"]=(job["folder"] as? String==data.deletingLastPathComponent().appendingPathComponent("Scratch").path) ? "true":"false"
                 event["external"]=(job["external"] as? Bool==true) ? "true":"false"
-                for key in ["task","folder","agent","brief","mode"] {event[key]=job[key] as? String}
+                for key in ["task","folder","agent","brief","mode","accounts","planAccount","host","delivery","outgoing","instructions","routingEvidence","routingPayload","transcript"] {event[key]=job[key] as? String}
                 if event["model"]==nil {event["model"]=job["model"] as? String}
             }
             changed(event)
@@ -169,7 +221,7 @@ final class LiveWorkspace {
         guard let first=jobs.first,
               jobs.allSatisfy({["Complete","Failed"].contains(readState($0.deletingPathExtension().appendingPathExtension("receipt")) ?? "")}),
               let job=try JSONSerialization.jsonObject(with:Data(contentsOf:first)) as? [String:Any],
-              job["external"] as? Bool != true,let provider=job["agent"] as? String,["claude","codex"].contains(provider),
+              (job["planAccount"] as? String ?? "").isEmpty,job["external"] as? Bool != true,let provider=job["agent"] as? String,["claude","codex"].contains(provider),
               let cwd=job["folder"] as? String,
               let conversation=try JSONSerialization.jsonObject(with:Data(contentsOf:folder.appendingPathComponent("conversation.json"))) as? [String:String],
               let handle=conversation["id"],UUID(uuidString:handle) != nil else {

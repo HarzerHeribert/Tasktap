@@ -12,8 +12,10 @@
 <key>LSMinimumSystemVersion</key><string>26.0</string>
 <key>LSUIElement</key><true/>
 <key>NSPrefersDisplaySafeAreaCompatibilityMode</key><false/>
+<key>NSLocalNetworkUsageDescription</key><string>Connect to the model server address you choose to list models and prepare captures.</string>
+<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 <key>NSMicrophoneUsageDescription</key><string>Record a thought for on-device transcription.</string>
 <key>NSSpeechRecognitionUsageDescription</key><string>Transcribe captured speech locally.</string>
-<key>NSAppleEventsUsageDescription</key><string>Read the active page URL or selected file when you refer to this website or this file in a capture.</string>
+<key>NSAppleEventsUsageDescription</key><string>Read a referenced page or file and open and focus your selected terminal session when you use Tasktap.</string>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>

@@ -70,7 +70,7 @@ const {pathToFileURL} = require('node:url');
     await page.getByRole('button',{name:'Review capture'}).click();
     const next=await review.getAttribute('data-capture');
     assert.notEqual(next,capture);
-    await page.getByRole('button',{name:'Send nudge'}).click();
+    await page.getByRole('button',{name:'Copy nudge & open session'}).click();
     const nudge=await page.evaluate(()=>window.outbox.findLast(m=>m.type==='enqueue').job);
     assert.equal(nudge.session,job.session);
     await page.evaluate(nudge=>{

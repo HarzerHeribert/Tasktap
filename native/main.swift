@@ -53,6 +53,9 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private var ready = false
     private var routeTask: Task<Void, Never>?
     private var routeID: String?
+    @MainActor private lazy var routingProviders = RoutingProviders()
+    private var serverProbe: Task<Void, Never>?
+    private var connectionTask: Task<Void, Never>?
     private var queue: [(String, String)] = []
     private var pendingCount = 0
     private let decisionRim = WorkspaceDecisionRim()
@@ -309,6 +312,10 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         deliver("hw-"+action, reveal:["capture","requests"].contains(action))
     }
 
+    @MainActor private func sendConnections(_ note: String = "", finished: Bool = false, success: Bool = true) {
+        js("aiConnections.receive(value,note,finished,success)",["value":routingProviders.state(),"note":note,"finished":finished,"success":success])
+    }
+
     func userContentController(_ controller: WKUserContentController,didReceive message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame, message.webView === web,
               message.frameInfo.request.url?.standardizedFileURL == entry?.standardizedFileURL,
@@ -338,6 +345,51 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             for (action,id) in buffered { deliver(action,id) }
             if verifying { Task { @MainActor in await self.verifyInterface() } }
             if liveTest { Task { @MainActor in await self.verifyLive() } }
+            if !verifying && !liveTest {
+                sendConnections()
+                Task { @MainActor in await routingProviders.detectWorkers(); sendConnections() }
+            }
+        case "terminal-catalog":
+            js("terminalHosts.receive(found)",["found":TerminalCatalog.installed()])
+        case "ai-refresh":
+            if !verifying && !liveTest { Task { @MainActor in await routingProviders.detectWorkers();sendConnections() } }
+        case "ai-settings":
+            if !verifying && !liveTest { sendConnections() }
+        case "ai-model-list":
+            guard !verifying, !liveTest, let id=data["id"] as? String else {return}
+            serverProbe?.cancel()
+            serverProbe=Task { @MainActor in
+                let result:RouterJSON
+                do {result=["models":try await routingProviders.serverModels(data)]}
+                catch {result=["error":error.localizedDescription]}
+                if !Task.isCancelled {js("serverSetup.receive(id,result)",["id":id,"result":result])}
+            }
+        case "ai-save", "ai-login", "ai-account", "ai-disconnect", "ai-remove":
+            guard !verifying, !liveTest else {return}
+            guard connectionTask == nil else {return}
+            guard routeID == nil else {sendConnections("Finish preparing the current capture first.",finished:true);return}
+            let choice = data["route"] as? String ?? ""
+            connectionTask = Task { @MainActor in
+                var note = ""
+                var success = true
+                do {
+                    switch type {
+                    case "ai-save":
+                        try routingProviders.configure(choice, model:data["model"] as? String ?? "", key:data["key"] as? String ?? "", server:data["server"] as? RouterJSON ?? [:])
+                        note = "Routing preference saved."
+                    case "ai-login":
+                        try await routingProviders.chat.login(client:data["account"] as? String ?? "")
+                        note = "ChatGPT sign-in finished. Check plan access below."
+                    case "ai-account": try routingProviders.chat.select(data["account"] as? String ?? "")
+                    case "ai-disconnect": try await routingProviders.chat.disconnect()
+                    default: try routingProviders.removeKey(choice)
+                    }
+                } catch { note = error.localizedDescription;success=false }
+                connectionTask = nil
+                sendConnections(note, finished:true,success:success)
+            }
+        case "ai-usage":
+            NSWorkspace.shared.open(URL(string:"https://chatgpt.com/settings/usage")!)
         case "layout":
             let needsWorkspace=data["workspace"] as? Bool ?? false
             if needsWorkspace != isWorkspace {
@@ -384,10 +436,17 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             routeTask?.cancel()
             routeID = id
             routeTask = Task { @MainActor in
-                let result = await HandoffRouter.suggest(input) { event in
-                    guard self.routeID == id, !Task.isCancelled else { return }
-                    self.js("routingProgress(id,event)", ["id":id,"event":event])
-                }
+                let provider = data["provider"] as? String ?? "local"
+                let result: [String:Any]
+                if provider == "local" {
+                    result = await HandoffRouter.suggest(input) { event in
+                        guard self.routeID == id, !Task.isCancelled else { return }
+                        self.js("routingProgress(id,event)", ["id":id,"event":event])
+                    }
+                } else if !verifying && !liveTest && data["confirmed"] as? Bool == true {
+                    do { result = try await routingProviders.suggest(provider,input:input,reviewedServer:data["server"] as? RouterJSON ?? [:]) }
+                    catch { result = ["source":"error","message":error.localizedDescription] }
+                } else { result = ["source":"error","message":"Cloud routing requires confirmation."] }
                 guard routeID == id, !Task.isCancelled else { return }
                 routeID = nil
                 routeTask = nil
@@ -414,6 +473,9 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         case "open-desktop-chat":
             guard let id=data["id"] as? String, UUID(uuidString:id) != nil, let url=URL(string:"codex://threads/"+id) else{return}
             if !NSWorkspace.shared.open(url){deliver("live-error","Install the ChatGPT desktop app to open this chat.",reveal:false)}
+        case "focus-session":
+            guard let id=data["id"] as? String else {return}
+            runtime.focusSession(id){[weak self] error in if let error {self?.deliver("live-error",error,reveal:false)}}
         case "resume-terminal","copy-resume":
             guard let id=data["id"] as? String else{return}
             do {
@@ -661,7 +723,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 document.querySelector('#include-idle').click();
                 document.querySelector('#project-list button').click();
                 document.querySelector('[data-action="start-session"]').click();
-                draft.text='Ask Codex to respond with exactly READY and do not use tools.';
+                draft.text='Ask Codex to respond with exactly READY and report READY through the Tasktap completion tool.';
                 document.querySelector('#transcript').value=draft.text;document.querySelector('#transcript').dispatchEvent(new Event('input'));document.querySelector('[data-action=review]').click();true
                 """)
             let review=try await web.evaluateJavaScript("""
@@ -677,8 +739,8 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 if result as? String=="Complete" {
                     let actual=try await web.evaluateJavaScript("state.sessions[0].result.trim()")
                     guard actual as? String=="READY" else {throw Check.failed(#line)}
-                    guard let id=try await web.evaluateJavaScript("state.sessions[0].id") as? String,
-                          try runtime.resumeCommand(id).contains("codex resume ") else {throw Check.failed(#line)}
+                    let visible=try await web.evaluateJavaScript("state.sessions[0].interactive && state.sessions[0].host==='terminal'")
+                    guard visible as? Bool==true else {throw Check.failed(#line)}
                     let relay=try await web.evaluateJavaScript("""
                         (()=>{document.querySelector('.session-row[data-action="session"]').click();
                         return document.querySelector('#modal tasktap-relay[data-phase="complete"][data-agent="codex"]')?.dataset.capture===state.captures[0].id})()
@@ -720,6 +782,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     }
     func windowShouldClose(_ sender:NSWindow)->Bool { deliver("collapse",reveal:false);return false }
     func applicationWillTerminate(_ notification:Notification){
+        connectionTask?.cancel();routeTask?.cancel();serverProbe?.cancel()
         hoverTimer?.invalidate()
         lightingEnabled=false;syncLighting()
         narration.changed={_ in};micro.stop();inbox.stop();narration.stop();dictation.cancel();if !verifying{runtime.stop()}

@@ -2,7 +2,7 @@
 // represent receipts, not elapsed time. The camera projection matches the stage poster.
 const handoffRelay = (() => {
   const rails = {claude: 2, codex: 1, agy: 0};
-  const stops = {review: .02, submitting: .18, queued: .40, running: .76, complete: .985, delivered: .985};
+  const stops = {review: .02, submitting: .18, queued: .40, opening:.60, opened:.985, copied:.985, closed:.985, running: .76, complete: .985, delivered: .985};
   const transitions = new Map();
   const reduce = matchMedia('(prefers-reduced-motion: reduce)');
   const duration = 480;

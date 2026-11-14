@@ -81,6 +81,8 @@ jobs:
           persist-credentials: false
       - name: Verify update lifecycle guards
         run: node scripts/verify-updates.cjs
+      - name: Verify installer replacement and backups
+        run: bash scripts/verify-installer.sh
       - name: Build app and verify signature
         run: ./scripts/build-mac.sh
       - name: Check notch placement and restored sessions

@@ -21,7 +21,12 @@ def sessions(root):
     result = subprocess.run([cmux_cli(), "sessions", "--json"], capture_output=True, text=True, timeout=8, check=True)
     rows = []
     for record in json.loads(result.stdout).get("sessions", []):
-        if record.get("agent") not in ("claude", "codex") or not record.get("active_for_surface") or not record.get("stored_pid_exists"):
+        # Launch-backed sessions can have no hook-selected active session even
+        # while their process and original pane still exist. Keep their host and
+        # focus address; inbox delivery still requires an active registration.
+        active = record.get("active_for_surface")
+        launch = record.get("launch_backed") and not record.get("active_surface_session_id")
+        if record.get("agent") not in ("claude", "codex") or not (active or launch) or not record.get("stored_pid_exists"):
             continue
         folder = Path(record.get("cwd") or "").resolve()
         if folder.parent != root or not folder.is_dir():
@@ -56,7 +61,9 @@ def sessions(root):
                 pass
         identifier = uuid.uuid5(uuid.NAMESPACE_URL, "cmux:"+surface+":"+conversation)
         rows.append(dict(id=str(identifier), surface=surface, conversation=conversation, agent=record["agent"],
-                         folder=str(folder), task=task or folder.name+" · "+record["agent"], state="Connected", activity=excerpt(transcript)))
+                         folder=str(folder), host="cmux", workspace=record.get("workspace_id") or "",
+                         inbox="cmux" if active else "manual",
+                         task=task or folder.name+" · "+record["agent"], state="Connected", activity=excerpt(transcript)))
     return rows
 
 
@@ -89,6 +96,8 @@ def claude_sessions(root):
 
 
 def send_inbox(target, text):
+    if target.get("inbox") == "manual":
+        raise ValueError("Open the original cmux session to send this follow-up.")
     current = subprocess.run([cmux_cli(),"agent","message",target["surface"],"--from","Tasktap","--json","--","-"],
                              input=text, capture_output=True, text=True, timeout=15)
     if current.returncode:
@@ -168,6 +177,10 @@ def owned_rows(root, runs, observed):
             job=visible.load(path)
             row=dict(id=job["session"],agent=job["agent"],host=job["host"],folder=job["folder"],owned="yes",source="interactive",
                      task=job["task"],inbox="manual",state="Connected",available="yes",scratch="yes" if Path(job["folder"])==runs.parent/"Scratch" else "no")
+            if job.get("host") == "claude-desktop":
+                row.update(state="Ready to send", available="yes", startup="pending", inbox="manual")
+                yield row
+                continue
             alive=surface.get("open") and visible.locked(folder)
             if not alive:
                 row.update(state="Closed",available="no")
@@ -200,7 +213,7 @@ def owned_rows(root, runs, observed):
                 if sibling.get("activity"): row["activity"] = sibling["activity"]
                 if alive: row["state"]=sibling["state"]
                 if alive and isinstance(sibling.get("waitingFor"),str):row["waitingFor"]=sibling["waitingFor"]
-                if sibling.get("surface")==surface.get("surface") and surface.get("surface") and job["agent"]=="claude": row["inbox"]="cmux"
+                if sibling.get("surface")==surface.get("surface") and surface.get("surface") and sibling.get("inbox")!="manual" and job["agent"]=="claude": row["inbox"]="cmux"
             if alive and job["agent"]=="claude":
                 confirmed=claude_turn_started(folder,job) or (path.with_suffix(".receipt").is_file() and visible.load(path.with_suffix(".receipt")).get("state")=="Complete")
                 row["startup"]="confirmed" if confirmed else "pending"
@@ -232,6 +245,7 @@ def main():
         for item in observed:
             surface = surfaces.get((item["agent"], item["conversation"]))
             if surface:
+                surface["task"] = item["task"]
                 surface["state"] = item["state"]
                 surface["waitingFor"] = item.get("waitingFor", "")
                 if item.get("activity"): surface["activity"] = item["activity"]

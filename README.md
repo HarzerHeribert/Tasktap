@@ -41,6 +41,8 @@ Tasktap opens your selected coding agent as an interactive CLI in the reviewed f
 
 [Preview the terminal picker](design/terminal-picker.png)
 
+For a new Codex session, **Trust this folder for this Codex session** carries your decision from the handoff review into the visible terminal. Review shows the folder because its project settings can run code. Clear the checkbox to let Codex apply its saved trust decision or ask in the terminal. Tasktap applies this choice to one launch. Codex uses its automatic approval reviewer with the workspace-write sandbox. Claude Code requests Auto mode, subject to model availability and organization policy. Follow-ups keep the original session’s permissions.
+
 When Claude opens a folder for the first time, answer its trust prompt in the terminal. The notch offers **Open in Terminal** during startup and **Nudge session** once Tasktap observes a Claude turn. Apple Terminal may ask for Automation permission on first launch. Its dedicated Tasktap window closes after a clean CLI exit. A failure or a window with additional tabs stays open.
 
 On Warp, **Reattach in Warp** opens another tab on the same agent using the copy of GNU screen included with macOS. Ghostty and iTerm2 address the original surface or session, and WezTerm and kitty address the recorded pane or window. Each host runs the same interactive worker. Closing Warp’s last attached view ends the worker. [Ghostty scripting](https://ghostty.org/docs/features/applescript) · [WezTerm pane activation](https://wezterm.org/cli/cli/activate-pane.html) · [kitty remote control](https://sw.kovidgoyal.net/kitty/remote-control/)

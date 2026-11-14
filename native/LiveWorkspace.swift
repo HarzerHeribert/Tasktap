@@ -133,6 +133,19 @@ final class LiveWorkspace {
             try fm.createDirectory(at:dir,withIntermediateDirectories:false)
         }
         guard (try? dir.resourceValues(forKeys:[.isDirectoryKey]).isDirectory)==true else {throw Failure.reason("Workspace folder is missing.")}
+        var reviewedFolder:String?
+        if let reviewed=job["reviewedFolder"] as? String {
+            let canonical=dir.resolvingSymlinksInPath().standardizedFileURL.path
+            let newFolder="~/projects/"+dir.lastPathComponent
+            let matchesNew=job["create"] as? Bool==true && reviewed==newFolder &&
+                dir.deletingLastPathComponent().resolvingSymlinksInPath().appendingPathComponent(dir.lastPathComponent).standardizedFileURL.path==canonical
+            let matchesScratch=dir==scratch && reviewed=="@scratch" &&
+                scratch.deletingLastPathComponent().resolvingSymlinksInPath().appendingPathComponent("Scratch").standardizedFileURL.path==canonical
+            guard mode=="ask", provider=="codex", reviewed==canonical || matchesNew || matchesScratch else {
+                throw Failure.reason("The folder changed. Review its location again before starting Codex.")
+            }
+            reviewedFolder=canonical
+        }
         if mode=="note" || job["keep"] as? Bool==true {
             let notes=(dir==scratch ? scratch:data.deletingLastPathComponent().appendingPathComponent("Notes"))
             try fm.createDirectory(at:notes,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
@@ -146,6 +159,7 @@ final class LiveWorkspace {
             let existing=files.first{$0.lastPathComponent.hasSuffix(capture+".job")}
             let url=existing ?? folder.appendingPathComponent(String(Int(Date().timeIntervalSince1970*1000000))+"-"+capture+".job")
             var record=job;record["folder"]=dir.path;record["resume"]=mode=="nudge"
+            record["reviewedFolder"]=reviewedFolder
             record["hostApp"]=(record["host"] as? String).flatMap(TerminalCatalog.app)?.path
             if mode=="nudge", job["external"] as? Bool != true {
                 guard let first=files.filter({$0.pathExtension=="job"}).sorted(by:{$0.lastPathComponent<$1.lastPathComponent}).first,

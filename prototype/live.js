@@ -118,6 +118,7 @@ function deliveryAudit(d) {
   const label=d.mode==='ask'?'Open '+providers[d.agent]+' in '+host:manual?'Copy the nudge and open '+host:'Send to '+(sess(d.session)?.task || 'the selected session');
   const outgoing=deliveryText(d),instructions=deliveryInstructions(d);
   return '<details class="route-evidence"><summary>'+esc(label)+'</summary><p class="body-copy">'+esc(outgoing)+'</p>'+
+    (d.mode==='ask' && hasSessionTools(d)?'<p class="hint">'+(d.agent==='codex'?'Codex reviews action requests with the workspace sandbox enabled.':'Claude starts in Auto mode when your model and organization allow it.')+'</p>':'')+
     (instructions?'<p class="hint">Session instructions</p><p class="body-copy">'+esc(instructions)+'</p>':'')+
     (d.mode==='ask' && !instructions?'<p class="hint">Read replies and answer decisions in '+esc(providers[d.agent])+'.</p>':'')+
     (manual?'<p class="hint">Paste the text at the agent prompt and press Return.</p>':'')+'</details>';
@@ -146,6 +147,9 @@ function submitLive(d){
     routingEvidence:routingEvidence(d).join('\n'),routingPayload:tasktapRoutingPayload(d),transcript:d.text,accounts:d.accountReceipt,session:d.runId,capture:d.captureId,task:(d.mode==='nudge' && prior?.task)||d.brief.slice(0,78)||'Review sketch',agent:(d.mode==='nudge' && prior?.agent)||d.agent,folder,
     external:d.mode==='nudge' && !!prior?.external,brief:captureContext.brief(d),reference:d.reference,strokes:d.strokes,note:d.mode==='note'?captureContext.brief(d):d.note||d.brief,mode:d.mode,keep:d.keep,create};
   if(d.mode==='ask')job.model=modelPlanFor(d).model;
+  if(d.mode==='ask' && hasSessionTools(d))job.autoReviewActions=true;
+  const trust=$('#modal[open] #folder-trust:checked');
+  if(d.mode==='ask' && d.agent==='codex' && trust)job.reviewedFolder=trust.dataset.folder;
   if(d.mode==='ask' && d.retryOf)job.retryOf=d.retryOf;
   d.submitting=true;
   reviewReceipt(d,'submitting','Submitting handoff');

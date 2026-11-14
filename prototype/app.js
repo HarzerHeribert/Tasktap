@@ -442,8 +442,15 @@ function review(){
   const usage=live && d.mode!=='note'?'<details class="route-evidence"><summary>Account usage</summary>'+aiConnections.receipt(d)+'</details>':'';
   const body=d.quick?brief+choice+usage+(live && !d.noPick?deliveryAudit(d):''):d.guide?brief+choice+aiConnections.receipt(d)+(details?'<details class="guide-review-details"><summary>Handoff details</summary>'+details+'</details>':''):route+brief+choice+aiConnections.receipt(d)+details;
   const title=d.guide?{ask:'Review new session',nudge:'Review follow-up',note:'Review note'}[d.mode]:'Review capture';
+  const project=proj(d.project);
+  const trustPath=live && !d.noPick && d.mode==='ask' && agent==='codex'
+    ? (d.project==='@scratch'?'@scratch':d.project==='@new'?'~/projects/'+d.newName:project?.checkout || project?.folder) : '';
+  const trustLabel=trustPath==='@scratch'?'Tasktap’s Scratch folder':trustPath;
+  const folderTrust=trustPath?'<div class="folder-trust"><label class="check-line"><input type="checkbox" id="folder-trust" data-folder="'+attr(trustPath)+'" aria-describedby="folder-trust-detail" '+(d.deferTrust===trustPath?'':'checked')+'>Trust this folder for this Codex session</label><p class="hint" id="folder-trust-detail">'+esc(trustLabel)+' · Project settings can run code.</p></div>':'';
   dialog(title,where,body+peerDisclosure(peers,d.project)+continueSessionButton(d)+
+    folderTrust+
     '<div class="form-actions">'+button('Adjust','adjust')+button(action,'commit-review','','primary')+'</div>');
+  if(trustPath)$('#folder-trust').onchange=e=>{d.deferTrust=e.target.checked?'':trustPath};
   if(choice)workerRouting.bindReview(d);
   reviewActivity(d);
 }

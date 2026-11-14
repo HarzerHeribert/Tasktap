@@ -13,6 +13,23 @@ import agy_session
 from visible_session import cli_command
 
 base=dict(agent='codex',session='conversation',folder='/tmp',task='test',outgoing='reviewed prompt',instructions='fixture',model='selected',capture='test')
+with tempfile.TemporaryDirectory() as directory:
+    checkout=Path(directory).resolve()/'My "café".repo'
+    checkout.mkdir()
+    job=dict(base,folder=str(checkout),reviewedFolder=str(checkout),mode='ask',autoReviewActions=True)
+    argv=cli_command(job,checkout,'/agent')
+    assert '--approve-for-me' in argv and not any('dangerously' in a for a in argv)
+    override=next(a for a in argv if a.startswith('projects='))
+    assert override=='projects={'+json.dumps(str(checkout),ensure_ascii=False)+'={trust_level="trusted"}}'
+    legacy=cli_command(base,checkout,'/agent')
+    assert '--approve-for-me' not in legacy and not any(a.startswith('projects=') for a in legacy)
+    other_job=dict(job,folder=str(checkout.parent))
+    try:cli_command(other_job,checkout,'/agent')
+    except ValueError:pass
+    else:raise AssertionError('Trust carried over to a different folder')
+    claude=cli_command(dict(job,agent='claude'),checkout,'/agent')
+    assert claude[claude.index('--permission-mode')+1]=='auto' and not any(a.startswith('projects=') for a in claude)
+    assert not any('dangerously' in a for a in claude)
 for provider in ('codex','claude','agy','cursor-agent','pi'):
     job=dict(base,agent=provider)
     fresh=cli_command(job,Path('/tools'),'/agent')

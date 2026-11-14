@@ -132,6 +132,7 @@ body[data-signal="sending"]{--signal-cycle:1100ms}
 .discussion-log,.discussion-log ul{display:grid;gap:var(--s-small)}
 .discussion-log ul{list-style:none;padding:0;overflow-wrap:anywhere}
 .review-brief{font-size:var(--t-copy);line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.folder-trust{display:grid;gap:var(--s-tight);overflow-wrap:anywhere}
 
 .native-host:not(.notch-first) .shell{height:100dvh;min-height:0;max-width:none;border:0;border-radius:0;overflow:hidden}
 .native-host:not(.notch-first) .work{display:flex;flex-direction:column;min-height:0}

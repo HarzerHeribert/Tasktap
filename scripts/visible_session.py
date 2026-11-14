@@ -114,6 +114,11 @@ def cli_command(job, folder, executable=None):
                         '--task',job['task'],'--run-dir',str(folder)])
     servers = json.dumps({'mcpServers':{'workspace_assistant':bridge}})
     prompt = job['outgoing']
+    if job.get('mode')=='ask' and job.get('autoReviewActions') is True:
+        if agent=='codex':
+            args.append('--approve-for-me')
+        elif agent=='claude':
+            args += ['--permission-mode','auto']
     if agent == 'cursor-agent':
         return [cli, *args, 'agent', '--', prompt]
     if agent == 'pi':
@@ -122,6 +127,14 @@ def cli_command(job, folder, executable=None):
         return [cli, *args, '--session-id', job['session'], '--mcp-config', servers,
                 '--append-system-prompt', job['instructions'], '--', prompt]
     if agent == 'codex':
+        reviewed = job.get('reviewedFolder')
+        if reviewed is not None:
+            if job.get('mode') != 'ask' or reviewed != str(Path(job['folder']).resolve(strict=True)):
+                raise ValueError('The folder changed. Review its location again before starting Codex.')
+            # A TOML inline table treats a folder with dots as one literal key.
+            # The override belongs to this CLI process and is never written to its config.
+            key = json.dumps(reviewed, ensure_ascii=False).replace(chr(127), '\\u007f')
+            args += ['-c', 'projects={'+key+'={trust_level="trusted"}}']
         return [cli, *args, '-c', 'mcp_servers.workspace_assistant.command='+json.dumps(bridge['command']),
                 '-c', 'mcp_servers.workspace_assistant.args='+json.dumps(bridge['args']),
                 '-c', 'mcp_servers.workspace_assistant.tool_timeout_sec=86400',
@@ -181,7 +194,7 @@ def present(path, executable):
         clear='\033[2J\033[H' if host=='terminal' else ''
         print(clear+'\033]0;'+title+'\007',end='',flush=True)
         # No shell between the reviewed prompt and the agent. The CLI owns the actual terminal.
-        proc = subprocess.Popen(argv,cwd=job['folder'])
+        proc = subprocess.Popen(argv,cwd=job.get('reviewedFolder') or job['folder'])
         surface['open'] = True
         save(folder/'surface.json',surface)
         # A very fast result still belongs to the agent.

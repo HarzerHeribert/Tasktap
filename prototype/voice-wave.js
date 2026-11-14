@@ -12,16 +12,18 @@ const voiceWave=(()=>{
     atlas.onload=schedule;
     atlas.src='assets/motion/glyph/type.png';
   }
-  function mark(g,index,x,y,size){
+  function mark(g,index,x,y,size,tilt){
+    g.save();g.translate(x,y);g.rotate(tilt);
     if (atlas?.complete && atlas.naturalWidth===384 && atlas.naturalHeight===96) {
-      g.drawImage(atlas,index*96,0,96,96,x-size/2,y-size/2,size,size);
-      return;
+      g.drawImage(atlas,index*96,0,96,96,-size/2,-size/2,size,size);
+    }else{
+      // Preserve the measured envelope while the local image loads or if it is unavailable.
+      g.font='bold '+Math.round(size*.76)+'px Menlo, monospace';
+      g.textAlign='center';g.textBaseline='middle';
+      g.fillStyle='#546470';g.fillText(marks[index],1.2,1.5);
+      g.fillStyle='#dce1dc';g.fillText(marks[index],0,0);
     }
-    // Preserve the measured envelope while the local image loads or if it is unavailable.
-    g.font='bold '+Math.round(size*.76)+'px Menlo, monospace';
-    g.textAlign='center';g.textBaseline='middle';
-    g.fillStyle='#546470';g.fillText(marks[index],x+1.2,y+1.5);
-    g.fillStyle='#dce1dc';g.fillText(marks[index],x,y);
+    g.restore();
   }
   function draw() {
     if (!active || document.hidden || !active.visible) return;
@@ -39,6 +41,7 @@ const voiceWave=(()=>{
     const pad=12, center=height*.50, span=width-pad*2;
     const cols=Math.max(4,Math.min(30,Math.floor(span/23)));
     const step=span/cols, size=Math.min(step*1.2,height*.39);
+    let previous=0;
     for (let column=0;column<cols;column++) {
       const x=pad+(column+.5)*step;
       g.fillStyle='#394447';g.fillRect(x-1,center,2,1);
@@ -47,16 +50,21 @@ const voiceWave=(()=>{
       const to=Math.floor((column+1)*samples.length/cols);
       let peak=0;
       for(let i=from;i<to;i++)peak=Math.max(peak,samples[i]);
+      // Use the slope of the recorded envelope for the lean. Soft speech opens the
+      // stack gradually and a hard onset drives a quick counter-rotation.
+      const tilt=.58*Math.tanh(3*(peak-previous));
+      previous=peak;
       if (peak<=0) continue;
-      const heightAtPeak=peak*(height-size)/2;
+      const strength=Math.pow(peak,.78);
+      const heightAtPeak=strength*(height-size)/2;
       const index=column%marks.length;
-      mark(g,index,x,center-heightAtPeak,size);
+      mark(g,index,x,center-heightAtPeak,size*(.76+.24*strength),tilt);
       // Two opposing silhouettes trace amplitude. Behind them the centered third glyph
       // fills only the louder columns, like the three-deep peaks in the motion study.
       if (heightAtPeak>size*.22) {
-        mark(g,(index+2)%marks.length,x-peak*1.5,center+heightAtPeak,size*.88);
+        mark(g,(index+2)%marks.length,x-tilt*3,center+heightAtPeak,size*.88,-tilt);
       }
-      if (heightAtPeak>size*.75) mark(g,(index+1)%marks.length,x+.9,center,size*.81);
+      if (heightAtPeak>size*.75) mark(g,(index+1)%marks.length,x+.9,center,size*.81,tilt*.45);
     }
   }
   function schedule() {

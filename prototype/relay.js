@@ -1,4 +1,4 @@
-// One bead travels along the reviewed provider's physical rail. Its resting positions
+// One carriage travels along the reviewed provider's physical rail. Its resting positions
 // represent receipts, not elapsed time. The camera projection matches the stage poster.
 const handoffRelay = (() => {
   const rails = {claude: 2, codex: 1, agy: 0};
@@ -33,7 +33,7 @@ const handoffRelay = (() => {
   function markup(id, agent, phase) {
     if (!Object.hasOwn(rails, agent) || !id || (!(phase in stops) && phase !== 'failed')) return '';
     return '<tasktap-relay aria-hidden="true" data-capture="'+attr(id)+'" data-agent="'+attr(agent)+'" data-phase="'+attr(phase)+'">'+
-      '<img src="'+attr(TasktapArt.poster('relay'))+'" alt=""><canvas width="736" height="352"></canvas></tasktap-relay>';
+      '<img src="assets/motion/relay/bed.jpg" alt=""><canvas width="736" height="352"></canvas></tasktap-relay>';
   }
   function forCapture(capture) {
     const session = capture && sess(capture.session);
@@ -86,6 +86,21 @@ const handoffRelay = (() => {
       const lane = rails[agent];
       const [x,y] = project(u,lane);
       const failed = phase === 'failed';
+      // Align the carriage and two guide collars with the local bend. The center
+      // lamp stays on the receipt coordinate as the assembly travels into its stop.
+      const [aheadX,aheadY]=project(Math.min(1,u+.012),lane);
+      g.save();
+      g.translate(x,y);g.rotate(Math.atan2(aheadY-y,aheadX-x));
+      const steel=g.createLinearGradient(0,-13,0,13);
+      for(const [at,tint] of [[0,'#394349'],[.15,'#a5b9bf'],[.27,'#e4e9dc'],[.35,'#7b8a8e'],[.47,'#1d292f'],[.75,'#41545c'],[.89,'#bcb09a'],[1,'#374043']]){
+        steel.addColorStop(at,tint);
+      }
+      g.fillStyle=steel;g.beginPath();g.roundRect(-22,-10,44,20,4);g.fill();
+      for(const side of [-1,1]){
+        g.fillStyle='#162329';g.fillRect(side*14-2,-10,4,20);
+        g.fillStyle=steel;g.beginPath();g.roundRect(side*20-3,-13,6,26,2);g.fill();
+      }
+      g.restore();
       // A small warm pool sits on the chrome. The white hot spot stays sharp at notch size.
       const glow = g.createRadialGradient(x,y,2,x,y,27);
       glow.addColorStop(0,failed?'#ff6644ed':'#ffcd80e6');

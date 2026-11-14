@@ -13,7 +13,6 @@ const postersOnly = process.argv.includes('--posters-only');
 const studies = ['glyph','phase','relay','orbit'].filter(id=>
   !process.argv.slice(2).some(a=>!a.startsWith('--')) || process.argv.includes(id)
 );
-const fps = 24, total = 96;
 (async () => {
   const browser = await chromium.launch({
     headless:true, executablePath:process.env.BROWSER_EXECUTABLE,
@@ -31,16 +30,21 @@ const fps = 24, total = 96;
       await fs.writeFile(path.join(dir,'type.png'),Buffer.from(sprite,'base64'));
       if(process.argv.includes('--glyph-sprite'))return;
     }
+    const fps=48, total=fps*4;
     for(const id of studies) {
       const dest=path.join(base,'prototype/assets/motion',id);
       await fs.mkdir(dest,{recursive:true});
       for(const size of ['stage','miniature']) {
-        const make = async n => Buffer.from(await page.evaluate(
-          ([id,small,t])=>window.motionFrame(id,small,t),[id,size==='miniature',n/total]
+        const make = async (n,scene=id) => Buffer.from(await page.evaluate(
+          ([id,small,t])=>window.motionFrame(id,small,t),[scene,size==='miniature',n/total]
         ),'base64');
         const frame = await make(0);
-        const jpg=spawnSync('ffmpeg',['-y','-loglevel','error','-f','image2pipe','-i','pipe:0','-frames:v','1','-q:v','2',path.join(dest,size+'.jpg')],{input:frame});
-        if(jpg.status!==0)throw Error(jpg.stderr.toString());
+        const poster=(name,input)=>{
+          const jpg=spawnSync('ffmpeg',['-y','-loglevel','error','-f','image2pipe','-i','pipe:0','-frames:v','1','-q:v','2',path.join(dest,name+'.jpg')],{input});
+          if(jpg.status!==0)throw Error(jpg.stderr.toString());
+        };
+        poster(size,frame);
+        if(id==='relay' && size==='stage')poster('bed',await make(0,'relay-bed'));
         if(postersOnly)continue;
         const enc=spawn('ffmpeg',['-y','-loglevel','error','-f','image2pipe','-framerate',String(fps),'-i','pipe:0','-an','-vcodec','libx264','-profile:v','main','-level','3.1','-pix_fmt','yuv420p','-preset','slow','-crf',size==='miniature'?'19':'18','-movflags','+faststart',path.join(dest,size+'.mp4')],{stdio:['pipe','inherit','inherit']});
         const done=once(enc,'close');

@@ -55,7 +55,7 @@ with tempfile.TemporaryDirectory() as scratch:
         with Image.open(assets / ident / "stage.jpg") as poster:
             board.paste(poster.resize((card_width, film_height), Image.Resampling.LANCZOS), (x, y))
     board.save(output / "motion-studies.jpg", quality=92, optimize=True)
-    subprocess.run(["ffmpeg","-y","-loglevel","error","-framerate","24","-loop","1","-i",str(scratch / "board.png"),
+    subprocess.run(["ffmpeg","-y","-loglevel","error","-framerate","48","-loop","1","-i",str(scratch / "board.png"),
                     *inputs,"-filter_complex",";".join(chain),"-map","[card3]","-t","4","-an",
                     "-c:v","libx264","-profile:v","main","-pix_fmt","yuv420p","-crf","21","-preset","slow",
                     "-movflags","+faststart",str(output / "motion-studies.mp4")], check=True)

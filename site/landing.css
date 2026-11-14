@@ -174,3 +174,17 @@ footer { flex-wrap: wrap; min-height: 5.2rem; padding-block: var(--sm); color: v
   @keyframes arrive { from { opacity: .2; transform: translateY(4px); } }
   .build { transition: background-color .18s ease; }
 }
+
+.install-options{display:flex;justify-content:center;align-items:stretch;gap:var(--sm);width:min(100%,36rem);margin-inline:auto}
+.install-options .build,.download-app{flex:1;justify-content:center;display:flex;align-items:center;gap:var(--sm);padding:var(--sm) var(--md);min-height:var(--target);font-size:var(--body);border-radius:var(--radius);text-decoration:none;font-weight:600}
+.download-app{border:1px solid var(--line);color:var(--ink);background:transparent}
+.download-app:hover{background:#ffffff0a;border-color:var(--muted)}
+.install-options [hidden],.terminal-install[hidden]{display:none}
+.terminal-install{width:min(100%,44rem);margin:var(--md) auto 0;text-align:left;background:#191d1b;border:1px solid var(--line);border-radius:var(--radius);padding:var(--md);font-size:var(--meta);color:var(--muted)}
+.terminal-install pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:var(--md) 0;margin:0;color:var(--ink);font-family:var(--mono);line-height:1.7}
+.install-panel-actions{display:flex;align-items:center;justify-content:space-between;gap:var(--sm);flex-wrap:wrap}
+.install-panel-actions a{color:var(--muted)}
+#copy-install{padding:var(--sm);border:1px solid var(--line);border-radius:var(--radius);color:var(--ink);background:transparent;cursor:pointer}
+.install-note{margin-top:var(--md);font-size:var(--meta)}
+@media(max-width:400px){.install-options .build,.download-app{font-size:var(--meta);padding-inline:var(--sm);gap:var(--tiny)}}
+button.terminal-toggle{border:1px solid transparent;cursor:pointer}

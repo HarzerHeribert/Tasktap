@@ -1,7 +1,8 @@
 .brand-lockup { display: flex; align-items: center; gap: .25rem; }
 .brand-mark { display: block; width: 55px; height: 55px; object-fit: contain; }
-.brand-motion-toggle { border: 0; background: transparent; color: inherit; opacity: .65; cursor: pointer; width: 32px; height: 44px; font: 12px/1 sans-serif; }
-.brand-motion-toggle:hover { opacity: 1; }
+.brand-motion-toggle { border: 0; background: transparent; color: inherit; opacity: 0; pointer-events: none; cursor: pointer; width: 32px; height: 44px; font: 12px/1 sans-serif; }
+.brand-lockup:hover .brand-motion-toggle, .brand-lockup:focus-within .brand-motion-toggle { opacity: 1; pointer-events: auto; }
+@media (hover: none) { .brand-motion-toggle { opacity: .65; pointer-events: auto; } }
 .brand-motion-toggle[hidden] { display: none; }
 @media (max-width: 480px) {
   .brand-name { position: absolute; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; }

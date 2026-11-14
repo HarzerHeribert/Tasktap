@@ -31,7 +31,18 @@
         </button>
       </div>
       <p class="lede">Speak or type an idea as it comes to you, and send it to the right project or agent session without losing your place.</p>
-      <a class="build" href="https://github.com/HarzerHeribert/Tasktap/releases/latest">Get for Mac <span aria-hidden="true">↗</span></a>
+      <div class="install-options">
+        <a class="build terminal-fallback" href="docs/#install">Install with Terminal</a>
+        <button class="build terminal-toggle" type="button" aria-expanded="false" aria-controls="terminal-install" hidden>Install with Terminal <span aria-hidden="true">⌄</span></button>
+        <a class="download-app" href="https://github.com/HarzerHeribert/Tasktap/releases/latest">Download app <span aria-hidden="true">↗</span></a>
+      </div>
+      <div class="terminal-install" id="terminal-install" hidden>
+        <p>Run this in Terminal to install the latest stable version.</p>
+        <pre><code id="install-command">curl -fL --proto '=https' --tlsv1.2 https://harzerheribert.github.io/Tasktap/install.sh -o tasktap-install.sh &amp;&amp; bash tasktap-install.sh</code></pre>
+        <div class="install-panel-actions"><a href="install.sh">View installer source ↗</a><button type="button" id="copy-install">Copy command</button></div>
+        <p class="install-note">Apple silicon · macOS 26+. After installation, use Check for Updates in Tasktap.</p>
+        <span class="sr-only" id="install-status" role="status"></span>
+      </div>
     </section>
 
     <section class="workflow" aria-labelledby="workflow-title">

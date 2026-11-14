@@ -36,10 +36,10 @@ def windows(agent, payload, now):
     return result
 
 
-def read_limits(agent):
+def control_result(agent, identity=False):
     cli = shutil.which(agent)
     if not cli:
-        return []
+        return {}
     argv = [cli, 'app-server', '--listen', 'stdio://'] if agent == 'codex' else [
         cli, '--safe-mode', '--strict-mcp-config', '--no-session-persistence', '--tools', '',
         '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
@@ -68,13 +68,13 @@ def read_limits(agent):
                             msg = json.loads(line)
                             if agent == 'codex' and msg.get('id') == 1 and 'result' in msg:
                                 send(dict(method='initialized'))
-                                send(dict(method='account/rateLimits/read', id=2))
+                                send(dict(method='account/read', params={'refreshToken':False}, id=2) if identity else dict(method='account/rateLimits/read', id=2))
                             if agent == 'codex' and msg.get('id') == 2:
-                                return windows(agent, msg.get('result') or {}, time.time())
+                                return msg.get('result') or {}
                             if agent == 'claude' and msg.get('type') == 'control_response':
                                 response = msg.get('response', {})
                                 if response.get('request_id') == 'limits':
-                                    return windows(agent, response.get('response') or {}, time.time())
+                                    return response.get('response') or {}
             finally:
                 if process.poll() is None:
                     process.terminate()
@@ -84,7 +84,24 @@ def read_limits(agent):
                         process.kill()
     except (OSError, ValueError, TypeError, AttributeError):
         pass
-    return []
+    return {}
+
+
+def read_limits(agent):
+    return windows(agent, control_result(agent), time.time())
+
+
+def codex_identity():
+    # Display only account metadata returned by the CLI; never read credential files.
+    account = control_result('codex', identity=True).get('account')
+    if not isinstance(account, dict) or account.get('type') != 'chatgpt':
+        return ''
+    email = account.get('email')
+    workspace = account.get('workspaceName')
+    return ' · '.join(filter(None, [
+        email if isinstance(email, str) and len(email) <= 254 and email.isprintable() and '@' in email else '',
+        workspace if isinstance(workspace, str) and len(workspace) <= 160 and workspace.isprintable() else '',
+    ]))
 
 
 def snapshot(agents):

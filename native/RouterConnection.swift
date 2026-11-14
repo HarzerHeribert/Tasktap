@@ -179,7 +179,7 @@ enum RouterCLI {
         guard !busy, registrations[client] != nil else {throw RouterFailure("Finish the current connection first.")}
         defaults.set(client,forKey:"router.chatgpt.selected")
     }
-    func login(client prior: String) async throws {
+    @discardableResult func login(client prior: String, activate: Bool = true) async throws -> String {
         guard !busy, refreshes.isEmpty else { throw RouterFailure("A connection is already in progress. Try again in a moment.") }
         busy = true; defer { busy = false }
         var host = defaults.string(forKey:"router.chatgpt.host") ?? ""
@@ -203,7 +203,8 @@ enum RouterCLI {
         var records = registrations
         records[client] = ["sub":sub,"email":claims["email"] as? String ?? "ChatGPT account","plan":scopeGranted(token) ? "enabled":"off"]
         defaults.set(records,forKey:"router.chatgpt.registrations")
-        defaults.set(client,forKey:"router.chatgpt.selected")
+        if activate {defaults.set(client,forKey:"router.chatgpt.selected")}
+        return client
     }
     func access(client: String) async throws -> String {
         guard !busy, !client.isEmpty else {throw RouterFailure("Connect your ChatGPT plan in AI connections.")}

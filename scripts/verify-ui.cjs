@@ -9,7 +9,7 @@ const url=pathToFileURL(path.join(root,'prototype/index.html')).href;
 const dest=process.env.TASKTAP_SCREENSHOTS || path.join(root,'design');
 const clip = n=>Math.abs(n)<=1;
 (async()=>{
-  const browser=await chromium.launch({executablePath:process.env.BROWSER_EXECUTABLE||undefined,headless:true});
+  const browser=await chromium.launch({executablePath:process.env.BROWSER_EXECUTABLE||undefined,headless:true,args:['--autoplay-policy=no-user-gesture-required']});
   const errors=[];
   try{
     const ctx=await browser.newContext({viewport:{width:1440,height:960},deviceScaleFactor:1});
@@ -43,7 +43,9 @@ const clip = n=>Math.abs(n)<=1;
     await tab.focus();await page.keyboard.press('Enter');
     await page.mouse.move(35,400);await page.waitForTimeout(380);
     assert.ok(await home.isVisible());
-    assert.equal(await home.evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(0, 0, 0)');
+    assert.equal(await page.locator('.notch-surface').evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(9, 10, 11)');
+    assert.equal(await home.getByRole('heading').innerText(),'Which material should I use for the frame?');
+    assert.equal(await home.locator('.notch-destination').innerText(),'Glasshouse / Codex');
     await page.keyboard.press('Control+Alt+KeyJ');
     await page.waitForTimeout(210);
     await page.screenshot({path:path.join(dest,'notch-decision.png')});
@@ -148,8 +150,10 @@ const clip = n=>Math.abs(n)<=1;
     const mobile=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1,reducedMotion:'reduce'});
     const phone=await mobile.newPage();await phone.goto(url);assert.ok(await phone.locator('#notch-home').isHidden());await phone.getByRole('button',{name:'Toggle assistant notch'}).tap();assert.ok(await phone.locator('#notch-home').isVisible());await phone.screenshot({path:path.join(dest,'compact.png'),fullPage:true});
     assert.equal(await phone.locator('#islandToggle').evaluate(el=>getComputedStyle(el,'::after').animationName),'none');
-    assert.ok(await phone.locator('#islandToggle').evaluate(el=>Number(getComputedStyle(el,'::after').opacity)>0));
-    assert.equal(await phone.locator('#notch-home').evaluate(el=>getComputedStyle(el).transitionDuration),'0s');
+    assert.ok(await phone.locator('.notch-surface').evaluate(el=>getComputedStyle(el,'::after').borderLeftColor==='rgb(172, 137, 98)'));
+    for(const layer of ['.notch-surface','.home-content']){
+      assert.equal(await phone.locator(layer).evaluate(el=>getComputedStyle(el).transitionDuration),'0s');
+    }
     await phone.getByRole('button',{name:'Workspace',exact:true}).tap();await phone.getByRole('button',{name:'Toggle navigation'}).tap();await phone.getByRole('button',{name:/Notebook/}).tap();
     assert.equal(await phone.getByRole('heading',{level:1}).textContent(),'Notebook');
     await phone.getByRole('button',{name:'Toggle assistant notch'}).tap();
@@ -181,10 +185,10 @@ const clip = n=>Math.abs(n)<=1;
     const moving=await motion.newPage();await moving.goto(url);
     // Observe the reveal where it begins so all three frames can be sampled reliably.
     await moving.evaluate(()=>{
-      window.peekFrames=new Promise(resolve=>document.querySelector('#notch-home').addEventListener('transitionstart',event=>{
+      window.peekFrames=new Promise(resolve=>document.querySelector('.notch-surface').addEventListener('transitionstart',event=>{
         const el=event.target,transition=el.getAnimations().find(a=>a.transitionProperty==='clip-path');
         transition.pause();
-        const samples=[0,90,180].map(t=>{
+        const samples=[0,255,510].map(t=>{
           transition.currentTime=t;
           return {clip:getComputedStyle(el).clipPath,frame:el.getBoundingClientRect().toJSON()};
         });
@@ -199,7 +203,17 @@ const clip = n=>Math.abs(n)<=1;
     // With a real question pending, the attention cue belongs to the camera rim.
     assert.equal(await moving.locator('body').getAttribute('data-signal'),'waiting');
     assert.equal(await moving.locator('#islandToggle').evaluate(el=>getComputedStyle(el,'::after').animationName),'attention-edge');
-    assert.equal(await moving.locator('.home-heading .signal-light i').evaluate(el=>getComputedStyle(el).animationName),'none');
+    const edges=await moving.locator('#notch-shell').evaluate(el=>{
+      const shell=el.getBoundingClientRect(),sheet=document.querySelector('#notch-home').getBoundingClientRect();
+      return [shell.top,shell.left-sheet.left,shell.right-sheet.right,Math.ceil(sheet.bottom)-shell.bottom];
+    });
+    assert.deepEqual(edges,[0,0,0,0]);
+    // A pinned panel folds on Escape, holding its native bounds while its controls are inert.
+    await moving.locator('#islandToggle').click();
+    await moving.keyboard.press('Escape');
+    assert.equal(await moving.locator('#islandToggle').getAttribute('aria-expanded'),'false');
+    assert.ok(await moving.locator('#notch-home').evaluate(el=>el.inert));
+    await moving.locator('#notch-home').waitFor({state:'hidden'});
     await moving.keyboard.press('Control+Alt+KeyJ');
     const frames=await moving.locator('#notch').evaluate(async el=>{
       const a=el.querySelector('.notch-content').getAnimations()[0];a.pause();
@@ -328,8 +342,9 @@ const clip = n=>Math.abs(n)<=1;
     await real.getByText('Suggested wording',{exact:true}).click();
     await click('Use this wording');
     assert.equal(await real.locator('#review-brief').innerText(),'Explain the latest change');
+    await real.getByText('Handoff details',{exact:true}).click();
     await real.getByText('How this was routed',{exact:true}).click();
-    assert.match(await real.locator('details').filter({has:real.getByText('How this was routed',{exact:true})}).innerText(),/on-device model/);
+    assert.match(await real.locator('details.route-evidence').filter({has:real.getByText('How this was routed',{exact:true})}).innerText(),/on-device model/);
     await real.keyboard.press('Escape');assert.ok(!await real.locator('#modal').isVisible());
     await real.locator('[data-action=capture]').click();
     await real.locator('#transcript').fill('Investigate why everything feels slow.');await click('Review capture');
@@ -394,8 +409,9 @@ const clip = n=>Math.abs(n)<=1;
     assert.equal(await real.evaluate(()=>window.sent.filter(m=>m.type==='speak').at(-1).text),'Choose a workspace for this task.');
     await real.locator('#route-filter').fill('149');await real.locator('#route-list').getByRole('button',{name:'Project 149',exact:true}).click();
     assert.match(await real.evaluate(()=>window.sent.filter(m=>m.type==='speak').at(-1).text),/Start a new session in Project 149/);
+    await real.getByText('Handoff details',{exact:true}).click();
     await real.getByText('How this was routed',{exact:true}).click();
-    assert.match(await real.locator('details').filter({has:real.getByText('How this was routed',{exact:true})}).innerText(),/unavailable.*local matching/i);
+    assert.match(await real.locator('details.route-evidence').filter({has:real.getByText('How this was routed',{exact:true})}).innerText(),/unavailable.*local matching/i);
     await click('Close dialog');
     assert.ok(await real.evaluate(()=>window.sent.some(m=>m.type==='stopSpeech')));
     // An unbound contextual instruction needs a conversation even with a suggested project.

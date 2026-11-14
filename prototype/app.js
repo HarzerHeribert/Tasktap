@@ -175,10 +175,12 @@ function render(){
 }
 function toast(message){$('#toast').textContent=message;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').textContent='',3000)}
 function go(id){clearTimeout(toast.timer);$('#toast').textContent='';view=id;document.body.classList.remove('nav-open');render();if(document.body.classList.contains('notch-first'))$('#islandToggle').focus();else $('#main').focus()}
-function frame(title,over,body,backLabel=''){
+function frame(title,over,body,backLabel='',lead=''){
   const nav=backLabel?'<button class="icon-btn" data-action="close" aria-label="'+attr(backLabel)+'">'+icon('back')+'</button>':'<button class="icon-btn" data-action="close" aria-label="Close dialog">'+icon('x')+'</button>';
+  if(lead)return '<div class="dialog-body notch-review"><h2 id="dialog-heading" class="sr-only">'+esc(title)+'</h2>'+
+    '<div class="dialog-title">'+lead+nav+'</div><p class="eyebrow notch-destination">'+esc(over)+'</p>'+body+'</div>';
   return '<div class="dialog-body"><div class="dialog-title"><div>'+(over?'<span class="eyebrow">'+esc(over)+'</span>':'')+'<h2 id="dialog-heading">'+esc(title)+'</h2></div>'+nav+'</div>'+body+'</div>'}
-function dialog(title,over,body,backLabel=''){settingsPickers.close();if(draft?.routing && title!=='Preparing handoff')cancelRouting();clearTimeout(toast.timer);$('#toast').textContent='';const d=$('#modal');if(!d.open)returnFocus=document.activeElement;d.innerHTML=frame(title,over,body,backLabel);d.setAttribute('aria-labelledby','dialog-heading');if(!d.open)d.showModal();else $('button',d)?.focus()}
+function dialog(title,over,body,backLabel='',lead=''){settingsPickers.close();if(draft?.routing && title!=='Preparing handoff')cancelRouting();clearTimeout(toast.timer);$('#toast').textContent='';const d=$('#modal');if(!d.open)returnFocus=document.activeElement;d.innerHTML=frame(title,over,body,backLabel,lead);d.setAttribute('aria-labelledby','dialog-heading');if(!d.open)d.showModal();else $('button',d)?.focus()}
 function dismissCard(){if(draft?.claudeBrief && $('#modal[open] #claude-brief') && !$('#notch').open)delete draft.claudeBrief;if(!$('#notch').open && setupWizard.showing()){setupWizard.cancel();return}cancelRouting();stopRoutingSpeech();if(live)stopDictation();clearTimeout(simVoice);simVoice=null;document.dispatchEvent(new Event('voice-activity'));if($('#notch').open){$('#notch').close();$('#islandToggle').setAttribute('aria-expanded','false');if($('#modal').open)$('#modal button')?.focus();else $('#islandToggle').focus();return}if($('#modal').open)$('#modal').close();if(returnFocus?.isConnected)returnFocus.focus();else if(document.body.classList.contains('notch-first'))$('#islandToggle').focus();else $('#main').focus()}
 let siriVoices=[];
 let kokoro={status:'checking',detail:'Checking local voice…'};
@@ -349,13 +351,17 @@ function newDraft(target,sessionProject=''){
 function sketchMarkup(strokes){
   return '<svg class="sketch-view" viewBox="0 0 600 176" role="img" aria-label="Captured sketch">'+strokes.map(line=>'<polyline fill="none" stroke="#2b5147" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="'+line.map(p=>p.map(Number).join(',')).join(' ')+'"/>').join('')+'</svg>';
 }
+function growTranscript(input){
+  input.style.height='auto';
+  input.style.height=Math.min(input.scrollHeight,Math.max(160,window.innerHeight*.45))+'px';
+}
 function editDraft(){
   cancelRouting();stopRoutingSpeech();
   if(draft.quick){
     dialog('New capture','','<div class="quick-editor"><textarea id="transcript" aria-label="Your request" rows="3" placeholder="Speak or type a request…">'+esc(draft.text)+'</textarea><p id="capture-feedback" role="status"></p></div><div class="quick-actions">'+
       (live?button('Hold to talk','dictate','#transcript','btn','mic'):button('Use voice sample','sample','','btn','mic'))+button('Review','review','','primary','arrow')+'</div>');
     const field=$('#transcript'), review=$('#modal [data-action="review"]');
-    const changed=()=>{draft.text=field.value;review.disabled=!draft.text.trim() && !draft.strokes.length};
+    const changed=()=>{draft.text=field.value;growTranscript(field);review.disabled=!draft.text.trim() && !draft.strokes.length};
     changed();field.oninput=changed;
     field.onkeydown=e=>{if(e.metaKey && e.key==='Enter' && !e.isComposing){e.preventDefault();if(!review.disabled)reviewDraft()}};
     field.focus({preventScroll:true});
@@ -364,7 +370,8 @@ function editDraft(){
   }
   const startingSession=draft.sessionProject && !draft.guide;
   dialog(startingSession?'New session':'New capture',draft.sessionProject?proj(draft.sessionProject).name:'Capture', '<div class="fields"><label>'+(startingSession?'What should the agent do?':draft.guide==='start'?'Your request':'Transcript')+'<textarea id="transcript" placeholder="Talk through an idea or type a follow-up…">'+esc(draft.text)+'</textarea></label><div class="inline">'+(live?button('Hold to talk','dictate','#transcript','btn','mic'):button('Use voice sample','sample','','btn','mic'))+button(draft.sketch?'Hide sketch pad':'Add sketch','sketch','','btn','pen')+'</div>'+(draft.sketch?'<div class="field"><span>Sketch</span><canvas id="pad" width="600" height="176" class="drawpad" aria-label="Sketch pad. Use pointer to draw, or add the keyboard sample below."></canvas><div class="inline">'+button('Add sample curve','curve')+button('Clear sketch','clearink')+'</div></div>':'')+'</div><div class="form-actions">'+button('Cancel','discard')+button(startingSession?'Review session':'Review capture','review','','primary','arrow')+'</div>');
-  $('#transcript').oninput=e=>draft.text=e.target.value;
+  $('#transcript').oninput=e=>{draft.text=e.target.value;growTranscript(e.target)};
+  growTranscript($('#transcript'));
   if(draft.sketch)setupPad();
 }
 function setupPad(){
@@ -467,20 +474,23 @@ function review(){
   const relay=d.mode==='note'||d.noPick?'':handoffRelay.markup(d.captureId,agent,d.relayPhase||'review');
   const route=relay?'<div class="review-rail">'+relay+'<span data-relay-label>'+(d.relayPhase==='failed'?'Handoff failed':'Ready for '+esc(providers[agent]))+'</span></div>':'';
   const suggestion=d.suggestedBrief && d.suggestedBrief!==d.brief?'<details class="route-evidence"><summary>Suggested wording</summary><p class="body-copy">'+esc(d.suggestedBrief)+'</p>'+button('Use this wording','apply-suggested-brief')+'</details>':'';
-  const brief='<p class="review-brief" id="review-brief">'+esc(d.brief||'Attached sketch')+'</p>'+suggestion+(d.strokes.length?sketchMarkup(d.strokes):'')+captureContext.review(d)+note;
+  const inNotch=firstMode();
+  const request='<p class="review-brief" id="review-brief">'+esc(d.brief||'Attached sketch')+'</p>';
+  const brief=(inNotch?'':request)+suggestion+(d.strokes.length?sketchMarkup(d.strokes):'')+captureContext.review(d)+note;
   const details=d.noPick?'':modelReviewMarkup(d)+(live?deliveryAudit(d):'');
   const choice=d.mode==='ask' && live?workerRouting.reviewMarkup(d):'';
   const usage=live && d.mode!=='note'?'<details class="route-evidence"><summary>Account usage</summary>'+aiConnections.receipt(d)+'</details>':'';
-  const body=d.quick?brief+choice+usage+(live && !d.noPick?deliveryAudit(d):''):d.guide?brief+choice+aiConnections.receipt(d)+(details?'<details class="guide-review-details"><summary>Handoff details</summary>'+details+'</details>':''):route+brief+choice+aiConnections.receipt(d)+details;
+  const body=brief+choice+usage+(details?'<details class="guide-review-details"><summary>Handoff details</summary>'+details+'</details>':'');
   const title=d.guide?{ask:'Review new session',nudge:'Review follow-up',note:'Review note'}[d.mode]:'Review capture';
   const project=proj(d.project);
   const trustPath=live && !d.noPick && d.mode==='ask' && agent==='codex'
     ? (d.project==='@scratch'?'@scratch':d.project==='@new'?'~/projects/'+d.newName:project?.checkout || project?.folder) : '';
   const trustLabel=trustPath==='@scratch'?'Tasktap’s Scratch folder':trustPath;
   const folderTrust=trustPath?'<div class="folder-trust"><label class="check-line"><input type="checkbox" id="folder-trust" data-folder="'+attr(trustPath)+'" aria-describedby="folder-trust-detail" '+(d.deferTrust===trustPath?'':'checked')+'>Trust this folder for this Codex session</label><p class="hint" id="folder-trust-detail">'+esc(trustLabel)+' · Project settings can run code.</p></div>':'';
+  const confirm=button(action,'commit-review','',inNotch?'notch-action':'primary',inNotch?'arrow':'');
   dialog(title,where,body+peerDisclosure(peers,d.project)+continueSessionButton(d)+
     folderTrust+
-    '<div class="form-actions">'+button('Adjust','adjust')+button(action,'commit-review','','primary')+'</div>');
+    '<div class="form-actions">'+(inNotch?confirm+button('Adjust','adjust'):button('Adjust','adjust')+confirm)+'</div>','',inNotch?request:'');
   if(trustPath)$('#folder-trust').onchange=e=>{d.deferTrust=e.target.checked?'':trustPath};
   if(choice)workerRouting.bindReview(d);
   reviewActivity(d);
@@ -540,6 +550,11 @@ function commitCapture(){
   if(d.mode==='nudge'){s=sess(d.session);if(!s){toast('Choose an available session.');return}c.project=s.project;c.kind='Session nudge';c.receipt='Queued';c.session=s.id;s.log.push('Nudge queued. '+d.brief)}
   if(d.mode==='note'||d.keep){const text=d.mode==='note'?captureContext.brief(d):d.note;state.notes.unshift({id:uid(),project:c.project,text,title:text.trim().slice(0,64)||'Sketch',capture:cid})}
   state.captures.unshift(c);draft=null;persist();dismissCard();render();
+  if(s && firstMode() && !pending()){
+    peekHandoff(cid);
+    if(d.mode==='nudge')setTimeout(()=>deliver(cid),1400);
+    return;
+  }
   if(d.mode==='nudge'){toast('Nudge queued for '+s.task+'.');setTimeout(()=>deliver(cid),1400)}
   else if(d.mode==='ask'){showSession(s.id)}else{if(!document.body.classList.contains('notch-first'))go('notes');toast('Note saved.')}
 }
@@ -592,7 +607,7 @@ function prefs(group='agents'){
       '<div class="check-line"><input id="narration" type="checkbox" '+(state.speak?'checked':'')+'><label for="narration">Read completion summaries aloud</label></div>'+
       surfaceButton('Notification settings','notifications','bell','btn');
   }
-  dialog('Preferences','Tasktap','<div id="preferences" class="settings-form">'+nav+'<section aria-label="'+preferenceGroups[group]+'" class="settings-section">'+body+'</section><div class="preference-links">'+button('Run setup…','run-setup','','text-btn','settings')+button('Documentation','open-docs',group,'text-btn','out')+'</div></div>');
+  dialog('Preferences','Tasktap','<div id="preferences" class="settings-form">'+nav+'<section aria-label="'+preferenceGroups[group]+'" class="settings-section">'+body+'</section><div class="preference-links">'+button('Run setup…','run-setup','','text-btn','settings')+(live?button('Check for Updates…','check-updates','','text-btn'):'')+button('Documentation','open-docs',group,'text-btn','out')+'</div></div>');
   settingsHeader();
   if(group==='agents' && live)aiConnections.refresh();
   if(group==='capture')captureContext.bindPreference();
@@ -625,6 +640,7 @@ document.addEventListener('click',e=>{
     case 'worker-install':case 'worker-login':if(live && Object.hasOwn(providers,id))postLive(a,{agent:id});break;
     case 'preview-voice':speak('Tasktap is ready. What would you like to work on?');break;
     case 'terminal':postLive('resume-terminal',{id});break;
+    case 'check-updates':if(live)postLive('check-updates');break;
     case 'open-docs':{const section=({agents:'agents',capture:'capture',voice:'voice',appearance:'appearance'})[id]||'install';if(live)postLive('open-docs',{section});else window.open('https://harzerheribert.github.io/Tasktap/docs/#'+section,'_blank','noopener');break}
     case 'focus-session':postLive('focus-session',{id});break;
     case 'reopen-session':postLive('reopen-session',{id});break;
@@ -674,4 +690,13 @@ if(location.hash==='#geometry'){
     {...seed.sessions[1],task:'Arbeitsbereich für Beleuchtungseinstellungen und Reflexionsberechnungen',amount:'1,234,567'},
     {...seed.sessions[2],agent:'',task:'Missing icon',amount:'8'}
   ].map(s=>sessionRow(s,{fixture:true})).join('')+'</div>';
+}
+
+function prepareForAppUpdate(){
+  if(typeof recording!=='undefined' && recording || draft?.routing || draft?.submitting || setupWizard.showing() || document.querySelector('#guide-input')?.value?.trim())return false;
+  try{if(draft)localStorage.setItem('tasktap-update-draft',JSON.stringify({text:draft.text||draft.brief||'',project:draft.project||'',strokes:draft.strokes||[]}));persist();return true}catch{return false}
+}
+const recoveredUpdateDraft=localStorage.getItem('tasktap-update-draft');
+if(recoveredUpdateDraft){
+  try{const saved=JSON.parse(recoveredUpdateDraft);if(saved.text || saved.strokes?.length){setTimeout(()=>{captureDraft('',proj(saved.project)?saved.project:'',saved.text);draft.strokes=saved.strokes||[];draft.sketch=!!draft.strokes.length;editDraft();localStorage.removeItem('tasktap-update-draft')},1200)}}catch{}
 }

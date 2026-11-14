@@ -18,8 +18,9 @@ import AppKit
             precondition(item.hasCutout && small.contains(item.tab) && open.contains(item.tab))
             precondition(small.maxY == item.screen.maxY && open.maxY == item.screen.maxY && open.width>small.width)
             precondition(item.screen.contains(small) && item.screen.contains(open))
-            precondition(item.topBandContains(CGPoint(x:item.tab.minX-item.wing/2,y:item.tab.midY),collapsed:false))
-            precondition(!item.topBandContains(CGPoint(x:item.tab.minX-item.wing-12,y:item.tab.midY),collapsed:false))
+            precondition(item.contains(CGPoint(x:open.minX+1,y:item.tab.midY),in:open,collapsed:false))
+            precondition(!item.contains(CGPoint(x:open.minX+1,y:item.tab.minY-20),in:open,collapsed:false))
+            precondition(item.contains(CGPoint(x:open.minX+item.shoulder+1,y:item.tab.minY-20),in:open,collapsed:false))
         }
         precondition(laptop.tab == CGRect(x:790,y:1131,width:220,height:38) && laptop.pixel == 0.5)
         precondition(offset.tab == CGRect(x:-846,y:1850,width:180,height:32))

@@ -8,6 +8,8 @@ Tasktap is a voice-first macOS menu-bar app for working with coding agents in yo
 
 ## Build and run
 
+Prebuilt community packaging and signed in-app updates are supported. Use **Check for Updates…** in the menu bar. Release maintainers: see [release instructions](docs/releases.md). The optional [installer](site/install.sh) accepts an explicit published version. Community builds are not Apple notarized; Python 3 and agent CLIs remain runtime requirements.
+
 Use macOS 26 or later, Xcode or the Command Line Tools with the macOS 26 SDK or newer, Python 3, and at least one signed-in agent CLI on your PATH. The build creates a locally signed app.
 
 ```sh

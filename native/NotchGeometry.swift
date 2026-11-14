@@ -41,22 +41,22 @@ struct NotchGeometry {
     var corner: CGFloat { max(1,min(10,(tab.height / (4 * pixel)).rounded() * pixel)) }
     var rimOffset: CGFloat { (corner / (3 * pixel)).rounded(.up) * pixel + pixel }
 
-    // The black shoulders stay close to the housing, leaving room for menu-bar items.
-    var wing: CGFloat {
-        let available = min(tab.minX - screen.minX, screen.maxX - tab.maxX) - glowMargin
-        return max(0,min(available, (tab.height * 0.85).rounded(), 38))
-    }
+    // Allow space for the two concave corners drawn outside the sheet.
+    let shoulder: CGFloat = 13
     var availableContentHeight: CGFloat { max(1,tab.minY - visible.minY - 12) }
 
     func panelFrame(collapsed: Bool, requestedHeight: CGFloat) -> CGRect {
-        let width = min(screen.width, collapsed ? tab.width + glowMargin * 2 : max(440,tab.width + 2 * (wing + glowMargin)))
+        let width = min(screen.width, (collapsed ? tab.width : max(432,tab.width)) + 2 * shoulder)
         let height = collapsed ? tab.height + glowMargin : min(max(tab.height,requestedHeight), tab.height + availableContentHeight)
         // Keep the whole sheet on screen if the system reports an off-center cutout.
         let x = max(screen.minX,min(screen.maxX - width, tab.midX - width / 2))
         return CGRect(x: x, y: tab.maxY - height, width: width, height: height)
     }
 
-    func topBandContains(_ point: CGPoint, collapsed: Bool) -> Bool {
-        tab.insetBy(dx: -(collapsed ? glowMargin : wing + glowMargin), dy: 0).contains(point)
+    func contains(_ point: CGPoint, in frame: CGRect, collapsed: Bool) -> Bool {
+        guard frame.contains(point) else { return false }
+        if point.y >= tab.minY { return true }
+        return collapsed ? tab.insetBy(dx:-rimOffset,dy:-rimOffset).contains(point)
+                         : frame.insetBy(dx:shoulder,dy:0).contains(point)
     }
 }

@@ -52,6 +52,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private let verifying = CommandLine.arguments.contains("--verify-interface")
     private var ready = false
     private var routeTask: Task<Void, Never>?
+    private var updates: AppUpdates?
     private var routeID: String?
     @MainActor private lazy var routingProviders = RoutingProviders()
     private var serverProbe: Task<Void, Never>?
@@ -175,7 +176,10 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         if panel.frame != frame { panel.setFrame(frame, display: true) }
         decisionRim.update(screen: isWorkspace ? workspace.screen ?? screen : screen, visible: isWorkspace && pendingCount > 0)
         if ready {
-            let metrics = ["width":geometry.tab.width, "height":geometry.tab.height, "wing":geometry.wing,
+            let expanded = geometry.panelFrame(collapsed:false,requestedHeight:height)
+            let metrics = ["width":geometry.tab.width, "height":geometry.tab.height, "shoulder":geometry.shoulder,
+                           "surfaceWidth":expanded.width - 2 * geometry.shoulder,
+                           "surfaceOffset":expanded.midX - geometry.tab.midX,
                            "pixel":geometry.pixel, "corner":geometry.corner, "rimOffset":geometry.rimOffset,
                            "offset":geometry.tab.midX - frame.midX,
                            "available":geometry.availableContentHeight]
@@ -194,9 +198,9 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             geometry=NotchGeometry(screen:destination)
         }
         let topBand = point.y >= geometry.tab.minY && point.y <= geometry.tab.maxY
-        let inside = panel.frame.contains(point) && (!topBand || geometry.topBandContains(point, collapsed: collapsed))
+        let inside = geometry.contains(point,in:panel.frame,collapsed:collapsed)
         // The shoulders are decorative. Menu items keep their mouse input even during a peek.
-        panel.ignoresMouseEvents = topBand && !geometry.tab.contains(point)
+        panel.ignoresMouseEvents = !inside || (topBand && !geometry.tab.contains(point))
         if dragging {return}
         guard inside != pointerInside else { return }
         pointerInside=inside
@@ -248,6 +252,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         menu.addItem(.separator())
         add("Open Workspace", "workspace", to:menu)
         add("Preferences…", "prefs", to:menu)
+        add("Check for Updates…", "updates", to:menu)
         add("Run Setup…", "run-setup", to:menu)
         add("Notifications…", "notifications", to:menu)
         add("Codex Micro Controls…", "controller", to:menu)
@@ -261,8 +266,26 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     }
     @objc private func menuAction(_ sender: NSMenuItem) {
         guard let command=sender.representedObject as? String else { return }
+        if command=="updates" { checkUpdates(); return }
         if command=="quit" { NSApp.terminate(nil); return }
         deliver(command)
+    }
+    private func checkUpdates() {
+            if updates == nil {
+                updates = AppUpdates()
+                updates?.prepareToRestart = { [weak self] install in
+                    guard let self else { return }
+                    self.web.callAsyncJavaScript("return prepareForAppUpdate()", arguments: [:], in: nil, in: .page) { result in
+                        if case .success(let ready) = result, ready as? Bool == true { install() }
+                        else {
+                            let alert = NSAlert(); alert.messageText = "Finish your capture or handoff first"
+                            alert.informativeText = "Your update is ready. Finish capture, setup, or sending, then choose Check for Updates again to restart."
+                            alert.runModal()
+                        }
+                    }
+                }
+            }
+            updates?.check()
     }
     private func registerKeys(){
         var types=[EventTypeSpec(eventClass: OSType(kEventClassKeyboard),eventKind: UInt32(kEventHotKeyPressed)),
@@ -416,6 +439,8 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             refreshWorkers()
         case "worker-usage":
             refreshUsage()
+        case "check-updates":
+            checkUpdates()
         case "open-docs":
             guard !verifying,!liveTest,let section=data["section"] as? String,
                   ["agents","capture","voice","appearance","install"].contains(section),
@@ -699,36 +724,37 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             let hotRegion=anchorScreen.map { NotchGeometry(screen:$0).tab } ?? .zero
             let point=hotRegion.isEmpty ? NSPoint(x:panel.frame.midX,y:panel.frame.midY) : NSPoint(x:hotRegion.midX,y:hotRegion.midY)
             updateHover(at:point,dragging:false)
-            try await Task.sleep(nanoseconds:550_000_000)
+            try await Task.sleep(nanoseconds:800_000_000)
             let peek=try await web.evaluateJavaScript("!document.querySelector('#notch-home').hidden")
             guard peek as? Bool == true, panel.frame.width>compactWidth, abs(panel.frame.maxY-compactTop)<1,
                   panel.isKeyWindow==key, panel.firstResponder===responder,
                   NSWorkspace.shared.frontmostApplication?.processIdentifier==front else { throw Check.failed(#line) }
             let wrapsHousing = try await web.callAsyncJavaScript("""
-                const tab=document.querySelector('#islandToggle'), box=tab.getBoundingClientRect(),
-                      rim=getComputedStyle(tab,'::after'), shoulder=getComputedStyle(tab,'::before'),
+                const box=document.querySelector('#islandToggle').getBoundingClientRect(),
+                      shell=document.querySelector('#notch-shell'), surface=shell.getBoundingClientRect(),
                       sheet=document.querySelector('#notch-home').getBoundingClientRect();
                 return Math.abs(box.width-width)<0.51 && Math.abs(box.height-depth)<0.51 &&
                     Math.abs(box.left-tabLeft)<0.51 && Math.abs(sheet.top-box.bottom)<0.51 &&
-                    Math.abs(parseFloat(rim.left)+wing)<0.51 && parseFloat(rim.borderBottomWidth)===0 &&
-                    Math.abs(parseFloat(shoulder.left)+wing)<0.51 && Math.abs(parseFloat(shoulder.right)+wing)<0.51;
-                """, arguments:["width":geometry.tab.width,"depth":geometry.tab.height,"pixel":geometry.pixel,
-                                "tabLeft":geometry.tab.minX-panel.frame.minX,"wing":geometry.wing],in:nil,contentWorld:.page)
+                    Math.abs(surface.left-sheet.left)<0.51 && Math.abs(surface.right-sheet.right)<0.51 &&
+                    Math.abs(sheet.bottom-surface.bottom)<1.01 && surface.top===0 &&
+                    parseFloat(getComputedStyle(shell,'::before').left)===0;
+                """, arguments:["width":geometry.tab.width,"depth":geometry.tab.height,
+                                "tabLeft":geometry.tab.minX-panel.frame.minX],in:nil,contentWorld:.page)
             guard wrapsHousing as? Bool == true else {
                 let bounds=try await web.evaluateJavaScript("""
-                    (()=>{const tab=document.querySelector('#islandToggle'), before=getComputedStyle(tab,'::before'), after=getComputedStyle(tab,'::after');
-                    return JSON.stringify({state:document.body.className,hidden:document.hidden,box:tab.getBoundingClientRect(),sheet:document.querySelector('#notch-home').getBoundingClientRect(),rim:[after.left,after.right,after.borderBottomWidth],wing:[before.left,before.right]})})()
+                    JSON.stringify({state:document.body.className,tab:document.querySelector('#islandToggle').getBoundingClientRect(),
+                      shell:document.querySelector('#notch-shell').getBoundingClientRect(),sheet:document.querySelector('#notch-home').getBoundingClientRect()})
                     """)
                 print("Expanded hardware and panel bounds",geometry.tab,panel.frame,bounds ?? "")
                 throw Check.failed(#line)
             }
             if geometry.hasCutout {
-                updateHover(at:NSPoint(x:geometry.tab.minX-geometry.wing/2,y:geometry.tab.midY),dragging:false)
+                updateHover(at:NSPoint(x:geometry.tab.minX-geometry.shoulder/2,y:geometry.tab.midY),dragging:false)
                 guard pointerInside, panel.ignoresMouseEvents else {throw Check.failed(#line)}
             }
-            print("Measured \(geometry.hasCutout ? "cutout" : "fallback") \(geometry.tab.width) × \(geometry.tab.height) pt, \(geometry.wing) pt shoulders at \(screen.backingScaleFactor)×.")
+            print("Measured \(geometry.hasCutout ? "cutout" : "fallback") \(geometry.tab.width) × \(geometry.tab.height) pt at \(screen.backingScaleFactor)×.")
             updateHover(at:outside,dragging:false)
-            try await Task.sleep(nanoseconds:650_000_000)
+            try await Task.sleep(nanoseconds:800_000_000)
             let shut=try await web.evaluateJavaScript("document.querySelector('#notch-home').hidden")
             guard shut as? Bool == true, panel.frame.width==compactWidth, panel.isKeyWindow==key,
                   NSWorkspace.shared.frontmostApplication?.processIdentifier==front else { throw Check.failed(#line) }

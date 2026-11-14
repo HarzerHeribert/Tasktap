@@ -1,6 +1,7 @@
 #!/bin/bash
 set -eu
 root="$(cd "$(dirname "$0")/.." && pwd)"
+bash "$root/scripts/fetch-sparkle.sh"
 out="${1:-$root/build}/Tasktap.app"
 contents="$out/Contents"
 mkdir -p "$contents/MacOS" "$contents/Resources/prototype/assets"
@@ -15,7 +16,9 @@ mkdir -p "$contents/Resources/prototype/assets/resonator"
 cp "$root"/prototype/assets/resonator/*.{jpg,mp4} "$contents/Resources/prototype/assets/resonator/"
 cp -R "$root/prototype/assets/motion" "$contents/Resources/prototype/assets/"
 cp "$root/prototype/assets/resonator/Tasktap.icns" "$contents/Resources/"
-swiftc -O -target "$(uname -m)-apple-macosx26.0" -module-cache-path "${TMPDIR:-/tmp}/workspace-assistant-module-cache" "$root"/native/*.swift -o "$contents/MacOS/Tasktap"
+mkdir -p "$contents/Frameworks"
+ditto "$root/build/sparkle/Sparkle.framework" "$contents/Frameworks/Sparkle.framework"
+swiftc -F "$contents/Frameworks" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks -O -target "$(uname -m)-apple-macosx26.0" -module-cache-path "${TMPDIR:-/tmp}/workspace-assistant-module-cache" "$root"/native/*.swift -o "$contents/MacOS/Tasktap"
 codesign --force --sign - --identifier io.github.harzerheribert.tasktap "$out"
 codesign --verify --strict "$out"
 printf '%s\n' "$out"

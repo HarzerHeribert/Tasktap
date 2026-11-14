@@ -45,25 +45,8 @@
   border-radius:0;
 }
 .brand-mark img{display:block;width:100%;height:100%;object-fit:cover;mix-blend-mode:screen;filter:contrast(1.08)}
-.home-heading .signal-light{
-  width:76px;
-  height:44px;
-  isolation:isolate;
-}
-.home-heading .signal-light::before,.home-heading .signal-light::after{display:none}
-.home-heading .signal-light i{
-  inset:0;
-  opacity:1;
-  border-radius:0;
-  background:none;
-  box-shadow:none;
-}
-.home-heading .signal-light .resonator-film{position:absolute;inset:0}
 @media (max-width:680px){
   .resonator-stage .page-heading{padding:var(--s-panel) 0 var(--s-panel) var(--s-panel)}
   .resonator-stage{grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr)}
   .resonator-stage .resonator-film{left:55%;mask-image:linear-gradient(to right, transparent, black 14%)}
-}
-@media (prefers-reduced-motion:reduce){
-  .home-heading .signal-light i{animation:none!important}
 }

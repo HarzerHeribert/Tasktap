@@ -21,9 +21,10 @@ let lastBinary=null;
 let microStatus='Off';
 let boundsFrame = 0;
 const pending = () => state.decisions[0];
+const notchMotion = matchMedia('(prefers-reduced-motion: reduce)');
 function updateSurfaceVisibility(){
   document.body.classList.toggle('surface-hidden',document.hidden);
-  if(document.hidden && homeMode==='retracting'){homeMode='closed';drawHome();updateBounds(true)}
+  if(document.hidden)finishFold();
 }
 document.addEventListener('visibilitychange',updateSurfaceVisibility);
 updateSurfaceVisibility();
@@ -46,7 +47,8 @@ function showHome(open=true){
   clearTimeout(hoverTimer);
   closePanels();
   document.body.classList.add('notch-first');
-  homeMode=open?'pinned':'closed';
+  if(!open){$('#islandToggle').focus({preventScroll:true});foldHome();return}
+  homeMode='pinned';
   drawHome();
   $('#islandToggle').focus({preventScroll:true});
   updateBounds(true);
@@ -60,8 +62,17 @@ function peekHandoff(capture){
   drawHome();updateBounds(true);
   receiptTimer=setTimeout(()=>{
     if(homeMode!=='receipt')return;
-    homeMode='closed';drawHome();updateBounds();
+    foldHome();
   },3200);
+}
+function foldHome(){
+  const animate=!$('#notch-home').hidden && !notchMotion.matches && !document.hidden;
+  homeMode=animate?'retracting':'closed';
+  drawHome();updateBounds(true);
+}
+function finishFold(){
+  if(homeMode==='retracting'){homeMode='closed';drawHome()}
+  updateBounds(true);
 }
 function hoverNotch(inside){
   clearTimeout(hoverTimer);
@@ -74,21 +85,15 @@ function hoverNotch(inside){
   hoverTimer=setTimeout(()=>{
     if(!firstMode() || document.querySelector('dialog[open]') || homeMode==='pinned')return;
     if(!inside && $('#notch-home').contains(document.activeElement))return;
-    if(inside)homeMode='peek';
-    else if(homeMode==='peek' && !document.hidden && !matchMedia('(prefers-reduced-motion: reduce)').matches)homeMode='retracting';
-    else homeMode='closed';
+    if(!inside){foldHome();return}
+    homeMode='peek';
     drawHome();updateBounds();
   },inside?170:320);
 }
-$('#notch-home').addEventListener('transitionend',event=>{
-  if(event.target===$('#notch-home') && event.propertyName==='clip-path' && homeMode==='retracting'){
-    homeMode='closed';
-    drawHome();updateBounds();
-  }
+$('.notch-surface').addEventListener('transitionend',event=>{
+  if(event.propertyName==='clip-path' && !document.body.classList.contains('notch-open'))finishFold();
 });
-matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change',()=>{
-  if(homeMode==='retracting'){homeMode='closed';drawHome();updateBounds()}
-});
+notchMotion.addEventListener('change',()=>{if(notchMotion.matches)finishFold()});
 function updateSignal(){
   const running=state.sessions.filter(session=>session.state==='Running').length;
   let mode='idle', label='Idle';
@@ -109,19 +114,31 @@ function drawHome(){
   const root=$('#notch-home'),q=pending(),s=q?sess(q.session):null;
   root.hidden=!firstMode()||homeMode==='closed';
   root.classList.toggle('retracting',homeMode==='retracting');
-  $('#islandToggle').setAttribute('aria-expanded',String(!root.hidden || $('#notch').open));
-  document.body.classList.toggle('notch-spread',!root.hidden);
-  const sent=live && homeMode==='receipt' && byId(state.captures,receiptCapture);
-  const latest=sent && ['Queued','Opening','Opened','Running','Copied','Delivered'].includes(sent.receipt)?sent:null;
-  const recent=latest && sess(latest.session);
-  const paneTitle=q?'Decision ready':recent?({Running:latest.external?'Sending nudge':'Agent working',Queued:'Handoff queued',Delivered:'Nudge delivered',Opened:'Session opened',Opening:'Opening session',Copied:'Nudge copied'}[latest.receipt]):'Ready to capture';
-  const preview=q?'<button class="request-preview" data-surface="requests" data-target="'+attr(q.id)+'"><span class="preview-icon">'+icon('sessions')+'</span><span><small>'+esc(proj(s.project).name)+' / '+esc(providers[s.agent])+'</small><strong>'+esc(q.q)+'</strong></span>'+icon('right')+'</button>':recent?'<button class="request-preview" data-action="session" data-id="'+attr(recent.id)+'"><span class="preview-icon">'+icon('sessions')+'</span><span><small>'+esc(proj(recent.project)?.name||'Scratch')+' / '+esc(providers[recent.agent])+'</small><strong>'+esc(recent.task)+'</strong></span>'+icon('right')+'</button>' : '';
-  const homeArt=recent && !q ? handoffRelay.forCapture(latest) : '';
-  const content=firstRun.content() || '<header class="home-meta"><span class="icon-label">Tasktap</span>'+surfaceButton('','collapse','down','collapse-button')+'</header><div class="home-heading"><div><h1>'+paneTitle+'</h1><small class="signal-caption"></small></div><span class="signal-light" aria-hidden="true"><i>'+(homeArt||resonatorMarkup('miniature'))+'</i></span></div>'+preview+'<footer class="home-actions">'+surfaceButton('Capture','capture','pen','voice-trigger')+surfaceButton('Workspace','workspace','out','workspace-link')+'</footer>';
+  root.inert=root.hidden || homeMode==='retracting';
+  if(root.hidden)receiptCapture=null;
+  // Keep the same content and height all the way back into the housing.
+  if(homeMode==='retracting')return;
+  const receipt=byId(state.captures,receiptCapture);
+  const session=s || (receipt && sess(receipt.session));
+  const title=q?.q || (receipt && ({
+    Started:'Session started',Queued:'Handoff queued',Opening:'Opening session',Opened:'Session opened',
+    Running:receipt.external?'Sending nudge':'Agent working',Copied:'Nudge copied',Delivered:'Nudge delivered',
+    Failed:'Handoff failed',Complete:'Session complete',Closed:'Session closed'
+  }[receipt.receipt] || receipt.receipt)) || 'Ready to capture';
+  const destination=session?[proj(session.project)?.name || 'Scratch',providers[session.agent]].filter(Boolean).map(esc).join(' <span aria-hidden="true">/</span> '):'';
+  const action=q?surfaceButton('Review decision','requests','arrow','notch-action',q.id):receipt && session?
+    button('View session','session',session.id,'notch-action','arrow'):surfaceButton('Capture','capture','arrow','notch-action');
+  const art=receipt && !q?handoffRelay.forCapture(receipt):!q?resonatorMarkup('miniature'):'';
+  const content=firstRun.content() || '<header class="home-heading"><div><h1>'+esc(title)+'</h1></div>'+
+    surfaceButton('','collapse','down','collapse-button')+'</header>'+
+    (destination?'<p class="notch-destination">'+destination+'</p>':'<small class="signal-caption"></small>')+
+    '<footer class="home-actions">'+action+(q || receipt?surfaceButton('Capture','capture','','workspace-link'):'')+
+    surfaceButton('Workspace','workspace','','workspace-link')+
+    (art?'<span class="home-art" aria-hidden="true">'+art+'</span>':'')+'</footer>';
   // A session progress event must preserve focused controls and their tab order.
   if(homeContent!==content){
     const editing=document.activeElement?.id==='guide-input'?document.activeElement:null;
-    root.innerHTML=content;homeContent=content;
+    root.querySelector('.home-content').innerHTML=content;homeContent=content;
     bindGuideComposer();
     const field=$('#guide-input',root);
     if(editing && field){
@@ -307,20 +324,35 @@ function updateNotchGeometry(metrics){
   const style=document.documentElement.style;
   for(const [property,value] of Object.entries({
     '--native-tab-width':metrics.width,'--camera-height':metrics.height,'--camera-offset':metrics.offset,
-    '--notch-wing':metrics.wing,'--notch-pixel':metrics.pixel,'--cutout-corner':metrics.corner,
+    '--native-surface-width':metrics.surfaceWidth,'--surface-offset':metrics.surfaceOffset,
+    '--notch-shoulder':metrics.shoulder,'--notch-pixel':metrics.pixel,'--cutout-corner':metrics.corner,
     '--rim-outset':metrics.rimOffset,'--available-panel-height':metrics.available
   })){
+    if(!Number.isFinite(value))continue;
     const length=value+'px';
     if(style.getPropertyValue(property)!==length)style.setProperty(property,length);
   }
 }
 function postBounds(){
   boundsFrame=0;
-  const panel=$('#notch').open?$('#notch'):$('#modal').open?$('#modal'):!$('#notch-home').hidden?$('#notch-home'):$('#island');
-  postHost('layout',{workspace:!firstMode(),height:Math.ceil(panel.getBoundingClientRect().bottom),collapsed:firstMode()&&panel.id==='island'});
+  const panel=document.querySelector('#notch[open]') || document.querySelector('#modal[open]') ||
+    (!$('#notch-home').hidden && homeMode!=='retracting' ? $('#notch-home') : null);
+  const open=firstMode() && !!panel;
+  const shell=$('#notch-shell');
+  if(open)shell.style.setProperty('--sheet-bottom',Math.ceil(panel.getBoundingClientRect().bottom)+'px');
+  document.body.classList.toggle('notch-open',open);
+  $('#islandToggle').setAttribute('aria-expanded',String(open || $('#notch').open));
+  // Keep the transparent AppKit window full-size until the visual fold finishes.
+  const folding=firstMode() && !open && shell.style.getPropertyValue('--sheet-bottom')!=='' && !document.hidden && !notchMotion.matches &&
+    shell.firstElementChild.getAnimations().some(a=>a.transitionProperty==='clip-path');
+  if(!folding && !open){
+    if(homeMode==='retracting'){homeMode='closed';drawHome()}
+    shell.style.removeProperty('--sheet-bottom');
+  }
+  const height=open || folding?shell.getBoundingClientRect().height:$('#island').getBoundingClientRect().bottom;
+  postHost('layout',{workspace:!firstMode(),height:Math.ceil(height),collapsed:!open && !folding});
 }
 function updateBounds(immediate=false){
-  if(!host)return;
   // WebKit can suspend animation frames while a window is covered. Switching
   // between native windows must reach AppKit even when that happens.
   if(immediate===true || document.hidden){
@@ -408,10 +440,8 @@ for(const selector of ['#notch','#modal']){
   }).observe(d,{childList:true,attributes:true,attributeFilter:['open']});
   new ResizeObserver(updateBounds).observe(d);
 }
-if(host){
-  const boundsObserver=new ResizeObserver(updateBounds);
-  boundsObserver.observe($('#notch-home'));boundsObserver.observe($('#island'));
-}
+const boundsObserver=new ResizeObserver(updateBounds);
+boundsObserver.observe($('#notch-home'));boundsObserver.observe($('#island'));
 window.workspaceCommand=(action,id='')=>{
   if(action==='live-error'){toast(id);return}
   if(action==='session-focused'){

@@ -162,7 +162,7 @@ function acceptLive(data){
   const d=draft;
   if(!d||d.captureId!==data.capture)return;
   d.submitting=false;
-  if(data.error){reviewReceipt(d,'failed','Handoff failed');toast(data.error);return}
+  if(data.error){reviewReceipt(d,'failed','Handoff failed');let error=$('#handoff-error');if(!error){error=document.createElement('p');error.id='handoff-error';error.setAttribute('role','alert');$('#modal .form-actions').before(error)}error.textContent=data.error+' Your request is preserved. Choose Adjust to change the terminal or agent, then try again.';return}
   const existing=byId(state.captures,d.captureId);
   const jobHost=sessionHost(d);
   const receiptState=existing?.receipt || (d.mode==='note'?'Saved':'Queued');
@@ -361,6 +361,8 @@ function dictationEvent(id,phase,text){
     input.value=words+tail+after;
     input.setSelectionRange(words.length,words.length);
     input.dispatchEvent(new Event('input',{bubbles:true}));
+    growTranscript(input);
+    input.scrollTop=input.scrollHeight;
     recording.writing=false;
     if(target==='#transcript' && draft && text)draft.hasVoice=true;
     if(target==='#guide-input' && text)firstRun.hasVoice=true;

@@ -293,14 +293,14 @@ const clip = n=>Math.abs(n)<=1;
       id:'observed-'+i,conversation:'observed-'+i,folder:'/example/projects/project-'+i,task:'Example '+i,
       source:'claude',agent:'claude',state:status
     }))));
-    assert.deepEqual(await list.locator('button').allTextContents(),['Project 0','Project 1']);
+    assert.deepEqual(await list.locator('.row-title').allTextContents(),['Project 0','Project 1']);
     await real.getByLabel('Show idle projects').check();
     assert.equal(await list.locator('button').count(),150);
     await real.reload();await real.locator('[data-action=view][data-id=projects]').click();
     assert.ok(await real.getByLabel('Show idle projects').isChecked());
     await real.getByLabel('Find a project').fill('149');
     assert.equal(await real.locator('#project-list button').count(),1);
-    await list.getByRole('button',{name:'Project 149',exact:true}).click();
+    await list.locator('.project-row').filter({has:real.getByText('Project 149',{exact:true})}).click();
     await click('Start session');
     await real.getByLabel('What should the agent do?').fill('Ask Codex to document how project notes are saved.');
     await click('Review session');

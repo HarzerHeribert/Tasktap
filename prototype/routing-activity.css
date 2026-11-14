@@ -24,16 +24,13 @@ tasktap-relay{
 tasktap-relay img,tasktap-relay canvas{
   position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain
 }
-.review-rail,.capture-receipt{
-  display:flex;align-items:center;gap:var(--s-row);min-width:0;
-  font:var(--t-small)/1.4 var(--font-mono)
-}
 .review-rail{
+  display:flex;align-items:center;gap:var(--s-row);min-width:0;
+  font:var(--t-small)/1.4 var(--font-mono);
   padding:var(--s-tight) var(--s-panel);background:#080d10;color:#dfded4;
   border:1px solid #30383a;border-radius:var(--r-card)
 }
 .review-rail tasktap-relay{width:clamp(92px,30%,160px);mix-blend-mode:screen}
-.capture-receipt tasktap-relay{width:clamp(74px,24%,106px);mix-blend-mode:screen}
 .home-heading .signal-light:has(tasktap-relay) i{animation:none}
 .activity-art:has(tasktap-relay){align-content:center}
 .dialog-body>tasktap-relay{max-width:220px;margin:auto;border-radius:var(--r-control)}

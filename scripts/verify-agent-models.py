@@ -13,9 +13,13 @@ import agy_session
 from visible_session import cli_command
 
 base=dict(agent='codex',session='conversation',folder='/tmp',task='test',outgoing='reviewed prompt',instructions='fixture',model='selected',capture='test')
-for provider in ('codex','claude','agy'):
+for provider in ('codex','claude','agy','cursor-agent','pi'):
     job=dict(base,agent=provider)
     fresh=cli_command(job,Path('/tools'),'/agent')
+    if provider=='codex':
+        assert fresh[-1]==base['outgoing']+'\n\n'+base['instructions']
+    if provider in ('cursor-agent','pi'):
+        assert fresh[-2:]==['--',base['outgoing']] and not {'--trust','--approve','--force'}.intersection(fresh)
     assert fresh[fresh.index('--model')+1]=='selected'
     assert '--model' not in cli_command(dict(job,model=''),Path('/tools'),'/agent')
     assert not {'--print','exec','acp','app-server'}.intersection(fresh)

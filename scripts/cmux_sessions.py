@@ -125,6 +125,34 @@ def deliver(job):
     return send_inbox(target,job["brief"])
 
 
+def claude_turn_started(folder, job):
+    # A TTY and a Claude process both exist while the folder-trust dialog is up.
+    # Confirm the exact conversation's first assistant turn, including after an app restart.
+    import os
+    marker=folder/"claude-turn-started"
+    if marker.is_file():
+        return True
+    config=Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home()/".claude")
+    session=str(uuid.UUID(job["session"]))
+    for transcript in (config/"projects").glob("*/"+session+".jsonl"):
+        try:
+            with transcript.open("rb") as source:
+                for _ in range(128):
+                    line=source.readline(262144)
+                    if not line or not line.endswith(b"\n"):
+                        break
+                    if b'"assistant"' not in line:
+                        continue
+                    event=json.loads(line)
+                    if (event.get("type")=="assistant" and event.get("sessionId")==session
+                        and event.get("cwd")==job["folder"] and event.get("message",{}).get("model") not in (None,"","<synthetic>")):
+                        marker.touch(mode=0o600)
+                        return True
+        except (OSError, ValueError, AttributeError):
+            continue
+    return False
+
+
 def owned_rows(root, runs, observed):
     import visible_session as visible
     import os
@@ -147,8 +175,9 @@ def owned_rows(root, runs, observed):
                 try:
                     with sqlite3.connect((home/"state_5.sqlite").as_uri()+"?mode=ro",uri=True,timeout=0.5) as db:
                         # Bind only the unique first user message for this reviewed launch, never a recently active project.
-                        matches=db.execute("SELECT id FROM threads WHERE cwd=? AND source='cli' AND first_user_message=? LIMIT 2",
-                                           (job["folder"],job["instructions"]+"\n\n"+job["outgoing"])).fetchall()
+                        legacy_prompt=job["instructions"]+"\n\n"+job["outgoing"]
+                        matches=db.execute("SELECT id FROM threads WHERE cwd=? AND source='cli' AND first_user_message IN (?,?) LIMIT 2",
+                                           (job["folder"],visible.codex_prompt(job),legacy_prompt)).fetchall()
                     if len(matches)==1:visible.save(thread_file,{"id":str(uuid.UUID(matches[0][0]))})
                 except (OSError,ValueError,sqlite3.Error): pass
             if thread_file.exists(): thread=str(uuid.UUID(visible.load(thread_file)["id"]))
@@ -156,7 +185,12 @@ def owned_rows(root, runs, observed):
             sibling=next((r for r in observed if r.get("conversation")==thread and thread and r["agent"]==row["agent"] and r["folder"]==row["folder"]),None)
             if sibling:
                 if alive: row["state"]=sibling["state"]
+                if alive and isinstance(sibling.get("waitingFor"),str):row["waitingFor"]=sibling["waitingFor"]
                 if sibling.get("surface")==surface.get("surface") and surface.get("surface") and job["agent"]=="claude": row["inbox"]="cmux"
+            if alive and job["agent"]=="claude":
+                confirmed=claude_turn_started(folder,job) or (path.with_suffix(".receipt").is_file() and visible.load(path.with_suffix(".receipt")).get("state")=="Complete")
+                row["startup"]="confirmed" if confirmed else "pending"
+                if not confirmed and row["state"]!="Needs input":row["state"]="Awaiting agent"
             if thread and job["agent"]=="codex":row["inbox"]="codex"
             yield row
         except (OSError,ValueError,KeyError,StopIteration):continue
@@ -189,7 +223,13 @@ def main():
             else:
                 rows.append(item)
         if len(sys.argv)>4 and Path(sys.argv[4]).is_dir():
-            owned=list(owned_rows(root,Path(sys.argv[4]),rows))
+            from project_sessions import save_project_activity
+            runs = Path(sys.argv[4])
+            owned=list(owned_rows(root,runs,rows))
+            try:
+                save_project_activity(runs, owned)
+            except OSError:
+                pass
             handled={(r["agent"],r["conversation"]) for r in owned if r["conversation"]}
             rows=[r for r in rows if (r["agent"],r["conversation"]) not in handled]+owned
         print(json.dumps(rows))

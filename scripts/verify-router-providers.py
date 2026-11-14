@@ -4,6 +4,7 @@ from importlib.machinery import SourceFileLoader
 import json
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import threading
 from unittest.mock import patch
@@ -18,6 +19,50 @@ module.exec_module(provider)
 
 assert provider.cloud_provider({'CLAUDE_CODE_USE_BEDROCK':'true'}) == 'Amazon Bedrock'
 assert not provider.cloud_provider({'CLAUDE_CODE_USE_BEDROCK':'1','CLAUDE_CODE_USE_VERTEX':'true'})
+
+def inspect_agents(available, responses, env=None):
+    def run(args, **_):
+        reply = responses[tuple(args)]
+        if isinstance(reply, Exception):
+            raise reply
+        return subprocess.CompletedProcess(args, *reply)
+    with patch.dict(os.environ, env or {}, clear=True), patch.object(provider.shutil, 'which', side_effect=available.get), patch.object(provider.subprocess, 'run', side_effect=run):
+        return provider.worker_status()
+
+codex_check = ('codex','login','status')
+claude_check = ('claude','auth','status','--json')
+agents = {name:'/bin/'+name for name in ('codex','claude','agy')}
+assert set(inspect_agents({}, {})['workerHealth'].values()) == {'missing'}
+result = inspect_agents(agents, {codex_check:(0,'','Logged in using ChatGPT'), claude_check:(0,'{"loggedIn":true,"authMethod":"oauth","subscriptionType":"pro"}','')})
+assert result['workerHealth'] == {'pi':'missing','cursor-agent':'missing','codex':'signedIn','claude':'signedIn','agy':'installed'}
+assert result['workers']['codex'] == 'ChatGPT login' and result['workers']['claude'] == 'Claude plan login'
+responses = {codex_check:(1,'','Not logged in'), claude_check:(1,'{"loggedIn":false}','')}
+assert inspect_agents(agents, responses)['workerHealth'] == {'pi':'missing','cursor-agent':'missing','codex':'signedOut','claude':'signedOut','agy':'installed'}
+assert inspect_agents(agents, responses, {'CLAUDE_CODE_USE_VERTEX':'1','GEMINI_API_KEY':'fixture'})['workerHealth'] == {'pi':'missing','cursor-agent':'missing','codex':'signedOut','claude':'configured','agy':'configured'}
+result = inspect_agents(agents, {codex_check:subprocess.TimeoutExpired(codex_check,4), claude_check:(1,'invalid','')})
+assert result['workerHealth'] == {'pi':'missing','cursor-agent':'missing','codex':'unknown','claude':'unknown','agy':'installed'}
+optional = {'cursor-agent':'/bin/cursor-agent','pi':'/bin/pi'}
+result = inspect_agents(optional, {('cursor-agent','status','--format','json'):(1,'{"isAuthenticated":false}','')})
+assert result['workerHealth']['cursor-agent']=='signedOut' and result['workerHealth']['pi']=='installed'
+
+from worker_usage import windows
+before = 1000
+data = {'rateLimitsByLimitId':{'codex':{'primary':{'usedPercent':99,'windowDurationMins':300,'resetsAt':1400},
+                                      'secondary':{'usedPercent':5,'windowDurationMins':10080,'resetsAt':2000}}}}
+assert [w['remaining'] for w in windows('codex',data,before)] == [1,95]
+assert [w['remaining'] for w in windows('codex',data,1400)] == [95]
+assert windows('claude',{'rate_limits':{'five_hour':{'utilization':True,'resets_at':1500},
+                                        'seven_day':{'utilization':98,'resets_at':'2026-11-16T22:00:00Z'}}},before)[0]['remaining']==2
+assert windows('codex',{'rateLimits':{'limitId':'unrelated','primary':{'usedPercent':5,'resetsAt':2000}}},before)==[]
+with patch.object(provider.shutil,'which',return_value='/Applications/Codex CLI/codex'), patch.object(provider.subprocess,'run',return_value=subprocess.CompletedProcess([],0)) as launch:
+    provider.worker_login({'agent':'codex'})
+    assert launch.call_args.args[0][-1] == "exec '/Applications/Codex CLI/codex' login"
+    try:
+        provider.worker_login({'agent':'anything else'})
+        raise AssertionError('Unsupported sign-in action')
+    except ValueError:
+        assert launch.call_count == 1
+
 with tempfile.TemporaryDirectory() as directory:
     for route, executable in [('codex','codex'), ('cloud','claude')]:
         cli=Path(directory)/executable
@@ -46,4 +91,4 @@ def callback(argv, **_):
 with patch.object(provider.subprocess,'run',side_effect=callback):
     result=provider.browser_login(dict(host='urn:uuid:test'))
 assert result['client']=='issued' and result['code']=='fixture' and result['nonce'] and result['verifier']
-print('Capture routing CLI arguments, cloud detection and OAuth loopback passed.')
+print('Agent status and sign-in actions, capture routing, cloud detection and OAuth loopback passed.')

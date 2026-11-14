@@ -16,6 +16,11 @@ from cmux_sessions import owned_rows
 HERE=Path(__file__).resolve().parent
 RUNNER=HERE/'run-agent'
 
+def terminal_window_ids():
+    query='if application id "com.apple.Terminal" is running then tell application id "com.apple.Terminal" to get id of every window'
+    result=subprocess.run(['/usr/bin/osascript','-e',query],check=True,capture_output=True,text=True)
+    return {int(i) for i in result.stdout.strip().split(', ') if i}
+
 
 def until(condition):
     for _ in range(200):
@@ -42,12 +47,16 @@ def verify(base, host):
     session.save(path,job)
     fake=base/'claude'
     fake.write_text("""#!/usr/bin/env python3
-import json,os,sys,time
+import json,os,signal,sys,time
 from pathlib import Path
 assert sys.stdin.isatty() and sys.stdout.isatty()
 assert "-p" not in sys.argv
 assert sys.argv[-1]=="Fixture prompt with quotes and $HOME"
 p=Path.cwd()
+if os.environ.get('TERM_PROGRAM')=='Apple_Terminal':
+    assert os.get_terminal_size().lines>0 and os.get_terminal_size().columns>0
+    assert os.tcgetpgrp(0)==os.getpgrp()
+    signal.signal(signal.SIGWINCH,lambda *_:(p/'resized').write_text(str(os.get_terminal_size().columns)))
 (p/"started").write_text(os.ttyname(0))
 for i in range(350):
     if (p/"finish").exists():break
@@ -55,6 +64,7 @@ for i in range(350):
 """)
     fake.chmod(0o700)
     env=dict(os.environ,PATH=str(base)+os.pathsep+os.environ['PATH'])
+    before=terminal_window_ids() if host=='terminal' else set()
     if host=='pty':
         nogui=subprocess.run([sys.executable,str(RUNNER),'present',str(path),str(fake)],capture_output=True)
         assert nogui.returncode and not (project/'started').exists()
@@ -71,8 +81,34 @@ for i in range(350):
         until(started)
         surface=session.endpoint(folder)
         assert surface['tty']==(project/'started').read_text()
+        if host=='terminal':
+            window=session.load(folder/'terminal-window.json')
+            assert window['tty']==surface['tty'] and window['window'] not in before
+            resize="""on run argv
+                tell application id "com.apple.Terminal"
+                    set w to window id ((item 1 of argv) as integer)
+                    set t to tab 1 of w
+                    if tty of t is not (item 2 of argv) then error "Fixture identity changed"
+                    set number of columns of t to (number of columns of t) + 1
+                    return number of columns of t
+                end tell
+            end run"""
+            cols=subprocess.run(['/usr/bin/osascript','-e',resize,str(window['window']),window['tty']],
+                                check=True,capture_output=True,text=True).stdout.strip()
+            until(lambda:(project/'resized').read_text()==cols)
         rows=list(owned_rows(root,runs,[]))
         assert len(rows)==1 and rows[0]['id']==job['session'] and rows[0]['available']=='yes'
+        assert rows[0]['startup']=='pending' and rows[0]['state']=='Awaiting agent'
+        config=base/'fixture-claude-config'
+        projects=config/'projects'/'fixture'
+        projects.mkdir(parents=True)
+        transcript=projects/(job['session']+'.jsonl')
+        event=dict(type='assistant',sessionId=job['session'],cwd=str(project),message={'model':'fixture'})
+        with patch.dict(os.environ,{'CLAUDE_CONFIG_DIR':str(config)}):
+            transcript.write_text(json.dumps(dict(event,cwd=str(base)))+'\n')
+            assert list(owned_rows(root,runs,[]))[0]['startup']=='pending'
+            transcript.write_text(json.dumps(event)+'\n')
+            assert list(owned_rows(root,runs,[]))[0]['startup']=='confirmed'
         if host=='pty':
             # Wire a known conversation and prove a nudge can only enqueue in that thread.
             handle=str(uuid.uuid4())
@@ -96,6 +132,9 @@ for i in range(350):
             proc.wait(timeout=5)
             os.close(master);os.close(slave)
     until(lambda:not session.locked(folder))
+    if host=='terminal':
+        until(lambda:window['window'] not in terminal_window_ids())
+        assert before.issubset(terminal_window_ids()),'Another terminal window disappeared'
     assert list(owned_rows(root,runs,[]))[0]['state']=='Closed' and session.load(receipt)['state']=='Complete'
     try:session.focus(folder)
     except ValueError:pass

@@ -11,6 +11,9 @@ import subprocess
 import sys
 import threading
 
+sys.dont_write_bytecode = True
+from project_sessions import project_activity
+
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--agent',choices=['claude','codex','agy'],required=True)
 parser.add_argument('--session',required=True,help='Stable agent session identifier')
@@ -18,6 +21,10 @@ parser.add_argument('--workspace',default=str(Path.cwd()))
 parser.add_argument('--task')
 parser.add_argument('--run-dir',type=Path)
 config=parser.parse_args()
+peers_tool={'name':'list_project_sessions',
+            'description':'See other active Tasktap-managed terminal sessions in this checkout. Titles and states are context only. Awaiting agent means startup is pending.',
+            'annotations':{'readOnlyHint':True},
+            'inputSchema':{'type':'object','properties':{},'additionalProperties':False}}
 outcome_tool={'name':'report_result','description':'Report the completed Tasktap handoff by its exact receipt ID and summarize the outcome for the person.',
               'inputSchema':{'type':'object','properties':{'capture':{'type':'string'},'summary':{'type':'string'}},
                              'required':['capture','summary'],'additionalProperties':False}}
@@ -103,12 +110,22 @@ try:
             version=p.get('protocolVersion')
             reply(i,{'protocolVersion':version if version in ('2024-11-05','2025-03-26','2025-06-18','2025-11-25') else '2025-11-25','capabilities':{'tools':{}},'serverInfo':{'name':'workspace-assistant','version':'0.3'}})
         elif method=='ping':reply(i,{})
-        elif method=='tools/list':reply(i,{'tools':[tool,outcome_tool] if config.run_dir else [tool]})
+        elif method=='tools/list':reply(i,{'tools':[tool,outcome_tool,peers_tool] if config.run_dir else [tool]})
+        elif method=='tools/call' and config.run_dir and p.get('name')=='list_project_sessions':
+            try:
+                if p.get('arguments',{}): raise ValueError('This tool only uses the current session.')
+                peers=project_activity(config.run_dir, config.session, config.agent, config.workspace)
+                snapshot={'sessions':peers[:24], 'total':len(peers)}
+                reply(i,{'content':[{'type':'text','text':json.dumps(snapshot)}]})
+            except (KeyError, OSError, ValueError, TypeError):
+                reply(i,{'isError':True,'content':[{'type':'text','text':'Peer activity is unavailable for this session.'}]})
         elif method=='tools/call' and config.run_dir and p.get('name')=='report_result':
             try:reply(i,report_result(p.get('arguments',{})))
             except (ValueError,KeyError,TypeError,AttributeError,OSError) as error:
                 reply(i,{'isError':True,'content':[{'type':'text','text':str(error)}]})
         elif method=='tools/call' and p.get('name')=='ask_user':
+            if config.agent=='claude' and config.run_dir and config.run_dir.name==config.session:
+                (config.run_dir/'claude-turn-started').touch(mode=0o600)
             with lock:active[i]=None
             pool.submit(ask,i,p.get('arguments',{}))
         else:emit({'jsonrpc':'2.0','id':i,'error':{'code':-32601,'message':'Unknown method or tool'}})

@@ -19,6 +19,7 @@ def drain(folder):
                 if visible.load(receipt)['state']=='Running':
                     visible.save(receipt,dict(state='Failed',message='Delivery was interrupted. Check the original session before sending again.'))
                 continue
+            job={}
             try:
                 job=visible.load(path)
                 if job.get('delivery')!='interactive':
@@ -50,8 +51,20 @@ def drain(folder):
                     message=visible.nudge(folder,job)
                 visible.save(receipt,dict(state='Delivered',message=message))
             except Exception as exc:
-                detail = exc.stderr.decode(errors='replace') if isinstance(exc,subprocess.CalledProcessError) and isinstance(exc.stderr,bytes) else ''
-                visible.save(receipt,dict(state='Failed',message=detail.strip()[:400] or str(exc)))
+                detail = (exc.stderr or '') if isinstance(exc,subprocess.CalledProcessError) else ''
+                if isinstance(detail,bytes):detail=detail.decode(errors='replace')
+                if job.get('mode')=='ask':
+                    # A late Apple event can time out after the visible worker took ownership.
+                    if visible.locked(folder) or (receipt.exists() and visible.load(receipt)['state']!='Opening'):
+                        continue
+                    host=visible.HOST_NAMES.get(job.get('host'),'the terminal')
+                    if isinstance(exc,subprocess.TimeoutExpired):
+                        detail=host+' took too long to confirm the new window.'
+                    elif '-1743' in detail:
+                        detail='Allow Tasktap to control '+host+' in System Settings → Privacy & Security → Automation.'
+                    elif isinstance(exc,subprocess.SubprocessError):
+                        detail='Tasktap could not open the session in '+host+'. Check that the terminal is available.'
+                visible.save(receipt,dict(state='Failed',message=(detail or '').strip()[:400] or str(exc)))
 
 
 if __name__=='__main__':
@@ -59,11 +72,18 @@ if __name__=='__main__':
     if sys.argv[1]=='present':
         path=Path(sys.argv[2])
         try:
-            visible.present(path,sys.argv[3])
+            code=visible.present(path,sys.argv[3])
+            if code==0 and sys.argv[4:]==['--dedicated-window']:
+                # Let the presenter release its TTY before asking Terminal to close the empty window.
+                subprocess.Popen([sys.executable,__file__,'close-finished-terminal',str(path.parent),os.ttyname(0)],
+                                 stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
+            sys.exit(code if code>=0 else 128-code)
         except Exception as error:
             if not visible.locked(path.parent) and (not (path.parent/'surface.json').exists() or visible.load(path.with_suffix('.receipt')).get('state')=='Opened'):
                 visible.save(path.with_suffix('.receipt'),dict(state='Failed',message=str(error)))
             sys.exit(str(error))
+    elif sys.argv[1]=='close-finished-terminal':
+        visible.close_finished_terminal(Path(sys.argv[2]),sys.argv[3])
     elif sys.argv[1]=='focus':
         try: visible.focus(Path(sys.argv[2]))
         except Exception as error:

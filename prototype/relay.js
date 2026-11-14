@@ -41,11 +41,6 @@ const handoffRelay = (() => {
     const phase = capture.receipt === 'Started' ? 'running' : capture.receipt?.toLowerCase();
     return markup(capture.id,session.agent,phase);
   }
-  function caption(capture) {
-    if (capture.receipt === 'Running' && capture.external) return 'Sending nudge';
-    return capture.receipt;
-  }
-
   class Relay extends HTMLElement {
     static observedAttributes = ['data-phase'];
     attributeChangedCallback() { if (this.isConnected) this.refresh(); }
@@ -124,5 +119,5 @@ const handoffRelay = (() => {
     }
   }
   customElements.define('tasktap-relay',Relay);
-  return {event,markup,forCapture,caption};
+  return {event,markup,forCapture};
 })();

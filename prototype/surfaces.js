@@ -13,6 +13,7 @@ const firstMode = () => document.body.classList.contains('notch-first');
 let homeMode = 'closed';
 let hoverTimer = 0;
 let receiptTimer = 0;
+let receiptCapture = null;
 let homeContent = '';
 let choice = null;
 let hardwareNavigation=false;
@@ -52,10 +53,10 @@ function showHome(open=true){
 }
 // A confirmed handoff already has an open sheet. Briefly show its real receipt in
 // the same place. Background receipts never open a closed notch on their own.
-function peekHandoff(){
+function peekHandoff(capture){
   if(!firstMode() || pending() || document.querySelector('dialog[open]'))return;
   clearTimeout(hoverTimer);clearTimeout(receiptTimer);
-  homeMode='receipt';
+  receiptCapture=capture;homeMode='receipt';
   drawHome();updateBounds(true);
   receiptTimer=setTimeout(()=>{
     if(homeMode!=='receipt')return;
@@ -102,7 +103,7 @@ function updateSignal(){
   else if(running){mode='working';label=running+' '+(running===1?'session':'sessions')+' working'}
   document.body.dataset.signal=mode;
   const text=$('.signal-caption');
-  if(text)text.textContent=label;
+  if(text)text.textContent=mode==='idle'?'':label;
 }
 function drawHome(){
   const root=$('#notch-home'),q=pending(),s=q?sess(q.session):null;
@@ -110,15 +111,25 @@ function drawHome(){
   root.classList.toggle('retracting',homeMode==='retracting');
   $('#islandToggle').setAttribute('aria-expanded',String(!root.hidden || $('#notch').open));
   document.body.classList.toggle('notch-spread',!root.hidden);
-  const latest=live && state.captures.find(c=>c.session && ['Complete','Failed','Running','Queued','Delivered','Opening','Opened','Copied','Closed'].includes(c.receipt));
+  const sent=live && homeMode==='receipt' && byId(state.captures,receiptCapture);
+  const latest=sent && ['Queued','Opening','Opened','Running','Copied','Delivered'].includes(sent.receipt)?sent:null;
   const recent=latest && sess(latest.session);
-  const paneTitle=q?'Decision ready':recent?({Complete:'Result ready',Failed:'Session stopped',Running:latest.external?'Sending nudge':'Agent working',Queued:'Handoff queued',Delivered:'Nudge delivered',Opened:'Session opened',Opening:'Opening session',Copied:'Nudge copied',Closed:'Session closed'}[latest.receipt]):'Ready to capture';
-  const preview=q?'<button class="request-preview" data-surface="requests" data-target="'+attr(q.id)+'"><span class="preview-icon">'+icon('sessions')+'</span><span><small>'+esc(proj(s.project).name)+' / '+esc(providers[s.agent])+'</small><strong>'+esc(q.q)+'</strong></span>'+icon('right')+'</button>':recent?'<button class="request-preview" data-action="session" data-id="'+attr(recent.id)+'"><span class="preview-icon">'+icon('sessions')+'</span><span><small>'+esc(proj(recent.project)?.name||'Scratch')+' / '+esc(providers[recent.agent])+'</small><strong>'+esc(recent.task)+'</strong></span>'+icon('right')+'</button>':'<p class="home-idle">Capture an idea, ask about a project, or follow up with a session.</p>';
+  const paneTitle=q?'Decision ready':recent?({Running:latest.external?'Sending nudge':'Agent working',Queued:'Handoff queued',Delivered:'Nudge delivered',Opened:'Session opened',Opening:'Opening session',Copied:'Nudge copied'}[latest.receipt]):'Ready to capture';
+  const preview=q?'<button class="request-preview" data-surface="requests" data-target="'+attr(q.id)+'"><span class="preview-icon">'+icon('sessions')+'</span><span><small>'+esc(proj(s.project).name)+' / '+esc(providers[s.agent])+'</small><strong>'+esc(q.q)+'</strong></span>'+icon('right')+'</button>':recent?'<button class="request-preview" data-action="session" data-id="'+attr(recent.id)+'"><span class="preview-icon">'+icon('sessions')+'</span><span><small>'+esc(proj(recent.project)?.name||'Scratch')+' / '+esc(providers[recent.agent])+'</small><strong>'+esc(recent.task)+'</strong></span>'+icon('right')+'</button>' : '';
   const homeArt=recent && !q ? handoffRelay.forCapture(latest) : '';
-  const content='<header class="home-meta"><span class="icon-label">Tasktap</span>'+surfaceButton('','collapse','down','collapse-button')+'</header><div class="home-heading"><div><h1>'+paneTitle+'</h1><small class="signal-caption"></small></div><span class="signal-light" aria-hidden="true"><i>'+(homeArt||resonatorMarkup('miniature'))+'</i></span></div>'+preview+'<footer class="home-actions">'+surfaceButton('Capture','capture','mic','voice-trigger')+'<kbd>'+chords.capture[1]+'</kbd>'+surfaceButton('Workspace','workspace','out','workspace-link')+'</footer>';
+  const content=firstRun.content() || '<header class="home-meta"><span class="icon-label">Tasktap</span>'+surfaceButton('','collapse','down','collapse-button')+'</header><div class="home-heading"><div><h1>'+paneTitle+'</h1><small class="signal-caption"></small></div><span class="signal-light" aria-hidden="true"><i>'+(homeArt||resonatorMarkup('miniature'))+'</i></span></div>'+preview+'<footer class="home-actions">'+surfaceButton('Capture','capture','pen','voice-trigger')+surfaceButton('Workspace','workspace','out','workspace-link')+'</footer>';
   // A session progress event must preserve focused controls and their tab order.
-  if(homeContent!==content){root.innerHTML=content;homeContent=content}
-  root.querySelector('.collapse-button').setAttribute('aria-label','Collapse notch');
+  if(homeContent!==content){
+    const editing=document.activeElement?.id==='guide-input'?document.activeElement:null;
+    root.innerHTML=content;homeContent=content;
+    bindGuideComposer();
+    const field=$('#guide-input',root);
+    if(editing && field){
+      field.focus({preventScroll:true});
+      field.setSelectionRange(editing.selectionStart,editing.selectionEnd);
+    }
+  }
+  root.querySelector('.collapse-button')?.setAttribute('aria-label','Collapse notch');
   updateSignal();
 }
 function openRequest(id){
@@ -194,7 +205,53 @@ function markChoices(){
     d.firstElementChild.append(hint);
   }
 }
+function quickCapture(){
+  clearTimeout(hoverTimer);clearTimeout(receiptTimer);
+  const hasEditor=!!$('#modal[open] #transcript') && !$('#notch').open;
+  if(draft?.submitting && !hasEditor){toast('Sending this handoff…');return}
+  const wasHome=firstMode() && !document.querySelector('dialog[open]');
+  const guided=wasHome && firstRun.visible && !state.firstRun?.session && firstRun.project();
+  if(!hasEditor){
+    const resume=draft && document.querySelector('#modal[open] :is(#review-brief,#route-form,#route-filter,#workspace-name,#route-activity), #notch[open] #route-voice');
+    closePanels();
+    if(!resume){
+      captureDraft('',guided?.id || '',guided?firstRun.text:'');
+      if(guided){draft.guide='start';draft.suggestedProject=firstRun.selected!==guided.id}
+      else draft.project='';
+    }
+    draft.quick=true;
+  }
+  document.body.classList.add('notch-first');
+  homeMode='closed';drawHome();
+  if(!hasEditor)editDraft();
+  const input=$('#transcript');
+  input.focus({preventScroll:true});
+  updateBounds(true);
+  postHost('focus-capture');
+  if(live && !hasEditor)postLive('refresh');
+  return input;
+}
+let shortcutHold=null;
 function hardware(action,requestId){
+  if(action==='capture'){
+    if(shortcutHold)return;
+    const input=quickCapture();
+    if(!input)return;
+    const id=requestId || uid();
+    const timer=setTimeout(()=>{
+      if(live && shortcutHold?.id===id && input.isConnected && input.closest('dialog[open]'))startDictation('#transcript','shortcut',id);
+    },150);
+    shortcutHold={id,timer,input};
+    return;
+  }
+  if(action==='capture-end'){
+    if(shortcutHold && (!requestId || shortcutHold.id===requestId)){
+      clearTimeout(shortcutHold.timer);
+      finishDictation('shortcut',shortcutHold.id);
+      shortcutHold=null;
+    }
+    return;
+  }
   if(action==='back' && settingsPickers.close())return;
   if(['yes','no','discuss'].includes(action)){
     const q=visibleBinary();
@@ -205,12 +262,6 @@ function hardware(action,requestId){
   }
   if($('#discussion') && action==='back'){showNotch($('#notch').dataset.request);return}
   if($('#discussion') && action==='confirm'){$('#discussion').requestSubmit();return}
-  if(action==='capture'){
-    if(live && $('#transcript')){dictate('#transcript');return}
-    if($('#modal').open||$('#notch').open)return;
-    if(live)postLive('refresh');newDraft('');
-    if(live)dictate('#transcript');return;
-  }
   if(action==='requests'){
     if($('#notch').open)return;
     hardwareNavigation=true;
@@ -240,7 +291,7 @@ function hardware(action,requestId){
   markChoices();items[choice.index].focus({preventScroll:true});items[choice.index].scrollIntoView({block:'nearest'});
 }
 function controller(){
-  const labels={capture:'Start capture',requests:'Open pending decision',previous:'Previous choice',next:'Next choice',confirm:'Confirm / send follow-up',back:'Defer / back',yes:'Agent Key 1 · Yes',no:'Agent Key 2 · No',discuss:'Agent Key 3 · Talk it through'};
+  const labels={capture:'Hold to talk',requests:'Open pending decision',previous:'Previous choice',next:'Next choice',confirm:'Confirm / send follow-up',back:'Defer / back',yes:'Agent Key 1 · Yes',no:'Agent Key 2 · No',discuss:'Agent Key 3 · Talk it through'};
   const lighting=host?'<label class="check-line"><input type="checkbox" id="micro-lights" '+(state.microLights?'checked':'')+'> Use Micro decision keys and lights</label><p class="hint" id="micro-status">'+esc(microStatus)+'</p><p class="hint">On a yes/no card, press the green key for Yes, red for No, or the third Agent Key to discuss.</p>':'<p class="hint">The Mac app controls the Micro directly. You can answer every question here with a click or keyboard.</p>';
   dialog('Codex Micro','Optional controller','<div class="mapping-list">'+Object.entries(chords).map(([action,[,keys]])=>'<div><span>'+labels[action]+'</span><kbd>'+keys+'</kbd></div>').join('')+'</div>'+lighting+surfaceButton('Try decision controls','try-controller','checks'));
   if(host)$('#micro-lights').onchange=e=>{state.microLights=e.target.checked;persist();postHost('lightingPreference',{enabled:state.microLights})};
@@ -265,7 +316,7 @@ function updateNotchGeometry(metrics){
 function postBounds(){
   boundsFrame=0;
   const panel=$('#notch').open?$('#notch'):$('#modal').open?$('#modal'):!$('#notch-home').hidden?$('#notch-home'):$('#island');
-  postHost('layout',{workspace:!firstMode(),height:Math.ceil(panel.getBoundingClientRect().height+(panel.id==='island'?0:$('#island').getBoundingClientRect().height)),collapsed:firstMode()&&panel.id==='island'});
+  postHost('layout',{workspace:!firstMode(),height:Math.ceil(panel.getBoundingClientRect().bottom),collapsed:firstMode()&&panel.id==='island'});
 }
 function updateBounds(immediate=false){
   if(!host)return;
@@ -279,6 +330,13 @@ function updateBounds(immediate=false){
 function command(action,id=''){
   const m=$('#status-menu');m.hidden=true;$('#status-button').setAttribute('aria-expanded','false');
   switch(action){
+    case 'open-app':firstRun.open();break;
+    case 'guide-replay':firstRun.open(true);break;
+    case 'guide-finish':firstRun.finish();break;
+    case 'guide-choose':firstRun.choosing();break;
+    case 'guide-project':firstRun.selected=id;dismissCard();drawHome();$('#guide-input')?.focus({preventScroll:true});break;
+    case 'guide-refresh':postLive('refresh');break;
+    case 'guide-type':firstRun.capture();break;
     case 'home':showHome();break;
     case 'collapse':showHome(false);break;
     case 'workspace':showWorkspace();break;
@@ -287,7 +345,7 @@ function command(action,id=''){
       if(settingsPickers.close())break;
       if(document.querySelector('dialog[open]'))dismissCard();else showHome(false);
       break;
-    case 'capture':hardware('capture');break;
+    case 'capture':quickCapture();break;
     case 'requests':openRequest(id);break;
     case 'controller':controller();break;
     case 'try-controller':dismissCard();hardwareNavigation=true;openRequest();controllerPreview();break;
@@ -297,7 +355,7 @@ function command(action,id=''){
     case 'notify-preview':dismissCard();if(pending())previewNotice(pending().id,'request');else{const s=state.sessions.find(s=>s.state==='Complete');if(s)previewNotice(s.id,'complete')}break;
     case 'dismiss-notice':$('#notification-preview').hidden=true;break;
     case 'notice-request':$('#notification-preview').hidden=true;openRequest(id);break;
-    case 'notice-result':$('#notification-preview').hidden=true;if(sess(id)){closePanels();showSession(id)}break;
+    case 'notice-result':$('#notification-preview').hidden=true;if(sess(id)){showWorkspace();showSession(id)}break;
     default:if(action.startsWith('hw-'))hardware(action.slice(3));
   }
 }
@@ -329,6 +387,15 @@ document.addEventListener('keydown',e=>{
     e.preventDefault();if(!$('#status-menu').hidden){menu();$('#status-button').focus()}else showHome(false);
   }
 },true);
+if(!host){
+  document.addEventListener('keyup',e=>{
+    if(['Space','AltLeft','AltRight','ControlLeft','ControlRight'].includes(e.code))hardware('capture-end');
+  },true);
+  window.addEventListener('blur',()=>hardware('capture-end'));
+}
+document.addEventListener('input',event=>{
+  if(shortcutHold?.input===event.target && !recording?.writing)clearTimeout(shortcutHold.timer);
+});
 document.addEventListener('workspace-changed',syncSurfaces);
 for(const selector of ['#notch','#modal']){
   const d=$(selector);
@@ -345,12 +412,16 @@ if(host){
 }
 window.workspaceCommand=(action,id='')=>{
   if(action==='live-error'){toast(id);return}
+  if(action==='session-focused'){
+    if(firstMode() && firstRun.visible && state.firstRun?.session===id && !document.querySelector('dialog[open]') && !pending() && !$('#notch-home').hidden)showHome(false);
+    return;
+  }
   if(action==='micro-status'){microStatus=id;const status=$('#micro-status');if(status)status.textContent=id;return}
   if(action==='narration-status'){
     spoken=id==='speaking'||id==='preparing';document.body.classList.toggle('is-playing',spoken);
     document.dispatchEvent(new Event('voice-activity'));if(!spoken&&id!=='idle')toast(id);return
   }
-  if(['hw-yes','hw-no','hw-discuss'].includes(action)){hardware(action.slice(3),id);return}
+  if(['hw-yes','hw-no','hw-discuss','hw-capture','hw-capture-end'].includes(action)){hardware(action.slice(3),id);return}
   if(action==='hover-enter'||action==='hover-exit'){hoverNotch(action==='hover-enter');return}
   if(action==='notice-request' && !byId(state.decisions,id)){toast('This request has already closed.');return}
   if(action==='notification-denied'){state.alerts=false;persist();toast('Notifications are off. Enable them in System Settings.');return}

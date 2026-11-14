@@ -3,14 +3,15 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const uid = () => crypto.randomUUID?.() || String(Date.now() + Math.random());
 const paths = {
-  check:'m4 12 5 5L20 6',
+  up:'m6 15 6-6 6 6',check:'m4 12 5 5L20 6',
   side:'M3 5h18v14H3z M9 5v14', grid:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
   sessions:'M3 5h15v11H3z M8 20h13V9 M6 9l2 2-2 2 M10 13h4', note:'M5 3h14v18H5z M9 3v18 M12 8h4 M12 12h4',
   settings:'M4 7h7 M15 7h5 M4 17h3 M11 17h9 M11 4v6 M7 14v6', plus:'M12 5v14 M5 12h14',
   wifi:'M2 8q10-9 20 0 M6 12q6-6 12 0 M10 16q2-2 4 0 M12 19v.2',battery:'M2 7h17v10H2z M22 10v4 M5 10h10v4H5z',
-  down:'m6 9 6 6 6-6',right:'m9 5 7 7-7 7',arrow:'M4 12h15 m-6-6 6 6-6 6',out:'M6 18 18 6 M7 6h11v11',
+  back:'M20 12H4m6-6-6 6 6 6',down:'m6 9 6 6 6-6',right:'m9 5 7 7-7 7',arrow:'M4 12h15 m-6-6 6 6-6 6',out:'M6 18 18 6 M7 6h11v11',
   mic:'M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0z M5 11v1a7 7 0 0 0 14 0v-1 M12 19v3 M8 22h8',
   folder:'M3 6h7l2 3h9v11H3z',play:'m7 4 12 8-12 8z',stop:'M6 6h12v12H6z',x:'m6 6 12 12 M18 6 6 18',
+  'cursor-agent':'m4 5 15 7-7 2-3 7z',pi:'M3 7h18 M8 7v13 M16 7v10q0 3 4 3',
   claude:'M12 2v20 M2 12h20 M5 5l14 14 M5 19 19 5 M8 3l8 18 M3 16l18-8 M3 8l18 8 M8 21l8-18',
   codex:'m8 7-5 5 5 5 M16 7l5 5-5 5 M14 4l-4 16',agy:'m3 17 8-12h2l8 12 M8 14q4-3 8 0',
   checks:'m3 12 4 4 9-10 M12 15l2 2 8-9',bell:'M5 16h14l-2-3V9a5 5 0 0 0-10 0v4z M10 20h4',
@@ -18,7 +19,7 @@ const paths = {
 };
 const icon = (name) => '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="'+(paths[name]||paths.note)+'"/></svg>';
 document.querySelectorAll('[data-icon]').forEach(el => el.innerHTML = icon(el.dataset.icon));
-const providers = {claude:'Claude Code',codex:'Codex',agy:'Antigravity'};
+const providers = {claude:'Claude Code',codex:'Codex',agy:'Antigravity','cursor-agent':'Cursor CLI',pi:'Pi'};
 const demoQuote = 'Tell the session working on lighting to make sure the reflections follow the new light direction.';
 const mixed = 'For Reactive Wallpapers, remember this curve. Maybe animate it later. Ask Claude where the falloff is defined. Don’t change the shader.';
 const seed = {
@@ -46,12 +47,27 @@ const attr=(s)=>esc(s);
 const button=(label,action,id='',style='btn',sym='')=>'<button type="button" class="'+style+'" data-action="'+action+'" data-id="'+attr(id)+'">'+(sym?icon(sym):'')+esc(label)+'</button>';
 const option=(value,text,selected='')=>'<option value="'+attr(value)+'" '+(value===selected?'selected':'')+'>'+esc(text)+'</option>';
 const heading=(over,title,sub='')=>'<div class="page-heading"><div class="eyebrow">'+esc(over)+'</div><h1>'+esc(title)+'</h1>'+(sub?'<p class="subtitle">'+esc(sub)+'</p>':'')+'</div>';
-const statusClass=s=>s==='Needs input'?'waiting':s==='Complete'?'complete':['Running','Queued'].includes(s)?'running':'offline';
+const statusClass=s=>['Needs input','Awaiting agent'].includes(s)?'waiting':s==='Complete'?'complete':['Running','Queued'].includes(s)?'running':'offline';
 const navLink=(id,label,sym,end='')=>'<button class="nav-link '+(view===id?'active':'')+'" '+(view===id?'aria-current="page"':'')+' data-action="view" data-id="'+attr(id)+'">'+sym+'<span class="label">'+esc(label)+'</span>'+end+'</button>';
 const count=n=>'<span class="nav-count">'+n+'</span>';
+const activeSessionStates=new Set(['Running','Needs input','Queued','Opening','Awaiting agent']);
 function activeSessions(){
   const pending=new Set(state.decisions.map(q=>q.session));
-  return state.sessions.filter(s=>pending.has(s.id)||['Running','Needs input','Queued'].includes(s.state));
+  return state.sessions.filter(s=>pending.has(s.id)||activeSessionStates.has(s.state));
+}
+function projectPeers(project,ownId){
+  const checkout=id=>{const p=proj(id);return p?.checkout || p?.folder};
+  const folder=checkout(project);
+  if(!folder || project==='@scratch')return [];
+  return state.sessions.filter(s=>s.id!==ownId && s.available!==false && activeSessionStates.has(s.state) && checkout(s.project)===folder);
+}
+function peerDisclosure(peers,project,links=false){
+  if(!peers.length)return '';
+  const rows=peers.map(s=>{
+    const label=[s.task,providers[s.agent],s.state].filter(Boolean).join(' · ');
+    return '<li>'+(links?button(label,'session',s.id,'text-btn'):esc(label))+'</li>';
+  });
+  return '<details class="route-evidence" data-project-peers><summary>'+peers.length+' other session'+(peers.length===1?'':'s')+' in '+esc(proj(project).name)+'</summary><ul>'+rows.join('')+'</ul></details>';
 }
 function listedProjects(active){
   const ids=new Set(active.map(s=>s.project));
@@ -61,20 +77,30 @@ function renderNav(projects){
   $('#nav').innerHTML='<div class="nav-group"><span class="nav-kicker">Workspace</span>'+navLink('overview','Overview',icon('grid'))+navLink('sessions','Sessions',icon('sessions'),count(state.sessions.length))+navLink('notes','Notebook',icon('note'),count(state.notes.length))+navLink('projects','Projects',icon('folder'),count(projects.length))+'</div>';
   $('#islandLabel').textContent=state.decisions.length?state.decisions.length+' decision'+(state.decisions.length>1?'s':''):'All clear';
 }
-function sampleWave(){
-  const bars=Array.from({length:162},(_,i)=>{const env=Math.pow(Math.abs(Math.sin(i*.068)*Math.cos(i*.032)),.75);const height=3+37*env*(.24+.76*Math.abs(Math.sin(i*7.09+.9)));return '<rect x="'+(i*4.5)+'" y="'+((44-height)/2).toFixed(1)+'" width="2.25" height="'+height.toFixed(1)+'" rx="1.1" fill="'+(i<106?'#e7b77e':'#71817f')+'"/>';}).join('');
-  return '<svg class="wave" viewBox="0 0 730 44" preserveAspectRatio="none" aria-hidden="true">'+bars+'</svg>';
-}
-function captureCard(c){
-  const session=sess(c.session),p=proj(c.project);
-  const relay=handoffRelay.forCapture(c);
-  const receipt=relay?'<div class="capture-receipt">'+relay+'<span>'+esc(handoffRelay.caption(c))+'</span></div>':'';
-  const signal=live?receipt:sampleWave();
-  return '<article class="capture-card"><div class="cap-meta"><span class="icon-label">'+icon('mic')+'Latest capture</span><span>'+esc(c.time)+'</span></div><blockquote>“'+esc(c.text||'Attached sketch')+'”</blockquote><div class="signal"><button class="play-btn" data-action="readcapture" aria-label="Read latest capture aloud">'+icon('play')+'</button>'+signal+'<span>'+esc(c.duration||'Text')+'</span></div><div class="capture-foot"><span class="icon-label">'+icon(p?'folder':'note')+esc(p?.name||'Scratch')+(session?' / '+esc(session.task):'')+'</span>'+button('View capture','detailcapture',c.id,'text-btn','out')+'</div></article>';
-}
-function sessionRow(s,fixture=false){
+function sessionRow(s,{question,fixture=false,title=question?.q || s.task,status=question?'Needs input':s.state}={}){
   const agent=s.interactive?providers[s.agent]+' · '+sessionLocation(s):s.source==='desktop'?'Codex · ChatGPT desktop':s.source==='terminal'?'Codex · Terminal':s.source==='claude'?'Claude Code · External':providers[s.agent]||'Agent',p=proj(s.project);
-  return '<button class="session-row" data-action="session" data-id="'+attr(s.id)+'">'+(s.agent?'<span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span>':'<span aria-hidden="true"></span>')+'<span><span class="row-title">'+esc(s.task)+'</span><span class="row-sub">'+esc(agent)+'</span></span><span class="row-project">'+esc(p?.name||'Project')+'</span>'+(fixture?'<span class="fixture-amount">'+esc(s.amount)+'</span>':'<span class="row-state '+statusClass(s.state)+'"><i class="state-dot"></i>'+esc(s.state)+'</span>')+icon('right')+'</button>';
+  const subtitle=title!==s.task?[s.task,agent].filter(Boolean).join(' · '):agent;
+  return '<button class="session-row" data-action="'+(question?'notch':'session')+'" data-id="'+attr(question?.id || s.id)+'">'+(s.agent?'<span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span>':'<span aria-hidden="true"></span>')+'<span><span class="row-title">'+esc(title)+'</span><span class="row-sub">'+esc(subtitle)+'</span></span><span class="row-project">'+esc(p?.name||'Project')+'</span>'+(fixture?'<span class="fixture-amount">'+esc(s.amount)+'</span>':'<span class="row-state '+statusClass(question?'Needs input':s.state)+'"><i class="state-dot"></i>'+esc(status)+'</span>')+icon('right')+'</button>';
+}
+function workOverview(active){
+  const questions=new Map();
+  for(const q of state.decisions){
+    if(!questions.has(q.session))questions.set(q.session,[]);
+    questions.get(q.session).push(q);
+  }
+  const attention=[],progress=[];
+  for(const session of active){
+    const pending=questions.get(session.id);
+    if(pending)attention.push(...pending.map(question=>sessionRow(session,{question})));
+    else if(session.state==='Needs input')attention.push(sessionRow(session,{title:session.waitingFor || session.task}));
+    else{
+      const turn=state.captures.find(c=>c.session===session.id);
+      const sending=turn?.kind==='Session nudge' && ['Queued','Running'].includes(turn.receipt) && ['Queued','Running'].includes(session.state);
+      progress.push(sending?sessionRow(session,{title:turn.brief || session.task,status:turn.receipt==='Queued'?'Follow-up queued':'Sending follow-up'}):sessionRow(session));
+    }
+  }
+  const section=(title,rows)=>rows.length?'<section class="block"><h2>'+title+'</h2><div class="session-list">'+rows.join('')+'</div></section>':'';
+  return section('Needs your attention',attention)+section('In progress',progress) || '<p class="empty">No active sessions.</p>';
 }
 function sessionList(rows){return rows.length?'<div class="session-list">'+rows.map(s=>sessionRow(s)).join('')+'</div>':'<p class="empty">No sessions here yet.</p>'}
 function noteList(notes){return notes.length?notes.map(n=>'<button class="note" data-action="note" data-id="'+attr(n.id)+'"><span class="eyebrow">'+esc(proj(n.project)?.name||'Scratch')+'</span><strong>'+esc(n.title)+'</strong><span class="hint">'+esc(n.text)+'</span></button>').join(''):'<p class="empty">No notes here yet.</p>'}
@@ -87,9 +113,9 @@ function render(){
   const active=activeSessions(),projects=listedProjects(active);
   renderNav(projects);document.dispatchEvent(new Event('workspace-changed'));
   const p=proj(view),name=({overview:'Overview',sessions:'Sessions',notes:'Notebook',projects:'Projects'})[view]||p?.name||'Workspace';$('#crumb').textContent=name;
-  const intro=heading(live?new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'}):'Saturday, 14 November',name,view==='overview'?active.length+' active sessions across '+new Set(active.map(s=>s.project)).size+' projects.':p?p.folder:'');
+  const intro=heading(live?new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'}):'Saturday, 14 November',name,p?p.folder:'');
   let body='';
-  if(view==='overview')body=(state.captures[0]?captureCard(state.captures[0]):'')+'<section class="block"><div class="group-head"><h2>Active sessions</h2>'+button('All sessions','view','sessions','text-btn','arrow')+'</div>'+sessionList(active)+'</section>';
+  if(view==='overview')body=workOverview(active);
   else if(view==='projects')body='<section class="block"><label class="field">Find a project<input id="project-filter" type="search" placeholder="Folder name" value="'+attr(projectFilter)+'"></label><label class="check-line"><input type="checkbox" id="include-idle" '+(state.showIdleProjects?'checked':'')+'>Show idle projects</label><div id="project-list"></div></section>';
   else if(view==='sessions')body=sessionList(state.sessions);
   else if(view==='notes')body='<section class="block">'+noteList(state.notes)+'</section>';
@@ -121,8 +147,10 @@ function render(){
 }
 function toast(message){$('#toast').textContent=message;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').textContent='',3000)}
 function go(id){clearTimeout(toast.timer);$('#toast').textContent='';view=id;document.body.classList.remove('nav-open');render();if(document.body.classList.contains('notch-first'))$('#islandToggle').focus();else $('#main').focus()}
-function frame(title,over,body){return '<div class="dialog-body"><div class="dialog-title"><div><span class="eyebrow">'+esc(over)+'</span><h2 id="dialog-heading">'+esc(title)+'</h2></div><button class="icon-btn" data-action="close" aria-label="Close dialog">'+icon('x')+'</button></div>'+body+'</div>'}
-function dialog(title,over,body){if(draft?.routing && title!=='Preparing handoff')cancelRouting();clearTimeout(toast.timer);$('#toast').textContent='';const d=$('#modal');if(!d.open)returnFocus=document.activeElement;d.innerHTML=frame(title,over,body);d.setAttribute('aria-labelledby','dialog-heading');if(!d.open)d.showModal();else $('button',d)?.focus()}
+function frame(title,over,body,backLabel=''){
+  const nav=backLabel?'<button class="icon-btn" data-action="close" aria-label="'+attr(backLabel)+'">'+icon('back')+'</button>':'<button class="icon-btn" data-action="close" aria-label="Close dialog">'+icon('x')+'</button>';
+  return '<div class="dialog-body"><div class="dialog-title"><div>'+(over?'<span class="eyebrow">'+esc(over)+'</span>':'')+'<h2 id="dialog-heading">'+esc(title)+'</h2></div>'+nav+'</div>'+body+'</div>'}
+function dialog(title,over,body,backLabel=''){settingsPickers.close();if(draft?.routing && title!=='Preparing handoff')cancelRouting();clearTimeout(toast.timer);$('#toast').textContent='';const d=$('#modal');if(!d.open)returnFocus=document.activeElement;d.innerHTML=frame(title,over,body,backLabel);d.setAttribute('aria-labelledby','dialog-heading');if(!d.open)d.showModal();else $('button',d)?.focus()}
 function dismissCard(){cancelRouting();stopRoutingSpeech();if(live)stopDictation();clearTimeout(simVoice);simVoice=null;document.dispatchEvent(new Event('voice-activity'));if($('#notch').open){$('#notch').close();$('#islandToggle').setAttribute('aria-expanded','false');if($('#modal').open)$('#modal button')?.focus();else $('#islandToggle').focus();return}if($('#modal').open)$('#modal').close();if(returnFocus?.isConnected)returnFocus.focus();else if(document.body.classList.contains('notch-first'))$('#islandToggle').focus();else $('#main').focus()}
 let siriVoices=[];
 let kokoro={status:'checking',detail:'Checking local voice…'};
@@ -169,7 +197,11 @@ if(!window.webkit?.messageHandlers?.workspace && window.speechSynthesis){
   refresh();speechSynthesis.addEventListener('voiceschanged',refresh);
 }
 function showSession(id){
-  const s=sess(id);if(!s)return;openedSession=id;
+  const s=sess(id);if(!s)return;
+  const peersWereOpen=openedSession===id && !!$('#modal[open] [data-project-peers][open]');
+  const peerFocus=peersWereOpen?document.activeElement.closest('[data-project-peers]'):null;
+  const focusedPeer=peerFocus?document.activeElement.dataset.id:null;
+  openedSession=id;
   const q=state.decisions.find(q=>q.session===id);
   const actions=[];
   if(live && (s.interactive && s.available===true && !['Closed','Queued','Opening'].includes(s.state) || s.source==='cmux' && s.available)){
@@ -177,30 +209,42 @@ function showSession(id){
   }
   if(!live || canNudge(s))actions.push(button('Follow up','follow',id,actions.length?'btn':'primary','mic'));
   const latest=state.captures.find(c=>c.session===id);
-  if(live && latest)actions.push(button('View handoff','detailcapture',latest.id));
+  const retry=failedStart(s);
+  if(retry)actions.push(button('Review & retry','review-retry',id,'primary'));
+  if(latest)actions.push(button('View handoff','detailcapture',latest.id));
   if(live && s.source==='desktop')actions.push(button('Open in ChatGPT','openchat',id,'primary'));
   if(live && s.managed && !s.interactive && !s.planAccount && ['claude','codex'].includes(s.agent) && ['Failed','Complete'].includes(s.state))actions.push(button('Resume in Terminal','terminal',id),button('Copy resume command','copyresume',id));
   if(q)actions.push(button('Review decision','notch',q.id));
   if(!live && s.state==='Running' && !s.producerKey)actions.push(button('Simulate completion','complete',id));
   if(s.result)actions.push(button('Read aloud','speakresult',id,'btn','sound'),button('Open in '+(s.viewer||(live?'Finder':'editor')),'openresult',id));
   const turns=state.captures.filter(c=>c.session===id);
-  const history=live && turns.length>1?'<details class="route-evidence"><summary>Handoff history · '+turns.length+'</summary><ul>'+turns.map(c=>'<li>'+button(c.kind+' · '+(c.brief||c.text||'Sketch').slice(0,70),'detailcapture',c.id,'text-btn')+'</li>').join('')+'</ul></details>':'';
-  const location=s.interactive?'<p class="hint">'+esc(s.state==='Closed'?'The terminal session has closed.':s.available===false?'Waiting for the terminal session.':'You can type, interrupt, and answer approvals in '+sessionLocation(s)+'.')+'</p>':'';
-  const waiting=s.external && s.waitingFor?'<p class="hint">'+esc('Claude is waiting in the original session ('+s.waitingFor+').')+'</p>':'';
+  const history=turns.length>1?'<details class="route-evidence"><summary>Handoff history · '+turns.length+'</summary><ul>'+turns.map(c=>'<li>'+button(c.kind+' · '+(c.brief||c.text||'Sketch').slice(0,70),'detailcapture',c.id,'text-btn')+'</li>').join('')+'</ul></details>':'';
+  const location=s.interactive && !retry?'<p class="hint">'+esc(s.state==='Closed'?'The terminal session has closed.':s.state==='Failed'?'Check the terminal for the launch error.':s.available===false?'Waiting for the terminal session.':s.state==='Awaiting agent'?'Open '+sessionLocation(s)+' to check for a sign-in or folder trust prompt.':'You can type, interrupt, and answer approvals in '+sessionLocation(s)+'.')+'</p>':'';
+  const waiting=s.waitingFor?'<p class="hint">'+esc('Waiting in the original session · '+s.waitingFor)+'</p>':'';
   const turn=state.captures.find(c=>c.session===s.id);
   const status=activityBand('<strong class="session-state '+statusClass(s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(s.state)+'</strong>',proj(s.project)?.folder,['Running','Queued'].includes(s.state),live?handoffRelay.forCapture(turn):'');
-  const activity=s.log.length?'<section class="block"><h3>Activity</h3><ul class="time-line">'+s.log.map(e=>'<li><i class="state-dot"></i>'+esc(s.result && e==='Complete. '+s.result?'Complete':e)+'</li>').join('')+'</ul></section>':'';
-  dialog(s.task,[providers[s.agent],s.model].filter(Boolean).join(' · '),status+location+waiting+activity+history+(s.result?'<section class="notice"><strong>Agent summary</strong><p>'+esc(s.result)+'</p></section>':'')+'<div class="inline">'+actions.join('')+'</div>');
+  const activity=s.log.length?'<section class="block"><h3>Activity</h3><ul class="time-line">'+s.log.map(e=>'<li><i class="state-dot"></i>'+esc(sessionActivityLine(s,e))+'</li>').join('')+'</ul></section>':'';
+  dialog(s.task,[providers[s.agent],s.model].filter(Boolean).join(' · '),status+location+waiting+peerDisclosure(projectPeers(s.project,id),s.project,true)+activity+history+(s.result?'<section class="notice"><strong>Agent summary</strong><p>'+esc(s.result)+'</p></section>':'')+'<div class="inline">'+actions.join('')+'</div>');
+  const disclosure=$('#modal [data-project-peers]');
+  if(peersWereOpen && disclosure){
+    disclosure.open=true;
+    if(peerFocus)(Array.from(disclosure.querySelectorAll('button')).find(b=>b.dataset.id===focusedPeer) || disclosure.querySelector('summary')).focus({preventScroll:true});
+  }
 }
-function routeDecision(candidates){
+function routeDecision(candidates,suggested=true){
   const d=$('#notch');d.dataset.request=uid();
   const choices=candidates.map((s,i)=>'<button class="decision-btn" data-action="choose-target" data-id="'+attr(s.id)+'"><span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span><span><strong>'+esc(s.task)+'</strong><br><span class="hint">'+esc(proj(s.project).name)+' · '+esc(providers[s.agent])+'</span></span></button>').join('');
-  d.innerHTML='<div class="dialog-body notch-content"><div class="dialog-title"><div><span class="eyebrow">Route follow-up</span><h2>Which session?</h2></div><button aria-label="Close decision" class="icon-btn" data-action="close">'+icon('x')+'</button></div><p>These sessions match your capture. Choose where the nudge belongs.</p><div class="block">'+choices+'</div><form id="route-voice" class="field"><label for="route-answer">' +(live?'Reply':'Voice reply simulation')+'</label><input id="route-answer" placeholder="Project, session name, or choice number" required>'+(live?button('Dictate','dictate','#route-answer','text-btn','mic'):'')+'<button class="btn">Use reply</button></form></div>';
+  d.innerHTML='<div class="dialog-body notch-content"><div class="dialog-title"><div><span class="eyebrow">Route follow-up</span><h2>Which session?</h2></div><button aria-label="Close decision" class="icon-btn" data-action="close">'+icon('x')+'</button></div>'+ (suggested?'<p>These sessions match your capture.</p>':'')+'<div class="block">'+choices+'</div><form id="route-voice" class="field"><label for="route-answer">' +(live?'Reply':'Voice reply simulation')+'</label><input id="route-answer" placeholder="Project, session name, or choice number" required>'+(live?button('Hold to talk','dictate','#route-answer','text-btn','mic'):'')+'<button class="btn">Use reply</button></form></div>';
   d.showModal();$('#islandToggle').setAttribute('aria-expanded','true');
-  if(draft)narrateRoute(draft,'session','Several sessions match. Choose the conversation you mean.');
+  if(draft)narrateRoute(draft,'session','Choose the conversation you mean.');
   $('#route-voice').onsubmit=e=>{e.preventDefault();const input=$('#route-answer'),v=input.value.trim().toLowerCase();const found=candidates.filter((s,i)=>[s.task,proj(s.project).name,String(i+1)].some(x=>x.toLowerCase()===v));if(found.length===1){chooseTarget(found[0].id);return}input.setCustomValidity('Enter one project name, task name, or choice number.');input.reportValidity();input.oninput=()=>input.setCustomValidity('')};
 }
-function chooseTarget(id){if(!draft||!sess(id))return;draft.session=id;draft.project=sess(id).project;dismissCard();review()}
+function chooseTarget(id){
+  const s=sess(id);
+  if(!draft || !s)return;
+  if(live && !canNudge(s)){dismissCard();draft.candidates=[];draft.mode='nudge';routingPrompt();return}
+  draft.session=id;draft.project=s.project;draft.mode='nudge';delete draft.runId;dismissCard();review();
+}
 function binaryControls(q){
   const buttons=q.choices.map((c,i)=>button(c,'decide',q.id+'|'+i,'decision-btn '+(c==='Yes'?'answer-yes':'answer-no'),c==='Yes'?'check':'x'));
   return '<div class="binary-choices">'+buttons.join('')+'</div>'+button('Talk it through','discuss',q.id,'text-btn discussion-link','mic');
@@ -208,8 +252,8 @@ function binaryControls(q){
 function discussionPanel(q){
   const entries=(q.discussion||[]).map(text=>'<li>'+esc(text)+'</li>').join('');
   return '<form class="stack" id="discussion"><label class="field" for="comment">Talk it through<textarea id="comment" rows="2" required placeholder="Ask a question or suggest a change…">'+esc(q.discussionDraft||'')+'</textarea></label>'+
-    '<p class="hint">Type or use system dictation. Your message stays with this decision.</p>'+
-    '<div class="inline">'+(live?button('Dictate','dictate','#comment','text-btn','mic'):'')+'<button class="btn">Send follow-up</button>'+button('Back to decision','notch',q.id,'text-btn')+'</div></form>'+
+    '<p class="hint">Your message stays with this decision.</p>'+
+    '<div class="inline">'+(live?button('Hold to talk','dictate','#comment','text-btn','mic'):'')+'<button class="btn">Send follow-up</button>'+button('Back to decision','notch',q.id,'text-btn')+'</div></form>'+
     (entries?'<section class="discussion-log"><h4>Follow-ups for '+esc(sess(q.session).task)+'</h4><ul>'+entries+'</ul><small class="hint">Follow-up recorded · decision pending</small></section>':'');
 }
 function bindDiscussion(q){
@@ -244,7 +288,7 @@ function showNotch(id,discuss=false){
   if(discuss && q)bindDiscussion(q);
   if(live && decisionVoice && $('#answer',d)){
     const label=$('label[for="answer"]',d);label.textContent='Say or type a choice';
-    label.insertAdjacentHTML('afterend',button('Dictate','dictate','#answer','text-btn','mic'));
+    label.insertAdjacentHTML('afterend',button('Hold to talk','dictate','#answer','text-btn','mic'));
   }
   const form=$('#voice-choice',d);if(form)form.onsubmit=e=>{e.preventDefault();const val=$('#answer',d).value.trim().toLowerCase().replace(/[.!?]+$/,'');const i=q.choices.findIndex((c,i)=>val===c.toLowerCase()||val===String(i+1));if(i<0){$('#answer',d).setCustomValidity('Enter one of the displayed choices or its number.');$('#answer',d).reportValidity();$('#answer',d).oninput=()=>$('#answer',d).setCustomValidity('');return}decide(q.id,i)};
 }
@@ -261,10 +305,14 @@ function decide(id,i){
   if(q.producerKey)window.webkit?.messageHandlers?.workspace.postMessage({type:'questionUpdated'});
   toast('Decision sent to '+s.task+'.');
 }
-function newDraft(target,sessionProject=''){
+function captureDraft(target,sessionProject='',text=''){
   const s=sess(target);
-  draft={sessionProject,text:'',brief:'',note:'',mode:s?'nudge':'ask',project:sessionProject||s?.project||(proj(view)?view:''),session:s?.id||'',agent:s?.agent||sessionModelPolicy().defaultAgent,viewer:'',strokes:[],newName:'',keep:false,hasVoice:false,sketch:false};
+  draft={sessionProject,text,brief:'',note:'',mode:s?'nudge':'ask',project:sessionProject||s?.project||(proj(view)?view:''),session:s?.id||'',agent:s?.agent||sessionModelPolicy().defaultAgent,viewer:'',strokes:[],newName:'',keep:false,hasVoice:false,sketch:false};
   captureContext.begin(draft);
+}
+function newDraft(target,sessionProject=''){
+  if(live)postLive('refresh');
+  captureDraft(target,sessionProject);
   editDraft();
 }
 function sketchMarkup(strokes){
@@ -272,7 +320,19 @@ function sketchMarkup(strokes){
 }
 function editDraft(){
   cancelRouting();stopRoutingSpeech();
-  dialog(draft.sessionProject?'New session':'New capture',draft.sessionProject?proj(draft.sessionProject).name:'Capture', '<div class="fields"><label>'+(draft.sessionProject?'What should the agent do?':'Transcript')+'<textarea id="transcript" placeholder="Talk through an idea or type a follow-up…">'+esc(draft.text)+'</textarea></label><div class="inline">'+(live?button('Dictate','dictate','#transcript','btn','mic'):button('Use voice sample','sample','','btn','mic'))+button(draft.sketch?'Hide sketch pad':'Add sketch','sketch','','btn','pen')+'</div>'+(draft.sketch?'<div class="field"><span>Sketch</span><canvas id="pad" width="600" height="176" class="drawpad" aria-label="Sketch pad. Use pointer to draw, or add the keyboard sample below."></canvas><div class="inline">'+button('Add sample curve','curve')+button('Clear sketch','clearink')+'</div></div>':'')+'</div><div class="form-actions">'+button('Cancel','discard')+button(draft.sessionProject?'Review session':'Review capture','review','','primary','arrow')+'</div>');
+  if(draft.quick){
+    dialog('New capture','','<div class="quick-editor"><textarea id="transcript" aria-label="Your request" rows="3" placeholder="Speak or type a request…">'+esc(draft.text)+'</textarea><p id="capture-feedback" role="status"></p></div><div class="quick-actions">'+
+      (live?button('Hold to talk','dictate','#transcript','btn','mic'):button('Use voice sample','sample','','btn','mic'))+button('Review','review','','primary','arrow')+'</div>');
+    const field=$('#transcript'), review=$('#modal [data-action="review"]');
+    const changed=()=>{draft.text=field.value;review.disabled=!draft.text.trim() && !draft.strokes.length};
+    changed();field.oninput=changed;
+    field.onkeydown=e=>{if(e.metaKey && e.key==='Enter' && !e.isComposing){e.preventDefault();if(!review.disabled)reviewDraft()}};
+    field.focus({preventScroll:true});
+    field.setSelectionRange(field.value.length,field.value.length);
+    return;
+  }
+  const startingSession=draft.sessionProject && !draft.guide;
+  dialog(startingSession?'New session':'New capture',draft.sessionProject?proj(draft.sessionProject).name:'Capture', '<div class="fields"><label>'+(startingSession?'What should the agent do?':draft.guide==='start'?'Your request':'Transcript')+'<textarea id="transcript" placeholder="Talk through an idea or type a follow-up…">'+esc(draft.text)+'</textarea></label><div class="inline">'+(live?button('Hold to talk','dictate','#transcript','btn','mic'):button('Use voice sample','sample','','btn','mic'))+button(draft.sketch?'Hide sketch pad':'Add sketch','sketch','','btn','pen')+'</div>'+(draft.sketch?'<div class="field"><span>Sketch</span><canvas id="pad" width="600" height="176" class="drawpad" aria-label="Sketch pad. Use pointer to draw, or add the keyboard sample below."></canvas><div class="inline">'+button('Add sample curve','curve')+button('Clear sketch','clearink')+'</div></div>':'')+'</div><div class="form-actions">'+button('Cancel','discard')+button(startingSession?'Review session':'Review capture','review','','primary','arrow')+'</div>');
   $('#transcript').oninput=e=>draft.text=e.target.value;
   if(draft.sketch)setupPad();
 }
@@ -283,20 +343,24 @@ function setupPad(){
   let pointer=null;c.onpointerdown=e=>{pointer=e.pointerId;c.setPointerCapture(pointer);const start=point(e);draft.strokes.push([start,[start[0]+.1,start[1]+.1]]);draw()};c.onpointermove=e=>{if(e.pointerId===pointer){draft.strokes.at(-1).push(point(e));draw()}};c.onpointerup=c.onpointercancel=()=>{pointer=null};draw();
 }
 function matchProjects(t){
-  const words=' '+t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim()+' ';
-  return state.projects.filter(p=>p.available!==false && [p.name,...p.aliases].some(a=>words.includes(' '+a.toLowerCase().replace(/[-_]+/g,' ')+' ')));
+  const normalized=value=>value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();
+  const words=' '+normalized(t)+' ';
+  return state.projects.filter(p=>p.available!==false && [p.name,...(p.aliases||[])].some(a=>a && words.includes(' '+normalized(a)+' ')));
 }
 function matchSessions(t){
   const words=t.toLowerCase().match(/[a-z]+/g)||[];
-  const stop=new Set(['the','for','and','with','session','working','make','that','this','tell','please','ask','check','sure','agent','about']);
+  const stop=new Set(['the','for','and','with','session','working','make','that','this','tell','please','ask','check','sure','agent','about','build','implement','finish','continue','update','also','should','would','could','from','what','file','project','there','then','them']);
   return state.sessions.filter(s=>[...(s.task.toLowerCase().match(/[a-z]+/g)||[]),...(s.topics||[])].some(w=>w.length>2&&!stop.has(w)&&words.includes(w))&&(!live?s.state!=='Complete':canNudge(s)));
 }
 function interpret(){
-  const d=draft,t=d.text.trim(),lower=t.toLowerCase(),ps=matchProjects(t),ss=matchSessions(t);
-  d.brief=t;d.note='';d.keep=false;d.candidates=[];
-  const instruction=/\b(?:ask (?:claude(?: code)?|codex|antigravity|agy)|tell (?:[^.!?]*?\b)?(?:session|agent)|nudge|follow up)\b/i.exec(t);
-  if(!d.session && !d.sessionProject)d.mode=instruction?(/^(tell|nudge|follow)/i.test(instruction[0])?'nudge':'ask'):
-    /\b(remember|note|save|idea)\b/.test(lower)||!t?'note':'ask';
+  const d=draft,t=d.text.trim(),ps=matchProjects(t),ss=matchSessions(t);
+  d.brief=t;d.note='';d.keep=false;d.candidates=[];delete d.suggestedBrief;
+  const shorthand=/^(?:(?:yes|ok(?:ay)?|please|now)[\s,.!]+)*(?:(?:build|implement|fix|do|ship|finish|try|change|apply) (?:it|this|that|the plan)|(?:go ahead|continue|carry on))\s*(?:please)?[.!?]*$/i.test(t) || /\b(?:where (?:we|you) left off|(?:continue|pick up|resume) (?:from )?(?:our|the|your) (?:previous|last|earlier) (?:session|conversation|work|plan))\b/i.test(t);
+  const filing=/(?:^|[.!?,]\s*|\b(?:please|can you|could you)\s+)(?:remember\b|jot\b.{0,20}\bdown\b|(?:save|keep|write|add|make)\s+(?:(?:this|that|a|the|an)\s+)?(?:as\s+a\s+)?(?:note|sketch|idea)\b|note\s+(?:that|for)\b|idea\s+for\b)/i.test(t);
+  const instruction=/\b(?:ask (?:claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?)|tell (?:[^.!?]*?\b)?(?:session|agent)|nudge|follow up)\b/i.exec(t);
+  if(!d.session && (!d.sessionProject || d.guide==='start'))d.mode=instruction?(/^(tell|nudge|follow)/i.test(instruction[0])?'nudge':'ask'):filing||!t?'note':'ask';
+  if(!d.session && shorthand && !d.strokes.length)d.mode='nudge';
+  d.explicitMode=!!(instruction || filing || shorthand || d.sessionProject);
   if(instruction){
     const before=t.slice(0,instruction.index).trim(), work=t.slice(instruction.index);
     if(/\b(remember|note|save|idea)\b/i.test(before)){
@@ -305,15 +369,28 @@ function interpret(){
     // Preserve constraints after the instruction. Keep preceding context in the handoff
     // unless it was captured separately as a note or solely names the workspace.
     if(d.mode==='ask' && (d.keep || !before || /^for [^,.]+[,.:]?$/i.test(before))){
-      d.brief=work.replace(/^ask (?:claude(?: code)?|codex|antigravity|agy)\s+(?:to\s+)?/i,'').trim();
+      d.brief=work.replace(/^ask (?:claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?)\s+(?:to\s+)?/i,'').trim();
       if(/^(where|how|whether|why)\b/i.test(d.brief))d.brief='Find '+d.brief;
       d.brief=d.brief.charAt(0).toUpperCase()+d.brief.slice(1);
     }
   }
-  if(!d.project&&ps.length===1)d.project=ps[0].id;
-  if(!d.session && /\bask (claude|codex|antigravity|agy)\b/i.test(t))d.mode='ask';
-  if(d.mode==='nudge'&&!d.session){const choices=ps.length===1?ss.filter(s=>s.project===ps[0].id):ss;if(choices.length===1){d.session=choices[0].id;d.project=choices[0].project}else if(choices.length>1){d.candidates=choices.map(s=>s.id)}}
-  if(/\bclaude(?: code)?\b/i.test(t))d.agent='claude';if(/codex/i.test(t))d.agent='codex';if(/antigravity|\bagy\b/i.test(t))d.agent='agy';const viewer=/\b(?:in|with|using|via|to)\s+(?:apple |the )?(xcode|preview|finder)\b/i.exec(t);if(viewer)d.viewer=['Xcode','Preview','Finder'].find(app=>app.toLowerCase()===viewer[1].toLowerCase());
+  if(!d.session && (!d.project || d.suggestedProject) && ps.length===1)d.project=ps[0].id;
+  if(d.suggestedProject && ps.length>1)d.project='';
+  if(!d.session && /\bask (claude|codex|antigravity|agy|cursor|pi|picode)\b/i.test(t))d.mode='ask';
+  if(d.mode==='nudge'&&!d.session){
+    // A suggested first-run folder is not evidence about an existing conversation.
+    if(d.suggestedProject && !ps.length)d.project='';
+    const choices=d.project?ss.filter(s=>s.project===d.project):ss;
+    if(!shorthand && choices.length===1){d.session=choices[0].id;d.project=choices[0].project}
+    else if(choices.length && !shorthand)d.candidates=choices.map(s=>s.id);
+  }
+  const worker=/\b(?:ask|use|using|with|via|send to|hand (?:it |this )?to|run (?:it |this )?in)\s+(claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?)\b/i.exec(t) || /^\s*(claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?)\s*[:,]/i.exec(t);
+  if(d.agentChoice!=='manual'){
+    const id=worker && worker[1].toLowerCase();
+    d.agentChoice=id?'named':'';
+    d.agent=id?.startsWith('cursor')?'cursor-agent':id?.startsWith('pi')?'pi':id?.startsWith('claude')?'claude':id==='codex'?'codex':id?'agy':sessionModelPolicy().defaultAgent;
+  }
+  const viewer=/\b(?:in|with|using|via|to)\s+(?:apple |the )?(xcode|preview|finder)\b/i.exec(t);if(viewer)d.viewer=['Xcode','Preview','Finder'].find(app=>app.toLowerCase()===viewer[1].toLowerCase());
 }
 function routingPrompt(){
   const d=draft;
@@ -323,12 +400,13 @@ function routingPrompt(){
   }
   if(d.mode==='nudge'&&!d.session){
     const available=state.sessions.filter(s=>(live?canNudge(s):s.state!=='Complete') && (!d.project||d.project===s.project));
-    if(available.length){routeDecision(available);return}
-    d.mode='ask';
+    if(available.length){routeDecision(available,false);return}
+    dialog('What should the agent work on?','Follow-up','<p>No available session matches this follow-up. Describe the task to start a new session.</p><div class="form-actions">'+button('Dismiss','discard')+button('Edit request','edit','','primary','pen')+'</div>');
+    return;
   }
   if(!d.project){
     const projects=state.projects.filter(p=>p.available!==false);
-    dialog('Which workspace?', 'Tasktap','<label class="field">Find a project<input id="route-filter" type="search" placeholder="Folder name"></label><div class="route-list" id="route-list"></div><div class="inline">'+button('Keep in scratch','route-project','@scratch')+button('New workspace…','route-project','@new')+'</div>');
+    dialog('Which workspace?', 'Tasktap','<label class="field">Find a project<input id="route-filter" type="search" placeholder="Folder name"></label><div class="route-list" id="route-list"></div><div class="inline">'+button('Keep in scratch','route-project','@scratch')+button('New workspace…','route-project','@new')+'</div>'+continueSessionButton(d));
     const field=$('#route-filter');
     const filter=()=>{$('#route-list').innerHTML=projects.filter(p=>p.name.toLowerCase().includes(field.value.toLowerCase())).map(p=>button(p.name,'route-project',p.id)).join('')||'<p class="empty">No matching projects.</p>'};
     field.oninput=filter;filter();
@@ -337,18 +415,36 @@ function routingPrompt(){
   }
   review();
 }
+function continuations(d){
+  return state.sessions.filter(s=>(!d.project || s.project===d.project) && (live?canNudge(s):s.state!=='Complete'));
+}
+function continueSessionButton(d){
+  return d.mode==='ask' && continuations(d).length?button('Continue an existing session','continue-session','','text-btn'):'';
+}
 function review(){
   const d=draft,s=sess(d.session);
+  const peers=d.mode==='note'?[]:projectPeers(d.project,d.mode==='nudge'?s?.id:d.runId);
+  // Keep the exact peer context on the review until the user revises this handoff.
+  d.peerTasks=peers.slice(0,8).map(p=>({agent:providers[p.agent],task:(p.task || '').slice(0,112),state:p.state}));
+  if(d.mode==='ask')workerRouting.prepare(d);else {d.noPick=false;d.usingRank=false}
   const destination=d.mode==='nudge'?s?.task:d.project==='@scratch'?'Scratch':d.project==='@new'?d.newName:proj(d.project)?.name;
   const action=d.mode==='note'?'Save note':d.mode==='nudge'?(manualNudge(d)?'Copy nudge & open session':'Send nudge'):'Start session';
-  const where=[d.mode==='nudge'?proj(s?.project)?.name:null,destination,d.mode==='note'?null:providers[d.mode==='nudge'?s?.agent:d.agent],d.viewer].filter(Boolean).join(' · ');
+  const where=[d.mode==='nudge'?proj(s?.project)?.name:null,destination,d.mode==='note'?null:(d.mode==='ask' && d.noPick?'Choose an agent':providers[d.mode==='nudge'?s?.agent:d.agent]),d.viewer].filter(Boolean).join(' · ');
   const note=d.keep && d.mode!=='note'?'<p class="hint">Also save a note: '+esc(d.note||d.brief)+'</p>':'';
   const agent=d.mode==='nudge'?s?.agent:d.agent;
   if (d.mode!=='note') d.captureId??=uid();
-  const relay=d.mode==='note'?'':handoffRelay.markup(d.captureId,agent,d.relayPhase||'review');
+  const relay=d.mode==='note'||d.noPick?'':handoffRelay.markup(d.captureId,agent,d.relayPhase||'review');
   const route=relay?'<div class="review-rail">'+relay+'<span data-relay-label>'+(d.relayPhase==='failed'?'Handoff failed':'Ready for '+esc(providers[agent]))+'</span></div>':'';
-  dialog('Review capture',where,route+'<p class="review-brief" id="review-brief">'+esc(d.brief||'Attached sketch')+'</p>'+(d.strokes.length?sketchMarkup(d.strokes):'')+modelReviewMarkup(d)+captureContext.review(d)+note+aiConnections.receipt(d)+(live?deliveryAudit(d):'')+
+  const suggestion=d.suggestedBrief && d.suggestedBrief!==d.brief?'<details class="route-evidence"><summary>Suggested wording</summary><p class="body-copy">'+esc(d.suggestedBrief)+'</p>'+button('Use this wording','apply-suggested-brief')+'</details>':'';
+  const brief='<p class="review-brief" id="review-brief">'+esc(d.brief||'Attached sketch')+'</p>'+suggestion+(d.strokes.length?sketchMarkup(d.strokes):'')+captureContext.review(d)+note;
+  const details=d.noPick?'':modelReviewMarkup(d)+(live?deliveryAudit(d):'');
+  const choice=d.mode==='ask' && live?workerRouting.reviewMarkup(d):'';
+  const usage=live && d.mode!=='note'?'<details class="route-evidence"><summary>Account usage</summary>'+aiConnections.receipt(d)+'</details>':'';
+  const body=d.quick?brief+choice+usage+(live && !d.noPick?deliveryAudit(d):''):d.guide?brief+choice+aiConnections.receipt(d)+(details?'<details class="guide-review-details"><summary>Handoff details</summary>'+details+'</details>':''):route+brief+choice+aiConnections.receipt(d)+details;
+  const title=d.guide?{ask:'Review new session',nudge:'Review follow-up',note:'Review note'}[d.mode]:'Review capture';
+  dialog(title,where,body+peerDisclosure(peers,d.project)+continueSessionButton(d)+
     '<div class="form-actions">'+button('Adjust','adjust')+button(action,'commit-review','','primary')+'</div>');
+  if(choice)workerRouting.bindReview(d);
   reviewActivity(d);
 }
 function adjustReview(){
@@ -368,14 +464,29 @@ function adjustReview(){
   const bind=(id,key)=>{const el=$('#'+id,f);if(el)el.oninput=()=>d[key]=el.value};
   [['brief','brief'],['sideNote','note'],['newName','newName'],['agent','agent'],['viewer','viewer'],['handoff-host','host']].forEach(([id,key])=>bind(id,key));
   if($('#handoff-host',f))postLive('terminal-catalog');
-  if($('#agent',f))$('#agent',f).onchange=e=>{d.agent=e.target.value;delete d.modelOverride;adjustReview();$('#agent').focus()};
-  if($('#model-override',f))$('#model-override',f).oninput=e=>{d.modelOverride={agent:d.agent,value:e.target.value.trim()}};
+  if($('#agent',f))$('#agent',f).onchange=e=>{d.agent=e.target.value;d.agentChoice='manual';delete d.modelOverride;adjustReview();$('#agent').focus()};
+  if($('#model-override',f))$('#model-override',f).oninput=e=>{d.modelOverride={agent:d.agent,value:e.target.value.trim()};if(d.modelOverride.value)d.agentChoice='manual'};
   $('#mode',f).onchange=e=>{d.mode=e.target.value;adjustReview()};
   if($('#project',f))$('#project',f).onchange=e=>{d.project=e.target.value;delete d.contextProject;adjustReview()};
   if($('#session',f))$('#session',f).onchange=e=>{d.session=e.target.value;d.project=sess(d.session)?.project||''};
   if($('#keep',f))$('#keep',f).onchange=e=>{d.keep=e.target.checked;adjustReview()};
   f.onsubmit=e=>{e.preventDefault();routingPrompt()};
   settingsPickers.mount(f);
+}
+function reviewDraft(){
+  if(recording && draft.quick && recording.target==='#transcript'){
+    if(['recording','finishing','processing'].includes(recording.phase)){
+      recording.reviewAfter=true;
+      finishDictation(recording.owner);
+      return;
+    }
+    stopDictation();
+  }
+  if(recording){toast('Finish dictation before reviewing.');return}
+  if(!draft.text.trim()&&!draft.strokes.length){toast('Add text or a sketch to continue.');$('#transcript').focus();return}
+  if(!draft.session && !draft.strokes.length && /^(?:(?:well|um+|uh+|oh|okay|ok|h[ei]y|hi|hello|hallo|hey there|testing|test|mic check|thank you|thanks|good (?:morning|evening))[\s,.!?]*)+$/i.test(draft.text.trim())){dialog('What would you like to do?','Capture',button(draft.hasVoice?'Edit request':'Keep typing','continue-capture','','primary',draft.hasVoice?'mic':'pen')+button('Dismiss','discard'));return}
+  interpret();
+  captureContext.resolve(draft,()=>{if(live)prepareHandoff();else routingPrompt()});
 }
 function commitCapture(){
   const d=draft;if(!d)return;
@@ -398,36 +509,62 @@ function deliver(id){
   const c=byId(state.captures,id),s=c&&sess(c.session);if(!s||c.receipt!=='Queued')return;
   c.receipt='Delivered';s.log.push('Nudge delivered. '+c.brief);if(s.state==='Complete'){s.state='Running';delete s.result}
   persist();render();if($('#modal').open&&openedSession===s.id&&$('#dialog-heading')?.textContent===s.task)showSession(s.id);
-  if($('#modal').open&&$('#dialog-heading')?.textContent==='Capture detail'&&$('#receipt')?.dataset.capture===id)detailCapture(id);
+  if($('#modal').open&&$('#receipt')?.dataset.capture===id)detailCapture(id);
   toast('Nudge delivered to '+s.task+'.');
 }
-function detailCapture(id){const c=byId(state.captures,id);if(!c)return;dialog('Capture detail',c.kind,handoffRelay.forCapture(c)+(c.accounts?'<p class="hint body-copy">'+esc(c.accounts)+'</p>':'')+'<div class="detail-line">'+icon('folder')+esc(proj(c.project)?.name||'Scratch')+'<span id="receipt" data-capture="'+attr(id)+'" class="badge">'+esc(c.receipt)+'</span></div><div class="block"><h3>Original capture</h3><p class="body-copy">'+esc(c.text||'Sketch only')+'</p>'+(c.strokes?.length?sketchMarkup(c.strokes):'')+'</div><div class="block"><h3>Reviewed brief</h3><p class="body-copy">'+esc(c.brief)+'</p></div>'+(c.routingEvidence?'<details class="route-evidence"><summary>How this was routed</summary><p class="body-copy">'+esc(c.routingEvidence)+'</p></details>':'')+(c.routingPayload?'<details class="route-evidence"><summary>Sent for preparation</summary><p class="body-copy">'+esc(c.routingPayload)+'</p></details>':'')+(c.outgoing?'<details class="route-evidence"><summary>Exact handoff</summary><p class="body-copy">'+esc(c.outgoing)+'</p><p class="body-copy">'+esc(c.instructions||'')+'</p></details>':'')+(c.session?button('Open session','session',c.session):''))}
+function detailCapture(id){
+  const c=byId(state.captures,id);if(!c)return;
+  if(firstMode())showWorkspace();
+  const session=sess(c.session), request=c.brief || c.text || 'Sketch', project=proj(c.project)?.name || 'Scratch';
+  const latest=state.captures.find(turn=>turn.session===c.session && turn.receipt==='Complete');
+  const result=c.result || (session && c.receipt==='Complete' && latest?.id===id?session.result:'');
+  const original=c.text?.trim() && c.text.trim()!==request.trim()?'<details class="route-evidence"><summary>Original wording</summary><p class="body-copy">'+esc(c.text)+'</p></details>':'';
+  const title=c.kind==='Note'?'Saved note':c.kind==='Session nudge'?'Follow-up':'Request';
+  dialog(title,[project,providers[session?.agent]].filter(Boolean).join(' · '),
+    '<div class="detail-line"><span id="receipt" data-capture="'+attr(id)+'" class="badge">'+esc(c.receipt)+'</span></div><p class="body-copy review-brief">'+esc(request)+'</p>'+
+    (c.strokes?.length?sketchMarkup(c.strokes):'')+(result?'<section class="notice"><strong>Result</strong><p class="body-copy">'+esc(result)+'</p></section>':'')+
+    original+(session?button('Open session','session',c.session,'primary','out'):''));
+}
 function showNote(id){
   const n=byId(state.notes,id),c=n.capture&&byId(state.captures,n.capture);
   dialog(n.title,proj(n.project)?.name||'Scratch','<p class="body-copy">'+esc(n.text)+'</p>'+(c?.strokes?.length?sketchMarkup(c.strokes):'')+(c?button('View original capture','detailcapture',c.id):'')+(!n.project?'<form id="assign" class="fields"><label>Assign to project<select id="assign-project" required>'+option('','Choose project')+state.projects.map(p=>option(p.id,p.name)).join('')+'</select></label><button class="primary">Move note</button></form>':''));
   const f=$('#assign');if(f)f.onsubmit=e=>{e.preventDefault();const project=$('#assign-project').value;if(live){postLive('assign-note',{id,capture:n.capture,folder:proj(project).folder});return}noteAssigned(id,project)};
 }
 function noteAssigned(id,project){const n=byId(state.notes,id);if(!n)return;n.project=project;persist();render();showNote(id);toast('Note assigned to '+proj(project).name+'.')}
-function prefs(){
-  const current=TasktapArt.current(),policy=sessionModelPolicy();
-  const themes=TasktapArt.catalog.map(theme=>'<option value="'+attr(theme.id)+'" data-art="'+attr(theme.id)+'" data-detail="'+attr(theme.medium)+'" '+(current===theme.id?'selected':'')+'>'+esc(theme.name)+'</option>').join('');
-  const profile=policy.agents[policy.defaultAgent];
-  const policySummary=providers[policy.defaultAgent]+' · '+(policy.adaptive?'Difficulty curve':profile.fixed || 'Agent default')+' · '+terminalHosts.label(state.sessionHost);
-  dialog('Preferences','Tasktap','<div id="preferences" class="settings-form">'+
-    '<section class="settings-section">'+aiConnections.jump()+'<button class="settings-jump" type="button" data-action="session-models" aria-label="Session models">'+
-    '<span class="jump-mark">'+icon('sessions')+'</span><span><strong>Session models</strong><small>'+esc(policySummary)+'</small></span>'+icon('right')+'</button>'+
-    settingsField('visual-theme','Artwork','<select id="visual-theme">'+themes+'</select>')+'</section>'+
-    '<section class="settings-section">'+settingsField('voice-engine','Narration voice','<select id="voice-engine"></select>')+
-    (live?'<div class="voice-tools"><p id="voice-status" class="hint" role="status">'+esc(kokoro.detail)+'</p><div class="inline">'+button('Set up Kokoro','setup-voice')+button('Preview voice','preview-voice')+'</div></div>':'')+
-    '<div class="check-line"><input id="narration" type="checkbox" '+(state.speak?'checked':'')+'><label for="narration">Read completion summaries aloud</label></div></section>'+
-    '<section class="settings-section">'+captureContext.preference()+'<div class="settings-root"><span>Workspace root</span><code>~/projects</code></div>'+
-    (live?'':button('Reset sample data','reset','','text-btn'))+'</section></div>');
+const preferenceGroups={agents:'Agents',capture:'Capture',voice:'Voice & alerts',appearance:'Appearance'};
+function prefs(group='agents'){
+  if(!Object.hasOwn(preferenceGroups,group))group='agents';
+  const nav='<nav class="preference-groups" aria-label="Preferences categories">'+Object.entries(preferenceGroups).map(([id,label])=>
+    '<button type="button" data-action="prefs-group" data-id="'+id+'" aria-pressed="'+(group===id)+'">'+esc(label)+'</button>').join('')+'</nav>';
+  let body;
+  if(group==='agents'){
+    const policy=sessionModelPolicy(),profile=policy.agents[policy.defaultAgent];
+    const summary=[providers[policy.defaultAgent],policy.adaptive?'Difficulty curve':profile.fixed,terminalHosts.label(state.sessionHost)].filter(Boolean).join(' · ');
+    body=(live?'<button id="agent-setup-link" type="button" class="settings-jump" data-action="agent-setup"><span class="jump-mark">'+icon('settings')+'</span><span><strong>Agent setup</strong><small hidden></small></span>'+icon('right')+'</button>':'')+
+      '<button class="settings-jump" type="button" data-action="session-models" aria-label="Session models"><span class="jump-mark">'+icon('sessions')+'</span><span><strong>Session models</strong><small>'+esc(summary)+'</small></span>'+icon('right')+'</button>'+(live?workerRouting.jump():'')+aiConnections.jump();
+  }else if(group==='capture'){
+    body='<div class="settings-root"><span>Project folders</span><code>~/projects</code></div>'+captureContext.preference()+
+      (live?surfaceButton('Reopen guided capture','guide-replay','pen','btn'):button('Reset sample data','reset','','text-btn'));
+  }else if(group==='appearance'){
+    const themes=TasktapArt.catalog.map(theme=>'<option value="'+attr(theme.id)+'" data-art="'+attr(theme.id)+'" data-detail="'+attr(theme.medium)+'" '+(TasktapArt.current()===theme.id?'selected':'')+'>'+esc(theme.name)+'</option>').join('');
+    body=settingsField('visual-theme','Artwork','<select id="visual-theme">'+themes+'</select>');
+  }else{
+    body=settingsField('voice-engine','Narration voice','<select id="voice-engine"></select>')+
+      (live?'<div class="voice-tools"><p id="voice-status" class="hint" role="status">'+esc(kokoro.detail)+'</p><div class="inline">'+button('Set up Kokoro','setup-voice')+button('Preview voice','preview-voice')+'</div></div>':'')+
+      '<div class="check-line"><input id="narration" type="checkbox" '+(state.speak?'checked':'')+'><label for="narration">Read completion summaries aloud</label></div>'+
+      surfaceButton('Notification settings','notifications','bell','btn');
+  }
+  dialog('Preferences','Tasktap','<div id="preferences" class="settings-form">'+nav+'<section aria-label="'+preferenceGroups[group]+'" class="settings-section">'+body+'</section></div>');
   settingsHeader();
-  captureContext.bindPreference();voiceOptions();routingVoicePreference();
-  if(live){updateKokoro(kokoro.status,kokoro.detail);postLive('check-kokoro')}
-  $('#voice-engine').onchange=e=>{state.voiceEngine=e.target.value;persist()};
-  $('#visual-theme').onchange=e=>TasktapArt.select(e.target.value);
-  $('#narration').onchange=e=>{state.speak=e.target.checked;persist()};
+  if(group==='agents' && live)aiConnections.refresh();
+  if(group==='capture')captureContext.bindPreference();
+  if(group==='appearance')$('#visual-theme').onchange=e=>TasktapArt.select(e.target.value);
+  if(group==='voice'){
+    voiceOptions();routingVoicePreference();
+    if(live){updateKokoro(kokoro.status,kokoro.detail);postLive('check-kokoro')}
+    $('#voice-engine').onchange=e=>{state.voiceEngine=e.target.value;persist()};
+    $('#narration').onchange=e=>{state.speak=e.target.checked;persist()};
+  }
   settingsPickers.mount($('#preferences'));
 }
 function complete(id){const s=sess(id);if(s.state!=='Running')return;s.state='Complete';s.result='Demo result: the agent finished the requested review in '+proj(s.project).name+'. Open the conversation to inspect its work.';s.log.push('Simulated completion received.');persist();render();showSession(id);if(state.speak)speak(s.result)}
@@ -439,28 +576,35 @@ document.addEventListener('click',e=>{
   const el=e.target.closest('[data-action]');if(!el)return;const a=el.dataset.action,id=el.dataset.id;
   switch(a){
     case 'view':go(id);break;case 'capture':newDraft('');break;case 'menu':document.body.classList.toggle('nav-open');break;
+    case 'prefs-group':prefs(id);$('#preferences [aria-pressed=true]').focus({preventScroll:true});break;
     case 'start-session':newDraft('',id);break;case 'follow':newDraft(id);break;case 'session':showSession(id);break;case 'close':dismissCard();break;case 'prefs':prefs();break;case 'session-models':sessionModelSettings();break;case 'ai-connections':aiConnections.show();break;
-    case 'readcapture':speak(state.captures[0].text||'Attached sketch');break;case 'speakresult':speak(sess(id).result);break;
+    case 'speakresult':speak(sess(id).result);break;
     case 'openchat':postLive('open-desktop-chat',{id:sess(id).conversation});break;
     case 'setup-voice':postLive('install-kokoro');break;
+    case 'worker-routing':workerRouting.settings();break;
+    case 'agent-setup':if(live)aiConnections.setup();break;
+    case 'worker-install':case 'worker-login':if(live && Object.hasOwn(providers,id))postLive(a,{agent:id});break;
     case 'preview-voice':speak('Tasktap is ready. What would you like to work on?');break;
     case 'terminal':postLive('resume-terminal',{id});break;
     case 'focus-session':postLive('focus-session',{id});break;
+    case 'review-retry':{const c=failedStart(sess(id));if(c)postLive('review-failed-handoff',{session:id,capture:c.id});break}
     case 'copyresume':postLive('copy-resume',{id});break;
     case 'openresult':if(live){const s=sess(id);postLive('open-result',{id,viewer:s.viewer||'Finder',text:s.result||''});break}dialog('Result preview',sess(id).viewer||'Editor','<p>'+esc(sess(id).result)+'</p><p class="hint">Opening an external app is simulated here.</p>'+button('Back to session','session',id));break;
-    case 'detailcapture':detailCapture(id);break;case 'note':showNote(id);break;case 'sample':startSample();break;case 'dictate':dictate(id);break;
+    case 'detailcapture':detailCapture(id);break;case 'note':showNote(id);break;case 'sample':startSample();break;
     case 'sketch':draft.sketch=!draft.sketch;editDraft();break;
     case 'curve':draft.strokes.push(Array.from({length:70},(_,i)=>[38+i*7.2,30+Math.pow(i/69,2)*112]));setupPad();break;
     case 'clearink':draft.strokes=[];setupPad();break;case 'discard':draft=null;dismissCard();break;
-    case 'review':if(recording){toast('Finish dictation before reviewing.');return}if(!draft.text.trim()&&!draft.strokes.length){toast('Add text or a sketch to continue.');$('#transcript').focus();return}if(!draft.session && !draft.strokes.length && /^(?:(?:well|um+|uh+|oh|okay|ok|h[ei]y|hi|hello|hallo|hey there|testing|test|mic check|thank you|thanks|good (?:morning|evening))[\s,.!?]*)+$/i.test(draft.text.trim())){dialog('What would you like to do?','Capture',button('Keep talking','continue-capture','','primary','mic')+button('Dismiss','discard'));break}interpret();captureContext.resolve(draft,()=>{if(live)prepareHandoff();else routingPrompt()});break;
+    case 'review':reviewDraft();break;
     case 'skip-routing':cancelRouting();stopRoutingSpeech();routingPrompt();break;case 'adjust':adjustReview();break;
     case 'route-project':draft.project=id;delete draft.contextProject;if(id==='@new'){
       dialog('Name the workspace','Tasktap','<form id="workspace-name" class="field"><label>Folder under ~/projects<input id="newName" required></label><button class="primary">Review</button></form>');
       $('#workspace-name').onsubmit=e=>{e.preventDefault();const name=$('#newName').value.trim();if(!name||name.includes('/')||name==='.'||name==='..'){toast('Choose a folder name.');return}draft.newName=name;review()};
     }else review();break;
-    case 'commit-review':commitCapture();break;
-    case 'continue-capture':draft.text='';editDraft();if(live)dictate('#transcript');else $('#transcript').focus();break;
-    case 'edit':editDraft();break;case 'notch':decisionVoice=false;showNotch(id);break;case 'voicechoice':decisionVoice=true;showNotch(id);if(live)dictate('#answer');break;
+    case 'commit-review':if(draft?.mode==='ask' && live && !workerRouting.canStart(draft))break;commitCapture();break;
+    case 'apply-suggested-brief':if(draft?.suggestedBrief){draft.brief=draft.suggestedBrief;delete draft.suggestedBrief;review()}break;
+    case 'continue-capture':draft.text='';editDraft();$('#transcript').focus();break;
+    case 'edit':editDraft();break;case 'notch':decisionVoice=false;showNotch(id);break;case 'voicechoice':decisionVoice=true;showNotch(id);break;
+    case 'continue-session':{const choices=continuations(draft);if(choices.length)routeDecision(choices,false);else toast('No available session in this workspace.');break}
     case 'choose-target':chooseTarget(id);break;case 'decide':{const [q,i]=id.split('|');decide(q,Number(i));break}
     case 'discuss':showNotch(id,true);break;
     case 'complete':complete(id);break;
@@ -488,5 +632,5 @@ if(location.hash==='#geometry'){
     {...seed.sessions[0],task:'Label',amount:'Count'},
     {...seed.sessions[1],task:'Arbeitsbereich für Beleuchtungseinstellungen und Reflexionsberechnungen',amount:'1,234,567'},
     {...seed.sessions[2],agent:'',task:'Missing icon',amount:'8'}
-  ].map(s=>sessionRow(s,true)).join('')+'</div>';
+  ].map(s=>sessionRow(s,{fixture:true})).join('')+'</div>';
 }

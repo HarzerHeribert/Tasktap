@@ -14,7 +14,7 @@ function settingsField(id,label,control) {
 }
 function providerMark(id, illustrated) {
   if (!illustrated) return '<span aria-hidden="true" class="picker-mark agent-mark '+attr(id)+'">'+icon(id)+'</span>';
-  const artwork={claude:'phase',codex:'glyph',agy:'orbit'}[id];
+  const artwork={claude:'phase',codex:'glyph',agy:'orbit','cursor-agent':'relay',pi:'phase'}[id];
   return '<span aria-hidden="true" class="provider-study '+attr(id)+'">'+artThumb(artwork)+icon(id)+'</span>';
 }
 function artThumb(id) {
@@ -72,22 +72,27 @@ const settingsPickers = (() => {
     const rows=active.popup.querySelectorAll('[role=option]');
     for (let i=0;i<rows.length;i++) rows[i].classList.toggle('is-highlighted',i===index);
     active.input.setAttribute('aria-activedescendant',rows[index].id);
-    if (scroll) rows[index].scrollIntoView({block:'nearest'});
+    if (scroll) {
+      const box=rows[index].getBoundingClientRect(), list=active.popup.getBoundingClientRect();
+      if(box.bottom>list.bottom)active.popup.scrollTop+=box.bottom-list.bottom;
+      else if(box.top<list.top)active.popup.scrollTop-=list.top-box.top;
+    }
   }
   function position() {
     if (!active) return;
     const {wrapper,popup}=active;
     if (!wrapper.isConnected || !wrapper.closest('dialog[open]')) { close(); return; }
+    if (popup.classList.contains('inline-options')) return;
     const rect=wrapper.getBoundingClientRect();
     const scale=rect.width / (wrapper.offsetWidth || rect.width) || 1;
-    const gutter=6*scale;
-    const edgeTop=document.body.classList.contains('notch-first')?Math.max(gutter,wrapper.closest('dialog').getBoundingClientRect().top):gutter;
+    const gutter=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--s-tight'))*scale;
+    const edgeTop=gutter;
     const above=rect.top-edgeTop-gutter, below=innerHeight-rect.bottom-gutter*2;
     const width=Math.min(rect.width,innerWidth-gutter*2);
     popup.style.width=width/scale+'px';
     const desired=Math.min(320*scale,popup.scrollHeight*scale+2*scale);
     const down=below>=desired || below>=above;
-    popup.style.maxHeight=Math.max(32, (down?below:above)/scale)+'px';
+    popup.style.maxHeight=Math.min(288,Math.max(32,(down?below:above)/scale))+'px';
     const height=popup.getBoundingClientRect().height;
     popup.style.top=(down?rect.bottom+gutter:Math.max(edgeTop,rect.top-height-gutter))/scale+'px';
     popup.style.left=Math.max(gutter,Math.min(rect.left,innerWidth-width-gutter))/scale+'px';
@@ -132,8 +137,13 @@ const settingsPickers = (() => {
     const wrapper=input.parentElement, popup=document.createElement('div');
     popup.id=idFor(input);popup.className='setting-options';popup.setAttribute('role','listbox');
     popup.setAttribute('aria-label', input.labels?.[0]?.textContent.trim() || 'Options');
-    popup.setAttribute('popover','manual');
-    input.closest('dialog').append(popup);popup.showPopover();
+    if (firstMode()) {
+      popup.classList.add('inline-options');
+      wrapper.after(popup);
+    } else {
+      popup.setAttribute('popover','manual');
+      input.closest('dialog').append(popup);popup.showPopover();
+    }
     const toggle=wrapper.querySelector('button');
     active={input,popup,wrapper,toggle,filter,items:[],index:-1,typeahead:'',typedAt:0};
     input.setAttribute('aria-expanded','true');input.setAttribute('aria-controls',popup.id);

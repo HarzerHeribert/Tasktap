@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 
 final class LiveWorkspace {
@@ -44,7 +45,7 @@ final class LiveWorkspace {
     }
     var changed:([String:Any])->Void = {_ in}
     var projectsChanged:([[String:String]])->Void = {_ in}
-    private var previousProjects=[[String:String]]()
+    private var previousProjects:[[String:String]]?
     private let fm=FileManager.default
     init(root:URL,data:URL){self.root=root;self.data=data}
     enum Failure:LocalizedError {
@@ -71,23 +72,56 @@ final class LiveWorkspace {
         guard let b=try? Data(contentsOf:url),let r=try? JSONSerialization.jsonObject(with:b) as? [String:Any] else {return nil}
         return r["state"] as? String
     }
+    func failedHandoff(session:String,capture:String)throws -> [String:Any] {
+        let unavailable=Failure.reason("This handoff is no longer available to retry. Check its session in the workspace.")
+        guard UUID(uuidString:session) != nil, UUID(uuidString:capture) != nil, session != capture else {throw unavailable}
+        let folder=data.appendingPathComponent(session)
+        let jobs=try fm.contentsOfDirectory(at:folder,includingPropertiesForKeys:nil).filter{$0.pathExtension=="job"}
+        guard jobs.count==1,let path=jobs.first, readState(path.deletingPathExtension().appendingPathExtension("receipt"))=="Failed",
+              let job=try JSONSerialization.jsonObject(with:Data(contentsOf:path)) as? [String:Any],
+              job["session"] as? String==session, job["capture"] as? String==capture, job["mode"] as? String=="ask",
+              job["delivery"] as? String=="interactive", job["external"] as? Bool != true else {throw unavailable}
+        // A timeout can arrive while the original presenter still owns its terminal.
+        // An established conversation can contain partial work, even after it exits.
+        for name in ["thread.json","claude-turn-started"] where fm.fileExists(atPath:folder.appendingPathComponent(name).path) {throw unavailable}
+        let lock=folder.appendingPathComponent("surface.lock").path
+        let fd=open(lock,O_RDONLY)
+        if fd>=0 {
+            defer {close(fd)}
+            guard flock(fd,LOCK_EX|LOCK_NB)==0 else {throw unavailable}
+        } else if errno != ENOENT {throw unavailable}
+        return job
+    }
     func refresh(){
         let list=((try? fm.contentsOfDirectory(at:root,includingPropertiesForKeys:[.isDirectoryKey],options:.skipsHiddenFiles)) ?? [])
             .filter{(try? $0.resourceValues(forKeys:[.isDirectoryKey]).isDirectory)==true}
-            .map{["name":$0.lastPathComponent,"folder":$0.standardizedFileURL.path]}
+            .map{["name":$0.lastPathComponent,"folder":$0.standardizedFileURL.path,"checkout":$0.resolvingSymlinksInPath().standardizedFileURL.path]}
             .sorted{$0["name"]! < $1["name"]!}
         if previousProjects != list {previousProjects=list;projectsChanged(list)}
     }
     func enqueue(_ job:[String:Any])throws -> [String:String] {
         guard let session=job["session"] as? String,UUID(uuidString:session) != nil,let capture=job["capture"] as? String,UUID(uuidString:capture) != nil,
               let path=job["folder"] as? String,let mode=job["mode"] as? String,["ask","nudge","note"].contains(mode),
-              let provider=job["agent"] as? String,["claude","codex","agy"].contains(provider) else {throw Failure.reason("Invalid handoff.")}
+              let provider=job["agent"] as? String,["claude","codex","agy","cursor-agent","pi"].contains(provider) else {throw Failure.reason("Invalid handoff.")}
         if mode != "note" {
             guard job["delivery"] as? String=="interactive", (job["planAccount"] as? String ?? "").isEmpty,
                   let host=job["host"] as? String, (TerminalCatalog.applications[host] != nil || host=="desktop"),
                   mode != "ask" || host != "desktop",
                   let outgoing=job["outgoing"] as? String, !outgoing.isEmpty,
                   job["instructions"] is String else {throw Failure.reason("Review the handoff to a visible agent session.")}
+        }
+        if let original=job["retryOf"] as? String {
+            guard mode=="ask" else {throw Failure.reason("Only a new session can retry this handoff.")}
+            // The failed capture is the stable ID of its replacement session. Reopening
+            // the same review cannot create a second worker for the original handoff.
+            _=try failedHandoff(session:original,capture:session)
+            let destination=data.appendingPathComponent(session)
+            if fm.fileExists(atPath:destination.path) {
+                let jobs=try fm.contentsOfDirectory(at:destination,includingPropertiesForKeys:nil).filter{$0.pathExtension=="job"}
+                if !jobs.isEmpty && !jobs.contains(where:{$0.lastPathComponent.hasSuffix("-"+capture+".job")}) {
+                    throw Failure.reason("This handoff has already been retried. Open the new session in the workspace.")
+                }
+            }
         }
         if mode=="ask",let host=job["host"] as? String, TerminalCatalog.app(host)==nil {
             throw Failure.reason("Your chosen terminal is unavailable. Choose an installed app in Preferences → Session models.")
@@ -192,7 +226,7 @@ final class LiveWorkspace {
     private func poll(){
         for url in pending.keys.sorted(by:{$0.lastPathComponent < $1.lastPathComponent}) {
             guard let meta=pending[url] else {continue}
-            if opening.contains(url), !fm.fileExists(atPath:url.deletingLastPathComponent().appendingPathComponent("surface.json").path),
+            if opening.contains(url), readState(url)=="Opening", !fm.fileExists(atPath:url.deletingLastPathComponent().appendingPathComponent("surface.json").path),
                let started=try? url.resourceValues(forKeys:[.contentModificationDateKey]).contentModificationDate,
                Date().timeIntervalSince(started)>90 {
                 let failure=["state":"Failed","message":"The terminal did not confirm opening. Check its window and review the handoff again."]

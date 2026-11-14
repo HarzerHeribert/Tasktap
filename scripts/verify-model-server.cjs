@@ -38,7 +38,7 @@ const {chromium}=require('playwright');
     await page.evaluate(()=>serverSetup.receive(sent.at(-1).id,{models:['studio-local','second-model']}));
     assert.equal(await page.locator('#ai-model').inputValue(),'studio-local');
     const selected={kind:'litellm',url:'http://localhost:4000/v1',model:'studio-local',hasKey:'yes'};
-    await button('Use this route').click();
+    await button('Save connection').click();
     const saved=await page.evaluate(()=>sent.at(-1));
     assert.equal(saved.key,'test-key');assert.deepEqual(saved.server,{kind:'litellm',url:selected.url,useSaved:false});
     assert.ok(!(await page.evaluate(()=>JSON.stringify(localStorage))).includes('test-key'));
@@ -50,7 +50,7 @@ const {chromium}=require('playwright');
     assert.ok(!changed.useSaved && !changed.key);
     await button('Enter model ID').click();
     await page.locator('#ai-model').fill('manual-alias');
-    assert.ok(await button('Use this route').isVisible());
+    assert.ok(await button('Save connection').isVisible());
     await page.evaluate(()=>{
       projectsDiscovered([{name:'Lighting',folder:'/projects/Lighting'}]);newDraft('');
       draft.text='Investigate reflections in Lighting';$('#transcript').value=draft.text;

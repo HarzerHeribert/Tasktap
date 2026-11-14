@@ -19,7 +19,63 @@ const { chromium } = require('playwright');
       workerAccount:'account-a',models:{},keys:{},accounts:[{id:'account-a',label:'Studio · 123456',status:'enabled'}],account:'account-a',cloud:''};
     await page.evaluate(c=>aiConnections.receive(c),config);
     const click=name=>page.getByRole('button',{name,exact:true}).click();
+    const healthy={codex:'signedIn',claude:'signedIn',agy:'installed'};
+    const updateHealth=workerHealth=>page.evaluate(value=>{aiConnections.receive(value);aiConnections.checked()},{...config,choice:'local',workerHealth});
+    const capture=async name=>{
+      if(process.env.TASKTAP_SCREENSHOTS)await page.locator('#modal').screenshot({path:path.join(process.env.TASKTAP_SCREENSHOTS,name),animations:'disabled'});
+    };
+    await updateHealth(healthy);
     await click('Preferences');
+    const overview=page.locator('#agent-setup-link');
+    assert.equal(await overview.locator('small').isVisible(),false);
+    await page.getByRole('button',{name:/AI connections/}).click();
+    assert.equal(await page.getByText('Accounts used by workers').count(),0);
+    assert.equal(await page.getByRole('button',{name:'Save connection'}).count(),0);
+    await capture('capture-preparation-local.png');
+    await click('Back');
+    await overview.click();
+    await updateHealth(healthy);
+    assert.equal(await page.locator('.agent-row').getByText('Signed in',{exact:true}).count(),2);
+    assert.equal(await page.locator('.agent-row button').count(),0);
+    await updateHealth({...healthy,codex:'missing'});
+    await click('Installation guide for Codex');
+    assert.deepEqual(await page.evaluate(()=>sent.at(-1)),{type:'worker-install',agent:'codex'});
+    await updateHealth({...healthy,codex:'signedOut'});
+    await capture('agent-setup-sign-in.png');
+    await click('Sign in to Codex');
+    assert.deepEqual(await page.evaluate(()=>sent.at(-1)),{type:'worker-login',agent:'codex'});
+    await page.evaluate(()=>window.dispatchEvent(new Event('focus')));
+    assert.equal(await page.evaluate(()=>sent.at(-1).type),'ai-refresh');
+    await updateHealth(healthy);
+    assert.equal(await page.locator('.agent-row button').count(),0);
+    await updateHealth({...healthy,codex:'missing'});
+    await click('Back');
+    assert.equal(await overview.locator('small').isVisible(),false);
+    await updateHealth({...healthy,claude:'signedOut'});
+    assert.match(await overview.innerText(),/Sign in to Claude Code/);
+    await page.getByRole('button',{name:'Session models',exact:true}).click();
+    assert.ok(await page.getByRole('button',{name:'Sign in to Claude Code'}).isVisible());
+    await page.locator('#default-agent').selectOption('codex');
+    assert.equal(await page.getByRole('button',{name:'Sign in to Claude Code'}).count(),0);
+    await page.evaluate(()=>prefs());
+    await overview.click();
+    await updateHealth({...healthy,claude:'missing',codex:'signedOut',agy:'unknown'});
+    await page.setViewportSize({width:340,height:700});
+    assert.ok(await page.getByRole('button',{name:'Installation guide for Claude Code'}).isVisible());
+    assert.ok(await page.locator('.agent-list').evaluate(el=>el.scrollWidth<=el.clientWidth+1));
+    assert.equal(await page.locator('[data-agent-health="agy"] button').count(),0);
+    await page.setViewportSize({width:1024,height:780});
+    await click('Back');
+    await page.getByRole('button',{name:/AI connections/}).click();
+    await page.locator('#ai-route').selectOption('codex');
+    assert.ok(await page.getByRole('button',{name:'Sign in to Codex'}).isVisible());
+    await page.getByText('Model override',{exact:true}).click();
+    await page.locator('#ai-model').fill('keep-my-edit');
+    await updateHealth(healthy);
+    assert.equal(await page.locator('#ai-model').inputValue(),'keep-my-edit');
+    assert.equal(await page.locator('#ai-settings [data-action="worker-login"]').count(),0);
+    await page.evaluate(c=>{aiConnections.receive(c);aiConnections.checked()},config);
+    await click('Back');
     await page.getByRole('button',{name:/AI connections/}).click();
     if (process.env.TASKTAP_SCREENSHOTS) {
       await page.locator('#ai-route').click();
@@ -30,7 +86,7 @@ const { chromium } = require('playwright');
     await page.locator('#ai-route').selectOption('openai');
     await page.locator('#ai-key').fill('fixture-unsaved');
     await page.locator('#ai-model').fill('fixture-model');
-    await click('Use this route');
+    await click('Save connection');
     const save=await page.evaluate(()=>window.sent.at(-1));
     assert.equal(save.type,'ai-save');
     assert.equal(save.workerPlan,undefined);
@@ -77,11 +133,67 @@ const { chromium } = require('playwright');
     assert.ok((await page.locator('#handoff-accounts').innerText()).includes('Codex · Terminal · Existing session'));
     await click('Copy nudge & open session');
     assert.equal((await page.evaluate(()=>sent.findLast(m=>m.type==='enqueue').job)).manual,true);
+    const peers=page.locator('#modal [data-project-peers]');
+    await page.evaluate(()=>{
+      const project='/projects/Lighting';
+      state.projects.push({id:'lighting-alias',name:'Alias',folder:'/projects/Alias',checkout:project});
+      const row=(id,state,more={})=>({id,project,agent:'codex',state,task:id,log:[],...more});
+      state.sessions=[
+        row('glass & <lens>','Running'),row('solver','Needs input'),row('stale','Running',{available:false}),
+        row('different project','Running',{project:'/projects/Unrelated'}),row('finished','Complete'),
+        row('unknown','Connected'),row('idle','Idle'),row('launching','Opening',{project:'lighting-alias'})
+      ];
+      newDraft('',project);
+      draft.quick=true;draft.text=draft.brief='Balance the lighting';draft.agent='codex';review();
+    });
+    assert.equal(await peers.locator('summary').innerText(),'3 other sessions in Lighting');
+    await peers.locator('summary').click();
+    assert.equal(await peers.locator('li').count(),3);
+    assert.match(await peers.innerText(),/glass & <lens>/);
+    const reviewed=await page.evaluate(()=>({
+      outgoing:deliveryText(draft),instructions:deliveryInstructions(draft)
+    }));
+    assert.match(reviewed.instructions,/current checkout and branch/);
+    assert.match(reviewed.outgoing,/glass & <lens>/);
+    assert.doesNotMatch(reviewed.outgoing,/different project|finished|stale|unknown|idle/);
+    assert.ok(await page.locator('#modal .body-copy').allTextContents().then(rows=>rows.includes(reviewed.outgoing)));
+    // The outgoing handoff must match the reviewed snapshot, even as peers complete.
+    await page.evaluate(()=>{state.sessions[0].state='Complete'});
+    await click('Start session');
+    const withPeers=await page.evaluate(()=>sent.findLast(m=>m.type==='enqueue').job);
+    assert.equal(withPeers.outgoing,reviewed.outgoing);
+    assert.equal(withPeers.instructions,reviewed.instructions);
+    await page.evaluate(()=>{draft=null;showSession('solver')});
+    assert.equal(await peers.locator('summary').innerText(),'1 other session in Lighting');
+    await peers.locator('summary').click();
+    await peers.getByRole('button',{name:/launching/}).focus();
+    await page.evaluate(()=>showSession('solver'));
+    assert.equal(await page.evaluate(()=>document.activeElement.dataset.id),'launching');
+    await peers.getByRole('button',{name:/launching/}).click();
+    assert.equal(await page.locator('#dialog-heading').innerText(),'launching');
+    const routes=await page.evaluate(()=>{
+      const d={project:'/projects/Lighting',brief:'Add a cue',strokes:[],peerTasks:[{agent:'Codex',state:'Running',task:'solver'}]};
+      return {
+        others:['pi','cursor-agent','agy'].map(agent=>deliveryText({...d,agent,mode:'ask'})),
+        nudge:deliveryText({...d,agent:'pi',mode:'nudge'}),
+        isolated:['@scratch','@new','missing'].every(id=>projectPeers(id).length===0)
+      };
+    });
+    for(const text of routes.others){assert.match(text,/current checkout and branch/);assert.match(text,/solver/)}
+    assert.equal(routes.nudge,'Add a cue');assert.ok(routes.isolated);
+    const identity=await page.evaluate(()=>{
+      const folder='/projects/Lighting',thread='discovered-thread',owned='owned-session';
+      const external={id:thread,conversation:thread,source:'terminal',agent:'codex',folder,task:'Starting',state:'Running'};
+      externalSessions([external]);
+      externalSessions([external,{...external,id:owned,owned:'yes',available:'yes',host:'ghostty',task:'Finish the lights'}]);
+      return [Boolean(sess(owned)),Boolean(sess(thread))];
+    });
+    assert.deepEqual(identity,[true,false],'A newly identified worker should appear once in Sessions');
     await page.setViewportSize({width:390,height:750});
     await page.evaluate(()=>aiConnections.show('chatgpt'));
     assert.ok(await page.locator('#ai-route').isVisible());
     assert.ok(await page.evaluate(()=>document.querySelector('#ai-settings').scrollWidth<=document.querySelector('#ai-settings').clientWidth+1));
     assert.deepEqual(errors,[]);
-    console.log('Consent, local recovery, independent accounts, saved nudge identity and narrow layout passed.');
+    console.log('Agent setup, consent, saved nudge identity, same-project peers and reviewed Git guidance passed.');
   } finally {await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

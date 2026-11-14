@@ -2,6 +2,8 @@
 const modelPresets = {
   claude: { quick: 'haiku', standard: 'sonnet', complex: 'opus' },
   codex: { quick: 'gpt-6-luna', standard: 'gpt-6.1-sol', complex: 'gpt-6-astra' },
+  'cursor-agent': { quick:'', standard:'', complex:'' },
+  pi: { quick:'', standard:'', complex:'' },
   agy: { quick: 'gemini-3.8-flash', standard: 'gemini-4-hydrogen', complex: 'gemini-4-carbon' }
 };
 const modelTiers = { quick: 'Quick', standard: 'Standard', complex: 'Complex' };
@@ -59,8 +61,8 @@ function modelPlanFor(d) {
   if (d.mode === 'nudge') return { mode: 'existing', model: '', label: 'Current session model', reason: 'The existing conversation keeps its model.' };
   const policy = sessionModelPolicy();
   const profile = policy.agents[d.agent] || policy.agents[policy.defaultAgent];
-  if (d.modelOverride?.agent === d.agent && d.modelOverride.value) {
-    return { mode: 'override', model: d.modelOverride.value, label: d.modelOverride.value, reason: 'Selected for this session.' };
+  if (d.modelOverride?.agent === d.agent && (d.modelOverride.value || d.modelOverride.reviewed)) {
+    return { mode: 'override', model: d.modelOverride.value, label: d.modelOverride.value || 'Agent default', reason: 'Selected for this session.' };
   }
   if (!policy.adaptive) return { mode: 'fixed', model: profile.fixed, label: profile.fixed || 'Agent default', reason: profile.fixed ? 'Your fixed model for new sessions.' : 'The agent chooses its configured default.' };
   const estimate = taskDifficulty(d);
@@ -72,7 +74,7 @@ function modelInput(agent, key, value, hint='Agent default') {
   return '<input id="model-'+key+'" type="text" maxlength="250" list="model-choices-'+agent+'" autocapitalize="off" spellcheck="false" value="'+attr(value)+'" placeholder="'+attr(hint)+'">';
 }
 function modelSuggestions(agent) {
-  return '<datalist id="model-choices-'+agent+'">'+Object.values(modelPresets[agent]).map(v=>option(v,v)).join('')+'</datalist>';
+  return '<datalist id="model-choices-'+agent+'">'+Object.values(modelPresets[agent]).filter(Boolean).map(v=>option(v,v)).join('')+'</datalist>';
 }
 function modelReviewMarkup(d) {
   const plan = modelPlanFor(d);
@@ -84,11 +86,11 @@ function modelReviewMarkup(d) {
 function sessionModelSettings() {
   const policy = sessionModelPolicy();
   let agent = policy.defaultAgent;
-  const agents = selected=>Object.entries(providers).map(([id,label])=>'<option value="'+attr(id)+'" data-detail="'+attr(id)+'" '+(id===selected?'selected':'')+'>'+esc(label)+'</option>').join('');
+  const agents = selected=>Object.entries(providers).map(([id,label])=>'<option value="'+attr(id)+'" '+(id===selected?'selected':'')+'>'+esc(label)+'</option>').join('');
   const defaults=settingsField('default-agent','Default agent','<select id="default-agent">'+agents(policy.defaultAgent)+'</select>');
   const profiles=settingsField('model-agent','Configure models for','<select id="model-agent">'+agents(agent)+'</select>');
   dialog('Session models','Preferences','<form id="session-models" class="settings-form">'+
-    '<section class="settings-section">'+defaults+
+    '<section class="settings-section">'+defaults+(live?aiConnections.setupField(policy.defaultAgent):'')+
     settingsField('session-host','Open new sessions in','<select id="session-host">'+terminalHosts.options(state.sessionHost||'terminal')+'</select>')+
     '<label class="policy-switch" for="difficulty-curve"><span>Choose models by task difficulty</span><input id="difficulty-curve" type="checkbox" '+(policy.adaptive?'checked':'')+'></label>'+
     '<div class="curve-controls" id="curve-controls"></div></section>'+
@@ -118,9 +120,15 @@ function sessionModelSettings() {
     $('#standardAt',form).onchange=e=>{policy.standardAt=Number(e.target.value);policy.complexAt=Math.max(policy.complexAt,policy.standardAt+1);limits();models();$('#standardAt',form).focus()};
     $('#complexAt',form).onchange=e=>{policy.complexAt=Number(e.target.value);limits();models();$('#complexAt',form).focus()};
   }
-  $('#default-agent',form).onchange=e=>{policy.defaultAgent=e.target.value;agent=policy.defaultAgent;$('#model-agent',form).value=agent;settingsPickers.sync($('#model-agent',form));models()};
+  $('#default-agent',form).onchange=e=>{
+    policy.defaultAgent=e.target.value;agent=policy.defaultAgent;
+    $('#model-agent',form).value=agent;settingsPickers.sync($('#model-agent',form));models();
+    if(live){
+      const issue=$('.agent-issue',form);issue.dataset.agentHealth=agent;delete issue.dataset.health;aiConnections.updateSetup();
+    }
+  };
   $('#model-agent',form).onchange=e=>{agent=e.target.value;models()};
   $('#difficulty-curve',form).onchange=e=>{policy.adaptive=e.target.checked;limits();models()};
   form.onsubmit=e=>{e.preventDefault();state.sessionHost=$('#session-host').value;state.sessionModels=policy;persist();prefs();toast('Session models saved.')};
-  limits();models();settingsPickers.mount(form);
+  limits();models();settingsPickers.mount(form);if(live)aiConnections.refresh();
 }

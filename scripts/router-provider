@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import shlex
 import shutil
 import signal
 import subprocess
@@ -125,25 +126,36 @@ def cli_route(data):
             stop()
 
 
+def worker_usage(data):
+    sys.dont_write_bytecode = True
+    from worker_usage import snapshot
+    return snapshot(data.get('agents', []))
+
+
 def worker_status():
     def probe(argv):
         try:
             return subprocess.run(argv, capture_output=True, text=True, timeout=4, stdin=subprocess.DEVNULL)
         except (OSError, subprocess.TimeoutExpired):
             return None
-    state = {name: 'Billing source unverified' if shutil.which(name) else 'CLI missing'
-             for name in ('codex', 'claude', 'agy')}
-    if shutil.which('codex'):
+    installed = {name: bool(shutil.which(name)) for name in ('codex', 'claude', 'agy', 'cursor-agent', 'pi')}
+    health = {name: 'unknown' if found else 'missing' for name, found in installed.items()}
+    state = {name: 'Billing source unverified' if found else 'CLI missing' for name, found in installed.items()}
+    if installed['codex']:
         run = probe(['codex', 'login', 'status'])
         if run:
             status = (run.stdout + run.stderr).lower()
-            if 'logged in using chatgpt' in status: state['codex'] = 'ChatGPT login'
-            elif 'api key' in status and run.returncode == 0: state['codex'] = 'API key login'
-            elif 'not logged in' in status: state['codex'] = 'Sign-in needed'
-    if shutil.which('claude'):
+            if run.returncode == 0:
+                health['codex'] = 'signedIn'
+                if 'chatgpt' in status: state['codex'] = 'ChatGPT login'
+                elif 'api key' in status: state['codex'] = 'API key login'
+            elif 'not logged in' in status:
+                health['codex'], state['codex'] = 'signedOut', 'Sign-in needed'
+    if installed['claude']:
         run = probe(['claude', 'auth', 'status', '--json'])
         try:
             info = json.loads(run.stdout) if run else {}
+            if not isinstance(info, dict): info = {}
         except ValueError:
             info = {}
         cloud = cloud_provider(os.environ)
@@ -155,15 +167,51 @@ def worker_status():
         elif info.get('authMethod') in ('claude.ai', 'oauth') and info.get('subscriptionType'):
             state['claude'] = 'Claude plan login'
         elif info.get('authMethod') in ('api_key', 'apiKey', 'console'): state['claude'] = 'Console login'
-    if shutil.which('agy') and os.environ.get('GEMINI_API_KEY'): state['agy'] = 'Gemini API key configured'
-    return dict(workers=state, cloud=cloud_provider(os.environ))
+        if state['claude'].endswith(' configured'): health['claude'] = 'configured'
+        elif info.get('loggedIn') is False: health['claude'] = 'signedOut'
+        elif info.get('loggedIn') is True: health['claude'] = 'signedIn'
+    if installed['agy']:
+        health['agy'] = 'installed'
+        if os.environ.get('GEMINI_API_KEY'):
+            health['agy'], state['agy'] = 'configured', 'Gemini API key configured'
+    if installed['pi']:
+        health['pi'] = 'installed'
+    if installed['cursor-agent']:
+        run = probe(['cursor-agent', 'status', '--format', 'json'])
+        try:
+            info = json.loads(run.stdout) if run else {}
+        except ValueError:
+            info = {}
+        if isinstance(info, dict) and type(info.get('isAuthenticated')) is bool:
+            health['cursor-agent'] = 'signedIn' if info['isAuthenticated'] else 'signedOut'
+            state['cursor-agent'] = 'Cursor account' if info['isAuthenticated'] else 'Sign-in needed'
+    return dict(workers=state, workerHealth=health, cloud=cloud_provider(os.environ))
+
+
+def worker_login(data):
+    agent = data.get('agent')
+    args = {'claude':['auth','login'], 'codex':['login'], 'cursor-agent':['login']}.get(agent)
+    if not args: raise ValueError('This agent manages sign-in in its own app.')
+    exe = shutil.which(agent)
+    if not exe: raise ValueError('Install the agent first, then check again.')
+    script = '''on run argv
+        tell application id "com.apple.Terminal"
+            do script (item 1 of argv)
+            activate
+        end tell
+    end run'''
+    result = subprocess.run(['/usr/bin/osascript','-e',script,'exec '+shlex.join([exe,*args])],
+                            stdin=subprocess.DEVNULL,capture_output=True,timeout=60)
+    if result.returncode:
+        raise ValueError('Couldn’t open Terminal. Check Tasktap’s Automation access in System Settings.')
+    return {}
 
 
 if __name__ == '__main__':
     try:
         command = sys.argv[1]
         data = json.load(sys.stdin)
-        value = {'login': browser_login, 'route': cli_route, 'status': lambda _: worker_status()}[command](data)
+        value = {'login': browser_login, 'route': cli_route, 'status': lambda _: worker_status(), 'usage': worker_usage, 'worker-login': worker_login}[command](data)
         print(json.dumps({'value': value}))
     except ValueError as exc:
         # Parser errors can contain snippets of provider data. Only expose our own messages.

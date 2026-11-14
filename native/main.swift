@@ -56,6 +56,8 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     @MainActor private lazy var routingProviders = RoutingProviders()
     private var serverProbe: Task<Void, Never>?
     private var connectionTask: Task<Void, Never>?
+    private var workerCheck: Task<Void, Never>?
+    private var workerLogin: Task<Void, Never>?
     private var queue: [(String, String)] = []
     private var pendingCount = 0
     private let decisionRim = WorkspaceDecisionRim()
@@ -86,6 +88,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private var verifiedLights:[Bool]=[]
     private var handler: EventHandlerRef?
     private var held: Set<UInt32> = []
+    private var capturePress: String?
     private var unavailable: [String] = []
     private var screenObserver: NSObjectProtocol?
 
@@ -157,6 +160,11 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         }
     }
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        deliver("open-app")
+        return true
+    }
+
     private func position() {
         guard let screen = anchorScreen ?? NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main else { return }
         anchorScreen = screen
@@ -210,8 +218,10 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             anchorScreen=NSScreen.screens.first(where:{ $0.frame.contains(NSEvent.mouseLocation) }) ?? anchorScreen
             position()
             if isWorkspace {
-                if workspace.isMiniaturized {workspace.deminiaturize(nil)}
-                workspace.makeKeyAndOrderFront(nil)
+                if !["capture","hw-capture"].contains(action) {
+                    if workspace.isMiniaturized {workspace.deminiaturize(nil)}
+                    workspace.makeKeyAndOrderFront(nil)
+                }
             } else {
                 panel.orderFrontRegardless()
                 panel.makeKey()
@@ -301,19 +311,66 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     }
     private func onKey(_ index: UInt32, pressed: Bool) {
         guard bindings.indices.contains(Int(index)) else { return }
-        if !pressed { held.remove(index); return }
-        guard held.insert(index).inserted else { return }
         let action=bindings[Int(index)].action
+        if !pressed {
+            guard held.remove(index) != nil else {return}
+            if action=="capture", let id=capturePress {
+                capturePress=nil
+                dictation.finish(id)
+                deliver("hw-capture-end",id,reveal:false)
+            }
+            return
+        }
+        guard held.insert(index).inserted else { return }
+        if action=="capture" {
+            let id=UUID().uuidString
+            capturePress=id
+            deliver("hw-capture",id)
+            return
+        }
         if binaryActions.contains(action){
             if !binaryID.isEmpty {deliver("hw-"+action,binaryID,reveal:action=="discuss")}
             return
         }
         if ["previous","next","confirm","back"].contains(action) && !isWorkspace && !panel.isVisible { return }
-        deliver("hw-"+action, reveal:["capture","requests"].contains(action))
+        deliver("hw-"+action, reveal:action=="requests")
     }
 
     @MainActor private func sendConnections(_ note: String = "", finished: Bool = false, success: Bool = true) {
         js("aiConnections.receive(value,note,finished,success)",["value":routingProviders.state(),"note":note,"finished":finished,"success":success])
+    }
+    private var workersChecked = Date.distantPast
+    private var usageCheck:Task<Void,Never>?
+    private var usageSnapshot:RouterJSON = [:]
+    private var usageAgents: [String] = []
+    private var usageChecked = Date.distantPast
+    @MainActor private func refreshUsage() {
+        guard !verifying,!liveTest,usageCheck == nil else {return}
+        usageCheck=Task { @MainActor in
+            if Date().timeIntervalSince(workersChecked) >= 120 {refreshWorkers()}
+            if let workerCheck {await workerCheck.value}
+            let eligible=["claude","codex"].filter {
+                routingProviders.workerHealth[$0]=="signedIn" && ($0 != "codex" || routingProviders.workers[$0]=="ChatGPT login")
+            }
+            if eligible != usageAgents || Date().timeIntervalSince(usageChecked) >= 120 {
+                usageSnapshot=(try? await RouterCLI.call("usage",["agents":eligible])) ?? [:]
+                usageChecked=Date()
+                usageAgents=eligible
+            }
+            usageCheck=nil
+            js("workerRouting.receive(data)",["data":usageSnapshot])
+        }
+    }
+
+    @MainActor private func refreshWorkers() {
+        guard !verifying, !liveTest, workerCheck == nil else {return}
+        workerCheck=Task { @MainActor in
+            await routingProviders.detectWorkers()
+            workersChecked=Date()
+            workerCheck=nil
+            sendConnections()
+            js("aiConnections.checked()",[:])
+        }
     }
 
     func userContentController(_ controller: WKUserContentController,didReceive message: WKScriptMessage) {
@@ -342,17 +399,32 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             let voices=narration.voices
             web.callAsyncJavaScript("configureVoices(voices)",arguments:["voices":voices],in:nil,in:.page){_ in}
             let buffered=queue;queue.removeAll()
-            for (action,id) in buffered { deliver(action,id) }
+            if !verifying && !liveTest && buffered.isEmpty {deliver("open-app",reveal:false)}
+            for (action,id) in buffered {deliver(action,id,reveal:action != "hw-capture-end")}
             if verifying { Task { @MainActor in await self.verifyInterface() } }
             if liveTest { Task { @MainActor in await self.verifyLive() } }
             if !verifying && !liveTest {
                 sendConnections()
-                Task { @MainActor in await routingProviders.detectWorkers(); sendConnections() }
+                refreshWorkers()
             }
         case "terminal-catalog":
             js("terminalHosts.receive(found)",["found":TerminalCatalog.installed()])
         case "ai-refresh":
-            if !verifying && !liveTest { Task { @MainActor in await routingProviders.detectWorkers();sendConnections() } }
+            refreshWorkers()
+        case "worker-usage":
+            refreshUsage()
+        case "worker-install":
+            let guides=["codex":"https://learn.chatgpt.com/docs/cli","claude":"https://code.claude.com/docs/en/setup","agy":"https://antigravity.google/docs/getting-started?tab=cli","cursor-agent":"https://cursor.com/docs/cli/installation","pi":"https://docs.pi.dev/latest/quickstart"]
+            guard !verifying,!liveTest,let agent=data["agent"] as? String,let page=guides[agent],let url=URL(string:page) else {return}
+            if !NSWorkspace.shared.open(url){deliver("live-error","Couldn’t open the installation guide.",reveal:false)}
+        case "worker-login":
+            guard !verifying,!liveTest,workerLogin==nil,let agent=data["agent"] as? String,["claude","codex","cursor-agent"].contains(agent) else {return}
+            workerLogin=Task { @MainActor in
+                do {_ = try await RouterCLI.call("worker-login",["agent":agent])}
+                catch {deliver("live-error",error.localizedDescription,reveal:false)}
+                workerLogin=nil
+                refreshWorkers()
+            }
         case "ai-settings":
             if !verifying && !liveTest { sendConnections() }
         case "ai-model-list":
@@ -427,7 +499,18 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                     self?.js("captureContext.receive(id,result)",["id":request,"result":["kind":"file","value":file.path,"app":"Chosen file"]])
                 }
             }
-        case "dictation-start":if let id=data["id"] as? String {dictation.start(id)}
+        case "focus-capture":
+            if !isWorkspace {
+                panel.orderFrontRegardless()
+                panel.makeKey()
+                panel.makeFirstResponder(web)
+                js("document.querySelector('#modal[open] #transcript')?.focus({preventScroll:true})",[:])
+            }
+        case "dictation-start":
+            guard let id=data["id"] as? String else {return}
+            if data["shortcut"] as? Bool == true && id != capturePress {
+                js("dictationEvent(id,'stopped','')",["id":id])
+            } else {dictation.start(id)}
         case "dictation-finish":if let id=data["id"] as? String {dictation.finish(id)}
         case "dictation-cancel":dictation.cancel(data["id"] as? String)
         case "refresh":if !verifying {runtime.refresh();if !liveTest {runtime.refreshExternal()}}
@@ -462,6 +545,10 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             guard let id=data["id"] as? String,let capture=data["capture"] as? String,let folder=data["folder"] as? String else {return}
             do {try runtime.assignNote(capture,folder:folder);js("noteAssigned(id,project)",["id":id,"project":folder])}
             catch {deliver("live-error",error.localizedDescription,reveal:false)}
+        case "review-failed-handoff":
+            guard !verifying,let session=data["session"] as? String,let capture=data["capture"] as? String else {return}
+            do {let job=try runtime.failedHandoff(session:session,capture:capture);js("reviewFailedHandoff(job)",["job":job])}
+            catch {deliver("live-error",error.localizedDescription,reveal:false)}
         case "enqueue":
             guard !verifying,var job=data["job"] as? [String:Any],let capture=job["capture"] as? String else {return}
             if let path=job["folder"] as? String,path.hasPrefix("~/projects/"){job["folder"]=runtime.root.appendingPathComponent(String(path.dropFirst("~/projects/".count))).standardizedFileURL.path}
@@ -472,10 +559,14 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             } catch {js("acceptLive(data)",["data":["capture":capture,"error":error.localizedDescription]])}
         case "open-desktop-chat":
             guard let id=data["id"] as? String, UUID(uuidString:id) != nil, let url=URL(string:"codex://threads/"+id) else{return}
-            if !NSWorkspace.shared.open(url){deliver("live-error","Install the ChatGPT desktop app to open this chat.",reveal:false)}
+            if NSWorkspace.shared.open(url){deliver("session-focused",id,reveal:false)}
+            else {deliver("live-error","Install the ChatGPT desktop app to open this chat.",reveal:false)}
         case "focus-session":
             guard let id=data["id"] as? String else {return}
-            runtime.focusSession(id){[weak self] error in if let error {self?.deliver("live-error",error,reveal:false)}}
+            runtime.focusSession(id){[weak self] error in
+                if let error {self?.deliver("live-error",error,reveal:false)}
+                else {self?.deliver("session-focused",id,reveal:false)}
+            }
         case "resume-terminal","copy-resume":
             guard let id=data["id"] as? String else{return}
             do {
@@ -646,9 +737,19 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             guard reply?["answer"] as? String=="Yes",reply?["discussion"] as? [String]==["What changes?"] else {throw Check.failed(#line)}
             guard binaryResolved as? Bool==true, binaryID.isEmpty, !lightingActive,
                   verifiedLights==[true,false,true,false] else {throw Check.failed(#line)}
-            deliver("hw-capture");try await Task.sleep(nanoseconds:180_000_000)
+            let captureKey=UInt32(bindings.firstIndex(where:{$0.action=="capture"})!)
+            onKey(captureKey,pressed:true)
+            let press=capturePress
+            onKey(captureKey,pressed:true)
+            guard press != nil, capturePress==press else {throw Check.failed(#line)}
+            try await Task.sleep(nanoseconds:180_000_000)
             let captured = try await web.evaluateJavaScript("document.querySelector('#modal').open && !!document.querySelector('#transcript')")
-            guard captured as? Bool == true else { throw Check.failed(#line) }
+            let heldInPage=try await web.evaluateJavaScript("shortcutHold?.id")
+            guard captured as? Bool == true, heldInPage as? String == press else {throw Check.failed(#line)}
+            onKey(captureKey,pressed:false)
+            try await Task.sleep(nanoseconds:80_000_000)
+            let released=try await web.evaluateJavaScript("shortcutHold===null && document.activeElement?.id==='transcript'")
+            guard capturePress==nil,released as? Bool==true else {throw Check.failed(#line)}
             deliver("workspace")
             try await Task.sleep(nanoseconds:300_000_000)
             guard isWorkspace,workspace.isVisible,workspace.standardWindowButton(.closeButton) != nil,workspace.styleMask.contains(.resizable) else {throw Check.failed(#line)}
@@ -704,6 +805,17 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             for _ in 0..<24 where decisionRim.isVisible {try await Task.sleep(nanoseconds:50_000_000)}
             guard pendingCount==0,!decisionRim.isVisible,workspace.firstResponder===workspaceResponder else {throw Check.failed(#line)}
             print("Real inbox question illuminated the native workspace rim and withdrawal cleared it without moving focus.")
+            onKey(captureKey,pressed:true)
+            onKey(captureKey,pressed:false)
+            try await Task.sleep(nanoseconds:250_000_000)
+            let inputFocused=try await web.evaluateJavaScript("document.body.classList.contains('notch-first') && document.activeElement?.id==='transcript'")
+            // The lock screen owns the key window even when WebKit has focused its editor.
+            let locked=NSWorkspace.shared.frontmostApplication?.bundleIdentifier=="com.apple.loginwindow"
+            guard !isWorkspace,panel.isVisible,web.window===panel,inputFocused as? Bool==true,
+                  panel.isKeyWindow || locked else {throw Check.failed(#line)}
+            if locked {print("Mac locked. Verified the focused editor and panel transfer; system keyboard delivery requires an unlocked desktop.")}
+            deliver("workspace")
+            try await Task.sleep(nanoseconds:200_000_000)
             workspace.performClose(nil)
             try await Task.sleep(nanoseconds:250_000_000)
             guard !isWorkspace,!workspace.isVisible,panel.isVisible else {throw Check.failed(#line)}
@@ -742,7 +854,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                     let visible=try await web.evaluateJavaScript("state.sessions[0].interactive && state.sessions[0].host==='terminal'")
                     guard visible as? Bool==true else {throw Check.failed(#line)}
                     let relay=try await web.evaluateJavaScript("""
-                        (()=>{document.querySelector('.session-row[data-action="session"]').click();
+                        (()=>{go('sessions');document.querySelector('.session-row[data-action="session"][data-id="'+state.sessions[0].id+'"]').click();
                         return document.querySelector('#modal tasktap-relay[data-phase="complete"][data-agent="codex"]')?.dataset.capture===state.captures[0].id})()
                         """)
                     guard relay as? Bool==true else {throw Check.failed(#line)}

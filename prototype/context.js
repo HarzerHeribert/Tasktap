@@ -32,12 +32,12 @@ const captureContext=(()=>{
     if(d.reference && d.reference.kind!==kind)clearReference(d);
     if(!kind || d.reference || d.contextSkipped){continuation();return}
     pending={draft:d,kind,continuation};
-    if(live && enabled()){lookup(false);return}
-    manual({message:enabled()?'Enter the reference you meant.':'Screen context is off. Enter the reference you meant.'});
+    if(live && enabled()){lookup(false,true);return}
+    manual({message:enabled()?'Enter the reference you meant.':'Screen context is off. Enter the reference you meant.'},true);
   }
   function current(){return pending && pending.draft===draft && $('#modal').open}
-  function lookup(allowPermission){
-    if(!current())return;
+  function lookup(allowPermission,opening=false){
+    if(!opening && !current())return;
     const request=pending;
     clearTimeout(request.timer);
     dialog('Finding your reference','Tasktap','<p class="hint" role="status">Reading the source app’s '+(request.kind==='file'?'selected file or open document':'active page URL')+'…</p>'+button('Enter reference','context-enter'));
@@ -57,14 +57,14 @@ const captureContext=(()=>{
     const request=pending;clearTimeout(request.timer);pending=null;
     const d=request.draft;
     clearReference(d);d.reference=reference;delete d.contextSkipped;
-    if(!d.project && !d.session && reference.kind==='file'){
+    if((!d.project || (d.suggestedProject && !matchProjects(d.text).length)) && !d.session && reference.kind==='file'){
       const projects=state.projects.filter(p=>p.available!==false && (reference.value===p.folder || reference.value.startsWith(p.folder.replace(/\/$/,'')+'/')));
       if(projects.length===1){d.project=projects[0].id;d.contextProject=d.project}
     }
     request.continuation();
   }
-  function manual(result={}){
-    if(!current())return;
+  function manual(result={},opening=false){
+    if(!opening && !current())return;
     clearTimeout(pending.timer);pending.reading=false;
     const kind=pending.kind;
     dialog('Which '+(kind==='file'?'file':'website')+'?','Reference',

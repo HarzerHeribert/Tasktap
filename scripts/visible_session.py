@@ -14,6 +14,46 @@ from session_models import model_id
 
 HOST_NAMES={'terminal':'Terminal','cmux':'cmux','ghostty':'Ghostty','warp':'Warp','iterm2':'iTerm2','wezterm':'WezTerm','kitty':'kitty'}
 
+# Without an "in" argument Terminal allocates a new window. The command replaces its
+# login shell, so an agent exit cannot drop the user into another shell in that tab.
+OPEN_TERMINAL = """on run argv
+    tell application id "com.apple.Terminal"
+        set agentTab to do script (item 1 of argv)
+        set targetTTY to tty of agentTab
+        repeat with w in windows
+            if tty of selected tab of w is targetTTY then
+                set windowID to id of w
+                activate
+                return (windowID as text) & linefeed & targetTTY
+            end if
+        end repeat
+    end tell
+    error "Could not identify the new Tasktap terminal."
+end run"""
+
+# Terminal may have already closed the window according to its profile. An empty
+# process list (after our exec'd presenter has exited) protects a repurposed tab.
+# If the user grouped another tab with ours, leave the entire window alone.
+CLOSE_FINISHED_TERMINAL = """on run argv
+    set windowID to (item 1 of argv) as integer
+    set targetTTY to item 2 of argv
+    repeat 40 times
+        if application id "com.apple.Terminal" is not running then return
+        tell application id "com.apple.Terminal"
+            if not (exists window id windowID) then return
+            set w to window id windowID
+            if (count of tabs of w) is not 1 then return
+            set t to tab 1 of w
+            if tty of t is not targetTTY then return
+            if not busy of t and (count of processes of t) is 0 then
+                close w
+                return
+            end if
+        end tell
+        delay 0.15
+    end repeat
+end run"""
+
 
 def adapter(host):
     if host in ('ghostty','iterm2','warp'):
@@ -40,9 +80,9 @@ def load(path):
 def locked(folder):
     lock=folder/'surface.lock'
     if not lock.is_file():return False
-    with lock.open('a') as handle:
+    with lock.open('rb') as handle:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
         except BlockingIOError:
             return True
         return False
@@ -57,10 +97,15 @@ def endpoint(folder):
     return value
 
 
+def codex_prompt(job):
+    # Codex uses the start of the first message as the conversation's default title.
+    return job['outgoing']+'\n\n'+job['instructions']
+
+
 def cli_command(job, folder, executable=None):
     agent = job['agent']
     cli = executable or shutil.which(agent)
-    if agent not in ('codex','claude','agy') or not cli:
+    if agent not in ('codex','claude','agy','cursor-agent','pi') or not cli:
         raise ValueError('Install the selected CLI and sign in before starting a session.')
     model = model_id(job.get('model',''))
     args = ['--model', model] if model else []
@@ -69,6 +114,10 @@ def cli_command(job, folder, executable=None):
                         '--task',job['task'],'--run-dir',str(folder)])
     servers = json.dumps({'mcpServers':{'workspace_assistant':bridge}})
     prompt = job['outgoing']
+    if agent == 'cursor-agent':
+        return [cli, *args, 'agent', '--', prompt]
+    if agent == 'pi':
+        return [cli, *args, '--session-id', job['session'], '--', prompt]
     if agent == 'claude':
         return [cli, *args, '--session-id', job['session'], '--mcp-config', servers,
                 '--append-system-prompt', job['instructions'], '--', prompt]
@@ -76,7 +125,7 @@ def cli_command(job, folder, executable=None):
         return [cli, *args, '-c', 'mcp_servers.workspace_assistant.command='+json.dumps(bridge['command']),
                 '-c', 'mcp_servers.workspace_assistant.args='+json.dumps(bridge['args']),
                 '-c', 'mcp_servers.workspace_assistant.tool_timeout_sec=86400',
-                '--', job['instructions']+'\n\n'+prompt]
+                '--', codex_prompt(job)]
     return [cli,*args,'--prompt-interactive',prompt]
 
 
@@ -95,12 +144,10 @@ def open_window(path, job):
         import cmux_host
         cmux_host.open_terminal(argv,job['folder'],title,folder)
     elif job['host']=='terminal':
-        command='exec '+shlex.join(argv)
-        launcher = folder/'Tasktap.command'
-        launcher.write_text('#!/bin/sh\n'+command+'\n')
-        launcher.chmod(0o700)
-        subprocess.run(['/usr/bin/open','-b','com.apple.Terminal',str(launcher)],check=True,
-                       capture_output=True,timeout=15)
+        result=subprocess.run(['/usr/bin/osascript','-e',OPEN_TERMINAL,'exec '+shlex.join([*argv,'--dedicated-window'])],
+                              check=True,capture_output=True,text=True,timeout=45)
+        ident,tty=result.stdout.strip().splitlines()
+        save(folder/'terminal-window.json',{'window':int(ident),'tty':tty})
     else:
         adapter(job['host']).open_terminal(job['host'],argv,job['folder'],title,folder)
 
@@ -129,7 +176,10 @@ def present(path, executable):
             raise ValueError('The reviewed CLI is unavailable.')
         argv = cli_command(job,folder,executable)
         title='Tasktap · '+''.join(c for c in job['task'][:70] if c.isprintable())
-        print('\033]0;'+title+'\007',end='',flush=True)
+        # Erase the shell launch banner from this fresh Terminal window before the
+        # TUI draws. Input, colors, resize events and interrupts stay on its real tty.
+        clear='\033[2J\033[H' if host=='terminal' else ''
+        print(clear+'\033]0;'+title+'\007',end='',flush=True)
         # No shell between the reviewed prompt and the agent. The CLI owns the actual terminal.
         proc = subprocess.Popen(argv,cwd=job['folder'])
         surface['open'] = True
@@ -151,7 +201,26 @@ def present(path, executable):
             save(folder/'surface.json',surface)
         receipt=path.with_suffix('.receipt')
         if load(receipt).get('state')=='Opened':
-            save(receipt,dict(state='Closed' if code==0 else 'Failed',message='The interactive CLI exited with status '+str(code)+'.'))
+            message='The terminal session closed.' if code==0 else 'The agent exited before reporting a result. Check the error in '+HOST_NAMES[host]+'.'
+            save(receipt,dict(state='Closed' if code==0 else 'Failed',message=message))
+        return code
+
+
+def close_finished_terminal(folder, tty):
+    # The runner can finish before the launching Apple event has returned its window ID.
+    import time
+    for _ in range(40):
+        try:
+            record=load(folder/'terminal-window.json')
+            break
+        except FileNotFoundError:
+            time.sleep(.1)
+    else:
+        return
+    if record['tty']!=tty:
+        return
+    subprocess.run(['/usr/bin/osascript','-e',CLOSE_FINISHED_TERMINAL,str(record['window']),tty],
+                   stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=12)
 
 
 # Select the exact Terminal tab. Never issue a command in the user's shell.

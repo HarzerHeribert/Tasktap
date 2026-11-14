@@ -47,7 +47,7 @@ function cancelRouting() {
 
 function routingEvidence(d) {
   const source={
-    apple:'Apple’s on-device model prepared the handoff.',
+    apple:'Apple’s on-device model suggested wording. Tasktap matched the destination on this Mac.',
     estimate:'Apple’s on-device model estimated the scope of your selected task.',
     unavailable:'Apple’s on-device model is unavailable. Tasktap used local matching.',
     fallback:'The model couldn’t finish this handoff. Tasktap used local matching.',
@@ -55,26 +55,30 @@ function routingEvidence(d) {
   }[d.routingSource] || (d.remoteAttempts?.length && !['local','skipped','error'].includes(d.routingSource)?aiConnections.label(d.routingSource)+' prepared the handoff.':'Tasktap used local matching.');
   const evidence=[source,workspaceEvidence(d)];
   if (d.reference?.value) evidence.push('Reference · '+d.reference.app+' · '+d.reference.value);
-  const plan=modelPlanFor(d);
+  if(d.mode==='ask' && d.workerReason)evidence.push(d.workerReason);
+  const plan=d.noPick?null:modelPlanFor(d);
   if (plan) evidence.push(plan.reason);
   return evidence;
 }
 function reviewActivity(d) {
-  const plan=modelPlanFor(d);
-  const evidence=routingEvidence(d);
-  const detail=document.createElement('details');
-  detail.className='route-evidence';
-  detail.innerHTML='<summary>How this was routed</summary><ul>'+evidence.map(line=>'<li>'+esc(line)+'</li>').join('')+'</ul>';
-  $('#modal .form-actions').before(detail);
+  const plan=d.noPick?null:modelPlanFor(d);
+  if(!d.quick){
+    const evidence=routingEvidence(d);
+    const detail=document.createElement('details');
+    detail.className='route-evidence';
+    detail.innerHTML='<summary>How this was routed</summary><ul>'+evidence.map(line=>'<li>'+esc(line)+'</li>').join('')+'</ul>';
+    const details=$('#modal .guide-review-details');
+    if(details)details.append(detail);else $('#modal .form-actions').before(detail);
+  }
   const name=d.mode==='nudge'?sess(d.session)?.task:d.project==='@new'?d.newName:proj(d.project)?.name;
   const action={ask:'Start a new session',nudge:'Send a follow-up',note:'Save a note'}[d.mode];
   const sentence=[action+(name?' in '+name:'')+'.',plan?.mode==='curve'?modelTiers[plan.tier]+' task. '+plan.label+'. '+plan.reason:'',d.brief].filter(Boolean).join(' ');
-  narrateRoute(d,'review',sentence);
+  if(!d.noPick)narrateRoute(d,'review',[d.usingRank?d.workerReason:'',sentence].filter(Boolean).join(' '));
 }
 
 let routingSpeaker=null;
 function narrateRoute(d,phase,sentence) {
-  if (!state.speakRouting || !(state.voiceEngine ?? siriVoices[0]?.id) || recording) return;
+  if ((d.guide && !d.hasVoice) || !state.speakRouting || !(state.voiceEngine ?? siriVoices[0]?.id) || recording) return;
   const key=phase+' '+sentence;
   if (d.lastNarration===key) return;
   d.lastNarration=key;

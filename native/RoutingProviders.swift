@@ -7,6 +7,7 @@ import AppKit
     private let defaults = UserDefaults.standard
     let chat = ChatGPTConnection()
     var workers = [String:String]()
+    private(set) var workerHealth = [String:String]()
     var cloudName = ""
     var selected: Route {Route(rawValue:defaults.string(forKey:"router.choice") ?? "") ?? .local}
     private func model(_ route: Route) -> String {defaults.string(forKey:"router.model."+route.rawValue) ?? ""}
@@ -48,11 +49,18 @@ import AppKit
     func state() -> RouterJSON {
         let accounts = chat.registrations.map { ["id":$0.key,"label":($0.value["email"] ?? "Account")+" · "+String($0.key.suffix(6)),"status":$0.value["plan"] ?? "off"] }.sorted { $0["label"]! < $1["label"]! }
         return ["routingInstructions":HandoffRouter.instructions,"serverKind":serverKind,"serverProfiles":profiles,"choice":selected.rawValue,"models":Dictionary(uniqueKeysWithValues:Route.allCases.map {($0.rawValue,model($0))}),
-                "accounts":accounts,"account":chat.selected,"workers":workers,"cloud":cloudName,
+                "accounts":accounts,"account":chat.selected,"workers":workers,"workerHealth":workerHealth,"cloud":cloudName,
                 "keys":["openai":defaults.bool(forKey:"router.key.openai"),"anthropic":defaults.bool(forKey:"router.key.anthropic")]]
     }
     func detectWorkers() async {
-        guard let result = try? await RouterCLI.call("status",[:]) else {return}
+        guard let result = try? await RouterCLI.call("status",[:]),
+              let health=result["workerHealth"] as? [String:String] else {
+            workerHealth=Dictionary(uniqueKeysWithValues:["claude","codex","agy","cursor-agent","pi"].map {($0,"unknown")})
+            workers=[:]
+            cloudName=""
+            return
+        }
+        workerHealth=health
         workers = result["workers"] as? [String:String] ?? [:]
         cloudName = result["cloud"] as? String ?? ""
     }
@@ -80,7 +88,8 @@ import AppKit
         case .chatgpt:
             guard chat.registrations[chat.selected]?["plan"] == "enabled" else {throw RouterFailure("Continue with ChatGPT and enable plan usage first.")}
         case .codex:
-            guard !["CLI missing","Sign-in needed"].contains(workers["codex"] ?? "") else {throw RouterFailure("Install Codex and run codex login first.")}
+            guard workerHealth["codex"] != "missing" else {throw RouterFailure("Set up Codex on this Mac first.")}
+            guard workerHealth["codex"] != "signedOut" else {throw RouterFailure("Sign in to Codex first.")}
         case .cloud:
             guard !cloudName.isEmpty, workers["claude"] != "CLI missing" else {throw RouterFailure("Configure a supported cloud provider for the Claude CLI in Tasktap’s environment.")}
         }
@@ -101,7 +110,7 @@ import AppKit
     private func schema(estimate: Bool) -> RouterJSON {
         let text = ["type":"string"], number = ["type":"integer"]
         var fields: RouterJSON = ["mode":["type":"string","enum":["ask","note","nudge"]],"brief":text,
-            "project":number,"session":number,"agent":["type":"string","enum":["unspecified","codex","claude","agy"]],
+            "project":number,"session":number,"agent":["type":"string","enum":["unspecified","codex","claude","agy","cursor-agent","pi"]],
             "viewer":["type":"string","enum":["unspecified","Preview","Xcode","Finder"]],"note":text]
         if estimate {fields["difficulty"]=number; fields["scopeEvidence"]=text}
         return ["type":"object","properties":fields,"required":fields.keys.sorted(),"additionalProperties":false]

@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""Install the optional local voice or synthesize a UTF-8 text file into WAV."""
+import hashlib
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import wave
+
+BASE = Path.home() / "Library/Application Support/Tasktap/Kokoro"
+MODEL = "kokoro-v1.0.int8.onnx"
+VOICES = "voices-v1.0.bin"
+ASSETS = {MODEL: "6e742170d309016e5891a994e1ce1559c702a2ccd0075e67ef7157974f6406cb",
+          VOICES: "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d"}
+
+
+def digest(path):
+    with path.open("rb") as handle:
+        h = hashlib.sha256()
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            h.update(block)
+        return h.hexdigest()
+
+
+def install():
+    import fcntl
+    BASE.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with (BASE/".install.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        python = BASE/"venv/bin/python"
+        uv = shutil.which("uv")
+        if uv:
+            if not python.exists():
+                subprocess.run([uv, "venv", "--python", "3.12", str(BASE/"venv")], check=True)
+            subprocess.run([uv, "pip", "install", "--python", str(python), "kokoro-onnx==0.4.9"], check=True)
+        else:
+            py = next((shutil.which(n) for n in ("python3.12","python3.11","python3.10") if shutil.which(n)), None)
+            if not python.exists():
+                if not py:
+                    sys.exit("Install uv or Python 3.12, then choose Set up Kokoro again.")
+                subprocess.run([py, "-m", "venv", str(BASE/"venv")], check=True)
+            subprocess.run([str(python), "-m", "pip", "install", "kokoro-onnx==0.4.9"], check=True)
+        for name, checksum in ASSETS.items():
+            dest = BASE/name
+            if dest.is_file() and digest(dest) == checksum:
+                continue
+            with tempfile.NamedTemporaryFile(dir=BASE, delete=False) as f:
+                temp = Path(f.name)
+            try:
+                url = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"+name
+                subprocess.run(["/usr/bin/curl","--fail","--location","--silent","--show-error","--retry","2","-o",str(temp),url],check=True)
+                if digest(temp) != checksum:
+                    raise ValueError("The Kokoro download failed its checksum. Retry setup.")
+                temp.replace(dest)
+            finally:
+                temp.unlink(missing_ok=True)
+        subprocess.run([str(python), "-c", "from kokoro_onnx import Kokoro"], check=True)
+        (BASE/"ready-v1").touch()
+
+
+def synthesize(input_path, output_path):
+    from kokoro_onnx import Kokoro
+    voice = Kokoro(str(BASE/MODEL), str(BASE/VOICES))
+    audio, rate = voice.create(input_path.read_text(), voice="af_heart", lang="en-us")
+    with wave.open(str(output_path), "wb") as wav:
+        wav.setparams((1, 2, rate, 0, "NONE", ""))
+        wav.writeframes((audio.clip(-1,1)*32767).astype("<i2").tobytes())
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["install"]:
+        install()
+    else:
+        synthesize(Path(sys.argv[1]), Path(sys.argv[2]))

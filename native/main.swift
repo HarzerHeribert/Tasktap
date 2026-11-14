@@ -18,11 +18,34 @@ final class NotchPanel: NSPanel {
 final class NotchWebView: WKWebView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
+final class WorkspaceWindow: NSWindow {
+    var closeCardOrWindow: () -> Void = {}
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.charactersIgnoringModifiers?.lowercased() == "w" {
+            closeCardOrWindow()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+}
 final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScriptMessageHandler,
                        WKNavigationDelegate, UNUserNotificationCenterDelegate {
     private let status = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let notifications = UNUserNotificationCenter.current()
     private var panel: NSPanel!
+    private lazy var workspace: WorkspaceWindow = {
+        let window = WorkspaceWindow(contentRect:NSRect(x:0,y:0,width:1020,height:680),
+                                     styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false)
+        window.title="Tasktap"
+        window.minSize=NSSize(width:560,height:400)
+        window.isReleasedWhenClosed=false
+        window.delegate=self
+        window.center()
+        if !verifying {window.setFrameAutosaveName("TasktapWorkspace")}
+        window.closeCardOrWindow={ [weak self] in self?.deliver("close-front",reveal:false) }
+        return window
+    }()
     private var web: WKWebView!
     private var entry: URL!
     private let liveTest = CommandLine.arguments.contains("--verify-live")
@@ -60,6 +83,17 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        if CommandLine.arguments.contains("--verify-kokoro") {
+            var played=false
+            narration.changed={ phase in
+                if phase=="speaking" {played=true}
+                if played && phase=="idle" {print("Kokoro preview played to completion.");NSApp.terminate(nil)}
+                if !["idle","preparing","speaking"].contains(phase){fputs(phase+"\n",stderr);exit(1)}
+            }
+            narration.speak("Tasktap is ready.",voice:"kokoro")
+            DispatchQueue.main.asyncAfter(deadline:.now()+60){fputs("Kokoro playback timed out.\n",stderr);exit(1)}
+            return
+        }
         notifications.delegate = self
         let config = WKWebViewConfiguration()
         if liveTest {config.websiteDataStore = .nonPersistent()}
@@ -90,6 +124,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             self.deliver("hw-"+action,self.binaryID,reveal:action=="discuss")
         }
         narration.changed={ [weak self] s in self?.deliver("narration-status",s,reveal:false) }
+        narration.kokoroStatus={ [weak self] status,detail in self?.js("updateKokoro(status,detail)",["status":status,"detail":detail]) }
         registerKeys()
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
@@ -125,7 +160,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         let tabHeight=camera.isEmpty ? 34 : camera.height
         // The transparent margin contains the glow on actual display pixels.
         let glowMargin:CGFloat=8
-        let w = min(isWorkspace ? 1180 : (collapsed ? tabWidth+2*glowMargin : max(440,tabWidth+2*glowMargin)), area.width)
+        let w = min(collapsed ? tabWidth+2*glowMargin : max(440,tabWidth+2*glowMargin), area.width)
         let maxHeight = Int(area.height) - 40
         if ready {
             let geometry="""
@@ -135,10 +170,10 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 """
             web.evaluateJavaScript(geometry,completionHandler:nil)
         }
-        let h = min(isWorkspace ? 760 : (collapsed ? tabHeight+glowMargin : max(tabHeight,height)), area.height)
+        let h = min(collapsed ? tabHeight+glowMargin : max(tabHeight,height), area.height)
         let top=camera.isEmpty ? area.maxY : camera.maxY
-        let center=camera.isEmpty || isWorkspace ? area.midX : camera.midX
-        let y = isWorkspace ? area.midY - h / 2 : top - h
+        let center=camera.isEmpty ? area.midX : camera.midX
+        let y = top - h
         let frame=NSRect(x:center-w/2,y:y,width:w,height:h)
         if panel.frame != frame { panel.setFrame(frame, display:true) }
     }
@@ -182,9 +217,14 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         if reveal {
             anchorScreen=NSScreen.screens.first(where:{ $0.frame.contains(NSEvent.mouseLocation) }) ?? anchorScreen
             position()
-            panel.orderFrontRegardless()
-            panel.makeKey()
-            panel.makeFirstResponder(web)
+            if isWorkspace {
+                if workspace.isMiniaturized {workspace.deminiaturize(nil)}
+                workspace.makeKeyAndOrderFront(nil)
+            } else {
+                panel.orderFrontRegardless()
+                panel.makeKey()
+                panel.makeFirstResponder(web)
+            }
         }
         web.callAsyncJavaScript("window.workspaceCommand(action, id)", arguments:["action":action,"id":id],
                                 in:nil, in:.page) { result in
@@ -203,6 +243,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         add("Review Decisions (\(pendingCount))  ⌃⌥J", "requests", to:menu)
         menu.addItem(.separator())
         add("Open Workspace", "workspace", to:menu)
+        add("Preferences…", "prefs", to:menu)
         add("Notifications…", "notifications", to:menu)
         add("Codex Micro Controls…", "controller", to:menu)
         if !unavailable.isEmpty {
@@ -275,7 +316,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             if !binaryID.isEmpty {deliver("hw-"+action,binaryID,reveal:action=="discuss")}
             return
         }
-        if ["previous","next","confirm","back"].contains(action) && !panel.isVisible { return }
+        if ["previous","next","confirm","back"].contains(action) && !isWorkspace && !panel.isVisible { return }
         deliver("hw-"+action, reveal:["capture","requests"].contains(action))
     }
 
@@ -292,8 +333,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 runtime.projectsChanged={ [weak self] rows in self?.js("projectsDiscovered(rows)",["rows":rows]) }
                 runtime.changed={ [weak self] receipt in self?.js("agentReceipt(e)",["e":receipt]) }
                 runtime.externalChanged={ [weak self] rows in self?.js("externalSessions(rows)",["rows":rows]) }
-                if !liveTest {runtime.refreshExternal()}
-                do {try runtime.start()} catch {deliver("live-error",error.localizedDescription,reveal:false)}
+                do {try runtime.start();if !liveTest {runtime.watchSessions()}} catch {deliver("live-error",error.localizedDescription,reveal:false)}
             }
             do {try inbox.start(web:web)} catch {NSLog("Could not start agent inbox: %@",error.localizedDescription)}
             let voices=narration.voices
@@ -303,7 +343,23 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             if verifying { Task { @MainActor in await self.verifyInterface() } }
             if liveTest { Task { @MainActor in await self.verifyLive() } }
         case "layout":
-            isWorkspace=data["workspace"] as? Bool ?? false
+            let needsWorkspace=data["workspace"] as? Bool ?? false
+            if needsWorkspace != isWorkspace {
+                isWorkspace=needsWorkspace
+                if isWorkspace {
+                    panel.orderOut(nil)
+                    panel.contentView=nil
+                    workspace.contentView=web
+                    NSApp.activate()
+                    workspace.makeKeyAndOrderFront(nil)
+                    workspace.makeFirstResponder(web)
+                } else {
+                    workspace.orderOut(nil)
+                    workspace.contentView=nil
+                    panel.contentView=web
+                    panel.orderFrontRegardless()
+                }
+            }
             collapsed=data["collapsed"] as? Bool ?? false
             height=CGFloat(data["height"] as? Double ?? 290)
             position()
@@ -330,6 +386,26 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 result["capture"]=capture;result["task"]=job["task"] as? String
                 js("acceptLive(data)",["data":result])
             } catch {js("acceptLive(data)",["data":["capture":capture,"error":error.localizedDescription]])}
+        case "open-desktop-chat":
+            guard let id=data["id"] as? String, UUID(uuidString:id) != nil, let url=URL(string:"codex://threads/"+id) else{return}
+            if !NSWorkspace.shared.open(url){deliver("live-error","Install the ChatGPT desktop app to open this chat.",reveal:false)}
+        case "resume-terminal","copy-resume":
+            guard let id=data["id"] as? String else{return}
+            do {
+                let command=try runtime.resumeCommand(id)
+                if type=="copy-resume"{
+                    NSPasteboard.general.clearContents();NSPasteboard.general.setString(command,forType:.string)
+                    deliver("live-error","Resume command copied.",reveal:false)
+                } else {
+                    let file=runtime.data.appendingPathComponent(id).appendingPathComponent("Resume.command")
+                    try ("#!/bin/zsh\n"+command+"\n").write(to:file,atomically:true,encoding:.utf8)
+                    try FileManager.default.setAttributes([.posixPermissions:0o700],ofItemAtPath:file.path)
+                    guard let terminal=NSWorkspace.shared.urlForApplication(withBundleIdentifier:"com.apple.Terminal") else{throw LiveWorkspace.Failure.reason("Terminal is unavailable. Use Copy resume command.")}
+                    NSWorkspace.shared.open([file],withApplicationAt:terminal,configuration:.init()){[weak self] _,error in
+                        if let error{DispatchQueue.main.async{self?.deliver("live-error",error.localizedDescription,reveal:false)}}
+                    }
+                }
+            } catch {deliver("live-error",error.localizedDescription,reveal:false)}
         case "open-result":
             guard let id=data["id"] as? String,UUID(uuidString:id) != nil,let text=data["text"] as? String,let viewer=data["viewer"] as? String else {return}
             do {
@@ -350,6 +426,8 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         case "questionUpdated":inbox.scan()
         case "speak":
             if let text=data["text"] as? String,let voice=data["voice"] as? String {narration.speak(text,voice:voice)}
+        case "check-kokoro":narration.reportKokoro()
+        case "install-kokoro":narration.installKokoro()
         case "stopSpeech":narration.stop()
         case "authorize":
             notifications.requestAuthorization(options:[.alert,.sound]) { [weak self] ok,_ in
@@ -441,6 +519,20 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             deliver("hw-capture");try await Task.sleep(nanoseconds:180_000_000)
             let captured = try await web.evaluateJavaScript("document.querySelector('#modal').open && !!document.querySelector('#transcript')")
             guard captured as? Bool == true else { throw Check.failed }
+            deliver("workspace")
+            try await Task.sleep(nanoseconds:300_000_000)
+            guard isWorkspace,workspace.isVisible,workspace.standardWindowButton(.closeButton) != nil,workspace.styleMask.contains(.resizable) else {throw Check.failed}
+            workspace.setContentSize(NSSize(width:760,height:480))
+            let resized=workspace.frame
+            deliver("prefs")
+            try await Task.sleep(nanoseconds:200_000_000)
+            _ = try await web.evaluateJavaScript("document.querySelector('#modal [aria-label=\"Close dialog\"]').click();true")
+            let cardClosed=try await web.evaluateJavaScript("!document.querySelector('#modal').open")
+            guard cardClosed as? Bool==true,workspace.frame==resized else {throw Check.failed}
+            workspace.performClose(nil)
+            try await Task.sleep(nanoseconds:250_000_000)
+            guard !isWorkspace,!workspace.isVisible,panel.isVisible else {throw Check.failed}
+            print("Workspace resized, dialog dismissed, and native close returned to the resident notch.")
             print("Passive hover, focus, decisions, discussion, agent inbox round trip and four lighting state changes and capture verified. Shortcut conflicts: \(unavailable)")
             NSApp.terminate(nil)
         } catch { fputs("Native interface verification failed: \(error)\n",stderr);exit(1) }
@@ -464,6 +556,8 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 if result as? String=="Complete" {
                     let actual=try await web.evaluateJavaScript("state.sessions[0].result.trim()")
                     guard actual as? String=="READY" else {throw Check.failed}
+                    guard let id=try await web.evaluateJavaScript("state.sessions[0].id") as? String,
+                          try runtime.resumeCommand(id).contains("codex resume ") else {throw Check.failed}
                     print("Live capture → inferred folder → confirmed Codex run → completed session result passed.")
                     NSApp.terminate(nil);return
                 }
@@ -498,7 +592,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     func applicationWillTerminate(_ notification:Notification){
         hoverTimer?.invalidate()
         lightingEnabled=false;syncLighting()
-        micro.stop();inbox.stop();narration.stop();dictation.cancel();if !verifying{runtime.stop()}
+        narration.changed={_ in};micro.stop();inbox.stop();narration.stop();dictation.cancel();if !verifying{runtime.stop()}
         for key in hotKeys.values { UnregisterEventHotKey(key) }
         if let handler { RemoveEventHandler(handler) }
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }

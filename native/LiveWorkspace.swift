@@ -10,6 +10,12 @@ final class LiveWorkspace {
     private var pending=[URL:[String:String]]()
     private var timer:Timer?
     private var externalScan:Process?
+    private var discoveryTimer:Timer?
+    private var lastDiscovery:[[String:String]]?
+    func watchSessions(){
+        refreshExternal()
+        discoveryTimer=Timer.scheduledTimer(withTimeInterval:8,repeats:true){[weak self] _ in self?.refreshExternal()}
+    }
     var externalChanged:([[String:String]])->Void = {_ in}
     private var cliEnvironment:[String:String]{
         var env=ProcessInfo.processInfo.environment
@@ -20,7 +26,7 @@ final class LiveWorkspace {
         guard externalScan==nil, let script=Bundle.main.url(forResource:"cmux-sessions",withExtension:nil) else{return}
         let process=Process()
         let output=Pipe()
-        process.executableURL=script;process.arguments=["list",root.path];process.environment=cliEnvironment
+        process.executableURL=script;process.arguments=["list",root.path,data.deletingLastPathComponent().appendingPathComponent("desktop-activity.json").path];process.environment=cliEnvironment
         process.standardOutput=output;process.standardError=FileHandle.nullDevice
         externalScan=process
         DispatchQueue.global(qos:.utility).async {
@@ -32,7 +38,7 @@ final class LiveWorkspace {
                 rows=(try JSONSerialization.jsonObject(with:bytes) as? [[String:String]]) ?? []
             } catch {}
             let result=rows
-            DispatchQueue.main.async {self.externalScan=nil;self.externalChanged(result)}
+            DispatchQueue.main.async {self.externalScan=nil;if self.lastDiscovery != result {self.lastDiscovery=result;self.externalChanged(result)}}
         }
     }
     var changed:([String:Any])->Void = {_ in}
@@ -155,5 +161,21 @@ final class LiveWorkspace {
             changed(event)
         }
     }
-    func stop(){timer?.invalidate()}
+    func resumeCommand(_ id:String)throws -> String {
+        guard UUID(uuidString:id) != nil else {throw Failure.reason("Invalid session.")}
+        let folder=data.appendingPathComponent(id)
+        let jobs=try fm.contentsOfDirectory(at:folder,includingPropertiesForKeys:nil).filter{$0.pathExtension=="job"}.sorted{$0.lastPathComponent<$1.lastPathComponent}
+        guard let first=jobs.first,
+              jobs.allSatisfy({["Complete","Failed"].contains(readState($0.deletingPathExtension().appendingPathExtension("receipt")) ?? "")}),
+              let job=try JSONSerialization.jsonObject(with:Data(contentsOf:first)) as? [String:Any],
+              job["external"] as? Bool != true,let provider=job["agent"] as? String,["claude","codex"].contains(provider),
+              let cwd=job["folder"] as? String,
+              let conversation=try JSONSerialization.jsonObject(with:Data(contentsOf:folder.appendingPathComponent("conversation.json"))) as? [String:String],
+              let handle=conversation["id"],UUID(uuidString:handle) != nil else {
+            throw Failure.reason("Wait for the session to finish before opening it in Terminal.")
+        }
+        let quoted=cwd.replacingOccurrences(of:"'",with:"'\"'\"'")
+        return "cd -- '"+quoted+"' && "+provider+(provider=="claude" ? " --resume ":" resume ")+handle
+    }
+    func stop(){timer?.invalidate();discoveryTimer?.invalidate()}
 }

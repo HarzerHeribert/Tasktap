@@ -20,7 +20,7 @@ let microStatus='Off';
 let boundsFrame = 0;
 const pending = () => state.decisions[0];
 function closePanels(){
-  while($('#notch').open || $('#modal').open) close();
+  while($('#notch').open || $('#modal').open) dismissCard();
   $('#status-menu').hidden=true;
   $('#status-button').setAttribute('aria-expanded','false');
 }
@@ -194,7 +194,7 @@ function hardware(action,requestId){
     if(deferred && state.decisions.length>1){
       state.decisions=state.decisions.filter(q=>q.id!==pendingId).concat(deferred);persist();render();
     }
-    if($('#notch').open||$('#modal').open)close();else showHome(false);
+    if($('#notch').open||$('#modal').open)dismissCard();else showHome(false);
     choice=null;return;
   }
   const d=$('#notch'),items=optionsForDecision();
@@ -236,14 +236,16 @@ function command(action,id=''){
     case 'home':showHome();break;
     case 'collapse':showHome(false);break;
     case 'workspace':showWorkspace();break;
+    case 'prefs':prefs();break;
+    case 'close-front':if(document.querySelector('dialog[open]'))dismissCard();else showHome(false);break;
     case 'capture':hardware('capture');break;
     case 'requests':openRequest(id);break;
     case 'controller':controller();break;
-    case 'try-controller':close();hardwareNavigation=true;openRequest();controllerPreview();break;
+    case 'try-controller':dismissCard();hardwareNavigation=true;openRequest();controllerPreview();break;
     case 'notifications':notifications();break;
-    case 'notify-enable':state.alerts=true;persist();close();if(host)postHost('authorize');else if(pending())previewNotice(pending().id,'request');break;
-    case 'notify-off':state.alerts=false;persist();close();$('#notification-preview').hidden=true;postHost('disableNotifications');break;
-    case 'notify-preview':close();if(pending())previewNotice(pending().id,'request');else{const s=state.sessions.find(s=>s.state==='Complete');if(s)previewNotice(s.id,'complete')}break;
+    case 'notify-enable':state.alerts=true;persist();dismissCard();if(host)postHost('authorize');else if(pending())previewNotice(pending().id,'request');break;
+    case 'notify-off':state.alerts=false;persist();dismissCard();$('#notification-preview').hidden=true;postHost('disableNotifications');break;
+    case 'notify-preview':dismissCard();if(pending())previewNotice(pending().id,'request');else{const s=state.sessions.find(s=>s.state==='Complete');if(s)previewNotice(s.id,'complete')}break;
     case 'dismiss-notice':$('#notification-preview').hidden=true;break;
     case 'notice-request':$('#notification-preview').hidden=true;openRequest(id);break;
     case 'notice-result':$('#notification-preview').hidden=true;if(sess(id)){closePanels();showSession(id)}break;

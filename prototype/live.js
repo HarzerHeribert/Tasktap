@@ -19,12 +19,13 @@ function externalSessions(rows){
     if(!project)continue;
     let s=sess(row.id);
     if(!s){s={id:row.id,external:true,log:[],state:'Connected'};state.sessions.push(s)}
-    Object.assign(s,{agent:row.agent,task:row.task,project:project.id,available:true});
+    Object.assign(s,{agent:row.agent,task:row.task,project:project.id,available:true,source:row.source||'cmux',conversation:row.conversation});
+    if(s.source==='desktop')s.state=row.state;
   }
-  for(const s of state.sessions.filter(s=>s.external && !['Queued','Running'].includes(s.state)))s.state=s.available?'Connected':'Unavailable';
+  for(const s of state.sessions.filter(s=>s.external && (s.source==='desktop'?!s.available:!['Queued','Running'].includes(s.state))))s.state=s.available?'Connected':'Unavailable';
   persist();render();
 }
-const canNudge=s=>s && (s.managed || (s.external && s.available));
+const canNudge=s=>s && (s.managed || (s.external && s.available && s.source!=='desktop'));
 function submitLive(d){
   if(d.submitting)return;
   const prior=sess(d.session);
@@ -54,7 +55,7 @@ function acceptLive(data){
     s.state='Queued';s.log.push('Queued. '+d.brief);
   }
   if(d.mode==='note'||d.keep){const text=d.mode==='note'?d.brief:d.note||d.brief;state.notes.unshift({id:uid(),project:c.project==='@scratch'?'':c.project,text,title:text.slice(0,64)||'Sketch',capture:c.id})}
-  state.captures.unshift(c);draft=null;persist();close();render();toast(c.receipt+'. '+data.name);
+  state.captures.unshift(c);draft=null;persist();dismissCard();render();toast(c.receipt+'. '+data.name);
 }
 function agentReceipt(e){
   let c=byId(state.captures,e.capture),s=sess(e.session);
@@ -90,10 +91,10 @@ function finishRouting(id,r){
   const d=draft;
   if(['ask','note','nudge'].includes(r.mode) && typeof r.brief==='string' && r.brief.trim()){
     d.mode=r.mode;d.brief=r.brief.trim();
-    if(!d.project && Number.isInteger(r.project))d.project=pending.projects[r.project]?.id||'';
+    // Only an explicit project, a user choice, or an evidenced session can set the destination.
     if(d.mode==='nudge' && Number.isInteger(r.session)){
       const s=pending.sessions[r.session];
-      if(s && (!d.project || d.project===s.project)){d.session=s.id;d.project=s.project}
+      if(s && matchSessions(d.text).includes(s) && (!d.project || d.project===s.project)){d.session=s.id;d.project=s.project}
     }
     if(['claude','codex','agy'].includes(r.agent))d.agent=r.agent;
     const projectName=proj(d.project)?.name;

@@ -50,7 +50,7 @@ const statusClass=s=>s==='Needs input'?'waiting':s==='Complete'?'complete':['Una
 const navLink=(id,label,sym,end='')=>'<button class="nav-link '+(view===id?'active':'')+'" '+(view===id?'aria-current="page"':'')+' data-action="view" data-id="'+attr(id)+'">'+sym+'<span class="label">'+esc(label)+'</span>'+end+'</button>';
 const count=n=>'<span class="nav-count">'+n+'</span>';
 function renderNav(){
-  $('#nav').innerHTML='<div class="nav-group"><span class="nav-kicker">Workspace</span>'+navLink('overview','Overview',icon('grid'))+navLink('sessions','Sessions',icon('sessions'),count(state.sessions.length))+navLink('notes','Notebook',icon('note'),count(state.notes.length))+'</div><div class="nav-group"><span class="nav-kicker">Projects</span>'+state.projects.map(p=>navLink(p.id,p.name,'<span class="dot-slot"><i class="project-dot" style="--dot:'+attr(p.color)+'"></i></span>')).join('')+'</div>';
+  $('#nav').innerHTML='<div class="nav-group"><span class="nav-kicker">Workspace</span>'+navLink('overview','Overview',icon('grid'))+navLink('sessions','Sessions',icon('sessions'),count(state.sessions.length))+navLink('notes','Notebook',icon('note'),count(state.notes.length))+navLink('projects','Projects',icon('folder'),count(state.projects.filter(p=>p.available!==false).length))+'</div>';
   $('#islandLabel').textContent=state.decisions.length?state.decisions.length+' decision'+(state.decisions.length>1?'s':''):'All clear';
 }
 function wave(){
@@ -62,38 +62,63 @@ function captureCard(c){
   return '<article class="capture-card"><div class="cap-meta"><span class="icon-label">'+icon('mic')+'Latest capture</span><span>'+esc(c.time)+'</span></div><blockquote>“'+esc(c.text||'Attached sketch')+'”</blockquote><div class="signal"><button class="play-btn" data-action="readcapture" aria-label="Read latest capture aloud">'+icon('play')+'</button>'+wave()+'<span>'+esc(c.duration||'Text')+'</span></div><div class="capture-foot"><span class="icon-label">'+icon(p?'folder':'note')+esc(p?.name||'Scratch')+(session?' / '+esc(session.task):'')+'</span>'+button('View capture','detailcapture',c.id,'text-btn','out')+'</div></article>';
 }
 function sessionRow(s,fixture=false){
-  const agent=providers[s.agent]||'Agent',p=proj(s.project);
+  const agent=s.source==='desktop'?'Codex · ChatGPT desktop':providers[s.agent]||'Agent',p=proj(s.project);
   return '<button class="session-row" data-action="session" data-id="'+attr(s.id)+'">'+(s.agent?'<span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span>':'<span aria-hidden="true"></span>')+'<span><span class="row-title">'+esc(s.task)+'</span><span class="row-sub">'+esc(agent)+'</span></span><span class="row-project">'+esc(p?.name||'Project')+'</span>'+(fixture?'<span class="fixture-amount">'+esc(s.amount)+'</span>':'<span class="row-state '+statusClass(s.state)+'"><i class="state-dot"></i>'+esc(s.state)+'</span>')+icon('right')+'</button>';
 }
 function sessionList(rows){return rows.length?'<div class="session-list">'+rows.map(s=>sessionRow(s)).join('')+'</div>':'<p class="empty">No sessions here yet.</p>'}
 function noteList(notes){return notes.length?notes.map(n=>'<button class="note" data-action="note" data-id="'+attr(n.id)+'"><span class="eyebrow">'+esc(proj(n.project)?.name||'Scratch')+'</span><strong>'+esc(n.title)+'</strong><span class="hint">'+esc(n.text)+'</span></button>').join(''):'<p class="empty">No notes here yet.</p>'}
+let projectFilter='';
+function renderProjectList(){
+  const rows=state.projects.filter(p=>p.available!==false && p.name.toLowerCase().includes(projectFilter.toLowerCase()));
+  $('#project-list').innerHTML=rows.map(p=>button(p.name,'view',p.id,'note','folder')).join('')||'<p class="empty">No matching projects.</p>';
+}
 function render(){
   renderNav();document.dispatchEvent(new Event('workspace-changed'));
-  const p=proj(view),name=({overview:'Overview',sessions:'Sessions',notes:'Notebook'})[view]||p?.name||'Workspace';$('#crumb').textContent=name;
+  const p=proj(view),name=({overview:'Overview',sessions:'Sessions',notes:'Notebook',projects:'Projects'})[view]||p?.name||'Workspace';$('#crumb').textContent=name;
   const active=state.sessions.filter(s=>['Running','Needs input','Queued'].includes(s.state));
   const intro=heading(live?new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'}):'Saturday, 14 November',name,view==='overview'?active.length+' active sessions across '+new Set(active.map(s=>s.project)).size+' projects.':p?p.folder:'');
   let body='';
   if(view==='overview')body=(state.captures[0]?captureCard(state.captures[0]):'')+'<section class="block"><div class="group-head"><h2>Active sessions</h2>'+button('All sessions','view','sessions','text-btn','arrow')+'</div>'+sessionList(active)+'</section>';
+  else if(view==='projects')body='<section class="block"><label class="field">Find a project<input id="project-filter" type="search" placeholder="Folder name" value="'+attr(projectFilter)+'"></label><div id="project-list"></div></section>';
   else if(view==='sessions')body=sessionList(state.sessions);
   else if(view==='notes')body='<section class="block">'+noteList(state.notes)+'</section>';
   else if(p)body='<section class="block"><h2>Sessions</h2>'+sessionList(state.sessions.filter(s=>s.project===p.id))+'</section><section class="block"><h2>Project notes</h2>'+noteList(state.notes.filter(n=>n.project===p.id))+'</section>';
+  const activeFilter=document.activeElement?.id==='project-filter';
+  const caret=activeFilter?document.activeElement.selectionStart:0;
   $('#main').innerHTML=intro+body;
+  if(view==='projects'){
+    const input=$('#project-filter');
+    input.oninput=()=>{projectFilter=input.value;renderProjectList()};
+    renderProjectList();
+    if(activeFilter){input.focus({preventScroll:true});input.setSelectionRange(caret,caret)}
+  }
 }
 function toast(message){$('#toast').textContent=message;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').textContent='',3000)}
 function go(id){clearTimeout(toast.timer);$('#toast').textContent='';view=id;document.body.classList.remove('nav-open');render();if(document.body.classList.contains('notch-first'))$('#islandToggle').focus();else $('#main').focus()}
 function frame(title,over,body){return '<div class="dialog-body"><div class="dialog-title"><div><span class="eyebrow">'+esc(over)+'</span><h2 id="dialog-heading">'+esc(title)+'</h2></div><button class="icon-btn" data-action="close" aria-label="Close dialog">'+icon('x')+'</button></div>'+body+'</div>'}
 function dialog(title,over,body){clearTimeout(toast.timer);$('#toast').textContent='';const d=$('#modal');if(!d.open)returnFocus=document.activeElement;d.innerHTML=frame(title,over,body);d.setAttribute('aria-labelledby','dialog-heading');if(!d.open)d.showModal();else $('button',d)?.focus()}
-function close(){if(live)stopDictation();clearTimeout(simVoice);simVoice=null;document.dispatchEvent(new Event('voice-activity'));if($('#notch').open){$('#notch').close();$('#islandToggle').setAttribute('aria-expanded','false');if($('#modal').open)$('#modal button')?.focus();else $('#islandToggle').focus();return}if($('#modal').open)$('#modal').close();if(returnFocus?.isConnected)returnFocus.focus();else if(document.body.classList.contains('notch-first'))$('#islandToggle').focus();else $('#main').focus()}
+function dismissCard(){if(live)stopDictation();clearTimeout(simVoice);simVoice=null;document.dispatchEvent(new Event('voice-activity'));if($('#notch').open){$('#notch').close();$('#islandToggle').setAttribute('aria-expanded','false');if($('#modal').open)$('#modal button')?.focus();else $('#islandToggle').focus();return}if($('#modal').open)$('#modal').close();if(returnFocus?.isConnected)returnFocus.focus();else if(document.body.classList.contains('notch-first'))$('#islandToggle').focus();else $('#main').focus()}
 let siriVoices=[];
+let kokoro={status:'checking',detail:'Checking local voice…'};
+function updateKokoro(status,detail){
+  kokoro={status,detail};
+  if(!$('#voice-engine'))return;
+  voiceOptions();
+  const hint=$('#voice-status');if(hint)hint.textContent=detail;
+  const setup=$('[data-action="setup-voice"]');
+  if(setup)setup.hidden=status!=='missing';
+}
+
 function configureVoices(voices){
   siriVoices=voices;
   if($('#voice-engine'))voiceOptions();
 }
 function voiceOptions(){
   const choices=[...siriVoices];
-  if(window.webkit?.messageHandlers?.workspace)choices.push({id:'kokoro',name:'Local Kokoro · Heart (English)'});
+  if(window.webkit?.messageHandlers?.workspace)choices.push({id:'kokoro',name:'Local Kokoro · Heart'+(kokoro.status==='missing'?' (setup required)':' (English)')});
   const selected=state.voiceEngine ?? siriVoices[0]?.id ?? '';
   $('#voice-engine').innerHTML=option('','Off',selected)+choices.map(v=>option(v.id,v.name,selected)).join('');
+  const local=$('#voice-engine option[value="kokoro"]');if(local)local.disabled=kokoro.status!=='ready';
 }
 function speak(text){
   const native=window.webkit?.messageHandlers?.workspace;
@@ -115,10 +140,12 @@ function showSession(id){
   const s=sess(id);if(!s)return;openedSession=id;
   const q=state.decisions.find(q=>q.session===id);
   const actions=live&&!canNudge(s)?[]:[button('Follow up','follow',id,'primary','mic')];
+  if(live && s.source==='desktop')actions.push(button('Open in ChatGPT','openchat',id,'primary'));
+  if(live && s.managed && ['claude','codex'].includes(s.agent) && ['Failed','Complete'].includes(s.state))actions.push(button('Resume in Terminal','terminal',id),button('Copy resume command','copyresume',id));
   if(q)actions.push(button('Review decision','notch',q.id));
   if(!live && s.state==='Running' && !s.producerKey)actions.push(button('Simulate completion','complete',id));
   if(s.result)actions.push(button('Read aloud','speakresult',id,'btn','sound'),button('Open in '+(s.viewer||(live?'Finder':'editor')),'openresult',id));
-  dialog(s.task,providers[s.agent]+' · '+s.state,'<div class="detail-line">'+icon('folder')+'<span class="mono">'+esc(proj(s.project)?.folder)+'</span></div><section class="block"><h3>Activity</h3><ul class="time-line">'+s.log.map(e=>'<li><i class="state-dot"></i>'+esc(e)+'</li>').join('')+'</ul></section>'+(s.result?'<section class="notice"><strong>Agent summary</strong><p>'+esc(s.result)+'</p></section>':'')+'<div class="inline">'+actions.join('')+'</div>');
+  dialog(s.task,providers[s.agent]+' · '+s.state,'<div class="detail-line">'+icon('folder')+'<span class="mono">'+esc(proj(s.project)?.folder)+'</span></div><section class="block"><h3>Activity</h3><ul class="time-line">'+s.log.map(e=>'<li><i class="state-dot"></i>'+esc(s.result && e==='Complete. '+s.result?'Complete':e)+'</li>').join('')+'</ul></section>'+(s.result?'<section class="notice"><strong>Agent summary</strong><p>'+esc(s.result)+'</p></section>':'')+'<div class="inline">'+actions.join('')+'</div>');
 }
 function routeDecision(candidates){
   const d=$('#notch');d.dataset.request=uid();
@@ -127,7 +154,7 @@ function routeDecision(candidates){
   d.showModal();$('#islandToggle').setAttribute('aria-expanded','true');
   $('#route-voice').onsubmit=e=>{e.preventDefault();const input=$('#route-answer'),v=input.value.trim().toLowerCase();const found=candidates.filter((s,i)=>[s.task,proj(s.project).name,String(i+1)].some(x=>x.toLowerCase()===v));if(found.length===1){chooseTarget(found[0].id);return}input.setCustomValidity('Enter one project name, task name, or choice number.');input.reportValidity();input.oninput=()=>input.setCustomValidity('')};
 }
-function chooseTarget(id){if(!draft||!sess(id))return;draft.session=id;draft.project=sess(id).project;close();review()}
+function chooseTarget(id){if(!draft||!sess(id))return;draft.session=id;draft.project=sess(id).project;dismissCard();review()}
 function binaryControls(q){
   const buttons=q.choices.map((c,i)=>button(c,'decide',q.id+'|'+i,'decision-btn '+(c==='Yes'?'answer-yes':'answer-no'),c==='Yes'?'check':'x'));
   return '<div class="binary-choices">'+buttons.join('')+'</div>'+button('Talk it through','discuss',q.id,'text-btn discussion-link','mic');
@@ -183,7 +210,7 @@ function decide(id,i){
   s.log.push('Decision received. '+answer+'.');
   state.decisions=state.decisions.filter(x=>x.id!==id);
   s.state=state.decisions.some(other=>other.session===s.id)?'Needs input':'Running';
-  decisionVoice=false;persist();close();render();
+  decisionVoice=false;persist();dismissCard();render();
   if($('#modal').open&&$('#dialog-heading')?.textContent===s.task)showSession(s.id);
   if(q.producerKey)window.webkit?.messageHandlers?.workspace.postMessage({type:'questionUpdated'});
   toast('Decision sent to '+s.task+'.');
@@ -252,8 +279,11 @@ function routingPrompt(){
     d.mode='ask';
   }
   if(!d.project){
-    const choices=state.projects.filter(p=>p.available!==false).map(p=>button(p.name,'route-project',p.id)).join('');
-    dialog('Which workspace?', 'Tasktap','<p class="hint">Where should I send this?</p><div class="inline">'+choices+button('Keep in scratch','route-project','@scratch')+button('New workspace…','route-project','@new')+'</div>');
+    const projects=state.projects.filter(p=>p.available!==false);
+    dialog('Which workspace?', 'Tasktap','<label class="field">Find a project<input id="route-filter" type="search" placeholder="Folder name"></label><div class="route-list" id="route-list"></div><div class="inline">'+button('Keep in scratch','route-project','@scratch')+button('New workspace…','route-project','@new')+'</div>');
+    const field=$('#route-filter');
+    const filter=()=>{$('#route-list').innerHTML=projects.filter(p=>p.name.toLowerCase().includes(field.value.toLowerCase())).map(p=>button(p.name,'route-project',p.id)).join('')||'<p class="empty">No matching projects.</p>'};
+    field.oninput=filter;filter();
     return;
   }
   review();
@@ -302,7 +332,7 @@ function commitCapture(){
   if(d.mode==='ask'){s={id:uid(),project:d.project,agent:d.agent,task:d.brief.trim().slice(0,78)||'Review sketch',state:'Running',log:['Session started. '+d.brief],viewer:d.viewer,capture:cid};state.sessions.unshift(s);c.kind='Agent question';c.receipt='Started';c.session=s.id}
   if(d.mode==='nudge'){s=sess(d.session);if(!s){toast('Choose an available session.');return}c.project=s.project;c.kind='Session nudge';c.receipt='Queued';c.session=s.id;s.log.push('Nudge queued. '+d.brief)}
   if(d.mode==='note'||d.keep){const text=d.mode==='note'?d.brief:d.note;state.notes.unshift({id:uid(),project:c.project,text,title:text.trim().slice(0,64)||'Sketch',capture:cid})}
-  state.captures.unshift(c);draft=null;persist();close();render();
+  state.captures.unshift(c);draft=null;persist();dismissCard();render();
   if(d.mode==='nudge'){toast('Nudge queued for '+s.task+'.');setTimeout(()=>deliver(cid),1400)}
   else if(d.mode==='ask'){showSession(s.id)}else{if(!document.body.classList.contains('notch-first'))go('notes');toast('Note saved.')}
 }
@@ -320,7 +350,7 @@ function showNote(id){
   const f=$('#assign');if(f)f.onsubmit=e=>{e.preventDefault();const project=$('#assign-project').value;if(live){postLive('assign-note',{id,capture:n.capture,folder:proj(project).folder});return}noteAssigned(id,project)};
 }
 function noteAssigned(id,project){const n=byId(state.notes,id);if(!n)return;n.project=project;persist();render();showNote(id);toast('Note assigned to '+proj(project).name+'.')}
-function prefs(){dialog('Preferences','Tasktap','<div class="fields"><div class="field">Workspace root <span class="mono">~/projects</span></div><label class="field">Narration voice<select id="voice-engine"></select></label><p class="hint">Local Kokoro uses a running speech server on this Mac, port 8880.</p><div class="check-line"><input id="narration" type="checkbox" '+(state.speak?'checked':'')+'><label for="narration">Read completion summaries aloud</label></div>'+(live?'':button('Reset sample data','reset'))+'</div>');voiceOptions();$('#voice-engine').onchange=e=>{state.voiceEngine=e.target.value;persist()};$('#narration').onchange=e=>{state.speak=e.target.checked;persist()}}
+function prefs(){dialog('Preferences','Tasktap','<div class="fields"><div class="field">Workspace root <span class="mono">~/projects</span></div><label class="field">Narration voice<select id="voice-engine"></select></label>'+(live?'<p id="voice-status" class="hint" role="status">'+esc(kokoro.detail)+'</p><div class="inline">'+button('Set up Kokoro','setup-voice')+button('Preview voice','preview-voice')+'</div>':'')+'<div class="check-line"><input id="narration" type="checkbox" '+(state.speak?'checked':'')+'><label for="narration">Read completion summaries aloud</label></div>'+(live?'':button('Reset sample data','reset'))+'</div>');voiceOptions();if(live){updateKokoro(kokoro.status,kokoro.detail);postLive('check-kokoro')}$('#voice-engine').onchange=e=>{state.voiceEngine=e.target.value;persist()};$('#narration').onchange=e=>{state.speak=e.target.checked;persist()}}
 function complete(id){const s=sess(id);if(s.state!=='Running')return;s.state='Complete';s.result='Demo result: the agent finished the requested review in '+proj(s.project).name+'. Open the conversation to inspect its work.';s.log.push('Simulated completion received.');persist();render();showSession(id);if(state.speak)speak(s.result)}
 function startSample(){
   const b=$('[data-action="sample"]');b.textContent='Listening to sample…';b.disabled=true;clearTimeout(simVoice);
@@ -330,20 +360,26 @@ document.addEventListener('click',e=>{
   const el=e.target.closest('[data-action]');if(!el)return;const a=el.dataset.action,id=el.dataset.id;
   switch(a){
     case 'view':go(id);break;case 'capture':newDraft('');break;case 'menu':document.body.classList.toggle('nav-open');break;
-    case 'follow':newDraft(id);break;case 'session':showSession(id);break;case 'close':close();break;case 'prefs':prefs();break;
+    case 'follow':newDraft(id);break;case 'session':showSession(id);break;case 'close':dismissCard();break;case 'prefs':prefs();break;
     case 'readcapture':speak(state.captures[0].text||'Attached sketch');break;case 'speakresult':speak(sess(id).result);break;
+    case 'openchat':postLive('open-desktop-chat',{id:sess(id).conversation});break;
+    case 'setup-voice':postLive('install-kokoro');break;
+    case 'preview-voice':speak('Tasktap is ready. What would you like to work on?');break;
+    case 'terminal':postLive('resume-terminal',{id});break;
+    case 'copyresume':postLive('copy-resume',{id});break;
     case 'openresult':if(live){const s=sess(id);postLive('open-result',{id,viewer:s.viewer||'Finder',text:s.result||''});break}dialog('Result preview',sess(id).viewer||'Editor','<p>'+esc(sess(id).result)+'</p><p class="hint">Opening an external app is simulated here.</p>'+button('Back to session','session',id));break;
     case 'detailcapture':detailCapture(id);break;case 'note':showNote(id);break;case 'sample':startSample();break;case 'dictate':dictate(id);break;
     case 'sketch':draft.sketch=!draft.sketch;editDraft();break;
     case 'curve':draft.strokes.push(Array.from({length:70},(_,i)=>[38+i*7.2,30+Math.pow(i/69,2)*112]));setupPad();break;
-    case 'clearink':draft.strokes=[];setupPad();break;case 'discard':draft=null;close();break;
-    case 'review':if(recording){toast('Finish dictation before reviewing.');return}if(!draft.text.trim()&&!draft.strokes.length){toast('Add text or a sketch to continue.');$('#transcript').focus();return}interpret();if(live)prepareHandoff();else routingPrompt();break;
+    case 'clearink':draft.strokes=[];setupPad();break;case 'discard':draft=null;dismissCard();break;
+    case 'review':if(recording){toast('Finish dictation before reviewing.');return}if(!draft.text.trim()&&!draft.strokes.length){toast('Add text or a sketch to continue.');$('#transcript').focus();return}if(!draft.session && !draft.strokes.length && /^(?:(?:well|um+|uh+|oh|okay|ok|h[ei]y|hi|hello|hallo|hey there|testing|test|mic check|thank you|thanks|good (?:morning|evening))[\s,.!?]*)+$/i.test(draft.text.trim())){dialog('What would you like to do?','Capture',button('Keep talking','continue-capture','','primary','mic')+button('Dismiss','discard'));break}interpret();if(live)prepareHandoff();else routingPrompt();break;
     case 'skip-routing':delete draft.routing;routingPrompt();break;case 'adjust':adjustReview();break;
     case 'route-project':draft.project=id;if(id==='@new'){
       dialog('Name the workspace','Tasktap','<form id="workspace-name" class="field"><label>Folder under ~/projects<input id="newName" required></label><button class="primary">Review</button></form>');
       $('#workspace-name').onsubmit=e=>{e.preventDefault();const name=$('#newName').value.trim();if(!name||name.includes('/')||name==='.'||name==='..'){toast('Choose a folder name.');return}draft.newName=name;review()};
     }else review();break;
     case 'commit-review':commitCapture();break;
+    case 'continue-capture':draft.text='';editDraft();if(live)dictate('#transcript');else $('#transcript').focus();break;
     case 'edit':editDraft();break;case 'notch':decisionVoice=false;showNotch(id);break;case 'voicechoice':decisionVoice=true;showNotch(id);if(live)dictate('#answer');break;
     case 'choose-target':chooseTarget(id);break;case 'decide':{const [q,i]=id.split('|');decide(q,Number(i));break}
     case 'discuss':showNotch(id,true);break;
@@ -355,14 +391,14 @@ document.addEventListener('click',e=>{
       const {voiceEngine,microLights,alerts,speak}=state;
       state={...structuredClone(seed),voiceEngine,microLights,alerts,speak};
       state.sessions.push(...live);state.decisions.push(...pending);state.projects.push(...projects);
-      draft=null;persist();close();go('overview');toast('Sample data reset.');break;
+      draft=null;persist();dismissCard();go('overview');toast('Sample data reset.');break;
     }
   }
 });
 $('#islandToggle').onclick=()=>{decisionVoice=false;showNotch()};
 document.addEventListener('keydown',e=>{
   if(e.defaultPrevented)return;
-  if(e.key==='Escape'){if($('#notch').open||$('#modal').open){e.preventDefault();close()}else document.body.classList.remove('nav-open');return}
+  if(e.key==='Escape'){if($('#notch').open||$('#modal').open){e.preventDefault();dismissCard()}else document.body.classList.remove('nav-open');return}
   if(e.key.toLowerCase()==='n'&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!$('#modal').open&&!$('#notch').open&&!['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)){e.preventDefault();newDraft('')}
 });
 render();

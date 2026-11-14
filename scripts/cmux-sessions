@@ -2,6 +2,7 @@
 """Discover local cmux agent surfaces and address a follow-up to the same session."""
 import json
 from pathlib import Path
+import sqlite3
 import subprocess
 import sys
 import uuid
@@ -64,10 +65,20 @@ def deliver(job):
 
 if __name__ == "__main__":
     if sys.argv[1] == "list":
+        from desktop_sessions import sessions as desktop_sessions
+        root = Path(sys.argv[2]).resolve()
         try:
-            print(json.dumps(sessions(Path(sys.argv[2]).resolve())))
+            rows = sessions(root)
         except (OSError, ValueError, subprocess.SubprocessError):
-            print("[]")
+            rows = []
+        if len(sys.argv) > 3:
+            try:
+                desktop = desktop_sessions(root, Path(sys.argv[3]))
+                known = {r["conversation"] for r in rows}
+                rows.extend(r for r in desktop if r["conversation"] not in known)
+            except (OSError, ValueError, sqlite3.Error):
+                pass
+        print(json.dumps(rows))
     else:
         try:
             print(deliver(json.load(sys.stdin)))

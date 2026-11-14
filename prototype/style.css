@@ -85,3 +85,14 @@ body[data-signal="sending"]{--signal-cycle:1100ms}
 .discussion-log,.discussion-log ul{display:grid;gap:var(--s-small)}
 .discussion-log ul{list-style:none;padding:0;overflow-wrap:anywhere}
 .review-brief{font-size:var(--t-copy);line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+
+.native-host:not(.notch-first) .shell{height:100dvh;min-height:0;max-width:none;border:0;border-radius:0;overflow:hidden}
+.native-host:not(.notch-first) .work{display:flex;flex-direction:column;min-height:0}
+.native-host:not(.notch-first) .toolbar,.side-foot{flex:none}
+.native-host:not(.notch-first) main{min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.native-host:not(.notch-first) aside{min-height:0;overflow:auto}
+.native-host.nav-open:not(.notch-first) aside{top:0;bottom:0}
+#project-list{display:grid;gap:var(--s-tight)}
+
+.route-list{display:grid;gap:var(--s-tight);max-height:min(32dvh,240px);overflow-y:auto}
+.route-list .btn{text-align:left}

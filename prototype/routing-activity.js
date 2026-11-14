@@ -8,10 +8,15 @@ function workspaceEvidence(d) {
   return 'Workspace still needs a match.';
 }
 
+function activityBand(titleMarkup, caption, active) {
+  const art=active ? TasktapArt.markup('miniature') : '<img src="'+attr(TasktapArt.poster(TasktapArt.current(),'miniature'))+'" alt="">';
+  return '<div class="activity-band"><div class="activity-copy">'+titleMarkup+'<span class="activity-caption">'+esc(caption)+'</span></div><div class="activity-art" aria-hidden="true">'+art+'</div></div>';
+}
+
 function routingActivityCard(d) {
   dialog('Preparing handoff','Tasktap',
-    '<section id="route-activity" aria-label="Routing activity"><div class="activity-heading"><span class="activity-aperture" aria-hidden="true"></span><strong id="route-phase" role="status">Checking the on-device model…</strong></div>'+
-    '<p class="hint">'+esc(workspaceEvidence(d))+'</p><p class="activity-brief" id="partial-brief" hidden></p></section>'+
+    '<section id="route-activity" aria-label="Routing activity">'+activityBand('<strong id="route-phase" role="status">Checking the on-device model…</strong>',workspaceEvidence(d),true)+
+    '<p class="activity-brief" id="partial-brief" hidden></p></section>'+
     '<div class="form-actions">'+button('Review now','skip-routing')+'</div>');
   updateSignal();
 }

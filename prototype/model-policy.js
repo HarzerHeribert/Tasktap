@@ -83,12 +83,24 @@ function modelReviewMarkup(d) {
 function sessionModelSettings() {
   const policy = sessionModelPolicy();
   let agent = policy.defaultAgent;
-  dialog('Session models','Preferences','<form class="fields" id="session-models"><div class="field"><label for="default-agent">Default agent</label><select id="default-agent">'+Object.entries(providers).map(([id,label])=>option(id,label,policy.defaultAgent)).join('')+'</select></div><div class="check-line"><input type="checkbox" id="difficulty-curve" '+(policy.adaptive?'checked':'')+'><label for="difficulty-curve">Choose models by task difficulty</label></div><section class="fields" id="curve-controls"></section><div class="fields"><div class="field"><label for="model-agent">Configure models for</label><select id="model-agent">'+Object.entries(providers).map(([id,label])=>option(id,label,agent)).join('')+'</select></div><div class="fields" id="model-fields"></div></div><p class="hint">Nudges use the model in the existing session. Empty fields use the agent’s default.</p><div class="form-actions">'+button('Cancel','prefs')+'<button class="primary" type="submit">Save models</button></div></form>');
+  const agents = selected=>Object.entries(providers).map(([id,label])=>'<option value="'+attr(id)+'" data-detail="'+attr(id)+'" '+(id===selected?'selected':'')+'>'+esc(label)+'</option>').join('');
+  const defaults=settingsField('default-agent','Default agent','<select id="default-agent">'+agents(policy.defaultAgent)+'</select>');
+  const profiles=settingsField('model-agent','Configure models for','<select id="model-agent">'+agents(agent)+'</select>');
+  dialog('Session models','Preferences','<form id="session-models" class="settings-form">'+
+    '<section class="settings-section">'+defaults+
+    '<label class="policy-switch" for="difficulty-curve"><span>Choose models by task difficulty</span><input id="difficulty-curve" type="checkbox" '+(policy.adaptive?'checked':'')+'></label>'+
+    '<div class="curve-controls" id="curve-controls"></div></section>'+
+    '<section class="settings-section"><div class="profile-fields">'+profiles+'<div id="model-fields"></div></div>'+
+    '<p class="hint">Leave a model field empty to use the agent default. Nudges keep the current session’s model.</p></section>'+
+    '<div class="form-actions">'+button('Cancel','prefs')+'<button class="primary" type="submit">Save models</button></div></form>');
+  settingsHeader();
   const form = $('#session-models');
   function models() {
     const keys = policy.adaptive ? Object.keys(modelTiers) : ['fixed'];
     const ranges = {quick:'1–'+(policy.standardAt-1),standard:policy.standardAt+'–'+(policy.complexAt-1),complex:policy.complexAt+'–10'};
-    $('#model-fields',form).innerHTML = keys.map(key=>'<label>'+(key==='fixed'?'Fixed model':modelTiers[key]+' · '+ranges[key])+modelInput(agent,key,policy.agents[agent][key])+'</label>').join('')+modelSuggestions(agent);
+    form.classList.toggle('is-adaptive',policy.adaptive);
+    $('#model-fields',form).innerHTML = keys.map(key=>settingsField('model-'+key,key==='fixed'?'Fixed model':modelTiers[key]+' · '+ranges[key],modelInput(agent,key,policy.agents[agent][key]))).join('')+modelSuggestions(agent);
+    settingsPickers.mount($('#model-fields',form));
     for (const key of keys) $('#model-'+key,form).oninput=e=>{policy.agents[agent][key]=e.target.value.trim()};
   }
   function limits() {
@@ -96,13 +108,16 @@ function sessionModelSettings() {
     container.hidden = !policy.adaptive;
     if (!policy.adaptive) { container.innerHTML=''; return; }
     const range = (key,label,low,high)=>'<div class="field"><label for="'+key+'">'+label+'</label><select id="'+key+'">'+Array.from({length:high-low+1},(_,i)=>option(String(i+low),String(i+low),String(policy[key]))).join('')+'</select></div>';
-    container.innerHTML = range('standardAt','Standard starts at',2,9)+range('complexAt','Complex starts at',policy.standardAt+1,10);
+    const segment=score=>score>=policy.complexAt?'complex':score>=policy.standardAt?'standard':'quick';
+    container.innerHTML = '<div class="curve-scale" aria-hidden="true">'+Array.from({length:10},(_,i)=>'<span class="tier-'+segment(i+1)+'">'+(i+1)+'</span>').join('')+'</div>'+
+      '<div class="threshold-fields">'+range('standardAt','Standard starts at',2,9)+range('complexAt','Complex starts at',policy.standardAt+1,10)+'</div>';
+    settingsPickers.mount(container);
     $('#standardAt',form).onchange=e=>{policy.standardAt=Number(e.target.value);policy.complexAt=Math.max(policy.complexAt,policy.standardAt+1);limits();models();$('#standardAt',form).focus()};
-    $('#complexAt',form).onchange=e=>{policy.complexAt=Number(e.target.value);models()};
+    $('#complexAt',form).onchange=e=>{policy.complexAt=Number(e.target.value);limits();models();$('#complexAt',form).focus()};
   }
-  $('#default-agent',form).onchange=e=>{policy.defaultAgent=e.target.value;agent=policy.defaultAgent;$('#model-agent',form).value=agent;models()};
+  $('#default-agent',form).onchange=e=>{policy.defaultAgent=e.target.value;agent=policy.defaultAgent;$('#model-agent',form).value=agent;settingsPickers.sync($('#model-agent',form));models()};
   $('#model-agent',form).onchange=e=>{agent=e.target.value;models()};
   $('#difficulty-curve',form).onchange=e=>{policy.adaptive=e.target.checked;limits();models()};
   form.onsubmit=e=>{e.preventDefault();state.sessionModels=policy;persist();prefs();toast('Session models saved.')};
-  limits();models();
+  limits();models();settingsPickers.mount(form);
 }

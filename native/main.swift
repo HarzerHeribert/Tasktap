@@ -134,8 +134,11 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.anchorScreen=nil
-            self?.position()
+            guard let self else { return }
+            let number = NSDeviceDescriptionKey("NSScreenNumber")
+            let previous = self.anchorScreen?.deviceDescription[number] as? NSNumber
+            self.anchorScreen = NSScreen.screens.first { ($0.deviceDescription[number] as? NSNumber) == previous }
+            self.position()
         }
         guard let url = Bundle.main.url(forResource:"index", withExtension:"html", subdirectory:"prototype") else {
             NSLog("Missing bundled interface"); NSApp.terminate(nil); return
@@ -149,60 +152,38 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         }
     }
 
-    private func cameraRegion(_ screen: NSScreen) -> NSRect {
-        guard screen.safeAreaInsets.top > 0, let left=screen.auxiliaryTopLeftArea,
-              let right=screen.auxiliaryTopRightArea, right.minX > left.maxX else { return .zero }
-        return NSRect(x:left.maxX,y:screen.frame.maxY-screen.safeAreaInsets.top,
-                      width:right.minX-left.maxX,height:screen.safeAreaInsets.top)
-    }
-
     private func position() {
         guard let screen = anchorScreen ?? NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main else { return }
-        anchorScreen=screen
-        let area = screen.visibleFrame
-        let camera=cameraRegion(screen)
-        let tabWidth=camera.isEmpty ? 174 : camera.width
-        let tabHeight=camera.isEmpty ? 34 : camera.height
-        // The transparent margin contains the glow on actual display pixels.
-        let glowMargin:CGFloat=8
-        let w = min(collapsed ? tabWidth+2*glowMargin : max(440,tabWidth+2*glowMargin), area.width)
-        let maxHeight = Int(area.height) - 40
+        anchorScreen = screen
+        let geometry = NotchGeometry(screen: screen)
+        let frame = geometry.panelFrame(collapsed: collapsed, requestedHeight: height)
+        if panel.frame != frame { panel.setFrame(frame, display: true) }
         if ready {
-            let geometry="""
-                document.documentElement.style.setProperty('--available-panel-height','\(maxHeight)px');
-                document.documentElement.style.setProperty('--native-tab-width','\(tabWidth)px');
-                document.documentElement.style.setProperty('--camera-height','\(tabHeight)px')
-                """
-            web.evaluateJavaScript(geometry,completionHandler:nil)
+            let metrics = ["width":geometry.tab.width, "height":geometry.tab.height, "wing":geometry.wing,
+                           "pixel":geometry.pixel, "corner":geometry.corner, "rimOffset":geometry.rimOffset,
+                           "offset":geometry.tab.midX - frame.midX,
+                           "available":geometry.availableContentHeight]
+            js("updateNotchGeometry(metrics)",["metrics":metrics])
         }
-        let h = min(collapsed ? tabHeight+glowMargin : max(tabHeight,height), area.height)
-        let top=camera.isEmpty ? area.maxY : camera.maxY
-        let center=camera.isEmpty ? area.midX : camera.midX
-        let y = top - h
-        let frame=NSRect(x:center-w/2,y:y,width:w,height:h)
-        if panel.frame != frame { panel.setFrame(frame, display:true) }
     }
 
     private func updateHover(at point: NSPoint, dragging: Bool) {
         guard ready, !isWorkspace, panel.isVisible else { panel.ignoresMouseEvents=false;pointerInside=false;return }
-        // The wide, transparent shoulders above an open card can overlap system menu items.
-        let camera=anchorScreen.map(cameraRegion) ?? .zero
-        let transparentShoulder = !camera.isEmpty && point.y>=camera.minY && !camera.contains(point)
-        panel.ignoresMouseEvents=transparentShoulder
-        var inside=panel.frame.contains(point)
-        if transparentShoulder {inside=false}
-        if !inside, let screen=NSScreen.screens.first(where:{ cameraRegion($0).contains(point) }),
-           screen == anchorScreen || collapsed {
-            inside=true
-            if !dragging && screen != anchorScreen { anchorScreen=screen;position() }
+        guard var geometry = anchorScreen.map({NotchGeometry(screen:$0)}) else {return}
+        if collapsed && !dragging, let destination = NSScreen.screens.first(where: {
+            $0 != anchorScreen && NotchGeometry(screen:$0).panelFrame(collapsed:true, requestedHeight:0).contains(point)
+        }) {
+            anchorScreen = destination
+            position()
+            geometry=NotchGeometry(screen:destination)
         }
-        if inside && dragging {
-            if !collapsed { return }
-            inside=false
-        }
+        let topBand = point.y >= geometry.tab.minY && point.y <= geometry.tab.maxY
+        let inside = panel.frame.contains(point) && (!topBand || geometry.topBandContains(point, collapsed: collapsed))
+        // The shoulders are decorative. Menu items keep their mouse input even during a peek.
+        panel.ignoresMouseEvents = topBand && !geometry.tab.contains(point)
+        if dragging {return}
         guard inside != pointerInside else { return }
         pointerInside=inside
-        // Passive peeks only change layout. No activation, first responder, or pointer synthesis.
         deliver(inside ? "hover-enter":"hover-exit",reveal:false)
     }
 
@@ -492,6 +473,18 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             guard Micro.verifyWire() else {throw Check.failed(#line)}
             let start = try await web.evaluateJavaScript("document.body.classList.contains('native-host') && document.querySelector('#notch-home').hidden")
             guard start as? Bool == true else { throw Check.failed(#line) }
+            guard let screen = anchorScreen else { throw Check.failed(#line) }
+            let geometry = NotchGeometry(screen:screen)
+            let rimMatches = try await web.callAsyncJavaScript("""
+                const el=document.querySelector('#islandToggle'), box=el.getBoundingClientRect(), rim=getComputedStyle(el,'::after');
+                return Math.abs(box.width-width)<0.51 && Math.abs(box.height-depth)<0.51 &&
+                    Math.abs(parseFloat(rim.left)+offset)<0.51 && Math.abs(parseFloat(rim.right)+offset)<0.51 &&
+                    Math.abs(parseFloat(rim.bottom)+offset)<0.51 && parseFloat(rim.borderBottomWidth)>0;
+                """,arguments:["width":geometry.tab.width,"depth":geometry.tab.height,"offset":geometry.rimOffset],in:nil,contentWorld:.page)
+            guard rimMatches as? Bool == true, abs(panel.frame.maxY-geometry.tab.maxY) <= geometry.pixel else {
+                print("Cutout bounds",geometry.tab,"actual compact panel",panel.frame)
+                throw Check.failed(#line)
+            }
             let front=NSWorkspace.shared.frontmostApplication?.processIdentifier
             let responder=panel.firstResponder
             let key=panel.isKeyWindow
@@ -501,7 +494,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             // Inject coordinates into the same observation path without moving the user's mouse.
             updateHover(at:NSPoint(x:panel.frame.midX,y:panel.frame.midY),dragging:true)
             guard !pointerInside else { throw Check.failed(#line) }
-            let hotRegion=anchorScreen.map(cameraRegion) ?? .zero
+            let hotRegion=anchorScreen.map { NotchGeometry(screen:$0).tab } ?? .zero
             let point=hotRegion.isEmpty ? NSPoint(x:panel.frame.midX,y:panel.frame.midY) : NSPoint(x:hotRegion.midX,y:hotRegion.midY)
             updateHover(at:point,dragging:false)
             try await Task.sleep(nanoseconds:550_000_000)
@@ -509,6 +502,22 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             guard peek as? Bool == true, panel.frame.width>compactWidth, abs(panel.frame.maxY-compactTop)<1,
                   panel.isKeyWindow==key, panel.firstResponder===responder,
                   NSWorkspace.shared.frontmostApplication?.processIdentifier==front else { throw Check.failed(#line) }
+            let wrapsHousing = try await web.callAsyncJavaScript("""
+                const tab=document.querySelector('#islandToggle'), box=tab.getBoundingClientRect(),
+                      rim=getComputedStyle(tab,'::after'), shoulder=getComputedStyle(tab,'::before'),
+                      sheet=document.querySelector('#notch-home').getBoundingClientRect();
+                return Math.abs(box.width-width)<0.51 && Math.abs(box.height-depth)<0.51 &&
+                    Math.abs(box.left-tabLeft)<0.51 && Math.abs(sheet.top-box.bottom)<0.51 &&
+                    Math.abs(parseFloat(rim.left)+wing)<0.51 && parseFloat(rim.borderBottomWidth)===0 &&
+                    Math.abs(parseFloat(shoulder.left)+wing)<0.51 && Math.abs(parseFloat(shoulder.right)+wing)<0.51;
+                """, arguments:["width":geometry.tab.width,"depth":geometry.tab.height,"pixel":geometry.pixel,
+                                "tabLeft":geometry.tab.minX-panel.frame.minX,"wing":geometry.wing],in:nil,contentWorld:.page)
+            guard wrapsHousing as? Bool == true else { throw Check.failed(#line) }
+            if geometry.hasCutout {
+                updateHover(at:NSPoint(x:geometry.tab.minX-geometry.wing/2,y:geometry.tab.midY),dragging:false)
+                guard pointerInside, panel.ignoresMouseEvents else {throw Check.failed(#line)}
+            }
+            print("Measured \(geometry.hasCutout ? "cutout" : "fallback") \(geometry.tab.width) × \(geometry.tab.height) pt, \(geometry.wing) pt shoulders at \(screen.backingScaleFactor)×.")
             updateHover(at:outside,dragging:false)
             try await Task.sleep(nanoseconds:650_000_000)
             let shut=try await web.evaluateJavaScript("document.querySelector('#notch-home').hidden")
@@ -529,7 +538,9 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             try await Task.sleep(nanoseconds:220_000_000)
             let id=binaryID
             guard !id.isEmpty,lightingActive else {throw Check.failed(#line)}
-            let cutout=anchorScreen.map(cameraRegion) ?? .zero
+            let cutout=anchorScreen.flatMap { screen -> CGRect? in
+                let geometry=NotchGeometry(screen:screen);return geometry.hasCutout ? geometry.tab : nil
+            } ?? .zero
             if !cutout.isEmpty {
                 let offset=try await web.evaluateJavaScript("document.querySelector('#notch').getBoundingClientRect().top")
                 guard let top=offset as? Double, panel.frame.maxY-top <= cutout.minY+1 else {throw Check.failed(#line)}
@@ -560,8 +571,9 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             for _ in 0..<42 {
                 let value=try await web.evaluateJavaScript("""
                     (()=>{const v=document.querySelector('[data-film=stage]');
-                    return !!v && (matchMedia('(prefers-reduced-motion: reduce)').matches ?
-                        !v.hasAttribute('src') && !!v.poster : v.currentTime>0 && !v.paused)})()
+                    if(!v || !v.poster)return false;
+                    if(matchMedia('(prefers-reduced-motion: reduce)').matches)return !v.hasAttribute('src') && v.paused;
+                    return document.hidden ? v.paused : v.currentTime>0 && !v.paused})()
                     """)
                 if value as? Bool==true {motionReady=true;break}
                 try await Task.sleep(nanoseconds:120_000_000)
@@ -579,6 +591,18 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             let resized=workspace.frame
             deliver("prefs")
             try await Task.sleep(nanoseconds:200_000_000)
+            let providerPicker=try await web.evaluateJavaScript("""
+                (()=>{
+                    document.querySelector('#modal [data-action="session-models"]').click();
+                    document.querySelector('#default-agent').click();
+                    const list=[...document.querySelectorAll('#modal [role="listbox"]')].find(el=>el.getClientRects().length);
+                    const choice=[...(list?.querySelectorAll('[role="option"]') || [])].find(el=>el.textContent.includes('Codex'));
+                    if(!choice)return false;
+                    choice.click();
+                    return document.querySelector('#default-agent').value==='codex';
+                })()
+                """)
+            guard providerPicker as? Bool==true else {throw Check.failed(#line)}
             _ = try await web.evaluateJavaScript("document.querySelector('#modal [aria-label=\"Close dialog\"]').click();true")
             let cardClosed=try await web.evaluateJavaScript("!document.querySelector('#modal').open")
             guard cardClosed as? Bool==true,workspace.frame==resized else {throw Check.failed(#line)}

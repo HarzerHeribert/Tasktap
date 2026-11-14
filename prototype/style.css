@@ -29,6 +29,8 @@ main{padding:var(--s-section) var(--s-gutter);display:grid;gap:var(--s-group);al
 
 .native-host.notch-first #modal,.native-host.notch-first #notch{max-height:var(--available-panel-height,700px)}
 
+.overview-content{display:contents}
+
 /* The tab and resident sheets meet at the same black edge. All voice light layers
    stay within the indicator; the surrounding labels and buttons remain still. */
 :root{
@@ -36,21 +38,50 @@ main{padding:var(--s-section) var(--s-gutter);display:grid;gap:var(--s-group);al
   --signal-gold:#edbd83;--notch-reveal:180ms;--signal-cycle:2.6s;
 }
 .island button,#notch-home,.notch-first #modal,.notch-first #notch{background:var(--notch-black);color:var(--panel-text);border-color:var(--notch-black)}
-.notch-spread .island button,.notch-first:has(dialog[open]) .island button{border-radius:0}
 #notch-home{
-  --folded-clip:inset(0 29% 100% round 0 0 var(--r-island) var(--r-island));
-  isolation:isolate;clip-path:inset(0 0 0 round 0 0 var(--r-resident) var(--r-resident));
+  --folded-clip:inset(0 max(0px,calc((100% - var(--native-tab-width,174px))/2 - var(--notch-wing,28px))) 100% round var(--r-island));
+  isolation:isolate;clip-path:inset(0 0 0 round var(--r-control) var(--r-control) var(--r-resident) var(--r-resident));
   transition:clip-path var(--notch-reveal) cubic-bezier(.2,.8,.3,1);
 }
 #notch-home.retracting{clip-path:var(--folded-clip);transition-duration:140ms;transition-timing-function:ease-in}
 @starting-style{#notch-home:not([hidden]){clip-path:var(--folded-clip)}}
-.island button{position:relative}
-.island button::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;opacity:0;box-shadow:0 0 0 1px #f1bb7e,0 1px 5px 1px #e2a55975}
-.needs-decision .island button::after{opacity:.64;animation:attention-edge 2.4s ease-in-out infinite alternate}
-@keyframes attention-edge{from{opacity:.38}to{opacity:.82}}
+/* Keep the camera blank. A luminous U cups its measured edges while black shoulders
+   unfold sideways into the sheet. Small displays keep this silhouette; Reduce Motion
+   presents the final geometry immediately. */
+:root{--notch-wing:28px;--notch-pixel:1px;--camera-offset:0px;--cutout-corner:var(--s-icon);--rim-outset:var(--s-tight)}
+.island button{position:relative;isolation:isolate;border-radius:0 0 var(--cutout-corner) var(--cutout-corner)}
+.island button::before,.island button::after{content:"";position:absolute;pointer-events:none}
+.island button::before{
+  z-index:-1;left:0;right:0;top:0;bottom:0;background:var(--notch-black);border-radius:inherit;
+  transition:inset-inline var(--notch-reveal) cubic-bezier(.2,.8,.3,1),border-radius var(--notch-reveal);
+}
+.notch-first:is(.notch-spread,:has(dialog[open])):not(:has(#notch-home.retracting)) .island button::before{
+  inset-inline:calc(-1 * var(--notch-wing));border-radius:var(--r-control) var(--r-control) 0 0;
+}
+.notch-first :is(#notch-home,#notch,#modal){border-top-left-radius:var(--r-control);border-top-right-radius:var(--r-control)}
+.island button::after{
+  inset:0 calc(-1 * var(--rim-outset)) calc(-1 * var(--rim-outset));border:var(--notch-pixel) solid #f8c991;border-top:0;
+  border-radius:0 0 var(--cutout-corner) var(--cutout-corner);opacity:0;
+  box-shadow:0 1px 5px 1px #df9e5190;
+}
+.needs-decision .island button::after{opacity:.68;animation:attention-edge 2.4s ease-in-out infinite alternate}
+/* Carry the decision light out to the shoulder edges. The open center joins the
+   sheet; the amber ledges turn onto the two visible sides of its perimeter. */
+.notch-first.needs-decision:is(.notch-spread,:has(dialog[open])):not(:has(#notch-home.retracting)) .island button::after{
+  inset:0 calc(-1 * var(--notch-wing)) 0;border-bottom:0;border-radius:var(--r-control) var(--r-control) 0 0;
+  box-shadow:none;transition:inset-inline var(--notch-reveal) cubic-bezier(.2,.8,.3,1);
+}
+.notch-first.needs-decision :is(#notch-home,#modal[open],#notch[open]){
+  border:var(--notch-pixel) solid #866440;border-top-color:transparent;
+  --ledge:calc(50% - var(--native-tab-width,174px)/2 - var(--notch-wing));
+  background-image:linear-gradient(to right,#af8459 0, #af8459 calc(var(--ledge) + var(--camera-offset)),transparent calc(var(--ledge) + var(--camera-offset)),transparent calc(100% - var(--ledge) + var(--camera-offset)),#af8459 calc(100% - var(--ledge) + var(--camera-offset)));
+  background-repeat:no-repeat;background-origin:border-box;background-clip:border-box;background-size:100% var(--notch-pixel);
+}
+@keyframes attention-edge{from{opacity:.42}to{opacity:.86}}
 .island button:focus-visible{outline:2px solid var(--panel-text);outline-offset:3px}
 .native-host{--s-panel-top:var(--camera-height,34px)}
-.native-host .island button{width:var(--native-tab-width,174px);min-width:0;height:var(--s-panel-top);max-width:100%}
+.native-host .island button{width:var(--native-tab-width,174px);min-width:0;height:var(--s-panel-top);max-width:100%;transform:translateX(var(--camera-offset))}
+.native-host.notch-first .toast{top:calc(var(--s-panel-top) + var(--s-icon))}
 .home-heading>div{display:grid;gap:var(--s-tight)}.signal-caption{color:var(--panel-muted);font:var(--t-meta)/1.4 var(--font-mono)}
 .signal-light{position:relative;display:inline-grid;place-items:center;flex:none;width:42px;height:42px;pointer-events:none;color:var(--signal-gold)}
 .signal-light::before,.signal-light::after,.signal-light i{content:"";position:absolute;border-radius:var(--r-round)}

@@ -11,6 +11,7 @@
 <key>CFBundleVersion</key><string>2</string>
 <key>LSMinimumSystemVersion</key><string>26.0</string>
 <key>LSUIElement</key><true/>
+<key>NSPrefersDisplaySafeAreaCompatibilityMode</key><false/>
 <key>NSMicrophoneUsageDescription</key><string>Record a thought for on-device transcription.</string>
 <key>NSSpeechRecognitionUsageDescription</key><string>Transcribe captured speech locally.</string>
 <key>NSAppleEventsUsageDescription</key><string>Read the active page URL or selected file when you refer to this website or this file in a capture.</string>

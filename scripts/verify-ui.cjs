@@ -206,6 +206,40 @@ const clip = n=>Math.abs(n)<=1;
     assert.equal(frames[0].frame.width,frames[2].frame.width);assert.equal(frames[0].frame.height,frames[2].frame.height);
     assert.ok(Number(frames[0].opacity)<Number(frames[1].opacity)&&Number(frames[1].opacity)<Number(frames[2].opacity));
     await motion.close();
+    const artContext=await browser.newContext({viewport:{width:1120,height:820}});
+    const art=await artContext.newPage();
+    art.on('pageerror',e=>errors.push(String(e)));
+    await art.goto(url+'#workspace');
+    const themes=await art.evaluate(()=>TasktapArt.catalog.map(theme=>theme.id));
+    assert.deepEqual(new Set(themes),new Set(['glyph','phase','relay','orbit','resonator']));
+    assert.equal(await art.evaluate(()=>TasktapArt.current()),'glyph');
+    for(const theme of themes){
+      await art.evaluate(id=>TasktapArt.select(id),theme);
+      await art.waitForFunction(id=>{
+        const film=document.querySelector('#main [data-film=stage]');
+        return film && film.videoWidth>0 && !film.paused && film.currentTime>0 &&
+          film.currentSrc.split('/').at(-2)===id;
+      },theme);
+    }
+    await art.evaluate(()=>TasktapArt.select('orbit'));
+    await art.reload();
+    assert.equal(await art.evaluate(()=>TasktapArt.current()),'orbit');
+    assert.ok(await art.evaluate(()=>{
+      const video=document.querySelector('#main video');
+      render();
+      return video===document.querySelector('#main video');
+    }));
+    await art.getByRole('button',{name:/Lighting pass/}).click();
+    await art.waitForFunction(()=>{
+      const film=document.querySelector('#modal .activity-band video');
+      return film && !film.paused && film.currentTime>0 && document.querySelector('#main video').paused;
+    });
+    await art.getByRole('button',{name:'Close dialog'}).click();
+    await art.waitForFunction(()=>!document.querySelector('#main video').paused);
+    await art.emulateMedia({reducedMotion:'reduce'});
+    await art.waitForFunction(()=>[...document.querySelectorAll('[data-film]')].every(film=>film.paused && !film.hasAttribute('src')));
+    assert.ok(await art.locator('#main video').getAttribute('poster'));
+    await artContext.close();
     const liveCtx=await browser.newContext({viewport:{width:800,height:480}});
     await liveCtx.addInitScript(()=>{
       window.sent=[];

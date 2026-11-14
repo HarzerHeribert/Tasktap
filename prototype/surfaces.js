@@ -32,7 +32,7 @@ function showWorkspace(){
   $('#notification-preview').hidden=true;
   $('#notch-home').hidden=true;
   go(view);
-  updateBounds();
+  updateBounds(true);
 }
 function showHome(open=true){
   clearTimeout(hoverTimer);
@@ -41,7 +41,7 @@ function showHome(open=true){
   homeMode=open?'pinned':'closed';
   drawHome();
   $('#islandToggle').focus({preventScroll:true});
-  updateBounds();
+  updateBounds(true);
 }
 function hoverNotch(inside){
   clearTimeout(hoverTimer);
@@ -171,6 +171,7 @@ function markChoices(){
   }
 }
 function hardware(action,requestId){
+  if(action==='back' && settingsPickers.close())return;
   if(['yes','no','discuss'].includes(action)){
     const q=visibleBinary();
     if(!q || (requestId!==undefined && q.id!==requestId))return;
@@ -225,13 +226,31 @@ function controllerPreview(){
   const d=$('#notch');if(!d.open||!optionsForDecision().length)return;
   const box=document.createElement('div');box.className='micro-preview';box.setAttribute('aria-label','Codex Micro simulator');box.innerHTML='<span class="eyebrow">Controller simulation</span><div class="inline">'+['previous','next','confirm','back'].map((a,i)=>surfaceButton(['Previous','Next','Confirm','Defer'][i],'hw-'+a)).join('')+'</div>';d.firstElementChild.append(box);
 }
-function updateBounds(){
-  if(!host||boundsFrame)return;
-  boundsFrame=requestAnimationFrame(()=>{
-    boundsFrame=0;
-    const panel=$('#notch').open?$('#notch'):$('#modal').open?$('#modal'):!$('#notch-home').hidden?$('#notch-home'):$('#island');
-    postHost('layout',{workspace:!firstMode(),height:Math.ceil(panel.getBoundingClientRect().height+(panel.id==='island'?0:$('#island').getBoundingClientRect().height)),collapsed:firstMode()&&panel.id==='island'});
-  });
+// AppKit reports points in the same units as CSS pixels at WKWebView's native zoom.
+function updateNotchGeometry(metrics){
+  const style=document.documentElement.style;
+  for(const [property,value] of Object.entries({
+    '--native-tab-width':metrics.width,'--camera-height':metrics.height,'--camera-offset':metrics.offset,
+    '--notch-wing':metrics.wing,'--notch-pixel':metrics.pixel,'--cutout-corner':metrics.corner,
+    '--rim-outset':metrics.rimOffset,'--available-panel-height':metrics.available
+  })){
+    const length=value+'px';
+    if(style.getPropertyValue(property)!==length)style.setProperty(property,length);
+  }
+}
+function postBounds(){
+  boundsFrame=0;
+  const panel=$('#notch').open?$('#notch'):$('#modal').open?$('#modal'):!$('#notch-home').hidden?$('#notch-home'):$('#island');
+  postHost('layout',{workspace:!firstMode(),height:Math.ceil(panel.getBoundingClientRect().height+(panel.id==='island'?0:$('#island').getBoundingClientRect().height)),collapsed:firstMode()&&panel.id==='island'});
+}
+function updateBounds(immediate=false){
+  if(!host)return;
+  // WebKit can suspend animation frames while a window is covered. Switching
+  // between native windows must reach AppKit even when that happens.
+  if(immediate===true || document.hidden){
+    cancelAnimationFrame(boundsFrame);
+    postBounds();
+  }else if(!boundsFrame)boundsFrame=requestAnimationFrame(postBounds);
 }
 function command(action,id=''){
   const m=$('#status-menu');m.hidden=true;$('#status-button').setAttribute('aria-expanded','false');
@@ -240,7 +259,10 @@ function command(action,id=''){
     case 'collapse':showHome(false);break;
     case 'workspace':showWorkspace();break;
     case 'prefs':prefs();break;
-    case 'close-front':if(document.querySelector('dialog[open]'))dismissCard();else showHome(false);break;
+    case 'close-front':
+      if(settingsPickers.close())break;
+      if(document.querySelector('dialog[open]'))dismissCard();else showHome(false);
+      break;
     case 'capture':hardware('capture');break;
     case 'requests':openRequest(id);break;
     case 'controller':controller();break;
@@ -293,7 +315,10 @@ for(const selector of ['#notch','#modal']){
   }).observe(d,{childList:true,attributes:true,attributeFilter:['open']});
   new ResizeObserver(updateBounds).observe(d);
 }
-if(host)new ResizeObserver(updateBounds).observe($('#notch-home'));
+if(host){
+  const boundsObserver=new ResizeObserver(updateBounds);
+  boundsObserver.observe($('#notch-home'));boundsObserver.observe($('#island'));
+}
 window.workspaceCommand=(action,id='')=>{
   if(action==='live-error'){toast(id);return}
   if(action==='micro-status'){microStatus=id;const status=$('#micro-status');if(status)status.textContent=id;return}

@@ -96,3 +96,24 @@ action.addEventListener('click', () => {
   action.firstElementChild.textContent = showReceipt ? 'Replay example' : 'Start example session';
   announcement.textContent = showReceipt ? 'Example session started in Cuegrid with Claude Code.' : 'Example handoff ready to review.';
 });
+
+const installToggle = document.querySelector('.terminal-toggle');
+const installPanel = document.querySelector('#terminal-install');
+const copyInstall = document.querySelector('#copy-install');
+if (installToggle && installPanel && copyInstall) {
+  document.querySelector('.terminal-fallback').hidden = true;
+  installToggle.hidden = false;
+  installToggle.addEventListener('click', () => {
+    installPanel.hidden = !installPanel.hidden;
+    installToggle.setAttribute('aria-expanded', String(!installPanel.hidden));
+  });
+  copyInstall.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(document.querySelector('#install-command').textContent);
+      document.querySelector('#install-status').textContent = 'Command copied. Paste it into Terminal to install Tasktap.';
+      copyInstall.textContent = 'Copied';
+    } catch {
+      document.querySelector('#install-status').textContent = 'Select and copy the command above.';
+    }
+  });
+}

@@ -146,7 +146,7 @@ function menu(){
   $('#status-button').setAttribute('aria-expanded',String(!m.hidden));
   m.innerHTML='<strong>Tasktap</strong>'+[
     ['New capture','capture','mic'],['Review decisions','requests','checks'],
-    ['Open workspace','workspace','out'],['Codex Micro controls','controller','settings'],
+    ['Open workspace','workspace','out'],['Run setup…','run-setup','settings'],['Codex Micro controls','controller','settings'],
     ['Notification settings','notifications','bell']
   ].map(([label,act,sym])=>surfaceButton(label,act,sym)).join('');
   if(!m.hidden)m.querySelector('button')?.focus();
@@ -330,7 +330,8 @@ function updateBounds(immediate=false){
 function command(action,id=''){
   const m=$('#status-menu');m.hidden=true;$('#status-button').setAttribute('aria-expanded','false');
   switch(action){
-    case 'open-app':firstRun.open();break;
+    case 'open-app':if(!setupWizard.offer())firstRun.open();break;
+    case 'run-setup':setupWizard.open('menu');break;
     case 'guide-replay':firstRun.open(true);break;
     case 'guide-finish':firstRun.finish();break;
     case 'guide-choose':firstRun.choosing();break;

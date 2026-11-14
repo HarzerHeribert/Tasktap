@@ -246,6 +246,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         menu.addItem(.separator())
         add("Open Workspace", "workspace", to:menu)
         add("Preferences…", "prefs", to:menu)
+        add("Run Setup…", "run-setup", to:menu)
         add("Notifications…", "notifications", to:menu)
         add("Codex Micro Controls…", "controller", to:menu)
         if !unavailable.isEmpty {

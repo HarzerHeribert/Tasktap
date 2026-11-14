@@ -36,7 +36,10 @@ const seed = {
   speak:false
 };
 const storageKey=live?'tasktap-live-v1':'workspace-assistant-demo-v1';
-let state;try{state=JSON.parse(localStorage.getItem(storageKey))||(live?emptyState():structuredClone(seed))}catch{state=live?emptyState():structuredClone(seed)}
+let state;
+try{state=JSON.parse(localStorage.getItem(storageKey))}catch{}
+const returningInstall=!!state;
+state ||= live?emptyState():structuredClone(seed);
 let view='overview',draft=null,openedSession=null,decisionVoice=false,spoken=false,simVoice=null,returnFocus=null;
 const persist=()=>{try{localStorage.setItem(storageKey,JSON.stringify(state))}catch{toast('Storage unavailable. Changes will last for this visit.')}};
 const scratchProject={id:'@scratch',name:'Scratch',folder:'Scratch',aliases:[]};
@@ -176,11 +179,12 @@ function frame(title,over,body,backLabel=''){
   const nav=backLabel?'<button class="icon-btn" data-action="close" aria-label="'+attr(backLabel)+'">'+icon('back')+'</button>':'<button class="icon-btn" data-action="close" aria-label="Close dialog">'+icon('x')+'</button>';
   return '<div class="dialog-body"><div class="dialog-title"><div>'+(over?'<span class="eyebrow">'+esc(over)+'</span>':'')+'<h2 id="dialog-heading">'+esc(title)+'</h2></div>'+nav+'</div>'+body+'</div>'}
 function dialog(title,over,body,backLabel=''){settingsPickers.close();if(draft?.routing && title!=='Preparing handoff')cancelRouting();clearTimeout(toast.timer);$('#toast').textContent='';const d=$('#modal');if(!d.open)returnFocus=document.activeElement;d.innerHTML=frame(title,over,body,backLabel);d.setAttribute('aria-labelledby','dialog-heading');if(!d.open)d.showModal();else $('button',d)?.focus()}
-function dismissCard(){cancelRouting();stopRoutingSpeech();if(live)stopDictation();clearTimeout(simVoice);simVoice=null;document.dispatchEvent(new Event('voice-activity'));if($('#notch').open){$('#notch').close();$('#islandToggle').setAttribute('aria-expanded','false');if($('#modal').open)$('#modal button')?.focus();else $('#islandToggle').focus();return}if($('#modal').open)$('#modal').close();if(returnFocus?.isConnected)returnFocus.focus();else if(document.body.classList.contains('notch-first'))$('#islandToggle').focus();else $('#main').focus()}
+function dismissCard(){if(!$('#notch').open && setupWizard.showing()){setupWizard.cancel();return}cancelRouting();stopRoutingSpeech();if(live)stopDictation();clearTimeout(simVoice);simVoice=null;document.dispatchEvent(new Event('voice-activity'));if($('#notch').open){$('#notch').close();$('#islandToggle').setAttribute('aria-expanded','false');if($('#modal').open)$('#modal button')?.focus();else $('#islandToggle').focus();return}if($('#modal').open)$('#modal').close();if(returnFocus?.isConnected)returnFocus.focus();else if(document.body.classList.contains('notch-first'))$('#islandToggle').focus();else $('#main').focus()}
 let siriVoices=[];
 let kokoro={status:'checking',detail:'Checking local voice…'};
 function updateKokoro(status,detail){
   kokoro={status,detail};
+  document.dispatchEvent(new Event('local-voices-changed'));
   if(!$('#voice-engine'))return;
   voiceOptions();
   const hint=$('#voice-status');if(hint)hint.textContent=detail;
@@ -190,6 +194,7 @@ function updateKokoro(status,detail){
 
 function configureVoices(voices){
   siriVoices=voices;
+  document.dispatchEvent(new Event('local-voices-changed'));
   if($('#voice-engine'))voiceOptions();
 }
 function voiceOptions(){
@@ -587,7 +592,7 @@ function prefs(group='agents'){
       '<div class="check-line"><input id="narration" type="checkbox" '+(state.speak?'checked':'')+'><label for="narration">Read completion summaries aloud</label></div>'+
       surfaceButton('Notification settings','notifications','bell','btn');
   }
-  dialog('Preferences','Tasktap','<div id="preferences" class="settings-form">'+nav+'<section aria-label="'+preferenceGroups[group]+'" class="settings-section">'+body+'</section>'+button('Documentation','open-docs',group,'text-btn','out')+'</div>');
+  dialog('Preferences','Tasktap','<div id="preferences" class="settings-form">'+nav+'<section aria-label="'+preferenceGroups[group]+'" class="settings-section">'+body+'</section><div class="preference-links">'+button('Run setup…','run-setup','','text-btn','settings')+button('Documentation','open-docs',group,'text-btn','out')+'</div></div>');
   settingsHeader();
   if(group==='agents' && live)aiConnections.refresh();
   if(group==='capture')captureContext.bindPreference();
@@ -609,6 +614,7 @@ document.addEventListener('click',e=>{
   const el=e.target.closest('[data-action]');if(!el)return;const a=el.dataset.action,id=el.dataset.id;
   switch(a){
     case 'view':go(id);break;case 'capture':newDraft('');break;case 'menu':document.body.classList.toggle('nav-open');break;
+    case 'run-setup':setupWizard.open('preferences');break;
     case 'prefs-group':prefs(id);$('#preferences [aria-pressed=true]').focus({preventScroll:true});break;
     case 'start-session':newDraft('',id);break;case 'follow':newDraft(id);break;case 'session':showSession(id);break;case 'close':dismissCard();break;case 'prefs':prefs();break;case 'session-models':sessionModelSettings();break;case 'ai-connections':aiConnections.show();break;
     case 'speakresult':speak(sess(id).result);break;

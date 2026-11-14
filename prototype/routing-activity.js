@@ -8,8 +8,8 @@ function workspaceEvidence(d) {
   return 'Workspace still needs a match.';
 }
 
-function activityBand(titleMarkup, caption, active) {
-  const art=active ? TasktapArt.markup('miniature') : '<img src="'+attr(TasktapArt.poster(TasktapArt.current(),'miniature'))+'" alt="">';
+function activityBand(titleMarkup, caption, active, receiptArt) {
+  const art=receiptArt || (active ? TasktapArt.markup('miniature') : '<img src="'+attr(TasktapArt.poster(TasktapArt.current(),'miniature'))+'" alt="">');
   return '<div class="activity-band"><div class="activity-copy">'+titleMarkup+'<span class="activity-caption">'+esc(caption)+'</span></div><div class="activity-art" aria-hidden="true">'+art+'</div></div>';
 }
 

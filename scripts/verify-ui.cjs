@@ -195,8 +195,9 @@ const clip = n=>Math.abs(n)<=1;
     assert.equal(new Set(peekFrames.map(f=>f.clip)).size,3);
     assert.deepEqual(peekFrames[0].frame,peekFrames[1].frame);
     assert.deepEqual(peekFrames[0].frame,peekFrames[2].frame);
-    assert.equal(await moving.locator('.home-heading .signal-light i').evaluate(el=>getComputedStyle(el).animationName),'signal-breathe');
-    await moving.evaluate(()=>{state.sessions.forEach(s=>s.state='Complete');render()});
+    // With a real question pending, the attention cue belongs to the camera rim.
+    assert.equal(await moving.locator('body').getAttribute('data-signal'),'waiting');
+    assert.equal(await moving.locator('#islandToggle').evaluate(el=>getComputedStyle(el,'::after').animationName),'attention-edge');
     assert.equal(await moving.locator('.home-heading .signal-light i').evaluate(el=>getComputedStyle(el).animationName),'none');
     await moving.keyboard.press('Control+Alt+KeyJ');
     const frames=await moving.locator('#notch').evaluate(async el=>{

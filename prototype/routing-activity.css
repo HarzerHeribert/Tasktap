@@ -14,3 +14,26 @@
 .session-state.offline{--dot:#98a29e}
 .activity-brief{white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--t-copy);line-height:1.5}
 .route-evidence ul{display:grid;gap:var(--s-icon);padding-left:var(--s-panel);margin:var(--s-row) 0 0;font-size:var(--t-label);overflow-wrap:anywhere}
+
+/* The stage poster supplies the polished metal. Only the light on the chosen rail
+   moves, advancing once per receipt. Reduce Motion changes its position instantly. */
+tasktap-relay{
+  position:relative;display:block;min-width:0;width:100%;aspect-ratio:736/352;
+  overflow:hidden;pointer-events:none;background:#020304;isolation:isolate
+}
+tasktap-relay img,tasktap-relay canvas{
+  position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain
+}
+.review-rail,.capture-receipt{
+  display:flex;align-items:center;gap:var(--s-row);min-width:0;
+  font:var(--t-small)/1.4 var(--font-mono)
+}
+.review-rail{
+  padding:var(--s-tight) var(--s-panel);background:#080d10;color:#dfded4;
+  border:1px solid #30383a;border-radius:var(--r-card)
+}
+.review-rail tasktap-relay{width:clamp(92px,30%,160px);mix-blend-mode:screen}
+.capture-receipt tasktap-relay{width:clamp(74px,24%,106px);mix-blend-mode:screen}
+.home-heading .signal-light:has(tasktap-relay) i{animation:none}
+.activity-art:has(tasktap-relay){align-content:center}
+.dialog-body>tasktap-relay{max-width:220px;margin:auto;border-radius:var(--r-control)}

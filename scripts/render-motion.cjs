@@ -1,4 +1,5 @@
 // Usage: node scripts/render-motion.cjs [--posters-only] [glyph|phase|relay|orbit]
+// Pass --glyph-sprite to regenerate only the transparent live meter sprite.
 // Authoring tools: Playwright with Chromium, ffmpeg and (optional) BROWSER_EXECUTABLE.
 const { chromium } = require('playwright');
 const fs = require('node:fs/promises');
@@ -21,7 +22,15 @@ const fps = 24, total = 96;
   try {
     const page = await browser.newPage();
     await page.evaluate(source=>{window.phaseShaderSource=source},await fs.readFile(path.join(art,'phase.frag'),'utf8'));
+    await page.addScriptTag({path:path.join(base,'prototype/relay-path.js')});
     await page.addScriptTag({path:path.join(art,'motion-studies.js')});
+    if (process.argv.includes('--glyph-sprite') || studies.includes('glyph')) {
+      const dir=path.join(base,'prototype/assets/motion/glyph');
+      await fs.mkdir(dir,{recursive:true});
+      const sprite=await page.evaluate(()=>window.glyphSprite());
+      await fs.writeFile(path.join(dir,'type.png'),Buffer.from(sprite,'base64'));
+      if(process.argv.includes('--glyph-sprite'))return;
+    }
     for(const id of studies) {
       const dest=path.join(base,'prototype/assets/motion',id);
       await fs.mkdir(dest,{recursive:true});

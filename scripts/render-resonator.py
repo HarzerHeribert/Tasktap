@@ -2,9 +2,11 @@
 
 BLENDER="/Applications/Blender.app/Contents/MacOS/Blender"
 "$BLENDER" -b -t 6 --python scripts/render-resonator.py
-Pass -- --preview to render just the first frame to the temporary directory.
+Pass -- --preview to render one frame, --device METAL for the macOS GPU, or
+--icon to opt into regenerating the Finder icon after a full render.
 """
 import argparse
+from array import array
 import math
 from pathlib import Path
 import subprocess
@@ -16,6 +18,8 @@ from mathutils import Vector
 
 args = argparse.ArgumentParser()
 args.add_argument("--preview", action="store_true")
+args.add_argument("--icon", action="store_true", help="Also regenerate the Finder icon from this finish")
+args.add_argument("--device", choices=["CPU","METAL"], default="CPU")
 args.add_argument("--encode-only", action="store_true", help="Reuse the rendered frames")
 args.add_argument("--frames", type=Path, default=Path(tempfile.gettempdir()) / "tasktap-resonator")
 args = args.parse_args(sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else [])
@@ -26,10 +30,24 @@ assets.mkdir(parents=True, exist_ok=True)
 bpy.ops.wm.read_factory_settings(use_empty=True)
 scene = bpy.context.scene
 scene.render.engine = "CYCLES"
-scene.cycles.samples = 12
+scene.cycles.samples = 36
+scene.cycles.adaptive_threshold = 0.035
+scene.cycles.adaptive_min_samples = 12
+scene.cycles.denoising_input_passes = "RGB_ALBEDO_NORMAL"
 scene.cycles.use_denoising = True
 scene.cycles.max_bounces = 4
+scene.cycles.sample_clamp_indirect = 2.0
 scene.cycles.device = "CPU"
+if args.device == "METAL":
+    preferences = bpy.context.preferences.addons["cycles"].preferences
+    preferences.compute_device_type = "METAL"
+    preferences.refresh_devices()
+    gpu = [device for device in preferences.devices if device.type == "METAL"]
+    if not gpu:
+        raise RuntimeError("Blender did not discover a Metal GPU. Run with --device CPU.")
+    for device in preferences.devices:
+        device.use = device.type == "METAL"
+    scene.cycles.device = "GPU"
 scene.render.resolution_x, scene.render.resolution_y = 720, 416
 scene.render.resolution_percentage = 100
 scene.render.image_settings.file_format = "PNG"
@@ -38,9 +56,56 @@ scene.render.image_settings.compression = 15
 scene.view_settings.view_transform = "AgX"
 scene.world = bpy.data.worlds.new("Black cyclorama")
 scene.world.use_nodes = True
+# A full studio panorama gives mirror faces bright softbox panels and substantial grey
+# walls even where there is no direct lamp. Camera rays receive a separate black backdrop.
 world = scene.world.node_tree.nodes["Background"]
-world.inputs[0].default_value = (0.002, 0.003, 0.0025, 1)
-world.inputs[1].default_value = 0.25
+world.inputs[1].default_value = 1.0
+width, height = 768, 384
+pixels = array("f")
+panels = [
+    (-2.45, .61, .92, .31, -.18, (2.04, 2.16, 2.24)),
+    (-.83, .27, .71, .068, .16, (2.35, 2.31, 2.09)),
+    (.54, .32, .49, .54, -.21, (1.13, 1.25, 1.39)),
+    (2.61, -.21, .38, .34, .23, (1.03, .66, .40)),
+    (1.68, -.73, 1.1, .23, .10, (.42, .50, .55)),
+]
+# The flags are unlit black cards between the rectangular strip lights.
+flags = [(-.30,.02,.92,.19,-.19), (1.21,-.33,.80,.23,.32), (-2.45,-.45,1.20,.18,.22)]
+for y in range(height):
+    lat = ((y+.5)/height-.5)*math.pi
+    for x in range(width):
+        lon = ((x+.5)/width-.5)*2*math.pi
+        wall = .095 + .10 * (1+math.sin(lat)) + .046*math.cos(lon-1.15)
+        rgb = [wall*.90, wall, wall*1.05]
+        for px, py, sx, sy, tilt in flags:
+            dx = (lon-px+math.pi)%(2*math.pi)-math.pi
+            edge = max(abs(dx)-sx,abs(lat-py-tilt*dx)-sy)
+            amount = min(1,max(0,.5-edge/.09))
+            rgb = [value*(1-.94*amount) for value in rgb]
+        for px, py, sx, sy, tilt, color in panels:
+            dx = (lon-px+math.pi)%(2*math.pi)-math.pi
+            dy = lat-py-tilt*dx
+            edge = max(abs(dx)-sx,abs(dy)-sy)
+            weight = min(1,max(0,.5-edge/.04))
+            if weight:
+                for channel in range(3): rgb[channel] += color[channel]*weight
+        pixels.extend((*rgb,1))
+panorama = bpy.data.images.new("Cyclorama strip-light cards", width=width, height=height, float_buffer=True)
+panorama.colorspace_settings.name = "Non-Color"
+panorama.pixels.foreach_set(pixels)
+nodes = scene.world.node_tree.nodes
+links = scene.world.node_tree.links
+environment = nodes.new("ShaderNodeTexEnvironment")
+environment.image = panorama
+links.new(environment.outputs["Color"], world.inputs[0])
+camera_background = nodes.new("ShaderNodeBackground")
+camera_background.inputs[0].default_value = (.0009,.0017,.0017,1)
+lights = nodes.new("ShaderNodeLightPath")
+mix = nodes.new("ShaderNodeMixShader")
+links.new(lights.outputs["Is Camera Ray"],mix.inputs[0])
+links.new(world.outputs[0],mix.inputs[1])
+links.new(camera_background.outputs[0],mix.inputs[2])
+links.new(mix.outputs[0],nodes.get("World Output").inputs["Surface"])
 
 
 def lacquer(name, tint, metallic, roughness, coat=0.0):
@@ -50,22 +115,39 @@ def lacquer(name, tint, metallic, roughness, coat=0.0):
     for key, value in {"Base Color": (*tint, 1), "Metallic": metallic, "Roughness": roughness,
                        "Coat Weight": coat, "Coat Roughness": 0.17}.items():
         shader.inputs[key].default_value = value
+    # Combine a deterministic mirror of the studio map with a smaller true metal
+    # pass for inter-ring reflections. This keeps shadowed faces steady across frames.
+    tree = material.node_tree
+    reflection = tree.nodes.new("ShaderNodeTexCoord")
+    card = tree.nodes.new("ShaderNodeTexEnvironment")
+    card.image = panorama
+    tree.links.new(reflection.outputs["Reflection"], card.inputs["Vector"])
+    coating = tree.nodes.new("ShaderNodeVectorMath")
+    coating.operation = "MULTIPLY"
+    coating.inputs[1].default_value = tint
+    tree.links.new(card.outputs["Color"], coating.inputs[0])
+    chrome = tree.nodes.new("ShaderNodeEmission")
+    tree.links.new(coating.outputs[0], chrome.inputs["Color"])
+    surface = tree.nodes.new("ShaderNodeMixShader")
+    surface.inputs[0].default_value = 0.54
+    tree.links.new(shader.outputs[0], surface.inputs[1])
+    tree.links.new(chrome.outputs[0], surface.inputs[2])
+    tree.links.new(surface.outputs[0], tree.nodes.get("Material Output").inputs["Surface"])
     return material
 
 
-jade = lacquer("Vitreous malachite", (0.075, 0.29, 0.195), 0.61, 0.22, 0.35)
-petrol = lacquer("Deep petrol enamel", (0.039, 0.14, 0.12), 0.7, 0.25, 0.32)
-brass = lacquer("Satin champagne brass", (0.55, 0.32, 0.12), 0.91, 0.22)
-aureate = lacquer("Polished pale gold edge", (0.82, 0.55, 0.24), 0.92, 0.15)
-amber = lacquer("Amber vitreous enamel", (0.83, 0.25, 0.042), 0.55, 0.2, 0.36)
-lining = lacquer("Palladium inner lining", (0.43, 0.53, 0.49), 0.89, 0.19)
+nickel = lacquer("Mirror nickel", (0.72, 0.75, 0.77), 1.0, 0.075)
+steel = lacquer("Blue steel", (0.47, 0.58, 0.67), 1.0, 0.095)
+champagne = lacquer("Champagne chrome", (0.81, 0.63, 0.42), 1.0, 0.080)
+edge_metal = lacquer("Polished collar", (0.87, 0.90, 0.89), 1.0, 0.060)
+lining = lacquer("Dark inner wall", (0.19, 0.23, 0.26), 1.0, 0.11)
 
 
 def rounded_frame(index, finish, size):
     # Revolve a rounded rectangular cross-section around a superelliptic aperture.
     # A narrow material band at each shoulder catches the moving strip reflections.
     median = 0.83 * size
-    half_band, half_depth = 0.145 * size, 0.043
+    half_band, half_depth = 0.145 * size, 0.057
     fillet = min(half_depth, half_band) * 0.72
     section = []
     for corner in range(4):
@@ -91,7 +173,7 @@ def rounded_frame(index, finish, size):
     geometry.from_pydata(vertices, [], quads)
     obj = bpy.data.objects.new(geometry.name, geometry)
     scene.collection.objects.link(obj)
-    for mat in (finish, aureate, lining):
+    for mat in (finish, edge_metal, lining):
         geometry.materials.append(mat)
     for face in geometry.polygons:
         edge = face.index % width
@@ -101,10 +183,10 @@ def rounded_frame(index, finish, size):
 
 
 rings = []
-for index in range(27):
-    t = index / 26
+for index in range(21):
+    t = index / 20
     size = 0.73 + 0.36 * math.sin(t * math.pi) ** 0.75 + 0.07 * math.cos(t * 2 * math.pi)
-    metal = amber if index in (12, 13, 14) else brass if index in (0, 1, 9, 10, 16, 24, 25, 26) else petrol if index < 8 else jade
+    metal = champagne if index in (6, 7) else steel if index in (12, 13, 14, 15) else nickel
     rings.append(rounded_frame(index, metal, size))
 
 
@@ -135,11 +217,11 @@ def softbox(name, xyz, color, power, width, height):
     aim(obj, (0, 0, 0))
 
 
-softbox("Overhead parchment", (0, -1, 5), (1, 0.91, 0.77), 620, 6.5, 2.1)
-softbox("Long opal strip", (-3, -4, 1.2), (0.69, 0.94, 0.9), 420, 5.8, 0.8)
-softbox("Warm edge", (4.7, 1.1, 2.2), (1, 0.79, 0.53), 480, 3, 1.15)
-softbox("Patina rim", (-2, 3, 2.8), (0.52, 1, 0.74), 510, 3.8, 1.2)
-softbox("Lens-side bounce", (4, -4, -1.6), (0.82, 0.94, 1), 170, 3.4, 1.4)
+softbox("Overhead silk", (0.5, -1.4, 5.4), (1.0, 0.98, 0.92), 220, 7.4, 2.8)
+softbox("Hard vertical strip", (-3.8, -3.5, 0.8), (0.80, 0.93, 1.0), 130, 6.8, 0.58)
+softbox("Warm side card", (4.7, 1.1, 1.8), (1.0, 0.80, 0.63), 145, 3.0, 1.4)
+softbox("Cool rear wall", (-1.6, 3.8, 2.5), (0.74, 0.89, 1.0), 195, 5.4, 2.0)
+softbox("Low lens-side strip", (4.2, -4.5, -0.9), (0.96, 0.99, 1.0), 90, 5.4, 0.70)
 bpy.ops.object.camera_add(location=(5.8, -10.0, 5.0))
 cam = bpy.context.object
 aim(cam, (0, 0, 0))
@@ -165,7 +247,8 @@ if not args.preview:
                "-vf", "scale="+size, "-c:v", "libx264", "-crf", "16", "-preset", "slow", "-pix_fmt", "yuv420p",
                "-movflags", "+faststart", "-an", assets/f"{suffix}.mp4")
 
-    # Compose the Finder icon from the same render, inside the macOS icon grid.
+if args.icon and not args.preview:
+    # Optional Finder icon generation from the current finish.
     iconset = args.frames/"Tasktap.iconset"
     iconset.mkdir(exist_ok=True)
     plate, mark, master = (args.frames/name for name in ("plate.png", "mark.png", "icon.png"))

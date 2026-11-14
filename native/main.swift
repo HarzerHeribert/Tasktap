@@ -55,6 +55,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private var routeID: String?
     private var queue: [(String, String)] = []
     private var pendingCount = 0
+    private let decisionRim = WorkspaceDecisionRim()
     private var isWorkspace = false
     private var height: CGFloat = 290
     private var collapsed = true
@@ -68,6 +69,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private let micro=Micro()
     private let screenContext=ScreenContext()
     @MainActor private lazy var dictation=Dictation()
+    private var sendingVoiceLevel=false
     private lazy var runtime=LiveWorkspace(root:(liveTest ? inbox.directory.deletingLastPathComponent():FileManager.default.homeDirectoryForCurrentUser).appendingPathComponent("projects"),data:inbox.directory.deletingLastPathComponent().appendingPathComponent("Runs"))
     private func js(_ name:String,_ args:[String:Any]){
         web.callAsyncJavaScript(name,arguments:args,in:nil,in:.page){result in if case .failure(let error)=result {NSLog("Interface: %@",error.localizedDescription)}}
@@ -158,6 +160,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         let geometry = NotchGeometry(screen: screen)
         let frame = geometry.panelFrame(collapsed: collapsed, requestedHeight: height)
         if panel.frame != frame { panel.setFrame(frame, display: true) }
+        decisionRim.update(screen: isWorkspace ? workspace.screen ?? screen : screen, visible: isWorkspace && pendingCount > 0)
         if ready {
             let metrics = ["width":geometry.tab.width, "height":geometry.tab.height, "wing":geometry.wing,
                            "pixel":geometry.pixel, "corner":geometry.corner, "rimOffset":geometry.rimOffset,
@@ -316,6 +319,13 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             if !verifying {
                 observeHover()
                 dictation.event={ [weak self] id,phase,text in self?.js("dictationEvent(id,phase,text)",["id":id,"phase":phase,"text":text]) }
+                dictation.level={ [weak self] id,level in
+                    guard let self, !sendingVoiceLevel, web.window?.occlusionState.contains(.visible)==true else {return}
+                    sendingVoiceLevel=true
+                    web.callAsyncJavaScript("dictationLevel(id,level)",arguments:["id":id,"level":level],in:nil,in:.page){[weak self] _ in
+                        self?.sendingVoiceLevel=false
+                    }
+                }
                 runtime.projectsChanged={ [weak self] rows in self?.js("projectsDiscovered(rows)",["rows":rows]) }
                 runtime.changed={ [weak self] receipt in self?.js("agentReceipt(e)",["e":receipt]) }
                 runtime.externalChanged={ [weak self] rows in self?.js("externalSessions(rows)",["rows":rows]) }
@@ -367,7 +377,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             }
         case "dictation-start":if let id=data["id"] as? String {dictation.start(id)}
         case "dictation-finish":if let id=data["id"] as? String {dictation.finish(id)}
-        case "dictation-cancel":dictation.cancel()
+        case "dictation-cancel":dictation.cancel(data["id"] as? String)
         case "refresh":if !verifying {runtime.refresh();if !liveTest {runtime.refreshExternal()}}
         case "route":
             guard let id=data["id"] as? String,let input=data["input"] as? [String:Any] else {return}
@@ -432,7 +442,13 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                     }
                 } else {deliver("live-error",viewer+" is unavailable on this Mac.",reveal:false)}
             } catch {deliver("live-error",error.localizedDescription,reveal:false)}
-        case "status":pendingCount=data["count"] as? Int ?? 0;updateMenu()
+        case "status":
+            let count = data["count"] as? Int ?? 0
+            if count != pendingCount {
+                pendingCount = count
+                updateMenu()
+                position()
+            }
         case "binary":if let id=data["id"] as? String {setBinary(id)}
         case "lightingPreference":
             lightingEnabled=data["enabled"] as? Bool ?? false
@@ -512,7 +528,14 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                     Math.abs(parseFloat(shoulder.left)+wing)<0.51 && Math.abs(parseFloat(shoulder.right)+wing)<0.51;
                 """, arguments:["width":geometry.tab.width,"depth":geometry.tab.height,"pixel":geometry.pixel,
                                 "tabLeft":geometry.tab.minX-panel.frame.minX,"wing":geometry.wing],in:nil,contentWorld:.page)
-            guard wrapsHousing as? Bool == true else { throw Check.failed(#line) }
+            guard wrapsHousing as? Bool == true else {
+                let bounds=try await web.evaluateJavaScript("""
+                    (()=>{const tab=document.querySelector('#islandToggle'), before=getComputedStyle(tab,'::before'), after=getComputedStyle(tab,'::after');
+                    return JSON.stringify({state:document.body.className,hidden:document.hidden,box:tab.getBoundingClientRect(),sheet:document.querySelector('#notch-home').getBoundingClientRect(),rim:[after.left,after.right,after.borderBottomWidth],wing:[before.left,before.right]})})()
+                    """)
+                print("Expanded hardware and panel bounds",geometry.tab,panel.frame,bounds ?? "")
+                throw Check.failed(#line)
+            }
             if geometry.hasCutout {
                 updateHover(at:NSPoint(x:geometry.tab.minX-geometry.wing/2,y:geometry.tab.midY),dragging:false)
                 guard pointerInside, panel.ignoresMouseEvents else {throw Check.failed(#line)}
@@ -606,6 +629,19 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             _ = try await web.evaluateJavaScript("document.querySelector('#modal [aria-label=\"Close dialog\"]').click();true")
             let cardClosed=try await web.evaluateJavaScript("!document.querySelector('#modal').open")
             guard cardClosed as? Bool==true,workspace.frame==resized else {throw Check.failed(#line)}
+            let workspaceResponder=workspace.firstResponder
+            var later=event
+            later["requestId"]="rim-workspace";later["question"]="Keep the new finish?"
+            let incoming=inbox.directory.appendingPathComponent("requests").appendingPathComponent(UUID().uuidString+".json")
+            try JSONSerialization.data(withJSONObject:later).write(to:incoming,options:.atomic)
+            for _ in 0..<24 where !decisionRim.isVisible {try await Task.sleep(nanoseconds:50_000_000)}
+            guard isWorkspace,decisionRim.isVisible,pendingCount==1,workspace.firstResponder===workspaceResponder else {throw Check.failed(#line)}
+            let stillClosed=try await web.evaluateJavaScript("!document.querySelector('dialog[open]') && document.body.classList.contains('needs-decision')")
+            guard stillClosed as? Bool==true else {throw Check.failed(#line)}
+            try FileManager.default.removeItem(at:incoming)
+            for _ in 0..<24 where decisionRim.isVisible {try await Task.sleep(nanoseconds:50_000_000)}
+            guard pendingCount==0,!decisionRim.isVisible,workspace.firstResponder===workspaceResponder else {throw Check.failed(#line)}
+            print("Real inbox question illuminated the native workspace rim and withdrawal cleared it without moving focus.")
             workspace.performClose(nil)
             try await Task.sleep(nanoseconds:250_000_000)
             guard !isWorkspace,!workspace.isVisible,panel.isVisible else {throw Check.failed(#line)}
@@ -628,7 +664,10 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 draft.text='Ask Codex to respond with exactly READY and do not use tools.';
                 document.querySelector('#transcript').value=draft.text;document.querySelector('#transcript').dispatchEvent(new Event('input'));document.querySelector('[data-action=review]').click();true
                 """)
-            let review=try await web.evaluateJavaScript("!!document.querySelector('#review-brief') && draft.agent==='codex' && draft.project.endsWith('test-lighting')")
+            let review=try await web.evaluateJavaScript("""
+                !!document.querySelector('#review-brief') && draft.agent==='codex' && draft.project.endsWith('test-lighting') &&
+                !!document.querySelector('#modal tasktap-relay[data-agent="codex"][data-phase="review"]')
+                """)
             guard review as? Bool==true else {throw Check.failed(#line)}
             _ = try await web.evaluateJavaScript("document.querySelector('[data-action=commit-review]').click();true")
             for _ in 0..<120 {
@@ -640,7 +679,12 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                     guard actual as? String=="READY" else {throw Check.failed(#line)}
                     guard let id=try await web.evaluateJavaScript("state.sessions[0].id") as? String,
                           try runtime.resumeCommand(id).contains("codex resume ") else {throw Check.failed(#line)}
-                    print("Idle project → selected workspace → reviewed Codex session → real completed result passed.")
+                    let relay=try await web.evaluateJavaScript("""
+                        (()=>{document.querySelector('.session-row[data-action="session"]').click();
+                        return document.querySelector('#modal tasktap-relay[data-phase="complete"][data-agent="codex"]')?.dataset.capture===state.captures[0].id})()
+                        """)
+                    guard relay as? Bool==true else {throw Check.failed(#line)}
+                    print("Reviewed Codex rail, native queue, real completed result and matching final receipt light verified.")
                     NSApp.terminate(nil);return
                 }
             }
@@ -669,6 +713,10 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     func webView(_ webView:WKWebView,decidePolicyFor navigationAction:WKNavigationAction,
                  decisionHandler:@escaping (WKNavigationActionPolicy)->Void){
         decisionHandler(navigationAction.request.url?.standardizedFileURL==entry?.standardizedFileURL ? .allow:.cancel)
+    }
+    func windowDidChangeScreen(_ notification: Notification) {
+        guard isWorkspace, let window = notification.object as? WorkspaceWindow, let screen = window.screen else { return }
+        decisionRim.update(screen:screen, visible:pendingCount > 0)
     }
     func windowShouldClose(_ sender:NSWindow)->Bool { deliver("collapse",reveal:false);return false }
     func applicationWillTerminate(_ notification:Notification){

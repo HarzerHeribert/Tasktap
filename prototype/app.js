@@ -61,13 +61,16 @@ function renderNav(projects){
   $('#nav').innerHTML='<div class="nav-group"><span class="nav-kicker">Workspace</span>'+navLink('overview','Overview',icon('grid'))+navLink('sessions','Sessions',icon('sessions'),count(state.sessions.length))+navLink('notes','Notebook',icon('note'),count(state.notes.length))+navLink('projects','Projects',icon('folder'),count(projects.length))+'</div>';
   $('#islandLabel').textContent=state.decisions.length?state.decisions.length+' decision'+(state.decisions.length>1?'s':''):'All clear';
 }
-function wave(){
+function sampleWave(){
   const bars=Array.from({length:162},(_,i)=>{const env=Math.pow(Math.abs(Math.sin(i*.068)*Math.cos(i*.032)),.75);const height=3+37*env*(.24+.76*Math.abs(Math.sin(i*7.09+.9)));return '<rect x="'+(i*4.5)+'" y="'+((44-height)/2).toFixed(1)+'" width="2.25" height="'+height.toFixed(1)+'" rx="1.1" fill="'+(i<106?'#e7b77e':'#71817f')+'"/>';}).join('');
   return '<svg class="wave" viewBox="0 0 730 44" preserveAspectRatio="none" aria-hidden="true">'+bars+'</svg>';
 }
 function captureCard(c){
   const session=sess(c.session),p=proj(c.project);
-  return '<article class="capture-card"><div class="cap-meta"><span class="icon-label">'+icon('mic')+'Latest capture</span><span>'+esc(c.time)+'</span></div><blockquote>“'+esc(c.text||'Attached sketch')+'”</blockquote><div class="signal"><button class="play-btn" data-action="readcapture" aria-label="Read latest capture aloud">'+icon('play')+'</button>'+wave()+'<span>'+esc(c.duration||'Text')+'</span></div><div class="capture-foot"><span class="icon-label">'+icon(p?'folder':'note')+esc(p?.name||'Scratch')+(session?' / '+esc(session.task):'')+'</span>'+button('View capture','detailcapture',c.id,'text-btn','out')+'</div></article>';
+  const relay=handoffRelay.forCapture(c);
+  const receipt=relay?'<div class="capture-receipt">'+relay+'<span>'+esc(handoffRelay.caption(c))+'</span></div>':'';
+  const signal=live?receipt:sampleWave();
+  return '<article class="capture-card"><div class="cap-meta"><span class="icon-label">'+icon('mic')+'Latest capture</span><span>'+esc(c.time)+'</span></div><blockquote>“'+esc(c.text||'Attached sketch')+'”</blockquote><div class="signal"><button class="play-btn" data-action="readcapture" aria-label="Read latest capture aloud">'+icon('play')+'</button>'+signal+'<span>'+esc(c.duration||'Text')+'</span></div><div class="capture-foot"><span class="icon-label">'+icon(p?'folder':'note')+esc(p?.name||'Scratch')+(session?' / '+esc(session.task):'')+'</span>'+button('View capture','detailcapture',c.id,'text-btn','out')+'</div></article>';
 }
 function sessionRow(s,fixture=false){
   const agent=s.source==='desktop'?'Codex · ChatGPT desktop':s.source==='terminal'?'Codex · Terminal':s.source==='claude'?'Claude Code · External':providers[s.agent]||'Agent',p=proj(s.project);
@@ -175,7 +178,8 @@ function showSession(id){
   if(!live && s.state==='Running' && !s.producerKey)actions.push(button('Simulate completion','complete',id));
   if(s.result)actions.push(button('Read aloud','speakresult',id,'btn','sound'),button('Open in '+(s.viewer||(live?'Finder':'editor')),'openresult',id));
   const waiting=s.external && s.waitingFor?'<p class="hint">'+esc('Claude is waiting in the original session ('+s.waitingFor+').')+'</p>':'';
-  const status=activityBand('<strong class="session-state '+statusClass(s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(s.state)+'</strong>',proj(s.project)?.folder,['Running','Queued'].includes(s.state));
+  const turn=state.captures.find(c=>c.session===s.id);
+  const status=activityBand('<strong class="session-state '+statusClass(s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(s.state)+'</strong>',proj(s.project)?.folder,['Running','Queued'].includes(s.state),live?handoffRelay.forCapture(turn):'');
   const activity=s.log.length?'<section class="block"><h3>Activity</h3><ul class="time-line">'+s.log.map(e=>'<li><i class="state-dot"></i>'+esc(s.result && e==='Complete. '+s.result?'Complete':e)+'</li>').join('')+'</ul></section>':'';
   dialog(s.task,[providers[s.agent],s.model].filter(Boolean).join(' · '),status+waiting+activity+(s.result?'<section class="notice"><strong>Agent summary</strong><p>'+esc(s.result)+'</p></section>':'')+'<div class="inline">'+actions.join('')+'</div>');
 }
@@ -330,7 +334,11 @@ function review(){
   const action=d.mode==='note'?'Save note':d.mode==='nudge'?'Send nudge':'Start session';
   const where=[d.mode==='nudge'?proj(s?.project)?.name:null,destination,d.mode==='note'?null:providers[d.mode==='nudge'?s?.agent:d.agent],d.viewer].filter(Boolean).join(' · ');
   const note=d.keep && d.mode!=='note'?'<p class="hint">Also save a note: '+esc(d.note||d.brief)+'</p>':'';
-  dialog('Review capture',where,'<p class="review-brief" id="review-brief">'+esc(d.brief||'Attached sketch')+'</p>'+(d.strokes.length?sketchMarkup(d.strokes):'')+modelReviewMarkup(d)+captureContext.review(d)+note+
+  const agent=d.mode==='nudge'?s?.agent:d.agent;
+  if (d.mode!=='note') d.captureId??=uid();
+  const relay=d.mode==='note'?'':handoffRelay.markup(d.captureId,agent,d.relayPhase||'review');
+  const route=relay?'<div class="review-rail">'+relay+'<span data-relay-label>'+(d.relayPhase==='failed'?'Handoff failed':'Ready for '+esc(providers[agent]))+'</span></div>':'';
+  dialog('Review capture',where,route+'<p class="review-brief" id="review-brief">'+esc(d.brief||'Attached sketch')+'</p>'+(d.strokes.length?sketchMarkup(d.strokes):'')+modelReviewMarkup(d)+captureContext.review(d)+note+
     '<div class="form-actions">'+button('Adjust','adjust')+button(action,'commit-review','','primary')+'</div>');
   reviewActivity(d);
 }
@@ -367,7 +375,7 @@ function commitCapture(){
     const existing=state.projects.find(p=>p.name.toLowerCase()===name.toLowerCase());
     if(existing){d.project=existing.id}else{const p={id:uid(),name,folder:'~/projects/'+name,color:'#a8c3ae',aliases:[]};state.projects.push(p);d.project=p.id}
   }
-  const cid=uid(),time=new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),c={id:cid,time,text:d.text,brief:captureContext.brief(d),reference:d.reference,project:d.project==='@scratch'?'':d.project,strokes:d.strokes,duration:d.hasVoice?'Sample':'Text',receipt:'Saved',kind:'Note'};
+  const cid=d.captureId||uid(),time=new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),c={id:cid,time,text:d.text,brief:captureContext.brief(d),reference:d.reference,project:d.project==='@scratch'?'':d.project,strokes:d.strokes,duration:d.hasVoice?'Sample':'Text',receipt:'Saved',kind:'Note'};
   let s;
   if(d.mode==='ask'){s={id:uid(),project:d.project,agent:d.agent,task:d.brief.trim().slice(0,78)||'Review sketch',state:'Running',model:modelPlanFor(d).model,log:['Session started. '+d.brief],viewer:d.viewer,capture:cid};state.sessions.unshift(s);c.kind='Agent question';c.receipt='Started';c.session=s.id}
   if(d.mode==='nudge'){s=sess(d.session);if(!s){toast('Choose an available session.');return}c.project=s.project;c.kind='Session nudge';c.receipt='Queued';c.session=s.id;s.log.push('Nudge queued. '+d.brief)}
@@ -383,7 +391,7 @@ function deliver(id){
   if($('#modal').open&&$('#dialog-heading')?.textContent==='Capture detail'&&$('#receipt')?.dataset.capture===id)detailCapture(id);
   toast('Nudge delivered to '+s.task+'.');
 }
-function detailCapture(id){const c=byId(state.captures,id);if(!c)return;dialog('Capture detail',c.kind,'<div class="detail-line">'+icon('folder')+esc(proj(c.project)?.name||'Scratch')+'<span id="receipt" data-capture="'+attr(id)+'" class="badge">'+esc(c.receipt)+'</span></div><div class="block"><h3>Original capture</h3><p class="body-copy">'+esc(c.text||'Sketch only')+'</p>'+(c.strokes?.length?sketchMarkup(c.strokes):'')+'</div><div class="block"><h3>Reviewed brief</h3><p class="body-copy">'+esc(c.brief)+'</p></div>'+(c.session?button('Open session','session',c.session):''))}
+function detailCapture(id){const c=byId(state.captures,id);if(!c)return;dialog('Capture detail',c.kind,handoffRelay.forCapture(c)+'<div class="detail-line">'+icon('folder')+esc(proj(c.project)?.name||'Scratch')+'<span id="receipt" data-capture="'+attr(id)+'" class="badge">'+esc(c.receipt)+'</span></div><div class="block"><h3>Original capture</h3><p class="body-copy">'+esc(c.text||'Sketch only')+'</p>'+(c.strokes?.length?sketchMarkup(c.strokes):'')+'</div><div class="block"><h3>Reviewed brief</h3><p class="body-copy">'+esc(c.brief)+'</p></div>'+(c.session?button('Open session','session',c.session):''))}
 function showNote(id){
   const n=byId(state.notes,id),c=n.capture&&byId(state.captures,n.capture);
   dialog(n.title,proj(n.project)?.name||'Scratch','<p class="body-copy">'+esc(n.text)+'</p>'+(c?.strokes?.length?sketchMarkup(c.strokes):'')+(c?button('View original capture','detailcapture',c.id):'')+(!n.project?'<form id="assign" class="fields"><label>Assign to project<select id="assign-project" required>'+option('','Choose project')+state.projects.map(p=>option(p.id,p.name)).join('')+'</select></label><button class="primary">Move note</button></form>':''));

@@ -4,9 +4,11 @@ Use [requirements](requirements.md) for behavior and [the prototype](../prototyp
 
 ## Implementation brief
 
-Anchor a choice of typographic speech waves, refracted phase contours, routed signals or a scanning globe beside the workspace heading and in the notch miniature. Animate each within a fixed frame. The compact layout uses its own crop and Reduce Motion shows a still. The original brass-and-jade Resonator remains available.
+Anchor a choice of typographic speech waves, refracted phase contours, routed signals or a scanning globe beside the workspace heading and in the notch miniature. Animate each within a fixed frame. The compact layout uses its own crop and Reduce Motion shows a still. Polished nickel, blue steel and champagne edges share a studio lighting rig. The ring-shaped Blender Resonator remains available.
 
-While preparing a handoff, the selected artwork plays beside the activity label while the draft grows below. Session detail uses that same band for the observed state and workspace path. Finished sessions use the still image.
+Anchor beveled glyphs beside the recording field, move them with measured microphone level, and keep the text and buttons steady. Compact layouts display fewer glyph columns; Reduce Motion holds the baseline. The meter uses the same type render as the workspace artwork.
+
+While preparing a handoff, the selected artwork plays beside the routing label while the draft grows below. The review places a light at the start of the chosen agent’s chrome rail. Submission, queue acceptance and runner receipts move the light forward once. A run can pass directly from queued to finished between polls. A failed launch stops on the rail. Capture and session details show the receipt for that turn. Reduced Motion shows each position immediately.
 
 Leave the camera housing blank and trace its sides and lower edge on visible pixels while someone needs to answer. On hover, the black surface opens to both sides of the housing and joins the controls below it. Take the bounds from the active display’s safe top inset and auxiliary areas. Reduce Motion uses a steady outline.
 

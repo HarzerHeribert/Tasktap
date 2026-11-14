@@ -69,7 +69,8 @@ function motionOverview(heading) {
     for (const film of tracked) {
       const notchMiniature = !!film.closest('#notch-home');
       const signal = document.body.dataset.signal;
-      const hasActivity = !notchMiniature || signal !== 'idle' || document.body.classList.contains('needs-decision');
+      const statusArt = notchMiniature || !!film.closest('.resonator-stage');
+      const hasActivity = !statusArt || (!!signal && signal !== 'idle');
       const uncovered = !topDialog || topDialog.contains(film);
       const requested = visible.has(film) && hasActivity && uncovered && !document.hidden && !reduceMotion.matches;
       if (!requested) {

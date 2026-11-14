@@ -12,6 +12,7 @@ const firstMode = () => document.body.classList.contains('notch-first');
 // A pointer peek never takes focus. An explicit open stays until dismissed.
 let homeMode = 'closed';
 let hoverTimer = 0;
+let receiptTimer = 0;
 let homeContent = '';
 let choice = null;
 let hardwareNavigation=false;
@@ -19,6 +20,12 @@ let lastBinary=null;
 let microStatus='Off';
 let boundsFrame = 0;
 const pending = () => state.decisions[0];
+function updateSurfaceVisibility(){
+  document.body.classList.toggle('surface-hidden',document.hidden);
+  if(document.hidden && homeMode==='retracting'){homeMode='closed';drawHome();updateBounds(true)}
+}
+document.addEventListener('visibilitychange',updateSurfaceVisibility);
+updateSurfaceVisibility();
 function closePanels(){
   while($('#notch').open || $('#modal').open) dismissCard();
   $('#status-menu').hidden=true;
@@ -43,6 +50,18 @@ function showHome(open=true){
   $('#islandToggle').focus({preventScroll:true});
   updateBounds(true);
 }
+// A confirmed handoff already has an open sheet. Briefly show its real receipt in
+// the same place. Background receipts never open a closed notch on their own.
+function peekHandoff(){
+  if(!firstMode() || pending() || document.querySelector('dialog[open]'))return;
+  clearTimeout(hoverTimer);clearTimeout(receiptTimer);
+  homeMode='receipt';
+  drawHome();updateBounds(true);
+  receiptTimer=setTimeout(()=>{
+    if(homeMode!=='receipt')return;
+    homeMode='closed';drawHome();updateBounds();
+  },3200);
+}
 function hoverNotch(inside){
   clearTimeout(hoverTimer);
   if(!firstMode() || document.querySelector('dialog[open]') || homeMode==='pinned')return;
@@ -55,7 +74,7 @@ function hoverNotch(inside){
     if(!firstMode() || document.querySelector('dialog[open]') || homeMode==='pinned')return;
     if(!inside && $('#notch-home').contains(document.activeElement))return;
     if(inside)homeMode='peek';
-    else if(homeMode==='peek' && !matchMedia('(prefers-reduced-motion: reduce)').matches)homeMode='retracting';
+    else if(homeMode==='peek' && !document.hidden && !matchMedia('(prefers-reduced-motion: reduce)').matches)homeMode='retracting';
     else homeMode='closed';
     drawHome();updateBounds();
   },inside?170:320);
@@ -77,7 +96,9 @@ function updateSignal(){
   else if(simVoice!==null){mode='listening';label='Listening to sample'}
   else if(spoken){mode='speaking';label='Reading aloud'}
   else if(draft?.routing){mode='working';label='Preparing handoff'}
-  else if(state.captures.some(c=>c.receipt==='Queued')){mode='sending';label='Sending nudge'}
+  else if(state.captures.some(c=>c.external && c.receipt==='Running')){mode='sending';label='Sending nudge'}
+  else if(state.captures.some(c=>c.receipt==='Queued')){mode='sending';label='Handoff queued'}
+  else if(pending()){mode='waiting';label=state.decisions.length===1?'Waiting for your answer':state.decisions.length+' decisions pending'}
   else if(running){mode='working';label=running+' '+(running===1?'session':'sessions')+' working'}
   document.body.dataset.signal=mode;
   const text=$('.signal-caption');
@@ -91,9 +112,10 @@ function drawHome(){
   document.body.classList.toggle('notch-spread',!root.hidden);
   const latest=live && state.captures.find(c=>c.session && ['Complete','Failed','Running','Queued','Delivered'].includes(c.receipt));
   const recent=latest && sess(latest.session);
-  const paneTitle=q?'Decision ready':recent?({Complete:'Result ready',Failed:'Session stopped',Running:'Agent working',Queued:'Handoff queued',Delivered:'Nudge delivered'}[latest.receipt]):'Ready to capture';
+  const paneTitle=q?'Decision ready':recent?({Complete:'Result ready',Failed:'Session stopped',Running:latest.external?'Sending nudge':'Agent working',Queued:'Handoff queued',Delivered:'Nudge delivered'}[latest.receipt]):'Ready to capture';
   const preview=q?'<button class="request-preview" data-surface="requests" data-target="'+attr(q.id)+'"><span class="preview-icon">'+icon('sessions')+'</span><span><small>'+esc(proj(s.project).name)+' / '+esc(providers[s.agent])+'</small><strong>'+esc(q.q)+'</strong></span>'+icon('right')+'</button>':recent?'<button class="request-preview" data-action="session" data-id="'+attr(recent.id)+'"><span class="preview-icon">'+icon('sessions')+'</span><span><small>'+esc(proj(recent.project)?.name||'Scratch')+' / '+esc(providers[recent.agent])+'</small><strong>'+esc(recent.task)+'</strong></span>'+icon('right')+'</button>':'<p class="home-idle">Capture an idea, ask about a project, or follow up with a session.</p>';
-  const content='<header class="home-meta"><span class="icon-label">Tasktap</span>'+surfaceButton('','collapse','down','collapse-button')+'</header><div class="home-heading"><div><h1>'+paneTitle+'</h1><small class="signal-caption"></small></div><span class="signal-light" aria-hidden="true"><i>'+resonatorMarkup('miniature')+'</i></span></div>'+preview+'<footer class="home-actions">'+surfaceButton('Capture','capture','mic','voice-trigger')+'<kbd>'+chords.capture[1]+'</kbd>'+surfaceButton('Workspace','workspace','out','workspace-link')+'</footer>';
+  const homeArt=recent && !q ? handoffRelay.forCapture(latest) : '';
+  const content='<header class="home-meta"><span class="icon-label">Tasktap</span>'+surfaceButton('','collapse','down','collapse-button')+'</header><div class="home-heading"><div><h1>'+paneTitle+'</h1><small class="signal-caption"></small></div><span class="signal-light" aria-hidden="true"><i>'+(homeArt||resonatorMarkup('miniature'))+'</i></span></div>'+preview+'<footer class="home-actions">'+surfaceButton('Capture','capture','mic','voice-trigger')+'<kbd>'+chords.capture[1]+'</kbd>'+surfaceButton('Workspace','workspace','out','workspace-link')+'</footer>';
   // A session progress event must preserve focused controls and their tab order.
   if(homeContent!==content){root.innerHTML=content;homeContent=content}
   root.querySelector('.collapse-button').setAttribute('aria-label','Collapse notch');
@@ -135,6 +157,7 @@ function emitNotice(id,kind){
   else previewNotice(id,kind);
 }
 let knownDecisions=new Set(state.decisions.map(q=>q.id));
+let reportedPendingCount=null;
 let knownComplete=new Set(state.sessions.filter(s=>s.state==='Complete').map(s=>s.id));
 function syncSurfaces(){
   drawHome();
@@ -144,7 +167,8 @@ function syncSurfaces(){
   done.forEach(id=>{if(!knownComplete.has(id))emitNotice(id,'complete')});
   knownDecisions.forEach(id=>{if(!requests.has(id)){postHost('clear',{id,kind:'request'});if($('#notification-preview [data-target="'+CSS.escape(id)+'"]'))$('#notification-preview').hidden=true}});
   knownDecisions=requests;knownComplete=done;
-  postHost('status',{count:requests.size});updateBounds();
+  if(reportedPendingCount!==requests.size){reportedPendingCount=requests.size;postHost('status',{count:requests.size})}
+  updateBounds();
 }
 const optionsForDecision=()=>[...$('#notch').querySelectorAll('[data-action="decide"],[data-action="choose-target"],[data-action="discuss"]')];
 function visibleBinary(){
@@ -292,7 +316,7 @@ if(!host){
   }
 }
 $('#notch-home').addEventListener('focusin',()=>{
-  if(homeMode==='peek'||homeMode==='retracting'){clearTimeout(hoverTimer);homeMode='pinned';drawHome()}
+  if(['peek','retracting','receipt'].includes(homeMode)){clearTimeout(hoverTimer);homeMode='pinned';drawHome()}
 });
 document.addEventListener('voice-activity',updateSignal);
 document.addEventListener('keydown',e=>{
@@ -309,7 +333,7 @@ document.addEventListener('workspace-changed',syncSurfaces);
 for(const selector of ['#notch','#modal']){
   const d=$(selector);
   new MutationObserver(()=>{
-    if(d.open && (homeMode==='peek'||homeMode==='retracting')){clearTimeout(hoverTimer);homeMode='closed';drawHome()}
+    if(d.open && ['peek','retracting','receipt'].includes(homeMode)){clearTimeout(hoverTimer);homeMode='closed';drawHome()}
     if(selector==='#notch')markChoices();
     updateBounds()
   }).observe(d,{childList:true,attributes:true,attributeFilter:['open']});

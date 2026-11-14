@@ -48,7 +48,7 @@ main{padding:var(--s-section) var(--s-gutter);display:grid;gap:var(--s-group);al
 /* Keep the camera blank. A luminous U cups its measured edges while black shoulders
    unfold sideways into the sheet. Small displays keep this silhouette; Reduce Motion
    presents the final geometry immediately. */
-:root{--notch-wing:28px;--notch-pixel:1px;--camera-offset:0px;--cutout-corner:var(--s-icon);--rim-outset:var(--s-tight)}
+:root{--notch-wing:28px;--notch-pixel:1px;--camera-offset:0px;--cutout-corner:var(--s-icon);--rim-outset:var(--s-tight);--attention-width:max(1px,var(--notch-pixel));--attention-metal:linear-gradient(104deg,#ac8060,#fbd6a7 18%,#fff5e3 42%,#bda996 65%,#fbe3b9 85%,#b88b67)}
 .island button{position:relative;isolation:isolate;border-radius:0 0 var(--cutout-corner) var(--cutout-corner)}
 .island button::before,.island button::after{content:"";position:absolute;pointer-events:none}
 .island button::before{
@@ -64,7 +64,18 @@ main{padding:var(--s-section) var(--s-gutter);display:grid;gap:var(--s-group);al
   border-radius:0 0 var(--cutout-corner) var(--cutout-corner);opacity:0;
   box-shadow:0 1px 5px 1px #df9e5190;
 }
-.needs-decision .island button::after{opacity:.68;animation:attention-edge 2.4s ease-in-out infinite alternate}
+.needs-decision .island button::after{
+  border:var(--attention-width) solid #e9c59a;border-top:0;
+  box-shadow:0 1px 4px 1px #eaa95e9e;opacity:.92;animation:attention-edge 2.4s ease-in-out infinite alternate;
+}
+@supports (mask-composite:exclude){
+  .needs-decision .island button::after{
+    background:var(--attention-metal);border-color:transparent;
+    mask:linear-gradient(#000 0 0) padding-box,linear-gradient(#000 0 0) border-box;mask-composite:exclude;
+  }
+  .notch-first.needs-decision .island button{filter:drop-shadow(0 1px 2px #e6a55e9c)}
+  .notch-first.needs-decision:is(.notch-spread,:has(dialog[open])) .island button{filter:none}
+}
 /* Carry the decision light out to the shoulder edges. The open center joins the
    sheet; the amber ledges turn onto the two visible sides of its perimeter. */
 .notch-first.needs-decision:is(.notch-spread,:has(dialog[open])):not(:has(#notch-home.retracting)) .island button::after{
@@ -72,12 +83,12 @@ main{padding:var(--s-section) var(--s-gutter);display:grid;gap:var(--s-group);al
   box-shadow:none;transition:inset-inline var(--notch-reveal) cubic-bezier(.2,.8,.3,1);
 }
 .notch-first.needs-decision :is(#notch-home,#modal[open],#notch[open]){
-  border:var(--notch-pixel) solid #866440;border-top-color:transparent;
+  border:var(--attention-width) solid #a98965;border-top-color:transparent;
   --ledge:calc(50% - var(--native-tab-width,174px)/2 - var(--notch-wing));
   background-image:linear-gradient(to right,#af8459 0, #af8459 calc(var(--ledge) + var(--camera-offset)),transparent calc(var(--ledge) + var(--camera-offset)),transparent calc(100% - var(--ledge) + var(--camera-offset)),#af8459 calc(100% - var(--ledge) + var(--camera-offset)));
-  background-repeat:no-repeat;background-origin:border-box;background-clip:border-box;background-size:100% var(--notch-pixel);
+  background-repeat:no-repeat;background-origin:border-box;background-clip:border-box;background-size:100% var(--attention-width);
 }
-@keyframes attention-edge{from{opacity:.42}to{opacity:.86}}
+@keyframes attention-edge{from{opacity:.66}to{opacity:1}}
 .island button:focus-visible{outline:2px solid var(--panel-text);outline-offset:3px}
 .native-host{--s-panel-top:var(--camera-height,34px)}
 .native-host .island button{width:var(--native-tab-width,174px);min-width:0;height:var(--s-panel-top);max-width:100%;transform:translateX(var(--camera-offset))}
@@ -127,3 +138,7 @@ body[data-signal="sending"]{--signal-cycle:1100ms}
 
 .route-list{display:grid;gap:var(--s-tight);max-height:min(32dvh,240px);overflow-y:auto}
 .route-list .btn{text-align:left}
+/* WebKit can suspend a transition mid-stroke in an occluded panel. Resolve the
+   hardware outline immediately so its first visible frame joins both shoulders. */
+.surface-hidden .island button::before,.surface-hidden .island button::after,
+.surface-hidden #notch-home{transition:none!important}

@@ -2,7 +2,7 @@
 
 Tasktap is a voice-first macOS menu-bar app for working with coding agents in your local projects. Press **Control + Option + Space**, speak, then press it again to finish. Review the proposed workspace, instruction and agent in the notch. Confirm to start the work.
 
-![A pending question expands below the Mac camera housing](design/notch-hover.gif)
+![The decision rim expands around the Mac camera housing](design/notch-hover.gif)
 
 ## Build and run
 
@@ -67,12 +67,15 @@ Tasktap’s launcher passes its question tool in the arguments for that session.
 
 ## Design and verification
 
-- Choose a motion study under **Preferences → Artwork**. Glyph wave turns a voice signal into moving ASCII. Phase field uses a shader, Relay follows routed signals, and Signal globe animates a scanning orb. The original Blender Resonator is also available. Each choice includes a compact notch composition and a Reduce Motion poster. [Compare the four new studies](design/motion-studies.mp4)
+- During dictation, the glyph wave draws recent loudness from the active microphone recorder. Silence settles the glyphs onto a baseline. The wave clears when dictation ends. Each agent handoff uses Relay automatically. A light follows the reviewed provider’s rail when the handoff is submitted, queued, picked up by the runner and completed or delivered. A failure stops the light. The positions represent receipts. Reduce Motion uses steady states. [Dictation preview](design/voice-wave.png)
+- A pending question lights the camera rim, including while Workspace is open. Answering or withdrawing the last question extinguishes it. A session waiting in an external terminal has its own status in Workspace.
+- Choose the workspace and settings artwork under **Preferences → Artwork**. Glyph wave turns a voice signal into moving ASCII. Phase field uses a shader, Relay follows routed signals, and Signal globe animates a scanning orb. The original Blender Resonator is also available. Each choice includes a compact notch composition and a Reduce Motion poster. [Compare the four new studies](design/motion-studies.mp4)
 - On a display with a camera housing, the rim follows the gap between the two top auxiliary areas and the safe top inset reported by macOS. The expanded panel reaches into the space on both sides, with controls below the camera. Displays without a cutout use a compact top-edge tab. [Apple’s screen geometry](https://developer.apple.com/documentation/AppKit/NSScreen/auxiliaryTopRightArea-gr2n)
 - [Interaction flows and UI trees](docs/interaction-design.md) · [Requirements](docs/requirements.md) · [Keyboard, Micro and narration setup](docs/controls.md) · [Agent question protocol](docs/agent-questions.md)
 - [Interactive browser demo](prototype/index.html) runs from disk with fictional data. Use the Mac app for dictation, real folders and agent execution.
 - `python3 scripts/verify-style.py` checks design tokens. With Playwright and Chromium installed, `node scripts/verify-ui.cjs` exercises the interaction flows and regenerates the design screenshots. Set `BROWSER_EXECUTABLE` to use an existing Chromium installation.
 - `node scripts/verify-model-policy.cjs` and `python3 scripts/verify-agent-models.py` check selection and resume invariants. `node scripts/verify-model-ui.cjs` checks saved preferences, review overrides and handoff payloads in the browser.
-- `node scripts/render-motion.cjs` regenerates the four procedural studies using Playwright, Chromium and FFmpeg. The runtime plays bundled loops and posters offline. The original brass-and-jade animation, posters and app icon ship in `prototype/assets/resonator`. `scripts/render-resonator.py` reproduces the Blender scene. Visible activity plays the miniature, and hidden or covered media pauses. Reduce Motion displays the still render.
+- `node scripts/render-motion.cjs` regenerates the four procedural studies using Playwright, Chromium and FFmpeg. The runtime plays bundled loops and posters offline. The Blender Resonator, posters and app icon ship in `prototype/assets/resonator`. `scripts/render-resonator.py` reproduces the Blender scene. Visible activity plays the miniature, and hidden or covered media pauses. Reduce Motion displays the still render.
+- `node scripts/verify-voice-wave.cjs`, `node scripts/verify-relay.cjs` and `node scripts/verify-decision-rim.cjs` exercise the three live signals in Chromium with deterministic inputs.
 - `build/Tasktap.app/Contents/MacOS/Tasktap --verify-interface` checks native hover, focus, shortcut dispatch and a question round trip using temporary data.
 - `build/Tasktap.app/Contents/MacOS/Tasktap --verify-live` uses an authenticated Codex CLI to run a synthetic end-to-end capture in a temporary workspace. It consumes a real agent turn.

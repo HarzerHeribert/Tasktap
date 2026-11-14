@@ -2,7 +2,7 @@ import Foundation
 import WebKit
 import Darwin
 
-// Requests are immutable. The adapter keeps its request until it has consumed the reply.
+// Requests are immutable. An answered receipt is durable so an adapter can retry.
 final class QuestionInbox {
     let directory:URL
     private weak var web:WKWebView?
@@ -12,6 +12,7 @@ final class QuestionInbox {
     private var lastResponses=[String:Data]()
     private var settled=Set<String>()
     init(directory:URL){self.directory=directory}
+
     func start(web:WKWebView) throws {
         self.web=web
         let fm=FileManager.default
@@ -26,48 +27,59 @@ final class QuestionInbox {
         watcher.setCancelHandler{Darwin.close(fd)}
         watcher.resume();source=watcher;scan()
     }
+
     func scan(){
         if scanning {again=true;return}
         scanning=true
         Task { @MainActor in
+            defer {scanning=false}
             repeat {
                 again=false
-                let dir=directory.appendingPathComponent("requests")
-                let files=(try? FileManager.default.contentsOfDirectory(at:dir,includingPropertiesForKeys:[.fileSizeKey,.isRegularFileKey,.isSymbolicLinkKey],options:.skipsHiddenFiles)) ?? []
-                let active=Set(files.map(\.lastPathComponent))
-                lastResponses=lastResponses.filter{active.contains($0.key)};settled.formIntersection(active)
-                for file in files where file.pathExtension=="json" && UUID(uuidString:file.deletingPathExtension().lastPathComponent) != nil {
-                    if settled.contains(file.lastPathComponent){continue}
-                    do {
-                        let saved=directory.appendingPathComponent("responses").appendingPathComponent(file.lastPathComponent)
-                        if lastResponses[file.lastPathComponent]==nil,let data=try? Data(contentsOf:saved),
-                           let response=(try? JSONSerialization.jsonObject(with:data)) as? [String:Any],response["status"] as? String=="answered" {
-                            settled.insert(file.lastPathComponent);continue
-                        }
-                        let info=try file.resourceValues(forKeys:[.fileSizeKey,.isRegularFileKey,.isSymbolicLinkKey])
-                        guard info.isRegularFile==true,info.isSymbolicLink != true,(info.fileSize ?? 0)<=65536 else {continue}
-                        let event=try JSONSerialization.jsonObject(with:Data(contentsOf:file))
-                        guard let web else {return}
-                        let reply:Any? = try await withCheckedThrowingContinuation { continuation in
-                            web.callAsyncJavaScript("return receiveAgentQuestion(event)",arguments:["event":event],in:nil,in:.page) { result in
-                                switch result {
-                                case .success(let value):continuation.resume(returning:value)
-                                case .failure(let error):continuation.resume(throwing:error)
-                                }
-                            }
-                        }
-                        guard let result=reply as? [String:Any] else {continue}
-                        try store(result,for:file)
-                        if result["status"] as? String=="answered"{settled.insert(file.lastPathComponent)}
-                    } catch {
-                        // A failed load can recover after relaunch. Keep the original request intact.
-                        NSLog("Question inbox: %@",error.localizedDescription)
-                    }
-                }
+                do { try await synchronize() }
+                catch {NSLog("Question inbox: %@",error.localizedDescription)}
             } while again
-            scanning=false
         }
     }
+
+    @MainActor private func synchronize() async throws {
+        guard let web else { return }
+        let fm=FileManager.default, requestDir=directory.appendingPathComponent("requests")
+        // A failed directory read must not retire live questions. Reconcile the web
+        // snapshot only after every pending file has been read and acknowledged.
+        let files=try fm.contentsOfDirectory(at:requestDir,includingPropertiesForKeys:[.fileSizeKey,.isRegularFileKey,.isSymbolicLinkKey],options:.skipsHiddenFiles)
+            .filter{$0.pathExtension=="json" && UUID(uuidString:$0.deletingPathExtension().lastPathComponent) != nil}
+            .sorted{$0.lastPathComponent<$1.lastPathComponent}
+        let names=Set(files.map(\.lastPathComponent))
+        lastResponses=lastResponses.filter{names.contains($0.key)};settled.formIntersection(names)
+        var activeKeys=[String](), complete=true
+        for file in files where !settled.contains(file.lastPathComponent) {
+            let name=file.lastPathComponent
+            do {
+                let responseFile=directory.appendingPathComponent("responses").appendingPathComponent(name)
+                var stored:[String:Any]?
+                if lastResponses[name]==nil, fm.fileExists(atPath:responseFile.path) {
+                    stored=try JSONSerialization.jsonObject(with:Data(contentsOf:responseFile)) as? [String:Any]
+                    if stored?["status"] as? String=="answered" {settled.insert(name);continue}
+                }
+                let info=try file.resourceValues(forKeys:[.fileSizeKey,.isRegularFileKey,.isSymbolicLinkKey])
+                guard info.isRegularFile==true,info.isSymbolicLink != true,(info.fileSize ?? 0)<=65536 else {continue}
+                let event=try JSONSerialization.jsonObject(with:Data(contentsOf:file))
+                let reply=try await web.callAsyncJavaScript("return receiveAgentQuestion(event, prior)",arguments:["event":event,"prior":stored ?? [:]],in:nil,contentWorld:.page)
+                guard var result=reply as? [String:Any], let key=result.removeValue(forKey:"producerKey") as? String else {
+                    complete=false;continue
+                }
+                try store(result,for:file)
+                if result["status"] as? String=="answered" {settled.insert(name)} else {activeKeys.append(key)}
+            } catch {
+                complete=false
+                NSLog("Question inbox: %@",error.localizedDescription)
+            }
+        }
+        if complete {
+            _ = try await web.callAsyncJavaScript("reconcileAgentQuestions(keys)",arguments:["keys":activeKeys],in:nil,contentWorld:.page)
+        }
+    }
+
     private func store(_ result:[String:Any],for file:URL)throws{
         let name=file.lastPathComponent
         let data=try JSONSerialization.data(withJSONObject:result,options:[.sortedKeys])

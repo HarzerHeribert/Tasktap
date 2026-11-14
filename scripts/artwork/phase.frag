@@ -1,43 +1,36 @@
-// An oscilloscope's phase portrait stretched into a luminous, folded film.
-// Analytic curves trace a moving pair of frequencies across the depth of the ribbon.
+// Reflections from studio softboxes against a charcoal cyclorama. The phase sheet and
+// machined parts share the same environment, so highlights track their surface normals.
 precision highp float;
-uniform vec2 resolution;
+varying vec3 position;
+varying vec3 normal;
+varying vec3 alloy;
 uniform float time;
-uniform float miniature;
-float bell(float x, float w) { return exp(-x*x/(w*w)); }
-vec2 profile(float x,float depth) {
-    float envelope = max(0.,1.-pow(abs(x/1.035),2.8));
-    float phase = 4.55*x + 2.78*depth + .18*sin(time);
-    float h = (.29*sin(phase)+.085*cos(8.2*x-2.55*depth-.25*cos(time)))*envelope;
-    h += (.36*depth-.18)*envelope-.10*x;
-    return vec2(h, phase);
+float panel(vec3 ray, vec3 aim, float roll, vec2 halfSize, float feather) {
+    vec3 n = normalize(aim);
+    vec3 east = normalize(cross(vec3(0.,1.,0.),n));
+    vec3 north = cross(n,east);
+    float facing = dot(ray,n);
+    vec2 local = vec2(dot(ray,east),dot(ray,north))/max(.02,facing);
+    local = mat2(cos(roll),-sin(roll),sin(roll),cos(roll))*local;
+    vec2 border = abs(local)-halfSize;
+    return (1.-smoothstep(-feather,feather,max(border.x,border.y)))*step(.02,facing);
 }
 void main() {
-    vec2 p=(gl_FragCoord.xy/resolution-.5)*vec2(2.22,1.12);
-    float x=p.x, y=p.y;
-    vec3 color=vec3(.009,.014,.023)+vec3(.018,.023,.046)*bell(x,.76)*bell(y,.38);
-    vec3 violet=vec3(.54,.43,.97), aqua=vec3(.29,.85,.81), peach=vec3(.99,.70,.40);
-    float edge = (1.-smoothstep(.88,1.05,abs(x)));
-    float pixel = 1.12/resolution.y;
-    float prev=profile(x,0.).x;
-    for(int i=1;i<=61;i++) {
-        float d=float(i)/61.;
-        vec2 curve=profile(x,d);
-        float level=curve.x;
-        float slope=profile(x+.002,d).x-level;
-        float signedDist=(y-level)/sqrt(1.+pow(slope/.002,2.));
-        float spec=pow(.5+.5*cos(5.7*x+5.35*d+cos(time)*.29),9.);
-        float rim=pow(abs(2.*d-1.),7.);
-        vec3 coating=mix(violet,aqua,.5+.49*sin(2.5*x+3.5*d-.9));
-        coating=mix(coating,peach,.72*bell(x+.28+.5*d,.21));
-        coating=mix(coating,vec3(.97,.95,.93),spec*.67+rim*.10);
-        float folded=1.-smoothstep(.0001,.013,abs(level-prev));
-        float interior = 1.-smoothstep(-pixel,pixel,(y-min(level,prev)) * (y-max(level,prev)) / max(.008,abs(level-prev)));
-        color=mix(color,coating*(.25+.31*spec+.16*folded),interior*edge*.82);
-        float line=bell(signedDist,pixel*(.59+.31*rim+.21*miniature));
-        color=mix(color,coating*(.42+.51*spec+.30*rim+.20*folded),line*edge);
-        color+=coating * .022 * bell(signedDist,pixel*3.) *edge*(spec+rim);
-        prev=level;
-    }
-    gl_FragColor=vec4(clamp(color,0.,1.),1.);
+    vec3 view = normalize(vec3(-position.xy,6.8-position.z));
+    vec3 n = normalize(gl_FrontFacing?normal:-normal);
+    vec3 r = reflect(-view,n);
+    // A slow, limited dolly of one overhead strip gives almost-flat faces a legible roll.
+    float dolly=.07*sin(time);
+    vec3 c = mix(vec3(.075,.085,.095),vec3(.25,.27,.28),smoothstep(-.65,.8,r.y));
+    c += vec3(.15,.14,.11)*smoothstep(.24,.98,-r.y);
+    c *= 1.-.75*panel(r,vec3(.12,-.08,.98),-.15,vec2(1.8,.20),.047);
+    c += vec3(.74,.75,.73)*panel(r,vec3(-.53,.77,.50),.37,vec2(1.50,.30),.072);
+    c += vec3(.41,.48,.54)*panel(r,vec3(.71,.28,.60),-.37,vec2(.32,1.20),.095);
+    c += vec3(.54,.57,.55)*panel(r,vec3(.37,.28+dolly,1.),.19,vec2(1.28,.14),.032);
+    c += vec3(.82,.82,.75)*panel(r,vec3(-.50,.07+dolly,.80),.20,vec2(.94,.043),.014);
+    c += vec3(.56,.33,.16)*panel(r,vec3(-.85,-.24,.19),-.70,vec2(.43,.25),.073);
+    c += vec3(.19,.33,.42)*panel(r,vec3(.78,-.55,-.16),-.20,vec2(.58,.27),.063);
+    c += vec3(.63,.66,.61)*panel(r,vec3(-.40,.12,-.94),.24,vec2(1.90,.27),.062);
+    c += vec3(.10,.12,.13)*pow(1.-max(0.,dot(view,n)),3.);
+    gl_FragColor=vec4(min(c*alloy,vec3(.99)),1.);
 }

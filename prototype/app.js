@@ -80,10 +80,10 @@ function renderNav(projects){
   $('#nav').innerHTML='<div class="nav-group"><span class="nav-kicker">Workspace</span>'+navLink('overview','Overview',icon('grid'))+navLink('sessions','Sessions',icon('sessions'),count(state.sessions.length))+navLink('notes','Notebook',icon('note'),count(state.notes.length))+navLink('projects','Projects',icon('folder'),count(projects.length))+'</div>';
   $('#islandLabel').textContent=state.decisions.length?state.decisions.length+' decision'+(state.decisions.length>1?'s':''):'All clear';
 }
-function sessionRow(s,{question,fixture=false,title=question?.q || s.task,status=question?'Needs input':s.state}={}){
+function sessionRow(s,{question,fixture=false,title=question?.q || sessionDisplayName(s),status=question?'Needs input':s.state}={}){
   const agent=s.interactive?providers[s.agent]+' · '+sessionLocation(s):s.source==='desktop'?'Codex · ChatGPT desktop':s.source==='terminal'?'Codex · Terminal':s.source==='claude'?'Claude Code · External':providers[s.agent]||'Agent',p=proj(s.project);
   const lastRun=view==='sessions' && s.updatedAt?new Date(s.updatedAt).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'}):'';
-  const subtitle=[title!==s.task?s.task:'',agent,lastRun].filter(Boolean).join(' · ');
+  const subtitle=[question?sessionDisplayName(s):'',agent,lastRun].filter(Boolean).join(' · ');
   return '<button class="session-row" data-action="'+(question?'notch':'session')+'" data-id="'+attr(question?.id || s.id)+'">'+(s.agent?'<span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span>':'<span aria-hidden="true"></span>')+'<span><span class="row-title">'+esc(title)+'</span><span class="row-sub">'+esc(subtitle)+'</span></span><span class="row-project">'+esc(p?.name||'Project')+'</span>'+(fixture?'<span class="fixture-amount">'+esc(s.amount)+'</span>':'<span class="row-state '+statusClass(question?'Needs input':s.state)+'"><i class="state-dot"></i>'+esc(status)+'</span>')+icon('right')+'</button>';
 }
 function workOverview(active){
@@ -120,7 +120,7 @@ function renderSessionHistory(){
     }
   }
   const rows=state.sessions.filter(s=>{
-    const text=[s.task,proj(s.project)?.name,providers[s.agent],s.result,...(history.get(s.id)||[])].join(' ').toLocaleLowerCase();
+    const text=[sessionNameSearch(s),proj(s.project)?.name,providers[s.agent],s.result,...(history.get(s.id)||[])].join(' ').toLocaleLowerCase();
     return words.every(word=>text.includes(word));
   }).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
   $('#session-history').innerHTML=rows.length || !words.length?sessionList(rows):'<p class="empty">No matching sessions.</p>';
@@ -137,7 +137,7 @@ function render(){
   let body='';
   if(view==='overview')body=workOverview(active);
   else if(view==='projects')body='<section class="block"><label class="field">Find a project<input id="project-filter" type="search" placeholder="Folder name" value="'+attr(projectFilter)+'"></label><label class="check-line"><input type="checkbox" id="include-idle" '+(state.showIdleProjects?'checked':'')+'>Show idle projects</label><div id="project-list"></div></section>';
-  else if(view==='sessions')body='<section class="block"><label class="field">Find a session<input id="session-filter" type="search" placeholder="Task, project, agent or result" value="'+attr(sessionFilter)+'"></label><div id="session-history"></div></section>';
+  else if(view==='sessions')body='<section class="block"><label class="field">Find a session<input id="session-filter" type="search" placeholder="Current or past name, project, agent or result" value="'+attr(sessionFilter)+'"></label><div id="session-history"></div></section>';
   else if(view==='notes')body='<section class="block">'+noteList(state.notes)+'</section>';
   else if(p)body='<section class="block"><div class="group-head"><h2>Sessions</h2>'+(p.available!==false?button('Start session','start-session',p.id,'primary','plus'):'')+'</div>'+sessionList(state.sessions.filter(s=>s.project===p.id))+'</section><section class="block"><h2>Project notes</h2>'+noteList(state.notes.filter(n=>n.project===p.id))+'</section>';
   const activeFilter=['project-filter','session-filter'].includes(document.activeElement?.id)?document.activeElement.id:'';
@@ -257,7 +257,7 @@ function showSession(id){
   const turn=state.captures.find(c=>c.session===s.id);
   const status=activityBand('<strong class="session-state '+statusClass(s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(s.state)+'</strong>',proj(s.project)?.folder,['Running','Queued'].includes(s.state),live?handoffRelay.forCapture(turn):'');
   const activity=s.log.length?'<section class="block"><h3>Activity</h3><ul class="time-line">'+s.log.map(e=>'<li><i class="state-dot"></i>'+esc(sessionActivityLine(s,e))+'</li>').join('')+'</ul></section>':'';
-  dialog(s.task,[providers[s.agent],s.model].filter(Boolean).join(' · '),status+location+waiting+peerDisclosure(projectPeers(s.project,id),s.project,true)+activity+history+(s.result?'<section class="notice"><strong>Agent summary</strong><p>'+esc(s.result)+'</p></section>':'')+'<div class="inline">'+actions.join('')+'</div>');
+  dialog(sessionDisplayName(s),[providers[s.agent],s.model].filter(Boolean).join(' · '),status+location+waiting+peerDisclosure(projectPeers(s.project,id),s.project,true)+activity+history+sessionNameHistory(s)+(s.result?'<section class="notice"><strong>Agent summary</strong><p>'+esc(s.result)+'</p></section>':'')+'<div class="inline">'+actions.join('')+'</div>');
   const disclosure=$('#modal [data-project-peers]');
   if(peersWereOpen && disclosure){
     disclosure.open=true;

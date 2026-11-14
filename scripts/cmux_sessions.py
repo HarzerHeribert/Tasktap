@@ -6,6 +6,7 @@ import sqlite3
 import subprocess
 import sys
 import uuid
+from session_activity import excerpt
 
 # Discovery runs from the signed app bundle as well as the source checkout.
 sys.dont_write_bytecode = True
@@ -55,7 +56,7 @@ def sessions(root):
                 pass
         identifier = uuid.uuid5(uuid.NAMESPACE_URL, "cmux:"+surface+":"+conversation)
         rows.append(dict(id=str(identifier), surface=surface, conversation=conversation, agent=record["agent"],
-                         folder=str(folder), task=task or folder.name+" · "+record["agent"], state="Connected"))
+                         folder=str(folder), task=task or folder.name+" · "+record["agent"], state="Connected", activity=excerpt(transcript)))
     return rows
 
 
@@ -196,6 +197,7 @@ def owned_rows(root, runs, observed):
                 row["state"]="Complete"
             sibling=next((r for r in observed if r.get("conversation")==thread and thread and r["agent"]==row["agent"] and r["folder"]==row["folder"]),None)
             if sibling:
+                if sibling.get("activity"): row["activity"] = sibling["activity"]
                 if alive: row["state"]=sibling["state"]
                 if alive and isinstance(sibling.get("waitingFor"),str):row["waitingFor"]=sibling["waitingFor"]
                 if sibling.get("surface")==surface.get("surface") and surface.get("surface") and job["agent"]=="claude": row["inbox"]="cmux"
@@ -232,6 +234,7 @@ def main():
             if surface:
                 surface["state"] = item["state"]
                 surface["waitingFor"] = item.get("waitingFor", "")
+                if item.get("activity"): surface["activity"] = item["activity"]
             else:
                 rows.append(item)
         if len(sys.argv)>4 and Path(sys.argv[4]).is_dir():

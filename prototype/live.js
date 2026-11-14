@@ -14,6 +14,7 @@ function projectsDiscovered(rows){
   persist();render();
 }
 function externalSessions(rows){
+  const previousNames=state.sessions.filter(s=>s.sessionName);
   firstRun.liveSessions=new Set(rows.filter(r=>r.owned==='yes'?r.available==='yes':r.source==='desktop' || r.surface).map(r=>r.id));
   const seen=new Set();
   const pendingTurns=new Set(state.captures.filter(c=>['Queued','Opening','Running'].includes(c.receipt)).map(c=>c.session));
@@ -26,6 +27,7 @@ function externalSessions(rows){
     if(row.owned==='yes'){
       let s=sess(row.id);
       if(!s){s={id:row.id,log:[],managed:true};state.sessions.unshift(s)}
+      inheritSessionNames(s,row,previousNames);
       Object.assign(s,{interactive:true,host:row.host,agent:row.agent,task:row.task,project:row.folder,available:row.available==='yes',inbox:row.inbox,conversation:row.conversation,waitingFor:row.waitingFor||''});
       s.resumable=row.resumable==='yes';
       if(row.updatedAt)s.updatedAt=Number(row.updatedAt);
@@ -43,6 +45,7 @@ function externalSessions(rows){
     if(!project)continue;
     let s=sess(row.id);
     if(!s){s={id:row.id,external:true,log:[]};state.sessions.push(s)}
+    inheritSessionNames(s,row,previousNames);
     Object.assign(s,{agent:row.agent,task:row.task,project:project.id,available:true,source:row.source||'cmux',
       inbox:row.source==='desktop'?'codex':row.surface?'cmux':'',conversation:row.conversation,waitingFor:row.waitingFor||''});
     if(state.decisions.some(q=>q.session===s.id))s.state='Needs input';
@@ -56,7 +59,7 @@ function externalSessions(rows){
   }
   persist();render();
   const active=sess(openedSession);
-  if(active && $('#modal[open] #dialog-heading')?.textContent===active.task)showSession(active.id);
+  if(active && $('#modal[open] #dialog-heading')?.textContent===sessionDisplayName(active))showSession(active.id);
 }
 const canNudge=s=>s && (s.interactive && s.available!==false && (s.agent!=='claude' || s.startup==='confirmed') && !['Closed','Failed','Opening','Queued'].includes(s.state) || s.external && s.available && ['cmux','desktop'].includes(s.source));
 function sessionHost(d){

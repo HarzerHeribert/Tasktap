@@ -25,10 +25,10 @@
     }
   }
   const vertex=(p,n,color)=>[...p,...n,...color];
-  function install(transparent=false) {
+  function install(transparent=false,brand=false,brandWidth=384) {
     const canvas=document.createElement('canvas');
     const gl=canvas.getContext('webgl',{alpha:transparent,antialias:true,preserveDrawingBuffer:true});
-    const out=document.createElement('canvas'), ctx=out.getContext('2d',{alpha:transparent});
+    const out=document.createElement('canvas'), ctx=out.getContext('2d',{alpha:transparent||brand});
     if(!gl)throw Error('WebGL is required by the offline motion renderer.');
     const compile=(type,source)=>{
       const s=gl.createShader(type);gl.shaderSource(s,source);gl.compileShader(s);
@@ -55,21 +55,28 @@
       gl.vertexAttribPointer(loc,3,gl.FLOAT,false,36,offset*4);
     }
     const u=name=>gl.getUniformLocation(program,name);
-    gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);gl.clearColor(...(transparent?[0,0,0,0]:[.007,.012,.014,1]));
+    gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);gl.clearColor(...(transparent?[0,0,0,0]:brand?[.018,.022,.027,1]:[.007,.012,.014,1]));
     return (id,mini,t,symbol)=>{
-      const width=transparent?96:mini?260:736,height=transparent?96:mini?156:352, samples=transparent?4:mini?3:2;
+      const width=brand?brandWidth:transparent?96:mini?260:736,height=brand?brandWidth:transparent?96:mini?156:352, samples=transparent?4:mini?3:2;
       if(canvas.width!==width*samples||canvas.height!==height*samples){canvas.width=width*samples;canvas.height=height*samples;}
       gl.viewport(0,0,canvas.width,canvas.height);
       gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
       state.time=t*tau;state.mini=mini;state.vertices.length=0;
-      if(transparent) glyphMark(symbol,[0,0,0],1.23,[-.24,.19,-.045],nickel);
+      if(brand) voiceMark();
+      else if(transparent) glyphMark(symbol,[0,0,0],1.23,[-.24,.19,-.045],nickel);
       else if(id==='relay-bed')relay(false);
       else ({glyph,phase,relay,orbit})[id]();
       gl.uniform1f(u('time'),state.time);gl.uniform1f(u('aspect'),width/height);
       gl.uniform1f(u('zoom'),mini && id!=='orbit'?.82:1.0);
       gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(state.vertices),gl.STREAM_DRAW);
       gl.drawArrays(gl.TRIANGLES,0,state.vertices.length/9);
-      out.width=width;out.height=height;ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+      out.width=width;out.height=height;
+      if(brand){
+        // A shared full-face square silhouette for the app and animated web mark.
+        const unit=width/1024;
+        ctx.beginPath();ctx.roundRect(80*unit,80*unit,864*unit,864*unit,190*unit);ctx.clip();
+      }
+      ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
       ctx.drawImage(canvas,0,0,width,height);
       return out.toDataURL('image/png').split(',')[1];
     };
@@ -127,6 +134,18 @@
       case '+':stroke(0,0,1.12,.35,0);stroke(0,0,1.1,.35,Math.PI/2);break;
     }
   }
+  function voiceMark() {
+    // The same milled bars, studio shader and traveling crests as the in-app studies.
+    for(let i=0;i<19;i++){
+      const u=i/18, beat=tau*u-state.time;
+      const envelope=Math.pow(Math.sin(Math.PI*u),.8);
+      const height=.14+envelope*(.42+.65*Math.pow(.5+.5*Math.cos(beat),2));
+      const y=-.03+.10*Math.sin(beat)*envelope;
+      bar([(u-.5)*1.42,y,.04*Math.cos(beat)],height,.045,.085,
+          [.12*Math.sin(beat),.20*Math.cos(beat),Math.PI/2],i===6?brass:i>13?steel:nickel);
+    }
+  }
+
   function glyph() {
     const count=state.mini?7:15;
     const symbols='/=:+';
@@ -300,6 +319,10 @@
     }
     return atlas.toDataURL('image/png').split(',')[1];
   };
+  let appRender;
+  window.appIconFrame = () => {appRender ||= install(false,true,1024);return appRender("brand",false,0);};
+  let brandRender;
+  window.brandFrame = t => {brandRender ||= install(false,true);return brandRender("brand",false,t);};
   let render;
   window.motionFrame = (id,mini,t) => {render ||= install();return render(id,mini,t);};
 })();

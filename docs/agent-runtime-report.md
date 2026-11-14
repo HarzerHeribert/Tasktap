@@ -2,7 +2,7 @@
 
 **Architecture review · 14 November 2026 · Tasktap at `a813a28`**
 
-This report describes the reviewed revision. Current Tasktap opens interactive terminal workers and reserves routing connections for capture preparation. For the running implementation, see [AI connections and billing](../README.md#ai-connections-and-billing).
+This report describes the reviewed revision. Current Tasktap opens interactive terminal workers and reserves routing connections for capture preparation. For the running implementation, see [Request preparation and project work](../README.md#request-preparation-and-project-work).
 
 Today you can dictate a note without a paid AI account, or hand a task to the copy of Codex, Claude Code or Antigravity already signed in on your Mac. Tasktap does the routing locally. Your chosen coding agent handles the project work and charges its own account. You can use different providers for these two jobs. [Tasktap implementation](https://github.com/HarzerHeribert/Tasktap/blob/a813a28/README.md#how-it-works)
 

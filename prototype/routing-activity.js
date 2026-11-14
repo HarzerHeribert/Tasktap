@@ -48,6 +48,7 @@ function cancelRouting() {
 function routingEvidence(d) {
   const source={
     apple:'Apple’s on-device model suggested wording. Tasktap matched the destination on this Mac.',
+    'claude-session':'You reviewed the brief from Claude Code. Tasktap matched the project on this Mac.',
     estimate:'Apple’s on-device model estimated the scope of your selected task.',
     unavailable:'Apple’s on-device model is unavailable. Tasktap used local matching.',
     fallback:'The model couldn’t finish this handoff. Tasktap used local matching.',

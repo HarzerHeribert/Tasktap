@@ -207,7 +207,7 @@ enum RouterCLI {
         return client
     }
     func access(client: String) async throws -> String {
-        guard !busy, !client.isEmpty else {throw RouterFailure("Connect your ChatGPT plan in AI connections.")}
+        guard !busy, !client.isEmpty else {throw RouterFailure("Connect your ChatGPT plan in Request preparation.")}
         if let pending = refreshes[client] {return try await pending.value}
         let pending = Task { @MainActor in try await self.freshAccess(client:client) }
         refreshes[client] = pending
@@ -216,7 +216,7 @@ enum RouterCLI {
     }
     private func freshAccess(client: String) async throws -> String {
         var token = try stored(client)
-        guard scopeGranted(token) else {throw RouterFailure("Plan usage needs consent. Open AI connections to reconnect.")}
+        guard scopeGranted(token) else {throw RouterFailure("Plan usage needs consent. Open Request preparation to reconnect.")}
         if (token["expires"] as? Double ?? 0) <= Date().timeIntervalSince1970+30 {
             guard let refresh = token["refresh_token"] as? String else {throw RouterFailure("Reconnect your ChatGPT plan.")}
             let fresh = try await RouterHTTP.json(RouterHTTP.form(tokenURL,["grant_type":"refresh_token","refresh_token":refresh,"client_id":client,"resource":resource]))

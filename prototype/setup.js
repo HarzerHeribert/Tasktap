@@ -1,7 +1,7 @@
 // In a fixed header a chrome signal travels from capture to handoff to the chosen notch study;
 // the controls stay still, narrow windows keep the right-hand crop, and Reduce Motion shows the finished frame.
 const setupWizard = (() => {
-  const steps=['Capture','Preparation','Sessions','Feedback'];
+  const steps=['Capture','Tasktap','Project work','Feedback'];
   let draft=null;
   const showing=()=>!!draft && !!$('#modal[open] #setup-wizard');
   function offer(){
@@ -71,7 +71,7 @@ const setupWizard = (() => {
   function paint(direction){
     const {step,context,agent,host,art}=draft, page=$('#setup-page');
     page.dataset.step=String(step);
-    const title=['Capture a request','Prepare your request','Choose who does the work','See and hear updates'][step];
+    const title=['Capture a request','Who helps Tasktap?','Who works in your project?','See and hear updates'][step];
     const heading=$('#dialog-heading');heading.textContent=title;heading.tabIndex=-1;
     heading.setAttribute('aria-label',title+', step '+(step+1)+' of '+steps.length);
     $('.setup-progress').querySelectorAll('li').forEach((item,i)=>{
@@ -87,10 +87,10 @@ const setupWizard = (() => {
       setupPreparation.mount(draft.prep,page);
     }else if(step===2){
       const agents=Object.entries(providers).map(([id,label])=>option(id,label,agent)).join('');
-      page.innerHTML='<div class="setup-prepared"><small>Request prepared by</small><span id="setup-route-summary"></span></div>'+settingsField('setup-agent','Default coding agent','<select id="setup-agent">'+agents+'</select>')+
+      page.innerHTML='<p class="hint">After you review the brief, this agent opens in your project to do the work.</p>'+settingsField('setup-agent','Project agent','<select id="setup-agent">'+agents+'</select>')+
         (live?'<div id="setup-health">'+aiConnections.setupField(agent)+'</div>':'')+
         '<p class="hint" id="setup-worker-account"></p>'+settingsField('setup-host','Open sessions in','<select id="setup-host">'+terminalHosts.options(host)+'</select>')+
-        '<p class="hint">'+(state.workerRouting?.automatic?'Your agent ranking takes priority for new sessions. ':'')+'Review the agent and terminal before starting. Follow-ups stay in their original session.</p>';
+        '<p class="hint">'+(state.workerRouting?.automatic?'Your agent ranking takes priority for new sessions. ':'')+'Follow-ups stay in their original session.</p><details class="route-evidence"><summary>Request preparation</summary><p id="setup-route-summary"></p></details>';
       $('#setup-agent').onchange=e=>{
         draft.agent=e.target.value;setupPreparation.refresh(draft.prep);
         if(live){$('#setup-health').innerHTML=aiConnections.setupField(draft.agent);aiConnections.updateSetup()}

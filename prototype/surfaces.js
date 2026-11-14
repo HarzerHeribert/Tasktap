@@ -206,6 +206,7 @@ function markChoices(){
   }
 }
 function quickCapture(){
+  if(claudeBrief.resume(true))return;
   clearTimeout(hoverTimer);clearTimeout(receiptTimer);
   const hasEditor=!!$('#modal[open] #transcript') && !$('#notch').open;
   if(draft?.submitting && !hasEditor){toast('Sending this handoff…');return}
@@ -330,7 +331,7 @@ function updateBounds(immediate=false){
 function command(action,id=''){
   const m=$('#status-menu');m.hidden=true;$('#status-button').setAttribute('aria-expanded','false');
   switch(action){
-    case 'open-app':if(!setupWizard.offer())firstRun.open();break;
+    case 'open-app':if(!claudeBrief.resume() && !setupWizard.offer())firstRun.open();break;
     case 'run-setup':setupWizard.open('menu');break;
     case 'guide-replay':firstRun.open(true);break;
     case 'guide-finish':firstRun.finish();break;

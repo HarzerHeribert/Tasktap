@@ -1,2 +1,15 @@
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><title>Tasktap updates</title><description>Signed community releases will appear here after publication.</description></channel></rss>
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Tasktap</title>
+        <item>
+            <title>0.3.0</title>
+            <pubDate>Sat, 14 Nov 2026 20:11:46 +0100</pubDate>
+            <sparkle:version>3</sparkle:version>
+            <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/HarzerHeribert/Tasktap/releases/download/v0.3.0/Tasktap-0.3.0-arm64.zip" length="8083625" type="application/octet-stream" sparkle:edSignature="sSizyRYHhFTpe7vHZ47HnaZpUykkmOq2dK3kgMffd+r4L1uKHmfM0INbgVJRBunB5nKUZNiBSnHjPW0xE/HpAw=="/>
+        </item>
+    </channel>
+</rss>

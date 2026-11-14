@@ -59,15 +59,20 @@ Earlier Tasktap sessions keep their capture history. Eligible completed Claude C
 
 Tasktap closes its Codex and Claude Code workers after their handoffs are settled and the saved conversation confirms the last turn finished. A pending follow-up or question keeps the worker open. In **Workspace → Sessions**, search for a project, task, agent or result. Select the matching run to read its handoffs and use **Resume in** to reopen the same conversation in its original terminal. A conversation you explicitly reopen stays open for you.
 
-### AI connections and billing
+### License
 
-Open **Preferences → Agents → AI connections**. **Prepare captures with** controls who interprets a request. **Session models** controls which coding agent then does the work. A local capture can go to a paid worker. A cloud-prepared note can consume routing allowance even if you never start a worker.
+Tasktap is source-available under the Apache License 2.0 with the Commons Clause. You can use it at work, modify it and share free forks with the license and notices. Selling Tasktap or charging for a service whose value comes substantially from Tasktap requires separate permission. Third-party tools retain their own terms. [Full license](LICENSE)
+
+### Request preparation and project work
+
+Open **Preferences → Agents → Request preparation**. **Prepare requests with** controls who interprets a request. **Session models** controls which coding agent then does the work. A local capture can go to a paid worker. A cloud-prepared note can consume routing allowance even if you never start a worker.
 
 | Preparation route | Account used |
 | --- | --- |
 | On this Mac (default) | Apple’s available on-device model and local matching. No cloud inference charge. |
 | Model server | Choose Ollama, vLLM, LiteLLM or a custom compatible endpoint. The review shows the server and model. The server operator determines any upstream processing and charges. |
-| ChatGPT plan | **Continue with ChatGPT** opens OpenAI’s consent screen. Eligible local/open-source users grant plan usage to Tasktap. For a paid or hosted distribution, check OpenAI’s partner path. [Sign-in and eligibility](https://developers.openai.com/siwc/token-sharing-open-source) |
+| ChatGPT plan | **Continue with ChatGPT** opens OpenAI’s consent screen. OpenAI lists personal local projects, open-source projects and approved apps. Public source alone does not establish eligibility for a distributed Tasktap build. [Sign-in and eligibility](https://developers.openai.com/siwc/token-sharing-open-source) |
+| Claude Code (interactive) | Copy the request and open Claude Code in Terminal. Submit it using the account signed in there, then return to Tasktap for the finished brief. A personal Claude plan can cover this conversation. The project agent is chosen separately. |
 | Installed Codex | Uses the standard CLI login from `codex login`. A ChatGPT login and a platform API key have different billing. The routing invocation skips custom user configuration and runs in a temporary directory. [Codex authentication](https://learn.chatgpt.com/docs/auth) |
 | OpenAI API key or Anthropic API key | Enter your key and use the suggested routing model or replace its ID. Tasktap saves the key in Mac Keychain. The provider bills the project or organization that issued it. |
 | Claude Code with cloud billing | Uses the installed Claude CLI in bare mode with Bedrock, Google Cloud or Microsoft Foundry. Configure one provider in Tasktap’s launch environment (`CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX` or `CLAUDE_CODE_USE_FOUNDRY`) plus that provider’s credentials. A Finder launch may have a different environment from Terminal. [Claude cloud integrations](https://code.claude.com/docs/en/third-party-integrations) |
@@ -82,7 +87,7 @@ Claude subscription workers run Anthropic’s installed, unmodified Claude Code 
 
 ### Connect a model server
 
-In **Preferences → Agents → AI connections**, choose **Model server** under **Prepare captures with**. Pick a preset, check the base URL and click **Find models**. Choose a chat-capable model, then **Save connection**. If a gateway hides its model catalog, choose **Enter model ID** and enter the configured alias. Listing models sends no capture text.
+In **Preferences → Agents → Request preparation**, choose **Model server** under **Prepare requests with**. Pick a preset, check the base URL and click **Find models**. Choose a chat-capable model, then **Save connection**. If a gateway hides its model catalog, choose **Enter model ID** and enter the configured alias. Listing models sends no capture text.
 
 [Preview the model server wizard](design/model-server-setup.png)
 

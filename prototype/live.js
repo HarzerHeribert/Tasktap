@@ -217,11 +217,16 @@ function agentReceipt(e){
 function prepareHandoff(){
   const d=draft;
   cancelRouting();
+  const provider=aiConnections.choice();
+  if(provider==='claude-session'){
+    if(d.text.trim() && d.mode==='ask' && !d.session)claudeBrief.show(d);
+    else routingPrompt();
+    return;
+  }
   const estimate=d.mode==='ask' && sessionModelPolicy().adaptive;
   const preserve=!!(d.sessionProject || (d.project && /^(ask |tell |remember |note )/i.test(d.text.trim())));
   if(!d.text.trim() || d.session || d.mode==='nudge' || d.candidates?.length || (preserve && !estimate)){routingPrompt();return}
   const id=uid();
-  const provider=aiConnections.choice();
   // The Apple model only sees the capture. An external preparation request
   // includes the matching names displayed in its consent sheet.
   const relevantProjects=provider==='local'?[]:matchProjects(d.text).slice(0,8);

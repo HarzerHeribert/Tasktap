@@ -58,6 +58,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private var connectionTask: Task<Void, Never>?
     private var workerCheck: Task<Void, Never>?
     private var workerLogin: Task<Void, Never>?
+    private var briefSession: UUID?
     private var identityCheck: Task<Void, Never>?
     private var queue: [(String, String)] = []
     private var pendingCount = 0
@@ -434,6 +435,22 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             }
         case "ai-settings":
             if !verifying && !liveTest { sendConnections() }
+        case "prepare-open", "prepare-reply":
+            guard !verifying, !liveTest, routingProviders.selected == .claudeSession,
+                  let id=data["id"] as? String, let session=UUID(uuidString:id) else {return}
+            let opening=type=="prepare-open"
+            if opening {
+                guard let prompt=data["prompt"] as? String, !prompt.isEmpty, prompt.count<=65536 else {return}
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(prompt,forType:.string)
+                briefSession=session
+            } else if session != briefSession {return}
+            Task { @MainActor in
+                var result:RouterJSON
+                do {result=try await RouterCLI.call(opening ? "prepare-open" : "prepare-reply",["id":id])}
+                catch {result=["error":error.localizedDescription]}
+                js("claudeBrief.receive(id,opening,result)",["id":id,"opening":opening,"result":result])
+            }
         case "ai-codex-identity":
             guard !verifying,!liveTest,let id=data["id"] as? String else {return}
             identityCheck?.cancel()

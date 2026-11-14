@@ -2,6 +2,7 @@ import AppKit
 
 @MainActor final class RoutingProviders {
     enum Route: String, CaseIterable {
+        case claudeSession = "claude-session"
         case local, chatgpt, openai, anthropic, codex, cloud, server
     }
     private let defaults = UserDefaults.standard
@@ -79,6 +80,8 @@ import AppKit
         }
         switch route {
         case .local: break
+        case .claudeSession:
+            guard workerHealth["claude"] != "missing" else {throw RouterFailure("Install Claude Code first.")}
         case .server: try saveServer(server,model:value,key:key)
         case .openai, .anthropic:
             guard !value.isEmpty else {throw RouterFailure("Enter a model ID available to your API account.")}
@@ -174,6 +177,7 @@ import AppKit
             }
             guard complete else {throw RouterFailure("The OpenAI response was interrupted.")}
             result = try parse(output)
+        case .claudeSession: throw RouterFailure("Prepare the brief in your Claude Code session.")
         case .local: throw RouterFailure("Choose the local router.")
         }
         guard let brief = result["brief"] as? String, !brief.isEmpty, brief.count <= 16000,

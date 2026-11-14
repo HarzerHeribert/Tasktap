@@ -14,7 +14,7 @@ const {chromium}=require('playwright');
     const config={choice:'local',serverKind:'ollama',serverProfiles:{},workers:{},models:{},keys:{},accounts:[],account:''};
     await page.evaluate(c=>aiConnections.receive(c),config);
     await page.getByRole('button',{name:'Preferences',exact:true}).click();
-    await page.getByRole('button',{name:/AI connections/}).click();
+    await page.getByRole('button',{name:/Request preparation/}).click();
     await page.locator('#ai-route').selectOption('server');
     const radio=k=>page.locator('[name=server-kind][value="'+k+'"]');
     const button=name=>page.getByRole('button',{name,exact:true});

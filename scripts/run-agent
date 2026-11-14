@@ -8,6 +8,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+
+# Bundled helpers must keep the signed app resources read-only at runtime.
+sys.dont_write_bytecode = True
 from session_models import conversation_model, model_id
 
 def save(path,value):

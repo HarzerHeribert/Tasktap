@@ -7,6 +7,9 @@ import subprocess
 import sys
 import uuid
 
+# Discovery runs from the signed app bundle as well as the source checkout.
+sys.dont_write_bytecode = True
+
 
 def sessions(root):
     result = subprocess.run(["cmux", "sessions", "--json"], capture_output=True, text=True, timeout=8, check=True)

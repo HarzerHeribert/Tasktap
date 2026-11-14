@@ -480,7 +480,7 @@ function review(){
   const details=d.noPick?'':modelReviewMarkup(d)+(live?deliveryAudit(d):'');
   const choice=d.mode==='ask' && live?workerRouting.reviewMarkup(d):'';
   const usage=live && d.mode!=='note'?'<details class="route-evidence"><summary>Account usage</summary>'+aiConnections.receipt(d)+'</details>':'';
-  const body=brief+choice+usage+(details?'<details class="guide-review-details"><summary>Handoff details</summary>'+details+'</details>':'');
+  const body=brief+choice+usage+(details?'<details class="guide-review-details"><summary>Handoff details</summary>'+route+details+'</details>':'');
   const title=d.guide?{ask:'Review new session',nudge:'Review follow-up',note:'Review note'}[d.mode]:'Review capture';
   const project=proj(d.project);
   const trustPath=live && !d.noPick && d.mode==='ask' && agent==='codex'

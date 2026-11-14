@@ -96,11 +96,11 @@ function sessionUpdated(s){
 function sessionColumns(){return '<div class="list-columns" aria-hidden="true"><span>Session</span><span class="row-project">Project</span><span class="row-agent">Agent / host</span><span>Status</span><span class="row-updated">Updated</span><span></span></div>'}
 function sessionRow(s,{question,fixture=false,title=question?.q || sessionDisplayName(s),status=question?'Needs input':s.state}={}){
   if(fixture)return fixtureSessionRow(s,{question,fixture,title,status});
-  const project=proj(s.project)?.name||'Scratch',agent=providers[s.agent]||'Agent',host=sessionLocation(s);
+  const project=proj(s.project)?.name||'Project',agent=providers[s.agent]||'Agent',host=sessionLocation(s);
   const context=question?'<span class="row-sub row-context">'+esc(sessionDisplayName(s))+'</span>':'';
   return '<button class="session-row work-row" data-action="'+(question?'notch':'session')+'" data-id="'+attr(question?.id || s.id)+'">'+
     '<span class="session-cell"><span class="agent-mark '+attr(s.agent||'')+'" aria-hidden="true">'+icon(s.agent||'sessions')+'</span><span class="session-copy"><span class="row-title" title="'+attr(title)+'">'+esc(title)+'</span>'+context+'<span class="row-compact"><span class="row-compact-project">'+esc(project)+'</span><span class="row-compact-agent">'+esc([agent,host].filter(Boolean).join(' · '))+'</span></span></span></span>'+
-    '<span class="row-project" title="'+attr(project)+'">'+esc(project)+'</span><span class="row-agent"><span>'+esc(agent)+'</span><span class="row-sub">'+esc(host||'—')+'</span></span><span class="row-state '+statusClass(status)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(status)+'</span>'+sessionUpdated(s)+icon('right')+'</button>';
+    '<span class="row-project" title="'+attr(project)+'">'+esc(project)+'</span><span class="row-agent"><span>'+esc(agent)+'</span><span class="row-sub">'+esc(host||'—')+'</span></span><span class="row-state '+statusClass(question?'Needs input':s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(status)+'</span>'+sessionUpdated(s)+icon('right')+'</button>';
 }
 function workOverview(active){
   const questions=new Map();

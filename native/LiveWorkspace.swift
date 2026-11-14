@@ -192,7 +192,7 @@ final class LiveWorkspace {
     }
     private func launch(_ folder:URL)throws {
         if workers[folder.path] != nil{return}
-        guard let url=Bundle.main.url(forResource:"run-agent",withExtension:nil) else {throw Failure.reason("The bundled agent runner is missing.")}
+        let url = try SessionHelpers.runner()
         let p=Process();p.executableURL=url;p.arguments=[folder.path]
         var env=Self.cliEnvironment
         env["WORKSPACE_ASSISTANT_INBOX"]=data.deletingLastPathComponent().appendingPathComponent("Agent Inbox").path
@@ -215,7 +215,7 @@ final class LiveWorkspace {
         guard UUID(uuidString:id) != nil else {completion("Invalid session.");return}
         let external=lastDiscovery?.first{$0["id"]==id && $0["owned"] != "yes"}
         let script=external == nil ? "run-agent" : "cmux-sessions"
-        guard let url=Bundle.main.url(forResource:script,withExtension:nil) else {completion("Session helper is unavailable.");return}
+        guard let url = external == nil ? (try? SessionHelpers.runner()) : Bundle.main.url(forResource:script,withExtension:nil) else {completion("Session helper is unavailable.");return}
         let arguments:[String]
         if let external {
             if external["source"]=="desktop",let thread=external["conversation"],UUID(uuidString:thread) != nil,let url=URL(string:"codex://threads/"+thread) {

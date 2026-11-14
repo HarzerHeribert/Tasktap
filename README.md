@@ -1,3 +1,5 @@
+<img src="site/assets/tasktap-icon.png" width="112" height="112" alt="Tasktap: a metallic voice wave on a dark square">
+
 # Tasktap
 
 [Tasktap for Mac](https://harzerheribert.github.io/Tasktap/) · [User guide](https://harzerheribert.github.io/Tasktap/docs/)
@@ -7,6 +9,8 @@ Tasktap is a voice-first macOS menu-bar app for working with coding agents in yo
 ![The decision rim expands around the Mac camera housing](design/notch-hover.gif)
 
 ## Build and run
+
+Prebuilt community packaging and signed in-app updates are supported. Use **Check for Updates…** in the menu bar. Release maintainers: see [release instructions](docs/releases.md). The optional [installer](site/install.sh) accepts an explicit published version. Community builds are not Apple notarized; Python 3 and agent CLIs remain runtime requirements.
 
 Use macOS 26 or later, Xcode or the Command Line Tools with the macOS 26 SDK or newer, Python 3, and at least one signed-in agent CLI on your PATH. The build creates a locally signed app.
 
@@ -155,6 +159,8 @@ Tasktap’s launcher passes its question tool in the arguments for that session.
 - `build/Tasktap.app/Contents/MacOS/Tasktap --verify-live` uses an authenticated Codex CLI to run a synthetic end-to-end capture in a temporary workspace. It consumes a real agent turn.
 
 ### Public pages and checks
+
+The README and Pages share a near-black square with a flowing metallic voice wave. Run `node scripts/render-motion.cjs --public-icons` to regenerate its still, seamless four-second WebP loop and favicons using the same procedural bars and studio shader as the in-app motion studies (Playwright, Chromium, FFmpeg and ImageMagick required; set `BROWSER_EXECUTABLE` for an installed Chromium browser). Run `node scripts/render-motion.cjs --app-icon` to generate the matching 1024px macOS master and `Tasktap.icns`, which the Mac build bundles automatically. The Pages mark pauses offscreen or in a hidden tab, and uses the still for Reduce Motion. Its adjacent control pauses the animation.
 
 The landing page and user guide live in `site/`. Run `python3 scripts/build-site.py` to assemble `build/pages/`. A wide glyph wave flows behind the stationary Tasktap name and shifts slightly on scroll, while the example’s black notch grows from the top edge of a fixed desktop frame. Narrow screens use a tighter crop, and Reduce Motion uses the poster and instant notch states. The example opens once when it comes into view and can be folded or reopened with the caption control.
 

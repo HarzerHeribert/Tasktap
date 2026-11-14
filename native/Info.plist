@@ -1,21 +1,53 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>CFBundleIdentifier</key><string>io.github.harzerheribert.tasktap</string>
-<key>CFBundleIconFile</key><string>Tasktap.icns</string>
-<key>CFBundleName</key><string>Tasktap</string>
-<key>CFBundleDisplayName</key><string>Tasktap</string>
-<key>CFBundleExecutable</key><string>Tasktap</string>
-<key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.2</string>
-<key>CFBundleVersion</key><string>2</string>
-<key>LSMinimumSystemVersion</key><string>26.0</string>
-<key>LSUIElement</key><true/>
-<key>NSPrefersDisplaySafeAreaCompatibilityMode</key><false/>
-<key>NSLocalNetworkUsageDescription</key><string>Connect to the model server address you choose to list models and prepare captures.</string>
-<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
-<key>NSMicrophoneUsageDescription</key><string>Record a thought for on-device transcription.</string>
-<key>NSSpeechRecognitionUsageDescription</key><string>Transcribe captured speech locally.</string>
-<key>NSAppleEventsUsageDescription</key><string>Read a referenced page or file and open and focus your selected terminal session when you use Tasktap.</string>
-<key>NSHighResolutionCapable</key><true/>
-</dict></plist>
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.harzerheribert.tasktap</string>
+	<key>CFBundleIconFile</key>
+	<string>Tasktap.icns</string>
+	<key>CFBundleName</key>
+	<string>Tasktap</string>
+	<key>CFBundleDisplayName</key>
+	<string>Tasktap</string>
+	<key>CFBundleExecutable</key>
+	<string>Tasktap</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.3.0</string>
+	<key>CFBundleVersion</key>
+	<string>3</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>26.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSPrefersDisplaySafeAreaCompatibilityMode</key>
+	<false/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Connect to the model server address you choose to list models and prepare captures.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Record a thought for on-device transcription.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Transcribe captured speech locally.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Read a referenced page or file and open and focus your selected terminal session when you use Tasktap.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://harzerheribert.github.io/Tasktap/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>VI2vEP/XjkmFWxCJ2OY5yqXOoDUdi38sm1pU+eioArY=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<false/>
+	<key>SUAllowsAutomaticUpdates</key>
+	<false/>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
+</dict>
+</plist>

@@ -31,6 +31,5 @@ tasktap-relay img,tasktap-relay canvas{
   border:1px solid #30383a;border-radius:var(--r-card)
 }
 .review-rail tasktap-relay{width:clamp(92px,30%,160px);mix-blend-mode:screen}
-.home-heading .signal-light:has(tasktap-relay) i{animation:none}
 .activity-art:has(tasktap-relay){align-content:center}
 .dialog-body>tasktap-relay{max-width:220px;margin:auto;border-radius:var(--r-control)}

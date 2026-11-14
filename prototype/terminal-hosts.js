@@ -2,7 +2,7 @@
 const terminalHosts=(()=>{
   const catalog={
     terminal:{name:'Terminal',detail:'Included with macOS'},
-    cmux:{name:'cmux',detail:'Named workspace and agent surface'},
+    cmux:{name:'cmux',detail:'Named workspace; requires cmux socket access for Tasktap'},
     ghostty:{name:'Ghostty',detail:'Interactive terminal window'},
     iterm2:{name:'iTerm2',detail:'Addressable terminal session'},
     warp:{name:'Warp',detail:'Reattach to the same agent in a new tab'},

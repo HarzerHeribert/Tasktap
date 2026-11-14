@@ -29,7 +29,7 @@ const settingsPickers = (() => {
   function choices(input) {
     if (input.tagName==='SELECT') {
       return Array.from(input.options, option=>({
-        value:option.value, text:option.text, disabled:option.disabled,
+        value:option.value, text:option.text, disabled:option.disabled, group:option.parentElement.tagName==='OPTGROUP'?option.parentElement.label:'',
         detail:option.dataset.detail || '', art:option.dataset.art || ''
       }));
     }
@@ -107,7 +107,7 @@ const settingsPickers = (() => {
     const selected=items.findIndex(item=>item.value===input.value && !item.disabled);
     popup.innerHTML=items.map((item,i)=>{
       const mark=leading(input,item,true);
-      return '<div id="'+popup.id+'-'+i+'" class="picker-option" role="option" data-index="'+i+'" aria-selected="'+(item.value===input.value)+'"'+(item.disabled?' aria-disabled="true"':'')+'>'+
+      return (item.group && (i===0 || items[i-1].group!==item.group)?'<div class="picker-group">'+esc(item.group)+'</div>':'')+'<div id="'+popup.id+'-'+i+'" class="picker-option" role="option" data-index="'+i+'" aria-selected="'+(item.value===input.value)+'"'+(item.disabled?' aria-disabled="true"':'')+'>'+
         (mark?'<span class="option-art">'+mark+'</span>':'')+
         '<span class="option-text"><strong>'+esc(item.text)+'</strong>'+(item.detail?'<small>'+esc(item.detail)+'</small>':'')+'</span>'+
         '<span class="option-check">'+(item.value===input.value?icon('check'):'')+'</span></div>';

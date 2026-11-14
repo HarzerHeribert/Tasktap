@@ -5,7 +5,7 @@ const { createServer } = require('node:http');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const root = path.resolve(__dirname, '../build/pages');
-const types = {'.html':'text/html','.css':'text/css','.js':'text/javascript','.svg':'image/svg+xml','.webp':'image/webp','.jpg':'image/jpeg','.mp4':'video/mp4'};
+const types = {'.html':'text/html','.css':'text/css','.js':'text/javascript','.svg':'image/svg+xml','.webp':'image/webp','.jpg':'image/jpeg','.png':'image/png','.mp4':'video/mp4'};
 const originPath = '/Tasktap/';
 
 (async () => {
@@ -13,7 +13,7 @@ const originPath = '/Tasktap/';
     const name = new URL(req.url, 'http://localhost').pathname;
     if (!name.startsWith(originPath)) { res.writeHead(404).end(); return; }
     const file = path.join(root, name.slice(originPath.length), name.endsWith('/') ? 'index.html' : '');
-    try { res.setHeader('Content-Type', types[path.extname(file)]); res.end(await fs.readFile(file)); }
+    try { res.setHeader('Content-Type', types[path.extname(file)] || 'application/octet-stream'); res.end(await fs.readFile(file)); }
     catch { res.writeHead(404).end(); }
   });
   await new Promise(resolve => server.listen(0,'127.0.0.1',resolve));
@@ -30,13 +30,17 @@ const originPath = '/Tasktap/';
       for(const suffix of ['', 'docs/']) {
         await page.goto(url+suffix);
         assert.equal(await page.locator('h1').count(),1);
+        const mark=page.locator('[data-brand-motion]');
+        assert.ok((await mark.getAttribute('src')).endsWith('tasktap-icon.png'));
+        assert.ok(await mark.evaluate(async img=>{await img.decode();return img.naturalWidth>0}));
+        assert.equal(await page.getByRole('button',{name:'Pause logo animation'}).isVisible(),false);
         await page.keyboard.press('Tab');
         assert.equal(await page.locator(':focus').textContent(),'Skip to content');
         assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
         const refs=await page.locator('a[href]').evaluateAll(links=>links.map(a=>a.href));
         for(const ref of refs.filter(ref=>ref.startsWith(url))) {
           const target=new URL(ref);
-          assert.equal((await page.request.get(target.href)).status(),200);
+          assert.equal((await page.request.get(target.href)).status(),200, target.href);
           if(target.hash && target.pathname===new URL(page.url()).pathname)
             assert.equal(await page.locator(target.hash).count(),1);
         }
@@ -77,6 +81,14 @@ const originPath = '/Tasktap/';
     await page.getByRole('link',{name:/Build for Mac/}).click();
     assert.equal(new URL(page.url()).hash,'#install');
     await page.emulateMedia({reducedMotion:'no-preference'});
+    await page.evaluate(()=>window.scrollTo(0,0));
+    const logo=page.locator('[data-brand-motion]');
+    await page.waitForFunction(()=>document.querySelector('[data-brand-motion]').src.endsWith('.webp'));
+    await logo.evaluate(img=>img.decode());
+    await page.getByRole('button',{name:'Pause logo animation'}).click();
+    assert.ok((await logo.getAttribute('src')).endsWith('.png'));
+    await page.getByRole('button',{name:'Play logo animation'}).click();
+    await page.waitForFunction(()=>document.querySelector('[data-brand-motion]').src.endsWith('.webp'));
     await page.goto(url);
     const rate=async width=>{
       await page.locator('video').evaluate((v,w)=>{v.style.width=w+'px';v.scrollIntoView({block:'center'});},width);

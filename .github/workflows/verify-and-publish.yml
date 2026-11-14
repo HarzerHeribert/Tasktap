@@ -78,6 +78,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      - name: Verify update lifecycle guards
+        run: node scripts/verify-updates.cjs
       - name: Build app and verify signature
         run: ./scripts/build-mac.sh
       - name: Check notch placement and restored sessions

@@ -107,6 +107,16 @@ const {pathToFileURL} = require('node:url');
     },folder);
     assert.ok(await page.locator('#notch-home').isVisible());
     assert.equal(await page.locator('#notch-home tasktap-relay').getAttribute('data-phase'),'queued');
+    const home=page.locator('#notch-home');
+    assert.equal(await home.getByRole('heading').innerText(),'Handoff queued');
+    const destination=await home.locator('.notch-destination').innerText();
+    await page.evaluate(()=>{
+      const {session,capture}=window.outbox.findLast(message=>message.type==='enqueue').job;
+      agentReceipt({session,capture,state:'Opened'});
+    });
+    assert.equal(await home.getByRole('heading').innerText(),'Session opened');
+    assert.equal(await home.locator('.notch-destination').innerText(),destination);
+    assert.equal(await page.locator('#modal[open]').count(),0);
     await page.locator('#notch-home').waitFor({state:'hidden',timeout:6000});
     await page.evaluate(folder=>{showWorkspace();newDraft('',folder);draft.mode='note';draft.text='Note';draft.brief='Note';review()},folder);
     assert.equal(await page.locator('#modal tasktap-relay').count(),0);

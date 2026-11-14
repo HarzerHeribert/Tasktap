@@ -9,7 +9,8 @@ const setupPreparation=(()=>{
   const common=['local','claude-session','codex','ollama'];
   function routeOptions(p){
     const ids=p.more || !common.includes(p.id)?Object.keys(routes):common;
-    return ids.map(id=>option(id,routes[id],p.id)).join('')+(ids===common?option('more','More connections…',p.id):'');
+    const descriptions={local:'Private request matching and short briefs on this Mac.',ollama:'Run downloaded models locally; cloud models send requests upstream.', 'claude-session':'Draft together in Claude Code using its signed-in account.',codex:'Use your Codex account to prepare a brief.',chatgpt:'Use a connected ChatGPT plan.',openai:'Paid OpenAI API usage.',anthropic:'Paid Anthropic API usage.',cloud:'Claude Code through a cloud provider.',vllm:'Connect to a model server you manage.',litellm:'Connect to a gateway that may forward to cloud providers.',custom:'Connect to another compatible model server.'};
+    return [['Local on this Mac',['local']],['Cloud accounts',['claude-session','codex','chatgpt','openai','anthropic','cloud']],['Local or remote servers',servers]].map(([label,group])=>'<optgroup label="'+label+'">'+group.filter(id=>ids.includes(id)).map(id=>option(id,routes[id],p.id).replace('<option ','<option data-detail="'+attr(descriptions[id])+'" ')).join('')+'</optgroup>').join('')+(ids===common?option('more','More connections…',p.id):'');
   }
   const create=()=>({id:null,form:null,server:null,touched:false,account:'',identityId:'',email:'',login:''});
   const active=()=>setupWizard.preparation();
@@ -42,7 +43,7 @@ const setupPreparation=(()=>{
     return 'Codex hasn’t identified its billing account.';
   }
   function billing(p,id){
-    if(id==='local')return 'No account or cloud usage. Tasktap prepares the request on this Mac.';
+    if(id==='local')return 'No account or cloud usage. When Apple’s on-device model is available, it can suggest short briefs; otherwise Tasktap uses local matching. This prepares requests, not project code. Review names, intent and destination before starting an agent.';
     if(id==='claude-session')return aiConnections.payer(id)==='Claude plan login'?'Draft in Terminal using your Claude subscription.':'Draft in Terminal using the account in Claude Code. '+aiConnections.payer(id)+'.';
     if(id==='codex')return codexAccount(p);
     if(id==='chatgpt')return account(p)?account(p).label+' · ChatGPT plan':'Choose a ChatGPT account with plan access.';

@@ -80,11 +80,27 @@ function renderNav(projects){
   $('#nav').innerHTML='<div class="nav-group"><span class="nav-kicker">Workspace</span>'+navLink('overview','Overview',icon('grid'))+navLink('sessions','Sessions',icon('sessions'),count(state.sessions.length))+navLink('notes','Notebook',icon('note'),count(state.notes.length))+navLink('projects','Projects',icon('folder'),count(projects.length))+'</div>';
   $('#islandLabel').textContent=state.decisions.length?state.decisions.length+' decision'+(state.decisions.length>1?'s':''):'All clear';
 }
-function sessionRow(s,{question,fixture=false,title=question?.q || sessionDisplayName(s),status=question?'Needs input':s.state}={}){
+function fixtureSessionRow(s,{question,fixture=false,title=question?.q || sessionDisplayName(s),status=question?'Needs input':s.state}={}){
   const agent=[providers[s.agent]||'Agent',sessionLocation(s)].filter(Boolean).join(' · '),p=proj(s.project);
   const lastRun=view==='sessions' && s.updatedAt?new Date(s.updatedAt).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'}):'';
   const subtitle=[question?sessionDisplayName(s):'',agent,lastRun].filter(Boolean).join(' · ');
   return '<button class="session-row" data-action="'+(question?'notch':'session')+'" data-id="'+attr(question?.id || s.id)+'">'+(s.agent?'<span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span>':'<span aria-hidden="true"></span>')+'<span><span class="row-title">'+esc(title)+'</span><span class="row-sub">'+esc(subtitle)+'</span></span><span class="row-project">'+esc(p?.name||'Project')+'</span>'+(fixture?'<span class="fixture-amount">'+esc(s.amount)+'</span>':'<span class="row-state '+statusClass(question?'Needs input':s.state)+'"><i class="state-dot"></i>'+esc(status)+'</span>')+icon('right')+'</button>';
+}
+function sessionUpdated(s){
+  const date=new Date(Number(s.updatedAt));
+  if(!s.updatedAt || !Number.isFinite(date.getTime()))return '<span class="row-updated" aria-label="Update time unavailable">—</span>';
+  const today=new Date().toDateString()===date.toDateString();
+  const short=date.toLocaleString(undefined,today?{hour:'numeric',minute:'2-digit'}:{month:'short',day:'numeric'});
+  return '<time class="row-updated" datetime="'+date.toISOString()+'" title="'+attr(date.toLocaleString())+'">'+esc(short)+'</time>';
+}
+function sessionColumns(){return '<div class="list-columns" aria-hidden="true"><span>Session</span><span class="row-project">Project</span><span class="row-agent">Agent / host</span><span>Status</span><span class="row-updated">Updated</span><span></span></div>'}
+function sessionRow(s,{question,fixture=false,title=question?.q || sessionDisplayName(s),status=question?'Needs input':s.state}={}){
+  if(fixture)return fixtureSessionRow(s,{question,fixture,title,status});
+  const project=proj(s.project)?.name||'Scratch',agent=providers[s.agent]||'Agent',host=sessionLocation(s);
+  const context=question?'<span class="row-sub row-context">'+esc(sessionDisplayName(s))+'</span>':'';
+  return '<button class="session-row work-row" data-action="'+(question?'notch':'session')+'" data-id="'+attr(question?.id || s.id)+'">'+
+    '<span class="session-cell"><span class="agent-mark '+attr(s.agent||'')+'" aria-hidden="true">'+icon(s.agent||'sessions')+'</span><span class="session-copy"><span class="row-title" title="'+attr(title)+'">'+esc(title)+'</span>'+context+'<span class="row-compact"><span class="row-compact-project">'+esc(project)+'</span><span class="row-compact-agent">'+esc([agent,host].filter(Boolean).join(' · '))+'</span></span></span></span>'+
+    '<span class="row-project" title="'+attr(project)+'">'+esc(project)+'</span><span class="row-agent"><span>'+esc(agent)+'</span><span class="row-sub">'+esc(host||'—')+'</span></span><span class="row-state '+statusClass(status)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(status)+'</span>'+sessionUpdated(s)+icon('right')+'</button>';
 }
 function workOverview(active){
   const questions=new Map();
@@ -103,10 +119,10 @@ function workOverview(active){
       progress.push(sending?sessionRow(session,{title:turn.brief || session.task,status:turn.receipt==='Queued'?'Follow-up queued':'Sending follow-up'}):sessionRow(session));
     }
   }
-  const section=(title,rows)=>rows.length?'<section class="block"><h2>'+title+'</h2><div class="session-list">'+rows.join('')+'</div></section>':'';
+  const section=(title,rows)=>rows.length?'<section class="block"><h2>'+title+'<span class="list-count">'+rows.length+'</span></h2><div class="session-list work-list">'+sessionColumns()+rows.join('')+'</div></section>':'';
   return section('Needs your attention',attention)+section('In progress',progress) || '<p class="empty">No active sessions.</p>';
 }
-function sessionList(rows){return rows.length?'<div class="session-list">'+rows.map(s=>sessionRow(s)).join('')+'</div>':'<p class="empty">No sessions here yet.</p>'}
+function sessionList(rows){return rows.length?'<div class="session-list work-list">'+sessionColumns()+rows.map(s=>sessionRow(s)).join('')+'</div>':'<p class="empty">No sessions here yet.</p>'}
 function noteList(notes){return notes.length?notes.map(n=>'<button class="note" data-action="note" data-id="'+attr(n.id)+'"><span class="eyebrow">'+esc(proj(n.project)?.name||'Scratch')+'</span><strong>'+esc(n.title)+'</strong><span class="hint">'+esc(n.text)+'</span></button>').join(''):'<p class="empty">No notes here yet.</p>'}
 let projectFilter='';
 let sessionFilter='';
@@ -127,7 +143,10 @@ function renderSessionHistory(){
 }
 function renderProjectList(projects){
   const rows=projects.filter(p=>p.name.toLowerCase().includes(projectFilter.trim().toLowerCase()));
-  $('#project-list').innerHTML=rows.map(p=>button(p.name,'view',p.id,'note','folder')).join('')||'<p class="empty">'+(projectFilter.trim()?'No matching projects.':state.showIdleProjects?'No project folders found.':'No projects have active sessions.')+'</p>';
+  $('#project-list').innerHTML=rows.length?'<div class="project-table"><div class="project-columns" aria-hidden="true"><span>Project / folder</span><span>Active</span><span>Sessions</span><span></span></div>'+rows.map(p=>{
+    const sessions=state.sessions.filter(s=>s.project===p.id),active=sessions.filter(s=>activeSessionStates.has(s.state)).length;
+    return '<button class="project-row" data-action="view" data-id="'+attr(p.id)+'"><span class="session-cell"><span class="project-folder" aria-hidden="true">'+icon('folder')+'</span><span class="session-copy"><span class="row-title">'+esc(p.name)+'</span><span class="row-sub project-path" title="'+attr(p.folder||'')+'">'+esc(p.folder||'Folder unavailable')+'</span></span></span><span class="project-active '+(active?'has-active':'')+'" aria-label="'+active+' active sessions">'+active+'</span><span class="project-total" aria-label="'+sessions.length+' sessions">'+sessions.length+'</span>'+icon('right')+'</button>';
+  }).join('')+'</div>':'<p class="empty">'+(projectFilter.trim()?'No matching projects.':state.showIdleProjects?'No project folders found.':'No projects have active sessions.')+'</p>';
 }
 function render(){
   const active=activeSessions(),projects=listedProjects(active);

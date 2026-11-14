@@ -13,7 +13,7 @@ const originPath = '/Tasktap/';
     const name = new URL(req.url, 'http://localhost').pathname;
     if (!name.startsWith(originPath)) { res.writeHead(404).end(); return; }
     const file = path.join(root, name.slice(originPath.length), name.endsWith('/') ? 'index.html' : '');
-    try { res.setHeader('Content-Type', types[path.extname(file)]); res.end(await fs.readFile(file)); }
+    try { res.setHeader('Content-Type', types[path.extname(file)] || 'application/octet-stream'); res.end(await fs.readFile(file)); }
     catch { res.writeHead(404).end(); }
   });
   await new Promise(resolve => server.listen(0,'127.0.0.1',resolve));

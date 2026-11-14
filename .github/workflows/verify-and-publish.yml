@@ -43,6 +43,7 @@ jobs:
           git diff --check HEAD^ HEAD
       - name: Session, routing and model regressions
         run: |
+          python3 scripts/verify-session-hosts.py
           python3 scripts/verify-session-history.py
           python3 scripts/verify-session-names.py
           python3 scripts/verify-agent-models.py
@@ -57,7 +58,7 @@ jobs:
           export TASKTAP_SCREENSHOTS="$RUNNER_TEMP/tasktap-shots"
           mkdir -p "$TASKTAP_SCREENSHOTS"
           python3 scripts/build-site.py
-          for test in pages ui relay decision-rim voice-wave setup setup-preparation first-run model-ui model-server connections session-names; do
+          for test in pages ui relay decision-rim voice-wave setup setup-preparation first-run model-ui model-server connections session-names session-detail; do
             node "scripts/verify-$test.cjs"
           done
       - uses: actions/upload-artifact@v4

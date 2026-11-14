@@ -2,6 +2,7 @@ import AppKit
 import Carbon
 import UserNotifications
 import WebKit
+import ServiceManagement
 
 // Physical keys on a separate Micro layer emit these same global shortcuts.
 let bindings: [(action: String, key: Int)] = [
@@ -104,7 +105,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             NSApp.terminate(nil)
             return
         }
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy((verifying || liveTest) ? .accessory : .regular)
         if CommandLine.arguments.contains("--verify-kokoro") {
             var played=false
             narration.changed={ phase in
@@ -260,6 +261,11 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         menu.addItem(.separator())
         add("Open Workspace", "workspace", to:menu)
         add("Preferences…", "prefs", to:menu)
+        add("Launch at Login", "launch-at-login", to:menu)
+        menu.items.last?.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        if SMAppService.mainApp.status == .requiresApproval {
+            menu.items.last?.title = "Approve Launch at Login…"
+        }
         add("Check for Updates…", "updates", to:menu)
         add("Run Setup…", "run-setup", to:menu)
         add("Notifications…", "notifications", to:menu)
@@ -276,6 +282,27 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         guard let command=sender.representedObject as? String else { return }
         if command=="updates" { checkUpdates(); return }
         if command=="quit" { NSApp.terminate(nil); return }
+        if command=="launch-at-login" {
+            guard !verifying && !liveTest else { return }
+            do {
+                switch SMAppService.mainApp.status {
+                case .enabled: try SMAppService.mainApp.unregister()
+                case .requiresApproval: SMAppService.openSystemSettingsLoginItems()
+                default:
+                    try SMAppService.mainApp.register()
+                    if SMAppService.mainApp.status == .requiresApproval {
+                        SMAppService.openSystemSettingsLoginItems()
+                    }
+                }
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "Couldn’t change Launch at Login"
+                alert.informativeText = error.localizedDescription
+                alert.runModal()
+            }
+            updateMenu()
+            return
+        }
         deliver(command)
     }
     private func checkUpdates() {
@@ -970,6 +997,10 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         decisionRim.update(screen:screen, visible:pendingCount > 0)
     }
     func windowShouldClose(_ sender:NSWindow)->Bool { deliver("collapse",reveal:false);return false }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    func applicationDidBecomeActive(_ notification: Notification) {
+        if ready { updateMenu() }
+    }
     func applicationWillTerminate(_ notification:Notification){
         connectionTask?.cancel();routeTask?.cancel();serverProbe?.cancel();identityCheck?.cancel()
         hoverTimer?.invalidate()

@@ -14,7 +14,7 @@ import uuid
 from session_lifecycle import completed_handoff
 from session_models import model_id
 
-HOST_NAMES={'terminal':'Terminal','cmux':'cmux','ghostty':'Ghostty','warp':'Warp','iterm2':'iTerm2','wezterm':'WezTerm','kitty':'kitty'}
+HOST_NAMES={'claude-desktop':'Claude Desktop','terminal':'Terminal','cmux':'cmux','ghostty':'Ghostty','warp':'Warp','iterm2':'iTerm2','wezterm':'WezTerm','kitty':'kitty'}
 
 # Without an "in" argument Terminal allocates a new window. The command replaces its
 # login shell, so an agent exit cannot drop the user into another shell in that tab.
@@ -141,6 +141,10 @@ def cli_command(job, folder, executable=None, resume=None):
 
 def open_window(path, job, ticket=None):
     folder = path.parent
+    if job.get('host') == 'claude-desktop':
+        import claude_desktop
+        claude_desktop.prepare(path, job)
+        return
     cli = shutil.which(job['agent'])
     if not cli:
         raise ValueError('Install '+job['agent']+' and sign in to its CLI.')
@@ -314,6 +318,11 @@ end run"""
 
 
 def focus(folder):
+    first = next(iter(sorted(folder.glob('*.job'))), None)
+    if first and load(first).get('host') == 'claude-desktop':
+        import claude_desktop
+        claude_desktop.open_brief(load(first))
+        return
     surface = endpoint(folder)
     if surface.get('hostApp'):os.environ['TASKTAP_TERMINAL_APP']=surface['hostApp']
     if surface['host']=='terminal':

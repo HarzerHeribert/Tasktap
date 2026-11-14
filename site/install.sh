@@ -1,6 +1,18 @@
 #!/bin/bash
-# Download this file, inspect it, then run: bash install.sh VERSION
+# Download this file, inspect it, then run: bash install.sh [VERSION]
 set -euo pipefail
+resolve_version() {
+  local requested="${1:-latest}" release_url
+  if [ "$requested" = latest ]; then
+    release_url="$(curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --output /dev/null --write-out '%{url_effective}' 'https://github.com/HarzerHeribert/Tasktap/releases/latest')" || return 1
+    case "$release_url" in
+      https://github.com/HarzerHeribert/Tasktap/releases/tag/v*) requested="${release_url##*/v}" ;;
+      *) echo 'Could not resolve the latest stable Tasktap release.' >&2; return 1 ;;
+    esac
+  fi
+  [[ "$requested" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Use latest or a stable version such as 0.3.2.' >&2; return 2; }
+  printf '%s\n' "$requested"
+}
 install_tasktap() {
   local source="$1" install_dir="$2" backups="$3" staged dest archive_dir
   dest="$install_dir/Tasktap.app"
@@ -24,13 +36,14 @@ install_tasktap() {
 }
 # Sourcing exposes the installation transaction for isolated filesystem tests.
 if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then return 0; fi
-version="${1:?Usage: bash install.sh VERSION (for example 0.3.0)}"
-[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Invalid version'; exit 2; }
+[ "$#" -le 1 ] || { echo 'Usage: bash install.sh [VERSION]'; exit 2; }
 [ "$(uname -s)" = Darwin ] || { echo 'Tasktap requires macOS.'; exit 1; }
 [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 26 ] || { echo 'Tasktap requires macOS 26 or later.'; exit 1; }
 arch="$(uname -m)"
 [ "$arch" = arm64 ] || { echo 'This community release supports Apple silicon.'; exit 1; }
 if pgrep -x Tasktap >/dev/null; then echo 'Quit Tasktap before installing. Terminal agents can keep running.'; exit 1; fi
+version="$(resolve_version "${1:-latest}")"
+printf 'Installing Tasktap %s…\n' "$version"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 archive="Tasktap-$version-$arch.zip"

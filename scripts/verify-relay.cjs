@@ -39,7 +39,7 @@ const {pathToFileURL} = require('node:url');
     await page.evaluate(row=>externalSessions([row]),observed);
     assert.match(await row.innerText(),/Queued/);
     await row.click();
-    const light=page.locator('#modal .activity-art tasktap-relay');
+    const light=page.locator('#modal .session-receipt tasktap-relay');
     const point=async target=>target.locator('canvas').evaluate(canvas=>{
       const {data}=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height);
       let x=0,y=0,n=0;

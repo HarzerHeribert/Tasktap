@@ -91,7 +91,7 @@ function sessionModelSettings() {
   const profiles=settingsField('model-agent','Configure models for','<select id="model-agent">'+agents(agent)+'</select>');
   dialog('Session models','Preferences','<form id="session-models" class="settings-form">'+
     '<section class="settings-section">'+defaults+(live?aiConnections.setupField(policy.defaultAgent):'')+
-    settingsField('session-host','Open new sessions in','<select id="session-host">'+terminalHosts.options(state.sessionHost||'terminal')+'</select>')+
+    settingsField('session-host','Open new sessions in','<select id="session-host">'+terminalHosts.options(state.sessionHost||'terminal')+'</select>')+'<p class="hint">Claude Desktop prepares Claude Code briefs for you to send in the app. Other agents use Terminal when this host is selected.</p>'+
     '<label class="policy-switch" for="difficulty-curve"><span>Choose models by task difficulty</span><input id="difficulty-curve" type="checkbox" '+(policy.adaptive?'checked':'')+'></label>'+
     '<div class="curve-controls" id="curve-controls"></div></section>'+
     '<section class="settings-section"><div class="profile-fields">'+profiles+'<div id="model-fields"></div></div>'+

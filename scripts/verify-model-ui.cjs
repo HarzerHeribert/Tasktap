@@ -30,7 +30,8 @@ const path = require('node:path');
     const terminal=page.getByRole('combobox',{name:'Open new sessions in',exact:true});
     await terminal.click();
     const hostMenu=page.getByRole('listbox',{name:'Open new sessions in',exact:true});
-    assert.equal(await hostMenu.getByRole('option').count(),7);
+    assert.equal(await hostMenu.getByRole('option').count(),8);
+    if (!Object.hasOwn(hosts,'claude-desktop'))assert.equal(await hostMenu.getByRole('option',{name:/Claude Desktop/}).getAttribute('aria-disabled'),'true');
     if (process.env.TASKTAP_SCREENSHOTS) {
       const sheet=await page.locator('#modal').boundingBox(), menu=await hostMenu.boundingBox();
       await page.screenshot({path:path.join(process.env.TASKTAP_SCREENSHOTS,'terminal-picker.png'),animations:'disabled',clip:{
@@ -80,8 +81,8 @@ const path = require('node:path');
     await page.locator('#review-model').getByText('Complex · 9/10 · large',{exact:true}).waitFor();
     await page.getByRole('button',{name:'Adjust',exact:true}).click();
     await page.getByLabel('Model for this session').fill('one-off');
-    assert.equal(await page.getByLabel('Terminal for this session').inputValue(),'ghostty');
-    await page.getByLabel('Terminal for this session').selectOption('iterm2');
+    assert.equal(await page.getByLabel('Open this session in').inputValue(),'ghostty');
+    await page.getByLabel('Open this session in').selectOption('iterm2');
     await page.getByRole('button',{name:'Review changes',exact:true}).click();
     assert.equal(await page.locator('#review-model').textContent(),'one-off');
     await page.locator('#modal').getByRole('button',{name:'Start session',exact:true}).click();

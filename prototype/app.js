@@ -50,10 +50,10 @@ const attr=(s)=>esc(s);
 const button=(label,action,id='',style='btn',sym='')=>'<button type="button" class="'+style+'" data-action="'+action+'" data-id="'+attr(id)+'">'+(sym?icon(sym):'')+esc(label)+'</button>';
 const option=(value,text,selected='')=>'<option value="'+attr(value)+'" '+(value===selected?'selected':'')+'>'+esc(text)+'</option>';
 const heading=(over,title,sub='')=>'<div class="page-heading"><div class="eyebrow">'+esc(over)+'</div><h1>'+esc(title)+'</h1>'+(sub?'<p class="subtitle">'+esc(sub)+'</p>':'')+'</div>';
-const statusClass=s=>['Needs input','Awaiting agent'].includes(s)?'waiting':s==='Complete'?'complete':['Running','Queued'].includes(s)?'running':'offline';
+const statusClass=s=>['Needs input','Awaiting agent','Ready to send'].includes(s)?'waiting':s==='Complete'?'complete':['Running','Queued'].includes(s)?'running':'offline';
 const navLink=(id,label,sym,end='')=>'<button class="nav-link '+(view===id?'active':'')+'" '+(view===id?'aria-current="page"':'')+' data-action="view" data-id="'+attr(id)+'">'+sym+'<span class="label">'+esc(label)+'</span>'+end+'</button>';
 const count=n=>'<span class="nav-count">'+n+'</span>';
-const activeSessionStates=new Set(['Running','Needs input','Queued','Opening','Awaiting agent']);
+const activeSessionStates=new Set(['Running','Needs input','Queued','Opening','Awaiting agent','Ready to send']);
 function activeSessions(){
   const pending=new Set(state.decisions.map(q=>q.session));
   return state.sessions.filter(s=>pending.has(s.id)||activeSessionStates.has(s.state));
@@ -68,7 +68,7 @@ function peerDisclosure(peers,project,links=false){
   if(!peers.length)return '';
   const rows=peers.map(s=>{
     const label=[s.task,providers[s.agent],s.state].filter(Boolean).join(' · ');
-    return '<li>'+(links?button(label,'session',s.id,'text-btn'):esc(label))+'</li>';
+    return '<li>'+(links?'<button class="peer-session" data-action="session" data-id="'+attr(s.id)+'"><span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span><span><span class="row-title">'+esc(s.task)+'</span><span class="row-sub">'+esc([providers[s.agent],sessionLocation(s),s.state].filter(Boolean).join(' · '))+'</span></span>'+icon('right')+'</button>':esc(label))+'</li>';
   });
   return '<details class="route-evidence" data-project-peers><summary>'+peers.length+' other session'+(peers.length===1?'':'s')+' in '+esc(proj(project).name)+'</summary><ul>'+rows.join('')+'</ul></details>';
 }
@@ -81,7 +81,7 @@ function renderNav(projects){
   $('#islandLabel').textContent=state.decisions.length?state.decisions.length+' decision'+(state.decisions.length>1?'s':''):'All clear';
 }
 function sessionRow(s,{question,fixture=false,title=question?.q || sessionDisplayName(s),status=question?'Needs input':s.state}={}){
-  const agent=s.interactive?providers[s.agent]+' · '+sessionLocation(s):s.source==='desktop'?'Codex · ChatGPT desktop':s.source==='terminal'?'Codex · Terminal':s.source==='claude'?'Claude Code · External':providers[s.agent]||'Agent',p=proj(s.project);
+  const agent=[providers[s.agent]||'Agent',sessionLocation(s)].filter(Boolean).join(' · '),p=proj(s.project);
   const lastRun=view==='sessions' && s.updatedAt?new Date(s.updatedAt).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'}):'';
   const subtitle=[question?sessionDisplayName(s):'',agent,lastRun].filter(Boolean).join(' · ');
   return '<button class="session-row" data-action="'+(question?'notch':'session')+'" data-id="'+attr(question?.id || s.id)+'">'+(s.agent?'<span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span>':'<span aria-hidden="true"></span>')+'<span><span class="row-title">'+esc(title)+'</span><span class="row-sub">'+esc(subtitle)+'</span></span><span class="row-project">'+esc(p?.name||'Project')+'</span>'+(fixture?'<span class="fixture-amount">'+esc(s.amount)+'</span>':'<span class="row-state '+statusClass(question?'Needs input':s.state)+'"><i class="state-dot"></i>'+esc(status)+'</span>')+icon('right')+'</button>';
@@ -236,6 +236,7 @@ function showSession(id){
   openedSession=id;
   const q=state.decisions.find(q=>q.session===id);
   const actions=[];
+  if(live && s.host==='claude-desktop' && s.available)actions.push(button('Open brief in Claude Desktop','focus-session',id,'primary','out'));
   if(live && (s.interactive && s.available===true && !['Closed','Queued','Opening'].includes(s.state) || s.source==='cmux' && s.available)){
     actions.push(button(s.host==='warp'?'Reattach in Warp':'Open in '+sessionLocation(s),'focus-session',id,'primary','out'));
   }
@@ -253,11 +254,13 @@ function showSession(id){
   const turns=state.captures.filter(c=>c.session===id);
   const history=turns.length>1?'<details class="route-evidence"><summary>Handoff history · '+turns.length+'</summary><ul>'+turns.map(c=>'<li>'+button(c.kind+' · '+(c.brief||c.text||'Sketch').slice(0,70),'detailcapture',c.id,'text-btn')+'</li>').join('')+'</ul></details>':'';
   const location=s.interactive && !retry && !s.resumable?'<p class="hint">'+esc(s.state==='Closed' || s.state==='Complete' && !s.available?'The terminal session has closed.':s.state==='Failed'?'Check the terminal for the launch error.':s.available===false?'Waiting for the terminal session.':s.state==='Awaiting agent'?'Open '+sessionLocation(s)+' to check for a sign-in or folder trust prompt.':'You can type, interrupt, and answer approvals in '+sessionLocation(s)+'.')+'</p>':'';
+  const desktopHint=s.host==='claude-desktop'?'<p class="hint">Confirm the project folder and send the prepared brief in Claude Desktop. Activity and replies stay in Claude.</p>':'';
   const waiting=s.waitingFor?'<p class="hint">'+esc('Waiting in the original session · '+s.waitingFor)+'</p>':'';
   const turn=state.captures.find(c=>c.session===s.id);
-  const status=activityBand('<strong class="session-state '+statusClass(s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(s.state)+'</strong>',proj(s.project)?.folder,['Running','Queued'].includes(s.state),live?handoffRelay.forCapture(turn):'');
+  const relay=live?handoffRelay.forCapture(turn):'';
+  const status='<section class="session-summary"><div class="session-summary-line"><span class="row-state '+statusClass(s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(s.state)+'</span><span class="row-sub">'+esc(sessionLocation(s))+'</span></div><span class="session-folder">'+icon('folder')+esc(proj(s.project)?.folder)+'</span></section>';
   const activity=s.log.length?'<section class="block"><h3>Activity</h3><ul class="time-line">'+s.log.map(e=>'<li><i class="state-dot"></i>'+esc(sessionActivityLine(s,e))+'</li>').join('')+'</ul></section>':'';
-  dialog(sessionDisplayName(s),[providers[s.agent],s.model].filter(Boolean).join(' · '),status+location+waiting+peerDisclosure(projectPeers(s.project,id),s.project,true)+activity+history+sessionNameHistory(s)+(s.result?'<section class="notice"><strong>Agent summary</strong><p>'+esc(s.result)+'</p></section>':'')+'<div class="inline">'+actions.join('')+'</div>');
+  dialog(sessionDisplayName(s),[providers[s.agent],s.model].filter(Boolean).join(' · '),'<div class="session-detail">'+status+(actions.length?'<div class="session-actions inline">'+actions.join('')+'</div>':'')+location+desktopHint+waiting+(relay?'<div class="session-receipt">'+relay+'</div>':'')+peerDisclosure(projectPeers(s.project,id),s.project,true)+activity+history+sessionNameHistory(s)+(s.result?'<section class="notice"><strong>Agent summary</strong><p>'+esc(s.result)+'</p></section>':'')+'</div>');
   const disclosure=$('#modal [data-project-peers]');
   if(peersWereOpen && disclosure){
     disclosure.open=true;
@@ -505,7 +508,7 @@ function adjustReview(){
   const projectField=field('Workspace','<select id="project" required>'+option('','Choose a workspace',d.project)+ps+option('@new','Create project folder…',d.project)+option('@scratch','Keep in scratch',d.project)+'</select>');
   const sessionField=field('Existing session','<select id="session" required>'+option('','Choose the matching session',d.session)+sessionChoices.map(s=>option(s.id,s.task+' · '+proj(s.project)?.name+' · '+providers[s.agent],d.session)).join('')+'</select>');
   const newField=d.project==='@new'?field('New project name','<input id="newName" value="'+attr(d.newName)+'" placeholder="Name under ~/projects" required pattern="[^/]+">'):'';
-  const providerFields=d.mode==='ask'?field('Agent','<select id="agent">'+Object.entries(providers).map(([k,v])=>option(k,v,d.agent)).join('')+'</select>')+field('Model for this session',modelInput(d.agent,'override',d.modelOverride?.agent===d.agent?d.modelOverride.value:'',modelPlanFor({...d,modelOverride:null}).label))+modelSuggestions(d.agent)+(live?settingsField('handoff-host','Terminal for this session','<select id="handoff-host">'+terminalHosts.options(sessionHost(d))+'</select>'):'')+field('Open result in','<select id="viewer">'+['','Xcode','Preview','Finder'].map(v=>option(v,v||'Choose later',d.viewer)).join('')+'</select>'):'';
+  const providerFields=d.mode==='ask'?field('Agent','<select id="agent">'+Object.entries(providers).map(([k,v])=>option(k,v,d.agent)).join('')+'</select>')+field('Model for this session',modelInput(d.agent,'override',d.modelOverride?.agent===d.agent?d.modelOverride.value:'',modelPlanFor({...d,modelOverride:null}).label))+modelSuggestions(d.agent)+(live?settingsField('handoff-host','Open this session in','<select id="handoff-host">'+terminalHosts.options(sessionHost(d),d.agent)+'</select>'):'')+field('Open result in','<select id="viewer">'+['','Xcode','Preview','Finder'].map(v=>option(v,v||'Choose later',d.viewer)).join('')+'</select>'):'';
   dialog('Adjust handoff','Routing','<form id="route-form" class="fields"><details><summary>Original capture'+(d.strokes.length?' · sketch attached':'')+'</summary><p class="body-copy">'+esc(d.text||'Sketch only')+'</p>'+(d.strokes.length?sketchMarkup(d.strokes):'')+'</details>'+field('Action','<select id="mode">'+routes.map(([k,v])=>option(k,v,d.mode)).join('')+'</select>')+field(d.mode==='note'?'Note':'Agent handoff','<textarea id="brief" '+(d.strokes.length?'':'required')+'>'+esc(d.brief)+'</textarea>')+(d.mode==='nudge'?sessionField:projectField+newField)+providerFields+(d.mode!=='note'?'<div class="check-line"><input id="keep" type="checkbox" '+(d.keep?'checked':'')+'><label for="keep">Save a separate project note</label></div>'+(d.keep?field('Project note','<textarea id="sideNote" required>'+esc(d.note)+'</textarea>'):''):'')+'<div class="form-actions">'+button('Edit capture','edit')+'<button class="primary" type="submit">Review changes</button></div></form>');
   const f=$('#route-form');
   f.querySelectorAll('button[data-action]').forEach(b=>b.type='button');

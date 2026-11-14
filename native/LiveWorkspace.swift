@@ -61,10 +61,10 @@ final class LiveWorkspace {
                 let receipt=job.deletingPathExtension().appendingPathExtension("receipt")
                 if let meta=try? JSONSerialization.jsonObject(with:Data(contentsOf:job)) as? [String:Any],let cid=meta["capture"] as? String{
                     pending[receipt]=["session":folder.lastPathComponent,"capture":cid]
-                    if ["Complete","Failed","Delivered","Opened","Copied","Opening","Closed"].contains(readState(receipt) ?? "") {historical.insert(receipt)}
+                    if ["Complete","Failed","Delivered","Opened","Prepared","Copied","Opening","Closed"].contains(readState(receipt) ?? "") {historical.insert(receipt)}
                 }
             }
-            if pending.keys.contains(where:{ $0.deletingLastPathComponent().path==folder.path && readState($0) != "Complete" && !["Failed","Delivered","Opened","Copied","Opening","Closed"].contains(readState($0) ?? "") }) {try launch(folder)}
+            if pending.keys.contains(where:{ $0.deletingLastPathComponent().path==folder.path && readState($0) != "Complete" && !["Failed","Delivered","Opened","Prepared","Copied","Opening","Closed"].contains(readState($0) ?? "") }) {try launch(folder)}
         }
         timer=Timer.scheduledTimer(withTimeInterval:0.7,repeats:true){[weak self] _ in self?.poll()}
     }
@@ -122,6 +122,9 @@ final class LiveWorkspace {
                     throw Failure.reason("This handoff has already been retried. Open the new session in the workspace.")
                 }
             }
+        }
+        if job["host"] as? String == "claude-desktop", provider != "claude" || mode != "ask" {
+            throw Failure.reason("Claude Desktop supports new Claude Code briefs. Continue existing conversations in Claude.")
         }
         if mode=="ask",let host=job["host"] as? String, TerminalCatalog.app(host)==nil {
             throw Failure.reason("Your chosen terminal is unavailable. Choose an installed app in Preferences → Session models.")

@@ -38,7 +38,7 @@ const settingsPickers = (() => {
   }
   function leading(input, item, illustrated=false) {
     if (input.id==='ai-route') return '';
-    if (input.id==='session-host' || input.id==='handoff-host')return terminalHosts.mark(item.value);
+    if (['session-host','handoff-host','setup-host'].includes(input.id))return terminalHosts.mark(item.value);
     if (item.art) return artThumb(item.art);
     if (Object.hasOwn(providers,item.value)) return providerMark(item.value, illustrated);
     if (input.id==='voice-engine') return '<span class="picker-symbol">'+icon('sound')+'</span>';

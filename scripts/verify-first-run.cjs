@@ -17,6 +17,7 @@ const {chromium}=require('playwright');
     const click=name=>page.getByRole('button',{name,exact:true}).click();
     const shots=process.env.TASKTAP_SCREENSHOTS;
     await cmd('open-app');
+    await click('Set up later');
     await page.evaluate(()=>projectsDiscovered([]));
     await page.getByRole('heading',{name:'Add a project'}).waitFor();
     const home=page.locator('#notch-home');

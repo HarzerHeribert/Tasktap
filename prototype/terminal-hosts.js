@@ -22,7 +22,7 @@ const terminalHosts=(()=>{
     const same=icons && Object.keys(found).length===Object.keys(icons).length && Object.keys(found).every(key=>found[key]===icons[key]);
     if (same)return;
     icons=found;
-    const input=$('#session-host') || $('#handoff-host');
+    const input=$('#session-host,#handoff-host,#setup-host');
     if (!input) return;
     const saved=input.value;
     if(input.getAttribute('aria-expanded')==='true')settingsPickers.close();

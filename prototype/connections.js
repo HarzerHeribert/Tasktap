@@ -71,7 +71,7 @@ const aiConnections = (() => {
     refresh();
   }
   window.addEventListener('focus',()=>{
-    if($('#agent-setup-link,#check-agents,#default-agent') || routeAgent($('#ai-route')?.value))refresh();
+    if($('#agent-setup-link,#check-agents,#default-agent,#setup-agent') || routeAgent($('#ai-route')?.value))refresh();
   });
   const serverTarget = () => ({kind:config.serverKind || 'ollama',...config.serverProfiles?.[config.serverKind]});
   const label = route => route==='server'?serverSetup.name(serverTarget().kind):routes[route]?.[0] || 'On this Mac';

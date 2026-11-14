@@ -238,7 +238,7 @@ function interpret(){
   if(!d.project&&ps.length===1)d.project=ps[0].id;
   if(!d.session && /\bask (claude|codex|antigravity|agy)\b/i.test(t))d.mode='ask';
   if(d.mode==='nudge'&&!d.session){const choices=ps.length===1?ss.filter(s=>s.project===ps[0].id):ss;if(choices.length===1){d.session=choices[0].id;d.project=choices[0].project}else if(choices.length>1){d.candidates=choices.map(s=>s.id)}}
-  if(/codex/i.test(t))d.agent='codex';if(/antigravity|\bagy\b/i.test(t))d.agent='agy';for(const app of ['Xcode','Preview','Finder'])if(lower.includes(app.toLowerCase()))d.viewer=app;
+  if(/codex/i.test(t))d.agent='codex';if(/antigravity|\bagy\b/i.test(t))d.agent='agy';const viewer=/\b(?:in|with|using|via|to)\s+(?:apple |the )?(xcode|preview|finder)\b/i.exec(t);if(viewer)d.viewer=['Xcode','Preview','Finder'].find(app=>app.toLowerCase()===viewer[1].toLowerCase());
 }
 function routingPrompt(){
   const d=draft;

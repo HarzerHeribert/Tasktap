@@ -96,7 +96,8 @@ function finishRouting(id,r){
       if(s && (!d.project || d.project===s.project)){d.session=s.id;d.project=s.project}
     }
     if(['claude','codex','agy'].includes(r.agent))d.agent=r.agent;
-    if(['Finder','Xcode','Preview'].includes(r.viewer))d.viewer=r.viewer;
+    const projectName=proj(d.project)?.name;
+    if(projectName && d.text.toLowerCase().includes(projectName.toLowerCase()) && !d.brief.toLowerCase().includes(projectName.toLowerCase()))d.brief=d.text.trim();
     if(d.mode!=='note' && typeof r.note==='string' && r.note.trim()){d.keep=true;d.note=r.note.trim()}
   }
   routingPrompt();

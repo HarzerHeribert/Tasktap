@@ -10,7 +10,7 @@ const aiConnections = (() => {
     cloud: ['Claude Code with cloud billing', 'Uses Claude Code with your configured Bedrock, Google Cloud or Foundry account.']
   };
   let config = {choice:'local', workers:{}, models:{}, keys:{}, accounts:[], account:'', cloud:''};
-  let busy = false, checking = false, editing = '', notice = '';
+  let loaded = false, busy = false, checking = false, editing = '', notice = '';
   const routeAgent=route=>({codex:'codex',cloud:'claude'})[route];
   const health=id=>config.workerHealth?.[id] || 'checking';
   const needsSetup=id=>['missing','signedOut'].includes(health(id));
@@ -71,7 +71,7 @@ const aiConnections = (() => {
     refresh();
   }
   window.addEventListener('focus',()=>{
-    if($('#agent-setup-link,#check-agents,#default-agent,#setup-agent') || routeAgent($('#ai-route')?.value))refresh();
+    if($('#agent-setup-link,#check-agents,#default-agent,#setup-agent') || $('#setup-prep-route') || routeAgent($('#ai-route')?.value))refresh();
   });
   const serverTarget = () => ({kind:config.serverKind || 'ollama',...config.serverProfiles?.[config.serverKind]});
   const label = route => route==='server'?serverSetup.name(serverTarget().kind):routes[route]?.[0] || 'On this Mac';
@@ -88,10 +88,11 @@ const aiConnections = (() => {
     if (external) return 'Existing session · account managed in its original client';
     return (live ? config.workers[agent] || 'Billing source unverified' : 'Demo · no usage');
   }
-  function receive(value,note='',finished=false,success=true) {
-    config = value;
-    if (finished) { busy=false;notice=note }
-    if ($('#ai-settings')) {
+  function receive(value,note='',finished=false,success=true,request='',account='') {
+    config = value;loaded=true;
+    document.dispatchEvent(new CustomEvent('connection-state',{detail:{finished,success,note,request,account}}));
+    if (finished && !request) { busy=false;notice=note }
+    if (!request && $('#ai-settings')) {
       if (finished && !success && editing==='server' && $('#server-setup')) {
         for (const el of $('#ai-settings').elements) el.disabled=false;
         $('#ai-notice').textContent=note;
@@ -184,5 +185,5 @@ const aiConnections = (() => {
     const {prep,next}=accountSummary(d);
     return 'Preparation · '+prep+'\nHandoff · '+next;
   }
-  return {health,show,jump,setup,setupField,refresh,checked,updateSetup,receive,receipt,record,routingInstructions:()=>config.routingInstructions || '',serverTarget,sendDescription,label,payer,worker,choice:()=>config.choice};
+  return {snapshot:()=>config,loaded:()=>loaded,routes,health,show,jump,setup,setupField,refresh,checked,updateSetup,receive,receipt,record,routingInstructions:()=>config.routingInstructions || '',serverTarget,sendDescription,label,payer,worker,choice:()=>config.choice};
 })();

@@ -58,6 +58,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private var connectionTask: Task<Void, Never>?
     private var workerCheck: Task<Void, Never>?
     private var workerLogin: Task<Void, Never>?
+    private var identityCheck: Task<Void, Never>?
     private var queue: [(String, String)] = []
     private var pendingCount = 0
     private let decisionRim = WorkspaceDecisionRim()
@@ -337,8 +338,8 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         deliver("hw-"+action, reveal:action=="requests")
     }
 
-    @MainActor private func sendConnections(_ note: String = "", finished: Bool = false, success: Bool = true) {
-        js("aiConnections.receive(value,note,finished,success)",["value":routingProviders.state(),"note":note,"finished":finished,"success":success])
+    @MainActor private func sendConnections(_ note: String = "", finished: Bool = false, success: Bool = true, request: String = "", account: String = "") {
+        js("aiConnections.receive(value,note,finished,success,request,account)",["value":routingProviders.state(),"note":note,"finished":finished,"success":success,"request":request,"account":account])
     }
     private var workersChecked = Date.distantPast
     private var usageCheck:Task<Void,Never>?
@@ -433,6 +434,13 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             }
         case "ai-settings":
             if !verifying && !liveTest { sendConnections() }
+        case "ai-codex-identity":
+            guard !verifying,!liveTest,let id=data["id"] as? String else {return}
+            identityCheck?.cancel()
+            identityCheck=Task { @MainActor in
+                let value=try? await RouterCLI.call("codex-identity",[:])
+                if !Task.isCancelled {js("setupPreparation.identity(id,label)",["id":id,"label":value?["label"] as? String ?? ""])}
+            }
         case "ai-model-list":
             guard !verifying, !liveTest, let id=data["id"] as? String else {return}
             serverProbe?.cancel()
@@ -444,19 +452,21 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             }
         case "ai-save", "ai-login", "ai-account", "ai-disconnect", "ai-remove":
             guard !verifying, !liveTest else {return}
-            guard connectionTask == nil else {return}
-            guard routeID == nil else {sendConnections("Finish preparing the current capture first.",finished:true);return}
+            let request=data["request"] as? String ?? ""
+            guard connectionTask == nil, routeID == nil else {
+                sendConnections("Finish the current connection or capture, then try again.",finished:true,success:false,request:request);return
+            }
             let choice = data["route"] as? String ?? ""
             connectionTask = Task { @MainActor in
                 var note = ""
-                var success = true
+                var success = true, account = ""
                 do {
                     switch type {
                     case "ai-save":
-                        try routingProviders.configure(choice, model:data["model"] as? String ?? "", key:data["key"] as? String ?? "", server:data["server"] as? RouterJSON ?? [:])
+                        try routingProviders.configure(choice, model:data["model"] as? String ?? "", key:data["key"] as? String ?? "", server:data["server"] as? RouterJSON ?? [:], account:data["account"] as? String)
                         note = "Routing preference saved."
                     case "ai-login":
-                        try await routingProviders.chat.login(client:data["account"] as? String ?? "")
+                        account = try await routingProviders.chat.login(client:data["account"] as? String ?? "", activate:request.isEmpty)
                         note = "ChatGPT sign-in finished. Check plan access below."
                     case "ai-account": try routingProviders.chat.select(data["account"] as? String ?? "")
                     case "ai-disconnect": try await routingProviders.chat.disconnect()
@@ -464,7 +474,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                     }
                 } catch { note = error.localizedDescription;success=false }
                 connectionTask = nil
-                sendConnections(note, finished:true,success:success)
+                sendConnections(note, finished:true,success:success,request:request,account:account)
             }
         case "ai-usage":
             NSWorkspace.shared.open(URL(string:"https://chatgpt.com/settings/usage")!)
@@ -900,7 +910,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     }
     func windowShouldClose(_ sender:NSWindow)->Bool { deliver("collapse",reveal:false);return false }
     func applicationWillTerminate(_ notification:Notification){
-        connectionTask?.cancel();routeTask?.cancel();serverProbe?.cancel()
+        connectionTask?.cancel();routeTask?.cancel();serverProbe?.cancel();identityCheck?.cancel()
         hoverTimer?.invalidate()
         lightingEnabled=false;syncLighting()
         narration.changed={_ in};micro.stop();inbox.stop();narration.stop();dictation.cancel();if !verifying{runtime.stop()}

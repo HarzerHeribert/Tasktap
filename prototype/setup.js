@@ -1,7 +1,7 @@
 // In a fixed header a chrome signal travels from capture to handoff to the chosen notch study;
 // the controls stay still, narrow windows keep the right-hand crop, and Reduce Motion shows the finished frame.
 const setupWizard = (() => {
-  const steps=['Capture','Sessions','Feedback'];
+  const steps=['Capture','Preparation','Sessions','Feedback'];
   let draft=null;
   const showing=()=>!!draft && !!$('#modal[open] #setup-wizard');
   function offer(){
@@ -16,7 +16,7 @@ const setupWizard = (() => {
     if(document.querySelector('dialog[open]') && !from){toast('Finish or close the open panel to run setup.');return}
     showWorkspace();
     draft={origin,from,step:0,context:state.useScreenContext!==false,agent:sessionModelPolicy().defaultAgent,
-      host:terminalHosts.valid(state.sessionHost)?state.sessionHost:'terminal',art:TasktapArt.current(),summaryVoice:null};
+      host:terminalHosts.valid(state.sessionHost)?state.sessionHost:'terminal',art:TasktapArt.current(),summaryVoice:null,prep:setupPreparation.create()};
     dialog('Set up Tasktap','','<div id="setup-wizard" class="settings-form"><section id="setup-page" class="settings-section"></section>'+
       '<footer class="setup-actions"><button type="button" id="setup-back" class="btn"></button>'+
       '<button type="button" id="setup-next" class="primary"></button></footer></div>');
@@ -28,6 +28,7 @@ const setupWizard = (() => {
     header.insertAdjacentHTML('beforeend','<ol class="setup-progress" aria-label="Setup progress">'+steps.map(s=>'<li>'+s+'</li>').join('')+'</ol>');
     $('#setup-back').onclick=()=>draft.step?move(-1):cancel();
     $('#setup-next').onclick=()=>draft.step===steps.length-1?save():move(1);
+    if(live && !aiConnections.loaded())postLive('ai-settings');
     paint(0);
   }
   function stage(id,direction){
@@ -63,32 +64,39 @@ const setupWizard = (() => {
     settingsPickers.sync(field);
     if(focused && !field.disabled)field.focus({preventScroll:true});
   }
-  function move(delta){settingsPickers.close();draft.step+=delta;paint(delta)}
+  function move(delta){
+    if(draft.saving || (delta>0 && draft.step===1 && !setupPreparation.validate(draft.prep)))return;
+    settingsPickers.close();draft.step+=delta;paint(delta);
+  }
   function paint(direction){
     const {step,context,agent,host,art}=draft, page=$('#setup-page');
-    const title=['Capture a request','Hand off to an agent','See and hear updates'][step];
+    page.dataset.step=String(step);
+    const title=['Capture a request','Prepare your request','Choose who does the work','See and hear updates'][step];
     const heading=$('#dialog-heading');heading.textContent=title;heading.tabIndex=-1;
     heading.setAttribute('aria-label',title+', step '+(step+1)+' of '+steps.length);
     $('.setup-progress').querySelectorAll('li').forEach((item,i)=>{
       if(i===step)item.setAttribute('aria-current','step');else item.removeAttribute('aria-current');
     });
-    stage(['glyph','relay',art][step],direction);
+    stage(['glyph','phase','relay',art][step],direction);
     if(step===0){
       page.innerHTML='<div class="setup-shortcut"><kbd aria-label="Control Option Space" title="Control + Option + Space">⌃ ⌥ Space</kbd><p>Tap to type. Hold to speak, then release.</p></div>'+
         '<label class="policy-switch" for="setup-context"><span>Find the website or file I mention</span><input type="checkbox" id="setup-context" '+(context?'checked':'')+'></label>'+
         '<p class="hint">Say “this website” or “this file” to include it. You can check the reference before sending.</p>';
       $('#setup-context').onchange=e=>{draft.context=e.target.checked};
     }else if(step===1){
+      setupPreparation.mount(draft.prep,page);
+    }else if(step===2){
       const agents=Object.entries(providers).map(([id,label])=>option(id,label,agent)).join('');
-      page.innerHTML=settingsField('setup-agent','Default coding agent','<select id="setup-agent">'+agents+'</select>')+
+      page.innerHTML='<div class="setup-prepared"><small>Request prepared by</small><span id="setup-route-summary"></span></div>'+settingsField('setup-agent','Default coding agent','<select id="setup-agent">'+agents+'</select>')+
         (live?'<div id="setup-health">'+aiConnections.setupField(agent)+'</div>':'')+
-        settingsField('setup-host','Open sessions in','<select id="setup-host">'+terminalHosts.options(host)+'</select>')+
+        '<p class="hint" id="setup-worker-account"></p>'+settingsField('setup-host','Open sessions in','<select id="setup-host">'+terminalHosts.options(host)+'</select>')+
         '<p class="hint">'+(state.workerRouting?.automatic?'Your agent ranking takes priority for new sessions. ':'')+'Review the agent and terminal before starting. Follow-ups stay in their original session.</p>';
       $('#setup-agent').onchange=e=>{
-        draft.agent=e.target.value;
+        draft.agent=e.target.value;setupPreparation.refresh(draft.prep);
         if(live){$('#setup-health').innerHTML=aiConnections.setupField(draft.agent);aiConnections.updateSetup()}
       };
       $('#setup-host').onchange=e=>{draft.host=e.target.value};
+      setupPreparation.refresh(draft.prep);
       if(live){aiConnections.refresh();postLive('terminal-catalog')}
     }else{
       page.innerHTML='<fieldset class="setup-art"><legend>Notch artwork</legend><div class="setup-studies">'+TasktapArt.catalog.map(s=>
@@ -102,12 +110,12 @@ const setupWizard = (() => {
     }
     settingsPickers.mount(page);
     $('#setup-back').textContent=step?'Back':(draft.origin==='welcome'?'Set up later':'Cancel');
-    $('#setup-next').textContent=step===2?(draft.origin==='welcome'?'Save & try capture':'Save settings'):'Continue';
+    $('#setup-next').textContent=step===steps.length-1?(draft.origin==='welcome'?'Save & try capture':'Save settings'):'Continue';
     heading.focus({preventScroll:true});
   }
   function leave(saved){
     const {origin,from}=draft;
-    draft=null;
+    setupPreparation.dispose(draft.prep);draft=null;
     dismissCard();
     if(origin==='preferences'){
       prefs(from);
@@ -119,18 +127,43 @@ const setupWizard = (() => {
   }
   function cancel(){if(showing())leave(false)}
   function save(){
-    if(!showing() || draft.step!==steps.length-1)return;
-    state.useScreenContext=draft.context;
-    state.sessionModels={...state.sessionModels,defaultAgent:draft.agent};
-    state.sessionHost=draft.host;
-    if(draft.summaryVoice!==null){
-      state.speak=!!draft.summaryVoice;
-      if(state.speak)state.voiceEngine=draft.summaryVoice;
+    if(!showing() || draft.saving || draft.step!==steps.length-1)return;
+    const settings=draft;
+    if(!setupPreparation.validate(settings.prep)){
+      settings.step=1;paint(-1);setupPreparation.validate(settings.prep);return;
     }
-    TasktapArt.select(draft.art);
-    state.setupSeen=true;persist();
-    leave(true);
+    const connection=setupPreparation.payload(settings.prep);
+    const commit=()=>{
+      state.useScreenContext=settings.context;
+      state.sessionModels={...state.sessionModels,defaultAgent:settings.agent};
+      state.sessionHost=settings.host;
+      if(settings.summaryVoice!==null){
+        state.speak=!!settings.summaryVoice;
+        if(state.speak)state.voiceEngine=settings.summaryVoice;
+      }
+      TasktapArt.select(settings.art);
+      state.setupSeen=true;persist();
+      if(draft===settings)leave(true);
+    };
+    if(!connection){commit();return}
+    const request=uid();settings.saving=true;
+    $('#setup-next').disabled=$('#setup-back').disabled=true;
+    $('#setup-next').textContent='Saving…';
+    $('#modal .setup-header .icon-btn').disabled=true;
+    function reply({detail}){
+      if(detail.request!==request || !detail.finished)return;
+      document.removeEventListener('connection-state',reply);
+      if(detail.success){commit();return}
+      if(draft!==settings){toast(detail.note || 'Could not save setup.');return}
+      settings.saving=false;settings.step=1;
+      $('#modal .setup-header .icon-btn').disabled=false;
+      $('#setup-next').disabled=$('#setup-back').disabled=false;
+      paint(-1);
+      settings.prep.form.querySelector('.prep-notice').textContent=detail.note || 'Could not save the preparation route. Try again.';
+    }
+    document.addEventListener('connection-state',reply);
+    postLive('ai-save',{...connection,request});
   }
   document.addEventListener('local-voices-changed',voices);
-  return {offer,open,showing,cancel};
+  return {offer,open,showing,cancel,preparation:()=>showing()?draft.prep:null};
 })();

@@ -70,7 +70,7 @@ import AppKit
         defaults.removeObject(forKey:"router.key."+id)
         if selected.rawValue == id {defaults.set("local",forKey:"router.choice")}
     }
-    func configure(_ id: String, model value: String, key: String, server: RouterJSON = [:]) throws {
+    func configure(_ id: String, model value: String, key: String, server: RouterJSON = [:], account: String? = nil) throws {
         guard let route = Route(rawValue:id),
               key.utf8.count <= 4096, !key.contains(where:{$0.isWhitespace}),
               value.count <= (route == .server ? 256 : 160),
@@ -86,7 +86,8 @@ import AppKit
             guard try RouterSecrets.get(id) != nil else {throw RouterFailure("Enter an API key for this account.")}
             defaults.set(true,forKey:"router.key."+id)
         case .chatgpt:
-            guard chat.registrations[chat.selected]?["plan"] == "enabled" else {throw RouterFailure("Continue with ChatGPT and enable plan usage first.")}
+            guard chat.registrations[account ?? chat.selected]?["plan"] == "enabled" else {throw RouterFailure("Continue with ChatGPT and enable plan usage first.")}
+            if let account {try chat.select(account)}
         case .codex:
             guard workerHealth["codex"] != "missing" else {throw RouterFailure("Set up Codex on this Mac first.")}
             guard workerHealth["codex"] != "signedOut" else {throw RouterFailure("Sign in to Codex first.")}

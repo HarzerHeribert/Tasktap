@@ -43,3 +43,11 @@ body:not(.notch-first) #modal:has(#setup-wizard){width:min(570px,calc(100% - var
 .setup-studies input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
 .setup-studies img{width:100%;height:36px;object-fit:contain;background:#080c0c}
 .setup-studies span{padding:var(--s-small);font-size:var(--t-small);text-align:center;line-height:1.2}
+
+#setup-preparation,#setup-prep-fields,#setup-plan{display:grid;min-width:0;gap:var(--s-row)}
+#setup-prep-fields:empty,.prep-notice:empty,#setup-worker-account:empty{display:none}
+#setup-prep-fields>.text-btn,#setup-plan>.btn{justify-self:start}
+.prep-account,.setup-prepared{border-inline-start:2px solid #77937e;padding-inline-start:var(--s-row);overflow-wrap:anywhere}
+.prep-account{font-size:var(--t-label);color:var(--setting-secondary)}
+.setup-prepared{display:grid;gap:var(--s-tight);font-size:var(--t-label)}
+.setup-prepared small{color:var(--muted);font-size:var(--t-small)}

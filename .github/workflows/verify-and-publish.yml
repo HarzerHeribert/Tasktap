@@ -56,7 +56,7 @@ jobs:
           export TASKTAP_SCREENSHOTS="$RUNNER_TEMP/tasktap-shots"
           mkdir -p "$TASKTAP_SCREENSHOTS"
           python3 scripts/build-site.py
-          for test in pages ui relay decision-rim voice-wave setup first-run model-ui model-server connections; do
+          for test in pages ui relay decision-rim voice-wave setup setup-preparation first-run model-ui model-server connections; do
             node "scripts/verify-$test.cjs"
           done
       - uses: actions/upload-artifact@v4

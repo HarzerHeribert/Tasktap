@@ -29,10 +29,10 @@ const serverSetup = (() => {
     if (kind==='custom') return 'The server controls processing and billing. It can forward captures to another provider.';
     return target.loop?'Requests go to the server listening on this Mac.':'Requests go to the named server. Its operator controls processing and billing.';
   }
-  function markup(config) {
+  function markup(config,fixedKind='') {
     const kind=Object.hasOwn(presets,config.serverKind)?config.serverKind:'ollama';
     const tiles=Object.entries(presets).map(([id,p])=>'<label class="server-tile"><input type="radio" name="server-kind" value="'+id+'" '+(id===kind?'checked':'')+'><span><img src="'+attr(TasktapArt.poster(p.art,'miniature'))+'" alt=""><b>'+esc(p.name)+'</b></span></label>').join('');
-    return '<div id="server-setup" class="server-setup" data-phase="address"><fieldset id="server-endpoint"><legend>Server software</legend><div class="server-tiles">'+tiles+'</div>'+
+    return '<div id="server-setup" class="server-setup" data-phase="address"><fieldset id="server-endpoint"><legend'+(fixedKind?' hidden':'')+'>Server software</legend><div class="server-tiles"'+(fixedKind?' hidden':'')+'>'+tiles+'</div>'+
       settingsField('server-url','Base URL','<input id="server-url" type="text" inputmode="url" autocapitalize="none" spellcheck="false" placeholder="https://models.example.com/v1">')+
       '<p id="server-place" class="server-place"></p>'+
       '<details id="server-auth"><summary>API key <span>Optional</span></summary><p id="server-key-help" class="hint"></p>'+
@@ -40,7 +40,7 @@ const serverSetup = (() => {
       '<label id="server-stored" class="check-line" hidden><input id="server-use-saved" type="checkbox"> Use the key saved for this address</label></details>'+
       '<div class="server-actions"><button class="primary" id="server-discover" type="button">Find models</button><button type="button" id="server-manual" class="text-btn">Enter model ID</button></div></fieldset>'+
       '<section id="server-models" hidden><div class="server-target"><div><strong id="server-target-name"></strong><code id="server-target-url"></code></div><button type="button" class="text-btn" id="server-change">Edit connection</button></div>'+
-      '<div id="server-model-field"></div><p id="server-scope" class="hint"></p></section>'+
+      '<div id="server-model-field"></div><p id="server-scope" class="hint"'+(fixedKind?' hidden':'')+'></p></section>'+
       '<p id="server-status" role="status" class="server-status"></p></div>';
   }
   function mount(config) {
@@ -60,7 +60,7 @@ const serverSetup = (() => {
       pendingId='';pending=null;
       root.dataset.phase='address';$('#server-endpoint').hidden=false;$('#server-models').hidden=true;
       $('#server-discover').disabled=!live;$('#server-manual').disabled=false;
-      submit.hidden=true;status.textContent='';root.removeAttribute('aria-busy');
+      if(submit)submit.hidden=true;status.textContent='';root.removeAttribute('aria-busy');
     }
     function choose(id) {
       kind=id;profile=config.serverProfiles?.[id] || {};url.value=profile.url || base(id);key.value='';
@@ -69,7 +69,7 @@ const serverSetup = (() => {
     }
     function selectModel(list,value='',typed=false) {
       const manual=typed || !list.length;
-      root.dataset.phase='model';$('#server-endpoint').hidden=true;$('#server-models').hidden=false;submit.hidden=false;
+      root.dataset.phase='model';$('#server-endpoint').hidden=true;$('#server-models').hidden=false;if(submit)submit.hidden=false;
       $('#server-target-name').textContent=name(kind)+' · '+(locationOf(url.value)?.label || 'Network server');
       $('#server-target-url').textContent=url.value.trim();
       const known=list.includes(value)?value:list[0];
@@ -113,5 +113,5 @@ const serverSetup = (() => {
     if (profile.model && profile.url) selectModel([],profile.model,true);
     return {options,key:()=>key.value.trim()};
   }
-  return {markup,mount,name,description,receive:(id,result)=>pending?.(id,result)};
+  return {markup,mount,name,description,locationOf,receive:(id,result)=>pending?.(id,result)};
 })();

@@ -126,6 +126,12 @@ def cli_route(data):
             stop()
 
 
+def codex_identity(_):
+    sys.dont_write_bytecode = True
+    from worker_usage import codex_identity as read_identity
+    return {'label':read_identity()}
+
+
 def worker_usage(data):
     sys.dont_write_bytecode = True
     from worker_usage import snapshot
@@ -211,7 +217,7 @@ if __name__ == '__main__':
     try:
         command = sys.argv[1]
         data = json.load(sys.stdin)
-        value = {'login': browser_login, 'route': cli_route, 'status': lambda _: worker_status(), 'usage': worker_usage, 'worker-login': worker_login}[command](data)
+        value = {'login': browser_login, 'route': cli_route, 'status': lambda _: worker_status(), 'usage': worker_usage, 'codex-identity': codex_identity, 'worker-login': worker_login}[command](data)
         print(json.dumps({'value': value}))
     except ValueError as exc:
         # Parser errors can contain snippets of provider data. Only expose our own messages.

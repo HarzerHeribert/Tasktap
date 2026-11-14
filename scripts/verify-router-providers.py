@@ -45,7 +45,13 @@ optional = {'cursor-agent':'/bin/cursor-agent','pi':'/bin/pi'}
 result = inspect_agents(optional, {('cursor-agent','status','--format','json'):(1,'{"isAuthenticated":false}','')})
 assert result['workerHealth']['cursor-agent']=='signedOut' and result['workerHealth']['pi']=='installed'
 
-from worker_usage import windows
+from worker_usage import windows, codex_identity
+with patch('worker_usage.control_result',return_value={'account':{'type':'chatgpt','email':'me@example.test','workspaceName':'Studio','accessToken':'irrelevant'}}) as read:
+    assert codex_identity()=='me@example.test · Studio'
+    read.assert_called_once_with('codex', identity=True)
+with patch('worker_usage.control_result',return_value={'account':{'type':'apiKey','email':'ignore@example.test'}}):
+    assert codex_identity()==''
+
 before = 1000
 data = {'rateLimitsByLimitId':{'codex':{'primary':{'usedPercent':99,'windowDurationMins':300,'resetsAt':1400},
                                       'secondary':{'usedPercent':5,'windowDurationMins':10080,'resetsAt':2000}}}}

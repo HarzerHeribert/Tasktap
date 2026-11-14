@@ -52,6 +52,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private let verifying = CommandLine.arguments.contains("--verify-interface")
     private var ready = false
     private var routeTask: Task<Void, Never>?
+    private let sessionNames = SessionNames()
     private var updates: AppUpdates?
     private var routeID: String?
     @MainActor private lazy var routingProviders = RoutingProviders()
@@ -418,7 +419,17 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 }
                 runtime.projectsChanged={ [weak self] rows in self?.js("projectsDiscovered(rows)",["rows":rows]) }
                 runtime.changed={ [weak self] receipt in self?.js("agentReceipt(e)",["e":receipt]) }
-                runtime.externalChanged={ [weak self] rows in self?.js("externalSessions(rows)",["rows":rows]) }
+                sessionNames.generate = { [weak self] input in
+                    guard let self else { throw RouterFailure("Tasktap closed") }
+                    return try await self.routingProviders.nameSession(input)
+                }
+                sessionNames.changed = { [weak self] id, name, fingerprint in
+                    self?.js("sessionNameChanged(id,name,fingerprint)",["id":id,"name":name,"fingerprint":fingerprint])
+                }
+                runtime.externalChanged={ [weak self] rows in
+                    self?.js("externalSessions(rows)",["rows":rows.map { $0.filter { $0.key != "activity" } }])
+                    if self?.liveTest == false { self?.sessionNames.receive(rows) }
+                }
                 do {try runtime.start();if !liveTest {runtime.watchSessions()}} catch {deliver("live-error",error.localizedDescription,reveal:false)}
             }
             do {try inbox.start(web:web)} catch {NSLog("Could not start agent inbox: %@",error.localizedDescription)}

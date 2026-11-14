@@ -6,6 +6,7 @@ import re
 import sqlite3
 import time
 import uuid
+from session_activity import excerpt
 
 EVENT = re.compile(rb'"type":"event_msg","payload":\{"type":"(task_started|task_complete|turn_aborted|turn_failed)"')
 
@@ -75,7 +76,8 @@ def sessions(root, cache_path):
             state = turn_state(path, cache) if home in path.parents else "Recent"
             source = "desktop" if originator in ("Codex Desktop","ChatGPT Desktop","codex_work_desktop") else "terminal"
             rows.append(dict(id=conversation, conversation=conversation, source=source, folder=cwd,
-                             task=(name or Path(cwd).name).splitlines()[0][:112], agent="codex", state=state))
+                             task=(name or Path(cwd).name).splitlines()[0][:112], agent="codex", state=state,
+                             activity=excerpt(path) if home in path.parents and state in ("Running", "Needs input") else ""))
     finally:
         db.close()
     if cache_path is None: return rows

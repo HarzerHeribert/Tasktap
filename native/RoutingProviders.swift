@@ -119,14 +119,14 @@ import AppKit
         if estimate {fields["difficulty"]=number; fields["scopeEvidence"]=text}
         return ["type":"object","properties":fields,"required":fields.keys.sorted(),"additionalProperties":false]
     }
-    func suggest(_ id: String, input: RouterJSON, reviewedServer: RouterJSON = [:]) async throws -> RouterJSON {
+    func suggest(_ id: String, input: RouterJSON, reviewedServer: RouterJSON = [:], sessionName: Bool = false) async throws -> RouterJSON {
         guard let route = Route(rawValue:id), route != .local, route == selected else {
             throw RouterFailure("The routing connection changed. Review your capture again.")
         }
-        let schema = schema(estimate:input["estimateDifficulty"] as? Bool == true)
+        let schema: RouterJSON = sessionName ? ["type":"object","properties":["name":["type":"string"]],"required":["name"],"additionalProperties":false] : schema(estimate:input["estimateDifficulty"] as? Bool == true)
         let contents = String(decoding:try JSONSerialization.data(withJSONObject:input),as:UTF8.self)
         let spec = String(decoding:try JSONSerialization.data(withJSONObject:schema),as:UTF8.self)
-        let instructions = HandoffRouter.instructions+"\nReturn only JSON matching this schema.\n"+spec
+        let instructions = (sessionName ? SessionNames.instructions : HandoffRouter.instructions)+"\nReturn only JSON matching this schema.\n"+spec
         let model = model(route)
         var result: RouterJSON
         switch route {
@@ -180,10 +180,18 @@ import AppKit
         case .claudeSession: throw RouterFailure("Prepare the brief in your Claude Code session.")
         case .local: throw RouterFailure("Choose the local router.")
         }
+        if sessionName { return result }
         guard let brief = result["brief"] as? String, !brief.isEmpty, brief.count <= 16000,
               ["ask","note","nudge"].contains(result["mode"] as? String ?? "") else {throw RouterFailure("The provider returned an incomplete handoff.")}
         result["source"] = id
         return result
+    }
+    func nameSession(_ input: RouterJSON) async throws -> String {
+        if selected == .local || selected == .claudeSession { return try await SessionNames.local(input) }
+        let profile = profiles[serverKind] ?? [:]
+        let server: RouterJSON = ["kind":serverKind,"url":profile["url"] ?? "","model":profile["model"] ?? ""]
+        let result = try await suggest(selected.rawValue, input: input, reviewedServer: server, sessionName: true)
+        return result["name"] as? String ?? ""
     }
     private func parse(_ text: String) throws -> RouterJSON {
         guard let json = (try? JSONSerialization.jsonObject(with:Data(text.utf8))) as? RouterJSON else {throw RouterFailure("The provider returned an unreadable handoff.")}

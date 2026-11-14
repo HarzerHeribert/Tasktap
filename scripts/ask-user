@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""Adapter entry point. Submit a session question, stream follow-ups, and wait for its answer."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import time
+import uuid
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    for key in ('agent','session','request','question'):
+        parser.add_argument('--'+key,required=True,choices=['codex','claude','agy'] if key=='agent' else None)
+    parser.add_argument('--workspace',default=os.getcwd())
+    parser.add_argument('--task')
+    parser.add_argument('--detail',default='')
+    parser.add_argument('--choice',action='append',dest='choices')
+    parser.add_argument('--after',type=int,default=0,help='Number of follow-ups already consumed on retry')
+    args=parser.parse_args()
+    event=dict(agent=args.agent,sessionId=args.session,requestId=args.request,question=args.question,
+               detail=args.detail,workspace=str(Path(args.workspace).expanduser().resolve()),task=args.task or args.session)
+    if args.choices:
+        if not 2<=len(set(args.choices))==len(args.choices)<=12 or any(not c.strip() for c in args.choices):
+            parser.error('Use 2–12 distinct, nonempty choices, or omit all choices for yes/no.')
+        event['choices']=args.choices
+    data=json.dumps(event,ensure_ascii=False).encode()
+    if any(not event[k].strip() for k in ['sessionId','requestId','question']) or len(data)>65536 or args.after<0:
+        parser.error('Request fields must be nonempty and fit within 64 KiB. The follow-up cursor must be nonnegative.')
+    base=Path(os.environ.get('WORKSPACE_ASSISTANT_INBOX',str(Path.home()/'Library/Application Support/Tasktap/Agent Inbox')))
+    os.umask(0o077)
+    for sub in ['requests','responses']:(base/sub).mkdir(parents=True,exist_ok=True,mode=0o700)
+    key=json.dumps([event[k] for k in ['agent','workspace','sessionId','requestId']])
+    name=str(uuid.UUID(bytes=hashlib.sha256(key.encode()).digest()[:16]))+'.json'
+    request=base/'requests'/name
+    response=base/'responses'/name
+    with tempfile.NamedTemporaryFile(dir=request.parent,prefix='.',delete=False) as f:
+        tmp=Path(f.name)
+        f.write(data)
+    try:
+        try:os.link(tmp,request)
+        except FileExistsError:
+            if json.loads(request.read_bytes())!=event:parser.error('This request ID is already in use with different content.')
+    finally:tmp.unlink()
+    cursor=args.after
+    while True:
+        try:reply=json.loads(response.read_bytes())
+        except FileNotFoundError:time.sleep(0.2);continue
+        for message in reply.get('discussion',[])[cursor:]:
+            cursor+=1
+            print(json.dumps(dict(request=args.request,session=args.session,type='discussion',cursor=cursor,text=message)),flush=True)
+        if reply['status']=='answered':
+            print(json.dumps(dict(request=args.request,session=args.session,type='answer',answer=reply['answer'])),flush=True)
+            # Keep the durable answer for callers retrying after a lost acknowledgement.
+            return
+        time.sleep(0.2)
+
+if __name__=='__main__':
+    try:main()
+    except KeyboardInterrupt:sys.exit(130)

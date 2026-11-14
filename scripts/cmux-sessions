@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""Discover local cmux agent surfaces and address a follow-up to the same session."""
+import json
+from pathlib import Path
+import subprocess
+import sys
+import uuid
+
+
+def sessions(root):
+    result = subprocess.run(["cmux", "sessions", "--json"], capture_output=True, text=True, timeout=8, check=True)
+    rows = []
+    for record in json.loads(result.stdout).get("sessions", []):
+        if record.get("agent") not in ("claude", "codex") or not record.get("active_for_surface") or not record.get("stored_pid_exists"):
+            continue
+        folder = Path(record.get("cwd") or "").resolve()
+        if folder.parent != root or not folder.is_dir():
+            continue
+        try:
+            surface = str(uuid.UUID(record["surface_id"]))
+            conversation = str(uuid.UUID(record["session_id"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        task = record.get("title") or record.get("session_name") or ""
+        # Only inspect the local conversation title or its first user prompt.
+        transcript = Path(record.get("transcript_path") or "")
+        if not task and transcript.is_file():
+            try:
+                with transcript.open(encoding="utf-8") as source:
+                    for _ in range(18):
+                        line = source.readline(65536)
+                        if not line or not line.endswith("\n"):
+                            break
+                        item = json.loads(line)
+                        prompt = item.get("customTitle")
+                        if item.get("type") == "user":
+                            prompt = (item.get("message") or {}).get("content")
+                            if isinstance(prompt, list):
+                                prompt = " ".join(part.get("text", "") for part in prompt if part.get("type") == "text")
+                        if item.get("type") == "event_msg" and item.get("payload", {}).get("type") == "user_message":
+                            prompt = item["payload"].get("message")
+                        if isinstance(prompt, str) and prompt.strip() and not prompt.lstrip().startswith(("<", "#")):
+                            task = " ".join(prompt.split())[:96]
+                            break
+            except (OSError, ValueError, UnicodeError):
+                pass
+        identifier = uuid.uuid5(uuid.NAMESPACE_URL, "cmux:"+surface+":"+conversation)
+        rows.append(dict(id=str(identifier), surface=surface, conversation=conversation, agent=record["agent"],
+                         folder=str(folder), task=task or folder.name+" · "+record["agent"], state="Connected"))
+    return rows
+
+
+def deliver(job):
+    root = Path(job["folder"]).parent.resolve()
+    target = next((r for r in sessions(root) if r["id"] == job["session"] and r["folder"] == job["folder"] and r["agent"] == job["agent"]), None)
+    if not target:
+        raise ValueError("This cmux conversation is no longer active.")
+    current = subprocess.run(["cmux","agent","message",target["surface"],"--from","Tasktap","--json","--","-"],
+                             input=job["brief"], capture_output=True, text=True, timeout=15)
+    if current.returncode:
+        raise ValueError(current.stderr.strip() or "cmux could not accept the message.")
+    return "Sent to the agent’s cmux inbox."
+
+
+if __name__ == "__main__":
+    if sys.argv[1] == "list":
+        try:
+            print(json.dumps(sessions(Path(sys.argv[2]).resolve())))
+        except (OSError, ValueError, subprocess.SubprocessError):
+            print("[]")
+    else:
+        try:
+            print(deliver(json.load(sys.stdin)))
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            sys.exit(str(exc))

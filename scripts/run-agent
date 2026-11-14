@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""Drain one workspace session's durable queue across app restarts."""
+import fcntl
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+
+def save(path,value):
+    with tempfile.NamedTemporaryFile('w',dir=path.parent,delete=False,prefix='.') as f:
+        json.dump(value,f);tmp=f.name
+    os.replace(tmp,path)
+
+def command(job,previous,tools):
+    provider=job['agent']
+    cli=shutil.which(provider)
+    if not cli:raise ValueError('Install '+provider+' and sign in to its CLI.')
+    session=job['session']
+    bridge={'command':str(tools),'args':['--agent',provider,'--workspace',job['folder'],'--session',session,'--task',job['task']]}
+    prompt=job['brief']
+    if job.get('strokes'):
+        prompt+='\nAttached sketch (600 × 176 canvas, ordered x/y points): '+json.dumps(job['strokes'],separators=(',',':'))
+    instruction='When a user decision is needed, use the ask_user MCP tool. Treat discussion as a follow-up and only an answer as a decision. Report your outcome and any files you changed.'
+    servers=json.dumps({'mcpServers':{'workspace_assistant':bridge}})
+    if provider=='claude':
+        cmd=[cli,'-p','--output-format','stream-json','--verbose','--mcp-config',servers,'--allowedTools','mcp__workspace_assistant__ask_user','--append-system-prompt',instruction]
+        cmd+=['--resume',previous] if previous else ['--session-id',session]
+        return cmd+['--',prompt]
+    if provider=='codex':
+        cmd=[cli,'exec','-c','mcp_servers.workspace_assistant.command='+json.dumps(str(tools)),'-c','mcp_servers.workspace_assistant.args='+json.dumps(bridge['args']),'-c','mcp_servers.workspace_assistant.tool_timeout_sec=86400']
+        if previous:cmd+=['resume']
+        else:cmd+=['--sandbox','workspace-write']
+        cmd+=['--json','--skip-git-repo-check']
+        if previous:cmd.append(previous)
+        return cmd+['--',instruction+'\n\n'+prompt]
+    if provider=='agy':
+        return (cli,bridge,instruction+'\n\n'+prompt)
+    raise ValueError('Unknown agent.')
+
+def execute(job,sessionpath):
+    history=json.loads(sessionpath.read_text()) if sessionpath.exists() else {}
+    if job['resume'] and not history.get('id'):
+        raise ValueError('The provider did not return a resumable conversation ID. Start a new session.')
+    argv=command(job,history.get('id'),Path(__file__).resolve().with_name('agent-tools'))
+    if isinstance(argv,tuple):
+        from agy_session import run
+        cli,bridge,prompt=argv
+        return run(cli,job,history.get('id'),bridge,prompt,lambda session:save(sessionpath,{'id':session}))
+    result='';error='';warnings=[]
+    if not Path(job['folder']).is_dir():raise ValueError('The workspace folder is no longer available.')
+    with tempfile.TemporaryFile(mode='w+t') as err:
+        with subprocess.Popen(argv,cwd=job['folder'],stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=err,text=True,errors='replace') as proc:
+            for line in proc.stdout:
+                try:e=json.loads(line)
+                except ValueError:continue
+                if not isinstance(e,dict):continue
+                ident=e.get('thread_id') or e.get('session_id') or e.get('conversation_id') or e.get('conversationId')
+                if isinstance(ident,str) and ident!=history.get('id'):
+                    history['id']=ident;save(sessionpath,history)
+                item=e.get('item') or {}
+                if e.get('type')=='item.completed' and item.get('type')=='agent_message':result=item.get('text') or result
+                if e.get('type')=='result':
+                    if e.get('is_error'):error=str(e.get('result') or e.get('errors') or 'The agent reported an error.')
+                    else:result=e.get('result') or e.get('response') or result
+                if e.get('type')=='assistant':
+                    parts=(e.get('message') or {}).get('content',[])
+                    if isinstance(parts,list):
+                        message='\n'.join(x.get('text','') for x in parts if isinstance(x,dict) and x.get('type')=='text')
+                        if message:result=message
+                if e.get('type') in ('error','turn.failed'):
+                    warnings.append(str(e.get('message') or e.get('error') or 'Agent failed'))
+            code=proc.wait()
+        err.seek(0);diagnostic=err.read()[-2000:]
+    if code or error or not isinstance(result,str) or not result.strip():
+        raise ValueError((error or (warnings[-1] if warnings else '') or diagnostic or 'The agent returned no final message.')[-2000:])
+    return result
+
+def main():
+    os.umask(0o077)
+    folder=Path(sys.argv[1])
+    with (folder/'.lock').open('a') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX)
+        for path in sorted(folder.glob('*.job')):
+            receipt=path.with_suffix('.receipt')
+            if receipt.exists():
+                old=json.loads(receipt.read_text())
+                if old['state']=='Running':save(receipt,dict(state='Failed',message='The previous worker stopped. Review the session before retrying.'))
+                continue
+            try:
+                job=json.loads(path.read_text());save(receipt,dict(state='Running'))
+                if job.get('external') and job['mode']=='nudge':
+                    bridge=Path(__file__).resolve().with_name('cmux-sessions')
+                    message=dict(job)
+                    if job.get('strokes'):message['brief']+='\nSketch coordinates: '+json.dumps(job['strokes'])
+                    delivery=subprocess.run([str(bridge),'deliver'],input=json.dumps(message),text=True,capture_output=True)
+                    if delivery.returncode:raise ValueError(delivery.stderr.strip())
+                    save(receipt,dict(state='Delivered',message=delivery.stdout.strip()))
+                else:
+                    result=execute(job,folder/'conversation.json')
+                    save(receipt,dict(state='Complete',message=result))
+            except Exception as exc:
+                save(receipt,dict(state='Failed',message=str(exc)))
+if __name__=='__main__':main()

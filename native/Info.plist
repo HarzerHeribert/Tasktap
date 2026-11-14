@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>io.github.harzerheribert.tasktap</string>
+<key>CFBundleName</key><string>Tasktap</string>
+<key>CFBundleDisplayName</key><string>Tasktap</string>
+<key>CFBundleExecutable</key><string>Tasktap</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>0.2</string>
+<key>CFBundleVersion</key><string>2</string>
+<key>LSMinimumSystemVersion</key><string>26.0</string>
+<key>LSUIElement</key><true/>
+<key>NSMicrophoneUsageDescription</key><string>Record a thought for on-device transcription.</string>
+<key>NSSpeechRecognitionUsageDescription</key><string>Transcribe captured speech locally.</string>
+<key>NSHighResolutionCapable</key><true/>
+</dict></plist>

@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""A session-scoped MCP stdio server, launched by the agent adapter."""
+import argparse
+import concurrent.futures
+import json
+from pathlib import Path
+import subprocess
+import sys
+import threading
+
+parser=argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--agent',choices=['claude','codex','agy'],required=True)
+parser.add_argument('--session',required=True,help='Stable agent session identifier')
+parser.add_argument('--workspace',default=str(Path.cwd()))
+parser.add_argument('--task')
+config=parser.parse_args()
+lock=threading.Lock()
+active={}
+write_lock=threading.Lock()
+pool=concurrent.futures.ThreadPoolExecutor(max_workers=4)
+schema={'type':'object','properties':{'request':{'type':'string','description':'Stable ID for this decision. Reuse when retrying.'},
+    'question':{'type':'string'},'detail':{'type':'string'},'choices':{'type':'array','items':{'type':'string'},'minItems':2,'maxItems':12},
+    'after':{'type':'integer','minimum':0,'description':'Last follow-up cursor already read'}},'required':['request','question'],'additionalProperties':False}
+tool={'name':'ask_user','description':'Ask the person through the Mac notch when their input is needed. Omit choices for Yes/No. A discussion follow-up is not approval. After discussing, call again with the same request and its returned cursor to await the decision.','inputSchema':schema}
+
+def emit(data):
+    with write_lock:
+        sys.stdout.write(json.dumps(data)+'\n');sys.stdout.flush()
+
+def reply(i,value):
+    emit({'jsonrpc':'2.0','id':i,'result':value})
+
+def ask(i,args):
+    proc=None
+    try:
+        cmd=[str(Path(__file__).resolve().with_name('ask-user')),'--agent',config.agent,'--session',config.session,'--workspace',config.workspace]
+        if config.task:cmd+=['--task',config.task]
+        for k in ('request','question','detail','after'):
+            if k in args:cmd+=['--'+k,str(args[k])]
+        for c in args.get('choices',[]):cmd+=['--choice',c]
+        with lock:
+            if i not in active:return
+            proc=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+            active[i]=proc
+        line=proc.stdout.readline()
+        if not line:raise ValueError(proc.stderr.read().strip() or 'Stopped waiting for the question.')
+        event=json.loads(line)
+        if event['type']=='answer':proc.wait()
+        result={'content':[{'type':'text','text':json.dumps(event)}]}
+    except (ValueError,OSError,TypeError) as err:
+        result={'isError':True,'content':[{'type':'text','text':str(err)}]}
+    finally:
+        if proc and proc.poll() is None:proc.terminate();proc.wait()
+    with lock:
+        if i not in active:return
+        active.pop(i)
+    reply(i,result)
+
+try:
+    for line in sys.stdin:
+        try:m=json.loads(line)
+        except ValueError:continue
+        method=m.get('method');p=m.get('params',{});i=m.get('id')
+        if method=='notifications/cancelled':
+            with lock:
+                proc=active.pop(p.get('requestId'),None)
+                if proc and proc.poll() is None:proc.terminate()
+        elif i is None:continue
+        elif method=='initialize':
+            version=p.get('protocolVersion')
+            reply(i,{'protocolVersion':version if version in ('2024-11-05','2025-03-26','2025-06-18','2025-11-25') else '2025-11-25','capabilities':{'tools':{}},'serverInfo':{'name':'workspace-assistant','version':'0.3'}})
+        elif method=='ping':reply(i,{})
+        elif method=='tools/list':reply(i,{'tools':[tool]})
+        elif method=='tools/call' and p.get('name')=='ask_user':
+            with lock:active[i]=None
+            pool.submit(ask,i,p.get('arguments',{}))
+        else:emit({'jsonrpc':'2.0','id':i,'error':{'code':-32601,'message':'Unknown method or tool'}})
+finally:
+    with lock:
+        for proc in active.values():
+            if proc and proc.poll() is None:proc.terminate()
+        active.clear()
+    pool.shutdown(wait=True,cancel_futures=True)

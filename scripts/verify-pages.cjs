@@ -5,7 +5,7 @@ const { createServer } = require('node:http');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const root = path.resolve(__dirname, '../build/pages');
-const types = {'.html':'text/html','.css':'text/css','.js':'text/javascript','.svg':'image/svg+xml','.jpg':'image/jpeg','.mp4':'video/mp4'};
+const types = {'.html':'text/html','.css':'text/css','.js':'text/javascript','.svg':'image/svg+xml','.webp':'image/webp','.jpg':'image/jpeg','.mp4':'video/mp4'};
 const originPath = '/Tasktap/';
 
 (async () => {
@@ -43,7 +43,37 @@ const originPath = '/Tasktap/';
       }
     }
     await page.goto(url);
-    assert.equal(await page.locator('video').getAttribute('src'),null);
+    const film = page.locator('video');
+    assert.equal(await film.getAttribute('poster'), 'assets/glyph.jpg');
+    assert.equal(await film.getAttribute('src'), null);
+    assert.equal((await page.request.get(await film.evaluate(v => v.poster))).status(), 200);
+    const start = page.getByRole('button', {name:'Start example session'});
+    const replay = page.getByRole('button', {name:'Replay example'});
+    for (const width of [320, 390, 820, 1280]) {
+      await page.setViewportSize({width,height:860});
+      await start.focus();
+      const frame = await page.locator('.desktop').boundingBox();
+      const control = await start.boundingBox();
+      await page.keyboard.press('Enter');
+      await page.getByText('Claude Code connected', {exact:true}).waitFor({state:'visible'});
+      assert.equal(await page.locator('#example-content').isVisible(), false);
+      assert.deepEqual(await page.locator('.desktop').boundingBox(), frame);
+      assert.equal((await replay.boundingBox()).y, control.y);
+      await page.keyboard.press('Enter');
+      await start.waitFor({state:'visible'});
+      assert.equal(await page.locator('#example-receipt').isVisible(), false);
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+    }
+    const notchToggle = page.locator('.notch-toggle');
+    await notchToggle.click();
+    assert.equal(await notchToggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(await page.locator('#notch-details').evaluate(el=>el.inert), true);
+    await page.keyboard.press('Enter');
+    assert.equal(await notchToggle.getAttribute('aria-expanded'), 'true');
+    await start.focus();
+    await page.keyboard.press('Escape');
+    assert.ok(await notchToggle.evaluate(el=>el===document.activeElement));
+    await page.keyboard.press('Enter');
     await page.getByRole('link',{name:/Build for Mac/}).click();
     assert.equal(new URL(page.url()).hash,'#install');
     await page.emulateMedia({reducedMotion:'no-preference'});
@@ -54,10 +84,17 @@ const originPath = '/Tasktap/';
       return page.locator('video').evaluate(v=>v.playbackRate);
     };
     assert.ok(await rate(110)>await rate(295));
+    await page.waitForFunction(() => document.querySelector('video').currentTime > 0);
+    await page.getByRole('button', {name:'Pause wave'}).click();
+    assert.equal(await film.evaluate(v=>v.paused), true);
+    await page.getByRole('button', {name:'Play wave'}).click();
+    await page.waitForFunction(() => !document.querySelector('video').paused);
+    await page.emulateMedia({reducedMotion:'reduce'});
+    await page.waitForFunction(() => !document.querySelector('video').hasAttribute('src'));
     await page.setViewportSize({width:1280,height:900});
     await page.goto(url); await page.emulateMedia({reducedMotion:'reduce'});
     if(process.env.TASKTAP_SCREENSHOTS) await page.screenshot({path:path.join(process.env.TASKTAP_SCREENSHOTS,'landing.png'),fullPage:true});
     assert.deepEqual(errors,[]);
-    console.log('Pages navigation, guides, assets, keyboard, responsive layout and size-aware motion passed.');
+    console.log('Pages navigation, guides, example handoff, keyboard, responsive layout and capture motion passed.');
   } finally { if(browser) await browser.close(); server.close(); }
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -1,35 +1,82 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0c1515">
-  <meta name="description" content="Capture a thought in your Mac’s notch and hand it to a visible coding agent in the right project.">
-  <title>Tasktap — Coding agents from your Mac’s notch</title>
-  <link rel="icon" href="assets/mark.svg"><link rel="stylesheet" href="style.css">
-  <script defer src="assets/motion-scale.js"></script><script defer src="site.js"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101112">
+  <meta name="description" content="Capture an idea while you work and send it to the right project or coding agent session from your Mac’s notch.">
+  <title>Tasktap</title>
+  <link rel="icon" href="assets/mark.svg">
+  <link rel="stylesheet" href="landing.css">
+  <script defer src="assets/motion-scale.js"></script>
+  <script defer src="site.js"></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
-  <header class="bar wrap"><a class="brand" href="./"><img src="assets/mark.svg" width="33" height="33" alt="">Tasktap</a><nav aria-label="Main"><a href="docs/">Docs</a><a href="https://github.com/HarzerHeribert/Tasktap">GitHub <span aria-hidden="true">↗</span></a></nav></header>
-  <main id="main">
-    <section class="hero wrap">
-      <div class="hero-copy"><p class="label"><span class="amber-dot"></span> macOS menu-bar app</p>
-        <h1>From a thought<br>to a <em>working session.</em></h1>
-        <p class="lede">Speak or type in the notch. Tasktap finds your project and hands the work to a coding agent in a terminal you control.</p>
-        <div class="actions"><a class="primary" href="docs/#install">Build for Mac <span aria-hidden="true">↗</span></a><a href="docs/#capture">See how it works <span aria-hidden="true">→</span></a></div>
+  <header class="mast shell">
+    <a class="home" href="./" aria-label="Tasktap home"><img src="assets/mark.svg" width="34" height="34" alt=""></a>
+    <nav aria-label="Main"><a href="docs/">Docs</a><a href="https://github.com/HarzerHeribert/Tasktap">GitHub <span aria-hidden="true">↗</span></a></nav>
+  </header>
+
+  <main id="main" tabindex="-1">
+    <section class="hero shell" aria-labelledby="hero-title">
+      <div class="signature">
+        <h1 id="hero-title">Tasktap</h1>
+        <div class="wave-field" aria-hidden="true">
+          <video muted loop playsinline preload="none" width="736" height="352" tabindex="-1"
+            disablepictureinpicture poster="assets/glyph.jpg" data-source="assets/glyph.mp4"></video>
+        </div>
+        <button class="wave-toggle" type="button" aria-label="Pause wave" hidden>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path class="pause-mark" d="M5.5 3.5v9m5-9v9"/><path class="play-mark" d="m5 3 7 5-7 5z"/></svg>
+        </button>
       </div>
-      <figure class="instrument">
-        <div class="instrument-top"><span class="cutout"></span></div>
-        <div class="capture-example"><span class="folder">▱ &nbsp;Cuegrid</span><p>“Check the rehearsal clock on mobile.”</p></div>
-        <video muted playsinline loop preload="none" width="736" height="352" poster="assets/glyph.jpg" data-source="assets/glyph.mp4" aria-hidden="true"></video>
-        <figcaption><span>Capture in the notch</span><kbd>⌃ ⌥ Space</kbd></figcaption>
-      </figure>
+      <p class="lede">Speak or type an idea as it comes to you, and send it to the right project or agent session without losing your place.</p>
+      <a class="build" href="docs/#install">Build for Mac <span aria-hidden="true">↗</span></a>
     </section>
-    <section class="workflow"><div class="wrap"><h2>One conversation, from start to finish.</h2><div class="steps">
-      <article><h3>Capture</h3><p>Hold the shortcut to dictate or tap it to type. Review the project, agent and brief before work begins.</p></article>
-      <article><h3>Follow up</h3><p>Tell the lighting session to check reflections. The nudge goes to that conversation. Answer an agent’s question from the notch.</p></article>
-      <article><h3>Pick it up later</h3><p>Find a finished run by project, task or result. Open its report and resume the saved conversation in your terminal.</p></article>
-    </div></div></section>
+
+    <section class="workflow" aria-labelledby="workflow-title">
+      <div class="shell workflow-layout">
+        <div class="features">
+          <h2 id="workflow-title">From your Mac’s notch</h2>
+          <ul>
+            <li><h3>Capture an idea</h3><p>Hold <kbd>⌃ ⌥ Space</kbd> to speak, or tap it to type. Save a note for later or review the project and agent before sending it.</p></li>
+            <li><h3>Continue a conversation</h3><p>Name a session to send a follow-up. When Claude Code or Codex asks a question through Tasktap, answer from the notch.</p></li>
+            <li><h3>Pick a thread back up</h3><p>Find a session by project, task or result, and reopen a saved Claude Code or Codex conversation in your terminal.</p></li>
+          </ul>
+        </div>
+        <figure class="example" aria-labelledby="example-caption">
+          <figcaption>
+            <span id="example-caption">Example · A bug spotted in Safari</span>
+            <button class="notch-toggle" type="button" aria-controls="notch-details" aria-expanded="true" hidden>
+              <span>Close notch</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
+            </button>
+          </figcaption>
+          <div class="desktop">
+            <div class="screen-bar" aria-hidden="true"><span class="battery"></span></div>
+            <div class="notch" data-open="true">
+              <div class="notch-surface">
+                <div class="notch-details" id="notch-details">
+                  <div class="example-body">
+                    <div id="example-content" class="example-content">
+                      <blockquote>“Fix the rehearsal clock on this page. The seconds get cut off on my phone.”</blockquote>
+                      <p class="destination">Cuegrid <span aria-hidden="true">/</span> Claude Code</p>
+                    </div>
+                    <div id="example-receipt" class="example-content" inert>
+                      <p class="receipt-title">Claude Code connected</p>
+                      <p class="destination">The Cuegrid session has your request and the rehearsal page link.</p>
+                    </div>
+                  </div>
+                  <button class="example-action" type="button" aria-controls="example-content example-receipt" hidden><span>Start example session</span><span aria-hidden="true">→</span></button>
+                </div>
+              </div>
+              <span class="lens" aria-hidden="true"></span>
+              <span class="sr-only" role="status" id="example-announcement"></span>
+            </div>
+          </div>
+        </figure>
+      </div>
+    </section>
   </main>
-  <footer class="wrap"><a class="brand" href="./">Tasktap</a><a href="docs/">Documentation <span aria-hidden="true">→</span></a></footer>
-</body></html>
+  <footer class="shell"><span>Tasktap for macOS 26+</span><a href="docs/#agents">Supported agents <span aria-hidden="true">↗</span></a></footer>
+</body>
+</html>

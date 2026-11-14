@@ -151,6 +151,6 @@ Tasktap’s launcher passes its question tool in the arguments for that session.
 
 ### Public pages and checks
 
-The landing page and user guide live in `site/`. Run `python3 scripts/build-site.py` to assemble `build/pages/` with the same Glyph wave render and motion curve as the app. The hero anchors the chrome glyphs in a notch capture alongside stationary controls; a narrow layout stacks the capture below the heading, and Reduce Motion displays the still render.
+The landing page and user guide live in `site/`. Run `python3 scripts/build-site.py` to assemble `build/pages/`. A wide glyph wave flows behind the stationary Tasktap name and shifts slightly on scroll, while the example’s black notch grows from the top edge of a fixed desktop frame. Narrow screens use a tighter crop, and Reduce Motion uses the poster and instant notch states. The example opens once when it comes into view and can be folded or reopened with the caption control.
 
 Pull requests and pushes to main run design-token lint, responsive and keyboard checks, motion and session regressions, and a signed macOS build. App changes must include a reader-visible update to the published guide in `site/docs/index.html`. The check detects a changed guide; reviewers check that the explanation describes the behavior. GitHub Pages deploys the tested site from main after both jobs pass.

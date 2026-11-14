@@ -1,4 +1,4 @@
-"""Build the GitHub Pages artifact with the same artwork and motion curve as the app."""
+"""Build the GitHub Pages site with the app's wide glyph wave."""
 from pathlib import Path
 import shutil
 
@@ -8,8 +8,10 @@ if out.exists():
     shutil.rmtree(out)
 shutil.copytree(root / 'site', out)
 assets = out / 'assets'
-for source, name in [('motion-scale.js','motion-scale.js'), ('assets/motion/glyph/stage.jpg','glyph.jpg'),
-                     ('assets/motion/glyph/stage.mp4','glyph.mp4')]:
-    shutil.copyfile(root / 'prototype' / source, assets / name)
+prototype = root / 'prototype'
+shutil.copyfile(prototype / 'motion-scale.js', assets / 'motion-scale.js')
+for extension in ('jpg', 'mp4'):
+    source = prototype / 'assets' / 'motion' / 'glyph' / f'stage.{extension}'
+    shutil.copyfile(source, assets / f'glyph.{extension}')
 (out / '.nojekyll').touch()
 print(out)

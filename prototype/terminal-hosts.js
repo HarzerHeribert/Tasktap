@@ -1,6 +1,7 @@
 // The chooser uses the actual application icons installed on this Mac.
 const terminalHosts=(()=>{
   const catalog={
+    'claude-desktop':{name:'Claude Desktop',detail:'Claude Code only; review the folder and send in the app'},
     terminal:{name:'Terminal',detail:'Included with macOS'},
     cmux:{name:'cmux',detail:'Named workspace; requires cmux socket access for Tasktap'},
     ghostty:{name:'Ghostty',detail:'Interactive terminal window'},
@@ -11,9 +12,9 @@ const terminalHosts=(()=>{
   };
   let icons=null;
   const label=host=>host==='desktop'?'ChatGPT':catalog[host]?.name || 'Terminal';
-  function options(selected){
+  function options(selected,agent){
     return Object.entries(catalog).map(([id,item])=>{
-      const present=icons===null || Object.hasOwn(icons,id);
+      const present=(icons===null || Object.hasOwn(icons,id)) && (id!=='claude-desktop' || !agent || agent==='claude');
       return '<option value="'+id+'" '+(id===selected?'selected ':'')+(!present?'disabled ':'')+
         'data-detail="'+attr(present?item.detail:'Not installed on this Mac')+'">'+esc(item.name)+'</option>';
     }).join('');
@@ -26,7 +27,7 @@ const terminalHosts=(()=>{
     if (!input) return;
     const saved=input.value;
     if(input.getAttribute('aria-expanded')==='true')settingsPickers.close();
-    input.innerHTML=options(saved);
+    input.innerHTML=options(saved,input.id==='handoff-host'?draft?.agent:undefined);
     settingsPickers.sync(input);
   }
   function mark(host){

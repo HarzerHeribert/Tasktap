@@ -246,10 +246,8 @@ const clip = n=>Math.abs(n)<=1;
       return video===document.querySelector('#main video');
     }));
     await art.getByRole('button',{name:/Lighting pass/}).click();
-    await art.waitForFunction(()=>{
-      const film=document.querySelector('#modal .activity-band video');
-      return film && !film.paused && film.currentTime>0 && document.querySelector('#main video').paused;
-    });
+    assert.equal(await art.locator('#modal video').count(),0);
+    await art.waitForFunction(()=>document.querySelector('#main video').paused);
     await art.getByRole('button',{name:'Close dialog'}).click();
     await art.waitForFunction(()=>!document.querySelector('#main video').paused);
     await art.emulateMedia({reducedMotion:'reduce'});

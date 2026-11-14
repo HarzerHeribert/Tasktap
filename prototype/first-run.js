@@ -103,6 +103,8 @@ const firstRun = {
     let title='Opening '+(terminal || 'your session'), hint='';
     if (failed) {
       title=nudge?'Follow-up failed':'Session failed to start';
+    } else if (s?.host==='claude-desktop' && receipt?.receipt==='Prepared') {
+      title='Brief ready in Claude Desktop';hint='Confirm the project folder and send in Claude. Activity and replies stay there.';
     } else if (copied) {
       title='Nudge copied';hint='Paste at the agent prompt and press Return.';
     } else if (delivered) {

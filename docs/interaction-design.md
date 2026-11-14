@@ -89,6 +89,8 @@ New capture
 
 Session detail
 ├── Project, worktree, provider, task and current state
+├── Open in the recorded host → focus the exact session (Warp reattaches)
+├── Claude Desktop briefs → confirm folder and send in Claude; no live activity tracking
 ├── Activity including handoff receipts and decisions
 ├── Pending request → open notch
 ├── Completed → outcome / read aloud / open result

@@ -1,8 +1,7 @@
-/* The sidebar indexes open views. Conversation discovery belongs in history and
+/* The sidebar indexes workspaces. Conversation discovery belongs in history and
  * Other apps; it must never manufacture a Tasktap terminal or resume a process. */
 const workspaceNavigation=(()=>{
   const saved=state.workspaceDeck;
-  saved.navigationExpanded??={};
   // Migrate once from actual saved views. Discovered processes never decide
   // which workspaces the user has open after this point.
   if(!Array.isArray(saved.openProjects)){
@@ -25,18 +24,17 @@ const workspaceNavigation=(()=>{
     return null;
   }
   const projects=()=>[...new Set(saved.openProjects)].map(id=>proj(id)).filter(Boolean);
-  function surface(key,p,l,g,index,data){
-    const current=view===p.id && index===(l.selected||0) && g.active===key;
-    const shown=view===p.id && g.active===key;
-    const label=data.label(key);
-    return '<button type="button" class="nav-surface'+(current?' is-current':shown?' is-visible':'')+'" data-action="workspace-surface" data-project="'+attr(p.id)+'" data-surface="'+attr(key)+'" title="'+attr(label)+'"'+(current?' aria-current="true"':'')+'>'+icon(data.icon(key))+'<span>'+esc(label)+'</span>'+(shown?'<i class="nav-surface-marker" aria-hidden="true"></i>':'')+'</button>';
+  function attention(p,data){
+    const belongs=id=>state.sessions.some(s=>s.id===id&&s.project===p.id&&s.host==='tasktap')||data.layouts[p.id]?.groups.some(g=>g.tabs.includes('terminal:'+id))||data.terminals.some(t=>t.id===id&&t.cwd===p.folder);
+    if(state.decisions.some(q=>belongs(q.session)))return {kind:'input',label:'Needs your input',symbol:'attention'};
+    const unread=saved.activity.filter(a=>!a.read&&belongs(a.id));
+    if(unread.some(a=>a.kind==='failure'))return {kind:'failure',label:'Needs attention',symbol:'attention'};
+    if(unread.some(a=>a.kind==='complete'))return {kind:'complete',label:'Result ready',symbol:'check'};
+    return null;
   }
   function project(p,data){
-    const l=data.layouts[p.id]||{groups:[],selected:0},groups=l.groups||[];
-    if(!Object.hasOwn(saved.navigationExpanded,p.id))saved.navigationExpanded[p.id]=view===p.id;
-    const expanded=saved.navigationExpanded[p.id],count=groups.reduce((n,g)=>n+g.tabs.length,0);
-    const rows=groups.map((g,i)=>'<div class="nav-pane" role="group" aria-label="'+attr(p.name+', pane '+(i+1))+'">'+(groups.length>1?'<span class="nav-pane-label">Pane '+(i+1)+'</span>':'')+g.tabs.map(key=>surface(key,p,l,g,i,data)).join('')+(groups.length>1&&!g.tabs.length?'<span class="nav-surface-empty">Empty pane</span>':'')+'</div>').join('');
-    return '<section class="nav-workspace'+(view===p.id?' is-current':'')+'" data-workspace="'+attr(p.id)+'"><div class="nav-workspace-heading"><button type="button" class="nav-workspace-disclosure" data-action="workspace-expand" data-id="'+attr(p.id)+'" aria-label="'+attr((expanded?'Collapse ':'Expand ')+p.name)+'" aria-expanded="'+expanded+'">'+icon('right')+'</button><button type="button" class="nav-workspace-name" data-action="workspace-project" data-id="'+attr(p.id)+'" title="'+attr(p.folder)+'"'+(view===p.id?' aria-current="page"':'')+'>'+icon('folder')+'<span>'+esc(p.name)+'</span></button><span class="nav-workspace-actions"><small aria-hidden="true">'+count+'</small><button type="button" class="nav-workspace-close" data-action="workspace-close" data-id="'+attr(p.id)+'" aria-label="'+attr('Close '+p.name+' workspace')+'" title="Close workspace. Tabs and sessions are kept.">'+icon('x')+'</button></span></div><div class="nav-workspace-surfaces"'+(!expanded?' hidden':'')+'>'+rows+(!count?'<span class="nav-surface-empty">No open surfaces</span>':'')+'</div></section>';
+    const status=attention(p,data),description=status?p.folder+' · '+status.label:p.folder;
+    return '<section class="nav-workspace'+(view===p.id?' is-current':'')+'" data-workspace="'+attr(p.id)+'"'+(status?' data-status="'+status.kind+'"':'')+'><div class="nav-workspace-heading"><button type="button" class="nav-workspace-name" data-action="workspace-project" data-id="'+attr(p.id)+'" title="'+attr(description)+'" aria-label="'+attr(p.name+(status?', '+status.label:''))+'"'+(view===p.id?' aria-current="page"':'')+'>'+icon('folder')+'<span>'+esc(p.name)+'</span></button>'+(status?'<span class="nav-workspace-status" role="img" aria-label="'+status.label+'" title="'+status.label+'">'+icon(status.symbol)+'</span>':'')+'<button type="button" class="nav-workspace-close" data-action="workspace-close" data-id="'+attr(p.id)+'" aria-label="'+attr('Close '+p.name+' workspace')+'" title="Close workspace. Tabs and sessions are kept.">'+icon('x')+'</button></div></section>';
   }
   function navigation(){
     const data=workspaceDeck.sidebarData(),unread=saved.activity.filter(a=>!a.read).length;
@@ -97,14 +95,12 @@ const workspaceNavigation=(()=>{
     const el=event.target.closest('[data-action]');if(!el)return;
     const id=el.dataset.id;
     switch(el.dataset.action){
-      case 'workspace-expand':saved.navigationExpanded[id]=!saved.navigationExpanded[id];persist();refresh();$('#nav [data-action="workspace-expand"][data-id="'+CSS.escape(id)+'"]')?.focus();break;
-      case 'workspace-project':saved.navigationExpanded[id]=true;workspaceDeck.openWorkspace(id,false);break;
+      case 'workspace-project':workspaceDeck.openWorkspace(id,false);break;
       case 'workspace-close':workspaceDeck.closeWorkspace(id);break;
       case 'workspace-chooser':openChooser();break;
-      case 'workspace-open-existing':{const fresh=!Object.hasOwn(saved.layouts,id)&&proj(id)?.available!==false;dismissCard();saved.navigationExpanded[id]=true;workspaceDeck.openWorkspace(id,fresh);break;}
+      case 'workspace-open-existing':{const fresh=!Object.hasOwn(saved.layouts,id)&&proj(id)?.available!==false;dismissCard();workspaceDeck.openWorkspace(id,fresh);break;}
       case 'workspace-open-folder':if(live){dismissCard();postLive('workspace-open-folder')}else toast('Choose folders in the installed Mac app.');break;
       case 'workspace-new-folder':workspaceSettings.create();break;
-      case 'workspace-surface':workspaceDeck.open(el.dataset.surface,el.dataset.project);break;
       case 'workspace-other-apps':otherApps();break;
       case 'workspace-enable-discovery':workspaceSettings.setDiscovery(true);break;
       case 'workspace-external-details':showSession(id);break;

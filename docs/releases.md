@@ -9,7 +9,7 @@ commit it or put it on Pages. Losing it can strand community installations.
 Prepare on an Apple silicon Mac with the macOS 26 SDK:
 
 ```sh
-bash scripts/package-release.sh 1.0.0 7
+bash scripts/package-release.sh 1.0.1 8
 ```
 
 Packaging verifies the archive checksum, bundled code signature, feed metadata,
@@ -17,18 +17,18 @@ and Ed25519 signature using the public key in the app. It also checks that
 modified or truncated archives fail signature verification. To repeat:
 
 ```sh
-python3 scripts/verify-release.py build/releases/1.0.0
+python3 scripts/verify-release.py build/releases/1.0.1
 ```
 
 The build number must increase for every published update. Publish the generated
-ZIP, SHA256SUMS and appcast.xml as assets of GitHub release `v1.0.0`, then copy its appcast.xml
+ZIP, SHA256SUMS and appcast.xml as assets of GitHub release `v1.0.1`, then copy its appcast.xml
 to `site/appcast.xml` and deploy Pages through the existing workflow. Publish
 assets first; do not advertise a missing download. Keep old release assets.
 No release is published by the packaging command. GitHub credentials and the
 update private key are not required for ordinary builds or verification CI.
 
 The optional `site/install.sh` downloads the latest stable release when called without
-an argument, or accepts an explicit version such as `1.0.0`. It installs into
+an argument, or accepts an explicit version such as `1.0.1`. It installs into
 `~/Applications`, or replaces an existing copy in `/Applications` when writable.
 It verifies transport checksums and the bundle, preserves a previous installation,
 and does not alter Gatekeeper. Checksums are integrity checks, not an independent
@@ -44,6 +44,31 @@ Helpers are copied into content-addressed Application Support/Tasktap/Helpers
 folders. Do not delete these while agents are running. Settings and session data
 are separate from the app. Updates preserve request text; unfinished setup and
 other transient UI selections should be completed before updating.
+
+## 1.0.1 release scope
+
+Version 1.0.1 uses build **8**, following 1.0.0/build 7. It simplifies the
+workspace sidebar and puts terminal, browser and split controls on each surface.
+Closing or moving a surface's last tab now removes that surface. Pending launches
+have closable tabs; late replies never reopen a closed surface or replace a tab
+selected while the terminal was starting. Explicit agent requests and reported
+results drive compact workspace indicators, with Reduce Motion support.
+
+Existing workspace tabs and processes are retained. Empty surfaces left by older
+versions collapse when their saved layout loads. Closing the final tab leaves an
+empty workspace, and terminal sessions can be reopened through Session history.
+Tab context actions are available by right-click or Shift+F10.
+
+Release notes: [releases/1.0.1.md](releases/1.0.1.md). Workspace layout, navigation,
+lifecycle and renderer browser checks and the native PTY/WebKit workspace check
+passed locally on November 16, 2026. The production 1.0.1/build 8 bundle also
+passed its native workspace check and package verification: checksum, full source
+and helper matching, code signature, Ed25519 signature, and rejection of tampered
+or truncated archives. Installer replacement and backup checks passed.
+The native check covers closing/reopening,
+terminal geometry, media previews and appearance. Fresh-Mac permission checks,
+Sparkle installation/relaunch and live-provider round trips are not established
+by these fixtures; the community-release limitations remain unchanged.
 
 ## 1.0.0 release scope
 

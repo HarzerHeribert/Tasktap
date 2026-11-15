@@ -886,8 +886,8 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             try await Task.sleep(nanoseconds:400_000_000)
             let restored=try await web.callAsyncJavaScript("return workspaceDeck.terminalText(id).includes('TASKTAP_READY')",arguments:["id":id],in:nil,contentWorld:.page)
             guard restored as? Bool == true else {throw Check.failed(#line)}
-            let inSidebar=try await web.callAsyncJavaScript("return !!document.querySelector('[data-surface=\"terminal:'+id+'\"]')",arguments:["id":id],in:nil,contentWorld:.page)
-            guard inSidebar as? Bool == true else {throw Check.failed(#line)}
+            let restoredTab=try await web.callAsyncJavaScript("return !!document.querySelector('.deck-tab[data-id=\"terminal:'+id+'\"]') && document.querySelectorAll('#nav [data-surface]').length===0 && document.querySelectorAll('#nav .nav-workspace').length===1 && document.querySelectorAll('.deck-group .deck-pane-tools > button').length===4",arguments:["id":id],in:nil,contentWorld:.page)
+            guard restoredTab as? Bool == true else {throw Check.failed(#line)}
             try await verifyTerminalViewport(folder:folder)
             let file=folder.appendingPathComponent("Preview.txt")
             try "Native preview works. <script>Untrusted text stays text.</script>".write(to:file,atomically:true,encoding:.utf8)

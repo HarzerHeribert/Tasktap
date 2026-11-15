@@ -25,17 +25,18 @@ The project surface fills the native window with thin project and tab bars. Pane
 
 ### Navigation and layout
 
-- Sidebar rows are open surfaces grouped by their actual pane, with single-line titles and full-title tooltips. Selecting a terminal focuses its existing keyboard input. Closing a surface removes its row.
-- Reopen a terminal from Session history or a selected file from Project files. The toolbar + opens files and web previews; Pane actions holds session/view actions; Workspace actions contains notes, history, terminal preferences and close.
-- **Split right (⌘D)** and **Split down (⇧⌘D)** divide the selected pane and open a fresh terminal. Any pane can be split in either direction.
-- Drag dividers to resize. Keyboard arrows adjust the matching axis; Home/End set limits; double-click balances. **Focus pane** expands one pane temporarily without changing the saved split tree.
-- **Move tab to…** chooses a destination pane. **Close pane** removes its views and collapses the enclosing split while its processes keep running. Narrow panes expose contextual actions through Pane actions.
+- The sidebar has one row per workspace, with no repeated surface or tab descriptions. A gently pulsing attention mark means an agent needs input; a checkmark means an unread reported result is ready. Pending input takes precedence, and Reduce Motion disables the pulse. Opening the workspace acknowledges result/failure markers; pending decisions remain until answered or withdrawn.
+- A workspace contains surfaces; each surface holds panes as tabs. Each surface’s tab bar has four controls, in order: **New terminal**, **New browser**, **Split right**, **Split down**. These act on that surface, even when another surface has focus.
+- **Split right (⌘D)** and **Split down (⇧⌘D)** divide the selected surface and open a fresh terminal. Any surface can be split in either direction. The shortcuts target the focused surface.
+- Drag dividers to resize. Keyboard arrows adjust the matching axis; Home/End set limits; double-click balances. **Focus surface** temporarily expands the selected surface without changing the saved split tree.
+- Right-click a tab, or focus it and press **Shift+F10**, for Follow up, preview controls, session details, and **Move tab to…**, as applicable. The workspace toolbar retains New task, Open file, Project files, and workspace actions.
+- Close individual tabs with their **×** or **⌘W**. Closing or moving the final tab automatically removes its surface and collapses the adjacent divider. There is no close-all control on a surface. Closing the final tab in the workspace leaves an empty workspace where a terminal, file, or browser can be opened. Terminal processes remain available in Session history.
 
 ### State invariants
 
 Switching tabs, moving previews and navigating away preserve live view instances. A flat view layer keeps iframe documents mounted while a recursive split tree supplies geometry. Legacy two-pane layouts migrate in place. Closing a view explicitly disposes it; reopening the same session focuses an existing view rather than spawning another process.
 
-Each pending launch belongs to its requesting pane. Responses arriving out of order do not change that ownership or steal focus. Input received during initial terminal replay is bounded and delivered in order to the exact session after replay completes. Terminal fitting measures the unpadded inner content box, keeping PTY rows and columns inside visible bounds across font, padding and split changes.
+Each pending launch has a closable tab and belongs to its requesting surface. Closing it before the launch finishes keeps it closed; its process remains available in Session history. Responses arriving out of order do not change that ownership or steal focus. Input received during initial terminal replay is bounded and delivered in order to the exact session after replay completes. Terminal fitting measures the unpadded inner content box, keeping PTY rows and columns inside visible bounds across font, padding and split changes.
 
 Sessions discovered in external apps live in the searchable Other apps picker, with their original host shown. Open focuses an addressable session in its host. If the host cannot focus it directly, Details exposes the available explicit actions; Tasktap does not silently reattach, resume, or migrate it. Historical external conversations never become embedded surface rows.
 
@@ -81,7 +82,7 @@ Existing agent tools remain the authoritative question/result channel. A questio
 - `prototype/workspace-deck.js` and `.css`: persistent views, tabs/splits, focus, contextual follow-ups, media, Activity.
 - `prototype/workspace-layout.js`: recursive pane geometry, stable group identities, legacy migration, and branch collapse.
 - `prototype/workspace-documents.js` and `.css`: themed Markdown with bundled Marked parsing and DOMPurify sanitization; validated links and local-only image loading.
-- `prototype/workspace-navigation.js` and `.css`: shared sidebar, open-surface pane groups, and explicit external-host focus.
+- `prototype/workspace-navigation.js` and `.css`: compact workspace sidebar, attention markers, and explicit external-host focus.
 - `prototype/handoff-review.js` and `.css`: Task/Destination/Context review, focused edits, pending-mutation guard, persistent failure feedback and redacted diagnostics.
 - `prototype/result-presentation.js` and `.css`: labeled report excerpts and exact-receipt reading/copy/narration/summary export.
 - `prototype/appearance.js` and `.css`: persisted app palette, system appearance updates, semantic color tokens, and Appearance controls.

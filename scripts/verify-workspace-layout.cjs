@@ -57,7 +57,7 @@ assert.equal(remove(collapse,'two').id,'two');assert.deepEqual(order(collapse),[
 assert.equal(collapse.groups[collapse.selected].id,'three','removing another pane preserves selection');
 assert.equal(collapse.tree.first.group,survivor.group);
 assert.equal(remove(collapse,'three').id,'three');assert.deepEqual(collapse.tree,{group:'one'});
-assert.equal(collapse.selected,0);assert.equal(remove(collapse,'one'),null,'last pane stays available');
+assert.equal(collapse.selected,0);assert.equal(remove(collapse,'one').id,'one','closing the last surface empties the workspace');assert.deepEqual(collapse.groups,[]);assert.equal(collapse.tree,null);collapse.groups.push(group('one','terminal:one'));ensure(collapse);
 split(collapse,'one','x','two');split(collapse,'two','y','three');collapse.selected=0;
 remove(collapse,'one');assert.deepEqual(order(collapse),['two','three']);assert.equal(collapse.groups[collapse.selected].id,'two');
 assert.equal(collapse.tree.axis,'y');inspect(collapse);
@@ -82,7 +82,7 @@ ensure(cyclic);inspect(cyclic);assert.deepEqual(cyclic.groups.flatMap(group=>gro
 assert.doesNotThrow(()=>JSON.stringify(cyclic),'cyclic input is repaired to serializable geometry');
 const reordered={groups:[group('c'),group('b'),group('a')],selected:0,tree:{id:'root',axis:'x',ratio:62,first:{group:'a'},second:{id:'child',axis:'y',ratio:42,first:{group:'b'},second:{group:'c'}}}};
 ensure(reordered);assert.deepEqual(order(reordered),['a','b','c']);assert.equal(reordered.selected,2);assert.equal(reordered.tree.ratio,62);inspect(reordered);
-const empty={};ensure(empty);assert.equal(empty.groups.length,1);assert.deepEqual(empty.groups[0].tabs,[]);inspect(empty);
+const empty={};ensure(empty);assert.equal(empty.groups.length,0);assert.equal(empty.tree,null);assert.equal(empty.selected,0);assert.equal(remove(empty,'missing'),null);
 const shared=group('shared','terminal:shared'),aliased={groups:[shared,shared],selected:0};
 ensure(aliased);inspect(aliased);assert.equal(aliased.groups.length,2);assert.deepEqual(aliased.groups.flatMap(group=>group.tabs),['terminal:shared','terminal:shared']);
 console.log('PASS: legacy migration, 25 nested panes, both axes, stable IDs, empty splits, collapse and focus, persistence, direct group edits, and malformed-tree repair without lost tabs.');

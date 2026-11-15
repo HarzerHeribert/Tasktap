@@ -12,7 +12,8 @@
       return;
     }
     if(!film.hasAttribute('src'))film.src=film.dataset.source;
-    film.playbackRate=artworkPlaybackRate(film.getBoundingClientRect().width);
+    // The 60 fps source already contains the slow motion. Preserve its cadence.
+    film.playbackRate=1;
     if(film.paused)film.play().catch(()=>{});
   }
   toggle.addEventListener('click',()=>{
@@ -20,7 +21,6 @@
     toggle.classList.toggle('is-paused',paused);syncFilm();
   });
   new IntersectionObserver(([entry])=>{visible=entry.isIntersecting;syncFilm()}).observe(film);
-  new ResizeObserver(syncFilm).observe(film);
   motion.addEventListener('change',syncFilm);document.addEventListener('visibilitychange',syncFilm);
   const copy=document.querySelector('#copy-install'),status=document.querySelector('#install-status');
   copy.hidden=false;

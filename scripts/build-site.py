@@ -12,9 +12,10 @@ for name in ('workspace.png', 'review.png', 'question.png', 'appearance.png'):
 shutil.copytree(root / 'site', out)
 assets = out / 'assets'
 prototype = root / 'prototype'
-shutil.copyfile(prototype / 'motion-scale.js', assets / 'motion-scale.js')
+# This strip is rendered at 60 fps over 16 seconds: its slow motion is baked in.
+# Slowing the older 48 fps stage clip in the browser loses visible smoothness.
 for extension in ('jpg', 'mp4'):
-    source = prototype / 'assets' / 'motion' / 'glyph' / f'stage.{extension}'
+    source = prototype / 'assets' / 'motion' / 'glyph' / f'home.{extension}'
     shutil.copyfile(source, assets / f'glyph.{extension}')
 (out / '.nojekyll').touch()
 print(out)

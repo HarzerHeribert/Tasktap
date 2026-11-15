@@ -4,6 +4,7 @@ const {chromium}=require('playwright');
 const {createServer}=require('node:http');
 const fs=require('node:fs/promises');
 const path=require('node:path');
+const {createHash}=require('node:crypto');
 const root=path.resolve(__dirname,'../build/pages');
 const types={'.html':'text/html','.css':'text/css','.js':'text/javascript','.svg':'image/svg+xml','.webp':'image/webp','.jpg':'image/jpeg','.png':'image/png','.mp4':'video/mp4'};
 const prefix='/Tasktap/';
@@ -46,6 +47,10 @@ const prefix='/Tasktap/';
   }
   await page.setViewportSize({width:1280,height:900});await page.goto(url);
   const film=page.locator('.wave-field video');assert.equal(await film.getAttribute('poster'),'assets/glyph.jpg');assert.equal(await film.getAttribute('src'),null);
+  for(const extension of ['jpg','mp4']){
+   const digest=async file=>createHash('sha256').update(await fs.readFile(file)).digest('hex');
+   assert.equal(await digest(path.join(root,'assets/glyph.'+extension)),await digest(path.resolve(__dirname,'../prototype/assets/motion/glyph/home.'+extension)),'public artwork uses the smooth wide home source');
+  }
   assert.equal(await page.getByRole('button',{name:'Pause artwork',exact:true}).isVisible(),false);
   assert.equal(await page.getByRole('button',{name:'Pause logo animation'}).isVisible(),false);
   for(const download of await page.locator('a.download-app').all())assert.equal(await download.getAttribute('href'),'https://github.com/HarzerHeribert/Tasktap/releases/latest');
@@ -78,7 +83,8 @@ const prefix='/Tasktap/';
   await page.waitForFunction(()=>document.querySelector('.contents a[href="#workspaces"]').getAttribute('aria-current')==='location');
   const guideStatic=await browser.newContext({javaScriptEnabled:false,viewport:{width:390,height:844}}),guidePage=await guideStatic.newPage();
   await guidePage.goto(url+'docs/');assert.ok(await guidePage.locator('.contents a[href="#workspaces"]').isVisible());await guideStatic.close();
-  // Artwork respects Reduce Motion, offscreen pause, explicit pause and scale.
+  // Artwork respects Reduce Motion and pause controls, preserving the cadence of
+  // the slow 60 fps source at every size instead of lowering playback speed.
   await page.setViewportSize({width:1280,height:900});await page.emulateMedia({reducedMotion:'no-preference'});await page.goto(url);
   const logo=page.locator('[data-brand-motion]');
   await page.waitForFunction(()=>document.querySelector('[data-brand-motion]').src.endsWith('.webp'));
@@ -86,11 +92,12 @@ const prefix='/Tasktap/';
   await page.getByRole('button',{name:'Play logo animation'}).click();
   await page.waitForFunction(()=>document.querySelector('[data-brand-motion]').src.endsWith('.webp'));
   await film.scrollIntoViewIfNeeded();await page.waitForFunction(()=>document.querySelector('.wave-field video').currentTime>0);
-  const rate=await film.evaluate(v=>({actual:v.playbackRate,expected:artworkPlaybackRate(v.getBoundingClientRect().width)}));assert.ok(Math.abs(rate.actual-rate.expected)<.001);
+  const media=await film.evaluate(v=>({rate:v.playbackRate,width:v.videoWidth,height:v.videoHeight,duration:v.duration}));
+  assert.equal(media.rate,1);assert.equal(media.width,1200);assert.equal(media.height,240);assert.ok(Math.abs(media.duration-16)<.1);
   await page.getByRole('button',{name:'Pause artwork',exact:true}).click();assert.equal(await film.evaluate(v=>v.paused),true);
   await page.getByRole('button',{name:'Play artwork',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.wave-field video').paused);
   await page.locator('#download').scrollIntoViewIfNeeded();await page.waitForFunction(()=>document.querySelector('.wave-field video').paused);
-  for(const width of [390,320]){await page.setViewportSize({width,height:844});await page.evaluate(()=>scrollTo(0,0));assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'motion controls fit at '+width+'px')}
+  for(const width of [390,320]){await page.setViewportSize({width,height:844});await page.evaluate(()=>scrollTo(0,0));assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'motion controls fit at '+width+'px');assert.equal(await film.evaluate(v=>v.playbackRate),1,'small artwork retains full-rate playback')}
   await page.emulateMedia({reducedMotion:'reduce'});await page.waitForFunction(()=>!document.querySelector('.wave-field video').hasAttribute('src'));
   assert.deepEqual(errors,[]);
   console.log('PASS: 1.0 product page and guide links/assets, five responsive sizes including 200%-equivalent viewport, keyboard/no-JS installer disclosure, source and clipboard, actual product images, download requirements, reduced-motion/visibility artwork controls; no browser errors.');

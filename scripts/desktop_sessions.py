@@ -11,6 +11,29 @@ from session_activity import excerpt
 EVENT = re.compile(rb'"type":"event_msg","payload":\{"type":"(task_started|task_complete|turn_aborted|turn_failed)"')
 
 
+def discovery_enabled(allow_external=None):
+    """Provider registries are opt-in; importing this module performs no scan."""
+    return allow_external is True if allow_external is not None else os.environ.get("TASKTAP_DISCOVER_EXTERNAL") == "1"
+
+
+def approved_projects(root):
+    """Native supplies the exact selected catalog; legacy CLI uses root children."""
+    configured = os.environ.get("TASKTAP_WORKSPACE_FOLDERS_JSON")
+    if configured is not None:
+        try:
+            values = json.loads(configured)
+        except (ValueError, TypeError):
+            return set()
+        if not isinstance(values, list):
+            return set()
+        return {str(Path(value).resolve()) for value in values
+                if isinstance(value, str) and Path(value).is_absolute() and Path(value).is_dir()}
+    try:
+        return {str(p.resolve()) for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")}
+    except OSError:
+        return set()
+
+
 def turn_state(path, cache):
     try:
         info = path.stat()
@@ -46,7 +69,12 @@ def turn_state(path, cache):
         return "Recent"
 
 
-def sessions(root, cache_path):
+def sessions(root, cache_path, *, allow_external=None):
+    if not discovery_enabled(allow_external):
+        return []
+    projects = approved_projects(root)
+    if not projects:
+        return []
     home = Path(os.environ.get("CODEX_HOME") or Path.home()/".codex").resolve()
     db_path = home/"state_5.sqlite"
     if not db_path.is_file():
@@ -56,9 +84,6 @@ def sessions(root, cache_path):
     except (OSError, ValueError):
         cache = {}
     rows = []
-    projects = {str(p.resolve()) for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")}
-    if not projects:
-        return []
     placeholders = ",".join("?" for _ in projects)
     db = sqlite3.connect(db_path.as_uri()+"?mode=ro", uri=True, timeout=1)
     try:

@@ -1,25 +1,20 @@
 /* The workspace and notch share one selected signal study; the heading stays fixed. */
 .resonator-stage{
-  --studio-ink:#101515;
   display:grid;
-  grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  grid-template-columns:minmax(0,.34fr) minmax(0,.66fr);
   align-items:center;
   isolation:isolate;
   position:relative;
   overflow:hidden;
-  min-height:128px;
-  border:1px solid #28312d;
+  min-height:124px;
+  border:1px solid;
   border-radius:var(--r-card);
-  background:var(--studio-ink);
-  color:#f6f5ed;
 }
 .resonator-stage .page-heading{
   z-index:1;
-  padding:var(--s-block) 0 var(--s-block) var(--s-group);
+  padding:var(--s-panel) 0 var(--s-panel) var(--s-group);
 }
-.resonator-stage .page-heading .eyebrow{color:#b9c9bd}
 .resonator-stage .page-heading h1{color:inherit}
-.resonator-stage .page-heading .subtitle{color:#d6dcd6}
 .resonator-film{display:block;pointer-events:none;overflow:hidden}
 .resonator-film video{
   display:block;
@@ -31,11 +26,19 @@
 }
 .resonator-stage .resonator-film{
   position:absolute;
-  inset:0 0 0 48%;
-  mix-blend-mode:screen;
+  inset:0 0 0 33%;
+  /* Feather all four edges, including the poster shown with reduced motion. */
+  -webkit-mask-image:linear-gradient(to right,transparent,#000 12% 88%,transparent),linear-gradient(to bottom,transparent,#000 14% 86%,transparent);
+  -webkit-mask-composite:source-in;
+  mask-image:linear-gradient(to right,transparent,#000 12% 88%,transparent),linear-gradient(to bottom,transparent,#000 14% 86%,transparent);
+  mask-composite:intersect;
 }
 .resonator-stage .resonator-film video{object-fit:contain}
-.resonator-stage [data-study="resonator"]{object-fit:cover}
+.home-art-toggle{position:absolute;right:var(--s-row);bottom:var(--s-row);z-index:2;display:grid;place-items:center;width:30px;height:30px;padding:0;border:1px solid transparent;border-radius:var(--r-control);color:var(--app-muted);opacity:.65;transition:opacity var(--motion),background var(--motion)}
+.home-art-toggle:hover,.home-art-toggle:focus-visible{opacity:1;background:var(--app-hover);border-color:var(--app-edge)}
+.home-art-toggle span{display:flex}.home-art-toggle .icon{width:14px;height:14px}
+.home-art-toggle[data-paused=false] .art-play,.home-art-toggle[data-paused=true] .art-pause{display:none}
+.home-art-toggle[hidden]{display:none}
 .brand .brand-mark{
   width:44px;
   height:36px;
@@ -47,6 +50,8 @@
 .brand-mark img{display:block;width:100%;height:100%;object-fit:cover;mix-blend-mode:screen;filter:contrast(1.08)}
 @media (max-width:680px){
   .resonator-stage .page-heading{padding:var(--s-panel) 0 var(--s-panel) var(--s-panel)}
-  .resonator-stage{grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr)}
-  .resonator-stage .resonator-film{left:55%;mask-image:linear-gradient(to right, transparent, black 14%)}
+  .resonator-stage{min-height:112px;grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr)}
+  .resonator-stage .resonator-film{left:48%}
+  .resonator-stage [data-film=home]:not([data-study=resonator]){object-fit:cover}
 }
+@media(prefers-reduced-motion:reduce){.home-art-toggle{transition:none}}

@@ -3,14 +3,14 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const uid = () => crypto.randomUUID?.() || String(Date.now() + Math.random());
 const paths = {
-  up:'m6 15 6-6 6 6',check:'m4 12 5 5L20 6',
-  side:'M3 5h18v14H3z M9 5v14', grid:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
+  copy:'M8 8h12v13H8z M16 8V3H3v13h5',up:'m6 15 6-6 6 6',check:'m4 12 5 5L20 6',
+  side:'M3 5h18v14H3z M9 5v14',splitRight:'M3 5h18v14H3z M12 5v14',splitDown:'M3 5h18v14H3z M3 12h18', grid:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
   sessions:'M3 5h15v11H3z M8 20h13V9 M6 9l2 2-2 2 M10 13h4', note:'M5 3h14v18H5z M9 3v18 M12 8h4 M12 12h4',
   settings:'M4 7h7 M15 7h5 M4 17h3 M11 17h9 M11 4v6 M7 14v6', plus:'M12 5v14 M5 12h14',
   wifi:'M2 8q10-9 20 0 M6 12q6-6 12 0 M10 16q2-2 4 0 M12 19v.2',battery:'M2 7h17v10H2z M22 10v4 M5 10h10v4H5z',
   back:'M20 12H4m6-6-6 6 6 6',down:'m6 9 6 6 6-6',right:'m9 5 7 7-7 7',arrow:'M4 12h15 m-6-6 6 6-6 6',out:'M6 18 18 6 M7 6h11v11',
   mic:'M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0z M5 11v1a7 7 0 0 0 14 0v-1 M12 19v3 M8 22h8',
-  folder:'M3 6h7l2 3h9v11H3z',play:'m7 4 12 8-12 8z',stop:'M6 6h12v12H6z',x:'m6 6 12 12 M18 6 6 18',
+  folder:'M3 6h7l2 3h9v11H3z',play:'m7 4 12 8-12 8z',pause:'M8 5v14 M16 5v14',stop:'M6 6h12v12H6z',x:'m6 6 12 12 M18 6 6 18',
   'cursor-agent':'m4 5 15 7-7 2-3 7z',pi:'M3 7h18 M8 7v13 M16 7v10q0 3 4 3',
   claude:'M12 2v20 M2 12h20 M5 5l14 14 M5 19 19 5 M8 3l8 18 M3 16l18-8 M3 8l18 8 M8 21l8-18',
   codex:'m8 7-5 5 5 5 M16 7l5 5-5 5 M14 4l-4 16',agy:'m3 17 8-12h2l8 12 M8 14q4-3 8 0',
@@ -50,10 +50,10 @@ const attr=(s)=>esc(s);
 const button=(label,action,id='',style='btn',sym='')=>'<button type="button" class="'+style+'" data-action="'+action+'" data-id="'+attr(id)+'">'+(sym?icon(sym):'')+esc(label)+'</button>';
 const option=(value,text,selected='')=>'<option value="'+attr(value)+'" '+(value===selected?'selected':'')+'>'+esc(text)+'</option>';
 const heading=(over,title,sub='')=>'<div class="page-heading"><div class="eyebrow">'+esc(over)+'</div><h1>'+esc(title)+'</h1>'+(sub?'<p class="subtitle">'+esc(sub)+'</p>':'')+'</div>';
-const statusClass=s=>['Needs input','Awaiting agent'].includes(s)?'waiting':s==='Complete'?'complete':['Running','Queued'].includes(s)?'running':'offline';
+const statusClass=s=>['Needs input','Awaiting agent','Ready to send'].includes(s)?'waiting':s==='Complete'?'complete':['Running','Queued'].includes(s)?'running':'offline';
 const navLink=(id,label,sym,end='')=>'<button class="nav-link '+(view===id?'active':'')+'" '+(view===id?'aria-current="page"':'')+' data-action="view" data-id="'+attr(id)+'">'+sym+'<span class="label">'+esc(label)+'</span>'+end+'</button>';
 const count=n=>'<span class="nav-count">'+n+'</span>';
-const activeSessionStates=new Set(['Running','Needs input','Queued','Opening','Awaiting agent']);
+const activeSessionStates=new Set(['Running','Needs input','Queued','Opening','Awaiting agent','Ready to send','Connected']);
 function activeSessions(){
   const pending=new Set(state.decisions.map(q=>q.session));
   return state.sessions.filter(s=>pending.has(s.id)||activeSessionStates.has(s.state));
@@ -62,13 +62,14 @@ function projectPeers(project,ownId){
   const checkout=id=>{const p=proj(id);return p?.checkout || p?.folder};
   const folder=checkout(project);
   if(!folder || project==='@scratch')return [];
-  return state.sessions.filter(s=>s.id!==ownId && s.available!==false && activeSessionStates.has(s.state) && checkout(s.project)===folder);
+  // A connected transport alone is not evidence that an agent is doing overlapping work.
+  return state.sessions.filter(s=>s.id!==ownId && s.available!==false && s.state!=='Connected' && activeSessionStates.has(s.state) && checkout(s.project)===folder);
 }
 function peerDisclosure(peers,project,links=false){
   if(!peers.length)return '';
   const rows=peers.map(s=>{
     const label=[s.task,providers[s.agent],s.state].filter(Boolean).join(' · ');
-    return '<li>'+(links?button(label,'session',s.id,'text-btn'):esc(label))+'</li>';
+    return '<li>'+(links?'<button class="peer-session" data-action="session" data-id="'+attr(s.id)+'"><span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span><span><span class="row-title">'+esc(s.task)+'</span><span class="row-sub">'+esc([providers[s.agent],sessionLocation(s),s.state].filter(Boolean).join(' · '))+'</span></span>'+icon('right')+'</button>':esc(label))+'</li>';
   });
   return '<details class="route-evidence" data-project-peers><summary>'+peers.length+' other session'+(peers.length===1?'':'s')+' in '+esc(proj(project).name)+'</summary><ul>'+rows.join('')+'</ul></details>';
 }
@@ -77,14 +78,49 @@ function listedProjects(active){
   return state.projects.filter(p=>p.available!==false && (state.showIdleProjects || ids.has(p.id)));
 }
 function renderNav(projects){
+  const scroll=$('#nav').scrollTop;
   $('#nav').innerHTML='<div class="nav-group"><span class="nav-kicker">Workspace</span>'+navLink('overview','Overview',icon('grid'))+navLink('sessions','Sessions',icon('sessions'),count(state.sessions.length))+navLink('notes','Notebook',icon('note'),count(state.notes.length))+navLink('projects','Projects',icon('folder'),count(projects.length))+'</div>';
+  if(typeof workspaceNavigation!=='undefined'){$('#nav').innerHTML=workspaceNavigation.navigation();workspaceNavigation.sync()}
+  $('#nav').scrollTop=scroll;
   $('#islandLabel').textContent=state.decisions.length?state.decisions.length+' decision'+(state.decisions.length>1?'s':''):'All clear';
 }
-function sessionRow(s,{question,fixture=false,title=question?.q || sessionDisplayName(s),status=question?'Needs input':s.state}={}){
-  const agent=s.interactive?providers[s.agent]+' · '+sessionLocation(s):s.source==='desktop'?'Codex · ChatGPT desktop':s.source==='terminal'?'Codex · Terminal':s.source==='claude'?'Claude Code · External':providers[s.agent]||'Agent',p=proj(s.project);
+function sessionUpdated(s){
+  const date=new Date(Number(s.updatedAt));
+  if(!s.updatedAt || !Number.isFinite(date.getTime()))return '<span class="row-updated" aria-label="Update time unavailable">—</span>';
+  const today=new Date().toDateString()===date.toDateString();
+  const short=date.toLocaleString(undefined,today?{hour:'numeric',minute:'2-digit'}:{month:'short',day:'numeric'});
+  return '<time class="row-updated" datetime="'+date.toISOString()+'" title="'+attr(date.toLocaleString())+'">'+esc(short)+'</time>';
+}
+function sessionColumns(){return '<div class="list-columns" aria-hidden="true"><span>Session</span><span class="row-project">Project</span><span class="row-agent">Agent / host</span><span>Status</span><span class="row-updated">Updated</span><span></span></div>'}
+function historySessionRow(s,{question,fixture=false,title=question?.q || sessionDisplayName(s),status=question?'Needs input':s.state}={}){
+  const project=proj(s.project)?.name||'Scratch',agent=providers[s.agent]||'Agent',host=sessionLocation(s);
+  const context=question?'<span class="row-sub row-context">'+esc(sessionDisplayName(s))+'</span>':'';
+  return '<button class="session-row work-row" data-action="'+(question?'notch':'session')+'" data-id="'+attr(question?.id || s.id)+'">'+
+    '<span class="session-cell"><span class="agent-mark '+attr(s.agent||'')+'" aria-hidden="true">'+icon(s.agent||'sessions')+'</span><span class="session-copy"><span class="row-title" title="'+attr(title)+'">'+esc(title)+'</span>'+context+'<span class="row-compact"><span class="row-compact-project">'+esc(project)+'</span><span class="row-compact-agent">'+esc([agent,host].filter(Boolean).join(' · '))+'</span></span></span></span>'+
+    '<span class="row-project" title="'+attr(project)+'">'+esc(project)+'</span><span class="row-agent"><span>'+esc(agent)+'</span><span class="row-sub">'+esc(host||'—')+'</span></span><span class="row-state '+statusClass(question?'Needs input':s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(status)+'</span>'+sessionUpdated(s)+icon('right')+'</button>';
+}
+function sessionRow(s,{question,fixture=false,title=question?.q || sessionDisplayName(s),status=question?'Needs input':s.state,home='',resultTime=0}={}){
+  const agent=[providers[s.agent]||'Agent',sessionLocation(s)].filter(Boolean).join(' · '),p=proj(s.project);
+  if(home){
+    const result=home==='result',host=sessionLocation(s),project=p?.name||'Scratch';
+    const sentence=!s.sessionName&&typeof title==='string'&&title===s.task&&home!=='attention'?title.match(/^(.{16,160}?[.!?])\s+(?=[A-Z“"\d])/):null;
+    const headline=sentence&&!/\b(?:e\.g|i\.e|Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|etc)\.$/i.test(sentence[1])?sentence[1]:title;
+    const metadata='<span class="home-row-project" title="'+attr(p?.folder||project)+'">'+esc(project)+'</span><span class="home-row-agent">'+esc(providers[s.agent]||'Agent')+'</span>'+(host?'<span class="home-row-host">'+esc(host)+'</span>':'');
+    let time='',timeLabel='';
+    if(result&&Number.isFinite(resultTime)&&resultTime>0){
+      const date=new Date(resultTime),today=new Date(),sameDay=date.toDateString()===today.toDateString();
+      const short=sameDay?date.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):date.toLocaleDateString(undefined,{month:'short',day:'numeric',...(date.getFullYear()!==today.getFullYear()?{year:'numeric'}:{})});
+      const full='Result received '+date.toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});
+      timeLabel=full;
+      time='<time class="home-result-time" datetime="'+date.toISOString()+'" title="'+attr(full)+'" aria-label="'+attr(full)+'">'+esc(short)+'</time>';
+    }
+    const end=result?time:'<span class="row-state '+statusClass(question?'Needs input':s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(status)+'</span>';
+    return '<button type="button" class="session-row home-session-row'+(home==='attention'?' is-question':'')+(result?' home-result-row':'')+'" data-action="'+(question?'notch':result&&s.host==='tasktap'?'deck-result':'session')+'" data-id="'+attr(question?.id||s.id)+'" aria-label="'+attr([title,project,agent,result?timeLabel:status].filter(Boolean).join(' · '))+'"><span class="agent-mark '+attr(s.agent||'')+'">'+icon(s.agent||'sessions')+'</span><span class="home-row-body"><span class="row-title" title="'+attr(title)+'">'+esc(headline)+'</span><span class="row-sub home-row-meta"'+(question?' title="'+attr(sessionDisplayName(s))+'"':'')+'>'+metadata+'</span></span><span class="home-row-end">'+end+icon('right')+'</span></button>';
+  }
+  if(!fixture)return historySessionRow(s,{question,title,status});
   const lastRun=view==='sessions' && s.updatedAt?new Date(s.updatedAt).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'}):'';
   const subtitle=[question?sessionDisplayName(s):'',agent,lastRun].filter(Boolean).join(' · ');
-  return '<button class="session-row" data-action="'+(question?'notch':'session')+'" data-id="'+attr(question?.id || s.id)+'">'+(s.agent?'<span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span>':'<span aria-hidden="true"></span>')+'<span><span class="row-title">'+esc(title)+'</span><span class="row-sub">'+esc(subtitle)+'</span></span><span class="row-project">'+esc(p?.name||'Project')+'</span>'+(fixture?'<span class="fixture-amount">'+esc(s.amount)+'</span>':'<span class="row-state '+statusClass(question?'Needs input':s.state)+'"><i class="state-dot"></i>'+esc(status)+'</span>')+icon('right')+'</button>';
+  return '<button class="session-row" data-action="'+(question?'notch':'session')+'" data-id="'+attr(question?.id || s.id)+'">'+(s.agent?'<span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span>':'<span aria-hidden="true"></span>')+'<span><span class="row-title" title="'+attr(title)+'">'+esc(title)+'</span><span class="row-sub">'+(view==='sessions'?'<span class="history-project">'+esc(p?.name||'Scratch')+'</span>':'')+esc(subtitle)+'</span></span><span class="row-project">'+esc(p?.name||'Project')+'</span>'+(fixture?'<span class="fixture-amount">'+esc(s.amount)+'</span>':'<span class="row-state '+statusClass(question?'Needs input':s.state)+'"><i class="state-dot"></i>'+esc(status)+'</span>')+icon('right')+'</button>';
 }
 function workOverview(active){
   const questions=new Map();
@@ -95,19 +131,22 @@ function workOverview(active){
   const attention=[],progress=[];
   for(const session of active){
     const pending=questions.get(session.id);
-    if(pending)attention.push(...pending.map(question=>sessionRow(session,{question})));
-    else if(session.state==='Needs input')attention.push(sessionRow(session,{title:session.waitingFor || session.task}));
+    if(pending)attention.push(...pending.map(question=>sessionRow(session,{question,home:'attention'})));
+    else if(session.state==='Needs input')attention.push(sessionRow(session,{title:session.waitingFor || session.task,home:'attention'}));
     else{
       const turn=state.captures.find(c=>c.session===session.id);
       const sending=turn?.kind==='Session nudge' && ['Queued','Running'].includes(turn.receipt) && ['Queued','Running'].includes(session.state);
-      progress.push(sending?sessionRow(session,{title:turn.brief || session.task,status:turn.receipt==='Queued'?'Follow-up queued':'Sending follow-up'}):sessionRow(session));
+      progress.push(sending?sessionRow(session,{title:turn.brief || session.task,status:turn.receipt==='Queued'?'Follow-up queued':'Sending follow-up',home:'progress'}):sessionRow(session,{home:'progress'}));
     }
   }
-  const section=(title,rows)=>rows.length?'<section class="block"><h2>'+title+'</h2><div class="session-list">'+rows.join('')+'</div></section>':'';
-  return section('Needs your attention',attention)+section('In progress',progress) || '<p class="empty">No active sessions.</p>';
+  const section=(title,rows,kind)=>rows.length?'<section class="block home-session-section" data-home-section="'+kind+'"><div class="home-section-heading"><h2>'+title+'<span class="home-section-count">'+rows.length+'</span></h2>'+(kind==='results'?button('History','view','sessions','text-btn','arrow'):'')+'</div><div class="session-list home-session-list">'+rows.join('')+'</div></section>':'';
+  // A capture's clock label is request time, and a discovered session's updatedAt
+  // can reflect any edit. Only an observed completion receipt dates a result.
+  const results=state.sessions.filter(s=>s.result).map(s=>({session:s,time:Math.max(0,...(state.workspaceDeck?.activity||[]).filter(a=>a.kind==='complete'&&a.id===s.id&&a.body===s.result&&Number.isFinite(a.time)&&a.time>0&&a.time<=8.64e15).map(a=>a.time))})).sort((a,b)=>b.time-a.time).slice(0,3).map(({session,time})=>sessionRow(session,{home:'result',resultTime:time}));
+  return section('Needs your attention',attention,'attention')+section('In progress',progress,'progress')+section('Recent results',results,'results') || '<p class="empty">No active sessions.</p>';
 }
-function sessionList(rows){return rows.length?'<div class="session-list">'+rows.map(s=>sessionRow(s)).join('')+'</div>':'<p class="empty">No sessions here yet.</p>'}
-function noteList(notes){return notes.length?notes.map(n=>'<button class="note" data-action="note" data-id="'+attr(n.id)+'"><span class="eyebrow">'+esc(proj(n.project)?.name||'Scratch')+'</span><strong>'+esc(n.title)+'</strong><span class="hint">'+esc(n.text)+'</span></button>').join(''):'<p class="empty">No notes here yet.</p>'}
+function sessionList(rows){return rows.length?'<div class="session-list work-list">'+sessionColumns()+rows.map(s=>sessionRow(s)).join('')+'</div>':'<p class="empty">No sessions here yet.</p>'}
+function noteList(notes){return notes.length?notes.map(n=>'<button class="note" data-action="note" data-id="'+attr(n.id)+'" aria-label="'+attr((proj(n.project)?.name||'Scratch')+' · '+n.title)+'"><span class="eyebrow">'+esc(proj(n.project)?.name||'Scratch')+'</span><strong>'+esc(n.title)+'</strong><span class="hint">'+esc(n.text)+'</span></button>').join(''):'<p class="empty">No notes here yet.</p>'}
 let projectFilter='';
 let sessionFilter='';
 function renderSessionHistory(){
@@ -123,16 +162,20 @@ function renderSessionHistory(){
     const text=[sessionNameSearch(s),proj(s.project)?.name,providers[s.agent],s.result,...(history.get(s.id)||[])].join(' ').toLocaleLowerCase();
     return words.every(word=>text.includes(word));
   }).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
-  $('#session-history').innerHTML=rows.length || !words.length?sessionList(rows):'<p class="empty">No matching sessions.</p>';
+  $('#session-history').innerHTML=(rows.length || !words.length?sessionList(rows):'<p class="empty">No matching sessions.</p>')+(typeof workspaceDeck!=='undefined'?workspaceDeck.shellHistory(sessionFilter):'');
 }
 function renderProjectList(projects){
   const rows=projects.filter(p=>p.name.toLowerCase().includes(projectFilter.trim().toLowerCase()));
-  $('#project-list').innerHTML=rows.map(p=>button(p.name,'view',p.id,'note','folder')).join('')||'<p class="empty">'+(projectFilter.trim()?'No matching projects.':state.showIdleProjects?'No project folders found.':'No projects have active sessions.')+'</p>';
+  $('#project-list').innerHTML=rows.length?'<div class="project-table"><div class="project-columns" aria-hidden="true"><span>Project / folder</span><span>Active</span><span>Sessions</span><span></span></div>'+rows.map(p=>{
+    const sessions=state.sessions.filter(s=>s.project===p.id),active=sessions.filter(s=>activeSessionStates.has(s.state)).length;
+    return '<button class="project-row" data-action="view" data-id="'+attr(p.id)+'"><span class="session-cell"><span class="project-folder" aria-hidden="true">'+icon('folder')+'</span><span class="session-copy"><span class="row-title">'+esc(p.name)+'</span><span class="row-sub project-path" title="'+attr(p.folder||'')+'">'+esc(p.folder||'Folder unavailable')+'</span></span></span><span class="project-active '+(active?'has-active':'')+'" aria-label="'+active+' active sessions">'+active+'</span><span class="project-total" aria-label="'+sessions.length+' sessions">'+sessions.length+'</span>'+icon('right')+'</button>';
+  }).join('')+'</div>':'<p class="empty">'+(projectFilter.trim()?'No matching projects.':state.showIdleProjects?'No project folders found.':'No projects have active sessions.')+'</p>';
 }
 function render(){
   const active=activeSessions(),projects=listedProjects(active);
   renderNav(projects);document.dispatchEvent(new Event('workspace-changed'));
-  const p=proj(view),name=({overview:'Overview',sessions:'Sessions',notes:'Notebook',projects:'Projects'})[view]||p?.name||'Workspace';$('#crumb').textContent=name;
+  const p=proj(view),name=({overview:'Home',sessions:'Session history',notes:'Notebook',projects:'All projects'})[view]||p?.name||'Workspace';$('#crumb').textContent=name;
+  if(typeof workspaceDeck!=='undefined'){if(p){workspaceDeck.renderProject(p);return}else workspaceDeck.leave()}
   const intro=heading(live?new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'}):'Saturday, 14 November',name,p?p.folder:'');
   let body='';
   if(view==='overview')body=workOverview(active);
@@ -236,6 +279,7 @@ function showSession(id){
   openedSession=id;
   const q=state.decisions.find(q=>q.session===id);
   const actions=[];
+  if(live && s.host==='claude-desktop' && s.available)actions.push(button('Open brief in Claude Desktop','focus-session',id,'primary','out'));
   if(live && (s.interactive && s.available===true && !['Closed','Queued','Opening'].includes(s.state) || s.source==='cmux' && s.available)){
     actions.push(button(s.host==='warp'?'Reattach in Warp':'Open in '+sessionLocation(s),'focus-session',id,'primary','out'));
   }
@@ -249,15 +293,17 @@ function showSession(id){
   if(live && s.managed && !s.interactive && !s.planAccount && ['claude','codex'].includes(s.agent) && ['Failed','Complete'].includes(s.state))actions.push(button('Resume in Terminal','terminal',id),button('Copy resume command','copyresume',id));
   if(q)actions.push(button('Review decision','notch',q.id));
   if(!live && s.state==='Running' && !s.producerKey)actions.push(button('Simulate completion','complete',id));
-  if(s.result)actions.push(button('Read aloud','speakresult',id,'btn','sound'),button('Open in '+(s.viewer||(live?'Finder':'editor')),'openresult',id));
   const turns=state.captures.filter(c=>c.session===id);
   const history=turns.length>1?'<details class="route-evidence"><summary>Handoff history · '+turns.length+'</summary><ul>'+turns.map(c=>'<li>'+button(c.kind+' · '+(c.brief||c.text||'Sketch').slice(0,70),'detailcapture',c.id,'text-btn')+'</li>').join('')+'</ul></details>':'';
   const location=s.interactive && !retry && !s.resumable?'<p class="hint">'+esc(s.state==='Closed' || s.state==='Complete' && !s.available?'The terminal session has closed.':s.state==='Failed'?'Check the terminal for the launch error.':s.available===false?'Waiting for the terminal session.':s.state==='Awaiting agent'?'Open '+sessionLocation(s)+' to check for a sign-in or folder trust prompt.':'You can type, interrupt, and answer approvals in '+sessionLocation(s)+'.')+'</p>':'';
+  const desktopHint=s.host==='claude-desktop'?'<p class="hint">Confirm the project folder and send the prepared brief in Claude Desktop. Activity and replies stay in Claude.</p>':'';
   const waiting=s.waitingFor?'<p class="hint">'+esc('Waiting in the original session · '+s.waitingFor)+'</p>':'';
   const turn=state.captures.find(c=>c.session===s.id);
-  const status=activityBand('<strong class="session-state '+statusClass(s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(s.state)+'</strong>',proj(s.project)?.folder,['Running','Queued'].includes(s.state),live?handoffRelay.forCapture(turn):'');
-  const activity=s.log.length?'<section class="block"><h3>Activity</h3><ul class="time-line">'+s.log.map(e=>'<li><i class="state-dot"></i>'+esc(sessionActivityLine(s,e))+'</li>').join('')+'</ul></section>':'';
-  dialog(sessionDisplayName(s),[providers[s.agent],s.model].filter(Boolean).join(' · '),status+location+waiting+peerDisclosure(projectPeers(s.project,id),s.project,true)+activity+history+sessionNameHistory(s)+(s.result?'<section class="notice"><strong>Agent summary</strong><p>'+esc(s.result)+'</p></section>':'')+'<div class="inline">'+actions.join('')+'</div>');
+  const relay=live && (!s.result || turn?.receipt!=='Complete')?handoffRelay.forCapture(turn):'';
+  const status='<section class="session-summary"><div class="session-summary-line"><span class="row-state '+statusClass(s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(s.state)+'</span><span class="row-sub">'+esc(sessionLocation(s))+'</span></div><span class="session-folder">'+icon('folder')+esc(proj(s.project)?.folder)+'</span></section>';
+  const activity=s.log.length?'<details class="session-activity"><summary>Activity · '+s.log.length+'</summary><ul class="time-line">'+s.log.map(e=>'<li><i class="state-dot"></i>'+esc(sessionActivityLine(s,e))+'</li>').join('')+'</ul></details>':'';
+  dialog(sessionDisplayName(s),[providers[s.agent],s.model].filter(Boolean).join(' · '),'<div class="session-detail">'+status+(s.result?resultPresentation.markup(s.result,id):'')+(actions.length?'<div class="session-actions inline">'+actions.join('')+'</div>':'')+location+desktopHint+waiting+(relay?'<div class="session-receipt">'+relay+'</div>':'')+peerDisclosure(projectPeers(s.project,id),s.project,true)+activity+history+sessionNameHistory(s)+'</div>');
+  resultPresentation.paint($('#modal'));
   const disclosure=$('#modal [data-project-peers]');
   if(peersWereOpen && disclosure){
     disclosure.open=true;
@@ -334,7 +380,7 @@ function decide(id,i){
   state.decisions=state.decisions.filter(x=>x.id!==id);
   s.state=state.decisions.some(other=>other.session===s.id)?'Needs input':'Running';
   decisionVoice=false;persist();dismissCard();render();
-  if($('#modal').open&&$('#dialog-heading')?.textContent===s.task)showSession(s.id);
+  if($('#modal').open&&openedSession===s.id&&$('#modal .session-detail'))showSession(s.id);
   if(q.producerKey)window.webkit?.messageHandlers?.workspace.postMessage({type:'questionUpdated'});
   toast('Decision sent to '+s.task+'.');
 }
@@ -369,7 +415,7 @@ function editDraft(){
     return;
   }
   const startingSession=draft.sessionProject && !draft.guide;
-  dialog(startingSession?'New session':'New capture',draft.sessionProject?proj(draft.sessionProject).name:'Capture', '<div class="fields"><label>'+(startingSession?'What should the agent do?':draft.guide==='start'?'Your request':'Transcript')+'<textarea id="transcript" placeholder="Talk through an idea or type a follow-up…">'+esc(draft.text)+'</textarea></label><div class="inline">'+(live?button('Hold to talk','dictate','#transcript','btn','mic'):button('Use voice sample','sample','','btn','mic'))+button(draft.sketch?'Hide sketch pad':'Add sketch','sketch','','btn','pen')+'</div>'+(draft.sketch?'<div class="field"><span>Sketch</span><canvas id="pad" width="600" height="176" class="drawpad" aria-label="Sketch pad. Use pointer to draw, or add the keyboard sample below."></canvas><div class="inline">'+button('Add sample curve','curve')+button('Clear sketch','clearink')+'</div></div>':'')+'</div><div class="form-actions">'+button('Cancel','discard')+button(startingSession?'Review session':'Review capture','review','','primary','arrow')+'</div>');
+  dialog(startingSession?'New session':'New capture',draft.sessionProject?proj(draft.sessionProject).name:'Capture', '<div class="fields">'+captureContext.editor(draft)+'<label>'+(startingSession?'What should the agent do?':draft.guide==='start'?'Your request':'Transcript')+'<textarea id="transcript" placeholder="Talk through an idea or type a follow-up…">'+esc(draft.text)+'</textarea></label><div class="inline">'+(live?button('Hold to talk','dictate','#transcript','btn','mic'):button('Use voice sample','sample','','btn','mic'))+button(draft.sketch?'Hide sketch pad':'Add sketch','sketch','','btn','pen')+'</div>'+(draft.sketch?'<div class="field"><span>Sketch</span><canvas id="pad" width="600" height="176" class="drawpad" aria-label="Sketch pad. Use pointer to draw, or add the keyboard sample below."></canvas><div class="inline">'+button('Add sample curve','curve')+button('Clear sketch','clearink')+'</div></div>':'')+'</div><div class="form-actions">'+button('Cancel','discard')+button(startingSession?'Review session':'Review capture','review','','primary','arrow')+'</div>');
   $('#transcript').oninput=e=>{draft.text=e.target.value;growTranscript(e.target)};
   growTranscript($('#transcript'));
   if(draft.sketch)setupPad();
@@ -460,67 +506,15 @@ function continueSessionButton(d){
   return d.mode==='ask' && continuations(d).length?button('Continue an existing session','continue-session','','text-btn'):'';
 }
 function review(){
-  const d=draft,s=sess(d.session);
-  const peers=d.mode==='note'?[]:projectPeers(d.project,d.mode==='nudge'?s?.id:d.runId);
-  // Keep the exact peer context on the review until the user revises this handoff.
-  d.peerTasks=peers.slice(0,8).map(p=>({agent:providers[p.agent],task:(p.task || '').slice(0,112),state:p.state}));
-  if(d.mode==='ask')workerRouting.prepare(d);else {d.noPick=false;d.usingRank=false}
-  const destination=d.mode==='nudge'?s?.task:d.project==='@scratch'?'Scratch':d.project==='@new'?d.newName:proj(d.project)?.name;
-  const action=d.mode==='note'?'Save note':d.mode==='nudge'?(manualNudge(d)?'Copy nudge & open session':'Send nudge'):'Start session';
-  const where=[d.mode==='nudge'?proj(s?.project)?.name:null,destination,d.mode==='note'?null:(d.mode==='ask' && d.noPick?'Choose an agent':providers[d.mode==='nudge'?s?.agent:d.agent]),d.viewer].filter(Boolean).join(' · ');
-  const note=d.keep && d.mode!=='note'?'<p class="hint">Also save a note: '+esc(d.note||d.brief)+'</p>':'';
-  const agent=d.mode==='nudge'?s?.agent:d.agent;
-  if (d.mode!=='note') d.captureId??=uid();
-  const relay=d.mode==='note'||d.noPick?'':handoffRelay.markup(d.captureId,agent,d.relayPhase||'review');
-  const route=relay?'<div class="review-rail">'+relay+'<span data-relay-label>'+(d.relayPhase==='failed'?'Handoff failed':'Ready for '+esc(providers[agent]))+'</span></div>':'';
-  const suggestion=d.suggestedBrief && d.suggestedBrief!==d.brief?'<details class="route-evidence"><summary>Suggested wording</summary><p class="body-copy">'+esc(d.suggestedBrief)+'</p>'+button('Use this wording','apply-suggested-brief')+'</details>':'';
-  const inNotch=firstMode();
-  const request='<p class="review-brief" id="review-brief">'+esc(d.brief||'Attached sketch')+'</p>';
-  const brief=(inNotch?'':request)+suggestion+(d.strokes.length?sketchMarkup(d.strokes):'')+captureContext.review(d)+note;
-  const details=d.noPick?'':modelReviewMarkup(d)+(live?deliveryAudit(d):'');
-  const choice=d.mode==='ask' && live?workerRouting.reviewMarkup(d):'';
-  const usage=live && d.mode!=='note'?'<details class="route-evidence"><summary>Account usage</summary>'+aiConnections.receipt(d)+'</details>':'';
-  const body=brief+choice+usage+(details?'<details class="guide-review-details"><summary>Handoff details</summary>'+route+details+'</details>':'');
-  const title=d.guide?{ask:'Review new session',nudge:'Review follow-up',note:'Review note'}[d.mode]:'Review capture';
-  const project=proj(d.project);
-  const trustPath=live && !d.noPick && d.mode==='ask' && agent==='codex'
-    ? (d.project==='@scratch'?'@scratch':d.project==='@new'?'~/projects/'+d.newName:project?.checkout || project?.folder) : '';
-  const trustLabel=trustPath==='@scratch'?'Tasktap’s Scratch folder':trustPath;
-  const folderTrust=trustPath?'<div class="folder-trust"><label class="check-line"><input type="checkbox" id="folder-trust" data-folder="'+attr(trustPath)+'" aria-describedby="folder-trust-detail" '+(d.deferTrust===trustPath?'':'checked')+'>Trust this folder for this Codex session</label><p class="hint" id="folder-trust-detail">'+esc(trustLabel)+' · Project settings can run code.</p></div>':'';
-  const confirm=button(action,'commit-review','',inNotch?'notch-action':'primary',inNotch?'arrow':'');
-  dialog(title,where,body+peerDisclosure(peers,d.project)+continueSessionButton(d)+
-    folderTrust+
-    '<div class="form-actions">'+(inNotch?confirm+button('Adjust','adjust'):button('Adjust','adjust')+confirm)+'</div>','',inNotch?request:'');
-  if(trustPath)$('#folder-trust').onchange=e=>{d.deferTrust=e.target.checked?'':trustPath};
-  if(choice)workerRouting.bindReview(d);
+  const d=draft;if(!d)return;
+  const peers=d.mode==='note'?[]:projectPeers(d.project,d.mode==='nudge'?d.session:d.runId);
+  d.peerTasks=peers.slice(0,8).map(p=>({agent:providers[p.agent],task:(p.task||'').slice(0,112),state:p.state}));
+  if(d.mode==='ask')workerRouting.prepare(d);else{d.noPick=false;d.usingRank=false}
+  if(d.mode!=='note')d.captureId??=uid();
+  handoffReview.show(d,peers);
   reviewActivity(d);
 }
-function adjustReview(){
-  const d=draft;
-  const routes=[['note','Save a note'],['ask','Ask an agent'],['nudge','Nudge a session']];
-  const ps=state.projects.map(p=>option(p.id,p.name,d.project)).join('');
-  const matches=matchSessions(d.text);
-  const sessionChoices=[...matches,...state.sessions.filter(s=>!matches.includes(s) && (!live || canNudge(s)))];
-  const field=(label,html)=>'<label>'+label+html+'</label>';
-  const projectField=field('Workspace','<select id="project" required>'+option('','Choose a workspace',d.project)+ps+option('@new','Create project folder…',d.project)+option('@scratch','Keep in scratch',d.project)+'</select>');
-  const sessionField=field('Existing session','<select id="session" required>'+option('','Choose the matching session',d.session)+sessionChoices.map(s=>option(s.id,s.task+' · '+proj(s.project)?.name+' · '+providers[s.agent],d.session)).join('')+'</select>');
-  const newField=d.project==='@new'?field('New project name','<input id="newName" value="'+attr(d.newName)+'" placeholder="Name under ~/projects" required pattern="[^/]+">'):'';
-  const providerFields=d.mode==='ask'?field('Agent','<select id="agent">'+Object.entries(providers).map(([k,v])=>option(k,v,d.agent)).join('')+'</select>')+field('Model for this session',modelInput(d.agent,'override',d.modelOverride?.agent===d.agent?d.modelOverride.value:'',modelPlanFor({...d,modelOverride:null}).label))+modelSuggestions(d.agent)+(live?settingsField('handoff-host','Terminal for this session','<select id="handoff-host">'+terminalHosts.options(sessionHost(d))+'</select>'):'')+field('Open result in','<select id="viewer">'+['','Xcode','Preview','Finder'].map(v=>option(v,v||'Choose later',d.viewer)).join('')+'</select>'):'';
-  dialog('Adjust handoff','Routing','<form id="route-form" class="fields"><details><summary>Original capture'+(d.strokes.length?' · sketch attached':'')+'</summary><p class="body-copy">'+esc(d.text||'Sketch only')+'</p>'+(d.strokes.length?sketchMarkup(d.strokes):'')+'</details>'+field('Action','<select id="mode">'+routes.map(([k,v])=>option(k,v,d.mode)).join('')+'</select>')+field(d.mode==='note'?'Note':'Agent handoff','<textarea id="brief" '+(d.strokes.length?'':'required')+'>'+esc(d.brief)+'</textarea>')+(d.mode==='nudge'?sessionField:projectField+newField)+providerFields+(d.mode!=='note'?'<div class="check-line"><input id="keep" type="checkbox" '+(d.keep?'checked':'')+'><label for="keep">Save a separate project note</label></div>'+(d.keep?field('Project note','<textarea id="sideNote" required>'+esc(d.note)+'</textarea>'):''):'')+'<div class="form-actions">'+button('Edit capture','edit')+'<button class="primary" type="submit">Review changes</button></div></form>');
-  const f=$('#route-form');
-  f.querySelectorAll('button[data-action]').forEach(b=>b.type='button');
-  const bind=(id,key)=>{const el=$('#'+id,f);if(el)el.oninput=()=>d[key]=el.value};
-  [['brief','brief'],['sideNote','note'],['newName','newName'],['agent','agent'],['viewer','viewer'],['handoff-host','host']].forEach(([id,key])=>bind(id,key));
-  if($('#handoff-host',f))postLive('terminal-catalog');
-  if($('#agent',f))$('#agent',f).onchange=e=>{d.agent=e.target.value;d.agentChoice='manual';delete d.modelOverride;adjustReview();$('#agent').focus()};
-  if($('#model-override',f))$('#model-override',f).oninput=e=>{d.modelOverride={agent:d.agent,value:e.target.value.trim()};if(d.modelOverride.value)d.agentChoice='manual'};
-  $('#mode',f).onchange=e=>{d.mode=e.target.value;adjustReview()};
-  if($('#project',f))$('#project',f).onchange=e=>{d.project=e.target.value;delete d.contextProject;adjustReview()};
-  if($('#session',f))$('#session',f).onchange=e=>{d.session=e.target.value;d.project=sess(d.session)?.project||''};
-  if($('#keep',f))$('#keep',f).onchange=e=>{d.keep=e.target.checked;adjustReview()};
-  f.onsubmit=e=>{e.preventDefault();routingPrompt()};
-  settingsPickers.mount(f);
-}
+function adjustReview(){handoffReview.destination()}
 function reviewDraft(){
   if(recording && draft.quick && recording.target==='#transcript'){
     if(['recording','finishing','processing'].includes(recording.phase)){
@@ -542,7 +536,7 @@ function commitCapture(){
   if(d.project==='@new'){
     const name=d.newName.trim();if(!name||name==='.'||name==='..'){toast('Choose a project name.');return}
     const existing=state.projects.find(p=>p.name.toLowerCase()===name.toLowerCase());
-    if(existing){d.project=existing.id}else{const p={id:uid(),name,folder:'~/projects/'+name,color:'#a8c3ae',aliases:[]};state.projects.push(p);d.project=p.id}
+    if(existing){d.project=existing.id}else{const p={id:uid(),name,folder:workspaceSettings.newFolder(name),color:'#a8c3ae',aliases:[]};state.projects.push(p);d.project=p.id}
   }
   const cid=d.captureId||uid(),time=new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),c={id:cid,time,text:d.text,brief:captureContext.brief(d),reference:d.reference,project:d.project==='@scratch'?'':d.project,strokes:d.strokes,duration:d.hasVoice?'Sample':'Text',receipt:'Saved',kind:'Note'};
   let s;
@@ -561,7 +555,7 @@ function commitCapture(){
 function deliver(id){
   const c=byId(state.captures,id),s=c&&sess(c.session);if(!s||c.receipt!=='Queued')return;
   c.receipt='Delivered';s.log.push('Nudge delivered. '+c.brief);if(s.state==='Complete'){s.state='Running';delete s.result}
-  persist();render();if($('#modal').open&&openedSession===s.id&&$('#dialog-heading')?.textContent===s.task)showSession(s.id);
+  persist();render();if($('#modal').open&&openedSession===s.id&&$('#modal .session-detail'))showSession(s.id);
   if($('#modal').open&&$('#receipt')?.dataset.capture===id)detailCapture(id);
   toast('Nudge delivered to '+s.task+'.');
 }
@@ -575,16 +569,17 @@ function detailCapture(id){
   const title=c.kind==='Note'?'Saved note':c.kind==='Session nudge'?'Follow-up':'Request';
   dialog(title,[project,providers[session?.agent]].filter(Boolean).join(' · '),
     '<div class="detail-line"><span id="receipt" data-capture="'+attr(id)+'" class="badge">'+esc(c.receipt)+'</span></div><p class="body-copy review-brief">'+esc(request)+'</p>'+
-    (c.strokes?.length?sketchMarkup(c.strokes):'')+(result?'<section class="notice"><strong>Result</strong><p class="body-copy">'+esc(result)+'</p></section>':'')+
+    (c.strokes?.length?sketchMarkup(c.strokes):'')+(result?resultPresentation.markup(result,c.result?c.id:session.id):'')+
     original+(session?button('Open session','session',c.session,'primary','out'):''));
+  resultPresentation.paint($('#modal'));
 }
 function showNote(id){
   const n=byId(state.notes,id),c=n.capture&&byId(state.captures,n.capture);
-  dialog(n.title,proj(n.project)?.name||'Scratch','<p class="body-copy">'+esc(n.text)+'</p>'+(c?.strokes?.length?sketchMarkup(c.strokes):'')+(c?button('View original capture','detailcapture',c.id):'')+(!n.project?'<form id="assign" class="fields"><label>Assign to project<select id="assign-project" required>'+option('','Choose project')+state.projects.map(p=>option(p.id,p.name)).join('')+'</select></label><button class="primary">Move note</button></form>':''));
+  dialog(n.title,proj(n.project)?.name||'Scratch','<article class="note-reader"><p class="body-copy">'+esc(n.text)+'</p></article>'+(c?.strokes?.length?sketchMarkup(c.strokes):'')+(c?button('View original capture','detailcapture',c.id):'')+(!n.project?'<form id="assign" class="fields"><label>Assign to project<select id="assign-project" required>'+option('','Choose project')+state.projects.map(p=>option(p.id,p.name)).join('')+'</select></label><button class="primary">Move note</button></form>':''));
   const f=$('#assign');if(f)f.onsubmit=e=>{e.preventDefault();const project=$('#assign-project').value;if(live){postLive('assign-note',{id,capture:n.capture,folder:proj(project).folder});return}noteAssigned(id,project)};
 }
 function noteAssigned(id,project){const n=byId(state.notes,id);if(!n)return;n.project=project;persist();render();showNote(id);toast('Note assigned to '+proj(project).name+'.')}
-const preferenceGroups={agents:'Agents',capture:'Capture',voice:'Voice & alerts',appearance:'Appearance'};
+const preferenceGroups={agents:'Agents',workspaces:'Workspaces',capture:'Capture',voice:'Voice & alerts',appearance:'Appearance'};
 function prefs(group='agents'){
   if(!Object.hasOwn(preferenceGroups,group))group='agents';
   const nav='<nav class="preference-groups" aria-label="Preferences categories">'+Object.entries(preferenceGroups).map(([id,label])=>
@@ -595,12 +590,14 @@ function prefs(group='agents'){
     const summary=[providers[policy.defaultAgent],policy.adaptive?'Difficulty curve':profile.fixed,terminalHosts.label(state.sessionHost)].filter(Boolean).join(' · ');
     body='<h3>Tasktap</h3>'+aiConnections.jump()+'<h3>Project work</h3>'+(live?'<button id="agent-setup-link" type="button" class="settings-jump" data-action="agent-setup"><span class="jump-mark">'+icon('settings')+'</span><span><strong>Agent setup</strong><small hidden></small></span>'+icon('right')+'</button>':'')+
       '<button class="settings-jump" type="button" data-action="session-models" aria-label="Session models"><span class="jump-mark">'+icon('sessions')+'</span><span><strong>Session models</strong><small>'+esc(summary)+'</small></span>'+icon('right')+'</button>'+(live?workerRouting.jump():'');
+  }else if(group==='workspaces'){
+    body=workspaceSettings.markup();
   }else if(group==='capture'){
-    body='<div class="settings-root"><span>Project folders</span><code>~/projects</code></div>'+captureContext.preference()+
+    body=captureContext.preference()+
       (live?surfaceButton('Reopen guided capture','guide-replay','pen','btn'):button('Reset sample data','reset','','text-btn'));
   }else if(group==='appearance'){
     const themes=TasktapArt.catalog.map(theme=>'<option value="'+attr(theme.id)+'" data-art="'+attr(theme.id)+'" data-detail="'+attr(theme.medium)+'" '+(TasktapArt.current()===theme.id?'selected':'')+'>'+esc(theme.name)+'</option>').join('');
-    body=settingsField('visual-theme','Artwork','<select id="visual-theme">'+themes+'</select>');
+    body=appAppearance.markup()+settingsField('visual-theme','Artwork','<select id="visual-theme">'+themes+'</select>');
   }else{
     body=settingsField('voice-engine','Narration voice','<select id="voice-engine"></select>')+
       (live?'<div class="voice-tools"><p id="voice-status" class="hint" role="status">'+esc(kokoro.detail)+'</p><div class="inline">'+button('Set up Kokoro','setup-voice')+button('Preview voice','preview-voice')+'</div></div>':'')+
@@ -609,9 +606,12 @@ function prefs(group='agents'){
   }
   dialog('Preferences','Tasktap','<div id="preferences" class="settings-form">'+nav+'<section aria-label="'+preferenceGroups[group]+'" class="settings-section">'+body+'</section><div class="preference-links">'+button('Run setup…','run-setup','','text-btn','settings')+(live?button('Check for Updates…','check-updates','','text-btn'):'')+button('Documentation','open-docs',group,'text-btn','out')+'</div></div>');
   settingsHeader();
+  const categories=$('#preferences .preference-groups'),activeCategory=categories.querySelector('[aria-pressed=true]');
+  categories.scrollLeft=Math.max(0,activeCategory.offsetLeft+(activeCategory.offsetWidth-categories.clientWidth)/2);
   if(group==='agents' && live)aiConnections.refresh();
   if(group==='capture')captureContext.bindPreference();
-  if(group==='appearance')$('#visual-theme').onchange=e=>TasktapArt.select(e.target.value);
+  if(group==='workspaces')workspaceSettings.bind();
+  if(group==='appearance'){appAppearance.bind();$('#visual-theme').onchange=e=>TasktapArt.select(e.target.value)}
   if(group==='voice'){
     voiceOptions();routingVoicePreference();
     if(live){updateKokoro(kokoro.status,kokoro.detail);postLive('check-kokoro')}
@@ -628,10 +628,10 @@ function startSample(){
 document.addEventListener('click',e=>{
   const el=e.target.closest('[data-action]');if(!el)return;const a=el.dataset.action,id=el.dataset.id;
   switch(a){
-    case 'view':go(id);break;case 'capture':newDraft('');break;case 'menu':document.body.classList.toggle('nav-open');break;
+    case 'view':go(id);break;case 'capture':newDraft('');break;case 'menu':if(typeof workspaceNavigation!=='undefined')workspaceNavigation.toggle();else document.body.classList.toggle('nav-open');break;
     case 'run-setup':setupWizard.open('preferences');break;
     case 'prefs-group':prefs(id);$('#preferences [aria-pressed=true]').focus({preventScroll:true});break;
-    case 'start-session':newDraft('',id);break;case 'follow':newDraft(id);break;case 'session':showSession(id);break;case 'close':dismissCard();break;case 'prefs':prefs();break;case 'session-models':sessionModelSettings();break;case 'ai-connections':aiConnections.show();break;
+    case 'start-session':newDraft('',id);break;case 'follow':newDraft(id);break;case 'session':if(sess(id)?.host==='tasktap' && typeof workspaceDeck!=='undefined')workspaceDeck.open('terminal:'+id,sess(id).project);else showSession(id);break;case 'close':dismissCard();break;case 'prefs':prefs();break;case 'session-models':sessionModelSettings();break;case 'ai-connections':aiConnections.show();break;
     case 'speakresult':speak(sess(id).result);break;
     case 'openchat':postLive('open-desktop-chat',{id:sess(id).conversation});break;
     case 'setup-voice':postLive('install-kokoro');break;
@@ -641,12 +641,12 @@ document.addEventListener('click',e=>{
     case 'preview-voice':speak('Tasktap is ready. What would you like to work on?');break;
     case 'terminal':postLive('resume-terminal',{id});break;
     case 'check-updates':if(live)postLive('check-updates');break;
-    case 'open-docs':{const section=({agents:'agents',capture:'capture',voice:'voice',appearance:'appearance'})[id]||'install';if(live)postLive('open-docs',{section});else window.open('https://harzerheribert.github.io/Tasktap/docs/#'+section,'_blank','noopener');break}
-    case 'focus-session':postLive('focus-session',{id});break;
+    case 'open-docs':{const section=({agents:'agents',capture:'capture',voice:'voice',appearance:'appearance',workspaces:'workspaces'})[id]||'install';if(live)postLive('open-docs',{section});else window.open('https://harzerheribert.github.io/Tasktap/docs/#'+section,'_blank','noopener');break}
+    case 'focus-session':if(sess(id)?.host==='tasktap')workspaceDeck.open('terminal:'+id,sess(id).project);else postLive('focus-session',{id});break;
     case 'reopen-session':postLive('reopen-session',{id});break;
     case 'review-retry':{const c=failedStart(sess(id));if(c)postLive('review-failed-handoff',{session:id,capture:c.id});break}
     case 'copyresume':postLive('copy-resume',{id});break;
-    case 'openresult':if(live){const s=sess(id);postLive('open-result',{id,viewer:s.viewer||'Finder',text:s.result||''});break}dialog('Result preview',sess(id).viewer||'Editor','<p>'+esc(sess(id).result)+'</p><p class="hint">Opening an external app is simulated here.</p>'+button('Back to session','session',id));break;
+    case 'openresult':if(sess(id)?.host==='tasktap'){workspaceDeck.openResult(id);dismissCard();break}if(live){const s=sess(id);postLive('open-result',{id,viewer:s.viewer||'Finder',text:s.result||''});break}dialog('Result preview',sess(id).viewer||'Editor','<p>'+esc(sess(id).result)+'</p><p class="hint">Opening an external app is simulated here.</p>'+button('Back to session','session',id));break;
     case 'detailcapture':detailCapture(id);break;case 'note':showNote(id);break;case 'sample':startSample();break;
     case 'sketch':draft.sketch=!draft.sketch;editDraft();break;
     case 'curve':draft.strokes.push(Array.from({length:70},(_,i)=>[38+i*7.2,30+Math.pow(i/69,2)*112]));setupPad();break;
@@ -654,7 +654,7 @@ document.addEventListener('click',e=>{
     case 'review':reviewDraft();break;
     case 'skip-routing':cancelRouting();stopRoutingSpeech();routingPrompt();break;case 'adjust':adjustReview();break;
     case 'route-project':draft.project=id;delete draft.contextProject;if(id==='@new'){
-      dialog('Name the workspace','Tasktap','<form id="workspace-name" class="field"><label>Folder under ~/projects<input id="newName" required></label><button class="primary">Review</button></form>');
+      dialog('Name the workspace','Tasktap','<form id="workspace-name" class="field"><label>Workspace name<input id="newName" required></label><button class="primary">Review</button></form>');
       $('#workspace-name').onsubmit=e=>{e.preventDefault();const name=$('#newName').value.trim();if(!name||name.includes('/')||name==='.'||name==='..'){toast('Choose a folder name.');return}draft.newName=name;review()};
     }else review();break;
     case 'commit-review':if(draft?.mode==='ask' && live && !workerRouting.canStart(draft))break;commitCapture();break;

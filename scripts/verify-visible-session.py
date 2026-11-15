@@ -33,6 +33,7 @@ def until(condition):
 
 
 def verify(base, host):
+    if host=='tasktap':os.environ['TASKTAP_TERMINAL_ROOT']=str(base/'Terminals')
     root=base/'projects'
     project=root/'Fixture project'
     project.mkdir(parents=True)
@@ -104,13 +105,13 @@ for i in range(350):
             until(lambda:(project/'resized').read_text()==cols)
         rows=list(owned_rows(root,runs,[]))
         assert len(rows)==1 and rows[0]['id']==job['session'] and rows[0]['available']=='yes'
-        assert rows[0]['startup']=='pending' and rows[0]['state']=='Awaiting agent'
+        assert rows[0]['startup']=='pending' and rows[0]['state']=='Connected'
         config=base/'fixture-claude-config'
         projects=config/'projects'/'fixture'
         projects.mkdir(parents=True)
         transcript=projects/(job['session']+'.jsonl')
         event=dict(type='assistant',sessionId=job['session'],cwd=str(project),message={'model':'fixture'})
-        with patch.dict(os.environ,{'CLAUDE_CONFIG_DIR':str(config)}):
+        with patch.dict(os.environ,{'CLAUDE_CONFIG_DIR':str(config),'TASKTAP_DISCOVER_EXTERNAL':'1'}):
             transcript.write_text(json.dumps(dict(event,cwd=str(base)))+'\n')
             assert list(owned_rows(root,runs,[]))[0]['startup']=='pending'
             transcript.write_text(json.dumps(event)+'\n')
@@ -132,7 +133,7 @@ for i in range(350):
         result=subprocess.run([bridge['command'],*bridge['args']],input=json.dumps(msg)+'\n',capture_output=True,text=True,check=True)
         assert not json.loads(result.stdout)['result'].get('isError') and session.load(receipt)['state']=='Complete'
         subprocess.run([sys.executable,str(RUNNER),str(folder)],env=env,check=True)
-        if host=='pty':
+        if host in ('pty','tasktap'):
             from session_lifecycle import completed_handoff
             def line(kind, timestamp, **values):
                 return json.dumps(dict(type=kind,cwd=str(project),sessionId=job['session'],
@@ -147,6 +148,10 @@ for i in range(350):
                 assert not completed_handoff(folder,job)
                 later.unlink()
                 assert completed_handoff(folder,job)==path.name
+            if host=='tasktap':
+                time.sleep(9)
+                assert session.locked(folder),'Embedded workers must stay available after reporting a result'
+        if host=='pty':
             assert proc.wait(timeout=15)==0
             with patch.object(session,'open_window') as launch:
                 session.reopen(folder)

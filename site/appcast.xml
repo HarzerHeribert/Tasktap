@@ -3,13 +3,14 @@
     <channel>
         <title>Tasktap</title>
         <item>
-            <title>0.3.0</title>
-            <pubDate>Sat, 14 Nov 2026 20:11:46 +0100</pubDate>
-            <sparkle:version>3</sparkle:version>
-            <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
+            <title>Tasktap 1.0.0 — Integrated workspaces</title>
+            <description><![CDATA[<h2>A place for the whole task</h2><ul><li>Built-in terminals, tabs, nested splits and media previews.</li><li>Open and close your own workspaces, with one theme across the app.</li><li>Clearer task review, preserved source context and readable agent reports.</li></ul><p>Existing notes, sessions and terminal preferences are retained. Python 3 is required for terminal sessions. Community build for Apple silicon and macOS 26+, not Apple notarized.</p>]]></description>
+            <pubDate>Sun, 15 Nov 2026 17:43:41 +0100</pubDate>
+            <sparkle:version>7</sparkle:version>
+            <sparkle:shortVersionString>1.0.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/HarzerHeribert/Tasktap/releases/download/v0.3.0/Tasktap-0.3.0-arm64.zip" length="8083625" type="application/octet-stream" sparkle:edSignature="sSizyRYHhFTpe7vHZ47HnaZpUykkmOq2dK3kgMffd+r4L1uKHmfM0INbgVJRBunB5nKUZNiBSnHjPW0xE/HpAw=="/>
+            <enclosure url="https://github.com/HarzerHeribert/Tasktap/releases/download/v1.0.0/Tasktap-1.0.0-arm64.zip" length="16676516" type="application/octet-stream" sparkle:edSignature="Nsrp08aOm/bSUyjKSxiPKRylebNpbQ6O+vsN6fB5SBPUD2tzimKkgJgRr4j79Mm8YhnZZ3GvY9Nvby1irkqnBw=="/>
         </item>
     </channel>
 </rss>

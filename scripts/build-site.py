@@ -1,4 +1,4 @@
-"""Build the GitHub Pages site with the app's wide glyph wave."""
+"""Build the GitHub Pages product site, documentation and bundled app artwork."""
 from pathlib import Path
 import shutil
 
@@ -6,6 +6,9 @@ root = Path(__file__).resolve().parents[1]
 out = root / 'build' / 'pages'
 if out.exists():
     shutil.rmtree(out)
+for name in ('workspace.png', 'review.png', 'question.png', 'appearance.png'):
+    if not (root / 'site' / 'assets' / 'product' / name).is_file():
+        raise FileNotFoundError(f'Missing product screenshot: {name}. Run scripts/capture-product.cjs.')
 shutil.copytree(root / 'site', out)
 assets = out / 'assets'
 prototype = root / 'prototype'

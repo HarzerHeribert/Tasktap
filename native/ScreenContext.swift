@@ -1,13 +1,33 @@
 import AppKit
 import ApplicationServices
 
-/// Keeps one source app in memory. Its tab, selection or document is read only for a capture that asks for it.
+/// A capture owns an in-memory URL/path snapshot. Later reads only compare freshness;
+/// replacing that snapshot requires the person's explicit Refresh / Allow action.
+/// No page content, app inventory or permission prompts are collected at capture start.
 final class ScreenContext {
     private var observer: NSObjectProtocol?
     private var previousApp: NSRunningApplication?
     private var leftAppAt = Date.distantPast
-    private var captureID = ""
-    private var source: NSRunningApplication?
+    struct Source {
+        let pid: pid_t
+        let bundle: String
+        let name: String
+    }
+    typealias Reader = (pid_t, String, String, Bool) -> [String:String]
+    private final class Snapshot {
+        let id: String
+        let source: Source?
+        let observedAt: Date
+        var references = [String:[String:String]]()
+        // Each capture orders its reads without blocking the microphone or a newer capture.
+        let queue = DispatchQueue(label: "tasktap.capture-context", qos: .userInitiated)
+        init(id: String, source: Source?, observedAt: Date) {
+            self.id = id; self.source = source; self.observedAt = observedAt
+        }
+    }
+    private let reader: Reader
+    private var snapshot: Snapshot?
+    init(reader: Reader? = nil) { self.reader = reader ?? Self.read }
 
     private func external(_ app: NSRunningApplication?) -> NSRunningApplication? {
         guard let app, !app.isTerminated, app.activationPolicy == .regular,
@@ -28,19 +48,67 @@ final class ScreenContext {
     }
 
     func begin(_ id: String) {
-        captureID = id
-        source = external(NSWorkspace.shared.frontmostApplication)
-        if source == nil, Date().timeIntervalSince(leftAppAt) < 300 { source = external(previousApp) }
+        var app = external(NSWorkspace.shared.frontmostApplication)
+        if app == nil, Date().timeIntervalSince(leftAppAt) < 300 { app = external(previousApp) }
+        let source = app.map { Source(pid: $0.processIdentifier, bundle: $0.bundleIdentifier ?? "", name: $0.localizedName ?? "Source app") }
+        begin(id, source: source)
     }
 
-    func resolve(_ id: String, kind: String, allowPermission: Bool, completion: @escaping ([String:String]) -> Void) {
-        guard id == captureID, ["file", "website"].contains(kind), let app = source, !app.isTerminated else {
+    // Separate source selection from reading so the freeze can be verified without accessing real apps.
+    func begin(_ id: String, source: Source?, at date: Date = Date()) {
+        let frozen = Snapshot(id: id, source: source, observedAt: date)
+        snapshot = frozen
+        frozen.queue.async { [reader] in
+            if let source {
+                // Read one identity, not two sequential active-item reads that could disagree.
+                let result = reader(source.pid, source.bundle, "reference", false)
+                for kind in ["website", "file"] {
+                    frozen.references[kind] = result["value"] == nil || result["kind"] == kind ? result : [:]
+                }
+            }
+        }
+    }
+
+    func resolve(_ id: String, kind: String, allowPermission: Bool, refresh: Bool = false,
+                 completion: @escaping ([String:String]) -> Void) {
+        guard let frozen = snapshot, frozen.id == id, ["file", "website"].contains(kind) else {
             completion(["message":"Choose the reference you meant."]); return
         }
-        let name = app.localizedName ?? "Source app", bundle = app.bundleIdentifier ?? "", pid = app.processIdentifier
-        DispatchQueue.global(qos: .userInitiated).async {
-            var result = Self.read(pid: pid, bundle: bundle, kind: kind, allowPermission: allowPermission)
-            result["app"] = name
+        frozen.queue.async { [reader] in
+            var result = frozen.references[kind] ?? [:]
+            let source = frozen.source
+            let explicitRead = refresh || allowPermission
+            // A granted permission cannot reconstruct a past tab. It deliberately reads the current source.
+            if explicitRead, let source {
+                result = reader(source.pid, source.bundle, kind, allowPermission)
+                if result["value"] != nil {
+                    let now = Date()
+                    result["observedAt"] = ISO8601DateFormatter().string(from: now)
+                    result["origin"] = "refresh"
+                    frozen.references[kind] = result
+                }
+            }
+            result["app"] = source?.name ?? "Source app"
+            result["sourceID"] = source.map { $0.bundle + ":" + String($0.pid) } ?? ""
+            result["observedAt"] = result["observedAt"] ?? ISO8601DateFormatter().string(from: frozen.observedAt)
+            result["origin"] = result["origin"] ?? "capture"
+            if result["value"] != nil {
+                if explicitRead { result["freshness"] = "refreshed" }
+                else if let source {
+                    let current = reader(source.pid, source.bundle, kind, false)
+                    if current["value"] == nil { result["freshness"] = "unavailable" }
+                    else if current["value"] != result["value"] { result["freshness"] = "changed" }
+                    else {
+                        let observed = ISO8601DateFormatter().date(from: result["observedAt"] ?? "") ?? frozen.observedAt
+                        result["freshness"] = Date().timeIntervalSince(observed) > 300 ? "stale" : "current"
+                    }
+                }
+            } else if explicitRead {
+                result["message"] = result["message"] ?? "The source app did not provide a reference. Enter it below."
+            } else {
+                // Never substitute a current tab if there was no usable capture-time observation.
+                result["message"] = "No reference was available when this capture started. Enter it below, or explicitly read the current source app."
+            }
             let reply = result
             DispatchQueue.main.async { completion(reply) }
         }
@@ -52,9 +120,9 @@ final class ScreenContext {
     private static func read(pid: pid_t, bundle: String, kind: String, allowPermission: Bool) -> [String:String] {
         let finder = bundle == "com.apple.finder", safari = ["com.apple.Safari", "com.apple.SafariTechnologyPreview"].contains(bundle)
         let fallback = ["message":kind == "file" ? "Choose a file or enter its path." : "Paste the URL of the page you mean."]
-        if finder && kind != "file" { return fallback }
+        if finder && kind != "file" && kind != "reference" { return fallback }
         if !finder, AXIsProcessTrusted(), let value = focusedDocument(pid), let result = normalized(value, kind: kind) {
-            return ["value":result, "kind":kind]
+            return ["value":result, "kind":kind == "reference" ? (result.hasPrefix("/") ? "file" : "website") : kind]
         }
         if !finder && !safari && !chromium.contains(bundle) { return fallback }
         let target = NSAppleEventDescriptor(processIdentifier: pid)
@@ -75,7 +143,7 @@ final class ScreenContext {
                 raw = try get(property(safari ? "pURL" : "URL ", of: tab), from: target, allowPermission: allowPermission).stringValue
             }
             guard let raw, let value = normalized(raw, kind: kind) else { return fallback }
-            return ["value":value, "kind":kind]
+            return ["value":value, "kind":kind == "reference" ? (value.hasPrefix("/") ? "file" : "website") : kind]
         } catch {
             let status = (error as NSError).code
             if status == errAEEventWouldRequireUserConsent { return ["permission":"automation", "message":"Allow macOS Automation to read this reference, or enter it below."] }
@@ -85,6 +153,7 @@ final class ScreenContext {
     }
 
     static func normalized(_ raw: String, kind: String) -> String? {
+        if kind == "reference" { return normalized(raw, kind: "file") ?? normalized(raw, kind: "website") }
         guard raw.utf8.count <= 8192, raw.rangeOfCharacter(from: .controlCharacters) == nil,
               let url = URL(string: raw) else { return nil }
         if kind == "file" {

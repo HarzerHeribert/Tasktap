@@ -4,79 +4,96 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101112">
-  <meta name="description" content="Capture an idea while you work and send it to the right project or coding agent session from your Mac’s notch.">
-  <title>Tasktap</title>
-  <link rel="icon" type="image/svg+xml" href="assets/mark.svg"><link rel="alternate icon" type="image/png" href="assets/favicon.png"><link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <meta name="description" content="A Mac workspace for your agents, terminals and everything they make. Capture a thought from the notch, review it, and keep the whole task in view.">
+  <meta property="og:title" content="Tasktap 1.0 — A place for the whole task">
+  <meta property="og:description" content="Agents, terminals, previews and a thought-catching notch. Together on your Mac.">
+  <meta property="og:image" content="https://harzerheribert.github.io/Tasktap/assets/product/workspace.png">
+  <meta property="og:type" content="website">
+  <title>Tasktap — A place for the whole task</title>
+  <link rel="icon" type="image/svg+xml" href="assets/mark.svg">
+  <link rel="alternate icon" type="image/png" href="assets/favicon.png">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="stylesheet" href="brand.css">
   <link rel="stylesheet" href="landing.css">
   <script defer src="assets/motion-scale.js"></script>
+  <script defer src="brand.js"></script>
   <script defer src="site.js"></script>
-<link rel="stylesheet" href="brand.css"><script defer src="brand.js"></script></head>
+</head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
   <header class="mast shell">
-    <div class="brand-lockup"><a class="home" href="./" aria-label="Tasktap home"><img class="brand-mark" src="assets/tasktap-icon.png" data-brand-motion="assets/tasktap-icon.webp" width="55" height="55" alt=""></a><button class="brand-motion-toggle" type="button" aria-label="Pause logo animation" hidden>Ⅱ</button></div>
-    <nav aria-label="Main"><a href="docs/">Docs</a><a href="https://github.com/HarzerHeribert/Tasktap">GitHub <span aria-hidden="true">↗</span></a></nav>
+    <div class="brand-lockup"><a class="home" href="./" aria-label="Tasktap home"><img class="brand-mark" src="assets/tasktap-icon.png" data-brand-motion="assets/tasktap-icon.webp" width="55" height="55" alt=""><span class="wordmark">Tasktap</span></a><button class="brand-motion-toggle" type="button" aria-label="Pause logo animation" hidden>Ⅱ</button></div>
+    <nav aria-label="Main"><a href="#workspace">Workspace</a><a href="docs/">Docs</a><a class="nav-download" href="#download">Get Tasktap <span aria-hidden="true">↙</span></a></nav>
   </header>
 
   <main id="main" tabindex="-1">
     <section class="hero shell" aria-labelledby="hero-title">
-      <div class="signature">
-        <h1 id="hero-title">Tasktap</h1>
-        <div class="wave-field" aria-hidden="true">
-          <video muted loop playsinline preload="none" width="736" height="352" tabindex="-1"
-            disablepictureinpicture poster="assets/glyph.jpg" data-source="assets/glyph.mp4"></video>
-        </div>
-        <button class="wave-toggle" type="button" aria-label="Pause wave" hidden>
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path class="pause-mark" d="M5.5 3.5v9m5-9v9"/><path class="play-mark" d="m5 3 7 5-7 5z"/></svg>
-        </button>
+      <div class="hero-copy">
+        <a class="release-label" href="https://github.com/HarzerHeribert/Tasktap/releases/tag/v1.0.0"><span class="release-dot" aria-hidden="true"></span>Introducing Tasktap 1.0 <span aria-hidden="true">↗</span></a>
+        <h1 id="hero-title">A place for<br>the whole task.</h1>
+        <p class="lede">Your agents, terminals, and everything they make.<br class="wide-break"> Together in one workspace on your Mac.</p>
+        <div class="hero-actions"><a class="button primary download-app" href="https://github.com/HarzerHeribert/Tasktap/releases/latest">Get for Mac <span aria-hidden="true">↓</span></a><a class="text-link" href="#workspace">Meet your workspace <span aria-hidden="true">↘</span></a></div>
+        <p class="compatibility">Apple silicon · macOS 26+ · <a href="#download">Community release</a></p>
       </div>
-      <p class="lede">Speak or type an idea as it comes to you, and send it to the right project or agent session without losing your place.</p>
-      <a class="build" href="docs/#install">Build for Mac <span aria-hidden="true">↗</span></a>
+      <div class="signature">
+        <div class="wave-field" aria-hidden="true"><video muted loop playsinline preload="none" width="736" height="352" tabindex="-1" disablepictureinpicture poster="assets/glyph.jpg" data-source="assets/glyph.mp4"></video></div>
+        <div class="signature-caption"><span>A thought. A thread. A place.</span><button class="wave-toggle" type="button" aria-label="Pause artwork" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path class="pause-mark" d="M5.5 3.5v9m5-9v9"/><path class="play-mark" d="m5 3 7 5-7 5z"/></svg></button></div>
+      </div>
     </section>
 
-    <section class="workflow" aria-labelledby="workflow-title">
-      <div class="shell workflow-layout">
-        <div class="features">
-          <h2 id="workflow-title">From your Mac’s notch</h2>
-          <ul>
-            <li><h3>Capture an idea</h3><p>Hold <kbd>⌃ ⌥ Space</kbd> to speak, or tap it to type. Save a note for later or review the project and agent before sending it.</p></li>
-            <li><h3>Continue a conversation</h3><p>Name a session to send a follow-up. When Claude Code or Codex asks a question through Tasktap, answer from the notch.</p></li>
-            <li><h3>Pick a thread back up</h3><p>Find a session by project, task or result, and reopen a saved Claude Code or Codex conversation in your terminal.</p></li>
-          </ul>
+    <section class="workspace-section shell" id="workspace" aria-labelledby="workspace-title">
+      <div class="section-line"><h2 id="workspace-title">Less switching. More room to work.</h2><span class="section-index">01 / THE WORKSPACE</span></div>
+      <figure class="workspace-figure">
+        <a class="workspace-image" href="assets/product/workspace.png" aria-label="Open the full-size Tasktap workspace screenshot"><img src="assets/product/workspace.png" width="1440" height="900" fetchpriority="high" alt="Tasktap’s actual workspace: an agent terminal on the left, a live web preview above Markdown notes on the right, with all three surfaces grouped in the sidebar."></a>
+        <figcaption><span>Tasktap 1.0 · Actual interface, example project</span><a href="assets/product/workspace.png">View full size <span aria-hidden="true">↗</span></a></figcaption>
+      </figure>
+      <div class="workspace-benefits">
+        <article><span class="feature-number">01</span><h3>Your layout, your focus.</h3><p>Split right or down. Group tabs by pane. Expand one surface when it needs your full attention, then return to the same layout.</p></article>
+        <article><span class="feature-number">02</span><h3>The result beside the work.</h3><p>Keep a web preview, Markdown, PDF, image, or media file next to the terminal. Turn a selected file into the next task with <em>Ask agent</em>.</p></article>
+        <article><span class="feature-number">03</span><h3>Pick up the same thread.</h3><p>Closing a view keeps its terminal session running. Reopen it from history. Your workspaces keep their tabs and layout, ready for your return.</p></article>
+      </div>
+      <a class="text-link section-link" href="docs/#workspaces">Explore workspaces and session behavior <span aria-hidden="true">↗</span></a>
+    </section>
+
+    <section class="capture-section" id="capture" aria-labelledby="capture-title">
+      <div class="shell story-layout">
+        <div class="story-copy">
+          <span class="section-index">02 / THE THOUGHT</span>
+          <h2 id="capture-title">Catch it before<br>you lose the thread.</h2>
+          <p>Something to fix. A question to ask. An idea for later. Capture it from the notch without leaving what you’re doing.</p>
+          <div class="shortcut"><kbd>⌃ ⌥ Space</kbd><span>Tap to type.<br>Hold to speak.</span></div>
+          <p>Check the task, workspace, agent, and attached reference before sending. Or save it as a note and keep going.</p>
+          <a class="text-link" href="docs/#capture">See how capture works <span aria-hidden="true">↗</span></a>
         </div>
-        <figure class="example" aria-labelledby="example-caption">
-          <figcaption>
-            <span id="example-caption">Example · A bug spotted in Safari</span>
-            <button class="notch-toggle" type="button" aria-controls="notch-details" aria-expanded="true" hidden>
-              <span>Close notch</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>
-            </button>
-          </figcaption>
-          <div class="desktop">
-            <div class="screen-bar" aria-hidden="true"><span class="battery"></span></div>
-            <div class="notch" data-open="true">
-              <div class="notch-surface">
-                <div class="notch-details" id="notch-details">
-                  <div class="example-body">
-                    <div id="example-content" class="example-content">
-                      <blockquote>“Fix the rehearsal clock on this page. The seconds get cut off on my phone.”</blockquote>
-                      <p class="destination">Cuegrid <span aria-hidden="true">/</span> Claude Code</p>
-                    </div>
-                    <div id="example-receipt" class="example-content" inert>
-                      <p class="receipt-title">Claude Code connected</p>
-                      <p class="destination">The Cuegrid session has your request and the rehearsal page link.</p>
-                    </div>
-                  </div>
-                  <button class="example-action" type="button" aria-controls="example-content example-receipt" hidden><span>Start example session</span><span aria-hidden="true">→</span></button>
-                </div>
-              </div>
-              <span class="lens" aria-hidden="true"></span>
-              <span class="sr-only" role="status" id="example-announcement"></span>
-            </div>
-          </div>
-        </figure>
+        <figure class="review-figure"><div class="review-stage"><img src="assets/product/review.png" width="430" height="643" loading="lazy" alt="Tasktap review showing an example task, the Cuegrid workspace, Codex, and the referenced rehearsal page before Start session."></div><figcaption>Actual review screen · Example request</figcaption></figure>
       </div>
     </section>
+
+    <section class="return-section shell story-layout" aria-labelledby="return-title">
+      <figure class="question-figure"><div class="question-stage"><span class="camera-housing" aria-hidden="true"></span><img src="assets/product/question.png" width="430" height="455" loading="lazy" alt="An agent question in Tasktap asks whether to keep the timer running when switching views, with two choices and a Talk it through action."></div><figcaption>Actual decision screen · Example question</figcaption></figure>
+      <div class="story-copy">
+        <span class="section-index">03 / THE CONVERSATION</span>
+        <h2 id="return-title">Let the work run.<br>Keep the decisions.</h2>
+        <p>Supported agent questions meet you in the notch and the workspace. Answer once, and the same request is resolved in both places.</p>
+        <p>Reported results and failures collect in Activity. Read the full report, return to the exact session, or continue the conversation.</p>
+        <a class="text-link" href="docs/#notifications">Questions, reports, and notifications <span aria-hidden="true">↗</span></a>
+      </div>
+    </section>
+
+    <section class="personal-section shell" aria-labelledby="personal-title">
+      <div class="personal-copy"><span class="section-index">04 / MAKE IT YOURS</span><h2 id="personal-title">Familiar from<br>the first prompt.</h2><p>Your shell brings its setup, including Starship and Oh My Zsh. Choose one theme for the entire app, or follow your Ghostty colors.</p><p>A quiet sidebar. Optional native translucency and blur. Eight appearance choices that carry through terminals, previews, and preferences.</p><a class="text-link" href="docs/#appearance">Appearance and terminal settings <span aria-hidden="true">↗</span></a></div>
+      <figure class="theme-figure"><img src="assets/product/appearance.png" width="630" height="267" loading="lazy" alt="Tasktap’s eight actual appearance choices: Follow Ghostty, Midnight, Daylight, System, Ocean, Dusk, Ember, and Rose."><figcaption>One palette across the application.</figcaption></figure>
+    </section>
+
+    <section class="download-section shell" id="download" aria-labelledby="download-title">
+      <div class="download-heading"><span class="section-index">TASKTAP 1.0</span><h2 id="download-title">Bring your next task.</h2><p>A Mac app for keeping the work together.</p></div>
+      <div class="download-layout">
+        <div class="download-main"><a class="button primary download-app" href="https://github.com/HarzerHeribert/Tasktap/releases/latest">Get for Mac <span aria-hidden="true">↓</span></a><p>Download the Apple silicon ZIP, unzip it, and move Tasktap to Applications. Updates are available inside the app.</p><a class="text-link" href="docs/#install">Installation guide <span aria-hidden="true">↗</span></a></div>
+        <div class="requirements"><h3>Before you begin</h3><dl><div><dt>Your Mac</dt><dd>Apple silicon · macOS 26 or newer.</dd></div><div><dt>Agent work</dt><dd>Python 3 and a signed-in agent CLI. You can capture notes without an agent.</dd></div><div><dt>Community build</dt><dd>Locally signed, not Apple notarized. macOS may require <a href="docs/#install">Privacy &amp; Security → Open Anyway</a> on first launch.</dd></div></dl></div>
+      </div>
+      <details class="terminal-install" id="terminal-install"><summary>Prefer installing with Terminal?<svg class="install-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg></summary><div class="terminal-body"><p>Download and inspect the installer, then run it to install the latest stable release into <code>~/Applications</code>, or replace an existing copy in <code>/Applications</code>.</p><pre><code id="install-command">curl -fL --proto '=https' --tlsv1.2 https://harzerheribert.github.io/Tasktap/install.sh -o tasktap-install.sh &amp;&amp; bash tasktap-install.sh</code></pre><div class="install-panel-actions"><a href="install.sh">View installer source <span aria-hidden="true">↗</span></a><button type="button" id="copy-install" hidden>Copy command</button></div><p class="install-note">The installer checks the download and app bundle. It does not bypass macOS security. Agent dependencies are installed separately.</p><span class="sr-only" id="install-status" role="status"></span></div></details>
+    </section>
   </main>
-  <footer class="shell"><span>Tasktap for macOS 26+</span><a href="docs/#agents">Supported agents <span aria-hidden="true">↗</span></a></footer>
+  <footer class="shell"><a class="footer-brand" href="./">Tasktap<span>A place for the whole task.</span></a><nav aria-label="Footer"><a href="docs/">Documentation</a><a href="https://github.com/HarzerHeribert/Tasktap">Source on GitHub <span aria-hidden="true">↗</span></a><a href="https://github.com/HarzerHeribert/Tasktap/releases">Release notes <span aria-hidden="true">↗</span></a></nav></footer>
 </body>
 </html>

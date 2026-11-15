@@ -2,7 +2,7 @@ import AppKit
 
 enum TerminalCatalog {
     static let applications=[
-        "terminal":"com.apple.Terminal", "cmux":"com.cmuxterm.app", "ghostty":"com.mitchellh.ghostty",
+        "claude-desktop":"com.anthropic.claudefordesktop", "terminal":"com.apple.Terminal", "cmux":"com.cmuxterm.app", "ghostty":"com.mitchellh.ghostty",
         "iterm2":"com.googlecode.iterm2", "warp":"dev.warp.Warp-Stable",
         "wezterm":"com.github.wez.wezterm", "kitty":"net.kovidgoyal.kitty"
     ]
@@ -13,7 +13,7 @@ enum TerminalCatalog {
     }
 
     @MainActor static func installed()->[String:String] {
-        var icons=[String:String]()
+        var icons=["tasktap":""]
         for host in applications.keys {
             guard let url=app(host) else {continue}
             icons[host]=""

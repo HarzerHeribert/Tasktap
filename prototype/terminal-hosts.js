@@ -1,6 +1,7 @@
 // The chooser uses the actual application icons installed on this Mac.
 const terminalHosts=(()=>{
   const catalog={
+    tasktap:{name:'Tasktap',detail:'Built-in workspace; sessions keep running when you close the window'},
     'claude-desktop':{name:'Claude Desktop',detail:'Claude Code only; review the folder and send in the app'},
     terminal:{name:'Terminal',detail:'Included with macOS'},
     cmux:{name:'cmux',detail:'Named workspace; requires cmux socket access for Tasktap'},
@@ -11,10 +12,10 @@ const terminalHosts=(()=>{
     kitty:{name:'kitty',detail:'Dedicated terminal window'}
   };
   let icons=null;
-  const label=host=>host==='desktop'?'ChatGPT':catalog[host]?.name || 'Terminal';
+  const label=host=>host==='desktop'?'ChatGPT':catalog[host]?.name || (host?'Terminal':'Tasktap');
   function options(selected,agent){
     return Object.entries(catalog).map(([id,item])=>{
-      const present=(icons===null || Object.hasOwn(icons,id)) && (id!=='claude-desktop' || !agent || agent==='claude');
+      const present=(id==='tasktap' || icons===null || Object.hasOwn(icons,id)) && (id!=='claude-desktop' || !agent || agent==='claude');
       return '<option value="'+id+'" '+(id===selected?'selected ':'')+(!present?'disabled ':'')+
         'data-detail="'+attr(present?item.detail:'Not installed on this Mac')+'">'+esc(item.name)+'</option>';
     }).join('');

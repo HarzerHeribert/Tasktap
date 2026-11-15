@@ -57,13 +57,12 @@ const workerRouting = (() => {
   function receive(data){
     clearTimeout(timeout);pending=false;receivedAt=Date.now();snapshot=data||{};
     if($('#rank-rows'))updateAmounts();
-    if(!$('#worker-choice')?.closest('dialog[open]') || !draft || draft.submitting)return;
+    if(!$('#worker-choice,#worker-summary')?.closest('dialog[open]') || !draft || draft.submitting)return;
     if(draft.usingRank && draft.noPick){
-      const expanded=$('#worker-choice').open, control=document.activeElement?.id;
+      const expanded=draft.reviewScreen==='destination', control=document.activeElement?.id;
       const reserve=expanded?$('#review-reserve')?.value:null;
-      review();
+      if(draft.reviewScreen==='destination')handoffReview.destination();else review();
       if(expanded){
-        $('#worker-choice').open=true;
         if(reserve!=null && $('#review-reserve'))$('#review-reserve').value=reserve;
         if(control)document.getElementById(control)?.focus({preventScroll:true});
       }
@@ -133,13 +132,13 @@ const workerRouting = (() => {
   function reviewMarkup(d){
     const p=policy();
     const choices=Object.entries(providers).map(([id,name])=>'<option value="'+attr(id)+'" '+(!d.noPick && id===d.agent?'selected':'')+'>'+esc(name)+'</option>').join('');
-    return '<div class="worker-review"><p class="hint" id="worker-pick" role="status"></p><details id="worker-choice" class="route-evidence"><summary>Agent &amp; model</summary><div class="settings-section">'+
+    return '<div class="worker-review"><p class="hint" id="worker-pick" role="status"></p><div id="worker-choice" class="settings-section"><div class="settings-section">'+
       settingsField('review-worker','Agent','<select id="review-worker">'+(d.noPick?option('','Choose an agent',''):'')+choices+'</select>')+
       '<p class="hint" id="worker-quota"></p>'+settingsField('model-review-override','Model for this session',modelInput(d.agent,'review-override',d.modelOverride?.agent===d.agent?d.modelOverride.value:'',modelPlanFor({...d,modelOverride:null}).label))+modelSuggestions(d.agent)+
-      (p.automatic?reserveField('review-reserve',d.reserve ?? p.reserve)+button('Apply ranking','apply-ranking','','btn'):'')+'</div></details></div>';
+      (p.automatic?reserveField('review-reserve',d.reserve ?? p.reserve)+button('Apply ranking','apply-ranking','','btn'):'')+'</div></div></div>';
   }
   function updateReviewAmounts(d){
-    for(const opt of $('#review-worker').options){
+    for(const opt of $('#review-worker')?.options||[]){
       if(!opt.value)continue;
       opt.dataset.detail=unavailable(opt.value)?(aiConnections.health(opt.value)==='missing'?'Not installed':'Sign-in needed'):pending?'Checking…':allowance(opt.value);
     }
@@ -148,18 +147,18 @@ const workerRouting = (() => {
     const line=$('#worker-pick');
     if(!line)return;
     line.textContent=d.noPick?d.workerReason:blocked?(providers[d.agent]+(aiConnections.health(d.agent)==='missing'?' isn’t installed.':' needs sign-in.')):[d.workerReason,evidence].filter(Boolean).join(' ');
-    line.hidden=!line.textContent;
+    line.hidden=!line.textContent || line.dataset.summary==='true'&&!d.noPick&&!blocked&&!(d.usingRank&&(d.agent!==sessionModelPolicy().defaultAgent||/Using /.test(d.workerReason)))&&!(limiting(d.agent)?.remaining<(d.reserve??policy().reserve));
     const window=limiting(d.agent);
     const reset=window?' · resets '+new Date(window.resetsAt*1000).toLocaleString(undefined,{weekday:'short',hour:'numeric',minute:'2-digit'}):'';
-    $('#worker-quota').textContent=d.noPick?'Select an agent to see its quota.':blocked?line.textContent:pending?'Checking remaining usage…':allowance(d.agent)+reset;
+    if($('#worker-quota'))$('#worker-quota').textContent=d.noPick?'Select an agent to see its quota.':blocked?line.textContent:pending?'Checking remaining usage…':allowance(d.agent)+reset;
     const start=$('#modal [data-action="commit-review"]');if(start)start.disabled=!!d.noPick || blocked;
   }
   function bindReview(d){
     const details=$('#worker-choice');
     $('#model-review-override').disabled=!!d.noPick;
-    details.addEventListener('toggle',()=>{if(details.open){aiConnections.refresh();request()}});
+    aiConnections.refresh();request();
     const redraw=id=>{
-      review();$('#worker-choice').open=true;document.getElementById(id)?.focus({preventScroll:true});
+      if(draft.reviewScreen==='destination')handoffReview.destination();else review();document.getElementById(id)?.focus({preventScroll:true});
     };
     $('#review-worker').onchange=e=>{
       if(!e.target.value)return;
@@ -178,5 +177,6 @@ const workerRouting = (() => {
     updateReviewAmounts(d);
     settingsPickers.mount(details);
   }
-  return {jump,settings,prepare,reviewMarkup,bindReview,canStart,receive,updateAmounts,updateReviewAmounts};
+  const summaryMarkup=()=>'<div id="worker-summary"><p class="hint" id="worker-pick" data-summary="true" role="status"></p></div>';
+  return {jump,settings,prepare,reviewMarkup,summaryMarkup,bindReview,canStart,receive,updateAmounts,updateReviewAmounts};
 })();

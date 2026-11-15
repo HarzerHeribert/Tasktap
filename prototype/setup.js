@@ -16,7 +16,7 @@ const setupWizard = (() => {
     if(document.querySelector('dialog[open]') && !from){toast('Finish or close the open panel to run setup.');return}
     showWorkspace();
     draft={origin,from,step:0,context:state.useScreenContext!==false,agent:sessionModelPolicy().defaultAgent,
-      host:terminalHosts.valid(state.sessionHost)?state.sessionHost:'terminal',art:TasktapArt.current(),summaryVoice:null,prep:setupPreparation.create()};
+      host:terminalHosts.valid(state.sessionHost)?state.sessionHost:'tasktap',art:TasktapArt.current(),summaryVoice:null,prep:setupPreparation.create()};
     dialog('Set up Tasktap','','<div id="setup-wizard" class="settings-form"><section id="setup-page" class="settings-section"></section>'+
       '<footer class="setup-actions"><button type="button" id="setup-back" class="btn"></button>'+
       '<button type="button" id="setup-next" class="primary"></button></footer></div>');
@@ -111,6 +111,7 @@ const setupWizard = (() => {
     settingsPickers.mount(page);
     $('#setup-back').textContent=step?'Back':(draft.origin==='welcome'?'Set up later':'Cancel');
     $('#setup-next').textContent=step===steps.length-1?(draft.origin==='welcome'?'Save & try capture':'Save settings'):'Continue';
+    $('#modal').scrollTop=0;
     heading.focus({preventScroll:true});
   }
   function leave(saved){

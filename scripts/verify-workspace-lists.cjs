@@ -33,7 +33,7 @@ const path=require('node:path');
    assert.equal(await page.locator('.project-total').innerText(),'2');
    assert.ok(await page.locator('.project-table').evaluate(e=>e.scrollWidth<=e.clientWidth+1));
    await page.locator('.project-row').click();
-   assert.equal(await page.locator('.work-row').count(),2);
+   assert.ok(await page.getByRole('region',{name:'Project workspace',exact:true}).isVisible(),'the selected project opens its integrated workspace');
   }
   assert.deepEqual(errors,[]);
   console.log('Workspace row widths, shared column alignment, project counts and keyboard navigation passed at 320–1440px.');

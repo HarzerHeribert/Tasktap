@@ -63,14 +63,6 @@ function routingEvidence(d) {
 }
 function reviewActivity(d) {
   const plan=d.noPick?null:modelPlanFor(d);
-  if(!d.quick){
-    const evidence=routingEvidence(d);
-    const detail=document.createElement('details');
-    detail.className='route-evidence';
-    detail.innerHTML='<summary>How this was routed</summary><ul>'+evidence.map(line=>'<li>'+esc(line)+'</li>').join('')+'</ul>';
-    const details=$('#modal .guide-review-details');
-    if(details)details.append(detail);else $('#modal .form-actions').before(detail);
-  }
   const name=d.mode==='nudge'?sess(d.session)?.task:d.project==='@new'?d.newName:proj(d.project)?.name;
   const action={ask:'Start a new session',nudge:'Send a follow-up',note:'Save a note'}[d.mode];
   const sentence=[action+(name?' in '+name:'')+'.',plan?.mode==='curve'?modelTiers[plan.tier]+' task. '+plan.label+'. '+plan.reason:'',d.brief].filter(Boolean).join(' ');

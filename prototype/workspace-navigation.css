@@ -1,0 +1,85 @@
+/* One sidebar, one density and one collapse preference on every app page. */
+.workspace-navigation .shell{grid-template-columns:196px minmax(0,1fr)}
+.workspace-navigation #sidebar{display:flex;min-height:0;overflow:hidden;padding:var(--s-panel) var(--s-icon);gap:var(--s-block);border-right:1px solid var(--deck-edge);background:var(--deck-hover);color:var(--deck-muted)}
+.workspace-navigation #sidebar>.brand,.workspace-navigation #sidebar>.side-foot{flex:none}
+.workspace-navigation #sidebar .brand{min-height:18px;font-size:var(--t-label);color:var(--deck-fg);padding:0 var(--s-icon)}
+.workspace-navigation #sidebar .brand-mark{display:none}
+.workspace-navigation #sidebar>nav{min-height:0;overflow-y:auto;overflow-x:hidden;flex:1;gap:var(--s-block);scrollbar-width:thin;scrollbar-color:var(--deck-edge) transparent}
+.workspace-navigation #sidebar .nav-group{gap:var(--s-tiny);min-width:0}
+.workspace-navigation #sidebar .nav-link{color:var(--deck-muted);font-size:var(--t-small);min-height:29px;padding:var(--s-small) var(--s-icon);border-radius:var(--r-xs);gap:var(--s-icon)}
+.workspace-navigation #sidebar .nav-link .label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
+.workspace-navigation #sidebar .nav-link:hover,.workspace-navigation #sidebar .nav-link.active{background:var(--deck-hover);color:var(--deck-fg)}
+.workspace-navigation #sidebar .nav-link.active svg{color:inherit}
+.workspace-navigation #sidebar .nav-kicker,.workspace-navigation #sidebar .nav-count{color:var(--deck-muted);font-size:var(--deck-meta)}
+.workspace-navigation #sidebar .nav-kicker{padding:0 var(--s-icon) var(--s-small);font-size:var(--deck-meta)}
+.workspace-navigation #sidebar .icon{width:15px;height:15px;flex:none}
+.workspace-navigation .toolbar .crumb{display:flex;align-items:center;gap:var(--s-icon);min-width:0}
+.workspace-navigation .toolbar .menu-toggle{display:inline-flex;flex:none;width:28px;min-height:28px;border:0;background:transparent;color:var(--deck-muted)}
+.workspace-navigation .toolbar .menu-toggle:hover{background:var(--deck-hover);color:var(--deck-fg)}
+.nav-workspace{min-width:0}
+.nav-workspaces-heading{display:flex;align-items:center;justify-content:space-between;padding-bottom:var(--s-tiny)}
+.workspace-navigation #sidebar .nav-workspaces-heading .nav-kicker{padding-bottom:0}
+.nav-workspace-add,.nav-workspace-close{display:grid;place-items:center;width:24px;height:24px;padding:0;border-radius:var(--r-xs);color:var(--deck-muted);flex:none}
+.nav-workspace-add:hover,.nav-workspace-close:hover{color:var(--deck-fg);background:var(--deck-hover)}
+.nav-workspace-empty{font-size:var(--deck-meta);color:var(--deck-muted);padding:var(--s-small) var(--s-icon)}
+.nav-workspace-heading{display:flex;align-items:center;min-width:0;min-height:29px;border-radius:var(--r-xs);color:var(--deck-muted)}
+.nav-workspace.is-current>.nav-workspace-heading{color:var(--deck-fg);background:var(--deck-hover)}
+.nav-workspace-disclosure{width:22px;height:29px;flex:none;display:grid;place-items:center;padding:0;border-radius:var(--r-xs)}
+#sidebar .nav-workspace-disclosure>.icon{width:11px;height:11px}
+.nav-workspace-disclosure[aria-expanded=true]>.icon{transform:rotate(90deg)}
+.nav-workspace-name{display:flex;gap:var(--s-small);align-items:center;flex:1;min-width:0;min-height:29px;padding:var(--s-tight) var(--s-icon) var(--s-tight) 0;text-align:left;font-size:var(--t-small)}
+.nav-workspace-name>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.nav-workspace-actions{display:grid;width:24px;flex:none;align-items:center;justify-items:center}
+.nav-workspace-actions>*{grid-area:1/1}
+.nav-workspace-actions>small{font:var(--deck-meta) var(--font-mono);color:var(--deck-muted)}
+.nav-workspace-close{opacity:0}
+#sidebar .nav-workspace-close>.icon{width:12px;height:12px}
+.nav-workspace-heading:hover .nav-workspace-close,.nav-workspace-heading:focus-within .nav-workspace-close{opacity:1}
+.nav-workspace-heading:hover .nav-workspace-actions>small,.nav-workspace-heading:focus-within .nav-workspace-actions>small{visibility:hidden}
+.nav-workspace-name:hover,.nav-workspace-disclosure:hover{color:var(--deck-fg)}
+.nav-workspace-surfaces{margin:var(--s-tiny) 0 var(--s-small) var(--s-panel)}
+.nav-pane{display:grid;gap:var(--s-hair);min-width:0}
+.nav-pane+.nav-pane{margin-top:var(--s-small)}
+.nav-pane-label{padding:var(--s-tiny) var(--s-small);font-size:var(--deck-meta);font-weight:400;line-height:1.3;color:var(--app-subtle,var(--deck-muted))}
+.nav-surface{display:flex;align-items:center;min-width:0;gap:var(--s-small);padding:var(--s-small);height:28px;text-align:left;color:var(--deck-muted);font-size:var(--t-small);border-radius:var(--r-xs)}
+.nav-surface>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+#sidebar .nav-surface>.icon{width:13px;height:13px}
+.nav-surface:hover,.nav-surface.is-current{background:var(--deck-hover);color:var(--deck-fg)}
+.nav-surface.is-visible{color:var(--deck-fg)}
+.nav-surface-marker{width:5px;height:5px;flex:none;border-radius:var(--r-round);border:1px solid currentColor;opacity:.7}
+.nav-surface.is-current .nav-surface-marker{background:currentColor}
+.nav-surface-empty{padding:var(--s-small);font-size:var(--deck-meta);color:var(--deck-muted)}
+.workspace-picker{display:grid;gap:var(--s-panel)}
+.workspace-picker-actions{display:flex;gap:var(--s-icon);flex-wrap:wrap}
+.workspace-picker>.hint{margin:0}
+#workspace-picker-results{max-height:46dvh;overflow:auto;min-width:0}
+.workspace-picker-section+.workspace-picker-section{margin-top:var(--s-panel)}
+.workspace-picker-section>h3{font-size:var(--t-small);font-weight:500;color:var(--deck-muted);padding:var(--s-small) 0}
+.workspace-picker-row{width:100%;display:flex;align-items:center;gap:var(--s-row);text-align:left;padding:var(--s-control) var(--s-icon);border-radius:var(--r-xs);min-width:0}
+.workspace-picker-row:hover{background:var(--deck-hover)}
+.workspace-picker-row>span{display:grid;gap:var(--s-tiny);flex:1;min-width:0}
+.workspace-picker-row strong,.workspace-picker-row small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.workspace-picker-row strong{font-size:var(--t-label);font-weight:500;color:var(--deck-fg)}
+.workspace-picker-row small,.workspace-picker-row>.icon{color:var(--deck-muted);font-size:var(--t-small)}
+.nav-external-picker{display:grid;gap:var(--s-row)}
+.nav-external-picker>.hint{margin:0}
+.nav-external-optin{display:grid;gap:var(--s-icon);justify-items:start;padding:var(--s-row);border:1px solid var(--deck-edge);border-radius:var(--r-control);background:var(--deck-hover)}
+#workspace-external-results{max-height:52dvh;overflow:auto;min-width:0}
+.nav-external-row{display:flex;align-items:center;gap:var(--s-row);padding:var(--s-row) 0;border-top:1px solid var(--deck-edge);min-width:0}
+.nav-external-icon{flex:none;color:var(--deck-muted);display:flex}
+.nav-external-copy{display:grid;gap:var(--s-tight);min-width:0;flex:1}
+.nav-external-copy>strong{font-size:var(--t-label);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--deck-fg)}
+.nav-external-copy>span{font-size:var(--t-small);color:var(--deck-muted);overflow-wrap:anywhere}
+.nav-external-actions{display:flex;gap:var(--s-icon);align-items:center;flex:none}
+.nav-external-actions>.btn{font-size:var(--t-small)}
+.nav-external-empty{padding:var(--s-block) 0;color:var(--deck-muted);font-size:var(--t-small)}
+.workspace-navigation.deck-focus .shell,.workspace-navigation.deck-sidebar-hidden .shell{grid-template-columns:minmax(0,1fr)}
+.workspace-navigation.deck-focus #sidebar,.workspace-navigation.deck-sidebar-hidden #sidebar{display:none}
+@media(max-width:740px){
+ .workspace-navigation .shell{grid-template-columns:minmax(0,1fr);position:relative}
+ .workspace-navigation #sidebar{display:none}
+ .workspace-navigation.nav-open #sidebar{display:flex;position:absolute;left:0;top:0;bottom:0;width:216px;max-width:85vw;z-index:15;background:var(--deck-popup);border-radius:0;box-shadow:8px 0 24px color-mix(in srgb,var(--deck-bg) 35%,transparent)}
+ .nav-external-row{flex-wrap:wrap;gap:var(--s-icon)}
+ .nav-external-copy{flex-basis:calc(100% - 32px)}
+ .nav-external-actions{padding-left:var(--s-section);flex-wrap:wrap}
+}

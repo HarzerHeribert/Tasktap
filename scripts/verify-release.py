@@ -28,7 +28,22 @@ with tempfile.TemporaryDirectory() as tmp:
     assert info['SUVerifyUpdateBeforeExtraction'] is True
     assert info['SUAllowsAutomaticUpdates'] is False
     assert enc.attrib['url'].startswith('https://github.com/HarzerHeribert/Tasktap/releases/download/v'+info['CFBundleShortVersionString']+'/')
-    assert (app/'Contents/Resources/prototype/app.js').read_bytes() == (root/'prototype/app.js').read_bytes()
+    resources = app/'Contents/Resources'
+    for source in (root/'prototype').rglob('*'):
+        if source.is_file() and source.name != '.DS_Store':
+            packaged = resources/'prototype'/source.relative_to(root/'prototype')
+            assert packaged.is_file(), f'Missing packaged interface file: {source}'
+            assert packaged.read_bytes() == source.read_bytes(), f'Stale packaged interface file: {source}'
+    for source in (root/'scripts').iterdir():
+        packaged = resources/source.name
+        if source.is_file() and packaged.is_file():
+            assert packaged.read_bytes() == source.read_bytes(), f'Stale bundled helper: {source}'
+    assert (resources/'workspace_terminal.py').is_file()
+    assert (resources/'LICENSE').read_bytes() == (root/'LICENSE').read_bytes()
+    assert (resources/'Sparkle-LICENSE').read_bytes() == (root/'build/sparkle/LICENSE').read_bytes()
+    for name in ('xterm', 'addon-fit', 'addon-search', 'marked', 'purify'):
+        assert (resources/'prototype/vendor'/f'{name}-LICENSE').stat().st_size > 0
+    assert subprocess.check_output(['lipo', '-archs', str(app/'Contents/MacOS/Tasktap')], text=True).strip() == 'arm64'
     subprocess.run(['swiftc', '-module-cache-path', str(tmp/'module-cache'), str(root/'scripts/verify-release.swift'), '-o', str(tmp/'verify')], check=True)
     subprocess.run([str(tmp/'verify'), str(archive), enc.attrib['{'+ns['sparkle']+'}edSignature'], info['SUPublicEDKey']], check=True)
-print('Archive checksum, bundle signature, feed metadata and packaged interface verified.')
+print('Archive checksum, bundle signature, feed metadata, full packaged interface, helpers and third-party notices verified.')

@@ -31,12 +31,13 @@ const path=require('node:path');
  assert.equal(await page.evaluate(()=>sessionHost({mode:'ask',agent:'claude',host:'claude-desktop'})),'claude-desktop');
  assert.equal(await page.evaluate(()=>sessionLocation({source:'terminal'})),'External terminal');
  await page.evaluate(()=>{
- state.captures=[{id:'receipt',session:'one',receipt:'Queued',kind:'Agent question'}];showSession('one');
+ state.captures=[{id:'receipt',session:'one',receipt:'Queued',kind:'Agent question'}];sess('one').sessionName='A newer generated session title';showSession('one');
  });
  assert.equal(await page.locator('.session-receipt tasktap-relay').getAttribute('data-phase'),'queued');
  for(const state of ['Running','Complete']){
  await page.evaluate(state=>agentReceipt({session:'one',capture:'receipt',state,message:state}),state);
- assert.equal(await page.locator('.session-receipt tasktap-relay').getAttribute('data-phase'),state.toLowerCase());
+ if(state==='Complete'){assert.equal(await page.locator('.session-receipt tasktap-relay').count(),0);assert.match(await page.locator('.result-summary').innerText(),/Complete/)}
+ else assert.equal(await page.locator('.session-receipt tasktap-relay').getAttribute('data-phase'),state.toLowerCase());
  }
  await page.setViewportSize({width:360,height:740});
  await page.evaluate(()=>showSession('two'));

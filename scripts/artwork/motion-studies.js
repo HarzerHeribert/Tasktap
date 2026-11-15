@@ -11,7 +11,7 @@
   const unit=a=>mul(a,1/(Math.hypot(...a)||1));
   const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
   const nickel=[.99,1.0,.98], steel=[.76,.86,.93], brass=[1.0,.83,.65], gunmetal=[.30,.38,.41];
-  const state={vertices:[],time:0,mini:false};
+  const state={vertices:[],time:0,mini:false,home:false};
   function rotate([x,y,z],[rx,ry,rz]) {
     let a=y*Math.cos(rx)-z*Math.sin(rx), b=y*Math.sin(rx)+z*Math.cos(rx);
     let c=x*Math.cos(ry)+b*Math.sin(ry), d=-x*Math.sin(ry)+b*Math.cos(ry);
@@ -56,15 +56,16 @@
     }
     const u=name=>gl.getUniformLocation(program,name);
     gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);gl.clearColor(...(transparent?[0,0,0,0]:brand?[.018,.022,.027,1]:[.007,.012,.014,1]));
-    return (id,mini,t,symbol)=>{
-      const width=brand?brandWidth:transparent?96:mini?260:736,height=brand?brandWidth:transparent?96:mini?156:352, samples=transparent?4:mini?3:2;
+    return (id,mini,t,symbol,home=false)=>{
+      const width=brand?brandWidth:transparent?96:home?1200:mini?260:736,height=brand?brandWidth:transparent?96:home?240:mini?156:352, samples=transparent?4:mini?3:2;
       if(canvas.width!==width*samples||canvas.height!==height*samples){canvas.width=width*samples;canvas.height=height*samples;}
       gl.viewport(0,0,canvas.width,canvas.height);
       gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-      state.time=t*tau;state.mini=mini;state.vertices.length=0;
+      state.time=t*tau;state.mini=mini;state.home=home;state.vertices.length=0;
       if(brand) voiceMark();
       else if(transparent) glyphMark(symbol,[0,0,0],1.23,[-.24,.19,-.045],nickel);
       else if(id==='relay-bed')relay(false);
+      else if(home&&id==='orbit')for(const [x,phase] of [[-3.45,-1.7],[0,0],[3.45,1.7]])orbit(x,phase);
       else ({glyph,phase,relay,orbit})[id]();
       gl.uniform1f(u('time'),state.time);gl.uniform1f(u('aspect'),width/height);
       gl.uniform1f(u('zoom'),mini && id!=='orbit'?.82:1.0);
@@ -147,7 +148,9 @@
   }
 
   function glyph() {
-    const count=state.mini?7:15;
+    // The Home strip adds columns, not scale: individual marks, spacing and
+    // vertical travel retain the stage's original proportions.
+    const count=state.mini?7:state.home?39:15;
     const symbols='/=:+';
     const radius=state.mini?.28:.163;
     const pairs=state.mini?1:2;
@@ -159,7 +162,7 @@
       const crest=Math.pow(.5+.5*Math.cos(beat),state.mini?4:7);
       const echo=.74*Math.pow(.5+.5*Math.cos(beat-2.66),state.mini?5:9);
       const envelope=crest+echo;
-      const x=(u-.5)*3.33+.038*Math.sin(beat);
+      const x=(u-.5)*(state.home?9.04:3.33)+.038*Math.sin(beat);
       const spine=.16*Math.sin(beat+.32)+.038*Math.sin(2*beat);
       const color=i===Math.floor(count*.36)?brass:i>count*.70?steel:nickel;
       for(let row=-pairs;row<=pairs;row++){
@@ -180,7 +183,7 @@
   function phase() {
     const t=state.time;
     function p(u,v) {
-      const x=(u-.5)*3.48, a=v*tau;
+      const x=(u-.5)*(state.home?9.0:3.48), a=v*tau;
       const env=.66+.34*Math.sin(u*Math.PI);
       // The mounts hold their pose while a torsional wave rolls along the span.
       // At the loop seam both the surface and its velocity meet continuously.
@@ -192,7 +195,7 @@
       return [x+.027*Math.sin(a),spine+
         radial*Math.cos(twist)-depth*Math.sin(twist),radial*Math.sin(twist)+depth*Math.cos(twist)+.11*Math.cos(tau*u+.32)];
     }
-    mesh(112,44,(u,v)=>{
+    mesh(state.home?256:112,44,(u,v)=>{
       const u0=clamp(u-.001),u1=clamp(u+.001);
       const n=unit(cross(sub(p(u1,v),p(u0,v)),sub(p(u,v+.001),p(u,v-.001))));
       const tint=.5+.5*Math.sin(u*tau-1.3);
@@ -237,13 +240,14 @@
   function relay(moving=true) {
     const t=state.time;
     const colors=[brass,nickel,steel];
+    const point=(u,i)=>{const p=relayPoint(u,i,t);if(state.home)p[0]=(u-.5)*8.95;return p};
     // Cross-braces connect the three guide bushings behind the rails.
     for(const u of [.25,.84]){
-      const a=relayPoint(u,0,t), b=relayPoint(u,2,t);
+      const a=point(u,0), b=point(u,2);
       bar([a[0],(a[1]+b[1])/2,-.13],b[1]-a[1]+.24,.080,.085,[0,.08,Math.PI/2],gunmetal);
     }
     for(let i=0;i<3;i++){
-      const route=u=>relayPoint(u,i,t);
+      const route=u=>point(u,i);
       const r=state.mini?.052:.042;
       tube(route,r,colors[i]);
       for(const u of [.25,.84]){
@@ -263,10 +267,10 @@
       }
     }
   }
-  function orbit() {
-    const t=state.time;
+  function orbit(centerX=0,phaseOffset=0) {
+    const t=state.time+phaseOffset;
     const rot=[.34+.16*Math.sin(t),.34+t,-.46];
-    const center=[0,0,-.05],r=.64;
+    const center=[centerX,0,-.05],r=.64;
     // Removable shell panels expose a separate rotor at the equator.
     ellipsoid(center,[r*.87,r*.87,r*.87],rot,gunmetal,32,64);
     for(let j=0;j<4;j++){
@@ -325,4 +329,5 @@
   window.brandFrame = t => {brandRender ||= install(false,true);return brandRender("brand",false,t);};
   let render;
   window.motionFrame = (id,mini,t) => {render ||= install();return render(id,mini,t);};
+  window.motionHomeFrame = (id,t) => {render ||= install();return render(id,false,t,undefined,true);};
 })();

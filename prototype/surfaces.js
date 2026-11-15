@@ -168,8 +168,37 @@ function menu(){
   ].map(([label,act,sym])=>surfaceButton(label,act,sym)).join('');
   if(!m.hidden)m.querySelector('button')?.focus();
 }
+let systemNotificationStatus=null;
+function notificationStatus(status){
+  if(!status || !['notDetermined','denied','authorized','provisional','unknown'].includes(status.authorization))return;
+  systemNotificationStatus=status;paintNotificationSettings();
+}
+function notificationDeliveryFailed(id,kind,message){
+  const error={id:String(id||''),kind:String(kind||''),message:String(message||'macOS did not accept the notification.').slice(0,2000),time:Date.now()};
+  state.notificationFailure=error;persist();paintNotificationSettings();
+  toast(kind==='settings'?'Notification settings could not be updated. Details are in Notification settings.':'A macOS alert could not be sent. Details are in Notification settings.');
+}
+function paintNotificationSettings(){
+  const panel=$('#notification-preferences');if(!panel)return;
+  const status=systemNotificationStatus,authorization=status?.authorization;
+  const descriptions={notDetermined:'Permission has not been requested.',denied:'Notifications are blocked in macOS Settings.',authorized:'macOS permission is allowed.',provisional:'macOS allows quiet notifications.',unknown:'macOS notification status is unavailable.'};
+  $('#notification-status',panel).innerHTML='<p><strong>Tasktap alerts: '+(state.alerts?'On':'Off')+'</strong></p>'+
+    (host?'<p>'+esc(descriptions[authorization]||'Checking macOS notification settings…')+'</p>'+
+      (['authorized','provisional'].includes(authorization)?'<p class="hint">'+esc('Banners: '+(status.alerts==='enabled'?'allowed':status.alerts==='disabled'?'off':'unavailable')+' · Notification Center: '+(status.center==='enabled'?'allowed':status.center==='disabled'?'off':'unavailable'))+'</p>':''):'<p class="hint">Browser preview of Notification Center.</p>');
+  const focused=document.activeElement?.dataset.surface;
+  $('#notification-controls',panel).innerHTML=
+    (host&&authorization==='denied'?surfaceButton('Open notification settings','notify-settings','out'):
+      !state.alerts || !['authorized','provisional'].includes(authorization)?surfaceButton(host?'Enable notifications':'Enable preview','notify-enable','bell'):'')+
+    (state.alerts?surfaceButton(host?'Turn off alerts':'Turn off preview','notify-off'):'')+
+    (host?surfaceButton('Refresh status','notify-status')+(authorization!=='denied'?surfaceButton('Open notification settings','notify-settings','out'):''):surfaceButton('Show sample notification','notify-preview'));
+  if(focused)$('#notification-controls [data-surface="'+CSS.escape(focused)+'"]',panel)?.focus({preventScroll:true});
+  const failure=state.notificationFailure;
+  $('#notification-error',panel).innerHTML=failure?'<div class="block"><strong>Last notification error</strong><p class="body-copy">'+esc(failure.message)+'</p><p class="hint">'+esc(new Date(failure.time).toLocaleString())+'. Tasks and results remain available in Tasktap.</p>'+surfaceButton('Dismiss error','notify-clear-error')+'</div>':'';
+}
 function notifications(){
-  dialog('Notifications','Menu bar','<p>Receive a system notification for decisions and completed sessions.</p><div class="inline">'+surfaceButton(host?'Enable notifications':'Enable preview','notify-enable','bell')+surfaceButton(host?'Turn off alerts':'Turn off preview','notify-off')+'</div><p class="hint">'+(host?'macOS controls delivery, previews, and Focus.':'Browser preview of Notification Center. The native app uses macOS notifications.')+'</p>'+(!host?surfaceButton('Show sample notification','notify-preview'):''));
+  if(host)systemNotificationStatus=null;
+  dialog('Notifications','Preferences','<section id="notification-preferences"><p>Receive alerts for decisions, results and failures. Results always stay in Activity.</p><div id="notification-status" role="status" aria-live="polite"></div><div id="notification-controls" class="inline"></div><p class="hint">'+(host?'macOS and Focus control whether an allowed alert appears. Tasktap cannot confirm that a banner was shown.':'The native app uses macOS notifications.')+'</p><div id="notification-error"></div></section>');
+  paintNotificationSettings();if(host)postHost('notification-status');
 }
 function previewNotice(id,kind){
   const q=byId(state.decisions,id),s=kind==='complete'?sess(id):q&&sess(q.session);
@@ -181,6 +210,7 @@ function emitNotice(id,kind){
   if(!state.alerts)return;
   const q=byId(state.decisions,id),s=kind==='complete'?sess(id):q&&sess(q.session);
   if(!s)return;
+  if(kind==='complete' && s.host==='tasktap')return;
   if(host)postHost('notify',{id,kind,title:s.task,body:q?q.q:s.result});
   else previewNotice(id,kind);
 }
@@ -377,19 +407,23 @@ function command(action,id=''){
     case 'prefs':prefs();break;
     case 'close-front':
       if(settingsPickers.close())break;
-      if(document.querySelector('dialog[open]'))dismissCard();else showHome(false);
+      if(document.querySelector('dialog[open]'))dismissCard();else if(typeof workspaceDeck!=='undefined' && workspaceDeck.closeFront()){}else showHome(false);
       break;
     case 'capture':quickCapture();break;
     case 'requests':openRequest(id);break;
     case 'controller':controller();break;
     case 'try-controller':dismissCard();hardwareNavigation=true;openRequest();controllerPreview();break;
     case 'notifications':notifications();break;
-    case 'notify-enable':state.alerts=true;persist();dismissCard();if(host)postHost('authorize');else if(pending())previewNotice(pending().id,'request');break;
-    case 'notify-off':state.alerts=false;persist();dismissCard();$('#notification-preview').hidden=true;postHost('disableNotifications');break;
+    case 'notify-enable':state.alerts=true;persist();if(host){paintNotificationSettings();postHost('authorize')}else{dismissCard();if(pending())previewNotice(pending().id,'request')}break;
+    case 'notify-off':state.alerts=false;persist();paintNotificationSettings();$('#notification-preview').hidden=true;postHost('disableNotifications');break;
+    case 'notify-status':if(host)postHost('notification-status');break;
+    case 'notify-settings':if(host)postHost('notification-settings');break;
+    case 'notify-clear-error':delete state.notificationFailure;persist();paintNotificationSettings();break;
     case 'notify-preview':dismissCard();if(pending())previewNotice(pending().id,'request');else{const s=state.sessions.find(s=>s.state==='Complete');if(s)previewNotice(s.id,'complete')}break;
     case 'dismiss-notice':$('#notification-preview').hidden=true;break;
     case 'notice-request':$('#notification-preview').hidden=true;openRequest(id);break;
-    case 'notice-result':$('#notification-preview').hidden=true;if(sess(id)){showWorkspace();showSession(id)}break;
+    case 'notice-session':$('#notification-preview').hidden=true;showWorkspace();if(sess(id)?.host==='tasktap')workspaceDeck.open('terminal:'+id,sess(id).project);else if(sess(id))showSession(id);else workspaceDeck.openTerminal(id);break;
+    case 'notice-result':{$('#notification-preview').hidden=true;const capture=byId(state.captures,id),session=sess(capture?.session||id);if(session){showWorkspace();if(session.host==='tasktap')workspaceDeck.openResult(id);else showSession(session.id)}break}
     default:if(action.startsWith('hw-'))hardware(action.slice(3));
   }
 }
@@ -456,13 +490,12 @@ window.workspaceCommand=(action,id='')=>{
   if(['hw-yes','hw-no','hw-discuss','hw-capture','hw-capture-end'].includes(action)){hardware(action.slice(3),id);return}
   if(action==='hover-enter'||action==='hover-exit'){hoverNotch(action==='hover-enter');return}
   if(action==='notice-request' && !byId(state.decisions,id)){toast('This request has already closed.');return}
-  if(action==='notification-denied'){state.alerts=false;persist();toast('Notifications are off. Enable them in System Settings.');return}
-  if(action==='notification-granted'){if(pending())emitNotice(pending().id,'request');toast('System notifications enabled.');return}
+  if(action==='notification-denied'){state.alerts=false;persist();paintNotificationSettings();postHost('notification-status');toast('macOS notifications are blocked. Open Notification settings to review access.');return}
+  if(action==='notification-granted'){postHost('notification-status');if(pending())emitNotice(pending().id,'request');toast('Notifications are allowed by macOS.');return}
   if(action==='hotkey-conflict'){toast('Shortcut unavailable: '+id+'. Use the menu bar or change the conflicting shortcut.');return}
   if(action==='hw-back'&&!$('#notch').open&&!$('#modal').open){showHome(false);return}
   command(action,id);
 };
 document.body.classList.toggle('native-host',!!host);
-if(live){const label=$('.local');if(label)label.innerHTML='<i></i>Local workspace'}
 if(['#workspace','#geometry'].includes(location.hash)){document.body.classList.remove('notch-first');$('#notch-home').hidden=true}
 syncSurfaces();postHost('lightingPreference',{enabled:!!state.microLights});postHost('ready');

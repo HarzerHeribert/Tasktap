@@ -13,7 +13,7 @@ with tempfile.TemporaryDirectory() as tmp:
     record=dict(agent='codex',cwd=str(project),session_id=str(uuid.uuid4()),surface_id=str(uuid.uuid4()),workspace_id=str(uuid.uuid4()),stored_pid_exists=True,active_for_surface=False,launch_backed=True)
     def discover(**extra):
         with patch.object(cmux_sessions,'cmux_cli',return_value='cmux'), patch.object(cmux_sessions.subprocess,'run',return_value=Mock(stdout=json.dumps({'sessions':[{**record,**extra}]}))):
-            return cmux_sessions.sessions(root)
+            return cmux_sessions.sessions(root,allow_external=True)
     row=discover()[0]
     assert row['host']=='cmux' and row['inbox']=='manual' and row['workspace']==record['workspace_id']
     assert not discover(stored_pid_exists=False)

@@ -13,7 +13,7 @@ enum TerminalCatalog {
     }
 
     @MainActor static func installed()->[String:String] {
-        var icons=[String:String]()
+        var icons=["tasktap":""]
         for host in applications.keys {
             guard let url=app(host) else {continue}
             icons[host]=""

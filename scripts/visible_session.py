@@ -14,7 +14,7 @@ import uuid
 from session_lifecycle import completed_handoff
 from session_models import model_id
 
-HOST_NAMES={'claude-desktop':'Claude Desktop','terminal':'Terminal','cmux':'cmux','ghostty':'Ghostty','warp':'Warp','iterm2':'iTerm2','wezterm':'WezTerm','kitty':'kitty'}
+HOST_NAMES={'tasktap':'Tasktap','claude-desktop':'Claude Desktop','terminal':'Terminal','cmux':'cmux','ghostty':'Ghostty','warp':'Warp','iterm2':'iTerm2','wezterm':'WezTerm','kitty':'kitty'}
 
 # Without an "in" argument Terminal allocates a new window. The command replaces its
 # login shell, so an agent exit cannot drop the user into another shell in that tab.
@@ -156,7 +156,11 @@ def open_window(path, job, ticket=None):
     title='Tasktap · '+''.join(c for c in job['task'][:70] if c.isprintable())
     if job.get('hostApp'):
         os.environ['TASKTAP_TERMINAL_APP']=job['hostApp']
-    if job['host']=='cmux':
+    if job['host']=='tasktap':
+        import workspace_terminal
+        workspace_terminal.request(dict(op='start',id=job['session'],cwd=job['folder'],argv=argv,title=job['task'],kind='agent',restart=bool(ticket)))
+        workspace_terminal.request(dict(op='focus',id=job['session']))
+    elif job['host']=='cmux':
         import cmux_host
         cmux_host.open_terminal(argv,job['folder'],title,folder)
     elif job['host']=='terminal':
@@ -258,7 +262,7 @@ def present(path, executable, ticket=None):
                     break
                 except subprocess.TimeoutExpired:
                     finished = completed_handoff(folder, job, keep_through)
-                    if finished and finished == candidate and not closed_after_report:
+                    if host != 'tasktap' and finished and finished == candidate and not closed_after_report:
                         # Serialize with delivery; a new nudge takes precedence over retiring the CLI.
                         with (folder/'.lock').open('a') as delivery:
                             fcntl.flock(delivery, fcntl.LOCK_EX)
@@ -325,7 +329,10 @@ def focus(folder):
         return
     surface = endpoint(folder)
     if surface.get('hostApp'):os.environ['TASKTAP_TERMINAL_APP']=surface['hostApp']
-    if surface['host']=='terminal':
+    if surface['host']=='tasktap':
+        import workspace_terminal
+        workspace_terminal.request(dict(op='focus',id=folder.name))
+    elif surface['host']=='terminal':
         subprocess.run(['/usr/bin/osascript','-e',FOCUS_TAB,surface['tty']],check=True,capture_output=True,timeout=15)
     elif surface['host']=='cmux':
         focus_cmux(surface)

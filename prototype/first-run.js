@@ -35,7 +35,7 @@ const firstRun = {
   choosing() {
     homeMode='pinned';
     const folders=state.projects.filter(p=>p.available===true);
-    dialog('Choose a project','','<label class="field">Find in ~/projects<input type="search" id="guide-filter"></label><div class="route-list" id="guide-projects"></div>','Back to capture');
+    dialog('Choose a project','','<label class="field">Find a project<input type="search" id="guide-filter"></label><div class="route-list" id="guide-projects"></div>','Back to capture');
     const input=$('#guide-filter');
     const list=()=>{$('#guide-projects').innerHTML=folders.filter(p=>p.name.toLowerCase().includes(input.value.toLowerCase()))
       .map(p=>surfaceButton(p.name,'guide-project','folder','surface-button',p.id)).join('') || '<p class="hint">No matching folders.</p>'};
@@ -48,7 +48,7 @@ const firstRun = {
       captureDraft(id);
     } else {
       const project=this.project();
-      if (!project) {postLive('refresh');toast('Add a folder to ~/projects to try a project session.');return}
+      if (!project) {workspaceNavigation.openChooser();return}
       captureDraft('',project.id,this.text);
       draft.hasVoice=this.hasVoice;
       draft.suggestedProject=this.selected!==project.id;
@@ -81,7 +81,7 @@ const firstRun = {
     if (!guide?.session) {
       const collapse=surfaceButton('','collapse','down','collapse-button');
       if (!project) return '<header class="home-meta"><h1 class="guide-title">'+(this.projectsReady?'Add a project':'Finding your projects…')+'</h1>'+collapse+'</header>'+
-        (this.projectsReady?'<p class="home-idle">Add a project folder inside <code>~/projects</code>, then check again.</p>'+surfaceButton('Check again','guide-refresh','folder','voice-trigger'):'')+question;
+        (this.projectsReady?'<p class="home-idle">Open a folder to start your first workspace.</p>'+button('Open workspace…','workspace-chooser','','voice-trigger','folder'):'')+question;
       const examples=['Explain this project.','Find the entry point.','List the next steps.'];
       return '<div class="guide-project-row"><button class="guide-project-button" data-surface="guide-choose" title="Choose a project">'+icon('folder')+'<span>'+esc(project.name)+'</span>'+icon('down')+'</button><span class="guide-study" aria-hidden="true">'+TasktapArt.markup('miniature','glyph')+'</span>'+collapse+'</div>'+
         '<form id="guide-compose"><div class="guide-editor"><textarea id="guide-input" aria-label="Your request" placeholder="'+attr(examples[0])+'" rows="2" required></textarea>'+

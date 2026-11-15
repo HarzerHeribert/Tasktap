@@ -3,7 +3,8 @@ import Darwin
 import Foundation
 
 final class LiveWorkspace {
-    let root:URL
+    let folders:WorkspaceFolders
+    var root:URL {folders.root}
     let data:URL
     private var workers=[String:Process]()
     private var seen=[URL:Date]()
@@ -28,7 +29,12 @@ final class LiveWorkspace {
         guard externalScan==nil, let script=Bundle.main.url(forResource:"cmux-sessions",withExtension:nil) else{return}
         let process=Process()
         let output=Pipe()
-        process.executableURL=script;process.arguments=["list",root.path,data.deletingLastPathComponent().appendingPathComponent("desktop-activity.json").path,data.path];process.environment=Self.cliEnvironment
+        process.executableURL=script;process.arguments=["list",root.path,data.deletingLastPathComponent().appendingPathComponent("desktop-activity.json").path,data.path]
+        var environment=Self.cliEnvironment
+        environment["TASKTAP_DISCOVER_EXTERNAL"]=folders.externalDiscovery ? "1":"0"
+        let scope=folders.projects().filter{$0["available"]=="true"}.compactMap{$0["folder"]}
+        if let bytes=try? JSONSerialization.data(withJSONObject:scope){environment["TASKTAP_WORKSPACE_FOLDERS_JSON"]=String(data:bytes,encoding:.utf8)}
+        process.environment=environment
         process.standardOutput=output;process.standardError=FileHandle.nullDevice
         externalScan=process
         DispatchQueue.global(qos:.utility).async {
@@ -47,14 +53,14 @@ final class LiveWorkspace {
     var projectsChanged:([[String:String]])->Void = {_ in}
     private var previousProjects:[[String:String]]?
     private let fm=FileManager.default
-    init(root:URL,data:URL){self.root=root;self.data=data}
+    init(folders:WorkspaceFolders,data:URL){self.folders=folders;self.data=data}
+    convenience init(root:URL,data:URL){self.init(folders:WorkspaceFolders(root:root),data:data)}
     enum Failure:LocalizedError {
         case reason(String)
         var errorDescription:String? {if case .reason(let message)=self{return message};return nil}
     }
     func start()throws {
         try fm.createDirectory(at:data,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
-        try fm.createDirectory(at:root,withIntermediateDirectories:true)
         refresh()
         for folder in try fm.contentsOfDirectory(at:data,includingPropertiesForKeys:nil) where UUID(uuidString:folder.lastPathComponent) != nil {
             for job in (try? fm.contentsOfDirectory(at:folder,includingPropertiesForKeys:nil)) ?? [] where job.pathExtension=="job" {
@@ -64,7 +70,15 @@ final class LiveWorkspace {
                     if ["Complete","Failed","Delivered","Opened","Prepared","Copied","Opening","Closed"].contains(readState(receipt) ?? "") {historical.insert(receipt)}
                 }
             }
-            if pending.keys.contains(where:{ $0.deletingLastPathComponent().path==folder.path && readState($0) != "Complete" && !["Failed","Delivered","Opened","Prepared","Copied","Opening","Closed"].contains(readState($0) ?? "") }) {try launch(folder)}
+            if pending.keys.contains(where:{ $0.deletingLastPathComponent().path==folder.path && readState($0) != "Complete" && !["Failed","Delivered","Opened","Prepared","Copied","Opening","Closed"].contains(readState($0) ?? "") }) {
+                do {try launch(folder)}catch{
+                    for (receipt,meta) in pending where receipt.deletingLastPathComponent().path==folder.path && !["Complete","Failed","Delivered","Opened","Prepared","Copied","Opening","Closed"].contains(readState(receipt) ?? "") {
+                        let failure=["state":"Failed","message":error.localizedDescription]
+                        try? JSONSerialization.data(withJSONObject:failure).write(to:receipt,options:.atomic)
+                        changed(meta.merging(failure){_,b in b})
+                    }
+                }
+            }
         }
         timer=Timer.scheduledTimer(withTimeInterval:0.7,repeats:true){[weak self] _ in self?.poll()}
     }
@@ -81,6 +95,7 @@ final class LiveWorkspace {
               let job=try JSONSerialization.jsonObject(with:Data(contentsOf:path)) as? [String:Any],
               job["session"] as? String==session, job["capture"] as? String==capture, job["mode"] as? String=="ask",
               job["delivery"] as? String=="interactive", job["external"] as? Bool != true else {throw unavailable}
+        guard let path=job["folder"] as? String,allowedJobFolder(path) else {throw Failure.reason("This workspace folder is unavailable. Open its current location before retrying.")}
         // A timeout can arrive while the original presenter still owns its terminal.
         // An established conversation can contain partial work, even after it exits.
         for name in ["thread.json","claude-turn-started"] where fm.fileExists(atPath:folder.appendingPathComponent(name).path) {throw unavailable}
@@ -93,11 +108,17 @@ final class LiveWorkspace {
         return job
     }
     func refresh(){
-        let list=((try? fm.contentsOfDirectory(at:root,includingPropertiesForKeys:[.isDirectoryKey],options:.skipsHiddenFiles)) ?? [])
-            .filter{(try? $0.resourceValues(forKeys:[.isDirectoryKey]).isDirectory)==true}
-            .map{["name":$0.lastPathComponent,"folder":$0.standardizedFileURL.path,"checkout":$0.resolvingSymlinksInPath().standardizedFileURL.path]}
-            .sorted{$0["name"]! < $1["name"]!}
+        let list=folders.projects()
         if previousProjects != list {previousProjects=list;projectsChanged(list)}
+    }
+    private var scratch:URL {data.deletingLastPathComponent().appendingPathComponent("Scratch",isDirectory:true).standardizedFileURL}
+    private func allowedJobFolder(_ path:String)->Bool {
+        let url=URL(fileURLWithPath:path,isDirectory:true).standardizedFileURL
+        if url==scratch {
+            return (try? url.resourceValues(forKeys:[.isDirectoryKey]).isDirectory)==true &&
+                WorkspaceFolders.canonical(url).path==WorkspaceFolders.canonical(url.deletingLastPathComponent()).appendingPathComponent("Scratch").path
+        }
+        return folders.allowsExisting(url)
     }
     func enqueue(_ job:[String:Any])throws -> [String:String] {
         guard let session=job["session"] as? String,UUID(uuidString:session) != nil,let capture=job["capture"] as? String,UUID(uuidString:capture) != nil,
@@ -105,7 +126,7 @@ final class LiveWorkspace {
               let provider=job["agent"] as? String,["claude","codex","agy","cursor-agent","pi"].contains(provider) else {throw Failure.reason("Invalid handoff.")}
         if mode != "note" {
             guard job["delivery"] as? String=="interactive", (job["planAccount"] as? String ?? "").isEmpty,
-                  let host=job["host"] as? String, (TerminalCatalog.applications[host] != nil || host=="desktop"),
+                  let host=job["host"] as? String, (TerminalCatalog.applications[host] != nil || host=="desktop" || host=="tasktap"),
                   mode != "ask" || host != "desktop",
                   let outgoing=job["outgoing"] as? String, !outgoing.isEmpty,
                   job["instructions"] is String else {throw Failure.reason("Review the handoff to a visible agent session.")}
@@ -126,25 +147,28 @@ final class LiveWorkspace {
         if job["host"] as? String == "claude-desktop", provider != "claude" || mode != "ask" {
             throw Failure.reason("Claude Desktop supports new Claude Code briefs. Continue existing conversations in Claude.")
         }
-        if mode=="ask",let host=job["host"] as? String, TerminalCatalog.app(host)==nil {
+        if mode=="ask",let host=job["host"] as? String, host != "tasktap", TerminalCatalog.app(host)==nil {
             throw Failure.reason("Your chosen terminal is unavailable. Choose an installed app in Preferences → Session models.")
         }
-        let scratch=data.deletingLastPathComponent().appendingPathComponent("Scratch",isDirectory:true)
         let dir=path=="@scratch" ? scratch : URL(fileURLWithPath:path,isDirectory:true).standardizedFileURL
-        guard dir==scratch || dir.deletingLastPathComponent().standardizedFileURL.path==root.standardizedFileURL.path else {throw Failure.reason("Choose a folder directly under ~/projects.")}
-        if !fm.fileExists(atPath:dir.path),job["create"] as? Bool==true || dir==scratch {
-            try fm.createDirectory(at:dir,withIntermediateDirectories:false)
+        if dir==scratch {
+            if !fm.fileExists(atPath:dir.path){try fm.createDirectory(at:dir,withIntermediateDirectories:false)}
+        }else if !folders.allowsExisting(dir),job["create"] as? Bool==true,
+                  dir.deletingLastPathComponent().path==root.standardizedFileURL.path {
+            _=try folders.create(name:dir.lastPathComponent)
         }
-        guard (try? dir.resourceValues(forKeys:[.isDirectoryKey]).isDirectory)==true else {throw Failure.reason("Workspace folder is missing.")}
+        guard allowedJobFolder(dir.path) else {throw Failure.reason("Open an existing workspace folder, or create one under your selected workspace folder.")}
         var reviewedFolder:String?
         if let reviewed=job["reviewedFolder"] as? String {
             let canonical=dir.resolvingSymlinksInPath().standardizedFileURL.path
-            let newFolder="~/projects/"+dir.lastPathComponent
-            let matchesNew=job["create"] as? Bool==true && reviewed==newFolder &&
+            let expanded=(reviewed as NSString).expandingTildeInPath
+            let reviewedPath=expanded.hasPrefix("/") ? URL(fileURLWithPath:expanded).standardizedFileURL.path : expanded
+            let newFolder=root.appendingPathComponent(dir.lastPathComponent).standardizedFileURL.path
+            let matchesNew=job["create"] as? Bool==true && reviewedPath==newFolder && dir.deletingLastPathComponent().standardizedFileURL.path==root.standardizedFileURL.path &&
                 dir.deletingLastPathComponent().resolvingSymlinksInPath().appendingPathComponent(dir.lastPathComponent).standardizedFileURL.path==canonical
             let matchesScratch=dir==scratch && reviewed=="@scratch" &&
                 scratch.deletingLastPathComponent().resolvingSymlinksInPath().appendingPathComponent("Scratch").standardizedFileURL.path==canonical
-            guard mode=="ask", provider=="codex", reviewed==canonical || matchesNew || matchesScratch else {
+            guard mode=="ask", provider=="codex", reviewedPath==canonical || matchesNew || matchesScratch else {
                 throw Failure.reason("The folder changed. Review its location again before starting Codex.")
             }
             reviewedFolder=canonical
@@ -168,7 +192,8 @@ final class LiveWorkspace {
                 guard let first=files.filter({$0.pathExtension=="job"}).sorted(by:{$0.lastPathComponent<$1.lastPathComponent}).first,
                       let owner=try JSONSerialization.jsonObject(with:Data(contentsOf:first)) as? [String:Any],
                       owner["mode"] as? String=="ask", owner["delivery"] as? String=="interactive",
-                      owner["agent"] as? String==provider,owner["folder"] as? String==dir.path,(owner["host"] as? String)==(job["host"] as? String)
+                      owner["agent"] as? String==provider,let ownerPath=owner["folder"] as? String,
+                      WorkspaceFolders.canonical(URL(fileURLWithPath:ownerPath)).path==WorkspaceFolders.canonical(dir).path,(owner["host"] as? String)==(job["host"] as? String)
                 else {throw Failure.reason("Select the original interactive session for this nudge.")}
             }
             if existing==nil {try JSONSerialization.data(withJSONObject:record).write(to:url,options:.atomic)}
@@ -180,8 +205,7 @@ final class LiveWorkspace {
     }
     func assignNote(_ capture:String,folder:String)throws {
         let project=URL(fileURLWithPath:folder,isDirectory:true).standardizedFileURL
-        guard UUID(uuidString:capture) != nil, project.deletingLastPathComponent().path==root.standardizedFileURL.path,
-              (try? project.resourceValues(forKeys:[.isDirectoryKey]).isDirectory)==true else {throw Failure.reason("Choose an existing project.")}
+        guard UUID(uuidString:capture) != nil, folders.allowsExisting(project) else {throw Failure.reason("Choose an existing workspace folder.")}
         let base=data.deletingLastPathComponent()
         let source=base.appendingPathComponent("Scratch").appendingPathComponent(capture+".json")
         let notes=base.appendingPathComponent("Notes")
@@ -195,6 +219,12 @@ final class LiveWorkspace {
     }
     private func launch(_ folder:URL)throws {
         if workers[folder.path] != nil{return}
+        let completed=["Complete","Failed","Delivered","Opened","Prepared","Copied","Opening","Closed"]
+        for file in try fm.contentsOfDirectory(at:folder,includingPropertiesForKeys:nil) where file.pathExtension=="job" && !completed.contains(readState(file.deletingPathExtension().appendingPathExtension("receipt")) ?? "") {
+            guard let job=try JSONSerialization.jsonObject(with:Data(contentsOf:file)) as? [String:Any],let path=job["folder"] as? String,allowedJobFolder(path) else {
+                throw Failure.reason("This workspace folder is unavailable. Open its current location before starting the agent.")
+            }
+        }
         let url = try SessionHelpers.runner()
         let p=Process();p.executableURL=url;p.arguments=[folder.path]
         var env=Self.cliEnvironment
@@ -217,6 +247,14 @@ final class LiveWorkspace {
     func focusSession(_ id:String, reopen:Bool=false, completion:@escaping (String?)->Void) {
         guard UUID(uuidString:id) != nil else {completion("Invalid session.");return}
         let external=lastDiscovery?.first{$0["id"]==id && $0["owned"] != "yes"}
+        if external==nil && reopen {
+            let run=data.appendingPathComponent(id)
+            let files=((try? fm.contentsOfDirectory(at:run,includingPropertiesForKeys:nil)) ?? []).filter{$0.pathExtension=="job"}.sorted{$0.lastPathComponent<$1.lastPathComponent}
+            guard let first=files.first,let bytes=try? Data(contentsOf:first),let job=try? JSONSerialization.jsonObject(with:bytes) as? [String:Any],
+                  let path=job["folder"] as? String,allowedJobFolder(path) else {
+                completion("This workspace folder is unavailable. Open its current location before reopening the session.");return
+            }
+        }
         let script=external == nil ? "run-agent" : "cmux-sessions"
         guard let url = external == nil ? (try? SessionHelpers.runner()) : Bundle.main.url(forResource:script,withExtension:nil) else {completion("Session helper is unavailable.");return}
         let arguments:[String]
@@ -278,6 +316,7 @@ final class LiveWorkspace {
               let handle=conversation["id"],UUID(uuidString:handle) != nil else {
             throw Failure.reason("Wait for the session to finish before opening it in Terminal.")
         }
+        guard allowedJobFolder(cwd) else {throw Failure.reason("This workspace folder is unavailable. Open its current location before resuming the session.")}
         let quoted=cwd.replacingOccurrences(of:"'",with:"'\"'\"'")
         return "cd -- '"+quoted+"' && "+provider+(provider=="claude" ? " --resume ":" resume ")+handle
     }

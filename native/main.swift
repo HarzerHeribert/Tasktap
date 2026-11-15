@@ -3,6 +3,7 @@ import Carbon
 import UserNotifications
 import WebKit
 import ServiceManagement
+import UniformTypeIdentifiers
 
 // Physical keys on a separate Micro layer emit these same global shortcuts.
 let bindings: [(action: String, key: Int)] = [
@@ -36,8 +37,8 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private let notifications = UNUserNotificationCenter.current()
     private var panel: NSPanel!
     private lazy var workspace: WorkspaceWindow = {
-        let window = WorkspaceWindow(contentRect:NSRect(x:0,y:0,width:1020,height:680),
-                                     styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false)
+        let window = WorkspaceWindow(contentRect:NSRect(x:0,y:0,width:1280,height:820),
+                                     styleMask:[.titled,.closable,.miniaturizable,.resizable,.fullSizeContentView],backing:.buffered,defer:false)
         window.title="Tasktap"
         window.minSize=NSSize(width:560,height:400)
         window.isReleasedWhenClosed=false
@@ -47,10 +48,15 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         window.closeCardOrWindow={ [weak self] in self?.deliver("close-front",reveal:false) }
         return window
     }()
+    private let terminals = WorkspaceTerminals()
+    private let workspaceMedia = WorkspaceMedia()
+    private let workspaceBackdrop = WorkspaceBackdrop(frame:.zero)
+    private var appearanceLoading=false
     private var web: WKWebView!
     private var entry: URL!
     private let liveTest = CommandLine.arguments.contains("--verify-live")
-    private let verifying = CommandLine.arguments.contains("--verify-interface")
+    private let workspaceVerification = CommandLine.arguments.contains("--verify-workspace")
+    private let verifying = CommandLine.arguments.contains("--verify-interface") || CommandLine.arguments.contains("--verify-workspace")
     private var ready = false
     private var routeTask: Task<Void, Never>?
     private let sessionNames = SessionNames()
@@ -80,7 +86,28 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private let screenContext=ScreenContext()
     @MainActor private lazy var dictation=Dictation()
     private var sendingVoiceLevel=false
-    private lazy var runtime=LiveWorkspace(root:(liveTest ? inbox.directory.deletingLastPathComponent():FileManager.default.homeDirectoryForCurrentUser).appendingPathComponent("projects"),data:inbox.directory.deletingLastPathComponent().appendingPathComponent("Runs"))
+    private lazy var runtime:LiveWorkspace = {
+        let base=inbox.directory.deletingLastPathComponent(),data=base.appendingPathComponent("Runs")
+        if verifying || liveTest {return LiveWorkspace(root:base.appendingPathComponent("projects"),data:data)}
+        return LiveWorkspace(folders:WorkspaceFolders(storage:base.appendingPathComponent("WorkspaceFolders.json")),data:data)
+    }()
+    private func publishWorkspaceConfiguration(){
+        js("workspaceSettings.receive(config)",["config":runtime.folders.configuration])
+    }
+    private func chooseWorkspaceFolder(asRoot:Bool){
+        let chooser=NSOpenPanel();chooser.canChooseDirectories=true;chooser.canChooseFiles=false;chooser.allowsMultipleSelection=false;chooser.canCreateDirectories=true
+        chooser.title=asRoot ? "Default workspace folder":"Open workspace"
+        chooser.message=asRoot ? "Choose where Tasktap should create new workspaces. Existing workspaces stay where they are.":"Open this folder as a workspace. Your files stay in place."
+        chooser.prompt=asRoot ? "Choose":"Open workspace"
+        if FileManager.default.fileExists(atPath:runtime.root.path){chooser.directoryURL=runtime.root}
+        chooser.begin { [weak self] response in
+            guard let self,response == .OK,let url=chooser.url else{return}
+            do {
+                if asRoot {try self.runtime.folders.setRoot(url);self.publishWorkspaceConfiguration();self.runtime.refresh()}
+                else {let selected=try self.runtime.folders.authorize(url);self.runtime.refresh();self.js("workspaceSettings.opened(row)",["row":["folder":selected.path,"name":selected.lastPathComponent,"checkout":selected.resolvingSymlinksInPath().path,"available":"true"]])}
+            } catch {self.deliver("live-error",error.localizedDescription,reveal:false)}
+        }
+    }
     private func js(_ name:String,_ args:[String:Any]){
         web.callAsyncJavaScript(name,arguments:args,in:nil,in:.page){result in if case .failure(let error)=result {NSLog("Interface: %@",error.localizedDescription)}}
     }
@@ -124,9 +151,10 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         if liveTest {config.websiteDataStore = .nonPersistent()}
         if verifying {
             config.websiteDataStore = .nonPersistent()
-            config.userContentController.addUserScript(WKUserScript(source:"window.fixtureMode=true",injectionTime:.atDocumentStart,forMainFrameOnly:true))
+            config.userContentController.addUserScript(WKUserScript(source:workspaceVerification ? "window.fixtureMode=false" : "window.fixtureMode=true",injectionTime:.atDocumentStart,forMainFrameOnly:true))
         }
         config.userContentController.add(self, name: "workspace")
+        config.setURLSchemeHandler(workspaceMedia, forURLScheme:"tasktap-preview")
         web = NotchWebView(frame: .zero, configuration: config)
         web.navigationDelegate = self
         web.setValue(false, forKey: "drawsBackground")
@@ -166,7 +194,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         entry = url
         web.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         if verifying {
-            DispatchQueue.main.asyncAfter(deadline:.now()+12) {
+            DispatchQueue.main.asyncAfter(deadline:.now()+(workspaceVerification ? 45:12)) {
                 fputs("Timed out waiting for native interface verification.\n",stderr);exit(1)
             }
         }
@@ -434,13 +462,26 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         }
     }
 
+    private func refreshTerminalAppearance() {
+        guard !appearanceLoading else {return};appearanceLoading=true
+        GhosttyAppearance.load { [weak self] value in
+            self?.appearanceLoading=false
+            self?.js("workspaceDeck.appearanceLoaded(value)",["value":value])
+        }
+    }
     func userContentController(_ controller: WKUserContentController,didReceive message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame, message.webView === web,
               message.frameInfo.request.url?.standardizedFileURL == entry?.standardizedFileURL,
               let data=message.body as? [String:Any],let type=data["type"] as? String else { return }
         switch type {
         case "ready":
-            ready=true;position();panel.orderFrontRegardless()
+            ready=true;position();panel.orderFrontRegardless();publishWorkspaceConfiguration()
+            terminals.events = { [weak self] events, done in
+                guard let self else {done();return}
+                self.web.callAsyncJavaScript("return await workspaceDeck.receive(events)",arguments:["events":events],in:nil,in:.page) { _ in done() }
+            }
+            if (!verifying || workspaceVerification) && !liveTest {try? terminals.connect()}
+            if !verifying || workspaceVerification {refreshTerminalAppearance()}
             if !verifying {
                 observeHover()
                 dictation.event={ [weak self] id,phase,text in self?.js("dictationEvent(id,phase,text)",["id":id,"phase":phase,"text":text]) }
@@ -472,12 +513,55 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             let buffered=queue;queue.removeAll()
             if !verifying && !liveTest && buffered.isEmpty {deliver("open-app",reveal:false)}
             for (action,id) in buffered {deliver(action,id,reveal:action != "hw-capture-end")}
-            if verifying { Task { @MainActor in await self.verifyInterface() } }
+            if verifying { Task { @MainActor in if self.workspaceVerification {await self.verifyWorkspace()}else{await self.verifyInterface()} } }
             if liveTest { Task { @MainActor in await self.verifyLive() } }
             if !verifying && !liveTest {
                 sendConnections()
                 refreshWorkers()
             }
+        case "workspace-open-folder":
+            guard !verifying,!liveTest else{return};chooseWorkspaceFolder(asRoot:false)
+        case "workspace-choose-root":
+            guard !verifying,!liveTest else{return};chooseWorkspaceFolder(asRoot:true)
+        case "workspace-create-folder":
+            guard !verifying,!liveTest,let name=data["name"] as? String else{return}
+            do {let folder=try runtime.folders.create(name:name);runtime.refresh()
+                js("workspaceSettings.opened(row)",["row":["folder":folder.path,"name":folder.lastPathComponent,"checkout":folder.resolvingSymlinksInPath().path,"available":"true"]])
+            } catch {js("workspaceSettings.failed(message)",["message":error.localizedDescription])}
+        case "workspace-discovery":
+            guard !verifying,!liveTest,let enabled=data["enabled"] as? Bool else{return}
+            do {try runtime.folders.setExternalDiscovery(enabled);publishWorkspaceConfiguration();runtime.refreshExternal()}
+            catch {publishWorkspaceConfiguration();deliver("live-error",error.localizedDescription,reveal:false)}
+        case "workspace-appearance":refreshTerminalAppearance()
+        case "workspace-chrome":workspaceBackdrop.configure(data)
+        case "workspace-terminal":
+            guard !verifying || workspaceVerification,!liveTest else {return}
+            do {try terminals.handle(data,folders:runtime.folders)}
+            catch {js("workspaceDeck.receive(events)",["events":[["event":"error","id":data["id"] as? String ?? "","error":error.localizedDescription]]])}
+        case "workspace-file":
+            guard !verifying,!liveTest else {return}
+            let project=data["project"] as? String ?? ""
+            workspaceMedia.choose(project:project) { [weak self] files in
+                self?.js("workspaceDeck.addFiles(project,files)",["project":project,"files":files])
+            }
+        case "workspace-open-relative":
+            guard let id=data["id"] as? String,let href=data["href"] as? String,let project=data["project"] as? String else {return}
+            do {let files=try workspaceMedia.openRelative(id,href:href)
+                js("workspaceDeck.addFiles(project,files)",["project":project,"files":files])
+            } catch {deliver("live-error",error.localizedDescription,reveal:false)}
+        case "workspace-pdf-page":
+            if let id=data["id"] as? String {workspaceMedia.pdfPage(id,page:data["page"] as? Int ?? 0) { [weak self] result in
+                self?.js("workspaceDeck.pdfLoaded(id,result)",["id":id,"result":result])
+            }}
+        case "workspace-read-text":
+            if let id=data["id"] as? String {workspaceMedia.readText(id) { [weak self] text in
+                self?.js("workspaceDeck.textLoaded(id,text)",["id":id,"text":text])
+            }}
+        case "workspace-reveal":
+            if let id=data["id"] as? String {workspaceMedia.reveal(id)}
+        case "workspace-open-url":
+            guard let value=data["url"] as? String,let url=URL(string:value),["http","https"].contains(url.scheme?.lowercased() ?? "") else {return}
+            NSWorkspace.shared.open(url)
         case "terminal-catalog":
             js("terminalHosts.receive(found)",["found":TerminalCatalog.installed()])
         case "ai-refresh":
@@ -572,12 +656,14 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 if isWorkspace {
                     panel.orderOut(nil)
                     panel.contentView=nil
-                    workspace.contentView=web
+                    workspace.contentView=workspaceBackdrop
+                    workspaceBackdrop.host(web)
                     NSApp.activate()
                     workspace.makeKeyAndOrderFront(nil)
                     workspace.makeFirstResponder(web)
                 } else {
                     workspace.orderOut(nil)
+                    web.removeFromSuperview()
                     workspace.contentView=nil
                     panel.contentView=web
                     panel.orderFrontRegardless()
@@ -591,7 +677,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         case "context-resolve":
             guard let id=data["id"] as? String, let request=data["request"] as? String,let kind=data["kind"] as? String else {return}
             if verifying || liveTest {js("captureContext.receive(id,result)",["id":request,"result":["message":"Choose a reference for this test."]]);return}
-            screenContext.resolve(id,kind:kind,allowPermission:data["allowPermission"] as? Bool==true) { [weak self] result in
+            screenContext.resolve(id,kind:kind,allowPermission:data["allowPermission"] as? Bool==true,refresh:data["refresh"] as? Bool==true) { [weak self] result in
                 self?.js("captureContext.receive(id,result)",["id":request,"result":result])
             }
         case "context-file":
@@ -654,7 +740,9 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             catch {deliver("live-error",error.localizedDescription,reveal:false)}
         case "enqueue":
             guard !verifying,var job=data["job"] as? [String:Any],let capture=job["capture"] as? String else {return}
-            if let path=job["folder"] as? String,path.hasPrefix("~/projects/"){job["folder"]=runtime.root.appendingPathComponent(String(path.dropFirst("~/projects/".count))).standardizedFileURL.path}
+            if let path=job["folder"] as? String,path.hasPrefix("~/"){
+                job["folder"]=(liveTest && path.hasPrefix("~/projects/") ? runtime.root.appendingPathComponent(String(path.dropFirst("~/projects/".count))):FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(String(path.dropFirst(2)))).standardizedFileURL.path
+            }
             do {
                 var result=try runtime.enqueue(job)
                 result["capture"]=capture;result["task"]=job["task"] as? String
@@ -687,6 +775,25 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                     }
                 }
             } catch {deliver("live-error",error.localizedDescription,reveal:false)}
+        case "copy-report":
+            guard !verifying,!liveTest,let text=data["text"] as? String,text.utf8.count<=1_000_000 else{return}
+            NSPasteboard.general.clearContents();NSPasteboard.general.setString(text,forType:.string)
+            deliver("live-error","Report copied.",reveal:false)
+        case "copy-diagnostics", "export-diagnostics":
+            guard !verifying,!liveTest,let text=data["text"] as? String,text.utf8.count<=1_000_000,
+                  let bytes=text.data(using:.utf8),(try? JSONSerialization.jsonObject(with:bytes)) != nil else{return}
+            if type=="copy-diagnostics" {
+                NSPasteboard.general.clearContents();NSPasteboard.general.setString(text,forType:.string)
+                deliver("live-error","Diagnostics copied.",reveal:false)
+            } else {
+                let chooser=NSSavePanel();chooser.title="Export diagnostics";chooser.nameFieldStringValue="tasktap-diagnostics.json"
+                chooser.allowedContentTypes=[.json];chooser.canCreateDirectories=true
+                chooser.begin { [weak self] response in
+                    guard response == .OK,let url=chooser.url else{return}
+                    do {try bytes.write(to:url,options:.atomic);self?.deliver("live-error","Diagnostics exported.",reveal:false)}
+                    catch {self?.deliver("live-error",error.localizedDescription,reveal:false)}
+                }
+            }
         case "open-result":
             guard let id=data["id"] as? String,UUID(uuidString:id) != nil,let text=data["text"] as? String,let viewer=data["viewer"] as? String else {return}
             do {
@@ -716,18 +823,33 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         case "check-kokoro":narration.reportKokoro()
         case "install-kokoro":narration.installKokoro()
         case "stopSpeech":narration.stop()
+        case "notification-status": updateNotificationStatus()
+        case "notification-settings":
+            // Open the system's registered preference pane; this does not change any permission.
+            let pane=URL(fileURLWithPath:"/System/Library/PreferencePanes/Notifications.prefPane")
+            if !NSWorkspace.shared.open(pane) {
+                NSWorkspace.shared.open(URL(fileURLWithPath:"/System/Applications/System Settings.app"))
+                js("toast('In System Settings, choose Notifications, then Tasktap.')",[:])
+            }
         case "authorize":
-            notifications.requestAuthorization(options:[.alert,.sound]) { [weak self] ok,_ in
-                DispatchQueue.main.async { self?.deliver(ok ? "notification-granted":"notification-denied",reveal:false) }
+            notifications.requestAuthorization(options:[.alert,.sound]) { [weak self] ok,error in
+                DispatchQueue.main.async {
+                    guard let self else {return}
+                    if let error {
+                        self.js("notificationDeliveryFailed('', 'settings', message)",["message":error.localizedDescription])
+                        self.updateNotificationStatus()
+                    } else {self.deliver(ok ? "notification-granted":"notification-denied",reveal:false)}
+                }
             }
         case "notify":
             guard let id=data["id"] as? String,let kind=data["kind"] as? String,
                   let title=data["title"] as? String,let body=data["body"] as? String else { return }
             let content=UNMutableNotificationContent();content.title=title;content.body=body
-            content.categoryIdentifier=kind=="request" ? "decision":"result"
+            content.categoryIdentifier=kind=="request" ? "decision":kind=="failure" ? "failure":"result"
             content.userInfo=["id":id,"kind":kind]
-            notifications.add(UNNotificationRequest(identifier:kind+"."+id,content:content,trigger:nil)) { error in
-                if let error { NSLog("Notification delivery: %@",error.localizedDescription) }
+            notifications.add(UNNotificationRequest(identifier:kind+"."+id,content:content,trigger:nil)) { [weak self] error in
+                guard let error else {return} // Accepted by macOS does not mean a banner was displayed.
+                DispatchQueue.main.async {self?.js("notificationDeliveryFailed(id,kind,message)",["id":id,"kind":kind,"message":error.localizedDescription])}
             }
         case "clear":
             if let id=data["id"] as? String,let kind=data["kind"] as? String {
@@ -738,6 +860,229 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             notifications.removeAllPendingNotificationRequests();notifications.removeAllDeliveredNotifications()
         default:break
         }
+    }
+    @MainActor private func verifyWorkspace() async {
+        let id=UUID().uuidString.lowercased()
+        do {
+            guard let root=ProcessInfo.processInfo.environment["TASKTAP_TERMINAL_ROOT"],root.contains("tasktap-workspace-test") else {
+                throw LiveWorkspace.Failure.reason("Run this check with an isolated TASKTAP_TERMINAL_ROOT.")
+            }
+            let folder=runtime.root.appendingPathComponent("fixture")
+            try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
+            _ = try await web.callAsyncJavaScript("state.firstRun={done:true}; state.projects=[{id:folder,folder,name:'Workspace verification',aliases:[]}]; showWorkspace();go(folder);return true",arguments:["folder":folder.path],in:nil,contentWorld:.page)
+            terminals.send(["op":"start","id":id,"cwd":folder.path,"argv":["/bin/sh","-i"],"kind":"shell","title":"Verification shell"])
+            try await Task.sleep(nanoseconds:500_000_000)
+            _ = try await web.callAsyncJavaScript("workspaceDeck.open('terminal:'+id,folder);return true",arguments:["id":id,"folder":folder.path],in:nil,contentWorld:.page)
+            terminals.send(["op":"input","id":id,"data":Data("printf 'TASKTAP_%s\\n' READY\n".utf8).base64EncodedString()])
+            var ready=false
+            for _ in 0..<60 {
+                try await Task.sleep(nanoseconds:100_000_000)
+                let value=try await web.callAsyncJavaScript("return workspaceDeck.terminalText(id).includes('TASKTAP_READY')",arguments:["id":id],in:nil,contentWorld:.page)
+                if value as? Bool == true {ready=true;break}
+            }
+            guard ready else {throw Check.failed(#line)}
+            _ = try await web.evaluateJavaScript("document.querySelector('[data-action=deck-close]').click();true")
+            _ = try await web.callAsyncJavaScript("workspaceDeck.open('terminal:'+id,folder);return true",arguments:["id":id,"folder":folder.path],in:nil,contentWorld:.page)
+            try await Task.sleep(nanoseconds:400_000_000)
+            let restored=try await web.callAsyncJavaScript("return workspaceDeck.terminalText(id).includes('TASKTAP_READY')",arguments:["id":id],in:nil,contentWorld:.page)
+            guard restored as? Bool == true else {throw Check.failed(#line)}
+            let inSidebar=try await web.callAsyncJavaScript("return !!document.querySelector('[data-surface=\"terminal:'+id+'\"]')",arguments:["id":id],in:nil,contentWorld:.page)
+            guard inSidebar as? Bool == true else {throw Check.failed(#line)}
+            try await verifyTerminalViewport(folder:folder)
+            let file=folder.appendingPathComponent("Preview.txt")
+            try "Native preview works. <script>Untrusted text stays text.</script>".write(to:file,atomically:true,encoding:.utf8)
+            let media=workspaceMedia.register([file],persist:false)
+            _ = try await web.callAsyncJavaScript("workspaceDeck.addFiles(folder,files);return true",arguments:["folder":folder.path,"files":media],in:nil,contentWorld:.page)
+            try await Task.sleep(nanoseconds:400_000_000)
+            let text=try await web.evaluateJavaScript("document.querySelector('.deck-document').textContent")
+            guard (text as? String)?.contains("Native preview works.")==true else {throw Check.failed(#line)}
+            let svg=folder.appendingPathComponent("Preview.svg")
+            try "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"240\" height=\"120\"><rect width=\"240\" height=\"120\" fill=\"#234738\"/><text x=\"20\" y=\"65\" fill=\"white\">Workspace preview</text></svg>".write(to:svg,atomically:true,encoding:.utf8)
+            let images=workspaceMedia.register([svg],persist:false)
+            _ = try await web.callAsyncJavaScript("workspaceDeck.addFiles(folder,files);return true",arguments:["folder":folder.path,"files":images],in:nil,contentWorld:.page)
+            try await Task.sleep(nanoseconds:400_000_000)
+            let loaded=try await web.evaluateJavaScript("document.querySelector('.deck-preview:not([hidden]) img')?.naturalWidth>0")
+            guard loaded as? Bool == true else {throw Check.failed(#line)}
+            try await verifyWorkspaceDocuments(folder:folder)
+            let pdf=try ResultDocument.write("A native PDF preview.\n\nReadable beside your terminal.",to:folder,for:"Preview")
+            let pdfs=workspaceMedia.register([pdf],persist:false)
+            _ = try await web.callAsyncJavaScript("workspaceDeck.addFiles(folder,files);return true",arguments:["folder":folder.path,"files":pdfs],in:nil,contentWorld:.page)
+            var pdfLoaded=false
+            for _ in 0..<30 {
+                try await Task.sleep(nanoseconds:100_000_000)
+                let value=try await web.evaluateJavaScript("document.querySelector('.deck-pdf-page')?.naturalWidth>0")
+                if value as? Bool == true {pdfLoaded=true;break}
+            }
+            guard pdfLoaded else {throw Check.failed(#line)}
+            // A single native backdrop hosts the renderer; opacity never dims
+            // text. Accessibility's Reduce Transparency wins over preferences.
+            guard web.superview===workspaceBackdrop,workspace.alphaValue==1 else {throw Check.failed(#line)}
+            workspaceBackdrop.configure(["background":"#0d1117","opacity":0.93,"blur":true])
+            guard workspaceBackdrop.blurActive == !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency else {throw Check.failed(#line)}
+            try verifyWorkspaceChrome()
+            let originalFrame=workspace.frame
+            for size in [NSSize(width:760,height:480),NSSize(width:1440,height:900)] {
+                workspace.setContentSize(size)
+                try verifyWorkspaceChrome()
+            }
+            workspace.setFrame(originalFrame,display:true)
+            try verifyWorkspaceChrome()
+            workspaceBackdrop.configure(["opacity":1.0,"blur":false])
+            guard !workspaceBackdrop.blurActive,workspace.isOpaque else {throw Check.failed(#line)}
+            _ = try await web.evaluateJavaScript("workspaceDeck.appearanceLoaded(state.workspaceDeck.appearance||{});true")
+            // System must inherit AppKit's appearance rather than stay pinned
+            // to the preceding theme. Simulate changes only in this test app.
+            let originalAppearance=NSApp.appearance
+            let originalTheme=try await web.evaluateJavaScript("state.appearanceTheme") as? String ?? "ghostty"
+            _ = try await web.evaluateJavaScript("appAppearance.setTheme('system');true")
+            for (name,dark) in [(NSAppearance.Name.aqua,false),(.darkAqua,true)] {
+                NSApp.appearance=NSAppearance(named:name)
+                var follows=false
+                for _ in 0..<30 {
+                    try await Task.sleep(nanoseconds:100_000_000)
+                    let value=try await web.evaluateJavaScript("appAppearance.current().dark")
+                    if value as? Bool == dark && workspace.appearance == nil {follows=true;break}
+                }
+                guard follows else {throw Check.failed(#line)}
+            }
+            NSApp.appearance=originalAppearance
+            _ = try await web.callAsyncJavaScript("appAppearance.setTheme(theme);return true",arguments:["theme":originalTheme],in:nil,contentWorld:.page)
+            // Validate WebKit's media loading through the private scheme too;
+            // these codecs take a different path from images and PDFKit.
+            let wav=folder.appendingPathComponent("Audio.wav")
+            var audio=Data("RIFF".utf8)
+            func word<T:FixedWidthInteger>(_ value:T) {var little=value.littleEndian;withUnsafeBytes(of:&little) {audio.append(contentsOf:$0)}}
+            word(UInt32(16036));audio.append(Data("WAVEfmt ".utf8));word(UInt32(16));word(UInt16(1));word(UInt16(1));word(UInt32(8000));word(UInt32(16000));word(UInt16(2));word(UInt16(16));audio.append(Data("data".utf8));word(UInt32(16000));audio.append(Data(repeating:0,count:16000));try audio.write(to:wav)
+            let video=Bundle.main.resourceURL!.appendingPathComponent("prototype/assets/motion/relay/miniature.mp4")
+            for url in [wav,video] {
+                let files=workspaceMedia.register([url],persist:false)
+                _ = try await web.callAsyncJavaScript("workspaceDeck.addFiles(folder,files);return true",arguments:["folder":folder.path,"files":files],in:nil,contentWorld:.page)
+                var playable=false
+                for _ in 0..<30 {
+                    try await Task.sleep(nanoseconds:100_000_000)
+                    let value=try await web.evaluateJavaScript("(()=>{const m=document.querySelector('.deck-preview:not([hidden]) audio,.deck-preview:not([hidden]) video');return !!m && m.readyState>=1 && m.duration>0 && !m.error})()")
+                    if value as? Bool == true {playable=true;break}
+                }
+                guard playable else {throw Check.failed(#line)}
+                _ = try await web.callAsyncJavaScript("document.querySelector('[data-action=deck-close][data-id=\"media:'+id+'\"]').click();return true",arguments:["id":files[0]["id"]!],in:nil,contentWorld:.page)
+            }
+            if let destination=ProcessInfo.processInfo.environment["TASKTAP_WORKSPACE_SNAPSHOT"] {
+                _ = try await web.callAsyncJavaScript("""
+                    const l=state.workspaceDeck.layouts[folder],pdf=l.groups[0].active;
+                    l.groups[0].tabs=l.groups[0].tabs.filter(key=>key!==pdf);l.groups[0].active='terminal:'+id;
+                    l.groups.push({id:crypto.randomUUID(),tabs:[pdf],active:pdf});l.selected=0;render();document.querySelector('.deck-terminal:not([hidden]) .xterm-helper-textarea')?.focus();return true;
+                    """,arguments:["folder":folder.path,"id":id],in:nil,contentWorld:.page)
+                try await Task.sleep(nanoseconds:300_000_000)
+                // WebKit snapshots exclude native materials. Give the test
+                // image its base color; the live window keeps the native blur.
+                _ = try await web.evaluateJavaScript("document.body.classList.add('workspace-snapshot');true")
+                let image=try await web.takeSnapshot(configuration:nil)
+                _ = try await web.evaluateJavaScript("document.body.classList.remove('workspace-snapshot');true")
+                if let tiff=image.tiffRepresentation,let bitmap=NSBitmapImageRep(data:tiff),let bytes=bitmap.representation(using:.png,properties:[:]) {
+                    try bytes.write(to:URL(fileURLWithPath:destination))
+                }
+            }
+            terminals.send(["op":"stop","id":id])
+            try await Task.sleep(nanoseconds:400_000_000)
+            print("Native workspace passed: real PTY → WebKit/xterm, terminal replay after closing view, native text/image/PDF/audio/video previews, tinted titlebar and content layout across resizing, native System appearance changes, explicit stop.")
+            NSApp.terminate(nil)
+        } catch {
+            terminals.send(["op":"stop","id":id])
+            print("Native workspace failed:",error)
+            exit(1)
+        }
+    }
+    @MainActor private func verifyTerminalViewport(folder:URL) async throws {
+        let id=UUID().uuidString.lowercased(),originalFrame=workspace.frame
+        let fixture="""
+            import os, signal, sys, time
+            def draw(*args):
+                cols, rows = os.get_terminal_size(0)
+                sys.stdout.write(f'\\x1b[?1049h\\x1b[2J\\x1b[1;1HPTY {rows}x{cols}\\x1b[{rows};1HBOTTOM\\x1b[{rows};{max(1,cols-3)}HEDGE')
+                sys.stdout.flush()
+            signal.signal(signal.SIGWINCH, draw)
+            draw()
+            while True: time.sleep(1)
+            """
+        _ = try await web.callAsyncJavaScript("window.viewportVerification={layout:JSON.parse(JSON.stringify(state.workspaceDeck.layouts[folder])),appearance:state.workspaceDeck.appearance};return true",arguments:["folder":folder.path],in:nil,contentWorld:.page)
+        terminals.send(["op":"start","id":id,"cwd":folder.path,"argv":["/usr/bin/env","python3","-u","-c",fixture],"kind":"shell","title":"Full-screen viewport fixture"])
+        defer {terminals.send(["op":"stop","id":id]);workspace.setFrame(originalFrame,display:true)}
+        try await Task.sleep(nanoseconds:300_000_000)
+        _ = try await web.callAsyncJavaScript("workspaceDeck.open('terminal:'+id,folder);return true",arguments:["id":id,"folder":folder.path],in:nil,contentWorld:.page)
+        for scenario in 0..<4 {
+            if scenario==1 {workspace.setContentSize(NSSize(width:902,height:617))}
+            if scenario==2 {
+                _ = try await web.callAsyncJavaScript("const l=state.workspaceDeck.layouts[folder];workspaceLayout.split(l,l.groups[l.selected].id,'y','viewport-lower');l.selected=0;render();return true",arguments:["folder":folder.path],in:nil,contentWorld:.page)
+            }
+            if scenario==3 {
+                _ = try await web.callAsyncJavaScript("const l=state.workspaceDeck.layouts[folder];workspaceLayout.split(l,l.groups[0].id,'x','viewport-right');l.selected=0;workspaceDeck.appearanceLoaded({...state.workspaceDeck.appearance,fontFamilies:['Menlo'],fontSize:18,padding:[18,24,22,28]});render();return true",arguments:["folder":folder.path],in:nil,contentWorld:.page)
+            }
+            var fits=false
+            for _ in 0..<35 {
+                try await Task.sleep(nanoseconds:100_000_000)
+                let value=try await web.callAsyncJavaScript("const m=workspaceDeck.terminalMetrics(id);return !!m && m.firstLine==='PTY '+m.rows+'x'+m.cols && /^BOTTOM.*EDGE$/.test(m.lastLine) && m.screen.bottom<=m.content.bottom+.5 && m.screen.right<=m.content.right+.5 && m.screen.top>=m.content.top-.5 && m.screen.left>=m.content.left-.5 && m.content.bottom<=m.pane.bottom+.5 && m.content.right<=m.pane.right+.5 && m.pane.bottom<=m.viewport.height+.5 && m.pane.right<=m.viewport.width+.5",arguments:["id":id],in:nil,contentWorld:.page)
+                if value as? Bool == true {fits=true;break}
+            }
+            if !fits {print("Terminal viewport scenario",scenario,try await web.callAsyncJavaScript("return JSON.stringify(workspaceDeck.terminalMetrics(id))",arguments:["id":id],in:nil,contentWorld:.page) ?? "unavailable")}
+            guard fits else {throw Check.failed(#line)}
+        }
+        _ = try await web.callAsyncJavaScript("document.querySelector('[data-action=deck-close][data-id=\"terminal:'+id+'\"]')?.click();state.workspaceDeck.layouts[folder]=window.viewportVerification.layout;workspaceDeck.appearanceLoaded(window.viewportVerification.appearance||{});delete window.viewportVerification;render();return true",arguments:["id":id,"folder":folder.path],in:nil,contentWorld:.page)
+        print("Native terminal viewport passed: real PTY final-row and column markers remain visible with matching dimensions after window resize, nested splits and font/padding changes.")
+    }
+    @MainActor private func verifyWorkspaceDocuments(folder:URL) async throws {
+        let markdown=folder.appendingPathComponent("Readme.md"),sibling=folder.appendingPathComponent("Details.md")
+        try "# Native Markdown\n\n- [x] Ready\n\n| Preview | State |\n| --- | --- |\n| Markdown | Rendered |\n\n![Local diagram](Preview.svg)\n\n[Details](Details.md)\n".write(to:markdown,atomically:true,encoding:.utf8)
+        try "# Local details".write(to:sibling,atomically:true,encoding:.utf8)
+        let files=workspaceMedia.register([markdown],persist:false),id=files[0]["id"]!
+        guard files[0]["kind"]=="markdown",try workspaceMedia.openRelative(id,href:"Details.md",persist:false).count==1 else {throw Check.failed(#line)}
+        let outside=folder.deletingLastPathComponent().appendingPathComponent("Outside.md"),escape=folder.appendingPathComponent("Escape.md")
+        try "Outside selected folder".write(to:outside,atomically:true,encoding:.utf8)
+        try? FileManager.default.removeItem(at:escape)
+        try FileManager.default.createSymbolicLink(at:escape,withDestinationURL:outside)
+        defer {try? FileManager.default.removeItem(at:outside);try? FileManager.default.removeItem(at:escape)}
+        for href in ["../Outside.md","%2e%2e/Outside.md","Escape.md","file:///etc/passwd","https://example.com/file.md"] {
+            guard (try? workspaceMedia.openRelative(id,href:href,persist:false))==nil else {throw Check.failed(#line)}
+        }
+        _ = try await web.callAsyncJavaScript("workspaceDeck.addFiles(folder,files);return true",arguments:["folder":folder.path,"files":files],in:nil,contentWorld:.page)
+        var rendered=false
+        for _ in 0..<30 {
+            try await Task.sleep(nanoseconds:100_000_000)
+            let value=try await web.evaluateJavaScript("(()=>{const d=document.querySelector('.deck-preview:not([hidden]) .workspace-document');return d?.querySelector('h1')?.textContent==='Native Markdown' && d.querySelector('img')?.naturalWidth>0 && !!d.querySelector('table') && !!d.querySelector('input:checked')})()")
+            if value as? Bool == true {rendered=true;break}
+        }
+        guard rendered else {throw Check.failed(#line)}
+        let nonce=UUID().uuidString,html=folder.appendingPathComponent("Interactive.html")
+        try "window.localPreviewScript=true;".write(to:folder.appendingPathComponent("preview.js"),atomically:true,encoding:.utf8)
+        try "#fixture{border-top:7px solid blue}".write(to:folder.appendingPathComponent("preview.css"),atomically:true,encoding:.utf8)
+        try """
+            <!doctype html><script>window.previewViolations=[];document.addEventListener('securitypolicyviolation',event=>previewViolations.push({blocked:event.blockedURI,directive:event.effectiveDirective}))</script><link rel="stylesheet" href="preview.css"><style>#fixture{color:rgb(12, 34, 56)}</style>
+            <h1 id="fixture">Interactive HTML</h1><img id="local" src="Preview.svg"><script src="preview.js"></script>
+            <script>addEventListener('load',()=>{let isolated=false;try{void parent.document.body}catch{isolated=true}const s=getComputedStyle(document.querySelector('#fixture'));parent.postMessage({probe:'\(nonce)',inline:true,sibling:window.localPreviewScript===true,image:document.querySelector('#local').naturalWidth>0,color:s.color,border:s.borderTopWidth,isolated,violations:previewViolations},'*')})</script>
+            """.write(to:html,atomically:true,encoding:.utf8)
+        _ = try await web.callAsyncJavaScript("window.workspaceHTMLProbe=null;window.workspaceHTMLListener=event=>{if(event.data?.probe===nonce)window.workspaceHTMLProbe={...event.data,origin:event.origin}};window.addEventListener('message',window.workspaceHTMLListener);return true",arguments:["nonce":nonce],in:nil,contentWorld:.page)
+        let pages=workspaceMedia.register([html],persist:false)
+        _ = try await web.callAsyncJavaScript("workspaceDeck.addFiles(folder,files);return true",arguments:["folder":folder.path,"files":pages],in:nil,contentWorld:.page)
+        var htmlReady=false
+        for _ in 0..<30 {
+            try await Task.sleep(nanoseconds:100_000_000)
+            let value=try await web.evaluateJavaScript("(()=>{const p=window.workspaceHTMLProbe;return !!p && p.inline && p.sibling && p.image && p.color==='rgb(12, 34, 56)' && p.border==='7px' && p.isolated && p.origin==='null'})()")
+            if value as? Bool == true {htmlReady=true;break}
+        }
+        if !htmlReady {print("HTML preview probe",try await web.evaluateJavaScript("JSON.stringify(window.workspaceHTMLProbe)") ?? "unavailable")}
+        _ = try await web.evaluateJavaScript("window.removeEventListener('message',window.workspaceHTMLListener);delete window.workspaceHTMLListener;delete window.workspaceHTMLProbe;true")
+        guard htmlReady else {throw Check.failed(#line)}
+        print("Native document previews passed: rendered Markdown and local images, explicit sibling links confined against traversal/symlinks, sandboxed HTML with inline and sibling scripts/styles.")
+    }
+    @MainActor private func verifyWorkspaceChrome() throws {
+        workspaceBackdrop.layoutSubtreeIfNeeded()
+        let bounds=workspaceBackdrop.bounds
+        let content=workspaceBackdrop.convert(workspace.contentLayoutRect,from:nil)
+        let titlebar=NSRect(x:bounds.minX,y:content.maxY,width:bounds.width,height:bounds.maxY-content.maxY)
+        let backgrounds=workspaceBackdrop.subviews.filter {$0 !== web}
+        guard workspace.styleMask.contains(.fullSizeContentView),workspace.contentView===workspaceBackdrop,
+              web.superview===workspaceBackdrop,web.frame==content,titlebar.height>0,
+              backgrounds.count==2,backgrounds.allSatisfy({$0.frame.contains(titlebar) && $0.frame==bounds}),
+              backgrounds.contains(where:{$0.layer?.backgroundColor?.alpha ?? 0 >= 0.93}) else {throw Check.failed(#line)}
     }
     // Run the packaged web view with ephemeral storage and synthetic controller commands.
     @MainActor private func verifyInterface() async {
@@ -860,17 +1205,17 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             var motionReady=false
             for _ in 0..<42 {
                 let value=try await web.evaluateJavaScript("""
-                    (()=>{const v=document.querySelector('[data-film=stage]');
+                    (()=>{const v=document.querySelector('[data-film=home]');
                     if(!v || !v.poster)return false;
                     if(matchMedia('(prefers-reduced-motion: reduce)').matches)return !v.hasAttribute('src') && v.paused;
-                    return document.hidden ? v.paused : v.currentTime>0 && !v.paused})()
+                    return document.hidden ? v.paused : v.currentTime>0 && !v.paused && v.playbackRate===1 && v.duration>=15.9})()
                     """)
                 if value as? Bool==true {motionReady=true;break}
                 try await Task.sleep(nanoseconds:120_000_000)
             }
             if !motionReady {
                 let diagnostic=try await web.evaluateJavaScript("""
-                    (()=>{const v=document.querySelector('[data-film=stage]');
+                    (()=>{const v=document.querySelector('[data-film=home]');
                     return JSON.stringify({view,hidden:document.hidden,modal:!!document.querySelector('dialog[open]'),
                         video:v?{src:v.currentSrc,state:v.readyState,error:v.error?.message,paused:v.paused,time:v.currentTime}:null})})()
                     """)
@@ -878,6 +1223,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 throw Check.failed(#line)
             }
             workspace.setContentSize(NSSize(width:760,height:480))
+            try verifyWorkspaceChrome()
             let resized=workspace.frame
             deliver("prefs")
             try await Task.sleep(nanoseconds:200_000_000)
@@ -920,6 +1266,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             if locked {print("Mac locked. Verified the focused editor and panel transfer; system keyboard delivery requires an unlocked desktop.")}
             deliver("workspace")
             try await Task.sleep(nanoseconds:200_000_000)
+            try verifyWorkspaceChrome()
             workspace.performClose(nil)
             try await Task.sleep(nanoseconds:250_000_000)
             guard !isWorkspace,!workspace.isVisible,panel.isVisible else {throw Check.failed(#line)}
@@ -973,9 +1320,11 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     func applicationWillFinishLaunching(_ notification: Notification){
         let review=UNNotificationAction(identifier:"review",title:"Review in notch",options:[.foreground])
         let open=UNNotificationAction(identifier:"open",title:"View result",options:[.foreground])
+        let inspect=UNNotificationAction(identifier:"inspect",title:"Open session",options:[.foreground])
         notifications.setNotificationCategories([
             UNNotificationCategory(identifier:"decision",actions:[review],intentIdentifiers:[],options:[]),
-            UNNotificationCategory(identifier:"result",actions:[open],intentIdentifiers:[],options:[])
+            UNNotificationCategory(identifier:"result",actions:[open],intentIdentifiers:[],options:[]),
+            UNNotificationCategory(identifier:"failure",actions:[inspect],intentIdentifiers:[],options:[])
         ])
     }
     func userNotificationCenter(_ center:UNUserNotificationCenter,willPresent notification:UNNotification,
@@ -986,10 +1335,13 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         let info=response.notification.request.content.userInfo
         guard response.actionIdentifier != UNNotificationDismissActionIdentifier,
               let id=info["id"] as? String,let kind=info["kind"] as? String else { return }
-        DispatchQueue.main.async { self.deliver(kind=="request" ? "notice-request":"notice-result",id) }
+        DispatchQueue.main.async { self.deliver(kind=="request" ? "notice-request":kind=="failure" ? "notice-session":"notice-result",id) }
     }
     func webView(_ webView:WKWebView,decidePolicyFor navigationAction:WKNavigationAction,
                  decisionHandler:@escaping (WKNavigationActionPolicy)->Void){
+        if navigationAction.targetFrame?.isMainFrame == false,
+           let scheme=navigationAction.request.url?.scheme?.lowercased(),
+           ["tasktap-preview","http","https","about","blob"].contains(scheme) {decisionHandler(.allow);return}
         decisionHandler(navigationAction.request.url?.standardizedFileURL==entry?.standardizedFileURL ? .allow:.cancel)
     }
     func windowDidChangeScreen(_ notification: Notification) {
@@ -998,8 +1350,28 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     }
     func windowShouldClose(_ sender:NSWindow)->Bool { deliver("collapse",reveal:false);return false }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    private func updateNotificationStatus() {
+        notifications.getNotificationSettings { [weak self] settings in
+            let authorization: String
+            switch settings.authorizationStatus {
+            case .notDetermined: authorization="notDetermined"
+            case .denied: authorization="denied"
+            case .authorized: authorization="authorized"
+            case .provisional: authorization="provisional"
+            @unknown default: authorization="unknown"
+            }
+            func setting(_ value: UNNotificationSetting) -> String {
+                switch value {case .enabled:return "enabled";case .disabled:return "disabled";default:return "unavailable"}
+            }
+            let status=["authorization":authorization,"alerts":setting(settings.alertSetting),"center":setting(settings.notificationCenterSetting)]
+            DispatchQueue.main.async {self?.js("notificationStatus(status)",["status":status])}
+        }
+    }
     func applicationDidBecomeActive(_ notification: Notification) {
-        if ready { updateMenu() }
+        if ready {
+            updateMenu()
+            js("if(document.querySelector('#notification-preferences'))postHost('notification-status')",[:])
+        }
     }
     func applicationWillTerminate(_ notification:Notification){
         connectionTask?.cancel();routeTask?.cancel();serverProbe?.cancel();identityCheck?.cancel()

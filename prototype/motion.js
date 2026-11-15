@@ -1,4 +1,4 @@
-// Each study ships with a loop and a finished first frame in two compositions.
+// Home has a wide, slow-authored loop; other surfaces keep their own framing.
 const TasktapArt = (() => {
   const definitions = [
     ['glyph','Glyph wave','ASCII'],
@@ -14,16 +14,25 @@ const TasktapArt = (() => {
   ));
   const known = id => catalog.some(study => study.id === id);
   let selected = catalog[0].id;
+  let homePaused = false;
   try {
     const stored = localStorage.getItem(key);
     if (known(stored)) selected = stored;
+    homePaused = localStorage.getItem('tasktap-home-motion') === 'paused';
   } catch {}
+  function pauseHome(paused) {
+    homePaused = !!paused;
+    try { localStorage.setItem('tasktap-home-motion',homePaused?'paused':'playing'); } catch {}
+    document.dispatchEvent(new Event('tasktap-home-motion'));
+  }
 
   function file(id,size,ext) {
-    return root(known(id) ? id : selected)+'/'+(size === 'miniature' ? size : 'stage')+'.'+ext;
+    const art=known(id)?id:selected;
+    const composition=size==='home'&&art==='resonator'?'stage':['home','miniature'].includes(size)?size:'stage';
+    return root(art)+'/'+composition+'.'+ext;
   }
   function markup(size='stage',id) {
-    size = size === 'miniature' ? size : 'stage';
+    size = ['home','miniature'].includes(size) ? size : 'stage';
     const fixed = known(id);
     const art = fixed ? id : selected;
     return '<span class="resonator-film" aria-hidden="true"><video muted playsinline loop preload="none" tabindex="-1" disablepictureinpicture data-film="'+size+'" data-study="'+art+'"'+(fixed?' data-fixed-study':'')+' poster="'+file(art,size,'jpg')+'"></video></span>';
@@ -50,13 +59,14 @@ const TasktapArt = (() => {
     return true;
   }
   brand();
-  return Object.freeze({catalog, current:()=>selected, select, markup,
+  return Object.freeze({catalog, current:()=>selected, select, markup, homePaused:()=>homePaused, pauseHome,
     poster:(id,size='stage')=>file(id,size,'jpg'), movie:(id,size)=>file(id,size,'mp4')});
 })();
 
 function resonatorMarkup(size) { return TasktapArt.markup(size); }
 function motionOverview(heading) {
-  return '<div class="resonator-stage">'+heading+TasktapArt.markup('stage')+'</div>';
+  const paused=TasktapArt.homePaused(),label=paused?'Play artwork':'Pause artwork';
+  return '<div class="resonator-stage">'+heading+TasktapArt.markup('home')+'<button type="button" class="home-art-toggle" data-paused="'+paused+'" aria-label="'+label+'" title="'+label+'"><span class="art-pause">'+icon('pause')+'</span><span class="art-play">'+icon('play')+'</span></button></div>';
 }
 (() => {
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -67,13 +77,18 @@ function motionOverview(heading) {
   function synchronize() {
     const dialogs = [...document.querySelectorAll('dialog[open]')];
     const topDialog = dialogs.at(-1);
+    for(const toggle of document.querySelectorAll('.home-art-toggle')) {
+      const paused=TasktapArt.homePaused(),label=paused?'Play artwork':'Pause artwork';
+      toggle.dataset.paused=String(paused);toggle.setAttribute('aria-label',label);toggle.title=label;
+      if(toggle.hidden!==reduceMotion.matches)toggle.hidden=reduceMotion.matches;
+    }
     for (const film of tracked) {
       const notchMiniature = !!film.closest('#notch-home');
+      const homeArtwork = !!film.closest('.resonator-stage');
       const signal = document.body.dataset.signal;
-      const statusArt = notchMiniature || !!film.closest('.resonator-stage');
-      const hasActivity = !statusArt || (!!signal && signal !== 'idle');
+      const hasActivity = !notchMiniature || (!!signal && signal !== 'idle');
       const uncovered = !topDialog || topDialog.contains(film);
-      const requested = visible.has(film) && hasActivity && uncovered && !document.hidden && !reduceMotion.matches;
+      const requested = visible.has(film) && hasActivity && !(homeArtwork&&TasktapArt.homePaused()) && uncovered && !document.hidden && !reduceMotion.matches;
       if (!requested) {
         if (!film.paused) film.pause();
         if (reduceMotion.matches && film.hasAttribute('src')) {
@@ -86,7 +101,8 @@ function motionOverview(heading) {
         film.preload = 'auto';
         film.src = TasktapArt.movie(film.dataset.study,film.dataset.film);
       }
-      const rate = artworkPlaybackRate(film.getBoundingClientRect().width);
+      // Slow movement is authored into Home's frames, preserving smooth playback.
+      const rate = homeArtwork ? 1 : artworkPlaybackRate(film.getBoundingClientRect().width);
       if (film.playbackRate !== rate) film.playbackRate = rate;
       film.muted = true;
       if (film.paused) film.play().catch(() => {});
@@ -125,6 +141,8 @@ function motionOverview(heading) {
   new MutationObserver(synchronize).observe(document.body,{attributes:true,attributeFilter:['data-signal','class']});
   document.addEventListener('visibilitychange', synchronize);
   document.addEventListener('tasktap-art-change', synchronize);
+  document.addEventListener('tasktap-home-motion', synchronize);
+  document.addEventListener('click',event=>{if(event.target.closest('.home-art-toggle'))TasktapArt.pauseHome(!TasktapArt.homePaused())});
   reduceMotion.addEventListener('change', synchronize);
   watch();
 })();

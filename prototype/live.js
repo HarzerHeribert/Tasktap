@@ -8,7 +8,7 @@ function projectsDiscovered(rows){
   for(const row of rows){
     let p=state.projects.find(p=>p.folder===row.folder);
     if(!p){p={id:row.folder,color:'#a8c3ae'};state.projects.push(p)}
-    Object.assign(p,row,{available:true,aliases:[row.name.replace(/[-_]+/g,' ')]});
+    Object.assign(p,row,{available:row.available!=='false'&&row.available!==false,aliases:[row.name.replace(/[-_]+/g,' ')]});
   }
   for(const p of state.projects){if(!rows.some(r=>r.folder===p.folder))p.available=false}
   persist();render();
@@ -68,7 +68,7 @@ function sessionHost(d){
   if(d.host==='claude-desktop' && d.agent!=='claude')return 'terminal';
   if(terminalHosts.valid(d.host))return d.host;
   if(state.sessionHost==='claude-desktop' && d.agent!=='claude')return 'terminal';
-  return terminalHosts.valid(state.sessionHost)?state.sessionHost:'terminal';
+  return terminalHosts.valid(state.sessionHost)?state.sessionHost:'tasktap';
 }
 function sessionHostLabel(d){return terminalHosts.label(sessionHost(d))}
 function failedStart(s){
@@ -123,19 +123,13 @@ function deliveryInstructions(d){
   return checkpointGuidance+' For current Tasktap sessions in this checkout, you can call list_project_sessions. Use the workspace_assistant ask_user tool when a decision is needed. A discussion is a follow-up. When the task is complete, report the outcome and changed files with report_result for Tasktap receipt '+d.captureId+'.';
 }
 function deliveryAudit(d) {
-  if(d.mode==='note')return '';
-  const manual=manualNudge(d), host=sessionHostLabel(d);
-  const label=d.mode==='ask'?'Open '+providers[d.agent]+' in '+host:manual?'Copy the nudge and open '+host:'Send to '+(sess(d.session)?.task || 'the selected session');
-  const outgoing=deliveryText(d),instructions=deliveryInstructions(d);
-  return '<details class="route-evidence"><summary>'+esc(label)+'</summary><p class="body-copy">'+esc(outgoing)+'</p>'+
-    (d.mode==='ask' && hasSessionTools(d)?'<p class="hint">'+(d.agent==='codex'?'Codex reviews action requests with the workspace sandbox enabled.':'Claude starts in Auto mode when your model and organization allow it.')+'</p>':'')+
-    (instructions?'<p class="hint">Session instructions</p><p class="body-copy">'+esc(instructions)+'</p>':'')+
-    (d.mode==='ask' && !instructions?'<p class="hint">Read replies and answer decisions in '+esc(providers[d.agent])+'.</p>':'')+
-    (manual?'<p class="hint">Paste the text at the agent prompt and press Return.</p>':'')+'</details>';
+  return {mode:d.mode,host:d.mode==='note'?'':sessionHostLabel(d),manual:d.mode!=='note'&&!!manualNudge(d),
+    outgoing:d.mode==='note'?captureContext.brief(d):deliveryText(d),instructions:deliveryInstructions(d)};
 }
 function reviewReceipt(d,phase,label){
   if(d.mode==='note')return;
   d.relayPhase=phase;
+  if(typeof handoffReview!=='undefined')handoffReview.pending(d);
   handoffRelay.event(d.captureId,phase);
   const rail=$('#modal .review-rail tasktap-relay');
   if(rail && rail.dataset.capture===d.captureId){
@@ -149,7 +143,7 @@ function submitLive(d){
   const p=proj(d.project);
   if(d.mode==='nudge'&&!canNudge(prior)){toast('Select an available session to send a follow-up.');return}
   const create=d.project==='@new';
-  const folder=create?'~/projects/'+d.newName:d.project==='@scratch'?'@scratch':p?.folder;
+  const folder=create?workspaceSettings.newFolder(d.newName):d.project==='@scratch'?'@scratch':p?.folder;
   if(!folder){toast('Choose a workspace first.');return}
   d.captureId??=uid();d.runId??=d.mode==='nudge' && prior?prior.id:d.mode==='ask' && d.retryOf?d.retryCapture:uid();
   d.accountReceipt=aiConnections.record(d);
@@ -161,6 +155,7 @@ function submitLive(d){
   if(d.mode==='ask' && d.agent==='codex' && trust)job.reviewedFolder=trust.dataset.folder;
   if(d.mode==='ask' && d.retryOf)job.retryOf=d.retryOf;
   d.submitting=true;
+  delete d.handoffError;$('#handoff-error')?.remove();
   reviewReceipt(d,'submitting','Submitting handoff');
   postLive('enqueue',{job});
 }
@@ -168,7 +163,7 @@ function acceptLive(data){
   const d=draft;
   if(!d||d.captureId!==data.capture)return;
   d.submitting=false;
-  if(data.error){reviewReceipt(d,'failed','Handoff failed');let error=$('#handoff-error');if(!error){error=document.createElement('p');error.id='handoff-error';error.setAttribute('role','alert');$('#modal .form-actions').before(error)}error.textContent=data.error+' Your request is preserved. Choose Adjust to change the terminal or agent, then try again.';return}
+  if(data.error){d.handoffError=data.error;reviewReceipt(d,'failed','Handoff failed');let error=$('#handoff-error');if(!error){error=document.createElement('p');error.id='handoff-error';error.setAttribute('role','alert');$('#modal .form-actions').prepend(error)}error.textContent=data.error+' Your request is preserved. Choose Change destination to change the terminal or agent, then try again.';return}
   const existing=byId(state.captures,d.captureId);
   const jobHost=sessionHost(d);
   const receiptState=existing?.receipt || (d.mode==='note'?'Saved':'Queued');
@@ -217,10 +212,11 @@ function agentReceipt(e){
   s.state=state.decisions.some(q=>q.session===s.id)?'Needs input':activeState || (s.interactive && e.mode==='nudge' && ['Failed','Copied','Delivered'].includes(e.state)?(s.available===false?'Closed':'Connected'):e.state);
   if(s.state==='Prepared')s.state='Ready to send';
   if(s.state==='Opened' && s.agent==='claude' && s.startup!=='confirmed')s.state='Awaiting agent';
+  if(typeof workspaceDeck!=='undefined')workspaceDeck.outcome(e);
   if(e.state==='Complete' && state.speak && !c.quiet && !e.recovered)readAloud(e.message);
   persist();render();
   if($('#modal').open && $('#receipt')?.dataset.capture===e.capture)detailCapture(e.capture);
-  else if($('#modal').open && openedSession===s.id && $('#dialog-heading')?.textContent===s.task)showSession(s.id);
+  else if($('#modal').open && openedSession===s.id && $('#modal .session-detail'))showSession(s.id);
 }
 function prepareHandoff(){
   const d=draft;
@@ -315,6 +311,7 @@ function startDictation(target,owner,id=uid()){
   const feedback=$('#capture-feedback');
   if(feedback)feedback.textContent='';
   if(control)control.textContent='Starting microphone…';
+  captureContext.startInput(target);
   postLive('dictation-start',{id,shortcut:owner==='shortcut'});
 }
 function finishDictation(owner,id){

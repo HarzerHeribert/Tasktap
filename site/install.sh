@@ -10,7 +10,7 @@ resolve_version() {
       *) echo 'Could not resolve the latest stable Tasktap release.' >&2; return 1 ;;
     esac
   fi
-  [[ "$requested" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Use latest or a stable version such as 0.3.2.' >&2; return 2; }
+  [[ "$requested" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Use latest or a stable version such as 1.0.0.' >&2; return 2; }
   printf '%s\n' "$requested"
 }
 install_tasktap() {

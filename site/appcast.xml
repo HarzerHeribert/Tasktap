@@ -3,14 +3,14 @@
     <channel>
         <title>Tasktap</title>
         <item>
-            <title>Tasktap 1.0.0 — Integrated workspaces</title>
-            <description><![CDATA[<h2>A place for the whole task</h2><ul><li>Built-in terminals, tabs, nested splits and media previews.</li><li>Open and close your own workspaces, with one theme across the app.</li><li>Clearer task review, preserved source context and readable agent reports.</li></ul><p>Existing notes, sessions and terminal preferences are retained. Python 3 is required for terminal sessions. Community build for Apple silicon and macOS 26+, not Apple notarized.</p>]]></description>
-            <pubDate>Sun, 15 Nov 2026 17:43:41 +0100</pubDate>
-            <sparkle:version>7</sparkle:version>
-            <sparkle:shortVersionString>1.0.0</sparkle:shortVersionString>
+            <title>Tasktap 1.0.1 — Simpler workspaces</title>
+            <description><![CDATA[<ul><li>One compact sidebar row per workspace, with agent attention and result indicators.</li><li>Terminal, browser and split controls on each surface.</li><li>Closing or moving the final tab closes its surface; terminal processes keep running.</li><li>Tab actions by right-click or Shift+F10, with reliable pending launches and preview moves.</li></ul><p>Existing tabs, notes and preferences are retained. Apple silicon, macOS 26+ and Python 3 for terminals. Community build, not Apple notarized.</p>]]></description>
+            <pubDate>Mon, 16 Nov 2026 00:39:43 +0100</pubDate>
+            <sparkle:version>8</sparkle:version>
+            <sparkle:shortVersionString>1.0.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/HarzerHeribert/Tasktap/releases/download/v1.0.0/Tasktap-1.0.0-arm64.zip" length="16676516" type="application/octet-stream" sparkle:edSignature="Nsrp08aOm/bSUyjKSxiPKRylebNpbQ6O+vsN6fB5SBPUD2tzimKkgJgRr4j79Mm8YhnZZ3GvY9Nvby1irkqnBw=="/>
+            <enclosure url="https://github.com/HarzerHeribert/Tasktap/releases/download/v1.0.1/Tasktap-1.0.1-arm64.zip" length="16676879" type="application/octet-stream" sparkle:edSignature="U8h1TQc7xWdY8zCD27KdDpn6uFCL7Pfu4WoNZJkWcxgtoYl+XlrY9tYVFdrLkpq7U8cZdm3yZzpPQ8yHE4lbDg=="/>
         </item>
     </channel>
 </rss>

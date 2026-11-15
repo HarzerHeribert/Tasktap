@@ -4,6 +4,7 @@
 const workspaceDeck=(()=>{
   state.workspaceDeck??={layouts:{},media:{},preferences:{shell:'default'},activity:[],seen:{}};
   const saved=state.workspaceDeck;
+  for(const l of Object.values(saved.layouts)){workspaceLayout.ensure(l);const selected=l.groups[l.selected];l.groups=l.groups.filter(g=>g.tabs.length);l.selected=Math.max(0,l.groups.indexOf(selected));workspaceLayout.ensure(l)}
   saved.activity??=[];saved.seen??={};saved.preferences??={shell:'default'};
   if(!saved.preferences.appearanceVersion){delete saved.preferences.font;saved.preferences.appearanceVersion=1}
   saved.sidebarHidden??=false;
@@ -23,7 +24,8 @@ const workspaceDeck=(()=>{
   const send=(op,values={})=>{if(live)postLive('workspace-terminal',{op,...values})};
   const bytes=text=>Uint8Array.from(atob(text),c=>c.charCodeAt(0));
   const encoded=text=>{const data=new TextEncoder().encode(text);let value='';for(const b of data)value+=String.fromCharCode(b);return btoa(value)};
-  const layout=id=>workspaceLayout.ensure(saved.layouts[id]??={groups:[{id:uid(),tabs:[],active:null}],selected:0});
+  const layout=id=>workspaceLayout.ensure(saved.layouts[id]??={groups:[],selected:0});
+  function selectedGroup(l){if(!l.groups.length){l.groups.push({id:uid(),tabs:[],active:null});workspaceLayout.ensure(l)}return l.groups[l.selected]}
   const termID=key=>key?.startsWith('terminal:')?key.slice(9):null;
   const mediaID=key=>key?.startsWith('media:')?key.slice(6):null;
   const projectFor=folder=>state.projects.find(p=>p.folder===folder || p.id===folder);
@@ -41,7 +43,7 @@ const workspaceDeck=(()=>{
   function report(id){const capture=byId(state.captures,id),session=sess(capture?.session||id);return {capture,session,text:capture?.result||session?.result||'No outcome has been reported yet.'}}
   function label(key){const id=termID(key);if(id)return sess(id)?sessionDisplayName(sess(id)):terminals.get(id)?.title||'Terminal';if(mediaID(key))return saved.media[mediaID(key)]?.title||'File';return report(key?.slice(7)).session?.task||'Result'}
   function surfaceIcon(key){return termID(key)?'sessions':mediaID(key)?saved.media[mediaID(key)]?.kind==='web'?'out':'note':'checks'}
-  function status(id){const t=terminals.get(id),s=sess(id);return t?.running===false?(t.exit===0?'Exited':t.restored?'Not running':'Stopped'):s?.state||'Shell running'}
+  function status(id){const t=terminals.get(id),s=sess(id);return pendingStarts.has(id)?'Opening terminal':t?.running===false?(t.exit===0?'Exited':t.restored?'Not running':'Stopped'):s?.state||'Shell running'}
   function notify(kind,id,title,body,token,capture){
     if(saved.seen[token])return;
     saved.seen[token]=Date.now();
@@ -82,7 +84,7 @@ const workspaceDeck=(()=>{
       }else if(e.event==='disconnected'){
         connected=false;for(const en of engines.values()){en.attached=false;en.pendingInput=[];en.pendingBytes=0;}
         toast(e.error);schedule();
-      }else if(e.event==='error'){pendingStarts.delete(e.id);const en=engines.get(e.id);if(en){en.pendingInput=[];en.pendingBytes=0}toast(e.error||'The terminal operation could not be completed.');schedule()}
+      }else if(e.event==='error'){const pending=pendingStarts.get(e.id);pendingStarts.delete(e.id);if(pending&&!pending.closed)close('terminal:'+e.id,pending.project);const en=engines.get(e.id);if(en){en.pendingInput=[];en.pendingBytes=0}toast(e.error||'The terminal operation could not be completed.');schedule()}
     }
     await Promise.all(writes);
   }
@@ -154,10 +156,11 @@ const workspaceDeck=(()=>{
   }
   function openWorkspace(project,createTerminal=false){
     const p=proj(project);if(!p)return;
-    rememberWorkspace(project);saved.navigationExpanded??={};saved.navigationExpanded[project]=true;
+    rememberWorkspace(project);
+    for(const item of saved.activity)if(sess(item.id)?.project===project||terminals.get(item.id)?.cwd===p.folder)item.read=true;
     if(typeof showWorkspace==='function')showWorkspace();go(project);
     const l=layout(project);
-    if(createTerminal&&!l.groups.some(g=>g.tabs.length)&&![...pendingStarts.values()].some(v=>v.project===project&&!v.closed))startTerminal(project,l.groups[l.selected].id);
+    if(createTerminal&&!l.groups.some(g=>g.tabs.length)&&![...pendingStarts.values()].some(v=>v.project===project&&!v.closed))startTerminal(project);
     else focusSurface(project,l.groups[l.selected]?.active);
     persist();
   }
@@ -170,15 +173,15 @@ const workspaceDeck=(()=>{
     if(view===project)go(saved.openProjects[Math.min(Math.max(0,index),saved.openProjects.length-1)]||'overview');else renderNav(listedProjects(activeSessions()));
     persist();toast('Workspace closed. Its layout is saved; terminal sessions keep running.');
   }
-  function open(key,project,activate=true){
+  function open(key,project,activate=true,groupID=null){
     const l=layout(project);let group=l.groups.find(g=>g.tabs.includes(key));
-    if(!group){group=l.groups[l.selected]||l.groups[0];group.tabs.push(key)}group.active=key;l.selected=l.groups.indexOf(group);
+    if(!group){group=groupID?l.groups.find(g=>g.id===groupID):selectedGroup(l);if(!group)return;group.tabs.push(key)}group.active=key;l.selected=l.groups.indexOf(group);
     if(activate){if(typeof showWorkspace==='function')showWorkspace();go(project);requestAnimationFrame(()=>{const en=engines.get(termID(key));if(en)en.term.focus();else projects.get(project)?.querySelector('.deck-tab[aria-selected="true"][data-id="'+CSS.escape(key)+'"]')?.focus()})}else if(view===project)renderProject(proj(project));persist();
   }
   function leave(){activeProject=null;stage.hidden=true;$('#main').hidden=false;document.body.classList.remove('workspace-active','deck-focus');if(typeof workspaceNavigation!=='undefined')workspaceNavigation.sync()}
   // Panes remain flat, stable DOM siblings. A split tree supplies their bounds;
   // changing a split never reparents an iframe or recreates a terminal engine.
-  function treeShape(node){return node.group||[node.id,node.axis,treeShape(node.first),treeShape(node.second)]}
+  function treeShape(node){return node?(node.group||[node.id,node.axis,treeShape(node.first),treeShape(node.second)]):null}
   function branch(node,id){if(node.group)return null;return node.id===id?node:branch(node.first,id)||branch(node.second,id)}
   function focusSurface(project,key){
     requestAnimationFrame(()=>{if(view!==project)return;const en=engines.get(termID(key));if(en&&en.element.getClientRects().length)en.term.focus();else projects.get(project)?.querySelector('.deck-tab[aria-selected="true"][data-id="'+CSS.escape(key||'')+'"]')?.focus()});
@@ -187,21 +190,23 @@ const workspaceDeck=(()=>{
     const pending=pendingStarts.get(row.id);if(!pending)return false;
     pendingStarts.delete(row.id);
     const l=layout(pending.project),g=l.groups.find(g=>g.id===pending.group);
-    if(g&&!pending.closed){const key='terminal:'+row.id;if(!g.tabs.includes(key))g.tabs.push(key);g.active=key;
-      if(view===pending.project){renderProject(proj(pending.project));if(l.groups[l.selected]===g)focusSurface(pending.project,key)}
+    if(g&&!pending.closed){const key='terminal:'+row.id;if(!g.tabs.includes(key)){g.tabs.push(key);g.active=key}
+      if(view===pending.project){renderProject(proj(pending.project));if(l.groups[l.selected]===g&&g.active===key)focusSurface(pending.project,key)}
     }
     return true;
   }
   function startTerminal(project,groupID){
-    const p=proj(project),l=layout(project),g=l.groups.find(g=>g.id===groupID)||l.groups[l.selected];if(!p||!g)return;
+    const p=proj(project);if(!p)return;const l=layout(project),g=groupID?l.groups.find(g=>g.id===groupID):selectedGroup(l);if(!g)return;
     const id=uid();pendingStarts.set(id,{project,group:g.id});
+    g.tabs.push('terminal:'+id);g.active='terminal:'+id;l.selected=l.groups.indexOf(g);
     if(live)send('start',{id,cwd:p.folder,shell:saved.preferences.shell});
     else{const row={id,cwd:p.folder,title:'Terminal preview',running:true,kind:'shell'};terminals.set(id,row);completeLaunch(row)}
     if(view===project)renderProject(p);persist();
   }
-  function split(project,axis){
-    const l=layout(project),g=workspaceLayout.split(l,l.groups[l.selected].id,axis,uid());
-    if(!g)return;l.focus=false;renderProject(proj(project));projects.get(project)?.querySelector('[data-group-id="'+CSS.escape(g.id)+'"]')?.focus({preventScroll:true});startTerminal(project,g.id);
+  function split(project,axis,groupID){
+    const l=layout(project);if(!l.groups.length)return;
+    const g=workspaceLayout.split(l,groupID||l.groups[l.selected].id,axis,uid());
+    if(!g)return;l.focus=false;renderProject(proj(project));projects.get(project)?.querySelector('.deck-group[data-group-id="'+CSS.escape(g.id)+'"]')?.focus({preventScroll:true});startTerminal(project,g.id);
   }
   function arrange(root,l){
     const area=$('.deck-groups',root),width=area.clientWidth,height=area.clientHeight;
@@ -230,7 +235,7 @@ const workspaceDeck=(()=>{
       if(horizontal){place(divider,x+first,y,gap,h);walk(node.first,x,y,first,h);walk(node.second,x+first+gap,y,available-first,h)}
       else{place(divider,x,y+first,w,gap);walk(node.first,x,y,w,first);walk(node.second,x,y+first+gap,w,available-first)}
     }
-    if(!l.focus)walk(l.tree,0,0,width,height);
+    if(!l.focus&&l.tree)walk(l.tree,0,0,width,height);
     for(const [id,divider] of dividers){if(l.focus)divider.hidden=true;else if(!used.has(id))divider.remove()}
     const visible=new Set(l.groups.filter(g=>!l.focus||g.id===selected).map(g=>previews.get(g.active)).filter(Boolean));
     for(const node of area.querySelectorAll('.deck-floating'))node.hidden=!visible.has(node);
@@ -251,11 +256,16 @@ const workspaceDeck=(()=>{
       const focused=document.activeElement?.closest('.deck-terminal'),focusID=focused?[...engines].find(([,en])=>en.element===focused)?.[0]:null;
       root.dataset.signature=signature;
       if(!root.querySelector('.deck-tools')){
-        root.innerHTML='<header class="deck-tools"><div class="deck-project-name">'+smallButton('Toggle sidebar','deck-sidebar','','side')+icon('folder')+'<strong title="'+attr(p.folder)+'">'+esc(p.name)+'</strong></div><div class="deck-tools-actions">'+button('New task','start-session',p.id,'deck-new')+smallButton('New terminal','deck-terminal',p.id,'sessions')+menu('Open a view',button('Open file…','deck-file',p.id,'deck-menu-item','note')+button('Web preview…','deck-url',p.id,'deck-menu-item','out')+button('Project files','deck-files',p.id,'deck-menu-item','folder'),'plus')+smallButton('Split right · ⌘D','deck-split-right',p.id,'splitRight')+smallButton('Split down · ⇧⌘D','deck-split-down',p.id,'splitDown')+smallButton('Focus pane','deck-focus',p.id,'grid')+menu('Workspace actions',button('Project notes','deck-notes',p.id,'deck-menu-item','note')+button('Session history','deck-history',p.id,'deck-menu-item','sessions')+button('Terminal preferences','deck-preferences','','deck-menu-item','settings')+button('Close workspace','deck-close-workspace',p.id,'deck-menu-item','x'))+'</div></header><div class="deck-reconnect" hidden>Terminal connection lost. Your processes may still be running. '+button('Reconnect','deck-reconnect')+'</div><div class="deck-groups"></div>';
+        root.innerHTML='<header class="deck-tools"><div class="deck-project-name">'+smallButton('Toggle sidebar','deck-sidebar','','side')+icon('folder')+'<strong title="'+attr(p.folder)+'">'+esc(p.name)+'</strong></div><div class="deck-tools-actions">'+button('New task','start-session',p.id,'deck-new')+menu('Open a view',button('Open file…','deck-file',p.id,'deck-menu-item','note')+button('Project files','deck-files',p.id,'deck-menu-item','folder'),'plus')+smallButton('Focus surface','deck-focus',p.id,'grid')+menu('Workspace actions',button('Project notes','deck-notes',p.id,'deck-menu-item','note')+button('Session history','deck-history',p.id,'deck-menu-item','sessions')+button('Terminal preferences','deck-preferences','','deck-menu-item','settings')+button('Close workspace','deck-close-workspace',p.id,'deck-menu-item','x'))+'</div></header><div class="deck-reconnect" hidden>Terminal connection lost. Your processes may still be running. '+button('Reconnect','deck-reconnect')+'</div><div class="deck-groups"></div>';
         const resize=new ResizeObserver(()=>arrange(root,layout(p.id)));resize.observe($('.deck-groups',root));root.layoutObserver=resize;
       }
       const groups=$('.deck-groups',root);
-      const focus=root.querySelector('[data-action="deck-focus"]');focus.title=l.focus?'Exit focus':'Focus pane';focus.setAttribute('aria-label',focus.title);focus.setAttribute('aria-pressed',String(!!l.focus));
+      let emptyWorkspace=groups.querySelector('.deck-workspace-empty');
+      if(!emptyWorkspace){emptyWorkspace=document.createElement('div');emptyWorkspace.className='deck-empty deck-workspace-empty';groups.append(emptyWorkspace)}
+      emptyWorkspace.hidden=!!l.groups.length;
+      if(!l.groups.length)emptyWorkspace.innerHTML='<h2>No open panes</h2><div class="inline">'+button('New terminal','deck-terminal',p.id,'btn','terminal')+button('Open file','deck-file',p.id,'btn','note')+button('New browser','deck-url',p.id,'btn','globe')+'</div>';
+
+      const focus=root.querySelector('[data-action="deck-focus"]');focus.title=l.focus?'Exit focus':'Focus surface';focus.disabled=!l.groups.length;focus.setAttribute('aria-label',focus.title);focus.setAttribute('aria-pressed',String(!!l.focus));
       for(const old of groups.querySelectorAll('.deck-group'))if(!l.groups.some(g=>g.id===old.dataset.groupId)){
         for(const child of old.querySelector('.deck-surface').children)stash.append(child);old.remove();
       }
@@ -268,11 +278,11 @@ const workspaceDeck=(()=>{
           pane.addEventListener('pointerdown',select,{capture:true});pane.addEventListener('focusin',select);
           groups.append(pane);
         }
-        pane.tabIndex=-1;pane.dataset.group=index;pane.id='deck-pane-'+g.id;pane.setAttribute('aria-label','Pane '+(index+1));pane.classList.toggle('selected',l.selected===index);
-        const tabs=$('.deck-tabs',pane);tabs.setAttribute('aria-label','Pane '+(index+1));tabs.innerHTML=g.tabs.map(key=>'<div class="deck-tab-wrap '+(g.active===key?'active':'')+'"><button role="tab" tabindex="'+(g.active===key?'0':'-1')+'" id="deck-tab-'+g.id+'-'+key.replace(/[^a-zA-Z0-9-]/g,'')+'" aria-controls="deck-surface-'+g.id+'" aria-selected="'+(g.active===key)+'" class="deck-tab" data-action="deck-tab" data-id="'+attr(key)+'" data-group="'+index+'">'+icon(surfaceIcon(key))+'<span>'+esc(label(key))+'</span></button><button class="deck-tab-close" aria-label="Close '+attr(label(key))+' view" data-action="deck-close" data-id="'+attr(key)+'">'+icon('x')+'</button></div>').join('');
+        pane.tabIndex=-1;pane.dataset.group=index;pane.id='deck-pane-'+g.id;pane.setAttribute('aria-label','Surface '+(index+1));pane.classList.toggle('selected',l.selected===index);
+        const tabs=$('.deck-tabs',pane);tabs.setAttribute('aria-label','Surface '+(index+1));tabs.innerHTML=g.tabs.map(key=>'<div class="deck-tab-wrap '+(g.active===key?'active':'')+'"><button role="tab" aria-description="Right-click or press Shift+F10 for tab actions" tabindex="'+(g.active===key?'0':'-1')+'" id="deck-tab-'+g.id+'-'+key.replace(/[^a-zA-Z0-9-]/g,'')+'" aria-controls="deck-surface-'+g.id+'" aria-selected="'+(g.active===key)+'" class="deck-tab" data-action="deck-tab" data-id="'+attr(key)+'" data-group="'+index+'">'+icon(surfaceIcon(key))+'<span>'+esc(label(key))+'</span></button><button class="deck-tab-close" aria-label="Close '+attr(label(key))+' view" data-action="deck-close" data-id="'+attr(key)+'">'+icon('x')+'</button></div>').join('');
         const surface=$('.deck-surface',pane);surface.id='deck-surface-'+g.id;surface.setAttribute('role','tabpanel');if(g.active){surface.removeAttribute('aria-label');surface.setAttribute('aria-labelledby','deck-tab-'+g.id+'-'+g.active.replace(/[^a-zA-Z0-9-]/g,''))}else{surface.removeAttribute('aria-labelledby');surface.setAttribute('aria-label','Empty pane')}
         for(const child of surface.children){child.hidden=true;child.querySelectorAll('audio,video').forEach(media=>media.pause())}
-        if(g.active){
+        if(g.active&&!pendingStarts.has(termID(g.active))){
           const id=termID(g.active),node=id?engine(id).element:preview(g.active);
           if(id){if(node.parentElement!==surface)surface.append(node);node.hidden=false;requestAnimationFrame(()=>fit(engines.get(id)))}
           else{
@@ -285,7 +295,7 @@ const workspaceDeck=(()=>{
         }
         else{let empty=surface.querySelector('.deck-empty');if(!empty){empty=document.createElement('div');empty.className='deck-empty';surface.append(empty)}
           const pending=[...pendingStarts.values()].some(v=>v.project===p.id&&v.group===g.id&&!v.closed);
-          empty.innerHTML=pending?'<p role="status">Opening terminal…</p>':icon('sessions')+'<h2>Ready when you are.</h2><p>Open a terminal or bring a file into this pane.</p><div class="inline">'+button('New terminal','deck-terminal',p.id,'btn','sessions')+button('Open file','deck-file',p.id,'btn','note')+'</div>';empty.hidden=false;
+          empty.innerHTML=pending?'<p role="status">Opening terminal…</p>':icon('sessions')+'<h2>Ready when you are.</h2><p>Open a terminal or bring a file into this surface.</p><div class="inline">'+button('New terminal','deck-terminal',p.id,'btn','terminal')+button('Open file','deck-file',p.id,'btn','note')+'</div>';empty.hidden=false;
         }
       });
       if(focusID&&engines.has(focusID)&&l.groups[l.selected]?.active==='terminal:'+focusID)focusSurface(p.id,'terminal:'+focusID);
@@ -300,11 +310,12 @@ const workspaceDeck=(()=>{
       const controls=$('.deck-pane-tools',pane),controlKey=JSON.stringify([g.active,!!s,l.groups.map(g=>g.id),!!file?.sourceView]);
       if(controls.dataset.signature!==controlKey){
         controls.dataset.signature=controlKey;
-        const actions=(id?button('Find in terminal','deck-find',id,'deck-menu-item')+button('Session details','deck-details',id,'deck-menu-item'):file?.path?button('Show in Finder','deck-reveal',file.id,'deck-menu-item'):file?.url?button('Open in browser','deck-browser',file.id,'deck-menu-item'):'')+(file?button('Refresh preview','deck-refresh',g.active,'deck-menu-item'):'')+(file?.kind==='image'?button('Zoom image','deck-zoom',g.active,'deck-menu-item'):'')+(g.active&&l.groups.length>1?button('Move tab to…','deck-move',g.active,'deck-menu-item'):'')+button('Split right · ⌘D','deck-split-right',p.id,'deck-menu-item','splitRight')+button('Split down · ⇧⌘D','deck-split-down',p.id,'deck-menu-item','splitDown')+(l.groups.length>1?button('Close pane','deck-close-pane',g.id,'deck-menu-item','x'):'');
         const documentMode=file&&(workspaceDocuments.kind(file)==='markdown'||file.kind==='web'&&file.path);
-        controls.innerHTML=(documentMode?button(file.sourceView?'Preview':'Source','deck-source',file.id,'deck-context'):'')+(s?button('Follow up','follow',id,'deck-context'):file?button('Ask agent','deck-ask',file.id,'deck-context'):'')+menu('Pane actions','<div class="deck-menu-heading"></div>'+(documentMode?button(file.sourceView?'Preview':'Source','deck-source',file.id,'deck-menu-item deck-compact-action'):'')+(file?button('Ask agent','deck-ask',file.id,'deck-menu-item deck-compact-action'):s?button('Follow up','follow',id,'deck-menu-item deck-compact-action'):'')+actions);
+        const actions=(documentMode?button(file.sourceView?'Preview':'Source','deck-source',file.id,'deck-menu-item'):'')+(s?button('Follow up','follow',id,'deck-menu-item'):file?button('Ask agent','deck-ask',file.id,'deck-menu-item'):'')+(id?button('Find in terminal','deck-find',id,'deck-menu-item')+button('Session details','deck-details',id,'deck-menu-item'):file?.path?button('Show in Finder','deck-reveal',file.id,'deck-menu-item'):file?.url?button('Open in browser','deck-browser',file.id,'deck-menu-item'):'')+(file?button('Refresh preview','deck-refresh',g.active,'deck-menu-item'):'')+(file?.kind==='image'?button('Zoom image','deck-zoom',g.active,'deck-menu-item'):'')+(g.active&&l.groups.length>1?button('Move tab to…','deck-move',g.active,'deck-menu-item'):'');
+        controls.innerHTML=smallButton('New terminal','deck-terminal',p.id,'terminal')+smallButton('New browser','deck-url',p.id,'globe')+smallButton('Split right · ⌘D','deck-split-right',p.id,'splitRight')+smallButton('Split down · ⇧⌘D','deck-split-down',p.id,'splitDown')+menu('Tab actions','<div class="deck-menu-heading"></div>'+actions);
+        controls.querySelector('.deck-menu').classList.add('deck-tab-menu');
       }
-      const heading=$('.deck-menu-heading',controls);if(heading)heading.textContent=id?[providers[s?.agent]||'Shell',status(id)].join(' · '):file?.path||file?.url||(g.active?'Reported outcome':'Pane '+(index+1));
+      const heading=$('.deck-menu-heading',controls);if(heading)heading.textContent=id?[providers[s?.agent]||'Shell',status(id)].join(' · '):file?.path||file?.url||(g.active?'Reported outcome':'Surface '+(index+1));
       const tab=pane.querySelector('.deck-tab[aria-selected="true"]');if(tab)tab.title=label(g.active)+(id?' · '+status(id):'');
       const q=state.decisions.find(q=>q.session===id);
       $('.deck-question',pane).innerHTML=q?'<div><strong>'+esc(q.q)+'</strong><span class="hint">'+esc(providers[s?.agent]||'Agent')+' needs your decision</span></div>'+button('Review decision','notch',q.id,'primary'):'';
@@ -316,16 +327,18 @@ const workspaceDeck=(()=>{
     const id=termID(key);if(id){const en=engines.get(id);if(en){cancelAnimationFrame(en.fitFrame);en.resize.disconnect();en.term.dispose();en.element.remove();engines.delete(id);send('detach',{id})}}
     else{previews.get(key)?.remove();previews.delete(key)}
   }
-  function close(key){
-    const l=layout(activeProject),wasActive=l.groups[l.selected]?.active===key;for(const g of l.groups){g.tabs=g.tabs.filter(k=>k!==key);if(g.active===key)g.active=g.tabs.at(-1)||null}
-    disposeView(key);if(termID(key))toast('View closed. Reopen the session from Session history.');renderProject(proj(activeProject));if(wasActive)focusSurface(activeProject,l.groups[l.selected]?.active);persist();
-  }
-  function closePane(id){
-    const l=layout(activeProject);if(l.groups.length===1)return;
-    const removed=workspaceLayout.remove(l,id);if(!removed)return;
-    for(const pending of pendingStarts.values())if(pending.project===activeProject&&pending.group===id)pending.closed=true;
-    removed.tabs.forEach(disposeView);renderProject(proj(activeProject));focusSurface(activeProject,l.groups[l.selected]?.active);persist();
-    toast('Pane closed. Terminal sessions keep running in Session history.');
+  function close(key,project=activeProject){
+    const l=layout(project),wasActive=l.groups[l.selected]?.active===key;
+    const pending=pendingStarts.get(termID(key));if(pending)pending.closed=true;
+    for(const g of [...l.groups]){
+      if(!g.tabs.includes(key))continue;
+      const index=g.tabs.indexOf(key);g.tabs.splice(index,1);
+      if(g.active===key)g.active=g.tabs[Math.min(index,g.tabs.length-1)]||null;
+      if(!g.tabs.length)workspaceLayout.remove(l,g.id);
+    }
+    disposeView(key);
+    if(view===project){renderProject(proj(project));if(wasActive){if(l.groups.length)focusSurface(project,l.groups[l.selected]?.active);else projects.get(project)?.querySelector('.deck-workspace-empty button')?.focus()}}
+    persist();
   }
   function addFiles(project,files){const p=projectFor(project)||proj(project);if(!p)return;for(const file of files){file.project=p.id;saved.media[file.id]=file;open('media:'+file.id,p.id,false)}go(p.id);persist()}
   function activity(){saved.activity.forEach(a=>a.read=true);persist();dialog('Activity','Across your projects',saved.activity.length?'<div class="deck-activity-list">'+saved.activity.map(a=>'<section class="notice"><span class="eyebrow">'+esc(a.kind==='failure'?'Needs attention':'Result ready')+' · '+esc(new Date(a.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}))+'</span><strong>'+esc(a.title)+'</strong><p>'+esc(resultPresentation.excerpt(a.body,48).text)+'</p>'+(a.kind==='failure'?button('Open session','deck-open',a.id,'text-btn','arrow'):button('View result','deck-result',a.capture||a.id,'text-btn','arrow'))+'</section>').join('')+'</div>':'<p class="empty">You’re all caught up. Decisions appear in Home; results and failures collect here.</p>');renderNav(listedProjects(activeSessions()))}
@@ -335,40 +348,50 @@ const workspaceDeck=(()=>{
     $('#deck-preferences').onsubmit=e=>{e.preventDefault();saved.preferences.shell=$('#deck-shell').value;const size=$('#deck-font').value;if(size==='auto')delete saved.preferences.font;else saved.preferences.font=Number(size);saved.preferences.followGhostty=$('#deck-follow').checked;applyAppearance();persist();dismissCard()};
   }
   document.addEventListener('click',e=>{for(const entry of stage.querySelectorAll('.deck-menu[open]'))if(!entry.contains(e.target)||e.target.closest('button'))entry.open=false});
+  function tabMenu(event,tab){
+    if(!tab)return;event.preventDefault();
+    const groupID=tab.closest('.deck-group').dataset.groupId,key=tab.dataset.id,l=layout(activeProject),g=l.groups.find(g=>g.id===groupID);
+    l.selected=l.groups.indexOf(g);g.active=key;renderProject(proj(activeProject));persist();
+    const pane=projects.get(activeProject).querySelector('.deck-group[data-group-id="'+CSS.escape(groupID)+'"]'),entry=pane.querySelector('.deck-tab-menu'),anchor=pane.querySelector('.deck-tab[aria-selected="true"]');
+    const rect=anchor.getBoundingClientRect();
+    entry.contextAnchor=event.type==='contextmenu'&&event.button===2?{right:event.clientX,bottom:event.clientY}:rect;
+    entry.returnFocus=anchor;entry.open=true;entry.querySelector('button')?.focus({preventScroll:true});
+  }
+  stage.addEventListener('contextmenu',e=>tabMenu(e,e.target.closest('.deck-tab')));
+  stage.addEventListener('keydown',e=>{if(e.key==='ContextMenu'||e.shiftKey&&e.key==='F10')tabMenu(e,e.target.closest('.deck-tab'))});
   // Anchor menus to the viewport so the lower panes can open them upward.
   stage.addEventListener('toggle',e=>{
     const entry=e.target;if(!entry.matches('.deck-menu[open]'))return;
     for(const other of stage.querySelectorAll('.deck-menu[open]'))if(other!==entry)other.open=false;
-    const list=entry.querySelector('.deck-menu-list'),anchor=entry.querySelector('summary').getBoundingClientRect();
+    const list=entry.querySelector('.deck-menu-list'),anchor=entry.contextAnchor||entry.querySelector('summary').getBoundingClientRect();
     list.style.setProperty('--menu-height',Math.max(90,innerHeight-16)+'px');
     const width=list.getBoundingClientRect().width,height=Math.min(list.scrollHeight,innerHeight-16);
     list.style.setProperty('--menu-left',Math.max(8,Math.min(anchor.right-width,innerWidth-width-8))+'px');
     list.style.setProperty('--menu-top',Math.max(8,Math.min(anchor.bottom+4,innerHeight-height-8))+'px');
   },true);
-  document.addEventListener('keydown',e=>{if(e.key==='Escape'){const opened=stage.querySelector('.deck-menu[open]');if(opened){e.preventDefault();opened.open=false;opened.querySelector('summary').focus()}}});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'){const opened=stage.querySelector('.deck-menu[open]');if(opened){e.preventDefault();opened.open=false;(opened.returnFocus||opened.querySelector('summary')).focus()}}});
   document.addEventListener('click',e=>{
     const b=e.target.closest('[data-action]');if(!b?.dataset.action.startsWith('deck-'))return;const a=b.dataset.action,id=b.dataset.id;
     if(a==='deck-reload'){if(live)postLive('workspace-appearance');else toast('Ghostty settings are read by the Mac app.')}
     else if(a==='deck-open'){dismissCard();const t=terminals.get(id),s=sess(id);if(t)open('terminal:'+id,ensureProject(t).id);else if(s?.host==='tasktap')open('terminal:'+id,s.project);else showSession(id)}
-    else if(a==='deck-terminal')startTerminal(id,layout(id).groups[layout(id).selected].id);
+    else if(a==='deck-terminal')startTerminal(id,b.closest('.deck-group')?.dataset.groupId);
     else if(a==='deck-tab'){const l=layout(activeProject);l.selected=Number(b.dataset.group);l.groups[l.selected].active=id;renderProject(proj(activeProject));persist();const en=engines.get(termID(id));en?.term.focus()}
     else if(a==='deck-close')close(id);
-    else if(a==='deck-split-right'||a==='deck-split-down')split(id,a==='deck-split-right'?'x':'y');
-    else if(a==='deck-close-pane')closePane(id);
+    else if(a==='deck-split-right'||a==='deck-split-down')split(id,a==='deck-split-right'?'x':'y',b.closest('.deck-group')?.dataset.groupId);
     else if(a==='deck-close-workspace')closeWorkspace(id);
     else if(a==='deck-move'){
       const l=layout(activeProject),from=l.groups.find(g=>g.tabs.includes(id));
-      dialog('Move tab','Choose a pane','<div class="stack">'+l.groups.map((g,i)=>g===from?'':button('Pane '+(i+1)+' · '+(g.active?label(g.active):'Empty pane'),'deck-move-to',g.id,'note','side')).join('')+'</div>');
+      dialog('Move tab','Choose a surface','<div class="stack">'+l.groups.map((g,i)=>g===from?'':button('Surface '+(i+1)+' · '+(g.active?label(g.active):'Empty surface'),'deck-move-to',g.id,'note','side')).join('')+'</div>');
       $('#modal').dataset.moveSurface=id;
     }
     else if(a==='deck-move-to'){
       const key=$('#modal').dataset.moveSurface,l=layout(activeProject),from=l.groups.find(g=>g.tabs.includes(key)),to=l.groups.find(g=>g.id===id);
-      if(from&&to&&from!==to){from.tabs=from.tabs.filter(k=>k!==key);from.active=from.tabs.at(-1)||null;to.tabs.push(key);to.active=key;l.selected=l.groups.indexOf(to);dismissCard();renderProject(proj(activeProject));focusSurface(activeProject,key);persist()}
+      if(from&&to&&from!==to){from.tabs=from.tabs.filter(k=>k!==key);from.active=from.tabs.at(-1)||null;to.tabs.push(key);to.active=key;l.selected=l.groups.indexOf(to);if(!from.tabs.length)workspaceLayout.remove(l,from.id);dismissCard();renderProject(proj(activeProject));focusSurface(activeProject,key);persist()}
     }
     else if(a==='deck-sidebar'){if(typeof workspaceNavigation!=='undefined')workspaceNavigation.toggle()}
     else if(a==='deck-focus'){const l=layout(id);l.focus=!l.focus;renderProject(proj(id));persist()}
     else if(a==='deck-file'){if(live)postLive('workspace-file',{project:proj(id)?.folder});else toast('Open files from the installed Mac app.')}
-    else if(a==='deck-url'){dialog('Open a web preview',proj(id)?.name,'<form id="deck-url-form" class="stack"><label class="field">Address<input id="deck-url-input" type="url" required placeholder="http://localhost:3000" value="http://localhost:3000"></label><p class="hint">Open your development server or a website beside the work. Some sites require your regular browser.</p><button class="primary" type="submit">Open preview</button></form>');$('#deck-url-form').onsubmit=e=>{e.preventDefault();try{const url=new URL($('#deck-url-input').value);if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error();const key=uid();saved.media[key]={id:key,project:id,kind:'web',title:url.host,url:url.href};dismissCard();open('media:'+key,id)}catch{toast('Enter an http or https address without credentials.')}}}
+    else if(a==='deck-url'){const groupID=b.closest('.deck-group')?.dataset.groupId;dialog('Open a web preview',proj(id)?.name,'<form id="deck-url-form" class="stack"><label class="field">Address<input id="deck-url-input" type="url" required placeholder="http://localhost:3000" value="http://localhost:3000"></label><p class="hint">Open your development server or a website beside the work. Some sites require your regular browser.</p><button class="primary" type="submit">Open preview</button></form>');$('#deck-url-form').onsubmit=e=>{e.preventDefault();try{const url=new URL($('#deck-url-input').value);if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error();const key=uid();saved.media[key]={id:key,project:id,kind:'web',title:url.host,url:url.href};dismissCard();open('media:'+key,id,true,groupID)}catch{toast('Enter an http or https address without credentials.')}}}
     else if(a==='deck-ask'){const file=saved.media[id];if(file){captureDraft('',file.project);captureContext.attach(draft,{kind:file.path?'file':'website',value:file.path||file.url,app:'Tasktap workspace'});editDraft();$('#transcript')?.focus()}}
     else if(a==='deck-files'){const files=Object.values(saved.media).filter(f=>f.project===id);dialog('Project files',proj(id)?.name,files.length?'<div class="stack">'+files.map(f=>button(f.title,'deck-file-open',f.id,'note',f.kind==='web'?'out':'note')).join('')+'</div>':'<p class="empty">Open a file or web preview to keep it with this project.</p>')}
     else if(a==='deck-file-open'){const f=saved.media[id];dismissCard();if(f)open('media:'+id,f.project)}
@@ -390,7 +413,7 @@ const workspaceDeck=(()=>{
     else if(a==='deck-history')dialog('Project history',proj(id)?.name,sessionList(state.sessions.filter(s=>s.project===id)));
     else if(a==='deck-activity')activity();
   });
-  window.addEventListener('blur',()=>requestAnimationFrame(()=>{const frame=document.activeElement,preview=frame?.tagName==='IFRAME'?frame.closest('.deck-floating'):null,pane=preview?projects.get(activeProject)?.querySelector('[data-group-id="'+CSS.escape(preview.dataset.groupId)+'"]'):null;if(pane&&activeProject){const l=layout(activeProject);l.selected=Number(pane.dataset.group);const root=projects.get(activeProject);root.querySelectorAll('.deck-group').forEach(n=>n.classList.toggle('selected',n===pane));update(proj(activeProject),root);persist()}}));
+  window.addEventListener('blur',()=>requestAnimationFrame(()=>{const frame=document.activeElement,preview=frame?.tagName==='IFRAME'?frame.closest('.deck-floating'):null,pane=preview?projects.get(activeProject)?.querySelector('.deck-group[data-group-id="'+CSS.escape(preview.dataset.groupId)+'"]'):null;if(pane&&activeProject){const l=layout(activeProject);l.selected=Number(pane.dataset.group);const root=projects.get(activeProject);root.querySelectorAll('.deck-group').forEach(n=>n.classList.toggle('selected',n===pane));update(proj(activeProject),root);persist()}}));
   document.addEventListener('keydown',e=>{const tab=e.target.closest('.deck-tab');if(!tab||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const tabs=[...tab.closest('.deck-tabs').querySelectorAll('.deck-tab')],index=tabs.indexOf(tab),next=e.key==='Home'?0:e.key==='End'?tabs.length-1:(index+(e.key==='ArrowRight'?1:tabs.length-1))%tabs.length;const key=tabs[next].dataset.id;tabs[next].click();const selected=projects.get(activeProject)?.querySelector('.deck-tab[aria-selected="true"][data-id="'+CSS.escape(key)+'"]');selected?.focus()});
   document.addEventListener('keydown',e=>{if(!activeProject||document.querySelector('dialog[open]'))return;const key=layout(activeProject).groups[layout(activeProject).selected]?.active;if(e.metaKey&&e.key.toLowerCase()==='d'&&!e.altKey){e.preventDefault();split(activeProject,e.shiftKey?'y':'x');return}if(e.metaKey&&e.key.toLowerCase()==='w'&&key){e.preventDefault();close(key)}if(e.metaKey&&e.key.toLowerCase()==='f'&&termID(key)){e.preventDefault();projects.get(activeProject)?.querySelector('[data-action="deck-find"][data-id="'+termID(key)+'"]')?.click()}if(e.metaKey&&e.key.toLowerCase()==='k'){e.preventDefault();go('sessions');$('#session-filter')?.focus()}});
   function outcome(e){if(e.recovered)return;const s=sess(e.session);if(!s)return;if(e.state==='Failed'&&terminals.get(s.id)?.stopped)return;if(e.state==='Complete')notify('complete',s.id,sessionDisplayName(s),e.message||'The agent reported a result.','result:'+e.capture,e.capture);else if(e.state==='Failed')notify('failure',s.id,sessionDisplayName(s),e.message||'The task could not be completed.','failed:'+e.capture)}
@@ -418,7 +441,7 @@ const workspaceDeck=(()=>{
   }
   function textLoaded(id,text){const node=previews.get('media:'+id),file=saved.media[id];if(node&&file){node.previewText=text;paintDocument(node,file)}}
   function shellHistory(filter=''){const rows=[...terminals.values()].filter(t=>t.kind==='shell'&&[t.title,t.cwd].join(' ').toLowerCase().includes(filter.toLowerCase()));return rows.length?'<section class="block"><h2>Terminals</h2>'+rows.map(t=>button(t.title+' · '+(t.running?'Running':t.restored?'Not running':t.stopped?'Stopped':'Exited')+' · '+t.cwd,'deck-open',t.id,'note','sessions')).join('')+'</section>':''}
-  function openResult(id){const result=report(id);if(result.session){dismissCard();open('result:'+id,result.session.project)}}
+  function openResult(id){const result=report(id);if(result.session){for(const item of saved.activity)if(item.capture===id||!item.capture&&item.id===id)item.read=true;dismissCard();open('result:'+id,result.session.project)}}
   // Restore an explicit layout without automatically starting any process.
   function sidebarData(){return {layouts:saved.layouts,terminals:[...terminals.values()],label,icon:surfaceIcon}}
   if(typeof appAppearance!=='undefined')appAppearance.receiveGhostty(inherited);

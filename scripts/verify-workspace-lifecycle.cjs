@@ -6,7 +6,8 @@ const path=require('node:path');
  const browser=await chromium.launch({headless:true,executablePath:process.env.BROWSER_EXECUTABLE||undefined});
  try{
   const page=await browser.newPage({viewport:{width:1440,height:960}}),errors=[];
-  page.on('pageerror',e=>{errors.push(String(e));console.error('Page error:',String(e))});
+  page.setDefaultTimeout(15000);
+ page.on('pageerror',e=>{errors.push(String(e));console.error('Page error:',String(e))});
   const seed={firstRun:{done:true},projects:[{id:'p',name:'First workspace',folder:'/tmp/first',aliases:[]},{id:'q',name:'Second workspace',folder:'/tmp/second',aliases:[]},{id:'r',name:'Other project',folder:'/tmp/other',aliases:[]},{id:'empty',name:'Old empty workspace',folder:'/tmp/empty',aliases:[]}],sessions:[],captures:[],decisions:[],notes:[],workspaceDeck:{layouts:{p:{groups:[{id:'p-pane',tabs:['terminal:p-shell'],active:'terminal:p-shell'}],selected:0},q:{groups:[{id:'q-pane',tabs:['terminal:q-shell'],active:'terminal:q-shell'}],selected:0},empty:{groups:[{id:'empty-pane',tabs:[],active:null}],selected:0}},media:{},activity:[],seen:{},preferences:{shell:'default'},sidebarHidden:false,navigationExpanded:{p:true,q:true}}};
   await page.addInitScript(seed=>{
    window.messages=[];window.webkit={messageHandlers:{workspace:{postMessage:m=>messages.push(m)}}};
@@ -78,7 +79,7 @@ const path=require('node:path');
   await page.locator('[data-action="workspace-open-existing"][data-id="q"]').click();
   assert.deepEqual(await page.evaluate(()=>state.workspaceDeck.openProjects),['p','q'],'explicit reopen appends the workspace in order');
   assert.equal(await page.evaluate(()=>view),'q');
-  assert.equal(await page.locator('#nav [data-surface="terminal:q-shell"]').count(),1,'reopen restores saved tabs');
+  assert.equal(await page.locator('.deck-tab[data-id="terminal:q-shell"]').count(),1,'reopen restores saved tabs');
   assert.equal(await page.evaluate(()=>messages.some(m=>m.op==='start')),false,'reopening saved workspace does not create a new session');
   await page.getByRole('button',{name:'Close Second workspace workspace',exact:true}).click();
   await page.getByRole('button',{name:'Close First workspace workspace',exact:true}).click();
@@ -140,7 +141,7 @@ const path=require('node:path');
   assert.equal(await page.evaluate(()=>messages.filter(m=>m.op==='start').length),1,'selecting an existing workspace restores its saved session without spawning another');
   await page.evaluate(()=>workspaceDeck.openWorkspace('p',false));
   assert.equal(await page.evaluate(()=>proj('p').folder),'/tmp/first','old workspace continues using its original folder after root change');
-  assert.equal(await page.locator('#nav [data-surface="terminal:p-shell"]').count(),1,'old workspace still restores its original saved surface');
+  assert.equal(await page.locator('.deck-tab[data-id="terminal:p-shell"]').count(),1,'old workspace still restores its original saved surface');
   assert.equal(await page.evaluate(()=>messages.filter(m=>m.op==='start').length),1,'restoring the old workspace does not launch a replacement process');
   assert.deepEqual(errors,[]);
   console.log('PASS: explicit workspace lifecycle, custom root preference/native updates, old paths preserved, new workspace destination, and acknowledged optional discovery.');

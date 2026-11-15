@@ -8,6 +8,7 @@ require('node:fs').mkdirSync(shots,{recursive:true});
  const browser=await chromium.launch({headless:true,executablePath:process.env.BROWSER_EXECUTABLE||undefined});
  try{
  const page=await browser.newPage({viewport:{width:1440,height:960}}),errors=[];
+ page.setDefaultTimeout(15000);
  page.on('pageerror',e=>{errors.push(String(e));console.error('Page error:',String(e))});
  await page.addInitScript(()=>{window.messages=[];window.webkit={messageHandlers:{workspace:{postMessage:m=>messages.push(m)}}}});
  await page.goto(pathToFileURL(path.resolve('prototype/index.html')).href);
@@ -35,12 +36,12 @@ require('node:fs').mkdirSync(shots,{recursive:true});
  assert.ok(await page.evaluate(()=>messages.some(m=>m.type==='workspace-chrome'&&m.opacity===.93&&m.blur===true)));
  assert.equal(await page.locator('.deck-pane-meta,.deck-bottom').count(),0,'workspace has no permanent metadata row or footer');
  assert.ok((await page.locator('.deck-tools').boundingBox()).height<=34,'compact project toolbar');
- await page.getByLabel('Pane actions',{exact:true}).click();await page.evaluate(()=>render());
+ await page.locator('.deck-tab[aria-selected="true"]').click({button:'right'});await page.evaluate(()=>render());
  assert.equal(await page.locator('.deck-menu[open]').count(),1,'refresh preserves an open action menu');
  await page.keyboard.press('Escape');
 
  assert.match(await page.locator('.deck-question').innerText(),/Continue with this layout/);
- await page.locator('.deck-tools [data-action="deck-split-right"]').click();
+ await page.locator('.deck-group.selected [data-action="deck-split-right"]').click();
  const splitStart=await page.evaluate(()=>messages.filter(m=>m.type==='workspace-terminal'&&m.op==='start').at(-1));
  assert.ok(splitStart?.id,'splitting starts a shell in the new pane');
  assert.equal(splitStart.cwd,'/tmp/project');
@@ -63,7 +64,8 @@ require('node:fs').mkdirSync(shots,{recursive:true});
  await page.locator('[data-action="deck-focus"]').click();
  await page.locator('[data-action="deck-close"][data-id="terminal:'+one+'"]').click();
  assert.equal(await page.evaluate(one=>messages.some(m=>m.op==='stop'&&m.id===one),one),false);
- assert.equal(await page.locator('[data-surface="terminal:'+one+'"]').count(),0,'closed views leave the surface navigator');
+ assert.equal(await page.locator('.deck-tab[data-id="terminal:'+one+'"]').count(),0,'closed tabs leave their surface');
+ assert.equal(await page.locator('.deck-group').count(),1,'closing the last tab collapses the original surface');
  await page.locator('[data-action="view"][data-id="sessions"]').click();
  await page.locator('[data-action="session"][data-id="'+one+'"]').click();
  assert.equal(await page.locator('.deck-terminal').count(),2);
@@ -73,25 +75,30 @@ require('node:fs').mkdirSync(shots,{recursive:true});
  assert.equal(await page.evaluate(()=>!!window.compromised),false);
  assert.equal(await page.locator('.workspace-document h1').innerText(),'Preview notes');
  assert.match(await page.locator('.workspace-document').innerText(),/A file is content/);
+ await page.locator('.deck-tab[aria-selected="true"][data-id="media:doc"]').click({button:'right'});
  await page.getByRole('button',{name:'Source',exact:true}).click();
  assert.equal(await page.locator('.deck-document').innerText(),markdown,'Source shows the unchanged original Markdown');
+ await page.locator('.deck-tab[data-id="media:doc"]').click({button:'right'});
  await page.getByRole('button',{name:'Preview',exact:true}).click();
  assert.equal(await page.locator('.workspace-document strong').innerText(),'content');
  assert.equal(await page.evaluate(()=>!!window.compromised),false,'source and preview switches never execute document HTML');
- // At the minimum split width, contextual actions move into the pane menu so
- // tabs remain clickable instead of being covered by Source / Ask agent.
+ // The last-tab close above collapsed its surface. Split again to exercise
+ // tab actions at a narrow width, with the restored terminal in its new home.
+ await page.locator('.deck-group.selected [data-action="deck-split-right"]').click();
+ await page.locator('.deck-tab[data-id="media:doc"]').click();
  await page.locator('.deck-divider').focus();await page.keyboard.press('Home');
  const documentPane=page.locator('.deck-group').filter({has:page.locator('[data-action="deck-tab"][data-id="media:doc"]')});
  assert.equal(await documentPane.evaluate(el=>el.classList.contains('is-narrow')),true);
  await page.locator('[data-action="deck-tab"][data-id="terminal:'+one+'"]').click();
  await page.locator('[data-action="deck-tab"][data-id="media:doc"]').click();
- await documentPane.getByLabel('Pane actions',{exact:true}).click();
+ await documentPane.locator('.deck-tab[aria-selected="true"]').click({button:'right'});
  assert.equal(await page.getByRole('button',{name:'Ask agent',exact:true}).isVisible(),true,'narrow panes retain Ask agent in their action menu');
  await page.getByRole('button',{name:'Source',exact:true}).click();
  assert.equal(await page.locator('.deck-document').innerText(),markdown,'Source remains reachable in a narrow pane');
- await documentPane.getByLabel('Pane actions',{exact:true}).click();
+ await documentPane.locator('.deck-tab[aria-selected="true"]').click({button:'right'});
  await page.getByRole('button',{name:'Preview',exact:true}).click();
  await page.locator('.deck-divider').dblclick();
+ await page.locator('.deck-tab[data-id="media:doc"]').click({button:'right'});
  await page.getByRole('button',{name:'Ask agent',exact:true}).click();
  assert.match(await page.locator('#modal').innerText(),/Attached reference/);
  await page.locator('#transcript').fill('Explain the tradeoffs.');

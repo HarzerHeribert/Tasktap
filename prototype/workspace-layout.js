@@ -11,7 +11,7 @@ const workspaceLayout=(()=>{
     used.add(id);return id;
   }
   function leaves(tree){
-    const result=[],pending=[tree];
+    const result=[],pending=tree?[tree]:[];
     while(pending.length){const node=pending.pop();if(node.group)result.push(node.group);else pending.push(node.second,node.first)}
     return result;
   }
@@ -19,7 +19,7 @@ const workspaceLayout=(()=>{
   function ensure(layout){
     if(!object(layout))throw new TypeError('A workspace layout must be an object.');
     if(!Array.isArray(layout.groups))layout.groups=[];
-    if(!layout.groups.length)layout.groups.push({tabs:[],active:null});
+    if(!layout.groups.length){layout.tree=null;layout.selected=0;layout.focus=false;return layout}
     const selectedIndex=Number.isInteger(layout.selected)?Math.max(0,Math.min(layout.selected,layout.groups.length-1)):0;
     const ids=new Set(),groupObjects=new WeakSet();
     layout.groups=layout.groups.map(value=>{
@@ -68,7 +68,7 @@ const workspaceLayout=(()=>{
     return layout;
   }
   function locate(layout,groupId){
-    const pending=[{node:layout.tree,parent:null,side:null}];
+    const pending=layout.tree?[{node:layout.tree,parent:null,side:null}]:[];
     while(pending.length){
       const found=pending.pop(),node=found.node;
       if(node.group===groupId)return found;
@@ -97,8 +97,9 @@ const workspaceLayout=(()=>{
   function remove(layout,groupId){
     ensure(layout);
     const target=locate(layout,groupId);
-    if(!target?.parent)return null;
+    if(!target)return null;
     const removed=layout.groups.find(group=>group.id===groupId),selected=layout.groups[layout.selected];
+    if(!target.parent){layout.groups=[];ensure(layout);return removed}
     const sibling=target.parent[target.side==='first'?'second':'first'],nearby=leaves(sibling);
     const next=selected===removed?nearby[target.side==='first'?0:nearby.length-1]:selected.id;
     // Replace the parent, collapsing exactly the divider that owned this leaf.

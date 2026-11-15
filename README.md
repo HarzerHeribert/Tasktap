@@ -25,13 +25,13 @@ Tasktap appears in the Dock and menu bar. Closing its workspace window leaves th
 
 ## Arrange your workspace
 
-Use **Split right** (**⌘D**) or **Split down** (**⇧⌘D**) to divide the selected pane. Every split opens a fresh terminal; either pane can be split again. Drag a divider to resize, or double-click to balance it. **Pane actions → Move tab to…** moves a view. **Focus pane** expands the selected pane temporarily and restores the saved layout when you exit.
+A workspace contains surfaces, each holding panes in tabs. Every surface has **New terminal**, **New browser**, **Split right**, and **Split down** controls. Split buttons act on their own surface; **⌘D** and **⇧⌘D** split the focused surface. Every split opens a fresh terminal. Drag a divider to resize, or double-click to balance it. Right-click a tab (or press **Shift+F10**) for **Move tab to…** and other tab actions. **Focus surface** temporarily expands the selected surface.
 
-The sidebar groups open surfaces by workspace and pane. Selecting one focuses its existing view. **Home**, **Notebook**, **Session history**, and **Activity** remain available through the same navigation.
+The sidebar shows one row per workspace. An attention mark pulses when an agent needs input; a checkmark indicates an unread reported result. Reduce Motion disables the pulse. Opening the workspace acknowledges result markers; pending decisions stay visible until resolved. **Home**, **Notebook**, **Session history**, and **Activity** remain available through the same navigation.
 
 | Action | What happens |
 | --- | --- |
-| Close a tab or pane | Its views close; terminal processes keep running. Reopen a terminal from Session history. |
+| Close a tab | Its view closes. Closing or moving the final tab also removes its surface. There is no close-all control on a surface; terminal processes remain available in Session history. |
 | Close a workspace | Its tabs and layout are saved. Restore it with **+ → Closed workspaces**. |
 | Quit Tasktap | Running embedded sessions continue while the private local terminal service remains alive. |
 | **Session details → Stop session…** | Explicitly ends that process after confirmation. |

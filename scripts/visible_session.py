@@ -187,6 +187,8 @@ def open_window(path, job, ticket=None):
 
 
 def resume_id(folder, job):
+    if job.get('shellLaunch'):
+        return None # The user resumes this CLI in its existing shell.
     if (job.get('delivery') != 'interactive' or job.get('mode') != 'ask' or job.get('external')
             or job.get('session') != folder.name):
         return None

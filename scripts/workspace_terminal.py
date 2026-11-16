@@ -278,8 +278,10 @@ class Service:
                     folder = Path(msg['runDir']).resolve()
                     config = read(folder/'observer-config.json')
                     owner = read(next(iter(sorted(folder.glob('*.job'))),folder/'missing'))
-                    if (not s['running'] or s.get('kind') != 'agent' or owner.get('observer') is not True or folder.name != key or owner.get('session') != key
-                            or owner.get('folder') != s['cwd'] or not isinstance(msg.get('token'),str)
+                    owns_shell = s.get('kind')=='shell' and owner.get('shellLaunch') is True and isinstance(owner.get('terminalFolder'),str) and Path(owner['terminalFolder']).resolve()==Path(s['cwd']).resolve()
+                    owns_agent = s.get('kind')=='agent' and owner.get('folder')==s['cwd']
+                    if (not s['running'] or not (owns_shell or owns_agent) or owner.get('observer') is not True or folder.name != key or owner.get('session') != key
+                            or not isinstance(msg.get('token'),str)
                             or not compare_digest(msg['token'],config.get('token',''))):
                         raise ValueError('Observer does not own this terminal.')
                     observation = read(folder/'observer.json')

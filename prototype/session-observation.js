@@ -37,7 +37,7 @@ const sessionObservation=(()=>{
     if(old&&old.launchId!==o.launchId&&old.updatedAt>o.updatedAt)return;
     pending.set(id,o);
     const s=sess(id);if(s){
-      s.monitoring=true;s.observation=o;s.state=legacy[o.state];
+      s.monitoring=true;s.observation=o;s.state=legacy[o.state];if(o.agent)s.agent=o.agent;
       if(o.providerSession)s.conversation=o.providerSession;
       if(s.agent==='claude'&&o.turn>0)s.startup='confirmed';
       s.observedAnswers??=[];
@@ -73,9 +73,10 @@ const sessionObservation=(()=>{
     const o=get(id),s=sess(id);if(!o)return '<p class="hint">'+esc(s?.monitoringCapability||'Live lifecycle monitoring is unavailable for this CLI. Process status remains available.')+'</p>';
     const c=cue(id),answers=(o.answers||[]).slice().reverse();
     const history=(o.history||[]).slice().reverse();
-    const names={launch_started:'Starting CLI',session_started:'Session connected',turn_started:'Turn started',activity:'Tool started',continued:'Agent continued',assistant_text:'Assistant update',permission_requested:'Permission requested',input_requested:'Input requested',turn_finished:'Answer ready',turn_failed:'Turn failed',turn_interrupted:'Turn interrupted',process_exited:'Session ended'};
+    const names={launch_started:'Starting CLI',cli_started:'CLI launched',session_started:'Session connected',turn_started:'Turn started',activity:'Tool started',continued:'Agent continued',assistant_text:'Assistant update',permission_requested:'Permission requested',input_requested:'Input requested',turn_finished:'Answer ready',turn_failed:'Turn failed',turn_interrupted:'Turn interrupted',process_exited:'Session ended'};
     return '<section class="observer-details" data-observer-details="'+attr(id)+'"><p class="observer-detail-state" data-state="'+c.kind+'">'+esc(c.symbol+' '+c.label)+'</p>'+
       (c.activity?'<p class="observer-detail-activity">'+esc(c.activity)+'</p>':'')+
+      '<p class="hint">'+(o.providerSession?'Native lifecycle events received.':'Waiting for the CLI’s first native lifecycle event.')+'</p>'+
       '<p class="hint">Answers are copied from the conversation. A finished turn does not establish task success. Questions and permissions shown by the CLI are answered in its terminal.</p>'+
       '<h3>Answers</h3>'+(answers.length?'<div class="observer-answer-list">'+answers.map(a=>button('Turn '+a.turn+' · '+new Date(a.time*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),'observer-answer',id+':'+a.turn,'btn','note')).join('')+'</div>':'<p class="hint">No finished answer yet.</p>')+
       '<h3>Session events</h3><ol class="observer-history">'+history.map(e=>'<li><time>'+esc(new Date(e.at*1000).toLocaleTimeString())+'</time><span>'+esc(names[e.kind]||e.kind)+(e.kind==='activity'&&e.activity?' · '+esc(e.activity):'')+'</span></li>').join('')+'</ol></section>';

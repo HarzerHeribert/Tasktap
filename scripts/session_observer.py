@@ -20,7 +20,7 @@ import time
 import uuid
 
 STATES = {
-    'launch_started': 'starting',
+    'launch_started': 'starting', 'cli_started': 'ready',
     'session_started': 'ready', 'turn_started': 'working', 'activity': 'working',
     'continued': 'working', 'permission_requested': 'needsPermission',
     'input_requested': 'needsInput', 'turn_finished': 'ready',
@@ -138,6 +138,8 @@ def ingest(folder, token, event):
                          answers=config.get('answers',[]),history=[])
         if state.get('state') == 'ended':
             return False
+        if kind=='cli_started' and state.get('state')!='starting':
+            return False # A fast native callback already established a later state.
         if state.get('turn',0)>0 and state.get('state') in ('ready','failed','interrupted') and kind in ('activity','continued','assistant_text'):
             return False
         # Subagents must not mark their parent's turn ready.
@@ -251,7 +253,7 @@ def prepare(job, folder, resume=None):
     folder = Path(folder).resolve()
     agent = job['agent']
     token = secrets.token_hex(16)
-    previous = read(folder/'observer.json') if resume else {}
+    previous = read(folder/'observer.json') if resume or job.get('shellLaunch') else {}
     config = dict(token=token, session=job['session'], agent=agent,
                   turnBase=previous.get('turn',0),answers=previous.get('answers',[]))
     atomic(folder/'observer-config.json', config)
@@ -264,7 +266,8 @@ def prepare(job, folder, resume=None):
     if agent == 'claude':
         for name in ('Notification', 'StopFailure', 'PostToolUseFailure'):
             hooks[name] = [dict(hooks=[dict(type='command', command=command, timeout=3)])]
-        args = ['--settings', json.dumps(dict(hooks=hooks)), *(['--resume',resume] if resume else ['--session-id',job['session']])]
+        identity = ['--resume',resume] if resume else [] if job.get('shellLaunch') else ['--session-id',job['session']]
+        args = ['--settings', json.dumps(dict(hooks=hooks)), *identity]
     elif agent == 'codex':
         hooks['Interrupt'] = [dict(hooks=[dict(type='command', command=command, timeout=3)])]
         args = []

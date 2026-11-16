@@ -114,6 +114,7 @@ const workspaceDeck=(()=>{
     if(pendingStarts.has(id))return {kind:'working',label:'Opening',symbol:'◌'};
     if(t?.running===false)return {kind:'ended',label:t.restored?'Not running':t.stopped?'Stopped':t.exit===0?'Exited':'Failed',symbol:'○'};
     if(s?.state==='Complete'||s?.state==='Ready')return {kind:'ready',label:'Ready',symbol:'○'};
+    if(t?.kind==='shell')return {kind:'connected',label:'Terminal',symbol:'○'};
     if(t?.kind==='agent'&&!['Running','Needs input'].includes(s?.state))return {kind:'connected',label:'Connected',symbol:'○',activity:'Live lifecycle monitoring unavailable'};
     return {kind:'working',label:t?.kind==='agent'||s?'Working':'Running',symbol:'◌'};
   }

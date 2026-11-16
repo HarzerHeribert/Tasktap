@@ -78,7 +78,7 @@ final class WorkspaceTerminals {
         writes.async { try? input.write(contentsOf:bytes) }
     }
 
-    func handle(_ message:[String:Any], folders:WorkspaceFolders) throws {
+    func handle(_ message:[String:Any], folders:WorkspaceFolders, runs:URL) throws {
         guard let op = message["op"] as? String else {return}
         if op == "reconnect" { try connect(); send(["op":"watch"]); return }
         if ["open-workspace","stop-workspace"].contains(op) {
@@ -112,7 +112,9 @@ final class WorkspaceTerminals {
             guard FileManager.default.isExecutableFile(atPath:shell) else {
                 throw LiveWorkspace.Failure.reason("That shell is not installed. Choose another in Terminal preferences.")
             }
-            send(["op":"start","id":id,"cwd":cwd.path,"argv":[shell,"-l"],"kind":"shell","title":"Terminal","cols":message["cols"] ?? 100,"rows":message["rows"] ?? 30])
+            let runner=try SessionHelpers.runner(),python=try Self.pythonExecutable(environment:LiveWorkspace.cliEnvironment)
+            let integration=runner.deletingLastPathComponent().appendingPathComponent("tasktap_shell.py")
+            send(["op":"start","id":id,"cwd":cwd.path,"argv":[python.path,integration.path,"shell",shell,id,runs.path],"kind":"shell","title":"Terminal","cols":message["cols"] ?? 100,"rows":message["rows"] ?? 30])
         } else if ["attach","detach","input","resize","stop"].contains(op) {
             var request:[String:Any] = ["op":op,"id":id]
             if op == "input" {

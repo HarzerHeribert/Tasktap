@@ -725,7 +725,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         case "workspace-chrome":if message.webView === web {workspaceBackdrop.configure(data)}
         case "workspace-terminal":
             guard !verifying || workspaceVerification || independentVerification,!liveTest,message.webView === web else {return}
-            do {try terminals.handle(data,folders:runtime.folders)}
+            do {try terminals.handle(data,folders:runtime.folders,runs:runtime.data)}
             catch {js("workspaceDeck.receive(events)",["events":[["event":"error","id":data["id"] as? String ?? "","cwd":data["cwd"] as? String ?? "","op":data["op"] as? String ?? "","error":error.localizedDescription]]])}
         case "observer-answer":
             guard !verifying || workspaceVerification || independentVerification,!liveTest,message.webView === web || message.webView === notchWeb,let id=data["id"] as? String,let turn=data["turn"] as? Int else{return}

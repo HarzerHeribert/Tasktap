@@ -31,6 +31,7 @@ const fs=require('node:fs');
   await pane('a').locator('.xterm-helper-textarea').focus();
   await page.waitForFunction(()=>document.activeElement?.classList.contains('xterm-helper-textarea'));
   const before=await pane('b').boundingBox();
+  assert.equal(await pane('a').evaluate(el=>getComputedStyle(el,'::after').borderTopColor),'rgba(0, 0, 0, 0)','working uses a dot, never a full-pane blue frame');
   await page.evaluate(()=>sendObservation('b','needsPermission',{event:'permission_requested',question:'Permission required for Bash.'}));
   await page.waitForFunction(()=>document.querySelector('[data-session-id="b"]').dataset.sessionState==='permission');
   assert.match(await pane('b').locator('.deck-session-status').innerText(),/Needs permission/);

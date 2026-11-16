@@ -43,7 +43,7 @@ final class WorkspaceWindow: NSWindow {
     }
 }
 final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScriptMessageHandler,
-                       WKNavigationDelegate, WKUIDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
+                       WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandlerWithReply, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     private let status = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let notifications = UNUserNotificationCenter.current()
     private var panel: NSPanel!
@@ -72,8 +72,9 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private var independentWindows: Bool {(!verifying && !liveTest) || independentVerification}
     private var entry: URL!
     private let liveTest = CommandLine.arguments.contains("--verify-live")
-    private let workspaceVerification = CommandLine.arguments.contains("--verify-workspace")
-    private let verifying = CommandLine.arguments.contains("--verify-interface") || CommandLine.arguments.contains("--verify-workspace") || CommandLine.arguments.contains("--verify-independent-windows")
+    private let workspaceVerification = CommandLine.arguments.contains("--verify-workspace") || CommandLine.arguments.contains("--verify-terminal-clipboard")
+    private let verifying = CommandLine.arguments.contains("--verify-interface") || CommandLine.arguments.contains("--verify-workspace") || CommandLine.arguments.contains("--verify-independent-windows") || CommandLine.arguments.contains("--verify-terminal-clipboard")
+    private lazy var terminalPasteboard: NSPasteboard = verifying ? .withUniqueName() : .general
     private var ready = false
     private var routeTask: Task<Void, Never>?
     private let sessionNames = SessionNames()
@@ -178,6 +179,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         }
         if independentWindows {config.userContentController.addUserScript(WKUserScript(source:"window.tasktapSurface='workspace'",injectionTime:.atDocumentStart,forMainFrameOnly:true))}
         config.userContentController.add(self, name: "workspace")
+        config.userContentController.addScriptMessageHandler(self,contentWorld:.page,name:"terminalClipboard")
         config.setURLSchemeHandler(workspaceMedia, forURLScheme:"tasktap-preview")
         web = NotchWebView(frame: .zero, configuration: config)
         web.navigationDelegate = self
@@ -379,6 +381,16 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     }
     @objc private func menuAction(_ sender: NSMenuItem) {
         guard let command=sender.representedObject as? String else { return }
+        if command=="menu-edit-copy" || command=="menu-edit-paste" {
+            let action=command=="menu-edit-copy" ? "copy":"paste"
+            guard let target=NSApp.keyWindow === panel ? (notchWeb ?? web):web else {return}
+            target.callAsyncJavaScript("return workspaceDeck.clipboardCommand(action,true)",arguments:["action":action],in:nil,in:.page){result in
+                if case let .success(handled)=result,handled as? Bool == true {return}
+                // Forms and the prompt composer keep WebKit's normal editing.
+                NSApp.sendAction(NSSelectorFromString(action+":"),to:nil,from:sender)
+            }
+            return
+        }
         if command=="menu-help" {
             NSWorkspace.shared.open(URL(string:"https://harzerheribert.github.io/Tasktap/docs/")!);return
         }
@@ -575,6 +587,18 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             self?.appearanceLoading=false
             self?.js("workspaceDeck.appearanceLoaded(value)",["value":value])
         }
+    }
+    func userContentController(_ controller: WKUserContentController,didReceive message: WKScriptMessage,replyHandler: @escaping (Any?,String?)->Void) {
+        guard message.name=="terminalClipboard",message.frameInfo.isMainFrame,message.webView === web,
+              message.frameInfo.request.url?.standardizedFileURL == entry?.standardizedFileURL,
+              let data=message.body as? [String:Any] else {replyHandler(nil,"Clipboard unavailable");return}
+        if data["op"] as? String == "paste" {
+            replyHandler(terminalPasteboard.string(forType:.string) ?? "",nil)
+        } else if data["op"] as? String == "copy",let text=data["text"] as? String,text.utf8.count<=4_000_000 {
+            terminalPasteboard.clearContents()
+            if terminalPasteboard.setString(text,forType:.string){replyHandler(true,nil)}
+            else {replyHandler(nil,"Could not copy text")}
+        } else {replyHandler(nil,"Unsupported clipboard operation")}
     }
     func userContentController(_ controller: WKUserContentController,didReceive message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame, (message.webView === web || message.webView === notchWeb),
@@ -1065,12 +1089,19 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 if value as? Bool == true {ready=true;break}
             }
             guard ready else {throw Check.failed(#line)}
+            try await verifyTerminalClipboard(id:id)
+            if CommandLine.arguments.contains("--verify-terminal-clipboard") {
+                terminals.send(["op":"stop","id":id]);try await Task.sleep(nanoseconds:400_000_000)
+                terminalPasteboard.releaseGlobally()
+                print("PASS: native Command-V menu → clipboard bridge → xterm → real PTY, and native clipboard copy with an isolated pasteboard.")
+                NSApp.terminate(nil);return
+            }
             _ = try await web.evaluateJavaScript("document.querySelector('[data-action=deck-close]').click();true")
             _ = try await web.callAsyncJavaScript("workspaceDeck.open('terminal:'+id,folder);return true",arguments:["id":id,"folder":folder.path],in:nil,contentWorld:.page)
             try await Task.sleep(nanoseconds:400_000_000)
             let restored=try await web.callAsyncJavaScript("return workspaceDeck.terminalText(id).includes('TASKTAP_READY')",arguments:["id":id],in:nil,contentWorld:.page)
             guard restored as? Bool == true else {throw Check.failed(#line)}
-            let restoredTab=try await web.callAsyncJavaScript("return !!document.querySelector('.deck-tab[data-id=\"terminal:'+id+'\"]') && document.querySelectorAll('#nav [data-surface]').length===0 && document.querySelectorAll('#nav .nav-workspace').length===1 && document.querySelectorAll('.deck-group .deck-pane-tools > button').length===4",arguments:["id":id],in:nil,contentWorld:.page)
+            let restoredTab=try await web.callAsyncJavaScript("return !!document.querySelector('.deck-tab[data-id=\"terminal:'+id+'\"]') && document.querySelectorAll('#nav [data-surface]').length===0 && document.querySelectorAll('#nav .nav-workspace').length===1 && document.querySelectorAll('.deck-group .deck-pane-tools > button').length===8",arguments:["id":id],in:nil,contentWorld:.page)
             guard restoredTab as? Bool == true else {throw Check.failed(#line)}
             try await verifyTerminalViewport(folder:folder)
             let file=folder.appendingPathComponent("Preview.txt")
@@ -1176,6 +1207,22 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             print("Native workspace failed:",error)
             exit(1)
         }
+    }
+    @MainActor private func verifyTerminalClipboard(id:String) async throws {
+        let text="TASKTAP_PASTE_✓_fixture"
+        terminalPasteboard.clearContents();terminalPasteboard.setString(text,forType:.string)
+        _ = try await web.evaluateJavaScript("document.querySelector('.deck-terminal:not([hidden]) .xterm-helper-textarea').focus();true")
+        let event=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:.command,timestamp:0,windowNumber:web.window?.windowNumber ?? 0,context:nil,characters:"v",charactersIgnoringModifiers:"v",isARepeat:false,keyCode:UInt16(kVK_ANSI_V))!
+        guard NSApp.mainMenu?.performKeyEquivalent(with:event)==true else {throw Check.failed(#line)}
+        var pasted=false
+        for _ in 0..<40 {
+            try await Task.sleep(nanoseconds:100_000_000)
+            if try await web.callAsyncJavaScript("return workspaceDeck.terminalText(id).includes(text)",arguments:["id":id,"text":text],in:nil,contentWorld:.page) as? Bool == true {pasted=true;break}
+        }
+        guard pasted else {throw Check.failed(#line)}
+        _ = try await web.callAsyncJavaScript("return await window.webkit.messageHandlers.terminalClipboard.postMessage({op:'copy',text})",arguments:["text":text],in:nil,contentWorld:.page)
+        guard terminalPasteboard.string(forType:.string)==text else {throw Check.failed(#line)}
+        terminals.send(["op":"input","id":id,"data":Data([0x15]).base64EncodedString()])
     }
     @MainActor private func verifyIndependentWindows(folder:URL,id:String) async throws {
         enum Check:Error {case failed(Int)}

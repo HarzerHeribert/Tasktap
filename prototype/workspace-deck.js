@@ -42,6 +42,32 @@ const workspaceDeck=(()=>{
     en.term.options.fontSize=fontSize(id);fit(en);persist();
     if(activeProject)update(proj(activeProject),projects.get(activeProject));
   }
+  function clipboardCommand(action,focusedOnly=false,id=null){
+    if(!['copy','paste'].includes(action)||!activeProject||document.querySelector('dialog[open]'))return false;
+    if(focusedOnly&&!document.activeElement?.closest('.deck-terminal,.deck-tab,.deck-pane-tools'))return false;
+    const l=layout(activeProject);id??=termID(l.groups[l.selected]?.active);
+    const en=engines.get(id);if(!en||en.element.hidden||!en.element.getClientRects().length)return false;
+    const text=action==='copy'?en.term.getSelection():null;
+    if(action==='copy'&&!text){toast('Select terminal text to copy.');return true}
+    if(action==='paste'&&(!connected||terminals.get(id)?.running===false)){toast('This terminal is unavailable. Reconnect before pasting.');return true}
+    const bridge=window.webkit?.messageHandlers?.terminalClipboard;
+    (async()=>{
+      if(action==='copy'){
+        if(bridge)await bridge.postMessage({op:'copy',text});else await navigator.clipboard.writeText(text);
+        toast('Copied terminal selection.');
+      }else{
+        const value=bridge?await bridge.postMessage({op:'paste'}):await navigator.clipboard.readText();
+        // Capture the destination before the asynchronous clipboard read. A closed
+        // or replaced terminal must never receive a late paste.
+        if(engines.get(id)!==en||!connected||terminals.get(id)?.running===false)return;
+        if(typeof value!=='string'||!value){toast('The clipboard has no text to paste.');return}
+        if(new TextEncoder().encode(value).length>64000){toast('This clipboard text is too large. Paste a smaller section.');return}
+        en.term.paste(value);
+      }
+      if(activeProject){const current=layout(activeProject);if(termID(current.groups[current.selected]?.active)===id)en.term.focus()}
+    })().catch(()=>toast('Clipboard access failed. Try Copy or Paste from the Edit menu.'));
+    return true;
+  }
   function applyAppearance(){
     const a=appearance(),style=document.documentElement.style;
     style.setProperty('--deck-bg',a.theme.background);style.setProperty('--deck-fg',a.theme.foreground);
@@ -136,7 +162,7 @@ const workspaceDeck=(()=>{
     term.attachCustomKeyEventHandler(e=>{
       if(textSizeShortcut(e)!==null)return false;
       if(e.metaKey&&['w','k','f','d'].includes(e.key.toLowerCase()))return false;
-      if(e.metaKey&&e.key.toLowerCase()==='c'&&term.hasSelection()){navigator.clipboard?.writeText(term.getSelection());return false}
+      if(e.metaKey&&!e.ctrlKey&&!e.altKey&&['c','v'].includes(e.key.toLowerCase()))return false;
       return true;
     });
     const resize=new ResizeObserver(()=>{cancelAnimationFrame(en.fitFrame);en.fitFrame=requestAnimationFrame(()=>fit(en))});resize.observe(viewport);en.resize=resize;
@@ -434,7 +460,7 @@ const workspaceDeck=(()=>{
         controls.dataset.signature=controlKey;
         const documentMode=file&&(workspaceDocuments.kind(file)==='markdown'||file.kind==='web'&&file.path);
         const actions=(documentMode?button(file.sourceView?'Preview':'Source','deck-source',file.id,'deck-menu-item'):'')+(s?button('Follow up','follow',id,'deck-menu-item'):file?button('Ask agent','deck-ask',file.id,'deck-menu-item'):'')+(id?button('Compose text…','deck-compose',id,'deck-menu-item','pen')+button('Find in terminal','deck-find',id,'deck-menu-item')+button('Increase text size / ⌘+','deck-text-increase',id,'deck-menu-item')+button('Decrease text size / ⌘−','deck-text-decrease',id,'deck-menu-item')+button('Reset text size / ⌘0','deck-text-reset',id,'deck-menu-item')+button('Session details','deck-details',id,'deck-menu-item'):file?.path?button('Show in Finder','deck-reveal',file.id,'deck-menu-item'):file?.url?button('Open in browser','deck-browser',file.id,'deck-menu-item'):'')+(file?button('Refresh preview','deck-refresh',g.active,'deck-menu-item'):'')+(file?.kind==='image'?button('Zoom image','deck-zoom',g.active,'deck-menu-item'):'')+(g.active&&l.groups.length>1?button('Move tab to…','deck-move',g.active,'deck-menu-item'):'');
-        controls.innerHTML=smallButton('New terminal','deck-terminal',p.id,'terminal')+smallButton('New browser','deck-url',p.id,'globe')+smallButton('Split right / ⌘D','deck-split-right',p.id,'splitRight')+smallButton('Split down / ⇧⌘D','deck-split-down',p.id,'splitDown')+menu('Tab actions','<div class="deck-menu-heading"></div>'+actions);
+        controls.innerHTML=(id?smallButton('Copy selection / ⌘C','deck-copy',id,'copy')+smallButton('Paste / ⌘V','deck-paste',id,'paste')+smallButton('Decrease text size / ⌘−','deck-text-decrease',id,'textSmaller')+smallButton('Increase text size / ⌘+','deck-text-increase',id,'textLarger'):'')+smallButton('New terminal','deck-terminal',p.id,'terminal')+smallButton('New browser','deck-url',p.id,'globe')+smallButton('Split right / ⌘D','deck-split-right',p.id,'splitRight')+smallButton('Split down / ⇧⌘D','deck-split-down',p.id,'splitDown')+menu('Tab actions','<div class="deck-menu-heading"></div>'+actions);
         controls.querySelector('.deck-menu').classList.add('deck-tab-menu');
       }
       const heading=$('.deck-menu-heading',controls);if(heading)heading.textContent=id?[providers[s?.agent]||'Shell',status(id),fontSize(id)+' pt'].join(' / '):file?.path||file?.url||(g.active?'Reported outcome':'Surface '+(index+1));
@@ -530,6 +556,7 @@ const workspaceDeck=(()=>{
     else if(a==='deck-reveal'){if(live)postLive('workspace-reveal',{id})}
     else if(a==='deck-browser'){if(live)postLive('workspace-open-url',{url:saved.media[id]?.url})}
     else if(a==='deck-details')details(id);
+    else if(a==='deck-copy'||a==='deck-paste')clipboardCommand(a==='deck-copy'?'copy':'paste',false,id);
     else if(a==='deck-text-increase'||a==='deck-text-decrease'||a==='deck-text-reset'){resizeText(id,a==='deck-text-increase'?1:a==='deck-text-decrease'?-1:0);engines.get(id)?.term.focus()}
     else if(a==='deck-result')openResult(id);
     else if(a==='deck-conversation')showSession(id);
@@ -546,6 +573,9 @@ const workspaceDeck=(()=>{
   document.addEventListener('keydown',e=>{const tab=e.target.closest('.deck-tab');if(!tab||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const tabs=[...tab.closest('.deck-tabs').querySelectorAll('.deck-tab')],index=tabs.indexOf(tab),next=e.key==='Home'?0:e.key==='End'?tabs.length-1:(index+(e.key==='ArrowRight'?1:tabs.length-1))%tabs.length;const key=tabs[next].dataset.id;tabs[next].click();const selected=projects.get(activeProject)?.querySelector('.deck-tab[aria-selected="true"][data-id="'+CSS.escape(key)+'"]');selected?.focus()});
   // Capture before xterm or the web view can interpret these as input or page zoom.
   document.addEventListener('keydown',e=>{
+    if(e.metaKey&&!e.ctrlKey&&!e.altKey&&!e.shiftKey&&!e.isComposing&&['c','v'].includes(e.key.toLowerCase())&&clipboardCommand(e.key.toLowerCase()==='c'?'copy':'paste',true)){
+      e.preventDefault();e.stopPropagation();return;
+    }
     const change=textSizeShortcut(e);if(change===null||!activeProject||document.querySelector('dialog[open]'))return;
     if(e.target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"])')&&!e.target.closest('.deck-terminal'))return;
     const l=layout(activeProject),id=termID(l.groups[l.selected]?.active);
@@ -584,7 +614,7 @@ const workspaceDeck=(()=>{
   function sidebarData(){return {layouts:saved.layouts,terminals:[...terminals.values()],label,icon:surfaceIcon}}
   if(typeof appAppearance!=='undefined')appAppearance.receiveGhostty(inherited);
   applyAppearance();
-  return {openWorkspace,closeWorkspace,sidebarData,appearanceLoaded,pdfLoaded,openTerminal,terminalText,terminalMetrics,shellHistory,textLoaded,receive,renderProject,leave,addFiles,openWeb,open,openResult,outcome,closeFront,preferences,activity};
+  return {openWorkspace,closeWorkspace,sidebarData,appearanceLoaded,pdfLoaded,openTerminal,terminalText,terminalMetrics,shellHistory,textLoaded,receive,renderProject,leave,addFiles,openWeb,open,openResult,outcome,closeFront,preferences,activity,clipboardCommand};
 })();
 
 if(location.hash!=='#geometry')render();

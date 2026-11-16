@@ -3,6 +3,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const uid = () => crypto.randomUUID?.() || String(Date.now() + Math.random());
 const paths = {
+  paste:'M8 5H4v16h16V5h-4 M8 3h8v4H8z',textSmaller:'M2 18 8 5l6 13 M4 14h8 M17 12h6',textLarger:'M2 18 8 5l6 13 M4 14h8 M17 12h6 M20 9v6',
   terminal:'M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z M6 8l3 3-3 3 M12 14h5',globe:'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M3 12h18 M5 6h14 M5 18h14 M12 3c-5 4-5 14 0 18 M12 3c5 4 5 14 0 18',attention:'M12 5v9 M12 18v1',
   copy:'M8 8h12v13H8z M16 8V3H3v13h5',up:'m6 15 6-6 6 6',check:'m4 12 5 5L20 6',
   side:'M3 5h18v14H3z M9 5v14',splitRight:'M3 5h18v14H3z M12 5v14',splitDown:'M3 5h18v14H3z M3 12h18', grid:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',

@@ -120,7 +120,8 @@ fs.mkdirSync(shots,{recursive:true});
   // Controls target their own surface even when invoked without pointer focus.
   const first=page.locator('.deck-group').first(),firstID=await first.getAttribute('data-group-id');
   assert.equal(await page.locator('.deck-tools [data-action^="deck-split-"]').count(),0);
-  assert.deepEqual(await first.locator('.deck-pane-tools > button').evaluateAll(buttons=>buttons.map(b=>b.dataset.action)),['deck-terminal','deck-url','deck-split-right','deck-split-down']);
+  const terminalTools=(await first.locator('.deck-tab[aria-selected="true"]').getAttribute('data-id')).startsWith('terminal:')?['deck-copy','deck-paste','deck-text-decrease','deck-text-increase']:[];
+  assert.deepEqual(await first.locator('.deck-pane-tools > button').evaluateAll(buttons=>buttons.map(b=>b.dataset.action)),[...terminalTools,'deck-terminal','deck-url','deck-split-right','deck-split-down']);
   const initialGroups=await page.locator('.deck-group').count();
   await first.locator('[data-action="deck-split-down"]').evaluate(el=>el.click());
   assert.equal(await page.locator('.deck-group').count(),initialGroups+1);

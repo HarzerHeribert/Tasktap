@@ -15,6 +15,7 @@ window.applicationMenu=(()=>{
     const control={
       'menu-pane-terminal':'deck-terminal','menu-pane-browser':'deck-url',
       'menu-pane-compose':'deck-compose',
+      'menu-pane-text-increase':'deck-text-increase','menu-pane-text-decrease':'deck-text-decrease','menu-pane-text-reset':'deck-text-reset',
       'menu-pane-split-right':'deck-split-right','menu-pane-split-down':'deck-split-down'
     }[action];
     if(control)pane?.querySelector('[data-action="'+control+'"]')?.click();

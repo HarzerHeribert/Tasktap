@@ -35,6 +35,8 @@ A workspace contains surfaces, each holding panes in tabs. Every surface has **N
 
 Use **⌘+** (or **⌘=**) and **⌘−** to increase or decrease text size in the selected terminal, one point at a time (8–40 pt). **⌘0** resets that terminal to the default from Terminal preferences or appearance. Each terminal remembers its size across tab moves and workspace restores. The same controls are in its tab’s right-click menu. Terminal scrollbars use a thin thumb that appears while scrolling or hovering over the scrollbar.
 
+**⌘V** pastes clipboard text into the focused terminal prompt; **⌘C** copies selected terminal output. Each terminal’s top bar has **Copy**, **Paste**, and text-size buttons. The Mac’s **Edit** menu offers Copy/Paste, and **View** offers Increase, Decrease, and Reset Text Size. Paste respects the CLI’s bracketed-paste mode and adds no Enter key. **Control-C** still interrupts the CLI.
+
 The sidebar shows one row per workspace. An attention mark pulses when an agent needs input; a checkmark indicates an unread reported result. Reduce Motion disables the pulse. Opening the workspace acknowledges result markers; pending decisions stay visible until resolved. **Home**, **Notebook**, **Session history**, and **Activity** remain available through the same navigation.
 
 | Action | What happens |

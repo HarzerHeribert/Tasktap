@@ -9,7 +9,7 @@ commit it or put it on Pages. Losing it can strand community installations.
 Prepare on an Apple silicon Mac with the macOS 26 SDK:
 
 ```sh
-bash scripts/package-release.sh 1.0.2 9
+bash scripts/package-release.sh 1.0.4 11
 ```
 
 Packaging verifies the archive checksum, bundled code signature, feed metadata,
@@ -17,11 +17,11 @@ and Ed25519 signature using the public key in the app. It also checks that
 modified or truncated archives fail signature verification. To repeat:
 
 ```sh
-python3 scripts/verify-release.py build/releases/1.0.2
+python3 scripts/verify-release.py build/releases/1.0.4
 ```
 
 The build number must increase for every published update. Publish the generated
-ZIP, SHA256SUMS and appcast.xml as assets of GitHub release `v1.0.2`, then copy its appcast.xml
+ZIP, SHA256SUMS and appcast.xml as assets of GitHub release `v1.0.4`, then copy its appcast.xml
 to `site/appcast.xml` and deploy Pages through the existing workflow. Publish
 assets first; do not advertise a missing download. Update the homepage release
 badge and guide examples to match the new version before deploying Pages. Keep
@@ -30,7 +30,7 @@ No release is published by the packaging command. GitHub credentials and the
 update private key are not required for ordinary builds or verification CI.
 
 The optional `site/install.sh` downloads the latest stable release when called without
-an argument, or accepts an explicit version such as `1.0.2`. It installs into
+an argument, or accepts an explicit version such as `1.0.4`. It installs into
 `~/Applications`, or replaces an existing copy in `/Applications` when writable.
 It verifies transport checksums and the bundle, preserves a previous installation,
 and does not alter Gatekeeper. Checksums are integrity checks, not an independent
@@ -46,6 +46,31 @@ Helpers are copied into content-addressed Application Support/Tasktap/Helpers
 folders. Do not delete these while agents are running. Settings and session data
 are separate from the app. Updates preserve request text; unfinished setup and
 other transient UI selections should be completed before updating.
+
+## 1.0.4 release scope
+
+Version 1.0.4 uses build **11**. It places the provider row directly beneath
+the physical cutout. No provider icon occupies the menu-bar band. The row fits
+within the cutout width, stays anchored during opening/closing, and is included
+in the native collapsed panel height and pointer hit area. Capture and review
+content start below the row. Workspace toolbar indicators remain available.
+
+The 1.0.3 side placement was marked prerelease after live user feedback, and its
+update feed was withheld. Version 1.0.4 is the stable release of plan usage.
+
+Live account checks confirmed Claude Max, Codex Pro and Google AI Ultra through
+agy. Cursor/Grok/GLM paid states use fixtures because those subscriptions are not
+available locally. Provider positions are checked through animation, and native
+geometry checks include the below-cutout row and its click area.
+
+Release notes: [releases/1.0.4.md](releases/1.0.4.md).
+
+The signed 1.0.4 package passed checksum, full bundled-source matching, helper
+signatures, Ed25519 verification and rejection of altered/truncated archives.
+Native interface checks confirmed six meters below the camera with no menu-bar
+footprint, and the native workspace PTY/media checks passed. Browser review,
+notch, workspace and theme checks passed. The verified package replaced the
+local 1.0.3 installation with a recoverable backup.
 
 ## 1.0.3 release scope
 

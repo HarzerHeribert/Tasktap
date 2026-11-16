@@ -1,6 +1,6 @@
 <img src="site/assets/tasktap-icon.png" width="112" height="112" alt="Tasktap: a metallic voice wave on a dark square">
 
-# Tasktap 1.0.3
+# Tasktap 1.0.4
 
 A Mac workspace that turns a thought into a reviewed task in the right project and conversation. Speak or type, refine the prompt, then work with your coding agents in Tasktap’s embedded terminal multiplexer. Keep sessions, documents and previews together, and answer an agent from the notch while using another app.
 

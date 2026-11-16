@@ -200,6 +200,8 @@ Rules for every phase:
 | 6. Mac shell | Split `main.swift`. The shell keeps only windows, notch panel, local speech, screen context, updater, menus. | No Swift file over 400 lines. The shell handles host abilities and the pass-through, nothing else. |
 | 7. Windows | Tauri host, named pipe, Windows terminals, a top-edge pill or tray flyout in place of the notch, cloud dictation, typing first. | The capture to result loop works on Windows 11 with at least one agent. |
 
+Phase 0 notes: `TASKTAP_DEV=1 ./scripts/build-mac.sh` builds `build/Tasktap Dev.app` (bundle id `io.github.harzerheribert.tasktap.dev`); launch it with `open "build/Tasktap Dev.app"`. It keeps its data, terminal service socket and logs in `~/Library/Application Support/Tasktap Dev`, its settings, web storage, keychain items and notifications under its own bundle id, and has no update feed. A plain `./scripts/build-mac.sh` still builds the release identity, which shares the installed app's data, so do not launch that build during the rebuild.
+
 Phase 2 has one loose end: `scripts/kokoro-voice` is a local voice helper that currently runs through Python. Port it into the Mac speech helper or make it an optional download.
 
 Phase 7 notes: check which agent command line tools run natively on Windows at that time, and offer WSL terminals if some do not. Linux is close to free once Windows works. Signing comes when the app leaves the owner's own machines.

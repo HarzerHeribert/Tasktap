@@ -1,9 +1,10 @@
 #!/bin/bash
 set -eu
 root="$(cd "$(dirname "$0")/.." && pwd)"
+# TASKTAP_DEV=1 builds Tasktap Dev: its own bundle id, so its own data, settings and terminals, and no update feed.
 bash "$root/scripts/fetch-sparkle.sh"
 bash "$root/scripts/build-speech.sh"
-out="${1:-$root/build}/Tasktap.app"
+out="${1:-$root/build}/Tasktap${TASKTAP_DEV:+ Dev}.app"
 contents="$out/Contents"
 mkdir -p "$contents/MacOS" "$contents/Resources/prototype/assets"
 # Retire bundled worker adapters when updating an existing build.
@@ -16,6 +17,7 @@ ditto "$root/build/speech-runtime-resources" "$contents/Resources"
 ditto "$root/build/speech-notices" "$contents/Resources/Speech-Licenses"
 cp "$root/build/sparkle/LICENSE" "$contents/Resources/Sparkle-LICENSE"
 cp "$root/native/Info.plist" "$contents/Info.plist"
+[[ -z "${TASKTAP_DEV:-}" ]] || /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier io.github.harzerheribert.tasktap.dev" -c "Set :CFBundleName Tasktap Dev" -c "Set :CFBundleDisplayName Tasktap Dev" -c "Delete :SUFeedURL" "$contents/Info.plist"
 cp "$root/prototype/assets/resonator/Tasktap.icns" "$contents/Resources/"
 mkdir -p "$contents/Frameworks"
 ditto "$root/build/sparkle/Sparkle.framework" "$contents/Frameworks/Sparkle.framework"
@@ -23,6 +25,6 @@ swiftc -F "$contents/Frameworks" -framework Sparkle -Xlinker -rpath -Xlinker @ex
 swiftc -O "$root/scripts/plan-credentials.swift" -o "$contents/Resources/plan-credentials"
 codesign --force --sign - "$contents/Resources/plan-credentials"
 codesign --force --sign - "$contents/Resources/tasktap-speech"
-codesign --force --sign - --identifier io.github.harzerheribert.tasktap "$out"
+codesign --force --sign - "$out"
 codesign --verify --strict "$out"
 printf '%s\n' "$out"

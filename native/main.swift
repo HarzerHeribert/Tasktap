@@ -460,7 +460,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         return ["quit","updates","automatic-updates","launch-at-login","menu-help"].contains(command) || ready
     }
     private func startUpdates() {
-            guard !verifying && !liveTest else { return }
+            guard !verifying && !liveTest, Bundle.main.object(forInfoDictionaryKey:"SUFeedURL") != nil else { return }
             if updates == nil {
                 updates = AppUpdates()
                 updates?.changed = { [weak self] in

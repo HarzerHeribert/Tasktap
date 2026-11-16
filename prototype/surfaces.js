@@ -480,6 +480,7 @@ for(const selector of ['#notch','#modal']){
 const boundsObserver=new ResizeObserver(updateBounds);
 boundsObserver.observe($('#notch-home'));boundsObserver.observe($('#island'));
 window.workspaceCommand=(action,id='')=>{
+  if(action.startsWith('menu-')){applicationMenu.command(action);return}
   if(action==='open-app'&&window.tasktapSurface==='workspace'){showWorkspace();if(!state.firstRun?.done)postHost('notch-onboarding');return}
   if(action==='live-error'){toast(id);return}
   if(action==='session-focused'){

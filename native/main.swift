@@ -32,7 +32,7 @@ final class WorkspaceWindow: NSWindow {
     }
 }
 final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScriptMessageHandler,
-                       WKNavigationDelegate, UNUserNotificationCenterDelegate {
+                       WKNavigationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     private let status = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let notifications = UNUserNotificationCenter.current()
     private var panel: NSPanel!
@@ -85,6 +85,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private var anchorScreen: NSScreen?
     private var hoverTimer: Timer?
     private var pointerInside = false
+    private var menuWorkspaceAvailable = false
     private var hotKeys: [Int:EventHotKeyRef] = [:]
     private var binaryID=""
     private var lightingEnabled=false
@@ -142,6 +143,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             return
         }
         NSApp.setActivationPolicy((verifying || liveTest) ? .accessory : .regular)
+        ApplicationMenu.install(target:self,action:#selector(menuAction(_:)))
         if CommandLine.arguments.contains("--verify-kokoro") {
             var played=false
             narration.changed={ phase in
@@ -364,6 +366,14 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     }
     @objc private func menuAction(_ sender: NSMenuItem) {
         guard let command=sender.representedObject as? String else { return }
+        if command=="menu-help" {
+            NSWorkspace.shared.open(URL(string:"https://harzerheribert.github.io/Tasktap/docs/")!);return
+        }
+        if command=="menu-close" {
+            guard let target=NSApp.keyWindow === panel ? (notchWeb ?? web):web else {return}
+            target.callAsyncJavaScript("window.workspaceCommand('close-front')",arguments:[:],in:nil,in:.page){_ in}
+            return
+        }
         if command=="updates" { checkUpdates(); return }
         if command=="automatic-updates" {
             startUpdates()
@@ -393,6 +403,14 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             return
         }
         deliver(command)
+    }
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard let command=menuItem.representedObject as? String else {return true}
+        if command.hasPrefix("menu-pane-") {
+            return ready && menuWorkspaceAvailable && (!independentWindows || NSApp.keyWindow === workspace)
+        }
+        if command=="menu-close" {return ready && (NSApp.keyWindow === panel || NSApp.keyWindow === workspace)}
+        return ["quit","updates","automatic-updates","launch-at-login","menu-help"].contains(command) || ready
     }
     private func startUpdates() {
             guard !verifying && !liveTest else { return }
@@ -550,6 +568,8 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
               message.frameInfo.request.url?.standardizedFileURL == entry?.standardizedFileURL,
               let data=message.body as? [String:Any],let type=data["type"] as? String else { return }
         switch type {
+        case "application-menu-state":
+            if message.webView === web {menuWorkspaceAvailable=data["workspace"] as? Bool == true}
         case "shared-state":
             guard independentWindows,let patch=data["patch"] as? [String:Any] else {return}
             let target=message.webView === web ? (notchReady ? notchWeb:nil):web

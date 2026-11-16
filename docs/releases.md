@@ -9,7 +9,7 @@ commit it or put it on Pages. Losing it can strand community installations.
 Prepare on an Apple silicon Mac with the macOS 26 SDK:
 
 ```sh
-bash scripts/package-release.sh 1.0.2 9
+bash scripts/package-release.sh 1.0.3 10
 ```
 
 Packaging verifies the archive checksum, bundled code signature, feed metadata,
@@ -17,11 +17,11 @@ and Ed25519 signature using the public key in the app. It also checks that
 modified or truncated archives fail signature verification. To repeat:
 
 ```sh
-python3 scripts/verify-release.py build/releases/1.0.2
+python3 scripts/verify-release.py build/releases/1.0.3
 ```
 
 The build number must increase for every published update. Publish the generated
-ZIP, SHA256SUMS and appcast.xml as assets of GitHub release `v1.0.2`, then copy its appcast.xml
+ZIP, SHA256SUMS and appcast.xml as assets of GitHub release `v1.0.3`, then copy its appcast.xml
 to `site/appcast.xml` and deploy Pages through the existing workflow. Publish
 assets first; do not advertise a missing download. Update the homepage release
 badge and guide examples to match the new version before deploying Pages. Keep
@@ -30,7 +30,7 @@ No release is published by the packaging command. GitHub credentials and the
 update private key are not required for ordinary builds or verification CI.
 
 The optional `site/install.sh` downloads the latest stable release when called without
-an argument, or accepts an explicit version such as `1.0.2`. It installs into
+an argument, or accepts an explicit version such as `1.0.3`. It installs into
 `~/Applications`, or replaces an existing copy in `/Applications` when writable.
 It verifies transport checksums and the bundle, preserves a previous installation,
 and does not alter Gatekeeper. Checksums are integrity checks, not an independent
@@ -63,6 +63,12 @@ encrypted app storage is read only when its Keychain item is already accessible.
 Grok uses existing CLI OAuth, and GLM requires a positive Coding Plan response.
 
 Release notes: [releases/1.0.3.md](releases/1.0.3.md).
+
+The 1.0.3 archive passed checksum, full bundled-source and helper matching, code
+signing and Ed25519 verification; altered and truncated archives were rejected.
+The installed 1.0.2 app was backed up and replaced with the verified 1.0.3 package.
+Live native open/collapsed placement and Google usage details were inspected.
+The required GitHub browser/documentation and macOS jobs passed before release.
 
 Live checks on the maintainer's Mac confirmed Google AI Ultra through agy and
 ChatGPT Pro through Codex, with actual quota windows. Claude Code's existing CLI

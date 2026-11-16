@@ -3,14 +3,13 @@
     <channel>
         <title>Tasktap</title>
         <item>
-            <title>Tasktap 1.0.2 — Clearer review and update reminders</title>
-            <description><![CDATA[<ul><li>Automatic update checks with a quiet badge and confirmation before installation and restart.</li><li>Flat request review, focused edit controls and a wider compact notch.</li><li>One Reply action for typing or speech, with intent interpreted by the same agent.</li><li>A clearer product walkthrough, real embedded-agent screenshots and updated documentation.</li></ul><p>Finish capture, setup and review edits before updating. Existing workspaces, notes and preferences are retained. Apple silicon, macOS 26+ and Python 3 for terminal sessions. Community build, not Apple notarized.</p>]]></description>
-            <pubDate>Mon, 16 Nov 2026 12:00:51 +0100</pubDate>
-            <sparkle:version>9</sparkle:version>
-            <sparkle:shortVersionString>1.0.2</sparkle:shortVersionString>
+            <title>1.0.3</title>
+            <pubDate>Mon, 16 Nov 2026 13:04:03 +0100</pubDate>
+            <sparkle:version>10</sparkle:version>
+            <sparkle:shortVersionString>1.0.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/HarzerHeribert/Tasktap/releases/download/v1.0.2/Tasktap-1.0.2-arm64.zip" length="16685549" type="application/octet-stream" sparkle:edSignature="GHSuKQGQdMuRa8cVvmolQfKGdUSAkJwOcpOQdkwZA7MTHxrzu75iV7Ujf1cYeWEqmAC7EbmFvClBqVBu790DCQ=="/>
+            <enclosure url="https://github.com/HarzerHeribert/Tasktap/releases/download/v1.0.3/Tasktap-1.0.3-arm64.zip" length="16727201" type="application/octet-stream" sparkle:edSignature="RNP8aUzkbhW/HPJPMDuEUCW5LzkB+MEyunZEHd8kQGwlM8cpktNSevS3s4WC8ZfQGAH/JTrP4Q5+s0J0BlMoBA=="/>
         </item>
     </channel>
 </rss>

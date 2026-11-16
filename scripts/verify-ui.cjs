@@ -188,7 +188,11 @@ const clip = n=>Math.abs(n)<=1;
     const moving=await motion.newPage();await moving.goto(url);
     // Observe the reveal where it begins so all three frames can be sampled reliably.
     await moving.evaluate(()=>{
-      window.peekFrames=new Promise(resolve=>document.querySelector('.notch-surface').addEventListener('transitionstart',event=>{
+      window.peekFrames=new Promise(resolve=>{
+        const surface=document.querySelector('.notch-surface');
+        const sampleReveal=event=>{
+        if(event.propertyName!=='clip-path'||!document.body.classList.contains('notch-open')||document.querySelector('#notch-home').hidden)return;
+        surface.removeEventListener('transitionstart',sampleReveal);
         const el=event.target,transition=el.getAnimations().find(a=>a.transitionProperty==='clip-path');
         transition.pause();
         const samples=[0,255,510].map(t=>{
@@ -196,7 +200,8 @@ const clip = n=>Math.abs(n)<=1;
           return {clip:getComputedStyle(el).clipPath,frame:el.getBoundingClientRect().toJSON()};
         });
         transition.play();resolve(samples);
-      },{once:true}));
+        };surface.addEventListener('transitionstart',sampleReveal);
+      });
     });
     await moving.locator('#islandToggle').hover();
     const peekFrames=await moving.evaluate(()=>window.peekFrames);
@@ -206,6 +211,8 @@ const clip = n=>Math.abs(n)<=1;
     // With a real question pending, the attention cue belongs to the camera rim.
     assert.equal(await moving.locator('body').getAttribute('data-signal'),'waiting');
     assert.equal(await moving.locator('#islandToggle').evaluate(el=>getComputedStyle(el,'::after').animationName),'attention-edge');
+    await moving.locator('#islandToggle').hover();
+    await moving.waitForFunction(()=>document.body.classList.contains('notch-open')&&!document.querySelector('#notch-home').hidden);
     const edges=await moving.locator('#notch-shell').evaluate(el=>{
       const shell=el.getBoundingClientRect(),sheet=document.querySelector('#notch-home').getBoundingClientRect();
       return [shell.top,shell.left-sheet.left,shell.right-sheet.right,Math.ceil(sheet.bottom)-shell.bottom];

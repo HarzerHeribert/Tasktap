@@ -37,6 +37,9 @@
 .deck-terminal{padding:var(--deck-padding);color:var(--deck-fg);height:100%;width:100%;min-width:0;min-height:0;overflow:hidden}
 .deck-terminal-viewport{height:100%;width:100%;min-width:0;min-height:0;overflow:hidden}
 .deck-terminal .xterm{height:100%;padding:0}.deck-terminal .xterm-screen{position:relative}.deck-terminal .xterm-viewport{overscroll-behavior:contain;background-color:transparent!important}.deck-terminal .xterm-helper-textarea{font-size:var(--deck-text);padding:0;border:0;min-height:0;outline:none}
+/* xterm 6 scrolls through its custom scrollable element. Its legacy viewport
+   must not paint a second native gutter when macOS always shows scrollbars. */
+.deck-terminal .xterm .xterm-viewport{overflow:hidden}
 /* Keep xterm's measured scrollbar gutter and drag target, with a slim overlay thumb. */
 .deck-terminal .xterm .xterm-scrollable-element>.scrollbar{background:transparent;border:0;box-shadow:none}
 .deck-terminal .xterm .xterm-scrollable-element>.scrollbar.vertical>.slider{width:4px!important;left:auto!important;right:2px;border-radius:var(--r-pill);background:color-mix(in srgb,var(--deck-fg) 24%,transparent);opacity:0;transition:opacity 180ms linear,background 180ms linear}

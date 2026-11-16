@@ -46,6 +46,12 @@ final class Check: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
                 area.dispatchEvent(new KeyboardEvent('keydown',{key:'Process',keyCode:229,bubbles:true,cancelable:true}));
                 area.value=area.value.replace('gettg','getting');await pause();check('correction emits no terminal input','');
                 if(!area.value.endsWith('gettg'))throw Error('Mirror not restored');
+                area.dispatchEvent(new KeyboardEvent('keydown',{key:'Process',keyCode:229,isComposing:true,bubbles:true,cancelable:true}));
+                area.value=area.value.replace('gettg','getting');
+                area.dispatchEvent(new InputEvent('input',{data:'getting',inputType:'insertReplacementText',isComposing:true,bubbles:true}));
+                await pause();check('orphan composing flag does not replay','');
+                if(!area.value.endsWith('gettg'))throw Error('Orphan replacement mirror not restored');
+                if(getComputedStyle(document.querySelector('.xterm-viewport')).overflowY!=='hidden')throw Error('Redundant native scrollbar');
                 area.dispatchEvent(new KeyboardEvent('keydown',{key:'Process',keyCode:229,bubbles:true,cancelable:true}));
                 area.value+='!';area.dispatchEvent(new InputEvent('input',{data:'!',inputType:'insertText',bubbles:true}));
                 await pause();check('229 addition once','!');
@@ -58,8 +64,22 @@ final class Check: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
                 check('composer does not stream','');document.querySelector('#terminal-compose-form').requestSubmit();await pause();check('insert without Enter','A reviewed prompt');
                 return true;
                 """,arguments:[:],in:nil,contentWorld:.page)
-                guard failure==nil,checks==5 else {throw NSError(domain:failure ?? "Missing checks: \(checks)",code:1)}
-                print("PASS: native WKWebView correction guard, accessibility mirror, 229 text, IME composition, and composer paste without Enter.")
+                guard failure==nil,checks==6 else {throw NSError(domain:failure ?? "Missing checks: \(checks)",code:1)}
+                input=""
+                _ = try await web.evaluateJavaScript("document.querySelector('.xterm-helper-textarea').value='';document.querySelector('.xterm-helper-textarea').focus();true")
+                window.makeFirstResponder(web)
+                let typed="ordinary typing repeats no words words ABC 123."
+                for character in typed {
+                    let text=String(character)
+                    for type in [NSEvent.EventType.keyDown,.keyUp] {
+                        let event=NSEvent.keyEvent(with:type,location:.zero,modifierFlags:[],timestamp:ProcessInfo.processInfo.systemUptime,windowNumber:window.windowNumber,context:nil,characters:text,charactersIgnoringModifiers:text,isARepeat:false,keyCode:0)!
+                        window.sendEvent(event)
+                    }
+                    try await Task.sleep(nanoseconds:15_000_000)
+                }
+                try await Task.sleep(nanoseconds:100_000_000)
+                guard input==typed else {throw NSError(domain:"Native typing mismatch: \(input.debugDescription)",code:1)}
+                print("PASS: native WKWebView keyboard typing once, correction/orphan-composition replay guards, IME, composer paste, and no redundant native scrollbar.")
                 NSApp.terminate(nil)
             } catch {fputs("WebKit input check failed: \(error)\n",stderr);exit(1)}
         }

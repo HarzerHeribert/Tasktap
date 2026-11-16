@@ -39,9 +39,11 @@ import AppKit
         let external = CGRect(x:1800,y:350,width:1920,height:1080)
         let work=CGRect(x:1800,y:400,width:1920,height:1006)
         let fallback=NotchGeometry(frame:external,visible:work,safeTop:0,left:nil,right:nil,scale:1)
-        precondition(!fallback.hasCutout && fallback.tab.midX == work.midX && fallback.tab.maxY == work.maxY)
+        precondition(!fallback.hasCutout && fallback.tab.midX == external.midX && fallback.tab.maxY == external.maxY)
         let limited=fallback.panelFrame(collapsed:false,requestedHeight:10_000)
-        precondition(work.contains(limited) && limited.minY >= work.minY)
+        precondition(external.contains(limited) && limited.minY >= work.minY)
+        let sideDock=NotchGeometry(frame:external,visible:CGRect(x:1880,y:400,width:1840,height:1006),safeTop:0,left:nil,right:nil,scale:1)
+        precondition(sideDock.tab.midX == external.midX && sideDock.tab.maxY == external.maxY)
         print("Cutout sizes, outboard shoulders, pixel rounding, translated displays and fallback placement verified.")
     }
 }

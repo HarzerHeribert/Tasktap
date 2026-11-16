@@ -314,7 +314,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         let buffered=notchQueue;notchQueue.removeAll()
         for (action,id) in buffered {deliver(action,id)}
     }
-    private func deliver(_ action: String, _ id: String = "", reveal: Bool = true) {
+    private func deliver(_ action: String, _ id: String = "", reveal: Bool = true, at point:NSPoint? = nil) {
         guard ready else { queue.append((action,id)); return }
         if independentWindows {
             let notchActions:Set<String>=["home","collapse","capture","requests","notice-request","hover-enter","hover-exit","hw-capture","hw-capture-end","hw-yes","hw-no","hw-discuss","hw-previous","hw-next","hw-confirm","hw-back","notch-onboarding"]
@@ -323,7 +323,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             let target=useNotch ? notchWeb!:web!
             if reveal {
                 if useNotch {
-                    anchorScreen=NSScreen.screens.first(where:{$0.frame.contains(NSEvent.mouseLocation)}) ?? anchorScreen
+                    anchorScreen=NSScreen.screens.first(where:{$0.frame.contains(point ?? NSEvent.mouseLocation)}) ?? anchorScreen
                     position();panel.orderFrontRegardless();panel.makeKey();panel.makeFirstResponder(target)
                 }
                 else {showWorkspaceWindow()}
@@ -332,7 +332,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             return
         }
         if reveal {
-            anchorScreen=NSScreen.screens.first(where:{ $0.frame.contains(NSEvent.mouseLocation) }) ?? anchorScreen
+            anchorScreen=NSScreen.screens.first(where:{ $0.frame.contains(point ?? NSEvent.mouseLocation) }) ?? anchorScreen
             position()
             if isWorkspace {
                 if !["capture","hw-capture"].contains(action) {
@@ -1267,6 +1267,17 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         guard workspace.isVisible,workspace.frame==frame,web.window===workspace else {throw Check.failed(#line)}
         let notchOpen=try await notchWeb.evaluateJavaScript("document.body.classList.contains('notch-first') && !document.querySelector('#notch-home').hidden")
         guard notchOpen as? Bool==true else {throw Check.failed(#line)}
+        // Exercise the same invocation path at each display's coordinates without
+        // moving the user's pointer, including displays left of/below the primary.
+        for screen in NSScreen.screens {
+            deliver("home",at:NSPoint(x:screen.frame.midX,y:screen.frame.midY))
+            try await Task.sleep(nanoseconds:250_000_000)
+            let geometry=NotchGeometry(screen:screen)
+            guard anchorScreen === screen, panel.frame.maxY == screen.frame.maxY,
+                  abs(panel.frame.midX-geometry.tab.midX)<1,
+                  workspace.frame==frame else {throw Check.failed(#line)}
+        }
+        print("Notch invocation follows all \(NSScreen.screens.count) connected displays at their top edge.")
         terminals.send(["op":"input","id":id,"data":Data("printf 'TASKTAP_%s\\n' DUAL_LIVE\n".utf8).base64EncodedString()])
         var live=false
         for _ in 0..<30 {

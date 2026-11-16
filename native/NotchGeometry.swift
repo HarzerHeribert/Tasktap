@@ -29,8 +29,11 @@ struct NotchGeometry {
             tab = CGRect(x: x, y: frame.maxY - depth, width: rightEdge - x, height: depth)
             hasCutout = true
         } else {
-            let size = CGSize(width: min(174,visible.width), height: min(34,visible.height))
-            tab = CGRect(x: visible.midX - size.width/2, y: visible.maxY - size.height,
+            // The notch belongs to the display's top edge, including on monitors
+            // without a camera cutout. The work area excludes the menu bar and
+            // may be shifted sideways by a Dock; it is only a content limit.
+            let size = CGSize(width: min(174,frame.width), height: min(34,frame.height))
+            tab = CGRect(x: frame.midX - size.width/2, y: frame.maxY - size.height,
                          width: size.width, height: size.height)
             hasCutout = false
         }

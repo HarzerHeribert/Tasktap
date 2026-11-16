@@ -32,6 +32,16 @@ const fs=require('node:fs');
    await settle();assert.equal(await data(),'','correction never replays or edits a shell command');
    assert.equal(await area.inputValue(),typed,'rejected correction restores only the hidden input field');
   }
+  // WebKit may mark a fallback key as composing without starting a DOM
+  // composition (for example, an inline correction while physically typing).
+  await reset();
+  await area.evaluate(el=>{
+   el.dispatchEvent(new KeyboardEvent('keydown',{key:'Process',keyCode:229,isComposing:true,bubbles:true,cancelable:true}));
+   el.value=el.value.replace('gettg','getting');
+   el.dispatchEvent(new InputEvent('input',{data:'getting',inputType:'insertReplacementText',isComposing:true,bubbles:true}));
+  });
+  await settle();assert.equal(await data(),'','orphan composing flag must not replay the input mirror');
+  assert.equal(await area.inputValue(),typed,'orphan replacement restores only the hidden mirror');
   assert.match(await page.locator('#toast').innerText(),/correction skipped/);
   await reset();
   await area.evaluate(el=>{

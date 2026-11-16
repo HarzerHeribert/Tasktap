@@ -36,18 +36,21 @@ const terminalInput=(()=>{
     // the commit's settle tick, including a rapid following keydown.
     listen('compositionend',event=>{if(owns(event)){const token=generation;setTimeout(()=>{if(token===generation)composing=false},0)}},false);
     listen('keydown',event=>{
-      if(!owns(event)||composing||event.isComposing||event.keyCode!==229)return;
+      // WebKit can flag a replacement key as composing without ever sending
+      // compositionstart. Only a real composition session belongs to xterm;
+      // an orphan is the same fallback path as an ordinary 229 key.
+      if(!owns(event)||composing||event.keyCode!==229)return;
       finish();pending=snapshot();
       event.stopImmediatePropagation();
       timer=setTimeout(finish,0);
     });
     listen('beforeinput',event=>{
-      if(!owns(event)||composing||event.isComposing||event.inputType!=='insertReplacementText')return;
+      if(!owns(event)||composing||event.inputType!=='insertReplacementText')return;
       if(event.cancelable){event.preventDefault();event.stopImmediatePropagation();cancel();blocked()}
       else{pending??=snapshot();clearTimeout(timer);timer=setTimeout(finish,0)}
     });
     listen('input',event=>{
-      if(!owns(event)||composing||event.isComposing||!pending)return;
+      if(!owns(event)||composing||!pending)return;
       event.stopImmediatePropagation();finish();
     });
     listen('blur',event=>{if(owns(event)){generation++;composing=false;cancel()}});

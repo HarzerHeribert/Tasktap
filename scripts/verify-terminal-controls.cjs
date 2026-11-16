@@ -82,6 +82,7 @@ const shots=process.env.TASKTAP_SCREENSHOTS||'output';fs.mkdirSync(shots,{recurs
   });
   const terminal=page.locator('.deck-group.selected .deck-terminal:not([hidden])');
   const track=terminal.locator('.scrollbar.vertical'),thumb=track.locator('.slider');
+  assert.equal(await terminal.locator('.xterm-viewport').evaluate(el=>getComputedStyle(el).overflowY),'hidden','legacy viewport must not paint a second native scrollbar');
   await page.mouse.move(1,1);
   await page.waitForFunction(()=>!document.querySelector('.deck-group.selected .deck-terminal:not([hidden])')?.classList.contains('is-scrolling'));
   await page.waitForFunction(()=>getComputedStyle(document.querySelector('.deck-group.selected .deck-terminal:not([hidden]) .scrollbar.vertical>.slider')).opacity==='0');

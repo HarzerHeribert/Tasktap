@@ -51,18 +51,17 @@ struct NotchGeometry {
     let shoulder: CGFloat = 13
     var availableContentHeight: CGFloat { max(1,tab.minY - visible.minY - 12) }
 
-    func panelFrame(collapsed: Bool, requestedHeight: CGFloat, requestedWidth: CGFloat = 432, usageCount: Int = 0) -> CGRect {
-        let usageWidth = tab.width
+    func panelFrame(collapsed: Bool, requestedHeight: CGFloat, requestedWidth: CGFloat = 432) -> CGRect {
         let request = requestedWidth.isFinite ? requestedWidth : 432
         let content = compact ? max(400,min(640,request - 32)) : max(432,min(680,request))
-        let width = min(screen.width, (collapsed ? usageWidth : max(content, usageWidth)) + 2 * shoulder)
+        let width = min(screen.width, (collapsed ? tab.width : max(content, tab.width)) + 2 * shoulder)
         let height = collapsed ? tab.height + glowMargin : min(max(tab.height,requestedHeight), tab.height + availableContentHeight)
         // Keep the whole sheet on screen if the system reports an off-center cutout.
         let x = max(screen.minX,min(screen.maxX - width, tab.midX - width / 2))
         return CGRect(x: x, y: tab.maxY - height, width: width, height: height)
     }
 
-    func contains(_ point: CGPoint, in frame: CGRect, collapsed: Bool, usageCount: Int = 0) -> Bool {
+    func contains(_ point: CGPoint, in frame: CGRect, collapsed: Bool) -> Bool {
         guard frame.contains(point) else { return false }
         if point.y >= tab.minY { return true }
         let hit = tab

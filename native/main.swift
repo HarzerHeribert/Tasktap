@@ -103,7 +103,6 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private var height: CGFloat = 290
     private var surfaceWidth: CGFloat = 432
     private var collapsed = true
-    private var usageCount = 0
     private var anchorScreen: NSScreen?
     private var hoverTimer: Timer?
     private var pointerInside = false
@@ -263,19 +262,18 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         guard let screen = anchorScreen ?? NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main else { return }
         anchorScreen = screen
         let geometry = NotchGeometry(screen: screen)
-        let frame = geometry.panelFrame(collapsed: collapsed, requestedHeight: height, requestedWidth: surfaceWidth, usageCount: usageCount)
+        let frame = geometry.panelFrame(collapsed: collapsed, requestedHeight: height, requestedWidth: surfaceWidth)
         if panel.frame != frame { panel.setFrame(frame, display: true) }
         decisionRim.update(screen: isWorkspace ? workspace.screen ?? screen : screen, visible: (independentWindows ? workspace.isVisible:isWorkspace) && pendingCount > 0)
         if ready {
-            let expanded = geometry.panelFrame(collapsed:false,requestedHeight:height,requestedWidth:surfaceWidth,usageCount:usageCount)
+            let expanded = geometry.panelFrame(collapsed:false,requestedHeight:height,requestedWidth:surfaceWidth)
             let metrics = ["width":geometry.tab.width, "height":geometry.tab.height, "shoulder":geometry.shoulder,
                            "compact":geometry.compact ? CGFloat(1) : CGFloat(0),
                            "surfaceWidth":expanded.width - 2 * geometry.shoulder,
-                           "usageWidth":geometry.hasCutout ? geometry.tab.width : min(expanded.width - 2 * geometry.shoulder,max(geometry.tab.width,200)),
                            "surfaceOffset":expanded.midX - geometry.tab.midX,
                            "pixel":geometry.pixel, "corner":geometry.corner, "rimOffset":geometry.rimOffset,
                            "offset":geometry.tab.midX - frame.midX,
-                           "available":max(1,geometry.availableContentHeight - (usageCount > 0 ? 34 : 0))]
+                           "available":max(1,geometry.availableContentHeight)]
             (notchWeb ?? web).callAsyncJavaScript("updateNotchGeometry(metrics)",arguments:["metrics":metrics],in:nil,in:.page){_ in}
         }
     }
@@ -291,7 +289,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             geometry=NotchGeometry(screen:destination)
         }
         let topBand = point.y >= geometry.tab.minY && point.y <= geometry.tab.maxY
-        let inside = geometry.contains(point,in:panel.frame,collapsed:collapsed,usageCount:usageCount)
+        let inside = geometry.contains(point,in:panel.frame,collapsed:collapsed)
         // The shoulders are decorative. Menu items keep their mouse input even during a peek.
         panel.ignoresMouseEvents = !inside || (topBand && !geometry.tab.contains(point))
         if dragging {return}
@@ -880,7 +878,6 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             if independentWindows {
                 if message.webView === notchWeb {
                     collapsed=data["collapsed"] as? Bool ?? true
-                    usageCount=max(0,min(6,data["usageCount"] as? Int ?? 0))
                     height=CGFloat(data["height"] as? Double ?? 290)
                     surfaceWidth=CGFloat(data["width"] as? Double ?? 432)
                     position()
@@ -907,7 +904,6 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 }
             }
             collapsed=data["collapsed"] as? Bool ?? false
-            usageCount=max(0,min(6,data["usageCount"] as? Int ?? 0))
             height=CGFloat(data["height"] as? Double ?? 290)
             surfaceWidth=CGFloat(data["width"] as? Double ?? 432)
             position()
@@ -1525,7 +1521,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                       shell=document.querySelector('#notch-shell'), surface=shell.getBoundingClientRect(),
                       sheet=document.querySelector('#notch-home').getBoundingClientRect();
                 return Math.abs(box.width-width)<0.51 && Math.abs(box.height-depth)<0.51 &&
-                    Math.abs(box.left-tabLeft)<0.51 && Math.abs(sheet.top-box.bottom-parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--usage-row-height')))<0.51 &&
+                    Math.abs(box.left-tabLeft)<0.51 && Math.abs(sheet.top-box.bottom)<0.51 &&
                     Math.abs(surface.left-sheet.left)<0.51 && Math.abs(surface.right-sheet.right)<0.51 &&
                     Math.abs(sheet.bottom-surface.bottom)<1.01 && surface.top===0 &&
                     parseFloat(getComputedStyle(shell,'::before').left)===0;
@@ -1549,33 +1545,6 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             let shut=try await web.evaluateJavaScript("document.querySelector('#notch-home').hidden")
             guard shut as? Bool == true, panel.frame.width==compactWidth, panel.isKeyWindow==key,
                   NSWorkspace.shared.frontmostApplication?.processIdentifier==front else { throw Check.failed(#line) }
-            _ = try await web.evaluateJavaScript("""
-                workerRouting.receive({checkedAt:Date.now()/1000,subscriptions:Object.fromEntries(
-                  ['claude','codex','gemini','cursor','grok','glm'].map(id=>[id,{plan:'Verification paid plan',windows:[
-                    {remaining:40,minutes:10080,resetsAt:Date.now()/1000+86400},
-                    {remaining:80,minutes:300,resetsAt:Date.now()/1000+3600}]}]))});true
-                """)
-            let collapsedUsage = try await web.evaluateJavaScript("document.querySelector('#island>.usage-notch').inert")
-            guard collapsedUsage as? Bool == true, panel.frame.height == geometry.tab.height + geometry.glowMargin else {throw Check.failed(#line)}
-            _ = try await web.evaluateJavaScript("homeMode='peek';drawHome();updateBounds(true);true")
-            try await Task.sleep(nanoseconds:350_000_000)
-            let metersFit = try await web.evaluateJavaScript("""
-                (()=>{const camera=document.querySelector('#islandToggle').getBoundingClientRect();
-                  const row=document.querySelector('#island>.usage-notch').getBoundingClientRect();
-                  const sheet=document.querySelector('#notch-home').getBoundingClientRect();
-                  const bounds=row.width>camera.width ? sheet:camera;
-                  const meters=[...document.querySelectorAll('#island>.usage-notch .usage-meter')];
-                  return meters.length===6 && meters.every(el=>{const r=el.getBoundingClientRect();
-                    return r.width>=24 && r.width<=30 && r.top>=camera.bottom && r.bottom<=camera.bottom+34 &&
-                      r.left>=bounds.left && r.right<=bounds.right &&
-                      el.querySelector('.usage-provider svg')!==null;});})()
-                """)
-            guard metersFit as? Bool == true, panel.frame.width==geometry.panelFrame(collapsed:false,requestedHeight:height,usageCount:6).width else {throw Check.failed(#line)}
-            _ = try await web.evaluateJavaScript("foldHome();workerRouting.receive({});true")
-            try await Task.sleep(nanoseconds:600_000_000)
-            let usageHidden = try await web.evaluateJavaScript("document.querySelector('#island>.usage-notch').inert && getComputedStyle(document.querySelector('#island>.usage-notch')).visibility==='hidden'")
-            guard usageHidden as? Bool == true, panel.frame.height == geometry.tab.height + geometry.glowMargin else {throw Check.failed(#line)}
-            print("Provider meters appear only in the active notch; collapse restores the camera footprint.")
             for action in ["requests","next","confirm"] {
                 let index = bindings.firstIndex(where: { $0.action == action })!
                 onKey(UInt32(index),pressed:true);onKey(UInt32(index),pressed:false)

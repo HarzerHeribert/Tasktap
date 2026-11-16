@@ -122,8 +122,6 @@ Artwork is a separate preference. Its pause state is remembered, hidden artwork 
 
 The workspace and notch are independent live windows. Using the notch keeps workspace tabs and terminal output visible. Closing the workspace window leaves the resident notch running; click the Dock icon to restore the same workspace.
 
-Paid plan usage appears in the workspace toolbar, active notch and task review. Weekly usage is the outer ring; five-hour usage is the inner ring. Click for reset times. Google/Gemini uses `agy`; Cursor, Grok and GLM require an existing authenticated paid account. Unknown usage stays unavailable.
-
 ## Build and verify
 
 Install Git, Python 3, and Xcode or Command Line Tools with the macOS 26 SDK or newer:

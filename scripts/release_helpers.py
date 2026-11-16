@@ -10,7 +10,7 @@ HELPERS = (
     'claude_desktop.py', 'session_activity.py', 'project_sessions.py',
     'visible_session.py', 'session_lifecycle.py', 'terminal_hosts.py',
     'extra_terminals.py', 'cmux_host.py', 'router-provider', 'worker_usage.py',
-    'plan_usage.py', 'PROVIDER-NOTICES', 'ask-user', 'agent-tools', 'run-agent',
+    'ask-user', 'agent-tools', 'run-agent',
     'cmux-sessions', 'cmux_sessions.py', 'desktop_sessions.py', 'kokoro-voice',
     'session_models.py',
 )

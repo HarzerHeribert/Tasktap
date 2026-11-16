@@ -363,7 +363,7 @@ function updateNotchGeometry(metrics){
   document.body.classList.toggle('notch-compact',metrics.compact===1);
   const style=document.documentElement.style;
   for(const [property,value] of Object.entries({
-    '--native-tab-width':metrics.width,'--native-usage-width':metrics.usageWidth ?? metrics.width,'--camera-height':metrics.height,'--camera-offset':metrics.offset,
+    '--native-tab-width':metrics.width,'--camera-height':metrics.height,'--camera-offset':metrics.offset,
     '--native-surface-width':metrics.surfaceWidth,'--surface-offset':metrics.surfaceOffset,
     '--notch-shoulder':metrics.shoulder,'--notch-pixel':metrics.pixel,'--cutout-corner':metrics.corner,
     '--rim-outset':metrics.rimOffset,'--available-panel-height':metrics.available
@@ -391,7 +391,7 @@ function postBounds(){
     shell.style.removeProperty('--sheet-bottom');
   }
   const height=open || folding?shell.getBoundingClientRect().height:$('#island').getBoundingClientRect().bottom;
-  postHost('layout',{workspace:!firstMode(),height:Math.ceil(height),width:panel?.querySelector('#handoff-review')?560:432,collapsed:!open && !folding,usageCount:document.querySelector('.usage-workspace')?.querySelectorAll('.usage-meter').length||0});
+  postHost('layout',{workspace:!firstMode(),height:Math.ceil(height),width:panel?.querySelector('#handoff-review')?560:432,collapsed:!open && !folding});
 }
 function updateBounds(immediate=false){
   // WebKit can suspend animation frames while a window is covered. Switching

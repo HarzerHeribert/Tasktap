@@ -56,7 +56,6 @@ const workerRouting = (() => {
   }
   function receive(data){
     clearTimeout(timeout);pending=false;receivedAt=Date.now();snapshot=data||{};
-    document.dispatchEvent(new CustomEvent('plan-usage',{detail:snapshot}));
     if($('#rank-rows'))updateAmounts();
     if(!$('#worker-choice,#worker-summary')?.closest('dialog[open]') || !draft || draft.submitting)return;
     if(draft.usingRank && draft.noPick){

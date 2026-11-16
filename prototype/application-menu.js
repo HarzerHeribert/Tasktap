@@ -14,6 +14,7 @@ window.applicationMenu=(()=>{
     const pane=group?project.querySelector('.deck-group[data-group-id="'+CSS.escape(group.id)+'"]'):project;
     const control={
       'menu-pane-terminal':'deck-terminal','menu-pane-browser':'deck-url',
+      'menu-pane-compose':'deck-compose',
       'menu-pane-split-right':'deck-split-right','menu-pane-split-down':'deck-split-down'
     }[action];
     if(control)pane?.querySelector('[data-action="'+control+'"]')?.click();

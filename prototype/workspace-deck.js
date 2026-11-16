@@ -125,6 +125,7 @@ const workspaceDeck=(()=>{
     const fitAddon=new FitAddon.FitAddon(),search=new SearchAddon.SearchAddon();term.loadAddon(fitAddon);term.loadAddon(search);
     const en={id,element,viewport,term,fit:fitAddon,search,seq:0,attached:false,pendingInput:[],pendingBytes:0};engines.set(id,en);
     stash.append(element);term.open(viewport);
+    en.inputGuard=terminalInput.install(term,viewport,()=>toast('Text correction skipped in terminal input. Use Compose text… in Tab actions to review prose.'));
     workspaceLinks.terminal(term,()=>({project:projectFor(terminals.get(id)?.cwd)?.id||sess(id)?.project,cwd:en.cwd||terminals.get(id)?.cwd||proj(sess(id)?.project)?.folder}));
     // Shell integration can report directory changes using OSC 7. Only local
     // file URLs are accepted; this updates link resolution, never runs input.
@@ -432,7 +433,7 @@ const workspaceDeck=(()=>{
       if(controls.dataset.signature!==controlKey){
         controls.dataset.signature=controlKey;
         const documentMode=file&&(workspaceDocuments.kind(file)==='markdown'||file.kind==='web'&&file.path);
-        const actions=(documentMode?button(file.sourceView?'Preview':'Source','deck-source',file.id,'deck-menu-item'):'')+(s?button('Follow up','follow',id,'deck-menu-item'):file?button('Ask agent','deck-ask',file.id,'deck-menu-item'):'')+(id?button('Find in terminal','deck-find',id,'deck-menu-item')+button('Increase text size / ⌘+','deck-text-increase',id,'deck-menu-item')+button('Decrease text size / ⌘−','deck-text-decrease',id,'deck-menu-item')+button('Reset text size / ⌘0','deck-text-reset',id,'deck-menu-item')+button('Session details','deck-details',id,'deck-menu-item'):file?.path?button('Show in Finder','deck-reveal',file.id,'deck-menu-item'):file?.url?button('Open in browser','deck-browser',file.id,'deck-menu-item'):'')+(file?button('Refresh preview','deck-refresh',g.active,'deck-menu-item'):'')+(file?.kind==='image'?button('Zoom image','deck-zoom',g.active,'deck-menu-item'):'')+(g.active&&l.groups.length>1?button('Move tab to…','deck-move',g.active,'deck-menu-item'):'');
+        const actions=(documentMode?button(file.sourceView?'Preview':'Source','deck-source',file.id,'deck-menu-item'):'')+(s?button('Follow up','follow',id,'deck-menu-item'):file?button('Ask agent','deck-ask',file.id,'deck-menu-item'):'')+(id?button('Compose text…','deck-compose',id,'deck-menu-item','pen')+button('Find in terminal','deck-find',id,'deck-menu-item')+button('Increase text size / ⌘+','deck-text-increase',id,'deck-menu-item')+button('Decrease text size / ⌘−','deck-text-decrease',id,'deck-menu-item')+button('Reset text size / ⌘0','deck-text-reset',id,'deck-menu-item')+button('Session details','deck-details',id,'deck-menu-item'):file?.path?button('Show in Finder','deck-reveal',file.id,'deck-menu-item'):file?.url?button('Open in browser','deck-browser',file.id,'deck-menu-item'):'')+(file?button('Refresh preview','deck-refresh',g.active,'deck-menu-item'):'')+(file?.kind==='image'?button('Zoom image','deck-zoom',g.active,'deck-menu-item'):'')+(g.active&&l.groups.length>1?button('Move tab to…','deck-move',g.active,'deck-menu-item'):'');
         controls.innerHTML=smallButton('New terminal','deck-terminal',p.id,'terminal')+smallButton('New browser','deck-url',p.id,'globe')+smallButton('Split right / ⌘D','deck-split-right',p.id,'splitRight')+smallButton('Split down / ⇧⌘D','deck-split-down',p.id,'splitDown')+menu('Tab actions','<div class="deck-menu-heading"></div>'+actions);
         controls.querySelector('.deck-menu').classList.add('deck-tab-menu');
       }
@@ -445,7 +446,7 @@ const workspaceDeck=(()=>{
     arrange(root,l);renderNav(listedProjects(activeSessions()));
   }
   function disposeView(key){
-    const id=termID(key);if(id){const en=engines.get(id);if(en){cancelAnimationFrame(en.fitFrame);clearTimeout(en.scrollTimer);en.resize.disconnect();en.term.dispose();en.element.remove();engines.delete(id);send('detach',{id})}}
+    const id=termID(key);if(id){const en=engines.get(id);if(en){cancelAnimationFrame(en.fitFrame);clearTimeout(en.scrollTimer);en.resize.disconnect();en.inputGuard.dispose();en.term.dispose();en.element.remove();engines.delete(id);send('detach',{id})}}
     else{previews.get(key)?.remove();previews.delete(key)}
   }
   function close(key,project=activeProject){
@@ -501,6 +502,7 @@ const workspaceDeck=(()=>{
     if(a==='deck-reload'){if(live)postLive('workspace-appearance');else toast('Ghostty settings are read by the Mac app.')}
     else if(a==='deck-open'){dismissCard();const t=terminals.get(id),s=sess(id);if(t)open('terminal:'+id,ensureProject(t).id);else if(s?.host==='tasktap')open('terminal:'+id,s.project);else showSession(id)}
     else if(a==='deck-terminal')startTerminal(id,b.closest('.deck-group')?.dataset.groupId);
+    else if(a==='deck-compose'){const en=engines.get(id);if(en)terminalInput.compose(en.term,label('terminal:'+id),()=>engines.get(id)===en&&terminals.get(id)?.running!==false&&(!live||connected&&en.attached&&!en.replaying))}
     else if(a==='deck-tab'){const l=layout(activeProject);l.selected=Number(b.dataset.group);l.groups[l.selected].active=id;renderProject(proj(activeProject));persist();const en=engines.get(termID(id));en?.term.focus()}
     else if(a==='deck-close')close(id);
     else if(a==='deck-split-right'||a==='deck-split-down')split(id,a==='deck-split-right'?'x':'y',b.closest('.deck-group')?.dataset.groupId);

@@ -6,6 +6,12 @@ The resident Mac app is built by running `./scripts/build-mac.sh`. Open the resu
 
 When Tasktap is active, the macOS application menu provides **File**, **Edit**, **View**, **Window** and **Help**. Use **⌘N** for a capture, **⌘O** to open a workspace, **⌘T** for a terminal in the selected pane, **⌥⌘T** for a browser preview, and **⌘D / ⇧⌘D** to split right or down. Pane commands are disabled outside a project or while a dialog is open. **⌘1–4** open Home, Notebook, Session History and Activity; **⌘B** toggles the sidebar, and **⌘,** opens Settings. The standard Edit commands follow the focused editor. Closing a view with **⌘W** keeps its terminal session running.
 
+## Writing text in a terminal
+
+Choose **Edit → Compose Text…** or **Tab actions → Compose text…** to draft prose for any CLI. The editor enables autocorrection and shows replacements with **Undo correction**. **Insert text** pastes into the chosen terminal at its cursor without sending Enter. Cancel keeps the draft for that terminal during the current app session. Multiline text requires the CLI to enable bracketed paste; otherwise use a single line.
+
+Raw terminal input keeps autocorrection off and rejects native replacements of previously typed text with a visible notice. Tasktap does not infer whether a terminal prompt contains prose, a password or a shell command. Normal keyboard editing and IME composition remain available, and screen-reader support stays enabled.
+
 ## Direct Micro control
 
 In the Mac menu choose **Codex Micro Controls → Use Micro decision keys and lights**. On an open binary question the app lights Agent Key 1 green for Yes and Agent Key 2 red for No. Agent Key 3 opens Reply. The app talks to the vendor HID interface through IOKit. It clears the pair when the question closes, and reapplies the current state after reconnect. Leave the switch off to use the Mac alone. Input access or another app using the device can affect the hardware connection; its status appears beneath the switch. The Mac keeps queuing and answering questions throughout. The direct implementation follows published device measurements on firmware 0.4.1 and 0.6.1. [Protocol measurements](https://github.com/thannous/claude-codex-micro/blob/main/docs/research/hid-lighting-protocol.md)

@@ -56,6 +56,8 @@ enum ApplicationMenu {
         standard("Copy", "copy:", edit, key: "c")
         standard("Paste", "paste:", edit, key: "v")
         standard("Select All", "selectAll:", edit, key: "a")
+        edit.addItem(.separator())
+        command("Compose Text…", "menu-pane-compose", edit)
 
         let view = section("View")
         command("Home", "menu-home", view, key: "1")

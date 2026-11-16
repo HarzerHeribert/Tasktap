@@ -688,6 +688,7 @@ if(location.hash==='#geometry'){
 }
 
 function prepareForAppUpdate(){
+  if(document.querySelector('#terminal-compose-text')?.value.trim())return false;
   if(typeof recording!=='undefined' && recording || draft?.routing || draft?.submitting || setupWizard.showing() || document.querySelector('#guide-input')?.value?.trim())return false;
   if(document.querySelector('#review-task-form,#route-form,#review-context-form'))return false;
   try{if(draft)localStorage.setItem('tasktap-update-draft',JSON.stringify({text:draft.brief||draft.text||'',project:draft.project||'',strokes:draft.strokes||[]}));persist();return true}catch{return false}

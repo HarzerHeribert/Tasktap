@@ -286,6 +286,9 @@ def present(path, executable, ticket=None):
         clear='\033[2J\033[H' if host=='terminal' else ''
         print(clear+'\033]0;'+title+'\007',end='',flush=True)
         # No shell between the reviewed prompt and the agent. The CLI owns the actual terminal.
+        import termios
+        from tasktap_shell import restore_terminal
+        saved_tty=termios.tcgetattr(sys.stdin.fileno())
         proc = subprocess.Popen(argv,cwd=job['folder'] if handle else job.get('reviewedFolder') or job['folder'],env=process_env)
         surface['open'] = True
         save(folder/'surface.json',surface)
@@ -316,6 +319,7 @@ def present(path, executable, ticket=None):
                     # The foreground CLI receives Ctrl-C too and owns the interrupt decision.
                     continue
         finally:
+            restore_terminal(saved_tty)
             surface['open'] = False
             save(folder/'surface.json',surface)
             if job.get('observer') is True:

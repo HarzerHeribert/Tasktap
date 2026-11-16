@@ -49,7 +49,7 @@ with tempfile.TemporaryDirectory(prefix='tasktap-shell-test-') as directory:
     (user/'.zprofile').write_text('export TASKTAP_USER_PROFILE_LOADED=yes\n')
     fake=binaries/'codex'
     fake.write_text('#!'+sys.executable+'\n'+r'''
-import json,os,re,shlex,subprocess,sys
+import json,os,re,shlex,signal,subprocess,sys,tty
 from pathlib import Path
 args=sys.argv[1:]
 commands=[]
@@ -69,6 +69,11 @@ else:
     if '--version' in args:print('PASSTHROUGH_VERSION',flush=True);sys.exit(0)
     assert '--approve-for-me' in args and '--no-daemon' in args
     assert len(commands)==8 and any(a.startswith('hooks.state=') for a in args)
+    if any(a.startswith('--fixture-') for a in args):
+        tty.setraw(sys.stdin.fileno())
+        os.write(1,b'\x1b[?1003;1006;1004;2004h\x1b[?25lDIRTY_TUI')
+        if '--fixture-signal' in args:os.kill(os.getpid(),signal.SIGTERM)
+        sys.exit(7)
     command=shlex.split(commands[0])
     for name,values in [('SessionStart',{}),('UserPromptSubmit',{}),('PermissionRequest',dict(tool_name='Bash'))]:
         subprocess.run(command,input=json.dumps(dict(hook_event_name=name,session_id='provider',**values)),text=True,check=True)
@@ -122,8 +127,31 @@ else:
         send("printf 'hello' | codex --version\n")
         until(lambda:replay().count(b'PASSTHROUGH_VERSION\r\n')==2)
         assert observation()['turn']==2
+        # A parent without a shell's own tty repair verifies that the wrapper
+        # restores exact pre-launch flags after failure and signal termination.
+        for scenario in ('failure','signal'):
+            other=str(uuid.uuid4());ids.append(other)
+            parent_code='''import os,sys,subprocess,termios
+from pathlib import Path
+session,runs,script,scenario=sys.argv[1:]
+os.environ.update(TASKTAP_TERMINAL_ID=session,TASKTAP_RUNS=runs,TASKTAP_TERMINAL_FOLDER=os.getcwd(),TASKTAP_CLI_BIN=str(Path(runs).parent/'shim-bin'),TASKTAP_USER_RC_LOADED='yes',TASKTAP_USER_PROFILE_LOADED='yes')
+saved=termios.tcgetattr(0)
+result=subprocess.run([sys.executable,script,'cli','codex','--fixture-'+scenario])
+assert result.returncode!=0
+after=termios.tcgetattr(0)
+# macOS can set this kernel retype-pending status bit on a canonical-mode
+# transition; it is not an application tty setting that can stay identical.
+saved[3]&=~getattr(termios,'PENDIN',0);after[3]&=~getattr(termios,'PENDIN',0)
+assert after==saved,'CLI left raw/canonical/echo modes changed'
+print('TTY_RESTORED',flush=True)
+'''
+            terminal.request(dict(op='start',id=other,cwd=str(project),kind='shell',title='Dirty TUI fixture',argv=[sys.executable,'-c',parent_code,other,str(runs),str(Path(integration.__file__)),scenario]))
+            def dirty_replay():return base64.b64decode(terminal.request(dict(op='attach',id=other))['data'])
+            try: until(lambda:b'TTY_RESTORED' in dirty_replay())
+            except AssertionError: raise AssertionError('Dirty TUI parent failed: '+repr(dirty_replay()))
+            assert b'DIRTY_TUI'+integration.RELEASE_SEQUENCE in dirty_replay(),'exit must release mouse/focus/paste/key modes before the parent resumes'
         assert {p.name:p.read_bytes() for p in user.iterdir()}==before
-        print('PASS: real '+Path(shell).name+', private command resolution, bare Codex auto review + eight trusted native hooks, PTY attention events, exact answers, repeated launches, live shell after CLI exit, explicit policy and noninteractive/help passthrough; no global config writes.')
+        print('PASS: real '+Path(shell).name+', bare Codex auto review + eight trusted native hooks, exact answers, repeated launches, shell after CLI exit, dirty TUI failure/signal cleanup restoring exact tty flags and releasing mouse modes, explicit policy/passthrough; no global config writes.')
     finally:
         for session in ids:
             try:terminal.request(dict(op='stop',id=session))

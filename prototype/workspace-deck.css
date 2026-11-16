@@ -20,14 +20,15 @@
 .deck-divider{position:absolute;cursor:col-resize;touch-action:none;user-select:none;z-index:1}
 .deck-divider::after{content:'';position:absolute;width:1px;height:100%;top:0;left:calc(50% - .5px);background:var(--deck-edge)}
 .deck-divider[data-axis=y]{cursor:row-resize}.deck-divider[data-axis=y]::after{width:100%;height:1px;left:0;top:calc(50% - .5px)}
-.deck-divider:hover::after,.deck-divider:focus-visible::after{background:var(--app-accent)}
-.deck-divider:focus-visible{outline:1px solid var(--app-accent);outline-offset:-1px}
+.deck-divider:hover::after,.deck-divider:focus-visible::after{background:var(--deck-focus)}
+.deck-divider:focus-visible{outline:1px solid var(--deck-focus);outline-offset:-1px}
+.workspace-active :is(button,a,input,select,summary):focus-visible{outline:1px solid var(--deck-muted);outline-offset:1px}
 .deck-group{position:absolute;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 .deck-group:has(.deck-menu[open]){z-index:5}
 .deck-pane-bar{display:flex;align-items:stretch;height:var(--deck-tab);border-bottom:1px solid var(--deck-edge);flex:none;position:relative;z-index:2}
 .deck-tabs{display:flex;overflow-x:auto;flex:1;min-width:0;scrollbar-width:thin;scrollbar-color:var(--deck-edge) transparent}
 .deck-tab-wrap{display:flex;align-items:center;border-right:1px solid var(--deck-edge);min-width:0;flex:none;max-width:260px;color:var(--deck-muted)}
-.deck-tab-wrap.active{color:var(--deck-fg);background:var(--deck-hover);box-shadow:inset 0 1px var(--deck-focus)}.deck-group.selected .deck-tab-wrap.active{box-shadow:inset 0 2px var(--app-accent)}
+.deck-tab-wrap.active{color:var(--deck-fg);background:var(--deck-hover);box-shadow:inset 0 1px var(--deck-focus)}.deck-group.selected .deck-tab-wrap.active{box-shadow:inset 0 1px var(--deck-focus)}
 .deck-tab{display:flex;align-items:center;gap:var(--s-small);padding:var(--s-small) var(--s-control);font-size:var(--t-small);min-width:0}
 .deck-tab .icon{width:13px;height:13px}.deck-tab span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:185px}
 .deck-tab-close{display:grid;place-items:center;padding:var(--s-tight);margin-right:var(--s-tight);border-radius:var(--r-xs);color:var(--deck-muted);opacity:.6}.deck-tab-close:hover{background:var(--deck-hover);opacity:1}.deck-tab-close .icon{width:12px;height:12px}
@@ -37,6 +38,7 @@
 .deck-terminal{padding:var(--deck-padding);color:var(--deck-fg);height:100%;width:100%;min-width:0;min-height:0;overflow:hidden}
 .deck-terminal-viewport{height:100%;width:100%;min-width:0;min-height:0;overflow:hidden}
 .deck-terminal .xterm{height:100%;padding:0}.deck-terminal .xterm-screen{position:relative}.deck-terminal .xterm-viewport{overscroll-behavior:contain;background-color:transparent!important}.deck-terminal .xterm-helper-textarea{font-size:var(--deck-text);padding:0;border:0;min-height:0;outline:none}
+.deck-terminal :is(.xterm,.xterm-screen,.xterm-viewport,.xterm-scrollable-element,.xterm-helper-textarea,canvas):is(:focus,:focus-visible){outline:none}
 /* xterm 6 scrolls through its custom scrollable element. Its legacy viewport
    must not paint a second native gutter when macOS always shows scrollbars. */
 .deck-terminal .xterm .xterm-viewport{overflow:hidden}

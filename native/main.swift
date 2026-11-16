@@ -190,6 +190,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         config.userContentController.addScriptMessageHandler(self,contentWorld:.page,name:"terminalClipboard")
         config.setURLSchemeHandler(workspaceMedia, forURLScheme:"tasktap-preview")
         web = NotchWebView(frame: .zero, configuration: config)
+        web.focusRingType = .none
         web.navigationDelegate = self
         web.uiDelegate = self
         web.setValue(false, forKey: "drawsBackground")
@@ -216,6 +217,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             if verifying {notchConfig.userContentController.addUserScript(WKUserScript(source:"window.fixtureMode=false",injectionTime:.atDocumentStart,forMainFrameOnly:true))}
             notchConfig.setURLSchemeHandler(workspaceMedia,forURLScheme:"tasktap-preview")
             let notch=NotchWebView(frame:.zero,configuration:notchConfig)
+            notch.focusRingType = .none
             notch.navigationDelegate=self;notch.uiDelegate=self;notch.setValue(false,forKey:"drawsBackground")
             notchWeb=notch;panel.contentView=notch
             workspace.contentView=workspaceBackdrop;workspaceBackdrop.host(web)

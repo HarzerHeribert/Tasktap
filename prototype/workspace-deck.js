@@ -208,12 +208,19 @@ const workspaceDeck=(()=>{
         const p=projectFor(e.cwd);if(p&&closingWorkspaces.has(p.id)){closingWorkspaces.delete(p.id);finishCloseWorkspace(p.id)}
       }else if(e.event==='replay'){
         const engine=engines.get(e.id);if(!engine)continue;
-        engine.attached=true;engine.replaying=true;engine.seq=e.seq;engine.cwd=null;engine.term.reset();engine.term.resize(e.cols,e.rows);engine.sentSize=e.cols+'x'+e.rows;
-        if(e.truncated)engine.term.write('\r\n[Earlier scrollback is no longer available.]\r\n');
-        writes.push(new Promise(done=>engine.term.write(bytes(e.data),()=>{fit(engine);if(engines.get(e.id)===engine){engine.replaying=false;for(const data of engine.pendingInput)send('input',{id:engine.id,data});engine.pendingInput=[];engine.pendingBytes=0}done()})));
+        engine.attached=true;engine.replaying=true;engine.pendingReplays=(engine.pendingReplays||0)+1;engine.seq=e.seq;
+        writes.push(terminalWrite(engine,()=>new Promise(done=>{
+          engine.parsingReplay=true;engine.cwd=null;engine.term.reset();engine.term.resize(e.cols,e.rows);engine.sentSize=e.cols+'x'+e.rows;
+          if(e.truncated)engine.term.write('\r\n[Earlier scrollback is no longer available.]\r\n');
+          engine.term.write(bytes(e.data),()=>{
+            engine.parsingReplay=false;fit(engine);
+            if(engines.get(e.id)===engine){engine.pendingReplays--;engine.replaying=engine.pendingReplays>0;if(!engine.replaying){for(const data of engine.pendingInput)send('input',{id:engine.id,data});engine.pendingInput=[];engine.pendingBytes=0}}
+            done();
+          });
+        })));
       }else if(e.event==='output'){
         const engine=engines.get(e.id);if(!engine||!engine.attached||e.seq<=engine.seq)continue;
-        engine.seq=e.seq;writes.push(new Promise(done=>engine.term.write(bytes(e.data),done)));
+        engine.seq=e.seq;writes.push(terminalWrite(engine,()=>new Promise(done=>engine.term.write(bytes(e.data),done))));
       }else if(e.event==='focus'){
         const p=projectFor(terminals.get(e.id)?.cwd);if(p&&!saved.background[e.id]&&!saved.closedWorkspaces[p.id]&&!closingWorkspaces.has(p.id))open('terminal:'+e.id,p.id,true);
       }else if(e.event==='disconnected'){
@@ -238,6 +245,12 @@ const workspaceDeck=(()=>{
     if(data.length>87000||en.pendingBytes+data.length>87000){toast('This input is too large. Paste a smaller section.');return}
     if(en.attached&&!en.replaying)send('input',{id:en.id,data});else{en.pendingInput.push(data);en.pendingBytes+=data.length}
   }
+  function terminalWrite(en,write){
+    // Serialize one PTY's writes so overlapping attaches cannot classify an
+    // old query as live. Separate terminals retain independent write queues.
+    en.writeQueue=(en.writeQueue||Promise.resolve()).then(()=>engines.get(en.id)===en?write():undefined);
+    return en.writeQueue;
+  }
   function engine(id){
     if(engines.has(id))return engines.get(id);
     const element=document.createElement('div');element.className='deck-terminal';element.setAttribute('aria-label',label('terminal:'+id)+' terminal');
@@ -254,7 +267,8 @@ const workspaceDeck=(()=>{
     // Shell integration can report directory changes using OSC 7. Only local
     // file URLs are accepted; this updates link resolution, never runs input.
     term.parser.registerOscHandler(7,value=>{try{const url=new URL(value);if(url.protocol==='file:'&&(!url.host||['localhost',location.hostname].includes(url.host)))en.cwd=decodeURIComponent(url.pathname)}catch{}return true});
-    term.onData(data=>input(en,encoded(data)));
+    en.protocol=terminalProtocol.install(term,()=>en.parsingReplay);
+    term.onData(data=>{if(!en.protocol.isReplayReply())input(en,encoded(data))});
     term.onBinary(data=>input(en,btoa(data)));
     term.onScroll(()=>{element.classList.add('is-scrolling');clearTimeout(en.scrollTimer);en.scrollTimer=setTimeout(()=>element.classList.remove('is-scrolling'),900)});
     term.attachCustomKeyEventHandler(e=>{
@@ -592,7 +606,7 @@ const workspaceDeck=(()=>{
       if(controls.dataset.signature!==controlKey){
         controls.dataset.signature=controlKey;
         const documentMode=file&&(workspaceDocuments.kind(file)==='markdown'||file.kind==='web'&&file.path);
-        const actions=(documentMode?button(file.sourceView?'Preview':'Source','deck-source',file.id,'deck-menu-item'):'')+(s?button('Follow up','follow',id,'deck-menu-item'):file?button('Ask agent','deck-ask',file.id,'deck-menu-item'):'')+(id?button('Compose text…','deck-compose',id,'deck-menu-item','pen')+button('Find in terminal','deck-find',id,'deck-menu-item')+button('Increase text size / ⌘+','deck-text-increase',id,'deck-menu-item')+button('Decrease text size / ⌘−','deck-text-decrease',id,'deck-menu-item')+button('Reset text size / ⌘0','deck-text-reset',id,'deck-menu-item')+button('Session details','deck-details',id,'deck-menu-item'):file?.path?button('Show in Finder','deck-reveal',file.id,'deck-menu-item'):file?.url?button('Open in browser','deck-browser',file.id,'deck-menu-item'):'')+(file?button('Refresh preview','deck-refresh',g.active,'deck-menu-item'):'')+(file?.kind==='image'?button('Zoom image','deck-zoom',g.active,'deck-menu-item'):'')+(g.active&&l.groups.length>1?button('Move tab to…','deck-move',g.active,'deck-menu-item'):'');
+        const actions=(documentMode?button(file.sourceView?'Preview':'Source','deck-source',file.id,'deck-menu-item'):'')+(s?button('Follow up','follow',id,'deck-menu-item'):file?button('Ask agent','deck-ask',file.id,'deck-menu-item'):'')+(id?button('Compose text…','deck-compose',id,'deck-menu-item','pen')+button('Find in terminal','deck-find',id,'deck-menu-item')+button('Release mouse capture','deck-release-mouse',id,'deck-menu-item')+button('Increase text size / ⌘+','deck-text-increase',id,'deck-menu-item')+button('Decrease text size / ⌘−','deck-text-decrease',id,'deck-menu-item')+button('Reset text size / ⌘0','deck-text-reset',id,'deck-menu-item')+button('Session details','deck-details',id,'deck-menu-item'):file?.path?button('Show in Finder','deck-reveal',file.id,'deck-menu-item'):file?.url?button('Open in browser','deck-browser',file.id,'deck-menu-item'):'')+(file?button('Refresh preview','deck-refresh',g.active,'deck-menu-item'):'')+(file?.kind==='image'?button('Zoom image','deck-zoom',g.active,'deck-menu-item'):'')+(g.active&&l.groups.length>1?button('Move tab to…','deck-move',g.active,'deck-menu-item'):'');
         const paneActions=(id?button('Copy selection / ⌘C','deck-tool-copy',id,'deck-menu-item','copy')+button('Paste / ⌘V','deck-tool-paste',id,'deck-menu-item','paste'):'')+button('New terminal','deck-tool-terminal',p.id,'deck-menu-item','terminal')+button('New browser','deck-tool-url',p.id,'deck-menu-item','globe')+button('Split right / ⌘D','deck-tool-split-right',p.id,'deck-menu-item','splitRight')+button('Split down / ⇧⌘D','deck-tool-split-down',p.id,'deck-menu-item','splitDown');
         controls.innerHTML=(id?smallButton('Copy selection / ⌘C','deck-copy',id,'copy')+smallButton('Paste / ⌘V','deck-paste',id,'paste')+smallButton('Decrease text size / ⌘−','deck-text-decrease',id,'textSmaller')+smallButton('Increase text size / ⌘+','deck-text-increase',id,'textLarger'):'')+smallButton('New terminal','deck-terminal',p.id,'terminal')+smallButton('New browser','deck-url',p.id,'globe')+smallButton('Split right / ⌘D','deck-split-right',p.id,'splitRight')+smallButton('Split down / ⇧⌘D','deck-split-down',p.id,'splitDown')+menu('Tab actions','<div class="deck-menu-heading"></div>'+actions+paneActions);
         controls.querySelector('.deck-menu').classList.add('deck-tab-menu');
@@ -607,7 +621,7 @@ const workspaceDeck=(()=>{
     arrange(root,l);renderNav(listedProjects(activeSessions()));
   }
   function disposeView(key){
-    const id=termID(key);if(id){const en=engines.get(id);if(en){pendingFits.delete(en);cancelAnimationFrame(en.fitFrame);clearTimeout(en.scrollTimer);en.resize.disconnect();en.inputGuard.dispose();en.term.dispose();en.element.remove();engines.delete(id);send('detach',{id})}}
+    const id=termID(key);if(id){const en=engines.get(id);if(en){pendingFits.delete(en);cancelAnimationFrame(en.fitFrame);clearTimeout(en.scrollTimer);en.resize.disconnect();en.inputGuard.dispose();en.protocol.dispose();en.term.dispose();en.element.remove();engines.delete(id);send('detach',{id})}}
     else{previews.get(key)?.remove();previews.delete(key)}
   }
   function requestClose(key,project=activeProject){
@@ -749,6 +763,7 @@ const workspaceDeck=(()=>{
     else if(a==='deck-open'){dismissCard();const t=terminals.get(id),s=sess(id);if(t)open('terminal:'+id,ensureProject(t).id);else if(s?.host==='tasktap')open('terminal:'+id,s.project);else showSession(id)}
     else if(a==='deck-terminal')startTerminal(id,b.closest('.deck-group')?.dataset.groupId);
     else if(a==='deck-compose'){const en=engines.get(id);if(en)terminalInput.compose(en.term,label('terminal:'+id),()=>engines.get(id)===en&&terminals.get(id)?.running!==false&&(!live||connected&&en.attached&&!en.replaying))}
+    else if(a==='deck-release-mouse'){const en=engines.get(id);if(en){terminalProtocol.release(en.term);toast('Terminal mouse capture released.')}}
     else if(a==='deck-tab'){const l=layout(activeProject);l.selected=Number(b.dataset.group);l.groups[l.selected].active=id;renderProject(proj(activeProject));persist();const en=engines.get(termID(id));en?.term.focus()}
     else if(a==='deck-close')requestClose(id);
     else if(a==='deck-background'){dismissCard();background(id)}

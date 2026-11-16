@@ -13,11 +13,23 @@ import signal
 import subprocess
 import sys
 sys.dont_write_bytecode = True
+import termios
 import uuid
 
 from session_observer import SUPPORTED, atomic, prepare, read, ingest, codex_trust_overrides
 
 HERE = Path(__file__).resolve().parent
+RELEASE_SEQUENCE=b'\x1b[?9;1000;1002;1003;1004;1005;1006;1015;1016;2004;2026l\x1b[?1l\x1b>\x1b[<u\x1b[=0u\x1b[>4;0m\x1b[?47l\x1b[0m\x1b[?25h'
+
+
+def restore_terminal(saved):
+    """Release TUI modes without clearing history or sending text to the shell."""
+    try: os.write(sys.stdout.fileno(),RELEASE_SEQUENCE)
+    except OSError: pass
+    try: termios.tcsetattr(sys.stdin.fileno(),termios.TCSANOW,saved)
+    except (OSError,termios.error): pass
+
+
 PASSTHROUGH = {
     'codex': {'agents','exec','e','review','login','logout','mcp','plugin','app-server','remote-control','app','completion','update','doctor','sandbox','debug','apply','queue','archive','delete','migrate-rollouts','migrate-nfs-db','unarchive','cloud','exec-server','features','help'},
     'claude': {'auth','doctor','install','mcp','plugin','plugins','setup-token','update','upgrade','help'},
@@ -122,7 +134,7 @@ def cli(agent, args):
         atomic(folder/'shell.job',job)
         surface=dict(host='tasktap',open=True,tty=os.ttyname(0),pid=os.getpid(),shellLaunch=True)
         atomic(folder/'surface.json',surface)
-        process=None;code=1
+        process=None;code=1;saved_tty=termios.tcgetattr(sys.stdin.fileno())
         try:
             hook_args,env=prepare(job,folder)
             if agent=='codex': hook_args=['--no-daemon',*codex_trust_overrides(executable,folder,os.getcwd()),*hook_args]
@@ -135,6 +147,7 @@ def cli(agent, args):
             try: code=process.wait()
             finally: signal.signal(signal.SIGINT,old)
         finally:
+            restore_terminal(saved_tty)
             surface['open']=False;atomic(folder/'surface.json',surface)
             ingest(folder,read(folder/'observer-config.json').get('token',''),dict(kind='process_exited',exitCode=code))
         return code

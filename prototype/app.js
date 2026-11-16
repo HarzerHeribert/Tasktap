@@ -177,7 +177,7 @@ function render(){
   const active=activeSessions(),projects=listedProjects(active);
   renderNav(projects);document.dispatchEvent(new Event('workspace-changed'));
   const p=proj(view),name=({overview:'Home',sessions:'Session history',notes:'Notebook',projects:'All projects'})[view]||p?.name||'Workspace';$('#crumb').textContent=name;
-  if(typeof workspaceDeck!=='undefined'){if(p){workspaceDeck.renderProject(p);return}else workspaceDeck.leave()}
+  if(typeof workspaceDeck!=='undefined'){workspaceDeck.refreshActivity();if(p){workspaceDeck.renderProject(p);return}else workspaceDeck.leave()}
   const intro=heading(live?new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'}):'Saturday, 14 November',name,p?p.folder:'');
   let body='';
   if(view==='overview')body=workOverview(active);
@@ -315,7 +315,7 @@ function showSession(id){
 function routeDecision(candidates,suggested=true){
   const d=$('#notch');d.dataset.request=uid();
   const choices=candidates.map((s,i)=>'<button class="decision-btn" data-action="choose-target" data-id="'+attr(s.id)+'"><span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span><span><strong>'+esc(s.task)+'</strong><br><span class="hint">'+esc(proj(s.project).name)+' / '+esc(providers[s.agent])+'</span></span></button>').join('');
-  d.innerHTML='<div class="dialog-body notch-content"><div class="dialog-title"><div><span class="eyebrow">Route follow-up</span><h2>Which session?</h2></div><button aria-label="Close decision" class="icon-btn" data-action="close">'+icon('x')+'</button></div>'+ (suggested?'<p>These sessions match your capture.</p>':'')+'<div class="block">'+choices+'</div><form id="route-voice" class="field"><label for="route-answer">' +(live?'Reply':'Voice reply simulation')+'</label><input id="route-answer" placeholder="Project, session name, or choice number" required>'+(live?button('Hold to talk','dictate','#route-answer','text-btn','mic'):'')+'<button class="btn">Use reply</button></form></div>';
+  d.innerHTML='<div class="dialog-body notch-content"><div class="dialog-title"><div><span class="eyebrow">Route follow-up</span><h2>'+esc(draft?.routeQuestion||'Which session?')+'</h2></div><button aria-label="Close decision" class="icon-btn" data-action="close">'+icon('x')+'</button></div>'+ (suggested?'<p>These sessions match your capture.</p>':'')+'<div class="block">'+choices+'</div><form id="route-voice" class="field"><label for="route-answer">' +(live?'Reply':'Voice reply simulation')+'</label><input id="route-answer" placeholder="Project, session name, or choice number" required>'+(live?button('Hold to talk','dictate','#route-answer','text-btn','mic'):'')+'<button class="btn">Use reply</button></form></div>';
   d.showModal();$('#islandToggle').setAttribute('aria-expanded','true');
   if(draft)narrateRoute(draft,'session','Choose the conversation you mean.');
   $('#route-voice').onsubmit=e=>{e.preventDefault();const input=$('#route-answer'),v=input.value.trim().toLowerCase();const found=candidates.filter((s,i)=>[s.task,proj(s.project).name,String(i+1)].some(x=>x.toLowerCase()===v));if(found.length===1){chooseTarget(found[0].id);return}input.setCustomValidity('Enter one project name, task name, or choice number.');input.reportValidity();input.oninput=()=>input.setCustomValidity('')};
@@ -324,7 +324,7 @@ function chooseTarget(id){
   const s=sess(id);
   if(!draft || !s)return;
   if(live && !canNudge(s)){dismissCard();draft.candidates=[];draft.mode='nudge';routingPrompt();return}
-  draft.session=id;draft.project=s.project;draft.mode='nudge';delete draft.runId;dismissCard();review();
+  draft.session=id;draft.sessionChoice=id;draft.project=s.project;draft.mode='nudge';delete draft.runId;dismissCard();review();
 }
 function binaryControls(q){
   const buttons=q.choices.map((c,i)=>button(c,'decide',q.id+'|'+i,'decision-btn '+(c==='Yes'?'answer-yes':'answer-no'),c==='Yes'?'check':'x'));
@@ -383,6 +383,7 @@ function sendDecisionReply(id,answer,answerKind){
 function captureDraft(target,sessionProject='',text=''){
   const s=sess(target);
   draft={sessionProject,text,brief:'',note:'',mode:s?'nudge':'ask',project:sessionProject||s?.project||(proj(view)?view:''),session:s?.id||'',agent:s?.agent||sessionModelPolicy().defaultAgent,viewer:'',strokes:[],newName:'',keep:false,hasVoice:false,sketch:false};
+  draft.sessionChoice=s?.id||'';draft.captureProject=sessionProject||s?.project||'';draft.visibleProject=proj(view)?.id||'';
   captureContext.begin(draft);
 }
 function newDraft(target,sessionProject=''){
@@ -434,7 +435,8 @@ function matchSessions(t){
 }
 function interpret(){
   const d=draft,t=d.text.trim(),ps=matchProjects(t),ss=matchSessions(t);
-  d.brief=t;d.note='';d.keep=false;d.candidates=[];delete d.suggestedBrief;
+  if(!d.sessionChoice)d.session='';
+  d.brief=t;d.note='';d.keep=false;d.candidates=[];delete d.suggestedBrief;delete d.preparedBrief;delete d.taskEdited;delete d.routeMatch;delete d.routeQuestion;
   const shorthand=/^(?:(?:yes|ok(?:ay)?|please|now)[\s,.!]+)*(?:(?:build|implement|fix|do|ship|finish|try|change|apply) (?:it|this|that|the plan)|(?:go ahead|continue|carry on))\s*(?:please)?[.!?]*$/i.test(t) || /\b(?:where (?:we|you) left off|(?:continue|pick up|resume) (?:from )?(?:our|the|your) (?:previous|last|earlier) (?:session|conversation|work|plan))\b/i.test(t);
   const filing=/(?:^|[.!?,]\s*|\b(?:please|can you|could you)\s+)(?:remember\b|jot\b.{0,20}\bdown\b|(?:save|keep|write|add|make)\s+(?:(?:this|that|a|the|an)\s+)?(?:as\s+a\s+)?(?:note|sketch|idea)\b|note\s+(?:that|for)\b|idea\s+for\b)/i.test(t);
   const instruction=/\b(?:ask (?:claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?)|tell (?:[^.!?]*?\b)?(?:session|agent)|nudge|follow up)\b/i.exec(t);
@@ -485,8 +487,8 @@ function routingPrompt(){
     return;
   }
   if(!d.project){
-    const projects=state.projects.filter(p=>p.available!==false);
-    dialog('Which workspace?', 'Tasktap','<label class="field">Find a project<input id="route-filter" type="search" placeholder="Folder name"></label><div class="route-list" id="route-list"></div><div class="inline">'+button('Keep in scratch','route-project','@scratch')+button('New workspace…','route-project','@new')+'</div>'+continueSessionButton(d));
+    const projects=state.projects.filter(p=>p.available!==false && (!d.projectCandidates?.length || d.projectCandidates.includes(p.id)));
+    dialog(d.routeQuestion||'Which workspace?', 'Tasktap','<label class="field">Find a project<input id="route-filter" type="search" placeholder="Folder name"></label><div class="route-list" id="route-list"></div><div class="inline">'+button('Keep in scratch','route-project','@scratch')+button('New workspace…','route-project','@new')+'</div>'+continueSessionButton(d));
     const field=$('#route-filter');
     const filter=()=>{$('#route-list').innerHTML=projects.filter(p=>p.name.toLowerCase().includes(field.value.toLowerCase())).map(p=>button(p.name,'route-project',p.id)).join('')||'<p class="empty">No matching projects.</p>'};
     field.oninput=filter;filter();
@@ -609,7 +611,7 @@ document.addEventListener('click',e=>{
     case 'clearink':draft.strokes=[];setupPad();break;case 'discard':draft=null;dismissCard();break;
     case 'review':reviewDraft();break;
     case 'skip-routing':cancelRouting();stopRoutingSpeech();routingPrompt();break;case 'adjust':adjustReview();break;
-    case 'route-project':draft.project=id;delete draft.contextProject;if(id==='@new'){
+    case 'route-project':draft.project=id;draft.projectChoice=id;delete draft.routeMatch;delete draft.routeQuestion;delete draft.contextProject;if(id==='@new'){
       dialog('Name the workspace','Tasktap','<form id="workspace-name" class="field"><label>Workspace name<input id="newName" required></label><button class="primary">Review</button></form>');
       $('#workspace-name').onsubmit=e=>{e.preventDefault();const name=$('#newName').value.trim();if(!name||name.includes('/')||name==='.'||name==='..'){toast('Choose a folder name.');return}draft.newName=name;review()};
     }else review();break;

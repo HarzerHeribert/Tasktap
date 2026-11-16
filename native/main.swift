@@ -201,7 +201,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = false
-        panel.level = .statusBar
+        panel.level = NSWindow.Level(rawValue:NSWindow.Level.statusBar.rawValue + 1)
         panel.collectionBehavior = [.canJoinAllSpaces,.fullScreenAuxiliary]
         panel.backgroundColor = .clear
         panel.isOpaque = false
@@ -267,7 +267,9 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         if ready {
             let expanded = geometry.panelFrame(collapsed:false,requestedHeight:height,requestedWidth:surfaceWidth,usageCount:usageCount)
             let metrics = ["width":geometry.tab.width, "height":geometry.tab.height, "shoulder":geometry.shoulder,
+                           "compact":geometry.compact ? CGFloat(1) : CGFloat(0),
                            "surfaceWidth":expanded.width - 2 * geometry.shoulder,
+                           "usageWidth":geometry.hasCutout ? geometry.tab.width : min(expanded.width - 2 * geometry.shoulder,max(geometry.tab.width,200)),
                            "surfaceOffset":expanded.midX - geometry.tab.midX,
                            "pixel":geometry.pixel, "corner":geometry.corner, "rimOffset":geometry.rimOffset,
                            "offset":geometry.tab.midX - frame.midX,
@@ -1487,10 +1489,13 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             try await Task.sleep(nanoseconds:350_000_000)
             let metersFit = try await web.evaluateJavaScript("""
                 (()=>{const camera=document.querySelector('#islandToggle').getBoundingClientRect();
+                  const row=document.querySelector('#island>.usage-notch').getBoundingClientRect();
+                  const sheet=document.querySelector('#notch-home').getBoundingClientRect();
+                  const bounds=row.width>camera.width ? sheet:camera;
                   const meters=[...document.querySelectorAll('#island>.usage-notch .usage-meter')];
                   return meters.length===6 && meters.every(el=>{const r=el.getBoundingClientRect();
                     return r.width>=24 && r.width<=30 && r.top>=camera.bottom && r.bottom<=camera.bottom+34 &&
-                      r.left>=camera.left && r.right<=camera.right &&
+                      r.left>=bounds.left && r.right<=bounds.right &&
                       el.querySelector('.usage-provider svg')!==null;});})()
                 """)
             guard metersFit as? Bool == true, panel.frame.width==geometry.panelFrame(collapsed:false,requestedHeight:height,usageCount:6).width else {throw Check.failed(#line)}

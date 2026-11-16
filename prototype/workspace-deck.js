@@ -101,7 +101,7 @@ const workspaceDeck=(()=>{
   function appearanceLoaded(value){inherited=value;saved.appearance=value;persist();if(typeof appAppearance!=='undefined')appAppearance.receiveGhostty(value);applyAppearance();const note=$('#deck-appearance-source');if(note)note.textContent=appearanceDescription()}
   function appearanceDescription(){const a=appearance();return a.source==='Ghostty'?'Ghostty typography / '+a.fontFamilies[0]+' / '+a.fontSize+' pt':a.note||'Using the default terminal font and cursor.'}
   document.addEventListener('appearance-changed',applyAppearance);
-  function report(id){const capture=byId(state.captures,id),session=sess(capture?.session||id);return {capture,session,text:capture?.result||session?.result||'No outcome has been reported yet.'}}
+  function report(id){const capture=byId(state.captures,id),event=saved.activity.find(a=>a.capture===id||!a.capture&&a.id===id),session=sess(capture?.session||event?.id||id);return {capture,event,session,text:capture?.result||event?.body||session?.result||'No outcome has been reported yet.'}}
   function label(key){const id=termID(key);if(id)return sess(id)?sessionDisplayName(sess(id)):terminals.get(id)?.title||'Terminal';if(mediaID(key))return saved.media[mediaID(key)]?.title||'File';return report(key?.slice(7)).session?.task||'Result'}
   function surfaceIcon(key){return termID(key)?'sessions':mediaID(key)?saved.media[mediaID(key)]?.kind==='web'?'out':'note':'checks'}
   function status(id){const t=terminals.get(id),s=sess(id);return pendingStarts.has(id)?'Opening terminal':t?.running===false?(t.exit===0?'Exited':t.restored?'Not running':'Stopped'):s?.state||'Shell running'}
@@ -117,9 +117,9 @@ const workspaceDeck=(()=>{
   function notify(kind,id,title,body,token,capture){
     if(saved.seen[token])return;
     saved.seen[token]=Date.now();
-    saved.activity.unshift({kind,id,capture,title,body,time:Date.now(),read:false});saved.activity=saved.activity.slice(0,60);
+    saved.activity.unshift({kind,id,capture,title,body,project:sess(id)?.project,agent:sess(id)?.agent,time:Date.now(),read:false});saved.activity=saved.activity.slice(0,60);
     const keys=Object.keys(saved.seen);if(keys.length>500)keys.slice(0,keys.length-500).forEach(k=>delete saved.seen[k]);
-    persist();
+    persist();refreshActivity();
     // An event remains in Activity even with OS alerts disabled. Never notify for
     // terminal text, title escape sequences, or restored historical state.
     if(state.alerts && live && (sess(id)?.host==='tasktap'||!sess(id)) && (!document.hasFocus()||saved.background[id]))postLive('notify',{kind:kind==='failure'?'failure':'complete',id:kind==='complete'&&capture?capture:id,title,body});
@@ -581,7 +581,79 @@ const workspaceDeck=(()=>{
     file.project=p.id;if(file.sourceLine)file.sourceView=true;saved.media[file.id]=file;open('media:'+file.id,p.id,true)
   }go(p.id);persist()}
   function openWeb(project,url){addFiles(project,[{id:uid(),kind:'web',title:new URL(url).host,url}])}
-  function activity(){saved.activity.forEach(a=>a.read=true);persist();dialog('Activity','Across your projects',saved.activity.length?'<div class="deck-activity-list">'+saved.activity.map(a=>'<section class="notice"><span class="eyebrow">'+esc(a.kind==='failure'?'Needs attention':'Result ready')+' / '+esc(new Date(a.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}))+'</span><strong>'+esc(a.title)+'</strong><p>'+esc(resultPresentation.excerpt(a.body,48).text)+'</p>'+(a.kind==='failure'?button('Open session','deck-open',a.id,'text-btn','arrow'):button('View result','deck-result',a.capture||a.id,'text-btn','arrow'))+'</section>').join('')+'</div>':'<p class="empty">You’re all caught up. Decisions appear in Home; results and failures collect here.</p>');renderNav(listedProjects(activeSessions()))}
+  function activityTime(time){
+    const date=new Date(time);
+    if(!Number.isFinite(date.getTime()) || !(time>0))return '';
+    const today=date.toDateString()===new Date().toDateString();
+    const short=today?date.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):date.toLocaleDateString(undefined,{month:'short',day:'numeric'});
+    return '<time datetime="'+date.toISOString()+'" title="'+attr(date.toLocaleString())+'">'+esc(short)+'</time>';
+  }
+  function activityTitle(session,fallback){
+    const title=String((session?sessionDisplayName(session):fallback)||'Agent report');
+    if(session?.sessionName)return {title,headline:title};
+    const sentence=title.match(/^(.{16,160}?[.!?])\s+(?=[A-Z“"\d])/);
+    return {title,headline:sentence&&!/\b(?:e\.g|i\.e|Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|etc)\.$/i.test(sentence[1])?sentence[1]:title};
+  }
+  function activityRow({session,event,question,status,kind='report',count=0}){
+    const capture=event?.capture&&byId(state.captures,event.capture),project=proj(session?.project||capture?.project||event?.project),title=activityTitle(session,event?.title),agent=providers[session?.agent||event?.agent]||'Agent';
+    const report=!!event,action=question?'notch':report?'deck-result':'deck-open',id=question?.id|| (report?event.capture||event.id:session?.id||event?.id);
+    const metadata=[project?.name||'Scratch',agent,event?status:''].filter(Boolean).join(' · ');
+    const label=(question?'Answer question':report?'View report':'Open session')+': '+title.title+' / '+[metadata,event?'':status].filter(Boolean).join(' / ');
+    return '<button type="button" class="activity-row" data-activity-kind="'+kind+'" data-action="'+action+'" data-id="'+attr(id)+'" aria-label="'+attr(label)+'"><span class="activity-symbol" aria-hidden="true">'+icon(question?'attention':kind==='failure'?'attention':report?'note':session?.agent||'sessions')+'</span><span class="activity-task"><strong title="'+attr(title.title)+'">'+esc(title.headline)+'</strong><span class="activity-meta" title="'+attr(metadata)+'">'+esc(metadata)+'</span>'+(question?'<span class="activity-question">'+esc(question.q)+'</span>':'')+'</span><span class="activity-end">'+(count>1?'<span class="activity-report-count" title="'+count+' reports">'+count+'</span>':'')+ (event?activityTime(event.time):'<span class="activity-state" data-state="'+attr(kind)+'">'+esc(status)+'</span>')+icon('right')+'</span></button>';
+  }
+  function activityContent(){
+    const groups=new Map();
+    // Keep every receipt, but show each conversation once in the default history.
+    for(const event of [...saved.activity].sort((a,b)=>(b.time||0)-(a.time||0))){
+      if(!groups.has(event.id))groups.set(event.id,[]);
+      groups.get(event.id).push(event);
+    }
+    const attention=[],working=[],handoffs=[],active=new Set(),workingIDs=typeof workspaceNavigation!=='undefined'&&workspaceNavigation.workingSessions?new Set(workspaceNavigation.workingSessions().map(s=>s.id)):null;
+    for(const session of state.sessions){
+      const questions=state.decisions.filter(q=>q.session===session.id);
+      if(questions.length){attention.push(...questions.map(question=>activityRow({session,question,status:'Needs input',kind:'input'})));active.add(session.id);continue}
+      if(session.state==='Failed' && groups.get(session.id)?.[0].kind==='failure')continue;
+      if(['Needs input','Awaiting agent','Ready to send','Failed','Interrupted'].includes(session.state)){
+        attention.push(activityRow({session,status:session.state,kind:session.state==='Failed'?'failure':'input'}));active.add(session.id);
+      }else{
+        const capture=state.captures.find(c=>c.session===session.id),sending=capture?.kind==='Session nudge'&&['Queued','Running'].includes(capture.receipt);
+        const externalSend=session.state==='Running'&&sending&&(capture.external||session.external);
+        if(['Queued','Opening'].includes(session.state)||externalSend){
+          handoffs.push(activityRow({session,status:externalSend?'Sending follow-up':session.state,kind:'handoff'}));active.add(session.id);
+        }else if(session.available!==false&&session.state==='Running'&&(!workingIDs||workingIDs.has(session.id))){
+          working.push(activityRow({session,status:'Working',kind:'working'}));active.add(session.id);
+        }
+      }
+    }
+    const reports=[];
+    for(const [id,events] of groups){
+      const latest=events[0],session=sess(id),failure=latest.kind==='failure';
+      const row=activityRow({session,event:latest,status:failure?'Handoff failed':'Report received',kind:failure?'failure':'report',count:events.length});
+      const previous=events.slice(1).map(event=>activityRow({session,event,status:event.kind==='failure'?'Handoff failed':'Report received',kind:event.kind==='failure'?'failure':'report'})).join('');
+      const history=previous?'<details class="activity-history" data-activity-history="'+attr(id)+'"><summary>'+events.length+' reports'+icon('down')+'</summary><div>'+previous+'</div></details>':'';
+      const item='<article class="activity-conversation" data-activity-session="'+attr(id)+'">'+row+history+'</article>';
+      if(failure&&!active.has(id))attention.push(item);else reports.push(item);
+    }
+    const section=(name,rows,kind)=>rows.length?'<section class="activity-section" data-activity-section="'+kind+'"><div class="activity-section-heading"><h3>'+name+'</h3><span>'+rows.length+'</span></div><div class="activity-rows">'+rows.join('')+'</div></section>':'';
+    const summary=[working.length?working.length+' working':'',handoffs.length?handoffs.length+' handoff'+(handoffs.length===1?'':'s'):'',attention.length?attention.length+' need'+(attention.length===1?'s':'')+' attention':''].filter(Boolean).join(' · ');
+    return (summary?'<p class="activity-summary" role="status">'+esc(summary)+'</p>':'')+section('Needs your attention',attention,'attention')+section('Working now',working,'working')+section('Handoffs',handoffs,'handoffs')+section('Reports',reports,'reports')||'<div class="activity-empty">'+icon('check')+'<strong>You’re all caught up</strong><p>Active tasks, questions and reports appear here.</p></div>';
+  }
+  function refreshActivity(){
+    const root=$('#activity-feed');if(!root)return;
+    const content=activityContent();if(root.activityContent===content)return;
+    const opened=[...root.querySelectorAll('[data-activity-history][open]')].map(el=>el.dataset.activityHistory),focus=root.contains(document.activeElement)?document.activeElement:null;
+    const target=focus?.closest('[data-action]'),history=focus?.closest('[data-activity-history]'),scroll=$('#modal').scrollTop;
+    root.innerHTML=content;root.activityContent=content;
+    for(const id of opened)root.querySelector('[data-activity-history="'+CSS.escape(id)+'"]')?.setAttribute('open','');
+    if(target)[...root.querySelectorAll('[data-action]')].find(el=>el.dataset.action===target.dataset.action&&el.dataset.id===target.dataset.id)?.focus({preventScroll:true});
+    else if(history)root.querySelector('[data-activity-history="'+CSS.escape(history.dataset.activityHistory)+'"] summary')?.focus({preventScroll:true});
+    $('#modal').scrollTop=scroll;
+  }
+  function activity(){
+    saved.activity.forEach(a=>a.read=true);persist();
+    dialog('Activity','Across your projects','<div id="activity-feed"></div>');refreshActivity();
+    renderNav(listedProjects(activeSessions()));
+  }
   function details(id){const t=terminals.get(id),s=sess(id);if(!t){showSession(id);return}dialog(s?sessionDisplayName(s):t.title,'Session details','<p class="hint">'+esc(t.cwd)+'</p><p>'+esc(status(id))+'</p><div class="inline">'+(s?button('Conversation details','deck-conversation',id,'btn'): '')+(t.running?button('Stop session…','deck-stop',id,'btn','stop'):'')+'</div><p class="hint">Closing a live session lets you keep it running in the sidebar or stop its process.</p>')}
   function preferences(){
     dialog('Terminal preferences','Workspace','<form id="deck-preferences" class="stack"><label class="check-line"><input type="checkbox" id="deck-follow" '+(saved.preferences.followGhostty!==false?'checked':'')+'>Use Ghostty font and cursor</label><p class="hint" id="deck-appearance-source">'+esc(appearanceDescription())+'</p>'+button('Reload Ghostty settings','deck-reload','','text-btn')+'<label class="field">Shell<select id="deck-shell">'+[['default','Login shell'],['zsh','zsh'],['bash','bash'],['fish','fish']].map(([id,name])=>option(id,name,saved.preferences.shell)).join('')+'</select></label><label class="field">Text size<select id="deck-font">'+option('auto','From appearance',saved.preferences.font?String(saved.preferences.font):'auto')+[12,13,14,16,18,20].map(n=>option(String(n),String(n)+' pt',String(saved.preferences.font))).join('')+'</select></label><p class="hint">Colors, translucency, and blur follow the app Appearance preferences. Your shell loads its usual prompt and plugins. Ghostty can supply installed fonts, cursor, and padding; its keybindings and shaders are not imported.</p><button class="primary" type="submit">Save preferences</button></form>');
@@ -703,12 +775,12 @@ const workspaceDeck=(()=>{
   }
   function textLoaded(id,text){const node=previews.get('media:'+id),file=saved.media[id];if(node&&file){node.previewText=text;paintDocument(node,file)}}
   function shellHistory(filter=''){const rows=[...terminals.values()].filter(t=>t.kind==='shell'&&[t.title,t.cwd].join(' ').toLowerCase().includes(filter.toLowerCase()));return rows.length?'<section class="block"><h2>Terminals</h2>'+rows.map(t=>button(t.title+' / '+(t.running?'Running':t.restored?'Not running':t.stopped?'Stopped':'Exited')+' / '+t.cwd,'deck-open',t.id,'note','sessions')).join('')+'</section>':''}
-  function openResult(id){if(window.tasktapSurface==='notch'){postLive('workspace-open-result',{id});return}const result=report(id);if(result.session){for(const item of saved.activity)if(item.capture===id||!item.capture&&item.id===id)item.read=true;dismissCard();open('result:'+id,result.session.project)}}
+  function openResult(id){if(window.tasktapSurface==='notch'){postLive('workspace-open-result',{id});return}const result=report(id);for(const item of saved.activity)if(item.capture===id||!item.capture&&item.id===id)item.read=true;if(result.session){dismissCard();open('result:'+id,result.session.project)}else if(result.event){dialog('Agent report',proj(result.event.project)?.name||'Tasktap','<article class="result-reader"><p class="result-task">'+esc(result.event.title||'Agent report')+'</p><div class="result-prose"></div></article>');workspaceDocuments.render($('#modal .result-prose'),result.text,{project:result.event.project,cwd:proj(result.event.project)?.folder});persist()}}
   // Restore an explicit layout without automatically starting any process.
   function sidebarData(){return {layouts:saved.layouts,terminals:[...terminals.values()],background:saved.background,cue:sessionCue,label,icon:surfaceIcon}}
   if(typeof appAppearance!=='undefined')appAppearance.receiveGhostty(inherited);
   applyAppearance();
-  return {openWorkspace,closeWorkspace,prepareLaunch,sidebarData,accessibilityChanged,appearanceLoaded,pdfLoaded,openTerminal,terminalText,terminalMetrics,shellHistory,textLoaded,receive,renderProject,leave,addFiles,openWeb,open,openResult,outcome,closeFront,preferences,activity,clipboardCommand};
+  return {openWorkspace,closeWorkspace,prepareLaunch,sidebarData,accessibilityChanged,appearanceLoaded,pdfLoaded,openTerminal,terminalText,terminalMetrics,shellHistory,textLoaded,receive,renderProject,leave,addFiles,openWeb,open,openResult,outcome,closeFront,preferences,activity,refreshActivity,clipboardCommand};
 })();
 
 if(location.hash!=='#geometry')render();

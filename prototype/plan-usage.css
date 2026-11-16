@@ -15,11 +15,11 @@
 .dialog-title>.plan-usage{display:flex;flex-wrap:wrap;max-width:230px;justify-content:flex-end}
 .usage-meter .usage-provider{display:block;background:none;mask:none;-webkit-mask:none}.usage-provider>svg{display:block;width:100%;height:100%;fill:currentColor}.usage-provider>svg [fill]{fill:currentColor}
 @media(max-width:480px){.dialog-title>.usage-review{max-width:96px}.usage-workspace{max-width:150px}}
-/* Provider controls live below the menu bar, inside the camera's width. */
-:root{--usage-row-height:0px}
+/* Active provider controls use the camera width, or a readable row on synthetic tabs. */
+:root{--usage-row-height:0px;--usage-notch-width:var(--native-usage-width,var(--native-tab-width))}
 .usage-notch{display:none}
-.notch-first .usage-notch,.notch-first.notch-open .usage-notch{display:flex;align-items:center;justify-content:center;gap:var(--s-tiny);position:absolute;top:var(--s-panel-top);left:calc(50% + var(--camera-offset));transform:translateX(-50%);width:var(--native-tab-width);height:var(--usage-row-height);padding:0 var(--s-tight);color:#eee;background:var(--notch-black);border-radius:0 0 var(--cutout-corner) var(--cutout-corner);pointer-events:none}
-.notch-first .usage-notch .usage-meter{position:relative;display:grid;place-items:center;flex:none;width:min(30px,calc((var(--native-tab-width) - 8px - (var(--usage-count) - 1) * 2px) / var(--usage-count)));height:30px;min-width:0;padding:0;transform:none;background:transparent;border-radius:var(--r-round);pointer-events:auto}
+.notch-first .usage-notch,.notch-first.notch-open .usage-notch{display:flex;align-items:center;justify-content:center;gap:var(--s-tiny);position:absolute;top:var(--s-panel-top);left:calc(50% + var(--camera-offset));transform:translateX(-50%);width:var(--usage-notch-width);height:var(--usage-row-height);padding:0 var(--s-tight);color:#eee;background:var(--notch-black);border-radius:0 0 var(--cutout-corner) var(--cutout-corner);pointer-events:none}
+.notch-first .usage-notch .usage-meter{position:relative;display:grid;place-items:center;flex:none;width:min(30px,calc((var(--usage-notch-width) - 8px - (var(--usage-count) - 1) * 2px) / var(--usage-count)));height:30px;min-width:0;padding:0;transform:none;background:transparent;border-radius:var(--r-round);pointer-events:auto}
 .usage-notch .usage-meter>svg{width:min(26px,calc(100% - 2px));height:26px;inset:50% auto auto 50%;transform:translate(-50%,-50%) rotate(-90deg)}.usage-notch .usage-provider{width:12px;height:12px}.usage-notch .usage-meter::after{display:none}
 .native-host.notch-first .island{height:var(--s-panel-top)}
 .notch-first #notch-shell{height:var(--sheet-bottom,var(--s-panel-top))}

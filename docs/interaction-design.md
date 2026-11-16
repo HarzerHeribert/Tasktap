@@ -69,7 +69,7 @@ First run offers setup and guided capture. **Control + Option + Space** opens ty
 ```text
 Capture
 ├── Optional source reference snapshot, bound when capture begins
-├── Local matching or reviewed remote preparation
+├── Contextual on-device or reviewed remote preparation
 │   └── Preparation progress / Review now / cancel; late output is ignored
 ├── Ambiguous destination → explicit project or conversation choice
 └── Review
@@ -80,6 +80,10 @@ Capture
     └── Stable footer → manual-paste or failure explanation / one confirm action
         └── Diagnostics → redacted effective payload, instructions, routing, IDs, copy/export
 ```
+
+Preparation rewrites rambling captures into faithful work packages, preserving corrections, constraints and unresolved references. It runs for follow-ups as well as new work. Candidate context is bounded to eight projects, eight sessions and three recent Tasktap handoffs; terminal contents are not read. Remote consent shows the actual context before transport. Explicit destinations stay fixed; inferred destinations require a supported quote tied to a current candidate or its recent handoff. Invalid, contradictory and stale results cannot select a conversation.
+
+The prepared task appears directly in review. **Original capture**, **Use original request**, and **Use prepared task** provide a reversible comparison. **Why this session?** shows matching evidence, actual state, original task and session ID. An unavailable selected conversation cannot be sent a follow-up.
 
 Workspace review gives the request room beside its destination and reference. Compact review stacks the same facts, and the native notch widens for review within the display’s usable bounds. Flat sections use icons and accessible pencil buttons; short destination values stay on one line. Reading prose remains 16px; long requests wrap and scroll without pushing required controls out of reach. Raw Git guidance, worker protocol text, peer JSON and receipt IDs stay in Diagnostics while remaining in the actual outgoing request.
 
@@ -99,7 +103,9 @@ Concurrent work is shown as a short consequence plus **View active work**. New w
 
 A question carries its request and session identity through the pane, notch, keyboard, Micro and notification. Choose an offered answer or use one **Reply** entry point for typing and speech. Sending either settles only the displayed request. Freeform words go unchanged to the same agent, which interprets their intent and can ask a new question with a new request ID. Closing without sending leaves the request pending and preserves the reply draft. Legacy discussion events remain supported by the adapter protocol. An expired or duplicate event cannot act on the next question.
 
-Passive notch hover does not take keyboard focus or interrupt a drag. Deliberate click or shortcut can pin/focus the panel. Geometry follows the active display’s camera exclusion; a display without a camera uses a top-edge panel. The last settled question clears the attention rim.
+Passive notch hover does not take keyboard focus or interrupt a drag. Deliberate click or shortcut can pin/focus the panel. Geometry follows the active display’s camera exclusion; a display without a camera uses a small tab attached to the actual top edge above the menu bar. Large logical displays use a compact panel profile without changing the camera exclusion geometry. Attention glows are subdued and disappear when their sheet opens. The last settled question clears the attention rim.
+
+Activity prioritizes questions and failures, names current work, and separates handoffs in transit from running workers. It groups repeated reports by conversation with exact receipt links and expandable history. Reports are labeled as received; a forwarding acknowledgement is not implementation completion. The notch names active tasks and projects. Working workspace icons pulse based on actual session state, including exact project-folder matches; idle connections and unavailable sessions do not animate. Reduce Motion disables the pulse.
 
 Home and history show compact rows, not report paragraphs. A result detail begins with a labeled excerpt and keeps Activity optional. **Read full report** displays exact agent text as safe Markdown. Copy, narration, export and old Activity entries retain the selected receipt. **Export summary** names the report document; generated files need a future validated artifact contract.
 

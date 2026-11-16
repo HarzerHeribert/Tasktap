@@ -119,7 +119,7 @@ require('node:fs').mkdirSync(shots,{recursive:true});
  assert.equal(await page.evaluate(()=>state.workspaceDeck.activity.length),1,'dedupe receipts and suppress historical completion');
  await page.evaluate(()=>{state.captures.push({id:'receipt',session:state.sessions[0].id,result:'The original completed report.'});state.sessions[0].result='A later follow-up result.'});
  await page.locator('[data-action="deck-activity"]').click();
- await page.getByRole('button',{name:'View result',exact:true}).click();
+ await page.locator('#activity-feed [data-action="deck-result"]').click();
  assert.equal(await page.locator('#modal').isVisible(),false);
  assert.match(await page.locator('.deck-preview:not([hidden]) .deck-document').innerText(),/original completed report/,'Activity preserves the specific receipt');
  await page.evaluate(()=>{go('overview');command('notice-result','receipt')});

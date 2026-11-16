@@ -82,3 +82,12 @@
  .review-footer-info{flex-basis:100%;justify-content:space-between}
  #modal #handoff-review .review-footer .primary{width:100%;justify-content:space-between}
 }
+
+.review-sheet #review-brief{white-space:pre-wrap;overflow-wrap:anywhere}
+.review-original,.review-match{font-size:var(--t-label);line-height:1.5;min-width:0}
+.review-original summary,.review-match summary{cursor:pointer;color:var(--review-ink)}
+.review-original p,.review-match p{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:var(--s-small)}
+.review-original p{max-height:28dvh;overflow:auto}
+.review-match dl{display:grid;gap:var(--s-small);margin-top:var(--s-row)}
+.review-match dt{color:var(--app-muted);font-size:var(--t-small)}
+.review-match dd{margin:0;overflow-wrap:anywhere}

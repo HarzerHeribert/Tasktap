@@ -40,8 +40,12 @@
 #sidebar .nav-workspace-status>.icon{width:13px;height:13px}
 .nav-workspace[data-status=input] .nav-workspace-status{color:var(--app-warning);animation:workspace-attention 2.4s ease-in-out infinite}
 .nav-workspace[data-status=failure] .nav-workspace-status{color:var(--app-warning)}
+.nav-workspace[data-status=working] .nav-workspace-status{color:var(--deck-fg)}
+.nav-workspace[data-working=true] .nav-workspace-name>.icon{animation:workspace-working 2.4s ease-in-out infinite}
+@keyframes workspace-working{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.85)}}
+.surface-hidden .nav-workspace[data-working=true] .nav-workspace-name>.icon{animation-play-state:paused}
 @keyframes workspace-attention{0%,100%{opacity:1}50%{opacity:.4}}
-@media(prefers-reduced-motion:reduce){.nav-workspace[data-status=input] .nav-workspace-status{animation:none}}
+@media(prefers-reduced-motion:reduce){.nav-workspace[data-status=input] .nav-workspace-status,.nav-workspace[data-working=true] .nav-workspace-name>.icon{animation:none}}
 .workspace-picker{display:grid;gap:var(--s-panel)}
 .workspace-picker-actions{display:flex;gap:var(--s-icon);flex-wrap:wrap}
 .workspace-picker>.hint{margin:0}

@@ -97,7 +97,7 @@ $('.notch-surface').addEventListener('transitionend',event=>{
 });
 notchMotion.addEventListener('change',()=>{if(notchMotion.matches)finishFold()});
 function updateSignal(){
-  const running=state.sessions.filter(session=>session.state==='Running').length;
+  const working=workspaceNavigation.workingSessions();
   let mode='idle', label='Idle';
   if(live && recording?.phase==='recording'){mode='listening';label='Listening'}
   else if(live && recording?.phase==='processing'){mode='sending';label='Transcribing'}
@@ -107,7 +107,10 @@ function updateSignal(){
   else if(state.captures.some(c=>c.external && c.receipt==='Running')){mode='sending';label='Sending nudge'}
   else if(state.captures.some(c=>c.receipt==='Queued')){mode='sending';label='Handoff queued'}
   else if(pending()){mode='waiting';label=state.decisions.length===1?'Waiting for your answer':state.decisions.length+' decisions pending'}
-  else if(running){mode='working';label=running+' '+(running===1?'session':'sessions')+' working'}
+  else if(working.length){
+    const session=working[0],project=workspaceNavigation.projectForSession(session);
+    mode='working';label=sessionDisplayName(session)+' / '+project.name+(working.length>1?' · '+(working.length-1)+' more':'');
+  }
   document.body.dataset.signal=mode;
   const text=$('.signal-caption');
   if(text)text.textContent=mode==='idle'?'':label;
@@ -121,24 +124,31 @@ function drawHome(){
   // Keep the same content and height all the way back into the housing.
   if(homeMode==='retracting')return;
   const receipt=byId(state.captures,receiptCapture);
+  const working=!q && !receipt?workspaceNavigation.workingSessions():[];
   const session=s || (receipt && sess(receipt.session));
   const title=q?.q || (receipt && ({
     Started:'Session started',Queued:'Handoff queued',Opening:'Opening session',Opened:'Session opened',
     Running:receipt.external?'Sending nudge':'Agent working',Copied:'Nudge copied',Delivered:'Nudge delivered',
-    Failed:'Handoff failed',Complete:'Session complete',Closed:'Session closed'
-  }[receipt.receipt] || receipt.receipt)) || 'Ready to capture';
+    Failed:'Handoff failed',Complete:'Report received',Closed:'Session closed'
+  }[receipt.receipt] || receipt.receipt)) || (working.length?'Working now':'Ready to capture');
   const destination=session?[proj(session.project)?.name || 'Scratch',providers[session.agent]].filter(Boolean).map(esc).join(' <span aria-hidden="true">/</span> '):'';
   const action=q?surfaceButton('Review decision','requests','arrow','notch-action',q.id):receipt && session?
     button('View session','session',session.id,'notch-action','arrow'):surfaceButton('Capture','capture','arrow','notch-action');
-  const art=receipt && !q?handoffRelay.forCapture(receipt):!q?resonatorMarkup('miniature'):'';
+  const work=working.length?'<section class="notch-work" aria-label="Active work">'+working.slice(0,3).map(s=>{
+    const name=sessionDisplayName(s),p=workspaceNavigation.projectForSession(s);
+    return '<button type="button" class="notch-work-row" data-action="session" data-id="'+attr(s.id)+'" title="'+attr(name+' / '+p.name)+'"><span class="notch-work-mark" aria-hidden="true">'+icon(s.agent)+'</span><span><strong>'+esc(name)+'</strong><small>'+esc(p.name)+' <span aria-hidden="true">/</span> '+esc(providers[s.agent]||'Agent')+'</small></span>'+icon('right')+'</button>';
+  }).join('')+(working.length>3?button('View all '+working.length+' active sessions','deck-activity','','text-btn'):'')+'</section>':'';
+  const art=receipt && !q?handoffRelay.forCapture(receipt):!q && !working.length?resonatorMarkup('miniature'):'';
   const content=firstRun.content() || '<header class="home-heading"><div><h1>'+esc(title)+'</h1></div>'+
     surfaceButton('','collapse','down','collapse-button')+'</header>'+
-    (destination?'<p class="notch-destination">'+destination+'</p>':'<small class="signal-caption"></small>')+
+    (destination?'<p class="notch-destination">'+destination+'</p>':working.length?'':'<small class="signal-caption"></small>')+work+
     '<footer class="home-actions">'+action+(q || receipt?surfaceButton('Capture','capture','','workspace-link'):'')+
     surfaceButton('Workspace','workspace','','workspace-link')+
     (art?'<span class="home-art" aria-hidden="true">'+art+'</span>':'')+'</footer>';
   // A session progress event must preserve focused controls and their tab order.
   if(homeContent!==content){
+    const focused=root.contains(document.activeElement)?document.activeElement:null;
+    const focusKey=focused?.closest('button')?.dataset;
     const editing=document.activeElement?.id==='guide-input'?document.activeElement:null;
     root.querySelector('.home-content').innerHTML=content;homeContent=content;
     bindGuideComposer();
@@ -146,6 +156,10 @@ function drawHome(){
     if(editing && field){
       field.focus({preventScroll:true});
       field.setSelectionRange(editing.selectionStart,editing.selectionEnd);
+    }else if(focusKey){
+      const buttons=[...root.querySelectorAll('button')];
+      const match=buttons.find(button=>['action','id','surface','target'].every(key=>button.dataset[key]===focusKey[key]));
+      (match || root.querySelector('[data-surface="capture"],.collapse-button'))?.focus({preventScroll:true});
     }
   }
   root.querySelector('.collapse-button')?.setAttribute('aria-label','Collapse notch');
@@ -353,9 +367,10 @@ function controllerPreview(){
 }
 // AppKit reports points in the same units as CSS pixels at WKWebView's native zoom.
 function updateNotchGeometry(metrics){
+  document.body.classList.toggle('notch-compact',metrics.compact===1);
   const style=document.documentElement.style;
   for(const [property,value] of Object.entries({
-    '--native-tab-width':metrics.width,'--camera-height':metrics.height,'--camera-offset':metrics.offset,
+    '--native-tab-width':metrics.width,'--native-usage-width':metrics.usageWidth ?? metrics.width,'--camera-height':metrics.height,'--camera-offset':metrics.offset,
     '--native-surface-width':metrics.surfaceWidth,'--surface-offset':metrics.surfaceOffset,
     '--notch-shoulder':metrics.shoulder,'--notch-pixel':metrics.pixel,'--cutout-corner':metrics.corner,
     '--rim-outset':metrics.rimOffset,'--available-panel-height':metrics.available

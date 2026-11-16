@@ -103,6 +103,7 @@ function sessionActivityLine(s,line){
 function manualNudge(d){const s=sess(d.session);return live && d.mode==='nudge' && (s?.nudgeFailed || s?.interactive && (!s.inbox || s.inbox==='manual' || d.manualNudge))}
 function sessionLocation(s){return s?.host?terminalHosts.label(s.host):s?.source==='cmux'?'cmux':s?.source==='desktop'?'ChatGPT':s?.source==='terminal'?'External terminal':s?.source==='claude'?'External session':''}
 const checkpointGuidance='In a Git project, follow the user’s and repository’s workflow. By default, work in the current checkout and branch. Make focused commits as your changes become ready, preserving other people’s edits and staged changes. For shared files, check the current diff and include only your own hunks.';
+const forwardingGuidance='When forwarding work to another session, verify its identity and current status with session tools. Report its actual title or original request, exact session ID, and observed status. Never invent a session name or describe an interrupted, unloaded, or merely connected conversation as actively working. A send acknowledgement confirms delivery only; report implementation as pending until the receiving session reports its outcome.';
 const hasSessionTools=d=>['claude','codex'].includes(d.agent);
 function deliveryText(d){
   const brief=captureContext.brief(d);
@@ -113,7 +114,7 @@ function deliveryText(d){
   }
   if(d.mode==='nudge' && sess(d.session)?.interactive && hasSessionTools(sess(d.session)))
     text+='\n\nReport this follow-up’s outcome with report_result for Tasktap receipt '+d.captureId+'.';
-  if(d.mode!=='note')text+='\n\n'+agentLanguageGuidance();
+  if(d.mode!=='note')text+='\n\n'+agentLanguageGuidance()+'\n\n'+forwardingGuidance;
   return text;
 }
 function agentLanguageGuidance(){
@@ -228,29 +229,23 @@ function agentReceipt(e){
   if($('#modal').open && $('#receipt')?.dataset.capture===e.capture)detailCapture(e.capture);
   else if($('#modal').open && openedSession===s.id && $('#modal .session-detail'))showSession(s.id);
 }
-function prepareHandoff(){
+function prepareHandoff(providerOverride){
   const d=draft;
   cancelRouting();
-  const provider=aiConnections.choice();
+  const provider=providerOverride || aiConnections.choice();
   if(provider==='claude-session'){
-    if(d.text.trim() && d.mode==='ask' && !d.session)claudeBrief.show(d);
+    if(d.text.trim())claudeBrief.show(d);
     else routingPrompt();
     return;
   }
-  const estimate=d.mode==='ask' && sessionModelPolicy().adaptive;
-  const preserve=!!(d.sessionProject || (d.project && /^(ask |tell |remember |note )/i.test(d.text.trim())));
-  if(!d.text.trim() || d.session || d.mode==='nudge' || d.candidates?.length || (preserve && !estimate)){routingPrompt();return}
+  if(!d.text.trim()){routingPrompt();return}
   const id=uid();
-  // The Apple model only sees the capture. An external preparation request
-  // includes the matching names displayed in its consent sheet.
-  const relevantProjects=provider==='local'?[]:matchProjects(d.text).slice(0,8);
-  const relevantSessions=provider==='local'?[]:matchSessions(d.text).filter(canNudge).slice(0,8);
-  const input={capture:d.text,estimateDifficulty:estimate,projects:relevantProjects.map((p,i)=>[i,p.name]),sessions:relevantSessions.map((s,i)=>[i,s.task,proj(s.project)?.name,s.agent])};
+  const context=capturePreparation.context(d),input=context.input;
   const reviewedServer=provider==='server'?aiConnections.serverTarget():undefined;
   const connectionLabel=aiConnections.label(provider), billingLabel=aiConnections.payer(provider);
   function send() {
     if (draft!==d) return;
-    d.routing={id,projects:relevantProjects,sessions:relevantSessions,preserve,provider};
+    d.routing={id,...context,provider};
     if (provider!=='local') (d.remoteAttempts??=[]).push({label:connectionLabel,account:billingLabel,payload:[aiConnections.routingInstructions(),JSON.stringify(input,null,2)].filter(Boolean).join('\n\n')});
     routingActivityCard(d);
     const request={id,input,provider,confirmed:provider!=='local'};
@@ -261,11 +256,10 @@ function prepareHandoff(){
   dialog('Prepare with '+aiConnections.label(provider)+'?','Capture',
     (reviewedServer?'<div class="server-target"><div><strong>'+esc(reviewedServer.model)+'</strong><code>'+esc(reviewedServer.url)+'</code></div></div>':'')+
     '<p>'+esc(aiConnections.sendDescription(provider))+'</p>'+
-    '<details class="route-evidence"><summary>What will be sent</summary><p class="body-copy">'+esc(input.capture)+'</p><p class="hint">Matching projects and sessions / '+
-    esc([...input.projects.map(p=>p[1]),...input.sessions.map(s=>s.slice(1).join(' / '))].join(', ')||'None')+'</p>'+
+    '<details class="route-evidence"><summary>What will be sent</summary><p class="hint">Your capture, candidate project and session names, and up to three recent Tasktap handoffs. No terminal contents are read.</p><pre class="body-copy">'+esc(JSON.stringify(input,null,2))+'</pre>'+
     (aiConnections.routingInstructions()?'<details><summary>Tasktap’s routing instructions</summary><p class="body-copy">'+esc(aiConnections.routingInstructions())+'</p></details>':'')+'</details>'+
     '<div class="form-actions">'+button('Prepare on this Mac','local-review')+button('Send to '+aiConnections.label(provider),'send-capture','','primary')+'</div>');
-  $('#modal [data-action="local-review"]').onclick=()=>{d.routingSource='local';routingPrompt()};
+  $('#modal [data-action="local-review"]').onclick=()=>prepareHandoff('local');
   $('#modal [data-action="send-capture"]').onclick=send;
 }
 
@@ -279,21 +273,10 @@ function finishRouting(id,r){
     dialog('Couldn’t prepare this capture',aiConnections.label(pending.provider),
       '<p>'+esc(r.message || 'The provider did not finish.')+'</p><p class="hint">'+(pending.provider==='server'?'The server may already have received the capture.':'The request may count toward this account.')+' No worker has started.</p><div class="form-actions">'+
       button('Edit capture','edit')+button('Continue on this Mac','recover-local','','primary')+'</div>');
-    $('#modal [data-action="recover-local"]').onclick=()=>{d.routingSource='local';routingPrompt()};
+    $('#modal [data-action="recover-local"]').onclick=()=>prepareHandoff('local');
     return;
   }
-  if(pending.provider==='local'){
-    if(r.source==='apple' && typeof r.brief==='string' && r.brief.trim()!==d.brief)d.suggestedBrief=r.brief.trim();
-  } else if(!pending.preserve && ['ask','note','nudge'].includes(r.mode) && typeof r.brief==='string' && r.brief.trim()){
-    if(!d.explicitMode)d.mode=r.mode;
-    if(r.brief.trim()!==d.brief)d.suggestedBrief=r.brief.trim();
-    // Only an explicit project, a user choice, or an evidenced session can set the destination.
-    if(d.mode==='nudge' && Number.isInteger(r.session)){
-      const s=pending.sessions[r.session];
-      if(s && matchSessions(d.text).includes(s) && (!d.project || d.project===s.project)){d.session=s.id;d.project=s.project}
-    }
-  }
-  if(pending.preserve && d.routingSource==='apple')d.routingSource='estimate';
+  if(['apple','local-match'].includes(r.source) || pending.provider!=='local' && r.source===pending.provider)capturePreparation.apply(d,pending,r);
   if(d.mode==='ask' && (r.source==='apple' || r.source===pending.provider && r.source!=='local') && Number.isInteger(r.difficulty) && r.difficulty>=1 && r.difficulty<=10 && typeof r.scopeEvidence==='string' && r.scopeEvidence.trim() && d.text.toLowerCase().includes(r.scopeEvidence.trim().toLowerCase())){
     d.modelEstimate={origin:pending.provider==='local'?'':aiConnections.label(pending.provider),score:r.difficulty,evidence:r.scopeEvidence,brief:d.brief};
   }

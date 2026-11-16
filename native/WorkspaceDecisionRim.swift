@@ -14,7 +14,7 @@ final class WorkspaceDecisionRim {
     var isVisible: Bool { panel.isVisible }
 
     init() {
-        panel.level = .statusBar
+        panel.level = NSWindow.Level(rawValue:NSWindow.Level.statusBar.rawValue + 1)
         panel.collectionBehavior = [.canJoinAllSpaces,.fullScreenAuxiliary,.stationary,.ignoresCycle]
         panel.hidesOnDeactivate = false
         panel.ignoresMouseEvents = true
@@ -26,16 +26,16 @@ final class WorkspaceDecisionRim {
         view.wantsLayer = true
         view.setAccessibilityElement(false)
         halo.fillColor = nil
-        halo.strokeColor = NSColor(calibratedRed:0.91,green:0.65,blue:0.37,alpha:0.64).cgColor
+        halo.strokeColor = NSColor(calibratedRed:0.90,green:0.71,blue:0.47,alpha:0.45).cgColor
         halo.shadowColor = halo.strokeColor
         halo.shadowRadius = 2.5
-        halo.shadowOpacity = 0.85
+        halo.shadowOpacity = 0.6
         halo.shadowOffset = .zero
         edge.fillColor = nil
         edge.strokeColor = NSColor.white.cgColor
         metal.startPoint = CGPoint(x:0,y:0.5)
         metal.endPoint = CGPoint(x:1,y:0.5)
-        let stops: [UInt32] = [0xac8060,0xfbd6a7,0xfff5e3,0xbda996,0xfbe3b9,0xb88b67]
+        let stops: [UInt32] = [0x9a8065,0xe6c6a0,0xfff1db,0xb6a08b,0xe5caa6,0xa88c70]
         metal.colors = stops.map { rgb -> CGColor in
             let red = CGFloat(rgb >> 16) / 255
             let green = CGFloat((rgb >> 8) & 255) / 255
@@ -85,7 +85,7 @@ final class WorkspaceDecisionRim {
         halo.removeAnimation(forKey:"attention")
         guard panel.isVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
         let pulse=CABasicAnimation(keyPath:"opacity")
-        pulse.fromValue=0.45;pulse.toValue=1;pulse.duration=2.8 + min(2, Double(drawnTab?.width ?? 0) / 200);pulse.autoreverses=true
+        pulse.fromValue=0.62;pulse.toValue=0.9;pulse.duration=4.8;pulse.autoreverses=true
         pulse.repeatCount = .infinity;pulse.timingFunction=CAMediaTimingFunction(name:.easeInEaseOut)
         halo.add(pulse,forKey:"attention")
     }

@@ -9,6 +9,7 @@ struct NotchGeometry {
     let hasCutout: Bool
     let pixel: CGFloat
     let glowMargin: CGFloat = 8
+    var compact: Bool { screen.width >= 1920 || screen.width >= 1680 && screen.height >= 1000 }
 
     init(screen: NSScreen) {
         self.init(frame: screen.frame, visible: screen.visibleFrame, safeTop: screen.safeAreaInsets.top,
@@ -32,7 +33,8 @@ struct NotchGeometry {
             // The notch belongs to the display's top edge, including on monitors
             // without a camera cutout. The work area excludes the menu bar and
             // may be shifted sideways by a Dock; it is only a content limit.
-            let size = CGSize(width: min(174,frame.width), height: min(34,frame.height))
+            let large = frame.width >= 1920 || frame.width >= 1680 && frame.height >= 1000
+            let size = CGSize(width: min(large ? 104 : 120,frame.width), height: min(large ? 16 : 20,frame.height))
             tab = CGRect(x: frame.midX - size.width/2, y: frame.maxY - size.height,
                          width: size.width, height: size.height)
             hasCutout = false
@@ -50,7 +52,9 @@ struct NotchGeometry {
 
     func panelFrame(collapsed: Bool, requestedHeight: CGFloat, requestedWidth: CGFloat = 432, usageCount: Int = 0) -> CGRect {
         let usageWidth = tab.width
-        let width = min(screen.width, (collapsed ? usageWidth : max(432, min(680, requestedWidth.isFinite ? requestedWidth : 432), usageWidth)) + 2 * shoulder)
+        let request = requestedWidth.isFinite ? requestedWidth : 432
+        let content = compact ? max(400,min(640,request - 32)) : max(432,min(680,request))
+        let width = min(screen.width, (collapsed ? usageWidth : max(content, usageWidth)) + 2 * shoulder)
         let height = collapsed ? tab.height + glowMargin : min(max(tab.height,requestedHeight), tab.height + availableContentHeight)
         // Keep the whole sheet on screen if the system reports an off-center cutout.
         let x = max(screen.minX,min(screen.maxX - width, tab.midX - width / 2))

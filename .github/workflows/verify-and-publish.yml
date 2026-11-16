@@ -62,7 +62,7 @@ jobs:
           export TASKTAP_SCREENSHOTS="$RUNNER_TEMP/tasktap-shots"
           mkdir -p "$TASKTAP_SCREENSHOTS"
           python3 scripts/build-site.py
-          for test in independent-windows plan-usage workspace-deck workspace-navigation workspace-lifecycle workspace-background workspace-splits workspace-drag terminal-viewport terminal-controls terminal-clipboard terminal-input terminal-resize workspace-documents appearance home-overview result-presentation settings-layout voice-settings review capture-context notifications pages ui relay decision-rim voice-wave setup setup-preparation first-run model-ui model-server connections session-names session-detail workspace-lists update-ui; do
+          for test in capture-preparation activity workspace-activity notch-profile notch-usage independent-windows plan-usage workspace-deck workspace-navigation workspace-lifecycle workspace-background workspace-splits workspace-drag terminal-viewport terminal-controls terminal-clipboard terminal-input terminal-resize workspace-documents appearance home-overview result-presentation settings-layout voice-settings review capture-context notifications pages ui relay decision-rim voice-wave setup setup-preparation first-run model-ui model-server connections session-names session-detail workspace-lists update-ui; do
             node "scripts/verify-$test.cjs"
           done
       - uses: actions/upload-artifact@v4
@@ -94,6 +94,8 @@ jobs:
         run: |
           swiftc native/NotchGeometry.swift scripts/verify-notch-geometry.swift -o "$RUNNER_TEMP/notch-test"
           "$RUNNER_TEMP/notch-test"
+          swiftc -parse-as-library -target "$(uname -m)-apple-macosx26.0" native/HandoffRouter.swift scripts/verify-handoff-router.swift -o "$RUNNER_TEMP/handoff-test"
+          "$RUNNER_TEMP/handoff-test"
           swiftc native/TerminalInputDiagnostics.swift scripts/verify-terminal-diagnostics.swift -o "$RUNNER_TEMP/input-diagnostics-test"
           "$RUNNER_TEMP/input-diagnostics-test"
           python3 scripts/verify-visible-session.py

@@ -95,6 +95,7 @@ const path = require('node:path');
     await page.getByRole('button',{name:'Follow up',exact:true}).click();
     await page.getByLabel('Transcript',{exact:true}).fill('Migrate another system too.');
     await page.getByRole('button',{name:'Review capture',exact:true}).click();
+    await page.evaluate(()=>finishRouting(draft.routing.id,{source:'unavailable'}));
     assert.equal(await page.locator('#review-model').textContent(),'Current session model');
     await page.getByRole('button',{name:'Copy nudge & open session',exact:true}).click();
     job=await page.evaluate(()=>window.sent.findLast(m=>m.type==='enqueue').job);

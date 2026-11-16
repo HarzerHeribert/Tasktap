@@ -13,6 +13,21 @@ const workspaceNavigation=(()=>{
   const discoveryEnabled=()=>typeof workspaceSettings!=='undefined'&&workspaceSettings.current().externalDiscovery===true;
   const externalSessions=()=>state.sessions.filter(s=>s.host!=='tasktap' && (s.external || s.host || s.source));
   const hostName=s=>sessionLocation(s)||'Original app';
+  const folderKey=value=>String(value||'').replace(/\/+/g,'/').replace(/\/(?:\.\/)+/g,'/').replace(/\/$/,'');
+  function projectForSession(s){
+    return state.projects.find(p=>p.id===s.project || folderKey(p.folder) && folderKey(p.folder)===folderKey(s.project));
+  }
+  function workingSessions(){
+    const data=workspaceDeck.sidebarData(),terminals=new Map(data.terminals.map(t=>[t.id,t]));
+    return state.sessions.filter(s=>{
+      if(s.state!=='Running' || s.available===false || s.host==='claude-desktop' || s.external && !discoveryEnabled())return false;
+      const p=projectForSession(s);
+      if(!p || p.available===false || saved.closedWorkspaces?.[p.id] || terminals.get(s.id)?.running===false)return false;
+      // An external follow-up can be in transit while its original worker is idle.
+      const turn=state.captures.find(c=>c.session===s.id);
+      return !(turn?.external && ['Queued','Running'].includes(turn.receipt));
+    });
+  }
   function openAction(s){
     if(!live)return null;
     if(s.source==='desktop' && /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(s.conversation||''))return {label:'Open in ChatGPT',type:'open-desktop-chat',id:s.conversation};
@@ -30,6 +45,8 @@ const workspaceNavigation=(()=>{
     const unread=saved.activity.filter(a=>!a.read&&belongs(a.id));
     if(unread.some(a=>a.kind==='failure'))return {kind:'failure',label:'Needs attention',symbol:'attention'};
     if(unread.some(a=>a.kind==='complete'))return {kind:'complete',label:'Result ready',symbol:'check'};
+    const working=workingSessions().filter(s=>projectForSession(s)?.id===p.id);
+    if(working.length)return {kind:'working',label:'Working: '+working.map(sessionDisplayName).join(' · '),symbol:'sessions'};
     return null;
   }
   function backgroundRows(p,data){
@@ -43,8 +60,10 @@ const workspaceNavigation=(()=>{
   }
   function project(p,data){
     const children=backgroundRows(p,data),expanded=saved.navigationExpanded?.[p.id]!==false;
-    const status=attention(p,data),description=status?p.folder+' / '+status.label:p.folder;
-    return '<section class="nav-workspace'+(view===p.id?' is-current':'')+'" data-workspace="'+attr(p.id)+'"'+(status?' data-status="'+status.kind+'"':'')+'><div class="nav-workspace-heading">'+(children?'<button type="button" class="nav-workspace-disclosure" data-action="workspace-background-toggle" data-id="'+attr(p.id)+'" aria-label="'+attr((expanded?'Collapse':'Expand')+' background sessions for '+p.name)+'" aria-expanded="'+expanded+'" aria-controls="background-'+attr(p.id)+'">'+icon('right')+'</button>':'')+'<button type="button" class="nav-workspace-name" data-action="workspace-project" data-id="'+attr(p.id)+'" title="'+attr(description)+'" aria-label="'+attr(p.name+(status?', '+status.label:''))+'"'+(view===p.id?' aria-current="page"':'')+'>'+icon('folder')+'<span>'+esc(p.name)+'</span></button>'+(status?'<span class="nav-workspace-status" role="img" aria-label="'+status.label+'" title="'+status.label+'">'+icon(status.symbol)+'</span>':'')+'<button type="button" class="nav-workspace-close" data-action="workspace-close" data-id="'+attr(p.id)+'" aria-label="'+attr('Close '+p.name+' workspace')+'" title="Close workspace and stop its sessions.">'+icon('x')+'</button></div>'+children+'</section>';
+    const working=workingSessions().filter(s=>projectForSession(s)?.id===p.id),status=attention(p,data);
+    const detail=[status?.label,status?.kind!=='working' && working.length?'Working: '+working.map(sessionDisplayName).join(' · '):''].filter(Boolean).join(' / ');
+    const description=[p.folder,detail].filter(Boolean).join(' / ');
+    return '<section class="nav-workspace'+(view===p.id?' is-current':'')+'" data-workspace="'+attr(p.id)+'" data-working="'+!!working.length+'"'+(status?' data-status="'+status.kind+'"':'')+'><div class="nav-workspace-heading">'+(children?'<button type="button" class="nav-workspace-disclosure" data-action="workspace-background-toggle" data-id="'+attr(p.id)+'" aria-label="'+attr((expanded?'Collapse':'Expand')+' background sessions for '+p.name)+'" aria-expanded="'+expanded+'" aria-controls="background-'+attr(p.id)+'">'+icon('right')+'</button>':'')+'<button type="button" class="nav-workspace-name" data-action="workspace-project" data-id="'+attr(p.id)+'" title="'+attr(description)+'" aria-label="'+attr([p.name,detail].filter(Boolean).join(', '))+'"'+(view===p.id?' aria-current="page"':'')+'>'+icon('folder')+'<span>'+esc(p.name)+'</span></button>'+(status?'<span class="nav-workspace-status" role="img" aria-label="'+attr(status.label)+'" title="'+attr(status.label)+'">'+icon(status.symbol)+'</span>':'')+'<button type="button" class="nav-workspace-close" data-action="workspace-close" data-id="'+attr(p.id)+'" aria-label="'+attr('Close '+p.name+' workspace')+'" title="Close workspace and stop its sessions.">'+icon('x')+'</button></div>'+children+'</section>';
   }
   function navigation(){
     const data=workspaceDeck.sidebarData(),unread=saved.activity.filter(a=>!a.read).length;
@@ -128,6 +147,6 @@ const workspaceNavigation=(()=>{
   document.addEventListener('workspace-changed',()=>requestAnimationFrame(()=>{sync();const search=$('#workspace-external-search');if(search)pickerRows(search.value)}));
   document.addEventListener('workspace-settings-changed',()=>{refresh();discoveryStatus();if($('#workspace-external-search'))pickerRows($('#workspace-external-search').value)});
   window.addEventListener('resize',sync);
-  return {navigation,sync,toggle,openChooser};
+  return {navigation,sync,toggle,openChooser,workingSessions,projectForSession};
 })();
 if(location.hash!=='#geometry')render();

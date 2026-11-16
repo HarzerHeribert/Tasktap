@@ -1,0 +1,34 @@
+:root{--usage-week:#667bc8;--usage-hours:#a87324;--usage-track:#d5d8df;--usage-size:32px;--usage-wing:40px}
+[data-appearance-mode=dark],.notch-first{--usage-week:#9caef0;--usage-hours:#ddb778;--usage-track:#363b46}
+.plan-usage{display:flex;align-items:center;gap:var(--s-small);flex:none;position:relative;color:inherit}
+.usage-meter{position:relative;display:grid;place-items:center;width:var(--usage-size);height:var(--usage-size);padding:0;flex:none;border-radius:var(--r-round);color:inherit}
+.usage-meter>svg{position:absolute;inset:0;width:100%;height:100%;fill:none;stroke-width:1.9;transform:rotate(-90deg);pointer-events:none}
+.usage-track{stroke:var(--usage-track)}.usage-progress{stroke-linecap:round}.usage-week{stroke:var(--usage-week)}.usage-hours{stroke:var(--usage-hours)}.usage-unknown{stroke:var(--usage-track);stroke-dasharray:2 5}
+.usage-provider{width:14px;height:14px;background:currentColor;mask:center/contain no-repeat;-webkit-mask:center/contain no-repeat;pointer-events:none}
+.usage-provider.claude{mask-image:url(assets/providers/claude.svg);-webkit-mask-image:url(assets/providers/claude.svg)}.usage-provider.codex{mask-image:url(assets/providers/codex.svg);-webkit-mask-image:url(assets/providers/codex.svg)}
+.usage-meter:hover,.usage-meter[aria-expanded=true]{background:color-mix(in srgb,currentColor 8%,transparent)}
+.usage-home{margin-left:auto}.usage-review{margin-left:auto;align-self:center}.usage-review+.icon-btn{margin-left:0}
+.usage-details-host{min-width:0}.usage-details{display:grid;gap:var(--s-small);padding:var(--s-panel);border:1px solid var(--edge);border-radius:var(--r-control);background:var(--paper);color:var(--ink);font-size:var(--t-small);text-align:left}
+.usage-detail-heading,.usage-detail-row,.usage-detail-row>span{display:flex;align-items:center;justify-content:space-between;gap:var(--s-icon)}.usage-detail-heading{margin-bottom:var(--s-small)}.usage-detail-heading button{display:grid;place-items:center;width:24px;height:24px;padding:0}.usage-detail-heading .icon{width:14px}.usage-detail-row strong{font-weight:550}.usage-dot{width:6px;height:6px;border-radius:var(--r-round);background:var(--usage-week)}.usage-dot.usage-hours{background:var(--usage-hours)}.usage-reset,.usage-note{color:var(--muted)}.usage-reset{margin-bottom:var(--s-small)}.usage-note{border-top:1px solid var(--edge);padding-top:var(--s-icon)}
+.toolbar-actions{position:relative}.toolbar-actions>.usage-details-host{position:absolute;right:0;top:calc(100% + var(--s-icon));width:260px;max-width:calc(100vw - 24px);z-index:8;box-shadow:0 8px 24px #0002}
+.usage-notch{display:none}.notch-first .usage-notch{display:flex;position:absolute;top:0;left:calc(50% + var(--camera-offset));transform:translateX(-50%);width:calc(var(--native-tab-width) + 2 * var(--usage-wing));height:var(--s-panel-top);justify-content:space-between;pointer-events:none;color:#eee;--usage-size:26px}
+.usage-notch .usage-meter{pointer-events:auto;width:var(--usage-wing);height:100%;background:#000;border-radius:0 0 var(--r-control) var(--r-control)}.usage-notch .usage-meter>svg{width:26px;height:26px;inset:50% auto auto 50%;transform:translate(-50%,-50%) rotate(-90deg)}.usage-notch .usage-provider{width:12px;height:12px}.usage-notch .usage-meter:last-child{margin-left:auto}
+.notch-first.notch-open .usage-notch{display:none}
+@media(max-width:480px){.usage-review,.usage-home{--usage-size:28px;gap:var(--s-tight)}.toolbar-actions{gap:var(--s-small)}}
+
+.usage-provider.gemini{mask-image:url(assets/providers/gemini.svg);-webkit-mask-image:url(assets/providers/gemini.svg)}.usage-provider.cursor{mask-image:url(assets/providers/cursor.svg);-webkit-mask-image:url(assets/providers/cursor.svg)}.usage-provider.grok{mask-image:url(assets/providers/grok.svg);-webkit-mask-image:url(assets/providers/grok.svg)}.usage-provider.glm{mask-image:url(assets/providers/glm.svg);-webkit-mask-image:url(assets/providers/glm.svg)}
+.notch-first .usage-notch{display:grid;grid-template-columns:repeat(var(--usage-slots),var(--usage-wing)) var(--native-tab-width) repeat(var(--usage-slots),var(--usage-wing));width:calc(var(--native-tab-width) + 2 * var(--usage-slots) * var(--usage-wing));gap:0}.usage-camera{pointer-events:none}.usage-notch .usage-meter:last-child{margin:0}.notch-first.notch-open .usage-notch{display:none}
+.usage-workspace{flex-wrap:wrap;max-width:230px}
+.dialog-title>.plan-usage{display:flex;flex-wrap:wrap;max-width:230px;justify-content:flex-end}
+.usage-meter .usage-provider{display:block;background:none;mask:none;-webkit-mask:none}.usage-provider>svg{display:block;width:100%;height:100%;fill:currentColor}.usage-provider>svg [fill]{fill:currentColor}
+.native-host .usage-notch .usage-meter{width:var(--usage-wing);height:100%;min-width:0;padding:0;transform:none;background:#000}.usage-notch .usage-meter::after{display:none}
+@media(max-width:480px){.dialog-title>.usage-review{max-width:96px}.usage-workspace{max-width:150px}}
+/* The camera strip never moves with the sheet or fades during its fold. */
+.notch-first .usage-notch,.notch-first.notch-open .usage-notch{display:grid;grid-template-columns:calc(var(--usage-slots) * var(--usage-wing)) var(--native-tab-width) calc(var(--usage-slots) * var(--usage-wing));background:var(--notch-black);border-radius:0 0 var(--r-control) var(--r-control)}
+.usage-wing-group{display:flex;align-items:center;justify-content:center;height:100%;pointer-events:none}
+.notch-first .usage-notch .usage-meter{background:transparent;flex:none}
+.notch-first:has(#modal[open] #handoff-review) #island>.usage-notch{visibility:hidden;pointer-events:none}
+.notch-first #modal>.usage-modal{position:fixed;top:0;z-index:10;left:calc(50% + var(--camera-offset));margin:0;transform:translateX(-50%)}
+.usage-deck{--usage-size:26px;gap:var(--s-tight);margin-right:var(--s-small)}
+.deck-tools-actions{position:relative}.deck-tools-actions>.usage-details-host{position:absolute;right:0;top:calc(100% + var(--s-icon));width:260px;max-width:calc(100vw - 24px);z-index:20;box-shadow:0 8px 24px #0002}
+@media(max-width:480px){.deck-tools:has(.usage-deck:not([hidden])){height:auto;min-height:var(--deck-bar);flex-wrap:wrap;padding-block:var(--s-tight)}.deck-tools-actions:has(.usage-deck:not([hidden])){flex-wrap:wrap;max-width:100%}.usage-deck{max-width:180px;flex-wrap:wrap}}

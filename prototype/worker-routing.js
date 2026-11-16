@@ -52,10 +52,11 @@ const workerRouting = (() => {
     if(!live || pending || Date.now()-receivedAt<120000)return;
     pending=true;
     postLive('worker-usage');
-    timeout=setTimeout(()=>receive({}),15000);
+    timeout=setTimeout(()=>receive({}),40000);
   }
   function receive(data){
     clearTimeout(timeout);pending=false;receivedAt=Date.now();snapshot=data||{};
+    document.dispatchEvent(new CustomEvent('plan-usage',{detail:snapshot}));
     if($('#rank-rows'))updateAmounts();
     if(!$('#worker-choice,#worker-summary')?.closest('dialog[open]') || !draft || draft.submitting)return;
     if(draft.usingRank && draft.noPick){
@@ -178,5 +179,5 @@ const workerRouting = (() => {
     settingsPickers.mount(details);
   }
   const summaryMarkup=()=>'<div id="worker-summary"><p class="hint" id="worker-pick" data-summary="true" role="status"></p></div>';
-  return {jump,settings,prepare,reviewMarkup,summaryMarkup,bindReview,canStart,receive,updateAmounts,updateReviewAmounts};
+  return {request,jump,settings,prepare,reviewMarkup,summaryMarkup,bindReview,canStart,receive,updateAmounts,updateReviewAmounts};
 })();

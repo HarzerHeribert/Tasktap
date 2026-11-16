@@ -173,7 +173,7 @@ def worker_status():
             state['claude'] = 'Custom endpoint or token configured'
         elif os.environ.get('ANTHROPIC_API_KEY'): state['claude'] = 'API key configured'
         elif info.get('loggedIn') is False: state['claude'] = 'Sign-in needed'
-        elif info.get('authMethod') in ('claude.ai', 'oauth') and info.get('subscriptionType'):
+        elif info.get('authMethod') in ('claude.ai', 'oauth') and info.get('subscriptionType') in ('pro','max','team','enterprise'):
             state['claude'] = 'Claude plan login'
         elif info.get('authMethod') in ('api_key', 'apiKey', 'console'): state['claude'] = 'Console login'
         if state['claude'].endswith(' configured'): health['claude'] = 'configured'

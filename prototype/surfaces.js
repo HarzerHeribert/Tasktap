@@ -379,7 +379,7 @@ function postBounds(){
     shell.style.removeProperty('--sheet-bottom');
   }
   const height=open || folding?shell.getBoundingClientRect().height:$('#island').getBoundingClientRect().bottom;
-  postHost('layout',{workspace:!firstMode(),height:Math.ceil(height),width:panel?.querySelector('#handoff-review')?560:432,collapsed:!open && !folding});
+  postHost('layout',{workspace:!firstMode(),height:Math.ceil(height),width:panel?.querySelector('#handoff-review')?560:432,collapsed:!open && !folding,usageCount:document.querySelector('.usage-workspace')?.querySelectorAll('.usage-meter').length||0});
 }
 function updateBounds(immediate=false){
   // WebKit can suspend animation frames while a window is covered. Switching

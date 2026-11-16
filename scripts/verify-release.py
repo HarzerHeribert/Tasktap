@@ -41,6 +41,10 @@ with tempfile.TemporaryDirectory() as tmp:
         if source.is_file() and packaged.is_file():
             assert packaged.read_bytes() == source.read_bytes(), f'Stale bundled helper: {source}'
     assert (resources/'workspace_terminal.py').is_file()
+    assert (resources/'plan_usage.py').is_file()
+    assert (resources/'PROVIDER-NOTICES').stat().st_size > 0
+    assert (resources/'plan-credentials').is_file()
+    subprocess.run(['codesign','--verify','--strict',str(resources/'plan-credentials')],check=True)
     assert (resources/'LICENSE').read_bytes() == (root/'LICENSE').read_bytes()
     assert (resources/'Sparkle-LICENSE').read_bytes() == (root/'build/sparkle/LICENSE').read_bytes()
     for name in ('xterm', 'addon-fit', 'addon-search', 'marked', 'purify'):

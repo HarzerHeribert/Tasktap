@@ -20,6 +20,11 @@ import AppKit
             precondition(item.panelFrame(collapsed:true,requestedHeight:200,requestedWidth:560) == small)
             precondition(item.panelFrame(collapsed:false,requestedHeight:260,requestedWidth:.nan) == open)
             precondition(item.panelFrame(collapsed:false,requestedHeight:260,requestedWidth:10_000).width == 680 + 2 * item.shoulder)
+            for count in [2,3,6] {
+                let usage=item.panelFrame(collapsed:true,requestedHeight:200,usageCount:count)
+                precondition(item.screen.contains(usage) && usage.contains(item.tab))
+                precondition(usage.width == min(item.screen.width,item.tab.width + CGFloat((count+1)/2)*80 + 2*item.shoulder))
+            }
             precondition(item.hasCutout && small.contains(item.tab) && open.contains(item.tab))
             precondition(small.maxY == item.screen.maxY && open.maxY == item.screen.maxY && open.width>small.width)
             precondition(item.screen.contains(small) && item.screen.contains(open))

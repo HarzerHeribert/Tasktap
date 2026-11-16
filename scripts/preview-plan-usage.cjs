@@ -34,7 +34,7 @@ const {pathToFileURL}=require('node:url');
   await page.addStyleTag({content:'.native-host.notch-first #modal:has(#handoff-review){width:560px}'});await page.evaluate(()=>document.activeElement?.blur());await page.waitForTimeout(600);await page.screenshot({path:path.join(out,'review.png')});
   await page.evaluate(()=>{dismissCard();showHome(true)});await page.waitForTimeout(200);
   for(let i=0;i<8;i++){await frame();await page.waitForTimeout(50)}
-  await page.evaluate(()=>showHome(false));
+  await page.evaluate(()=>{showHome(false);document.activeElement?.blur()});
   for(let i=0;i<16;i++){
    await frame();await page.waitForTimeout(35);
    const current=await page.locator('#island>.usage-notch .usage-meter').evaluateAll(els=>els.map(el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}}));

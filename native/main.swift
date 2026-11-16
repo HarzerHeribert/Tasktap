@@ -221,7 +221,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                            "surfaceOffset":expanded.midX - geometry.tab.midX,
                            "pixel":geometry.pixel, "corner":geometry.corner, "rimOffset":geometry.rimOffset,
                            "offset":geometry.tab.midX - frame.midX,
-                           "available":geometry.availableContentHeight]
+                           "available":max(1,geometry.availableContentHeight - (usageCount > 0 ? 34 : 0))]
             js("updateNotchGeometry(metrics)",["metrics":metrics])
         }
     }
@@ -237,7 +237,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             geometry=NotchGeometry(screen:destination)
         }
         let topBand = point.y >= geometry.tab.minY && point.y <= geometry.tab.maxY
-        let inside = geometry.contains(point,in:panel.frame,collapsed:collapsed)
+        let inside = geometry.contains(point,in:panel.frame,collapsed:collapsed,usageCount:usageCount)
         // The shoulders are decorative. Menu items keep their mouse input even during a peek.
         panel.ignoresMouseEvents = !inside || (topBand && !geometry.tab.contains(point))
         if dragging {return}
@@ -1151,7 +1151,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                       shell=document.querySelector('#notch-shell'), surface=shell.getBoundingClientRect(),
                       sheet=document.querySelector('#notch-home').getBoundingClientRect();
                 return Math.abs(box.width-width)<0.51 && Math.abs(box.height-depth)<0.51 &&
-                    Math.abs(box.left-tabLeft)<0.51 && Math.abs(sheet.top-box.bottom)<0.51 &&
+                    Math.abs(box.left-tabLeft)<0.51 && Math.abs(sheet.top-box.bottom-parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--usage-row-height')))<0.51 &&
                     Math.abs(surface.left-sheet.left)<0.51 && Math.abs(surface.right-sheet.right)<0.51 &&
                     Math.abs(sheet.bottom-surface.bottom)<1.01 && surface.top===0 &&
                     parseFloat(getComputedStyle(shell,'::before').left)===0;
@@ -1184,16 +1184,16 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             try await Task.sleep(nanoseconds:300_000_000)
             let metersFit = try await web.evaluateJavaScript("""
                 (()=>{const camera=document.querySelector('#islandToggle').getBoundingClientRect();
-                  const meters=[...document.querySelectorAll('.usage-notch .usage-meter')];
+                  const meters=[...document.querySelectorAll('#island>.usage-notch .usage-meter')];
                   return meters.length===6 && meters.every(el=>{const r=el.getBoundingClientRect();
-                    return r.width===40 && r.top>=0 && r.bottom<=camera.bottom+1 &&
-                      r.left>=0 && r.right<=innerWidth && (r.right<=camera.left+.5 || r.left>=camera.right-.5) &&
+                    return r.width>=24 && r.width<=30 && r.top>=camera.bottom && r.bottom<=camera.bottom+34 &&
+                      r.left>=camera.left && r.right<=camera.right &&
                       el.querySelector('.usage-provider svg')!==null;});})()
                 """)
             guard metersFit as? Bool == true, panel.frame.width==geometry.panelFrame(collapsed:true,requestedHeight:0,usageCount:6).width else {throw Check.failed(#line)}
             _ = try await web.evaluateJavaScript("workerRouting.receive({});true")
             try await Task.sleep(nanoseconds:150_000_000)
-            print("Six provider meters fit the native collapsed panel and stay outside the camera.")
+            print("Six provider meters fit below the native camera without taking menu-bar space.")
             for action in ["requests","next","confirm"] {
                 let index = bindings.firstIndex(where: { $0.action == action })!
                 onKey(UInt32(index),pressed:true);onKey(UInt32(index),pressed:false)

@@ -47,6 +47,24 @@ folders. Do not delete these while agents are running. Settings and session data
 are separate from the app. Updates preserve request text; unfinished setup and
 other transient UI selections should be completed before updating.
 
+## 1.0.4 release scope
+
+Version 1.0.4 uses build **11**. It places the provider row directly beneath
+the physical cutout. No provider icon occupies the menu-bar band. The row fits
+within the cutout width, stays anchored during opening/closing, and is included
+in the native collapsed panel height and pointer hit area. Capture and review
+content start below the row. Workspace toolbar indicators remain available.
+
+The 1.0.3 side placement was marked prerelease after live user feedback, and its
+update feed was withheld. Version 1.0.4 is the stable release of plan usage.
+
+Live account checks confirmed Claude Max, Codex Pro and Google AI Ultra through
+agy. Cursor/Grok/GLM paid states use fixtures because those subscriptions are not
+available locally. Provider positions are checked through animation, and native
+geometry checks include the below-cutout row and its click area.
+
+Release notes: [releases/1.0.4.md](releases/1.0.4.md).
+
 ## 1.0.3 release scope
 
 Version 1.0.3 uses build **10**. It adds compact provider usage rings in the

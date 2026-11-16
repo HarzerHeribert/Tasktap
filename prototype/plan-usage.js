@@ -32,16 +32,17 @@ const planUsage = (() => {
     if(!root){root=document.createElement('div');root.className='plan-usage usage-'+placement;root.setAttribute('aria-label','Active plan usage');parent.insertBefore(root,before)}
     root.hidden=!agents().length;
     const ids=agents(),slots=Math.ceil(ids.length/2);
-    root.style.setProperty('--usage-slots',slots);
+    root.style.setProperty('--usage-count',ids.length);
     const items=ids.map(id=>meter(id,root));
     const anchored=placement==='notch'||placement==='modal';
     root.classList.toggle('usage-notch',anchored);
-    const html=anchored?'<span class="usage-wing-group">'+items.slice(0,slots).join('')+'</span><span class="usage-camera" aria-hidden="true"></span><span class="usage-wing-group">'+items.slice(slots).join('')+'</span>':items.join('');
+    const html=items.join('');
     if(root.innerHTML!==html)root.innerHTML=html;
     if(selectedRoot===root && !agents().includes(selected)){selected='';selectedRoot=null}
     return root;
   }
   function paint(){
+    document.documentElement.style.setProperty('--usage-row-height',agents().length?'34px':'0px');
     mount(document.querySelector('.toolbar-actions'),'workspace',document.querySelector('.toolbar-actions')?.firstChild);
     for(const actions of document.querySelectorAll('.deck-tools-actions'))mount(actions,'deck',actions.firstChild);
     mount(document.querySelector('#island'),'notch');

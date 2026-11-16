@@ -45,8 +45,8 @@ const {pathToFileURL}=require('node:url');
    await page.evaluate(()=>{dismissCard();showHome(false);updateBounds(true)});
    await page.waitForTimeout(50);
    const camera=await page.locator('#islandToggle').boundingBox();
-   const boxes=await page.locator('.usage-notch .usage-meter').evaluateAll(els=>els.map(el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom}}));
-   for(const box of boxes)assert.ok(box.right<=camera.x+.5||box.left>=camera.x+camera.width-.5,'camera is clear '+width);
+   const boxes=await page.locator('#island>.usage-notch .usage-meter').evaluateAll(els=>els.map(el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom}}));
+   for(const box of boxes)assert.ok(box.left>=camera.x-.5&&box.right<=camera.x+camera.width+.5&&box.top>=camera.y+camera.height-.5,'meters stay below the camera and within its width '+width);
   }
   await page.setViewportSize({width:1280,height:900});
   await page.evaluate(()=>{showWorkspace();appAppearance.setTheme('dark')});
@@ -54,6 +54,6 @@ const {pathToFileURL}=require('node:url');
   await page.evaluate(()=>{workerRouting.receive({checkedAt:Date.now()/1000-301,subscriptions:{gemini:{plan:'stale paid'}}})});
   assert.equal(await page.locator('.usage-workspace .usage-meter').count(),1,'stale automatic subscription results expire');
   assert.deepEqual(errors,[]);
-  console.log('PASS: six-provider toolbar/review sizing, camera exclusion, usage math, paid account gating, stale data and accessible details.');
+  console.log('PASS: six-provider toolbar/review sizing, below-camera placement, usage math, paid account gating, stale data and accessible details.');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

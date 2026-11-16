@@ -91,6 +91,10 @@ Existing agent tools remain the authoritative question/result channel. A questio
 
 ## Verification and limits
 
+Terminal screen-reader mode follows macOS VoiceOver, including changes while Tasktap is running. Ordinary input does not retain an editable textarea mirror after delivery; active IME composition stays with xterm. During continuous resizing, pane borders follow the pointer while terminal scrollback reflow and PTY dimensions settle after a 100 ms pause. Divider drags save their layout when released rather than serializing shared state on every pointer move.
+
+For local input debugging, create `~/Library/Application Support/Tasktap/Diagnostics/input-trace-until` containing a Unix timestamp less than one hour ahead, then relaunch. Until that time, the workspace writes a bounded `terminal-input-events.json` in that directory. It contains event kinds, lengths, composition flags and timing, with a numeric stream identifier. It excludes typed characters, key values, clipboard contents, terminal output and paths. The native receiver independently filters fields; files use private permissions. Set the timestamp to `0` to stop writes. This is a temporary developer trace, not a setting required for ordinary use.
+
 These checks exercise different boundaries. Passing a browser or native fixture does not establish a successful handoff with a live provider.
 
 | Boundary | Evidence scripts |
@@ -99,6 +103,7 @@ These checks exercise different boundaries. Passing a browser or native fixture 
 | Real PTY ownership, replay and stop | `verify-workspace-terminals.py` |
 | Nested layout, ordering and view persistence | `verify-workspace-layout.cjs`, `verify-workspace-splits.cjs`, `verify-workspace-drag.cjs`, `verify-workspace-deck.cjs` |
 | Terminal final-row and right-edge geometry | `verify-terminal-viewport.cjs` |
+| Typing, VoiceOver, IME and bounded resize work | `verify-terminal-input.cjs`, `verify-terminal-input.swift`, `verify-terminal-resize.cjs`, `verify-terminal-diagnostics.swift` |
 | Preview rendering and isolation | `verify-workspace-documents.cjs`, native `--verify-workspace` |
 | Sidebar and external-host actions | `verify-workspace-navigation.cjs` |
 | Themes, contrast and settings | `verify-appearance.cjs`, `verify-settings-layout.cjs` |

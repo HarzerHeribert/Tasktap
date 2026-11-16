@@ -13,7 +13,7 @@ final class Check: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
         let config=WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
         config.userContentController.add(self,name:"workspace")
-        config.userContentController.addUserScript(WKUserScript(source:"window.tasktapSurface='workspace'",injectionTime:.atDocumentStart,forMainFrameOnly:true))
+        config.userContentController.addUserScript(WKUserScript(source:"window.tasktapSurface='workspace';window.tasktapScreenReaderEnabled=true",injectionTime:.atDocumentStart,forMainFrameOnly:true))
         web=WKWebView(frame:NSRect(x:0,y:0,width:1100,height:800),configuration:config)
         web.navigationDelegate=self
         window=NSWindow(contentRect:web.frame,styleMask:[.titled],backing:.buffered,defer:false)
@@ -66,7 +66,7 @@ final class Check: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
                 """,arguments:[:],in:nil,contentWorld:.page)
                 guard failure==nil,checks==6 else {throw NSError(domain:failure ?? "Missing checks: \(checks)",code:1)}
                 input=""
-                _ = try await web.evaluateJavaScript("document.querySelector('.xterm-helper-textarea').value='';document.querySelector('.xterm-helper-textarea').focus();true")
+                _ = try await web.evaluateJavaScript("workspaceDeck.accessibilityChanged(false);document.querySelector('.xterm-helper-textarea').value='';document.querySelector('.xterm-helper-textarea').focus();true")
                 window.makeFirstResponder(web)
                 let typed="ordinary typing repeats no words words ABC 123."
                 for character in typed {
@@ -79,6 +79,17 @@ final class Check: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKScri
                 }
                 try await Task.sleep(nanoseconds:100_000_000)
                 guard input==typed else {throw NSError(domain:"Native typing mismatch: \(input.debugDescription)",code:1)}
+                let empty=try await web.evaluateJavaScript("document.querySelector('.xterm-helper-textarea').value==='' && !document.querySelector('.xterm-accessibility')")
+                guard empty as? Bool == true else {let debug=try await web.evaluateJavaScript("JSON.stringify({value:document.querySelector('.xterm-helper-textarea').value,mode:workspaceDeck.terminalMetrics('native-fixture').screenReaderMode,accessible:!!document.querySelector('.xterm-accessibility')})");throw NSError(domain:"Ordinary typing mirror: \(debug ?? "missing")",code:1)}
+                input=""
+                _ = try await web.callAsyncJavaScript("""
+                const area=document.querySelector('.xterm-helper-textarea');
+                area.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true}));area.value='日本';
+                area.dispatchEvent(new CompositionEvent('compositionupdate',{data:'日本',bubbles:true}));await new Promise(resolve=>setTimeout(resolve,30));
+                area.dispatchEvent(new CompositionEvent('compositionend',{data:'日本',bubbles:true}));await new Promise(resolve=>setTimeout(resolve,30));
+                return true;
+                """,arguments:[:],in:nil,contentWorld:.page)
+                guard input=="日本" else {throw NSError(domain:"Ordinary-mode IME mismatch",code:1)}
                 print("PASS: native WKWebView keyboard typing once, correction/orphan-composition replay guards, IME, composer paste, and no redundant native scrollbar.")
                 NSApp.terminate(nil)
             } catch {fputs("WebKit input check failed: \(error)\n",stderr);exit(1)}

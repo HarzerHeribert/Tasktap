@@ -8,7 +8,7 @@ const fs=require('node:fs');
  try{
   const page=await browser.newPage({viewport:{width:1280,height:900},reducedMotion:'reduce'}),errors=[];
   page.on('pageerror',e=>errors.push(String(e)));
-  await page.addInitScript(()=>{window.tasktapSurface='workspace';window.messages=[];window.webkit={messageHandlers:{workspace:{postMessage:m=>messages.push(m)}}}});
+  await page.addInitScript(()=>{window.tasktapSurface='workspace';window.tasktapScreenReaderEnabled=true;window.messages=[];window.webkit={messageHandlers:{workspace:{postMessage:m=>messages.push(m)}}}});
   await page.goto(pathToFileURL(path.resolve('prototype/index.html')).href);
   await page.evaluate(async()=>{
    state.firstRun={done:true};state.projects=[{id:'typing',folder:'/tmp/tasktap-input-fixture',name:'Typing fixture',aliases:[]}];state.sessions=[];state.decisions=[];
@@ -103,6 +103,30 @@ const fs=require('node:fs');
   await page.evaluate(()=>workspaceDeck.receive([{event:'output',id:'input-fixture',seq:1,data:btoa('\x1b[?2004h')}]))
   await openComposer();await editor.fill('First line\nsecond line');await page.getByRole('button',{name:'Insert text',exact:true}).click();
   assert.equal(await data(),'\x1b[200~First line\rsecond line\x1b[201~','protected multiline paste is bracketed without a submit key');
+  await reset();
+  await page.evaluate(()=>{workspaceDeck.accessibilityChanged(false);const area=document.querySelector('.xterm-helper-textarea');area.value='';area.focus();window.tasktapInputTraceUntil=Date.now()+10000});
+  const plain='Plain typing keeps repeated words words and Capitals ABC 123. '.repeat(4);
+  await page.keyboard.type(plain);assert.equal(await data(),plain,'ordinary mode sends each native key once');
+  await settle();
+  assert.equal(await area.inputValue(),'','ordinary typing retains no editable mirror for macOS to replace');
+  assert.equal(await page.locator('.xterm-accessibility').count(),0,'screen-reader DOM is only built when needed');
+  await page.waitForTimeout(450);
+  const trace=await page.evaluate(()=>messages.filter(m=>m.type==='terminal-input-trace').flatMap(m=>m.events));
+  assert.ok(trace.some(e=>e.event==='outbound'));
+  assert.ok(trace.every(row=>Object.keys(row).every(key=>['stream','event','time','valueLength','sessionComposing','trusted','composing','repeat','selectionLength','inputType','keyClass','length'].includes(key))),'trace contains metadata only');
+  assert.ok(!JSON.stringify(trace).includes('Plain typing'));
+  await reset();
+  await area.evaluate(async el=>{
+   el.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true}));el.value='日本';
+   el.dispatchEvent(new CompositionEvent('compositionupdate',{data:'日本',bubbles:true}));await new Promise(resolve=>setTimeout(resolve,0));
+   el.dispatchEvent(new CompositionEvent('compositionend',{data:'日本',bubbles:true}));
+  });
+  await settle();assert.equal(Buffer.from(await data(),'binary').toString('utf8'),'日本','ordinary-mode IME commits once before mirror cleanup');
+  assert.equal(await area.inputValue(),'','completed ordinary-mode IME text is cleared after delivery');
+  await reset();await page.evaluate(()=>workspaceDeck.accessibilityChanged(true));
+  await page.keyboard.type('VoiceOver');assert.equal(await data(),'VoiceOver');
+  assert.equal((await page.evaluate(()=>workspaceDeck.terminalMetrics('input-fixture'))).screenReaderMode,true,'VoiceOver enables xterm accessibility mode');
+  assert.equal(await page.locator('.xterm-accessibility').count(),1,'VoiceOver can be enabled without replacing the terminal');
   await reset();await openComposer();await editor.fill('Retain this draft');
   await page.evaluate(()=>workspaceDeck.receive([{event:'disconnected',error:'Fixture disconnected'}]));
   await page.getByRole('button',{name:'Insert text',exact:true}).click();assert.equal(await data(),'');

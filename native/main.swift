@@ -150,6 +150,8 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private var capturePress: String?
     private var unavailable: [String] = []
     private var screenObserver: NSObjectProtocol?
+    private var voiceOverObserver:NSKeyValueObservation?
+    private let inputDiagnostics=TerminalInputDiagnostics()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if !verifying && !liveTest,
@@ -182,6 +184,8 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             config.userContentController.addUserScript(WKUserScript(source:(workspaceVerification || independentVerification) ? "window.fixtureMode=false" : "window.fixtureMode=true",injectionTime:.atDocumentStart,forMainFrameOnly:true))
         }
         if independentWindows {config.userContentController.addUserScript(WKUserScript(source:"window.tasktapSurface='workspace'",injectionTime:.atDocumentStart,forMainFrameOnly:true))}
+        config.userContentController.addUserScript(WKUserScript(source:"window.tasktapScreenReaderEnabled=\(NSWorkspace.shared.isVoiceOverEnabled)",injectionTime:.atDocumentStart,forMainFrameOnly:true))
+        if !verifying && !liveTest {config.userContentController.addUserScript(WKUserScript(source:"window.tasktapInputTraceUntil=\(inputDiagnostics.until)",injectionTime:.atDocumentStart,forMainFrameOnly:true))}
         config.userContentController.add(self, name: "workspace")
         config.userContentController.addScriptMessageHandler(self,contentWorld:.page,name:"terminalClipboard")
         config.setURLSchemeHandler(workspaceMedia, forURLScheme:"tasktap-preview")
@@ -189,6 +193,10 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         web.navigationDelegate = self
         web.uiDelegate = self
         web.setValue(false, forKey: "drawsBackground")
+        voiceOverObserver=NSWorkspace.shared.observe(\.isVoiceOverEnabled,options:[.new]) { [weak self] workspace,_ in
+            let enabled=workspace.isVoiceOverEnabled
+            DispatchQueue.main.async {self?.js("workspaceDeck.accessibilityChanged(enabled)",["enabled":enabled])}
+        }
         panel = NotchPanel(contentRect: NSRect(x: 0,y: 0,width: 440,height: 290),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isFloatingPanel = true
@@ -710,6 +718,8 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             do {try runtime.folders.setExternalDiscovery(enabled);publishWorkspaceConfiguration();runtime.refreshExternal()}
             catch {publishWorkspaceConfiguration();deliver("live-error",error.localizedDescription,reveal:false)}
         case "workspace-appearance":refreshTerminalAppearance()
+        case "terminal-input-trace":
+            if !verifying,!liveTest,message.webView === web,let events=data["events"] as? [[String:Any]] {inputDiagnostics.receive(events)}
         case "workspace-chrome":if message.webView === web {workspaceBackdrop.configure(data)}
         case "workspace-terminal":
             guard !verifying || workspaceVerification || independentVerification,!liveTest,message.webView === web else {return}

@@ -7,6 +7,7 @@
  */
 const terminalInput=(()=>{
   const drafts=new WeakMap();
+  let nextStream=0;
   function difference(before,after){
     const a=Array.from(before),b=Array.from(after);let start=0,end=0;
     while(start<a.length&&start<b.length&&a[start]===b[start])start++;
@@ -15,7 +16,14 @@ const terminalInput=(()=>{
   }
   function install(term,parent,blocked){
     const area=term.textarea,listeners=[];
+    const stream=++nextStream,trace=[];let traceTimer=0,mirrorTimer=0;
     let composing=false,generation=0,pending=null,timer=0,disposed=false;
+    function record(event,values={}){
+      if(!(Date.now()<window.tasktapInputTraceUntil))return;
+      trace.push({stream,event,time:Math.round(performance.now()),valueLength:area.value.length,sessionComposing:composing,...values});
+      if(trace.length>128)trace.shift();
+      if(!traceTimer)traceTimer=setTimeout(()=>{traceTimer=0;if(!disposed&&trace.length)postLive('terminal-input-trace',{events:trace.splice(0)})},400);
+    }
     const snapshot=()=>({value:area.value,start:area.selectionStart,end:area.selectionEnd});
     function cancel(){clearTimeout(timer);timer=0;pending=null}
     function finish(){
@@ -26,11 +34,28 @@ const terminalInput=(()=>{
         // Previously delivered input cannot safely be rewritten: this could be
         // a shell command, a password, a TUI, or a cursor in the middle of text.
         area.value=before.value;area.setSelectionRange(before.start,before.end);
+        record('blocked');
         blocked();
       }else if(change.added)term.input(change.added,true);
     }
     function listen(type,handler,capture=true){parent.addEventListener(type,handler,capture);listeners.push(()=>parent.removeEventListener(type,handler,capture))}
     const owns=event=>event.target===area;
+    for(const type of ['keydown','keypress','keyup','beforeinput','input','compositionstart','compositionupdate','compositionend'])listen(type,event=>{
+      if(!owns(event))return;
+      const values={trusted:event.isTrusted,composing:!!event.isComposing,repeat:!!event.repeat,selectionLength:Math.max(0,area.selectionEnd-area.selectionStart)};
+      if(type.startsWith('key'))values.keyClass=event.keyCode===229?'process':event.key?.length===1?'text':'control';
+      if(event.inputType)values.inputType=['insertText','insertReplacementText','insertCompositionText','insertFromComposition','insertFromPaste','deleteContentBackward','deleteContentForward'].includes(event.inputType)?event.inputType:'other';
+      record(type,values);
+    });
+    const traceData=term.onData(data=>{
+      record('outbound',{length:data.length});
+      // WebKit still inserts uppercase keypress text into the hidden textarea
+      // after xterm sends it. Retain only an active IME composition or VoiceOver
+      // mirror; clear already-delivered ordinary text after the event settles.
+      clearTimeout(mirrorTimer);mirrorTimer=setTimeout(()=>{
+        if(!disposed&&!composing&&!pending&&!term.options.screenReaderMode){area.value='';area.setSelectionRange(0,0)}
+      },0);
+    });
     listen('compositionstart',event=>{if(owns(event)){generation++;composing=true;cancel()}});
     // Bubble after xterm has scheduled its composition commit. Do not intercept
     // the commit's settle tick, including a rapid following keydown.
@@ -54,7 +79,7 @@ const terminalInput=(()=>{
       event.stopImmediatePropagation();finish();
     });
     listen('blur',event=>{if(owns(event)){generation++;composing=false;cancel()}});
-    return {dispose(){disposed=true;generation++;cancel();listeners.forEach(remove=>remove())}};
+    return {dispose(){disposed=true;generation++;cancel();clearTimeout(traceTimer);clearTimeout(mirrorTimer);traceData.dispose();listeners.forEach(remove=>remove())}};
   }
   function compose(term,title,available=()=>true){
     dialog('Compose text','Insert into '+title,

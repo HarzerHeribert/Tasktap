@@ -21,6 +21,26 @@ const workspaceDeck=(()=>{
   const smallButton=(label,action,id,sym)=>'<button type="button" class="deck-icon" data-action="'+action+'" data-id="'+attr(id||'')+'" title="'+attr(label)+'" aria-label="'+attr(label)+'">'+icon(sym)+'</button>';
   const menu=(label,contents,sym='more')=>'<details class="deck-menu"><summary title="'+attr(label)+'" aria-label="'+attr(label)+'">'+(sym==='more'?'<span aria-hidden="true">⋯</span>':icon(sym))+'</summary><div class="deck-menu-list">'+contents+'</div></details>';
   const terminals=new Map(), engines=new Map(), projects=new Map(), previews=new Map(), pendingStarts=new Map();
+  let screenReaderEnabled=window.tasktapScreenReaderEnabled===true,fitTimer=0;
+  const pendingFits=new Set();
+  function accessibilityChanged(enabled){
+    screenReaderEnabled=enabled===true;
+    for(const en of engines.values())en.term.options.screenReaderMode=screenReaderEnabled;
+  }
+  function queueFit(en){
+    if(!en)return;
+    pendingFits.add(en);clearTimeout(fitTimer);
+    // Reflow the scrollback once the pointer pauses, rather than repainting every
+    // terminal and sending SIGWINCH to each CLI on every frame of a drag.
+    fitTimer=setTimeout(flushFits,100);
+  }
+  function flushFits(){
+    clearTimeout(fitTimer);fitTimer=0;
+    const plans=[...pendingFits].filter(en=>engines.get(en.id)===en&&en.element.getClientRects().length).map(en=>[en,en.fit.proposeDimensions()]);
+    pendingFits.clear();
+    // Measure all panes before changing any terminal's DOM.
+    for(const [en,size] of plans)fit(en,size);
+  }
   let connected=false, activeProject=null, refreshTimer=null;
   const stage=document.createElement('section');stage.id='workspace-stage';stage.hidden=true;stage.setAttribute('aria-label','Project workspace');$('.work').append(stage);
   const stash=document.createElement('div');stash.hidden=true;stage.append(stash);
@@ -153,11 +173,13 @@ const workspaceDeck=(()=>{
     }
     await Promise.all(writes);
   }
-  function fit(en){
+  function fit(en,size){
     if(!en?.element.isConnected||!en.element.getClientRects().length)return;
     try{
-      en.fit.fit();const size=en.term.cols+'x'+en.term.rows;
-      if(en.attached&&size!==en.sentSize){send('resize',{id:en.id,cols:en.term.cols,rows:en.term.rows});en.sentSize=size}
+      const dims=size||en.fit.proposeDimensions();if(!dims)return;
+      if(en.term.cols!==dims.cols||en.term.rows!==dims.rows)en.term.resize(dims.cols,dims.rows);
+      const key=en.term.cols+'x'+en.term.rows;
+      if(en.attached&&key!==en.sentSize){send('resize',{id:en.id,cols:en.term.cols,rows:en.term.rows});en.sentSize=key}
     }catch{}
   }
   function input(en,data){
@@ -173,7 +195,7 @@ const workspaceDeck=(()=>{
     // content box; the outer border-box includes inherited Ghostty padding.
     const viewport=document.createElement('div');viewport.className='deck-terminal-viewport';element.append(viewport);
     const a=appearance();
-    const term=new Terminal({fontFamily:a.fontFamilies.map(f=>JSON.stringify(f)).join(',')+', monospace',fontSize:fontSize(id,a),scrollback:10000,convertEol:false,allowTransparency:true,allowProposedApi:false,screenReaderMode:true,cursorStyle:a.cursorStyle,cursorBlink:a.cursorBlink,theme:{...a.theme,background:a.theme.background+'00'}});
+    const term=new Terminal({fontFamily:a.fontFamilies.map(f=>JSON.stringify(f)).join(',')+', monospace',fontSize:fontSize(id,a),scrollback:10000,convertEol:false,allowTransparency:true,allowProposedApi:false,screenReaderMode:screenReaderEnabled,cursorStyle:a.cursorStyle,cursorBlink:a.cursorBlink,theme:{...a.theme,background:a.theme.background+'00'}});
     const fitAddon=new FitAddon.FitAddon(),search=new SearchAddon.SearchAddon();term.loadAddon(fitAddon);term.loadAddon(search);
     const en={id,element,viewport,term,fit:fitAddon,search,seq:0,attached:false,pendingInput:[],pendingBytes:0};engines.set(id,en);
     stash.append(element);term.open(viewport);
@@ -191,7 +213,7 @@ const workspaceDeck=(()=>{
       if(e.metaKey&&!e.ctrlKey&&!e.altKey&&['c','v'].includes(e.key.toLowerCase()))return false;
       return true;
     });
-    const resize=new ResizeObserver(()=>{cancelAnimationFrame(en.fitFrame);en.fitFrame=requestAnimationFrame(()=>fit(en))});resize.observe(viewport);en.resize=resize;
+    const resize=new ResizeObserver(()=>queueFit(en));resize.observe(viewport);en.resize=resize;
     if(live)send('attach',{id});else term.write('Tasktap terminal\r\n\r\nRun the Mac app to open a real shell or coding agent.\r\nThis browser preview does not execute commands.\r\n');
     return en;
   }
@@ -420,10 +442,11 @@ const workspaceDeck=(()=>{
       if(!divider){
         divider=document.createElement('div');divider.className='deck-divider';divider.dataset.branch=node.id;divider.tabIndex=0;divider.setAttribute('role','separator');
         divider.setAttribute('aria-valuemin','10');divider.setAttribute('aria-valuemax','90');
-        const balance=value=>{const current=branch(l.tree,divider.dataset.branch);if(!current)return;current.ratio=Math.round(Math.max(10,Math.min(90,value)));arrange(root,l);persist()};
-        const drag=e=>{if(!divider.hasPointerCapture(e.pointerId))return;const r=area.getBoundingClientRect(),b=divider.splitBounds;balance(((b.axis==='x'?e.clientX-r.left-b.x:e.clientY-r.top-b.y)-b.gap/2)/Math.max(1,b.available)*100)};
+        const balance=(value,save=true)=>{const current=branch(l.tree,divider.dataset.branch);if(!current)return;const ratio=Math.round(Math.max(10,Math.min(90,value)));if(current.ratio===ratio)return;current.ratio=ratio;arrange(root,l);if(save)persist();else divider.resizeDirty=true};
+        const drag=e=>{if(!divider.hasPointerCapture(e.pointerId))return;const r=area.getBoundingClientRect(),b=divider.splitBounds;balance(((b.axis==='x'?e.clientX-r.left-b.x:e.clientY-r.top-b.y)-b.gap/2)/Math.max(1,b.available)*100,false)};
         divider.onpointerdown=e=>{e.preventDefault();divider.focus();divider.setPointerCapture(e.pointerId);drag(e)};divider.onpointermove=drag;
         divider.onpointerup=e=>{if(divider.hasPointerCapture(e.pointerId))divider.releasePointerCapture(e.pointerId)};
+        divider.onlostpointercapture=()=>{if(divider.resizeDirty){divider.resizeDirty=false;persist()}flushFits()};
         divider.ondblclick=()=>balance(50);
         divider.onkeydown=e=>{const axis=divider.splitBounds.axis,back=axis==='x'?'ArrowLeft':'ArrowUp',forward=axis==='x'?'ArrowRight':'ArrowDown';if(![back,forward,'Home','End'].includes(e.key))return;e.preventDefault();const current=branch(l.tree,divider.dataset.branch);balance(e.key==='Home'?10:e.key==='End'?90:current.ratio+(e.key===back?-2:2))};
         area.append(divider);
@@ -523,7 +546,7 @@ const workspaceDeck=(()=>{
     arrange(root,l);renderNav(listedProjects(activeSessions()));
   }
   function disposeView(key){
-    const id=termID(key);if(id){const en=engines.get(id);if(en){cancelAnimationFrame(en.fitFrame);clearTimeout(en.scrollTimer);en.resize.disconnect();en.inputGuard.dispose();en.term.dispose();en.element.remove();engines.delete(id);send('detach',{id})}}
+    const id=termID(key);if(id){const en=engines.get(id);if(en){pendingFits.delete(en);cancelAnimationFrame(en.fitFrame);clearTimeout(en.scrollTimer);en.resize.disconnect();en.inputGuard.dispose();en.term.dispose();en.element.remove();engines.delete(id);send('detach',{id})}}
     else{previews.get(key)?.remove();previews.delete(key)}
   }
   function requestClose(key,project=activeProject){
@@ -663,7 +686,7 @@ const workspaceDeck=(()=>{
     const outer=en.element.getBoundingClientRect(),style=getComputedStyle(en.element),rect=screen.getBoundingClientRect(),pane=en.element.closest('.deck-surface')?.getBoundingClientRect();
     const top=outer.top+parseFloat(style.paddingTop),left=outer.left+parseFloat(style.paddingLeft),bottom=outer.bottom-parseFloat(style.paddingBottom),right=outer.right-parseFloat(style.paddingRight);
     const buffer=en.term.buffer.active;
-    return {fontSize:en.term.options.fontSize,rows:en.term.rows,cols:en.term.cols,viewport:{width:innerWidth,height:innerHeight},pane:pane?{top:pane.top,left:pane.left,bottom:pane.bottom,right:pane.right}:null,content:{top,left,bottom,right},screen:{top:rect.top,left:rect.left,bottom:rect.bottom,right:rect.right},firstLine:buffer.getLine(buffer.viewportY)?.translateToString(true)||'',lastLine:buffer.getLine(buffer.viewportY+en.term.rows-1)?.translateToString(true)||''};
+    return {screenReaderMode:en.term.options.screenReaderMode,fontSize:en.term.options.fontSize,rows:en.term.rows,cols:en.term.cols,viewport:{width:innerWidth,height:innerHeight},pane:pane?{top:pane.top,left:pane.left,bottom:pane.bottom,right:pane.right}:null,content:{top,left,bottom,right},screen:{top:rect.top,left:rect.left,bottom:rect.bottom,right:rect.right},firstLine:buffer.getLine(buffer.viewportY)?.translateToString(true)||'',lastLine:buffer.getLine(buffer.viewportY+en.term.rows-1)?.translateToString(true)||''};
   }
   function pdfLoaded(id,result){const root=previews.get('media:'+id);if(!root)return;if(result.error){root.replaceChildren(message(result.error));return}root.dataset.page=result.page;root.dataset.pages=result.pages;root.querySelector('.deck-pdf-label').textContent='Page '+(result.page+1)+' of '+result.pages;root.querySelector('[data-action="deck-pdf-prev"]').disabled=result.page===0;root.querySelector('[data-action="deck-pdf-next"]').disabled=result.page+1===result.pages;let img=root.querySelector('img');if(!img){img=document.createElement('img');img.className='deck-pdf-page';root.append(img)}img.src=result.image;img.alt=result.text||'PDF page '+(result.page+1)}
   function paintDocument(node,file){
@@ -685,7 +708,7 @@ const workspaceDeck=(()=>{
   function sidebarData(){return {layouts:saved.layouts,terminals:[...terminals.values()],background:saved.background,cue:sessionCue,label,icon:surfaceIcon}}
   if(typeof appAppearance!=='undefined')appAppearance.receiveGhostty(inherited);
   applyAppearance();
-  return {openWorkspace,closeWorkspace,prepareLaunch,sidebarData,appearanceLoaded,pdfLoaded,openTerminal,terminalText,terminalMetrics,shellHistory,textLoaded,receive,renderProject,leave,addFiles,openWeb,open,openResult,outcome,closeFront,preferences,activity,clipboardCommand};
+  return {openWorkspace,closeWorkspace,prepareLaunch,sidebarData,accessibilityChanged,appearanceLoaded,pdfLoaded,openTerminal,terminalText,terminalMetrics,shellHistory,textLoaded,receive,renderProject,leave,addFiles,openWeb,open,openResult,outcome,closeFront,preferences,activity,clipboardCommand};
 })();
 
 if(location.hash!=='#geometry')render();

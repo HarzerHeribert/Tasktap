@@ -23,7 +23,9 @@ python3 scripts/verify-release.py build/releases/1.0.2
 The build number must increase for every published update. Publish the generated
 ZIP, SHA256SUMS and appcast.xml as assets of GitHub release `v1.0.2`, then copy its appcast.xml
 to `site/appcast.xml` and deploy Pages through the existing workflow. Publish
-assets first; do not advertise a missing download. Keep old release assets.
+assets first; do not advertise a missing download. Update the homepage release
+badge and guide examples to match the new version before deploying Pages. Keep
+old release assets.
 No release is published by the packaging command. GitHub credentials and the
 update private key are not required for ordinary builds or verification CI.
 

@@ -37,12 +37,12 @@ Use **⌘+** (or **⌘=**) and **⌘−** to increase or decrease text size in t
 
 **⌘V** pastes clipboard text into the focused terminal prompt; **⌘C** copies selected terminal output. Each terminal’s top bar has **Copy**, **Paste**, and text-size buttons. The Mac’s **Edit** menu offers Copy/Paste, and **View** offers Increase, Decrease, and Reset Text Size. Paste respects the CLI’s bracketed-paste mode and adds no Enter key. **Control-C** still interrupts the CLI.
 
-The sidebar shows one row per workspace. An attention mark pulses when an agent needs input; a checkmark indicates an unread reported result. Reduce Motion disables the pulse. Opening the workspace acknowledges result markers; pending decisions stay visible until resolved. **Home**, **Notebook**, **Session history**, and **Activity** remain available through the same navigation.
+The sidebar shows one heading per workspace, with deliberately backgrounded sessions beneath it. Click a background session to restore its terminal without starting a new process. Its label shows Working/Running, Needs input, Ready, Failed, or an ended state; a Stop control ends it. An attention mark pulses when an agent needs input; a checkmark indicates an unread reported result. Reduce Motion disables the pulse. Opening the workspace acknowledges visible result markers; background results stay unread until opened; pending decisions stay visible until resolved. **Home**, **Notebook**, **Session history**, and **Activity** remain available through the same navigation.
 
 | Action | What happens |
 | --- | --- |
-| Close a tab | Its view closes. Closing or moving the final tab also removes its surface. There is no close-all control on a surface; terminal processes remain available in Session history. |
-| Close a workspace | Its tabs and layout are saved. Restore it with **+ → Closed workspaces**. |
+| Close a tab | A live terminal offers **Keep running in background**, **Stop session**, or Cancel. Background work stays under its workspace in the sidebar. Ended terminals and previews close directly. Closing or moving the final tab removes its surface. |
+| Close a workspace | Confirm to stop all its Tasktap sessions, including background work. The layout and history remain saved. Restore with **+ → Closed workspaces**; commands are never restarted automatically. |
 | Quit Tasktap | Running embedded sessions continue while the private local terminal service remains alive. |
 | **Session details → Stop session…** | Explicitly ends that process after confirmation. |
 | Reboot the Mac or lose the terminal service | Processes end. Tasktap never automatically reruns their commands. Supported conversations can be resumed explicitly. |

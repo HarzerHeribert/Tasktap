@@ -32,9 +32,19 @@ const workspaceNavigation=(()=>{
     if(unread.some(a=>a.kind==='complete'))return {kind:'complete',label:'Result ready',symbol:'check'};
     return null;
   }
+  function backgroundRows(p,data){
+    const rows=Object.entries(data.background).filter(([,project])=>project===p.id);
+    if(!rows.length)return '';
+    const expanded=saved.navigationExpanded?.[p.id]!==false;
+    return '<div class="nav-background" id="background-'+attr(p.id)+'"'+(!expanded?' hidden':'')+'>'+rows.map(([id])=>{
+      const cue=data.cue(id),title=data.label('terminal:'+id);
+      return '<div class="nav-background-row"><button type="button" class="nav-background-session" data-status="'+cue.kind+'" data-action="workspace-background" data-id="'+attr(id)+'" title="'+attr(title+' / '+cue.label)+'"><span class="nav-background-symbol" aria-hidden="true">'+cue.symbol+'</span><span class="nav-background-copy"><strong>'+esc(title)+'</strong><small>'+esc(cue.label)+'</small></span></button><button type="button" class="nav-background-stop" data-action="deck-stop" data-id="'+attr(id)+'" aria-label="'+attr('Stop '+title)+'" title="Stop session">'+icon('stop')+'</button></div>';
+    }).join('')+'</div>';
+  }
   function project(p,data){
+    const children=backgroundRows(p,data),expanded=saved.navigationExpanded?.[p.id]!==false;
     const status=attention(p,data),description=status?p.folder+' / '+status.label:p.folder;
-    return '<section class="nav-workspace'+(view===p.id?' is-current':'')+'" data-workspace="'+attr(p.id)+'"'+(status?' data-status="'+status.kind+'"':'')+'><div class="nav-workspace-heading"><button type="button" class="nav-workspace-name" data-action="workspace-project" data-id="'+attr(p.id)+'" title="'+attr(description)+'" aria-label="'+attr(p.name+(status?', '+status.label:''))+'"'+(view===p.id?' aria-current="page"':'')+'>'+icon('folder')+'<span>'+esc(p.name)+'</span></button>'+(status?'<span class="nav-workspace-status" role="img" aria-label="'+status.label+'" title="'+status.label+'">'+icon(status.symbol)+'</span>':'')+'<button type="button" class="nav-workspace-close" data-action="workspace-close" data-id="'+attr(p.id)+'" aria-label="'+attr('Close '+p.name+' workspace')+'" title="Close workspace. Tabs and sessions are kept.">'+icon('x')+'</button></div></section>';
+    return '<section class="nav-workspace'+(view===p.id?' is-current':'')+'" data-workspace="'+attr(p.id)+'"'+(status?' data-status="'+status.kind+'"':'')+'><div class="nav-workspace-heading">'+(children?'<button type="button" class="nav-workspace-disclosure" data-action="workspace-background-toggle" data-id="'+attr(p.id)+'" aria-label="'+attr((expanded?'Collapse':'Expand')+' background sessions for '+p.name)+'" aria-expanded="'+expanded+'" aria-controls="background-'+attr(p.id)+'">'+icon('right')+'</button>':'')+'<button type="button" class="nav-workspace-name" data-action="workspace-project" data-id="'+attr(p.id)+'" title="'+attr(description)+'" aria-label="'+attr(p.name+(status?', '+status.label:''))+'"'+(view===p.id?' aria-current="page"':'')+'>'+icon('folder')+'<span>'+esc(p.name)+'</span></button>'+(status?'<span class="nav-workspace-status" role="img" aria-label="'+status.label+'" title="'+status.label+'">'+icon(status.symbol)+'</span>':'')+'<button type="button" class="nav-workspace-close" data-action="workspace-close" data-id="'+attr(p.id)+'" aria-label="'+attr('Close '+p.name+' workspace')+'" title="Close workspace and stop its sessions.">'+icon('x')+'</button></div>'+children+'</section>';
   }
   function navigation(){
     const data=workspaceDeck.sidebarData(),unread=saved.activity.filter(a=>!a.read).length;
@@ -70,7 +80,7 @@ const workspaceNavigation=(()=>{
     $('#workspace-picker-results').innerHTML=section('Closed workspaces',closed)+section('Project folders',other)||'<p class="nav-external-empty">'+(query?'No workspaces match your search.':'Choose an existing folder or create a new one to get started.')+'</p>';
   }
   function openChooser(){
-    dialog('Open workspace','Workspaces','<section class="workspace-picker"><div class="workspace-picker-actions">'+button('Open folder…','workspace-open-folder','','btn','folder')+button('New workspace…','workspace-new-folder','','btn','plus')+'</div><label class="sr-only" for="workspace-picker-search">Find a workspace or folder</label><input type="search" id="workspace-picker-search" placeholder="Find a workspace or folder…" autocomplete="off"><div id="workspace-picker-results"></div><p class="hint">Closing a workspace keeps its tabs and running sessions. Reopen it here to pick up where you left off.</p></section>');
+    dialog('Open workspace','Workspaces','<section class="workspace-picker"><div class="workspace-picker-actions">'+button('Open folder…','workspace-open-folder','','btn','folder')+button('New workspace…','workspace-new-folder','','btn','plus')+'</div><label class="sr-only" for="workspace-picker-search">Find a workspace or folder</label><input type="search" id="workspace-picker-search" placeholder="Find a workspace or folder…" autocomplete="off"><div id="workspace-picker-results"></div><p class="hint">Closing a workspace stops its sessions. Reopening restores its saved layout and history without restarting processes.</p></section>');
     workspaceChoices();$('#workspace-picker-search').focus();
   }
   function pickerRows(query=''){
@@ -100,6 +110,8 @@ const workspaceNavigation=(()=>{
     const el=event.target.closest('[data-action]');if(!el)return;
     const id=el.dataset.id;
     switch(el.dataset.action){
+      case 'workspace-background-toggle':saved.navigationExpanded??={};saved.navigationExpanded[id]=saved.navigationExpanded[id]===false;persist();refresh();break;
+      case 'workspace-background':workspaceDeck.openTerminal(id);break;
       case 'workspace-project':workspaceDeck.openWorkspace(id,false);break;
       case 'workspace-close':workspaceDeck.closeWorkspace(id);break;
       case 'workspace-chooser':openChooser();break;

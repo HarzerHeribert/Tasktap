@@ -69,7 +69,42 @@ with tempfile.TemporaryDirectory(prefix='tasktap-pty-') as directory:
                     response=json.loads(stream.readline(terminal.LIMIT*2));data=base64.b64decode(response['data'])
                     assert response['id']==key and response['truncated'] and len(data)<=terminal.LIMIT
                     assert b'END_OF_HISTORY' in data
-        print('PASS: real PTY, ANSI bytes, input isolation, resize, reconnect, idempotent launch, explicit stop, retained and bounded scrollback, concurrent full-history replay, invalid requests.')
+        # An explicit stop can beat a pending launch without leaving an orphan.
+        cancelled=str(uuid.uuid4());ids.append(cancelled)
+        terminal.request(dict(op='stop',id=cancelled))
+        try:terminal.request(dict(cmd,id=cancelled));raise AssertionError('Cancelled launch was started')
+        except ValueError:pass
+        # Workspace close includes detached terminals and waits for actual exit.
+        # A foreground child that ignores TERM is killed even if its parent exits.
+        stubborn=str(uuid.uuid4());ids.append(stubborn)
+        terminal.request(dict(cmd,id=stubborn,argv=[sys.executable,'-c',"import os,signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); print('STUBBORN_READY',flush=True); time.sleep(30)"]))
+        until(lambda:b'STUBBORN_READY' in base64.b64decode(terminal.request(dict(op='attach',id=stubborn))['data']))
+        with terminal.connect() as watcher:
+            watcher.settimeout(6);stream=watcher.makefile('rb')
+            watcher.sendall(b'{"op":"watch"}\n');stream.readline()
+            queued=str(uuid.uuid4());ids.append(queued)
+            response=terminal.request(dict(op='stop-workspace',cwd=directory,ids=[queued]));assert response['event']=='workspace-stopping'
+            while True:
+                event=json.loads(stream.readline(terminal.LIMIT*2))
+                if event.get('event')=='workspace-closed':break
+            assert event['cwd']==directory
+        assert not any(row['running'] for row in terminal.request({'op':'list'})['sessions'])
+        late=str(uuid.uuid4());ids.append(late)
+        try:terminal.request(dict(cmd,id=late));raise AssertionError('Late launch escaped workspace close')
+        except ValueError:pass
+        # Fences and cancelled launches survive service restart; opening a
+        # workspace permits new work but never restarts its old sessions.
+        daemon.terminate();daemon.wait(timeout=5)
+        daemon=subprocess.Popen([sys.executable,str(Path(terminal.__file__)),'serve'],env=os.environ.copy())
+        until(lambda:terminal.request({'op':'list'}))
+        try:terminal.request(dict(cmd,id=late));raise AssertionError('Restart lost workspace close')
+        except ValueError:pass
+        terminal.request(dict(op='open-workspace',cwd=directory))
+        try:terminal.request(dict(cmd,id=queued));raise AssertionError('An old queued launch escaped after reopening')
+        except ValueError:pass
+        assert terminal.request(dict(cmd,id=late))['session']['running']
+        assert not terminal.request(dict(cmd,id=second))['session']['running'],'reopen must not rerun old sessions'
+        print('PASS: real PTYs, replay, explicit stop, bounded history, pending-launch cancellation, workspace stop including detached/stubborn processes, late-launch fences, persisted closure, and explicit reopen without rerunning old sessions.')
     finally:
         for key in ids:
             try:terminal.request(dict(op='stop',id=key))

@@ -63,6 +63,7 @@ require('node:fs').mkdirSync(shots,{recursive:true});
  await page.locator('[data-action="deck-focus"]').click();assert.equal(await page.locator('#sidebar').isVisible(),false);
  await page.locator('[data-action="deck-focus"]').click();
  await page.locator('[data-action="deck-close"][data-id="terminal:'+one+'"]').click();
+ await page.getByRole('button',{name:'Keep running in background',exact:true}).click();
  assert.equal(await page.evaluate(one=>messages.some(m=>m.op==='stop'&&m.id===one),one),false);
  assert.equal(await page.locator('.deck-tab[data-id="terminal:'+one+'"]').count(),0,'closed tabs leave their surface');
  assert.equal(await page.locator('.deck-group').count(),1,'closing the last tab collapses the original surface');
@@ -129,6 +130,6 @@ require('node:fs').mkdirSync(shots,{recursive:true});
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'narrow overflow');
  await page.screenshot({path:path.join(shots,'workspace-real-narrow.png')});
  assert.deepEqual(errors,[]);
- console.log('PASS: real xterm renderer, replay/output order, input identity, stable refresh, decisions, splits/focus, close without stop, safe text, sandboxed web preview, reports, durable notification dedupe and narrow layout.');
+ console.log('PASS: real xterm renderer, replay/output order, input identity, stable refresh, decisions, splits/focus, explicit background without stop, safe text, sandboxed web preview, reports, durable notification dedupe and narrow layout.');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exit(1)});

@@ -424,7 +424,7 @@ function command(action,id=''){
     case 'notify-clear-error':delete state.notificationFailure;persist();paintNotificationSettings();break;
     case 'notify-preview':dismissCard();if(pending())previewNotice(pending().id,'request');else{const s=state.sessions.find(s=>s.state==='Complete');if(s)previewNotice(s.id,'complete')}break;
     case 'dismiss-notice':$('#notification-preview').hidden=true;break;
-    case 'notice-request':$('#notification-preview').hidden=true;openRequest(id);break;
+    case 'notice-request':{const q=byId(state.decisions,id);if(q&&state.workspaceDeck?.background?.[q.session]){showWorkspace();workspaceDeck.openTerminal(q.session)}$('#notification-preview').hidden=true;openRequest(id);break}
     case 'notice-session':$('#notification-preview').hidden=true;showWorkspace();if(sess(id)?.host==='tasktap')workspaceDeck.open('terminal:'+id,sess(id).project);else if(sess(id))showSession(id);else workspaceDeck.openTerminal(id);break;
     case 'notice-result':{$('#notification-preview').hidden=true;const capture=byId(state.captures,id),session=sess(capture?.session||id);if(session){showWorkspace();if(session.host==='tasktap')workspaceDeck.openResult(id);else showSession(session.id)}break}
     default:if(action.startsWith('hw-'))hardware(action.slice(3));

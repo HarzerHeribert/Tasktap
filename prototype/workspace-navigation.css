@@ -1,3 +1,4 @@
+:root{--s-workspace-brand-inset:72px;--s-workspace-titlebar-inset:84px}
 /* One sidebar, one density and one collapse preference on every app page. */
 .workspace-navigation .shell{grid-template-columns:196px minmax(0,1fr)}
 .workspace-navigation #sidebar{display:flex;min-height:0;overflow:hidden;padding:var(--s-panel) var(--s-icon);gap:var(--s-block);border-right:1px solid var(--deck-edge);background:var(--deck-hover);color:var(--deck-muted)}
@@ -6,8 +7,8 @@
 .workspace-navigation #sidebar .brand-mark{display:none}
 /* Share the native titlebar row, leaving the traffic lights unobstructed. */
 .native-host.workspace-navigation:not(.notch-first) #sidebar{padding-top:0}
-.native-host.workspace-navigation:not(.notch-first) #sidebar>.brand{height:var(--deck-bar);min-height:var(--deck-bar);padding-left:72px;white-space:nowrap}
-.native-host.workspace-navigation:not(.notch-first):is(.deck-sidebar-hidden,.deck-focus) :is(.deck-tools,.toolbar){padding-left:84px}
+.native-host.workspace-navigation:not(.notch-first) #sidebar>.brand{height:var(--deck-bar);min-height:var(--deck-bar);padding-left:var(--s-workspace-brand-inset);white-space:nowrap}
+.native-host.workspace-navigation:not(.notch-first):is(.deck-sidebar-hidden,.deck-focus) :is(.deck-tools,.toolbar){padding-left:var(--s-workspace-titlebar-inset)}
 .native-host.workspace-navigation:not(.notch-first) :is(.deck-tools,.toolbar,#sidebar>.brand){user-select:none;-webkit-user-select:none}
 .workspace-navigation #sidebar>nav{min-height:0;overflow-y:auto;overflow-x:hidden;flex:1;gap:var(--s-block);scrollbar-width:thin;scrollbar-color:var(--deck-edge) transparent}
 .workspace-navigation #sidebar .nav-group{gap:var(--s-tiny);min-width:0}
@@ -68,7 +69,7 @@
 .workspace-navigation.deck-focus .shell,.workspace-navigation.deck-sidebar-hidden .shell{grid-template-columns:minmax(0,1fr)}
 .workspace-navigation.deck-focus #sidebar,.workspace-navigation.deck-sidebar-hidden #sidebar{display:none}
 @media(max-width:740px){
- .native-host.workspace-navigation:not(.notch-first) :is(.deck-tools,.toolbar){padding-left:84px}
+ .native-host.workspace-navigation:not(.notch-first) :is(.deck-tools,.toolbar){padding-left:var(--s-workspace-titlebar-inset)}
  .workspace-navigation .shell{grid-template-columns:minmax(0,1fr);position:relative}
  .workspace-navigation #sidebar{display:none}
  .workspace-navigation.nav-open #sidebar{display:flex;position:absolute;left:0;top:0;bottom:0;width:216px;max-width:85vw;z-index:15;background:var(--deck-popup);border-radius:0;box-shadow:8px 0 24px color-mix(in srgb,var(--deck-bg) 35%,transparent)}
@@ -83,3 +84,33 @@
 .update-badge svg{transform:rotate(-90deg)}
 .update-preference{margin-top:var(--s-section)}
 .update-help{margin-top:var(--s-small)}
+
+/* Deliberately backgrounded sessions stay under their owning workspace. */
+.nav-workspace-disclosure{display:grid;place-items:center;flex:none;width:18px;height:26px;color:var(--deck-muted)}
+#sidebar .nav-workspace-disclosure .icon{width:12px;height:12px}
+.nav-workspace-disclosure[aria-expanded=true] .icon{transform:rotate(90deg)}
+.nav-background{margin:var(--s-tiny) 0 var(--s-small) var(--s-panel);padding-left:var(--s-small);border-left:1px solid var(--deck-edge)}
+.nav-background[hidden]{display:none}
+.nav-background-session{display:flex;align-items:center;gap:var(--s-small);width:100%;min-width:0;padding:var(--s-small);border-radius:var(--r-xs);text-align:left;color:var(--deck-muted)}
+.nav-background-session:hover,.nav-background-session:focus-visible{background:var(--deck-hover);color:var(--deck-fg)}
+.nav-background-symbol{flex:none;width:14px;text-align:center}
+.nav-background-copy{display:grid;gap:var(--s-tiny);min-width:0}
+.nav-background-copy strong{font-size:var(--t-small);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nav-background-copy small{font-size:var(--deck-meta);line-height:1.35}
+.nav-background-session[data-status=input],.deck-tab[data-status=input] .deck-tab-status{color:var(--app-warning)}
+.nav-background-session[data-status=failure],.deck-tab[data-status=failure] .deck-tab-status{color:var(--app-negative)}
+.nav-background-session[data-status=complete],.deck-tab[data-status=complete] .deck-tab-status{color:var(--app-positive)}
+.nav-background-session[data-status=working] .nav-background-symbol{animation:workspace-attention 2.4s ease-in-out infinite}
+.deck-tab-status{font-size:var(--t-small);flex:none;color:var(--deck-muted)}
+@media(prefers-reduced-motion:reduce){.nav-background-session[data-status=working] .nav-background-symbol{animation:none}}
+
+.nav-background-row{display:flex;align-items:center;min-width:0}
+.nav-background-session{flex:1}
+.nav-background-stop{flex:none;display:grid;place-items:center;width:24px;height:28px;color:var(--deck-muted);opacity:0}
+.nav-background-row:hover .nav-background-stop,.nav-background-row:focus-within .nav-background-stop{opacity:1}
+.nav-background-stop:hover{color:var(--deck-fg)}
+#sidebar .nav-background-stop .icon{width:12px;height:12px}
+@media(hover:none){.nav-background-stop{opacity:1}}
+
+.nav-workspace[data-status=complete] .nav-workspace-status{color:var(--app-positive)}
+.nav-workspace[data-status=failure] .nav-workspace-status{color:var(--app-negative)}

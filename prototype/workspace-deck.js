@@ -9,6 +9,8 @@ const workspaceDeck=(()=>{
   if(!saved.preferences.appearanceVersion){delete saved.preferences.font;saved.preferences.appearanceVersion=1}
   saved.sidebarHidden??=false;
   saved.terminalFontSizes??={};
+  saved.background??={};saved.closedWorkspaces??={};
+  const closingWorkspaces=new Set(),intentionalStops=new Set(),closingSessions=new Map(),openingWorkspaces=new Map();
   const neutral={source:'Tasktap',fontFamilies:['Menlo','Monaco'],fontSize:14,padding:[8,8,8,8],cursorStyle:'block',cursorBlink:false,opacity:.93,theme:{background:'#0d1117',foreground:'#d8dee9',cursor:'#d8dee9',selectionBackground:'#364253',black:'#21252b',red:'#e06c75',green:'#98c379',yellow:'#e5c07b',blue:'#61afef',magenta:'#c678dd',cyan:'#56b6c2',white:'#abb2bf',brightBlack:'#5c6370',brightRed:'#e06c75',brightGreen:'#98c379',brightYellow:'#e5c07b',brightBlue:'#61afef',brightMagenta:'#c678dd',brightCyan:'#56b6c2',brightWhite:'#ffffff'}};
   let inherited=saved.appearance||neutral;
   const appearance=()=>{
@@ -83,6 +85,15 @@ const workspaceDeck=(()=>{
   function label(key){const id=termID(key);if(id)return sess(id)?sessionDisplayName(sess(id)):terminals.get(id)?.title||'Terminal';if(mediaID(key))return saved.media[mediaID(key)]?.title||'File';return report(key?.slice(7)).session?.task||'Result'}
   function surfaceIcon(key){return termID(key)?'sessions':mediaID(key)?saved.media[mediaID(key)]?.kind==='web'?'out':'note':'checks'}
   function status(id){const t=terminals.get(id),s=sess(id);return pendingStarts.has(id)?'Opening terminal':t?.running===false?(t.exit===0?'Exited':t.restored?'Not running':'Stopped'):s?.state||'Shell running'}
+  function sessionCue(id){
+    const t=terminals.get(id),s=sess(id),events=saved.activity.filter(a=>a.id===id&&!a.read);
+    if(state.decisions.some(q=>q.session===id))return {kind:'input',label:'Needs input',symbol:'?'};
+    if(events.some(a=>a.kind==='failure'))return {kind:'failure',label:'Failed',symbol:'!'};
+    if(events.some(a=>a.kind==='complete')||s?.state==='Complete')return {kind:'complete',label:'Ready'+(t?.running?' · session still running':''),symbol:'✓'};
+    if(pendingStarts.has(id))return {kind:'working',label:'Opening',symbol:'◌'};
+    if(t?.running===false)return {kind:'ended',label:t.restored?'Not running':t.stopped?'Stopped':t.exit===0?'Exited':'Failed',symbol:'○'};
+    return {kind:'working',label:t?.kind==='agent'||s?'Working':'Running',symbol:'◌'};
+  }
   function notify(kind,id,title,body,token,capture){
     if(saved.seen[token])return;
     saved.seen[token]=Date.now();
@@ -91,25 +102,40 @@ const workspaceDeck=(()=>{
     persist();
     // An event remains in Activity even with OS alerts disabled. Never notify for
     // terminal text, title escape sequences, or restored historical state.
-    if(state.alerts && live && (sess(id)?.host==='tasktap'||!sess(id)) && !document.hasFocus())postLive('notify',{kind:kind==='failure'?'failure':'complete',id:kind==='complete'&&capture?capture:id,title,body});
+    if(state.alerts && live && (sess(id)?.host==='tasktap'||!sess(id)) && (!document.hasFocus()||saved.background[id]))postLive('notify',{kind:kind==='failure'?'failure':'complete',id:kind==='complete'&&capture?capture:id,title,body});
   }
   function schedule(){clearTimeout(refreshTimer);refreshTimer=setTimeout(()=>{persist();render()},70)}
   function ensureProject(row){let p=projectFor(row.cwd);if(!p){p={id:row.cwd,folder:row.cwd,name:row.cwd.split('/').pop(),available:true,aliases:[]};state.projects.push(p)}return p}
+  function finishCloseSession(id){const project=closingSessions.get(id);if(!project)return;closingSessions.delete(id);delete saved.background[id];close('terminal:'+id,project)}
   async function receive(events){
     const writes=[];
     for(const e of events){
       if(e.event==='sessions'){
-        connected=true;for(const row of e.sessions||[]){terminals.set(row.id,row);ensureProject(row);completeLaunch(row)}
+        connected=true;for(const row of e.sessions||[]){
+          terminals.set(row.id,row);const p=ensureProject(row);completeLaunch(row);if(!row.running)finishCloseSession(row.id);
+          if(row.running&&saved.closedWorkspaces[p.id])send('stop',{id:row.id});
+          // Adopt detached sessions from earlier versions without starting work.
+          if(row.running&&saved.openProjects?.includes(p.id)&&!saved.closedWorkspaces[p.id]&&!Object.values(saved.layouts).some(l=>l.groups.some(g=>g.tabs.includes('terminal:'+row.id)))&&!pendingStarts.has(row.id))saved.background[row.id]=p.id;
+        }
         for(const engine of engines.values()){engine.attached=false;send('attach',{id:engine.id})}
         schedule();
       }else if(e.event==='session' && e.session){
         const row=e.session,old=terminals.get(row.id);terminals.set(row.id,row);const p=ensureProject(row);
+        if(row.running&&!old?.running&&!closingSessions.has(row.id)&&!closingWorkspaces.has(p.id)&&!saved.closedWorkspaces[p.id])intentionalStops.delete(row.id);
         if(old&&!old.running&&row.running&&engines.has(row.id)){engines.get(row.id).attached=false;send('attach',{id:row.id})}
         if(old?.running&&!row.running){const s=sess(row.id);if(s){s.available=false;if(!s.result)s.state=row.exit===0||row.stopped?'Closed':'Failed'}
           if(row.kind==='shell'&&row.exit!==0&&!row.stopped)notify('failure',row.id,label('terminal:'+row.id),'The process ended. Open its terminal to see what happened.','exit:'+row.id+':'+row.created);
         }
-        if(!completeLaunch(row) && !old && row.running){open('terminal:'+row.id,p.id,false);}
+        if(saved.closedWorkspaces[p.id]||closingWorkspaces.has(p.id)){if(row.running)send('stop',{id:row.id});completeLaunch(row)}
+        else if(!completeLaunch(row)&&!old&&row.running&&!saved.background[row.id])open('terminal:'+row.id,p.id,false);
+        if(!row.running)finishCloseSession(row.id);
         schedule();
+      }else if(e.event==='session-cancelled'){
+        pendingStarts.delete(e.id);finishCloseSession(e.id);schedule();
+      }else if(e.event==='workspace-opened'){
+        const pending=openingWorkspaces.get(e.cwd);if(pending){clearTimeout(pending.timer);openingWorkspaces.delete(e.cwd);delete saved.closedWorkspaces[pending.project];rememberWorkspace(pending.project);pending.resolve();schedule()}
+      }else if(e.event==='workspace-closed'){
+        const p=projectFor(e.cwd);if(p&&closingWorkspaces.has(p.id)){closingWorkspaces.delete(p.id);finishCloseWorkspace(p.id)}
       }else if(e.event==='replay'){
         const engine=engines.get(e.id);if(!engine)continue;
         engine.attached=true;engine.replaying=true;engine.seq=e.seq;engine.cwd=null;engine.term.reset();engine.term.resize(e.cols,e.rows);engine.sentSize=e.cols+'x'+e.rows;
@@ -119,11 +145,11 @@ const workspaceDeck=(()=>{
         const engine=engines.get(e.id);if(!engine||!engine.attached||e.seq<=engine.seq)continue;
         engine.seq=e.seq;writes.push(new Promise(done=>engine.term.write(bytes(e.data),done)));
       }else if(e.event==='focus'){
-        const p=projectFor(terminals.get(e.id)?.cwd);if(p)open('terminal:'+e.id,p.id,true);
+        const p=projectFor(terminals.get(e.id)?.cwd);if(p&&!saved.background[e.id]&&!saved.closedWorkspaces[p.id]&&!closingWorkspaces.has(p.id))open('terminal:'+e.id,p.id,true);
       }else if(e.event==='disconnected'){
         connected=false;for(const en of engines.values()){en.attached=false;en.pendingInput=[];en.pendingBytes=0;}
         toast(e.error);schedule();
-      }else if(e.event==='error'){const pending=pendingStarts.get(e.id);pendingStarts.delete(e.id);if(pending&&!pending.closed)close('terminal:'+e.id,pending.project);const en=engines.get(e.id);if(en){en.pendingInput=[];en.pendingBytes=0}toast(e.error||'The terminal operation could not be completed.');schedule()}
+      }else if(e.event==='error'){for(const [cwd,pending] of openingWorkspaces)if(cwd===e.cwd||!e.id&&!e.cwd){clearTimeout(pending.timer);openingWorkspaces.delete(cwd);pending.reject(new Error(e.error||'Could not reopen workspace.'))}if(closingSessions.has(e.id)){closingSessions.delete(e.id);intentionalStops.delete(e.id);const pending=pendingStarts.get(e.id);if(pending)pending.closed=false;toast(e.error||'Could not stop the session.');schedule();continue}const closing=projectFor(e.cwd);if(closing){closingWorkspaces.delete(closing.id);for(const id of workspaceSessions(closing.id))intentionalStops.delete(id)}else if(!e.id)closingWorkspaces.clear();const pending=pendingStarts.get(e.id);pendingStarts.delete(e.id);if(pending&&!pending.closed)close('terminal:'+e.id,pending.project);const en=engines.get(e.id);if(en){en.pendingInput=[];en.pendingBytes=0}toast(e.error||'The terminal operation could not be completed.');schedule()}
     }
     await Promise.all(writes);
   }
@@ -199,19 +225,43 @@ const workspaceDeck=(()=>{
   function message(text){const p=document.createElement('p');p.className='empty';p.textContent=text;return p}
   function rememberWorkspace(project){
     saved.openProjects??=Object.entries(saved.layouts).filter(([,l])=>l.groups?.some(g=>g.tabs?.length)).map(([id])=>id);
-    if(!saved.openProjects.includes(project)){saved.openProjects.push(project);persist()}
+    if(!saved.openProjects.includes(project)){delete saved.closedWorkspaces[project];saved.openProjects.push(project);send('open-workspace',{cwd:proj(project).folder});persist()}
   }
   function openWorkspace(project,createTerminal=false){
     const p=proj(project);if(!p)return;
+    if(closingWorkspaces.has(project)){toast('This workspace is stopping. Wait for it to close.');return}
     rememberWorkspace(project);
-    for(const item of saved.activity)if(sess(item.id)?.project===project||terminals.get(item.id)?.cwd===p.folder)item.read=true;
+    for(const item of saved.activity)if(!saved.background[item.id]&&(sess(item.id)?.project===project||terminals.get(item.id)?.cwd===p.folder))item.read=true;
     if(typeof showWorkspace==='function')showWorkspace();go(project);
     const l=layout(project);
     if(createTerminal&&!l.groups.some(g=>g.tabs.length)&&![...pendingStarts.values()].some(v=>v.project===project&&!v.closed))startTerminal(project);
     else focusSurface(project,l.groups[l.selected]?.active);
     persist();
   }
+  function prepareLaunch(project){
+    if(closingWorkspaces.has(project))throw new Error('This workspace is still stopping. Reopen it after it closes.');
+    if(!saved.closedWorkspaces[project])return null;
+    const cwd=proj(project)?.folder;if(!cwd)throw new Error('Choose an available workspace.');
+    if(openingWorkspaces.has(cwd))throw new Error('This workspace is reopening. Try again shortly.');
+    return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{openingWorkspaces.delete(cwd);reject(new Error('Could not reconnect to the terminal service. Try again.'))},10000);openingWorkspaces.set(cwd,{project,resolve,reject,timer});send('open-workspace',{cwd})});
+  }
+  function workspaceSessions(project){const p=proj(project);return [...new Set([...terminals.values()].filter(t=>t.cwd===p?.folder&&t.running).map(t=>t.id).concat([...pendingStarts].filter(([,v])=>v.project===project).map(([id])=>id),state.sessions.filter(s=>s.host==='tasktap'&&(s.project===project||s.project===p?.folder)&&['Queued','Opening','Running','Connected','Needs input'].includes(s.state)&&s.available!==false).map(s=>s.id)))];}
   function closeWorkspace(project){
+    if(closingWorkspaces.has(project))return;
+    const count=workspaceSessions(project).length;
+    if(count){dialog('Close workspace and stop '+count+' session'+(count===1?'':'s')+'?',proj(project)?.name,'<p>Running tasks and terminals will end, including background sessions. Your files, history, and saved layout remain.</p><div class="form-actions">'+button('Cancel','close')+button('Stop sessions and close','deck-workspace-stop',project,'primary','stop')+'</div>');return}
+    stopWorkspace(project);
+  }
+  function stopWorkspace(project){
+    if(closingWorkspaces.has(project))return;
+    closingWorkspaces.add(project);for(const id of workspaceSessions(project))intentionalStops.add(id);
+    for(const pending of pendingStarts.values())if(pending.project===project)pending.closed=true;
+    if(live){send('stop-workspace',{cwd:proj(project).folder,ids:workspaceSessions(project)});toast('Stopping workspace sessions…')}
+    else{for(const id of workspaceSessions(project)){const t=terminals.get(id);if(t)Object.assign(t,{running:false,stopped:true})}closingWorkspaces.delete(project);finishCloseWorkspace(project)}
+  }
+  function finishCloseWorkspace(project){
+    saved.closedWorkspaces[project]=true;
+    for(const [id,p] of Object.entries(saved.background))if(p===project)delete saved.background[id];
     if(tabDrag?.project===project)finishTabDrag();
     const index=saved.openProjects?.indexOf(project)??-1;
     saved.openProjects=(saved.openProjects||[]).filter(id=>id!==project);
@@ -219,9 +269,10 @@ const workspaceDeck=(()=>{
     for(const g of saved.layouts[project]?.groups||[])g.tabs.forEach(disposeView);
     const node=projects.get(project);node?.layoutObserver?.disconnect();node?.remove();projects.delete(project);
     if(view===project)go(saved.openProjects[Math.min(Math.max(0,index),saved.openProjects.length-1)]||'overview');else renderNav(listedProjects(activeSessions()));
-    persist();toast('Workspace closed. Its layout is saved; terminal sessions keep running.');
+    persist();toast('Workspace closed. Its sessions have been stopped.');
   }
   function open(key,project,activate=true,groupID=null){if(window.tasktapSurface==='notch'){postLive('workspace-open',{key,project,activate});return}
+    const id=termID(key);if(id){delete saved.background[id];for(const a of saved.activity)if(a.id===id)a.read=true}
     const l=layout(project);let group=l.groups.find(g=>g.tabs.includes(key));
     if(!group){group=groupID?l.groups.find(g=>g.id===groupID):selectedGroup(l);if(!group)return;group.tabs.push(key)}group.active=key;l.selected=l.groups.indexOf(group);
     if(activate){if(typeof showWorkspace==='function')showWorkspace();go(project);requestAnimationFrame(()=>{const en=engines.get(termID(key));if(en)en.term.focus();else projects.get(project)?.querySelector('.deck-tab[aria-selected="true"][data-id="'+CSS.escape(key)+'"]')?.focus()})}else if(view===project)renderProject(proj(project));persist();
@@ -244,7 +295,7 @@ const workspaceDeck=(()=>{
     return true;
   }
   function startTerminal(project,groupID){
-    const p=proj(project);if(!p)return;const l=layout(project),g=groupID?l.groups.find(g=>g.id===groupID):selectedGroup(l);if(!g)return;
+    const p=proj(project);if(!p||closingWorkspaces.has(project))return;const l=layout(project),g=groupID?l.groups.find(g=>g.id===groupID):selectedGroup(l);if(!g)return;
     const id=uid();pendingStarts.set(id,{project,group:g.id});
     g.tabs.push('terminal:'+id);g.active='terminal:'+id;l.selected=l.groups.indexOf(g);
     if(live)send('start',{id,cwd:p.folder,shell:saved.preferences.shell});
@@ -451,7 +502,7 @@ const workspaceDeck=(()=>{
     update(p,root);
   }
   function update(p,root){
-    const l=layout(p.id);$('.deck-reconnect',root).hidden=!live||connected;root.querySelectorAll('.deck-tab').forEach(tab=>{const span=tab.querySelector('span');if(span)span.textContent=label(tab.dataset.id)});
+    const l=layout(p.id);$('.deck-reconnect',root).hidden=!live||connected;root.querySelectorAll('.deck-tab').forEach(tab=>{const span=tab.querySelector('span');if(span)span.textContent=label(tab.dataset.id);const id=termID(tab.dataset.id);if(id){const cue=sessionCue(id);tab.dataset.status=cue.kind;tab.title=label(tab.dataset.id)+' / '+cue.label;let mark=tab.querySelector('.deck-tab-status');if(!mark){mark=document.createElement('small');mark.className='deck-tab-status';tab.append(mark)}mark.textContent=cue.symbol;mark.setAttribute('aria-label',cue.label);mark.title=cue.label}});
     l.groups.forEach((g,index)=>{
       const pane=root.querySelector('[data-group="'+index+'"].deck-group');if(!pane)return;pane.classList.toggle('selected',l.selected===index);
       const id=termID(g.active),s=sess(id),file=saved.media[mediaID(g.active)];
@@ -464,7 +515,7 @@ const workspaceDeck=(()=>{
         controls.querySelector('.deck-menu').classList.add('deck-tab-menu');
       }
       const heading=$('.deck-menu-heading',controls);if(heading)heading.textContent=id?[providers[s?.agent]||'Shell',status(id),fontSize(id)+' pt'].join(' / '):file?.path||file?.url||(g.active?'Reported outcome':'Surface '+(index+1));
-      const tab=pane.querySelector('.deck-tab[aria-selected="true"]');if(tab)tab.title=label(g.active)+(id?' / '+status(id):'');
+      const tab=pane.querySelector('.deck-tab[aria-selected="true"]');if(tab&&!id)tab.title=label(g.active);
       const q=state.decisions.find(q=>q.session===id);
       $('.deck-question',pane).innerHTML=q?'<div><strong>'+esc(q.q)+'</strong><span class="hint">'+esc(providers[s?.agent]||'Agent')+' needs your decision</span></div>'+button('Review decision','notch',q.id,'primary'):'';
       $('.deck-question',pane).hidden=!q;
@@ -474,6 +525,19 @@ const workspaceDeck=(()=>{
   function disposeView(key){
     const id=termID(key);if(id){const en=engines.get(id);if(en){cancelAnimationFrame(en.fitFrame);clearTimeout(en.scrollTimer);en.resize.disconnect();en.inputGuard.dispose();en.term.dispose();en.element.remove();engines.delete(id);send('detach',{id})}}
     else{previews.get(key)?.remove();previews.delete(key)}
+  }
+  function requestClose(key,project=activeProject){
+    const id=termID(key);
+    if(closingSessions.has(id)){toast('This session is stopping.');return}
+    if(!id||terminals.get(id)?.running===false){close(key,project);return}
+    dialog('Close this session?',label(key),'<p>Keep it running under its workspace in the sidebar, or end the process.</p><div class="stack">'+button('Keep running in background','deck-background',id,'btn','sessions')+button('Stop session','deck-close-stop',id,'btn','stop')+button('Cancel','close',null,'text-btn')+'</div>');
+  }
+  function background(id){
+    const project=pendingStarts.get(id)?.project||projectFor(terminals.get(id)?.cwd)?.id||sess(id)?.project||activeProject;
+    if(!project)return;
+    saved.background[id]=project;saved.navigationExpanded??={};saved.navigationExpanded[project]=true;
+    close('terminal:'+id,project);renderNav(listedProjects(activeSessions()));
+    toast('Session running in background. Find it under '+proj(project).name+'.');
   }
   function close(key,project=activeProject){
     const l=layout(project),wasActive=l.groups[l.selected]?.active===key;
@@ -495,7 +559,7 @@ const workspaceDeck=(()=>{
   }go(p.id);persist()}
   function openWeb(project,url){addFiles(project,[{id:uid(),kind:'web',title:new URL(url).host,url}])}
   function activity(){saved.activity.forEach(a=>a.read=true);persist();dialog('Activity','Across your projects',saved.activity.length?'<div class="deck-activity-list">'+saved.activity.map(a=>'<section class="notice"><span class="eyebrow">'+esc(a.kind==='failure'?'Needs attention':'Result ready')+' / '+esc(new Date(a.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}))+'</span><strong>'+esc(a.title)+'</strong><p>'+esc(resultPresentation.excerpt(a.body,48).text)+'</p>'+(a.kind==='failure'?button('Open session','deck-open',a.id,'text-btn','arrow'):button('View result','deck-result',a.capture||a.id,'text-btn','arrow'))+'</section>').join('')+'</div>':'<p class="empty">You’re all caught up. Decisions appear in Home; results and failures collect here.</p>');renderNav(listedProjects(activeSessions()))}
-  function details(id){const t=terminals.get(id),s=sess(id);if(!t){showSession(id);return}dialog(s?sessionDisplayName(s):t.title,'Session details','<p class="hint">'+esc(t.cwd)+'</p><p>'+esc(status(id))+'</p><div class="inline">'+(s?button('Conversation details','deck-conversation',id,'btn'): '')+(t.running?button('Stop session…','deck-stop',id,'btn','stop'):'')+'</div><p class="hint">Close a view to make room. Stop a session only when you want its process to end.</p>')}
+  function details(id){const t=terminals.get(id),s=sess(id);if(!t){showSession(id);return}dialog(s?sessionDisplayName(s):t.title,'Session details','<p class="hint">'+esc(t.cwd)+'</p><p>'+esc(status(id))+'</p><div class="inline">'+(s?button('Conversation details','deck-conversation',id,'btn'): '')+(t.running?button('Stop session…','deck-stop',id,'btn','stop'):'')+'</div><p class="hint">Closing a live session lets you keep it running in the sidebar or stop its process.</p>')}
   function preferences(){
     dialog('Terminal preferences','Workspace','<form id="deck-preferences" class="stack"><label class="check-line"><input type="checkbox" id="deck-follow" '+(saved.preferences.followGhostty!==false?'checked':'')+'>Use Ghostty font and cursor</label><p class="hint" id="deck-appearance-source">'+esc(appearanceDescription())+'</p>'+button('Reload Ghostty settings','deck-reload','','text-btn')+'<label class="field">Shell<select id="deck-shell">'+[['default','Login shell'],['zsh','zsh'],['bash','bash'],['fish','fish']].map(([id,name])=>option(id,name,saved.preferences.shell)).join('')+'</select></label><label class="field">Text size<select id="deck-font">'+option('auto','From appearance',saved.preferences.font?String(saved.preferences.font):'auto')+[12,13,14,16,18,20].map(n=>option(String(n),String(n)+' pt',String(saved.preferences.font))).join('')+'</select></label><p class="hint">Colors, translucency, and blur follow the app Appearance preferences. Your shell loads its usual prompt and plugins. Ghostty can supply installed fonts, cursor, and padding; its keybindings and shaders are not imported.</p><button class="primary" type="submit">Save preferences</button></form>');
     $('#deck-preferences').onsubmit=e=>{e.preventDefault();saved.preferences.shell=$('#deck-shell').value;const size=$('#deck-font').value;if(size==='auto')delete saved.preferences.font;else saved.preferences.font=Number(size);saved.preferences.followGhostty=$('#deck-follow').checked;applyAppearance();persist();dismissCard()};
@@ -530,7 +594,14 @@ const workspaceDeck=(()=>{
     else if(a==='deck-terminal')startTerminal(id,b.closest('.deck-group')?.dataset.groupId);
     else if(a==='deck-compose'){const en=engines.get(id);if(en)terminalInput.compose(en.term,label('terminal:'+id),()=>engines.get(id)===en&&terminals.get(id)?.running!==false&&(!live||connected&&en.attached&&!en.replaying))}
     else if(a==='deck-tab'){const l=layout(activeProject);l.selected=Number(b.dataset.group);l.groups[l.selected].active=id;renderProject(proj(activeProject));persist();const en=engines.get(termID(id));en?.term.focus()}
-    else if(a==='deck-close')close(id);
+    else if(a==='deck-close')requestClose(id);
+    else if(a==='deck-background'){dismissCard();background(id)}
+    else if(a==='deck-close-stop'){
+      dismissCard();const pending=pendingStarts.get(id),project=pending?.project||projectFor(terminals.get(id)?.cwd)?.id||activeProject;
+      closingSessions.set(id,project);intentionalStops.add(id);if(pending)pending.closed=true;
+      if(live){send('stop',{id});toast('Stopping session…')}else{const t=terminals.get(id);if(t)Object.assign(t,{running:false,stopped:true});finishCloseSession(id)}
+    }
+    else if(a==='deck-workspace-stop'){dismissCard();stopWorkspace(id)}
     else if(a==='deck-split-right'||a==='deck-split-down')split(id,a==='deck-split-right'?'x':'y',b.closest('.deck-group')?.dataset.groupId);
     else if(a==='deck-close-workspace')closeWorkspace(id);
     else if(a==='deck-move'){
@@ -561,7 +632,7 @@ const workspaceDeck=(()=>{
     else if(a==='deck-result')openResult(id);
     else if(a==='deck-conversation')showSession(id);
     else if(a==='deck-stop')dialog('Stop this session?','Terminal process','<p>This ends the process. Its captured output remains available until the terminal service exits.</p><div class="form-actions">'+button('Keep running','close')+button('Stop session','deck-stop-confirm',id,'primary','stop')+'</div>');
-    else if(a==='deck-stop-confirm'){send('stop',{id});dismissCard()}
+    else if(a==='deck-stop-confirm'){intentionalStops.add(id);send('stop',{id});dismissCard()}
     else if(a==='deck-find'){dialog('Find in terminal',label('terminal:'+id),'<form id="deck-find-form" class="stack"><label class="field">Search<input id="deck-find-text" type="search"></label><button class="primary" type="submit">Find next</button><p id="deck-find-state" role="status"></p></form>');$('#deck-find-form').onsubmit=e=>{e.preventDefault();$('#deck-find-state').textContent=engines.get(id)?.search.findNext($('#deck-find-text').value)?'Match highlighted in the terminal.':'No match in the available scrollback.'}}
     else if(a==='deck-preferences')preferences();
     else if(a==='deck-reconnect')send('reconnect');
@@ -582,10 +653,10 @@ const workspaceDeck=(()=>{
     if(!id||!engines.has(id))return;
     e.preventDefault();e.stopPropagation();resizeText(id,change);
   },true);
-  document.addEventListener('keydown',e=>{if(!activeProject||document.querySelector('dialog[open]'))return;const key=layout(activeProject).groups[layout(activeProject).selected]?.active;if(e.metaKey&&e.key.toLowerCase()==='d'&&!e.altKey){e.preventDefault();split(activeProject,e.shiftKey?'y':'x');return}if(e.metaKey&&e.key.toLowerCase()==='w'&&key){e.preventDefault();close(key)}if(e.metaKey&&e.key.toLowerCase()==='f'&&termID(key)){e.preventDefault();projects.get(activeProject)?.querySelector('[data-action="deck-find"][data-id="'+termID(key)+'"]')?.click()}if(e.metaKey&&e.key.toLowerCase()==='k'){e.preventDefault();go('sessions');$('#session-filter')?.focus()}});
-  function outcome(e){if(e.recovered)return;const s=sess(e.session);if(!s)return;if(e.state==='Failed'&&terminals.get(s.id)?.stopped)return;if(e.state==='Complete')notify('complete',s.id,sessionDisplayName(s),e.message||'The agent reported a result.','result:'+e.capture,e.capture);else if(e.state==='Failed')notify('failure',s.id,sessionDisplayName(s),e.message||'The task could not be completed.','failed:'+e.capture)}
-  function closeFront(){if(!activeProject)return false;const l=layout(activeProject),key=l.groups[l.selected]?.active;if(!key)return false;close(key);return true}
-  function openTerminal(id){if(window.tasktapSurface==='notch'){postLive('workspace-open-terminal',{id});return}const t=terminals.get(id);if(t)open('terminal:'+id,ensureProject(t).id)}
+  document.addEventListener('keydown',e=>{if(!activeProject||document.querySelector('dialog[open]'))return;const key=layout(activeProject).groups[layout(activeProject).selected]?.active;if(e.metaKey&&e.key.toLowerCase()==='d'&&!e.altKey){e.preventDefault();split(activeProject,e.shiftKey?'y':'x');return}if(e.metaKey&&e.key.toLowerCase()==='w'&&key){e.preventDefault();requestClose(key)}if(e.metaKey&&e.key.toLowerCase()==='f'&&termID(key)){e.preventDefault();projects.get(activeProject)?.querySelector('[data-action="deck-find"][data-id="'+termID(key)+'"]')?.click()}if(e.metaKey&&e.key.toLowerCase()==='k'){e.preventDefault();go('sessions');$('#session-filter')?.focus()}});
+  function outcome(e){if(e.recovered)return;const s=sess(e.session);if(!s)return;if(e.state==='Failed'&&(terminals.get(s.id)?.stopped||intentionalStops.has(s.id)||saved.closedWorkspaces[s.project]||closingWorkspaces.has(s.project)))return;if(e.state==='Complete')notify('complete',s.id,sessionDisplayName(s),e.message||'The agent reported a result.','result:'+e.capture,e.capture);else if(e.state==='Failed')notify('failure',s.id,sessionDisplayName(s),e.message||'The task could not be completed.','failed:'+e.capture)}
+  function closeFront(){if(!activeProject)return false;const l=layout(activeProject),key=l.groups[l.selected]?.active;if(!key)return false;requestClose(key);return true}
+  function openTerminal(id){if(window.tasktapSurface==='notch'){postLive('workspace-open-terminal',{id});return}const t=terminals.get(id);if(t)open('terminal:'+id,ensureProject(t).id);else if(saved.background[id])open('terminal:'+id,saved.background[id])}
   function terminalText(id){const term=engines.get(id)?.term;if(!term)return '';const buffer=term.buffer.active;return Array.from({length:buffer.length},(_,i)=>buffer.getLine(i)?.translateToString(true)||'').join('\n')}
   function terminalMetrics(id){
     const en=engines.get(id),screen=en?.element.querySelector('.xterm-screen');if(!screen)return null;
@@ -611,10 +682,10 @@ const workspaceDeck=(()=>{
   function shellHistory(filter=''){const rows=[...terminals.values()].filter(t=>t.kind==='shell'&&[t.title,t.cwd].join(' ').toLowerCase().includes(filter.toLowerCase()));return rows.length?'<section class="block"><h2>Terminals</h2>'+rows.map(t=>button(t.title+' / '+(t.running?'Running':t.restored?'Not running':t.stopped?'Stopped':'Exited')+' / '+t.cwd,'deck-open',t.id,'note','sessions')).join('')+'</section>':''}
   function openResult(id){if(window.tasktapSurface==='notch'){postLive('workspace-open-result',{id});return}const result=report(id);if(result.session){for(const item of saved.activity)if(item.capture===id||!item.capture&&item.id===id)item.read=true;dismissCard();open('result:'+id,result.session.project)}}
   // Restore an explicit layout without automatically starting any process.
-  function sidebarData(){return {layouts:saved.layouts,terminals:[...terminals.values()],label,icon:surfaceIcon}}
+  function sidebarData(){return {layouts:saved.layouts,terminals:[...terminals.values()],background:saved.background,cue:sessionCue,label,icon:surfaceIcon}}
   if(typeof appAppearance!=='undefined')appAppearance.receiveGhostty(inherited);
   applyAppearance();
-  return {openWorkspace,closeWorkspace,sidebarData,appearanceLoaded,pdfLoaded,openTerminal,terminalText,terminalMetrics,shellHistory,textLoaded,receive,renderProject,leave,addFiles,openWeb,open,openResult,outcome,closeFront,preferences,activity,clipboardCommand};
+  return {openWorkspace,closeWorkspace,prepareLaunch,sidebarData,appearanceLoaded,pdfLoaded,openTerminal,terminalText,terminalMetrics,shellHistory,textLoaded,receive,renderProject,leave,addFiles,openWeb,open,openResult,outcome,closeFront,preferences,activity,clipboardCommand};
 })();
 
 if(location.hash!=='#geometry')render();

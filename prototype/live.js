@@ -157,7 +157,11 @@ function submitLive(d){
   d.submitting=true;
   delete d.handoffError;$('#handoff-error')?.remove();
   reviewReceipt(d,'submitting','Submitting handoff');
-  postLive('enqueue',{job});
+  try{
+    const reopening=d.mode==='ask'&&job.host==='tasktap'&&p?workspaceDeck.prepareLaunch(p.id):null;
+    if(reopening)reopening.then(()=>postLive('enqueue',{job})).catch(error=>acceptLive({capture:d.captureId,error:error.message}));
+    else postLive('enqueue',{job});
+  }catch(error){acceptLive({capture:d.captureId,error:error.message})}
 }
 function acceptLive(data){
   const d=draft;

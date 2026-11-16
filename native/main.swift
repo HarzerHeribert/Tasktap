@@ -692,7 +692,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         case "workspace-terminal":
             guard !verifying || workspaceVerification || independentVerification,!liveTest,message.webView === web else {return}
             do {try terminals.handle(data,folders:runtime.folders)}
-            catch {js("workspaceDeck.receive(events)",["events":[["event":"error","id":data["id"] as? String ?? "","error":error.localizedDescription]]])}
+            catch {js("workspaceDeck.receive(events)",["events":[["event":"error","id":data["id"] as? String ?? "","cwd":data["cwd"] as? String ?? "","op":data["op"] as? String ?? "","error":error.localizedDescription]]])}
         case "workspace-file":
             guard !verifying,!liveTest else {return}
             let project=data["project"] as? String ?? ""

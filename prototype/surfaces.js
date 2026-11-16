@@ -154,7 +154,6 @@ function openRequest(id){
   if($('#notch').open&&$('#notch [data-action="choose-target"]'))return;
 
   $('#status-menu').hidden=true;
-  decisionVoice=false;
   // Explicitly opening the queue establishes a new selection context.
   choice=null;showNotch(id||pending()?.id);markChoices();updateBounds();
 }
@@ -184,7 +183,7 @@ function paintNotificationSettings(){
   const descriptions={notDetermined:'Permission has not been requested.',denied:'Notifications are blocked in macOS Settings.',authorized:'macOS permission is allowed.',provisional:'macOS allows quiet notifications.',unknown:'macOS notification status is unavailable.'};
   $('#notification-status',panel).innerHTML='<p><strong>Tasktap alerts: '+(state.alerts?'On':'Off')+'</strong></p>'+
     (host?'<p>'+esc(descriptions[authorization]||'Checking macOS notification settings…')+'</p>'+
-      (['authorized','provisional'].includes(authorization)?'<p class="hint">'+esc('Banners: '+(status.alerts==='enabled'?'allowed':status.alerts==='disabled'?'off':'unavailable')+' · Notification Center: '+(status.center==='enabled'?'allowed':status.center==='disabled'?'off':'unavailable'))+'</p>':''):'<p class="hint">Browser preview of Notification Center.</p>');
+      (['authorized','provisional'].includes(authorization)?'<p class="hint">'+esc('Banners: '+(status.alerts==='enabled'?'allowed':status.alerts==='disabled'?'off':'unavailable')+' / Notification Center: '+(status.center==='enabled'?'allowed':status.center==='disabled'?'off':'unavailable'))+'</p>':''):'<p class="hint">Browser preview of Notification Center.</p>');
   const focused=document.activeElement?.dataset.surface;
   $('#notification-controls',panel).innerHTML=
     (host&&authorization==='denied'?surfaceButton('Open notification settings','notify-settings','out'):
@@ -248,7 +247,7 @@ function markChoices(){
     if(hardwareNavigation && i===choice.index)b.setAttribute('aria-current','true');else b.removeAttribute('aria-current');
   });
   if(hardwareNavigation && !d.querySelector('.hardware-hint')){
-    const hint=document.createElement('div');hint.className='hardware-hint';hint.innerHTML=icon('settings')+'<span>Micro · Previous / Next to select · Confirm to send</span>';
+    const hint=document.createElement('div');hint.className='hardware-hint';hint.innerHTML=icon('settings')+'<span>Micro / Previous / Next to select / Confirm to send</span>';
     d.firstElementChild.append(hint);
   }
 }
@@ -339,7 +338,7 @@ function hardware(action,requestId){
   markChoices();items[choice.index].focus({preventScroll:true});items[choice.index].scrollIntoView({block:'nearest'});
 }
 function controller(){
-  const labels={capture:'Hold to talk',requests:'Open pending decision',previous:'Previous choice',next:'Next choice',confirm:'Confirm / send follow-up',back:'Defer / back',yes:'Agent Key 1 · Yes',no:'Agent Key 2 · No',discuss:'Agent Key 3 · Talk it through'};
+  const labels={capture:'Hold to talk',requests:'Open pending decision',previous:'Previous choice',next:'Next choice',confirm:'Confirm / send follow-up',back:'Defer / back',yes:'Agent Key 1 / Yes',no:'Agent Key 2 / No',discuss:'Agent Key 3 / Reply'};
   const lighting=host?'<label class="check-line"><input type="checkbox" id="micro-lights" '+(state.microLights?'checked':'')+'> Use Micro decision keys and lights</label><p class="hint" id="micro-status">'+esc(microStatus)+'</p><p class="hint">On a yes/no card, press the green key for Yes, red for No, or the third Agent Key to discuss.</p>':'<p class="hint">The Mac app controls the Micro directly. You can answer every question here with a click or keyboard.</p>';
   dialog('Codex Micro','Optional controller','<div class="mapping-list">'+Object.entries(chords).map(([action,[,keys]])=>'<div><span>'+labels[action]+'</span><kbd>'+keys+'</kbd></div>').join('')+'</div>'+lighting+surfaceButton('Try decision controls','try-controller','checks'));
   if(host)$('#micro-lights').onchange=e=>{state.microLights=e.target.checked;persist();postHost('lightingPreference',{enabled:state.microLights})};
@@ -380,7 +379,7 @@ function postBounds(){
     shell.style.removeProperty('--sheet-bottom');
   }
   const height=open || folding?shell.getBoundingClientRect().height:$('#island').getBoundingClientRect().bottom;
-  postHost('layout',{workspace:!firstMode(),height:Math.ceil(height),collapsed:!open && !folding});
+  postHost('layout',{workspace:!firstMode(),height:Math.ceil(height),width:panel?.querySelector('#handoff-review')?560:432,collapsed:!open && !folding});
 }
 function updateBounds(immediate=false){
   // WebKit can suspend animation frames while a window is covered. Switching

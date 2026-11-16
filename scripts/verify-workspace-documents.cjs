@@ -13,7 +13,7 @@ const path=require('node:path');
   await page.evaluate(()=>{window.messages=[];window.postLive=(type,data)=>messages.push({type,...data});window.file={id:'document',project:'p',kind:'text',title:'Readme.MD',url:'tasktap-preview://document/Readme.MD'};window.preview=document.querySelector('#preview')});
   const markdown=`# Project **notes**
 
-[Jump to details](#details) · [Reference](https://example.com/docs) · [Next document](Next.md)
+[Jump to details](#details) / [Reference](https://example.com/docs) / [Next document](Next.md)
 
 ## Details
 

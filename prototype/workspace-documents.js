@@ -64,18 +64,18 @@ const workspaceDocuments=(()=>{
       if(target?.kind==='local'){
         img.src=target.value;img.loading='lazy';img.decoding='async';img.referrerPolicy='no-referrer';
         img.addEventListener('error',()=>imagePlaceholder(img,'Image unavailable'));
-      }else imagePlaceholder(img,target?.kind==='external'?'Remote image · '+(img.alt||'Not loaded'):'Image unavailable',target);
+      }else imagePlaceholder(img,target?.kind==='external'?'Remote image / '+(img.alt||'Not loaded'):'Image unavailable',target);
     });
     // Tables scroll within the prose column instead of widening a split pane.
     fragment.querySelectorAll('table').forEach(table=>{const wrap=document.createElement('div');wrap.className='document-table';wrap.tabIndex=0;wrap.setAttribute('role','region');wrap.setAttribute('aria-label','Table');table.replaceWith(wrap);wrap.append(table)});
     element.classList.add('workspace-document');element.replaceChildren(fragment);
   }
   function imagePlaceholder(img,label,target){
-    const placeholder=document.createElement('span');placeholder.className='document-image-placeholder';placeholder.textContent=label+(img.alt&&!label.includes(img.alt)?' · '+img.alt:'');
+    const placeholder=document.createElement('span');placeholder.className='document-image-placeholder';placeholder.textContent=label+(img.alt&&!label.includes(img.alt)?' / '+img.alt:'');
     if(target?.kind==='external'){
       const link=document.createElement('a');link.href=target.value;link.className='document-external';link.textContent='Open image in browser';
       link.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if(event.isTrusted&&typeof postLive==='function')postLive('workspace-open-url',{url:target.value})});
-      link.addEventListener('auxclick',event=>event.preventDefault());placeholder.append(document.createTextNode(' · '),link);
+      link.addEventListener('auxclick',event=>event.preventDefault());placeholder.append(document.createTextNode(' / '),link);
     }
     img.replaceWith(placeholder);
   }

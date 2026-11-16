@@ -1,0 +1,13 @@
+{
+  "captured": "2026-11-16",
+  "source": "Native window of /Applications/Tasktap.app, captured through computer use.",
+  "project": "Isolated Cuegrid example project; both agents read its README without editing files.",
+  "terminalOutput": "Actual Codex and Claude Code PTYs using the installed app terminal appearance; no fabricated transcripts or pixel edits.",
+  "image": "agents-native.jpg",
+  "pixels": [
+    3600,
+    2260
+  ],
+  "scale": 2,
+  "presentation": "The website clips the 32-point macOS title bar with CSS. The source JPEG is unchanged. Before capture, the transient Siri badge was dismissed and focus moved out of text inputs; normal system input assistance remains enabled."
+}

@@ -12,7 +12,7 @@ function receiveAgentQuestion(event,prior={}){
   if(answered||pending){
     const r=answered||pending;
     if((r.question||r.q)!==question || JSON.stringify(r.choices)!==JSON.stringify(choices||['No','Yes']) || r.detail!==detail)throw Error('Request ID already used with different content');
-    return {id:r.id,producerKey:key,status:answered?'answered':'pending',...(answered?{answer:answered.answer}:{}),discussion:r.discussion||[]};
+    return {id:r.id,producerKey:key,status:answered?'answered':'pending',...(answered?{answer:answered.answer,answerKind:answered.answerKind||'choice'}:{}),discussion:r.discussion||[]};
   }
   let project=state.projects.find(p=>p.folder===workspace);
   if(!project){

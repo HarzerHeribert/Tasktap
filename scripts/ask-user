@@ -52,7 +52,7 @@ def main():
             cursor+=1
             print(json.dumps(dict(request=args.request,session=args.session,type='discussion',cursor=cursor,text=message)),flush=True)
         if reply['status']=='answered':
-            print(json.dumps(dict(request=args.request,session=args.session,type='answer',answer=reply['answer'])),flush=True)
+            print(json.dumps(dict(request=args.request,session=args.session,type='answer',answer=reply['answer'],answerKind=reply.get('answerKind','choice'))),flush=True)
             # Keep the durable answer for callers retrying after a lost acknowledgement.
             return
         time.sleep(0.2)

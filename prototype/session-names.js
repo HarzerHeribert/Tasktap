@@ -4,7 +4,7 @@ const sessionNameSearch=s=>[sessionDisplayName(s),s.task,...(s.nameHistory||[]).
 function sessionNameHistory(s){
   const names=s.nameHistory||[];
   if(!names.length)return '';
-  return '<details class="route-evidence" data-name-history><summary>Past names · '+names.length+'</summary><ul>'+names.slice().reverse().map(item=>'<li><span>'+esc(item.name)+'</span>'+(item.at?'<small class="hint"> · '+esc(new Date(item.at).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'}))+'</small>':'')+'</li>').join('')+'</ul></details>';
+  return '<details class="route-evidence" data-name-history><summary>Past names / '+names.length+'</summary><ul>'+names.slice().reverse().map(item=>'<li><span>'+esc(item.name)+'</span>'+(item.at?'<small class="hint"> / '+esc(new Date(item.at).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'}))+'</small>':'')+'</li>').join('')+'</ul></details>';
 }
 function sessionNameChanged(id,name,fingerprint){
   const s=sess(id);if(!s || typeof name!=='string' || name.length<8 || name.length>140)return;

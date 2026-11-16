@@ -4,6 +4,14 @@ Turn Tasktap into a conversation with the work happening on your Mac: ask natura
 
 This checklist began before the integrated workspace overhaul. It now records the second review against the current application. A checked item has evidence below; partial implementation remains unchecked. Existing capture, launch, question and completion plumbing is reused.
 
+## 1.0.2 interface and documentation update
+
+The release replaces the earlier review presentation with flat **Your request**, **Destination**, and **Reference** sections, labeled icon controls and a wider compact review. A question now offers one **Reply** action for typing or speech. Sending it returns the original words as `answerKind: freeform` and settles that request; the agent interprets the intent and can ask a new question. Earlier references below to discussion describe the prior UI; legacy adapter discussion events still remain supported.
+
+Automatic update checks now show a quiet sidebar badge and menu-bar indicator. Clicking opens Sparkle’s confirmation; installation remains user initiated and retains restart guards.
+
+The product page explains capture, preparation, routing, reply and return, with the embedded terminal workspace shown separately. Its native screenshot contains real Claude Code and Codex panes in an isolated example project. This capture demonstrates terminal rendering; it does not establish the entire capture-to-completion provider loop. The README, published guide, interaction design, requirements and question protocol describe the current behavior. Release validation and its limits are recorded in [releases.md](releases.md).
+
 ## Second review after the workspace overhaul
 
 The original audit is historical evidence. Its central rule still applies: show the task, destination, attached context and required decision first. Keep configuration focused, diagnostics separate, and routine explanations out of the confirmation path.

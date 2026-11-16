@@ -74,6 +74,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private let decisionRim = WorkspaceDecisionRim()
     private var isWorkspace = false
     private var height: CGFloat = 290
+    private var surfaceWidth: CGFloat = 432
     private var collapsed = true
     private var anchorScreen: NSScreen?
     private var hoverTimer: Timer?
@@ -209,11 +210,11 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         guard let screen = anchorScreen ?? NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main else { return }
         anchorScreen = screen
         let geometry = NotchGeometry(screen: screen)
-        let frame = geometry.panelFrame(collapsed: collapsed, requestedHeight: height)
+        let frame = geometry.panelFrame(collapsed: collapsed, requestedHeight: height, requestedWidth: surfaceWidth)
         if panel.frame != frame { panel.setFrame(frame, display: true) }
         decisionRim.update(screen: isWorkspace ? workspace.screen ?? screen : screen, visible: isWorkspace && pendingCount > 0)
         if ready {
-            let expanded = geometry.panelFrame(collapsed:false,requestedHeight:height)
+            let expanded = geometry.panelFrame(collapsed:false,requestedHeight:height,requestedWidth:surfaceWidth)
             let metrics = ["width":geometry.tab.width, "height":geometry.tab.height, "shoulder":geometry.shoulder,
                            "surfaceWidth":expanded.width - 2 * geometry.shoulder,
                            "surfaceOffset":expanded.midX - geometry.tab.midX,
@@ -294,7 +295,9 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         if SMAppService.mainApp.status == .requiresApproval {
             menu.items.last?.title = "Approve Launch at Login…"
         }
-        add("Check for Updates…", "updates", to:menu)
+        add(updates?.availableVersion.map { "Update to \($0)…" } ?? "Check for Updates…", "updates", to:menu)
+        add("Automatically Check for Updates", "automatic-updates", to:menu)
+        menu.items.last?.state = updates?.automaticallyChecks == true ? .on : .off
         add("Run Setup…", "run-setup", to:menu)
         add("Notifications…", "notifications", to:menu)
         add("Codex Micro Controls…", "controller", to:menu)
@@ -303,12 +306,18 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         }
         menu.addItem(.separator()); add("Quit Tasktap", "quit", to:menu)
         status.menu=menu
-        status.button?.toolTip="Tasktap · \(pendingCount) pending decisions"
-        status.button?.title=pendingCount>0 ? " \(pendingCount)" : ""
+        let hasUpdate = updates?.availableVersion != nil
+        status.button?.toolTip="Tasktap / \(pendingCount) pending decisions" + (hasUpdate ? " / Update available" : "")
+        status.button?.title=(pendingCount>0 ? " \(pendingCount)" : "") + (hasUpdate ? " ↑" : "")
     }
     @objc private func menuAction(_ sender: NSMenuItem) {
         guard let command=sender.representedObject as? String else { return }
         if command=="updates" { checkUpdates(); return }
+        if command=="automatic-updates" {
+            startUpdates()
+            if let updates { updates.setAutomaticallyChecks(!updates.automaticallyChecks) }
+            return
+        }
         if command=="quit" { NSApp.terminate(nil); return }
         if command=="launch-at-login" {
             guard !verifying && !liveTest else { return }
@@ -333,22 +342,32 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         }
         deliver(command)
     }
-    private func checkUpdates() {
+    private func startUpdates() {
+            guard !verifying && !liveTest else { return }
             if updates == nil {
                 updates = AppUpdates()
+                updates?.changed = { [weak self] in
+                    guard let self, let updates=self.updates else { return }
+                    self.js("appUpdates.receive(snapshot)",["snapshot":updates.snapshot])
+                    self.updateMenu()
+                }
                 updates?.prepareToRestart = { [weak self] install in
                     guard let self else { return }
                     self.web.callAsyncJavaScript("return prepareForAppUpdate()", arguments: [:], in: nil, in: .page) { result in
                         if case .success(let ready) = result, ready as? Bool == true { install() }
                         else {
                             let alert = NSAlert(); alert.messageText = "Finish your capture or handoff first"
-                            alert.informativeText = "Your update is ready. Finish capture, setup, or sending, then choose Check for Updates again to restart."
+                            alert.informativeText = "Your update is ready. Finish capture, setup, review edits or sending, then click the update badge to install and restart."
                             alert.runModal()
                         }
                     }
                 }
+                updates?.start()
             }
-            updates?.check()
+    }
+    private func checkUpdates() {
+        startUpdates()
+        updates?.check()
     }
     private func registerKeys(){
         var types=[EventTypeSpec(eventClass: OSType(kEventClassKeyboard),eventKind: UInt32(kEventHotKeyPressed)),
@@ -516,6 +535,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             if verifying { Task { @MainActor in if self.workspaceVerification {await self.verifyWorkspace()}else{await self.verifyInterface()} } }
             if liveTest { Task { @MainActor in await self.verifyLive() } }
             if !verifying && !liveTest {
+                startUpdates()
                 sendConnections()
                 refreshWorkers()
             }
@@ -570,6 +590,10 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             refreshUsage()
         case "check-updates":
             checkUpdates()
+        case "automatic-updates":
+            guard !verifying,!liveTest,let enabled=data["enabled"] as? Bool else {return}
+            startUpdates()
+            updates?.setAutomaticallyChecks(enabled)
         case "open-docs":
             guard !verifying,!liveTest,let section=data["section"] as? String,
                   ["agents","capture","voice","appearance","install"].contains(section),
@@ -671,6 +695,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             }
             collapsed=data["collapsed"] as? Bool ?? false
             height=CGFloat(data["height"] as? Double ?? 290)
+            surfaceWidth=CGFloat(data["width"] as? Double ?? 432)
             position()
         case "context-begin":
             if !verifying && !liveTest, let id=data["id"] as? String {screenContext.begin(id)}
@@ -1174,16 +1199,16 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             onKey(talk,pressed:true);onKey(talk,pressed:false)
             try await Task.sleep(nanoseconds:180_000_000)
             guard binaryID.isEmpty,!lightingActive else {throw Check.failed(#line)}
-            _ = try await web.evaluateJavaScript("document.querySelector('#comment').value='What changes?';document.querySelector('#discussion').requestSubmit();document.querySelector('[data-action=notch][type=button]').click();true")
+            _ = try await web.evaluateJavaScript("document.querySelector('#comment').value='What changes?';document.querySelector('#comment').dispatchEvent(new Event('input'));document.querySelector('[data-action=notch][type=button]').click();true")
             try await Task.sleep(nanoseconds:150_000_000)
             guard binaryID==id else {throw Check.failed(#line)}
-            let yes=UInt32(bindings.firstIndex{$0.action=="yes"}!)
-            onKey(yes,pressed:true);onKey(yes,pressed:false)
+            onKey(talk,pressed:true);onKey(talk,pressed:false)
+            _ = try await web.evaluateJavaScript("document.querySelector('#discussion').requestSubmit();true")
             try await Task.sleep(nanoseconds:250_000_000)
             let response=inbox.directory.appendingPathComponent("responses").appendingPathComponent(file.lastPathComponent)
             let reply=try JSONSerialization.jsonObject(with:Data(contentsOf:response)) as? [String:Any]
             let binaryResolved=try await web.evaluateJavaScript("state.decisions.length===0")
-            guard reply?["answer"] as? String=="Yes",reply?["discussion"] as? [String]==["What changes?"] else {throw Check.failed(#line)}
+            guard reply?["answer"] as? String=="What changes?",reply?["answerKind"] as? String=="freeform" else {throw Check.failed(#line)}
             guard binaryResolved as? Bool==true, binaryID.isEmpty, !lightingActive,
                   verifiedLights==[true,false,true,false] else {throw Check.failed(#line)}
             let captureKey=UInt32(bindings.firstIndex(where:{$0.action=="capture"})!)

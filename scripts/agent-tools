@@ -69,7 +69,7 @@ pool=concurrent.futures.ThreadPoolExecutor(max_workers=4)
 schema={'type':'object','properties':{'request':{'type':'string','description':'Stable ID for this decision. Reuse when retrying.'},
     'question':{'type':'string'},'detail':{'type':'string'},'choices':{'type':'array','items':{'type':'string'},'minItems':2,'maxItems':12},
     'after':{'type':'integer','minimum':0,'description':'Last follow-up cursor already read'}},'required':['request','question'],'additionalProperties':False}
-tool={'name':'ask_user','description':'Ask the person through the Mac notch when their input is needed. Omit choices for Yes/No. A discussion follow-up is not approval. After discussing, call again with the same request and its returned cursor to await the decision.','inputSchema':schema}
+tool={'name':'ask_user','description':'Ask the person through the Mac notch when input is needed. Omit choices for Yes/No. The person may select a choice or send a typed/spoken reply. For answerKind=freeform, interpret their intent: the reply may answer, ask a question, or add a constraint. If unclear, ask a new question with a new request ID. A freeform reply is not blanket authorization. Legacy discussion events leave the question pending; reuse its request and cursor to wait again.','inputSchema':schema}
 
 def emit(data):
     with write_lock:

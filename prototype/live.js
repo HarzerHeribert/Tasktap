@@ -116,11 +116,11 @@ function deliveryText(d){
   return text;
 }
 function tasktapRoutingPayload(d){
-  return (d.remoteAttempts || []).filter(a=>a.payload).map(a=>a.label+' · '+a.account+'\n'+a.payload).join('\n\n');
+  return (d.remoteAttempts || []).filter(a=>a.payload).map(a=>a.label+' / '+a.account+'\n'+a.payload).join('\n\n');
 }
 function deliveryInstructions(d){
   if(d.mode!=='ask' || !hasSessionTools(d))return '';
-  return checkpointGuidance+' For current Tasktap sessions in this checkout, you can call list_project_sessions. Use the workspace_assistant ask_user tool when a decision is needed. A discussion is a follow-up. When the task is complete, report the outcome and changed files with report_result for Tasktap receipt '+d.captureId+'.';
+  return checkpointGuidance+' For current Tasktap sessions in this checkout, you can call list_project_sessions. Use the workspace_assistant ask_user tool when a decision is needed. Interpret freeform replies by their intent; ask again if unclear. When the task is complete, report the outcome and changed files with report_result for Tasktap receipt '+d.captureId+'.';
 }
 function deliveryAudit(d) {
   return {mode:d.mode,host:d.mode==='note'?'':sessionHostLabel(d),manual:d.mode!=='note'&&!!manualNudge(d),
@@ -251,8 +251,8 @@ function prepareHandoff(){
   dialog('Prepare with '+aiConnections.label(provider)+'?','Capture',
     (reviewedServer?'<div class="server-target"><div><strong>'+esc(reviewedServer.model)+'</strong><code>'+esc(reviewedServer.url)+'</code></div></div>':'')+
     '<p>'+esc(aiConnections.sendDescription(provider))+'</p>'+
-    '<details class="route-evidence"><summary>What will be sent</summary><p class="body-copy">'+esc(input.capture)+'</p><p class="hint">Matching projects and sessions · '+
-    esc([...input.projects.map(p=>p[1]),...input.sessions.map(s=>s.slice(1).join(' · '))].join(', ')||'None')+'</p>'+
+    '<details class="route-evidence"><summary>What will be sent</summary><p class="body-copy">'+esc(input.capture)+'</p><p class="hint">Matching projects and sessions / '+
+    esc([...input.projects.map(p=>p[1]),...input.sessions.map(s=>s.slice(1).join(' / '))].join(', ')||'None')+'</p>'+
     (aiConnections.routingInstructions()?'<details><summary>Tasktap’s routing instructions</summary><p class="body-copy">'+esc(aiConnections.routingInstructions())+'</p></details>':'')+'</details>'+
     '<div class="form-actions">'+button('Prepare on this Mac','local-review')+button('Send to '+aiConnections.label(provider),'send-capture','','primary')+'</div>');
   $('#modal [data-action="local-review"]').onclick=()=>{d.routingSource='local';routingPrompt()};

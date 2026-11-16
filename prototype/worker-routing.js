@@ -19,7 +19,7 @@ const workerRouting = (() => {
     const w=limiting(id);
     if(!w)return 'Quota unavailable';
     const period=w.minutes===10080?'weekly':w.minutes===300?'5-hour':w.minutes>0?w.minutes+'-minute':'plan';
-    return w.remaining+'% left · '+period+' limit';
+    return w.remaining+'% left / '+period+' limit';
   }
   function recommend(p){
     const active=p.ranked.filter(healthy);
@@ -149,7 +149,7 @@ const workerRouting = (() => {
     line.textContent=d.noPick?d.workerReason:blocked?(providers[d.agent]+(aiConnections.health(d.agent)==='missing'?' isn’t installed.':' needs sign-in.')):[d.workerReason,evidence].filter(Boolean).join(' ');
     line.hidden=!line.textContent || line.dataset.summary==='true'&&!d.noPick&&!blocked&&!(d.usingRank&&(d.agent!==sessionModelPolicy().defaultAgent||/Using /.test(d.workerReason)))&&!(limiting(d.agent)?.remaining<(d.reserve??policy().reserve));
     const window=limiting(d.agent);
-    const reset=window?' · resets '+new Date(window.resetsAt*1000).toLocaleString(undefined,{weekday:'short',hour:'numeric',minute:'2-digit'}):'';
+    const reset=window?' / resets '+new Date(window.resetsAt*1000).toLocaleString(undefined,{weekday:'short',hour:'numeric',minute:'2-digit'}):'';
     if($('#worker-quota'))$('#worker-quota').textContent=d.noPick?'Select an agent to see its quota.':blocked?line.textContent:pending?'Checking remaining usage…':allowance(d.agent)+reset;
     const start=$('#modal [data-action="commit-review"]');if(start)start.disabled=!!d.noPick || blocked;
   }

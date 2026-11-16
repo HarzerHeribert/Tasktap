@@ -79,7 +79,7 @@ function modelSuggestions(agent) {
 function modelReviewMarkup(d) {
   const plan = modelPlanFor(d);
   if (!plan) return '';
-  const tier = plan.mode === 'curve' ? modelTiers[plan.tier]+' · '+plan.score+'/10 · ' : '';
+  const tier = plan.mode === 'curve' ? modelTiers[plan.tier]+' / '+plan.score+'/10 / ' : '';
   return '<p class="hint" id="review-model">'+esc(tier+plan.label)+'</p>';
 }
 
@@ -104,7 +104,7 @@ function sessionModelSettings() {
     const keys = policy.adaptive ? Object.keys(modelTiers) : ['fixed'];
     const ranges = {quick:'1–'+(policy.standardAt-1),standard:policy.standardAt+'–'+(policy.complexAt-1),complex:policy.complexAt+'–10'};
     form.classList.toggle('is-adaptive',policy.adaptive);
-    $('#model-fields',form).innerHTML = keys.map(key=>settingsField('model-'+key,key==='fixed'?'Fixed model':modelTiers[key]+' · '+ranges[key],modelInput(agent,key,policy.agents[agent][key]))).join('')+modelSuggestions(agent);
+    $('#model-fields',form).innerHTML = keys.map(key=>settingsField('model-'+key,key==='fixed'?'Fixed model':modelTiers[key]+' / '+ranges[key],modelInput(agent,key,policy.agents[agent][key]))).join('')+modelSuggestions(agent);
     settingsPickers.mount($('#model-fields',form));
     for (const key of keys) $('#model-'+key,form).oninput=e=>{policy.agents[agent][key]=e.target.value.trim()};
   }

@@ -20,12 +20,12 @@ const shots=process.env.TASKTAP_SCREENSHOTS||'/tmp';fs.mkdirSync(shots,{recursiv
   });
   const click=name=>page.getByRole('button',{name,exact:true}).click();
   let text=await page.locator('#handoff-review').innerText();
-  for(const value of ['Task','Destination','Context','Cuegrid','Codex','Tasktap','review-model','New conversation','Timeline.swift'])assert.ok(text.includes(value),value+' is visible without disclosure');
+  for(const value of ['Your request','Destination','Reference','Cuegrid','Codex','Tasktap','review-model','New conversation','Timeline.swift'])assert.ok(text.includes(value),value+' is visible without disclosure');
   assert.equal(await page.locator('#handoff-review details').count(),0);
   assert.equal(await page.locator('#handoff-review [data-action="commit-review"]').count(),1);
   assert.ok(!/report_result|list_project_sessions|current checkout and branch|review-capture/.test(text),'ordinary review excludes delivery instructions and receipt IDs');
   assert.equal(await page.getByRole('button',{name:'Change reference',exact:true}).count(),0,'context has one focused edit action');
-  assert.equal(await page.locator('#review-brief').evaluate(el=>getComputedStyle(el).fontSize),'16px');
+  assert.ok(await page.locator('#review-brief').evaluate(el=>parseFloat(getComputedStyle(el).fontSize)>=16));
   await page.screenshot({path:path.join(shots,'tasktap-review-summary.png')});
   const preserved=await page.evaluate(()=>({project:draft.project,agent:draft.agent,host:draft.host,capture:draft.captureId,reference:draft.reference,model:draft.modelOverride,strokes:draft.strokes}));
   await click('Edit task');await page.getByLabel('Task',{exact:true}).fill('Refine the timeline controls and preserve every keyboard shortcut.');await click('Save task');
@@ -74,9 +74,16 @@ const shots=process.env.TASKTAP_SCREENSHOTS||'/tmp';fs.mkdirSync(shots,{recursiv
   await page.evaluate(()=>{draft.submitting=false;draft.brief=Array(8).fill('Refine the Cuegrid timeline, preserve keyboard shortcuts, and make every control easy to understand.').join(' ');review()});
   for(const variant of [{width:1280,zoom:'',compact:false,name:'desktop'},{width:560,zoom:'',compact:true,name:'notch'},{width:390,zoom:'',compact:false,name:'narrow'},{width:640,height:450,zoom:'',compact:false,name:'zoom'}]){
    await page.setViewportSize({width:variant.width,height:variant.height||900});await page.evaluate(v=>{document.documentElement.style.zoom=v.zoom;document.body.classList.toggle('notch-first',v.compact);review()},variant);
+   if(variant.compact){
+    await page.evaluate(()=>updateBounds(true));
+    assert.equal(await page.evaluate(()=>sent.findLast(m=>m.type==='layout').width),560,'native review requests room for the summary sections');
+    await click('Edit task');await page.evaluate(()=>updateBounds(true));
+    assert.equal(await page.evaluate(()=>sent.findLast(m=>m.type==='layout').width),432,'focused editor returns to the smaller notch');
+    await click('Back to review');
+   }
    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'page fits '+variant.name);
    assert.ok(await page.locator('#modal').evaluate(el=>el.scrollWidth<=el.clientWidth+1),'dialog fits '+variant.name);
-   assert.equal(await page.locator('#review-brief').evaluate(el=>getComputedStyle(el).fontSize),'16px','task is readable '+variant.name);
+   assert.ok(await page.locator('#review-brief').evaluate(el=>parseFloat(getComputedStyle(el).fontSize)>=16),'task is readable '+variant.name);
    await page.locator('[data-action="commit-review"]').scrollIntoViewIfNeeded();
    const primary=await page.locator('[data-action="commit-review"]').boundingBox(),notice=await page.locator('.review-manual').boundingBox();
    assert.ok(primary.y>=0&&primary.y+primary.height<=(variant.height||900)+1,'submit visible '+variant.name);assert.ok(notice.y>=0&&notice.y+notice.height<=primary.y+1,'paste consequence stays beside submit '+variant.name);
@@ -87,6 +94,34 @@ const shots=process.env.TASKTAP_SCREENSHOTS||'/tmp';fs.mkdirSync(shots,{recursiv
   await page.evaluate(()=>workerRouting.receive({checkedAt:Date.now()/1000,agents:{codex:[{remaining:90,minutes:300,resetsAt:Date.now()/1000+3600}]}}));
   assert.equal(await page.locator('#dialog-heading').innerText(),'Change destination');assert.equal(await page.getByLabel('Keep in reserve (%)').inputValue(),'42','async quota refresh preserves the open editor');
   await click('Review changes');assert.ok(await page.locator('[data-action="commit-review"]').isEnabled());
+  // Short metadata stays on one line, with aligned sections and edit controls.
+  await page.evaluate(()=>{
+   state.workerRouting={automatic:false};state.sessions=[];showHome(true);
+   captureDraft('','cuegrid','Make the rehearsal timer easier to read on mobile. Keep the keyboard shortcuts.');
+   Object.assign(draft,{brief:draft.text,agent:'codex',agentChoice:'manual',host:'tasktap',reference:{kind:'website',value:'http://localhost:3000/rehearsal',app:'Safari'}});
+   document.body.style.setProperty('--native-surface-width','560px');review();
+  });
+  for(const width of [592,390,320]){
+   await page.setViewportSize({width,height:1000});
+   await page.evaluate(()=>document.activeElement?.blur());
+   assert.ok(await page.locator('#modal').evaluate(el=>el.scrollWidth<=el.clientWidth+1),'summary fits '+width);
+   assert.ok(await page.locator('.review-group-heading').evaluateAll(headings=>headings.every(heading=>{
+    const title=heading.querySelector('h3').getBoundingClientRect(),edit=heading.querySelector('button').getBoundingClientRect();
+    return Math.abs((title.top+title.bottom)/2-(edit.top+edit.bottom)/2)<1;
+   })),'heading and edit controls align at '+width);
+   assert.ok(await page.locator('.review-group-heading h3>span,.review-agent>span,.review-host,.review-conversation,.reference-address,.reference-origin').evaluateAll(items=>items.every(item=>{
+    const range=document.createRange();range.selectNodeContents(item);return range.getClientRects().length===1;
+   })),'short descriptors stay on one line at '+width);
+   if(width===592){
+    const cards=await page.locator('.review-destination,.review-reference').evaluateAll(items=>items.map(item=>{const r=item.getBoundingClientRect();return {top:r.top,bottom:r.bottom}}));
+    assert.ok(Math.abs(cards[0].top-cards[1].top)<1&&Math.abs(cards[0].bottom-cards[1].bottom)<1,'summary sections share top and bottom edges');
+   }
+   await page.locator('#modal').screenshot({path:path.join(shots,'review-summary-'+width+'.png')});
+  }
+  await page.evaluate(()=>{draft.reference.value='https://example.com/a-very-long-reference-that-must-remain-readable-in-one-line/and-keep-its-complete-path';review()});
+  const address=page.locator('.reference-address');
+  assert.ok(await address.evaluate(el=>el.scrollWidth>el.clientWidth&&el.clientHeight<=24),'long reference scrolls instead of breaking into fragments');
+  assert.match(await address.getAttribute('title'),/and-keep-its-complete-path$/,'complete reference remains available');
   assert.deepEqual(errors,[]);
   console.log('PASS: visible Task/Destination/Context, focused edits preserve draft, exact outgoing instructions, trust and failure retry, manual follow-up identity/consequence, redacted JSON copy/export, compact/narrow/200%-equivalent review.');
  }finally{await browser.close()}

@@ -80,15 +80,15 @@ const aiConnections = (() => {
     payer(route)+' may be used before the handoff review.';
   const account = () => config.accounts.find(a=>a.id===config.account);
   const payer = route => ({
-    server:[serverTarget().url,serverTarget().model].filter(Boolean).join(' · '),
+    server:[serverTarget().url,serverTarget().model].filter(Boolean).join(' / '),
     'claude-session':config.workers.claude || 'Check the account in Claude Code',
-    chatgpt:account()?.label || 'ChatGPT plan', openai:'OpenAI project · saved API key',
-    anthropic:'Anthropic Console · saved API key', cloud:config.cloud || 'Configured cloud account',
-    codex:config.workers.codex || 'Codex CLI · billing source unverified', local:'No cloud usage'
+    chatgpt:account()?.label || 'ChatGPT plan', openai:'OpenAI project / saved API key',
+    anthropic:'Anthropic Console / saved API key', cloud:config.cloud || 'Configured cloud account',
+    codex:config.workers.codex || 'Codex CLI / billing source unverified', local:'No cloud usage'
   })[route];
   function worker(agent, external=false) {
-    if (external) return 'Existing session · account managed in its original client';
-    return (live ? config.workers[agent] || 'Billing source unverified' : 'Demo · no usage');
+    if (external) return 'Existing session / account managed in its original client';
+    return (live ? config.workers[agent] || 'Billing source unverified' : 'Demo / no usage');
   }
   function receive(value,note='',finished=false,success=true,request='',account='') {
     config = value;loaded=true;
@@ -137,7 +137,7 @@ const aiConnections = (() => {
       const model=settingsField('ai-model','Preparation model','<input id="ai-model" autocomplete="off" spellcheck="false" value="'+attr(config.models[chosen] || ({openai:'gpt-5.4-mini',anthropic:'claude-haiku-5-5'}[chosen] ?? ''))+'" '+(isKey?'required placeholder="Model available to your account"':'placeholder="Provider default"')+'>');
       fields.push(isKey?model:'<details class="route-evidence"><summary>Model override</summary>'+model+'</details>');
       if (routeAgent(chosen)) fields.unshift(setupField(routeAgent(chosen)));
-      if (chosen==='cloud') fields.push('<p class="hint">'+esc(config.cloud?'Configured provider · '+config.cloud:'Configure one Claude Code cloud provider in the app environment first.')+'</p>');
+      if (chosen==='cloud') fields.push('<p class="hint">'+esc(config.cloud?'Configured provider / '+config.cloud:'Configure one Claude Code cloud provider in the app environment first.')+'</p>');
     }
     const options=Object.keys(routes).map(k=>'<option value="'+attr(k)+'" data-detail="'+attr(routes[k][1])+'" '+(k===chosen?'selected':'')+'>'+esc(routes[k][0])+'</option>').join('');
     dialog('Request preparation','Tasktap','<form id="ai-settings" class="settings-form"><section class="settings-section">'+
@@ -175,9 +175,9 @@ const aiConnections = (() => {
   }
   function accountSummary(d) {
     const agent=d.mode==='nudge'?sess(d.session)?.agent:d.agent;
-    const sources=(d.remoteAttempts||[]).map(a=>a.label+' · '+a.account);
-    const prep=d.directPreparation?('Claude Code · '+d.directPreparation.account+(d.routingSource==='claude-session'?' · reviewed brief':' · original wording used')):sources.length?('Requested '+sources.join(' / ')+(['local','skipped'].includes(d.routingSource)?' · finished on this Mac':'')):'On this Mac · no cloud usage';
-    const next=d.mode==='ask' && d.noPick?'Choose an agent':d.mode==='note'?'Local note · no worker':(providers[agent]||'Worker')+' · '+sessionHostLabel(d)+' · '+worker(agent,d.mode==='nudge');
+    const sources=(d.remoteAttempts||[]).map(a=>a.label+' / '+a.account);
+    const prep=d.directPreparation?('Claude Code / '+d.directPreparation.account+(d.routingSource==='claude-session'?' / reviewed brief':' / original wording used')):sources.length?('Requested '+sources.join(' / ')+(['local','skipped'].includes(d.routingSource)?' / finished on this Mac':'')):'On this Mac / no cloud usage';
+    const next=d.mode==='ask' && d.noPick?'Choose an agent':d.mode==='note'?'Local note / no worker':(providers[agent]||'Worker')+' / '+sessionHostLabel(d)+' / '+worker(agent,d.mode==='nudge');
     return {prep,next};
   }
   function receipt(d) {
@@ -186,7 +186,7 @@ const aiConnections = (() => {
   }
   function record(d) {
     const {prep,next}=accountSummary(d);
-    return 'Preparation · '+prep+'\nHandoff · '+next;
+    return 'Preparation / '+prep+'\nHandoff / '+next;
   }
   return {snapshot:()=>config,loaded:()=>loaded,routes,health,show,jump,setup,setupField,refresh,checked,updateSetup,receive,receipt,record,routingInstructions:()=>config.routingInstructions || '',serverTarget,sendDescription,label,payer,worker,choice:()=>config.choice};
 })();

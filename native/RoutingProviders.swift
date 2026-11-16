@@ -48,7 +48,7 @@ import AppKit
         defaults.set(server.kind.rawValue,forKey:"router.server.kind")
     }
     func state() -> RouterJSON {
-        let accounts = chat.registrations.map { ["id":$0.key,"label":($0.value["email"] ?? "Account")+" · "+String($0.key.suffix(6)),"status":$0.value["plan"] ?? "off"] }.sorted { $0["label"]! < $1["label"]! }
+        let accounts = chat.registrations.map { ["id":$0.key,"label":($0.value["email"] ?? "Account")+" / "+String($0.key.suffix(6)),"status":$0.value["plan"] ?? "off"] }.sorted { $0["label"]! < $1["label"]! }
         return ["routingInstructions":HandoffRouter.instructions,"serverKind":serverKind,"serverProfiles":profiles,"choice":selected.rawValue,"models":Dictionary(uniqueKeysWithValues:Route.allCases.map {($0.rawValue,model($0))}),
                 "accounts":accounts,"account":chat.selected,"workers":workers,"workerHealth":workerHealth,"cloud":cloudName,
                 "keys":["openai":defaults.bool(forKey:"router.key.openai"),"anthropic":defaults.bool(forKey:"router.key.anthropic")]]

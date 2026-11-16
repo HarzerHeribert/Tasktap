@@ -11,7 +11,7 @@
   const unit=a=>mul(a,1/(Math.hypot(...a)||1));
   const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
   const nickel=[.99,1.0,.98], steel=[.76,.86,.93], brass=[1.0,.83,.65], gunmetal=[.30,.38,.41];
-  const state={vertices:[],time:0,mini:false,home:false};
+  const state={vertices:[],time:0,mini:false,home:false,site:false};
   function rotate([x,y,z],[rx,ry,rz]) {
     let a=y*Math.cos(rx)-z*Math.sin(rx), b=y*Math.sin(rx)+z*Math.cos(rx);
     let c=x*Math.cos(ry)+b*Math.sin(ry), d=-x*Math.sin(ry)+b*Math.cos(ry);
@@ -56,12 +56,12 @@
     }
     const u=name=>gl.getUniformLocation(program,name);
     gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);gl.clearColor(...(transparent?[0,0,0,0]:brand?[.018,.022,.027,1]:[.007,.012,.014,1]));
-    return (id,mini,t,symbol,home=false)=>{
-      const width=brand?brandWidth:transparent?96:home?1200:mini?260:736,height=brand?brandWidth:transparent?96:home?240:mini?156:352, samples=transparent?4:mini?3:2;
+    return (id,mini,t,symbol,home=false,site=false)=>{
+      const width=site?1920:brand?brandWidth:transparent?96:home?1200:mini?260:736,height=site?900:brand?brandWidth:transparent?96:home?240:mini?156:352, samples=transparent?4:mini?3:2;
       if(canvas.width!==width*samples||canvas.height!==height*samples){canvas.width=width*samples;canvas.height=height*samples;}
       gl.viewport(0,0,canvas.width,canvas.height);
       gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-      state.time=t*tau;state.mini=mini;state.home=home;state.vertices.length=0;
+      state.time=t*tau;state.mini=mini;state.home=home;state.site=site;state.vertices.length=0;
       if(brand) voiceMark();
       else if(transparent) glyphMark(symbol,[0,0,0],1.23,[-.24,.19,-.045],nickel);
       else if(id==='relay-bed')relay(false);
@@ -126,7 +126,7 @@
   function glyphMark(symbol,center,r,rot,color) {
     function stroke(dx,dy,length,width,angle){
       const c=add(center,rotate([dx*r,dy*r,0],rot));
-      bar(c,r*length,r*width,r*.42,[...rot.slice(0,2),rot[2]+angle],color);
+      bar(c,r*length,r*width*(state.site?1.32:1),r*(state.site?.57:.42),[...rot.slice(0,2),rot[2]+angle],color);
     }
     switch(symbol){
       case '/':stroke(0,0,1.22,.38,1.07);break;
@@ -152,7 +152,7 @@
     // vertical travel retain the stage's original proportions.
     const count=state.mini?7:state.home?39:15;
     const symbols='/=:+';
-    const radius=state.mini?.28:.163;
+    const radius=state.site?.19:state.mini?.28:.163;
     const pairs=state.mini?1:2;
     for(let i=0;i<count;i++){
       const u=i/(count-1);
@@ -191,7 +191,7 @@
       const roll=1.46*tau*u-.77, bend=tau*1.22*u-.57;
       const twist=.43+1.57*lerp(Math.sin(roll),Math.sin(roll-t),travel);
       const spine=.29*lerp(Math.sin(bend),Math.sin(bend-t),travel);
-      const radial=.42*env*Math.cos(a), depth=.091*Math.sin(a);
+      const radial=(state.site?.48:.42)*env*Math.cos(a), depth=(state.site?.125:.091)*Math.sin(a);
       return [x+.027*Math.sin(a),spine+
         radial*Math.cos(twist)-depth*Math.sin(twist),radial*Math.sin(twist)+depth*Math.cos(twist)+.11*Math.cos(tau*u+.32)];
     }
@@ -330,4 +330,7 @@
   let render;
   window.motionFrame = (id,mini,t) => {render ||= install();return render(id,mini,t);};
   window.motionHomeFrame = (id,t) => {render ||= install();return render(id,false,t,undefined,true);};
+  // A separate editorial composition: larger, thicker solids at 1920×900.
+  // In-app artwork retains its original geometry and framing.
+  window.motionSiteFrame = (id,t) => {render ||= install();return render(id,false,t,undefined,false,true);};
 })();

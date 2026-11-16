@@ -19,7 +19,6 @@
 .home-session-row.is-question .row-title{white-space:normal;overflow-wrap:anywhere}
 .home-session-row .home-row-meta{display:flex;align-items:center;gap:var(--s-small);min-width:0;overflow:hidden;white-space:nowrap;font-size:var(--t-small);line-height:1.4;color:var(--app-muted,var(--muted));overflow-wrap:normal}
 .home-row-meta>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.home-row-meta>span+span::before{content:'·';padding-right:var(--s-small);color:var(--app-subtle,var(--muted))}
 .home-row-project{flex:0 1 auto;max-width:55%;font-weight:500}
 .home-row-agent{flex:none}
 .home-row-host{flex:0 1 auto}

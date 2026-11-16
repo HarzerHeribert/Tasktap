@@ -5,6 +5,10 @@ let saved;
 const context={setupWizard:{showing:()=>false},document:{querySelector:()=>null},recording:null,draft:{text:'Keep this request',project:'p',strokes:[[1,2]]},localStorage:{setItem:(k,v)=>saved=JSON.parse(v)},persist:()=>{}};
 vm.createContext(context);vm.runInContext('function prepareForAppUpdate(){'+source,context);
 assert.equal(context.prepareForAppUpdate(),true);assert.equal(saved.text,'Keep this request');assert.equal(saved.strokes.length,1);
+context.draft.brief='Reviewed wording';assert.equal(context.prepareForAppUpdate(),true);assert.equal(saved.text,'Reviewed wording');
+context.document.querySelector=selector=>selector.includes('#review-task-form')?{}:null;
+assert.equal(context.prepareForAppUpdate(),false,'an open review editor must be saved before restart');
+context.document.querySelector=()=>null;
 for(const field of ['routing','submitting']){context.draft[field]=true;assert.equal(context.prepareForAppUpdate(),false);context.draft[field]=false}
 context.recording={};assert.equal(context.prepareForAppUpdate(),false);
 context.recording=null;context.localStorage.setItem=()=>{throw Error('Storage full')};assert.equal(context.prepareForAppUpdate(),false);

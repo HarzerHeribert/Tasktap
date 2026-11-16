@@ -54,8 +54,8 @@ def run(cli,job,previous,bridge,prompt,save_id,model=''):
                             result=subprocess.run(command,stdout=subprocess.PIPE,text=True)
                             if result.returncode==0:
                                 answer=json.loads(result.stdout.splitlines()[-1])['answer']
-                                selected=next(o for o in opts if o['name']==answer)
-                                outcome={'outcome':'selected','optionId':selected['optionId']}
+                                selected=next((o for o in opts if o['name']==answer),None)
+                                if selected:outcome={'outcome':'selected','optionId':selected['optionId']}
                     send(dict(id=event['id'],result={'outcome':outcome}))
                 elif 'id' in event and 'method' in event:
                     send(dict(id=event['id'],error={'code':-32601,'message':'Unsupported client method'}))

@@ -1,10 +1,10 @@
 // Readable evidence accompanies the handoff. The changing text is the model's draft brief.
 function workspaceEvidence(d) {
-  if (d.session) return 'Existing conversation · '+(sess(d.session)?.task || 'Selected session');
-  if (d.sessionProject && d.project===d.sessionProject) return 'Chosen workspace · '+proj(d.project).name;
+  if (d.session) return 'Existing conversation / '+(sess(d.session)?.task || 'Selected session');
+  if (d.sessionProject && d.project===d.sessionProject) return 'Chosen workspace / '+proj(d.project).name;
   const name=proj(d.project)?.name;
-  if (name && matchProjects(d.text).some(p=>p.id===d.project)) return 'Named in capture · '+name;
-  if (name || d.project==='@new') return 'Destination · '+(name || d.newName);
+  if (name && matchProjects(d.text).some(p=>p.id===d.project)) return 'Named in capture / '+name;
+  if (name || d.project==='@new') return 'Destination / '+(name || d.newName);
   return 'Workspace still needs a match.';
 }
 
@@ -55,7 +55,7 @@ function routingEvidence(d) {
     skipped:d.remoteAttempts?.length?'You stopped waiting for the remote request. Tasktap used local matching.':'You skipped the model call. Tasktap used local matching.'
   }[d.routingSource] || (d.remoteAttempts?.length && !['local','skipped','error'].includes(d.routingSource)?aiConnections.label(d.routingSource)+' prepared the handoff.':'Tasktap used local matching.');
   const evidence=[source,workspaceEvidence(d)];
-  if (d.reference?.value) evidence.push('Reference · '+d.reference.app+' · '+d.reference.value);
+  if (d.reference?.value) evidence.push('Reference / '+d.reference.app+' / '+d.reference.value);
   if(d.mode==='ask' && d.workerReason)evidence.push(d.workerReason);
   const plan=d.noPick?null:modelPlanFor(d);
   if (plan) evidence.push(plan.reason);

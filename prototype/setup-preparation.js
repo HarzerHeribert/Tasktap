@@ -38,7 +38,7 @@ const setupPreparation=(()=>{
     if(status==='signedOut')return 'No Codex account is signed in.';
     if(status==='missing')return 'Install Codex to use its login.';
     if(status==='checking')return 'Checking the account in Codex…';
-    if(source==='ChatGPT login')return (p.email?p.email+' · ':'')+'ChatGPT plan in Codex';
+    if(source==='ChatGPT login')return (p.email?p.email+' / ':'')+'ChatGPT plan in Codex';
     if(source==='API key login')return 'The OpenAI project billed by the API key in Codex.';
     return 'Codex hasn’t identified its billing account.';
   }
@@ -46,7 +46,7 @@ const setupPreparation=(()=>{
     if(id==='local')return 'No account or cloud usage. When Apple’s on-device model is available, it can suggest short briefs; otherwise Tasktap uses local matching. This prepares requests, not project code. Review names, intent and destination before starting an agent.';
     if(id==='claude-session')return aiConnections.payer(id)==='Claude plan login'?'Draft in Terminal using your Claude subscription.':'Draft in Terminal using the account in Claude Code. '+aiConnections.payer(id)+'.';
     if(id==='codex')return codexAccount(p);
-    if(id==='chatgpt')return account(p)?account(p).label+' · ChatGPT plan':'Choose a ChatGPT account with plan access.';
+    if(id==='chatgpt')return account(p)?account(p).label+' / ChatGPT plan':'Choose a ChatGPT account with plan access.';
     if(id==='openai')return 'The OpenAI project that owns this key pays for preparation.';
     if(id==='anthropic')return 'The Anthropic Console account that owns this key pays for preparation.';
     if(id==='cloud')return config().cloud || 'Configure a cloud provider for Claude Code first.';
@@ -140,11 +140,11 @@ const setupPreparation=(()=>{
     const worker=$('#setup-worker-account'),agent=$('#setup-agent')?.value;
     if(worker && agent){
       const label=agent==='codex'?codexAccount(p):aiConnections.worker(agent);
-      worker.textContent=aiConnections.health(agent)==='missing' || aiConnections.health(agent)==='signedOut'?'':'Account for project work · '+label;
+      worker.textContent=aiConnections.health(agent)==='missing' || aiConnections.health(agent)==='signedOut'?'':'Account for project work / '+label;
     }
     if($('#setup-route-summary')){
       const id=selected(p),model=p.form?.querySelector('#ai-model')?.value;
-      $('#setup-route-summary').textContent=[routes[id],servers.includes(id)?[p.form?.querySelector('#server-url')?.value,model].filter(Boolean).join(' · '):id==='local'?'No account':billing(p,id)].filter(Boolean).join(' · ');
+      $('#setup-route-summary').textContent=[routes[id],servers.includes(id)?[p.form?.querySelector('#server-url')?.value,model].filter(Boolean).join(' / '):id==='local'?'No account':billing(p,id)].filter(Boolean).join(' / ');
     }
   }
   function blocking(p){

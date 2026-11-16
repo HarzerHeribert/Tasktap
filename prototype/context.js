@@ -117,6 +117,10 @@ const captureContext=(()=>{
   }
   function review(d,options={}){
     if(!d.reference)return '';
+    if(options.compact){
+      const r=d.reference,address=r.kind==='website'?r.value.replace(/^https?:\/\//,''):r.value;
+      return '<div id="capture-reference" class="review-reference"><p class="reference-address" tabindex="0" title="'+attr(r.value)+'">'+esc(address)+'</p><div class="reference-actions"><span class="reference-origin">'+esc(r.app?'From '+r.app:r.kind==='file'?'File reference':'Web reference')+'</span>'+(live&&enabled()&&r.sourceID?button('Refresh source','context-refresh','','text-btn'):'')+'<button type="button" class="icon-btn reference-remove" data-action="context-remove" aria-label="Remove reference" title="Remove reference">'+icon('x')+'</button></div>'+provenance(r)+'</div>';
+    }
     return '<div class="block" id="capture-reference"><strong>'+esc(d.reference.kind==='file'?'Referenced file':'Referenced website')+'</strong><p class="body-copy mono">'+esc(d.reference.value)+'</p>'+provenance(d.reference)+'<div class="inline"><span class="hint">'+esc(d.reference.app)+'</span>'+(options.editable?button('Change reference','context-change','','text-btn'):'')+(live&&enabled()&&d.reference.sourceID?button('Refresh source','context-refresh','','text-btn'):'')+button('Remove reference','context-remove','','text-btn')+'</div></div>';
   }
   function attach(d,reference){

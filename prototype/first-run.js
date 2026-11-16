@@ -128,7 +128,7 @@ const firstRun = {
     }
     if (!nudge && failedStart(s)) actions+=button('Review & retry','review-retry',s.id,'voice-trigger');
     if (failed && s) actions+=button('Session details','session',s.id,'surface-button');
-    return '<header class="home-meta"><h1 class="guide-title">'+esc(title)+'</h1>'+surfaceButton('Done','guide-finish','','workspace-link')+'</header><p class="guide-session">'+esc([proj(s?.project)?.name,providers[s?.agent],terminal].filter(Boolean).join(' · '))+'</p>'+
+    return '<header class="home-meta"><h1 class="guide-title">'+esc(title)+'</h1>'+surfaceButton('Done','guide-finish','','workspace-link')+'</header><p class="guide-session">'+esc([proj(s?.project)?.name,providers[s?.agent],terminal].filter(Boolean).join(' / '))+'</p>'+
       (hint?'<p class="home-idle">'+esc(hint)+'</p>':'')+(actions || question?'<div class="guide-actions">'+actions+question+'</div>':'');
   }
 };

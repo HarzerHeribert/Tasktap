@@ -36,6 +36,13 @@ const prefix='/Tasktap/';
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`${suffix||'home'} fits ${width}px`);
     // Lazy product imagery must also exist and decode when reached.
     await page.locator('img').evaluateAll(images=>Promise.all(images.map(async image=>{image.loading='eager';await image.decode()})));
+    if(!suffix){
+     assert.ok(await page.locator('#terminals').isVisible(),'embedded workspace is visible without opening a chapter');
+     assert.ok(await page.evaluate(()=>document.querySelector('#terminals').getBoundingClientRect().bottom<=document.querySelector('#workspace').getBoundingClientRect().top),'terminal workspace leads into the routing walkthrough');
+     assert.ok(await page.locator('#theme-image').evaluate(i=>i.naturalWidth>=i.clientWidth*2-2),'the prominent workspace capture retains Retina resolution');
+     assert.ok(await page.evaluate(()=>[...document.querySelectorAll('.story-panel img')].every(i=>i.getAttribute('src')!==document.querySelector('#theme-image').getAttribute('src'))),'each story capture adds a distinct product view');
+     if(shots&&[1440,390,320].includes(width))await page.locator('#terminals').screenshot({path:path.join(shots,'terminals-'+width+'.png')});
+    }
     const refs=await page.locator('a[href]').evaluateAll(links=>links.map(link=>link.href));
     for(const ref of new Set(refs.filter(ref=>ref.startsWith(url)))){
      const target=new URL(ref),response=await page.request.get(target.href);assert.equal(response.status(),200,target.href);
@@ -46,30 +53,31 @@ const prefix='/Tasktap/';
    }
   }
   await page.setViewportSize({width:1280,height:900});await page.goto(url);
-  const film=page.locator('.wave-field video');assert.equal(await film.getAttribute('poster'),'assets/glyph.jpg');assert.equal(await film.getAttribute('src'),null);
-  for(const extension of ['jpg','mp4']){
+  const film=page.locator('.wave-field video');assert.equal(await film.getAttribute('poster'),'assets/motion/glyph.jpg');assert.equal(await film.getAttribute('src'),null);
+  for(const artwork of ['glyph'])for(const extension of ['jpg','mp4']){
    const digest=async file=>createHash('sha256').update(await fs.readFile(file)).digest('hex');
-   assert.equal(await digest(path.join(root,'assets/glyph.'+extension)),await digest(path.resolve(__dirname,'../prototype/assets/motion/glyph/home.'+extension)),'public artwork uses the smooth wide home source');
+   assert.equal(await digest(path.join(root,'assets/motion/'+artwork+'.'+extension)),await digest(path.resolve(__dirname,'../site/assets/motion/'+artwork+'.'+extension)),'public artwork uses the high-resolution site composition');
   }
   assert.equal(await page.getByRole('button',{name:'Pause artwork',exact:true}).isVisible(),false);
   assert.equal(await page.getByRole('button',{name:'Pause logo animation'}).isVisible(),false);
   for(const download of await page.locator('a.download-app').all())assert.equal(await download.getAttribute('href'),'https://github.com/HarzerHeribert/Tasktap/releases/latest');
   assert.match(await page.locator('#download').innerText(),/Python 3/);assert.match(await page.locator('#download').innerText(),/not Apple notarized/);
-  const terminal=page.locator('#terminal-install'),summary=terminal.locator('summary');
-  await summary.focus();await page.keyboard.press('Enter');assert.ok(await terminal.evaluate(el=>el.open));
+  assert.equal(await page.locator('[data-art],.signature-caption,.phase-transition').count(),0,'one hero background, no artwork chooser or decorative transition');
+  assert.ok(!(await page.locator('body').innerText()).includes('·'),'no separator dots');
   assert.ok(await page.locator('#install-command').isVisible());
   assert.match(await page.locator('#install-command').innerText(),/curl -fL --proto '=https' --tlsv1\.2/);
   assert.equal((await page.request.get(url+'install.sh')).status(),200);
-  await page.getByRole('button',{name:'Copy command',exact:true}).click();
+  await page.getByRole('button',{name:'Copy install command',exact:true}).click();
   assert.equal(await page.evaluate(()=>window.copiedCommand),await page.locator('#install-command').innerText());
   assert.match(await page.locator('#install-status').innerText(),/Command copied/);
-  await summary.focus();await page.keyboard.press('Enter');assert.equal(await terminal.evaluate(el=>el.open),false);
   // Progressive enhancement: the full story, download links, source and native
   // disclosure remain usable with JavaScript disabled.
   const staticContext=await browser.newContext({javaScriptEnabled:false,viewport:{width:390,height:844}}),staticPage=await staticContext.newPage();
-  await staticPage.goto(url);await staticPage.locator('#terminal-install summary').click();
+  await staticPage.goto(url);
   assert.ok(await staticPage.locator('#install-command').isVisible());
-  assert.equal(await staticPage.locator('a.download-app').count(),2);
+  assert.equal(await staticPage.locator('a.download-app').count(),1);
+  assert.equal(await staticPage.locator('.story-panel:visible').count(),5);
+  assert.equal(await staticPage.locator('[role=tablist]').count(),0);
   assert.ok(await staticPage.locator('a[href="install.sh"]').isVisible());
   assert.equal(await staticPage.locator('.wave-field video').getAttribute('src'),null);
   assert.ok(await staticPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
@@ -93,13 +101,85 @@ const prefix='/Tasktap/';
   await page.waitForFunction(()=>document.querySelector('[data-brand-motion]').src.endsWith('.webp'));
   await film.scrollIntoViewIfNeeded();await page.waitForFunction(()=>document.querySelector('.wave-field video').currentTime>0);
   const media=await film.evaluate(v=>({rate:v.playbackRate,width:v.videoWidth,height:v.videoHeight,duration:v.duration}));
-  assert.equal(media.rate,1);assert.equal(media.width,1200);assert.equal(media.height,240);assert.ok(Math.abs(media.duration-16)<.1);
+  assert.equal(media.rate,1);assert.equal(media.width,1920);assert.equal(media.height,900);assert.ok(Math.abs(media.duration-16)<.1);
   await page.getByRole('button',{name:'Pause artwork',exact:true}).click();assert.equal(await film.evaluate(v=>v.paused),true);
   await page.getByRole('button',{name:'Play artwork',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.wave-field video').paused);
   await page.locator('#download').scrollIntoViewIfNeeded();await page.waitForFunction(()=>document.querySelector('.wave-field video').paused);
   for(const width of [390,320]){await page.setViewportSize({width,height:844});await page.evaluate(()=>scrollTo(0,0));assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'motion controls fit at '+width+'px');assert.equal(await film.evaluate(v=>v.playbackRate),1,'small artwork retains full-rate playback')}
   await page.emulateMedia({reducedMotion:'reduce'});await page.waitForFunction(()=>!document.querySelector('.wave-field video').hasAttribute('src'));
+  // Every chapter is reachable by keyboard and deep link; no hidden text is
+  // exposed as a second active panel. All capture edges stay inside their frame.
+  for(const width of [1440,820,390,320]){
+   await page.setViewportSize({width,height:900});await page.goto(url);
+   for(let i=0;i<5;i++){
+    await page.locator('[data-step="'+i+'"]').click();
+    assert.equal(await page.locator('.story-panel:visible').count(),1);
+    assert.equal(await page.locator('[role=tab][aria-selected=true]').getAttribute('data-step'),String(i));
+    const panel=page.locator('.story-panel:visible');
+    await panel.locator('img').evaluateAll(images=>Promise.all(images.map(i=>i.decode())));
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'chapter fits '+width);
+    assert.ok(await panel.locator('.scene-figure').evaluate(el=>{const box=el.getBoundingClientRect(),parent=el.closest('.story-stage').getBoundingClientRect();return box.left>=parent.left&&box.right<=parent.right&&box.bottom<=parent.bottom}),'capture stays within the stage');
+    if(await panel.locator('img').count())assert.ok(await panel.locator('img').evaluate(i=>i.naturalWidth>=i.clientWidth*2-2),'capture has at least 2× resolution');
+    else assert.ok(await panel.locator('.prompt-result').isVisible(),'preparation uses readable live text');
+    if(shots&&[1440,390].includes(width))await page.locator('#workspace').screenshot({path:path.join(shots,'story-'+i+'-'+width+'.png')});
+   }
+  }
+  await page.locator('[data-step="0"]').focus();await page.keyboard.press('ArrowRight');
+  assert.equal(await page.locator('[role=tab][aria-selected=true]').getAttribute('data-step'),'1');
+  await page.keyboard.press('End');assert.equal(await page.locator('[role=tab][aria-selected=true]').getAttribute('data-step'),'4');
+  await page.goto(url+'#scene-review');assert.ok(await page.locator('#scene-review').isVisible());
+  assert.equal(await page.locator('#story-play').isVisible(),false,'Reduce Motion leaves manual chapters');
+  await page.locator('#theme-image').evaluate(i=>i.decode());
+  assert.ok(await page.locator('#theme-image').evaluate(i=>i.currentSrc.endsWith('agents-native.jpg')&&i.naturalWidth===3600&&i.naturalHeight===2260),'all widths use the unmodified native Retina capture');
+  assert.equal(await page.locator('[data-theme]').count(),0,'no reconstructed theme variants');
+  await page.evaluate(()=>scrollTo(0,0));
+  assert.equal(await film.getAttribute('poster'),'assets/motion/glyph.jpg');
+  await page.emulateMedia({reducedMotion:'no-preference'});
+  await page.waitForFunction(()=>document.querySelector('.wave-field video').currentTime>0);
+  assert.equal(await film.evaluate(v=>v.videoWidth),960,'small screens use the Retina mobile encode');
+  await page.locator('#workspace').scrollIntoViewIfNeeded();
+  await page.locator('#step-capture').click();
+  await page.locator('#story-play').click();
+  await page.waitForFunction(()=>document.querySelector('#step-prepare').getAttribute('aria-selected')==='true',{},{timeout:9000});
+  await page.getByRole('button',{name:'Pause the walkthrough',exact:true}).click();
+  await page.waitForFunction(()=>!document.querySelector('.morph-shell'));
+  // Live preparation text joins the same morph as the captured interface, and
+  // the selected chapter remains usable when navigation interrupts it.
+  await page.locator('#step-review').click();
+  await page.waitForSelector('.morph-shell');
+  assert.ok(await page.locator('.morph-dom .prompt-result').count(),'the prepared prompt travels into review');
+  await page.waitForFunction(()=>!document.querySelector('.morph-shell'));
+  assert.ok(await page.locator('#scene-review .scene-figure').isVisible());
+  await page.locator('#step-prepare').click();
+  await page.waitForSelector('.morph-shell');
+  await page.setViewportSize({width:390,height:900});
+  await page.waitForFunction(()=>!document.querySelector('.morph-shell'));
+  assert.ok(await page.locator('#scene-prepare .prompt-result').isVisible(),'resizing restores the live preparation content');
+  await page.setViewportSize({width:1440,height:1000});
+  await page.locator('#step-capture').click();
+  await page.waitForFunction(()=>!document.querySelector('.morph-shell'));
+  await page.locator('#step-review').click();
+  await page.waitForSelector('.morph-shell');
+  assert.ok(await page.locator('.morph-piece').count()>=5,'real interface regions reassemble within one moving frame');
+  const frameMotion=await page.locator('.morph-shell').evaluate(el=>el.getAnimations()[0].effect.getKeyframes());
+  assert.notEqual(frameMotion[0].width,frameMotion.at(-1).width,'capture expands into the wider review');
+  assert.notEqual(frameMotion[0].height,frameMotion.at(-1).height,'shared frame changes shape');
+  if(shots){
+   await stagePause(page,true);
+   assert.equal(await page.locator('.morph-base').last().evaluate(el=>getComputedStyle(el).opacity),'0','full capture stays hidden while its components move');
+   await page.screenshot({path:path.join(shots,'morph-midpoint.png')});
+   await stagePause(page,false);
+  }
+  await page.waitForFunction(()=>!document.querySelector('.morph-shell'));
+  // Rapid navigation cancels stale frames and always reveals the chosen panel.
+  await page.evaluate(()=>{document.querySelector('#step-work').click();document.querySelector('#step-decision').click()});
+  assert.equal(await page.locator('.morph-shell').count(),1);
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await page.waitForFunction(()=>!document.querySelector('.morph-shell'));
+  assert.ok(await page.locator('#scene-decision .scene-figure').isVisible());
+  assert.equal(await page.locator('.story-panel:visible').count(),1);
+  async function stagePause(page,pause){await page.locator('.story-stage').evaluate((stage,pause)=>{for(const a of stage.getAnimations({subtree:true})){if(pause){a.pause();a.currentTime=500}else a.play()}},pause)}
   assert.deepEqual(errors,[]);
-  console.log('PASS: 1.0 product page and guide links/assets, five responsive sizes including 200%-equivalent viewport, keyboard/no-JS installer disclosure, source and clipboard, actual product images, download requirements, reduced-motion/visibility artwork controls; no browser errors.');
+  console.log('PASS: component morphs and cancellation, product storytelling, all chapters at four widths, Retina captures, keyboard/deep links/no-JS, glyph background and native app capture, playback and reduced motion; product page and guide links/assets, five responsive sizes including 200%-equivalent viewport, visible keyboard/no-JS installer, source and clipboard, actual product images, download requirements, reduced-motion/visibility artwork controls; no browser errors.');
  }finally{if(browser)await browser.close();server.close()}
 })().catch(error=>{console.error(error);process.exitCode=1});

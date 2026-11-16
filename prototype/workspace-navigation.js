@@ -91,6 +91,11 @@ const workspaceNavigation=(()=>{
     dialog('Other apps','Sessions','<section class="nav-external-picker"><div id="workspace-external-status"></div><label class="sr-only" for="workspace-external-search">Search sessions or apps</label><input type="search" id="workspace-external-search" placeholder="Search sessions or apps…" autocomplete="off"><span id="workspace-external-count" class="hint" role="status"></span><div id="workspace-external-results"></div></section>');
     discoveryStatus();pickerRows();$('#workspace-external-search').focus();
   }
+  document.addEventListener('pointerdown',event=>{
+    if(event.button!==0 || !document.body.classList.contains('native-host') || document.body.classList.contains('notch-first'))return;
+    if(!event.target.closest('.deck-tools,.toolbar,#sidebar>.brand') || event.target.closest('button,a,input,summary,[role="button"]'))return;
+    event.preventDefault();postHost('workspace-drag');
+  });
   document.addEventListener('click',event=>{
     const el=event.target.closest('[data-action]');if(!el)return;
     const id=el.dataset.id;

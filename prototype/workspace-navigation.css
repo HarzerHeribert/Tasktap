@@ -4,6 +4,11 @@
 .workspace-navigation #sidebar>.brand,.workspace-navigation #sidebar>.side-foot{flex:none}
 .workspace-navigation #sidebar .brand{min-height:18px;font-size:var(--t-label);color:var(--deck-fg);padding:0 var(--s-icon)}
 .workspace-navigation #sidebar .brand-mark{display:none}
+/* Share the native titlebar row, leaving the traffic lights unobstructed. */
+.native-host.workspace-navigation:not(.notch-first) #sidebar{padding-top:0}
+.native-host.workspace-navigation:not(.notch-first) #sidebar>.brand{height:var(--deck-bar);min-height:var(--deck-bar);padding-left:72px;white-space:nowrap}
+.native-host.workspace-navigation:not(.notch-first):is(.deck-sidebar-hidden,.deck-focus) :is(.deck-tools,.toolbar){padding-left:84px}
+.native-host.workspace-navigation:not(.notch-first) :is(.deck-tools,.toolbar,#sidebar>.brand){user-select:none;-webkit-user-select:none}
 .workspace-navigation #sidebar>nav{min-height:0;overflow-y:auto;overflow-x:hidden;flex:1;gap:var(--s-block);scrollbar-width:thin;scrollbar-color:var(--deck-edge) transparent}
 .workspace-navigation #sidebar .nav-group{gap:var(--s-tiny);min-width:0}
 .workspace-navigation #sidebar .nav-link{color:var(--deck-muted);font-size:var(--t-small);min-height:29px;padding:var(--s-small) var(--s-icon);border-radius:var(--r-xs);gap:var(--s-icon)}
@@ -63,6 +68,7 @@
 .workspace-navigation.deck-focus .shell,.workspace-navigation.deck-sidebar-hidden .shell{grid-template-columns:minmax(0,1fr)}
 .workspace-navigation.deck-focus #sidebar,.workspace-navigation.deck-sidebar-hidden #sidebar{display:none}
 @media(max-width:740px){
+ .native-host.workspace-navigation:not(.notch-first) :is(.deck-tools,.toolbar){padding-left:84px}
  .workspace-navigation .shell{grid-template-columns:minmax(0,1fr);position:relative}
  .workspace-navigation #sidebar{display:none}
  .workspace-navigation.nav-open #sidebar{display:flex;position:absolute;left:0;top:0;bottom:0;width:216px;max-width:85vw;z-index:15;background:var(--deck-popup);border-radius:0;box-shadow:8px 0 24px color-mix(in srgb,var(--deck-bg) 35%,transparent)}

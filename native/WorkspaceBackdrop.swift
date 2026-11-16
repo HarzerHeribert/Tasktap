@@ -34,9 +34,7 @@ final class WorkspaceBackdrop:NSView {
     }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        // Full-size content lets the same material and tint cover the titlebar.
-        // The renderer stays inside AppKit's unobscured area, including when
-        // that area changes on resize or entering/leaving full screen.
+        // The workspace header shares the titlebar row with the window buttons.
         layoutObservation=window?.observe(\.contentLayoutRect,options:[.initial,.new]) { [weak self] _,_ in self?.layoutHostedView() }
         update()
     }
@@ -46,8 +44,8 @@ final class WorkspaceBackdrop:NSView {
     }
     override func layout() {super.layout();layoutHostedView()}
     private func layoutHostedView() {
-        guard let view=hostedView,view.superview===self,let window else {return}
-        let frame=convert(window.contentLayoutRect,from:nil).intersection(bounds)
+        guard let view=hostedView,view.superview===self else {return}
+        let frame=bounds
         if view.frame != frame {view.frame=frame}
     }
     private func update() {

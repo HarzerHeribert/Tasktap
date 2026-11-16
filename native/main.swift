@@ -22,6 +22,17 @@ final class NotchWebView: WKWebView {
 }
 final class WorkspaceWindow: NSWindow {
     var closeCardOrWindow: () -> Void = {}
+    private var headerMouseDown:NSEvent?
+    override func sendEvent(_ event:NSEvent) {
+        if event.type == .leftMouseDown {headerMouseDown=event}
+        if event.type == .leftMouseUp {headerMouseDown=nil}
+        super.sendEvent(event)
+    }
+    func dragHeader() {
+        guard let event=headerMouseDown,NSEvent.pressedMouseButtons & 1 != 0 else {return}
+        if event.clickCount==2 {performZoom(nil)} else {performDrag(with:event)}
+        headerMouseDown=nil
+    }
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
            event.charactersIgnoringModifiers?.lowercased() == "w" {
@@ -40,6 +51,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         let window = WorkspaceWindow(contentRect:NSRect(x:0,y:0,width:1280,height:820),
                                      styleMask:[.titled,.closable,.miniaturizable,.resizable,.fullSizeContentView],backing:.buffered,defer:false)
         window.title="Tasktap"
+        window.titleVisibility = .hidden
         window.minSize=NSSize(width:560,height:400)
         window.isReleasedWhenClosed=false
         window.delegate=self
@@ -570,6 +582,8 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         switch type {
         case "application-menu-state":
             if message.webView === web {menuWorkspaceAvailable=data["workspace"] as? Bool == true}
+        case "workspace-drag":
+            if message.webView === web,web.window === workspace {workspace.dragHeader()}
         case "shared-state":
             guard independentWindows,let patch=data["patch"] as? [String:Any] else {return}
             let target=message.webView === web ? (notchReady ? notchWeb:nil):web
@@ -1255,9 +1269,13 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         let titlebar=NSRect(x:bounds.minX,y:content.maxY,width:bounds.width,height:bounds.maxY-content.maxY)
         let backgrounds=workspaceBackdrop.subviews.filter {$0 !== web}
         guard workspace.styleMask.contains(.fullSizeContentView),workspace.contentView===workspaceBackdrop,
-              web.superview===workspaceBackdrop,web.frame==content,titlebar.height>0,
+              web.superview===workspaceBackdrop,web.frame==bounds,workspace.titleVisibility == .hidden,titlebar.height>0,
               backgrounds.count==2,backgrounds.allSatisfy({$0.frame.contains(titlebar) && $0.frame==bounds}),
               backgrounds.contains(where:{$0.layer?.backgroundColor?.alpha ?? 0 >= 0.93}) else {throw Check.failed(#line)}
+        // Header controls must receive input through the transparent native titlebar.
+        guard let frameView=workspaceBackdrop.superview,
+              let hit=frameView.hitTest(frameView.convert(NSPoint(x:bounds.midX,y:bounds.maxY-16),from:workspaceBackdrop)),
+              hit.isDescendant(of:web) else {throw Check.failed(#line)}
     }
     // Run the packaged web view with ephemeral storage and synthetic controller commands.
     @MainActor private func verifyInterface() async {

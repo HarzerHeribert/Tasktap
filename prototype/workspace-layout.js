@@ -81,14 +81,14 @@ const workspaceLayout=(()=>{
     while(pending.length){const node=pending.pop();if(!node.group){used.add(node.id);pending.push(node.first,node.second)}}
     return used;
   }
-  function split(layout,groupId,axis,newId){
+  function split(layout,groupId,axis,newId,position='after'){
     ensure(layout);
     const target=locate(layout,groupId);
     if(!target || !['x','y'].includes(axis))return null;
     const used=identifiers(layout);
     if(newId!==undefined && (!identifier(newId) || used.has(newId)))return null;
     const id=newId??fresh(used);used.add(id);
-    const group={id,tabs:[],active:null},replacement=branch(used,target.node,{group:id},axis);
+    const group={id,tabs:[],active:null},leaf={group:id},replacement=position==='before'?branch(used,leaf,target.node,axis):branch(used,target.node,leaf,axis);
     if(target.parent)target.parent[target.side]=replacement;else layout.tree=replacement;
     layout.groups.push(group);layout.selected=layout.groups.length-1;
     ensure(layout);

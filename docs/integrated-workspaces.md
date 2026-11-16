@@ -29,6 +29,7 @@ The project surface fills the native window with thin project and tab bars. Pane
 - A workspace contains surfaces; each surface holds panes as tabs. Each surface’s tab bar has four controls, in order: **New terminal**, **New browser**, **Split right**, **Split down**. These act on that surface, even when another surface has focus.
 - **Split right (⌘D)** and **Split down (⇧⌘D)** divide the selected surface and open a fresh terminal. Any surface can be split in either direction. The shortcuts target the focused surface.
 - Drag dividers to resize. Keyboard arrows adjust the matching axis; Home/End set limits; double-click balances. **Focus surface** temporarily expands the selected surface without changing the saved split tree.
+- Drag a pane's tab between tabs to reorder it, or onto the center of another surface to move it there. Drop at a surface's left, right, top, or bottom edge to split off that pane. The highlighted area previews the destination; Escape or dropping outside the workspace cancels. Moving preserves running terminals, live previews, and pending terminal launches without starting another process. Tab order and splits are saved.
 - Right-click a tab, or focus it and press **Shift+F10**, for Follow up, preview controls, session details, and **Move tab to…**, as applicable. The workspace toolbar retains New task, Open file, Project files, and workspace actions.
 - Close individual tabs with their **×** or **⌘W**. Closing or moving the final tab automatically removes its surface and collapses the adjacent divider. There is no close-all control on a surface. Closing the final tab in the workspace leaves an empty workspace where a terminal, file, or browser can be opened. Terminal processes remain available in Session history.
 
@@ -96,7 +97,7 @@ These checks exercise different boundaries. Passing a browser or native fixture 
 | --- | --- |
 | Folder lifecycle and opt-in discovery | `verify-workspace-folders.swift`, `verify-workspace-lifecycle.cjs`, `verify-session-discovery.py` |
 | Real PTY ownership, replay and stop | `verify-workspace-terminals.py` |
-| Nested layout, ordering and view persistence | `verify-workspace-layout.cjs`, `verify-workspace-splits.cjs`, `verify-workspace-deck.cjs` |
+| Nested layout, ordering and view persistence | `verify-workspace-layout.cjs`, `verify-workspace-splits.cjs`, `verify-workspace-drag.cjs`, `verify-workspace-deck.cjs` |
 | Terminal final-row and right-edge geometry | `verify-terminal-viewport.cjs` |
 | Preview rendering and isolation | `verify-workspace-documents.cjs`, native `--verify-workspace` |
 | Sidebar and external-host actions | `verify-workspace-navigation.cjs` |

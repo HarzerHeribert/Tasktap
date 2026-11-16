@@ -73,3 +73,12 @@
 .deck-group.is-narrow .deck-tab{padding-inline:var(--s-tight)}
 .deck-group.is-narrow .deck-pane-tools{padding:0}
 .deck-group.is-narrow .deck-pane-tools>.deck-icon{width:22px}
+
+/* Workspace drags cover embedded frames without moving or reloading them. */
+.deck-tab{cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-user-drag:none}
+.deck-dragging,.deck-dragging *{cursor:grabbing!important;user-select:none!important;-webkit-user-select:none!important}
+.deck-drag-overlay{position:fixed;inset:0;z-index:1000;touch-action:none}
+.deck-tab-held iframe{pointer-events:none}
+.deck-drag-ghost{position:fixed;z-index:1002;pointer-events:none;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:var(--s-icon) var(--s-row);background:var(--deck-popup);color:var(--deck-fg);border:1px solid var(--deck-focus);border-radius:var(--r-control);box-shadow:0 6px 20px #0005;font-size:var(--deck-text)}
+.deck-drop-marker{position:fixed;z-index:1001;pointer-events:none;box-sizing:border-box;border:2px solid var(--app-accent);background:color-mix(in srgb,var(--app-accent) 15%,transparent);border-radius:var(--r-xs)}
+.deck-drop-marker.tab-insertion{border:0;background:var(--app-accent);border-radius:0}

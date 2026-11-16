@@ -180,6 +180,7 @@ const workspaceDeck=(()=>{
     persist();
   }
   function closeWorkspace(project){
+    if(tabDrag?.project===project)finishTabDrag();
     const index=saved.openProjects?.indexOf(project)??-1;
     saved.openProjects=(saved.openProjects||[]).filter(id=>id!==project);
     for(const pending of pendingStarts.values())if(pending.project===project)pending.closed=true;
@@ -193,7 +194,7 @@ const workspaceDeck=(()=>{
     if(!group){group=groupID?l.groups.find(g=>g.id===groupID):selectedGroup(l);if(!group)return;group.tabs.push(key)}group.active=key;l.selected=l.groups.indexOf(group);
     if(activate){if(typeof showWorkspace==='function')showWorkspace();go(project);requestAnimationFrame(()=>{const en=engines.get(termID(key));if(en)en.term.focus();else projects.get(project)?.querySelector('.deck-tab[aria-selected="true"][data-id="'+CSS.escape(key)+'"]')?.focus()})}else if(view===project)renderProject(proj(project));persist();
   }
-  function leave(){activeProject=null;stage.hidden=true;$('#main').hidden=false;document.body.classList.remove('workspace-active','deck-focus');if(typeof workspaceNavigation!=='undefined')workspaceNavigation.sync()}
+  function leave(){finishTabDrag();activeProject=null;stage.hidden=true;$('#main').hidden=false;document.body.classList.remove('workspace-active','deck-focus');if(typeof workspaceNavigation!=='undefined')workspaceNavigation.sync()}
   // Panes remain flat, stable DOM siblings. A split tree supplies their bounds;
   // changing a split never reparents an iframe or recreates a terminal engine.
   function treeShape(node){return node?(node.group||[node.id,node.axis,treeShape(node.first),treeShape(node.second)]):null}
@@ -223,6 +224,105 @@ const workspaceDeck=(()=>{
     const g=workspaceLayout.split(l,groupID||l.groups[l.selected].id,axis,uid());
     if(!g)return;l.focus=false;renderProject(proj(project));projects.get(project)?.querySelector('.deck-group[data-group-id="'+CSS.escape(g.id)+'"]')?.focus({preventScroll:true});startTerminal(project,g.id);
   }
+  // Moving a view changes ownership only; its engine or floating preview stays alive.
+  function moveTab(project,key,groupID,{before=null,edge=null}={}){
+    const l=layout(project),from=l.groups.find(g=>g.tabs.includes(key));
+    let to=l.groups.find(g=>g.id===groupID);
+    if(!from||!to||edge&&from===to&&from.tabs.length===1)return false;
+    if(edge){
+      to=workspaceLayout.split(l,to.id,['left','right'].includes(edge)?'x':'y',uid(),['left','top'].includes(edge)?'before':'after');
+      l.focus=false;
+    }
+    const index=from.tabs.indexOf(key);
+    if(from===to&&before===key)return false;
+    from.tabs.splice(index,1);
+    if(from.active===key)from.active=from.tabs[Math.min(index,from.tabs.length-1)]??null;
+    const insertion=before?to.tabs.indexOf(before):-1;
+    to.tabs.splice(insertion<0?to.tabs.length:insertion,0,key);to.active=key;
+    l.selected=l.groups.indexOf(to);
+    const pending=pendingStarts.get(termID(key));if(pending)pending.group=to.id;
+    if(!from.tabs.length)workspaceLayout.remove(l,from.id);
+    renderProject(proj(project));focusSurface(project,key);persist();return true;
+  }
+  let tabDrag=null,suppressTabClick=false;
+  function finishTabDrag(){
+    if(!tabDrag)return;
+    const drag=tabDrag;tabDrag=null;
+    drag.overlay?.remove();drag.marker?.remove();drag.ghost?.remove();
+    document.body.classList.remove('deck-dragging','deck-tab-held');
+    if(stage.hasPointerCapture(drag.pointer))stage.releasePointerCapture(drag.pointer);
+    if(drag.tab.hasPointerCapture(drag.pointer))drag.tab.releasePointerCapture(drag.pointer);
+    if(drag.started)suppressTabClick=true;
+  }
+  function tabDropTarget(drag,x,y){
+    const root=projects.get(drag.project),l=layout(drag.project);
+    for(const pane of root.querySelectorAll('.deck-group')){
+      if(!pane.getClientRects().length)continue;
+      const rect=pane.getBoundingClientRect();
+      if(x<rect.left||x>rect.right||y<rect.top||y>rect.bottom)continue;
+      const groupID=pane.dataset.groupId,bar=pane.querySelector('.deck-pane-bar').getBoundingClientRect();
+      if(y<=bar.bottom){
+        const tabs=pane.querySelector('.deck-tabs'),bounds=tabs.getBoundingClientRect();
+        // Keep overflowing tabs reachable while hovering either end of the strip.
+        if(x<bounds.left+24)tabs.scrollLeft-=12;else if(x>bounds.right-24)tabs.scrollLeft+=12;
+        const wraps=[...tabs.querySelectorAll('.deck-tab-wrap')];
+        const next=wraps.find(tab=>{const r=tab.getBoundingClientRect();return x<r.left+r.width/2});
+        const end=wraps.at(-1)?.getBoundingClientRect().right??bounds.left;
+        const left=Math.max(bounds.left,Math.min(bounds.right,next?.getBoundingClientRect().left??end));
+        return {groupID,before:next?.querySelector('.deck-tab').dataset.id,box:{left:left-1,top:bar.top,width:3,height:bar.height}};
+      }
+      const content={left:rect.left,top:bar.bottom,width:rect.width,height:rect.bottom-bar.bottom};
+      const distances=[['left',(x-rect.left)/Math.min(72,rect.width*.23)],['right',(rect.right-x)/Math.min(72,rect.width*.23)],['top',(y-bar.bottom)/Math.min(72,content.height*.23)],['bottom',(rect.bottom-y)/Math.min(72,content.height*.23)]];
+      const nearest=distances.sort((a,b)=>a[1]-b[1])[0],edge=nearest[1]<1?nearest[0]:null;
+      if(edge&&l.groups.find(g=>g.id===groupID)?.tabs.length===1&&groupID===drag.group)return null;
+      const box={...content};
+      if(edge==='left'||edge==='right'){box.width/=2;if(edge==='right')box.left+=box.width}
+      if(edge==='top'||edge==='bottom'){box.height/=2;if(edge==='bottom')box.top+=box.height}
+      return {groupID,edge,box};
+    }
+    return null;
+  }
+  stage.addEventListener('pointerdown',e=>{
+    const tab=e.target.closest('.deck-tab');
+    if(!tab||e.button!==0||!e.isPrimary)return;
+    finishTabDrag();
+    tabDrag={project:activeProject,key:tab.dataset.id,group:tab.closest('.deck-group').dataset.groupId,tab,pointer:e.pointerId,x:e.clientX,y:e.clientY};
+    e.preventDefault();tab.focus({preventScroll:true});
+    tab.setPointerCapture(e.pointerId);
+    tabDrag.overlay=document.createElement('div');tabDrag.overlay.className='deck-drag-overlay';document.body.append(tabDrag.overlay);
+    document.body.classList.add('deck-tab-held');tabDrag.overlay.getBoundingClientRect();
+  });
+  // Pointer capture plus an overlay keeps dragging continuous across sandboxed frames.
+  window.addEventListener('pointermove',e=>{
+    const drag=tabDrag;if(!drag||e.pointerId!==drag.pointer)return;
+    if(drag.project!==activeProject){finishTabDrag();return}
+    if(!drag.started){
+      if(Math.hypot(e.clientX-drag.x,e.clientY-drag.y)<6)return;
+      drag.started=true;stage.setPointerCapture(e.pointerId);
+      for(const menu of stage.querySelectorAll('.deck-menu[open]'))menu.open=false;
+      drag.ghost=document.createElement('div');drag.ghost.className='deck-drag-ghost';drag.ghost.textContent=label(drag.key);
+      drag.marker=document.createElement('div');drag.marker.className='deck-drop-marker';
+      document.body.append(drag.marker,drag.ghost);document.body.classList.add('deck-dragging');
+    }
+    e.preventDefault();
+    Object.assign(drag.ghost.style,{left:Math.min(innerWidth-drag.ghost.offsetWidth-8,e.clientX+14)+'px',top:Math.min(innerHeight-drag.ghost.offsetHeight-8,e.clientY+14)+'px'});
+    drag.target=tabDropTarget(drag,e.clientX,e.clientY);drag.marker.hidden=!drag.target;
+    if(drag.target){for(const [key,value] of Object.entries(drag.target.box))drag.marker.style[key]=value+'px';drag.marker.classList.toggle('tab-insertion',drag.target.box.width===3)}
+  },{capture:true,passive:false});
+  window.addEventListener('pointerup',e=>{
+    const drag=tabDrag;if(!drag||e.pointerId!==drag.pointer)return;
+    const target=drag.started?tabDropTarget(drag,e.clientX,e.clientY):null;
+    finishTabDrag();
+    if(target)moveTab(drag.project,drag.key,target.groupID,target);
+  },true);
+  window.addEventListener('pointercancel',finishTabDrag);
+  stage.addEventListener('lostpointercapture',e=>{if(e.target===stage&&tabDrag?.started)finishTabDrag()});
+  window.addEventListener('blur',finishTabDrag);
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)finishTabDrag()});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&tabDrag?.started){e.preventDefault();e.stopPropagation();finishTabDrag()}},true);
+  stage.addEventListener('dragstart',e=>{if(e.target.closest('.deck-tab'))e.preventDefault()});
+  document.addEventListener('pointerdown',()=>{suppressTabClick=false},true);
+  stage.addEventListener('click',e=>{if(suppressTabClick&&e.detail){suppressTabClick=false;e.preventDefault();e.stopImmediatePropagation()}},true);
   function arrange(root,l){
     const area=$('.deck-groups',root),width=area.clientWidth,height=area.clientHeight;
     const panes=new Map([...area.querySelectorAll('.deck-group')].map(p=>[p.dataset.groupId,p]));
@@ -262,6 +362,7 @@ const workspaceDeck=(()=>{
     }
   }
   function renderProject(p){
+    if(tabDrag&&tabDrag.project!==p.id)finishTabDrag();
     rememberWorkspace(p.id);activeProject=p.id;stage.hidden=false;$('#main').hidden=true;document.body.classList.add('workspace-active');document.body.classList.toggle('deck-sidebar-hidden',!!saved.sidebarHidden);const l=layout(p.id);
     for(const [id,node] of projects)node.hidden=id!==p.id;
     let root=projects.get(p.id);if(!root){root=document.createElement('div');root.className='deck-project';stage.append(root);projects.set(p.id,root)}root.hidden=false;
@@ -294,7 +395,7 @@ const workspaceDeck=(()=>{
           groups.append(pane);
         }
         pane.tabIndex=-1;pane.dataset.group=index;pane.id='deck-pane-'+g.id;pane.setAttribute('aria-label','Surface '+(index+1));pane.classList.toggle('selected',l.selected===index);
-        const tabs=$('.deck-tabs',pane);tabs.setAttribute('aria-label','Surface '+(index+1));tabs.innerHTML=g.tabs.map(key=>'<div class="deck-tab-wrap '+(g.active===key?'active':'')+'"><button role="tab" aria-description="Right-click or press Shift+F10 for tab actions" tabindex="'+(g.active===key?'0':'-1')+'" id="deck-tab-'+g.id+'-'+key.replace(/[^a-zA-Z0-9-]/g,'')+'" aria-controls="deck-surface-'+g.id+'" aria-selected="'+(g.active===key)+'" class="deck-tab" data-action="deck-tab" data-id="'+attr(key)+'" data-group="'+index+'">'+icon(surfaceIcon(key))+'<span>'+esc(label(key))+'</span></button><button class="deck-tab-close" aria-label="Close '+attr(label(key))+' view" data-action="deck-close" data-id="'+attr(key)+'">'+icon('x')+'</button></div>').join('');
+        const tabs=$('.deck-tabs',pane);tabs.setAttribute('aria-label','Surface '+(index+1));tabs.innerHTML=g.tabs.map(key=>'<div class="deck-tab-wrap '+(g.active===key?'active':'')+'"><button role="tab" aria-description="Drag to reorder or move between surfaces. Right-click or press Shift+F10 for tab actions" tabindex="'+(g.active===key?'0':'-1')+'" id="deck-tab-'+g.id+'-'+key.replace(/[^a-zA-Z0-9-]/g,'')+'" aria-controls="deck-surface-'+g.id+'" aria-selected="'+(g.active===key)+'" class="deck-tab" data-action="deck-tab" data-id="'+attr(key)+'" data-group="'+index+'">'+icon(surfaceIcon(key))+'<span>'+esc(label(key))+'</span></button><button class="deck-tab-close" aria-label="Close '+attr(label(key))+' view" data-action="deck-close" data-id="'+attr(key)+'">'+icon('x')+'</button></div>').join('');
         const surface=$('.deck-surface',pane);surface.id='deck-surface-'+g.id;surface.setAttribute('role','tabpanel');if(g.active){surface.removeAttribute('aria-label');surface.setAttribute('aria-labelledby','deck-tab-'+g.id+'-'+g.active.replace(/[^a-zA-Z0-9-]/g,''))}else{surface.removeAttribute('aria-labelledby');surface.setAttribute('aria-label','Empty pane')}
         for(const child of surface.children){child.hidden=true;child.querySelectorAll('audio,video').forEach(media=>media.pause())}
         if(g.active&&!pendingStarts.has(termID(g.active))){
@@ -401,7 +502,7 @@ const workspaceDeck=(()=>{
     }
     else if(a==='deck-move-to'){
       const key=$('#modal').dataset.moveSurface,l=layout(activeProject),from=l.groups.find(g=>g.tabs.includes(key)),to=l.groups.find(g=>g.id===id);
-      if(from&&to&&from!==to){from.tabs=from.tabs.filter(k=>k!==key);from.active=from.tabs.at(-1)||null;to.tabs.push(key);to.active=key;l.selected=l.groups.indexOf(to);if(!from.tabs.length)workspaceLayout.remove(l,from.id);dismissCard();renderProject(proj(activeProject));focusSurface(activeProject,key);persist()}
+      if(from&&to&&from!==to){dismissCard();moveTab(activeProject,key,to.id)}
     }
     else if(a==='deck-sidebar'){if(typeof workspaceNavigation!=='undefined')workspaceNavigation.toggle()}
     else if(a==='deck-focus'){const l=layout(id);l.focus=!l.focus;renderProject(proj(id));persist()}

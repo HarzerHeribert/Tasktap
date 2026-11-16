@@ -37,6 +37,13 @@
 .deck-terminal{padding:var(--deck-padding);color:var(--deck-fg);height:100%;width:100%;min-width:0;min-height:0;overflow:hidden}
 .deck-terminal-viewport{height:100%;width:100%;min-width:0;min-height:0;overflow:hidden}
 .deck-terminal .xterm{height:100%;padding:0}.deck-terminal .xterm-screen{position:relative}.deck-terminal .xterm-viewport{overscroll-behavior:contain;background-color:transparent!important}.deck-terminal .xterm-helper-textarea{font-size:var(--deck-text);padding:0;border:0;min-height:0;outline:none}
+/* Keep xterm's measured scrollbar gutter and drag target, with a slim overlay thumb. */
+.deck-terminal .xterm .xterm-scrollable-element>.scrollbar{background:transparent;border:0;box-shadow:none}
+.deck-terminal .xterm .xterm-scrollable-element>.scrollbar.vertical>.slider{width:4px!important;left:auto!important;right:2px;border-radius:var(--r-pill);background:color-mix(in srgb,var(--deck-fg) 24%,transparent);opacity:0;transition:opacity 180ms linear,background 180ms linear}
+.deck-terminal.is-scrolling .xterm .xterm-scrollable-element>.scrollbar.vertical>.slider,.deck-terminal .xterm .xterm-scrollable-element>.scrollbar.vertical:hover>.slider,.deck-terminal .xterm .xterm-scrollable-element>.scrollbar.vertical>.slider.active{opacity:1}
+.deck-terminal .xterm .xterm-scrollable-element>.scrollbar.vertical:hover>.slider{background:color-mix(in srgb,var(--deck-fg) 40%,transparent)}
+.deck-terminal .xterm .xterm-scrollable-element>.scrollbar.vertical>.slider.active{background:color-mix(in srgb,var(--deck-fg) 55%,transparent)}
+@media(prefers-reduced-motion:reduce){.deck-terminal .xterm .xterm-scrollable-element>.scrollbar.vertical>.slider{transition:none}}
 .deck-preview{width:100%;height:100%;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:var(--s-panel);color:var(--deck-fg)}
 .deck-preview>img{width:100%;height:100%;object-fit:contain}.deck-preview>video{width:100%;height:100%;object-fit:contain;background:#000}.deck-preview>audio{width:calc(100% - 32px);margin:auto var(--s-panel)}
 .deck-preview>iframe{width:100%;height:100%;border:0;min-height:0;flex:1;background:#fff}.deck-preview>h2{padding:var(--s-panel) var(--s-panel) 0;font-size:var(--t-lead)}

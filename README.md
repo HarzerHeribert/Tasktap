@@ -33,6 +33,8 @@ Tasktap appears in the Dock and menu bar. Closing its workspace window leaves th
 
 A workspace contains surfaces, each holding panes in tabs. Every surface has **New terminal**, **New browser**, **Split right**, and **Split down** controls. Split buttons act on their own surface; **⌘D** and **⇧⌘D** split the focused surface. Every split opens a fresh terminal. Drag a divider to resize, or double-click to balance it. Right-click a tab (or press **Shift+F10**) for **Move tab to…** and other tab actions. **Focus surface** temporarily expands the selected surface.
 
+Use **⌘+** (or **⌘=**) and **⌘−** to increase or decrease text size in the selected terminal, one point at a time (8–40 pt). **⌘0** resets that terminal to the default from Terminal preferences or appearance. Each terminal remembers its size across tab moves and workspace restores. The same controls are in its tab’s right-click menu. Terminal scrollbars use a thin thumb that appears while scrolling or hovering over the scrollbar.
+
 The sidebar shows one row per workspace. An attention mark pulses when an agent needs input; a checkmark indicates an unread reported result. Reduce Motion disables the pulse. Opening the workspace acknowledges result markers; pending decisions stay visible until resolved. **Home**, **Notebook**, **Session history**, and **Activity** remain available through the same navigation.
 
 | Action | What happens |
@@ -131,6 +133,7 @@ The build creates a locally signed app. For browser checks, run `npm ci` and ins
 python3 scripts/verify-style.py
 node scripts/verify-review.cjs
 node scripts/verify-workspace-splits.cjs
+node scripts/verify-terminal-controls.cjs
 node scripts/verify-workspace-documents.cjs
 python3 scripts/verify-workspace-terminals.py
 python3 scripts/build-site.py

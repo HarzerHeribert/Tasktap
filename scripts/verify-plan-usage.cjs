@@ -44,6 +44,8 @@ const {pathToFileURL}=require('node:url');
    await page.locator('#modal').screenshot({path:out+'/review-'+width+'.png'});
    await page.evaluate(()=>{dismissCard();showHome(false);updateBounds(true)});
    await page.waitForTimeout(50);
+   assert.ok(await page.locator('#island>.usage-notch').evaluate(el=>el.inert&&getComputedStyle(el).visibility==='hidden'),'collapsed notch hides and disables usage');
+   await page.evaluate(()=>showHome(true));
    const camera=await page.locator('#islandToggle').boundingBox();
    const boxes=await page.locator('#island>.usage-notch .usage-meter').evaluateAll(els=>els.map(el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom}}));
    for(const box of boxes)assert.ok(box.left>=camera.x-.5&&box.right<=camera.x+camera.width+.5&&box.top>=camera.y+camera.height-.5,'meters stay below the camera and within its width '+width);

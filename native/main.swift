@@ -1181,7 +1181,10 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                     {remaining:40,minutes:10080,resetsAt:Date.now()/1000+86400},
                     {remaining:80,minutes:300,resetsAt:Date.now()/1000+3600}]}]))});true
                 """)
-            try await Task.sleep(nanoseconds:300_000_000)
+            let collapsedUsage = try await web.evaluateJavaScript("document.querySelector('#island>.usage-notch').inert")
+            guard collapsedUsage as? Bool == true, panel.frame.height == geometry.tab.height + geometry.glowMargin else {throw Check.failed(#line)}
+            _ = try await web.evaluateJavaScript("homeMode='peek';drawHome();updateBounds(true);true")
+            try await Task.sleep(nanoseconds:350_000_000)
             let metersFit = try await web.evaluateJavaScript("""
                 (()=>{const camera=document.querySelector('#islandToggle').getBoundingClientRect();
                   const meters=[...document.querySelectorAll('#island>.usage-notch .usage-meter')];
@@ -1190,10 +1193,12 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                       r.left>=camera.left && r.right<=camera.right &&
                       el.querySelector('.usage-provider svg')!==null;});})()
                 """)
-            guard metersFit as? Bool == true, panel.frame.width==geometry.panelFrame(collapsed:true,requestedHeight:0,usageCount:6).width else {throw Check.failed(#line)}
-            _ = try await web.evaluateJavaScript("workerRouting.receive({});true")
-            try await Task.sleep(nanoseconds:150_000_000)
-            print("Six provider meters fit below the native camera without taking menu-bar space.")
+            guard metersFit as? Bool == true, panel.frame.width==geometry.panelFrame(collapsed:false,requestedHeight:height,usageCount:6).width else {throw Check.failed(#line)}
+            _ = try await web.evaluateJavaScript("foldHome();workerRouting.receive({});true")
+            try await Task.sleep(nanoseconds:600_000_000)
+            let usageHidden = try await web.evaluateJavaScript("document.querySelector('#island>.usage-notch').inert && getComputedStyle(document.querySelector('#island>.usage-notch')).visibility==='hidden'")
+            guard usageHidden as? Bool == true, panel.frame.height == geometry.tab.height + geometry.glowMargin else {throw Check.failed(#line)}
+            print("Provider meters appear only in the active notch; collapse restores the camera footprint.")
             for action in ["requests","next","confirm"] {
                 let index = bindings.firstIndex(where: { $0.action == action })!
                 onKey(UInt32(index),pressed:true);onKey(UInt32(index),pressed:false)

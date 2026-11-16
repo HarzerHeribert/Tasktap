@@ -370,6 +370,7 @@ function postBounds(){
   const shell=$('#notch-shell');
   if(open)shell.style.setProperty('--sheet-bottom',Math.ceil(panel.getBoundingClientRect().bottom)+'px');
   document.body.classList.toggle('notch-open',open);
+  document.dispatchEvent(new Event('notch-visibility'));
   $('#islandToggle').setAttribute('aria-expanded',String(open || $('#notch').open));
   // Keep the transparent AppKit window full-size until the visual fold finishes.
   const folding=firstMode() && !open && shell.style.getPropertyValue('--sheet-bottom')!=='' && !document.hidden && !notchMotion.matches &&

@@ -19,6 +19,7 @@ const {pathToFileURL}=require('node:url');
    showHome(false);updateBounds(true);
   });
   await page.waitForTimeout(400);
+  if(!await page.locator('#island>.usage-notch').evaluate(el=>el.inert&&getComputedStyle(el).visibility==='hidden'))throw Error('Collapsed usage must be hidden');
   let index=0;
   const frame=async()=>page.screenshot({path:path.join(out,'frame-'+String(index++).padStart(3,'0')+'.png'),clip:{x:100,y:0,width:600,height:260}});
   for(let i=0;i<8;i++){await frame();await page.waitForTimeout(50)}
@@ -40,6 +41,7 @@ const {pathToFileURL}=require('node:url');
    const current=await page.locator('#island>.usage-notch .usage-meter').evaluateAll(els=>els.map(el=>{const r=el.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height}}));
    if(JSON.stringify(current)!==JSON.stringify(baseline))throw Error('Usage moved during close animation');
   }
+  if(!await page.locator('#island>.usage-notch').evaluate(el=>el.inert&&getComputedStyle(el).visibility==='hidden'))throw Error('Usage did not retract');
   await page.screenshot({path:path.join(out,'closed.png'),clip:{x:100,y:0,width:600,height:260}});
   console.log('PASS: provider positions remain identical through opening and closing; previews in '+out);
  }finally{await browser.close()}

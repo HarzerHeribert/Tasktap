@@ -47,6 +47,15 @@ folders. Do not delete these while agents are running. Settings and session data
 are separate from the app. Updates preserve request text; unfinished setup and
 other transient UI selections should be completed before updating.
 
+## 1.0.5 release scope
+
+Version 1.0.5 uses build **12**. The below-camera usage row is visible only
+while the notch is active. It fades with the sheet and is hidden/inert when
+collapsed. The native collapsed frame and pointer hit area return to the
+original camera footprint. Workspace usage remains visible.
+
+Release notes: [releases/1.0.5.md](releases/1.0.5.md).
+
 ## 1.0.4 release scope
 
 Version 1.0.4 uses build **11**. It places the provider row directly beneath

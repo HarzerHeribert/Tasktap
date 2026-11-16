@@ -31,7 +31,7 @@ const planUsage = (() => {
     let root=parent.querySelector(':scope > .plan-usage');
     if(!root){root=document.createElement('div');root.className='plan-usage usage-'+placement;root.setAttribute('aria-label','Active plan usage');parent.insertBefore(root,before)}
     root.hidden=!agents().length;
-    const ids=agents(),slots=Math.ceil(ids.length/2);
+    const ids=agents();
     root.style.setProperty('--usage-count',ids.length);
     const items=ids.map(id=>meter(id,root));
     const anchored=placement==='notch'||placement==='modal';
@@ -40,6 +40,13 @@ const planUsage = (() => {
     if(root.innerHTML!==html)root.innerHTML=html;
     if(selectedRoot===root && !agents().includes(selected)){selected='';selectedRoot=null}
     return root;
+  }
+  function syncVisibility(){
+    const active=document.body.classList.contains('notch-first')&&document.body.classList.contains('notch-open');
+    for(const root of document.querySelectorAll('.usage-notch')){
+      root.inert=!active;
+      root.setAttribute('aria-hidden',String(!active));
+    }
   }
   function paint(){
     document.documentElement.style.setProperty('--usage-row-height',agents().length?'34px':'0px');
@@ -54,6 +61,7 @@ const planUsage = (() => {
         mount(document.querySelector('#modal'),'modal');
       }else mount(document.querySelector('#modal .dialog-title'),'review',document.querySelector('#modal .dialog-title > .icon-btn'));
     }
+    syncVisibility();
     if(selectedRoot?.isConnected && selected){
       // In compact sheets details take up real space and are measured by the native layout.
       const home=selectedRoot.classList.contains('usage-notch')&&!selectedRoot.classList.contains('usage-modal');
@@ -77,6 +85,7 @@ const planUsage = (() => {
     }
     if(e.target.closest('[data-usage-close]')){const root=selectedRoot;selected='';selectedRoot=null;paint();root?.querySelector('button')?.focus();updateBounds(true)}
   });
+  document.addEventListener('notch-visibility',syncVisibility);
   document.addEventListener('workspace-changed',()=>queueMicrotask(paint));
   document.addEventListener('plan-usage',e=>{snapshot=e.detail||{};paint();updateBounds(true)});
   document.addEventListener('connection-state',()=>{paint();updateBounds(true);workerRouting.request()});

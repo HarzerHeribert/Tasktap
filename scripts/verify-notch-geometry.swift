@@ -22,10 +22,10 @@ import AppKit
             precondition(item.panelFrame(collapsed:false,requestedHeight:260,requestedWidth:10_000).width == 680 + 2 * item.shoulder)
             for count in [2,3,6] {
                 let usage=item.panelFrame(collapsed:true,requestedHeight:200,usageCount:count)
-                precondition(item.screen.contains(usage) && usage.contains(item.tab))
+                precondition(item.screen.contains(usage) && usage.contains(item.tab) && usage.height == item.tab.height + item.glowMargin)
                 precondition(usage.width == min(item.screen.width,item.tab.width + 2*item.shoulder))
             }
-            precondition(item.contains(CGPoint(x:item.tab.midX,y:item.tab.minY-20),in:item.panelFrame(collapsed:true,requestedHeight:0,usageCount:6),collapsed:true,usageCount:6))
+            precondition(!item.contains(CGPoint(x:item.tab.midX,y:item.tab.minY-20),in:item.panelFrame(collapsed:true,requestedHeight:0,usageCount:6),collapsed:true,usageCount:6))
             precondition(item.hasCutout && small.contains(item.tab) && open.contains(item.tab))
             precondition(small.maxY == item.screen.maxY && open.maxY == item.screen.maxY && open.width>small.width)
             precondition(item.screen.contains(small) && item.screen.contains(open))

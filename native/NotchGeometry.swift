@@ -47,9 +47,8 @@ struct NotchGeometry {
 
     func panelFrame(collapsed: Bool, requestedHeight: CGFloat, requestedWidth: CGFloat = 432, usageCount: Int = 0) -> CGRect {
         let usageWidth = tab.width
-        let usageHeight: CGFloat = usageCount > 0 ? 34 : 0
         let width = min(screen.width, (collapsed ? usageWidth : max(432, min(680, requestedWidth.isFinite ? requestedWidth : 432), usageWidth)) + 2 * shoulder)
-        let height = collapsed ? tab.height + usageHeight + glowMargin : min(max(tab.height,requestedHeight), tab.height + availableContentHeight)
+        let height = collapsed ? tab.height + glowMargin : min(max(tab.height,requestedHeight), tab.height + availableContentHeight)
         // Keep the whole sheet on screen if the system reports an off-center cutout.
         let x = max(screen.minX,min(screen.maxX - width, tab.midX - width / 2))
         return CGRect(x: x, y: tab.maxY - height, width: width, height: height)
@@ -58,7 +57,7 @@ struct NotchGeometry {
     func contains(_ point: CGPoint, in frame: CGRect, collapsed: Bool, usageCount: Int = 0) -> Bool {
         guard frame.contains(point) else { return false }
         if point.y >= tab.minY { return true }
-        let hit = CGRect(x:tab.minX,y:tab.minY - (usageCount > 0 ? 34 : 0),width:tab.width,height:tab.height + (usageCount > 0 ? 34 : 0))
+        let hit = tab
         return collapsed ? hit.insetBy(dx:-rimOffset,dy:-rimOffset).contains(point)
                          : frame.insetBy(dx:shoulder,dy:0).contains(point)
     }

@@ -21,9 +21,9 @@
 .notch-first .usage-notch,.notch-first.notch-open .usage-notch{display:flex;align-items:center;justify-content:center;gap:var(--s-tiny);position:absolute;top:var(--s-panel-top);left:calc(50% + var(--camera-offset));transform:translateX(-50%);width:var(--native-tab-width);height:var(--usage-row-height);padding:0 var(--s-tight);color:#eee;background:var(--notch-black);border-radius:0 0 var(--cutout-corner) var(--cutout-corner);pointer-events:none}
 .notch-first .usage-notch .usage-meter{position:relative;display:grid;place-items:center;flex:none;width:min(30px,calc((var(--native-tab-width) - 8px - (var(--usage-count) - 1) * 2px) / var(--usage-count)));height:30px;min-width:0;padding:0;transform:none;background:transparent;border-radius:var(--r-round);pointer-events:auto}
 .usage-notch .usage-meter>svg{width:min(26px,calc(100% - 2px));height:26px;inset:50% auto auto 50%;transform:translate(-50%,-50%) rotate(-90deg)}.usage-notch .usage-provider{width:12px;height:12px}.usage-notch .usage-meter::after{display:none}
-.native-host.notch-first .island{height:calc(var(--s-panel-top) + var(--usage-row-height))}
-.notch-first #notch-shell{height:var(--sheet-bottom,calc(var(--s-panel-top) + var(--usage-row-height)))}
-.notch-first:not(.notch-open) #notch-shell{--bottom:calc(100% - var(--s-panel-top) - var(--usage-row-height))}
+.native-host.notch-first .island{height:var(--s-panel-top)}
+.notch-first #notch-shell{height:var(--sheet-bottom,var(--s-panel-top))}
+.notch-first:not(.notch-open) #notch-shell{--bottom:calc(100% - var(--s-panel-top))}
 .native-host.notch-first #notch-home,.notch-first #modal,.notch-first #notch{top:calc(var(--s-panel-top) + var(--usage-row-height))}
 .notch-first:not(.native-host) #notch-home{margin-top:var(--usage-row-height)}
 .notch-first:has(#modal[open] #handoff-review) #island>.usage-notch{visibility:hidden;pointer-events:none}
@@ -31,3 +31,9 @@
 .usage-deck{--usage-size:26px;gap:var(--s-tight);margin-right:var(--s-small)}
 .deck-tools-actions{position:relative}.deck-tools-actions>.usage-details-host{position:absolute;right:0;top:calc(100% + var(--s-icon));width:260px;max-width:calc(100vw - 24px);z-index:20;box-shadow:0 8px 24px #0002}
 @media(max-width:480px){.deck-tools:has(.usage-deck:not([hidden])){height:auto;min-height:var(--deck-bar);flex-wrap:wrap;padding-block:var(--s-tight)}.deck-tools-actions:has(.usage-deck:not([hidden])){flex-wrap:wrap;max-width:100%}.usage-deck{max-width:180px;flex-wrap:wrap}}
+
+/* Usage belongs to the active sheet, and retracts completely with it. */
+.notch-first .usage-notch{opacity:0;visibility:hidden;transition:opacity 90ms ease,visibility 0s linear 90ms}
+.notch-first.notch-open .usage-notch{opacity:1;visibility:visible;transition:opacity 150ms ease 90ms,visibility 0s}
+.notch-first:not(.notch-open) .usage-notch .usage-meter{pointer-events:none}
+@media(prefers-reduced-motion:reduce){.notch-first .usage-notch{transition:none}}

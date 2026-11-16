@@ -727,6 +727,11 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             guard !verifying || workspaceVerification || independentVerification,!liveTest,message.webView === web else {return}
             do {try terminals.handle(data,folders:runtime.folders)}
             catch {js("workspaceDeck.receive(events)",["events":[["event":"error","id":data["id"] as? String ?? "","cwd":data["cwd"] as? String ?? "","op":data["op"] as? String ?? "","error":error.localizedDescription]]])}
+        case "observer-answer":
+            guard !verifying || workspaceVerification,!liveTest,message.webView === web || message.webView === notchWeb,let id=data["id"] as? String,let turn=data["turn"] as? Int else{return}
+            do {let text=try runtime.observerAnswer(id,turn:turn)
+                js("sessionObservation.showAnswer(id,turn,text)",["id":id,"turn":turn,"text":text])
+            } catch {deliver("live-error",error.localizedDescription,reveal:false)}
         case "workspace-file":
             guard !verifying,!liveTest else {return}
             let project=data["project"] as? String ?? ""
@@ -802,7 +807,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                   let url=URL(string:"https://harzerheribert.github.io/Tasktap/docs/#"+section) else {return}
             if !NSWorkspace.shared.open(url){deliver("live-error","Couldn’t open the documentation.",reveal:false)}
         case "worker-install":
-            let guides=["codex":"https://learn.chatgpt.com/docs/cli","claude":"https://code.claude.com/docs/en/setup","agy":"https://antigravity.google/docs/getting-started?tab=cli","cursor-agent":"https://cursor.com/docs/cli/installation","pi":"https://docs.pi.dev/latest/quickstart"]
+            let guides=["codex":"https://learn.chatgpt.com/docs/cli","claude":"https://code.claude.com/docs/en/setup","agy":"https://antigravity.google/docs/getting-started?tab=cli","cursor-agent":"https://cursor.com/docs/cli/installation","pi":"https://docs.pi.dev/latest/quickstart","opencode":"https://opencode.ai/docs/"]
             guard !verifying,!liveTest,let agent=data["agent"] as? String,let page=guides[agent],let url=URL(string:page) else {return}
             if !NSWorkspace.shared.open(url){deliver("live-error","Couldn’t open the installation guide.",reveal:false)}
         case "worker-login":
@@ -1242,15 +1247,71 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 }
             }
             if independentVerification {try await verifyIndependentWindows(folder:folder,id:id)}
+            try await verifySessionObservation(folder:folder)
             terminals.send(["op":"stop","id":id])
             try await Task.sleep(nanoseconds:400_000_000)
-            print("Native workspace passed: real PTY → WebKit/xterm, terminal replay after closing view, native text/image/PDF/audio/video previews, tinted titlebar and content layout across resizing, native System appearance changes, explicit stop.")
+            print("Native workspace passed: real PTY → WebKit/xterm, observer permission/answer events and exact saved-answer retrieval, terminal replay, native media previews, appearance, resizing and explicit stop.")
             NSApp.terminate(nil)
         } catch {
             terminals.send(["op":"stop","id":id])
             print("Native workspace failed:",error)
             exit(1)
         }
+    }
+    @MainActor private func verifySessionObservation(folder:URL) async throws {
+        let fm=FileManager.default,id=UUID().uuidString.lowercased(),capture=UUID().uuidString.lowercased()
+        guard ["claude","codex","pi","opencode"].allSatisfy({LiveWorkspace.observes(agent:$0,host:"tasktap")}),
+              !LiveWorkspace.observes(agent:"claude",host:"terminal"),!LiveWorkspace.observes(agent:"agy",host:"tasktap") else {throw Check.failed(#line)}
+        let run=runtime.data.appendingPathComponent(id)
+        try fm.createDirectory(at:run,withIntermediateDirectories:true)
+        let job:[String:Any]=["agent":"claude","host":"tasktap","observer":true,"session":id,"capture":capture,
+            "mode":"ask","delivery":"interactive","folder":folder.path,"outgoing":"Native observer fixture","instructions":"","task":"Observed fixture"]
+        let file=run.appendingPathComponent("1-\(capture).job")
+        try JSONSerialization.data(withJSONObject:job).write(to:file)
+        try JSONSerialization.data(withJSONObject:["state":"Opening"]).write(to:file.deletingPathExtension().appendingPathExtension("receipt"))
+        let fake=run.appendingPathComponent("fixture-cli")
+        try #"""
+        #!/usr/bin/env python3
+        import json,os,shlex,subprocess,sys,time
+        from pathlib import Path
+        assert sys.stdin.isatty() and '--mcp-config' not in sys.argv
+        settings=json.loads(sys.argv[sys.argv.index('--settings')+1])
+        def emit(name,**values):
+            command=shlex.split(settings['hooks'][name][0]['hooks'][0]['command'])
+            result=subprocess.run(command,input=json.dumps(dict(hook_event_name=name,session_id='native-fixture',**values)),text=True,capture_output=True)
+            assert result.returncode==0 and not result.stdout and not result.stderr
+        emit('SessionStart');emit('UserPromptSubmit');emit('PreToolUse',tool_name='Read')
+        emit('PermissionRequest',tool_name='Bash')
+        root=Path(__file__).parent
+        while not (root/'continue').exists():time.sleep(.05)
+        emit('PostToolUse',tool_name='Bash')
+        emit('Stop',last_assistant_message='Native **observer** answer.\n')
+        while True:time.sleep(.1)
+        """#.write(to:fake,atomically:true,encoding:.utf8)
+        try fm.setAttributes([.posixPermissions:0o700],ofItemAtPath:fake.path)
+        let runner=try SessionHelpers.runner(),python=try WorkspaceTerminals.pythonExecutable(environment:LiveWorkspace.cliEnvironment)
+        guard fm.fileExists(atPath:runner.deletingLastPathComponent().appendingPathComponent("observers/pi.mjs").path),
+              fm.fileExists(atPath:runner.deletingLastPathComponent().appendingPathComponent("observers/opencode/index.mjs").path) else {throw Check.failed(#line)}
+        terminals.send(["op":"start","id":id,"cwd":folder.path,"kind":"agent","title":"Observed fixture",
+                        "argv":[python.path,runner.path,"present",file.path,fake.path]])
+        defer {terminals.send(["op":"stop","id":id])}
+        func waitFor(_ source:String) async throws {
+            for _ in 0..<70 {
+                try await Task.sleep(nanoseconds:100_000_000)
+                if try await web.callAsyncJavaScript(source,arguments:["id":id],in:nil,contentWorld:.page) as? Bool == true {return}
+            }
+            throw Check.failed(#line)
+        }
+        try await waitFor("return sessionObservation.get(id)?.state==='needsPermission'")
+        _ = try await web.callAsyncJavaScript("workspaceDeck.open('terminal:'+id,state.projects.find(p=>p.folder===folder).id);return true",arguments:["id":id,"folder":folder.path],in:nil,contentWorld:.page)
+        try await waitFor("return document.querySelector('[data-session-id=\"'+id+'\"]')?.dataset.sessionState==='permission'")
+        _ = try await web.evaluateJavaScript("document.activeElement?.blur();true")
+        try Data().write(to:run.appendingPathComponent("continue"))
+        try await waitFor("return sessionObservation.get(id)?.state==='ready' && sessionObservation.get(id)?.answers?.length===1")
+        guard try runtime.observerAnswer(id,turn:1)=="Native **observer** answer.\n" else {throw Check.failed(#line)}
+        _ = try await web.callAsyncJavaScript("sessionObservation.openAnswer(id,1);return true",arguments:["id":id],in:nil,contentWorld:.page)
+        try await waitFor("return document.querySelector('.observer-answer-body')?.textContent.includes('Native observer answer.')===true")
+        _ = try await web.evaluateJavaScript("dismissCard();true")
     }
     @MainActor private func verifyTerminalClipboard(id:String) async throws {
         let text="TASKTAP_PASTE_✓_fixture"
@@ -1692,7 +1753,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         let info=response.notification.request.content.userInfo
         guard response.actionIdentifier != UNNotificationDismissActionIdentifier,
               let id=info["id"] as? String,let kind=info["kind"] as? String else { return }
-        DispatchQueue.main.async { self.deliver(kind=="request" ? "notice-request":kind=="failure" ? "notice-session":"notice-result",id) }
+        DispatchQueue.main.async { self.deliver(kind=="request" ? "notice-request":kind=="answer" ? "notice-answer":["failure","attention"].contains(kind) ? "notice-session":"notice-result",id) }
     }
     func webView(_ webView:WKWebView,decidePolicyFor navigationAction:WKNavigationAction,
                  decisionHandler:@escaping (WKNavigationActionPolicy)->Void){

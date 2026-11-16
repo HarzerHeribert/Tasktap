@@ -40,7 +40,7 @@ const path=require('node:path');
   await page.locator('[data-action="workspace-project"][data-id="p"]').click();
   assert.equal(await page.locator('[data-workspace="p"]').getAttribute('data-status'),'complete','opening a folder does not acknowledge hidden results');
   await page.getByRole('button',{name:'Expand background sessions for Tasktap',exact:true}).click();
-  assert.match(await background.innerText(),/Ready · session still running/);
+  assert.match(await background.innerText(),/Answer ready/);
   await page.screenshot({path:'/tmp/tasktap-background-ready.png'});
   const starts=await page.evaluate(()=>messages.filter(m=>m.op==='start').length);
   await background.click();

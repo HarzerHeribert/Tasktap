@@ -88,7 +88,10 @@ class Service:
             pass
 
     def metadata(self, s):
-        return {k: s[k] for k in ('id', 'cwd', 'title', 'kind', 'running', 'exit', 'created', 'restored', 'stopped') if k in s}
+        row={k: s[k] for k in ('id', 'cwd', 'title', 'kind', 'running', 'exit', 'created', 'restored', 'stopped', 'observation') if k in s}
+        if not s['running'] and row.get('observation',{}).get('state') not in (None,'ended'):
+            row['observation']={**row['observation'],'lastTurnState':row['observation']['state'],'state':'ended','isWorking':False,'event':'process_exited'}
+        return row
 
     def persist(self):
         temp = self.manifest.with_suffix('.tmp')
@@ -268,6 +271,23 @@ class Service:
                     response.update(event='session-stopping')
                 elif op == 'focus':
                     self.broadcast({'event': 'focus', 'id': key})
+                elif op == 'observe':
+                    from session_observer import read, public_state
+                    from secrets import compare_digest
+                    folder = Path(msg['runDir']).resolve()
+                    config = read(folder/'observer-config.json')
+                    owner = read(next(iter(sorted(folder.glob('*.job'))),folder/'missing'))
+                    if (not s['running'] or s.get('kind') != 'agent' or owner.get('observer') is not True or folder.name != key or owner.get('session') != key
+                            or owner.get('folder') != s['cwd'] or not isinstance(msg.get('token'),str)
+                            or not compare_digest(msg['token'],config.get('token',''))):
+                        raise ValueError('Observer does not own this terminal.')
+                    observation = read(folder/'observer.json')
+                    if observation.get('launch') != config.get('token'):
+                        raise ValueError('Observer launch has changed.')
+                    s['observation'] = public_state(observation)
+                    if observation.get('event') not in ('assistant_text','activity','continued') or time.monotonic()-s.get('observation_saved',0)>2:
+                        s['observation_saved']=time.monotonic();self.persist()
+                    self.broadcast(dict(event='observation',id=key,observation=s['observation']))
                 else:
                     raise ValueError('Unknown terminal operation.')
             self.send(sock, response)
@@ -379,6 +399,13 @@ class Service:
                         self.output(s['id'], selectors.EVENT_READ)
                         self.close_fd(s)
                     s.update(running=False, exit=os.waitstatus_to_exitcode(status))
+                    if s.get('observation'):
+                        observation=s['observation']
+                        if observation.get('state') != 'ended':
+                            observation.update(lastTurnState=observation.get('state'),state='ended',isWorking=False,
+                                               event='process_exited',exitCode=s['exit'],updatedAt=time.time())
+                            observation['sequence']=observation.get('sequence',0)+1
+                            self.broadcast(dict(event='observation',id=s['id'],observation=observation))
                     self.persist()
                     self.broadcast({'event': 'session', 'session': self.metadata(s)})
             for cwd in list(self.closing_workspaces):

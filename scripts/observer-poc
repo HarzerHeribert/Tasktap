@@ -1,0 +1,220 @@
+#!/usr/bin/env python3
+"""Run a disposable, observed interactive CLI in Tasktap's actual PTY multiplexer.
+
+Examples:
+  python3 scripts/observer-poc --agent codex
+  python3 scripts/observer-poc --agent opencode --model deepseek/deepseek-chat --key-file /private/tmp/.../api-key
+No user/project hook files are installed. Existing Tasktap sessions are untouched.
+"""
+import argparse
+import json
+import os
+import base64
+import re
+from pathlib import Path
+import shutil
+import stat
+import sys
+import tempfile
+import time
+import uuid
+
+HERE = Path(__file__).resolve().parent
+
+
+def answer_terminal_queries(terminal, session, seen):
+    """The smoke harness has no xterm.js viewer; supply its basic device replies."""
+    data = base64.b64decode(terminal.request(dict(op='attach',id=session))['data'])
+    patterns = [(rb'\x1b\[6n', b'\x1b[1;1R'), (rb'\x1b\[\?6n', b'\x1b[?1;1R'),
+                (rb'\x1b\[(?:0)?c', b'\x1b[?1;2c'), (rb'\x1b\[>c', b'\x1b[>0;276;0c'),
+                (rb'\x1b\[\?u', b'\x1b[?0u'),
+                (rb'\x1b\]10;\?(?:\x07|\x1b\\)', b'\x1b]10;rgb:eeee/eeee/eeee\x1b\\'),
+                (rb'\x1b\]11;\?(?:\x07|\x1b\\)', b'\x1b]11;rgb:1111/1111/1111\x1b\\')]
+    for pattern, reply in patterns:
+        for match in re.finditer(pattern,data):
+            identity = (pattern, match.start())
+            if identity not in seen:
+                seen.add(identity)
+                terminal.request(dict(op='input',id=session,data=base64.b64encode(reply).decode()))
+
+
+def worker():
+    job, cli, credential = sys.argv[2:5]
+    if credential != '-':
+        path = Path(credential)
+        info = path.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise SystemExit('The credential must be a private regular file owned by your user.')
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd) as stream:
+            key = stream.read(8192).strip()
+        if not key:
+            raise SystemExit('The credential file is empty.')
+        os.environ['DEEPSEEK_API_KEY'] = key
+        # Secret value is only in this worker's environment, never argv or receipts.
+        provider = json.loads(Path(job).read_text())['agent']
+        if provider == 'opencode':
+            config = dict(provider=dict(deepseek=dict(options=dict(apiKey='{env:DEEPSEEK_API_KEY}'))),
+                          enabled_providers=['deepseek'], small_model='deepseek/deepseek-flash',
+                          agent=dict(title=dict(disable=True)))
+            os.environ['OPENCODE_CONFIG_CONTENT'] = json.dumps(config)
+        elif provider == 'claude':
+            os.environ.update(ANTHROPIC_AUTH_TOKEN=key, ANTHROPIC_API_KEY='',
+                              ANTHROPIC_BASE_URL='https://api.deepseek.com/anthropic',
+                              ANTHROPIC_DEFAULT_HAIKU_MODEL='deepseek-flash',
+                              ANTHROPIC_DEFAULT_SONNET_MODEL='deepseek-flash',
+                              ANTHROPIC_DEFAULT_OPUS_MODEL='deepseek-flash')
+    provider = json.loads(Path(job).read_text())['agent']
+    if provider == 'pi':
+        os.environ['PI_CODING_AGENT_DIR'] = str(Path(job).parent/'pi-state')
+        os.environ['PI_OFFLINE'] = '1'
+        os.environ['PI_TELEMETRY'] = '0'
+    os.execv(sys.executable, [sys.executable, str(HERE/'run-agent'), 'present', job, cli])
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--agent', choices=['codex','claude','cursor-agent','pi','opencode'], required=True)
+    parser.add_argument('--model', default='')
+    parser.add_argument('--key-file', type=Path)
+    parser.add_argument('--prompt', default='Reply with exactly TASKTAP_OBSERVER_OK. Do not use tools.')
+    parser.add_argument('--timeout', type=int, default=90)
+    parser.add_argument('--base', type=Path)
+    parser.add_argument('--keep-running', action='store_true')
+    parser.add_argument('--cli', type=Path, help='Use a temporary CLI installation without changing PATH')
+    parser.add_argument('--inspect', action='store_true', help='Inspect this isolated PoC service, without starting a model')
+    parser.add_argument('--scenario', choices=['simple','tools'], default='simple')
+    parser.add_argument('--follow-up', help='Send one additional prompt to the same live PTY after its first turn')
+    args = parser.parse_args()
+    if args.key_file and args.agent not in ('opencode','pi','claude'):
+        parser.error('The DeepSeek key is supported with OpenCode, Pi, and Claude Code.')
+    cli = str(args.cli.resolve()) if args.cli else shutil.which(args.agent)
+    if not cli:
+        raise SystemExit('CLI is not installed: '+args.agent)
+    base = args.base or Path(tempfile.mkdtemp(prefix='tasktap-observer-poc-', dir='/private/tmp'))
+    base = base.resolve()
+    base.mkdir(exist_ok=True, mode=0o700)
+    project = base/'project'
+    project.mkdir(exist_ok=True)
+    if args.scenario == 'tools':
+        (project/'fixture.txt').write_text('TASKTAP_TOOL_READ_OK\n')
+        args.prompt = 'Read fixture.txt using your file-reading tool. Reply with exactly the contents of that file. Do not change files.'
+    folder = base/'Runs'/str(uuid.uuid4())
+    folder.mkdir(parents=True, mode=0o700)
+    os.environ['TASKTAP_TERMINAL_ROOT'] = str(base/'Terminals')
+    import workspace_terminal as terminal
+    from visible_session import save
+    from session_observer import read
+    if args.inspect:
+        for item in terminal.request(dict(op='list'))['sessions']:
+            replay = base64.b64decode(terminal.request(dict(op='attach',id=item['id']))['data']).decode(errors='replace')
+            if args.key_file:
+                replay = replay.replace(args.key_file.read_text().strip(), '[REDACTED]')
+            controls = re.findall(r'\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))', replay[:1000])
+            replay = re.sub(r'\x1b\][^\x07]*(?:\x07|\x1b\\)', '', replay)
+            replay = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', replay)
+            print(json.dumps(dict(id=item['id'], running=item['running'], controls=controls[:12],text=replay[:5500])))
+        if args.agent == 'codex':
+            from session_observer import codex_hook_trust
+            for config_file in (base/'Runs').glob('*/observer-config.json'):
+                config = read(config_file)
+                trust = config.get('trustedArgs')
+                if trust is None:
+                    from session_observer import codex_trust_overrides
+                    trust = codex_trust_overrides(cli, config_file.parent, str(project))
+                payload = codex_hook_trust(cli, config['hookArgs']+trust, str(project))
+                summary = dict(keys=list(payload), error=payload.get('error'), hooks=[], entries=[])
+                for entry in payload.get('data', []):
+                    summary['entries'].append(dict(keys=list(entry), count=len(entry.get('hooks', [])),
+                                                   warnings=entry.get('warnings'),errors=entry.get('errors')))
+                    for hook in entry.get('hooks', []):
+                        summary['entries'][-1].setdefault('fields', []).append(dict(keys=list(hook),source=hook.get('source'),event=hook.get('eventName')))
+                        if (hook.get('command') or hook.get('handler',{}).get('command')) == config['command']:
+                            summary['hooks'].append({k:v for k,v in hook.items() if k in ('key','eventName','source','currentHash','trustStatus')})
+                print(json.dumps(summary))
+        return
+    session = folder.name
+    capture = str(uuid.uuid4())
+    job = dict(agent=args.agent, model=args.model, observer=True, delivery='interactive',
+               host='tasktap', mode='ask', session=session, capture=capture,
+               folder=str(project), outgoing=args.prompt, instructions='', task='Observer PoC')
+    if args.agent=='codex': job['reviewedFolder']=str(project)
+    path = folder/('1-'+capture+'.job')
+    save(path, job)
+    save(path.with_suffix('.receipt'), dict(state='Opening'))
+    argv = [sys.executable, str(Path(__file__).resolve()), 'worker', str(path), cli,
+            str(args.key_file.resolve()) if args.key_file else '-']
+    print('Run folder: '+str(folder), flush=True)
+    terminal.request(dict(op='start', id=session, cwd=str(project), argv=argv, title='Observer PoC', kind='agent'))
+    sequence = 0
+    deadline = time.monotonic()+args.timeout
+    outcome = None
+    followed_up = False
+    terminal_queries = set()
+    try:
+        while time.monotonic() < deadline:
+            answer_terminal_queries(terminal, session, terminal_queries)
+            observation = read(folder/'observer.json')
+            if observation.get('sequence', 0) > sequence:
+                journal = folder/'observer-events.jsonl'
+                if journal.exists():
+                    for line in journal.read_text().splitlines():
+                        event = json.loads(line)
+                        if event['sequence'] > sequence:
+                            print(json.dumps(event), flush=True)
+                sequence = observation['sequence']
+            if observation.get('event') in ('turn_finished','turn_failed','turn_interrupted','process_exited'):
+                if observation.get('event') == 'turn_finished' and args.follow_up and not followed_up:
+                    print('Copied first answer: '+json.dumps(observation.get('finalAnswer')), flush=True)
+                    followed_up = True
+                    # Paste and submit as two operations; TUIs must first process the paste.
+                    data = '\x1b[200~'+args.follow_up+'\x1b[201~'
+                    terminal.request(dict(op='input',id=session,data=base64.b64encode(data.encode()).decode()))
+                    time.sleep(.25)
+                    terminal.request(dict(op='input',id=session,data=base64.b64encode(b'\r').decode()))
+                    deadline = time.monotonic()+args.timeout
+                    previous_turn = observation.get('turn', 0)
+                    until = time.monotonic()+5
+                    while time.monotonic()<until and read(folder/'observer.json').get('turn',0)<=previous_turn:
+                        time.sleep(.1)
+                    if read(folder/'observer.json').get('turn',0)<=previous_turn:
+                        print('Follow-up did not begin; keeping first-turn evidence.', flush=True)
+                        break
+                    continue
+                outcome = observation
+                break
+            receipt = read(path.with_suffix('.receipt'))
+            if receipt.get('state') == 'Failed':
+                print('Launch failed: '+receipt.get('message',''), flush=True)
+                break
+            time.sleep(.2)
+        if not outcome:
+            print('No final turn event before timeout; inspect the PTY replay for trust/auth prompts.', flush=True)
+        elif outcome.get('finalAnswer') is not None:
+            print('Copied answer: '+json.dumps(outcome['finalAnswer']), flush=True)
+        if args.keep_running:
+            print('PTY kept alive; terminal service root: '+str(base/'Terminals'), flush=True)
+        else:
+            terminal.request(dict(op='stop', id=session))
+    finally:
+        if not args.keep_running:
+            try: terminal.request(dict(op='stop', id=session))
+            except (OSError, ValueError): pass
+            # Reconcile explicit stops even when SIGTERM prevents an exit hook.
+            from session_observer import ingest
+            token = read(folder/'observer-config.json').get('token', '')
+            for _ in range(60):
+                rows = terminal.request(dict(op='list'))['sessions']
+                if not any(s['id'] == session and s['running'] for s in rows):
+                    ingest(folder, token, dict(kind='process_exited'))
+                    break
+                time.sleep(.05)
+    raise SystemExit(0 if outcome and outcome.get('event') == 'turn_finished' and outcome.get('finalAnswer') else 1)
+
+
+if __name__ == '__main__':
+    os.umask(0o077)
+    if sys.argv[1:2] == ['worker']:
+        worker()
+    else:
+        main()

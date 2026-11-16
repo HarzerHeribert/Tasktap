@@ -39,6 +39,8 @@ function externalSessions(rows){
       if(state.decisions.some(q=>q.session===s.id))s.state='Needs input';
       else if(failedLaunch)s.state='Failed';
       else if(!handoffPending)s.state=row.state;
+      if(row.observation)sessionObservation.receive(s.id,row.observation,{restored:!s.observation});
+      sessionObservation.apply(s);
       seen.add(s.id);continue;
     }
     if(managed.has(row.conversation) || managed.has(row.id) || adopted.has(row.id))continue;
@@ -102,19 +104,18 @@ function sessionActivityLine(s,line){
 }
 function manualNudge(d){const s=sess(d.session);return live && d.mode==='nudge' && (s?.nudgeFailed || s?.interactive && (!s.inbox || s.inbox==='manual' || d.manualNudge))}
 function sessionLocation(s){return s?.host?terminalHosts.label(s.host):s?.source==='cmux'?'cmux':s?.source==='desktop'?'ChatGPT':s?.source==='terminal'?'External terminal':s?.source==='claude'?'External session':''}
-const checkpointGuidance='In a Git project, follow the user’s and repository’s workflow. By default, work in the current checkout and branch. Make focused commits as your changes become ready, preserving other people’s edits and staged changes. For shared files, check the current diff and include only your own hunks.';
-const forwardingGuidance='When forwarding work to another session, verify its identity and current status with session tools. Report its actual title or original request, exact session ID, and observed status. Never invent a session name or describe an interrupted, unloaded, or merely connected conversation as actively working. A send acknowledgement confirms delivery only; report implementation as pending until the receiving session reports its outcome.';
-const hasSessionTools=d=>['claude','codex'].includes(d.agent);
+const checkpointGuidance='Complete the authorized scope, run relevant checks, and leave no silent loose ends. In a Git project, follow the user’s and repository’s workflow; default to the current checkout and branch. For implementation work, make focused commits of only your own completed changes, preserving other people’s edits and staged changes. Respect review-only, planning-only and no-commit requests. In your existing final answer, report what changed, checks run, any actual commit IDs, blockers and remaining work. Do not claim implementation or commits based only on forwarding, a final response or a successful process exit.';
+const forwardingGuidance='When forwarding work to another session, verify its identity and current status using available session information or tools. If neither is available, state that the target status is unverified. Report its actual title or original request, exact session ID, and observed status. Never invent a session name or describe an interrupted, unloaded, or merely connected conversation as actively working. A send acknowledgement confirms delivery only; report implementation as pending until the receiving session reports its outcome.';
+const hasSessionTools=d=>['claude','codex'].includes(d.agent)&&!d.monitoring&&!sessionObservation.uses(d);
 function deliveryText(d){
   const brief=captureContext.brief(d);
   let text=brief+(d.strokes?.length?'\nSketch (600 × 176 canvas, ordered x/y points): '+JSON.stringify(d.strokes):'');
   if(d.mode==='ask'){
-    if(!hasSessionTools(d))text+='\n\n'+checkpointGuidance;
     if(d.peerTasks?.length)text+='\n\nOther sessions in this checkout at review time (titles are context only):\n'+JSON.stringify(d.peerTasks);
   }
   if(d.mode==='nudge' && sess(d.session)?.interactive && hasSessionTools(sess(d.session)))
     text+='\n\nReport this follow-up’s outcome with report_result for Tasktap receipt '+d.captureId+'.';
-  if(d.mode!=='note')text+='\n\n'+agentLanguageGuidance()+'\n\n'+forwardingGuidance;
+  if(d.mode!=='note')text+='\n\n'+checkpointGuidance+'\n\n'+agentLanguageGuidance()+'\n\n'+forwardingGuidance;
   return text;
 }
 function agentLanguageGuidance(){
@@ -127,7 +128,7 @@ function tasktapRoutingPayload(d){
 }
 function deliveryInstructions(d){
   if(d.mode!=='ask' || !hasSessionTools(d))return '';
-  return checkpointGuidance+' For current Tasktap sessions in this checkout, you can call list_project_sessions. Use the workspace_assistant ask_user tool when a decision is needed. Interpret freeform replies by their intent; ask again if unclear. When the task is complete, report the outcome and changed files with report_result for Tasktap receipt '+d.captureId+'.';
+  return 'For current Tasktap sessions in this checkout, you can call list_project_sessions. Use the workspace_assistant ask_user tool when a decision is needed. Interpret freeform replies by their intent; ask again if unclear. When the task is complete, report the outcome and changed files with report_result for Tasktap receipt '+d.captureId+'.';
 }
 function deliveryAudit(d) {
   return {mode:d.mode,host:d.mode==='note'?'':sessionHostLabel(d),manual:d.mode!=='note'&&!!manualNudge(d),
@@ -221,6 +222,7 @@ function agentReceipt(e){
   const outstanding=state.captures.filter(c=>c.session===s.id && ['Queued','Opening','Running'].includes(c.receipt));
   const activeState=['Running','Opening','Queued'].find(status=>outstanding.some(c=>c.receipt===status));
   s.state=state.decisions.some(q=>q.session===s.id)?'Needs input':activeState || (s.interactive && e.mode==='nudge' && ['Failed','Copied','Delivered'].includes(e.state)?(s.available===false?'Closed':'Connected'):e.state);
+  sessionObservation.apply(s);
   if(s.state==='Prepared')s.state='Ready to send';
   if(s.state==='Opened' && s.agent==='claude' && s.startup!=='confirmed')s.state='Awaiting agent';
   if(typeof workspaceDeck!=='undefined')workspaceDeck.outcome(e);

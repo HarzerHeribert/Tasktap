@@ -63,13 +63,13 @@ claude_check = ('claude','auth','status','--json')
 agents = {name:'/bin/'+name for name in ('codex','claude','agy')}
 assert set(inspect_agents({}, {})['workerHealth'].values()) == {'missing'}
 result = inspect_agents(agents, {codex_check:(0,'','Logged in using ChatGPT'), claude_check:(0,'{"loggedIn":true,"authMethod":"oauth","subscriptionType":"pro"}','')})
-assert result['workerHealth'] == {'pi':'missing','cursor-agent':'missing','codex':'signedIn','claude':'signedIn','agy':'installed'}
+assert result['workerHealth'] == {'opencode':'missing','pi':'missing','cursor-agent':'missing','codex':'signedIn','claude':'signedIn','agy':'installed'}
 assert result['workers']['codex'] == 'ChatGPT login' and result['workers']['claude'] == 'Claude plan login'
 responses = {codex_check:(1,'','Not logged in'), claude_check:(1,'{"loggedIn":false}','')}
-assert inspect_agents(agents, responses)['workerHealth'] == {'pi':'missing','cursor-agent':'missing','codex':'signedOut','claude':'signedOut','agy':'installed'}
-assert inspect_agents(agents, responses, {'CLAUDE_CODE_USE_VERTEX':'1','GEMINI_API_KEY':'fixture'})['workerHealth'] == {'pi':'missing','cursor-agent':'missing','codex':'signedOut','claude':'configured','agy':'configured'}
+assert inspect_agents(agents, responses)['workerHealth'] == {'opencode':'missing','pi':'missing','cursor-agent':'missing','codex':'signedOut','claude':'signedOut','agy':'installed'}
+assert inspect_agents(agents, responses, {'CLAUDE_CODE_USE_VERTEX':'1','GEMINI_API_KEY':'fixture'})['workerHealth'] == {'opencode':'missing','pi':'missing','cursor-agent':'missing','codex':'signedOut','claude':'configured','agy':'configured'}
 result = inspect_agents(agents, {codex_check:subprocess.TimeoutExpired(codex_check,4), claude_check:(1,'invalid','')})
-assert result['workerHealth'] == {'pi':'missing','cursor-agent':'missing','codex':'unknown','claude':'unknown','agy':'installed'}
+assert result['workerHealth'] == {'opencode':'missing','pi':'missing','cursor-agent':'missing','codex':'unknown','claude':'unknown','agy':'installed'}
 optional = {'cursor-agent':'/bin/cursor-agent','pi':'/bin/pi'}
 result = inspect_agents(optional, {('cursor-agent','status','--format','json'):(1,'{"isAuthenticated":false}','')})
 assert result['workerHealth']['cursor-agent']=='signedOut' and result['workerHealth']['pi']=='installed'

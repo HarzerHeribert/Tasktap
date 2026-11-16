@@ -4,7 +4,7 @@ The Mac app receives questions in the background and keeps keyboard focus in the
 
 ## Connecting a session
 
-Tasktap registers the question tool when it opens an interactive Claude Code or Codex session. Antigravity shows decisions in its own terminal. An external agent launcher can start the bundled **agent-tools** command as a standard MCP stdio server. Pass the actual provider, session ID, worktree and display title for that run. The example below illustrates the server entry for a Claude Code session. Use the same entry with `--agent codex` or `--agent agy` for a compatible agent client. The request channel is opt-in per integration. Existing terminal sessions need an adapter or the tool registration. Both bundled commands use Python 3.
+For new embedded Claude Code, Codex, Pi and OpenCode launches, Tasktap observes native lifecycle events without registering question/report tools. Native questions and permissions are shown as attention cues and answered in the terminal when no reply API is available. Existing sessions and external Claude Code/Codex launches retain the question-tool integration below. Antigravity shows decisions in its own terminal. An external agent launcher can start the bundled **agent-tools** command as a standard MCP stdio server. Pass the actual provider, session ID, worktree and display title for that run. The example below illustrates the server entry for a Claude Code session. Use the same entry with `--agent codex` or `--agent agy` for a compatible agent client. The request channel is opt-in per integration. Existing terminal sessions need an adapter or the tool registration. Both bundled commands use Python 3.
 
 ```json
 {

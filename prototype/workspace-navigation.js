@@ -42,6 +42,10 @@ const workspaceNavigation=(()=>{
   function attention(p,data){
     const belongs=id=>state.sessions.some(s=>s.id===id&&s.project===p.id&&s.host==='tasktap')||data.layouts[p.id]?.groups.some(g=>g.tabs.includes('terminal:'+id))||data.terminals.some(t=>t.id===id&&t.cwd===p.folder);
     if(state.decisions.some(q=>belongs(q.session)))return {kind:'input',label:'Needs your input',symbol:'attention'};
+    const observations=state.sessions.filter(s=>belongs(s.id)).map(s=>sessionObservation.cue(s.id)).filter(Boolean);
+    for(const kind of ['permission','input','failure','interrupted','complete']){
+      const cue=observations.find(c=>c.kind===kind);if(cue)return {kind:cue.kind,label:cue.label,symbol:kind==='complete'?'check':kind==='permission'?'shield':'attention'};
+    }
     const unread=saved.activity.filter(a=>!a.read&&belongs(a.id));
     if(unread.some(a=>a.kind==='failure'))return {kind:'failure',label:'Needs attention',symbol:'attention'};
     if(unread.some(a=>a.kind==='complete'))return {kind:'complete',label:'Result ready',symbol:'check'};
@@ -89,7 +93,7 @@ const workspaceNavigation=(()=>{
     }
     sync();
   }
-  function refresh(){const nav=$('#nav'),scroll=nav.scrollTop;nav.innerHTML=navigation();nav.scrollTop=scroll;sync()}
+  function refresh(){const nav=$('#nav'),scroll=nav.scrollTop,markup=navigation();if(nav.dataset.markup!==markup){nav.innerHTML=markup;nav.dataset.markup=markup}nav.scrollTop=scroll;sync();sessionObservation.animateNavigation(nav)}
   function workspaceChoices(query=''){
     const words=query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean),open=new Set(saved.openProjects);
     const known=[...new Set([...state.projects.map(p=>p.id),...Object.keys(saved.layouts)])].map(id=>proj(id)).filter(Boolean);
@@ -147,6 +151,6 @@ const workspaceNavigation=(()=>{
   document.addEventListener('workspace-changed',()=>requestAnimationFrame(()=>{sync();const search=$('#workspace-external-search');if(search)pickerRows(search.value)}));
   document.addEventListener('workspace-settings-changed',()=>{refresh();discoveryStatus();if($('#workspace-external-search'))pickerRows($('#workspace-external-search').value)});
   window.addEventListener('resize',sync);
-  return {navigation,sync,toggle,openChooser,workingSessions,projectForSession};
+  return {navigation,refresh,sync,toggle,openChooser,workingSessions,projectForSession};
 })();
 if(location.hash!=='#geometry')render();

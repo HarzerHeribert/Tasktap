@@ -3,6 +3,7 @@ import Darwin
 import Foundation
 
 final class LiveWorkspace {
+    static func observes(agent:String,host:String)->Bool {host=="tasktap" && ["claude","codex","pi","opencode"].contains(agent)}
     let folders:WorkspaceFolders
     var root:URL {folders.root}
     let data:URL
@@ -22,7 +23,7 @@ final class LiveWorkspace {
     var externalChanged:([[String:String]])->Void = {_ in}
     static var cliEnvironment:[String:String]{
         var env=ProcessInfo.processInfo.environment
-        env["PATH"]=[FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin").path,"/opt/homebrew/bin","/usr/local/bin",env["PATH"] ?? "/usr/bin:/bin"].joined(separator:":")
+        env["PATH"]=[FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin").path,FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".opencode/bin").path,"/opt/homebrew/bin","/usr/local/bin",env["PATH"] ?? "/usr/bin:/bin"].joined(separator:":")
         return env
     }
     func refreshExternal() {
@@ -123,7 +124,7 @@ final class LiveWorkspace {
     func enqueue(_ job:[String:Any])throws -> [String:String] {
         guard let session=job["session"] as? String,UUID(uuidString:session) != nil,let capture=job["capture"] as? String,UUID(uuidString:capture) != nil,
               let path=job["folder"] as? String,let mode=job["mode"] as? String,["ask","nudge","note"].contains(mode),
-              let provider=job["agent"] as? String,["claude","codex","agy","cursor-agent","pi"].contains(provider) else {throw Failure.reason("Invalid handoff.")}
+              let provider=job["agent"] as? String,["claude","codex","agy","cursor-agent","pi","opencode"].contains(provider) else {throw Failure.reason("Invalid handoff.")}
         if mode != "note" {
             guard job["delivery"] as? String=="interactive", (job["planAccount"] as? String ?? "").isEmpty,
                   let host=job["host"] as? String, (TerminalCatalog.applications[host] != nil || host=="desktop" || host=="tasktap"),
@@ -186,6 +187,7 @@ final class LiveWorkspace {
             let existing=files.first{$0.lastPathComponent.hasSuffix(capture+".job")}
             let url=existing ?? folder.appendingPathComponent(String(Int(Date().timeIntervalSince1970*1000000))+"-"+capture+".job")
             var record=job;record["folder"]=dir.path;record["resume"]=mode=="nudge"
+            record["observer"] = Self.observes(agent:provider,host:job["host"] as? String ?? "")
             record["reviewedFolder"]=reviewedFolder
             record["hostApp"]=(record["host"] as? String).flatMap(TerminalCatalog.app)?.path
             if mode=="nudge", job["external"] as? Bool != true {
@@ -195,6 +197,7 @@ final class LiveWorkspace {
                       owner["agent"] as? String==provider,let ownerPath=owner["folder"] as? String,
                       WorkspaceFolders.canonical(URL(fileURLWithPath:ownerPath)).path==WorkspaceFolders.canonical(dir).path,(owner["host"] as? String)==(job["host"] as? String)
                 else {throw Failure.reason("Select the original interactive session for this nudge.")}
+                record["observer"] = owner["observer"] as? Bool == true
             }
             if existing==nil {try JSONSerialization.data(withJSONObject:record).write(to:url,options:.atomic)}
             pending[url.deletingPathExtension().appendingPathExtension("receipt")]=["session":session,"capture":capture]
@@ -202,6 +205,13 @@ final class LiveWorkspace {
         }
         refresh()
         return ["folder":dir.path,"name":dir.lastPathComponent]
+    }
+    func observerAnswer(_ id:String,turn:Int)throws -> String {
+        guard UUID(uuidString:id) != nil, turn>=0,turn<1000000 else {throw Failure.reason("Invalid answer.")}
+        let folder=data.appendingPathComponent(id),file=folder.appendingPathComponent(String(format:"answer-%04d.txt",turn))
+        guard file.resolvingSymlinksInPath().deletingLastPathComponent()==folder.resolvingSymlinksInPath(),
+              let size=try? file.resourceValues(forKeys:[.fileSizeKey]).fileSize,size<=2*1024*1024 else {throw Failure.reason("This saved answer is unavailable.")}
+        return try String(contentsOf:file,encoding:.utf8)
     }
     func assignNote(_ capture:String,folder:String)throws {
         let project=URL(fileURLWithPath:folder,isDirectory:true).standardizedFileURL

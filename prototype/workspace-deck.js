@@ -108,10 +108,13 @@ const workspaceDeck=(()=>{
   function sessionCue(id){
     const t=terminals.get(id),s=sess(id),events=saved.activity.filter(a=>a.id===id&&!a.read);
     if(state.decisions.some(q=>q.session===id))return {kind:'input',label:'Needs input',symbol:'?'};
+    const observation=sessionObservation.cue(id);if(observation)return observation;
     if(events.some(a=>a.kind==='failure'))return {kind:'failure',label:'Failed',symbol:'!'};
-    if(events.some(a=>a.kind==='complete')||s?.state==='Complete')return {kind:'complete',label:'Ready'+(t?.running?' · session still running':''),symbol:'✓'};
+    if(events.some(a=>a.kind==='complete'))return {kind:'complete',label:'Answer ready',symbol:'✓'};
     if(pendingStarts.has(id))return {kind:'working',label:'Opening',symbol:'◌'};
     if(t?.running===false)return {kind:'ended',label:t.restored?'Not running':t.stopped?'Stopped':t.exit===0?'Exited':'Failed',symbol:'○'};
+    if(s?.state==='Complete'||s?.state==='Ready')return {kind:'ready',label:'Ready',symbol:'○'};
+    if(t?.kind==='agent'&&!['Running','Needs input'].includes(s?.state))return {kind:'connected',label:'Connected',symbol:'○',activity:'Live lifecycle monitoring unavailable'};
     return {kind:'working',label:t?.kind==='agent'||s?'Working':'Running',symbol:'◌'};
   }
   function notify(kind,id,title,body,token,capture){
@@ -122,9 +125,52 @@ const workspaceDeck=(()=>{
     persist();refreshActivity();
     // An event remains in Activity even with OS alerts disabled. Never notify for
     // terminal text, title escape sequences, or restored historical state.
-    if(state.alerts && live && (sess(id)?.host==='tasktap'||!sess(id)) && (!document.hasFocus()||saved.background[id]))postLive('notify',{kind:kind==='failure'?'failure':'complete',id:kind==='complete'&&capture?capture:id,title,body});
+    if(state.alerts && live && (sess(id)?.host==='tasktap'||!sess(id)) && (!document.hasFocus()||saved.background[id]||kind==='answer'&&focusedTerminal()!==id)){
+      const turn=sessionObservation.get(id)?.answers?.at(-1)?.turn;
+      postLive('notify',{kind:kind==='answer'?'answer':kind==='failure'?'failure':'complete',id:kind==='answer'?id+':'+turn:kind==='complete'&&capture?capture:id,title,body});
+    }
   }
   function schedule(){clearTimeout(refreshTimer);refreshTimer=setTimeout(()=>{persist();render()},70)}
+  function adoptObservation(row,restored=false){
+    if(!row.observation)return;
+    if(!sess(row.id)){const p=ensureProject(row);state.sessions.unshift({id:row.id,project:p.id,host:'tasktap',task:row.title,
+      agent:row.observation.agent||row.agent||'unknown',interactive:true,managed:true,available:row.running,log:[]})}
+    sessionObservation.receive(row.id,row.observation,{restored});
+    sessionObservation.apply(sess(row.id));
+  }
+  function focusedTerminal(){
+    if(stage.hidden||document.hidden||!document.hasFocus()||document.querySelector('#modal[open]'))return null;
+    const pane=document.activeElement?.closest('.deck-group');
+    return pane?.dataset.ackSession||pane?.dataset.sessionId||null;
+  }
+  function acknowledgeFocused(){
+    const id=focusedTerminal();if(!id)return;
+    for(const event of saved.activity)if(event.id===id&&['complete','failure'].includes(event.kind))event.read=true;
+    sessionObservation.acknowledge(id);
+  }
+  document.addEventListener('session-observation',event=>{
+    const {id,observation:o,previous,restored}=event.detail,s=sess(id),last=(o.answers||[]).at(-1);
+    if(!s){schedule();return}
+    const token=last?sessionObservation.answerKey(id,last.turn):null;
+    if(last&&token&&!saved.seen[token]){
+      if(restored){saved.seen[token]=Date.now();saved.activity.unshift({kind:'answer',id,turn:last.turn,title:sessionDisplayName(s),project:s?.project,agent:s?.agent,time:last.time*1000,read:!sessionObservation.unread(id)});saved.activity=saved.activity.slice(0,60)}
+      else notify('answer',id,'Answer ready · '+sessionDisplayName(s),'A new answer is ready in its terminal.',token);
+      const item=saved.activity.find(a=>a.id===id&&a.kind==='answer'&&a.time>=last.time*1000-1000);if(item)item.turn=last.turn;
+    }
+    if(o.state==='failed'&&!restored&&previous?.state!=='failed'&&!intentionalStops.has(id))notify('failure',id,sessionDisplayName(s),o.error||'The agent turn failed.','observer-failure:'+id+':'+o.launchId+':'+o.turn);
+    const waiting=['needsInput','needsPermission'];
+    if(waiting.includes(o.state)&&previous?.state!==o.state&&!restored&&state.alerts&&live&&focusedTerminal()!==id)
+      postLive('notify',{kind:'attention',id,title:(o.state==='needsPermission'?'Needs permission':'Needs input')+' · '+sessionDisplayName(s),body:o.question||'Open the terminal to respond.'});
+    if(waiting.includes(previous?.state)&&!waiting.includes(o.state)&&live)postLive('clear',{kind:'attention',id});
+    schedule();
+    // Let an answer's one-shot sweep finish before acknowledging an already
+    // focused terminal. A background pane never inherits another pane's focus.
+    if(o.event==='turn_finished')setTimeout(()=>{if(focusedTerminal()===id)acknowledgeFocused()},1250);
+  });
+  document.addEventListener('session-acknowledged',schedule);
+  stage.addEventListener('focusin',()=>{acknowledgeFocused();if(activeProject)update(proj(activeProject),projects.get(activeProject))});
+  window.addEventListener('focus',()=>{acknowledgeFocused();schedule()});
+  document.addEventListener('visibilitychange',()=>{document.body.classList.toggle('observer-page-hidden',document.hidden);if(!document.hidden)acknowledgeFocused()});
   function ensureProject(row){let p=projectFor(row.cwd);if(!p){p={id:row.cwd,folder:row.cwd,name:row.cwd.split('/').pop(),available:true,aliases:[]};state.projects.push(p)}return p}
   function finishCloseSession(id){const project=closingSessions.get(id);if(!project)return;closingSessions.delete(id);delete saved.background[id];close('terminal:'+id,project)}
   async function receive(events){
@@ -132,7 +178,7 @@ const workspaceDeck=(()=>{
     for(const e of events){
       if(e.event==='sessions'){
         connected=true;for(const row of e.sessions||[]){
-          terminals.set(row.id,row);const p=ensureProject(row);completeLaunch(row);if(!row.running)finishCloseSession(row.id);
+          terminals.set(row.id,row);const p=ensureProject(row);adoptObservation(row,true);completeLaunch(row);if(!row.running)finishCloseSession(row.id);
           if(row.running&&saved.closedWorkspaces[p.id])send('stop',{id:row.id});
           // Adopt detached sessions from earlier versions without starting work.
           if(row.running&&saved.openProjects?.includes(p.id)&&!saved.closedWorkspaces[p.id]&&!Object.values(saved.layouts).some(l=>l.groups.some(g=>g.tabs.includes('terminal:'+row.id)))&&!pendingStarts.has(row.id))saved.background[row.id]=p.id;
@@ -141,6 +187,7 @@ const workspaceDeck=(()=>{
         schedule();
       }else if(e.event==='session' && e.session){
         const row=e.session,old=terminals.get(row.id);terminals.set(row.id,row);const p=ensureProject(row);
+        adoptObservation(row,!!row.restored);
         if(row.running&&!old?.running&&!closingSessions.has(row.id)&&!closingWorkspaces.has(p.id)&&!saved.closedWorkspaces[p.id])intentionalStops.delete(row.id);
         if(old&&!old.running&&row.running&&engines.has(row.id)){engines.get(row.id).attached=false;send('attach',{id:row.id})}
         if(old?.running&&!row.running){const s=sess(row.id);if(s){s.available=false;if(!s.result)s.state=row.exit===0||row.stopped?'Closed':'Failed'}
@@ -150,6 +197,8 @@ const workspaceDeck=(()=>{
         else if(!completeLaunch(row)&&!old&&row.running&&!saved.background[row.id])open('terminal:'+row.id,p.id,false);
         if(!row.running)finishCloseSession(row.id);
         schedule();
+      }else if(e.event==='observation'){
+        const t=terminals.get(e.id);if(t){t.observation=e.observation;adoptObservation(t,false)}else sessionObservation.receive(e.id,e.observation);
       }else if(e.event==='session-cancelled'){
         pendingStarts.delete(e.id);finishCloseSession(e.id);schedule();
       }else if(e.event==='workspace-opened'){
@@ -253,7 +302,6 @@ const workspaceDeck=(()=>{
     const p=proj(project);if(!p)return;
     if(closingWorkspaces.has(project)){toast('This workspace is stopping. Wait for it to close.');return}
     rememberWorkspace(project);
-    for(const item of saved.activity)if(!saved.background[item.id]&&(sess(item.id)?.project===project||terminals.get(item.id)?.cwd===p.folder))item.read=true;
     if(typeof showWorkspace==='function')showWorkspace();go(project);
     const l=layout(project);
     if(createTerminal&&!l.groups.some(g=>g.tabs.length)&&![...pendingStarts.values()].some(v=>v.project===project&&!v.closed))startTerminal(project);
@@ -294,7 +342,7 @@ const workspaceDeck=(()=>{
     persist();toast('Workspace closed. Its sessions have been stopped.');
   }
   function open(key,project,activate=true,groupID=null){if(window.tasktapSurface==='notch'){postLive('workspace-open',{key,project,activate});return}
-    const id=termID(key);if(id){delete saved.background[id];for(const a of saved.activity)if(a.id===id)a.read=true}
+    const id=termID(key);if(id)delete saved.background[id];
     const l=layout(project);let group=l.groups.find(g=>g.tabs.includes(key));
     if(!group){group=groupID?l.groups.find(g=>g.id===groupID):selectedGroup(l);if(!group)return;group.tabs.push(key)}group.active=key;l.selected=l.groups.indexOf(group);
     if(activate){if(typeof showWorkspace==='function')showWorkspace();go(project);requestAnimationFrame(()=>{const en=engines.get(termID(key));if(en)en.term.focus();else projects.get(project)?.querySelector('.deck-tab[aria-selected="true"][data-id="'+CSS.escape(key)+'"]')?.focus()})}else if(view===project)renderProject(proj(project));persist();
@@ -495,7 +543,7 @@ const workspaceDeck=(()=>{
         let pane=Array.from(groups.querySelectorAll('.deck-group')).find(n=>n.dataset.groupId===g.id);
         if(!pane){
           pane=document.createElement('section');pane.className='deck-group';pane.dataset.groupId=g.id;
-          pane.innerHTML='<div class="deck-pane-bar"><div class="deck-tabs" role="tablist"></div><div class="deck-pane-tools"></div></div><div class="deck-surface"></div><div class="deck-question"></div>';
+          pane.innerHTML='<div class="deck-pane-bar"><div class="deck-tabs" role="tablist"></div><div class="deck-pane-tools"></div></div><button type="button" class="deck-session-status" data-action="deck-details" hidden><span class="deck-state-dot" aria-hidden="true"></span><span class="deck-state-symbol" aria-hidden="true"></span><span class="deck-state-label" aria-live="polite"></span><span class="deck-state-activity"></span></button><div class="deck-surface"></div><div class="deck-question"></div><svg class="deck-session-ring" aria-hidden="true"><rect pathLength="100"/></svg>';
           const select=()=>{const selected=Number(pane.dataset.group);if(l.selected!==selected){l.selected=selected;root.querySelectorAll('.deck-group').forEach(n=>n.classList.toggle('selected',Number(n.dataset.group)===selected));update(p,root);persist()}};
           pane.addEventListener('pointerdown',select,{capture:true});pane.addEventListener('focusin',select);
           groups.append(pane);
@@ -529,6 +577,16 @@ const workspaceDeck=(()=>{
     l.groups.forEach((g,index)=>{
       const pane=root.querySelector('[data-group="'+index+'"].deck-group');if(!pane)return;pane.classList.toggle('selected',l.selected===index);
       const id=termID(g.active),s=sess(id),file=saved.media[mediaID(g.active)];
+      pane.dataset.sessionId=id||'';
+      pane.dataset.ackSession=id||(g.active?.startsWith('result:')?report(g.active.slice(7)).session?.id:'')||'';
+      const cue=id?sessionCue(id):null,kind=cue?.kind||'none';
+      pane.dataset.sessionState=kind;
+      const statusBar=pane.querySelector('.deck-session-status');statusBar.hidden=!id||!(s||terminals.get(id)?.kind==='agent');
+      statusBar.dataset.id=id||'';
+      if(cue){statusBar.title=[cue.label,cue.activity].filter(Boolean).join(' · ');statusBar.setAttribute('aria-label',cue.label+'. Session details');
+        const symbol=statusBar.querySelector('.deck-state-symbol');if(cue.kind==='permission')symbol.innerHTML=icon('shield');else symbol.textContent=cue.symbol;
+        const label=statusBar.querySelector('.deck-state-label');if(label.textContent!==cue.label)label.textContent=cue.label;
+        statusBar.querySelector('.deck-state-activity').textContent=cue.activity||''}
       const controls=$('.deck-pane-tools',pane),controlKey=JSON.stringify([g.active,!!s,l.groups.map(g=>g.id),!!file?.sourceView]);
       if(controls.dataset.signature!==controlKey){
         controls.dataset.signature=controlKey;
@@ -540,8 +598,9 @@ const workspaceDeck=(()=>{
       const heading=$('.deck-menu-heading',controls);if(heading)heading.textContent=id?[providers[s?.agent]||'Shell',status(id),fontSize(id)+' pt'].join(' / '):file?.path||file?.url||(g.active?'Reported outcome':'Surface '+(index+1));
       const tab=pane.querySelector('.deck-tab[aria-selected="true"]');if(tab&&!id)tab.title=label(g.active);
       const q=state.decisions.find(q=>q.session===id);
-      $('.deck-question',pane).innerHTML=q?'<div><strong>'+esc(q.q)+'</strong><span class="hint">'+esc(providers[s?.agent]||'Agent')+' needs your decision</span></div>'+button('Review decision','notch',q.id,'primary'):'';
-      $('.deck-question',pane).hidden=!q;
+      const attention=cue&&['input','permission'].includes(cue.kind);
+      $('.deck-question',pane).innerHTML=q?'<div><strong>'+esc(q.q)+'</strong><span class="hint">'+esc(providers[s?.agent]||'Agent')+' needs your decision</span></div>'+button('Review decision','notch',q.id,'primary'):attention?'<div><strong>'+esc(cue.activity||cue.label)+'</strong><span class="hint">Respond in this terminal.</span></div>'+button('Focus terminal','deck-open',id,'btn','terminal'):'';
+      $('.deck-question',pane).hidden=!q&&!attention;
     });
     arrange(root,l);renderNav(listedProjects(activeSessions()));
   }
@@ -596,9 +655,9 @@ const workspaceDeck=(()=>{
   }
   function activityRow({session,event,question,status,kind='report',count=0}){
     const capture=event?.capture&&byId(state.captures,event.capture),project=proj(session?.project||capture?.project||event?.project),title=activityTitle(session,event?.title),agent=providers[session?.agent||event?.agent]||'Agent';
-    const report=!!event,action=question?'notch':report?'deck-result':'deck-open',id=question?.id|| (report?event.capture||event.id:session?.id||event?.id);
+    const report=!!event,answer=event?.kind==='answer',action=question?'notch':answer?'observer-answer':report?'deck-result':'deck-open',id=question?.id|| (answer?event.id+':'+event.turn:report?event.capture||event.id:session?.id||event?.id);
     const metadata=[project?.name||'Scratch',agent,event?status:''].filter(Boolean).join(' · ');
-    const label=(question?'Answer question':report?'View report':'Open session')+': '+title.title+' / '+[metadata,event?'':status].filter(Boolean).join(' / ');
+    const label=(question?'Answer question':answer?'Read answer':report?'View report':'Open session')+': '+title.title+' / '+[metadata,event?'':status].filter(Boolean).join(' / ');
     return '<button type="button" class="activity-row" data-activity-kind="'+kind+'" data-action="'+action+'" data-id="'+attr(id)+'" aria-label="'+attr(label)+'"><span class="activity-symbol" aria-hidden="true">'+icon(question?'attention':kind==='failure'?'attention':report?'note':session?.agent||'sessions')+'</span><span class="activity-task"><strong title="'+attr(title.title)+'">'+esc(title.headline)+'</strong><span class="activity-meta" title="'+attr(metadata)+'">'+esc(metadata)+'</span>'+(question?'<span class="activity-question">'+esc(question.q)+'</span>':'')+'</span><span class="activity-end">'+(count>1?'<span class="activity-report-count" title="'+count+' reports">'+count+'</span>':'')+ (event?activityTime(event.time):'<span class="activity-state" data-state="'+attr(kind)+'">'+esc(status)+'</span>')+icon('right')+'</span></button>';
   }
   function activityContent(){
@@ -628,15 +687,15 @@ const workspaceDeck=(()=>{
     const reports=[];
     for(const [id,events] of groups){
       const latest=events[0],session=sess(id),failure=latest.kind==='failure';
-      const row=activityRow({session,event:latest,status:failure?'Handoff failed':'Report received',kind:failure?'failure':'report',count:events.length});
-      const previous=events.slice(1).map(event=>activityRow({session,event,status:event.kind==='failure'?'Handoff failed':'Report received',kind:event.kind==='failure'?'failure':'report'})).join('');
-      const history=previous?'<details class="activity-history" data-activity-history="'+attr(id)+'"><summary>'+events.length+' reports'+icon('down')+'</summary><div>'+previous+'</div></details>':'';
+      const row=activityRow({session,event:latest,status:failure?'Handoff failed':latest.kind==='answer'?'Answer ready':'Report received',kind:failure?'failure':'report',count:events.length});
+      const previous=events.slice(1).map(event=>activityRow({session,event,status:event.kind==='failure'?'Handoff failed':event.kind==='answer'?'Answer ready':'Report received',kind:event.kind==='failure'?'failure':'report'})).join('');
+      const history=previous?'<details class="activity-history" data-activity-history="'+attr(id)+'"><summary>'+events.length+(events.some(e=>e.kind==='answer')?' updates':' reports')+icon('down')+'</summary><div>'+previous+'</div></details>':'';
       const item='<article class="activity-conversation" data-activity-session="'+attr(id)+'">'+row+history+'</article>';
       if(failure&&!active.has(id))attention.push(item);else reports.push(item);
     }
     const section=(name,rows,kind)=>rows.length?'<section class="activity-section" data-activity-section="'+kind+'"><div class="activity-section-heading"><h3>'+name+'</h3><span>'+rows.length+'</span></div><div class="activity-rows">'+rows.join('')+'</div></section>':'';
     const summary=[working.length?working.length+' working':'',handoffs.length?handoffs.length+' handoff'+(handoffs.length===1?'':'s'):'',attention.length?attention.length+' need'+(attention.length===1?'s':'')+' attention':''].filter(Boolean).join(' · ');
-    return (summary?'<p class="activity-summary" role="status">'+esc(summary)+'</p>':'')+section('Needs your attention',attention,'attention')+section('Working now',working,'working')+section('Handoffs',handoffs,'handoffs')+section('Reports',reports,'reports')||'<div class="activity-empty">'+icon('check')+'<strong>You’re all caught up</strong><p>Active tasks, questions and reports appear here.</p></div>';
+    return (summary?'<p class="activity-summary" role="status">'+esc(summary)+'</p>':'')+section('Needs your attention',attention,'attention')+section('Working now',working,'working')+section('Handoffs',handoffs,'handoffs')+section(saved.activity.some(a=>a.kind==='answer')?'Answers and reports':'Reports',reports,'reports')||'<div class="activity-empty">'+icon('check')+'<strong>You’re all caught up</strong><p>Active tasks, questions and reports appear here.</p></div>';
   }
   function refreshActivity(){
     const root=$('#activity-feed');if(!root)return;
@@ -650,11 +709,11 @@ const workspaceDeck=(()=>{
     $('#modal').scrollTop=scroll;
   }
   function activity(){
-    saved.activity.forEach(a=>a.read=true);persist();
+    saved.activity.forEach(a=>{if(a.kind!=='answer')a.read=true});persist();
     dialog('Activity','Across your projects','<div id="activity-feed"></div>');refreshActivity();
     renderNav(listedProjects(activeSessions()));
   }
-  function details(id){const t=terminals.get(id),s=sess(id);if(!t){showSession(id);return}dialog(s?sessionDisplayName(s):t.title,'Session details','<p class="hint">'+esc(t.cwd)+'</p><p>'+esc(status(id))+'</p><div class="inline">'+(s?button('Conversation details','deck-conversation',id,'btn'): '')+(t.running?button('Stop session…','deck-stop',id,'btn','stop'):'')+'</div><p class="hint">Closing a live session lets you keep it running in the sidebar or stop its process.</p>')}
+  function details(id){const t=terminals.get(id),s=sess(id);if(!t&&!s)return;dialog(s?sessionDisplayName(s):t.title,'Session details','<p class="hint">'+esc(t?.cwd||proj(s?.project)?.folder||'')+'</p>'+sessionObservation.details(id)+'<div class="inline">'+(s?button('Conversation details','deck-conversation',id,'btn'): '')+(t?.running?button('Stop session…','deck-stop',id,'btn','stop'):'')+'</div>')}
   function preferences(){
     dialog('Terminal preferences','Workspace','<form id="deck-preferences" class="stack"><label class="check-line"><input type="checkbox" id="deck-follow" '+(saved.preferences.followGhostty!==false?'checked':'')+'>Use Ghostty font and cursor</label><p class="hint" id="deck-appearance-source">'+esc(appearanceDescription())+'</p>'+button('Reload Ghostty settings','deck-reload','','text-btn')+'<label class="field">Shell<select id="deck-shell">'+[['default','Login shell'],['zsh','zsh'],['bash','bash'],['fish','fish']].map(([id,name])=>option(id,name,saved.preferences.shell)).join('')+'</select></label><label class="field">Text size<select id="deck-font">'+option('auto','From appearance',saved.preferences.font?String(saved.preferences.font):'auto')+[12,13,14,16,18,20].map(n=>option(String(n),String(n)+' pt',String(saved.preferences.font))).join('')+'</select></label><p class="hint">Colors, translucency, and blur follow the app Appearance preferences. Your shell loads its usual prompt and plugins. Ghostty can supply installed fonts, cursor, and padding; its keybindings and shaders are not imported.</p><button class="primary" type="submit">Save preferences</button></form>');
     $('#deck-preferences').onsubmit=e=>{e.preventDefault();saved.preferences.shell=$('#deck-shell').value;const size=$('#deck-font').value;if(size==='auto')delete saved.preferences.font;else saved.preferences.font=Number(size);saved.preferences.followGhostty=$('#deck-follow').checked;applyAppearance();persist();dismissCard()};

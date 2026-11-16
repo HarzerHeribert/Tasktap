@@ -85,8 +85,8 @@ final class WorkspaceDecisionRim {
         halo.removeAnimation(forKey:"attention")
         guard panel.isVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
         let pulse=CABasicAnimation(keyPath:"opacity")
-        pulse.fromValue=0.62;pulse.toValue=0.9;pulse.duration=4.8;pulse.autoreverses=true
-        pulse.repeatCount = .infinity;pulse.timingFunction=CAMediaTimingFunction(name:.easeInEaseOut)
+        pulse.fromValue=0.62;pulse.toValue=0.9;pulse.duration=0.6;pulse.autoreverses=true
+        pulse.repeatCount = 2;pulse.timingFunction=CAMediaTimingFunction(name:.easeInEaseOut)
         halo.add(pulse,forKey:"attention")
     }
 

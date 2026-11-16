@@ -13,15 +13,15 @@ const paths = {
   back:'M20 12H4m6-6-6 6 6 6',down:'m6 9 6 6 6-6',right:'m9 5 7 7-7 7',arrow:'M4 12h15 m-6-6 6 6-6 6',out:'M6 18 18 6 M7 6h11v11',
   mic:'M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0z M5 11v1a7 7 0 0 0 14 0v-1 M12 19v3 M8 22h8',
   folder:'M3 6h7l2 3h9v11H3z',play:'m7 4 12 8-12 8z',pause:'M8 5v14 M16 5v14',stop:'M6 6h12v12H6z',x:'m6 6 12 12 M18 6 6 18',
-  'cursor-agent':'m4 5 15 7-7 2-3 7z',pi:'M3 7h18 M8 7v13 M16 7v10q0 3 4 3',
+  'cursor-agent':'m4 5 15 7-7 2-3 7z',pi:'M3 7h18 M8 7v13 M16 7v10q0 3 4 3',opencode:'M4 4h16v16H4z M9 8l-3 4 3 4 M15 8l3 4-3 4',
   claude:'M12 2v20 M2 12h20 M5 5l14 14 M5 19 19 5 M8 3l8 18 M3 16l18-8 M3 8l18 8 M8 21l8-18',
   codex:'m8 7-5 5 5 5 M16 7l5 5-5 5 M14 4l-4 16',agy:'m3 17 8-12h2l8 12 M8 14q4-3 8 0',
-  checks:'m3 12 4 4 9-10 M12 15l2 2 8-9',bell:'M5 16h14l-2-3V9a5 5 0 0 0-10 0v4z M10 20h4',
+  shield:'M12 3l8 3v6c0 5-8 9-8 9s-8-4-8-9V6z',checks:'m3 12 4 4 9-10 M12 15l2 2 8-9',bell:'M5 16h14l-2-3V9a5 5 0 0 0-10 0v4z M10 20h4',
   pen:'m4 16 12-12 4 4L8 20l-5 1z M14 6l4 4',sound:'M3 9h4l5-4v14l-5-4H3z M16 8q5 4 0 8 M19 5q8 7 0 14'
 };
 const icon = (name) => '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="'+(paths[name]||paths.note)+'"/></svg>';
 document.querySelectorAll('[data-icon]').forEach(el => el.innerHTML = icon(el.dataset.icon));
-const providers = {claude:'Claude Code',codex:'Codex',agy:'Antigravity','cursor-agent':'Cursor CLI',pi:'Pi'};
+const providers = {claude:'Claude Code',codex:'Codex',agy:'Antigravity','cursor-agent':'Cursor CLI',pi:'Pi',opencode:'OpenCode'};
 const demoQuote = 'Tell the session working on lighting to make sure the reflections follow the new light direction.';
 const mixed = 'For Reactive Wallpapers, remember this curve. Maybe animate it later. Ask Claude where the falloff is defined. Don’t change the shader.';
 const seed = {
@@ -52,10 +52,10 @@ const attr=(s)=>esc(s);
 const button=(label,action,id='',style='btn',sym='')=>'<button type="button" class="'+style+'" data-action="'+action+'" data-id="'+attr(id)+'">'+(sym?icon(sym):'')+esc(label)+'</button>';
 const option=(value,text,selected='')=>'<option value="'+attr(value)+'" '+(value===selected?'selected':'')+'>'+esc(text)+'</option>';
 const heading=(over,title,sub='')=>'<div class="page-heading"><div class="eyebrow">'+esc(over)+'</div><h1>'+esc(title)+'</h1>'+(sub?'<p class="subtitle">'+esc(sub)+'</p>':'')+'</div>';
-const statusClass=s=>['Needs input','Awaiting agent','Ready to send'].includes(s)?'waiting':s==='Complete'?'complete':['Running','Queued'].includes(s)?'running':'offline';
+const statusClass=s=>['Needs input','Needs permission','Awaiting agent','Ready to send'].includes(s)?'waiting':['Complete','Answer ready'].includes(s)?'complete':['Running','Queued'].includes(s)?'running':'offline';
 const navLink=(id,label,sym,end='')=>'<button class="nav-link '+(view===id?'active':'')+'" '+(view===id?'aria-current="page"':'')+' data-action="view" data-id="'+attr(id)+'">'+sym+'<span class="label">'+esc(label)+'</span>'+end+'</button>';
 const count=n=>'<span class="nav-count">'+n+'</span>';
-const activeSessionStates=new Set(['Running','Needs input','Queued','Opening','Awaiting agent','Ready to send','Connected']);
+const activeSessionStates=new Set(['Running','Ready','Needs input','Queued','Opening','Awaiting agent','Ready to send','Connected']);
 function activeSessions(){
   const pending=new Set(state.decisions.map(q=>q.session));
   return state.sessions.filter(s=>pending.has(s.id)||activeSessionStates.has(s.state));
@@ -81,8 +81,8 @@ function listedProjects(active){
 }
 function renderNav(projects){
   const scroll=$('#nav').scrollTop;
-  $('#nav').innerHTML='<div class="nav-group"><span class="nav-kicker">Workspace</span>'+navLink('overview','Overview',icon('grid'))+navLink('sessions','Sessions',icon('sessions'),count(state.sessions.length))+navLink('notes','Notebook',icon('note'),count(state.notes.length))+navLink('projects','Projects',icon('folder'),count(projects.length))+'</div>';
-  if(typeof workspaceNavigation!=='undefined'){$('#nav').innerHTML=workspaceNavigation.navigation();workspaceNavigation.sync()}
+  if(typeof workspaceNavigation!=='undefined')workspaceNavigation.refresh();
+  else $('#nav').innerHTML='<div class="nav-group"><span class="nav-kicker">Workspace</span>'+navLink('overview','Overview',icon('grid'))+navLink('sessions','Sessions',icon('sessions'),count(state.sessions.length))+navLink('notes','Notebook',icon('note'),count(state.notes.length))+navLink('projects','Projects',icon('folder'),count(projects.length))+'</div>';
   $('#nav').scrollTop=scroll;
   $('#islandLabel').textContent=state.decisions.length?state.decisions.length+' decision'+(state.decisions.length>1?'s':''):'All clear';
 }
@@ -116,7 +116,7 @@ function sessionRow(s,{question,fixture=false,title=question?.q || sessionDispla
       timeLabel=full;
       time='<time class="home-result-time" datetime="'+date.toISOString()+'" title="'+attr(full)+'" aria-label="'+attr(full)+'">'+esc(short)+'</time>';
     }
-    const end=result?time:'<span class="row-state '+statusClass(question?'Needs input':s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(status)+'</span>';
+    const end=result?time:'<span class="row-state '+statusClass(question?'Needs input':status)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(status)+'</span>';
     return '<button type="button" class="session-row home-session-row'+(home==='attention'?' is-question':'')+(result?' home-result-row':'')+'" data-action="'+(question?'notch':result&&s.host==='tasktap'?'deck-result':'session')+'" data-id="'+attr(question?.id||s.id)+'" aria-label="'+attr([title,project,agent,result?timeLabel:status].filter(Boolean).join(' / '))+'"><span class="agent-mark '+attr(s.agent||'')+'">'+icon(s.agent||'sessions')+'</span><span class="home-row-body"><span class="row-title" title="'+attr(title)+'">'+esc(headline)+'</span><span class="row-sub home-row-meta"'+(question?' title="'+attr(sessionDisplayName(s))+'"':'')+'>'+metadata+'</span></span><span class="home-row-end">'+end+icon('right')+'</span></button>';
   }
   if(!fixture)return historySessionRow(s,{question,title,status});
@@ -133,8 +133,11 @@ function workOverview(active){
   const attention=[],progress=[];
   for(const session of active){
     const pending=questions.get(session.id);
+    const observed=sessionObservation.cue(session.id);
     if(pending)attention.push(...pending.map(question=>sessionRow(session,{question,home:'attention'})));
+    else if(observed&&['input','permission'].includes(observed.kind))attention.push(sessionRow(session,{title:observed.activity||session.task,status:observed.label,home:'attention'}));
     else if(session.state==='Needs input')attention.push(sessionRow(session,{title:session.waitingFor || session.task,home:'attention'}));
+    else if(session.monitoring&&session.state==='Ready')continue;
     else{
       const turn=state.captures.find(c=>c.session===session.id);
       const sending=turn?.kind==='Session nudge' && ['Queued','Running'].includes(turn.receipt) && ['Queued','Running'].includes(session.state);
@@ -145,7 +148,8 @@ function workOverview(active){
   // A capture's clock label is request time, and a discovered session's updatedAt
   // can reflect any edit. Only an observed completion receipt dates a result.
   const results=state.sessions.filter(s=>s.result).map(s=>({session:s,time:Math.max(0,...(state.workspaceDeck?.activity||[]).filter(a=>a.kind==='complete'&&a.id===s.id&&a.body===s.result&&Number.isFinite(a.time)&&a.time>0&&a.time<=8.64e15).map(a=>a.time))})).sort((a,b)=>b.time-a.time).slice(0,3).map(({session,time})=>sessionRow(session,{home:'result',resultTime:time}));
-  return section('Needs your attention',attention,'attention')+section('In progress',progress,'progress')+section('Recent results',results,'results') || '<p class="empty">No active sessions.</p>';
+  const answers=state.sessions.filter(s=>s.observation?.answers?.length).sort((a,b)=>b.observation.answers.at(-1).time-a.observation.answers.at(-1).time).slice(0,3).map(s=>sessionRow(s,{home:'answer',status:'Answer ready'}));
+  return section('Needs your attention',attention,'attention')+section('In progress',progress,'progress')+section('Recent answers',answers,'answers')+section('Recent results',results,'results') || '<p class="empty">No active sessions.</p>';
 }
 function sessionList(rows){return rows.length?'<div class="session-list work-list">'+sessionColumns()+rows.map(s=>sessionRow(s)).join('')+'</div>':'<p class="empty">No sessions here yet.</p>'}
 function noteList(notes){return notes.length?notes.map(n=>'<button class="note" data-action="note" data-id="'+attr(n.id)+'" aria-label="'+attr((proj(n.project)?.name||'Scratch')+' / '+n.title)+'"><span class="eyebrow">'+esc(proj(n.project)?.name||'Scratch')+'</span><strong>'+esc(n.title)+'</strong><span class="hint">'+esc(n.text)+'</span></button>').join(''):'<p class="empty">No notes here yet.</p>'}
@@ -304,7 +308,7 @@ function showSession(id){
   const relay=live && (!s.result || turn?.receipt!=='Complete')?handoffRelay.forCapture(turn):'';
   const status='<section class="session-summary"><div class="session-summary-line"><span class="row-state '+statusClass(s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(s.state)+'</span><span class="row-sub">'+esc(sessionLocation(s))+'</span></div><span class="session-folder">'+icon('folder')+esc(proj(s.project)?.folder)+'</span></section>';
   const activity=s.log.length?'<details class="session-activity"><summary>Activity / '+s.log.length+'</summary><ul class="time-line">'+s.log.map(e=>'<li><i class="state-dot"></i>'+esc(sessionActivityLine(s,e))+'</li>').join('')+'</ul></details>':'';
-  dialog(sessionDisplayName(s),[providers[s.agent],s.model].filter(Boolean).join(' / '),'<div class="session-detail">'+status+(s.result?resultPresentation.markup(s.result,id):'')+(actions.length?'<div class="session-actions inline">'+actions.join('')+'</div>':'')+location+desktopHint+waiting+(relay?'<div class="session-receipt">'+relay+'</div>':'')+peerDisclosure(projectPeers(s.project,id),s.project,true)+activity+history+sessionNameHistory(s)+'</div>');
+  dialog(sessionDisplayName(s),[providers[s.agent],s.model].filter(Boolean).join(' / '),'<div class="session-detail">'+status+(s.monitoring?sessionObservation.details(id):'')+(s.result?resultPresentation.markup(s.result,id):'')+(actions.length?'<div class="session-actions inline">'+actions.join('')+'</div>':'')+location+desktopHint+waiting+(relay?'<div class="session-receipt">'+relay+'</div>':'')+peerDisclosure(projectPeers(s.project,id),s.project,true)+activity+history+sessionNameHistory(s)+'</div>');
   resultPresentation.paint($('#modal'));
   const disclosure=$('#modal [data-project-peers]');
   if(peersWereOpen && disclosure){
@@ -439,7 +443,7 @@ function interpret(){
   d.brief=t;d.note='';d.keep=false;d.candidates=[];delete d.suggestedBrief;delete d.preparedBrief;delete d.taskEdited;delete d.routeMatch;delete d.routeQuestion;
   const shorthand=/^(?:(?:yes|ok(?:ay)?|please|now)[\s,.!]+)*(?:(?:build|implement|fix|do|ship|finish|try|change|apply) (?:it|this|that|the plan)|(?:go ahead|continue|carry on))\s*(?:please)?[.!?]*$/i.test(t) || /\b(?:where (?:we|you) left off|(?:continue|pick up|resume) (?:from )?(?:our|the|your) (?:previous|last|earlier) (?:session|conversation|work|plan))\b/i.test(t);
   const filing=/(?:^|[.!?,]\s*|\b(?:please|can you|could you)\s+)(?:remember\b|jot\b.{0,20}\bdown\b|(?:save|keep|write|add|make)\s+(?:(?:this|that|a|the|an)\s+)?(?:as\s+a\s+)?(?:note|sketch|idea)\b|note\s+(?:that|for)\b|idea\s+for\b)/i.test(t);
-  const instruction=/\b(?:ask (?:claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?)|tell (?:[^.!?]*?\b)?(?:session|agent)|nudge|follow up)\b/i.exec(t);
+  const instruction=/\b(?:ask (?:claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?|opencode)|tell (?:[^.!?]*?\b)?(?:session|agent)|nudge|follow up)\b/i.exec(t);
   if(!d.session && (!d.sessionProject || d.guide==='start'))d.mode=instruction?(/^(tell|nudge|follow)/i.test(instruction[0])?'nudge':'ask'):filing||!t?'note':'ask';
   if(!d.session && shorthand && !d.strokes.length)d.mode='nudge';
   d.explicitMode=!!(instruction || filing || shorthand || d.sessionProject);
@@ -451,14 +455,14 @@ function interpret(){
     // Preserve constraints after the instruction. Keep preceding context in the handoff
     // unless it was captured separately as a note or solely names the workspace.
     if(d.mode==='ask' && (d.keep || !before || /^for [^,.]+[,.:]?$/i.test(before))){
-      d.brief=work.replace(/^ask (?:claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?)\s+(?:to\s+)?/i,'').trim();
+      d.brief=work.replace(/^ask (?:claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?|opencode)\s+(?:to\s+)?/i,'').trim();
       if(/^(where|how|whether|why)\b/i.test(d.brief))d.brief='Find '+d.brief;
       d.brief=d.brief.charAt(0).toUpperCase()+d.brief.slice(1);
     }
   }
   if(!d.session && (!d.project || d.suggestedProject) && ps.length===1)d.project=ps[0].id;
   if(d.suggestedProject && ps.length>1)d.project='';
-  if(!d.session && /\bask (claude|codex|antigravity|agy|cursor|pi|picode)\b/i.test(t))d.mode='ask';
+  if(!d.session && /\bask (claude|codex|antigravity|agy|cursor|pi|picode|opencode)\b/i.test(t))d.mode='ask';
   if(d.mode==='nudge'&&!d.session){
     // A suggested first-run folder is not evidence about an existing conversation.
     if(d.suggestedProject && !ps.length)d.project='';
@@ -466,11 +470,11 @@ function interpret(){
     if(!shorthand && choices.length===1){d.session=choices[0].id;d.project=choices[0].project}
     else if(choices.length && !shorthand)d.candidates=choices.map(s=>s.id);
   }
-  const worker=/\b(?:ask|use|using|with|via|send to|hand (?:it |this )?to|run (?:it |this )?in)\s+(claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?)\b/i.exec(t) || /^\s*(claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?)\s*[:,]/i.exec(t);
+  const worker=/\b(?:ask|use|using|with|via|send to|hand (?:it |this )?to|run (?:it |this )?in)\s+(claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?|opencode)\b/i.exec(t) || /^\s*(claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?|opencode)\s*[:,]/i.exec(t);
   if(d.agentChoice!=='manual'){
     const id=worker && worker[1].toLowerCase();
     d.agentChoice=id?'named':'';
-    d.agent=id?.startsWith('cursor')?'cursor-agent':id?.startsWith('pi')?'pi':id?.startsWith('claude')?'claude':id==='codex'?'codex':id?'agy':sessionModelPolicy().defaultAgent;
+    d.agent=id?.startsWith('cursor')?'cursor-agent':id?.startsWith('pi')?'pi':id?.startsWith('claude')?'claude':id==='codex'?'codex':id==='opencode'?'opencode':id?'agy':sessionModelPolicy().defaultAgent;
   }
   const viewer=/\b(?:in|with|using|via|to)\s+(?:apple |the )?(xcode|preview|finder)\b/i.exec(t);if(viewer)d.viewer=['Xcode','Preview','Finder'].find(app=>app.toLowerCase()===viewer[1].toLowerCase());
 }

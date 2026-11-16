@@ -42,6 +42,7 @@ const path=require('node:path');
   });
   await project.click();
   assert.equal(await row.getAttribute('data-status'),'input','opening the workspace cannot dismiss a pending decision');
+  await page.waitForFunction(()=>document.activeElement?.classList.contains('xterm-helper-textarea'));
   await page.evaluate(()=>{state.decisions=[];render()});
   assert.equal(await row.getAttribute('data-status'),null,'acknowledged results do not leave a stale badge');
   await page.evaluate(()=>{workspaceDeck.outcome({session:'agent',state:'Complete',capture:'old',message:'Old result',recovered:true});render()});

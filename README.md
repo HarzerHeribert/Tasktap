@@ -80,7 +80,7 @@ Choose **Follow up** on a session, or describe it in a capture. Preparation cons
 
 ## Agents, accounts, and other applications
 
-Tasktap launches installed **Claude Code**, **Codex**, **Antigravity (`agy`)**, **Cursor CLI (`cursor-agent`)**, and **Pi (`pi`)**. Each worker uses its own CLI authentication and settings. Configure the default agent, fixed or adaptive models, and terminal under **Preferences → Agents & connections → Session models**. Agent routing can use available usage estimates; a review override changes one handoff.
+Tasktap launches installed **Claude Code**, **Codex**, **Antigravity (`agy`)**, **Cursor CLI (`cursor-agent`)**, **Pi (`pi`)**, and **OpenCode (`opencode`)**. Each worker uses its own CLI authentication and settings. Configure the default agent, fixed or adaptive models, and terminal under **Preferences → Agents & connections → Session models**. Agent routing can use available usage estimates; a review override changes one handoff. OpenCode model IDs use `provider/model`; its own provider configuration supplies authentication.
 
 New installations use Tasktap’s embedded terminal. Existing terminal preferences remain respected. External options include Terminal, cmux, Ghostty, iTerm2, Warp, WezTerm, and kitty; their ability to reopen, focus, or deliver follow-ups varies. **Change destination → Open this session in** chooses a host for one new session.
 
@@ -94,7 +94,9 @@ A fresh Codex handoff offers an exact-folder trust choice. Project settings can 
 
 ## Decisions, results, and notifications
 
-Tasktap-managed Claude Code and Codex sessions can use session-scoped question and result tools. A pane, the notch, and a notification all address the same request. Closing a decision defers it; answering one cannot answer a later request. Ordinary terminal output does not generate alerts, and a successful process exit is not treated as task completion.
+New embedded Claude Code, Codex, Pi and OpenCode sessions use launch-scoped lifecycle observers, without extra reporting tools or global hook installation. Existing and externally hosted Claude Code/Codex integrations can still use their session-scoped question/result tools. A pane, the notch, and a notification all address the same request. Closing a decision defers it; answering one cannot answer a later request. Ordinary terminal output does not generate alerts, and a successful process exit is not treated as task completion.
+
+Terminal pane headers show current activity. An accent edge means working; amber means input or permission is needed; green means an unread answer is ready; red means failure. Input cues pulse twice, new answers sweep once, and Reduce Motion keeps them static. Focus the pane while Tasktap is active, or open its saved answer, to acknowledge it. Other panes stay unread. **Session details** contains copied answers by turn and the event history. A finished answer is not independent proof of task success. Native CLI prompts are answered in their terminal when no reply API is available. Cursor and Antigravity currently have limited lifecycle monitoring.
 
 Choose a displayed answer or use **Reply** to type or dictate. **Send reply** returns your words to that agent, which interprets whether you answered, asked a question, or added a constraint. Both choices and freeform replies settle the displayed request; the agent can ask a new question if it needs clarification. A freeform reply is not blanket authorization.
 

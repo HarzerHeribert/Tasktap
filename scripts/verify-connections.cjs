@@ -166,9 +166,9 @@ const { chromium } = require('playwright');
     const reviewed=await page.evaluate(()=>({
       outgoing:deliveryText(draft),instructions:deliveryInstructions(draft)
     }));
-    assert.match(reviewed.instructions,/current checkout and branch/);
+    assert.match(reviewed.outgoing,/current checkout and branch/);
     assert.match(reviewed.outgoing,/glass & <lens>/);
-    assert.doesNotMatch(reviewed.outgoing,/different project|finished|stale|unknown|idle/);
+    assert.doesNotMatch(reviewed.outgoing,/different project|stale|unknown|idle/);
     assert.doesNotMatch(await page.locator('#handoff-review').innerText(),/current checkout and branch/,'worker instructions stay out of ordinary review');
     await click('Diagnostics');
     const diagnostic=JSON.parse(await page.locator('#review-diagnostics').innerText());
@@ -193,12 +193,13 @@ const { chromium } = require('playwright');
     const routes=await page.evaluate(()=>{
       const d={project:'/projects/Lighting',brief:'Add a cue',strokes:[],peerTasks:[{agent:'Codex',state:'Running',task:'solver'}]};
       return {
-        others:['pi','cursor-agent','agy'].map(agent=>deliveryText({...d,agent,mode:'ask'})),
+        others:['pi','cursor-agent','agy','opencode'].map(agent=>deliveryText({...d,agent,mode:'ask'})),
         nudge:deliveryText({...d,agent:'pi',mode:'nudge'}),
         isolated:['@scratch','@new','missing'].every(id=>projectPeers(id).length===0)
       };
     });
-    for(const text of routes.others){assert.match(text,/current checkout and branch/);assert.match(text,/solver/)}
+    for(const text of routes.others){assert.match(text,/current checkout and branch/);assert.match(text,/solver/);assert.equal(text.match(/Complete the authorized scope/g).length,1);assert.match(text,/review-only, planning-only and no-commit/)}
+    assert.match(routes.nudge,/actual commit IDs/);assert.match(routes.nudge,/preserving other people’s edits and staged changes/);
     assert.ok(routes.nudge.startsWith('Add a cue'));assert.match(routes.nudge,/final response in the language/);assert.ok(routes.isolated);
     const identity=await page.evaluate(()=>{
       const folder='/projects/Lighting',thread='discovered-thread',owned='owned-session';

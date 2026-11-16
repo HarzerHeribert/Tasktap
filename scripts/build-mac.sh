@@ -9,6 +9,8 @@ mkdir -p "$contents/MacOS" "$contents/Resources/prototype/assets"
 # Retire bundled worker adapters when updating an existing build.
 rm -f "$contents/Resources/codex_plan.py" "$contents/Resources/agy_session.py"
 cp "$root/scripts/workspace_terminal.py" "$contents/Resources/"
+cp "$root/scripts/session_observer.py" "$contents/Resources/"
+ditto "$root/scripts/observers" "$contents/Resources/observers"
 ditto "$root/prototype" "$contents/Resources/prototype"
 cp "$root/LICENSE" "$contents/Resources/"
 cp "$root/build/tasktap-speech" "$contents/Resources/"

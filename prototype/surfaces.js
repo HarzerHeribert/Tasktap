@@ -34,6 +34,7 @@ function closePanels(){
   $('#status-button').setAttribute('aria-expanded','false');
 }
 function showWorkspace(){
+  if(window.tasktapSurface==='notch'){postHost('show-workspace');showHome(false);return}
   clearTimeout(hoverTimer);
   homeMode='closed';
   closePanels();
@@ -44,6 +45,7 @@ function showWorkspace(){
   updateBounds(true);
 }
 function showHome(open=true){
+  if(window.tasktapSurface==='workspace'){postHost('show-notch',{open});return}
   clearTimeout(hoverTimer);
   closePanels();
   document.body.classList.add('notch-first');
@@ -206,6 +208,7 @@ function previewNotice(id,kind){
   n.innerHTML='<div class="notice-head">'+icon('bell')+'<span>Tasktap</span>'+surfaceButton('Dismiss','dismiss-notice')+'</div><strong>'+esc(s.task)+'</strong><p>'+esc(q?q.q:s.result)+'</p>'+surfaceButton(q?'Review decision':'View result',q?'notice-request':'notice-result','arrow','surface-button',id);
 }
 function emitNotice(id,kind){
+  if(window.tasktapSurface==='notch')return;
   if(!state.alerts)return;
   const q=byId(state.decisions,id),s=kind==='complete'?sess(id):q&&sess(q.session);
   if(!s)return;
@@ -407,7 +410,7 @@ function command(action,id=''){
     case 'prefs':prefs();break;
     case 'close-front':
       if(settingsPickers.close())break;
-      if(document.querySelector('dialog[open]'))dismissCard();else if(typeof workspaceDeck!=='undefined' && workspaceDeck.closeFront()){}else showHome(false);
+      if(document.querySelector('dialog[open]'))dismissCard();else if(typeof workspaceDeck!=='undefined' && workspaceDeck.closeFront()){}else if(window.tasktapSurface==='workspace')postHost('hide-workspace');else showHome(false);
       break;
     case 'capture':quickCapture();break;
     case 'requests':openRequest(id);break;
@@ -477,6 +480,7 @@ for(const selector of ['#notch','#modal']){
 const boundsObserver=new ResizeObserver(updateBounds);
 boundsObserver.observe($('#notch-home'));boundsObserver.observe($('#island'));
 window.workspaceCommand=(action,id='')=>{
+  if(action==='open-app'&&window.tasktapSurface==='workspace'){showWorkspace();if(!state.firstRun?.done)postHost('notch-onboarding');return}
   if(action==='live-error'){toast(id);return}
   if(action==='session-focused'){
     if(firstMode() && firstRun.visible && state.firstRun?.session===id && !document.querySelector('dialog[open]') && !pending() && !$('#notch-home').hidden)showHome(false);
@@ -498,4 +502,5 @@ window.workspaceCommand=(action,id='')=>{
 };
 document.body.classList.toggle('native-host',!!host);
 if(['#workspace','#geometry'].includes(location.hash)){document.body.classList.remove('notch-first');$('#notch-home').hidden=true}
+if(window.tasktapSurface==='workspace'){document.body.classList.remove('notch-first');$('#notch-home').hidden=true;view=state.workspaceView||'overview';render()}
 syncSurfaces();postHost('lightingPreference',{enabled:!!state.microLights});postHost('ready');

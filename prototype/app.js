@@ -42,7 +42,7 @@ try{state=JSON.parse(localStorage.getItem(storageKey))}catch{}
 const returningInstall=!!state;
 state ||= live?emptyState():structuredClone(seed);
 let view='overview',draft=null,openedSession=null,spoken=false,simVoice=null,returnFocus=null;
-const persist=()=>{try{localStorage.setItem(storageKey,JSON.stringify(state))}catch{toast('Storage unavailable. Changes will last for this visit.')}};
+const persist=()=>{try{if(window.tasktapSurface!=='notch')localStorage.setItem(storageKey,JSON.stringify(state));if(typeof sharedState!=='undefined')sharedState.publish()}catch{toast('Storage unavailable. Changes will last for this visit.')}};
 const scratchProject={id:'@scratch',name:'Scratch',folder:'Scratch',aliases:[]};
 const proj=id=>id==='@scratch'?scratchProject:state.projects.find(p=>p.id===id);
 const sess=id=>state.sessions.find(s=>s.id===id);
@@ -218,7 +218,7 @@ function render(){
   }
 }
 function toast(message){$('#toast').textContent=message;clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').textContent='',3000)}
-function go(id){clearTimeout(toast.timer);$('#toast').textContent='';view=id;document.body.classList.remove('nav-open');render();if(document.body.classList.contains('notch-first'))$('#islandToggle').focus();else $('#main').focus()}
+function go(id){if(window.tasktapSurface==='notch'){postLive('workspace-view',{view:id});return}if(window.tasktapSurface==='workspace'){state.workspaceView=id;persist()}clearTimeout(toast.timer);$('#toast').textContent='';view=id;document.body.classList.remove('nav-open');render();if(document.body.classList.contains('notch-first'))$('#islandToggle').focus();else $('#main').focus()}
 function frame(title,over,body,backLabel='',lead=''){
   const nav=backLabel?'<button class="icon-btn" data-action="close" aria-label="'+attr(backLabel)+'">'+icon('back')+'</button>':'<button class="icon-btn" data-action="close" aria-label="Close dialog">'+icon('x')+'</button>';
   if(lead)return '<div class="dialog-body notch-review"><h2 id="dialog-heading" class="sr-only">'+esc(title)+'</h2>'+
@@ -693,6 +693,6 @@ function prepareForAppUpdate(){
   try{if(draft)localStorage.setItem('tasktap-update-draft',JSON.stringify({text:draft.brief||draft.text||'',project:draft.project||'',strokes:draft.strokes||[]}));persist();return true}catch{return false}
 }
 const recoveredUpdateDraft=localStorage.getItem('tasktap-update-draft');
-if(recoveredUpdateDraft){
+if(recoveredUpdateDraft && (typeof window==='undefined'||window.tasktapSurface!=='workspace')){
   try{const saved=JSON.parse(recoveredUpdateDraft);if(saved.text || saved.strokes?.length){setTimeout(()=>{captureDraft('',proj(saved.project)?saved.project:'',saved.text);draft.strokes=saved.strokes||[];draft.sketch=!!draft.strokes.length;editDraft();localStorage.removeItem('tasktap-update-draft')},1200)}}catch{}
 }

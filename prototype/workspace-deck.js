@@ -173,7 +173,7 @@ const workspaceDeck=(()=>{
     if(view===project)go(saved.openProjects[Math.min(Math.max(0,index),saved.openProjects.length-1)]||'overview');else renderNav(listedProjects(activeSessions()));
     persist();toast('Workspace closed. Its layout is saved; terminal sessions keep running.');
   }
-  function open(key,project,activate=true,groupID=null){
+  function open(key,project,activate=true,groupID=null){if(window.tasktapSurface==='notch'){postLive('workspace-open',{key,project,activate});return}
     const l=layout(project);let group=l.groups.find(g=>g.tabs.includes(key));
     if(!group){group=groupID?l.groups.find(g=>g.id===groupID):selectedGroup(l);if(!group)return;group.tabs.push(key)}group.active=key;l.selected=l.groups.indexOf(group);
     if(activate){if(typeof showWorkspace==='function')showWorkspace();go(project);requestAnimationFrame(()=>{const en=engines.get(termID(key));if(en)en.term.focus();else projects.get(project)?.querySelector('.deck-tab[aria-selected="true"][data-id="'+CSS.escape(key)+'"]')?.focus()})}else if(view===project)renderProject(proj(project));persist();
@@ -418,7 +418,7 @@ const workspaceDeck=(()=>{
   document.addEventListener('keydown',e=>{if(!activeProject||document.querySelector('dialog[open]'))return;const key=layout(activeProject).groups[layout(activeProject).selected]?.active;if(e.metaKey&&e.key.toLowerCase()==='d'&&!e.altKey){e.preventDefault();split(activeProject,e.shiftKey?'y':'x');return}if(e.metaKey&&e.key.toLowerCase()==='w'&&key){e.preventDefault();close(key)}if(e.metaKey&&e.key.toLowerCase()==='f'&&termID(key)){e.preventDefault();projects.get(activeProject)?.querySelector('[data-action="deck-find"][data-id="'+termID(key)+'"]')?.click()}if(e.metaKey&&e.key.toLowerCase()==='k'){e.preventDefault();go('sessions');$('#session-filter')?.focus()}});
   function outcome(e){if(e.recovered)return;const s=sess(e.session);if(!s)return;if(e.state==='Failed'&&terminals.get(s.id)?.stopped)return;if(e.state==='Complete')notify('complete',s.id,sessionDisplayName(s),e.message||'The agent reported a result.','result:'+e.capture,e.capture);else if(e.state==='Failed')notify('failure',s.id,sessionDisplayName(s),e.message||'The task could not be completed.','failed:'+e.capture)}
   function closeFront(){if(!activeProject)return false;const l=layout(activeProject),key=l.groups[l.selected]?.active;if(!key)return false;close(key);return true}
-  function openTerminal(id){const t=terminals.get(id);if(t)open('terminal:'+id,ensureProject(t).id)}
+  function openTerminal(id){if(window.tasktapSurface==='notch'){postLive('workspace-open-terminal',{id});return}const t=terminals.get(id);if(t)open('terminal:'+id,ensureProject(t).id)}
   function terminalText(id){const term=engines.get(id)?.term;if(!term)return '';const buffer=term.buffer.active;return Array.from({length:buffer.length},(_,i)=>buffer.getLine(i)?.translateToString(true)||'').join('\n')}
   function terminalMetrics(id){
     const en=engines.get(id),screen=en?.element.querySelector('.xterm-screen');if(!screen)return null;
@@ -441,7 +441,7 @@ const workspaceDeck=(()=>{
   }
   function textLoaded(id,text){const node=previews.get('media:'+id),file=saved.media[id];if(node&&file){node.previewText=text;paintDocument(node,file)}}
   function shellHistory(filter=''){const rows=[...terminals.values()].filter(t=>t.kind==='shell'&&[t.title,t.cwd].join(' ').toLowerCase().includes(filter.toLowerCase()));return rows.length?'<section class="block"><h2>Terminals</h2>'+rows.map(t=>button(t.title+' / '+(t.running?'Running':t.restored?'Not running':t.stopped?'Stopped':'Exited')+' / '+t.cwd,'deck-open',t.id,'note','sessions')).join('')+'</section>':''}
-  function openResult(id){const result=report(id);if(result.session){for(const item of saved.activity)if(item.capture===id||!item.capture&&item.id===id)item.read=true;dismissCard();open('result:'+id,result.session.project)}}
+  function openResult(id){if(window.tasktapSurface==='notch'){postLive('workspace-open-result',{id});return}const result=report(id);if(result.session){for(const item of saved.activity)if(item.capture===id||!item.capture&&item.id===id)item.read=true;dismissCard();open('result:'+id,result.session.project)}}
   // Restore an explicit layout without automatically starting any process.
   function sidebarData(){return {layouts:saved.layouts,terminals:[...terminals.values()],label,icon:surfaceIcon}}
   if(typeof appAppearance!=='undefined')appAppearance.receiveGhostty(inherited);

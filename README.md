@@ -1,6 +1,6 @@
 <img src="site/assets/tasktap-icon.png" width="112" height="112" alt="Tasktap: a metallic voice wave on a dark square">
 
-# Tasktap 1.0.5
+# Tasktap 1.1.0
 
 A Mac workspace that turns a thought into a reviewed task in the right project and conversation. Speak or type, refine the prompt, then work with your coding agents in Tasktap’s embedded terminal multiplexer. Keep sessions, documents and previews together, and answer an agent from the notch while using another app.
 
@@ -109,6 +109,8 @@ The optional Codex Micro provides request-scoped decision controls. Everything a
 Tasktap uses **xterm.js**, not libghostty. Follow Ghostty imports supported appearance fields from the installed Ghostty configuration; keybindings, shaders, and identical font shaping do not carry over. A neutral fallback is used when Ghostty settings are unavailable. One native macOS backdrop supplies optional blur; text stays opaque, and **Reduce Transparency** takes precedence. GPU cost has not been benchmarked.
 
 Artwork is a separate preference. Its pause state is remembered, hidden artwork pauses, and **Reduce Motion** uses still images and steady activity states. The physical notch retains a dark camera housing with readable controls in every application theme.
+
+The workspace and notch are independent live windows. Using the notch keeps workspace tabs and terminal output visible. Closing the workspace window leaves the resident notch running; click the Dock icon to restore the same workspace.
 
 Paid plan usage appears in the workspace toolbar, active notch and task review. Weekly usage is the outer ring; five-hour usage is the inner ring. Click for reset times. Google/Gemini uses `agy`; Cursor, Grok and GLM require an existing authenticated paid account. Unknown usage stays unavailable.
 

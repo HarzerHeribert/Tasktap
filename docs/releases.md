@@ -47,6 +47,24 @@ folders. Do not delete these while agents are running. Settings and session data
 are separate from the app. Updates preserve request text; unfinished setup and
 other transient UI selections should be completed before updating.
 
+## 1.1.0 release scope
+
+Version 1.1.0 uses build **13**. The workspace and notch have independent
+WebKit views. Notch use never hides or detaches the workspace renderer. Closing
+the workspace window retains the resident notch; reopening restores the same
+tabs and view. Quit Tasktap remains a full application exit.
+
+Durable record changes synchronize as entity deltas, including explicit
+removals. The workspace owns layout persistence and PTY event delivery, while
+the notch delegates terminal navigation to it. Restart checks cover both views.
+
+Browser checks cover independent roles, bidirectional record merge/removal,
+preferences and terminal delegation. The native independent-window check uses
+a real PTY to confirm output during notch use, retained workspace DOM, shared
+notes, window close/reopen and preservation of a notch draft.
+
+Release notes: [releases/1.1.0.md](releases/1.1.0.md).
+
 ## 1.0.5 release scope
 
 Version 1.0.5 uses build **12**. The below-camera usage row is visible only

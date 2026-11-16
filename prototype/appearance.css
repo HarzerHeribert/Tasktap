@@ -48,9 +48,8 @@ dialog::backdrop{background:#080b1266}
 :root .agent-mark{background:color-mix(in srgb,var(--app-warning) 12%,var(--app-bg));color:var(--app-warning);border-color:var(--app-edge)}
 :root .agent-mark.codex{background:var(--app-accent-soft);color:var(--app-accent);border-color:var(--app-edge)}
 :root .agent-mark.agy{background:var(--app-selected);color:var(--app-fg);border-color:var(--app-edge)}
-:root :is(#status-menu,#notification-preview,.demo-strip,.toast){background:var(--app-overlay);color:var(--app-fg);border-color:var(--app-edge);box-shadow:0 5px 28px var(--app-shadow)}
-:root :is(#status-menu .surface-button:hover,.micro-preview .surface-button,.micro-preview .surface-button:hover){background:var(--app-hover);color:var(--app-fg)}
-:root .demo-strip button{color:var(--app-accent)}
+:root :is(#status-menu,#notification-preview,.toast){background:var(--app-overlay);color:var(--app-fg);border-color:var(--app-edge);box-shadow:0 5px 28px var(--app-shadow)}
+:root #status-menu .surface-button:hover{background:var(--app-hover);color:var(--app-fg)}
 :root :is(.activity-band,.review-rail){background:var(--app-raised);color:var(--app-fg);border-color:var(--app-edge)}
 :root .activity-caption{color:var(--app-muted)}
 :root :is(.setup-header,.settings-header){background:var(--app-raised);color:var(--app-fg)}

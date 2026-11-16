@@ -631,8 +631,8 @@ document.addEventListener('click',e=>{
     case 'confirmreset':{
       const live=state.sessions.filter(s=>s.producerKey),pending=state.decisions.filter(q=>q.producerKey);
       const projects=state.projects.filter(p=>live.some(s=>s.project===p.id)&&!byId(seed.projects,p.id));
-      const {voiceEngine,microLights,alerts,speak}=state;
-      state={...structuredClone(seed),voiceEngine,microLights,alerts,speak};
+      const {voiceEngine,alerts,speak}=state;
+      state={...structuredClone(seed),voiceEngine,alerts,speak};
       state.sessions.push(...live);state.decisions.push(...pending);state.projects.push(...projects);
       draft=null;persist();dismissCard();go('overview');toast('Sample data reset.');break;
     }

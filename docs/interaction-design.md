@@ -32,7 +32,7 @@ Resident notch / top-edge panel
 
 Mac integration
 ├── Dock and menu bar → workspace / capture / decisions / setup / updates / quit
-├── Global shortcuts and optional Codex Micro → same request-scoped actions
+├── Global shortcuts → same request-scoped actions
 └── Notifications → exact decision, receipt result, or failed session
 ```
 
@@ -101,7 +101,7 @@ Concurrent work is shown as a short consequence plus **View active work**. New w
 
 ## Decisions and reported results
 
-A question carries its request and session identity through the pane, notch, keyboard, Micro and notification. Choose an offered answer or use one **Reply** entry point for typing and speech. Sending either settles only the displayed request. Freeform words go unchanged to the same agent, which interprets their intent and can ask a new question with a new request ID. Closing without sending leaves the request pending and preserves the reply draft. Legacy discussion events remain supported by the adapter protocol. An expired or duplicate event cannot act on the next question.
+A question carries its request and session identity through the pane, notch, keyboard and notification. Choose an offered answer or use one **Reply** entry point for typing and speech. Sending either settles only the displayed request. Freeform words go unchanged to the same agent, which interprets their intent and can ask a new question with a new request ID. Closing without sending leaves the request pending and preserves the reply draft. Legacy discussion events remain supported by the adapter protocol. An expired or duplicate event cannot act on the next question.
 
 Passive notch hover does not take keyboard focus or interrupt a drag. Deliberate click or shortcut can pin/focus the panel. Geometry follows the active display’s camera exclusion; a display without a camera uses a small tab attached to the actual top edge above the menu bar. Large logical displays use a compact panel profile without changing the camera exclusion geometry. Attention glows are subdued and disappear when their sheet opens. The last settled question clears the attention rim.
 

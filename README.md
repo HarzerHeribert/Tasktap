@@ -106,7 +106,7 @@ Choose a displayed answer or use **Reply** to type or dictate. **Send reply** re
 
 Enable alerts in **Preferences → Notifications**. Tasktap’s switch, macOS authorization, banners, and Notification Center availability are shown separately. Focus or macOS may suppress a banner even when permission is granted; Tasktap cannot confirm that it appeared. Restored results are not announced again. Spoken completions are a separate opt-in. Available local Siri voices and optional Kokoro narration work independently of the terminal.
 
-The optional Codex Micro provides request-scoped decision controls. Everything also works with the Mac’s keyboard and pointer. [Keyboard and controller guide](docs/controls.md)
+Every decision also works with the Mac’s keyboard shortcuts, pointer and voice. [Keyboard guide](docs/controls.md)
 
 ## Appearance: which layer owns what?
 

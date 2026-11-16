@@ -11,13 +11,17 @@ const handoffReview=(()=>{
     d.reviewScreen='summary';
     const session=sess(d.session),agent=d.mode==='nudge'?session?.agent:d.agent,p=proj(d.project),compact=firstMode();
     const project=d.project==='@new'?d.newName:d.project==='@scratch'?'Scratch':p?.name||'Choose a workspace';
-    const conversation=d.mode==='note'?'Project note':d.mode==='nudge'?'Existing conversation':'New conversation';
+    const conversation=d.mode==='note'?'Project note':d.mode==='nudge'?'Existing conversation / '+(session?.state||'Unknown'):'New conversation';
     const plan=d.noPick?null:modelPlanFor(d),host=d.mode==='note'?'':sessionHostLabel(d);
     const agentName=d.noPick?'Choose an agent':providers[agent]||'Choose an agent';
     const destination='<div class="review-destination"><strong class="review-destination-name">'+esc(project)+'</strong>'+(d.mode==='note'?'':'<div class="review-agent-line"><span class="review-agent">'+icon(agent)+'<span>'+esc(agentName)+'</span></span>'+(host?'<span class="review-host">in '+esc(host)+'</span>':'')+'</div>')+'<p class="review-conversation">'+esc(conversation)+'</p>'+(d.mode==='nudge'?'<p class="review-session-name">'+esc(sessionDisplayName(session||{}))+'</p>':'')+(d.mode!=='note'&&plan&&plan.label!=='Agent default'?'<p class="review-model" tabindex="0" title="'+attr(plan.label)+'">Model: <span id="review-model">'+esc(plan.label)+'</span></p>':'')+(live&&d.mode==='ask'?workerRouting.summaryMarkup():'')+(d.noPick?button('Choose an agent','review-destination','','btn'):'')+'</div>';
-    const task='<p class="review-brief" id="review-brief">'+esc(d.brief||'Attached sketch')+'</p>'+(d.suggestedBrief&&d.suggestedBrief!==d.brief?button('Review suggested wording','review-task','','text-btn'):'')+(d.keep&&d.mode!=='note'?'<div class="review-side-note"><strong>Also save a note</strong><p>'+esc(d.note||d.brief)+'</p></div>':'');
+    const original=d.preparedBrief && d.preparedBrief!==d.text?'<details class="review-original"><summary>Original capture</summary><p>'+esc(d.text)+'</p></details>'+button(d.brief===d.text?'Use prepared task':'Use original request',d.brief===d.text?'review-prepared':'review-original','','text-btn'):'';
+    const match=d.mode==='nudge' && session?'<details class="review-match"><summary>Why this session?</summary><p>'+esc(d.routeMatch?.session===session.id?d.routeMatch.reason:d.sessionChoice?'You chose this conversation.':'Matched from your request on this Mac.')+'</p><dl><dt>Status</dt><dd>'+esc(session.state||'Unknown')+'</dd><dt>Original task</dt><dd>'+esc(session.task)+'</dd><dt>Session ID</dt><dd>'+esc(session.conversation||session.id)+'</dd></dl><p class="hint">Sending a follow-up does not confirm that work has started.</p></details>':d.routeMatch?.project===d.project?'<p class="hint">'+esc(d.routeMatch.reason)+'</p>':'';
+    const task='<p class="review-brief" id="review-brief">'+esc(d.brief||'Attached sketch')+'</p>'+original+(d.keep&&d.mode!=='note'?'<div class="review-side-note"><strong>Also save a note</strong><p>'+esc(d.note||d.brief)+'</p></div>':'');
     const context=(d.reference?captureContext.review(d,{compact:true}):'<p class="review-empty">No attachment. Add a page, file, or sketch if it helps.</p>')+(d.strokes?.length?'<div class="review-sketch"><span class="hint">Attached sketch</span>'+sketchMarkup(d.strokes)+'</div>':'');
     const notices=[];
+    const unavailableSession=live && d.mode==='nudge' && !canNudge(session);
+    if(unavailableSession)notices.push('<div class="review-notice"><p>This conversation is not available for a follow-up. Choose an available session before sending.</p>'+button('Change destination','review-destination','','text-btn')+'</div>');
     if(p?.available===false)notices.push('<div class="review-notice"><p>This workspace folder is unavailable. Choose an available destination before sending.</p>'+button('Change destination','review-destination','','text-btn')+'</div>');
     if(peers.length)notices.push('<div class="review-notice"><p>'+peers.length+' other session'+(peers.length===1?' is':'s are')+' active in this workspace. Check for overlapping work before starting.</p>'+button('View active work','review-peers','','text-btn')+'</div>');
     if(d.remoteAttempts?.length){const last=d.remoteAttempts.at(-1);notices.push('<div class="review-notice"><p>Preparation was requested from '+esc(last.label||'your configured service')+'.</p>'+button('View processing details','review-diagnostics','','text-btn')+'</div>')}
@@ -25,10 +29,10 @@ const handoffReview=(()=>{
     if(trustPath)notices.push('<div class="folder-trust review-trust"><label class="check-line"><input type="checkbox" id="folder-trust" data-folder="'+attr(trustPath)+'" aria-describedby="folder-trust-detail" '+(d.deferTrust===trustPath?'':'checked')+'>Use project settings</label><p class="hint" id="folder-trust-detail">For this session. Project settings can run code.<span class="review-trust-path" tabindex="0" title="'+attr(trustPath==='@scratch'?'Tasktap’s Scratch folder':trustPath)+'">'+esc(trustPath==='@scratch'?'Tasktap’s Scratch folder':trustPath)+'</span></p></div>');
     const manual=d.mode==='nudge'&&manualNudge(d),action=d.mode==='note'?'Save note':d.mode==='nudge'?(manual?'Copy nudge & open session':'Send nudge'):'Start session';
     const relay=d.mode==='note'||d.noPick?'':'<div class="review-rail">'+handoffRelay.markup(d.captureId,agent,d.relayPhase||'review')+'<span data-relay-label>'+esc(d.relayPhase==='failed'?'Handoff failed':'Ready to send')+'</span></div>';
-    dialog(d.mode==='note'?'Review note':d.mode==='nudge'?'Review follow-up':'Review task','','<div id="handoff-review" class="review-sheet'+(compact?' is-compact':'')+'"><div class="review-layout">'+group('Task','review-task','Edit task',task)+'<div class="review-sidebar">'+group('Destination','review-destination','Change',destination)+group('Context','review-context',d.reference?'Edit context':'Add reference',context)+'</div></div>'+(notices.length?'<section class="review-decisions" aria-label="Before you send">'+notices.join('')+'</section>':'')+'<div class="form-actions review-footer">'+(d.handoffError?'<p id="handoff-error" role="alert">'+esc(d.handoffError)+' Your request is preserved. Change destination to adjust where it goes, or try again.</p>':'')+(manual?'<p class="review-manual" role="note">You’ll need to paste this follow-up into '+esc(host)+' and press Return. Tasktap will copy it and open the session.</p>':'')+'<div class="review-footer-info">'+relay+'<button type="button" class="review-diagnostics-button icon-btn" data-action="review-diagnostics" aria-label="Diagnostics" title="Diagnostics">'+icon('settings')+'</button>'+'</div>'+button(action,'commit-review','','primary','arrow')+'</div></div>');
+    dialog(d.mode==='note'?'Review note':d.mode==='nudge'?'Review follow-up':'Review task','','<div id="handoff-review" class="review-sheet'+(compact?' is-compact':'')+'"><div class="review-layout">'+group('Task','review-task','Edit task',task)+'<div class="review-sidebar">'+group('Destination','review-destination','Change',destination+match)+group('Context','review-context',d.reference?'Edit context':'Add reference',context)+'</div></div>'+(notices.length?'<section class="review-decisions" aria-label="Before you send">'+notices.join('')+'</section>':'')+'<div class="form-actions review-footer">'+(d.handoffError?'<p id="handoff-error" role="alert">'+esc(d.handoffError)+' Your request is preserved. Change destination to adjust where it goes, or try again.</p>':'')+(manual?'<p class="review-manual" role="note">You’ll need to paste this follow-up into '+esc(host)+' and press Return. Tasktap will copy it and open the session.</p>':'')+'<div class="review-footer-info">'+relay+'<button type="button" class="review-diagnostics-button icon-btn" data-action="review-diagnostics" aria-label="Diagnostics" title="Diagnostics">'+icon('settings')+'</button>'+'</div>'+button(action,'commit-review','','primary','arrow')+'</div></div>');
     if(trustPath)$('#folder-trust').onchange=e=>{d.deferTrust=e.target.checked?'':trustPath};
     if(live&&d.mode==='ask')workerRouting.updateReviewAmounts(d);
-    if(p?.available===false)$('#modal [data-action="commit-review"]').disabled=true;
+    if(p?.available===false || unavailableSession)$('#modal [data-action="commit-review"]').disabled=true;
     $('#handoff-review [data-action="review-destination"]').setAttribute('aria-label','Change destination');
     pending(d);
   }
@@ -43,7 +47,7 @@ const handoffReview=(()=>{
     const d=draft;if(!d)return;d.reviewScreen='task';
     dialog('Edit task','Review','<form id="review-task-form" class="review-editor">'+field('Task','<textarea id="review-task-text" rows="7" '+(d.strokes?.length?'':'required')+'>'+esc(d.brief)+'</textarea>')+(d.suggestedBrief&&d.suggestedBrief!==d.brief?'<section class="review-suggestion"><h3>Suggested wording</h3><p>'+esc(d.suggestedBrief)+'</p>'+button('Use this wording','review-use-wording','','btn')+'</section>':'')+(d.mode!=='note'?'<label class="check-line"><input type="checkbox" id="review-keep-note" '+(d.keep?'checked':'')+'>Save a separate project note</label><label class="field" id="review-note-field" '+(!d.keep?'hidden':'')+'>Project note<textarea id="review-note-text">'+esc(d.note)+'</textarea></label>':'')+footer('Save task')+'</form>');
     $('#review-keep-note')?.addEventListener('change',e=>{$('#review-note-field').hidden=!e.target.checked});
-    $('#review-task-form').onsubmit=e=>{e.preventDefault();d.brief=$('#review-task-text').value;if($('#review-keep-note')){d.keep=$('#review-keep-note').checked;d.note=$('#review-note-text').value}review()};
+    $('#review-task-form').onsubmit=e=>{e.preventDefault();d.brief=$('#review-task-text').value;d.taskEdited=true;if($('#review-keep-note')){d.keep=$('#review-keep-note').checked;d.note=$('#review-note-text').value}review()};
     $('#review-task-text').focus();
   }
   function destination(){
@@ -56,9 +60,9 @@ const handoffReview=(()=>{
     dialog('Change destination','Review','<form id="route-form" class="review-editor">'+field('Action','<select id="mode">'+routes.map(([id,title])=>option(id,title,d.mode)).join('')+'</select>')+(d.mode==='nudge'?existing:project)+config+footer('Review changes')+'</form>');
     const f=$('#route-form');
     for(const [id,key] of [['newName','newName'],['handoff-host','host'],['viewer','viewer']]){const input=$('#'+id,f);if(input)input.oninput=()=>{d[key]=input.value}}
-    $('#mode').onchange=e=>{d.mode=e.target.value;delete d.runId;delete d.relayPhase;delete d.handoffError;delete d.retryOf;delete d.retryCapture;if(d.mode!=='nudge')d.session='';destination()};
-    if($('#project'))$('#project').onchange=e=>{d.project=e.target.value;d.suggestedProject=false;delete d.contextProject;destination()};
-    if($('#session'))$('#session').onchange=e=>{d.session=e.target.value;delete d.runId;delete d.handoffError;d.project=sess(d.session)?.project||''};
+    $('#mode').onchange=e=>{d.mode=e.target.value;delete d.routeMatch;delete d.routeQuestion;delete d.runId;delete d.relayPhase;delete d.handoffError;delete d.retryOf;delete d.retryCapture;if(d.mode!=='nudge'){d.session='';d.sessionChoice=''}destination()};
+    if($('#project'))$('#project').onchange=e=>{d.project=e.target.value;d.projectChoice=d.project;d.suggestedProject=false;delete d.routeMatch;delete d.routeQuestion;delete d.contextProject;destination()};
+    if($('#session'))$('#session').onchange=e=>{d.session=e.target.value;d.sessionChoice=d.session;delete d.routeMatch;delete d.routeQuestion;delete d.runId;delete d.handoffError;d.project=sess(d.session)?.project||''};
     f.onsubmit=e=>{e.preventDefault();const name=$('#newName',f);if(name){const value=name.value.trim();if(!value||value==='.'||value==='..'||value.includes('/')){name.setCustomValidity('Choose a folder name without slashes.');name.reportValidity();return}d.newName=value}routingPrompt()};
     $('#newName',f)?.addEventListener('input',e=>e.target.setCustomValidity(''));
     if(d.mode==='ask')workerRouting.bindReview(d);
@@ -99,6 +103,8 @@ const handoffReview=(()=>{
     if(draft.submitting&&!['review-diagnostics','review-copy','review-export','review-return'].includes(action)){toast('Wait for this handoff to finish before editing.');return}
     if(action==='review-return')review();
     if(action==='review-task')task();
+    if(action==='review-original'){draft.brief=draft.text;draft.taskEdited=true;review()}
+    if(action==='review-prepared'){draft.brief=draft.preparedBrief;draft.taskEdited=false;review()}
     if(action==='review-destination')destination();
     if(action==='review-context')context();
     if(action==='review-peers')peers();

@@ -3,6 +3,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const uid = () => crypto.randomUUID?.() || String(Date.now() + Math.random());
 const paths = {
+  paste:'M8 5H4v16h16V5h-4 M8 3h8v4H8z',textSmaller:'M2 18 8 5l6 13 M4 14h8 M17 12h6',textLarger:'M2 18 8 5l6 13 M4 14h8 M17 12h6 M20 9v6',
   terminal:'M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z M6 8l3 3-3 3 M12 14h5',globe:'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M3 12h18 M5 6h14 M5 18h14 M12 3c-5 4-5 14 0 18 M12 3c5 4 5 14 0 18',attention:'M12 5v9 M12 18v1',
   copy:'M8 8h12v13H8z M16 8V3H3v13h5',up:'m6 15 6-6 6 6',check:'m4 12 5 5L20 6',
   side:'M3 5h18v14H3z M9 5v14',splitRight:'M3 5h18v14H3z M12 5v14',splitDown:'M3 5h18v14H3z M3 12h18', grid:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
@@ -12,15 +13,15 @@ const paths = {
   back:'M20 12H4m6-6-6 6 6 6',down:'m6 9 6 6 6-6',right:'m9 5 7 7-7 7',arrow:'M4 12h15 m-6-6 6 6-6 6',out:'M6 18 18 6 M7 6h11v11',
   mic:'M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0z M5 11v1a7 7 0 0 0 14 0v-1 M12 19v3 M8 22h8',
   folder:'M3 6h7l2 3h9v11H3z',play:'m7 4 12 8-12 8z',pause:'M8 5v14 M16 5v14',stop:'M6 6h12v12H6z',x:'m6 6 12 12 M18 6 6 18',
-  'cursor-agent':'m4 5 15 7-7 2-3 7z',pi:'M3 7h18 M8 7v13 M16 7v10q0 3 4 3',
+  'cursor-agent':'m4 5 15 7-7 2-3 7z',pi:'M3 7h18 M8 7v13 M16 7v10q0 3 4 3',opencode:'M4 4h16v16H4z M9 8l-3 4 3 4 M15 8l3 4-3 4',
   claude:'M12 2v20 M2 12h20 M5 5l14 14 M5 19 19 5 M8 3l8 18 M3 16l18-8 M3 8l18 8 M8 21l8-18',
   codex:'m8 7-5 5 5 5 M16 7l5 5-5 5 M14 4l-4 16',agy:'m3 17 8-12h2l8 12 M8 14q4-3 8 0',
-  checks:'m3 12 4 4 9-10 M12 15l2 2 8-9',bell:'M5 16h14l-2-3V9a5 5 0 0 0-10 0v4z M10 20h4',
+  shield:'M12 3l8 3v6c0 5-8 9-8 9s-8-4-8-9V6z',checks:'m3 12 4 4 9-10 M12 15l2 2 8-9',bell:'M5 16h14l-2-3V9a5 5 0 0 0-10 0v4z M10 20h4',
   pen:'m4 16 12-12 4 4L8 20l-5 1z M14 6l4 4',sound:'M3 9h4l5-4v14l-5-4H3z M16 8q5 4 0 8 M19 5q8 7 0 14'
 };
 const icon = (name) => '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="'+(paths[name]||paths.note)+'"/></svg>';
 document.querySelectorAll('[data-icon]').forEach(el => el.innerHTML = icon(el.dataset.icon));
-const providers = {claude:'Claude Code',codex:'Codex',agy:'Antigravity','cursor-agent':'Cursor CLI',pi:'Pi'};
+const providers = {claude:'Claude Code',codex:'Codex',agy:'Antigravity','cursor-agent':'Cursor CLI',pi:'Pi',opencode:'OpenCode'};
 const demoQuote = 'Tell the session working on lighting to make sure the reflections follow the new light direction.';
 const mixed = 'For Reactive Wallpapers, remember this curve. Maybe animate it later. Ask Claude where the falloff is defined. Don’t change the shader.';
 const seed = {
@@ -51,10 +52,10 @@ const attr=(s)=>esc(s);
 const button=(label,action,id='',style='btn',sym='')=>'<button type="button" class="'+style+'" data-action="'+action+'" data-id="'+attr(id)+'">'+(sym?icon(sym):'')+esc(label)+'</button>';
 const option=(value,text,selected='')=>'<option value="'+attr(value)+'" '+(value===selected?'selected':'')+'>'+esc(text)+'</option>';
 const heading=(over,title,sub='')=>'<div class="page-heading"><div class="eyebrow">'+esc(over)+'</div><h1>'+esc(title)+'</h1>'+(sub?'<p class="subtitle">'+esc(sub)+'</p>':'')+'</div>';
-const statusClass=s=>['Needs input','Awaiting agent','Ready to send'].includes(s)?'waiting':s==='Complete'?'complete':['Running','Queued'].includes(s)?'running':'offline';
+const statusClass=s=>['Needs input','Needs permission','Awaiting agent','Ready to send'].includes(s)?'waiting':['Complete','Answer ready'].includes(s)?'complete':['Running','Queued'].includes(s)?'running':'offline';
 const navLink=(id,label,sym,end='')=>'<button class="nav-link '+(view===id?'active':'')+'" '+(view===id?'aria-current="page"':'')+' data-action="view" data-id="'+attr(id)+'">'+sym+'<span class="label">'+esc(label)+'</span>'+end+'</button>';
 const count=n=>'<span class="nav-count">'+n+'</span>';
-const activeSessionStates=new Set(['Running','Needs input','Queued','Opening','Awaiting agent','Ready to send','Connected']);
+const activeSessionStates=new Set(['Running','Ready','Needs input','Queued','Opening','Awaiting agent','Ready to send','Connected']);
 function activeSessions(){
   const pending=new Set(state.decisions.map(q=>q.session));
   return state.sessions.filter(s=>pending.has(s.id)||activeSessionStates.has(s.state));
@@ -80,8 +81,8 @@ function listedProjects(active){
 }
 function renderNav(projects){
   const scroll=$('#nav').scrollTop;
-  $('#nav').innerHTML='<div class="nav-group"><span class="nav-kicker">Workspace</span>'+navLink('overview','Overview',icon('grid'))+navLink('sessions','Sessions',icon('sessions'),count(state.sessions.length))+navLink('notes','Notebook',icon('note'),count(state.notes.length))+navLink('projects','Projects',icon('folder'),count(projects.length))+'</div>';
-  if(typeof workspaceNavigation!=='undefined'){$('#nav').innerHTML=workspaceNavigation.navigation();workspaceNavigation.sync()}
+  if(typeof workspaceNavigation!=='undefined')workspaceNavigation.refresh();
+  else $('#nav').innerHTML='<div class="nav-group"><span class="nav-kicker">Workspace</span>'+navLink('overview','Overview',icon('grid'))+navLink('sessions','Sessions',icon('sessions'),count(state.sessions.length))+navLink('notes','Notebook',icon('note'),count(state.notes.length))+navLink('projects','Projects',icon('folder'),count(projects.length))+'</div>';
   $('#nav').scrollTop=scroll;
   $('#islandLabel').textContent=state.decisions.length?state.decisions.length+' decision'+(state.decisions.length>1?'s':''):'All clear';
 }
@@ -115,7 +116,7 @@ function sessionRow(s,{question,fixture=false,title=question?.q || sessionDispla
       timeLabel=full;
       time='<time class="home-result-time" datetime="'+date.toISOString()+'" title="'+attr(full)+'" aria-label="'+attr(full)+'">'+esc(short)+'</time>';
     }
-    const end=result?time:'<span class="row-state '+statusClass(question?'Needs input':s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(status)+'</span>';
+    const end=result?time:'<span class="row-state '+statusClass(question?'Needs input':status)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(status)+'</span>';
     return '<button type="button" class="session-row home-session-row'+(home==='attention'?' is-question':'')+(result?' home-result-row':'')+'" data-action="'+(question?'notch':result&&s.host==='tasktap'?'deck-result':'session')+'" data-id="'+attr(question?.id||s.id)+'" aria-label="'+attr([title,project,agent,result?timeLabel:status].filter(Boolean).join(' / '))+'"><span class="agent-mark '+attr(s.agent||'')+'">'+icon(s.agent||'sessions')+'</span><span class="home-row-body"><span class="row-title" title="'+attr(title)+'">'+esc(headline)+'</span><span class="row-sub home-row-meta"'+(question?' title="'+attr(sessionDisplayName(s))+'"':'')+'>'+metadata+'</span></span><span class="home-row-end">'+end+icon('right')+'</span></button>';
   }
   if(!fixture)return historySessionRow(s,{question,title,status});
@@ -132,8 +133,11 @@ function workOverview(active){
   const attention=[],progress=[];
   for(const session of active){
     const pending=questions.get(session.id);
+    const observed=sessionObservation.cue(session.id);
     if(pending)attention.push(...pending.map(question=>sessionRow(session,{question,home:'attention'})));
+    else if(observed&&['input','permission'].includes(observed.kind))attention.push(sessionRow(session,{title:observed.activity||session.task,status:observed.label,home:'attention'}));
     else if(session.state==='Needs input')attention.push(sessionRow(session,{title:session.waitingFor || session.task,home:'attention'}));
+    else if(session.monitoring&&session.state==='Ready')continue;
     else{
       const turn=state.captures.find(c=>c.session===session.id);
       const sending=turn?.kind==='Session nudge' && ['Queued','Running'].includes(turn.receipt) && ['Queued','Running'].includes(session.state);
@@ -144,7 +148,8 @@ function workOverview(active){
   // A capture's clock label is request time, and a discovered session's updatedAt
   // can reflect any edit. Only an observed completion receipt dates a result.
   const results=state.sessions.filter(s=>s.result).map(s=>({session:s,time:Math.max(0,...(state.workspaceDeck?.activity||[]).filter(a=>a.kind==='complete'&&a.id===s.id&&a.body===s.result&&Number.isFinite(a.time)&&a.time>0&&a.time<=8.64e15).map(a=>a.time))})).sort((a,b)=>b.time-a.time).slice(0,3).map(({session,time})=>sessionRow(session,{home:'result',resultTime:time}));
-  return section('Needs your attention',attention,'attention')+section('In progress',progress,'progress')+section('Recent results',results,'results') || '<p class="empty">No active sessions.</p>';
+  const answers=state.sessions.filter(s=>s.observation?.answers?.length).sort((a,b)=>b.observation.answers.at(-1).time-a.observation.answers.at(-1).time).slice(0,3).map(s=>sessionRow(s,{home:'answer',status:'Answer ready'}));
+  return section('Needs your attention',attention,'attention')+section('In progress',progress,'progress')+section('Recent answers',answers,'answers')+section('Recent results',results,'results') || '<p class="empty">No active sessions.</p>';
 }
 function sessionList(rows){return rows.length?'<div class="session-list work-list">'+sessionColumns()+rows.map(s=>sessionRow(s)).join('')+'</div>':'<p class="empty">No sessions here yet.</p>'}
 function noteList(notes){return notes.length?notes.map(n=>'<button class="note" data-action="note" data-id="'+attr(n.id)+'" aria-label="'+attr((proj(n.project)?.name||'Scratch')+' / '+n.title)+'"><span class="eyebrow">'+esc(proj(n.project)?.name||'Scratch')+'</span><strong>'+esc(n.title)+'</strong><span class="hint">'+esc(n.text)+'</span></button>').join(''):'<p class="empty">No notes here yet.</p>'}
@@ -176,7 +181,7 @@ function render(){
   const active=activeSessions(),projects=listedProjects(active);
   renderNav(projects);document.dispatchEvent(new Event('workspace-changed'));
   const p=proj(view),name=({overview:'Home',sessions:'Session history',notes:'Notebook',projects:'All projects'})[view]||p?.name||'Workspace';$('#crumb').textContent=name;
-  if(typeof workspaceDeck!=='undefined'){if(p){workspaceDeck.renderProject(p);return}else workspaceDeck.leave()}
+  if(typeof workspaceDeck!=='undefined'){workspaceDeck.refreshActivity();if(p){workspaceDeck.renderProject(p);return}else workspaceDeck.leave()}
   const intro=heading(live?new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'}):'Saturday, 14 November',name,p?p.folder:'');
   let body='';
   if(view==='overview')body=workOverview(active);
@@ -224,7 +229,7 @@ function frame(title,over,body,backLabel='',lead=''){
   if(lead)return '<div class="dialog-body notch-review"><h2 id="dialog-heading" class="sr-only">'+esc(title)+'</h2>'+
     '<div class="dialog-title">'+lead+nav+'</div><p class="eyebrow notch-destination">'+esc(over)+'</p>'+body+'</div>';
   return '<div class="dialog-body"><div class="dialog-title"><div>'+(over?'<span class="eyebrow">'+esc(over)+'</span>':'')+'<h2 id="dialog-heading">'+esc(title)+'</h2></div>'+nav+'</div>'+body+'</div>'}
-function dialog(title,over,body,backLabel='',lead=''){settingsPickers.close();if(draft?.routing && title!=='Preparing handoff')cancelRouting();clearTimeout(toast.timer);$('#toast').textContent='';const d=$('#modal');if(!d.open)returnFocus=document.activeElement;d.innerHTML=frame(title,over,body,backLabel,lead);d.setAttribute('aria-labelledby','dialog-heading');if(!d.open)d.showModal();else $('button',d)?.focus()}
+function dialog(title,over,body,backLabel='',lead=''){settingsPickers.close();if(draft?.routing && title!=='Preparing handoff')cancelRouting();clearTimeout(toast.timer);$('#toast').textContent='';const d=$('#modal');d.classList.remove('preferences-dialog');if(!d.open)returnFocus=document.activeElement;d.innerHTML=frame(title,over,body,backLabel,lead);d.setAttribute('aria-labelledby','dialog-heading');if(!d.open)d.showModal();else $('button',d)?.focus()}
 function dismissCard(){if(draft?.claudeBrief && $('#modal[open] #claude-brief') && !$('#notch').open)delete draft.claudeBrief;if(!$('#notch').open && setupWizard.showing()){setupWizard.cancel();return}cancelRouting();stopRoutingSpeech();if(live)stopDictation();clearTimeout(simVoice);simVoice=null;document.dispatchEvent(new Event('voice-activity'));if($('#notch').open){$('#notch').close();$('#islandToggle').setAttribute('aria-expanded','false');if($('#modal').open)$('#modal button')?.focus();else $('#islandToggle').focus();return}if($('#modal').open)$('#modal').close();if(returnFocus?.isConnected)returnFocus.focus();else if(document.body.classList.contains('notch-first'))$('#islandToggle').focus();else $('#main').focus()}
 let siriVoices=[];
 let kokoro={status:'checking',detail:'Checking local voice…'};
@@ -303,7 +308,7 @@ function showSession(id){
   const relay=live && (!s.result || turn?.receipt!=='Complete')?handoffRelay.forCapture(turn):'';
   const status='<section class="session-summary"><div class="session-summary-line"><span class="row-state '+statusClass(s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(s.state)+'</span><span class="row-sub">'+esc(sessionLocation(s))+'</span></div><span class="session-folder">'+icon('folder')+esc(proj(s.project)?.folder)+'</span></section>';
   const activity=s.log.length?'<details class="session-activity"><summary>Activity / '+s.log.length+'</summary><ul class="time-line">'+s.log.map(e=>'<li><i class="state-dot"></i>'+esc(sessionActivityLine(s,e))+'</li>').join('')+'</ul></details>':'';
-  dialog(sessionDisplayName(s),[providers[s.agent],s.model].filter(Boolean).join(' / '),'<div class="session-detail">'+status+(s.result?resultPresentation.markup(s.result,id):'')+(actions.length?'<div class="session-actions inline">'+actions.join('')+'</div>':'')+location+desktopHint+waiting+(relay?'<div class="session-receipt">'+relay+'</div>':'')+peerDisclosure(projectPeers(s.project,id),s.project,true)+activity+history+sessionNameHistory(s)+'</div>');
+  dialog(sessionDisplayName(s),[providers[s.agent],s.model].filter(Boolean).join(' / '),'<div class="session-detail">'+status+(s.monitoring?sessionObservation.details(id):'')+(s.result?resultPresentation.markup(s.result,id):'')+(actions.length?'<div class="session-actions inline">'+actions.join('')+'</div>':'')+location+desktopHint+waiting+(relay?'<div class="session-receipt">'+relay+'</div>':'')+peerDisclosure(projectPeers(s.project,id),s.project,true)+activity+history+sessionNameHistory(s)+'</div>');
   resultPresentation.paint($('#modal'));
   const disclosure=$('#modal [data-project-peers]');
   if(peersWereOpen && disclosure){
@@ -314,7 +319,7 @@ function showSession(id){
 function routeDecision(candidates,suggested=true){
   const d=$('#notch');d.dataset.request=uid();
   const choices=candidates.map((s,i)=>'<button class="decision-btn" data-action="choose-target" data-id="'+attr(s.id)+'"><span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span><span><strong>'+esc(s.task)+'</strong><br><span class="hint">'+esc(proj(s.project).name)+' / '+esc(providers[s.agent])+'</span></span></button>').join('');
-  d.innerHTML='<div class="dialog-body notch-content"><div class="dialog-title"><div><span class="eyebrow">Route follow-up</span><h2>Which session?</h2></div><button aria-label="Close decision" class="icon-btn" data-action="close">'+icon('x')+'</button></div>'+ (suggested?'<p>These sessions match your capture.</p>':'')+'<div class="block">'+choices+'</div><form id="route-voice" class="field"><label for="route-answer">' +(live?'Reply':'Voice reply simulation')+'</label><input id="route-answer" placeholder="Project, session name, or choice number" required>'+(live?button('Hold to talk','dictate','#route-answer','text-btn','mic'):'')+'<button class="btn">Use reply</button></form></div>';
+  d.innerHTML='<div class="dialog-body notch-content"><div class="dialog-title"><div><span class="eyebrow">Route follow-up</span><h2>'+esc(draft?.routeQuestion||'Which session?')+'</h2></div><button aria-label="Close decision" class="icon-btn" data-action="close">'+icon('x')+'</button></div>'+ (suggested?'<p>These sessions match your capture.</p>':'')+'<div class="block">'+choices+'</div><form id="route-voice" class="field"><label for="route-answer">' +(live?'Reply':'Voice reply simulation')+'</label><input id="route-answer" placeholder="Project, session name, or choice number" required>'+(live?button('Hold to talk','dictate','#route-answer','text-btn','mic'):'')+'<button class="btn">Use reply</button></form></div>';
   d.showModal();$('#islandToggle').setAttribute('aria-expanded','true');
   if(draft)narrateRoute(draft,'session','Choose the conversation you mean.');
   $('#route-voice').onsubmit=e=>{e.preventDefault();const input=$('#route-answer'),v=input.value.trim().toLowerCase();const found=candidates.filter((s,i)=>[s.task,proj(s.project).name,String(i+1)].some(x=>x.toLowerCase()===v));if(found.length===1){chooseTarget(found[0].id);return}input.setCustomValidity('Enter one project name, task name, or choice number.');input.reportValidity();input.oninput=()=>input.setCustomValidity('')};
@@ -323,7 +328,7 @@ function chooseTarget(id){
   const s=sess(id);
   if(!draft || !s)return;
   if(live && !canNudge(s)){dismissCard();draft.candidates=[];draft.mode='nudge';routingPrompt();return}
-  draft.session=id;draft.project=s.project;draft.mode='nudge';delete draft.runId;dismissCard();review();
+  draft.session=id;draft.sessionChoice=id;draft.project=s.project;draft.mode='nudge';delete draft.runId;dismissCard();review();
 }
 function binaryControls(q){
   const buttons=q.choices.map((c,i)=>button(c,'decide',q.id+'|'+i,'decision-btn '+(c==='Yes'?'answer-yes':'answer-no'),c==='Yes'?'check':'x'));
@@ -382,6 +387,7 @@ function sendDecisionReply(id,answer,answerKind){
 function captureDraft(target,sessionProject='',text=''){
   const s=sess(target);
   draft={sessionProject,text,brief:'',note:'',mode:s?'nudge':'ask',project:sessionProject||s?.project||(proj(view)?view:''),session:s?.id||'',agent:s?.agent||sessionModelPolicy().defaultAgent,viewer:'',strokes:[],newName:'',keep:false,hasVoice:false,sketch:false};
+  draft.sessionChoice=s?.id||'';draft.captureProject=sessionProject||s?.project||'';draft.visibleProject=proj(view)?.id||'';
   captureContext.begin(draft);
 }
 function newDraft(target,sessionProject=''){
@@ -433,10 +439,11 @@ function matchSessions(t){
 }
 function interpret(){
   const d=draft,t=d.text.trim(),ps=matchProjects(t),ss=matchSessions(t);
-  d.brief=t;d.note='';d.keep=false;d.candidates=[];delete d.suggestedBrief;
+  if(!d.sessionChoice)d.session='';
+  d.brief=t;d.note='';d.keep=false;d.candidates=[];delete d.suggestedBrief;delete d.preparedBrief;delete d.taskEdited;delete d.routeMatch;delete d.routeQuestion;
   const shorthand=/^(?:(?:yes|ok(?:ay)?|please|now)[\s,.!]+)*(?:(?:build|implement|fix|do|ship|finish|try|change|apply) (?:it|this|that|the plan)|(?:go ahead|continue|carry on))\s*(?:please)?[.!?]*$/i.test(t) || /\b(?:where (?:we|you) left off|(?:continue|pick up|resume) (?:from )?(?:our|the|your) (?:previous|last|earlier) (?:session|conversation|work|plan))\b/i.test(t);
   const filing=/(?:^|[.!?,]\s*|\b(?:please|can you|could you)\s+)(?:remember\b|jot\b.{0,20}\bdown\b|(?:save|keep|write|add|make)\s+(?:(?:this|that|a|the|an)\s+)?(?:as\s+a\s+)?(?:note|sketch|idea)\b|note\s+(?:that|for)\b|idea\s+for\b)/i.test(t);
-  const instruction=/\b(?:ask (?:claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?)|tell (?:[^.!?]*?\b)?(?:session|agent)|nudge|follow up)\b/i.exec(t);
+  const instruction=/\b(?:ask (?:claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?|opencode)|tell (?:[^.!?]*?\b)?(?:session|agent)|nudge|follow up)\b/i.exec(t);
   if(!d.session && (!d.sessionProject || d.guide==='start'))d.mode=instruction?(/^(tell|nudge|follow)/i.test(instruction[0])?'nudge':'ask'):filing||!t?'note':'ask';
   if(!d.session && shorthand && !d.strokes.length)d.mode='nudge';
   d.explicitMode=!!(instruction || filing || shorthand || d.sessionProject);
@@ -448,14 +455,14 @@ function interpret(){
     // Preserve constraints after the instruction. Keep preceding context in the handoff
     // unless it was captured separately as a note or solely names the workspace.
     if(d.mode==='ask' && (d.keep || !before || /^for [^,.]+[,.:]?$/i.test(before))){
-      d.brief=work.replace(/^ask (?:claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?)\s+(?:to\s+)?/i,'').trim();
+      d.brief=work.replace(/^ask (?:claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?|opencode)\s+(?:to\s+)?/i,'').trim();
       if(/^(where|how|whether|why)\b/i.test(d.brief))d.brief='Find '+d.brief;
       d.brief=d.brief.charAt(0).toUpperCase()+d.brief.slice(1);
     }
   }
   if(!d.session && (!d.project || d.suggestedProject) && ps.length===1)d.project=ps[0].id;
   if(d.suggestedProject && ps.length>1)d.project='';
-  if(!d.session && /\bask (claude|codex|antigravity|agy|cursor|pi|picode)\b/i.test(t))d.mode='ask';
+  if(!d.session && /\bask (claude|codex|antigravity|agy|cursor|pi|picode|opencode)\b/i.test(t))d.mode='ask';
   if(d.mode==='nudge'&&!d.session){
     // A suggested first-run folder is not evidence about an existing conversation.
     if(d.suggestedProject && !ps.length)d.project='';
@@ -463,11 +470,11 @@ function interpret(){
     if(!shorthand && choices.length===1){d.session=choices[0].id;d.project=choices[0].project}
     else if(choices.length && !shorthand)d.candidates=choices.map(s=>s.id);
   }
-  const worker=/\b(?:ask|use|using|with|via|send to|hand (?:it |this )?to|run (?:it |this )?in)\s+(claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?)\b/i.exec(t) || /^\s*(claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?)\s*[:,]/i.exec(t);
+  const worker=/\b(?:ask|use|using|with|via|send to|hand (?:it |this )?to|run (?:it |this )?in)\s+(claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?|opencode)\b/i.exec(t) || /^\s*(claude(?: code)?|codex|antigravity|agy|cursor(?: cli| agent)?|pi(?:code| coding agent)?|opencode)\s*[:,]/i.exec(t);
   if(d.agentChoice!=='manual'){
     const id=worker && worker[1].toLowerCase();
     d.agentChoice=id?'named':'';
-    d.agent=id?.startsWith('cursor')?'cursor-agent':id?.startsWith('pi')?'pi':id?.startsWith('claude')?'claude':id==='codex'?'codex':id?'agy':sessionModelPolicy().defaultAgent;
+    d.agent=id?.startsWith('cursor')?'cursor-agent':id?.startsWith('pi')?'pi':id?.startsWith('claude')?'claude':id==='codex'?'codex':id==='opencode'?'opencode':id?'agy':sessionModelPolicy().defaultAgent;
   }
   const viewer=/\b(?:in|with|using|via|to)\s+(?:apple |the )?(xcode|preview|finder)\b/i.exec(t);if(viewer)d.viewer=['Xcode','Preview','Finder'].find(app=>app.toLowerCase()===viewer[1].toLowerCase());
 }
@@ -484,8 +491,8 @@ function routingPrompt(){
     return;
   }
   if(!d.project){
-    const projects=state.projects.filter(p=>p.available!==false);
-    dialog('Which workspace?', 'Tasktap','<label class="field">Find a project<input id="route-filter" type="search" placeholder="Folder name"></label><div class="route-list" id="route-list"></div><div class="inline">'+button('Keep in scratch','route-project','@scratch')+button('New workspace…','route-project','@new')+'</div>'+continueSessionButton(d));
+    const projects=state.projects.filter(p=>p.available!==false && (!d.projectCandidates?.length || d.projectCandidates.includes(p.id)));
+    dialog(d.routeQuestion||'Which workspace?', 'Tasktap','<label class="field">Find a project<input id="route-filter" type="search" placeholder="Folder name"></label><div class="route-list" id="route-list"></div><div class="inline">'+button('Keep in scratch','route-project','@scratch')+button('New workspace…','route-project','@new')+'</div>'+continueSessionButton(d));
     const field=$('#route-filter');
     const filter=()=>{$('#route-list').innerHTML=projects.filter(p=>p.name.toLowerCase().includes(field.value.toLowerCase())).map(p=>button(p.name,'route-project',p.id)).join('')||'<p class="empty">No matching projects.</p>'};
     field.oninput=filter;filter();
@@ -574,47 +581,7 @@ function showNote(id){
   const f=$('#assign');if(f)f.onsubmit=e=>{e.preventDefault();const project=$('#assign-project').value;if(live){postLive('assign-note',{id,capture:n.capture,folder:proj(project).folder});return}noteAssigned(id,project)};
 }
 function noteAssigned(id,project){const n=byId(state.notes,id);if(!n)return;n.project=project;persist();render();showNote(id);toast('Note assigned to '+proj(project).name+'.')}
-const preferenceGroups={agents:'Agents',workspaces:'Workspaces',capture:'Capture',voice:'Voice & alerts',appearance:'Appearance'};
-function prefs(group='agents'){
-  if(!Object.hasOwn(preferenceGroups,group))group='agents';
-  const nav='<nav class="preference-groups" aria-label="Preferences categories">'+Object.entries(preferenceGroups).map(([id,label])=>
-    '<button type="button" data-action="prefs-group" data-id="'+id+'" aria-pressed="'+(group===id)+'">'+esc(label)+'</button>').join('')+'</nav>';
-  let body;
-  if(group==='agents'){
-    const policy=sessionModelPolicy(),profile=policy.agents[policy.defaultAgent];
-    const summary=[providers[policy.defaultAgent],policy.adaptive?'Difficulty curve':profile.fixed,terminalHosts.label(state.sessionHost)].filter(Boolean).join(' / ');
-    body='<h3>Tasktap</h3>'+aiConnections.jump()+'<h3>Project work</h3>'+(live?'<button id="agent-setup-link" type="button" class="settings-jump" data-action="agent-setup"><span class="jump-mark">'+icon('settings')+'</span><span><strong>Agent setup</strong><small hidden></small></span>'+icon('right')+'</button>':'')+
-      '<button class="settings-jump" type="button" data-action="session-models" aria-label="Session models"><span class="jump-mark">'+icon('sessions')+'</span><span><strong>Session models</strong><small>'+esc(summary)+'</small></span>'+icon('right')+'</button>'+(live?workerRouting.jump():'');
-  }else if(group==='workspaces'){
-    body=workspaceSettings.markup();
-  }else if(group==='capture'){
-    body=captureContext.preference()+
-      (live?surfaceButton('Reopen guided capture','guide-replay','pen','btn'):button('Reset sample data','reset','','text-btn'));
-  }else if(group==='appearance'){
-    const themes=TasktapArt.catalog.map(theme=>'<option value="'+attr(theme.id)+'" data-art="'+attr(theme.id)+'" data-detail="'+attr(theme.medium)+'" '+(TasktapArt.current()===theme.id?'selected':'')+'>'+esc(theme.name)+'</option>').join('');
-    body=appAppearance.markup()+settingsField('visual-theme','Artwork','<select id="visual-theme">'+themes+'</select>');
-  }else{
-    body=settingsField('voice-engine','Narration voice','<select id="voice-engine"></select>')+
-      (live?'<div class="voice-tools"><p id="voice-status" class="hint" role="status">'+esc(kokoro.detail)+'</p><div class="inline">'+button('Set up Kokoro','setup-voice')+button('Preview voice','preview-voice')+'</div></div>':'')+
-      '<div class="check-line"><input id="narration" type="checkbox" '+(state.speak?'checked':'')+'><label for="narration">Read completion summaries aloud</label></div>'+
-      surfaceButton('Notification settings','notifications','bell','btn');
-  }
-  dialog('Preferences','Tasktap','<div id="preferences" class="settings-form">'+nav+'<section aria-label="'+preferenceGroups[group]+'" class="settings-section">'+body+'</section>'+appUpdates.preferences()+'<div class="preference-links">'+button('Run setup…','run-setup','','text-btn','settings')+(live?button('Check for Updates…','check-updates','','text-btn'):'')+button('Documentation','open-docs',group,'text-btn','out')+'</div></div>');
-  settingsHeader();
-  const categories=$('#preferences .preference-groups'),activeCategory=categories.querySelector('[aria-pressed=true]');
-  categories.scrollLeft=Math.max(0,activeCategory.offsetLeft+(activeCategory.offsetWidth-categories.clientWidth)/2);
-  if(group==='agents' && live)aiConnections.refresh();
-  if(group==='capture')captureContext.bindPreference();
-  if(group==='workspaces')workspaceSettings.bind();
-  if(group==='appearance'){appAppearance.bind();$('#visual-theme').onchange=e=>TasktapArt.select(e.target.value)}
-  if(group==='voice'){
-    voiceOptions();routingVoicePreference();
-    if(live){updateKokoro(kokoro.status,kokoro.detail);postLive('check-kokoro')}
-    $('#voice-engine').onchange=e=>{state.voiceEngine=e.target.value;persist()};
-    $('#narration').onchange=e=>{state.speak=e.target.checked;persist()};
-  }
-  settingsPickers.mount($('#preferences'));
-}
+function prefs(group){preferencesPanel.open(group)}
 function complete(id){const s=sess(id);if(s.state!=='Running')return;s.state='Complete';s.result='Demo result: the agent finished the requested review in '+proj(s.project).name+'. Open the conversation to inspect its work.';s.log.push('Simulated completion received.');persist();render();showSession(id);if(state.speak)speak(s.result)}
 function startSample(){
   const b=$('[data-action="sample"]');b.textContent='Listening to sample…';b.disabled=true;clearTimeout(simVoice);
@@ -648,7 +615,7 @@ document.addEventListener('click',e=>{
     case 'clearink':draft.strokes=[];setupPad();break;case 'discard':draft=null;dismissCard();break;
     case 'review':reviewDraft();break;
     case 'skip-routing':cancelRouting();stopRoutingSpeech();routingPrompt();break;case 'adjust':adjustReview();break;
-    case 'route-project':draft.project=id;delete draft.contextProject;if(id==='@new'){
+    case 'route-project':draft.project=id;draft.projectChoice=id;delete draft.routeMatch;delete draft.routeQuestion;delete draft.contextProject;if(id==='@new'){
       dialog('Name the workspace','Tasktap','<form id="workspace-name" class="field"><label>Workspace name<input id="newName" required></label><button class="primary">Review</button></form>');
       $('#workspace-name').onsubmit=e=>{e.preventDefault();const name=$('#newName').value.trim();if(!name||name.includes('/')||name==='.'||name==='..'){toast('Choose a folder name.');return}draft.newName=name;review()};
     }else review();break;
@@ -688,6 +655,7 @@ if(location.hash==='#geometry'){
 }
 
 function prepareForAppUpdate(){
+  if(document.querySelector('#terminal-compose-text')?.value.trim())return false;
   if(typeof recording!=='undefined' && recording || draft?.routing || draft?.submitting || setupWizard.showing() || document.querySelector('#guide-input')?.value?.trim())return false;
   if(document.querySelector('#review-task-form,#route-form,#review-context-form'))return false;
   try{if(draft)localStorage.setItem('tasktap-update-draft',JSON.stringify({text:draft.brief||draft.text||'',project:draft.project||'',strokes:draft.strokes||[]}));persist();return true}catch{return false}

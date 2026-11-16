@@ -37,6 +37,15 @@ assert.deepEqual(order(layout),['a','c','e','b','d']);assert.equal(layout.tree.i
 assert.equal(layout.tree.first.axis,'y');assert.equal(layout.tree.first.second.axis,'x');assert.equal(layout.tree.second.axis,'y');
 assert.deepEqual(layout.groups.flatMap(group=>group.tabs),['terminal:a']);
 inspect(layout);
+// Edge drops can insert a new leaf before a target, preserving existing branches.
+const edges={groups:[group('target','terminal:t')],selected:0};ensure(edges);
+split(edges,'target','x','left','before');
+assert.deepEqual(order(edges),['left','target']);assert.equal(edges.tree.first.group,'left');
+const edgeRoot=edges.tree.id;edges.tree.ratio=35;
+split(edges,'target','y','top','before');
+assert.deepEqual(order(edges),['left','top','target']);assert.equal(edges.tree.second.first.group,'top');
+assert.equal(edges.tree.id,edgeRoot);assert.equal(edges.tree.ratio,35);inspect(edges);
+remove(edges,'left');assert.equal(edges.tree.axis,'y');inspect(edges);
 for(let i=0;i<20;i++)split(layout,'d',i%2?'x':'y','extra-'+i);
 assert.equal(layout.groups.length,25,'layout has no hardcoded pane count');inspect(layout);
 assert.equal(split(layout,'unknown','x','unused'),null);

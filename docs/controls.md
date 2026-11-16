@@ -2,6 +2,16 @@
 
 The resident Mac app is built by running `./scripts/build-mac.sh`. Open the resulting app in `build/`. The collapsed camera housing stays blank. A thin amber edge pulses on the adjacent display pixels while a decision needs an answer. Reduce Motion keeps the edge steady. The menu-bar item carries the pending count. Pause over the camera housing or its tab to peek while continuing to type in the current app. Move away to retract the peek; click the tab to pin it. The detailed workspace opens through **Workspace**. Its return button restores the notch. The Mac app discovers folders under `~/projects`. The browser preview has its own sample data.
 
+## Application menu
+
+When Tasktap is active, the macOS application menu provides **File**, **Edit**, **View**, **Window** and **Help**. Use **⌘N** for a capture, **⌘O** to open a workspace, **⌘T** for a terminal in the selected pane, **⌥⌘T** for a browser preview, and **⌘D / ⇧⌘D** to split right or down. Pane commands are disabled outside a project or while a dialog is open. **⌘1–4** open Home, Notebook, Session History and Activity; **⌘B** toggles the sidebar, and **⌘,** opens Settings. The standard Edit commands follow the focused editor. Closing a view with **⌘W** keeps its terminal session running.
+
+## Writing text in a terminal
+
+Choose **Edit → Compose Text…** or **Tab actions → Compose text…** to draft prose for any CLI. The editor enables autocorrection and shows replacements with **Undo correction**. **Insert text** pastes into the chosen terminal at its cursor without sending Enter. Cancel keeps the draft for that terminal during the current app session. Multiline text requires the CLI to enable bracketed paste; otherwise use a single line.
+
+Raw terminal input keeps autocorrection off and rejects native replacements of previously typed text with a visible notice. Tasktap does not infer whether a terminal prompt contains prose, a password or a shell command. Normal keyboard editing and IME composition remain available, and screen-reader support stays enabled.
+
 ## Direct Micro control
 
 In the Mac menu choose **Codex Micro Controls → Use Micro decision keys and lights**. On an open binary question the app lights Agent Key 1 green for Yes and Agent Key 2 red for No. Agent Key 3 opens Reply. The app talks to the vendor HID interface through IOKit. It clears the pair when the question closes, and reapplies the current state after reconnect. Leave the switch off to use the Mac alone. Input access or another app using the device can affect the hardware connection; its status appears beneath the switch. The Mac keeps queuing and answering questions throughout. The direct implementation follows published device measurements on firmware 0.4.1 and 0.6.1. [Protocol measurements](https://github.com/thannous/claude-codex-micro/blob/main/docs/research/hid-lighting-protocol.md)
@@ -24,7 +34,13 @@ The native app registers the six navigation shortcuts while running and register
 
 ## Narration
 
-**Preferences → Voice & alerts → Narration voice** lists locally exposed Siri voices by language. Completion narration is opt-in. The local alternative is **Kokoro / Heart** for English. Choose **Set up Kokoro** to install the local voice (121 MB of model and voices plus the Python runtime). Setup uses uv or Python 3.10–3.12. Select **Local Kokoro / Heart** and **Preview voice** to test playback. The installed voice runs offline on demand. If you already run Kokoro-FastAPI on port 8880, Tasktap can use it without installing the model. The browser preview lists local Siri voices when available. [Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx)
+**Preferences → Voice → Read aloud → Narration voice** lists locally exposed Siri voices by language. Completion narration is opt-in. The local alternative is **Kokoro / Heart** for English. Choose **Set up Kokoro** to install the local voice (121 MB of model and voices plus the Python runtime). Setup uses uv or Python 3.10–3.12. Select **Local Kokoro / Heart** and **Preview voice** to test playback. The installed voice runs offline on demand. If you already run Kokoro-FastAPI on port 8880, Tasktap can use it without installing the model. The browser preview lists local Siri voices when available. [Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx)
+
+## Dictation setup
+
+Open **Preferences → Voice → Dictation**, choose **Download & set up**, then allow microphone access. Test with **Try dictation**; the test never launches a coding agent. Apple dictation is the initial recommendation. **More options** offers Apple SpeechTranscriber and downloadable Whisper large-v3 Turbo, plus language overrides. Recommended follows future defaults, while explicit selections remain pinned. Apple engines use the Mac language by default and show live text; Whisper detects language by default and transcribes after release.
+
+**Use a cloud provider instead** connects OpenAI, Deepgram, or ElevenLabs with a separate speech API key stored in macOS Keychain. Provider billing applies; recordings are sent only when cloud dictation is selected and the shortcut is released. Local dictation never silently falls back to cloud. Cancelled and completed recordings are removed. Speech recording is limited to five minutes. Reply language is independently configured under **Agents & connections → Reply language**; requests are preserved without automatic translation.
 
 ## System notifications
 

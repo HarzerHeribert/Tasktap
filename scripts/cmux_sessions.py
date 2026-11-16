@@ -235,6 +235,21 @@ def owned_rows(root, runs, observed, *, allow_external=None):
                 # Do not mislabel a running terminal as stuck at a trust prompt.
                 if discover and not confirmed and row["state"]!="Needs input":row["state"]="Awaiting agent"
             if thread and job["agent"]=="codex":row["inbox"]="codex"
+            if job.get('observer') is True and job.get('host') == 'tasktap':
+                from session_observer import read, ingest, public_state, LABELS
+                observation = read(folder/'observer.json')
+                if observation:
+                    if not alive and observation.get('state') != 'ended':
+                        token = read(folder/'observer-config.json').get('token', '')
+                        ingest(folder, token, dict(kind='process_exited'))
+                        observation = read(folder/'observer.json')
+                    row['state'] = LABELS.get(observation.get('state'), row['state']) if alive else 'Closed'
+                    row['activity'] = observation.get('activity', '')
+                    row['observerState'] = observation.get('state', '')
+                    row['observation'] = json.dumps(public_state(observation))
+                    row['updatedAt'] = str(int(observation.get('updatedAt', 0)*1000))
+                    if observation.get('providerSession'):
+                        row['conversation'] = observation['providerSession']
             yield row
         except (OSError,ValueError,KeyError,StopIteration):continue
 

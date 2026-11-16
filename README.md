@@ -1,6 +1,6 @@
 <img src="site/assets/tasktap-icon.png" width="112" height="112" alt="Tasktap: a metallic voice wave on a dark square">
 
-# Tasktap 1.1.0
+# Tasktap 1.2.0
 
 A Mac workspace that turns a thought into a reviewed task in the right project and conversation. Speak or type, refine the prompt, then work with your coding agents in Tasktap’s embedded terminal multiplexer. Keep sessions, documents and previews together, and answer an agent from the notch while using another app.
 
@@ -33,12 +33,16 @@ Tasktap appears in the Dock and menu bar. Closing its workspace window leaves th
 
 A workspace contains surfaces, each holding panes in tabs. Every surface has **New terminal**, **New browser**, **Split right**, and **Split down** controls. Split buttons act on their own surface; **⌘D** and **⇧⌘D** split the focused surface. Every split opens a fresh terminal. Drag a divider to resize, or double-click to balance it. Right-click a tab (or press **Shift+F10**) for **Move tab to…** and other tab actions. **Focus surface** temporarily expands the selected surface.
 
-The sidebar shows one row per workspace. An attention mark pulses when an agent needs input; a checkmark indicates an unread reported result. Reduce Motion disables the pulse. Opening the workspace acknowledges result markers; pending decisions stay visible until resolved. **Home**, **Notebook**, **Session history**, and **Activity** remain available through the same navigation.
+Use **⌘+** (or **⌘=**) and **⌘−** to increase or decrease text size in the selected terminal, one point at a time (8–40 pt). **⌘0** resets that terminal to the default from Terminal preferences or appearance. Each terminal remembers its size across tab moves and workspace restores. The same controls are in its tab’s right-click menu. Terminal scrollbars use a thin thumb that appears while scrolling or hovering over the scrollbar.
+
+**⌘V** pastes clipboard text into the focused terminal prompt; **⌘C** copies selected terminal output. Each terminal’s top bar has **Copy**, **Paste**, and text-size buttons; narrow panes keep these commands in **Tab actions**. The Mac’s **Edit** menu offers Copy/Paste, and **View** offers Increase, Decrease, and Reset Text Size. Paste respects the CLI’s bracketed-paste mode and adds no Enter key. **Control-C** still interrupts the CLI.
+
+The sidebar shows one heading per workspace, with deliberately backgrounded sessions beneath it. Click a background session to restore its terminal without starting a new process. Its label shows Working/Running, Needs input, Ready, Failed, or an ended state; a Stop control ends it. An attention mark pulses when an agent needs input; a checkmark indicates an unread reported result. Reduce Motion disables the pulse. Opening the workspace acknowledges visible result markers; background results stay unread until opened; pending decisions stay visible until resolved. **Home**, **Notebook**, **Session history**, and **Activity** remain available through the same navigation.
 
 | Action | What happens |
 | --- | --- |
-| Close a tab | Its view closes. Closing or moving the final tab also removes its surface. There is no close-all control on a surface; terminal processes remain available in Session history. |
-| Close a workspace | Its tabs and layout are saved. Restore it with **+ → Closed workspaces**. |
+| Close a tab | A live terminal offers **Keep running in background**, **Stop session**, or Cancel. Background work stays under its workspace in the sidebar. Ended terminals and previews close directly. Closing or moving the final tab removes its surface. |
+| Close a workspace | Confirm to stop all its Tasktap sessions, including background work. The layout and history remain saved. Restore with **+ → Closed workspaces**; commands are never restarted automatically. |
 | Quit Tasktap | Running embedded sessions continue while the private local terminal service remains alive. |
 | **Session details → Stop session…** | Explicitly ends that process after confirmation. |
 | Reboot the Mac or lose the terminal service | Processes end. Tasktap never automatically reruns their commands. Supported conversations can be resumed explicitly. |
@@ -63,38 +67,42 @@ Local HTML runs in an isolated frame without Tasktap’s native command bridge; 
 
 ## Capture, review, and follow up
 
-Tap **Control + Option + Space** to type from any app. Hold it to dictate and release to stop. Type, speak, or add a sketch, then press **⌘ Return** to review. Microphone and speech permissions are requested when needed.
+Tap **Control + Option + Space** to type from any app. Hold it to dictate and release to stop. Type, speak, or add a sketch, then press **⌘ Return** to review. Set up dictation under **Preferences → Voice**: download speech assets once, then allow the microphone. **More options** offers Apple dictation, Apple SpeechTranscriber, and local Whisper. Optional cloud providers use separate Keychain-stored speech API keys. **Recommended** follows release defaults; explicit engine and model choices stay pinned. Apple engines stream live text; Whisper and cloud providers transcribe after release.
 
-- **Your request** contains the instruction. Its pencil button, **Edit task**, changes the wording without resetting the destination. Request preparation may suggest clearer wording; choose **Review suggested wording → Use this wording → Save task** to accept it, or keep your original request.
+- **Your request** contains the instruction. Its pencil button, **Edit task**, changes the wording without resetting the destination. Request preparation turns a rambling capture into a reviewable task, preserving constraints and corrections. The prepared task appears directly in review; **Original capture** shows your words, and **Use original request** restores them in one click.
 - **Destination** identifies the workspace, agent, host, model, and whether this is a new or existing conversation. **Change destination** edits those choices.
 - **Reference** shows an attached path, URL, or sketch. Its pencil button opens **Edit context**. Source references are frozen when capture begins. **Refresh source** deliberately reads the current source; unavailable access offers manual entry.
 - Consequential notices explain folder trust, concurrent work, remote preparation, manual paste, or failure. One footer contains the confirmation action. Submission locks editing until a response arrives; a failed handoff preserves the draft.
 
 **Diagnostics** separately exposes effective instructions, routing evidence, payloads, and receipt IDs. Copy and JSON export exclude connection secrets and redact recognizable credentials in text.
 
-Choose **Follow up** on a session, or name it in a capture. A nudge keeps that conversation’s identity and agent. Where automatic delivery is unavailable, **Copy nudge & open session** explicitly asks you to paste into the original prompt and press Return. A queue receipt is not a completed task.
+Choose **Follow up** on a session, or describe it in a capture. Preparation considers up to eight candidate projects and sessions and three recent Tasktap handoffs. It shows the actual destination and its status; **Why this session?** explains the match and includes the original task and session ID. Explicit destinations stay fixed. Ambiguous matches ask a specific destination question before review. Remote preparation discloses this context before sending it. A nudge keeps that conversation’s identity and agent. Where automatic delivery is unavailable, **Copy nudge & open session** explicitly asks you to paste into the original prompt and press Return. A queue receipt is not a completed task. **Activity** separates questions, actual work, handoffs in transit, and reports; repeated reports share one conversation row with expandable history. The notch names active tasks and projects. A working project’s sidebar icon gently pulses, including sessions associated with its folder; idle connections do not animate, and Reduce Motion keeps indicators still.
 
 ## Agents, accounts, and other applications
 
-Tasktap launches installed **Claude Code**, **Codex**, **Antigravity (`agy`)**, **Cursor CLI (`cursor-agent`)**, and **Pi (`pi`)**. Each worker uses its own CLI authentication and settings. Configure the default agent, fixed or adaptive models, and terminal under **Preferences → Agents → Session models**. Agent routing can use available usage estimates; a review override changes one handoff.
+Tasktap launches installed **Claude Code**, **Codex**, **Antigravity (`agy`)**, **Cursor CLI (`cursor-agent`)**, **Pi (`pi`)**, and **OpenCode (`opencode`)**. Each worker uses its own CLI authentication and settings. Configure the default agent, fixed or adaptive models, and terminal under **Preferences → Agents & connections → Session models**. Agent routing can use available usage estimates; a review override changes one handoff. OpenCode model IDs use `provider/model`; its own provider configuration supplies authentication.
 
 New installations use Tasktap’s embedded terminal. Existing terminal preferences remain respected. External options include Terminal, cmux, Ghostty, iTerm2, Warp, WezTerm, and kitty; their ability to reopen, focus, or deliver follow-ups varies. **Change destination → Open this session in** chooses a host for one new session.
 
+Click links in embedded terminals and agent reports to open web pages and supported files in the project workspace. Terminal links include plain URLs, OSC 8 hyperlinks, and file paths such as `src/main.swift:42:7`; file locations open with the referenced line highlighted. Relative paths use the terminal’s reported working directory (OSC 7), falling back to its launch folder. **Option-click** uses the default browser or app. Folders open in Finder, and supported app links such as `mailto:` open their associated app. Web preview tabs also offer **Open in default browser** for sites that block embedding.
+
 **Request preparation** is separate from project work. The default **On this Mac** uses local matching and the available Apple model. Other configured routes include a model server, the installed Codex login, interactive Claude Code, provider API keys, and eligible ChatGPT sign-in. A local server or gateway may forward to a paid upstream. Before remote preparation, Tasktap shows what it proposes to send and offers local preparation instead. The worker then uses its own account. Routing API keys are stored in Keychain; audio, sketch points, and resolved reference attachments are not part of the remote preparation payload. Explicitly typed or dictated text may itself contain a path or URL.
 
-A fresh Codex handoff offers an exact-folder trust choice. Project settings can run code. Codex uses its approval reviewer with the workspace-write sandbox; Claude Code requests Auto mode where supported. Agents may still ask for trust or permissions in their own terminals. Follow-ups retain the conversation’s existing permissions. Tasktap gives workers default Git guidance but does not create branches/worktrees or make commits itself.
+A fresh Codex handoff offers an exact-folder trust choice. Project settings can run code. Codex uses its approval reviewer with the workspace-write sandbox; Claude Code requests Auto mode. Cursor CLI uses its classifier-based auto review, and OpenCode requests automatic permission handling while retaining its explicit denials. Antigravity requests its Auto execution mode. Pi’s launch-local approval trusts project resources; it is not a separate tool-approval policy. These settings apply to this launch, without changing global CLI configuration. Agents may still ask for trust or permissions in their own terminals. Follow-ups retain the conversation’s existing permissions. Tasktap gives workers default Git guidance but does not create branches/worktrees or make commits itself.
 
 **Find sessions in other apps** is off by default in **Preferences → Workspaces**. Opt in to read supported apps’ local session metadata. **Other apps** shows the original host and offers focus or available session actions; it never silently migrates an external conversation into an embedded terminal. Saved external sessions remain available when discovery is off. Unsupported approvals and missing completion reports must be handled in the original client. Automatic session naming can send a short excerpt of public conversation messages to the selected preparation connection, excluding tool output and reasoning; unavailable naming keeps the existing title.
 
 ## Decisions, results, and notifications
 
-Tasktap-managed Claude Code and Codex sessions can use session-scoped question and result tools. A pane, the notch, and a notification all address the same request. Closing a decision defers it; answering one cannot answer a later request. Ordinary terminal output does not generate alerts, and a successful process exit is not treated as task completion.
+New embedded Claude Code, Codex, Pi and OpenCode sessions use launch-scoped lifecycle observers, without extra reporting tools or global hook installation. Existing and externally hosted Claude Code/Codex integrations can still use their session-scoped question/result tools. A pane, the notch, and a notification all address the same request. Closing a decision defers it; answering one cannot answer a later request. Ordinary terminal output does not generate alerts, and a successful process exit is not treated as task completion.
+
+Terminal pane headers show current activity. An accent edge means working; amber means input or permission is needed; green means an unread answer is ready; red means failure. Input cues pulse twice, new answers sweep once, and Reduce Motion keeps them static. Focus the pane while Tasktap is active, or open its saved answer, to acknowledge it. Other panes stay unread. **Session details** contains copied answers by turn and the event history. A finished answer is not independent proof of task success. Native CLI prompts are answered in their terminal when no reply API is available. Cursor and Antigravity currently have limited lifecycle monitoring.
 
 Choose a displayed answer or use **Reply** to type or dictate. **Send reply** returns your words to that agent, which interprets whether you answered, asked a question, or added a constraint. Both choices and freeform replies settle the displayed request; the agent can ask a new question if it needs clarification. A freeform reply is not blanket authorization.
 
 **Home** and **Activity** show reported results and failures. Session details show a labeled excerpt; **Read full report** preserves the complete report. **Export summary** exports the report document, not an inferred generated file. Copy, narration, export, and older Activity entries retain the selected receipt’s result.
 
-Enable alerts in **Preferences → Voice & alerts → Notification settings**. Tasktap’s switch, macOS authorization, banners, and Notification Center availability are shown separately. Focus or macOS may suppress a banner even when permission is granted; Tasktap cannot confirm that it appeared. Restored results are not announced again. Spoken completions are a separate opt-in. Available local Siri voices and optional Kokoro narration work independently of the terminal.
+Enable alerts in **Preferences → Notifications**. Tasktap’s switch, macOS authorization, banners, and Notification Center availability are shown separately. Focus or macOS may suppress a banner even when permission is granted; Tasktap cannot confirm that it appeared. Restored results are not announced again. Spoken completions are a separate opt-in. Available local Siri voices and optional Kokoro narration work independently of the terminal.
 
 The optional Codex Micro provides request-scoped decision controls. Everything also works with the Mac’s keyboard and pointer. [Keyboard and controller guide](docs/controls.md)
 
@@ -131,6 +139,7 @@ The build creates a locally signed app. For browser checks, run `npm ci` and ins
 python3 scripts/verify-style.py
 node scripts/verify-review.cjs
 node scripts/verify-workspace-splits.cjs
+node scripts/verify-terminal-controls.cjs
 node scripts/verify-workspace-documents.cjs
 python3 scripts/verify-workspace-terminals.py
 python3 scripts/build-site.py

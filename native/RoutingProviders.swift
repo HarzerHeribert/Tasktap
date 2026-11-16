@@ -56,7 +56,7 @@ import AppKit
     func detectWorkers() async {
         guard let result = try? await RouterCLI.call("status",[:]),
               let health=result["workerHealth"] as? [String:String] else {
-            workerHealth=Dictionary(uniqueKeysWithValues:["claude","codex","agy","cursor-agent","pi"].map {($0,"unknown")})
+            workerHealth=Dictionary(uniqueKeysWithValues:["claude","codex","agy","cursor-agent","pi","opencode"].map {($0,"unknown")})
             workers=[:]
             cloudName=""
             return
@@ -114,8 +114,12 @@ import AppKit
     private func schema(estimate: Bool) -> RouterJSON {
         let text = ["type":"string"], number = ["type":"integer"]
         var fields: RouterJSON = ["mode":["type":"string","enum":["ask","note","nudge"]],"brief":text,
-            "project":number,"session":number,"agent":["type":"string","enum":["unspecified","codex","claude","agy","cursor-agent","pi"]],
-            "viewer":["type":"string","enum":["unspecified","Preview","Xcode","Finder"]],"note":text]
+            "project":number,"session":number,"agent":["type":"string","enum":["unspecified","codex","claude","agy","cursor-agent","pi","opencode"]],
+            "viewer":["type":"string","enum":["unspecified","Preview","Xcode","Finder"]],"note":text,
+            "routeConfidence":["type":"string","enum":["clear","ambiguous","unknown"]],"routeEvidence":text,"routeQuote":text,
+            "sessionCandidates":["type":"array","items":number,"maxItems":8],
+            "projectCandidates":["type":"array","items":number,"maxItems":8],
+            "constraints":["type":"array","items":text,"maxItems":12]]
         if estimate {fields["difficulty"]=number; fields["scopeEvidence"]=text}
         return ["type":"object","properties":fields,"required":fields.keys.sorted(),"additionalProperties":false]
     }

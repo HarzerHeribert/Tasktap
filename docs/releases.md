@@ -9,7 +9,7 @@ commit it or put it on Pages. Losing it can strand community installations.
 Prepare on an Apple silicon Mac with the macOS 26 SDK:
 
 ```sh
-bash scripts/package-release.sh 1.1.0 13
+bash scripts/package-release.sh 1.2.0 14
 ```
 
 Packaging verifies the archive checksum, bundled code signature, feed metadata,
@@ -17,11 +17,11 @@ and Ed25519 signature using the public key in the app. It also checks that
 modified or truncated archives fail signature verification. To repeat:
 
 ```sh
-python3 scripts/verify-release.py build/releases/1.1.0
+python3 scripts/verify-release.py build/releases/1.2.0
 ```
 
 The build number must increase for every published update. Publish the generated
-ZIP, SHA256SUMS and appcast.xml as assets of GitHub release `v1.1.0`, then copy its appcast.xml
+ZIP, SHA256SUMS and appcast.xml as assets of GitHub release `v1.2.0`, then copy its appcast.xml
 to `site/appcast.xml` and deploy Pages through the existing workflow. Publish
 assets first; do not advertise a missing download. Update the homepage release
 badge and guide examples to match the new version before deploying Pages. Keep
@@ -30,7 +30,7 @@ No release is published by the packaging command. GitHub credentials and the
 update private key are not required for ordinary builds or verification CI.
 
 The optional `site/install.sh` downloads the latest stable release when called without
-an argument, or accepts an explicit version such as `1.1.0`. It installs into
+an argument, or accepts an explicit version such as `1.2.0`. It installs into
 `~/Applications`, or replaces an existing copy in `/Applications` when writable.
 It verifies transport checksums and the bundle, preserves a previous installation,
 and does not alter Gatekeeper. Checksums are integrity checks, not an independent
@@ -46,6 +46,56 @@ Helpers are copied into content-addressed Application Support/Tasktap/Helpers
 folders. Do not delete these while agents are running. Settings and session data
 are separate from the app. Updates preserve request text; unfinished setup and
 other transient UI selections should be completed before updating.
+
+## 1.2.0 release scope
+
+Version 1.2.0 uses build **14**. Embedded Claude Code, Codex, Pi and OpenCode
+launches now expose lifecycle and attention state without installing global hooks
+or asking the model to generate a separate report. Answer-ready, permission,
+interrupted and ended states remain distinct from verified task success.
+
+Capture preparation now runs for follow-ups as well as new tasks, presents the
+prepared work directly in review, preserves the original capture, and explains
+actual session matches. All outgoing work shares completion instructions covering
+checks, focused commits, review-only requests, blockers and remaining work.
+
+The notch and Activity name real work. Notchless displays use a small top-edge tab
+with an attached soft attention glow and readable provider meters only when open.
+Workspace rows indicate active project work; Activity groups reports by conversation.
+Narrow pane tools remain available through their tab menu without hiding the tabs.
+
+The release also includes configurable dictation engines and redesigned Preferences,
+native menus and titlebar controls, terminal input/resize and clipboard fixes,
+per-terminal text size, tab dragging, hyperlinks and explicit background/stop actions.
+Closing a workspace stops its sessions; closing the workspace window retains the
+resident notch and existing window state.
+
+Release notes: [releases/1.2.0.md](releases/1.2.0.md). The landing page, guide,
+installer examples and signed update feed use the same release version. Existing
+community signing, fresh-Mac permission and live-provider verification limits apply.
+
+### Verification record
+
+On November 16, 2026, the 43-suite browser matrix and final attached-glow and
+landing-page/guide checks passed. Python session, provider, observer and PTY
+fixtures, all eight workflow Swift checks, and helper dependency/integrity checks
+passed. The four native modes covered interface/focus/rim behavior, embedded
+workspace PTYs and exact observer answers, independent windows, and clipboard
+controls. The final interface run checked the attached zero-inset blurred glow
+on a physical cutout. Runtime helpers left bundle resources unchanged and code
+signatures valid after execution.
+
+The production archive passed full source/helper matching, nested observer and
+executable-mode checks, SHA-256 and Ed25519 verification, and tamper/truncation
+rejection. The production installer replaced an untouched signed 1.1.0 app with
+1.2.0/build 14 in an isolated Applications folder; the signed 1.1.0 backup was
+restored successfully. No user installation or preferences changed.
+
+Live Codex and OpenCode tool/two-turn runs were checked during observer
+integration. Cursor and Antigravity monitoring, all provider/version combinations,
+fresh-Mac permissions, and a full Sparkle download/install/relaunch cycle are not
+established by the local fixtures. These limits do not change the archive's
+signature and installer transaction checks.
 
 ## 1.1.0 release scope
 

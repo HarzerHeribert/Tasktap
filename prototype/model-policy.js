@@ -4,6 +4,7 @@ const modelPresets = {
   codex: { quick: 'gpt-6-luna', standard: 'gpt-6.1-sol', complex: 'gpt-6-astra' },
   'cursor-agent': { quick:'', standard:'', complex:'' },
   pi: { quick:'', standard:'', complex:'' },
+  opencode: { quick:'', standard:'', complex:'' },
   agy: { quick: 'gemini-3.8-flash', standard: 'gemini-4-hydrogen', complex: 'gemini-4-carbon' }
 };
 const modelTiers = { quick: 'Quick', standard: 'Standard', complex: 'Complex' };

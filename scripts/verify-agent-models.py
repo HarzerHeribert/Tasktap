@@ -31,15 +31,23 @@ with tempfile.TemporaryDirectory() as directory:
     claude=cli_command(dict(job,agent='claude'),checkout,'/agent')
     assert claude[claude.index('--permission-mode')+1]=='auto' and not any(a.startswith('projects=') for a in claude)
     assert not any('dangerously' in a for a in claude)
-for provider in ('codex','claude','agy','cursor-agent','pi'):
+for provider in ('codex','claude','agy','cursor-agent','pi','opencode'):
     job=dict(base,agent=provider)
     fresh=cli_command(job,Path('/tools'),'/agent')
     if provider=='codex':
         assert fresh[-1]==base['outgoing']+'\n\n'+base['instructions']
     if provider=='claude':
         assert fresh[fresh.index('--permission-mode')+1]=='auto'
-    if provider in ('cursor-agent','pi'):
-        assert fresh[-2:]==['--',base['outgoing']] and not {'--trust','--approve','--force'}.intersection(fresh)
+    if provider=='cursor-agent':
+        assert fresh[-2:]==['--',base['outgoing']] and '--auto-review' in fresh
+        assert not {'--trust','--approve','--force','--yolo'}.intersection(fresh)
+    if provider=='pi':
+        # Pi's --approve trusts project-local resources for this invocation;
+        # it is not a claim that Pi has a classifier-based tool approval mode.
+        assert fresh[-2:]==['--',base['outgoing']] and '--approve' in fresh
+        assert not {'--trust','--force','--yolo'}.intersection(fresh)
+    if provider=='opencode':
+        assert fresh[-2:]==['--prompt',base['outgoing']] and '--auto' in fresh
     assert fresh[fresh.index('--model')+1]=='selected'
     assert '--model' not in cli_command(dict(job,model=''),Path('/tools'),'/agent')
     assert not {'--print','exec','acp','app-server'}.intersection(fresh)
@@ -47,6 +55,21 @@ for provider in ('codex','claude','agy','cursor-agent','pi'):
         try: cli_command(dict(job,model=bad),Path('/tools'),'/agent')
         except ValueError: pass
         else: raise AssertionError('Invalid model accepted')
+
+with tempfile.TemporaryDirectory() as directory:
+    root=Path(directory)
+    for provider in ('codex','claude','pi','opencode'):
+        folder=root/provider;folder.mkdir()
+        observed=dict(base,agent=provider,session=str(uuid.uuid4()),observer=True,host='tasktap')
+        fresh=cli_command(observed,folder,'/agent')
+        assert fresh[fresh.index('--model')+1]=='selected'
+        assert not any('mcp_servers' in arg or arg=='--mcp-config' for arg in fresh)
+        assert fresh[-1]==base['outgoing'] and base['instructions'] not in fresh[-1]
+        assert not {'--force','--yolo','--dangerously-skip-permissions'}.intersection(fresh)
+        if provider=='codex':assert '--approve-for-me' in fresh
+        if provider=='claude':assert fresh[fresh.index('--permission-mode')+1]=='auto'
+        if provider=='pi':assert '--approve' in fresh
+        if provider=='opencode':assert '--auto' in fresh
 
 calls=[]
 def call(*args):

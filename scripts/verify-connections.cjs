@@ -26,6 +26,7 @@ const { chromium } = require('playwright');
     };
     await updateHealth(healthy);
     await click('Preferences');
+    await click('Agents & connections');
     const overview=page.locator('#agent-setup-link');
     assert.equal(await overview.locator('small').isVisible(),false);
     await page.getByRole('button',{name:/Request preparation/}).click();
@@ -104,6 +105,7 @@ const { chromium } = require('playwright');
     assert.ok(!(await page.locator('#modal details').innerText()).includes('Unrelated'));
     assert.equal(await page.evaluate(()=>sent.filter(m=>m.type==='route').length),0);
     await click('Prepare on this Mac');
+    await page.evaluate(()=>finishRouting(draft.routing.id,{source:'unavailable'}));
     await click('Diagnostics');
     assert.ok((await page.locator('#review-diagnostics').innerText()).includes('no cloud usage'));
     await page.evaluate(()=>{editDraft();});
@@ -112,12 +114,13 @@ const { chromium } = require('playwright');
     const call=await page.evaluate(()=>sent.findLast(m=>m.type==='route'));
     assert.equal(call.provider,'chatgpt');
     assert.equal(call.confirmed,true);
-    assert.deepEqual(call.input.projects,[[0,'Lighting']]);
+    assert.deepEqual(call.input.projects,[{index:0,name:'Lighting',aliases:['Lighting']}]);
     await page.evaluate(id=>finishRouting(id,{source:'error',message:'Usage limit reached.'}),call.id);
     await click('Continue on this Mac');
+    await page.evaluate(()=>finishRouting(draft.routing.id,{source:'unavailable'}));
     await click('Diagnostics');
     assert.ok((await page.locator('#review-diagnostics').innerText()).includes('Studio / 123456'));
-    assert.equal(await page.evaluate(()=>sent.filter(m=>m.type==='route').length),1);
+    assert.equal(await page.evaluate(()=>sent.filter(m=>m.type==='route').length),3);
     // This branch deliberately covers an external terminal and its manual nudge fallback.
     await page.evaluate(()=>{draft.agent='codex';draft.host='terminal';review()});
     const trust=page.getByRole('checkbox',{name:'Use project settings'});
@@ -129,7 +132,7 @@ const { chromium } = require('playwright');
     assert.equal(job.planAccount,undefined);assert.equal(job.host,'terminal');assert.equal(job.delivery,'interactive');
     assert.ok(job.accounts.includes('Studio'));assert.match(job.routingPayload,/Lighting/);
     assert.ok(!job.routingPayload.includes('Unrelated'));assert.match(job.instructions,/report_result/);
-    assert.equal(job.outgoing,job.brief);
+    assert.ok(job.outgoing.startsWith(job.brief));assert.match(job.outgoing,/project’s established language/);
     await page.evaluate(j=>acceptLive({capture:j.capture,folder:j.folder,name:'Lighting',task:j.task}),job);
     await page.evaluate(({c,j})=>{
       aiConnections.receive({...c,workerAccount:''});
@@ -163,9 +166,9 @@ const { chromium } = require('playwright');
     const reviewed=await page.evaluate(()=>({
       outgoing:deliveryText(draft),instructions:deliveryInstructions(draft)
     }));
-    assert.match(reviewed.instructions,/current checkout and branch/);
+    assert.match(reviewed.outgoing,/current checkout and branch/);
     assert.match(reviewed.outgoing,/glass & <lens>/);
-    assert.doesNotMatch(reviewed.outgoing,/different project|finished|stale|unknown|idle/);
+    assert.doesNotMatch(reviewed.outgoing,/different project|stale|unknown|idle/);
     assert.doesNotMatch(await page.locator('#handoff-review').innerText(),/current checkout and branch/,'worker instructions stay out of ordinary review');
     await click('Diagnostics');
     const diagnostic=JSON.parse(await page.locator('#review-diagnostics').innerText());
@@ -190,13 +193,14 @@ const { chromium } = require('playwright');
     const routes=await page.evaluate(()=>{
       const d={project:'/projects/Lighting',brief:'Add a cue',strokes:[],peerTasks:[{agent:'Codex',state:'Running',task:'solver'}]};
       return {
-        others:['pi','cursor-agent','agy'].map(agent=>deliveryText({...d,agent,mode:'ask'})),
+        others:['pi','cursor-agent','agy','opencode'].map(agent=>deliveryText({...d,agent,mode:'ask'})),
         nudge:deliveryText({...d,agent:'pi',mode:'nudge'}),
         isolated:['@scratch','@new','missing'].every(id=>projectPeers(id).length===0)
       };
     });
-    for(const text of routes.others){assert.match(text,/current checkout and branch/);assert.match(text,/solver/)}
-    assert.equal(routes.nudge,'Add a cue');assert.ok(routes.isolated);
+    for(const text of routes.others){assert.match(text,/current checkout and branch/);assert.match(text,/solver/);assert.equal(text.match(/Complete the authorized scope/g).length,1);assert.match(text,/review-only, planning-only and no-commit/)}
+    assert.match(routes.nudge,/actual commit IDs/);assert.match(routes.nudge,/preserving other people’s edits and staged changes/);
+    assert.ok(routes.nudge.startsWith('Add a cue'));assert.match(routes.nudge,/final response in the language/);assert.ok(routes.isolated);
     const identity=await page.evaluate(()=>{
       const folder='/projects/Lighting',thread='discovered-thread',owned='owned-session';
       const external={id:thread,conversation:thread,source:'terminal',agent:'codex',folder,task:'Starting',state:'Running'};

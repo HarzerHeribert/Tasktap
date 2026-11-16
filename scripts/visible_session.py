@@ -107,19 +107,33 @@ def codex_prompt(job):
 def cli_command(job, folder, executable=None, resume=None):
     agent = job['agent']
     cli = executable or shutil.which(agent)
-    if agent not in ('codex','claude','agy','cursor-agent','pi') or not cli:
+    if agent not in ('codex','claude','agy','cursor-agent','pi','opencode') or not cli:
         raise ValueError('Install the selected CLI and sign in before starting a session.')
     model = '' if resume else model_id(job.get('model',''))
     args = ['--model', model] if model else []
+    if job.get('observer') is True:
+        # The PoC deliberately adds no MCP tools or report instructions to the prompt.
+        from session_observer import prepare
+        observer_args, _ = prepare(job, folder, resume)
+        if agent == 'opencode':
+            return [cli, *args, *observer_args, '--auto', '--prompt', job['outgoing']]
+        if agent == 'cursor-agent':
+            return [cli, *args, *observer_args, '--auto-review', 'agent', '--', job['outgoing']]
+        automatic = ['--approve-for-me'] if agent == 'codex' else ['--permission-mode','auto'] if agent == 'claude' else ['--approve'] if agent == 'pi' else []
+        if resume:
+            return [cli,*args,*observer_args,*automatic,*(['resume',resume] if agent=='codex' else [])]
+        return [cli, *args, *observer_args, *automatic, '--', job['outgoing']]
     bridge = dict(command=str(Path(__file__).resolve().with_name('agent-tools')),
                   args=['--agent',agent,'--workspace',job['folder'],'--session',job['session'],
                         '--task',job['task'],'--run-dir',str(folder)])
     servers = json.dumps({'mcpServers':{'workspace_assistant':bridge}})
     prompt = job['outgoing']
+    if agent == 'opencode':
+        return [cli, *args, '--auto', '--prompt', prompt]
     if agent == 'cursor-agent':
-        return [cli, *args, 'agent', '--', prompt]
+        return [cli, *args, '--auto-review', 'agent', '--', prompt]
     if agent == 'pi':
-        return [cli, *args, '--session-id', job['session'], '--', prompt]
+        return [cli, *args, '--approve', '--session-id', job['session'], '--', prompt]
     if agent == 'claude':
         options = [cli, *args, '--permission-mode', 'auto', '--mcp-config', servers, '--append-system-prompt', job['instructions']]
         return options + (['--resume', resume] if resume else ['--session-id', job['session'], '--', prompt])
@@ -136,7 +150,7 @@ def cli_command(job, folder, executable=None, resume=None):
                 '-c', 'mcp_servers.workspace_assistant.args='+json.dumps(bridge['args']),
                 '-c', 'mcp_servers.workspace_assistant.tool_timeout_sec=86400',
                 *(('resume', resume) if resume else ('--', codex_prompt(job)))]
-    return [cli,*args,'--prompt-interactive',prompt]
+    return [cli,*args,'--mode','auto','--prompt-interactive',prompt]
 
 
 def open_window(path, job, ticket=None):
@@ -176,6 +190,11 @@ def resume_id(folder, job):
     if (job.get('delivery') != 'interactive' or job.get('mode') != 'ask' or job.get('external')
             or job.get('session') != folder.name):
         return None
+    if job.get('observer') is True and job['agent'] in ('claude','codex'):
+        from session_observer import read
+        handle = read(folder/'observer.json').get('providerSession')
+        if handle:
+            return str(uuid.UUID(handle))
     if job['agent']=='codex' and (folder/'thread.json').is_file():
         return str(uuid.UUID(load(folder/'thread.json')['id']))
     if job['agent']=='claude' and ((folder/'claude-turn-started').is_file() or
@@ -235,18 +254,37 @@ def present(path, executable, ticket=None):
         if host == 'cmux':
             for key,env in [('surface','CMUX_SURFACE_ID'),('workspace','CMUX_WORKSPACE_ID')]:
                 surface[key] = str(uuid.UUID(os.environ[env]))
-        os.environ['PATH'] = os.pathsep.join([str(Path.home()/'.local/bin'),'/opt/homebrew/bin','/usr/local/bin',os.environ.get('PATH',os.defpath)])
+        os.environ['PATH'] = os.pathsep.join([str(Path.home()/'.local/bin'),str(Path.home()/'.opencode/bin'),'/opt/homebrew/bin','/usr/local/bin',os.environ.get('PATH',os.defpath)])
         os.environ['WORKSPACE_ASSISTANT_INBOX'] = str(folder.parent.parent/'Agent Inbox')
         if not Path(executable).is_absolute() or not os.access(executable,os.X_OK):
             raise ValueError('The reviewed CLI is unavailable.')
         argv = cli_command(job,folder,executable,handle)
+        process_env = None
+        if job.get('observer') is True:
+            # cli_command has already minted this launch's callback configuration.
+            process_env = dict(os.environ, TASKTAP_OBSERVER_CONFIG=str(folder/'observer-config.json'),
+                               TASKTAP_OBSERVER_PYTHON=sys.executable,
+                               TASKTAP_OBSERVER_SCRIPT=str(Path(__file__).resolve().with_name('session_observer.py')))
+            if job['agent'] == 'codex':
+                from session_observer import codex_trust_overrides
+                trust = codex_trust_overrides(executable, folder, job['folder'])
+                key = json.dumps(str(Path(job['folder']).resolve()))
+                reviewed = None if handle else job.get('reviewedFolder')
+                if reviewed is not None and reviewed != str(Path(job['folder']).resolve(strict=True)):
+                    raise ValueError('The folder changed. Review its location again before starting Codex.')
+                scoped = ['-c','projects={'+key+'={trust_level="trusted"}}'] if reviewed is not None else []
+                argv = [argv[0], '--no-daemon', *trust, *scoped, *argv[1:]]
+            if job['agent'] == 'opencode':
+                extra = json.loads(process_env.get('OPENCODE_CONFIG_CONTENT', '{}'))
+                extra['plugin'] = [*extra.get('plugin', []), (Path(__file__).resolve().parent/'observers/opencode').as_uri()]
+                process_env['OPENCODE_CONFIG_CONTENT'] = json.dumps(extra)
         title='Tasktap · '+''.join(c for c in job['task'][:70] if c.isprintable())
         # Erase the shell launch banner from this fresh Terminal window before the
         # TUI draws. Input, colors, resize events and interrupts stay on its real tty.
         clear='\033[2J\033[H' if host=='terminal' else ''
         print(clear+'\033]0;'+title+'\007',end='',flush=True)
         # No shell between the reviewed prompt and the agent. The CLI owns the actual terminal.
-        proc = subprocess.Popen(argv,cwd=job['folder'] if handle else job.get('reviewedFolder') or job['folder'])
+        proc = subprocess.Popen(argv,cwd=job['folder'] if handle else job.get('reviewedFolder') or job['folder'],env=process_env)
         surface['open'] = True
         save(folder/'surface.json',surface)
         # A very fast result still belongs to the agent.
@@ -278,6 +316,10 @@ def present(path, executable, ticket=None):
         finally:
             surface['open'] = False
             save(folder/'surface.json',surface)
+            if job.get('observer') is True:
+                from session_observer import ingest, read
+                token = read(folder/'observer-config.json').get('token', '')
+                ingest(folder, token, dict(kind='process_exited', exitCode=proc.poll()))
         receipt=path.with_suffix('.receipt')
         if not handle and load(receipt).get('state')=='Opened':
             message='The terminal session closed.' if code==0 else 'The agent exited before reporting a result. Check the error in '+HOST_NAMES[host]+'.'

@@ -120,7 +120,7 @@ const setupWizard = (() => {
     dismissCard();
     if(origin==='preferences'){
       prefs(from);
-      $('#preferences [data-action="run-setup"]').focus({preventScroll:true});
+      [...document.querySelectorAll('#preferences [data-action="run-setup"]')].find(el=>el.getClientRects().length)?.focus({preventScroll:true});
     }else if(origin==='welcome'){
       firstRun.open(true);
     }

@@ -10,16 +10,16 @@ const resultPresentation=(()=>{
   }
   function markup(text,id,action='read-report'){
     const preview=excerpt(text);
-    return '<section class="result-summary"><div class="result-summary-heading"><h3>Agent summary</h3>'+(preview.shortened?'<span class="hint">Excerpt</span>':'')+'</div><div class="result-excerpt" data-report-preview="'+attr(preview.text)+'"></div>'+button('Read full report',action,id,'text-btn','right')+'</section>';
+    return '<section class="result-summary"><div class="result-summary-heading"><h3>Agent summary</h3>'+(preview.shortened?'<span class="hint">Excerpt</span>':'')+'</div><div class="result-excerpt" data-report-id="'+attr(id)+'" data-report-preview="'+attr(preview.text)+'"></div>'+button('Read full report',action,id,'text-btn','right')+'</section>';
   }
-  function render(element,text){workspaceDocuments.render(element,text,{})}
-  function paint(root){root.querySelectorAll('[data-report-preview]').forEach(element=>{render(element,element.dataset.reportPreview);delete element.dataset.reportPreview})}
+  function render(element,text,project){const p=typeof proj==='function'?proj(project):null;workspaceDocuments.render(element,text,{project,cwd:p?.folder})}
+  function paint(root){root.querySelectorAll('[data-report-preview]').forEach(element=>{const id=element.dataset.reportId,capture=byId(state.captures,id),session=sess(capture?.session||id);render(element,element.dataset.reportPreview,capture?.project||session?.project);delete element.dataset.reportPreview})}
   function show(id){
     const capture=byId(state.captures,id),session=sess(capture?.session||id);
     const text=capture?capture.result:session?.result;if(!text)return;
     const title=session?sessionDisplayName(session):'Agent report';
     dialog('Agent report',proj(capture?.project||session?.project)?.name||'Tasktap','<article class="result-reader"><p class="result-task">'+esc(title)+'</p><div class="result-prose"></div><div class="result-reader-actions">'+button('Copy report','copy-report',id,'btn','copy')+(session?button('Read aloud','speak-report',id,'btn','sound')+button('Export summary','export-report',id):'')+'</div></article>');
-    render($('#modal .result-prose'),text);
+    render($('#modal .result-prose'),text,capture?.project||session?.project);
   }
   document.addEventListener('click',async event=>{
     const control=event.target.closest('[data-action]'),action=control?.dataset.action,id=control?.dataset.id;

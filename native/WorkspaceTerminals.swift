@@ -81,6 +81,22 @@ final class WorkspaceTerminals {
     func handle(_ message:[String:Any], folders:WorkspaceFolders) throws {
         guard let op = message["op"] as? String else {return}
         if op == "reconnect" { try connect(); send(["op":"watch"]); return }
+        if ["open-workspace","stop-workspace"].contains(op) {
+            guard let path=message["cwd"] as? String, path.hasPrefix("/") else {
+                throw LiveWorkspace.Failure.reason("Select a valid workspace folder.")
+            }
+            let cwd=URL(fileURLWithPath:path).standardizedFileURL
+            if op == "open-workspace", !folders.allowsExisting(cwd) {
+                throw LiveWorkspace.Failure.reason("This workspace folder is unavailable.")
+            }
+            // Stop only touches PTYs owned by our service. It remains available
+            // when a folder has disappeared or its approval is no longer valid.
+            let ids=message["ids"] as? [String] ?? []
+            guard ids.count<=10000, ids.allSatisfy({UUID(uuidString:$0) != nil}) else {
+                throw LiveWorkspace.Failure.reason("Select valid workspace sessions.")
+            }
+            send(["op":op,"cwd":cwd.path,"ids":ids]);return
+        }
         guard let id = message["id"] as? String, UUID(uuidString:id) != nil else {
             throw LiveWorkspace.Failure.reason("Select a valid terminal session.")
         }

@@ -17,6 +17,7 @@ import socket
 import struct
 import subprocess
 import sys
+sys.dont_write_bytecode = True
 import termios
 import time
 import uuid
@@ -71,8 +72,16 @@ class Service:
         self.selector = selectors.DefaultSelector()
         self.sessions = {}
         self.clients = {}
+        self.closing_workspaces = set()
         self.idle = time.monotonic()
         self.manifest = ROOT / 'sessions.json'
+        self.lifecycle = ROOT / 'lifecycle.json'
+        try:
+            lifecycle = json.loads(self.lifecycle.read_text())
+            self.closed_workspaces = set(lifecycle.get('closed', []))
+            self.cancelled = set(lifecycle.get('cancelled', []))
+        except (OSError, ValueError, TypeError):
+            self.closed_workspaces, self.cancelled = set(), set()
         try:
             for row in json.loads(self.manifest.read_text()):
                 self.sessions[ident(row['id'])] = dict(row, running=False, restored=True, buffer=bytearray(), seq=0)
@@ -80,13 +89,41 @@ class Service:
             pass
 
     def metadata(self, s):
-        return {k: s[k] for k in ('id', 'cwd', 'title', 'kind', 'running', 'exit', 'created', 'restored', 'stopped') if k in s}
+        row={k: s[k] for k in ('id', 'cwd', 'title', 'kind', 'running', 'exit', 'created', 'restored', 'stopped', 'observation') if k in s}
+        if not s['running'] and row.get('observation',{}).get('state') not in (None,'ended'):
+            row['observation']={**row['observation'],'lastTurnState':row['observation']['state'],'state':'ended','isWorking':False,'event':'process_exited'}
+        return row
 
     def persist(self):
         temp = self.manifest.with_suffix('.tmp')
         temp.write_text(json.dumps([self.metadata(s) for s in self.sessions.values()]))
         temp.chmod(0o600)
         os.replace(temp, self.manifest)
+
+    def persist_lifecycle(self):
+        temp = self.lifecycle.with_suffix('.tmp')
+        temp.write_text(json.dumps(dict(closed=sorted(self.closed_workspaces), cancelled=sorted(self.cancelled))))
+        temp.chmod(0o600)
+        os.replace(temp, self.lifecycle)
+
+    def stop(self, s):
+        if not s['running']:
+            return
+        groups = {s['pid']}
+        try:
+            foreground = os.tcgetpgrp(s['fd'])
+            if foreground > 0:
+                groups.add(foreground)
+        except OSError:
+            pass
+        s['stop_groups'] = groups
+        s['stopped'] = True
+        s['stopping'] = time.monotonic()
+        for group in groups:
+            try:
+                os.killpg(group, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
 
     def send(self, sock, message):
         client = self.clients.get(sock)
@@ -117,12 +154,16 @@ class Service:
     def start(self, msg):
         key = ident(msg['id'])
         previous = self.sessions.get(key)
+        if key in self.cancelled and not msg.get('restart'):
+            raise ValueError('This session was stopped before it opened.')
         if previous and not (msg.get('restart') is True and not previous['running']):
             # Never restart a stopped session or run a reviewed task twice.
             return self.metadata(previous)
         # Keep the project's logical path (including a chosen symlink) so its
         # renderer identity matches the folder the user selected.
         cwd = os.path.abspath(os.path.expanduser(msg['cwd']))
+        if cwd in self.closed_workspaces:
+            raise ValueError('This workspace is closed. Open it before starting a session.')
         if not Path(cwd).is_dir():
             raise ValueError('The project folder is unavailable.')
         argv = msg['argv']
@@ -166,11 +207,42 @@ class Service:
             elif op == 'watch':
                 self.clients[sock]['watch'] = True
                 response.update(event='sessions', sessions=[self.metadata(s) for s in self.sessions.values()])
+            elif op in ('open-workspace', 'stop-workspace'):
+                cwd = msg['cwd']
+                if not isinstance(cwd, str) or not os.path.isabs(cwd):
+                    raise ValueError('Select a valid workspace folder.')
+                cwd = os.path.abspath(cwd)
+                if op == 'open-workspace':
+                    if cwd in self.closing_workspaces:
+                        raise ValueError('This workspace is still stopping. Wait for it to close.')
+                    self.closed_workspaces.discard(cwd)
+                else:
+                    # Fence the folder before stopping its PTYs. Late agent
+                    # launches cannot escape a workspace close, even on restart.
+                    ids = msg.get('ids', [])
+                    if not isinstance(ids, list) or len(ids) > 10000:
+                        raise ValueError('Select valid workspace sessions.')
+                    cancelled = {ident(value) for value in ids if value not in self.sessions}
+                    self.cancelled.update(cancelled)
+                    self.closed_workspaces.add(cwd)
+                    self.closing_workspaces.add(cwd)
+                    for s in self.sessions.values():
+                        if s['cwd'] == cwd:
+                            self.stop(s)
+                    self.persist()
+                self.persist_lifecycle()
+                response.update(event='workspace-opened' if op == 'open-workspace' else 'workspace-stopping', cwd=cwd)
             elif op == 'start':
                 response.update(event='session', session=self.start(msg))
             else:
                 key = ident(msg['id'])
                 s = self.sessions.get(key)
+                if op == 'stop' and not s:
+                    # The close can beat an asynchronous agent/shell launch.
+                    self.cancelled.add(key)
+                    self.persist_lifecycle()
+                    self.send(sock, dict(response, event='session-cancelled', id=key))
+                    return
                 if not s:
                     raise ValueError('This terminal session is not available.')
                 response['id'] = key
@@ -195,25 +267,33 @@ class Service:
                         fcntl.ioctl(s['fd'], termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
                         s.update(rows=rows, cols=cols)
                 elif op == 'stop':
-                    if s['running']:
-                        try:
-                            foreground = os.tcgetpgrp(s['fd'])
-                            if foreground > 0 and foreground != s['pid']:
-                                os.killpg(foreground, signal.SIGHUP)
-                            os.killpg(s['pid'], signal.SIGTERM)
-                        except PermissionError:
-                            os.kill(s['pid'], signal.SIGTERM)
-                        except ProcessLookupError:
-                            pass
-                        s['stopped'] = True
-                        s['stopping'] = time.monotonic()
+                    self.stop(s)
+                    self.persist()
+                    response.update(event='session-stopping')
                 elif op == 'focus':
                     self.broadcast({'event': 'focus', 'id': key})
+                elif op == 'observe':
+                    from session_observer import read, public_state
+                    from secrets import compare_digest
+                    folder = Path(msg['runDir']).resolve()
+                    config = read(folder/'observer-config.json')
+                    owner = read(next(iter(sorted(folder.glob('*.job'))),folder/'missing'))
+                    if (not s['running'] or s.get('kind') != 'agent' or owner.get('observer') is not True or folder.name != key or owner.get('session') != key
+                            or owner.get('folder') != s['cwd'] or not isinstance(msg.get('token'),str)
+                            or not compare_digest(msg['token'],config.get('token',''))):
+                        raise ValueError('Observer does not own this terminal.')
+                    observation = read(folder/'observer.json')
+                    if observation.get('launch') != config.get('token'):
+                        raise ValueError('Observer launch has changed.')
+                    s['observation'] = public_state(observation)
+                    if observation.get('event') not in ('assistant_text','activity','continued') or time.monotonic()-s.get('observation_saved',0)>2:
+                        s['observation_saved']=time.monotonic();self.persist()
+                    self.broadcast(dict(event='observation',id=key,observation=s['observation']))
                 else:
                     raise ValueError('Unknown terminal operation.')
             self.send(sock, response)
         except (ValueError, KeyError, TypeError, OSError) as error:
-            self.send(sock, dict(response, event='error', id=msg.get('id'), error=str(error)))
+            self.send(sock, dict(response, event='error', id=msg.get('id'), cwd=msg.get('cwd'), op=msg.get('op'), error=str(error)))
 
     def output(self, key, mask):
         s = self.sessions[key]
@@ -305,27 +385,35 @@ class Service:
                 else:
                     self.output(key.data[1], mask)
             for s in list(self.sessions.values()):
-                if not s['running']:
-                    continue
                 if s.get('stopping') and time.monotonic() - s['stopping'] > 2:
-                    try:
-                        os.killpg(s['pid'], signal.SIGKILL)
-                    except PermissionError:
+                    for group in s.pop('stop_groups', set()):
                         try:
-                            os.kill(s['pid'], signal.SIGKILL)
+                            os.killpg(group, signal.SIGKILL)
                         except ProcessLookupError:
                             pass
-                    except ProcessLookupError:
-                        pass
+                    s.pop('stopping', None)
+                if not s['running']:
+                    continue
                 pid, status = os.waitpid(s['pid'], os.WNOHANG)
                 if pid:
                     if 'fd' in s:
                         self.output(s['id'], selectors.EVENT_READ)
                         self.close_fd(s)
                     s.update(running=False, exit=os.waitstatus_to_exitcode(status))
+                    if s.get('observation'):
+                        observation=s['observation']
+                        if observation.get('state') != 'ended':
+                            observation.update(lastTurnState=observation.get('state'),state='ended',isWorking=False,
+                                               event='process_exited',exitCode=s['exit'],updatedAt=time.time())
+                            observation['sequence']=observation.get('sequence',0)+1
+                            self.broadcast(dict(event='observation',id=s['id'],observation=observation))
                     self.persist()
                     self.broadcast({'event': 'session', 'session': self.metadata(s)})
-            if self.clients or any(s['running'] for s in self.sessions.values()):
+            for cwd in list(self.closing_workspaces):
+                if not any(s['cwd'] == cwd and (s['running'] or s.get('stopping')) for s in self.sessions.values()):
+                    self.closing_workspaces.discard(cwd)
+                    self.broadcast(dict(event='workspace-closed', cwd=cwd))
+            if self.clients or any(s['running'] or s.get('stopping') for s in self.sessions.values()):
                 self.idle = time.monotonic()
             elif time.monotonic() - self.idle > 60:
                 path.unlink(missing_ok=True)

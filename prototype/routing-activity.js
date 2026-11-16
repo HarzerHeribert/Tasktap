@@ -1,5 +1,6 @@
 // Readable evidence accompanies the handoff. The changing text is the model's draft brief.
 function workspaceEvidence(d) {
+  if(d.routeMatch && d.routeMatch.project===d.project && (!d.routeMatch.session || d.routeMatch.session===d.session))return 'Matched from context / '+d.routeMatch.reason;
   if (d.session) return 'Existing conversation / '+(sess(d.session)?.task || 'Selected session');
   if (d.sessionProject && d.project===d.sessionProject) return 'Chosen workspace / '+proj(d.project).name;
   const name=proj(d.project)?.name;
@@ -35,6 +36,7 @@ function routingProgress(id,event) {
     preview.textContent=event.brief;
     preview.hidden=false;
   }
+  if(event.phase==='matching')phase.textContent='Matching the project and conversation';
 }
 
 function cancelRouting() {
@@ -47,7 +49,8 @@ function cancelRouting() {
 
 function routingEvidence(d) {
   const source={
-    apple:'Apple’s on-device model suggested wording. Tasktap matched the destination on this Mac.',
+    'local-match':'Tasktap matched the explicit destination correction on this Mac. The original request is preserved.',
+    apple:d.routeFallback?'Apple’s on-device model prepared the task. Destination preparation did not finish; choose the conversation.':'Apple’s on-device model prepared the task and checked the supplied destination context on this Mac.',
     'claude-session':'You reviewed the brief from Claude Code. Tasktap matched the project on this Mac.',
     estimate:'Apple’s on-device model estimated the scope of your selected task.',
     unavailable:'Apple’s on-device model is unavailable. Tasktap used local matching.',

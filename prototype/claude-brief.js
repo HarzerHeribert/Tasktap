@@ -2,7 +2,7 @@
 // finished reply is an explicit review action tied to that one conversation.
 const claudeBrief=(()=>{
   function prompt(text){
-    return 'Help me draft a brief for a separate project agent. Preserve my intent, facts and constraints. Return just the brief in my language. Leave the project work for that agent.\n\n'+text;
+    return 'Prepare a faithful work package for a separate project agent, in my language. Resolve repetition, filler and self-corrections; later corrections win. State the desired outcome, concrete changes, constraints and verification when warranted. Keep simple requests short. Do not invent requirements or resolve uncertain references without evidence. Return just the brief; leave the work for the project agent.\n\n'+text;
   }
   function show(d){
     const p=d.claudeBrief??={id:uid(),opened:false,busy:false,text:'',error:''};
@@ -30,7 +30,7 @@ const claudeBrief=(()=>{
     $('#brief-original').onclick=()=>{delete d.claudeBrief;d.routingSource='local';routingPrompt()};
     next.onclick=()=>{
       if(paste){
-        d.brief=p.text.trim();delete d.suggestedBrief;d.routingSource='claude-session';
+        d.brief=p.text.trim();d.preparedBrief=d.brief;delete d.suggestedBrief;d.routingSource='claude-session';
         delete d.claudeBrief;routingPrompt();
       }else{
         p.busy=true;p.error='';controls();postLive('prepare-open',{id:p.id,prompt:prompt(d.text)});

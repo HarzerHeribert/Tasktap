@@ -14,7 +14,7 @@ function settingsField(id,label,control) {
 }
 function providerMark(id, illustrated) {
   if (!illustrated) return '<span aria-hidden="true" class="picker-mark agent-mark '+attr(id)+'">'+icon(id)+'</span>';
-  const artwork={claude:'phase',codex:'glyph',agy:'orbit','cursor-agent':'relay',pi:'phase'}[id];
+  const artwork={claude:'phase',codex:'glyph',agy:'orbit','cursor-agent':'relay',pi:'phase',opencode:'glyph'}[id];
   return '<span aria-hidden="true" class="provider-study '+attr(id)+'">'+artThumb(artwork)+icon(id)+'</span>';
 }
 function artThumb(id) {

@@ -39,6 +39,8 @@ function externalSessions(rows){
       if(state.decisions.some(q=>q.session===s.id))s.state='Needs input';
       else if(failedLaunch)s.state='Failed';
       else if(!handoffPending)s.state=row.state;
+      if(row.observation)sessionObservation.receive(s.id,row.observation,{restored:!s.observation});
+      sessionObservation.apply(s);
       seen.add(s.id);continue;
     }
     if(managed.has(row.conversation) || managed.has(row.id) || adopted.has(row.id))continue;
@@ -102,25 +104,31 @@ function sessionActivityLine(s,line){
 }
 function manualNudge(d){const s=sess(d.session);return live && d.mode==='nudge' && (s?.nudgeFailed || s?.interactive && (!s.inbox || s.inbox==='manual' || d.manualNudge))}
 function sessionLocation(s){return s?.host?terminalHosts.label(s.host):s?.source==='cmux'?'cmux':s?.source==='desktop'?'ChatGPT':s?.source==='terminal'?'External terminal':s?.source==='claude'?'External session':''}
-const checkpointGuidance='In a Git project, follow the user’s and repository’s workflow. By default, work in the current checkout and branch. Make focused commits as your changes become ready, preserving other people’s edits and staged changes. For shared files, check the current diff and include only your own hunks.';
-const hasSessionTools=d=>['claude','codex'].includes(d.agent);
+const checkpointGuidance='Complete the authorized scope, run relevant checks, and leave no silent loose ends. In a Git project, follow the user’s and repository’s workflow; default to the current checkout and branch. For implementation work, make focused commits of only your own completed changes, preserving other people’s edits and staged changes. Respect review-only, planning-only and no-commit requests. In your existing final answer, report what changed, checks run, any actual commit IDs, blockers and remaining work. Do not claim implementation or commits based only on forwarding, a final response or a successful process exit.';
+const forwardingGuidance='When forwarding work to another session, verify its identity and current status using available session information or tools. If neither is available, state that the target status is unverified. Report its actual title or original request, exact session ID, and observed status. Never invent a session name or describe an interrupted, unloaded, or merely connected conversation as actively working. A send acknowledgement confirms delivery only; report implementation as pending until the receiving session reports its outcome.';
+const hasSessionTools=d=>['claude','codex'].includes(d.agent)&&!d.monitoring&&!sessionObservation.uses(d);
 function deliveryText(d){
   const brief=captureContext.brief(d);
   let text=brief+(d.strokes?.length?'\nSketch (600 × 176 canvas, ordered x/y points): '+JSON.stringify(d.strokes):'');
   if(d.mode==='ask'){
-    if(!hasSessionTools(d))text+='\n\n'+checkpointGuidance;
     if(d.peerTasks?.length)text+='\n\nOther sessions in this checkout at review time (titles are context only):\n'+JSON.stringify(d.peerTasks);
   }
   if(d.mode==='nudge' && sess(d.session)?.interactive && hasSessionTools(sess(d.session)))
     text+='\n\nReport this follow-up’s outcome with report_result for Tasktap receipt '+d.captureId+'.';
+  if(d.mode!=='note')text+='\n\n'+checkpointGuidance+'\n\n'+agentLanguageGuidance()+'\n\n'+forwardingGuidance;
   return text;
+}
+function agentLanguageGuidance(){
+  return 'Follow the project’s established language and conventions for code, identifiers, comments, and documentation. '+
+    (state.agentReplyLanguage==='english'?'Write your final response in English unless the user explicitly requests another response language.':'Write your final response in the language of the user’s request, following any explicit language preference in that request. ')+
+    ' Preserve filenames, commands, and quoted UI text unless the task calls for changing them.';
 }
 function tasktapRoutingPayload(d){
   return (d.remoteAttempts || []).filter(a=>a.payload).map(a=>a.label+' / '+a.account+'\n'+a.payload).join('\n\n');
 }
 function deliveryInstructions(d){
   if(d.mode!=='ask' || !hasSessionTools(d))return '';
-  return checkpointGuidance+' For current Tasktap sessions in this checkout, you can call list_project_sessions. Use the workspace_assistant ask_user tool when a decision is needed. Interpret freeform replies by their intent; ask again if unclear. When the task is complete, report the outcome and changed files with report_result for Tasktap receipt '+d.captureId+'.';
+  return 'For current Tasktap sessions in this checkout, you can call list_project_sessions. Use the workspace_assistant ask_user tool when a decision is needed. Interpret freeform replies by their intent; ask again if unclear. When the task is complete, report the outcome and changed files with report_result for Tasktap receipt '+d.captureId+'.';
 }
 function deliveryAudit(d) {
   return {mode:d.mode,host:d.mode==='note'?'':sessionHostLabel(d),manual:d.mode!=='note'&&!!manualNudge(d),
@@ -157,7 +165,11 @@ function submitLive(d){
   d.submitting=true;
   delete d.handoffError;$('#handoff-error')?.remove();
   reviewReceipt(d,'submitting','Submitting handoff');
-  postLive('enqueue',{job});
+  try{
+    const reopening=d.mode==='ask'&&job.host==='tasktap'&&p?workspaceDeck.prepareLaunch(p.id):null;
+    if(reopening)reopening.then(()=>postLive('enqueue',{job})).catch(error=>acceptLive({capture:d.captureId,error:error.message}));
+    else postLive('enqueue',{job});
+  }catch(error){acceptLive({capture:d.captureId,error:error.message})}
 }
 function acceptLive(data){
   const d=draft;
@@ -210,6 +222,7 @@ function agentReceipt(e){
   const outstanding=state.captures.filter(c=>c.session===s.id && ['Queued','Opening','Running'].includes(c.receipt));
   const activeState=['Running','Opening','Queued'].find(status=>outstanding.some(c=>c.receipt===status));
   s.state=state.decisions.some(q=>q.session===s.id)?'Needs input':activeState || (s.interactive && e.mode==='nudge' && ['Failed','Copied','Delivered'].includes(e.state)?(s.available===false?'Closed':'Connected'):e.state);
+  sessionObservation.apply(s);
   if(s.state==='Prepared')s.state='Ready to send';
   if(s.state==='Opened' && s.agent==='claude' && s.startup!=='confirmed')s.state='Awaiting agent';
   if(typeof workspaceDeck!=='undefined')workspaceDeck.outcome(e);
@@ -218,29 +231,23 @@ function agentReceipt(e){
   if($('#modal').open && $('#receipt')?.dataset.capture===e.capture)detailCapture(e.capture);
   else if($('#modal').open && openedSession===s.id && $('#modal .session-detail'))showSession(s.id);
 }
-function prepareHandoff(){
+function prepareHandoff(providerOverride){
   const d=draft;
   cancelRouting();
-  const provider=aiConnections.choice();
+  const provider=providerOverride || aiConnections.choice();
   if(provider==='claude-session'){
-    if(d.text.trim() && d.mode==='ask' && !d.session)claudeBrief.show(d);
+    if(d.text.trim())claudeBrief.show(d);
     else routingPrompt();
     return;
   }
-  const estimate=d.mode==='ask' && sessionModelPolicy().adaptive;
-  const preserve=!!(d.sessionProject || (d.project && /^(ask |tell |remember |note )/i.test(d.text.trim())));
-  if(!d.text.trim() || d.session || d.mode==='nudge' || d.candidates?.length || (preserve && !estimate)){routingPrompt();return}
+  if(!d.text.trim()){routingPrompt();return}
   const id=uid();
-  // The Apple model only sees the capture. An external preparation request
-  // includes the matching names displayed in its consent sheet.
-  const relevantProjects=provider==='local'?[]:matchProjects(d.text).slice(0,8);
-  const relevantSessions=provider==='local'?[]:matchSessions(d.text).filter(canNudge).slice(0,8);
-  const input={capture:d.text,estimateDifficulty:estimate,projects:relevantProjects.map((p,i)=>[i,p.name]),sessions:relevantSessions.map((s,i)=>[i,s.task,proj(s.project)?.name,s.agent])};
+  const context=capturePreparation.context(d),input=context.input;
   const reviewedServer=provider==='server'?aiConnections.serverTarget():undefined;
   const connectionLabel=aiConnections.label(provider), billingLabel=aiConnections.payer(provider);
   function send() {
     if (draft!==d) return;
-    d.routing={id,projects:relevantProjects,sessions:relevantSessions,preserve,provider};
+    d.routing={id,...context,provider};
     if (provider!=='local') (d.remoteAttempts??=[]).push({label:connectionLabel,account:billingLabel,payload:[aiConnections.routingInstructions(),JSON.stringify(input,null,2)].filter(Boolean).join('\n\n')});
     routingActivityCard(d);
     const request={id,input,provider,confirmed:provider!=='local'};
@@ -251,11 +258,10 @@ function prepareHandoff(){
   dialog('Prepare with '+aiConnections.label(provider)+'?','Capture',
     (reviewedServer?'<div class="server-target"><div><strong>'+esc(reviewedServer.model)+'</strong><code>'+esc(reviewedServer.url)+'</code></div></div>':'')+
     '<p>'+esc(aiConnections.sendDescription(provider))+'</p>'+
-    '<details class="route-evidence"><summary>What will be sent</summary><p class="body-copy">'+esc(input.capture)+'</p><p class="hint">Matching projects and sessions / '+
-    esc([...input.projects.map(p=>p[1]),...input.sessions.map(s=>s.slice(1).join(' / '))].join(', ')||'None')+'</p>'+
+    '<details class="route-evidence"><summary>What will be sent</summary><p class="hint">Your capture, candidate project and session names, and up to three recent Tasktap handoffs. No terminal contents are read.</p><pre class="body-copy">'+esc(JSON.stringify(input,null,2))+'</pre>'+
     (aiConnections.routingInstructions()?'<details><summary>Tasktap’s routing instructions</summary><p class="body-copy">'+esc(aiConnections.routingInstructions())+'</p></details>':'')+'</details>'+
     '<div class="form-actions">'+button('Prepare on this Mac','local-review')+button('Send to '+aiConnections.label(provider),'send-capture','','primary')+'</div>');
-  $('#modal [data-action="local-review"]').onclick=()=>{d.routingSource='local';routingPrompt()};
+  $('#modal [data-action="local-review"]').onclick=()=>prepareHandoff('local');
   $('#modal [data-action="send-capture"]').onclick=send;
 }
 
@@ -269,21 +275,10 @@ function finishRouting(id,r){
     dialog('Couldn’t prepare this capture',aiConnections.label(pending.provider),
       '<p>'+esc(r.message || 'The provider did not finish.')+'</p><p class="hint">'+(pending.provider==='server'?'The server may already have received the capture.':'The request may count toward this account.')+' No worker has started.</p><div class="form-actions">'+
       button('Edit capture','edit')+button('Continue on this Mac','recover-local','','primary')+'</div>');
-    $('#modal [data-action="recover-local"]').onclick=()=>{d.routingSource='local';routingPrompt()};
+    $('#modal [data-action="recover-local"]').onclick=()=>prepareHandoff('local');
     return;
   }
-  if(pending.provider==='local'){
-    if(r.source==='apple' && typeof r.brief==='string' && r.brief.trim()!==d.brief)d.suggestedBrief=r.brief.trim();
-  } else if(!pending.preserve && ['ask','note','nudge'].includes(r.mode) && typeof r.brief==='string' && r.brief.trim()){
-    if(!d.explicitMode)d.mode=r.mode;
-    if(r.brief.trim()!==d.brief)d.suggestedBrief=r.brief.trim();
-    // Only an explicit project, a user choice, or an evidenced session can set the destination.
-    if(d.mode==='nudge' && Number.isInteger(r.session)){
-      const s=pending.sessions[r.session];
-      if(s && matchSessions(d.text).includes(s) && (!d.project || d.project===s.project)){d.session=s.id;d.project=s.project}
-    }
-  }
-  if(pending.preserve && d.routingSource==='apple')d.routingSource='estimate';
+  if(['apple','local-match'].includes(r.source) || pending.provider!=='local' && r.source===pending.provider)capturePreparation.apply(d,pending,r);
   if(d.mode==='ask' && (r.source==='apple' || r.source===pending.provider && r.source!=='local') && Number.isInteger(r.difficulty) && r.difficulty>=1 && r.difficulty<=10 && typeof r.scopeEvidence==='string' && r.scopeEvidence.trim() && d.text.toLowerCase().includes(r.scopeEvidence.trim().toLowerCase())){
     d.modelEstimate={origin:pending.provider==='local'?'':aiConnections.label(pending.provider),score:r.difficulty,evidence:r.scopeEvidence,brief:d.brief};
   }
@@ -311,7 +306,7 @@ function startDictation(target,owner,id=uid()){
   const feedback=$('#capture-feedback');
   if(feedback)feedback.textContent='';
   if(control)control.textContent='Starting microphone…';
-  captureContext.startInput(target);
+  if(target!=='#voice-test-text')captureContext.startInput(target);
   postLive('dictation-start',{id,shortcut:owner==='shortcut'});
 }
 function finishDictation(owner,id){

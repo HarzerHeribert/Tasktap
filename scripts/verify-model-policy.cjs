@@ -9,6 +9,7 @@ const evaluate = code => vm.runInContext(code,context);
 assert.equal(evaluate('sessionModelPolicy().adaptive'),false);
 assert.equal(evaluate('sessionModelPolicy().defaultAgent'),'claude');
 assert.equal(evaluate("modelPlanFor({mode:'ask',agent:'codex',brief:'a task'}).model"),'');
+assert.equal(evaluate("modelPlanFor({mode:'ask',agent:'opencode',brief:'a task'}).model"),'');
 assert.equal(evaluate("modelPlanFor({mode:'note'})"),null);
 evaluate("state.sessionModels={adaptive:true,agents:{codex:{quick:'small',standard:'medium',complex:'large'}}}");
 assert.equal(evaluate("modelPlanFor({mode:'ask',agent:'codex',brief:'Fix the spelling in architecture.md'}).model"),'small');

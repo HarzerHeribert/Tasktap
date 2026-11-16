@@ -147,7 +147,7 @@ def worker_status():
             return subprocess.run(argv, capture_output=True, text=True, timeout=4, stdin=subprocess.DEVNULL)
         except (OSError, subprocess.TimeoutExpired):
             return None
-    installed = {name: bool(shutil.which(name)) for name in ('codex', 'claude', 'agy', 'cursor-agent', 'pi')}
+    installed = {name: bool(shutil.which(name)) for name in ('codex', 'claude', 'agy', 'cursor-agent', 'pi', 'opencode')}
     health = {name: 'unknown' if found else 'missing' for name, found in installed.items()}
     state = {name: 'Billing source unverified' if found else 'CLI missing' for name, found in installed.items()}
     if installed['codex']:
@@ -185,6 +185,9 @@ def worker_status():
             health['agy'], state['agy'] = 'configured', 'Gemini API key configured'
     if installed['pi']:
         health['pi'] = 'installed'
+    if installed['opencode']:
+        health['opencode'] = 'installed'
+        state['opencode'] = 'Account managed in OpenCode'
     if installed['cursor-agent']:
         run = probe(['cursor-agent', 'status', '--format', 'json'])
         try:

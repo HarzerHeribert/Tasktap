@@ -16,10 +16,10 @@ import AppKit
         for item in [laptop,offset,asym] {
             let small=item.panelFrame(collapsed:true,requestedHeight:200), open=item.panelFrame(collapsed:false,requestedHeight:260)
             let review=item.panelFrame(collapsed:false,requestedHeight:540,requestedWidth:560)
-            precondition(review.width == 560 + 2 * item.shoulder && item.screen.contains(review))
+            precondition(review.width == (item.compact ? 528 : 560) + 2 * item.shoulder && item.screen.contains(review))
             precondition(item.panelFrame(collapsed:true,requestedHeight:200,requestedWidth:560) == small)
             precondition(item.panelFrame(collapsed:false,requestedHeight:260,requestedWidth:.nan) == open)
-            precondition(item.panelFrame(collapsed:false,requestedHeight:260,requestedWidth:10_000).width == 680 + 2 * item.shoulder)
+            precondition(item.panelFrame(collapsed:false,requestedHeight:260,requestedWidth:10_000).width == (item.compact ? 640 : 680) + 2 * item.shoulder)
             for count in [2,3,6] {
                 let usage=item.panelFrame(collapsed:true,requestedHeight:200,usageCount:count)
                 precondition(item.screen.contains(usage) && usage.contains(item.tab) && usage.height == item.tab.height + item.glowMargin)
@@ -39,9 +39,25 @@ import AppKit
         let external = CGRect(x:1800,y:350,width:1920,height:1080)
         let work=CGRect(x:1800,y:400,width:1920,height:1006)
         let fallback=NotchGeometry(frame:external,visible:work,safeTop:0,left:nil,right:nil,scale:1)
-        precondition(!fallback.hasCutout && fallback.tab.midX == work.midX && fallback.tab.maxY == work.maxY)
+        precondition(!fallback.hasCutout && fallback.tab.midX == external.midX && fallback.tab.maxY == external.maxY)
+        precondition(fallback.compact && fallback.tab.size == CGSize(width:104,height:16))
+        precondition(fallback.panelFrame(collapsed:false,requestedHeight:260).width == 426)
+        // Menu-bar visibility and Dock placement never move the tab below the top edge.
+        for frame in [CGRect(x:0,y:0,width:1440,height:900),CGRect(x:-2560,y:-1440,width:2560,height:1440),CGRect(x:0,y:1080,width:3840,height:2160)] {
+            for topInset: CGFloat in [0,24,38] {
+                let visible=CGRect(x:frame.minX,y:frame.minY+40,width:frame.width,height:frame.height-40-topInset)
+                let geometry=NotchGeometry(frame:frame,visible:visible,safeTop:0,left:nil,right:nil,scale:2)
+                precondition(geometry.tab.maxY == frame.maxY && geometry.tab.midX == frame.midX)
+                precondition(geometry.tab.height == (geometry.compact ? 16 : 20))
+                precondition(geometry.tab.width == (geometry.compact ? 104 : 120))
+                precondition(geometry.panelFrame(collapsed:true,requestedHeight:0).maxY == frame.maxY)
+                precondition(geometry.panelFrame(collapsed:false,requestedHeight:600,requestedWidth:560).maxY == frame.maxY)
+            }
+        }
         let limited=fallback.panelFrame(collapsed:false,requestedHeight:10_000)
-        precondition(work.contains(limited) && limited.minY >= work.minY)
+        precondition(external.contains(limited) && limited.minY >= work.minY)
+        let sideDock=NotchGeometry(frame:external,visible:CGRect(x:1880,y:400,width:1840,height:1006),safeTop:0,left:nil,right:nil,scale:1)
+        precondition(sideDock.tab.midX == external.midX && sideDock.tab.maxY == external.maxY)
         print("Cutout sizes, outboard shoulders, pixel rounding, translated displays and fallback placement verified.")
     }
 }

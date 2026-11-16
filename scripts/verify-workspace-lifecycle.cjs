@@ -10,10 +10,21 @@ const path=require('node:path');
  page.on('pageerror',e=>{errors.push(String(e));console.error('Page error:',String(e))});
   const seed={firstRun:{done:true},projects:[{id:'p',name:'First workspace',folder:'/tmp/first',aliases:[]},{id:'q',name:'Second workspace',folder:'/tmp/second',aliases:[]},{id:'r',name:'Other project',folder:'/tmp/other',aliases:[]},{id:'empty',name:'Old empty workspace',folder:'/tmp/empty',aliases:[]}],sessions:[],captures:[],decisions:[],notes:[],workspaceDeck:{layouts:{p:{groups:[{id:'p-pane',tabs:['terminal:p-shell'],active:'terminal:p-shell'}],selected:0},q:{groups:[{id:'q-pane',tabs:['terminal:q-shell'],active:'terminal:q-shell'}],selected:0},empty:{groups:[{id:'empty-pane',tabs:[],active:null}],selected:0}},media:{},activity:[],seen:{},preferences:{shell:'default'},sidebarHidden:false,navigationExpanded:{p:true,q:true}}};
   await page.addInitScript(seed=>{
-   window.messages=[];window.webkit={messageHandlers:{workspace:{postMessage:m=>messages.push(m)}}};
+   window.messages=[];window.webkit={messageHandlers:{workspace:{postMessage:m=>{
+    messages.push(m);
+    if(m.op==='stop-workspace')setTimeout(async()=>{
+     const sessions=workspaceDeck.sidebarData().terminals.filter(t=>t.cwd===m.cwd).map(t=>({event:'session',session:{...t,running:false,stopped:true,exit:0}}));
+     await workspaceDeck.receive([...sessions,{event:'workspace-closed',cwd:m.cwd}]);
+    },0);
+   }}}};
    if(!localStorage.getItem('workspace-lifecycle-seeded')){localStorage.setItem('tasktap-live-v1',JSON.stringify(seed));localStorage.setItem('workspace-lifecycle-seeded','true')}
   },seed);
   await page.goto(pathToFileURL(path.resolve('prototype/index.html')).href);
+  async function closeWorkspace(name){
+   await page.getByRole('button',{name:'Close '+name+' workspace',exact:true}).click();
+   const confirm=page.getByRole('button',{name:'Stop sessions and close',exact:true});if(await confirm.isVisible())await confirm.click();
+   await page.getByRole('button',{name:'Close '+name+' workspace',exact:true}).waitFor({state:'detached'});
+  }
   await page.evaluate(()=>{showWorkspace();go('overview');appAppearance.setTheme('dark')});
   assert.deepEqual(await page.evaluate(()=>state.workspaceDeck.openProjects),['p','q'],'migration includes saved open surfaces but not old empty layouts');
   assert.deepEqual(await page.locator('#nav .nav-workspace').evaluateAll(rows=>rows.map(el=>el.dataset.workspace)),['p','q'],'sidebar follows explicit workspace order');
@@ -61,11 +72,11 @@ const path=require('node:path');
   assert.equal(await page.locator('#modal').isVisible(),false);
   await page.locator('#nav [data-action="workspace-project"][data-id="q"]').click();
   const savedQ=await page.evaluate(()=>JSON.parse(JSON.stringify(state.workspaceDeck.layouts.q)));
-  await page.getByRole('button',{name:'Close Second workspace workspace',exact:true}).click();
+  await closeWorkspace('Second workspace');
   assert.deepEqual(await page.evaluate(()=>state.workspaceDeck.openProjects),['p']);
   assert.equal(await page.evaluate(()=>view),'p','closing the current workspace focuses the remaining workspace');
   assert.deepEqual(await page.evaluate(()=>state.workspaceDeck.layouts.q),savedQ,'closing keeps the saved layout intact');
-  assert.equal(await page.evaluate(()=>messages.some(m=>m.op==='stop')),false,'closing never stops processes');
+  assert.equal(await page.evaluate(()=>messages.some(m=>m.op==='stop-workspace'&&m.cwd==='/tmp/second')),true,'closing explicitly stops all workspace processes');
   await page.evaluate(()=>workspaceDeck.receive([{event:'session',session:{id:'q-late',cwd:'/tmp/second',kind:'shell',title:'Second late shell',running:true}}]));
   assert.equal(await page.locator('#nav [data-workspace="q"]').count(),0,'session updates cannot reopen a closed workspace');
   await page.reload();await page.evaluate(()=>{showWorkspace();go('overview')});
@@ -81,8 +92,8 @@ const path=require('node:path');
   assert.equal(await page.evaluate(()=>view),'q');
   assert.equal(await page.locator('.deck-tab[data-id="terminal:q-shell"]').count(),1,'reopen restores saved tabs');
   assert.equal(await page.evaluate(()=>messages.some(m=>m.op==='start')),false,'reopening saved workspace does not create a new session');
-  await page.getByRole('button',{name:'Close Second workspace workspace',exact:true}).click();
-  await page.getByRole('button',{name:'Close First workspace workspace',exact:true}).click();
+  await closeWorkspace('Second workspace');
+  await closeWorkspace('First workspace');
   assert.deepEqual(await page.evaluate(()=>state.workspaceDeck.openProjects),[]);
   assert.equal(await page.evaluate(()=>view),'overview','closing the last workspace returns to Home');
   assert.equal(await page.locator('#nav .nav-workspace').count(),0);
@@ -136,7 +147,7 @@ const path=require('node:path');
   assert.equal(launch.cwd,newFolder,'the new workspace starts its terminal under the configured root');
   assert.equal(await page.evaluate(()=>messages.filter(m=>m.op==='start').length),1);
   await page.evaluate(({id,folder})=>workspaceDeck.receive([{event:'session',session:{id,cwd:folder,title:'New shell',kind:'shell',running:true}}]),{id:launch.id,folder:newFolder});
-  await page.getByRole('button',{name:'Close New example workspace',exact:true}).click();
+  await closeWorkspace('New example');
   await page.evaluate(folder=>workspaceSettings.opened({folder,name:'New example',available:true}),newFolder);
   assert.equal(await page.evaluate(()=>messages.filter(m=>m.op==='start').length),1,'selecting an existing workspace restores its saved session without spawning another');
   await page.evaluate(()=>workspaceDeck.openWorkspace('p',false));

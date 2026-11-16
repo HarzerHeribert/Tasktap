@@ -13,6 +13,21 @@ const workspaceNavigation=(()=>{
   const discoveryEnabled=()=>typeof workspaceSettings!=='undefined'&&workspaceSettings.current().externalDiscovery===true;
   const externalSessions=()=>state.sessions.filter(s=>s.host!=='tasktap' && (s.external || s.host || s.source));
   const hostName=s=>sessionLocation(s)||'Original app';
+  const folderKey=value=>String(value||'').replace(/\/+/g,'/').replace(/\/(?:\.\/)+/g,'/').replace(/\/$/,'');
+  function projectForSession(s){
+    return state.projects.find(p=>p.id===s.project || folderKey(p.folder) && folderKey(p.folder)===folderKey(s.project));
+  }
+  function workingSessions(){
+    const data=workspaceDeck.sidebarData(),terminals=new Map(data.terminals.map(t=>[t.id,t]));
+    return state.sessions.filter(s=>{
+      if(s.state!=='Running' || s.available===false || s.host==='claude-desktop' || s.external && !discoveryEnabled())return false;
+      const p=projectForSession(s);
+      if(!p || p.available===false || saved.closedWorkspaces?.[p.id] || terminals.get(s.id)?.running===false)return false;
+      // An external follow-up can be in transit while its original worker is idle.
+      const turn=state.captures.find(c=>c.session===s.id);
+      return !(turn?.external && ['Queued','Running'].includes(turn.receipt));
+    });
+  }
   function openAction(s){
     if(!live)return null;
     if(s.source==='desktop' && /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(s.conversation||''))return {label:'Open in ChatGPT',type:'open-desktop-chat',id:s.conversation};
@@ -27,14 +42,32 @@ const workspaceNavigation=(()=>{
   function attention(p,data){
     const belongs=id=>state.sessions.some(s=>s.id===id&&s.project===p.id&&s.host==='tasktap')||data.layouts[p.id]?.groups.some(g=>g.tabs.includes('terminal:'+id))||data.terminals.some(t=>t.id===id&&t.cwd===p.folder);
     if(state.decisions.some(q=>belongs(q.session)))return {kind:'input',label:'Needs your input',symbol:'attention'};
+    const observations=state.sessions.filter(s=>belongs(s.id)).map(s=>sessionObservation.cue(s.id)).filter(Boolean);
+    for(const kind of ['permission','input','failure','interrupted','complete']){
+      const cue=observations.find(c=>c.kind===kind);if(cue)return {kind:cue.kind,label:cue.label,symbol:kind==='complete'?'check':kind==='permission'?'shield':'attention'};
+    }
     const unread=saved.activity.filter(a=>!a.read&&belongs(a.id));
     if(unread.some(a=>a.kind==='failure'))return {kind:'failure',label:'Needs attention',symbol:'attention'};
     if(unread.some(a=>a.kind==='complete'))return {kind:'complete',label:'Result ready',symbol:'check'};
+    const working=workingSessions().filter(s=>projectForSession(s)?.id===p.id);
+    if(working.length)return {kind:'working',label:'Working: '+working.map(sessionDisplayName).join(' · '),symbol:'sessions'};
     return null;
   }
+  function backgroundRows(p,data){
+    const rows=Object.entries(data.background).filter(([,project])=>project===p.id);
+    if(!rows.length)return '';
+    const expanded=saved.navigationExpanded?.[p.id]!==false;
+    return '<div class="nav-background" id="background-'+attr(p.id)+'"'+(!expanded?' hidden':'')+'>'+rows.map(([id])=>{
+      const cue=data.cue(id),title=data.label('terminal:'+id);
+      return '<div class="nav-background-row"><button type="button" class="nav-background-session" data-status="'+cue.kind+'" data-action="workspace-background" data-id="'+attr(id)+'" title="'+attr(title+' / '+cue.label)+'"><span class="nav-background-symbol" aria-hidden="true">'+cue.symbol+'</span><span class="nav-background-copy"><strong>'+esc(title)+'</strong><small>'+esc(cue.label)+'</small></span></button><button type="button" class="nav-background-stop" data-action="deck-stop" data-id="'+attr(id)+'" aria-label="'+attr('Stop '+title)+'" title="Stop session">'+icon('stop')+'</button></div>';
+    }).join('')+'</div>';
+  }
   function project(p,data){
-    const status=attention(p,data),description=status?p.folder+' / '+status.label:p.folder;
-    return '<section class="nav-workspace'+(view===p.id?' is-current':'')+'" data-workspace="'+attr(p.id)+'"'+(status?' data-status="'+status.kind+'"':'')+'><div class="nav-workspace-heading"><button type="button" class="nav-workspace-name" data-action="workspace-project" data-id="'+attr(p.id)+'" title="'+attr(description)+'" aria-label="'+attr(p.name+(status?', '+status.label:''))+'"'+(view===p.id?' aria-current="page"':'')+'>'+icon('folder')+'<span>'+esc(p.name)+'</span></button>'+(status?'<span class="nav-workspace-status" role="img" aria-label="'+status.label+'" title="'+status.label+'">'+icon(status.symbol)+'</span>':'')+'<button type="button" class="nav-workspace-close" data-action="workspace-close" data-id="'+attr(p.id)+'" aria-label="'+attr('Close '+p.name+' workspace')+'" title="Close workspace. Tabs and sessions are kept.">'+icon('x')+'</button></div></section>';
+    const children=backgroundRows(p,data),expanded=saved.navigationExpanded?.[p.id]!==false;
+    const working=workingSessions().filter(s=>projectForSession(s)?.id===p.id),status=attention(p,data);
+    const detail=[status?.label,status?.kind!=='working' && working.length?'Working: '+working.map(sessionDisplayName).join(' · '):''].filter(Boolean).join(' / ');
+    const description=[p.folder,detail].filter(Boolean).join(' / ');
+    return '<section class="nav-workspace'+(view===p.id?' is-current':'')+'" data-workspace="'+attr(p.id)+'" data-working="'+!!working.length+'"'+(status?' data-status="'+status.kind+'"':'')+'><div class="nav-workspace-heading">'+(children?'<button type="button" class="nav-workspace-disclosure" data-action="workspace-background-toggle" data-id="'+attr(p.id)+'" aria-label="'+attr((expanded?'Collapse':'Expand')+' background sessions for '+p.name)+'" aria-expanded="'+expanded+'" aria-controls="background-'+attr(p.id)+'">'+icon('right')+'</button>':'')+'<button type="button" class="nav-workspace-name" data-action="workspace-project" data-id="'+attr(p.id)+'" title="'+attr(description)+'" aria-label="'+attr([p.name,detail].filter(Boolean).join(', '))+'"'+(view===p.id?' aria-current="page"':'')+'>'+icon('folder')+'<span>'+esc(p.name)+'</span></button>'+(status?'<span class="nav-workspace-status" role="img" aria-label="'+attr(status.label)+'" title="'+attr(status.label)+'">'+icon(status.symbol)+'</span>':'')+'<button type="button" class="nav-workspace-close" data-action="workspace-close" data-id="'+attr(p.id)+'" aria-label="'+attr('Close '+p.name+' workspace')+'" title="Close workspace and stop its sessions.">'+icon('x')+'</button></div>'+children+'</section>';
   }
   function navigation(){
     const data=workspaceDeck.sidebarData(),unread=saved.activity.filter(a=>!a.read).length;
@@ -60,7 +93,7 @@ const workspaceNavigation=(()=>{
     }
     sync();
   }
-  function refresh(){const nav=$('#nav'),scroll=nav.scrollTop;nav.innerHTML=navigation();nav.scrollTop=scroll;sync()}
+  function refresh(){const nav=$('#nav'),scroll=nav.scrollTop,markup=navigation();if(nav.dataset.markup!==markup){nav.innerHTML=markup;nav.dataset.markup=markup}nav.scrollTop=scroll;sync();sessionObservation.animateNavigation(nav)}
   function workspaceChoices(query=''){
     const words=query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean),open=new Set(saved.openProjects);
     const known=[...new Set([...state.projects.map(p=>p.id),...Object.keys(saved.layouts)])].map(id=>proj(id)).filter(Boolean);
@@ -70,7 +103,7 @@ const workspaceNavigation=(()=>{
     $('#workspace-picker-results').innerHTML=section('Closed workspaces',closed)+section('Project folders',other)||'<p class="nav-external-empty">'+(query?'No workspaces match your search.':'Choose an existing folder or create a new one to get started.')+'</p>';
   }
   function openChooser(){
-    dialog('Open workspace','Workspaces','<section class="workspace-picker"><div class="workspace-picker-actions">'+button('Open folder…','workspace-open-folder','','btn','folder')+button('New workspace…','workspace-new-folder','','btn','plus')+'</div><label class="sr-only" for="workspace-picker-search">Find a workspace or folder</label><input type="search" id="workspace-picker-search" placeholder="Find a workspace or folder…" autocomplete="off"><div id="workspace-picker-results"></div><p class="hint">Closing a workspace keeps its tabs and running sessions. Reopen it here to pick up where you left off.</p></section>');
+    dialog('Open workspace','Workspaces','<section class="workspace-picker"><div class="workspace-picker-actions">'+button('Open folder…','workspace-open-folder','','btn','folder')+button('New workspace…','workspace-new-folder','','btn','plus')+'</div><label class="sr-only" for="workspace-picker-search">Find a workspace or folder</label><input type="search" id="workspace-picker-search" placeholder="Find a workspace or folder…" autocomplete="off"><div id="workspace-picker-results"></div><p class="hint">Closing a workspace stops its sessions. Reopening restores its saved layout and history without restarting processes.</p></section>');
     workspaceChoices();$('#workspace-picker-search').focus();
   }
   function pickerRows(query=''){
@@ -91,10 +124,17 @@ const workspaceNavigation=(()=>{
     dialog('Other apps','Sessions','<section class="nav-external-picker"><div id="workspace-external-status"></div><label class="sr-only" for="workspace-external-search">Search sessions or apps</label><input type="search" id="workspace-external-search" placeholder="Search sessions or apps…" autocomplete="off"><span id="workspace-external-count" class="hint" role="status"></span><div id="workspace-external-results"></div></section>');
     discoveryStatus();pickerRows();$('#workspace-external-search').focus();
   }
+  document.addEventListener('pointerdown',event=>{
+    if(event.button!==0 || !document.body.classList.contains('native-host') || document.body.classList.contains('notch-first'))return;
+    if(!event.target.closest('.deck-tools,.toolbar,#sidebar>.brand') || event.target.closest('button,a,input,summary,[role="button"]'))return;
+    event.preventDefault();postHost('workspace-drag');
+  });
   document.addEventListener('click',event=>{
     const el=event.target.closest('[data-action]');if(!el)return;
     const id=el.dataset.id;
     switch(el.dataset.action){
+      case 'workspace-background-toggle':saved.navigationExpanded??={};saved.navigationExpanded[id]=saved.navigationExpanded[id]===false;persist();refresh();break;
+      case 'workspace-background':workspaceDeck.openTerminal(id);break;
       case 'workspace-project':workspaceDeck.openWorkspace(id,false);break;
       case 'workspace-close':workspaceDeck.closeWorkspace(id);break;
       case 'workspace-chooser':openChooser();break;
@@ -111,6 +151,6 @@ const workspaceNavigation=(()=>{
   document.addEventListener('workspace-changed',()=>requestAnimationFrame(()=>{sync();const search=$('#workspace-external-search');if(search)pickerRows(search.value)}));
   document.addEventListener('workspace-settings-changed',()=>{refresh();discoveryStatus();if($('#workspace-external-search'))pickerRows($('#workspace-external-search').value)});
   window.addEventListener('resize',sync);
-  return {navigation,sync,toggle,openChooser};
+  return {navigation,refresh,sync,toggle,openChooser,workingSessions,projectForSession};
 })();
 if(location.hash!=='#geometry')render();

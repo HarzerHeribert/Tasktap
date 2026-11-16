@@ -15,7 +15,7 @@ const path=require('node:path');
    state.sessions=Array.from({length:48},(_,i)=>({id:'external-'+i,project:'p',agent:'codex',host:'cmux',source:'cmux',external:true,inbox:'cmux',available:true,state:'Idle',task:'Historical conversation '+i+' with an extremely long title that should never take up the workspace sidebar',log:[]}));
    state.sessions.push({id:'agent',project:'p',agent:'codex',host:'tasktap',interactive:true,available:true,state:'Connected',task:'Implement a detailed workspace request with an intentionally long title that must fit on one line',log:[],result:'Result of this task'});
    state.sessions.push({id:'warp',project:'p',agent:'codex',host:'warp',interactive:true,available:true,state:'Connected',task:'A session running in Warp',log:[]});
-   state.sessions.push({id:'unknown',project:'p',agent:'codex',source:'terminal',available:true,state:'Running',external:true,task:'An unaddressable terminal session',log:[]});
+   state.sessions.push({id:'unknown',project:'p',agent:'codex',source:'terminal',available:true,state:'Connected',external:true,task:'An unaddressable terminal session',log:[]});
    state.decisions=[];state.captures=[];state.notes=[];
    Object.assign(state.workspaceDeck,{layouts:{p:{groups:[{id:'left',tabs:['terminal:agent','media:doc'],active:'terminal:agent'},{id:'right',tabs:['result:agent'],active:'result:agent'}],selected:0,ratio:50},q:{groups:[{id:'qgroup',tabs:['media:other'],active:'media:other'}],selected:0}},media:{doc:{id:'doc',project:'p',title:'Research document.md',kind:'text'},other:{id:'other',project:'q',title:'Reference image.png',kind:'image'}},openProjects:['p','q'],sidebarHidden:false,navigationExpanded:{p:true,q:true}});
    workspaceSettings.receive({root:'/tmp',externalDiscovery:true});
@@ -35,9 +35,14 @@ const path=require('node:path');
   await page.evaluate(()=>{state.decisions=[{id:'question',session:'agent',q:'Choose a direction',choices:['A','B']}];render()});
   assert.equal(await row.getAttribute('data-status'),'input','pending input outranks an unread completion');
   await page.emulateMedia({reducedMotion:'reduce'});
-  assert.equal(await row.locator('.nav-workspace-status').evaluate(el=>getComputedStyle(el).animationName),'none');
+  // A pending terminal refresh can replace the sidebar while media styles settle.
+  await page.waitForFunction(()=>{
+    const status=document.querySelector('#nav [data-workspace="p"] .nav-workspace-status');
+    return status?.isConnected && getComputedStyle(status).animationName==='none';
+  });
   await project.click();
   assert.equal(await row.getAttribute('data-status'),'input','opening the workspace cannot dismiss a pending decision');
+  await page.waitForFunction(()=>document.activeElement?.classList.contains('xterm-helper-textarea'));
   await page.evaluate(()=>{state.decisions=[];render()});
   assert.equal(await row.getAttribute('data-status'),null,'acknowledged results do not leave a stale badge');
   await page.evaluate(()=>{workspaceDeck.outcome({session:'agent',state:'Complete',capture:'old',message:'Old result',recovered:true});render()});

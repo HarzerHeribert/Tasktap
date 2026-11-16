@@ -1,0 +1,64 @@
+const {chromium}=require('playwright');
+const assert=require('node:assert/strict');
+const {pathToFileURL}=require('node:url');
+const path=require('node:path');
+(async()=>{
+ const browser=await chromium.launch({headless:true,executablePath:process.env.BROWSER_EXECUTABLE||undefined});
+ try{
+  const page=await browser.newPage({viewport:{width:1280,height:900},reducedMotion:'reduce'}),errors=[];
+  page.on('pageerror',e=>errors.push(String(e)));
+  await page.addInitScript(()=>{
+   window.tasktapSurface='workspace';window.fixtureMode=true;window.messages=[];
+   window.webkit={messageHandlers:{workspace:{postMessage:m=>messages.push(m)}}};
+  });
+  await page.goto(pathToFileURL(path.resolve('prototype/index.html')).href);
+  await page.evaluate(()=>{
+   state.firstRun={done:true};state.decisions=[];
+   state.projects=[{id:'menus',folder:'/tmp/tasktap-menu-fixture',name:'Menu fixture',aliases:[]}];
+   state.workspaceDeck.layouts={};go('menus');
+  });
+  const command=action=>page.evaluate(action=>workspaceCommand(action),action);
+  const groups=()=>page.evaluate(()=>state.workspaceDeck.layouts.menus.groups);
+  await command('menu-pane-terminal');
+  assert.equal((await groups())[0].tabs.length,1,'new terminal opens in the current workspace');
+  const first=(await groups())[0].id;
+  await command('menu-pane-split-right');
+  assert.equal((await groups()).length,2,'split right creates exactly one pane');
+  const second=(await groups())[1].id;
+  await command('menu-pane-terminal');
+  assert.equal((await groups()).find(g=>g.id===first).tabs.length,1,'first pane remains untouched');
+  assert.equal((await groups()).find(g=>g.id===second).tabs.length,2,'new terminal targets the selected pane');
+  const active=await page.evaluate(()=>{const l=state.workspaceDeck.layouts.menus;return l.groups[l.selected].active.slice(9)});
+  const base=await page.evaluate(id=>workspaceDeck.terminalMetrics(id).fontSize,active);
+  await command('menu-pane-text-increase');
+  assert.equal(await page.evaluate(id=>workspaceDeck.terminalMetrics(id).fontSize,active),base+1);
+  await command('menu-pane-text-decrease');
+  assert.equal(await page.evaluate(id=>workspaceDeck.terminalMetrics(id).fontSize,active),base);
+  await command('menu-pane-text-reset');
+  assert.equal(await page.evaluate(()=>Object.hasOwn(state.workspaceDeck.terminalFontSizes,state.workspaceDeck.layouts.menus.groups[state.workspaceDeck.layouts.menus.selected].active.slice(9))),false);
+  await command('menu-pane-browser');
+  assert.ok(await page.locator('#deck-url-input').isVisible());
+  await page.waitForFunction(()=>messages.filter(m=>m.type==='application-menu-state').at(-1)?.workspace===false);
+  await command('menu-pane-split-down');
+  assert.equal((await groups()).length,2,'pane commands do not bypass an open dialog');
+  await page.locator('#deck-url-input').fill('https://example.com');
+  await page.locator('#deck-url-form button[type=submit]').click();
+  assert.equal((await groups()).find(g=>g.id===second).tabs.length,3,'preview opens in the selected pane');
+  await command('menu-pane-split-down');
+  assert.equal((await groups()).length,3);
+  await command('menu-sidebar');
+  assert.ok(await page.evaluate(()=>state.workspaceDeck.sidebarHidden));
+  await command('menu-notebook');
+  assert.equal(await page.evaluate(()=>view),'notes');
+  await page.waitForFunction(()=>messages.filter(m=>m.type==='application-menu-state').at(-1)?.workspace===false);
+  await command('menu-pane-terminal');
+  assert.equal((await groups()).length,3,'Home and Notebook do not create hidden terminals');
+  await command('menu-history');assert.equal(await page.evaluate(()=>view),'sessions');
+  await command('menu-home');assert.equal(await page.evaluate(()=>view),'overview');
+  await command('menu-open-workspace');assert.ok(await page.locator('#workspace-picker-search').isVisible());
+  await page.evaluate(()=>dismissCard());
+  await command('menu-activity');assert.ok(await page.getByRole('heading',{name:'Activity',exact:true}).isVisible());
+  assert.deepEqual(errors,[]);
+  console.log('PASS: native menu commands target the selected pane, preserve other panes, open previews and workspace chooser, navigate views, and respect dialogs.');
+ }finally{await browser.close()}
+})().catch(e=>{console.error(e);process.exitCode=1});

@@ -97,7 +97,7 @@ $('.notch-surface').addEventListener('transitionend',event=>{
 });
 notchMotion.addEventListener('change',()=>{if(notchMotion.matches)finishFold()});
 function updateSignal(){
-  const running=state.sessions.filter(session=>session.state==='Running').length;
+  const working=workspaceNavigation.workingSessions();
   let mode='idle', label='Idle';
   if(live && recording?.phase==='recording'){mode='listening';label='Listening'}
   else if(live && recording?.phase==='processing'){mode='sending';label='Transcribing'}
@@ -107,7 +107,11 @@ function updateSignal(){
   else if(state.captures.some(c=>c.external && c.receipt==='Running')){mode='sending';label='Sending nudge'}
   else if(state.captures.some(c=>c.receipt==='Queued')){mode='sending';label='Handoff queued'}
   else if(pending()){mode='waiting';label=state.decisions.length===1?'Waiting for your answer':state.decisions.length+' decisions pending'}
-  else if(running){mode='working';label=running+' '+(running===1?'session':'sessions')+' working'}
+  else if(sessionObservation.attention().length){const s=sessionObservation.attention()[0],cue=sessionObservation.cue(s.id);mode=cue.kind==='complete'?'ready':'waiting';label=cue.label+' · '+sessionDisplayName(s)}
+  else if(working.length){
+    const session=working[0],project=workspaceNavigation.projectForSession(session);
+    mode='working';label=sessionDisplayName(session)+' / '+project.name+(working.length>1?' · '+(working.length-1)+' more':'');
+  }
   document.body.dataset.signal=mode;
   const text=$('.signal-caption');
   if(text)text.textContent=mode==='idle'?'':label;
@@ -121,24 +125,34 @@ function drawHome(){
   // Keep the same content and height all the way back into the housing.
   if(homeMode==='retracting')return;
   const receipt=byId(state.captures,receiptCapture);
+  const working=!q && !receipt?workspaceNavigation.workingSessions():[];
+  const observed=!q&&!receipt?sessionObservation.attention().filter(s=>s.host==='tasktap'):[];
   const session=s || (receipt && sess(receipt.session));
   const title=q?.q || (receipt && ({
     Started:'Session started',Queued:'Handoff queued',Opening:'Opening session',Opened:'Session opened',
     Running:receipt.external?'Sending nudge':'Agent working',Copied:'Nudge copied',Delivered:'Nudge delivered',
-    Failed:'Handoff failed',Complete:'Session complete',Closed:'Session closed'
-  }[receipt.receipt] || receipt.receipt)) || 'Ready to capture';
+    Failed:'Handoff failed',Complete:'Report received',Closed:'Session closed'
+  }[receipt.receipt] || receipt.receipt)) || (observed.length?sessionObservation.cue(observed[0].id).label:working.length?'Working now':'Ready to capture');
   const destination=session?[proj(session.project)?.name || 'Scratch',providers[session.agent]].filter(Boolean).map(esc).join(' <span aria-hidden="true">/</span> '):'';
   const action=q?surfaceButton('Review decision','requests','arrow','notch-action',q.id):receipt && session?
     button('View session','session',session.id,'notch-action','arrow'):surfaceButton('Capture','capture','arrow','notch-action');
-  const art=receipt && !q?handoffRelay.forCapture(receipt):!q?resonatorMarkup('miniature'):'';
+  const shown=[...observed,...working.filter(s=>!observed.some(o=>o.id===s.id))];
+  const work=shown.length?'<section class="notch-work" aria-label="Session status">'+shown.slice(0,3).map(s=>{
+    const name=sessionDisplayName(s),p=workspaceNavigation.projectForSession(s);
+    const cue=sessionObservation.cue(s.id);
+    return '<button type="button" class="notch-work-row notch-observer-row" data-status="'+attr(cue?.kind||'working')+'" data-action="'+(s.host==='tasktap'?'deck-open':'session')+'" data-id="'+attr(s.id)+'" title="'+attr(name+' / '+(p?.name||'Scratch')+' / '+(cue?.activity||cue?.label||'Working'))+'"><span class="notch-work-mark" aria-hidden="true">'+icon(cue?.kind==='permission'?'shield':s.agent)+'</span><span><strong>'+esc(name)+'</strong><small>'+esc(cue?.label||p?.name||'Working')+' <span aria-hidden="true">/</span> '+esc(providers[s.agent]||'Agent')+'</small></span>'+icon('right')+'</button>';
+  }).join('')+(shown.length>3?button('View all '+shown.length+' sessions','deck-activity','','text-btn'):'')+'</section>':'';
+  const art=receipt && !q?handoffRelay.forCapture(receipt):!q && !working.length?resonatorMarkup('miniature'):'';
   const content=firstRun.content() || '<header class="home-heading"><div><h1>'+esc(title)+'</h1></div>'+
     surfaceButton('','collapse','down','collapse-button')+'</header>'+
-    (destination?'<p class="notch-destination">'+destination+'</p>':'<small class="signal-caption"></small>')+
+    (destination?'<p class="notch-destination">'+destination+'</p>':working.length?'':'<small class="signal-caption"></small>')+work+
     '<footer class="home-actions">'+action+(q || receipt?surfaceButton('Capture','capture','','workspace-link'):'')+
     surfaceButton('Workspace','workspace','','workspace-link')+
     (art?'<span class="home-art" aria-hidden="true">'+art+'</span>':'')+'</footer>';
   // A session progress event must preserve focused controls and their tab order.
   if(homeContent!==content){
+    const focused=root.contains(document.activeElement)?document.activeElement:null;
+    const focusKey=focused?.closest('button')?.dataset;
     const editing=document.activeElement?.id==='guide-input'?document.activeElement:null;
     root.querySelector('.home-content').innerHTML=content;homeContent=content;
     bindGuideComposer();
@@ -146,6 +160,10 @@ function drawHome(){
     if(editing && field){
       field.focus({preventScroll:true});
       field.setSelectionRange(editing.selectionStart,editing.selectionEnd);
+    }else if(focusKey){
+      const buttons=[...root.querySelectorAll('button')];
+      const match=buttons.find(button=>['action','id','surface','target'].every(key=>button.dataset[key]===focusKey[key]));
+      (match || root.querySelector('[data-surface="capture"],.collapse-button'))?.focus({preventScroll:true});
     }
   }
   root.querySelector('.collapse-button')?.setAttribute('aria-label','Collapse notch');
@@ -221,13 +239,14 @@ let reportedPendingCount=null;
 let knownComplete=new Set(state.sessions.filter(s=>s.state==='Complete').map(s=>s.id));
 function syncSurfaces(){
   drawHome();
-  document.body.classList.toggle('needs-decision',state.decisions.length>0);
+  const observerPending=sessionObservation.attention().filter(s=>['input','permission'].includes(sessionObservation.cue(s.id)?.kind)).length;
+  document.body.classList.toggle('needs-decision',state.decisions.length+observerPending>0);
   const requests=new Set(state.decisions.map(q=>q.id)),done=new Set(state.sessions.filter(s=>s.state==='Complete').map(s=>s.id));
   requests.forEach(id=>{if(!knownDecisions.has(id))emitNotice(id,'request')});
   done.forEach(id=>{if(!knownComplete.has(id))emitNotice(id,'complete')});
   knownDecisions.forEach(id=>{if(!requests.has(id)){postHost('clear',{id,kind:'request'});if($('#notification-preview [data-target="'+CSS.escape(id)+'"]'))$('#notification-preview').hidden=true}});
   knownDecisions=requests;knownComplete=done;
-  if(reportedPendingCount!==requests.size){reportedPendingCount=requests.size;postHost('status',{count:requests.size})}
+  if(reportedPendingCount!==requests.size+observerPending){reportedPendingCount=requests.size+observerPending;postHost('status',{count:reportedPendingCount})}
   updateBounds();
 }
 const optionsForDecision=()=>[...$('#notch').querySelectorAll('[data-action="decide"],[data-action="choose-target"],[data-action="discuss"]')];
@@ -353,9 +372,10 @@ function controllerPreview(){
 }
 // AppKit reports points in the same units as CSS pixels at WKWebView's native zoom.
 function updateNotchGeometry(metrics){
+  document.body.classList.toggle('notch-compact',metrics.compact===1);
   const style=document.documentElement.style;
   for(const [property,value] of Object.entries({
-    '--native-tab-width':metrics.width,'--camera-height':metrics.height,'--camera-offset':metrics.offset,
+    '--native-tab-width':metrics.width,'--native-usage-width':metrics.usageWidth ?? metrics.width,'--camera-height':metrics.height,'--camera-offset':metrics.offset,
     '--native-surface-width':metrics.surfaceWidth,'--surface-offset':metrics.surfaceOffset,
     '--notch-shoulder':metrics.shoulder,'--notch-pixel':metrics.pixel,'--cutout-corner':metrics.corner,
     '--rim-outset':metrics.rimOffset,'--available-panel-height':metrics.available
@@ -424,8 +444,9 @@ function command(action,id=''){
     case 'notify-clear-error':delete state.notificationFailure;persist();paintNotificationSettings();break;
     case 'notify-preview':dismissCard();if(pending())previewNotice(pending().id,'request');else{const s=state.sessions.find(s=>s.state==='Complete');if(s)previewNotice(s.id,'complete')}break;
     case 'dismiss-notice':$('#notification-preview').hidden=true;break;
-    case 'notice-request':$('#notification-preview').hidden=true;openRequest(id);break;
+    case 'notice-request':{const q=byId(state.decisions,id);if(q&&state.workspaceDeck?.background?.[q.session]){showWorkspace();workspaceDeck.openTerminal(q.session)}$('#notification-preview').hidden=true;openRequest(id);break}
     case 'notice-session':$('#notification-preview').hidden=true;showWorkspace();if(sess(id)?.host==='tasktap')workspaceDeck.open('terminal:'+id,sess(id).project);else if(sess(id))showSession(id);else workspaceDeck.openTerminal(id);break;
+    case 'notice-answer':{const at=id.lastIndexOf(':'),session=id.slice(0,at),turn=Number(id.slice(at+1));$('#notification-preview').hidden=true;showWorkspace();sessionObservation.openAnswer(session,turn);break}
     case 'notice-result':{$('#notification-preview').hidden=true;const capture=byId(state.captures,id),session=sess(capture?.session||id);if(session){showWorkspace();if(session.host==='tasktap')workspaceDeck.openResult(id);else showSession(session.id)}break}
     default:if(action.startsWith('hw-'))hardware(action.slice(3));
   }
@@ -480,6 +501,7 @@ for(const selector of ['#notch','#modal']){
 const boundsObserver=new ResizeObserver(updateBounds);
 boundsObserver.observe($('#notch-home'));boundsObserver.observe($('#island'));
 window.workspaceCommand=(action,id='')=>{
+  if(action.startsWith('menu-')){applicationMenu.command(action);return}
   if(action==='open-app'&&window.tasktapSurface==='workspace'){showWorkspace();if(!state.firstRun?.done)postHost('notch-onboarding');return}
   if(action==='live-error'){toast(id);return}
   if(action==='session-focused'){

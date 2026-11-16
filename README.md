@@ -67,7 +67,7 @@ Local HTML runs in an isolated frame without Tasktap’s native command bridge; 
 
 ## Capture, review, and follow up
 
-Tap **Control + Option + Space** to type from any app. Hold it to dictate and release to stop. Type, speak, or add a sketch, then press **⌘ Return** to review. Microphone and speech permissions are requested when needed.
+Tap **Control + Option + Space** to type from any app. Hold it to dictate and release to stop. Type, speak, or add a sketch, then press **⌘ Return** to review. Set up dictation under **Preferences → Voice**: download speech assets once, then allow the microphone. **More options** offers Apple dictation, Apple SpeechTranscriber, and local Whisper. Optional cloud providers use separate Keychain-stored speech API keys. **Recommended** follows release defaults; explicit engine and model choices stay pinned. Apple engines stream live text; Whisper and cloud providers transcribe after release.
 
 - **Your request** contains the instruction. Its pencil button, **Edit task**, changes the wording without resetting the destination. Request preparation may suggest clearer wording; choose **Review suggested wording → Use this wording → Save task** to accept it, or keep your original request.
 - **Destination** identifies the workspace, agent, host, model, and whether this is a new or existing conversation. **Change destination** edits those choices.
@@ -80,7 +80,7 @@ Choose **Follow up** on a session, or name it in a capture. A nudge keeps that c
 
 ## Agents, accounts, and other applications
 
-Tasktap launches installed **Claude Code**, **Codex**, **Antigravity (`agy`)**, **Cursor CLI (`cursor-agent`)**, and **Pi (`pi`)**. Each worker uses its own CLI authentication and settings. Configure the default agent, fixed or adaptive models, and terminal under **Preferences → Agents → Session models**. Agent routing can use available usage estimates; a review override changes one handoff.
+Tasktap launches installed **Claude Code**, **Codex**, **Antigravity (`agy`)**, **Cursor CLI (`cursor-agent`)**, and **Pi (`pi`)**. Each worker uses its own CLI authentication and settings. Configure the default agent, fixed or adaptive models, and terminal under **Preferences → Agents & connections → Session models**. Agent routing can use available usage estimates; a review override changes one handoff.
 
 New installations use Tasktap’s embedded terminal. Existing terminal preferences remain respected. External options include Terminal, cmux, Ghostty, iTerm2, Warp, WezTerm, and kitty; their ability to reopen, focus, or deliver follow-ups varies. **Change destination → Open this session in** chooses a host for one new session.
 
@@ -100,7 +100,7 @@ Choose a displayed answer or use **Reply** to type or dictate. **Send reply** re
 
 **Home** and **Activity** show reported results and failures. Session details show a labeled excerpt; **Read full report** preserves the complete report. **Export summary** exports the report document, not an inferred generated file. Copy, narration, export, and older Activity entries retain the selected receipt’s result.
 
-Enable alerts in **Preferences → Voice & alerts → Notification settings**. Tasktap’s switch, macOS authorization, banners, and Notification Center availability are shown separately. Focus or macOS may suppress a banner even when permission is granted; Tasktap cannot confirm that it appeared. Restored results are not announced again. Spoken completions are a separate opt-in. Available local Siri voices and optional Kokoro narration work independently of the terminal.
+Enable alerts in **Preferences → Notifications**. Tasktap’s switch, macOS authorization, banners, and Notification Center availability are shown separately. Focus or macOS may suppress a banner even when permission is granted; Tasktap cannot confirm that it appeared. Restored results are not announced again. Spoken completions are a separate opt-in. Available local Siri voices and optional Kokoro narration work independently of the terminal.
 
 The optional Codex Micro provides request-scoped decision controls. Everything also works with the Mac’s keyboard and pointer. [Keyboard and controller guide](docs/controls.md)
 

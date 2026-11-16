@@ -113,7 +113,13 @@ function deliveryText(d){
   }
   if(d.mode==='nudge' && sess(d.session)?.interactive && hasSessionTools(sess(d.session)))
     text+='\n\nReport this follow-up’s outcome with report_result for Tasktap receipt '+d.captureId+'.';
+  if(d.mode!=='note')text+='\n\n'+agentLanguageGuidance();
   return text;
+}
+function agentLanguageGuidance(){
+  return 'Follow the project’s established language and conventions for code, identifiers, comments, and documentation. '+
+    (state.agentReplyLanguage==='english'?'Write your final response in English unless the user explicitly requests another response language.':'Write your final response in the language of the user’s request, following any explicit language preference in that request. ')+
+    ' Preserve filenames, commands, and quoted UI text unless the task calls for changing them.';
 }
 function tasktapRoutingPayload(d){
   return (d.remoteAttempts || []).filter(a=>a.payload).map(a=>a.label+' / '+a.account+'\n'+a.payload).join('\n\n');
@@ -315,7 +321,7 @@ function startDictation(target,owner,id=uid()){
   const feedback=$('#capture-feedback');
   if(feedback)feedback.textContent='';
   if(control)control.textContent='Starting microphone…';
-  captureContext.startInput(target);
+  if(target!=='#voice-test-text')captureContext.startInput(target);
   postLive('dictation-start',{id,shortcut:owner==='shortcut'});
 }
 function finishDictation(owner,id){

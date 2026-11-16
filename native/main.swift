@@ -106,6 +106,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private let micro=Micro()
     private let screenContext=ScreenContext()
     @MainActor private lazy var dictation=Dictation()
+    @MainActor private lazy var speech=SpeechService(directory:inbox.directory.deletingLastPathComponent().appendingPathComponent("Speech"))
     private var sendingVoiceLevel=false
     private lazy var runtime:LiveWorkspace = {
         let base=inbox.directory.deletingLastPathComponent(),data=base.appendingPathComponent("Runs")
@@ -114,6 +115,9 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     }()
     private func publishWorkspaceConfiguration(){
         js("workspaceSettings.receive(config)",["config":runtime.folders.configuration])
+    }
+    private func publishApplicationSettings(){
+        js("preferencesPanel.receiveApplicationSettings(config)",["config":["launchAtLogin":SMAppService.mainApp.status == .enabled,"requiresApproval":SMAppService.mainApp.status == .requiresApproval]])
     }
     private func chooseWorkspaceFolder(asRoot:Bool){
         let chooser=NSOpenPanel();chooser.canChooseDirectories=true;chooser.canChooseFiles=false;chooser.allowsMultipleSelection=false;chooser.canCreateDirectories=true
@@ -306,7 +310,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         web.callAsyncJavaScript("return JSON.parse(JSON.stringify(state))",arguments:[:],in:nil,in:.page){ result in
             if case .success(let value)=result {notchWeb.callAsyncJavaScript("sharedState.snapshot(value)",arguments:["value":value],in:nil,in:.page){_ in}}
         }
-        publishWorkspaceConfiguration();sendConnections();refreshUsage()
+        publishWorkspaceConfiguration();sendConnections();refreshUsage();speech.publish()
         let buffered=notchQueue;notchQueue.removeAll()
         for (action,id) in buffered {deliver(action,id)}
     }
@@ -314,7 +318,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         guard ready else { queue.append((action,id)); return }
         if independentWindows {
             let notchActions:Set<String>=["home","collapse","capture","requests","notice-request","hover-enter","hover-exit","hw-capture","hw-capture-end","hw-yes","hw-no","hw-discuss","hw-previous","hw-next","hw-confirm","hw-back","notch-onboarding"]
-            let useNotch=notchActions.contains(action) || (action=="prefs" && !workspace.isVisible)
+            let useNotch=notchActions.contains(action)
             if useNotch && !notchReady {notchQueue.append((action,id));return}
             let target=useNotch ? notchWeb!:web!
             if reveal {
@@ -614,6 +618,22 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             let target=message.webView === web ? (notchReady ? notchWeb:nil):web
             target?.callAsyncJavaScript("sharedState.apply(patch)",arguments:["patch":patch],in:nil,in:.page){_ in}
         case "show-workspace":showWorkspaceWindow()
+        case "application-settings":publishApplicationSettings()
+        case "launch-at-login":
+            guard !verifying,!liveTest,let enabled=data["enabled"] as? Bool else {publishApplicationSettings();return}
+            do {
+                if enabled {
+                    if SMAppService.mainApp.status == .requiresApproval {SMAppService.openSystemSettingsLoginItems()}
+                    else if SMAppService.mainApp.status != .enabled {
+                        try SMAppService.mainApp.register()
+                        if SMAppService.mainApp.status == .requiresApproval {SMAppService.openSystemSettingsLoginItems()}
+                    }
+                } else if SMAppService.mainApp.status != .notRegistered {try SMAppService.mainApp.unregister()}
+                updateMenu()
+            } catch {js("toast(message)",["message":"Couldn’t change Launch at Login. "+error.localizedDescription])}
+            publishApplicationSettings()
+        case "preferences-open":
+            showWorkspaceWindow();web.callAsyncJavaScript("prefs(group)",arguments:["group":data["group"] as? String ?? "general"],in:nil,in:.page){_ in}
         case "hide-workspace":workspace.orderOut(nil);if let screen=workspace.screen ?? anchorScreen ?? NSScreen.main {decisionRim.update(screen:screen,visible:false)}
         case "notch-onboarding":deliver("notch-onboarding")
         case "show-notch":deliver(data["open"] as? Bool == false ? "collapse":"home")
@@ -627,6 +647,8 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         case "ready":
             if message.webView === notchWeb {notchReady=true;bootstrapNotch();return}
             ready=true;position();panel.orderFrontRegardless();publishWorkspaceConfiguration()
+            speech.changed={ [weak self] snapshot in self?.js("voiceSettings.receive(snapshot)",["snapshot":snapshot]) }
+            speech.publish()
             terminals.events = { [weak self] events, done in
                 guard let self else {done();return}
                 self.web.callAsyncJavaScript("return await workspaceDeck.receive(events)",arguments:["events":events],in:nil,in:.page) { _ in done() }
@@ -906,9 +928,19 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             guard let id=data["id"] as? String else {return}
             if data["shortcut"] as? Bool == true && id != capturePress {
                 js("dictationEvent(id,'stopped','')",["id":id])
-            } else {dictation.start(id)}
+            } else {dictation.start(id,service:speech)}
         case "dictation-finish":if let id=data["id"] as? String {dictation.finish(id)}
         case "dictation-cancel":dictation.cancel(data["id"] as? String)
+        case "speech-status":speech.publish()
+        case "speech-save":if let config=data["configuration"] as? [String:Any] {speech.save(config)}
+        case "speech-install":speech.install()
+        case "speech-cancel-install":speech.cancelInstall()
+        case "speech-microphone":speech.microphone()
+        case "speech-connect":if let provider=data["provider"] as? String,let key=data["key"] as? String {speech.connect(provider:provider,key:key)}
+        case "speech-disconnect":if let provider=data["provider"] as? String {speech.disconnect(provider:provider)}
+        case "speech-remove-model":if !dictation.isActive {speech.removeWhisper()} else {speech.reportError("Finish dictation before removing its model.")}
+        case "speech-microphone-settings":
+            if let url=URL(string:"x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {NSWorkspace.shared.open(url)}
         case "refresh":if !verifying {runtime.refresh();if !liveTest {runtime.refreshExternal()}}
         case "route":
             guard let id=data["id"] as? String,let input=data["input"] as? [String:Any] else {return}
@@ -1527,6 +1559,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             try await Task.sleep(nanoseconds:200_000_000)
             let providerPicker=try await web.evaluateJavaScript("""
                 (()=>{
+                    document.querySelector('#modal [data-action="prefs-group"][data-id="agents"]').click();
                     document.querySelector('#modal [data-action="session-models"]').click();
                     document.querySelector('#default-agent').click();
                     const list=[...document.querySelectorAll('#modal [role="listbox"]')].find(el=>el.getClientRects().length);
@@ -1691,6 +1724,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     func applicationDidBecomeActive(_ notification: Notification) {
         if ready {
             updateMenu()
+            speech.publish();publishApplicationSettings()
             js("if(document.querySelector('#notification-preferences'))postHost('notification-status')",[:])
         }
     }
@@ -1698,7 +1732,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         connectionTask?.cancel();routeTask?.cancel();serverProbe?.cancel();identityCheck?.cancel()
         hoverTimer?.invalidate()
         lightingEnabled=false;syncLighting()
-        narration.changed={_ in};micro.stop();inbox.stop();narration.stop();dictation.cancel();if !verifying{runtime.stop()}
+        narration.changed={_ in};speech.changed={_ in};speech.cancelInstall();micro.stop();inbox.stop();narration.stop();dictation.cancel();if !verifying{runtime.stop()}
         for key in hotKeys.values { UnregisterEventHotKey(key) }
         if let handler { RemoveEventHandler(handler) }
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }

@@ -26,6 +26,7 @@ const { chromium } = require('playwright');
     };
     await updateHealth(healthy);
     await click('Preferences');
+    await click('Agents & connections');
     const overview=page.locator('#agent-setup-link');
     assert.equal(await overview.locator('small').isVisible(),false);
     await page.getByRole('button',{name:/Request preparation/}).click();
@@ -129,7 +130,7 @@ const { chromium } = require('playwright');
     assert.equal(job.planAccount,undefined);assert.equal(job.host,'terminal');assert.equal(job.delivery,'interactive');
     assert.ok(job.accounts.includes('Studio'));assert.match(job.routingPayload,/Lighting/);
     assert.ok(!job.routingPayload.includes('Unrelated'));assert.match(job.instructions,/report_result/);
-    assert.equal(job.outgoing,job.brief);
+    assert.ok(job.outgoing.startsWith(job.brief));assert.match(job.outgoing,/project’s established language/);
     await page.evaluate(j=>acceptLive({capture:j.capture,folder:j.folder,name:'Lighting',task:j.task}),job);
     await page.evaluate(({c,j})=>{
       aiConnections.receive({...c,workerAccount:''});
@@ -196,7 +197,7 @@ const { chromium } = require('playwright');
       };
     });
     for(const text of routes.others){assert.match(text,/current checkout and branch/);assert.match(text,/solver/)}
-    assert.equal(routes.nudge,'Add a cue');assert.ok(routes.isolated);
+    assert.ok(routes.nudge.startsWith('Add a cue'));assert.match(routes.nudge,/final response in the language/);assert.ok(routes.isolated);
     const identity=await page.evaluate(()=>{
       const folder='/projects/Lighting',thread='discovered-thread',owned='owned-session';
       const external={id:thread,conversation:thread,source:'terminal',agent:'codex',folder,task:'Starting',state:'Running'};

@@ -34,7 +34,13 @@ The native app registers the six navigation shortcuts while running and register
 
 ## Narration
 
-**Preferences → Voice & alerts → Narration voice** lists locally exposed Siri voices by language. Completion narration is opt-in. The local alternative is **Kokoro / Heart** for English. Choose **Set up Kokoro** to install the local voice (121 MB of model and voices plus the Python runtime). Setup uses uv or Python 3.10–3.12. Select **Local Kokoro / Heart** and **Preview voice** to test playback. The installed voice runs offline on demand. If you already run Kokoro-FastAPI on port 8880, Tasktap can use it without installing the model. The browser preview lists local Siri voices when available. [Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx)
+**Preferences → Voice → Read aloud → Narration voice** lists locally exposed Siri voices by language. Completion narration is opt-in. The local alternative is **Kokoro / Heart** for English. Choose **Set up Kokoro** to install the local voice (121 MB of model and voices plus the Python runtime). Setup uses uv or Python 3.10–3.12. Select **Local Kokoro / Heart** and **Preview voice** to test playback. The installed voice runs offline on demand. If you already run Kokoro-FastAPI on port 8880, Tasktap can use it without installing the model. The browser preview lists local Siri voices when available. [Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx)
+
+## Dictation setup
+
+Open **Preferences → Voice → Dictation**, choose **Download & set up**, then allow microphone access. Test with **Try dictation**; the test never launches a coding agent. Apple dictation is the initial recommendation. **More options** offers Apple SpeechTranscriber and downloadable Whisper large-v3 Turbo, plus language overrides. Recommended follows future defaults, while explicit selections remain pinned. Apple engines use the Mac language by default and show live text; Whisper detects language by default and transcribes after release.
+
+**Use a cloud provider instead** connects OpenAI, Deepgram, or ElevenLabs with a separate speech API key stored in macOS Keychain. Provider billing applies; recordings are sent only when cloud dictation is selected and the shortcut is released. Local dictation never silently falls back to cloud. Cancelled and completed recordings are removed. Speech recording is limited to five minutes. Reply language is independently configured under **Agents & connections → Reply language**; requests are preserved without automatic translation.
 
 ## System notifications
 

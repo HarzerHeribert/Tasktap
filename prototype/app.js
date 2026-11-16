@@ -225,7 +225,7 @@ function frame(title,over,body,backLabel='',lead=''){
   if(lead)return '<div class="dialog-body notch-review"><h2 id="dialog-heading" class="sr-only">'+esc(title)+'</h2>'+
     '<div class="dialog-title">'+lead+nav+'</div><p class="eyebrow notch-destination">'+esc(over)+'</p>'+body+'</div>';
   return '<div class="dialog-body"><div class="dialog-title"><div>'+(over?'<span class="eyebrow">'+esc(over)+'</span>':'')+'<h2 id="dialog-heading">'+esc(title)+'</h2></div>'+nav+'</div>'+body+'</div>'}
-function dialog(title,over,body,backLabel='',lead=''){settingsPickers.close();if(draft?.routing && title!=='Preparing handoff')cancelRouting();clearTimeout(toast.timer);$('#toast').textContent='';const d=$('#modal');if(!d.open)returnFocus=document.activeElement;d.innerHTML=frame(title,over,body,backLabel,lead);d.setAttribute('aria-labelledby','dialog-heading');if(!d.open)d.showModal();else $('button',d)?.focus()}
+function dialog(title,over,body,backLabel='',lead=''){settingsPickers.close();if(draft?.routing && title!=='Preparing handoff')cancelRouting();clearTimeout(toast.timer);$('#toast').textContent='';const d=$('#modal');d.classList.remove('preferences-dialog');if(!d.open)returnFocus=document.activeElement;d.innerHTML=frame(title,over,body,backLabel,lead);d.setAttribute('aria-labelledby','dialog-heading');if(!d.open)d.showModal();else $('button',d)?.focus()}
 function dismissCard(){if(draft?.claudeBrief && $('#modal[open] #claude-brief') && !$('#notch').open)delete draft.claudeBrief;if(!$('#notch').open && setupWizard.showing()){setupWizard.cancel();return}cancelRouting();stopRoutingSpeech();if(live)stopDictation();clearTimeout(simVoice);simVoice=null;document.dispatchEvent(new Event('voice-activity'));if($('#notch').open){$('#notch').close();$('#islandToggle').setAttribute('aria-expanded','false');if($('#modal').open)$('#modal button')?.focus();else $('#islandToggle').focus();return}if($('#modal').open)$('#modal').close();if(returnFocus?.isConnected)returnFocus.focus();else if(document.body.classList.contains('notch-first'))$('#islandToggle').focus();else $('#main').focus()}
 let siriVoices=[];
 let kokoro={status:'checking',detail:'Checking local voice…'};
@@ -575,47 +575,7 @@ function showNote(id){
   const f=$('#assign');if(f)f.onsubmit=e=>{e.preventDefault();const project=$('#assign-project').value;if(live){postLive('assign-note',{id,capture:n.capture,folder:proj(project).folder});return}noteAssigned(id,project)};
 }
 function noteAssigned(id,project){const n=byId(state.notes,id);if(!n)return;n.project=project;persist();render();showNote(id);toast('Note assigned to '+proj(project).name+'.')}
-const preferenceGroups={agents:'Agents',workspaces:'Workspaces',capture:'Capture',voice:'Voice & alerts',appearance:'Appearance'};
-function prefs(group='agents'){
-  if(!Object.hasOwn(preferenceGroups,group))group='agents';
-  const nav='<nav class="preference-groups" aria-label="Preferences categories">'+Object.entries(preferenceGroups).map(([id,label])=>
-    '<button type="button" data-action="prefs-group" data-id="'+id+'" aria-pressed="'+(group===id)+'">'+esc(label)+'</button>').join('')+'</nav>';
-  let body;
-  if(group==='agents'){
-    const policy=sessionModelPolicy(),profile=policy.agents[policy.defaultAgent];
-    const summary=[providers[policy.defaultAgent],policy.adaptive?'Difficulty curve':profile.fixed,terminalHosts.label(state.sessionHost)].filter(Boolean).join(' / ');
-    body='<h3>Tasktap</h3>'+aiConnections.jump()+'<h3>Project work</h3>'+(live?'<button id="agent-setup-link" type="button" class="settings-jump" data-action="agent-setup"><span class="jump-mark">'+icon('settings')+'</span><span><strong>Agent setup</strong><small hidden></small></span>'+icon('right')+'</button>':'')+
-      '<button class="settings-jump" type="button" data-action="session-models" aria-label="Session models"><span class="jump-mark">'+icon('sessions')+'</span><span><strong>Session models</strong><small>'+esc(summary)+'</small></span>'+icon('right')+'</button>'+(live?workerRouting.jump():'');
-  }else if(group==='workspaces'){
-    body=workspaceSettings.markup();
-  }else if(group==='capture'){
-    body=captureContext.preference()+
-      (live?surfaceButton('Reopen guided capture','guide-replay','pen','btn'):button('Reset sample data','reset','','text-btn'));
-  }else if(group==='appearance'){
-    const themes=TasktapArt.catalog.map(theme=>'<option value="'+attr(theme.id)+'" data-art="'+attr(theme.id)+'" data-detail="'+attr(theme.medium)+'" '+(TasktapArt.current()===theme.id?'selected':'')+'>'+esc(theme.name)+'</option>').join('');
-    body=appAppearance.markup()+settingsField('visual-theme','Artwork','<select id="visual-theme">'+themes+'</select>');
-  }else{
-    body=settingsField('voice-engine','Narration voice','<select id="voice-engine"></select>')+
-      (live?'<div class="voice-tools"><p id="voice-status" class="hint" role="status">'+esc(kokoro.detail)+'</p><div class="inline">'+button('Set up Kokoro','setup-voice')+button('Preview voice','preview-voice')+'</div></div>':'')+
-      '<div class="check-line"><input id="narration" type="checkbox" '+(state.speak?'checked':'')+'><label for="narration">Read completion summaries aloud</label></div>'+
-      surfaceButton('Notification settings','notifications','bell','btn');
-  }
-  dialog('Preferences','Tasktap','<div id="preferences" class="settings-form">'+nav+'<section aria-label="'+preferenceGroups[group]+'" class="settings-section">'+body+'</section>'+appUpdates.preferences()+'<div class="preference-links">'+button('Run setup…','run-setup','','text-btn','settings')+(live?button('Check for Updates…','check-updates','','text-btn'):'')+button('Documentation','open-docs',group,'text-btn','out')+'</div></div>');
-  settingsHeader();
-  const categories=$('#preferences .preference-groups'),activeCategory=categories.querySelector('[aria-pressed=true]');
-  categories.scrollLeft=Math.max(0,activeCategory.offsetLeft+(activeCategory.offsetWidth-categories.clientWidth)/2);
-  if(group==='agents' && live)aiConnections.refresh();
-  if(group==='capture')captureContext.bindPreference();
-  if(group==='workspaces')workspaceSettings.bind();
-  if(group==='appearance'){appAppearance.bind();$('#visual-theme').onchange=e=>TasktapArt.select(e.target.value)}
-  if(group==='voice'){
-    voiceOptions();routingVoicePreference();
-    if(live){updateKokoro(kokoro.status,kokoro.detail);postLive('check-kokoro')}
-    $('#voice-engine').onchange=e=>{state.voiceEngine=e.target.value;persist()};
-    $('#narration').onchange=e=>{state.speak=e.target.checked;persist()};
-  }
-  settingsPickers.mount($('#preferences'));
-}
+function prefs(group){preferencesPanel.open(group)}
 function complete(id){const s=sess(id);if(s.state!=='Running')return;s.state='Complete';s.result='Demo result: the agent finished the requested review in '+proj(s.project).name+'. Open the conversation to inspect its work.';s.log.push('Simulated completion received.');persist();render();showSession(id);if(state.speak)speak(s.result)}
 function startSample(){
   const b=$('[data-action="sample"]');b.textContent='Listening to sample…';b.disabled=true;clearTimeout(simVoice);

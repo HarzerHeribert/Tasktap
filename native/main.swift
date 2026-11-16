@@ -76,6 +76,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private var height: CGFloat = 290
     private var surfaceWidth: CGFloat = 432
     private var collapsed = true
+    private var usageCount = 0
     private var anchorScreen: NSScreen?
     private var hoverTimer: Timer?
     private var pointerInside = false
@@ -210,11 +211,11 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         guard let screen = anchorScreen ?? NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main else { return }
         anchorScreen = screen
         let geometry = NotchGeometry(screen: screen)
-        let frame = geometry.panelFrame(collapsed: collapsed, requestedHeight: height, requestedWidth: surfaceWidth)
+        let frame = geometry.panelFrame(collapsed: collapsed, requestedHeight: height, requestedWidth: surfaceWidth, usageCount: usageCount)
         if panel.frame != frame { panel.setFrame(frame, display: true) }
         decisionRim.update(screen: isWorkspace ? workspace.screen ?? screen : screen, visible: isWorkspace && pendingCount > 0)
         if ready {
-            let expanded = geometry.panelFrame(collapsed:false,requestedHeight:height,requestedWidth:surfaceWidth)
+            let expanded = geometry.panelFrame(collapsed:false,requestedHeight:height,requestedWidth:surfaceWidth,usageCount:usageCount)
             let metrics = ["width":geometry.tab.width, "height":geometry.tab.height, "shoulder":geometry.shoulder,
                            "surfaceWidth":expanded.width - 2 * geometry.shoulder,
                            "surfaceOffset":expanded.midX - geometry.tab.midX,
@@ -458,7 +459,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             if Date().timeIntervalSince(workersChecked) >= 120 {refreshWorkers()}
             if let workerCheck {await workerCheck.value}
             let eligible=["claude","codex"].filter {
-                routingProviders.workerHealth[$0]=="signedIn" && ($0 != "codex" || routingProviders.workers[$0]=="ChatGPT login")
+                routingProviders.workerHealth[$0]=="signedIn" && routingProviders.workers[$0]==($0 == "codex" ? "ChatGPT login" : "Claude plan login")
             }
             if eligible != usageAgents || Date().timeIntervalSince(usageChecked) >= 120 {
                 usageSnapshot=(try? await RouterCLI.call("usage",["agents":eligible])) ?? [:]
@@ -694,6 +695,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 }
             }
             collapsed=data["collapsed"] as? Bool ?? false
+            usageCount=max(0,min(6,data["usageCount"] as? Int ?? 0))
             height=CGFloat(data["height"] as? Double ?? 290)
             surfaceWidth=CGFloat(data["width"] as? Double ?? 432)
             position()
@@ -1173,6 +1175,25 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             let shut=try await web.evaluateJavaScript("document.querySelector('#notch-home').hidden")
             guard shut as? Bool == true, panel.frame.width==compactWidth, panel.isKeyWindow==key,
                   NSWorkspace.shared.frontmostApplication?.processIdentifier==front else { throw Check.failed(#line) }
+            _ = try await web.evaluateJavaScript("""
+                workerRouting.receive({checkedAt:Date.now()/1000,subscriptions:Object.fromEntries(
+                  ['claude','codex','gemini','cursor','grok','glm'].map(id=>[id,{plan:'Verification paid plan',windows:[
+                    {remaining:40,minutes:10080,resetsAt:Date.now()/1000+86400},
+                    {remaining:80,minutes:300,resetsAt:Date.now()/1000+3600}]}]))});true
+                """)
+            try await Task.sleep(nanoseconds:300_000_000)
+            let metersFit = try await web.evaluateJavaScript("""
+                (()=>{const camera=document.querySelector('#islandToggle').getBoundingClientRect();
+                  const meters=[...document.querySelectorAll('.usage-notch .usage-meter')];
+                  return meters.length===6 && meters.every(el=>{const r=el.getBoundingClientRect();
+                    return r.width===40 && r.top>=0 && r.bottom<=camera.bottom+1 &&
+                      r.left>=0 && r.right<=innerWidth && (r.right<=camera.left+.5 || r.left>=camera.right-.5) &&
+                      el.querySelector('.usage-provider svg')!==null;});})()
+                """)
+            guard metersFit as? Bool == true, panel.frame.width==geometry.panelFrame(collapsed:true,requestedHeight:0,usageCount:6).width else {throw Check.failed(#line)}
+            _ = try await web.evaluateJavaScript("workerRouting.receive({});true")
+            try await Task.sleep(nanoseconds:150_000_000)
+            print("Six provider meters fit the native collapsed panel and stay outside the camera.")
             for action in ["requests","next","confirm"] {
                 let index = bindings.firstIndex(where: { $0.action == action })!
                 onKey(UInt32(index),pressed:true);onKey(UInt32(index),pressed:false)

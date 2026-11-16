@@ -47,6 +47,32 @@ folders. Do not delete these while agents are running. Settings and session data
 are separate from the app. Updates preserve request text; unfinished setup and
 other transient UI selections should be completed before updating.
 
+## 1.0.3 release scope
+
+Version 1.0.3 uses build **10**. It adds compact provider usage rings in the
+workspace toolbar, collapsed notch and task review. Paid-account checks cover
+Claude Code, Codex, Google/Gemini through Antigravity (`agy`), Cursor, Grok and
+GLM. A free login or API balance does not establish a subscription. Unknown
+and expired results are hidden or show unavailable quota, never sample values.
+
+The current `agy` paid tier is read from its explicit account-tier marker in a
+bounded, isolated PTY startup, then `/usage` supplies the Gemini model pool.
+No model prompt is sent. This avoids the retired consumer Gemini CLI path and
+the CSRF-protected local agy server. Cursor uses existing app/CLI credentials;
+encrypted app storage is read only when its Keychain item is already accessible.
+Grok uses existing CLI OAuth, and GLM requires a positive Coding Plan response.
+
+Release notes: [releases/1.0.3.md](releases/1.0.3.md).
+
+Live checks on the maintainer's Mac confirmed Google AI Ultra through agy and
+ChatGPT Pro through Codex, with actual quota windows. Claude Code's existing CLI
+quota reader returned its weekly window. Cursor, Grok and GLM paid/free states,
+expired accounts, malformed responses and network failures use fixtures; paid
+accounts for those providers were not purchased or exercised live. Application
+browser regressions and subscription/geometry checks passed. The native interface check passed with six actual WebKit provider meters outside
+the camera, and the native workspace PTY/media check passed. Animation captures
+assert identical provider positions through opening and closing.
+
 ## 1.0.2 release scope
 
 Version 1.0.2 uses build **9**. It adds flat request review, a wider compact

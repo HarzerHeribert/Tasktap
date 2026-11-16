@@ -3,13 +3,13 @@
     <channel>
         <title>Tasktap</title>
         <item>
-            <title>1.0.5</title>
-            <pubDate>Mon, 16 Nov 2026 15:24:27 +0100</pubDate>
-            <sparkle:version>12</sparkle:version>
-            <sparkle:shortVersionString>1.0.5</sparkle:shortVersionString>
+            <title>1.1.0</title>
+            <pubDate>Mon, 16 Nov 2026 16:10:42 +0100</pubDate>
+            <sparkle:version>13</sparkle:version>
+            <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/HarzerHeribert/Tasktap/releases/download/v1.0.5/Tasktap-1.0.5-arm64.zip" length="16729212" type="application/octet-stream" sparkle:edSignature="qzd0n7I9s5kjL3Px0mZrMUQ3bSIrDpzVd8Om/lU27GQavWhcAxM3LclhZESEco2Z3xika3OFRHrWfLdZjc8zBg=="/>
+            <enclosure url="https://github.com/HarzerHeribert/Tasktap/releases/download/v1.1.0/Tasktap-1.1.0-arm64.zip" length="16742497" type="application/octet-stream" sparkle:edSignature="+nkmYad6QHDiEgH6+okYoUB4aTg9LttmsP6cT6SmARvXPrprGua491G6qkH3Z7S8AF4Qwf5c3Z1QDu0cXD7+DA=="/>
         </item>
     </channel>
 </rss>

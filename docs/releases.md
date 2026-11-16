@@ -9,7 +9,7 @@ commit it or put it on Pages. Losing it can strand community installations.
 Prepare on an Apple silicon Mac with the macOS 26 SDK:
 
 ```sh
-bash scripts/package-release.sh 1.0.5 12
+bash scripts/package-release.sh 1.1.0 13
 ```
 
 Packaging verifies the archive checksum, bundled code signature, feed metadata,
@@ -17,11 +17,11 @@ and Ed25519 signature using the public key in the app. It also checks that
 modified or truncated archives fail signature verification. To repeat:
 
 ```sh
-python3 scripts/verify-release.py build/releases/1.0.5
+python3 scripts/verify-release.py build/releases/1.1.0
 ```
 
 The build number must increase for every published update. Publish the generated
-ZIP, SHA256SUMS and appcast.xml as assets of GitHub release `v1.0.5`, then copy its appcast.xml
+ZIP, SHA256SUMS and appcast.xml as assets of GitHub release `v1.1.0`, then copy its appcast.xml
 to `site/appcast.xml` and deploy Pages through the existing workflow. Publish
 assets first; do not advertise a missing download. Update the homepage release
 badge and guide examples to match the new version before deploying Pages. Keep
@@ -30,7 +30,7 @@ No release is published by the packaging command. GitHub credentials and the
 update private key are not required for ordinary builds or verification CI.
 
 The optional `site/install.sh` downloads the latest stable release when called without
-an argument, or accepts an explicit version such as `1.0.5`. It installs into
+an argument, or accepts an explicit version such as `1.1.0`. It installs into
 `~/Applications`, or replaces an existing copy in `/Applications` when writable.
 It verifies transport checksums and the bundle, preserves a previous installation,
 and does not alter Gatekeeper. Checksums are integrity checks, not an independent
@@ -64,6 +64,10 @@ a real PTY to confirm output during notch use, retained workspace DOM, shared
 notes, window close/reopen and preservation of a notch draft.
 
 Release notes: [releases/1.1.0.md](releases/1.1.0.md).
+
+The signed archive passed checksum, full bundled resource/helper matching,
+Ed25519 verification and tamper/truncation rejection. Existing renderer,
+onboarding and updater checks passed alongside the new shared-state suite.
 
 ## 1.0.5 release scope
 

@@ -41,7 +41,7 @@ const workspaceDeck=(()=>{
     // Measure all panes before changing any terminal's DOM.
     for(const [en,size] of plans)fit(en,size);
   }
-  let connected=false, activeProject=null, refreshTimer=null;
+  let connected=false, activeProject=null, refreshTimer=null,resizeEvents=false;
   const stage=document.createElement('section');stage.id='workspace-stage';stage.hidden=true;stage.setAttribute('aria-label','Project workspace');$('.work').append(stage);
   const stash=document.createElement('div');stash.hidden=true;stage.append(stash);
   const send=(op,values={})=>{if(live)postLive('workspace-terminal',{op,...values})};
@@ -178,7 +178,7 @@ const workspaceDeck=(()=>{
     const writes=[];
     for(const e of events){
       if(e.event==='sessions'){
-        connected=true;for(const row of e.sessions||[]){
+        connected=true;resizeEvents=e.resizeEvents===true;for(const row of e.sessions||[]){
           terminals.set(row.id,row);const p=ensureProject(row);adoptObservation(row,true);completeLaunch(row);if(!row.running)finishCloseSession(row.id);
           if(row.running&&saved.closedWorkspaces[p.id])send('stop',{id:row.id});
           // Adopt detached sessions from earlier versions without starting work.
@@ -209,15 +209,22 @@ const workspaceDeck=(()=>{
       }else if(e.event==='replay'){
         const engine=engines.get(e.id);if(!engine)continue;
         engine.attached=true;engine.replaying=true;engine.pendingReplays=(engine.pendingReplays||0)+1;engine.seq=e.seq;
-        writes.push(terminalWrite(engine,()=>new Promise(done=>{
-          engine.parsingReplay=true;engine.cwd=null;engine.term.reset();engine.term.resize(e.cols,e.rows);engine.sentSize=e.cols+'x'+e.rows;
-          if(e.truncated)engine.term.write('\r\n[Earlier scrollback is no longer available.]\r\n');
-          engine.term.write(bytes(e.data),()=>{
-            engine.parsingReplay=false;fit(engine);
-            if(engines.get(e.id)===engine){engine.pendingReplays--;engine.replaying=engine.pendingReplays>0;if(!engine.replaying){for(const data of engine.pendingInput)send('input',{id:engine.id,data});engine.pendingInput=[];engine.pendingBytes=0}}
-            done();
-          });
-        })));
+        writes.push(terminalWrite(engine,async()=>{
+          engine.parsingReplay=true;engine.cwd=null;engine.term.reset();
+          const data=bytes(e.data),geometry=e.geometry?.length?e.geometry:[{offset:0,cols:e.cols,rows:e.rows}];
+          for(let i=0;i<geometry.length;i++){
+            const size=geometry[i],end=geometry[i+1]?.offset??data.length;
+            engine.term.resize(size.cols,size.rows);
+            if(i===0&&e.truncated)await new Promise(done=>engine.term.write('\r\n[Earlier scrollback is no longer available.]\r\n',done));
+            if(end>size.offset)await new Promise(done=>engine.term.write(data.subarray(size.offset,end),done));
+          }
+          engine.sentSize=e.cols+'x'+e.rows;engine.requestedSize=engine.sentSize;
+          engine.parsingReplay=false;fit(engine);
+          if(engines.get(e.id)===engine){engine.pendingReplays--;engine.replaying=engine.pendingReplays>0;if(!engine.replaying){for(const data of engine.pendingInput)send('input',{id:engine.id,data});engine.pendingInput=[];engine.pendingBytes=0}}
+        }));
+      }else if(e.event==='resized'){
+        const engine=engines.get(e.id);if(!engine)continue;
+        writes.push(terminalWrite(engine,()=>{engine.term.resize(e.cols,e.rows);engine.sentSize=e.cols+'x'+e.rows}));
       }else if(e.event==='output'){
         const engine=engines.get(e.id);if(!engine||!engine.attached||e.seq<=engine.seq)continue;
         engine.seq=e.seq;writes.push(terminalWrite(engine,()=>new Promise(done=>engine.term.write(bytes(e.data),done))));
@@ -234,6 +241,11 @@ const workspaceDeck=(()=>{
     if(!en?.element.isConnected||!en.element.getClientRects().length)return;
     try{
       const dims=size||en.fit.proposeDimensions();if(!dims)return;
+      if(resizeEvents&&en.attached){
+        const requested=dims.cols+'x'+dims.rows;
+        if(requested!==en.requestedSize){send('resize',{id:en.id,cols:dims.cols,rows:dims.rows});en.requestedSize=requested}
+        return;
+      }
       if(en.term.cols!==dims.cols||en.term.rows!==dims.rows)en.term.resize(dims.cols,dims.rows);
       const key=en.term.cols+'x'+en.term.rows;
       if(en.attached&&key!==en.sentSize){send('resize',{id:en.id,cols:en.term.cols,rows:en.term.rows});en.sentSize=key}
@@ -362,7 +374,7 @@ const workspaceDeck=(()=>{
     if(!group){group=groupID?l.groups.find(g=>g.id===groupID):selectedGroup(l);if(!group)return;group.tabs.push(key)}group.active=key;l.selected=l.groups.indexOf(group);
     if(activate){if(typeof showWorkspace==='function')showWorkspace();go(project);requestAnimationFrame(()=>{const en=engines.get(termID(key));if(en)en.term.focus();else projects.get(project)?.querySelector('.deck-tab[aria-selected="true"][data-id="'+CSS.escape(key)+'"]')?.focus()})}else if(view===project)renderProject(proj(project));persist();
   }
-  function leave(){finishTabDrag();activeProject=null;stage.hidden=true;$('#main').hidden=false;document.body.classList.remove('workspace-active','deck-focus');if(typeof workspaceNavigation!=='undefined')workspaceNavigation.sync()}
+  function leave(){finishTabDrag();finishDividerResize();setDividerCursor(null);activeProject=null;stage.hidden=true;$('#main').hidden=false;document.body.classList.remove('workspace-active','deck-focus');if(typeof workspaceNavigation!=='undefined')workspaceNavigation.sync()}
   // Panes remain flat, stable DOM siblings. A split tree supplies their bounds;
   // changing a split never reparents an iframe or recreates a terminal engine.
   function treeShape(node){return node?(node.group||[node.id,node.axis,treeShape(node.first),treeShape(node.second)]):null}
@@ -491,14 +503,16 @@ const workspaceDeck=(()=>{
   stage.addEventListener('dragstart',e=>{if(e.target.closest('.deck-tab'))e.preventDefault()});
   document.addEventListener('pointerdown',()=>{suppressTabClick=false},true);
   stage.addEventListener('click',e=>{if(suppressTabClick&&e.detail){suppressTabClick=false;e.preventDefault();e.stopImmediatePropagation()}},true);
-  let dividerResize=null;
+  let dividerResize=null,dividerCursor=null;
+  function setDividerCursor(axis){if(axis===dividerCursor)return;dividerCursor=axis;if(live)postLive('workspace-cursor',{axis})}
   function finishDividerResize(){
     const drag=dividerResize;if(!drag)return;dividerResize=null;
     delete document.body.dataset.deckResize;drag.divider.classList.remove('is-resizing');drag.overlay.remove();
+    const hovered=document.elementFromPoint(drag.point.x,drag.point.y)?.closest('.deck-divider');setDividerCursor(hovered?.dataset.axis||null);
     if(drag.divider.hasPointerCapture(drag.pointer))drag.divider.releasePointerCapture(drag.pointer);
     if(drag.divider.resizeDirty){drag.divider.resizeDirty=false;persist()}flushFits();
   }
-  window.addEventListener('blur',finishDividerResize);
+  window.addEventListener('blur',()=>{finishDividerResize();setDividerCursor(null)});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)finishDividerResize()});
   function arrange(root,l){
     const area=$('.deck-groups',root),width=area.clientWidth,height=area.clientHeight;
@@ -514,9 +528,11 @@ const workspaceDeck=(()=>{
       if(!divider){
         divider=document.createElement('div');divider.className='deck-divider';divider.dataset.branch=node.id;divider.tabIndex=0;divider.setAttribute('role','separator');
         divider.setAttribute('aria-valuemin','10');divider.setAttribute('aria-valuemax','90');
+        divider.onpointerenter=()=>setDividerCursor(divider.splitBounds.axis);
+        divider.onpointerleave=()=>{if(!dividerResize)setDividerCursor(null)};
         const balance=(value,save=true)=>{const current=branch(l.tree,divider.dataset.branch);if(!current)return;const ratio=Math.round(Math.max(10,Math.min(90,value)));if(current.ratio===ratio)return;current.ratio=ratio;arrange(root,l);if(save)persist();else divider.resizeDirty=true};
-        const drag=e=>{if(!divider.hasPointerCapture(e.pointerId))return;const r=area.getBoundingClientRect(),b=divider.splitBounds;balance(((b.axis==='x'?e.clientX-r.left-b.x:e.clientY-r.top-b.y)-b.gap/2-(dividerResize?.offset||0))/Math.max(1,b.available)*100,false)};
-        divider.onpointerdown=e=>{if(e.button!==0)return;e.preventDefault();finishDividerResize();divider.focus();const r=divider.getBoundingClientRect(),offset=divider.splitBounds.axis==='x'?e.clientX-r.left-r.width/2:e.clientY-r.top-r.height/2,overlay=document.createElement('div');overlay.className='deck-resize-overlay';document.body.append(overlay);dividerResize={divider,pointer:e.pointerId,overlay,offset};divider.classList.add('is-resizing');document.body.dataset.deckResize=divider.splitBounds.axis;divider.setPointerCapture(e.pointerId)};divider.onpointermove=drag;
+        const drag=e=>{if(!divider.hasPointerCapture(e.pointerId))return;if(dividerResize)dividerResize.point={x:e.clientX,y:e.clientY};const r=area.getBoundingClientRect(),b=divider.splitBounds;balance(((b.axis==='x'?e.clientX-r.left-b.x:e.clientY-r.top-b.y)-b.gap/2-(dividerResize?.offset||0))/Math.max(1,b.available)*100,false)};
+        divider.onpointerdown=e=>{if(e.button!==0)return;e.preventDefault();finishDividerResize();divider.focus();const r=divider.getBoundingClientRect(),offset=divider.splitBounds.axis==='x'?e.clientX-r.left-r.width/2:e.clientY-r.top-r.height/2,overlay=document.createElement('div');overlay.className='deck-resize-overlay';document.body.append(overlay);dividerResize={divider,pointer:e.pointerId,overlay,offset,point:{x:e.clientX,y:e.clientY}};setDividerCursor(divider.splitBounds.axis);divider.classList.add('is-resizing');document.body.dataset.deckResize=divider.splitBounds.axis;divider.setPointerCapture(e.pointerId)};divider.onpointermove=drag;
         divider.onpointerup=divider.onpointercancel=e=>{if(dividerResize?.divider===divider&&dividerResize.pointer===e.pointerId)finishDividerResize()};
         divider.onlostpointercapture=e=>{if(dividerResize?.divider===divider&&dividerResize.pointer===e.pointerId)finishDividerResize()};
         divider.ondblclick=()=>balance(50);

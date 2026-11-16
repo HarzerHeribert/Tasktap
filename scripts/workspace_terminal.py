@@ -263,6 +263,7 @@ class Service:
                     self.selector.modify(s['fd'], selectors.EVENT_READ | selectors.EVENT_WRITE, ('pty', key))
                 elif op == 'resize':
                     if s['running']:
+                        self.output(key,selectors.EVENT_READ) # Drain old-grid bytes before SIGWINCH redraws.
                         rows, cols = self.size(msg)
                         fcntl.ioctl(s['fd'], termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
                         s.update(rows=rows, cols=cols)
@@ -423,23 +424,50 @@ class Service:
 
 
 def bridge():
+    from terminal_replay import Replay
+    histories={};resizes={};counter=0;inbound=b'';outbound=b''
+    def history(key):
+        if key not in histories:histories[key]=Replay(ROOT/'Replay'/(ident(key)+'.json'))
+        return histories[key]
+    def event(message):
+        if message.get('event')=='sessions':message['resizeEvents']=True
+        key=message.get('id')
+        if message.get('event')=='replay':
+            record=history(key);record.reconcile(base64.b64decode(message['data']),message['cols'],message['rows'],message['seq'],message.get('session',{}).get('created'))
+            message['geometry']=record.sizes
+        elif message.get('event')=='output':history(key).append(base64.b64decode(message['data']),message['seq'])
+        resize=resizes.pop(message.get('request'),None)
+        if resize and message.get('event')!='error':
+            key,cols,rows=resize;history(key).resize(cols,rows)
+            message.update(event='resized',id=key,cols=cols,rows=rows)
+        sys.stdout.write(json.dumps(message)+'\n');sys.stdout.flush()
     with connect() as sock:
         sock.sendall(b'{"op":"watch"}\n')
         selector = selectors.DefaultSelector()
         selector.register(sock, selectors.EVENT_READ)
         selector.register(sys.stdin, selectors.EVENT_READ)
-        while True:
-            for key, _ in selector.select():
-                if key.fileobj is sock:
-                    chunk = sock.recv(65536)
-                    if not chunk:
-                        return
-                    sys.stdout.buffer.write(chunk);sys.stdout.buffer.flush()
-                else:
-                    chunk = os.read(sys.stdin.fileno(), 65536)
-                    if not chunk:
-                        return
-                    sock.sendall(chunk)
+        try:
+            while True:
+                for key, _ in selector.select():
+                    if key.fileobj is sock:
+                        chunk=sock.recv(65536)
+                        if not chunk:return
+                        inbound+=chunk
+                        while b'\n' in inbound:
+                            line,inbound=inbound.split(b'\n',1);event(json.loads(line))
+                    else:
+                        chunk=os.read(sys.stdin.fileno(),65536)
+                        if not chunk:return
+                        outbound+=chunk
+                        while b'\n' in outbound:
+                            line,outbound=outbound.split(b'\n',1);message=json.loads(line)
+                            if message.get('op')=='resize':
+                                counter+=1;tag='tasktap-resize:'+str(counter);message['request']=tag
+                                rows,cols=Service.size(message);resizes[tag]=(message['id'],cols,rows)
+                            sock.sendall(json.dumps(message).encode()+b'\n')
+                    if len(inbound)>LIMIT*2 or len(outbound)>LIMIT*2:return
+        finally:
+            for record in histories.values():record.save()
 
 
 if __name__ == '__main__':

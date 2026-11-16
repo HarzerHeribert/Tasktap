@@ -22,11 +22,20 @@ final class NotchWebView: WKWebView {
 }
 final class WorkspaceWindow: NSWindow {
     var closeCardOrWindow: () -> Void = {}
+    private(set) var dividerCursorAxis:String?
+    func setDividerCursor(_ axis:String?) {
+        let next=["x","y"].contains(axis ?? "") ? axis:nil,previous=dividerCursorAxis
+        dividerCursorAxis=next
+        if next=="x" {NSCursor.resizeLeftRight.set()}
+        else if next=="y" {NSCursor.resizeUpDown.set()}
+        else if previous != nil {NSCursor.arrow.set()}
+    }
     private var headerMouseDown:NSEvent?
     override func sendEvent(_ event:NSEvent) {
         if event.type == .leftMouseDown {headerMouseDown=event}
         if event.type == .leftMouseUp {headerMouseDown=nil}
         super.sendEvent(event)
+        if [.mouseMoved,.leftMouseDragged,.leftMouseDown,.leftMouseUp].contains(event.type),dividerCursorAxis != nil {setDividerCursor(dividerCursorAxis)}
     }
     func dragHeader() {
         guard let event=headerMouseDown,NSEvent.pressedMouseButtons & 1 != 0 else {return}
@@ -54,6 +63,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         window.titleVisibility = .hidden
         window.minSize=NSSize(width:560,height:400)
         window.isReleasedWhenClosed=false
+        window.acceptsMouseMovedEvents=true
         window.delegate=self
         window.center()
         if !verifying {window.setFrameAutosaveName("TasktapWorkspace")}
@@ -623,6 +633,9 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         switch type {
         case "application-menu-state":
             if message.webView === web {menuWorkspaceAvailable=data["workspace"] as? Bool == true}
+        case "workspace-cursor":
+            guard message.webView === web else{return}
+            workspace.setDividerCursor(data["axis"] as? String)
         case "workspace-drag":
             if message.webView === web,web.window === workspace {workspace.dragHeader()}
         case "shared-state":
@@ -1155,6 +1168,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             let restoredTab=try await web.callAsyncJavaScript("return !!document.querySelector('.deck-tab[data-id=\"terminal:'+id+'\"]') && document.querySelectorAll('#nav [data-surface]').length===0 && document.querySelectorAll('#nav .nav-workspace').length===1 && document.querySelectorAll('.deck-group .deck-pane-tools > button').length===8",arguments:["id":id],in:nil,contentWorld:.page)
             guard restoredTab as? Bool == true else {throw Check.failed(#line)}
             try await verifyTerminalViewport(folder:folder)
+            try await verifyDividerCursors(folder:folder)
             let file=folder.appendingPathComponent("Preview.txt")
             try "Native preview works. <script>Untrusted text stays text.</script>".write(to:file,atomically:true,encoding:.utf8)
             let media=workspaceMedia.register([file],persist:false)
@@ -1382,6 +1396,20 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         let same=try await web.evaluateJavaScript("independentTerminal===document.querySelector('.deck-terminal:not([hidden])')")
         guard workspace.isVisible,same as? Bool==true else {throw Check.failed(#line)}
         print("Independent windows passed: live PTY and DOM persist during notch use; shared notes merge; closing/reopening workspace preserves the notch draft and tabs.")
+    }
+    @MainActor private func verifyDividerCursors(folder:URL) async throws {
+        _ = try await web.callAsyncJavaScript("window.cursorVerification=JSON.parse(JSON.stringify(state.workspaceDeck.layouts[folder]));return true",arguments:["folder":folder.path],in:nil,contentWorld:.page)
+        for axis in ["x","y"] {
+            _ = try await web.callAsyncJavaScript("const l=state.workspaceDeck.layouts[folder];workspaceLayout.split(l,l.groups[0].id,axis,'cursor-'+axis);render();document.querySelector('.deck-divider[data-axis=\"'+axis+'\"]').dispatchEvent(new PointerEvent('pointerenter'));return true",arguments:["folder":folder.path,"axis":axis],in:nil,contentWorld:.page)
+            try await Task.sleep(nanoseconds:150_000_000)
+            let expected=axis=="x" ? NSCursor.resizeLeftRight:NSCursor.resizeUpDown
+            guard workspace.dividerCursorAxis==axis,let pixels=expected.image.tiffRepresentation,NSCursor.current.image.tiffRepresentation==pixels else {throw Check.failed(#line)}
+            _ = try await web.callAsyncJavaScript("document.querySelector('.deck-divider[data-axis=\"'+axis+'\"]').dispatchEvent(new PointerEvent('pointerleave'));return true",arguments:["axis":axis],in:nil,contentWorld:.page)
+            try await Task.sleep(nanoseconds:100_000_000)
+            guard workspace.dividerCursorAxis==nil else {throw Check.failed(#line)}
+        }
+        _ = try await web.callAsyncJavaScript("state.workspaceDeck.layouts[folder]=window.cursorVerification;delete window.cursorVerification;render();return true",arguments:["folder":folder.path],in:nil,contentWorld:.page)
+        print("Native divider cursors passed: DOM hover → AppKit horizontal/vertical cursor images, and release on leave.")
     }
     @MainActor private func verifyTerminalViewport(folder:URL) async throws {
         let id=UUID().uuidString.lowercased(),originalFrame=workspace.frame
@@ -1792,6 +1820,9 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     func windowDidChangeScreen(_ notification: Notification) {
         guard isWorkspace, let window = notification.object as? WorkspaceWindow, let screen = window.screen else { return }
         decisionRim.update(screen:screen, visible:pendingCount > 0)
+    }
+    func windowDidResignKey(_ notification:Notification) {
+        if notification.object as? WorkspaceWindow === workspace {workspace.setDividerCursor(nil)}
     }
     func windowShouldClose(_ sender:NSWindow)->Bool {
         if independentWindows,sender === workspace {workspace.orderOut(nil);if let screen=workspace.screen ?? anchorScreen ?? NSScreen.main {decisionRim.update(screen:screen,visible:false)};return false}

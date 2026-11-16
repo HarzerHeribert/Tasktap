@@ -121,3 +121,11 @@ body:not(.notch-first) #notch{
 .appearance-choice:has(input:focus-visible) .appearance-preview{outline:2px solid var(--app-accent);outline-offset:3px}
 .appearance-window{display:grid;gap:var(--s-row);border-block:1px solid var(--app-edge);padding:var(--s-panel) 0}
 @media(max-width:400px){.appearance-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* The handoff sheet uses a neutral palette; hierarchy comes from type and spacing. */
+#modal:has(#handoff-review){
+  --review-ink:#efefed;--review-paper:#090a0b;--review-rule:#3b3b3b;--review-hover:#222323;
+}
+[data-appearance-mode=light] body:not(.notch-first) #modal:has(#handoff-review){
+  --review-ink:#171717;--review-paper:#fafaf8;--review-rule:#c8c8c5;--review-hover:#e8e8e5;
+}

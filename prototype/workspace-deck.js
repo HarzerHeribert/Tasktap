@@ -38,7 +38,7 @@ const workspaceDeck=(()=>{
     if(live)postLive('workspace-chrome',{background:a.theme.background,followSystem:typeof appAppearance!=='undefined'&&appAppearance.current().id==='system',opacity:saved.preferences.translucent===false?1:inherited.opacity??neutral.opacity,blur:saved.preferences.blur!==false});
   }
   function appearanceLoaded(value){inherited=value;saved.appearance=value;persist();if(typeof appAppearance!=='undefined')appAppearance.receiveGhostty(value);applyAppearance();const note=$('#deck-appearance-source');if(note)note.textContent=appearanceDescription()}
-  function appearanceDescription(){const a=appearance();return a.source==='Ghostty'?'Ghostty typography · '+a.fontFamilies[0]+' · '+a.fontSize+' pt':a.note||'Using the default terminal font and cursor.'}
+  function appearanceDescription(){const a=appearance();return a.source==='Ghostty'?'Ghostty typography / '+a.fontFamilies[0]+' / '+a.fontSize+' pt':a.note||'Using the default terminal font and cursor.'}
   document.addEventListener('appearance-changed',applyAppearance);
   function report(id){const capture=byId(state.captures,id),session=sess(capture?.session||id);return {capture,session,text:capture?.result||session?.result||'No outcome has been reported yet.'}}
   function label(key){const id=termID(key);if(id)return sess(id)?sessionDisplayName(sess(id)):terminals.get(id)?.title||'Terminal';if(mediaID(key))return saved.media[mediaID(key)]?.title||'File';return report(key?.slice(7)).session?.task||'Result'}
@@ -312,11 +312,11 @@ const workspaceDeck=(()=>{
         controls.dataset.signature=controlKey;
         const documentMode=file&&(workspaceDocuments.kind(file)==='markdown'||file.kind==='web'&&file.path);
         const actions=(documentMode?button(file.sourceView?'Preview':'Source','deck-source',file.id,'deck-menu-item'):'')+(s?button('Follow up','follow',id,'deck-menu-item'):file?button('Ask agent','deck-ask',file.id,'deck-menu-item'):'')+(id?button('Find in terminal','deck-find',id,'deck-menu-item')+button('Session details','deck-details',id,'deck-menu-item'):file?.path?button('Show in Finder','deck-reveal',file.id,'deck-menu-item'):file?.url?button('Open in browser','deck-browser',file.id,'deck-menu-item'):'')+(file?button('Refresh preview','deck-refresh',g.active,'deck-menu-item'):'')+(file?.kind==='image'?button('Zoom image','deck-zoom',g.active,'deck-menu-item'):'')+(g.active&&l.groups.length>1?button('Move tab to…','deck-move',g.active,'deck-menu-item'):'');
-        controls.innerHTML=smallButton('New terminal','deck-terminal',p.id,'terminal')+smallButton('New browser','deck-url',p.id,'globe')+smallButton('Split right · ⌘D','deck-split-right',p.id,'splitRight')+smallButton('Split down · ⇧⌘D','deck-split-down',p.id,'splitDown')+menu('Tab actions','<div class="deck-menu-heading"></div>'+actions);
+        controls.innerHTML=smallButton('New terminal','deck-terminal',p.id,'terminal')+smallButton('New browser','deck-url',p.id,'globe')+smallButton('Split right / ⌘D','deck-split-right',p.id,'splitRight')+smallButton('Split down / ⇧⌘D','deck-split-down',p.id,'splitDown')+menu('Tab actions','<div class="deck-menu-heading"></div>'+actions);
         controls.querySelector('.deck-menu').classList.add('deck-tab-menu');
       }
-      const heading=$('.deck-menu-heading',controls);if(heading)heading.textContent=id?[providers[s?.agent]||'Shell',status(id)].join(' · '):file?.path||file?.url||(g.active?'Reported outcome':'Surface '+(index+1));
-      const tab=pane.querySelector('.deck-tab[aria-selected="true"]');if(tab)tab.title=label(g.active)+(id?' · '+status(id):'');
+      const heading=$('.deck-menu-heading',controls);if(heading)heading.textContent=id?[providers[s?.agent]||'Shell',status(id)].join(' / '):file?.path||file?.url||(g.active?'Reported outcome':'Surface '+(index+1));
+      const tab=pane.querySelector('.deck-tab[aria-selected="true"]');if(tab)tab.title=label(g.active)+(id?' / '+status(id):'');
       const q=state.decisions.find(q=>q.session===id);
       $('.deck-question',pane).innerHTML=q?'<div><strong>'+esc(q.q)+'</strong><span class="hint">'+esc(providers[s?.agent]||'Agent')+' needs your decision</span></div>'+button('Review decision','notch',q.id,'primary'):'';
       $('.deck-question',pane).hidden=!q;
@@ -341,7 +341,7 @@ const workspaceDeck=(()=>{
     persist();
   }
   function addFiles(project,files){const p=projectFor(project)||proj(project);if(!p)return;for(const file of files){file.project=p.id;saved.media[file.id]=file;open('media:'+file.id,p.id,false)}go(p.id);persist()}
-  function activity(){saved.activity.forEach(a=>a.read=true);persist();dialog('Activity','Across your projects',saved.activity.length?'<div class="deck-activity-list">'+saved.activity.map(a=>'<section class="notice"><span class="eyebrow">'+esc(a.kind==='failure'?'Needs attention':'Result ready')+' · '+esc(new Date(a.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}))+'</span><strong>'+esc(a.title)+'</strong><p>'+esc(resultPresentation.excerpt(a.body,48).text)+'</p>'+(a.kind==='failure'?button('Open session','deck-open',a.id,'text-btn','arrow'):button('View result','deck-result',a.capture||a.id,'text-btn','arrow'))+'</section>').join('')+'</div>':'<p class="empty">You’re all caught up. Decisions appear in Home; results and failures collect here.</p>');renderNav(listedProjects(activeSessions()))}
+  function activity(){saved.activity.forEach(a=>a.read=true);persist();dialog('Activity','Across your projects',saved.activity.length?'<div class="deck-activity-list">'+saved.activity.map(a=>'<section class="notice"><span class="eyebrow">'+esc(a.kind==='failure'?'Needs attention':'Result ready')+' / '+esc(new Date(a.time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}))+'</span><strong>'+esc(a.title)+'</strong><p>'+esc(resultPresentation.excerpt(a.body,48).text)+'</p>'+(a.kind==='failure'?button('Open session','deck-open',a.id,'text-btn','arrow'):button('View result','deck-result',a.capture||a.id,'text-btn','arrow'))+'</section>').join('')+'</div>':'<p class="empty">You’re all caught up. Decisions appear in Home; results and failures collect here.</p>');renderNav(listedProjects(activeSessions()))}
   function details(id){const t=terminals.get(id),s=sess(id);if(!t){showSession(id);return}dialog(s?sessionDisplayName(s):t.title,'Session details','<p class="hint">'+esc(t.cwd)+'</p><p>'+esc(status(id))+'</p><div class="inline">'+(s?button('Conversation details','deck-conversation',id,'btn'): '')+(t.running?button('Stop session…','deck-stop',id,'btn','stop'):'')+'</div><p class="hint">Close a view to make room. Stop a session only when you want its process to end.</p>')}
   function preferences(){
     dialog('Terminal preferences','Workspace','<form id="deck-preferences" class="stack"><label class="check-line"><input type="checkbox" id="deck-follow" '+(saved.preferences.followGhostty!==false?'checked':'')+'>Use Ghostty font and cursor</label><p class="hint" id="deck-appearance-source">'+esc(appearanceDescription())+'</p>'+button('Reload Ghostty settings','deck-reload','','text-btn')+'<label class="field">Shell<select id="deck-shell">'+[['default','Login shell'],['zsh','zsh'],['bash','bash'],['fish','fish']].map(([id,name])=>option(id,name,saved.preferences.shell)).join('')+'</select></label><label class="field">Text size<select id="deck-font">'+option('auto','From appearance',saved.preferences.font?String(saved.preferences.font):'auto')+[12,13,14,16,18,20].map(n=>option(String(n),String(n)+' pt',String(saved.preferences.font))).join('')+'</select></label><p class="hint">Colors, translucency, and blur follow the app Appearance preferences. Your shell loads its usual prompt and plugins. Ghostty can supply installed fonts, cursor, and padding; its keybindings and shaders are not imported.</p><button class="primary" type="submit">Save preferences</button></form>');
@@ -381,7 +381,7 @@ const workspaceDeck=(()=>{
     else if(a==='deck-close-workspace')closeWorkspace(id);
     else if(a==='deck-move'){
       const l=layout(activeProject),from=l.groups.find(g=>g.tabs.includes(id));
-      dialog('Move tab','Choose a surface','<div class="stack">'+l.groups.map((g,i)=>g===from?'':button('Surface '+(i+1)+' · '+(g.active?label(g.active):'Empty surface'),'deck-move-to',g.id,'note','side')).join('')+'</div>');
+      dialog('Move tab','Choose a surface','<div class="stack">'+l.groups.map((g,i)=>g===from?'':button('Surface '+(i+1)+' / '+(g.active?label(g.active):'Empty surface'),'deck-move-to',g.id,'note','side')).join('')+'</div>');
       $('#modal').dataset.moveSurface=id;
     }
     else if(a==='deck-move-to'){
@@ -440,7 +440,7 @@ const workspaceDeck=(()=>{
     }
   }
   function textLoaded(id,text){const node=previews.get('media:'+id),file=saved.media[id];if(node&&file){node.previewText=text;paintDocument(node,file)}}
-  function shellHistory(filter=''){const rows=[...terminals.values()].filter(t=>t.kind==='shell'&&[t.title,t.cwd].join(' ').toLowerCase().includes(filter.toLowerCase()));return rows.length?'<section class="block"><h2>Terminals</h2>'+rows.map(t=>button(t.title+' · '+(t.running?'Running':t.restored?'Not running':t.stopped?'Stopped':'Exited')+' · '+t.cwd,'deck-open',t.id,'note','sessions')).join('')+'</section>':''}
+  function shellHistory(filter=''){const rows=[...terminals.values()].filter(t=>t.kind==='shell'&&[t.title,t.cwd].join(' ').toLowerCase().includes(filter.toLowerCase()));return rows.length?'<section class="block"><h2>Terminals</h2>'+rows.map(t=>button(t.title+' / '+(t.running?'Running':t.restored?'Not running':t.stopped?'Stopped':'Exited')+' / '+t.cwd,'deck-open',t.id,'note','sessions')).join('')+'</section>':''}
   function openResult(id){const result=report(id);if(result.session){for(const item of saved.activity)if(item.capture===id||!item.capture&&item.id===id)item.read=true;dismissCard();open('result:'+id,result.session.project)}}
   // Restore an explicit layout without automatically starting any process.
   function sidebarData(){return {layouts:saved.layouts,terminals:[...terminals.values()],label,icon:surfaceIcon}}

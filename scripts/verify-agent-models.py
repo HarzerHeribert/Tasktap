@@ -8,6 +8,7 @@ import uuid
 from session_models import conversation_model, last_transcript_model
 from pathlib import Path
 from unittest.mock import patch
+from types import SimpleNamespace
 import agy_session
 
 from visible_session import cli_command
@@ -86,6 +87,26 @@ proc=Process()
 with patch.object(agy_session.subprocess,'Popen',return_value=proc):
     agy_session.run('/agy',base,'same',dict(command='/tools',args=[]),'follow up',lambda *_:None,'different')
 assert [m['method'] for m in proc.sent]==['initialize','session/load','session/prompt']
+# A conversational reply is not one of ACP's permission options. It must cancel
+# the operation cleanly, while an explicit matching choice still works.
+class PermissionPipe(Pipe):
+    def write(self, text):
+        message=json.loads(text)
+        if 'method' not in message:
+            self.proc.sent.append(message)
+            return
+        if message['method']=='session/prompt':
+            self.proc.events.append(json.dumps(dict(id=90,method='session/request_permission',params=dict(options=[
+                dict(name='Allow once',kind='allow_once',optionId='allow'),
+                dict(name='Reject',kind='reject_once',optionId='reject')
+            ])))+'\n')
+        super().write(text)
+for answer, expected in [('Why is this needed?', {'outcome':'cancelled'}), ('Allow once', {'outcome':'selected','optionId':'allow'})]:
+    proc=Process();proc.stdin=PermissionPipe(proc)
+    reply=SimpleNamespace(returncode=0,stdout=json.dumps(dict(answer=answer)))
+    with patch.object(agy_session.subprocess,'Popen',return_value=proc), patch.object(agy_session.subprocess,'run',return_value=reply):
+        agy_session.run('/agy',base,'same',dict(command='/tools',args=[]),'follow up',lambda *_:None)
+    assert next(m['result']['outcome'] for m in proc.sent if m['id']==90)==expected
 with tempfile.TemporaryDirectory() as folder:
     root=Path(folder)
     session=str(uuid.uuid4())

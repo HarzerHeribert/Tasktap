@@ -75,7 +75,7 @@ private final class LocalSpeechRequests:NSObject,URLSessionTaskDelegate {
     var changed:(String)->Void={_ in}
     override init(){super.init();synth.delegate=self}
     var voices:[[String:String]]{
-        AVSpeechSynthesisVoice.speechVoices().filter{$0.identifier.lowercased().hasPrefix("com.apple.siri.")}.map{["id":$0.identifier,"name":"Siri · "+$0.name+" · "+$0.language]}
+        AVSpeechSynthesisVoice.speechVoices().filter{$0.identifier.lowercased().hasPrefix("com.apple.siri.")}.map{["id":$0.identifier,"name":"Siri / "+$0.name+" / "+$0.language]}
     }
     func stop(){generation=UUID();if let p=synthesis,p.isRunning {p.terminate()};synthesis=nil;task?.cancel();task=nil;player?.stop();player=nil;synth.stopSpeaking(at:.immediate);changed("idle")}
     func speak(_ text:String,voice:String){

@@ -4,9 +4,9 @@ The resident Mac app is built by running `./scripts/build-mac.sh`. Open the resu
 
 ## Direct Micro control
 
-In the Mac menu choose **Codex Micro Controls → Use Micro decision keys and lights**. On an open binary question the app lights Agent Key 1 green for Yes and Agent Key 2 red for No. Agent Key 3 opens discussion. The app talks to the vendor HID interface through IOKit. It clears the pair when the question closes, and reapplies the current state after reconnect. Leave the switch off to use the Mac alone. Input access or another app using the device can affect the hardware connection; its status appears beneath the switch. The Mac keeps queuing and answering questions throughout. The direct implementation follows published device measurements on firmware 0.4.1 and 0.6.1. [Protocol measurements](https://github.com/thannous/claude-codex-micro/blob/main/docs/research/hid-lighting-protocol.md)
+In the Mac menu choose **Codex Micro Controls → Use Micro decision keys and lights**. On an open binary question the app lights Agent Key 1 green for Yes and Agent Key 2 red for No. Agent Key 3 opens Reply. The app talks to the vendor HID interface through IOKit. It clears the pair when the question closes, and reapplies the current state after reconnect. Leave the switch off to use the Mac alone. Input access or another app using the device can affect the hardware connection; its status appears beneath the switch. The Mac keeps queuing and answering questions throughout. The direct implementation follows published device measurements on firmware 0.4.1 and 0.6.1. [Protocol measurements](https://github.com/thannous/claude-codex-micro/blob/main/docs/research/hid-lighting-protocol.md)
 
-The ordinary keyboard shortcuts below also work without a Micro. You may map the six navigation shortcuts to an extra controller layer. Map Capture as a held chord that sends key-down on press and key-up on release. Dedicated Yes, No and Talk use the three Agent Keys directly when hardware control is enabled. Avoid assigning a second action to those same keys in another active controller integration. [Work Louder setup](https://www.worklouder.cc/setup/codex-micro)
+The ordinary keyboard shortcuts below also work without a Micro. You may map the six navigation shortcuts to an extra controller layer. Map Capture as a held chord that sends key-down on press and key-up on release. Dedicated Yes, No and Reply actions use the three Agent Keys directly when hardware control is enabled. Avoid assigning a second action to those same keys in another active controller integration. [Work Louder setup](https://www.worklouder.cc/setup/codex-micro)
 
 | Control | Global shortcut | Effect |
 | --- | --- | --- |
@@ -14,17 +14,17 @@ The ordinary keyboard shortcuts below also work without a Micro. You may map the
 | Open pending | Control + Option + J | Reveal the first pending question. |
 | Previous | Control + Option + K | Highlight the previous visible answer or routing target. |
 | Next | Control + Option + L | Highlight the next visible answer or routing target. |
-| Confirm | Control + Option + Return | Submit the highlighted choice, or send the follow-up while discussing. |
+| Confirm | Control + Option + Return | Submit the highlighted choice, or send the text in Reply. |
 | Defer / back | Control + Option + Escape | Dismiss the current card. A pending agent question remains in the queue. |
-| Agent Key 1 · Yes | Control + Option + Y | Answer the open yes/no question. |
-| Agent Key 2 · No | Control + Option + N | Answer the open yes/no question. |
-| Agent Key 3 · Talk | Control + Option + T | Focus the discussion field. Type or use macOS Dictation, then send. Back returns to the unanswered card. |
+| Agent Key 1 / Yes | Control + Option + Y | Answer the open yes/no question. |
+| Agent Key 2 / No | Control + Option + N | Answer the open yes/no question. |
+| Agent Key 3 / Reply | Control + Option + T | Focus Reply. Type or hold the microphone control to speak, then send. The same agent interprets the reply. Back returns to the unanswered card. |
 
 The native app registers the six navigation shortcuts while running and registers Y, N and T only while the binary answers are visible. Close the app to release them. A registration conflict appears in its status menu. In the browser, chords work only while the page is active. **Codex Micro controls → Try decision controls** provides on-screen buttons for a rehearsal. VoiceOver, keyboard utilities and existing shortcuts can consume a chord even if registration succeeds.
 
 ## Narration
 
-**Preferences → Voice & alerts → Narration voice** lists locally exposed Siri voices by language. Completion narration is opt-in. The local alternative is **Kokoro · Heart** for English. Choose **Set up Kokoro** to install the local voice (121 MB of model and voices plus the Python runtime). Setup uses uv or Python 3.10–3.12. Select **Local Kokoro · Heart** and **Preview voice** to test playback. The installed voice runs offline on demand. If you already run Kokoro-FastAPI on port 8880, Tasktap can use it without installing the model. The browser preview lists local Siri voices when available. [Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx)
+**Preferences → Voice & alerts → Narration voice** lists locally exposed Siri voices by language. Completion narration is opt-in. The local alternative is **Kokoro / Heart** for English. Choose **Set up Kokoro** to install the local voice (121 MB of model and voices plus the Python runtime). Setup uses uv or Python 3.10–3.12. Select **Local Kokoro / Heart** and **Preview voice** to test playback. The installed voice runs offline on demand. If you already run Kokoro-FastAPI on port 8880, Tasktap can use it without installing the model. The browser preview lists local Siri voices when available. [Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx)
 
 ## System notifications
 

@@ -18,7 +18,7 @@ const path=require('node:path');
   assert.equal(await row.count(),1);
   assert.ok(!(await row.innerText()).includes('Original amber request'));
   await row.click();
-  await page.getByText('Past names · 2',{exact:true}).click();
+  await page.getByText('Past names / 2',{exact:true}).click();
   assert.match(await page.locator('[data-name-history]').innerText(),/Original amber request/);
   assert.match(await page.locator('[data-name-history]').innerText(),/Testing signed downloads/);
   await page.reload();await page.evaluate(()=>go('sessions'));

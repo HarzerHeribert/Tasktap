@@ -51,7 +51,7 @@ const setupWizard = (() => {
     const field=$('#setup-voice');
     if(!showing() || !field)return;
     const available=[...siriVoices];
-    if(kokoro.status==='ready')available.push({id:'kokoro',name:'Kokoro · Heart'});
+    if(kokoro.status==='ready')available.push({id:'kokoro',name:'Kokoro / Heart'});
     const selected=draft.summaryVoice ?? (state.speak?(state.voiceEngine ?? siriVoices[0]?.id ?? ''):'');
     const focused=document.activeElement===field;
     if(field.getAttribute('aria-expanded')==='true')settingsPickers.close();

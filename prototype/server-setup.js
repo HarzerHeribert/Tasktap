@@ -52,7 +52,7 @@ const serverSetup = (() => {
     const isSame=()=>url.value.trim().replace(/\/+$/,'')===(profile.url||'').replace(/\/+$/,'');
     function target() {
       const place=locationOf(url.value.trim());
-      $('#server-place').textContent=place?place.label+(place.http&&!place.loop?' · Unencrypted HTTP':''):'';
+      $('#server-place').textContent=place?place.label+(place.http&&!place.loop?' / Unencrypted HTTP':''):'';
       $('#server-stored').hidden=profile.hasKey!=='yes' || !isSame();
       key.placeholder=!$('#server-stored').hidden && saved.checked?'Saved in Mac Keychain':'Leave blank for no authentication';
     }
@@ -70,7 +70,7 @@ const serverSetup = (() => {
     function selectModel(list,value='',typed=false) {
       const manual=typed || !list.length;
       root.dataset.phase='model';$('#server-endpoint').hidden=true;$('#server-models').hidden=false;if(submit)submit.hidden=false;
-      $('#server-target-name').textContent=name(kind)+' · '+(locationOf(url.value)?.label || 'Network server');
+      $('#server-target-name').textContent=name(kind)+' / '+(locationOf(url.value)?.label || 'Network server');
       $('#server-target-url').textContent=url.value.trim();
       const known=list.includes(value)?value:list[0];
       if (manual) modelArea.innerHTML=settingsField('ai-model','Chat model ID','<input id="ai-model" required autocomplete="off" spellcheck="false" placeholder="Exact model name or proxy alias" value="'+attr(value)+'">');

@@ -1,6 +1,6 @@
 # Questions from an agent
 
-The Mac app receives questions in the background and keeps keyboard focus in the foreground app. It shows the originating workspace and session when the person reviews the card. Follow-ups keep the decision pending. A final answer belongs to the same request even if several agents ask at once.
+The Mac app receives questions in the background and keeps keyboard focus in the foreground app. It shows the originating workspace and session when the person reviews the card. A choice or freeform reply belongs to the same request even if several agents ask at once. The agent interprets freeform replies in the conversation’s context.
 
 ## Connecting a session
 
@@ -17,7 +17,7 @@ Tasktap registers the question tool when it opens an interactive Claude Code or 
 }
 ```
 
-The agent calls **ask_user** when it actually needs input. It supplies a stable request ID, the question, optional context and optional choices. Omitting choices yields Yes, No and Talk it through. A discussion returns the user's words and a cursor. The agent can address the follow-up, then wait again using the same request and the returned cursor. An `answer` result is the final decision. This integration forwards prompts that use the tool. Permission prompts remain in the interactive agent. Tasktap also registers **report_result** for its own handoffs. The agent supplies the receipt ID from the prompt and its final summary, which the app can show and narrate.
+The agent calls **ask_user** when it actually needs input. It supplies a stable request ID, the question, optional context and optional choices. Omitting choices yields Yes, No and one **Reply** entry point. Reply accepts typing or speech without asking the person to classify their intent. It returns an `answer` event with `answerKind: "freeform"` and their original words; selecting a button returns `answerKind: "choice"`. The agent interprets a freeform reply as an answer, question or constraint, and asks a new question with a new request ID if needed. A freeform reply is not blanket authorization. Legacy `discussion` events remain supported with their cursor and leave the old question pending. This integration forwards prompts that use the tool. Permission prompts remain in the interactive agent. Tasktap also registers **report_result** for its own handoffs. The agent supplies the receipt ID from the prompt and its final summary, which the app can show and narrate.
 
 ## Scripted adapters
 

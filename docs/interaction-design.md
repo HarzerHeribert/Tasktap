@@ -26,7 +26,7 @@ Workspace window
 
 Resident notch / top-edge panel
 ├── Capture → type / hold to dictate / sketch / review
-├── Pending decision → question, project, choices, discussion
+├── Pending decision → question, project, choices, Reply
 ├── Handoff receipt → observed delivery state / original conversation
 └── Open workspace
 
@@ -73,15 +73,15 @@ Capture
 │   └── Preparation progress / Review now / cancel; late output is ignored
 ├── Ambiguous destination → explicit project or conversation choice
 └── Review
-    ├── Task → instruction / Edit task / optional separate note
-    ├── Destination → workspace / agent · host · model / conversation
-    ├── Context → exact reference / provenance / freshness / sketch
+    ├── Your request → instruction / Edit task / optional separate note
+    ├── Destination → workspace / agent / host / model / conversation
+    ├── Reference → exact reference / provenance / freshness / sketch
     ├── Consequential notices → trust / concurrent work / processing / missing capability
     └── Stable footer → manual-paste or failure explanation / one confirm action
         └── Diagnostics → redacted effective payload, instructions, routing, IDs, copy/export
 ```
 
-Workspace review gives the task room beside destination and context. Compact review stacks the same facts. Reading prose remains 16px; long text wraps and scrolls without pushing required controls out of reach. Raw Git guidance, worker protocol text, peer JSON and receipt IDs stay in Diagnostics while remaining in the actual outgoing request.
+Workspace review gives the request room beside its destination and reference. Compact review stacks the same facts, and the native notch widens for review within the display’s usable bounds. Flat sections use icons and accessible pencil buttons; short destination values stay on one line. Reading prose remains 16px; long requests wrap and scroll without pushing required controls out of reach. Raw Git guidance, worker protocol text, peer JSON and receipt IDs stay in Diagnostics while remaining in the actual outgoing request.
 
 **Edit task**, **Change destination**, and **Edit context** each open a focused editor. Changing one preserves the other choices. Async quota updates must not erase an open editor. Unavailable destinations cannot launch work. Submitting locks mutation and duplicate confirmation; a failure restores editing, preserves the draft, and keeps its explanation beside retry. Changing a failed new session into a follow-up clears the cached delivery target before addressing the selected conversation.
 
@@ -97,7 +97,7 @@ Concurrent work is shown as a short consequence plus **View active work**. New w
 
 ## Decisions and reported results
 
-A question carries its request and session identity through the pane, notch, keyboard, Micro and notification. Closing defers; discussion stays attached; answering settles only the displayed request. An expired or duplicate event cannot act on the next question.
+A question carries its request and session identity through the pane, notch, keyboard, Micro and notification. Choose an offered answer or use one **Reply** entry point for typing and speech. Sending either settles only the displayed request. Freeform words go unchanged to the same agent, which interprets their intent and can ask a new question with a new request ID. Closing without sending leaves the request pending and preserves the reply draft. Legacy discussion events remain supported by the adapter protocol. An expired or duplicate event cannot act on the next question.
 
 Passive notch hover does not take keyboard focus or interrupt a drag. Deliberate click or shortcut can pin/focus the panel. Geometry follows the active display’s camera exclusion; a display without a camera uses a top-edge panel. The last settled question clears the attention rim.
 

@@ -1,10 +1,10 @@
 <img src="site/assets/tasktap-icon.png" width="112" height="112" alt="Tasktap: a metallic voice wave on a dark square">
 
-# Tasktap 1.0
+# Tasktap 1.0.2
 
-A Mac workspace for coding agents, terminals, and the things you make. Keep a terminal beside a document or preview, split the space as you work, and use the notch to capture a thought or answer an agent from another app.
+A Mac workspace that turns a thought into a reviewed task in the right project and conversation. Speak or type, refine the prompt, then work with your coding agents in Tasktap’s embedded terminal multiplexer. Keep sessions, documents and previews together, and answer an agent from the notch while using another app.
 
-[Get Tasktap for Mac](https://github.com/HarzerHeribert/Tasktap/releases/latest) · [Product page](https://harzerheribert.github.io/Tasktap/) · [User guide](https://harzerheribert.github.io/Tasktap/docs/)
+[Get Tasktap for Mac](https://github.com/HarzerHeribert/Tasktap/releases/latest) / [Product page](https://harzerheribert.github.io/Tasktap/) / [User guide](https://harzerheribert.github.io/Tasktap/docs/)
 
 - **Work inside Tasktap.** Real terminal sessions, tabs, nested splits in either direction, and a shared sidebar containing the surfaces you choose to open.
 - **Bring the output alongside it.** Render Markdown, local HTML, images, PDFs, text, audio, video, and web previews in the same workspace.
@@ -15,11 +15,17 @@ A Mac workspace for coding agents, terminals, and the things you make. Keep a te
 
 The prebuilt community release requires **macOS 26 or later on Apple silicon**. Agent sessions also require **Python 3** and an installed, signed-in agent CLI. Local notes work without an agent. Xcode is needed only to build from source.
 
-Download the ZIP from [GitHub Releases](https://github.com/HarzerHeribert/Tasktap/releases/latest), unzip it, and move **Tasktap.app** to **Applications**. Community builds are locally signed and **not Apple notarized**; macOS may require **System Settings → Privacy & Security → Open Anyway** for the first launch. **Check for Updates…** uses Sparkle’s signed update archives. See [release and update instructions](docs/releases.md).
+**Recommended: install with Terminal.** Copy and paste this command. The installer checks the download, chooses the installation folder, and backs up an existing copy.
+
+```sh
+curl -fL --proto '=https' --tlsv1.2 https://harzerheribert.github.io/Tasktap/install.sh -o tasktap-install.sh && bash tasktap-install.sh
+```
+
+[Read the installer](site/install.sh), or download the ZIP from [GitHub Releases](https://github.com/HarzerHeribert/Tasktap/releases/latest), unzip it, and move **Tasktap.app** to **Applications**. Community builds are locally signed and **not Apple notarized**; macOS may require **System Settings → Privacy & Security → Open Anyway** for the first launch. From 1.0.2 onward, automatic checks show an **Update available** badge above Preferences and an arrow in the menu bar. Click to review and confirm the signed update, then install and relaunch. Disable automatic checks in Preferences if desired; **Check for Updates…** remains available. Earlier versions need that manual check or the installer to receive 1.0.2. See [release and update instructions](docs/releases.md).
 
 1. Open Tasktap and complete setup, or choose **Set up later**. Your request-preparation connection and the agent doing project work are separate choices.
 2. Use **+** beside **Workspaces** to open a folder or create a workspace. Set the location for new folders under **Preferences → Workspaces**; the initial default is `~/projects`.
-3. Choose **New task**, type what you want, and review **Task**, **Destination**, and **Context**. **Start session** opens the agent in that workspace. Use **New terminal** for an ordinary shell.
+3. Choose **New task**, type what you want, and review **Your request**, **Destination**, and **Reference**. **Start session** opens the agent in that workspace. Use **New terminal** for an ordinary shell.
 
 Tasktap appears in the Dock and menu bar. Closing its workspace window leaves the notch available. Reopen the workspace from the Dock or menu bar; enable **Launch at Login** there if desired.
 
@@ -59,9 +65,9 @@ Local HTML runs in an isolated frame without Tasktap’s native command bridge; 
 
 Tap **Control + Option + Space** to type from any app. Hold it to dictate and release to stop. Type, speak, or add a sketch, then press **⌘ Return** to review. Microphone and speech permissions are requested when needed.
 
-- **Task** contains the instruction. **Edit task** changes the wording without resetting the destination.
+- **Your request** contains the instruction. Its pencil button, **Edit task**, changes the wording without resetting the destination. Request preparation may suggest clearer wording; choose **Review suggested wording → Use this wording → Save task** to accept it, or keep your original request.
 - **Destination** identifies the workspace, agent, host, model, and whether this is a new or existing conversation. **Change destination** edits those choices.
-- **Context** shows an attached path, URL, or sketch. Source references are frozen when capture begins. **Refresh source** deliberately reads the current source; unavailable access offers manual entry.
+- **Reference** shows an attached path, URL, or sketch. Its pencil button opens **Edit context**. Source references are frozen when capture begins. **Refresh source** deliberately reads the current source; unavailable access offers manual entry.
 - Consequential notices explain folder trust, concurrent work, remote preparation, manual paste, or failure. One footer contains the confirmation action. Submission locks editing until a response arrives; a failed handoff preserves the draft.
 
 **Diagnostics** separately exposes effective instructions, routing evidence, payloads, and receipt IDs. Copy and JSON export exclude connection secrets and redact recognizable credentials in text.
@@ -83,6 +89,8 @@ A fresh Codex handoff offers an exact-folder trust choice. Project settings can 
 ## Decisions, results, and notifications
 
 Tasktap-managed Claude Code and Codex sessions can use session-scoped question and result tools. A pane, the notch, and a notification all address the same request. Closing a decision defers it; answering one cannot answer a later request. Ordinary terminal output does not generate alerts, and a successful process exit is not treated as task completion.
+
+Choose a displayed answer or use **Reply** to type or dictate. **Send reply** returns your words to that agent, which interprets whether you answered, asked a question, or added a constraint. Both choices and freeform replies settle the displayed request; the agent can ask a new question if it needs clarification. A freeform reply is not blanket authorization.
 
 **Home** and **Activity** show reported results and failures. Session details show a labeled excerpt; **Read full report** preserves the complete report. **Export summary** exports the report document, not an inferred generated file. Copy, narration, export, and older Activity entries retain the selected receipt’s result.
 
@@ -126,7 +134,7 @@ python3 scripts/build-site.py
 
 The [browser preview](prototype/index.html) uses fictional data. Native `--verify-interface` and `--verify-workspace` checks exercise actual Mac UI/PTY behavior with fixtures; they do not prove provider delivery, notification display, or speech with real accounts. `--verify-live` uses an authenticated Codex CLI and consumes a real turn. See the [implementation and QA plan](docs/implementation-gap-plan.md) for completed evidence and remaining work.
 
-[Requirements](docs/requirements.md) · [Interaction design](docs/interaction-design.md) · [Workspace architecture and verification](docs/integrated-workspaces.md) · [Agent question protocol](docs/agent-questions.md) · [Release maintenance](docs/releases.md)
+[Requirements](docs/requirements.md) / [Interaction design](docs/interaction-design.md) / [Workspace architecture and verification](docs/integrated-workspaces.md) / [Agent question protocol](docs/agent-questions.md) / [Release maintenance](docs/releases.md)
 
 The public site lives in `site/`; `scripts/build-site.py` assembles it into `build/pages/`. Pull requests and main pushes run the applicable browser, native, and site checks. App changes must update the published guide when behavior changes.
 

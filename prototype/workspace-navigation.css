@@ -70,3 +70,10 @@
  .nav-external-copy{flex-basis:calc(100% - 32px)}
  .nav-external-actions{padding-left:var(--s-section);flex-wrap:wrap}
 }
+
+/* A quiet update reminder stays with Preferences, outside workspace content. */
+.workspace-navigation #sidebar .update-badge{color:var(--deck-fg);border:1px solid var(--deck-edge);border-radius:var(--r-xs);min-height:34px}
+.update-badge[hidden]{display:none}
+.update-badge svg{transform:rotate(-90deg)}
+.update-preference{margin-top:var(--s-section)}
+.update-help{margin-top:var(--s-small)}

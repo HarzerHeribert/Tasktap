@@ -9,7 +9,7 @@ commit it or put it on Pages. Losing it can strand community installations.
 Prepare on an Apple silicon Mac with the macOS 26 SDK:
 
 ```sh
-bash scripts/package-release.sh 1.0.1 8
+bash scripts/package-release.sh 1.0.2 9
 ```
 
 Packaging verifies the archive checksum, bundled code signature, feed metadata,
@@ -17,18 +17,18 @@ and Ed25519 signature using the public key in the app. It also checks that
 modified or truncated archives fail signature verification. To repeat:
 
 ```sh
-python3 scripts/verify-release.py build/releases/1.0.1
+python3 scripts/verify-release.py build/releases/1.0.2
 ```
 
 The build number must increase for every published update. Publish the generated
-ZIP, SHA256SUMS and appcast.xml as assets of GitHub release `v1.0.1`, then copy its appcast.xml
+ZIP, SHA256SUMS and appcast.xml as assets of GitHub release `v1.0.2`, then copy its appcast.xml
 to `site/appcast.xml` and deploy Pages through the existing workflow. Publish
 assets first; do not advertise a missing download. Keep old release assets.
 No release is published by the packaging command. GitHub credentials and the
 update private key are not required for ordinary builds or verification CI.
 
 The optional `site/install.sh` downloads the latest stable release when called without
-an argument, or accepts an explicit version such as `1.0.1`. It installs into
+an argument, or accepts an explicit version such as `1.0.2`. It installs into
 `~/Applications`, or replaces an existing copy in `/Applications` when writable.
 It verifies transport checksums and the bundle, preserves a previous installation,
 and does not alter Gatekeeper. Checksums are integrity checks, not an independent
@@ -44,6 +44,42 @@ Helpers are copied into content-addressed Application Support/Tasktap/Helpers
 folders. Do not delete these while agents are running. Settings and session data
 are separate from the app. Updates preserve request text; unfinished setup and
 other transient UI selections should be completed before updating.
+
+## 1.0.2 release scope
+
+Version 1.0.2 uses build **9**. It adds flat request review, a wider compact
+review, a single typed/spoken Reply action, and automatic update reminders.
+The product page explains preparation and routing alongside the embedded
+terminal workspace, using a high-resolution native capture of actual agents.
+
+Sparkle starts when the normal app interface is ready. Automatic checks are on
+by default on its daily schedule, respecting an existing saved preference.
+Scheduled availability shows a sidebar badge and menu-bar arrow without opening
+an update window. Clicking opens Sparkle's standard confirmation and signed
+installation flow. Silent installation remains disabled. A pending restart is
+blocked during recording, setup, review edits or submission and can be confirmed later from
+the badge. Previous app versions need a manual check or installer to get 1.0.2.
+
+Release notes: [releases/1.0.2.md](releases/1.0.2.md).
+
+### Verification record
+
+On November 16, 2026, the app browser suites and responsive product-page/guide
+checks passed, including the new reminder, automatic-check preference, reply
+handling and review layout. Session, routing, provider, PTY, installer, update
+recovery and five standalone Swift fixtures passed. Both native interface and
+workspace checks passed against the packaged 1.0.2/build 9 app.
+
+The archive passed checksums, full bundled-resource matching, architecture,
+code signing and Ed25519 verification; altered and truncated archives were
+rejected. The installer replaced an untouched published 1.0.1 app with 1.0.2 in
+an isolated Applications folder and preserved its backup. The installed 1.0.2
+app showed its enabled automatic-check setting, and its manual Sparkle check
+successfully read the public feed. The update badge and deferred-restart state
+were exercised with browser bridge fixtures. Fresh-Mac permissions and the full
+Sparkle download/install/relaunch sequence remain unverified for 1.0.2; the
+native fixtures do not establish a complete live-provider round trip.
+
 
 ## 1.0.1 release scope
 

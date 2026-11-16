@@ -63,7 +63,7 @@ const path=require('node:path');
   await page.locator('#nav [data-action="workspace-other-apps"]').click();
   await page.getByLabel('Search sessions or apps',{exact:true}).fill('Historical conversation 23');
   assert.equal(await page.locator('.nav-external-row').count(),1);
-  assert.match(await page.locator('.nav-external-row').innerText(),/cmux · Tasktap project/);
+  assert.match(await page.locator('.nav-external-row').innerText(),/cmux \/ Tasktap project/);
   await page.getByRole('button',{name:'Open in cmux',exact:true}).click();
   assert.deepEqual(await page.evaluate(()=>messages.at(-1)),{type:'focus-session',id:'external-23'});
   assert.equal(await page.evaluate(()=>messages.some(m=>['reopen-session','enqueue'].includes(m.type))),false,'Other apps never resumes or creates work');

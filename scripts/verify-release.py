@@ -27,6 +27,8 @@ with tempfile.TemporaryDirectory() as tmp:
     assert info['CFBundleShortVersionString'] == item.find('sparkle:shortVersionString', ns).text
     assert info['SUVerifyUpdateBeforeExtraction'] is True
     assert info['SUAllowsAutomaticUpdates'] is False
+    assert info['SUEnableAutomaticChecks'] is True
+    assert info['SUScheduledCheckInterval'] == 86400
     assert enc.attrib['url'].startswith('https://github.com/HarzerHeribert/Tasktap/releases/download/v'+info['CFBundleShortVersionString']+'/')
     resources = app/'Contents/Resources'
     for source in (root/'prototype').rglob('*'):

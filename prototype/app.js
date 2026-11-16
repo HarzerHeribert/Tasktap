@@ -41,7 +41,7 @@ let state;
 try{state=JSON.parse(localStorage.getItem(storageKey))}catch{}
 const returningInstall=!!state;
 state ||= live?emptyState():structuredClone(seed);
-let view='overview',draft=null,openedSession=null,decisionVoice=false,spoken=false,simVoice=null,returnFocus=null;
+let view='overview',draft=null,openedSession=null,spoken=false,simVoice=null,returnFocus=null;
 const persist=()=>{try{localStorage.setItem(storageKey,JSON.stringify(state))}catch{toast('Storage unavailable. Changes will last for this visit.')}};
 const scratchProject={id:'@scratch',name:'Scratch',folder:'Scratch',aliases:[]};
 const proj=id=>id==='@scratch'?scratchProject:state.projects.find(p=>p.id===id);
@@ -69,8 +69,8 @@ function projectPeers(project,ownId){
 function peerDisclosure(peers,project,links=false){
   if(!peers.length)return '';
   const rows=peers.map(s=>{
-    const label=[s.task,providers[s.agent],s.state].filter(Boolean).join(' · ');
-    return '<li>'+(links?'<button class="peer-session" data-action="session" data-id="'+attr(s.id)+'"><span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span><span><span class="row-title">'+esc(s.task)+'</span><span class="row-sub">'+esc([providers[s.agent],sessionLocation(s),s.state].filter(Boolean).join(' · '))+'</span></span>'+icon('right')+'</button>':esc(label))+'</li>';
+    const label=[s.task,providers[s.agent],s.state].filter(Boolean).join(' / ');
+    return '<li>'+(links?'<button class="peer-session" data-action="session" data-id="'+attr(s.id)+'"><span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span><span><span class="row-title">'+esc(s.task)+'</span><span class="row-sub">'+esc([providers[s.agent],sessionLocation(s),s.state].filter(Boolean).join(' / '))+'</span></span>'+icon('right')+'</button>':esc(label))+'</li>';
   });
   return '<details class="route-evidence" data-project-peers><summary>'+peers.length+' other session'+(peers.length===1?'':'s')+' in '+esc(proj(project).name)+'</summary><ul>'+rows.join('')+'</ul></details>';
 }
@@ -97,11 +97,11 @@ function historySessionRow(s,{question,fixture=false,title=question?.q || sessio
   const project=proj(s.project)?.name||'Scratch',agent=providers[s.agent]||'Agent',host=sessionLocation(s);
   const context=question?'<span class="row-sub row-context">'+esc(sessionDisplayName(s))+'</span>':'';
   return '<button class="session-row work-row" data-action="'+(question?'notch':'session')+'" data-id="'+attr(question?.id || s.id)+'">'+
-    '<span class="session-cell"><span class="agent-mark '+attr(s.agent||'')+'" aria-hidden="true">'+icon(s.agent||'sessions')+'</span><span class="session-copy"><span class="row-title" title="'+attr(title)+'">'+esc(title)+'</span>'+context+'<span class="row-compact"><span class="row-compact-project">'+esc(project)+'</span><span class="row-compact-agent">'+esc([agent,host].filter(Boolean).join(' · '))+'</span></span></span></span>'+
+    '<span class="session-cell"><span class="agent-mark '+attr(s.agent||'')+'" aria-hidden="true">'+icon(s.agent||'sessions')+'</span><span class="session-copy"><span class="row-title" title="'+attr(title)+'">'+esc(title)+'</span>'+context+'<span class="row-compact"><span class="row-compact-project">'+esc(project)+'</span><span class="row-compact-agent">'+esc([agent,host].filter(Boolean).join(' / '))+'</span></span></span></span>'+
     '<span class="row-project" title="'+attr(project)+'">'+esc(project)+'</span><span class="row-agent"><span>'+esc(agent)+'</span><span class="row-sub">'+esc(host||'—')+'</span></span><span class="row-state '+statusClass(question?'Needs input':s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(status)+'</span>'+sessionUpdated(s)+icon('right')+'</button>';
 }
 function sessionRow(s,{question,fixture=false,title=question?.q || sessionDisplayName(s),status=question?'Needs input':s.state,home='',resultTime=0}={}){
-  const agent=[providers[s.agent]||'Agent',sessionLocation(s)].filter(Boolean).join(' · '),p=proj(s.project);
+  const agent=[providers[s.agent]||'Agent',sessionLocation(s)].filter(Boolean).join(' / '),p=proj(s.project);
   if(home){
     const result=home==='result',host=sessionLocation(s),project=p?.name||'Scratch';
     const sentence=!s.sessionName&&typeof title==='string'&&title===s.task&&home!=='attention'?title.match(/^(.{16,160}?[.!?])\s+(?=[A-Z“"\d])/):null;
@@ -116,11 +116,11 @@ function sessionRow(s,{question,fixture=false,title=question?.q || sessionDispla
       time='<time class="home-result-time" datetime="'+date.toISOString()+'" title="'+attr(full)+'" aria-label="'+attr(full)+'">'+esc(short)+'</time>';
     }
     const end=result?time:'<span class="row-state '+statusClass(question?'Needs input':s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(status)+'</span>';
-    return '<button type="button" class="session-row home-session-row'+(home==='attention'?' is-question':'')+(result?' home-result-row':'')+'" data-action="'+(question?'notch':result&&s.host==='tasktap'?'deck-result':'session')+'" data-id="'+attr(question?.id||s.id)+'" aria-label="'+attr([title,project,agent,result?timeLabel:status].filter(Boolean).join(' · '))+'"><span class="agent-mark '+attr(s.agent||'')+'">'+icon(s.agent||'sessions')+'</span><span class="home-row-body"><span class="row-title" title="'+attr(title)+'">'+esc(headline)+'</span><span class="row-sub home-row-meta"'+(question?' title="'+attr(sessionDisplayName(s))+'"':'')+'>'+metadata+'</span></span><span class="home-row-end">'+end+icon('right')+'</span></button>';
+    return '<button type="button" class="session-row home-session-row'+(home==='attention'?' is-question':'')+(result?' home-result-row':'')+'" data-action="'+(question?'notch':result&&s.host==='tasktap'?'deck-result':'session')+'" data-id="'+attr(question?.id||s.id)+'" aria-label="'+attr([title,project,agent,result?timeLabel:status].filter(Boolean).join(' / '))+'"><span class="agent-mark '+attr(s.agent||'')+'">'+icon(s.agent||'sessions')+'</span><span class="home-row-body"><span class="row-title" title="'+attr(title)+'">'+esc(headline)+'</span><span class="row-sub home-row-meta"'+(question?' title="'+attr(sessionDisplayName(s))+'"':'')+'>'+metadata+'</span></span><span class="home-row-end">'+end+icon('right')+'</span></button>';
   }
   if(!fixture)return historySessionRow(s,{question,title,status});
   const lastRun=view==='sessions' && s.updatedAt?new Date(s.updatedAt).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'}):'';
-  const subtitle=[question?sessionDisplayName(s):'',agent,lastRun].filter(Boolean).join(' · ');
+  const subtitle=[question?sessionDisplayName(s):'',agent,lastRun].filter(Boolean).join(' / ');
   return '<button class="session-row" data-action="'+(question?'notch':'session')+'" data-id="'+attr(question?.id || s.id)+'">'+(s.agent?'<span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span>':'<span aria-hidden="true"></span>')+'<span><span class="row-title" title="'+attr(title)+'">'+esc(title)+'</span><span class="row-sub">'+(view==='sessions'?'<span class="history-project">'+esc(p?.name||'Scratch')+'</span>':'')+esc(subtitle)+'</span></span><span class="row-project">'+esc(p?.name||'Project')+'</span>'+(fixture?'<span class="fixture-amount">'+esc(s.amount)+'</span>':'<span class="row-state '+statusClass(question?'Needs input':s.state)+'"><i class="state-dot"></i>'+esc(status)+'</span>')+icon('right')+'</button>';
 }
 function workOverview(active){
@@ -147,7 +147,7 @@ function workOverview(active){
   return section('Needs your attention',attention,'attention')+section('In progress',progress,'progress')+section('Recent results',results,'results') || '<p class="empty">No active sessions.</p>';
 }
 function sessionList(rows){return rows.length?'<div class="session-list work-list">'+sessionColumns()+rows.map(s=>sessionRow(s)).join('')+'</div>':'<p class="empty">No sessions here yet.</p>'}
-function noteList(notes){return notes.length?notes.map(n=>'<button class="note" data-action="note" data-id="'+attr(n.id)+'" aria-label="'+attr((proj(n.project)?.name||'Scratch')+' · '+n.title)+'"><span class="eyebrow">'+esc(proj(n.project)?.name||'Scratch')+'</span><strong>'+esc(n.title)+'</strong><span class="hint">'+esc(n.text)+'</span></button>').join(''):'<p class="empty">No notes here yet.</p>'}
+function noteList(notes){return notes.length?notes.map(n=>'<button class="note" data-action="note" data-id="'+attr(n.id)+'" aria-label="'+attr((proj(n.project)?.name||'Scratch')+' / '+n.title)+'"><span class="eyebrow">'+esc(proj(n.project)?.name||'Scratch')+'</span><strong>'+esc(n.title)+'</strong><span class="hint">'+esc(n.text)+'</span></button>').join(''):'<p class="empty">No notes here yet.</p>'}
 let projectFilter='';
 let sessionFilter='';
 function renderSessionHistory(){
@@ -245,7 +245,7 @@ function configureVoices(voices){
 }
 function voiceOptions(){
   const choices=[...siriVoices];
-  if(window.webkit?.messageHandlers?.workspace)choices.push({id:'kokoro',name:'Local Kokoro · Heart'+(kokoro.status==='missing'?' (setup required)':' (English)')});
+  if(window.webkit?.messageHandlers?.workspace)choices.push({id:'kokoro',name:'Local Kokoro / Heart'+(kokoro.status==='missing'?' (setup required)':' (English)')});
   const selected=state.voiceEngine ?? siriVoices[0]?.id ?? '';
   $('#voice-engine').innerHTML=option('','Off',selected)+choices.map(v=>option(v.id,v.name,selected)).join('');
   const local=$('#voice-engine option[value="kokoro"]');if(local)local.disabled=kokoro.status!=='ready';
@@ -295,15 +295,15 @@ function showSession(id){
   if(q)actions.push(button('Review decision','notch',q.id));
   if(!live && s.state==='Running' && !s.producerKey)actions.push(button('Simulate completion','complete',id));
   const turns=state.captures.filter(c=>c.session===id);
-  const history=turns.length>1?'<details class="route-evidence"><summary>Handoff history · '+turns.length+'</summary><ul>'+turns.map(c=>'<li>'+button(c.kind+' · '+(c.brief||c.text||'Sketch').slice(0,70),'detailcapture',c.id,'text-btn')+'</li>').join('')+'</ul></details>':'';
+  const history=turns.length>1?'<details class="route-evidence"><summary>Handoff history / '+turns.length+'</summary><ul>'+turns.map(c=>'<li>'+button(c.kind+' / '+(c.brief||c.text||'Sketch').slice(0,70),'detailcapture',c.id,'text-btn')+'</li>').join('')+'</ul></details>':'';
   const location=s.interactive && !retry && !s.resumable?'<p class="hint">'+esc(s.state==='Closed' || s.state==='Complete' && !s.available?'The terminal session has closed.':s.state==='Failed'?'Check the terminal for the launch error.':s.available===false?'Waiting for the terminal session.':s.state==='Awaiting agent'?'Open '+sessionLocation(s)+' to check for a sign-in or folder trust prompt.':'You can type, interrupt, and answer approvals in '+sessionLocation(s)+'.')+'</p>':'';
   const desktopHint=s.host==='claude-desktop'?'<p class="hint">Confirm the project folder and send the prepared brief in Claude Desktop. Activity and replies stay in Claude.</p>':'';
-  const waiting=s.waitingFor?'<p class="hint">'+esc('Waiting in the original session · '+s.waitingFor)+'</p>':'';
+  const waiting=s.waitingFor?'<p class="hint">'+esc('Waiting in the original session / '+s.waitingFor)+'</p>':'';
   const turn=state.captures.find(c=>c.session===s.id);
   const relay=live && (!s.result || turn?.receipt!=='Complete')?handoffRelay.forCapture(turn):'';
   const status='<section class="session-summary"><div class="session-summary-line"><span class="row-state '+statusClass(s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(s.state)+'</span><span class="row-sub">'+esc(sessionLocation(s))+'</span></div><span class="session-folder">'+icon('folder')+esc(proj(s.project)?.folder)+'</span></section>';
-  const activity=s.log.length?'<details class="session-activity"><summary>Activity · '+s.log.length+'</summary><ul class="time-line">'+s.log.map(e=>'<li><i class="state-dot"></i>'+esc(sessionActivityLine(s,e))+'</li>').join('')+'</ul></details>':'';
-  dialog(sessionDisplayName(s),[providers[s.agent],s.model].filter(Boolean).join(' · '),'<div class="session-detail">'+status+(s.result?resultPresentation.markup(s.result,id):'')+(actions.length?'<div class="session-actions inline">'+actions.join('')+'</div>':'')+location+desktopHint+waiting+(relay?'<div class="session-receipt">'+relay+'</div>':'')+peerDisclosure(projectPeers(s.project,id),s.project,true)+activity+history+sessionNameHistory(s)+'</div>');
+  const activity=s.log.length?'<details class="session-activity"><summary>Activity / '+s.log.length+'</summary><ul class="time-line">'+s.log.map(e=>'<li><i class="state-dot"></i>'+esc(sessionActivityLine(s,e))+'</li>').join('')+'</ul></details>':'';
+  dialog(sessionDisplayName(s),[providers[s.agent],s.model].filter(Boolean).join(' / '),'<div class="session-detail">'+status+(s.result?resultPresentation.markup(s.result,id):'')+(actions.length?'<div class="session-actions inline">'+actions.join('')+'</div>':'')+location+desktopHint+waiting+(relay?'<div class="session-receipt">'+relay+'</div>':'')+peerDisclosure(projectPeers(s.project,id),s.project,true)+activity+history+sessionNameHistory(s)+'</div>');
   resultPresentation.paint($('#modal'));
   const disclosure=$('#modal [data-project-peers]');
   if(peersWereOpen && disclosure){
@@ -313,7 +313,7 @@ function showSession(id){
 }
 function routeDecision(candidates,suggested=true){
   const d=$('#notch');d.dataset.request=uid();
-  const choices=candidates.map((s,i)=>'<button class="decision-btn" data-action="choose-target" data-id="'+attr(s.id)+'"><span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span><span><strong>'+esc(s.task)+'</strong><br><span class="hint">'+esc(proj(s.project).name)+' · '+esc(providers[s.agent])+'</span></span></button>').join('');
+  const choices=candidates.map((s,i)=>'<button class="decision-btn" data-action="choose-target" data-id="'+attr(s.id)+'"><span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span><span><strong>'+esc(s.task)+'</strong><br><span class="hint">'+esc(proj(s.project).name)+' / '+esc(providers[s.agent])+'</span></span></button>').join('');
   d.innerHTML='<div class="dialog-body notch-content"><div class="dialog-title"><div><span class="eyebrow">Route follow-up</span><h2>Which session?</h2></div><button aria-label="Close decision" class="icon-btn" data-action="close">'+icon('x')+'</button></div>'+ (suggested?'<p>These sessions match your capture.</p>':'')+'<div class="block">'+choices+'</div><form id="route-voice" class="field"><label for="route-answer">' +(live?'Reply':'Voice reply simulation')+'</label><input id="route-answer" placeholder="Project, session name, or choice number" required>'+(live?button('Hold to talk','dictate','#route-answer','text-btn','mic'):'')+'<button class="btn">Use reply</button></form></div>';
   d.showModal();$('#islandToggle').setAttribute('aria-expanded','true');
   if(draft)narrateRoute(draft,'session','Choose the conversation you mean.');
@@ -327,14 +327,12 @@ function chooseTarget(id){
 }
 function binaryControls(q){
   const buttons=q.choices.map((c,i)=>button(c,'decide',q.id+'|'+i,'decision-btn '+(c==='Yes'?'answer-yes':'answer-no'),c==='Yes'?'check':'x'));
-  return '<div class="binary-choices">'+buttons.join('')+'</div>'+button('Talk it through','discuss',q.id,'text-btn discussion-link','mic');
+  return '<div class="binary-choices">'+buttons.join('')+'</div>';
 }
 function discussionPanel(q){
-  const entries=(q.discussion||[]).map(text=>'<li>'+esc(text)+'</li>').join('');
-  return '<form class="stack" id="discussion"><label class="field" for="comment">Talk it through<textarea id="comment" rows="2" required placeholder="Ask a question or suggest a change…">'+esc(q.discussionDraft||'')+'</textarea></label>'+
-    '<p class="hint">Your message stays with this decision.</p>'+
-    '<div class="inline">'+(live?button('Hold to talk','dictate','#comment','text-btn','mic'):'')+'<button class="btn">Send follow-up</button>'+button('Back to decision','notch',q.id,'text-btn')+'</div></form>'+
-    (entries?'<section class="discussion-log"><h4>Follow-ups for '+esc(sess(q.session).task)+'</h4><ul>'+entries+'</ul><small class="hint">Follow-up recorded · decision pending</small></section>':'');
+  return '<form class="stack" id="discussion"><label class="field" for="comment">Reply<textarea id="comment" rows="3" required placeholder="Answer, ask a question, or add a detail…">'+esc(q.discussionDraft||'')+'</textarea></label>'+
+    '<p class="reply-help">Your words go back to '+esc(providers[sess(q.session)?.agent]||'the agent')+' in this session.</p>'+
+    '<div class="reply-actions">'+(live?button('Hold to talk','dictate','#comment','text-btn','mic'):'')+'<button class="btn primary">Send reply'+icon('arrow')+'</button>'+button('Back to question','notch',q.id,'text-btn')+'</div></form>';
 }
 function bindDiscussion(q){
   const form=$('#discussion'),input=$('#comment');
@@ -344,10 +342,8 @@ function bindDiscussion(q){
     e.preventDefault();
     if(byId(state.decisions,q.id)!==q)return;
     const message=input.value.trim();
-    if(!message){input.setCustomValidity('Enter a follow-up.');input.reportValidity();return}
-    (q.discussion??=[]).push(message);delete q.discussionDraft;
-    sess(q.session).log.push('Follow-up on “'+q.q+'” — '+message);
-    persist();render();if(q.producerKey)window.webkit?.messageHandlers?.workspace.postMessage({type:'questionUpdated'});showNotch(q.id,true);
+    if(!message){input.setCustomValidity('Enter a reply.');input.reportValidity();return}
+    sendDecisionReply(q.id,message,'freeform');
   };
 }
 function showNotch(id,discuss=false){
@@ -355,35 +351,33 @@ function showNotch(id,discuss=false){
   if(id&&!q){toast('This request has already closed.');return}
   let controls='';
   if(q && discuss)controls=discussionPanel(q);
-  else if(q?.kind==='binary' && !decisionVoice)controls=binaryControls(q)+(live?button('Answer by voice','voicechoice',q.id,'text-btn voice','mic'):'');
   else if(q){
-    controls='<div class="block">'+q.choices.map((c,i)=>button(c,'decide',q.id+'|'+i,'decision-btn')).join('')+'</div>'+
-      (decisionVoice?'<form id="voice-choice" class="field"><label for="answer">Voice reply simulation · type a choice or its number</label><input id="answer" autocomplete="off" required><button class="btn">Submit reply</button></form>':button('Answer by voice','voicechoice',q.id,'text-btn voice','mic'))+button('Talk it through','discuss',q.id,'text-btn discussion-link','mic');
+    controls=(q.kind==='binary'?binaryControls(q):'<div class="decision-choices">'+q.choices.map((c,i)=>button(c,'decide',q.id+'|'+i,'decision-btn')).join('')+'</div>')+
+      '<div class="decision-reply">'+button('Reply','discuss',q.id,'text-btn discussion-link','mic')+'<span>Type or speak in your own words</span></div>';
   }
   const next=q && !discuss && state.decisions.length>1?button('Next request','notch',state.decisions[(state.decisions.indexOf(q)+1)%state.decisions.length].id,'text-btn','arrow'):'';
-  d.innerHTML='<div class="dialog-body notch-content"><div class="dialog-title"><div><span class="eyebrow">'+(q?esc(proj(s.project)?.name)+' · '+esc(providers[s.agent]):'Workspace')+'</span><h2>'+(q?esc(s.task):'All clear')+'</h2></div><button data-action="close" class="icon-btn" aria-label="Close decision">'+icon('x')+'</button></div>'+
-    (q?'<div class="stack"><p class="flag" style="color:inherit">Pending request '+(state.decisions.indexOf(q)+1)+' of '+state.decisions.length+'</p><h3>'+esc(q.q)+'</h3>'+(q.detail?'<p class="hint">'+esc(q.detail)+'</p>':'')+controls+next+'</div>':'<p>No sessions are waiting for a decision.</p>')+'</div>';
+  d.innerHTML='<div class="dialog-body notch-content decision-sheet"><div class="dialog-title"><div><div class="decision-context">'+(q?'<span>'+icon('folder')+'<span>'+esc(proj(s.project)?.name)+'</span></span><span>'+icon(s.agent)+'<span>'+esc(providers[s.agent])+'</span></span>':'Workspace')+'</div><h2>'+(q?esc(s.task):'All clear')+'</h2></div><button data-action="close" class="icon-btn" aria-label="Close decision">'+icon('x')+'</button></div>'+
+    (q?'<div class="stack decision-body">'+(state.decisions.length>1?'<p class="decision-count">Question '+(state.decisions.indexOf(q)+1)+' of '+state.decisions.length+'</p>':'')+'<h3>'+esc(q.q)+'</h3>'+(q.detail?'<p class="hint">'+esc(q.detail)+'</p>':'')+controls+next+'</div>':'<p>No sessions are waiting for a decision.</p>')+'</div>';
   d.dataset.request=q?.id||'';if(!d.open)d.showModal();$('#islandToggle').setAttribute('aria-expanded','true');
-  if(decisionVoice)$('#answer',d)?.focus();
   if(discuss && q)bindDiscussion(q);
-  if(live && decisionVoice && $('#answer',d)){
-    const label=$('label[for="answer"]',d);label.textContent='Say or type a choice';
-    label.insertAdjacentHTML('afterend',button('Hold to talk','dictate','#answer','text-btn','mic'));
-  }
-  const form=$('#voice-choice',d);if(form)form.onsubmit=e=>{e.preventDefault();const val=$('#answer',d).value.trim().toLowerCase().replace(/[.!?]+$/,'');const i=q.choices.findIndex((c,i)=>val===c.toLowerCase()||val===String(i+1));if(i<0){$('#answer',d).setCustomValidity('Enter one of the displayed choices or its number.');$('#answer',d).reportValidity();$('#answer',d).oninput=()=>$('#answer',d).setCustomValidity('');return}decide(q.id,i)};
 }
 function decide(id,i){
   const q=byId(state.decisions,id);
   if(!q||!q.choices[i])return;
-  const s=sess(q.session),answer=q.choices[i];
-  (s.answeredDecisions??=[]).push({id:q.id,question:q.q,detail:q.detail,choices:q.choices,producerKey:q.producerKey,answer,discussion:q.discussion||[]});
-  s.log.push('Decision received. '+answer+'.');
+  sendDecisionReply(id,q.choices[i],'choice');
+}
+function sendDecisionReply(id,answer,answerKind){
+  const q=byId(state.decisions,id);
+  if(!q || typeof answer!=='string' || !answer.trim())return;
+  const s=sess(q.session);
+  (s.answeredDecisions??=[]).push({id:q.id,question:q.q,detail:q.detail,choices:q.choices,producerKey:q.producerKey,answer,answerKind,discussion:q.discussion||[]});
+  s.log.push(answerKind==='choice'?'Decision received. '+answer+'.':'Reply sent. '+answer);
   state.decisions=state.decisions.filter(x=>x.id!==id);
   s.state=state.decisions.some(other=>other.session===s.id)?'Needs input':'Running';
-  decisionVoice=false;persist();dismissCard();render();
+  persist();dismissCard();render();
   if($('#modal').open&&openedSession===s.id&&$('#modal .session-detail'))showSession(s.id);
   if(q.producerKey)window.webkit?.messageHandlers?.workspace.postMessage({type:'questionUpdated'});
-  toast('Decision sent to '+s.task+'.');
+  toast('Reply sent to '+s.task+'.');
 }
 function captureDraft(target,sessionProject='',text=''){
   const s=sess(target);
@@ -568,7 +562,7 @@ function detailCapture(id){
   const result=c.result || (session && c.receipt==='Complete' && latest?.id===id?session.result:'');
   const original=c.text?.trim() && c.text.trim()!==request.trim()?'<details class="route-evidence"><summary>Original wording</summary><p class="body-copy">'+esc(c.text)+'</p></details>':'';
   const title=c.kind==='Note'?'Saved note':c.kind==='Session nudge'?'Follow-up':'Request';
-  dialog(title,[project,providers[session?.agent]].filter(Boolean).join(' · '),
+  dialog(title,[project,providers[session?.agent]].filter(Boolean).join(' / '),
     '<div class="detail-line"><span id="receipt" data-capture="'+attr(id)+'" class="badge">'+esc(c.receipt)+'</span></div><p class="body-copy review-brief">'+esc(request)+'</p>'+
     (c.strokes?.length?sketchMarkup(c.strokes):'')+(result?resultPresentation.markup(result,c.result?c.id:session.id):'')+
     original+(session?button('Open session','session',c.session,'primary','out'):''));
@@ -588,7 +582,7 @@ function prefs(group='agents'){
   let body;
   if(group==='agents'){
     const policy=sessionModelPolicy(),profile=policy.agents[policy.defaultAgent];
-    const summary=[providers[policy.defaultAgent],policy.adaptive?'Difficulty curve':profile.fixed,terminalHosts.label(state.sessionHost)].filter(Boolean).join(' · ');
+    const summary=[providers[policy.defaultAgent],policy.adaptive?'Difficulty curve':profile.fixed,terminalHosts.label(state.sessionHost)].filter(Boolean).join(' / ');
     body='<h3>Tasktap</h3>'+aiConnections.jump()+'<h3>Project work</h3>'+(live?'<button id="agent-setup-link" type="button" class="settings-jump" data-action="agent-setup"><span class="jump-mark">'+icon('settings')+'</span><span><strong>Agent setup</strong><small hidden></small></span>'+icon('right')+'</button>':'')+
       '<button class="settings-jump" type="button" data-action="session-models" aria-label="Session models"><span class="jump-mark">'+icon('sessions')+'</span><span><strong>Session models</strong><small>'+esc(summary)+'</small></span>'+icon('right')+'</button>'+(live?workerRouting.jump():'');
   }else if(group==='workspaces'){
@@ -605,7 +599,7 @@ function prefs(group='agents'){
       '<div class="check-line"><input id="narration" type="checkbox" '+(state.speak?'checked':'')+'><label for="narration">Read completion summaries aloud</label></div>'+
       surfaceButton('Notification settings','notifications','bell','btn');
   }
-  dialog('Preferences','Tasktap','<div id="preferences" class="settings-form">'+nav+'<section aria-label="'+preferenceGroups[group]+'" class="settings-section">'+body+'</section><div class="preference-links">'+button('Run setup…','run-setup','','text-btn','settings')+(live?button('Check for Updates…','check-updates','','text-btn'):'')+button('Documentation','open-docs',group,'text-btn','out')+'</div></div>');
+  dialog('Preferences','Tasktap','<div id="preferences" class="settings-form">'+nav+'<section aria-label="'+preferenceGroups[group]+'" class="settings-section">'+body+'</section>'+appUpdates.preferences()+'<div class="preference-links">'+button('Run setup…','run-setup','','text-btn','settings')+(live?button('Check for Updates…','check-updates','','text-btn'):'')+button('Documentation','open-docs',group,'text-btn','out')+'</div></div>');
   settingsHeader();
   const categories=$('#preferences .preference-groups'),activeCategory=categories.querySelector('[aria-pressed=true]');
   categories.scrollLeft=Math.max(0,activeCategory.offsetLeft+(activeCategory.offsetWidth-categories.clientWidth)/2);
@@ -661,7 +655,7 @@ document.addEventListener('click',e=>{
     case 'commit-review':if(draft?.mode==='ask' && live && !workerRouting.canStart(draft))break;commitCapture();break;
     case 'apply-suggested-brief':if(draft?.suggestedBrief){draft.brief=draft.suggestedBrief;delete draft.suggestedBrief;review()}break;
     case 'continue-capture':draft.text='';editDraft();$('#transcript').focus();break;
-    case 'edit':editDraft();break;case 'notch':decisionVoice=false;showNotch(id);break;case 'voicechoice':decisionVoice=true;showNotch(id);break;
+    case 'edit':editDraft();break;case 'notch':showNotch(id);break;
     case 'continue-session':{const choices=continuations(draft);if(choices.length)routeDecision(choices,false);else toast('No available session in this workspace.');break}
     case 'choose-target':chooseTarget(id);break;case 'decide':{const [q,i]=id.split('|');decide(q,Number(i));break}
     case 'discuss':showNotch(id,true);break;
@@ -677,7 +671,7 @@ document.addEventListener('click',e=>{
     }
   }
 });
-$('#islandToggle').onclick=()=>{decisionVoice=false;showNotch()};
+$('#islandToggle').onclick=()=>showNotch();
 document.addEventListener('keydown',e=>{
   if(e.defaultPrevented)return;
   if(e.key==='Escape'){if($('#notch').open||$('#modal').open){e.preventDefault();dismissCard()}else document.body.classList.remove('nav-open');return}
@@ -695,7 +689,8 @@ if(location.hash==='#geometry'){
 
 function prepareForAppUpdate(){
   if(typeof recording!=='undefined' && recording || draft?.routing || draft?.submitting || setupWizard.showing() || document.querySelector('#guide-input')?.value?.trim())return false;
-  try{if(draft)localStorage.setItem('tasktap-update-draft',JSON.stringify({text:draft.text||draft.brief||'',project:draft.project||'',strokes:draft.strokes||[]}));persist();return true}catch{return false}
+  if(document.querySelector('#review-task-form,#route-form,#review-context-form'))return false;
+  try{if(draft)localStorage.setItem('tasktap-update-draft',JSON.stringify({text:draft.brief||draft.text||'',project:draft.project||'',strokes:draft.strokes||[]}));persist();return true}catch{return false}
 }
 const recoveredUpdateDraft=localStorage.getItem('tasktap-update-draft');
 if(recoveredUpdateDraft){

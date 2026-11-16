@@ -61,7 +61,7 @@ const {pathToFileURL}=require('node:url');
   assert.match(await page.locator('#dialog-heading').innerText(),/many details/);
   await page.evaluate(()=>{dismissCard();state.notes=[{id:'long-note',project:'p',title:'A note worth reading',text:'Preserve this sentence exactly. '.repeat(80)}];go('notes')});
   assert.ok(await page.locator('.note>.hint').evaluate(e=>e.clientHeight<=parseFloat(getComputedStyle(e).lineHeight)*3+1));
-  await page.getByRole('button',{name:'Glasshouse · A note worth reading',exact:true}).click();
+  await page.getByRole('button',{name:'Glasshouse / A note worth reading',exact:true}).click();
   assert.equal(await page.locator('#modal .body-copy').innerText(),'Preserve this sentence exactly. '.repeat(80),'opening a compact note retains its full contents');
   assert.deepEqual(errors,[]);console.log('Result presentation: bounded excerpt, exact full report, aligned responsive actions, honest export label and safe Markdown passed.');
  }finally{await browser.close()}

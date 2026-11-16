@@ -15,6 +15,11 @@ import AppKit
         let asym = cutout(CGRect(x:1800,y:-600,width:1440,height:900),width:134.3,depth:29.1,insetX:30.2,scale:2)
         for item in [laptop,offset,asym] {
             let small=item.panelFrame(collapsed:true,requestedHeight:200), open=item.panelFrame(collapsed:false,requestedHeight:260)
+            let review=item.panelFrame(collapsed:false,requestedHeight:540,requestedWidth:560)
+            precondition(review.width == 560 + 2 * item.shoulder && item.screen.contains(review))
+            precondition(item.panelFrame(collapsed:true,requestedHeight:200,requestedWidth:560) == small)
+            precondition(item.panelFrame(collapsed:false,requestedHeight:260,requestedWidth:.nan) == open)
+            precondition(item.panelFrame(collapsed:false,requestedHeight:260,requestedWidth:10_000).width == 680 + 2 * item.shoulder)
             precondition(item.hasCutout && small.contains(item.tab) && open.contains(item.tab))
             precondition(small.maxY == item.screen.maxY && open.maxY == item.screen.maxY && open.width>small.width)
             precondition(item.screen.contains(small) && item.screen.contains(open))

@@ -33,7 +33,7 @@ const workspaceNavigation=(()=>{
     return null;
   }
   function project(p,data){
-    const status=attention(p,data),description=status?p.folder+' · '+status.label:p.folder;
+    const status=attention(p,data),description=status?p.folder+' / '+status.label:p.folder;
     return '<section class="nav-workspace'+(view===p.id?' is-current':'')+'" data-workspace="'+attr(p.id)+'"'+(status?' data-status="'+status.kind+'"':'')+'><div class="nav-workspace-heading"><button type="button" class="nav-workspace-name" data-action="workspace-project" data-id="'+attr(p.id)+'" title="'+attr(description)+'" aria-label="'+attr(p.name+(status?', '+status.label:''))+'"'+(view===p.id?' aria-current="page"':'')+'>'+icon('folder')+'<span>'+esc(p.name)+'</span></button>'+(status?'<span class="nav-workspace-status" role="img" aria-label="'+status.label+'" title="'+status.label+'">'+icon(status.symbol)+'</span>':'')+'<button type="button" class="nav-workspace-close" data-action="workspace-close" data-id="'+attr(p.id)+'" aria-label="'+attr('Close '+p.name+' workspace')+'" title="Close workspace. Tabs and sessions are kept.">'+icon('x')+'</button></div></section>';
   }
   function navigation(){
@@ -66,7 +66,7 @@ const workspaceNavigation=(()=>{
     const known=[...new Set([...state.projects.map(p=>p.id),...Object.keys(saved.layouts)])].map(id=>proj(id)).filter(Boolean);
     const candidates=known.filter(p=>!open.has(p.id)&&words.every(word=>[p.name,p.folder].join(' ').toLocaleLowerCase().includes(word)));
     const closed=candidates.filter(p=>Object.hasOwn(saved.layouts,p.id)),other=candidates.filter(p=>!Object.hasOwn(saved.layouts,p.id));
-    const section=(title,rows)=>rows.length?'<section class="workspace-picker-section"><h3>'+esc(title)+'</h3>'+rows.map(p=>'<button type="button" class="workspace-picker-row" data-action="workspace-open-existing" data-id="'+attr(p.id)+'" title="'+attr(p.folder)+'">'+icon('folder')+'<span><strong>'+esc(p.name)+'</strong><small>'+(p.available===false?'Folder unavailable · ':'')+esc(p.folder)+'</small></span>'+icon('right')+'</button>').join('')+'</section>':'';
+    const section=(title,rows)=>rows.length?'<section class="workspace-picker-section"><h3>'+esc(title)+'</h3>'+rows.map(p=>'<button type="button" class="workspace-picker-row" data-action="workspace-open-existing" data-id="'+attr(p.id)+'" title="'+attr(p.folder)+'">'+icon('folder')+'<span><strong>'+esc(p.name)+'</strong><small>'+(p.available===false?'Folder unavailable / ':'')+esc(p.folder)+'</small></span>'+icon('right')+'</button>').join('')+'</section>':'';
     $('#workspace-picker-results').innerHTML=section('Closed workspaces',closed)+section('Project folders',other)||'<p class="nav-external-empty">'+(query?'No workspaces match your search.':'Choose an existing folder or create a new one to get started.')+'</p>';
   }
   function openChooser(){
@@ -78,7 +78,7 @@ const workspaceNavigation=(()=>{
     const sessions=externalSessions().filter(s=>words.every(word=>[sessionDisplayName(s),hostName(s),proj(s.project)?.name,s.state].join(' ').toLocaleLowerCase().includes(word))).sort((a,b)=>Number(b.available===true)-Number(a.available===true));
     const results=$('#workspace-external-results');if(!results)return;
     results.innerHTML=sessions.length?sessions.map(s=>{
-      const action=openAction(s),label=sessionDisplayName(s),details=[hostName(s),proj(s.project)?.name,!discoveryEnabled()?'Saved session':s.available===true?'':s.state||'Unavailable'].filter(Boolean).join(' · ');
+      const action=openAction(s),label=sessionDisplayName(s),details=[hostName(s),proj(s.project)?.name,!discoveryEnabled()?'Saved session':s.available===true?'':s.state||'Unavailable'].filter(Boolean).join(' / ');
       return '<article class="nav-external-row"><span class="nav-external-icon">'+icon(s.agent||'sessions')+'</span><div class="nav-external-copy"><strong title="'+attr(label)+'">'+esc(label)+'</strong><span>'+esc(details)+'</span></div><div class="nav-external-actions">'+(action?button(action.label,'workspace-external-open',s.id,'btn','out'):'')+button('Details','workspace-external-details',s.id,'text-btn')+'</div></article>';
     }).join(''):'<p class="nav-external-empty">'+(query?'No sessions match your search.':discoveryEnabled()?'No sessions have been found in other apps. They appear here when Tasktap discovers them.':'No saved sessions. Turn on discovery to find sessions in other apps.')+'</p>';
     $('#workspace-external-count').textContent=sessions.length+' session'+(sessions.length===1?'':'s');

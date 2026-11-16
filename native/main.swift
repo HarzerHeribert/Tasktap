@@ -301,7 +301,10 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             if useNotch && !notchReady {notchQueue.append((action,id));return}
             let target=useNotch ? notchWeb!:web!
             if reveal {
-                if useNotch {panel.orderFrontRegardless();panel.makeKey();panel.makeFirstResponder(target)}
+                if useNotch {
+                    anchorScreen=NSScreen.screens.first(where:{$0.frame.contains(NSEvent.mouseLocation)}) ?? anchorScreen
+                    position();panel.orderFrontRegardless();panel.makeKey();panel.makeFirstResponder(target)
+                }
                 else {showWorkspaceWindow()}
             }
             target.callAsyncJavaScript("window.workspaceCommand(action,id)",arguments:["action":action=="notch-onboarding" ? "open-app":action,"id":id],in:nil,in:.page){_ in}

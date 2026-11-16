@@ -8,7 +8,8 @@ struct NotchGeometry {
     let tab: CGRect
     let hasCutout: Bool
     let pixel: CGFloat
-    let glowMargin: CGFloat = 8
+    // Transparent room for the attached bloom; it does not enlarge the hit target.
+    let glowMargin: CGFloat = 16
     var compact: Bool { screen.width >= 1920 || screen.width >= 1680 && screen.height >= 1000 }
 
     init(screen: NSScreen) {

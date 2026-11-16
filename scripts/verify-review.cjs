@@ -46,7 +46,7 @@ const shots=process.env.TASKTAP_SCREENSHOTS||'/tmp';fs.mkdirSync(shots,{recursiv
   assert.ok(await page.getByRole('button',{name:'Remove reference',exact:true}).isDisabled());
   assert.ok(await page.getByRole('button',{name:'Start session',exact:true}).isDisabled(),'pending handoff cannot be submitted twice');
   let job=await page.evaluate(()=>sent.findLast(m=>m.type==='enqueue').job);
-  assert.match(job.instructions,/report_result.*review-capture/);assert.match(job.instructions,/current checkout and branch/);assert.match(job.outgoing,/Other sessions in this checkout/);assert.equal(job.reviewedFolder,undefined);
+  assert.match(job.instructions,/report_result.*review-capture/);assert.match(job.outgoing,/current checkout and branch/);assert.match(job.outgoing,/review-only, planning-only and no-commit/);assert.equal(job.outgoing.match(/Complete the authorized scope/g).length,1,'the shared completion contract is sent once');assert.doesNotMatch(job.instructions,/Complete the authorized scope/);assert.match(job.outgoing,/Other sessions in this checkout/);assert.equal(job.reviewedFolder,undefined);
   await page.evaluate(()=>acceptLive({capture:draft.captureId,error:'Fixture: terminal could not open.'}));
   assert.ok(await page.getByRole('button',{name:'Edit task',exact:true}).isEnabled(),'failed handoff restores editing');
   assert.match(await page.locator('#handoff-error').innerText(),/request is preserved.*Change destination/);assert.equal(await page.evaluate(()=>draft.brief),'Refine the timeline controls and preserve every keyboard shortcut.');

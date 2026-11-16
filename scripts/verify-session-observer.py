@@ -26,7 +26,8 @@ def until(fn):
     raise AssertionError('Timed out waiting for fixture')
 
 
-with tempfile.TemporaryDirectory(prefix='tasktap-observer-test-', dir='/private/tmp') as temp:
+# Short Unix-domain socket paths work on both macOS and the Linux CI runner.
+with tempfile.TemporaryDirectory(prefix='tasktap-observer-test-', dir='/tmp') as temp:
     base = Path(temp)
     project = base/'project'; project.mkdir()
     run = base/'Runs'/str(uuid.uuid4()); run.mkdir(parents=True)

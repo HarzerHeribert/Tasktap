@@ -18,7 +18,7 @@ const path=require('node:path');
   });
   const tab=page.locator('#islandToggle');
   assert.deepEqual(await tab.evaluate(el=>{const r=el.getBoundingClientRect();return {width:r.width,height:r.height,top:r.top}}),{width:104,height:16,top:0});
-  assert.equal(await tab.evaluate(el=>getComputedStyle(el,'::after').animationDuration),'4.8s');
+  assert.deepEqual(await tab.evaluate(el=>{const style=getComputedStyle(el,'::after');return [style.animationDuration,style.animationIterationCount]}),['0.6s','2'],'attention glows briefly, then stays still');
   await page.emulateMedia({reducedMotion:'reduce'});
   assert.equal(await tab.evaluate(el=>getComputedStyle(el,'::after').animationName),'none');
   if(process.env.TASKTAP_SCREENSHOTS)await page.screenshot({path:path.join(process.env.TASKTAP_SCREENSHOTS,'notch-compact-rest.png')});

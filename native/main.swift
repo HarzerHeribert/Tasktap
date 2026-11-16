@@ -728,7 +728,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             do {try terminals.handle(data,folders:runtime.folders)}
             catch {js("workspaceDeck.receive(events)",["events":[["event":"error","id":data["id"] as? String ?? "","cwd":data["cwd"] as? String ?? "","op":data["op"] as? String ?? "","error":error.localizedDescription]]])}
         case "observer-answer":
-            guard !verifying || workspaceVerification,!liveTest,message.webView === web || message.webView === notchWeb,let id=data["id"] as? String,let turn=data["turn"] as? Int else{return}
+            guard !verifying || workspaceVerification || independentVerification,!liveTest,message.webView === web || message.webView === notchWeb,let id=data["id"] as? String,let turn=data["turn"] as? Int else{return}
             do {let text=try runtime.observerAnswer(id,turn:turn)
                 js("sessionObservation.showAnswer(id,turn,text)",["id":id,"turn":turn,"text":text])
             } catch {deliver("live-error",error.localizedDescription,reveal:false)}
@@ -1300,7 +1300,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 try await Task.sleep(nanoseconds:100_000_000)
                 if try await web.callAsyncJavaScript(source,arguments:["id":id],in:nil,contentWorld:.page) as? Bool == true {return}
             }
-            throw Check.failed(#line)
+            throw LiveWorkspace.Failure.reason("Timed out waiting for native observer fixture: " + source)
         }
         try await waitFor("return sessionObservation.get(id)?.state==='needsPermission'")
         _ = try await web.callAsyncJavaScript("workspaceDeck.open('terminal:'+id,state.projects.find(p=>p.folder===folder).id);return true",arguments:["id":id,"folder":folder.path],in:nil,contentWorld:.page)
@@ -1366,10 +1366,13 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         guard both as? Bool==true else {throw Check.failed(#line)}
         deliver("capture")
         try await Task.sleep(nanoseconds:300_000_000)
-        _ = try await notchWeb.evaluateJavaScript("document.querySelector('#transcript').value='Keep this notch draft';true")
+        _ = try await notchWeb.evaluateJavaScript("(()=>{const input=document.querySelector('#transcript');input.value='Keep this notch draft';input.dispatchEvent(new Event('input',{bubbles:true}));return true})()")
         guard workspace.isVisible,web.window===workspace else {throw Check.failed(#line)}
         workspace.performClose(nil)
-        try await Task.sleep(nanoseconds:200_000_000)
+        for _ in 0..<40 {
+            if !workspace.isVisible {break}
+            try await Task.sleep(nanoseconds:50_000_000)
+        }
         let retained=try await notchWeb.evaluateJavaScript("document.querySelector('#transcript')?.value==='Keep this notch draft'")
         guard !workspace.isVisible,panel.isVisible,retained as? Bool==true else {throw Check.failed(#line)}
         showWorkspaceWindow()

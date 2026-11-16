@@ -75,7 +75,8 @@
 .deck-workspace-empty[hidden]{display:none}
 .deck-group.is-narrow .deck-tab{padding-inline:var(--s-tight)}
 .deck-group.is-narrow .deck-pane-tools{padding:0}
-.deck-group.is-narrow .deck-pane-tools>.deck-icon{width:22px}
+.deck-group.is-narrow .deck-pane-tools>.deck-icon{display:none}
+.deck-group.is-narrow .deck-tab-menu>summary{display:flex;width:28px}
 
 /* Workspace drags cover embedded frames without moving or reloading them. */
 .deck-tab{cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-user-drag:none}

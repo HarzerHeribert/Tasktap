@@ -118,7 +118,7 @@ def cli_command(job, folder, executable=None, resume=None):
         if agent == 'opencode':
             return [cli, *args, *observer_args, '--auto', '--prompt', job['outgoing']]
         if agent == 'cursor-agent':
-            return [cli, *args, *observer_args, '--force', 'agent', '--', job['outgoing']]
+            return [cli, *args, *observer_args, '--auto-review', 'agent', '--', job['outgoing']]
         automatic = ['--approve-for-me'] if agent == 'codex' else ['--permission-mode','auto'] if agent == 'claude' else ['--approve'] if agent == 'pi' else []
         if resume:
             return [cli,*args,*observer_args,*automatic,*(['resume',resume] if agent=='codex' else [])]
@@ -131,7 +131,7 @@ def cli_command(job, folder, executable=None, resume=None):
     if agent == 'opencode':
         return [cli, *args, '--auto', '--prompt', prompt]
     if agent == 'cursor-agent':
-        return [cli, *args, '--force', 'agent', '--', prompt]
+        return [cli, *args, '--auto-review', 'agent', '--', prompt]
     if agent == 'pi':
         return [cli, *args, '--approve', '--session-id', job['session'], '--', prompt]
     if agent == 'claude':

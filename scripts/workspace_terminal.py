@@ -17,6 +17,7 @@ import socket
 import struct
 import subprocess
 import sys
+sys.dont_write_bytecode = True
 import termios
 import time
 import uuid

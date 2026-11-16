@@ -8,6 +8,7 @@ final class WorkspaceDecisionRim {
     private let metal = CAGradientLayer()
     private let edge = CAShapeLayer()
     private let halo = CAShapeLayer()
+    private let bloom = CAShapeLayer()
     private var accessibility: NSObjectProtocol?
     private var drawnTab: CGRect?
     private var drawnScale: CGFloat = 0
@@ -26,11 +27,17 @@ final class WorkspaceDecisionRim {
         view.wantsLayer = true
         view.setAccessibilityElement(false)
         halo.fillColor = nil
-        halo.strokeColor = NSColor(calibratedRed:0.90,green:0.71,blue:0.47,alpha:0.45).cgColor
+        halo.strokeColor = NSColor(calibratedRed:1,green:0.78,blue:0.48,alpha:0.16).cgColor
         halo.shadowColor = halo.strokeColor
-        halo.shadowRadius = 2.5
-        halo.shadowOpacity = 0.6
+        halo.shadowRadius = 3
+        halo.shadowOpacity = 0.45
         halo.shadowOffset = .zero
+        bloom.fillColor = nil
+        bloom.strokeColor = NSColor.clear.cgColor
+        bloom.shadowColor = NSColor(calibratedRed:0.90,green:0.64,blue:0.37,alpha:1).cgColor
+        bloom.shadowRadius = 6
+        bloom.shadowOpacity = 0.9
+        bloom.shadowOffset = .zero
         edge.fillColor = nil
         edge.strokeColor = NSColor.white.cgColor
         metal.startPoint = CGPoint(x:0,y:0.5)
@@ -44,6 +51,7 @@ final class WorkspaceDecisionRim {
         }
         metal.locations = [0,0.18,0.42,0.65,0.85,1]
         metal.mask = edge
+        view.layer?.addSublayer(bloom)
         view.layer?.addSublayer(halo)
         view.layer?.addSublayer(metal)
         panel.contentView = view
@@ -62,7 +70,7 @@ final class WorkspaceDecisionRim {
         if frame != panel.frame || drawnTab != geometry.tab || drawnScale != screen.backingScaleFactor {
             panel.setFrame(frame,display:false)
             drawnTab=geometry.tab;drawnScale=screen.backingScaleFactor
-            let rect=geometry.tab.offsetBy(dx:-frame.minX,dy:-frame.minY).insetBy(dx:-geometry.rimOffset,dy:-geometry.rimOffset)
+            let rect=geometry.tab.offsetBy(dx:-frame.minX,dy:-frame.minY)
             let corner=geometry.corner, top=frame.height
             let path=CGMutablePath()
             path.move(to:CGPoint(x:rect.minX,y:top))
@@ -71,10 +79,14 @@ final class WorkspaceDecisionRim {
             path.addLine(to:CGPoint(x:rect.maxX,y:top))
             CATransaction.begin();CATransaction.setDisableActions(true)
             metal.frame=CGRect(origin:.zero,size:frame.size)
-            for layer in [halo,edge] {
+            for layer in [bloom,halo,edge] {
                 layer.frame=metal.bounds;layer.path=path;layer.lineWidth=max(1,geometry.pixel)
                 layer.contentsScale=drawnScale
             }
+            bloom.lineWidth = 5
+            bloom.shadowPath = path.copy(strokingWithWidth:5,lineCap:.round,lineJoin:.round,miterLimit:1)
+            halo.lineWidth = 1
+            metal.opacity = 0.1
             CATransaction.commit()
             if panel.isVisible {updateMotion()}
         }
@@ -83,11 +95,13 @@ final class WorkspaceDecisionRim {
 
     private func updateMotion() {
         halo.removeAnimation(forKey:"attention")
+        bloom.removeAnimation(forKey:"attention")
         guard panel.isVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
         let pulse=CABasicAnimation(keyPath:"opacity")
         pulse.fromValue=0.62;pulse.toValue=0.9;pulse.duration=0.6;pulse.autoreverses=true
         pulse.repeatCount = 2;pulse.timingFunction=CAMediaTimingFunction(name:.easeInEaseOut)
         halo.add(pulse,forKey:"attention")
+        bloom.add(pulse,forKey:"attention")
     }
 
     deinit {

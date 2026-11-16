@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
+from release_helpers import verify_helpers
 
 root = Path(__file__).resolve().parents[1]
 release = Path(sys.argv[1]).resolve()
@@ -36,10 +37,7 @@ with tempfile.TemporaryDirectory() as tmp:
             packaged = resources/'prototype'/source.relative_to(root/'prototype')
             assert packaged.is_file(), f'Missing packaged interface file: {source}'
             assert packaged.read_bytes() == source.read_bytes(), f'Stale packaged interface file: {source}'
-    for source in (root/'scripts').iterdir():
-        packaged = resources/source.name
-        if source.is_file() and packaged.is_file():
-            assert packaged.read_bytes() == source.read_bytes(), f'Stale bundled helper: {source}'
+    verify_helpers(root, resources)
     assert (resources/'workspace_terminal.py').is_file()
     assert (resources/'plan_usage.py').is_file()
     assert (resources/'PROVIDER-NOTICES').stat().st_size > 0
@@ -52,4 +50,4 @@ with tempfile.TemporaryDirectory() as tmp:
     assert subprocess.check_output(['lipo', '-archs', str(app/'Contents/MacOS/Tasktap')], text=True).strip() == 'arm64'
     subprocess.run(['swiftc', '-module-cache-path', str(tmp/'module-cache'), str(root/'scripts/verify-release.swift'), '-o', str(tmp/'verify')], check=True)
     subprocess.run([str(tmp/'verify'), str(archive), enc.attrib['{'+ns['sparkle']+'}edSignature'], info['SUPublicEDKey']], check=True)
-print('Archive checksum, bundle signature, feed metadata, full packaged interface, helpers and third-party notices verified.')
+print('Archive checksum, bundle signature, feed metadata, full packaged interface, required helpers, nested observers and third-party notices verified.')

@@ -53,10 +53,15 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private let workspaceBackdrop = WorkspaceBackdrop(frame:.zero)
     private var appearanceLoading=false
     private var web: WKWebView!
+    private var notchWeb: WKWebView?
+    private var notchReady = false
+    private var notchQueue: [(String,String)] = []
+    private var independentVerification: Bool {CommandLine.arguments.contains("--verify-independent-windows")}
+    private var independentWindows: Bool {(!verifying && !liveTest) || independentVerification}
     private var entry: URL!
     private let liveTest = CommandLine.arguments.contains("--verify-live")
     private let workspaceVerification = CommandLine.arguments.contains("--verify-workspace")
-    private let verifying = CommandLine.arguments.contains("--verify-interface") || CommandLine.arguments.contains("--verify-workspace")
+    private let verifying = CommandLine.arguments.contains("--verify-interface") || CommandLine.arguments.contains("--verify-workspace") || CommandLine.arguments.contains("--verify-independent-windows")
     private var ready = false
     private var routeTask: Task<Void, Never>?
     private let sessionNames = SessionNames()
@@ -111,7 +116,9 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         }
     }
     private func js(_ name:String,_ args:[String:Any]){
-        web.callAsyncJavaScript(name,arguments:args,in:nil,in:.page){result in if case .failure(let error)=result {NSLog("Interface: %@",error.localizedDescription)}}
+        for target in [web,notchReady ? notchWeb:nil].compactMap({$0}) {
+            target.callAsyncJavaScript(name,arguments:args,in:nil,in:.page){result in if case .failure(let error)=result {NSLog("Interface: %@",error.localizedDescription)}}
+        }
     }
     @MainActor private lazy var narration=Narration()
     private lazy var inbox:QuestionInbox = {
@@ -153,8 +160,9 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         if liveTest {config.websiteDataStore = .nonPersistent()}
         if verifying {
             config.websiteDataStore = .nonPersistent()
-            config.userContentController.addUserScript(WKUserScript(source:workspaceVerification ? "window.fixtureMode=false" : "window.fixtureMode=true",injectionTime:.atDocumentStart,forMainFrameOnly:true))
+            config.userContentController.addUserScript(WKUserScript(source:(workspaceVerification || independentVerification) ? "window.fixtureMode=false" : "window.fixtureMode=true",injectionTime:.atDocumentStart,forMainFrameOnly:true))
         }
+        if independentWindows {config.userContentController.addUserScript(WKUserScript(source:"window.tasktapSurface='workspace'",injectionTime:.atDocumentStart,forMainFrameOnly:true))}
         config.userContentController.add(self, name: "workspace")
         config.setURLSchemeHandler(workspaceMedia, forURLScheme:"tasktap-preview")
         web = NotchWebView(frame: .zero, configuration: config)
@@ -170,7 +178,19 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         panel.isOpaque = false
         panel.hasShadow = false
         panel.delegate = self
-        panel.contentView = web
+        if independentWindows {
+            let notchConfig=WKWebViewConfiguration()
+            notchConfig.websiteDataStore=config.websiteDataStore
+            notchConfig.mediaTypesRequiringUserActionForPlayback = .audio
+            notchConfig.userContentController.add(self,name:"workspace")
+            notchConfig.userContentController.addUserScript(WKUserScript(source:"window.tasktapSurface='notch'",injectionTime:.atDocumentStart,forMainFrameOnly:true))
+            if verifying {notchConfig.userContentController.addUserScript(WKUserScript(source:"window.fixtureMode=false",injectionTime:.atDocumentStart,forMainFrameOnly:true))}
+            notchConfig.setURLSchemeHandler(workspaceMedia,forURLScheme:"tasktap-preview")
+            let notch=NotchWebView(frame:.zero,configuration:notchConfig)
+            notch.navigationDelegate=self;notch.setValue(false,forKey:"drawsBackground")
+            notchWeb=notch;panel.contentView=notch
+            workspace.contentView=workspaceBackdrop;workspaceBackdrop.host(web)
+        } else {panel.contentView=web}
         status.button?.image = TasktapMark.menuImage()
         updateMenu()
         micro.statusChanged={ [weak self] s in self?.deliver("micro-status",s,reveal:false) }
@@ -195,15 +215,16 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         }
         entry = url
         web.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        notchWeb?.loadFileURL(url,allowingReadAccessTo:url.deletingLastPathComponent())
         if verifying {
-            DispatchQueue.main.asyncAfter(deadline:.now()+(workspaceVerification ? 45:12)) {
+            DispatchQueue.main.asyncAfter(deadline:.now()+((workspaceVerification || independentVerification) ? 60:12)) {
                 fputs("Timed out waiting for native interface verification.\n",stderr);exit(1)
             }
         }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        deliver("open-app")
+        if independentWindows {showWorkspaceWindow()} else {deliver("open-app")}
         return true
     }
 
@@ -213,7 +234,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         let geometry = NotchGeometry(screen: screen)
         let frame = geometry.panelFrame(collapsed: collapsed, requestedHeight: height, requestedWidth: surfaceWidth, usageCount: usageCount)
         if panel.frame != frame { panel.setFrame(frame, display: true) }
-        decisionRim.update(screen: isWorkspace ? workspace.screen ?? screen : screen, visible: isWorkspace && pendingCount > 0)
+        decisionRim.update(screen: isWorkspace ? workspace.screen ?? screen : screen, visible: (independentWindows ? workspace.isVisible:isWorkspace) && pendingCount > 0)
         if ready {
             let expanded = geometry.panelFrame(collapsed:false,requestedHeight:height,requestedWidth:surfaceWidth,usageCount:usageCount)
             let metrics = ["width":geometry.tab.width, "height":geometry.tab.height, "shoulder":geometry.shoulder,
@@ -222,12 +243,12 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                            "pixel":geometry.pixel, "corner":geometry.corner, "rimOffset":geometry.rimOffset,
                            "offset":geometry.tab.midX - frame.midX,
                            "available":max(1,geometry.availableContentHeight - (usageCount > 0 ? 34 : 0))]
-            js("updateNotchGeometry(metrics)",["metrics":metrics])
+            (notchWeb ?? web).callAsyncJavaScript("updateNotchGeometry(metrics)",arguments:["metrics":metrics],in:nil,in:.page){_ in}
         }
     }
 
     private func updateHover(at point: NSPoint, dragging: Bool) {
-        guard ready, !isWorkspace, panel.isVisible else { panel.ignoresMouseEvents=false;pointerInside=false;return }
+        guard ready, (independentWindows || !isWorkspace), panel.isVisible else { panel.ignoresMouseEvents=false;pointerInside=false;return }
         guard var geometry = anchorScreen.map({NotchGeometry(screen:$0)}) else {return}
         if collapsed && !dragging, let destination = NSScreen.screens.first(where: {
             $0 != anchorScreen && NotchGeometry(screen:$0).panelFrame(collapsed:true, requestedHeight:0).contains(point)
@@ -257,8 +278,38 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         hoverTimer=timer
     }
 
+    private func showWorkspaceWindow() {
+        guard ready else {queue.append(("workspace",""));return}
+        if workspace.isMiniaturized {workspace.deminiaturize(nil)}
+        NSApp.activate();workspace.makeKeyAndOrderFront(nil);workspace.makeFirstResponder(web)
+        if let screen=workspace.screen ?? anchorScreen ?? NSScreen.main {decisionRim.update(screen:screen,visible:pendingCount > 0)}
+    }
+    private func bootstrapNotch() {
+        guard ready,notchReady,let notchWeb else {return}
+        web.callAsyncJavaScript("return JSON.parse(JSON.stringify(state))",arguments:[:],in:nil,in:.page){ result in
+            if case .success(let value)=result {notchWeb.callAsyncJavaScript("sharedState.snapshot(value)",arguments:["value":value],in:nil,in:.page){_ in}}
+        }
+        publishWorkspaceConfiguration();sendConnections();refreshUsage()
+        let buffered=notchQueue;notchQueue.removeAll()
+        for (action,id) in buffered {deliver(action,id)}
+    }
     private func deliver(_ action: String, _ id: String = "", reveal: Bool = true) {
         guard ready else { queue.append((action,id)); return }
+        if independentWindows {
+            let notchActions:Set<String>=["home","collapse","capture","requests","notice-request","hover-enter","hover-exit","hw-capture","hw-capture-end","hw-yes","hw-no","hw-discuss","hw-previous","hw-next","hw-confirm","hw-back","notch-onboarding"]
+            let useNotch=notchActions.contains(action) || (action=="prefs" && !workspace.isVisible)
+            if useNotch && !notchReady {notchQueue.append((action,id));return}
+            let target=useNotch ? notchWeb!:web!
+            if reveal {
+                if useNotch {
+                    anchorScreen=NSScreen.screens.first(where:{$0.frame.contains(NSEvent.mouseLocation)}) ?? anchorScreen
+                    position();panel.orderFrontRegardless();panel.makeKey();panel.makeFirstResponder(target)
+                }
+                else {showWorkspaceWindow()}
+            }
+            target.callAsyncJavaScript("window.workspaceCommand(action,id)",arguments:["action":action=="notch-onboarding" ? "open-app":action,"id":id],in:nil,in:.page){_ in}
+            return
+        }
         if reveal {
             anchorScreen=NSScreen.screens.first(where:{ $0.frame.contains(NSEvent.mouseLocation) }) ?? anchorScreen
             position()
@@ -354,14 +405,19 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 }
                 updates?.prepareToRestart = { [weak self] install in
                     guard let self else { return }
-                    self.web.callAsyncJavaScript("return prepareForAppUpdate()", arguments: [:], in: nil, in: .page) { result in
-                        if case .success(let ready) = result, ready as? Bool == true { install() }
-                        else {
-                            let alert = NSAlert(); alert.messageText = "Finish your capture or handoff first"
-                            alert.informativeText = "Your update is ready. Finish capture, setup, review edits or sending, then click the update badge to install and restart."
-                            alert.runModal()
+                    let views=[self.web,self.notchReady ? self.notchWeb:nil].compactMap{$0}
+                    func prepare(_ index:Int) {
+                        if index==views.count {install();return}
+                        views[index].callAsyncJavaScript("return prepareForAppUpdate()",arguments:[:],in:nil,in:.page){result in
+                            if case .success(let ready)=result,ready as? Bool==true {prepare(index+1)}
+                            else {
+                                let alert=NSAlert();alert.messageText="Finish your capture or handoff first"
+                                alert.informativeText="Your update is ready. Finish capture, setup, review edits or sending, then click the update badge to install and restart."
+                                alert.runModal()
+                            }
                         }
                     }
+                    prepare(0)
                 }
                 updates?.start()
             }
@@ -490,27 +546,45 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         }
     }
     func userContentController(_ controller: WKUserContentController,didReceive message: WKScriptMessage) {
-        guard message.frameInfo.isMainFrame, message.webView === web,
+        guard message.frameInfo.isMainFrame, (message.webView === web || message.webView === notchWeb),
               message.frameInfo.request.url?.standardizedFileURL == entry?.standardizedFileURL,
               let data=message.body as? [String:Any],let type=data["type"] as? String else { return }
         switch type {
+        case "shared-state":
+            guard independentWindows,let patch=data["patch"] as? [String:Any] else {return}
+            let target=message.webView === web ? (notchReady ? notchWeb:nil):web
+            target?.callAsyncJavaScript("sharedState.apply(patch)",arguments:["patch":patch],in:nil,in:.page){_ in}
+        case "show-workspace":showWorkspaceWindow()
+        case "hide-workspace":workspace.orderOut(nil);if let screen=workspace.screen ?? anchorScreen ?? NSScreen.main {decisionRim.update(screen:screen,visible:false)}
+        case "notch-onboarding":deliver("notch-onboarding")
+        case "show-notch":deliver(data["open"] as? Bool == false ? "collapse":"home")
+        case "workspace-view":
+            if let view=data["view"] as? String {showWorkspaceWindow();web.callAsyncJavaScript("go(view)",arguments:["view":view],in:nil,in:.page){_ in}}
+        case "workspace-open":
+            if data["activate"] as? Bool != false {showWorkspaceWindow()}
+            web.callAsyncJavaScript("workspaceDeck.open(key,project,activate)",arguments:["key":data["key"] as? String ?? "","project":data["project"] as? String ?? "","activate":data["activate"] as? Bool ?? true],in:nil,in:.page){_ in}
+        case "workspace-open-terminal","workspace-open-result":
+            showWorkspaceWindow();web.callAsyncJavaScript(type=="workspace-open-terminal" ? "workspaceDeck.openTerminal(id)":"workspaceDeck.openResult(id)",arguments:["id":data["id"] as? String ?? ""],in:nil,in:.page){_ in}
         case "ready":
+            if message.webView === notchWeb {notchReady=true;bootstrapNotch();return}
             ready=true;position();panel.orderFrontRegardless();publishWorkspaceConfiguration()
             terminals.events = { [weak self] events, done in
                 guard let self else {done();return}
                 self.web.callAsyncJavaScript("return await workspaceDeck.receive(events)",arguments:["events":events],in:nil,in:.page) { _ in done() }
             }
-            if (!verifying || workspaceVerification) && !liveTest {try? terminals.connect()}
-            if !verifying || workspaceVerification {refreshTerminalAppearance()}
+            if (!verifying || workspaceVerification || independentVerification) && !liveTest {try? terminals.connect()}
+            if !verifying || workspaceVerification || independentVerification {refreshTerminalAppearance()}
             if !verifying {
                 observeHover()
                 dictation.event={ [weak self] id,phase,text in self?.js("dictationEvent(id,phase,text)",["id":id,"phase":phase,"text":text]) }
                 dictation.level={ [weak self] id,level in
-                    guard let self, !sendingVoiceLevel, web.window?.occlusionState.contains(.visible)==true else {return}
+                    guard let self, !sendingVoiceLevel, web.window?.occlusionState.contains(.visible)==true || notchWeb?.window?.occlusionState.contains(.visible)==true else {return}
                     sendingVoiceLevel=true
-                    web.callAsyncJavaScript("dictationLevel(id,level)",arguments:["id":id,"level":level],in:nil,in:.page){[weak self] _ in
-                        self?.sendingVoiceLevel=false
-                    }
+                    let views=[web,notchReady ? notchWeb:nil].compactMap{$0}
+                    var remaining=views.count
+                    for target in views {target.callAsyncJavaScript("dictationLevel(id,level)",arguments:["id":id,"level":level],in:nil,in:.page){[weak self] _ in
+                        remaining-=1;if remaining==0 {self?.sendingVoiceLevel=false}
+                    }}
                 }
                 runtime.projectsChanged={ [weak self] rows in self?.js("projectsDiscovered(rows)",["rows":rows]) }
                 runtime.changed={ [weak self] receipt in self?.js("agentReceipt(e)",["e":receipt]) }
@@ -533,7 +607,8 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             let buffered=queue;queue.removeAll()
             if !verifying && !liveTest && buffered.isEmpty {deliver("open-app",reveal:false)}
             for (action,id) in buffered {deliver(action,id,reveal:action != "hw-capture-end")}
-            if verifying { Task { @MainActor in if self.workspaceVerification {await self.verifyWorkspace()}else{await self.verifyInterface()} } }
+            if independentWindows {isWorkspace=true;showWorkspaceWindow();bootstrapNotch()}
+            if verifying { Task { @MainActor in if self.workspaceVerification || self.independentVerification {await self.verifyWorkspace()}else{await self.verifyInterface()} } }
             if liveTest { Task { @MainActor in await self.verifyLive() } }
             if !verifying && !liveTest {
                 startUpdates()
@@ -554,9 +629,9 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             do {try runtime.folders.setExternalDiscovery(enabled);publishWorkspaceConfiguration();runtime.refreshExternal()}
             catch {publishWorkspaceConfiguration();deliver("live-error",error.localizedDescription,reveal:false)}
         case "workspace-appearance":refreshTerminalAppearance()
-        case "workspace-chrome":workspaceBackdrop.configure(data)
+        case "workspace-chrome":if message.webView === web {workspaceBackdrop.configure(data)}
         case "workspace-terminal":
-            guard !verifying || workspaceVerification,!liveTest else {return}
+            guard !verifying || workspaceVerification || independentVerification,!liveTest,message.webView === web else {return}
             do {try terminals.handle(data,folders:runtime.folders)}
             catch {js("workspaceDeck.receive(events)",["events":[["event":"error","id":data["id"] as? String ?? "","error":error.localizedDescription]]])}
         case "workspace-file":
@@ -675,6 +750,16 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         case "ai-usage":
             NSWorkspace.shared.open(URL(string:"https://chatgpt.com/settings/usage")!)
         case "layout":
+            if independentWindows {
+                if message.webView === notchWeb {
+                    collapsed=data["collapsed"] as? Bool ?? true
+                    usageCount=max(0,min(6,data["usageCount"] as? Int ?? 0))
+                    height=CGFloat(data["height"] as? Double ?? 290)
+                    surfaceWidth=CGFloat(data["width"] as? Double ?? 432)
+                    position()
+                }
+                return
+            }
             let needsWorkspace=data["workspace"] as? Bool ?? false
             if needsWorkspace != isWorkspace {
                 isWorkspace=needsWorkspace
@@ -716,7 +801,10 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 }
             }
         case "focus-capture":
-            if !isWorkspace {
+            if independentWindows {
+                if message.webView === notchWeb {panel.orderFrontRegardless();panel.makeKey();panel.makeFirstResponder(notchWeb)}
+                message.webView?.callAsyncJavaScript("document.querySelector('#modal[open] #transcript')?.focus({preventScroll:true})",arguments:[:],in:nil,in:.page){_ in}
+            } else if !isWorkspace {
                 panel.orderFrontRegardless()
                 panel.makeKey()
                 panel.makeFirstResponder(web)
@@ -833,13 +921,14 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 } else {deliver("live-error",viewer+" is unavailable on this Mac.",reveal:false)}
             } catch {deliver("live-error",error.localizedDescription,reveal:false)}
         case "status":
+            guard !independentWindows || message.webView === web else {return}
             let count = data["count"] as? Int ?? 0
             if count != pendingCount {
                 pendingCount = count
                 updateMenu()
                 position()
             }
-        case "binary":if let id=data["id"] as? String {setBinary(id)}
+        case "binary":if (!independentWindows || message.webView === notchWeb),let id=data["id"] as? String {setBinary(id)}
         case "lightingPreference":
             lightingEnabled=data["enabled"] as? Bool ?? false
             if !verifying {micro.enable(lightingEnabled)}
@@ -1009,6 +1098,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                     try bytes.write(to:URL(fileURLWithPath:destination))
                 }
             }
+            if independentVerification {try await verifyIndependentWindows(folder:folder,id:id)}
             terminals.send(["op":"stop","id":id])
             try await Task.sleep(nanoseconds:400_000_000)
             print("Native workspace passed: real PTY → WebKit/xterm, terminal replay after closing view, native text/image/PDF/audio/video previews, tinted titlebar and content layout across resizing, native System appearance changes, explicit stop.")
@@ -1018,6 +1108,44 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             print("Native workspace failed:",error)
             exit(1)
         }
+    }
+    @MainActor private func verifyIndependentWindows(folder:URL,id:String) async throws {
+        enum Check:Error {case failed(Int)}
+        for _ in 0..<50 {if notchReady {break};try await Task.sleep(nanoseconds:100_000_000)}
+        guard notchReady,let notchWeb,web.window===workspace,notchWeb.window===panel else {throw Check.failed(#line)}
+        let frame=workspace.frame
+        _ = try await web.evaluateJavaScript("window.independentTerminal=document.querySelector('.deck-terminal:not([hidden])');true")
+        deliver("home")
+        try await Task.sleep(nanoseconds:600_000_000)
+        guard workspace.isVisible,workspace.frame==frame,web.window===workspace else {throw Check.failed(#line)}
+        let notchOpen=try await notchWeb.evaluateJavaScript("document.body.classList.contains('notch-first') && !document.querySelector('#notch-home').hidden")
+        guard notchOpen as? Bool==true else {throw Check.failed(#line)}
+        terminals.send(["op":"input","id":id,"data":Data("printf 'TASKTAP_%s\\n' DUAL_LIVE\n".utf8).base64EncodedString()])
+        var live=false
+        for _ in 0..<30 {
+            try await Task.sleep(nanoseconds:100_000_000)
+            let value=try await web.callAsyncJavaScript("return workspaceDeck.terminalText(id).includes('TASKTAP_DUAL_LIVE')",arguments:["id":id],in:nil,contentWorld:.page)
+            if value as? Bool==true {live=true;break}
+        }
+        guard live else {throw Check.failed(#line)}
+        _ = try await notchWeb.evaluateJavaScript("state.notes.unshift({id:'notch-dual-note',text:'From notch'});persist();true")
+        _ = try await web.evaluateJavaScript("state.notes.unshift({id:'workspace-dual-note',text:'From workspace'});persist();true")
+        try await Task.sleep(nanoseconds:300_000_000)
+        let both=try await web.evaluateJavaScript("state.notes.some(n=>n.id==='notch-dual-note') && state.notes.some(n=>n.id==='workspace-dual-note') && independentTerminal===document.querySelector('.deck-terminal:not([hidden])')")
+        guard both as? Bool==true else {throw Check.failed(#line)}
+        deliver("capture")
+        try await Task.sleep(nanoseconds:300_000_000)
+        _ = try await notchWeb.evaluateJavaScript("document.querySelector('#transcript').value='Keep this notch draft';true")
+        guard workspace.isVisible,web.window===workspace else {throw Check.failed(#line)}
+        workspace.performClose(nil)
+        try await Task.sleep(nanoseconds:200_000_000)
+        let retained=try await notchWeb.evaluateJavaScript("document.querySelector('#transcript')?.value==='Keep this notch draft'")
+        guard !workspace.isVisible,panel.isVisible,retained as? Bool==true else {throw Check.failed(#line)}
+        showWorkspaceWindow()
+        try await Task.sleep(nanoseconds:200_000_000)
+        let same=try await web.evaluateJavaScript("independentTerminal===document.querySelector('.deck-terminal:not([hidden])')")
+        guard workspace.isVisible,same as? Bool==true else {throw Check.failed(#line)}
+        print("Independent windows passed: live PTY and DOM persist during notch use; shared notes merge; closing/reopening workspace preserves the notch draft and tabs.")
     }
     @MainActor private func verifyTerminalViewport(folder:URL) async throws {
         let id=UUID().uuidString.lowercased(),originalFrame=workspace.frame
@@ -1399,7 +1527,10 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         guard isWorkspace, let window = notification.object as? WorkspaceWindow, let screen = window.screen else { return }
         decisionRim.update(screen:screen, visible:pendingCount > 0)
     }
-    func windowShouldClose(_ sender:NSWindow)->Bool { deliver("collapse",reveal:false);return false }
+    func windowShouldClose(_ sender:NSWindow)->Bool {
+        if independentWindows,sender === workspace {workspace.orderOut(nil);if let screen=workspace.screen ?? anchorScreen ?? NSScreen.main {decisionRim.update(screen:screen,visible:false)};return false}
+        deliver("collapse",reveal:false);return false
+    }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     private func updateNotificationStatus() {
         notifications.getNotificationSettings { [weak self] settings in

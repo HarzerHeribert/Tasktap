@@ -11,7 +11,7 @@ struct RouterFailure: LocalizedError {
 
 enum RouterSecrets {
     private static func query(_ name: String) -> RouterJSON {
-        [kSecClass as String:kSecClassGenericPassword, kSecAttrService as String:"io.github.harzerheribert.tasktap.routing", kSecAttrAccount as String:name]
+        [kSecClass as String:kSecClassGenericPassword, kSecAttrService as String:Bundle.main.bundleIdentifier!+".routing", kSecAttrAccount as String:name]
     }
     static func get(_ name: String) throws -> String? {
         var q = query(name)

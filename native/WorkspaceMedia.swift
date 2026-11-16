@@ -13,9 +13,7 @@ final class WorkspaceMedia: NSObject, WKURLSchemeHandler {
     private var files = [String:String]()
     private let lock = NSLock()
     private var cancelled = Set<ObjectIdentifier>()
-    private var manifest: URL {
-        FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Tasktap/WorkspaceMedia.json")
-    }
+    private let manifest = LiveWorkspace.appData.appendingPathComponent("WorkspaceMedia.json")
     override init() {
         super.init()
         if let data = try? Data(contentsOf:manifest), let saved = try? JSONDecoder().decode([String:String].self,from:data) { files = saved }

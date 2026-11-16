@@ -70,7 +70,7 @@ def approval_args(agent, args):
 
 def shell(shell_path, session, runs):
     session=str(uuid.UUID(session))
-    root=Path(os.environ.get('TASKTAP_TERMINAL_ROOT') or Path.home()/'Library/Application Support/Tasktap/Terminals')
+    root=Path(os.environ.get('TASKTAP_TERMINAL_ROOT') or Path(os.environ.get('TASKTAP_DATA') or Path.home()/'Library/Application Support/Tasktap')/'Terminals')
     private=root/'Shells'/session
     private.mkdir(parents=True,exist_ok=True,mode=0o700)
     os.chmod(private,0o700)

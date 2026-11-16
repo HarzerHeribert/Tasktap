@@ -29,7 +29,7 @@ def main():
     data=json.dumps(event,ensure_ascii=False).encode()
     if any(not event[k].strip() for k in ['sessionId','requestId','question']) or len(data)>65536 or args.after<0:
         parser.error('Request fields must be nonempty and fit within 64 KiB. The follow-up cursor must be nonnegative.')
-    base=Path(os.environ.get('WORKSPACE_ASSISTANT_INBOX',str(Path.home()/'Library/Application Support/Tasktap/Agent Inbox')))
+    base=Path(os.environ.get('WORKSPACE_ASSISTANT_INBOX') or Path(os.environ.get('TASKTAP_DATA') or Path.home()/'Library/Application Support/Tasktap')/'Agent Inbox')
     os.umask(0o077)
     for sub in ['requests','responses']:(base/sub).mkdir(parents=True,exist_ok=True,mode=0o700)
     key=json.dumps([event[k] for k in ['agent','workspace','sessionId','requestId']])

@@ -22,7 +22,7 @@ import termios
 import time
 import uuid
 
-ROOT = Path(os.environ.get('TASKTAP_TERMINAL_ROOT') or Path.home() / 'Library/Application Support/Tasktap/Terminals')
+ROOT = Path(os.environ.get('TASKTAP_TERMINAL_ROOT') or Path(os.environ.get('TASKTAP_DATA') or Path.home()/'Library/Application Support/Tasktap')/'Terminals')
 LIMIT = 2 * 1024 * 1024
 
 

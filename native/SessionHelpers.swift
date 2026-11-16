@@ -18,7 +18,7 @@ enum SessionHelpers {
         var hash = SHA256()
         for file in files { hash.update(data: Data(relative(file).utf8)); hash.update(data: try Data(contentsOf: file)) }
         let digest = hash.finalize().map { String(format: "%02x", $0) }.joined()
-        let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Tasktap/Helpers")
+        let base = LiveWorkspace.appData.appendingPathComponent("Helpers")
         try fm.createDirectory(at: base, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let target = base.appendingPathComponent(digest)
         if !fm.fileExists(atPath: target.path) {

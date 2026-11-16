@@ -9,7 +9,7 @@ private final class LocalSpeechRequests:NSObject,URLSessionTaskDelegate {
     private var player:AVAudioPlayer?
     private var task:URLSessionDataTask?
     private lazy var network=URLSession(configuration:.ephemeral,delegate:LocalSpeechRequests(),delegateQueue:.main)
-    private let directory=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Tasktap/Kokoro")
+    private let directory=LiveWorkspace.appData.appendingPathComponent("Kokoro")
     private var synthesis:Process?
     private var installation:Process?
     var kokoroStatus:(String,String)->Void={_,_ in}

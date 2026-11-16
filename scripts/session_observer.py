@@ -42,7 +42,7 @@ def public_state(state):
 def publish(folder, token):
     # A callback never starts a terminal service or waits for a UI. Reconnect
     # recovers the latest snapshot from the private run files.
-    root = Path(os.environ.get('TASKTAP_TERMINAL_ROOT') or Path.home()/'Library/Application Support/Tasktap/Terminals')
+    root = Path(os.environ.get('TASKTAP_TERMINAL_ROOT') or folder.parent.parent/'Terminals')
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
             client.settimeout(.2)

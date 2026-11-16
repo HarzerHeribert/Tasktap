@@ -5,7 +5,7 @@ import Foundation
 final class TerminalInputDiagnostics {
     private let directory:URL
     private var rows:[[String:Any]]=[]
-    init(directory:URL=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Tasktap/Diagnostics")){self.directory=directory}
+    init(directory:URL){self.directory=directory}
     var until:Double {
         guard let value=try? String(contentsOf:directory.appendingPathComponent("input-trace-until"),encoding:.utf8),
               let time=Double(value.trimmingCharacters(in:.whitespacesAndNewlines)),

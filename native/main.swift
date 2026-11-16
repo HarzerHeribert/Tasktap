@@ -149,11 +149,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         }
     }
     @MainActor private lazy var narration=Narration()
-    private lazy var inbox:QuestionInbox = {
-        let root = (verifying || liveTest) ? FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("Agent Inbox") :
-            FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Tasktap/Agent Inbox")
-        return QuestionInbox(directory:root)
-    }()
+    private lazy var inbox=QuestionInbox(directory:((verifying || liveTest) ? FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString) : LiveWorkspace.appData).appendingPathComponent("Agent Inbox"))
     private var verifiedLights:[Bool]=[]
     private var handler: EventHandlerRef?
     private var held: Set<UInt32> = []
@@ -161,7 +157,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     private var unavailable: [String] = []
     private var screenObserver: NSObjectProtocol?
     private var voiceOverObserver:NSKeyValueObservation?
-    private let inputDiagnostics=TerminalInputDiagnostics()
+    private let inputDiagnostics=TerminalInputDiagnostics(directory:LiveWorkspace.appData.appendingPathComponent("Diagnostics"))
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if !verifying && !liveTest,
@@ -1863,6 +1859,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
     }
 }
+setenv("TASKTAP_DATA",LiveWorkspace.appData.path,1)
 let app=NSApplication.shared
 let delegate=Assistant()
 app.delegate=delegate

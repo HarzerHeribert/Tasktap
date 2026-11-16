@@ -21,6 +21,8 @@ final class LiveWorkspace {
         discoveryTimer=Timer.scheduledTimer(withTimeInterval:8,repeats:true){[weak self] _ in self?.refreshExternal()}
     }
     var externalChanged:([[String:String]])->Void = {_ in}
+    /// This build's data folder, named after the bundle so Tasktap Dev never shares the installed app's data. Helpers get it as TASKTAP_DATA.
+    static let appData=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent(Bundle.main.object(forInfoDictionaryKey:"CFBundleName") as! String)
     static var cliEnvironment:[String:String]{
         var env=ProcessInfo.processInfo.environment
         env["PATH"]=[FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin").path,FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".opencode/bin").path,"/opt/homebrew/bin","/usr/local/bin",env["PATH"] ?? "/usr/bin:/bin"].joined(separator:":")

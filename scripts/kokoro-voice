@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Install the optional local voice or synthesize a UTF-8 text file into WAV."""
 import hashlib
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -8,7 +9,7 @@ import sys
 import tempfile
 import wave
 
-BASE = Path.home() / "Library/Application Support/Tasktap/Kokoro"
+BASE = Path(os.environ.get('TASKTAP_DATA') or Path.home()/'Library/Application Support/Tasktap')/'Kokoro'
 MODEL = "kokoro-v1.0.int8.onnx"
 VOICES = "voices-v1.0.bin"
 ASSETS = {MODEL: "6e742170d309016e5891a994e1ce1559c702a2ccd0075e67ef7157974f6406cb",

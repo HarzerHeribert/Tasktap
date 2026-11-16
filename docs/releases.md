@@ -74,6 +74,29 @@ Release notes: [releases/1.2.0.md](releases/1.2.0.md). The landing page, guide,
 installer examples and signed update feed use the same release version. Existing
 community signing, fresh-Mac permission and live-provider verification limits apply.
 
+### Verification record
+
+On November 16, 2026, the 43-suite browser matrix and final attached-glow and
+landing-page/guide checks passed. Python session, provider, observer and PTY
+fixtures, all eight workflow Swift checks, and helper dependency/integrity checks
+passed. The four native modes covered interface/focus/rim behavior, embedded
+workspace PTYs and exact observer answers, independent windows, and clipboard
+controls. The final interface run checked the attached zero-inset blurred glow
+on a physical cutout. Runtime helpers left bundle resources unchanged and code
+signatures valid after execution.
+
+The production archive passed full source/helper matching, nested observer and
+executable-mode checks, SHA-256 and Ed25519 verification, and tamper/truncation
+rejection. The production installer replaced an untouched signed 1.1.0 app with
+1.2.0/build 14 in an isolated Applications folder; the signed 1.1.0 backup was
+restored successfully. No user installation or preferences changed.
+
+Live Codex and OpenCode tool/two-turn runs were checked during observer
+integration. Cursor and Antigravity monitoring, all provider/version combinations,
+fresh-Mac permissions, and a full Sparkle download/install/relaunch cycle are not
+established by the local fixtures. These limits do not change the archive's
+signature and installer transaction checks.
+
 ## 1.1.0 release scope
 
 Version 1.1.0 uses build **13**. The workspace and notch have independent

@@ -1486,12 +1486,14 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             guard let screen = anchorScreen else { throw Check.failed(#line) }
             let geometry = NotchGeometry(screen:screen)
             let rimMatches = try await web.callAsyncJavaScript("""
-                const el=document.querySelector('#islandToggle'), box=el.getBoundingClientRect(), rim=getComputedStyle(el,'::after');
+                const el=document.querySelector('#islandToggle'), box=el.getBoundingClientRect(), rim=getComputedStyle(el,'::after'), bloom=getComputedStyle(el,'::before');
                 return Math.abs(box.width-width)<0.51 && Math.abs(box.height-depth)<0.51 &&
-                    Math.abs(parseFloat(rim.left)+offset)<0.51 && Math.abs(parseFloat(rim.right)+offset)<0.51 &&
-                    Math.abs(parseFloat(rim.bottom)+offset)<0.51 && parseFloat(rim.borderBottomWidth)>0;
-                """,arguments:["width":geometry.tab.width,"depth":geometry.tab.height,"offset":geometry.rimOffset],in:nil,contentWorld:.page)
-            guard rimMatches as? Bool == true, abs(panel.frame.maxY-geometry.tab.maxY) <= geometry.pixel else {
+                    [rim.top,rim.left,rim.right,rim.bottom].every(value=>Math.abs(parseFloat(value))<0.51) &&
+                    parseFloat(rim.borderBottomWidth)>0 && rim.filter.includes('blur(') &&
+                    bloom.filter.includes('blur(') && bloom.boxShadow!=='none' &&
+                    rim.pointerEvents==='none' && bloom.pointerEvents==='none';
+                """,arguments:["width":geometry.tab.width,"depth":geometry.tab.height],in:nil,contentWorld:.page)
+            guard rimMatches as? Bool == true, panel.frame.contains(geometry.tab), abs(panel.frame.maxY-geometry.tab.maxY) <= geometry.pixel else {
                 print("Cutout bounds",geometry.tab,"actual compact panel",panel.frame)
                 throw Check.failed(#line)
             }

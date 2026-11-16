@@ -107,7 +107,7 @@ require('node:fs').mkdirSync(shots,{recursive:true});
  assert.equal(await page.evaluate(()=>draft.reference),undefined);
  await page.getByRole('button',{name:'Cancel',exact:true}).click();
  await page.evaluate(()=>workspaceDeck.addFiles('p',[{id:'web',kind:'web',title:'Preview',url:'https://example.invalid'}]));
- assert.equal(await page.locator('.deck-preview iframe').getAttribute('sandbox'),'allow-scripts allow-forms');
+ assert.equal(await page.locator('.deck-preview iframe').getAttribute('sandbox'),'allow-scripts allow-forms allow-popups');
  await page.evaluate(()=>window.previewWindow=document.querySelector('.deck-preview iframe').contentWindow);
  await page.locator('[data-action="deck-tab"][data-id="media:doc"]').click();
  await page.locator('[data-action="deck-tab"][data-id="media:web"]').click();

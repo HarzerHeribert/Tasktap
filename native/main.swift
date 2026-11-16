@@ -43,7 +43,7 @@ final class WorkspaceWindow: NSWindow {
     }
 }
 final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScriptMessageHandler,
-                       WKNavigationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
+                       WKNavigationDelegate, WKUIDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     private let status = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let notifications = UNUserNotificationCenter.current()
     private var panel: NSPanel!
@@ -181,6 +181,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         config.setURLSchemeHandler(workspaceMedia, forURLScheme:"tasktap-preview")
         web = NotchWebView(frame: .zero, configuration: config)
         web.navigationDelegate = self
+        web.uiDelegate = self
         web.setValue(false, forKey: "drawsBackground")
         panel = NotchPanel(contentRect: NSRect(x: 0,y: 0,width: 440,height: 290),
                         styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -201,7 +202,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             if verifying {notchConfig.userContentController.addUserScript(WKUserScript(source:"window.fixtureMode=false",injectionTime:.atDocumentStart,forMainFrameOnly:true))}
             notchConfig.setURLSchemeHandler(workspaceMedia,forURLScheme:"tasktap-preview")
             let notch=NotchWebView(frame:.zero,configuration:notchConfig)
-            notch.navigationDelegate=self;notch.setValue(false,forKey:"drawsBackground")
+            notch.navigationDelegate=self;notch.uiDelegate=self;notch.setValue(false,forKey:"drawsBackground")
             notchWeb=notch;panel.contentView=notch
             workspace.contentView=workspaceBackdrop;workspaceBackdrop.host(web)
         } else {panel.contentView=web}
@@ -678,6 +679,39 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             guard let id=data["id"] as? String,let href=data["href"] as? String,let project=data["project"] as? String else {return}
             do {let files=try workspaceMedia.openRelative(id,href:href)
                 js("workspaceDeck.addFiles(project,files)",["project":project,"files":files])
+            } catch {deliver("live-error",error.localizedDescription,reveal:false)}
+        case "workspace-open-link":
+            guard !verifying,!liveTest,message.webView === web || message.webView === notchWeb,
+                  let href=data["href"] as? String else {return}
+            let project=data["project"] as? String ?? "",cwd=data["cwd"] as? String ?? ""
+            do {
+                let destination=try WorkspaceLinks.resolve(href,cwd:cwd)
+                switch destination {
+                case .web(let url):
+                    if data["external"] as? Bool == true || project.isEmpty {
+                        if !NSWorkspace.shared.open(url){throw WorkspaceLinks.Failure.invalid}
+                    } else {
+                        showWorkspaceWindow()
+                        web.callAsyncJavaScript("workspaceDeck.openWeb(project,url)",arguments:["project":project,"url":url.absoluteString],in:nil,in:.page){_ in}
+                    }
+                case .app(let url):
+                    if !NSWorkspace.shared.open(url){throw WorkspaceLinks.Failure.invalid}
+                case .file(let url,let line,let column):
+                    let type=UTType(filenameExtension:url.pathExtension)
+                    let directory=(try? url.resourceValues(forKeys:[.isDirectoryKey]).isDirectory)==true
+                    let executable=["app","command","sh","bash","zsh","fish","workflow","scpt"].contains(url.pathExtension.lowercased())
+                    let preview=type?.conforms(to:.text)==true || type?.conforms(to:.image)==true || type?.conforms(to:.movie)==true || type?.conforms(to:.audio)==true || ["pdf","md","markdown","json","yaml","yml","toml","log","swift","ts","tsx","jsx","py","rs","go"].contains(url.pathExtension.lowercased())
+                    if directory || executable || !preview && FileManager.default.isExecutableFile(atPath:url.path) {NSWorkspace.shared.activateFileViewerSelecting([url])}
+                    else if data["external"] as? Bool == true || !preview || project.isEmpty {
+                        if !NSWorkspace.shared.open(url){throw WorkspaceLinks.Failure.invalid}
+                    } else {
+                        var files=workspaceMedia.register([url])
+                        if let line {files[0]["sourceLine"]=String(line)}
+                        if let column {files[0]["sourceColumn"]=String(column)}
+                        showWorkspaceWindow()
+                        web.callAsyncJavaScript("workspaceDeck.addFiles(project,files)",arguments:["project":project,"files":files],in:nil,in:.page){_ in}
+                    }
+                }
             } catch {deliver("live-error",error.localizedDescription,reveal:false)}
         case "workspace-pdf-page":
             if let id=data["id"] as? String {workspaceMedia.pdfPage(id,page:data["page"] as? Int ?? 0) { [weak self] result in
@@ -1559,7 +1593,27 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         if navigationAction.targetFrame?.isMainFrame == false,
            let scheme=navigationAction.request.url?.scheme?.lowercased(),
            ["tasktap-preview","http","https","about","blob"].contains(scheme) {decisionHandler(.allow);return}
-        decisionHandler(navigationAction.request.url?.standardizedFileURL==entry?.standardizedFileURL ? .allow:.cancel)
+        if navigationAction.request.url?.standardizedFileURL==entry?.standardizedFileURL {decisionHandler(.allow);return}
+        openActivatedExternalLink(navigationAction)
+        decisionHandler(.cancel)
+    }
+    // Sandboxed web previews keep normal navigation in their frame. Explicit
+    // new-window and associated-app links use the system handler; scripts alone
+    // cannot launch another application or create an unowned WKWebView.
+    private func openActivatedExternalLink(_ action:WKNavigationAction) {
+        guard !verifying,!liveTest,action.navigationType == .linkActivated,
+              let value=action.request.url?.absoluteString,
+              let target=try? WorkspaceLinks.resolve(value,cwd:"") else {return}
+        switch target {
+        case .web(let url),.app(let url):
+            if !NSWorkspace.shared.open(url){deliver("live-error","Could not open this link in its default app.",reveal:false)}
+        case .file:break
+        }
+    }
+    func webView(_ webView:WKWebView,createWebViewWith configuration:WKWebViewConfiguration,
+                 for navigationAction:WKNavigationAction,windowFeatures:WKWindowFeatures)->WKWebView? {
+        openActivatedExternalLink(navigationAction)
+        return nil
     }
     func windowDidChangeScreen(_ notification: Notification) {
         guard isWorkspace, let window = notification.object as? WorkspaceWindow, let screen = window.screen else { return }

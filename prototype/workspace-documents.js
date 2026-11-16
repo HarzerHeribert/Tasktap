@@ -17,6 +17,12 @@ const workspaceDocuments=(()=>{
     if(/^https?:\/\//i.test(href)){
       try{const url=new URL(href);return url.hostname&&!url.username&&!url.password?{kind:'external',value:url.href}:null}catch{return null}
     }
+    if(typeof workspaceLinks!=='undefined'){
+      const target=workspaceLinks.target(href);
+      if(target&&(target.kind==='app'||target.kind==='file'&&(file?.cwd||/^(?:file:|\/|~\/)/i.test(href)))){
+        try{return {kind:'workspace',value:target.kind==='file'&&!/^file:/i.test(href)?decodeURIComponent(href):href}}catch{return null}
+      }
+    }
     // The URL authority is a capability issued for the explicitly chosen
     // document. A link cannot replace it or walk above its containing folder.
     if(/^(?:[a-z][a-z0-9+.-]*:|\/)/i.test(href))return null;
@@ -46,12 +52,14 @@ const workspaceDocuments=(()=>{
       const target=linkTarget(link.getAttribute('data-doc-href'),file);link.removeAttribute('data-doc-href');
       if(!target){link.className='document-link-disabled';link.title='This link cannot be opened from the preview.';return}
       link.href=target.kind==='anchor'?'#'+scope+target.value:target.value;
-      if(target.kind==='external'){link.className='document-external';link.setAttribute('aria-label',link.textContent+' (opens in browser)')}
+      if(target.kind==='external'){link.className='document-external';link.setAttribute('aria-label',link.textContent+(typeof workspaceLinks==='undefined'?' (opens in browser)':' (opens in workspace)'))}
+      link.title=link.title||'Click to open / Option-click for default app';
       link.addEventListener('click',event=>{
         event.preventDefault();event.stopPropagation();
         if(target.kind==='anchor'){const heading=headings.get(target.value);heading?.scrollIntoView({block:'start'});heading?.focus({preventScroll:true});return}
         // Only an actual user activation may invoke a native action.
         if(!event.isTrusted)return;
+        if(typeof workspaceLinks!=='undefined'&&['workspace','external'].includes(target.kind)){workspaceLinks.open(target.value,file,event);return}
         if(typeof postLive==='function'){
           if(target.kind==='external')postLive('workspace-open-url',{url:target.value});
           else postLive('workspace-open-relative',{id:file.id,href:target.href,project:file.project});
@@ -74,7 +82,7 @@ const workspaceDocuments=(()=>{
     const placeholder=document.createElement('span');placeholder.className='document-image-placeholder';placeholder.textContent=label+(img.alt&&!label.includes(img.alt)?' / '+img.alt:'');
     if(target?.kind==='external'){
       const link=document.createElement('a');link.href=target.value;link.className='document-external';link.textContent='Open image in browser';
-      link.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if(event.isTrusted&&typeof postLive==='function')postLive('workspace-open-url',{url:target.value})});
+      link.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if(!event.isTrusted)return;if(typeof workspaceLinks!=='undefined')workspaceLinks.open(target.value,{},event);else if(typeof postLive==='function')postLive('workspace-open-url',{url:target.value})});
       link.addEventListener('auxclick',event=>event.preventDefault());placeholder.append(document.createTextNode(' / '),link);
     }
     img.replaceWith(placeholder);

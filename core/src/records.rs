@@ -14,12 +14,11 @@ use crate::store::{self, Tx};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tasktap_proto::call::{Code, Error};
 use tasktap_proto::{
     Change, Collection, Control, Delete, Glance, History, HistoryPage, Layout, Mode, NotePatch,
     PrefValue, ProjectPatch, Put, PutTarget, Rev, Revision, Rows, SessionId, Set, Subscribe,
-    Thought, ThoughtId, Time, encode_control, json_len,
+    Thought, ThoughtId, encode_control, json_len,
 };
 
 /// Most bytes of JSON in one snapshot chunk (design §1).
@@ -396,7 +395,7 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
             let NotePatch { text, strokes } = patch;
             t.text = text.unwrap_or(t.text);
             t.strokes = strokes.unwrap_or(t.strokes);
-            t.updated = now();
+            t.updated = core.seams.now();
             fits(&t)?;
             tx.update_thought(&t)
         }
@@ -502,11 +501,6 @@ fn gone(id: impl Serialize) -> Error {
 
 fn invalid(message: String) -> Error {
     Error::new(Code::Invalid, message)
-}
-
-fn now() -> Time {
-    let since = SystemTime::now().duration_since(UNIX_EPOCH);
-    Time::new(since.map_or(0, |d| d.as_millis() as u64)).unwrap_or(Time::ZERO)
 }
 
 /// `fixture.records`: rows only the state machine writes otherwise, written

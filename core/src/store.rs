@@ -867,6 +867,15 @@ impl<'s> Tx<'s> {
         self.all(Table::Thoughts, clause, [])
     }
 
+    /// The name each launch would give a new worktree: the last group of
+    /// its attempt's id (`state::place`).
+    pub fn launch_names(&self) -> Result<std::collections::BTreeSet<String>> {
+        let sql = "SELECT substr(id, 25) FROM attempts WHERE kind = 'launch'";
+        let mut stmt = self.db.prepare_cached(sql)?;
+        let names = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        Ok(names.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// Every thought that has had a worktree.
     pub fn isolated(&self) -> Result<Vec<Thought>> {
         self.all(

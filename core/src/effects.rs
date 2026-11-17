@@ -412,6 +412,7 @@ fn launch(core: &mut Core, launch: Launch) -> Option<Outcome> {
     };
     git(
         core,
+        repo.clone(),
         move |git| git.prepare(&repo, &worktree),
         move |core, made| match made {
             Ok(workdir) => {
@@ -673,11 +674,14 @@ fn settle(core: &mut Core, attempt: AttemptId, thought: ThoughtId, keep: bool) -
         let gone = "the thought's worktree is gone".to_owned();
         return Some(settled(core, attempt, Some(gone)));
     };
-    let work = move |git: &Git| match keep {
-        true => git.keep(&repo, &workdir, &title),
-        false => git.discard(&repo, &workdir),
+    let work = {
+        let repo = repo.clone();
+        move |git: &mut Git| match keep {
+            true => git.keep(&repo, &workdir, &title),
+            false => git.discard(&repo, &workdir),
+        }
     };
-    git(core, work, move |core, done| {
+    git(core, repo, work, move |core, done| {
         let outcome = settled(core, attempt, done.err());
         let reply = match outcome {
             Outcome::Ok(_) => Ok(()),
@@ -709,9 +713,18 @@ fn survey(core: &mut Core, thought: ThoughtId) {
         return;
     };
     let path = workdir.path.clone();
+    // A look that can decide a settle the core stopped during waits for
+    // that core's git to have ended.
+    let stopped = read(core, |tx| stopped(tx, thought)).unwrap_or_else(|e| stop(e));
     git(
         core,
-        move |git| git.survey(&repo, &workdir),
+        repo.clone(),
+        move |git| {
+            if stopped {
+                git.hold_for(&workdir)?;
+            }
+            git.survey(&repo, &workdir)
+        },
         move |core, found| {
             // A look that failed changes nothing: the next one may do better.
             if let Ok(found) = found {
@@ -743,6 +756,7 @@ fn tidy(core: &mut Core, attempt: AttemptId, thought: ThoughtId) {
     let path = workdir.path.clone();
     git(
         core,
+        repo.clone(),
         move |git| git.tidy(&repo, &workdir),
         move |core, done| {
             let (error, found) = match done {
@@ -765,6 +779,13 @@ fn tidy(core: &mut Core, attempt: AttemptId, thought: ThoughtId) {
             }
         },
     );
+}
+
+/// Whether the core stopped during the last settle or tidy of a thought's
+/// worktree.
+fn stopped(tx: &crate::store::Tx, thought: ThoughtId) -> crate::store::Result<bool> {
+    let last = tx.settles(thought)?.pop();
+    Ok(last.is_some_and(|a| a.outcome == Some(AttemptOutcome::Interrupted)))
 }
 
 /// A thought's worktree, its project's folder, and the title what Keep
@@ -794,12 +815,23 @@ fn title(t: &Thought) -> String {
 /// cut short by the core idling out.
 fn git<T: Send + 'static>(
     core: &mut Core,
-    work: impl FnOnce(&Git) -> Result<T, String> + Send + 'static,
+    repo: PathBuf,
+    work: impl FnOnce(&mut Git) -> Result<T, String> + Send + 'static,
     then: impl FnOnce(&mut Core, Result<T, String>) + 'static,
 ) {
     let data = core.terminals.data().to_owned();
+    let work = move || Git::new(&data, &repo).and_then(|mut git| work(&mut git));
+    job(core, work, then);
+}
+
+/// Runs `work` on a thread of its own, counted while it runs, and `then`
+/// on the core's thread with what it returned.
+fn job<T: Send + 'static>(
+    core: &mut Core,
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+    then: impl FnOnce(&mut Core, Result<T, String>) + 'static,
+) {
     core.seams.git += 1;
-    let work = move || Git::new(&data).and_then(|git| work(&git));
     crate::calls::aside(core, work, move |core, done| {
         core.seams.git -= 1;
         core.events.notify_one();
@@ -818,27 +850,32 @@ pub fn sweep(core: &mut Core) {
         let mut owners = Vec::new();
         for t in tx.isolated()? {
             let project = t.project_id.map(|p| tx.project(p)).transpose()?.flatten();
+            let stopped = stopped(tx, t.id)?;
             if let (Some(p), Some(workdir)) = (project, t.workdir) {
                 owners.push(Owner {
                     thought: t.id,
                     repo: PathBuf::from(p.folder),
                     workdir,
+                    stopped,
                 });
             }
         }
         Ok(owners)
     });
     let owners = owners.unwrap_or_else(|e| stop(e));
-    let root = core.terminals.data().join(crate::isolate::FOLDER);
-    let there: Vec<_> = std::fs::read_dir(&root)
+    let data = core.terminals.data().to_owned();
+    let there: Vec<_> = std::fs::read_dir(data.join(crate::isolate::FOLDER))
         .map(|entries| entries.flatten().map(|e| e.path()).collect())
         .unwrap_or_default();
     if owners.is_empty() && there.is_empty() {
         return;
     }
-    git(
+    // The names the launches of this store gave worktrees: a folder with
+    // one is a worktree this core made.
+    let launched = read(core, |tx| tx.launch_names()).unwrap_or_else(|e| stop(e));
+    job(
         core,
-        move |git| Ok(git.sweep(&owners, &there)),
+        move || Ok(crate::isolate::sweep(&data, &owners, &there, &launched)),
         |core, found| {
             for (thought, path, found) in found.unwrap_or_default() {
                 report(

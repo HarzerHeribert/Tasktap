@@ -310,7 +310,7 @@ type RouteResult = { confidence: "clear" | "ambiguous" | "unknown"; mode: "ask" 
 
 ## 10. Efficiency
 
-One thread owns all state and runs a single-threaded `tokio` runtime, so there are no locks. Blocking work (terminal reads, waiting for exit, web calls, git) sits on plain threads that sleep in the kernel and send a message when something happens.
+One thread owns all state and runs a single-threaded `tokio` runtime, so there are no locks. Blocking work (terminal reads, waiting for exit, web calls, git, and the folder checks of `project.add` and `project.scan`, four at most at once, since a stalled network mount blocks them for as long as the system lets it) sits on plain threads that sleep in the kernel and send a message when something happens.
 
 | Dependency | Why it earns its place | Phase |
 | --- | --- | --- |

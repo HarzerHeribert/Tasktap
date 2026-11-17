@@ -10,9 +10,9 @@ use std::time::{Duration, Instant};
 use tasktap_core::client::{self, Client};
 use tasktap_proto::call::{self, Call, Code, Name};
 use tasktap_proto::{
-    Auth, CallId, Control, Decoder, DeviceId, Empty, Frame, HEADER, Hello, Identity, KIND_CONTROL,
-    MAX_FRAME, Outcome, Ref, Refuse, RefuseWhy, Register, Request, Retire, Role, Secret, VERSION,
-    Versions, When, encode_control,
+    AddProject, Auth, CallId, Control, Decoder, DeviceId, Empty, Frame, HEADER, Hello, Identity,
+    KIND_CONTROL, MAX_FRAME, Outcome, ProjectId, Ref, Refuse, RefuseWhy, Register, Request, Retire,
+    Role, Secret, VERSION, Versions, When, encode_control,
 };
 
 mod common;
@@ -572,4 +572,30 @@ fn a_core_with_only_silent_connections_still_exits_when_idle() {
     drop(c);
     assert!(core.exit().success());
     drop(silent);
+}
+
+#[test]
+fn a_slow_folder_check_holds_up_no_other_client() {
+    let data = Folder::new();
+    // Each folder check takes ten minutes, as one on a stalled network mount may.
+    let core = Core::start(&data, &["--check-ms", "600000"]);
+    let mut a = core.device(DeviceId::mint(), 1, Some("a")).unwrap();
+    let add = AddProject {
+        id: ProjectId::mint(),
+        folder: data.0.to_str().unwrap().into(),
+        name: None,
+    };
+    a.send(&call::ProjectAdd::request(CallId(100), &add))
+        .unwrap();
+    for id in 101..104 {
+        a.send(&call::ProjectScan::request(CallId(id), &Empty {}))
+            .unwrap();
+    }
+    // Four run at once; a fifth is refused rather than queued.
+    let busy = a.call::<call::ProjectScan>(&Empty {}).unwrap().unwrap_err();
+    assert_eq!(busy.code, Code::Failed);
+    // Meanwhile every other call is answered, from any client.
+    let mut b = core.device(DeviceId::mint(), 2, Some("b")).unwrap();
+    status(&mut b);
+    status(&mut a);
 }

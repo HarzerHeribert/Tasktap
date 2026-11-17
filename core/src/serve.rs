@@ -37,6 +37,9 @@ pub struct Options {
     /// A session token that names no terminal, for tests (design §13).
     #[cfg(feature = "fixtures")]
     pub token: Option<tasktap_proto::Secret>,
+    /// How long each folder check waits first, for tests.
+    #[cfg(feature = "fixtures")]
+    pub check: Duration,
 }
 
 /// Everything the core's thread owns. Tasks borrow it between awaits, never across one.
@@ -53,6 +56,11 @@ pub struct Core {
     pub me: Weak<RefCell<Core>>,
     /// Wakes the main loop to look at the lifetime again.
     pub events: Rc<Notify>,
+    /// Folder checks running on their own threads (`calls::off_thread`).
+    pub checks: usize,
+    /// How long each folder check waits first, for tests (design §13).
+    #[cfg(feature = "fixtures")]
+    pub fixture_check: Duration,
     #[cfg(feature = "fixtures")]
     pub fixture_token: Option<(crate::store::Hash, tasktap_proto::TerminalId)>,
 }
@@ -130,6 +138,9 @@ async fn serve(opts: Options) -> io::Result<()> {
             questions: Default::default(),
             me: me.clone(),
             events: events.clone(),
+            checks: 0,
+            #[cfg(feature = "fixtures")]
+            fixture_check: opts.check,
             #[cfg(feature = "fixtures")]
             fixture_token: opts.token.map(|t| {
                 (

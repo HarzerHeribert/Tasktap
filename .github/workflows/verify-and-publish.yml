@@ -126,7 +126,12 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund
           npx --no-install playwright install chromium
       - name: Smoke (the real app on the fixture agent, passive, in a temporary data folder)
-        run: SHOTS="$RUNNER_TEMP/smoke" host/scripts/smoke.sh
+        # The smoke run expects the Mac's default shell, zsh: it looks for a terminal named after it
+        # and for a bracketed paste, which the system's bash does not do. The runner's account
+        # uses bash, so the shell is named here, with an empty start file to keep it quiet.
+        run: |
+          touch "$HOME/.zshrc"
+          SHELL=/bin/zsh SHOTS="$RUNNER_TEMP/smoke" host/scripts/smoke.sh
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

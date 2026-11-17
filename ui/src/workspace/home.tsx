@@ -11,7 +11,8 @@ import {
 } from './model.ts';
 
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
-/** How a person signs an agent in, typed into a shell that belongs to no project. */
+/** How a person signs an agent in, typed into a shell that belongs to no project: its own
+ *  command, which asks to sign in when it is not. */
 const signIn: Record<string, string> = { claude: 'claude', codex: 'codex login' };
 
 function Row({ t, kind }: { t: Thought; kind: 'attention' | 'progress' | 'results' }) {

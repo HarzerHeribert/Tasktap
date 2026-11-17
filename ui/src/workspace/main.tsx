@@ -158,4 +158,6 @@ const text = (id = current()?.id) => {
 };
 /** Types a line into the terminal shown, as the keyboard would. */
 const type = (line: string) => (engines.get(current()?.id ?? '')?.term.input(line + '\r', true), !!current()?.id);
-Object.assign(window, { __ws: { ui, records, layout, command, engines, focusSession, show, echo, burst, text, type, current, L } });
+Object.assign(window, {
+  __ws: { ui, records, layout, command, engines, focusSession, show, newTerminal, call, echo, burst, text, type, current, LOOSE, L },
+});

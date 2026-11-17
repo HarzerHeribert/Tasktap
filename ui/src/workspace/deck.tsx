@@ -8,16 +8,16 @@ import { Icon } from '../icons.tsx';
 import * as L from './layout.ts';
 import {
   LOOSE, agentName, attach, call, closeTab, closeWorkspace, copy, cue, fail, focusTerminal, label, layout, newTerminal,
-  open, paste, questionOf, readSoon, records, redraw, sessionOf, setLayout, store, textSize, textSizeBy, thoughtOf, ui,
+  open, page, paste, questionOf, readSoon, records, redraw, sessionOf, setLayout, store, textSize, textSizeBy, thoughtOf, ui,
 } from './model.ts';
 import { engine, engines, flushFits, queueFit } from './terminal.ts';
 
 type Response = AnswerQuestion extends infer A ? (A extends { id: string } ? Omit<A, 'id'> : never) : never;
 
-/** The command a person types to start an agent in a shell, by the agent's id. */
-const commands: Record<string, string> = { fixture: 'fixture-agent' };
+/** An agent started as a person starts it: its name typed into a new shell of the workspace, where
+ *  the core's shim of that name runs it and adopts it as a session (design §4). */
 export const startAgent = (project: string, agent: string, into?: string) =>
-  newTerminal(project, { into, title: agentName(agent), type: commands[agent] ?? agent });
+  newTerminal(project, { into, title: agentName(agent), type: agent });
 
 /** A small menu: `<details class="deck-menu">`, its list placed under its button inside the window. */
 export function Menu({ label: name, icon, children, class: extra = '' }: { label: string; icon?: string; children: ComponentChildren; class?: string }) {
@@ -221,7 +221,7 @@ function QuestionBar({ q, terminal }: { q?: Question; terminal?: string | null }
           const text = (e.currentTarget.querySelector('input')?.value ?? '').trim();
           if (text) answer({ kind: 'text', text });
         }}>
-          <input aria-label="Reply" placeholder="Answer in your own words…" autoFocus />
+          <input aria-label="Reply" placeholder="Answer in your own words…" />
           <button class="primary"><span>Send reply</span></button>
         </form>
       ) : (
@@ -229,7 +229,11 @@ function QuestionBar({ q, terminal }: { q?: Question; terminal?: string | null }
           {q.kind === 'confirm' && <button type="button" class="primary" onClick={() => answer({ kind: 'affirm' })}><Icon name="check" /><span>Yes</span></button>}
           {q.kind === 'confirm' && <button type="button" class="btn" onClick={() => answer({ kind: 'deny' })}><Icon name="x" /><span>No</span></button>}
           {q.kind === 'choice' && q.choices.map((c, k) => <button type="button" class="btn" onClick={() => answer({ kind: 'choice', choice: k })}><span>{c}</span></button>)}
-          <button type="button" class="text-btn" onClick={() => ((ui.replying = q.id), redraw())}><span>Reply</span></button>
+          <button type="button" class="text-btn" onClick={() => {
+            ui.replying = q.id;
+            page.focus = '.deck-question .deck-reply input';
+            redraw();
+          }}><span>Reply</span></button>
         </span>
       )}
     </div>

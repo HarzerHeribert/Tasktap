@@ -7,11 +7,10 @@ import { Capture, cap } from '../capture.tsx';
 import { Icon } from '../icons.tsx';
 import * as L from './layout.ts';
 import {
-  call, dismiss, fail, finishClose, keepInBackground, label, layout, openWorkspace, pickFolder, projectName, records, setLayout,
-  stop, ui,
+  call, dismiss, fail, finishClose, focus, focusTerminal, keepInBackground, label, layout, openWorkspace, pickFolder, projectName,
+  records, setLayout, stop, ui,
 } from './model.ts';
 import { engines } from './terminal.ts';
-import { focusTerminal } from './model.ts';
 
 function Frame({ title, over, children }: { title: string; over?: string; children: ComponentChildren }) {
   return (
@@ -162,8 +161,11 @@ export function Dialogs() {
   const ref = useRef<HTMLDialogElement>(null);
   useLayoutEffect(() => {
     const el = ref.current!;
-    if (ui.dialog && !el.open) el.showModal();
-    else if (!ui.dialog && el.open) el.close();
+    if (ui.dialog && !el.open) {
+      el.showModal();
+      // The dialog's first choice takes the keyboard, without the ring a key press would show.
+      focus(el.querySelector<HTMLElement>('[autofocus], #guide-input, .stack button, .form-actions .primary, input, .dialog-body button'));
+    } else if (!ui.dialog && el.open) el.close();
   });
   return (
     <dialog id="modal" ref={ref} aria-labelledby="dialog-heading" onClose={() => ui.dialog && dismiss()}>

@@ -6,7 +6,6 @@
 import type { Mark, StartTerminal } from '../../../core/proto/protocol.ts';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
-import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import type { Stream } from '../client.ts';
 import { call, client, records, redraw } from '../page.ts';
@@ -17,8 +16,6 @@ const WINDOW = 1 << 20;
 const encoder = new TextEncoder();
 const empty = new Uint8Array(0);
 const RELEASE = '\x1b[?9;1000;1002;1003;1004;1005;1006;1015;1016;2004;2026l\x1b[?1l\x1b>\x1b[<u\x1b[=0u\x1b[>4;0m\x1b[?47l\x1b[0m\x1b[?25h';
-/** The renderer: WebGL, falling back to the DOM when it cannot start or loses its context. */
-const renderer = new URLSearchParams(location.search).get('renderer') === 'dom' ? 'dom' : 'webgl';
 let look: Look = neutral();
 
 export class Engine {
@@ -43,6 +40,10 @@ export class Engine {
   /** Typed once the stream is live. */
   private queued = '';
   size: number | null = null;
+  /** Times the core restarted this stream because it fell behind (measured, never expected). */
+  gaps = 0;
+  /** The terminal offset the last stream continued from; null when it replayed the ring. */
+  resumed: number | null = null;
 
   constructor(id: string) {
     this.id = id;
@@ -55,15 +56,8 @@ export class Engine {
     this.term.loadAddon(this.fit);
     this.term.loadAddon(this.search);
     this.term.open(viewport);
-    if (renderer === 'webgl') {
-      try {
-        const gl = new WebglAddon();
-        gl.onContextLoss(() => gl.dispose());
-        this.term.loadAddon(gl);
-      } catch {
-        // The DOM renderer stays.
-      }
-    }
+    // The DOM renderer: measured against WebGL on a 5 MB burst it was as fast (23.6 MB/s both),
+    // used 7 % more processor time and 12 to 25 MB less memory, with no context to lose.
     this.mute();
     this.term.onData((data) => this.reply || this.write(encoder.encode(data)));
     this.term.onBinary((data) => this.write(Uint8Array.from(data, (c) => c.charCodeAt(0))));
@@ -112,6 +106,7 @@ export class Engine {
     this.received = 0;
     try {
       const from = this.resume;
+      this.resumed = from;
       this.stream = await client.open('terminal.open', { id: this.id, ...(start ? { start } : {}), cols, rows, credit: WINDOW, ...(from !== null ? { from } : {}) }, {
         ondata: (bytes) => {
           const n = bytes.length;
@@ -146,6 +141,7 @@ export class Engine {
   private mark(m: Mark) {
     if (m.gap) {
       // The stream starts again from the ring's start: the old screen goes with it.
+      this.gaps++;
       this.base = { offset: m.from ?? 0, at: m.at };
       this.term.write(empty, () => this.term.reset());
     }

@@ -319,8 +319,10 @@ fn a_follow_ups_text_cannot_end_its_paste_or_reach_the_terminal_as_keys() {
 /// A program that lets go of its terminal and goes on running takes no
 /// input any more: the first write that fails ends the terminal's input.
 /// Nothing a client types after that is granted back as written, and a
-/// follow-up fails with the reason instead of being reported typed.
-#[cfg(unix)]
+/// follow-up fails with the reason instead of being reported typed. On
+/// the Mac such a write fails; Linux takes writes into a terminal nobody
+/// holds and drops them, so there none fails, and Windows has no `let_go`.
+#[cfg(target_os = "macos")]
 #[test]
 fn input_the_terminal_cannot_write_is_never_reported_written() {
     let mut s = Scene::real("lw", "fixture");

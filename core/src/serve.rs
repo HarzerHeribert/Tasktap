@@ -252,9 +252,12 @@ fn open(path: &Path) -> io::Result<File> {
 /// `start.lock` taken alone, which no client connecting through
 /// `client::admit` holds: none of them can be left in the listen queue of a
 /// core that is about to exit.
-fn closing(data: &Path) -> Option<File> {
-    let gate = open(&data.join("start.lock")).ok()?;
-    gate.try_lock().ok().map(|()| gate)
+fn closing(data: &Path) -> Option<Option<File>> {
+    match open(&data.join("start.lock")) {
+        Ok(gate) => gate.try_lock().ok().map(|()| Some(gate)),
+        // The folder is gone, and with it the way in: nobody can come.
+        Err(_) => Some(None),
+    }
 }
 
 fn lock(path: &Path) -> io::Result<File> {

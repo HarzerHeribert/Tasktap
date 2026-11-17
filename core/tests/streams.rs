@@ -9,10 +9,12 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tasktap_core::client::{self, Client};
+use tasktap_core::stream::{TURN, WINDOW};
 use tasktap_proto::call::{self, Call, Code};
 use tasktap_proto::{
     CallId, CloseWhy, Control, DeviceId, Empty, FixtureStream, Frame, Hello, MAX_CREDIT,
-    MAX_STREAMS, Offset, Register, Role, Secret, StreamId, VERSION, Versions, encode_data,
+    MAX_DATA_FRAME, MAX_STREAMS, Offset, Register, Role, Secret, StreamId, VERSION, Versions,
+    encode_data,
 };
 
 const EXE: &str = env!("CARGO_BIN_EXE_tasktap");
@@ -619,7 +621,8 @@ fn calls_are_answered_promptly_while_a_stream_is_saturated() {
     );
     read(&mut c, s, 16 * MIB);
     let (mut most_behind, mut slowest, mut between) = (0, Duration::ZERO, 0);
-    for i in 0..50 {
+    // Many calls: a reader that is late is late only now and then.
+    for i in 0..200 {
         let id = CallId(1000 + i);
         let start = Instant::now();
         c.send(&call::CoreStatus::request(id, &Empty {})).unwrap();
@@ -636,13 +639,40 @@ fn calls_are_answered_promptly_while_a_stream_is_saturated() {
         between += behind;
         read(&mut c, s, MIB);
     }
+    // What the core controls (stream.rs): after a call can be read, at most
+    // TURN + 2 × (WINDOW + one frame) of data before its reply. What was
+    // already in the socket or this client's 64 KiB reads when the call was
+    // sent comes on top; it depends on the platform, so it is measured.
+    let core = (TURN + 2 * (WINDOW + MAX_DATA_FRAME)) as u64;
+    let allowed = core + socket_holds() + 2 * (64 << 10);
     eprintln!(
-        "saturated stream: slowest reply {slowest:?}, at most {most_behind} data bytes ahead of it"
+        "saturated stream: slowest reply {slowest:?}, at most {most_behind} data bytes ahead of it, {allowed} allowed"
     );
-    // A reply waits for the data window, one frame and the socket's own
-    // buffers, not for the 4 MiB the client granted.
-    assert!(most_behind <= MIB, "{most_behind} bytes ahead of a reply");
+    assert!(
+        most_behind <= allowed,
+        "{most_behind} bytes ahead of a reply"
+    );
     assert!(between > 0, "data kept flowing while calls were answered");
+}
+
+/// What one local socket holds while nobody reads it.
+#[cfg(unix)]
+fn socket_holds() -> u64 {
+    let (mut socket, _peer) = std::os::unix::net::UnixStream::pair().unwrap();
+    socket.set_nonblocking(true).unwrap();
+    let chunk = vec![0; 256 << 10];
+    let mut held = 0;
+    while let Ok(n @ 1..) = socket.write(&chunk) {
+        held += n as u64;
+    }
+    held
+}
+
+/// A named pipe's 64 KiB buffer and the write the runtime keeps in flight,
+/// which std cannot measure.
+#[cfg(not(unix))]
+fn socket_holds() -> u64 {
+    512 << 10
 }
 
 #[test]

@@ -238,23 +238,37 @@ Aim for under 20 checks, each named after a promise to the user.
 
 ## Status
 
-- Phase 0: built and checked on `rebuild-phase-0` (2026-11-17). 3,979 lines removed, 522 added. Waiting for the owner to try it, and for the baseline numbers, which need an unlocked screen.
-- Phase 1: in progress since 2026-11-17 on `rebuild-phase-1`. The design is in [core-design.md](core-design.md); the description of 1.2 it was built from is in [rebuild-inventory.md](rebuild-inventory.md).
-- Core, measured on 2026-11-17 with `core/scripts/measure.sh` (Apple M4 Pro, two clients subscribed, no terminals; packages 1 to 6 and 8 merged):
+**Waiting for the owner**
 
-  | Measure | Measured | Target |
-  | --- | --- | --- |
-  | Idle wakeups and context switches over 60 s | 0 | 0 |
-  | Processor use while idle | 0.0 % | 0.0 % |
-  | Memory | 2.6 MB | at most 8 MB |
-  | Start to accepting connections | 2.9 ms (median of 25, warm) | at most 30 ms |
-  | Stream rate, core to client | 1,101 MB/s | at least 200 MB/s |
-  | Stream rate, client to core | 1,043 MB/s | at least 200 MB/s |
-  | Program size | 4.5 MB | at most 6 MB |
+1. Run `trials/tauri-notch/check.sh` (about five minutes, needs an empty TextEdit document). It decides one host or two.
+2. Leave the Mac unlocked for a few minutes so the 1.2 baseline can be measured.
+3. Try Phase 0: `TASKTAP_DEV=1 ./scripts/build-mac.sh`, then `open "build/Tasktap Dev.app"`.
+4. Answer the open decisions at the end of this plan, say whether the leftover 1.2 sessions may be stopped, and overrule anything in "Changes made while the owner was away".
 
-  The 1.2 numbers to compare against are still missing; they need an unlocked screen.
-- One-host trial: built in `trials/tauri-notch/`. Every check that needs no visible screen passed: identical notch geometry, reveal without activating the app, and comparable speed. The cross-platform host needed about 55 lines of Mac-specific code for the notch, using public interfaces only. The look and real hover, click and typing still need the owner: run `trials/tauri-notch/check.sh` (about five minutes). The trial's own recommendation is one host if those pass.
-- Phases 2 to 7: not started.
+**Phases**
+
+- Phase 0: built and checked on `rebuild-phase-0` (2026-11-17). 3,979 lines removed, 522 added.
+- Phase 1: built, reviewed and fixed on `rebuild-phase-1` (2026-11-17). The core runs the whole loop on its own, from capture to result, with a stand-in for the agent and the router. 167 tests pass on Linux, macOS and Windows. Codex reviewed the design before building and the code after; every finding is fixed. About 8,900 lines of Rust and 10,400 lines of tests. It is not connected to any interface yet, so there is nothing to try by hand. The design is in [core-design.md](core-design.md); the description of 1.2 it was built from is in [rebuild-inventory.md](rebuild-inventory.md).
+- Phase 2: started 2026-11-17. Its packages are listed in the design under "Phase 2 work packages".
+- Phases 3 to 7: not started.
+
+**Core, measured on 2026-11-17** with `core/scripts/measure.sh` (Apple M4 Pro, two clients subscribed, no terminals, end of Phase 1):
+
+| Measure | Measured | Target |
+| --- | --- | --- |
+| Idle wakeups and context switches over 60 s | 0 | 0 |
+| Processor use while idle | 0.0 % | 0.0 % |
+| Memory | 2.5 MB | at most 8 MB |
+| Start to accepting connections | 3.1 ms (median of 25, warm) | at most 30 ms |
+| Stream rate, core to client | 1,106 MB/s | at least 200 MB/s |
+| Stream rate, client to core | 1,039 MB/s | at least 200 MB/s |
+| Program size | 4.4 MB | at most 6 MB |
+
+The 1.2 numbers to compare against are still missing.
+
+**One-host trial:** built in `trials/tauri-notch/`. Every check that needs no visible screen passed: identical notch geometry, reveal without activating the app, and comparable speed. The cross-platform host needed about 55 lines of Mac-specific code for the notch, using public interfaces only. The look and real hover, click and typing still need the owner. The trial's own recommendation is one host if those pass.
+
+**Carried into Phase 2:** the stricter macOS durability setting, to be decided against measured typing delay; a burst of connections can make clients start extra copies of the core; the Windows pipe relies on a peer check and not yet on an owner-only access list; agent sign-in moves into a Tasktap terminal that belongs to no project.
 
 ## Changes made on 2026-11-17 while the owner was away
 

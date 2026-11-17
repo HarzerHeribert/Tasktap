@@ -438,6 +438,18 @@ Phase 1 builds the core alone: protocol, store, service, records, streams, state
 | 6. Cutover | Import from 1.2 (§11), switch over, delete the old native, prototype and Python code. |
 | 7. Windows | Named pipe, ConPTY, the Windows host. |
 
+### Phase 2 work packages
+
+Phase 2 puts terminals and agents into the core. Claude Code and Codex are carried over first. Critical path: **A → C → D**. B runs beside A; E follows A.
+
+| # | Package and goal | Area | Proving command | Done when | Tier | Needs |
+| --- | --- | --- | --- | --- | --- | --- |
+| A | **Terminals.** Real terminal processes owned by the core (§9): the ring, attachments over streams at independent positions, marks, reconnect from an offset, resize, input, stop, scrollback kept on exit and shutdown, the environment built from a fixed list, a terminal that belongs to no project, live terminals in the lifetime condition. | `core/src/terminal.rs`, terminal calls and records | `cargo test -p tasktap-core --test terminals` | Output arrives intact and in order through a slow client and a reconnect; an agent is never blocked by a closed window; stop ends the whole process tree; history survives a restart; it builds and passes on Windows. | Opus | – |
+| B | **Roles.** The same binary as the tool agents and shells run (§4): `hook`, `event`, `ask`, the shims under an agent's name with `session.adopt` and `shim.hold`, and the test-only `fixture-agent`. A burst of connections starts one core, not many. | `core/src/main.rs`, `roles.rs`, `client.rs`, the adopt call | `cargo test -p tasktap-core --test roles` | Each role does its one call and exits within the start target; `ask` prints the answer; a shim reports its agent's exit; 200 simultaneous starts leave one core. | Opus | – |
+| C | **Launcher.** The real launcher behind the state machine's seam: an agent started as the direct child of its terminal with its session token, follow-ups typed only into a live direct child, kill, exit reported as an event. The loop check runs the fixture agent in a real terminal with unchanged assertions. | `core/src/launch.rs`, `effects.rs` seams, `tests/loop.rs` | `cargo test -p tasktap-core --test loop` | The loop passes with a real terminal; nothing reruns after a restart; a follow-up never reaches a shell. | Opus | A, B |
+| D | **Claude Code and Codex.** The adapter interface (§7) and the two adapters: launch, hooks, event mapping, resume, detection of installed and signed-in tools. The trial of answering an agent from outside its terminal through a waiting hook. | `core/src/agents/` | `cargo test -p tasktap-core --test agents`, plus a recorded live run of each tool | Recorded hook payloads map to the one vocabulary; a live run of each tool goes from launch to result through the core; the trial's result is recorded here and sets `reply_via`. | Opus | C |
+| E | **Measure.** Typing delay through a terminal while the store commits and under a slow client; memory per terminal; the macOS durability setting decided from the numbers. | `core/scripts/measure.sh` | `core/scripts/measure.sh` | Every row passes or the miss is explained; the durability decision is recorded in §3. | Sonnet | A |
+
 ### Verify when reached
 
 | Phase | What |

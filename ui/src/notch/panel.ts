@@ -20,7 +20,9 @@ export function reveal(mode: 'hover' | 'pinned', view: View, focus = '') {
 }
 
 export function fold() {
-  if (ui.mode === 'closed') return;
+  // Already folding or folded: what it still has to do is cancel a reveal on its way, such as
+  // the pointer's, so an action taken as the notch folds never leaves it opening again.
+  if (ui.mode === 'closed') return void clearTimeout(ui.timer);
   clearTimeout(ui.timer);
   Object.assign(ui, { mode: 'closed', retracting: true, replying: false, capturing: false, auto: false });
   cap.choosing = false;

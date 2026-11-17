@@ -129,6 +129,8 @@ until_has workspace "text #sidebar" 5 "project" && pass "the workspace lists the
 
 send "hover in"
 until_has notch "text .notch-work" 10 "Open" || fail "the working row offers Open"
+# A person can click a row only once the sheet is open and live, not while it folds away.
+until_has notch "eval String(!document.querySelector('#notch-home').inert)" 5 true || fail "the notch opens to its rows"
 ask notch "click .notch-work-row" >/dev/null
 until_has workspace "$(screen)" 10 "fixture-agent" && pass "Open shows the agent's terminal in the workspace" || fail "Open shows the terminal"
 # The fixture agent, like Claude Code in a folder it does not trust yet, asks in its terminal first.

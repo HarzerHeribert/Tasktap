@@ -53,7 +53,7 @@ const fs=require('node:fs');
   fs.mkdirSync('output/session-attention',{recursive:true});
   await page.screenshot({path:'output/session-attention/answer-ready.png'});
   const count=await page.evaluate(()=>state.workspaceDeck.activity.length);
-  await page.evaluate(()=>{const o=sessionObservation.get('b');sessionObservation.receive('b',o);externalSessions([{id:'b',owned:'yes',agent:'codex',host:'tasktap',folder:'/tmp/attention',task:'Background research',available:'yes',state:'Connected',observation:JSON.stringify(o)}])});
+  await page.evaluate(()=>{const o=sessionObservation.get('b');sessionObservation.receive('b',o);sessionRows([{id:'b',owned:'yes',agent:'codex',folder:'/tmp/attention',task:'Background research',available:'yes',state:'Connected',observation:JSON.stringify(o)}])});
   assert.equal(await page.evaluate(()=>state.workspaceDeck.activity.length),count,'duplicate scans do not create more answers');
   assert.equal(await page.evaluate(()=>state.sessions.find(s=>s.id==='b').state),'Ready','transport discovery cannot overwrite observed state');
   await pane('b').locator('.deck-session-status').click();

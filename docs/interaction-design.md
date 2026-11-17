@@ -10,7 +10,6 @@ Workspace window
 │   ├── Home / Notebook / Session history / Activity
 │   ├── Workspaces + → open folder / new workspace / restore closed workspace
 │   │   └── Open workspace → pane groups → open terminal, report and media surfaces
-│   ├── Other apps → original host / focus or session details
 │   ├── All projects → project catalog and activity filter
 │   └── Preferences
 ├── Project toolbar
@@ -32,7 +31,7 @@ Resident notch / top-edge panel
 
 Mac integration
 ├── Dock and menu bar → workspace / capture / decisions / setup / updates / quit
-├── Global shortcuts and optional Codex Micro → same request-scoped actions
+├── Global shortcuts → same request-scoped actions
 └── Notifications → exact decision, receipt result, or failed session
 ```
 
@@ -95,13 +94,12 @@ A source snapshot belongs to one capture. Switching a browser tab while speaking
 
 Fresh tasks use the reviewed folder and host. Worker authentication remains the installed CLI’s responsibility; request-preparation credentials are separate. A fresh Codex trust choice names the exact folder. Agent-native approvals remain in the terminal where an adapter cannot forward them.
 
-A follow-up keeps its original agent and conversation. Automatic queue delivery, manual copy/paste, and unavailable transport have different labels. **Copy nudge & open session** keeps its paste instruction beside confirmation. Other apps never implies an embedded terminal; discovered sessions retain their original host and actual focus/resume capabilities.
-
+A follow-up keeps its original agent and conversation. Automatic queue delivery, manual copy/paste, and unavailable transport have different labels. **Copy nudge & open session** keeps its paste instruction beside confirmation.
 Concurrent work is shown as a short consequence plus **View active work**. New workers receive the corresponding snapshot, and supported Tasktap agents can query current project sessions. Tasktap itself creates no branch or worktree and does not stage or commit files.
 
 ## Decisions and reported results
 
-A question carries its request and session identity through the pane, notch, keyboard, Micro and notification. Choose an offered answer or use one **Reply** entry point for typing and speech. Sending either settles only the displayed request. Freeform words go unchanged to the same agent, which interprets their intent and can ask a new question with a new request ID. Closing without sending leaves the request pending and preserves the reply draft. Legacy discussion events remain supported by the adapter protocol. An expired or duplicate event cannot act on the next question.
+A question carries its request and session identity through the pane, notch, keyboard and notification. Choose an offered answer or use one **Reply** entry point for typing and speech. Sending either settles only the displayed request. Freeform words go unchanged to the same agent, which interprets their intent and can ask a new question with a new request ID. Closing without sending leaves the request pending and preserves the reply draft. Legacy discussion events remain supported by the adapter protocol. An expired or duplicate event cannot act on the next question.
 
 Passive notch hover does not take keyboard focus or interrupt a drag. Deliberate click or shortcut can pin/focus the panel. Geometry follows the active display’s camera exclusion; a display without a camera uses a small tab attached to the actual top edge above the menu bar. Large logical displays use a compact panel profile without changing the camera exclusion geometry. Attention glows are subdued and disappear when their sheet opens. The last settled question clears the attention rim.
 
@@ -124,7 +122,7 @@ Artwork is subordinate to content. Home uses a slim banner, hidden/covered artwo
 ```text
 Agents → Request preparation / Agent setup / Session models / Agent routing
 Capture → source references / routing narration / guided capture
-Workspaces → default new-folder location / optional external-session discovery
+Workspaces → default new-folder location
 Voice & alerts → local voice / spoken completions / notification settings
 Appearance → application theme / native backdrop / artwork
 ```

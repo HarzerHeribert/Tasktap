@@ -714,13 +714,11 @@ const workspaceDeck=(()=>{
       const questions=state.decisions.filter(q=>q.session===session.id);
       if(questions.length){attention.push(...questions.map(question=>activityRow({session,question,status:'Needs input',kind:'input'})));active.add(session.id);continue}
       if(session.state==='Failed' && groups.get(session.id)?.[0].kind==='failure')continue;
-      if(['Needs input','Awaiting agent','Ready to send','Failed','Interrupted'].includes(session.state)){
+      if(['Needs input','Awaiting agent','Failed','Interrupted'].includes(session.state)){
         attention.push(activityRow({session,status:session.state,kind:session.state==='Failed'?'failure':'input'}));active.add(session.id);
       }else{
-        const capture=state.captures.find(c=>c.session===session.id),sending=capture?.kind==='Session nudge'&&['Queued','Running'].includes(capture.receipt);
-        const externalSend=session.state==='Running'&&sending&&(capture.external||session.external);
-        if(['Queued','Opening'].includes(session.state)||externalSend){
-          handoffs.push(activityRow({session,status:externalSend?'Sending follow-up':session.state,kind:'handoff'}));active.add(session.id);
+        if(['Queued','Opening'].includes(session.state)){
+          handoffs.push(activityRow({session,status:session.state,kind:'handoff'}));active.add(session.id);
         }else if(session.available!==false&&session.state==='Running'&&(!workingIDs||workingIDs.has(session.id))){
           working.push(activityRow({session,status:'Working',kind:'working'}));active.add(session.id);
         }

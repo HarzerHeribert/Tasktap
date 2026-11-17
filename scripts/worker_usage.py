@@ -106,13 +106,6 @@ def codex_identity():
 
 def snapshot(agents):
     supported = [a for a in ('claude', 'codex') if a in agents]
-    from plan_usage import discover
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        subscriptions = pool.submit(discover)
-        account = pool.submit(control_result, 'codex', True) if 'codex' in supported else None
+    with ThreadPoolExecutor(max_workers=2) as pool:
         limits = dict(zip(supported, pool.map(read_limits, supported)))
-        plans = subscriptions.result()
-        identity = (account.result().get('account') or {}) if account else {}
-        if identity.get('type') == 'chatgpt' and identity.get('planType') in ('plus','pro','team','business','enterprise','edu','go'):
-            plans['codex'] = dict(plan=identity['planType'], windows=limits.get('codex', []))
-    return dict(checkedAt=int(time.time()), agents=limits, subscriptions=plans)
+    return dict(checkedAt=int(time.time()), agents=limits)

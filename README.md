@@ -80,9 +80,7 @@ Choose **Follow up** on a session, or describe it in a capture. Preparation cons
 
 ## Agents, accounts, and other applications
 
-Tasktap launches installed **Claude Code**, **Codex**, **Antigravity (`agy`)**, **Cursor CLI (`cursor-agent`)**, **Pi (`pi`)**, and **OpenCode (`opencode`)**. Each worker uses its own CLI authentication and settings. Configure the default agent, fixed or adaptive models, and terminal under **Preferences → Agents & connections → Session models**. Agent routing can use available usage estimates; a review override changes one handoff. OpenCode model IDs use `provider/model`; its own provider configuration supplies authentication.
-
-New installations use Tasktap’s embedded terminal. Existing terminal preferences remain respected. External options include Terminal, cmux, Ghostty, iTerm2, Warp, WezTerm, and kitty; their ability to reopen, focus, or deliver follow-ups varies. **Change destination → Open this session in** chooses a host for one new session.
+Tasktap launches installed **Claude Code**, **Codex**, **Antigravity (`agy`)**, **Cursor CLI (`cursor-agent`)**, **Pi (`pi`)**, and **OpenCode (`opencode`)**. Each worker uses its own CLI authentication and settings. Configure the default agent, fixed or adaptive models, under **Preferences → Agents & connections → Session models**. Agent routing can use available usage estimates; a review override changes one handoff. OpenCode model IDs use `provider/model`; its own provider configuration supplies authentication.
 
 Click links in embedded terminals and agent reports to open web pages and supported files in the project workspace. Terminal links include plain URLs, OSC 8 hyperlinks, and file paths such as `src/main.swift:42:7`; file locations open with the referenced line highlighted. Relative paths use the terminal’s reported working directory (OSC 7), falling back to its launch folder. **Option-click** uses the default browser or app. Folders open in Finder, and supported app links such as `mailto:` open their associated app. Web preview tabs also offer **Open in default browser** for sites that block embedding.
 
@@ -90,7 +88,7 @@ Click links in embedded terminals and agent reports to open web pages and suppor
 
 A fresh Codex handoff offers an exact-folder trust choice. Project settings can run code. Codex uses its approval reviewer with the workspace-write sandbox; Claude Code requests Auto mode. Cursor CLI uses its classifier-based auto review, and OpenCode requests automatic permission handling while retaining its explicit denials. Antigravity requests its Auto execution mode. Pi’s launch-local approval trusts project resources; it is not a separate tool-approval policy. These settings apply to this launch, without changing global CLI configuration. Agents may still ask for trust or permissions in their own terminals. Follow-ups retain the conversation’s existing permissions. Tasktap gives workers default Git guidance but does not create branches/worktrees or make commits itself.
 
-**Find sessions in other apps** is off by default in **Preferences → Workspaces**. Opt in to read supported apps’ local session metadata. **Other apps** shows the original host and offers focus or available session actions; it never silently migrates an external conversation into an embedded terminal. Saved external sessions remain available when discovery is off. Unsupported approvals and missing completion reports must be handled in the original client. Automatic session naming can send a short excerpt of public conversation messages to the selected preparation connection, excluding tool output and reasoning; unavailable naming keeps the existing title.
+Sessions run in Tasktap’s embedded terminals. Unsupported approvals and missing completion reports must be handled in the terminal. Automatic session naming can send a short excerpt of public conversation messages to the selected preparation connection, excluding tool output and reasoning; unavailable naming keeps the existing title.
 
 ## Decisions, results, and notifications
 
@@ -106,7 +104,7 @@ Choose a displayed answer or use **Reply** to type or dictate. **Send reply** re
 
 Enable alerts in **Preferences → Notifications**. Tasktap’s switch, macOS authorization, banners, and Notification Center availability are shown separately. Focus or macOS may suppress a banner even when permission is granted; Tasktap cannot confirm that it appeared. Restored results are not announced again. Spoken completions are a separate opt-in. Available local Siri voices and optional Kokoro narration work independently of the terminal.
 
-The optional Codex Micro provides request-scoped decision controls. Everything also works with the Mac’s keyboard and pointer. [Keyboard and controller guide](docs/controls.md)
+Every decision also works with the Mac’s keyboard shortcuts, pointer and voice. [Keyboard guide](docs/controls.md)
 
 ## Appearance: which layer owns what?
 
@@ -121,8 +119,6 @@ Tasktap uses **xterm.js**, not libghostty. Follow Ghostty imports supported appe
 Artwork is a separate preference. Its pause state is remembered, hidden artwork pauses, and **Reduce Motion** uses still images and steady activity states. The physical notch retains a dark camera housing with readable controls in every application theme.
 
 The workspace and notch are independent live windows. Using the notch keeps workspace tabs and terminal output visible. Closing the workspace window leaves the resident notch running; click the Dock icon to restore the same workspace.
-
-Paid plan usage appears in the workspace toolbar, active notch and task review. Weekly usage is the outer ring; five-hour usage is the inner ring. Click for reset times. Google/Gemini uses `agy`; Cursor, Grok and GLM require an existing authenticated paid account. Unknown usage stays unavailable.
 
 ## Build and verify
 

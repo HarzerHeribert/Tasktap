@@ -89,7 +89,6 @@ enum ApplicationMenu {
         let help = section("Help")
         command("Tasktap Help", "menu-help", help)
         command("Run Setup…", "run-setup", help)
-        command("Codex Micro Controls…", "controller", help)
         NSApp.helpMenu = help
         NSApp.mainMenu = bar
     }

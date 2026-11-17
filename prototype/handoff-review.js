@@ -12,7 +12,7 @@ const handoffReview=(()=>{
     const session=sess(d.session),agent=d.mode==='nudge'?session?.agent:d.agent,p=proj(d.project),compact=firstMode();
     const project=d.project==='@new'?d.newName:d.project==='@scratch'?'Scratch':p?.name||'Choose a workspace';
     const conversation=d.mode==='note'?'Project note':d.mode==='nudge'?'Existing conversation / '+(session?.state||'Unknown'):'New conversation';
-    const plan=d.noPick?null:modelPlanFor(d),host=d.mode==='note'?'':sessionHostLabel(d);
+    const plan=d.noPick?null:modelPlanFor(d),host=d.mode==='note'?'':'Tasktap';
     const agentName=d.noPick?'Choose an agent':providers[agent]||'Choose an agent';
     const destination='<div class="review-destination"><strong class="review-destination-name">'+esc(project)+'</strong>'+(d.mode==='note'?'':'<div class="review-agent-line"><span class="review-agent">'+icon(agent)+'<span>'+esc(agentName)+'</span></span>'+(host?'<span class="review-host">in '+esc(host)+'</span>':'')+'</div>')+'<p class="review-conversation">'+esc(conversation)+'</p>'+(d.mode==='nudge'?'<p class="review-session-name">'+esc(sessionDisplayName(session||{}))+'</p>':'')+(d.mode!=='note'&&plan&&plan.label!=='Agent default'?'<p class="review-model" tabindex="0" title="'+attr(plan.label)+'">Model: <span id="review-model">'+esc(plan.label)+'</span></p>':'')+(live&&d.mode==='ask'?workerRouting.summaryMarkup():'')+(d.noPick?button('Choose an agent','review-destination','','btn'):'')+'</div>';
     const original=d.preparedBrief && d.preparedBrief!==d.text?'<details class="review-original"><summary>Original capture</summary><p>'+esc(d.text)+'</p></details>'+button(d.brief===d.text?'Use prepared task':'Use original request',d.brief===d.text?'review-prepared':'review-original','','text-btn'):'';
@@ -56,17 +56,16 @@ const handoffReview=(()=>{
     const sessions=state.sessions.filter(s=>s.id===d.session||(!live? s.state!=='Complete':canNudge(s)));
     const project=field('Workspace','<select id="project" required>'+option('','Choose a workspace',d.project)+state.projects.filter(p=>p.available!==false).map(p=>option(p.id,p.name,d.project)).join('')+option('@new','Create project folder…',d.project)+option('@scratch','Keep in scratch',d.project)+'</select>')+(d.project==='@new'?field('New project name','<input id="newName" required value="'+attr(d.newName)+'" pattern="[^/]+">'):'');
     const existing=field('Existing session','<select id="session" required>'+option('','Choose a session',d.session)+sessions.map(s=>option(s.id,sessionDisplayName(s)+' / '+(proj(s.project)?.name||'Scratch')+' / '+providers[s.agent],d.session)).join('')+'</select>');
-    const config=d.mode==='ask'?workerRouting.reviewMarkup(d)+(live?settingsField('handoff-host','Open this session in','<select id="handoff-host">'+terminalHosts.options(sessionHost(d),d.agent)+'</select>'):'')+field('Export summary with','<select id="viewer">'+['','Xcode','Preview','Finder'].map(v=>option(v,v||'Choose later',d.viewer)).join('')+'</select>'):'';
+    const config=d.mode==='ask'?workerRouting.reviewMarkup(d)+field('Export summary with','<select id="viewer">'+['','Xcode','Preview','Finder'].map(v=>option(v,v||'Choose later',d.viewer)).join('')+'</select>'):'';
     dialog('Change destination','Review','<form id="route-form" class="review-editor">'+field('Action','<select id="mode">'+routes.map(([id,title])=>option(id,title,d.mode)).join('')+'</select>')+(d.mode==='nudge'?existing:project)+config+footer('Review changes')+'</form>');
     const f=$('#route-form');
-    for(const [id,key] of [['newName','newName'],['handoff-host','host'],['viewer','viewer']]){const input=$('#'+id,f);if(input)input.oninput=()=>{d[key]=input.value}}
+    for(const [id,key] of [['newName','newName'],['viewer','viewer']]){const input=$('#'+id,f);if(input)input.oninput=()=>{d[key]=input.value}}
     $('#mode').onchange=e=>{d.mode=e.target.value;delete d.routeMatch;delete d.routeQuestion;delete d.runId;delete d.relayPhase;delete d.handoffError;delete d.retryOf;delete d.retryCapture;if(d.mode!=='nudge'){d.session='';d.sessionChoice=''}destination()};
     if($('#project'))$('#project').onchange=e=>{d.project=e.target.value;d.projectChoice=d.project;d.suggestedProject=false;delete d.routeMatch;delete d.routeQuestion;delete d.contextProject;destination()};
     if($('#session'))$('#session').onchange=e=>{d.session=e.target.value;d.sessionChoice=d.session;delete d.routeMatch;delete d.routeQuestion;delete d.runId;delete d.handoffError;d.project=sess(d.session)?.project||''};
     f.onsubmit=e=>{e.preventDefault();const name=$('#newName',f);if(name){const value=name.value.trim();if(!value||value==='.'||value==='..'||value.includes('/')){name.setCustomValidity('Choose a folder name without slashes.');name.reportValidity();return}d.newName=value}routingPrompt()};
     $('#newName',f)?.addEventListener('input',e=>e.target.setCustomValidity(''));
     if(d.mode==='ask')workerRouting.bindReview(d);
-    if($('#handoff-host'))postLive('terminal-catalog');
     settingsPickers.mount(f);
   }
   function context(){

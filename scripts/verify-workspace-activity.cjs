@@ -16,19 +16,17 @@ fs.mkdirSync(shots,{recursive:true});
   await page.addStyleTag({path:path.resolve('prototype/workspace-activity.css')});
   await page.evaluate(async()=>{
    state.firstRun={done:true};state.projects=[{id:'p',name:'Tasktap',folder:'/fixture/tasktap',aliases:[]},{id:'q',name:'Other project',folder:'/fixture/tasktap-other',aliases:[]}];
-   state.workspaceConfiguration={...state.workspaceConfiguration,externalDiscovery:false};
    const row=(id,project,extra={})=>({id,project,task:id,agent:'codex',host:'tasktap',interactive:true,managed:true,available:true,state:'Running',log:[],...extra});
    state.sessions=[row('working','p',{sessionName:'Refine "tab" & glow'}),row('folder','/fixture/tasktap/',{task:'Check the top edge'}),row('other','q',{task:'Test sidebar links'}),
     row('connected','p',{state:'Connected'}),row('interrupted','p',{state:'Interrupted'}),row('unavailable','p',{available:false}),row('stopped','p'),
-    row('external','p',{external:true,host:'cmux',source:'cmux'}),row('in-transit','p')];
-   state.captures=[{id:'nudge',session:'in-transit',external:true,receipt:'Running',kind:'Session nudge'}];state.decisions=[];
+    row('in-transit','p')];
+   state.captures=[];state.decisions=[];
    Object.assign(state.workspaceDeck,{openProjects:['p','q'],layouts:{},background:{},closedWorkspaces:{},activity:[],seen:{},sidebarHidden:false});
    await workspaceDeck.receive([{event:'sessions',sessions:[{id:'stopped',cwd:'/fixture/tasktap',kind:'agent',running:false},{id:'idle-shell',cwd:'/fixture/tasktap',kind:'shell',running:true}]}]);
    showWorkspace();go('overview');
   });
-  assert.deepEqual(await page.evaluate(()=>workspaceNavigation.workingSessions().map(s=>s.id)),['working','folder','other']);
-  assert.deepEqual(await page.evaluate(()=>{state.workspaceConfiguration.externalDiscovery=true;return workspaceNavigation.workingSessions().map(s=>s.id)}),['working','folder','other','external']);
-  assert.deepEqual(await page.evaluate(()=>{state.workspaceConfiguration.externalDiscovery=false;state.workspaceDeck.closedWorkspaces.p=true;return workspaceNavigation.workingSessions().map(s=>s.id)}),['other']);
+  assert.deepEqual(await page.evaluate(()=>workspaceNavigation.workingSessions().map(s=>s.id)),['working','folder','other','in-transit']);
+  assert.deepEqual(await page.evaluate(()=>{state.workspaceDeck.closedWorkspaces.p=true;return workspaceNavigation.workingSessions().map(s=>s.id)}),['other']);
   await page.evaluate(()=>{delete state.workspaceDeck.closedWorkspaces.p});
   const workspace=page.locator('[data-workspace="p"]'),folderIcon=workspace.locator('.nav-workspace-name>.icon');
   assert.equal(await workspace.getAttribute('data-working'),'true');
@@ -67,7 +65,7 @@ fs.mkdirSync(shots,{recursive:true});
   // Capture and decision signals remain ahead of background work.
   await page.evaluate(()=>{draft={routing:{id:'preparing'}};updateSignal()});
   assert.equal(await page.locator('body').getAttribute('data-signal'),'working');
-  await page.evaluate(()=>{draft=null;state.captures=[{id:'delivery',session:'in-transit',external:true,receipt:'Running'}];state.decisions=[{id:'question',session:'working',q:'Which approach?',choices:['One','Two']}];drawHome()});
+  await page.evaluate(()=>{draft=null;state.captures=[{id:'delivery',session:'in-transit',receipt:'Queued'}];state.decisions=[{id:'question',session:'working',q:'Which approach?',choices:['One','Two']}];drawHome()});
   assert.equal(await home.locator('h1').innerText(),'Which approach?');
   assert.equal(await home.locator('.notch-work-row').count(),0);
   assert.equal(await page.locator('body').getAttribute('data-signal'),'sending','in-transit follow-up remains a delivery signal');

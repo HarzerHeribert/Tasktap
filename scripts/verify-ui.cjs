@@ -106,10 +106,10 @@ const clip = n=>Math.abs(n)<=1;
     assert.ok(await dp.locator('#notification-preview').isVisible());
     await chord('KeyJ');await chord('KeyL');await chord('Escape');
     assert.equal(await dp.locator('#islandLabel').textContent(),'1 decision');
-    await deviceClick('Codex Micro controls');await deviceClick('Try decision controls');await deviceClick('Next');
+    await chord('KeyJ');await chord('KeyL');
     assert.match(await dp.locator('#notch [aria-current=true]').textContent(),/Clear glass/);
-    await dp.screenshot({path:path.join(dest,'micro-decision.png'),animations:'disabled'});
-    await deviceClick('Confirm');await chord('Enter');
+    await dp.screenshot({path:path.join(dest,'keyboard-decision.png'),animations:'disabled'});
+    await chord('Enter');
     assert.equal(await dp.locator('#islandLabel').textContent(),'All clear');
     assert.ok(await dp.locator('#notification-preview').isHidden());
     assert.equal(await dp.evaluate(()=>sess('s2').log.filter(l=>l.startsWith('Decision received')).length),1);
@@ -315,10 +315,9 @@ const clip = n=>Math.abs(n)<=1;
     await real.locator('[data-action=view][data-id=projects]').click();
     const list=real.locator('#project-list');
     assert.equal(await list.locator('button').count(),0);
-    await real.evaluate(()=>externalSessions(['Running','Needs input','Idle','Connected','Last seen'].map((status,i)=>({
-      id:'observed-'+i,conversation:'observed-'+i,folder:'/example/projects/project-'+i,task:'Example '+i,
-      source:'claude',agent:'claude',state:status
-    }))));
+    await real.evaluate(()=>{state.sessions.push(...['Running','Needs input','Idle','Connected','Last seen'].map((status,i)=>({
+      id:'observed-'+i,conversation:'observed-'+i,project:state.projects.find(p=>p.folder==='/example/projects/project-'+i).id,task:'Example '+i,
+      agent:'claude',available:true,state:status,log:[]})));persist();render()});
     assert.deepEqual(await list.locator('.row-title').allTextContents(),['Project 0','Project 1','Project 3']);
     await real.getByLabel('Show idle projects').check();
     assert.equal(await list.locator('button').count(),150);
@@ -445,7 +444,7 @@ const clip = n=>Math.abs(n)<=1;
     assert.equal(await real.locator('#modal [data-action=commit-review]').count(),0);
     await click('Dismiss');
     await real.evaluate(()=>{
-      externalSessions([{id:'fixture-thread',source:'desktop',agent:'codex',folder:'/example/projects/project-149',task:'Lighting export',state:'Connected'}]);
+      state.sessions.push({id:'fixture-thread',project:state.projects.find(p=>p.folder==='/example/projects/project-149').id,agent:'codex',interactive:true,managed:true,host:'tasktap',inbox:'codex',available:true,task:'Lighting export',state:'Connected',log:[]});
       captureDraft('','','Build it');reviewDraft();finishRouting(draft.routing.id,{source:'unavailable'});
     });
     assert.equal(await real.locator('#notch h2').innerText(),'Which session?');

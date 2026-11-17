@@ -113,8 +113,8 @@ else:
         def observation():return next(s for s in terminal.request(dict(op='list'))['sessions'] if s['id']==session).get('observation',{})
         assert observation()['state']=='needsPermission'
         assert observation()['agent']=='codex'
-        from cmux_sessions import owned_rows
-        fallback=next(owned_rows(root,runs,[],allow_external=False))
+        from session_rows import rows
+        fallback=rows(runs)[0]
         assert json.loads(fallback['observation'])['state']=='needsPermission','the app scan must also recover hooks when an older PTY service is still running'
         send('\n');until(lambda:observation().get('state')=='ended')
         assert (runs/session/'answer-0001.txt').read_text()=='Copied shell answer.\n'

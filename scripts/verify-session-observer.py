@@ -120,11 +120,6 @@ with tempfile.TemporaryDirectory(prefix='tasktap-observer-test-', dir='/tmp') as
     token=observer.read(run/'observer-config.json')['token']
     send(kind='turn_started',sessionId=job['session'])
     assert snapshot()['turn']==2 and snapshot()['answers'][0]['turn']==1
-    for host in ('terminal','cmux','ghostty'):
-        try:
-            observer.prepare(dict(job, host=host), run)
-            raise AssertionError('External host was instrumented')
-        except ValueError: pass
     try:
         observer.prepare(dict(job, agent='agy'), run)
         raise AssertionError('Unverified injection should not be claimed')
@@ -176,8 +171,8 @@ while not (Path.cwd()/'finish').exists(): time.sleep(.05)
         journal = (run/'observer-events.jsonl').read_text()
         assert 'MUST_NOT_BE_RETAINED' not in journal
         assert 'needsPermission' in journal and 'working' in journal
-        from cmux_sessions import owned_rows
-        row = next(owned_rows(base, run.parent, []))
+        from session_rows import rows
+        row = rows(run.parent)[0]
         assert row['state'] == 'Ready' and json.loads(row['observation'])['answerFile'] == 'answer-0001.txt'
         assert 'finalAnswer' not in json.loads(row['observation']), 'large answers are fetched on demand'
         (project/'finish').touch()

@@ -9,7 +9,7 @@ const sessionObservation=(()=>{
     ready:'Ready',interrupted:'Interrupted',failed:'Failed',ended:'Closed'};
   const supported=new Set(['claude','codex','pi','opencode']);
   function uses(d){return d?.mode==='nudge'?!!sess(d.session)?.monitoring:
-    d?.mode==='ask'&&sessionHost(d)==='tasktap'&&supported.has(d.agent)}
+    d?.mode==='ask'&&supported.has(d.agent)}
   function get(id){
     const cached=pending.get(id),shared=sess(id)?.observation;
     if(!cached)return shared;if(!shared)return cached;

@@ -1,4 +1,4 @@
-// The resident panel, status menu, and Micro mapping share the existing session store.
+// The resident panel and status menu share the existing session store.
 const host = window.webkit?.messageHandlers?.workspace;
 const postHost = (type, extra = {}) => host?.postMessage({type, ...extra});
 const chords = {
@@ -18,7 +18,6 @@ let homeContent = '';
 let choice = null;
 let hardwareNavigation=false;
 let lastBinary=null;
-let microStatus='Off';
 let boundsFrame = 0;
 const pending = () => state.decisions[0];
 const notchMotion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -104,7 +103,6 @@ function updateSignal(){
   else if(simVoice!==null){mode='listening';label='Listening to sample'}
   else if(spoken){mode='speaking';label='Reading aloud'}
   else if(draft?.routing){mode='working';label='Preparing handoff'}
-  else if(state.captures.some(c=>c.external && c.receipt==='Running')){mode='sending';label='Sending nudge'}
   else if(state.captures.some(c=>c.receipt==='Queued')){mode='sending';label='Handoff queued'}
   else if(pending()){mode='waiting';label=state.decisions.length===1?'Waiting for your answer':state.decisions.length+' decisions pending'}
   else if(sessionObservation.attention().length){const s=sessionObservation.attention()[0],cue=sessionObservation.cue(s.id);mode=cue.kind==='complete'?'ready':'waiting';label=cue.label+' · '+sessionDisplayName(s)}
@@ -130,7 +128,7 @@ function drawHome(){
   const session=s || (receipt && sess(receipt.session));
   const title=q?.q || (receipt && ({
     Started:'Session started',Queued:'Handoff queued',Opening:'Opening session',Opened:'Session opened',
-    Running:receipt.external?'Sending nudge':'Agent working',Copied:'Nudge copied',Delivered:'Nudge delivered',
+    Running:'Agent working',Copied:'Nudge copied',Delivered:'Nudge delivered',
     Failed:'Handoff failed',Complete:'Report received',Closed:'Session closed'
   }[receipt.receipt] || receipt.receipt)) || (observed.length?sessionObservation.cue(observed[0].id).label:working.length?'Working now':'Ready to capture');
   const destination=session?[proj(session.project)?.name || 'Scratch',providers[session.agent]].filter(Boolean).map(esc).join(' <span aria-hidden="true">/</span> '):'';
@@ -182,7 +180,7 @@ function menu(){
   $('#status-button').setAttribute('aria-expanded',String(!m.hidden));
   m.innerHTML='<strong>Tasktap</strong>'+[
     ['New capture','capture','mic'],['Review decisions','requests','checks'],
-    ['Open workspace','workspace','out'],['Run setup…','run-setup','settings'],['Codex Micro controls','controller','settings'],
+    ['Open workspace','workspace','out'],['Run setup…','run-setup','settings'],
     ['Notification settings','notifications','bell']
   ].map(([label,act,sym])=>surfaceButton(label,act,sym)).join('');
   if(!m.hidden)m.querySelector('button')?.focus();
@@ -269,7 +267,7 @@ function markChoices(){
     if(hardwareNavigation && i===choice.index)b.setAttribute('aria-current','true');else b.removeAttribute('aria-current');
   });
   if(hardwareNavigation && !d.querySelector('.hardware-hint')){
-    const hint=document.createElement('div');hint.className='hardware-hint';hint.innerHTML=icon('settings')+'<span>Micro / Previous / Next to select / Confirm to send</span>';
+    const hint=document.createElement('div');hint.className='hardware-hint';hint.innerHTML=icon('settings')+'<span>Previous / Next to select / Confirm to send</span>';
     d.firstElementChild.append(hint);
   }
 }
@@ -359,23 +357,12 @@ function hardware(action,requestId){
   choice.index=(choice.index+(action==='next'?1:-1)+items.length)%items.length;
   markChoices();items[choice.index].focus({preventScroll:true});items[choice.index].scrollIntoView({block:'nearest'});
 }
-function controller(){
-  const labels={capture:'Hold to talk',requests:'Open pending decision',previous:'Previous choice',next:'Next choice',confirm:'Confirm / send follow-up',back:'Defer / back',yes:'Agent Key 1 / Yes',no:'Agent Key 2 / No',discuss:'Agent Key 3 / Reply'};
-  const lighting=host?'<label class="check-line"><input type="checkbox" id="micro-lights" '+(state.microLights?'checked':'')+'> Use Micro decision keys and lights</label><p class="hint" id="micro-status">'+esc(microStatus)+'</p><p class="hint">On a yes/no card, press the green key for Yes, red for No, or the third Agent Key to discuss.</p>':'<p class="hint">The Mac app controls the Micro directly. You can answer every question here with a click or keyboard.</p>';
-  dialog('Codex Micro','Optional controller','<div class="mapping-list">'+Object.entries(chords).map(([action,[,keys]])=>'<div><span>'+labels[action]+'</span><kbd>'+keys+'</kbd></div>').join('')+'</div>'+lighting+surfaceButton('Try decision controls','try-controller','checks'));
-  if(host)$('#micro-lights').onchange=e=>{state.microLights=e.target.checked;persist();postHost('lightingPreference',{enabled:state.microLights})};
-}
-function controllerPreview(){
-  if(host)return;
-  const d=$('#notch');if(!d.open||!optionsForDecision().length)return;
-  const box=document.createElement('div');box.className='micro-preview';box.setAttribute('aria-label','Codex Micro simulator');box.innerHTML='<span class="eyebrow">Controller simulation</span><div class="inline">'+['previous','next','confirm','back'].map((a,i)=>surfaceButton(['Previous','Next','Confirm','Defer'][i],'hw-'+a)).join('')+'</div>';d.firstElementChild.append(box);
-}
 // AppKit reports points in the same units as CSS pixels at WKWebView's native zoom.
 function updateNotchGeometry(metrics){
   document.body.classList.toggle('notch-compact',metrics.compact===1);
   const style=document.documentElement.style;
   for(const [property,value] of Object.entries({
-    '--native-tab-width':metrics.width,'--native-usage-width':metrics.usageWidth ?? metrics.width,'--camera-height':metrics.height,'--camera-offset':metrics.offset,
+    '--native-tab-width':metrics.width,'--camera-height':metrics.height,'--camera-offset':metrics.offset,
     '--native-surface-width':metrics.surfaceWidth,'--surface-offset':metrics.surfaceOffset,
     '--notch-shoulder':metrics.shoulder,'--notch-pixel':metrics.pixel,'--cutout-corner':metrics.corner,
     '--rim-outset':metrics.rimOffset,'--available-panel-height':metrics.available
@@ -403,7 +390,7 @@ function postBounds(){
     shell.style.removeProperty('--sheet-bottom');
   }
   const height=open || folding?shell.getBoundingClientRect().height:$('#island').getBoundingClientRect().bottom;
-  postHost('layout',{workspace:!firstMode(),height:Math.ceil(height),width:panel?.querySelector('#handoff-review')?560:432,collapsed:!open && !folding,usageCount:document.querySelector('.usage-workspace')?.querySelectorAll('.usage-meter').length||0});
+  postHost('layout',{workspace:!firstMode(),height:Math.ceil(height),width:panel?.querySelector('#handoff-review')?560:432,collapsed:!open && !folding});
 }
 function updateBounds(immediate=false){
   // WebKit can suspend animation frames while a window is covered. Switching
@@ -434,8 +421,6 @@ function command(action,id=''){
       break;
     case 'capture':quickCapture();break;
     case 'requests':openRequest(id);break;
-    case 'controller':controller();break;
-    case 'try-controller':dismissCard();hardwareNavigation=true;openRequest();controllerPreview();break;
     case 'notifications':notifications();break;
     case 'notify-enable':state.alerts=true;persist();if(host){paintNotificationSettings();postHost('authorize')}else{dismissCard();if(pending())previewNotice(pending().id,'request')}break;
     case 'notify-off':state.alerts=false;persist();paintNotificationSettings();$('#notification-preview').hidden=true;postHost('disableNotifications');break;
@@ -508,7 +493,6 @@ window.workspaceCommand=(action,id='')=>{
     if(firstMode() && firstRun.visible && state.firstRun?.session===id && !document.querySelector('dialog[open]') && !pending() && !$('#notch-home').hidden)showHome(false);
     return;
   }
-  if(action==='micro-status'){microStatus=id;const status=$('#micro-status');if(status)status.textContent=id;return}
   if(action==='narration-status'){
     spoken=id==='speaking'||id==='preparing';document.body.classList.toggle('is-playing',spoken);
     document.dispatchEvent(new Event('voice-activity'));if(!spoken&&id!=='idle')toast(id);return
@@ -525,4 +509,4 @@ window.workspaceCommand=(action,id='')=>{
 document.body.classList.toggle('native-host',!!host);
 if(['#workspace','#geometry'].includes(location.hash)){document.body.classList.remove('notch-first');$('#notch-home').hidden=true}
 if(window.tasktapSurface==='workspace'){document.body.classList.remove('notch-first');$('#notch-home').hidden=true;view=state.workspaceView||'overview';render()}
-syncSurfaces();postHost('lightingPreference',{enabled:!!state.microLights});postHost('ready');
+syncSurfaces();postHost('ready');

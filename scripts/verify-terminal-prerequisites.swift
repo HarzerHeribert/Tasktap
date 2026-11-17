@@ -1,4 +1,4 @@
-// Compile with WorkspaceFolders, LiveWorkspace, WorkspaceTerminals and TerminalCatalog.
+// Compile with WorkspaceFolders, LiveWorkspace and WorkspaceTerminals.
 // This fixture only resolves disposable executable paths; no interpreter or terminal is started.
 import Foundation
 enum SessionHelpers {static func runner() throws -> URL {URL(fileURLWithPath:"/usr/bin/true")}}

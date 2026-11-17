@@ -11,7 +11,7 @@ const path=require('node:path');
   await page.evaluate(()=>{
    document.body.classList.remove('notch-first');document.body.classList.add('native-host');
    state.projects=[{id:'list-project',name:'An unusually long project name',folder:'/example/projects/a-long-folder-name'}];
-   state.sessions=['A short session name','A longer session name that explains the work and wraps onto a second line without moving adjacent columns'].map((task,i)=>({id:'list-'+i,task,project:'list-project',agent:i?'claude':'codex',host:i?'ghostty':'cmux',state:i?'Ready to send':'Running',updatedAt:Date.now(),log:[]}));
+   state.sessions=['A short session name','A longer session name that explains the work and wraps onto a second line without moving adjacent columns'].map((task,i)=>({id:'list-'+i,task,project:'list-project',agent:i?'claude':'codex',state:i?'Connected':'Running',updatedAt:Date.now(),log:[]}));
    state.captures=[];state.decisions=[];go('sessions');
   });
   for(const width of [320,390,820,1100,1440]){

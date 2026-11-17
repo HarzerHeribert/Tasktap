@@ -1,4 +1,4 @@
-"""Exercise the visible-worker boundary. --terminal uses a real Mac Terminal with a fixture CLI."""
+"""Exercise the interactive-worker boundary with a fixture CLI on a real pty or Tasktap's terminal service."""
 import json
 import os
 from pathlib import Path
@@ -9,19 +9,12 @@ import tempfile
 from unittest.mock import patch
 import time
 import uuid
-from datetime import datetime, timezone
 
 import visible_session as session
-from cmux_sessions import owned_rows
+from session_rows import rows as session_rows
 
 HERE=Path(__file__).resolve().parent
 RUNNER=HERE/'run-agent'
-
-def terminal_window_ids():
-    query='if application id "com.apple.Terminal" is running then tell application id "com.apple.Terminal" to get id of every window'
-    result=subprocess.run(['/usr/bin/osascript','-e',query],check=True,capture_output=True,text=True)
-    return {int(i) for i in result.stdout.strip().split(', ') if i}
-
 
 def until(condition):
     for _ in range(200):
@@ -43,13 +36,13 @@ def verify(base, host):
     capture=str(uuid.uuid4())
     job=dict(delivery='interactive',agent='claude',session=folder.name,capture=capture,mode='ask',
              instructions='Fixture instructions',task='Tasktap interactive check',outgoing="Fixture prompt with quotes and $HOME",
-             host=host if host!='pty' else 'terminal',folder=str(project))
+             folder=str(project))
     path=folder/('1-'+capture+'.job')
     receipt=path.with_suffix('.receipt')
     session.save(path,job)
     fake=base/'claude'
     fake.write_text("""#!/usr/bin/env python3
-import json,os,signal,sys,time
+import os,sys,time
 from pathlib import Path
 assert sys.stdin.isatty() and sys.stdout.isatty()
 assert "-p" not in sys.argv
@@ -59,10 +52,6 @@ if "--resume" in sys.argv:
 else:
     assert sys.argv[-1]=="Fixture prompt with quotes and $HOME"
 p=Path.cwd()
-if os.environ.get('TERM_PROGRAM')=='Apple_Terminal':
-    assert os.get_terminal_size().lines>0 and os.get_terminal_size().columns>0
-    assert os.tcgetpgrp(0)==os.getpgrp()
-    signal.signal(signal.SIGWINCH,lambda *_:(p/'resized').write_text(str(os.get_terminal_size().columns)))
 (p/"started").write_text(os.ttyname(0))
 for i in range(350):
     if (p/"finish").exists():break
@@ -71,7 +60,6 @@ for i in range(350):
     fake.chmod(0o700)
     env=dict(os.environ,PATH=str(base)+os.pathsep+os.environ['PATH'])
     env['CLAUDE_CONFIG_DIR']=str(base/'fixture-claude-config')
-    before=terminal_window_ids() if host=='terminal' else set()
     if host=='pty':
         nogui=subprocess.run([sys.executable,str(RUNNER),'present',str(path),str(fake)],capture_output=True)
         assert nogui.returncode and not (project/'started').exists()
@@ -88,34 +76,9 @@ for i in range(350):
         until(started)
         surface=session.endpoint(folder)
         assert surface['tty']==(project/'started').read_text()
-        if host=='terminal':
-            window=session.load(folder/'terminal-window.json')
-            assert window['tty']==surface['tty'] and window['window'] not in before
-            resize="""on run argv
-                tell application id "com.apple.Terminal"
-                    set w to window id ((item 1 of argv) as integer)
-                    set t to tab 1 of w
-                    if tty of t is not (item 2 of argv) then error "Fixture identity changed"
-                    set number of columns of t to (number of columns of t) + 1
-                    return number of columns of t
-                end tell
-            end run"""
-            cols=subprocess.run(['/usr/bin/osascript','-e',resize,str(window['window']),window['tty']],
-                                check=True,capture_output=True,text=True).stdout.strip()
-            until(lambda:(project/'resized').read_text()==cols)
-        rows=list(owned_rows(root,runs,[]))
+        rows=session_rows(runs)
         assert len(rows)==1 and rows[0]['id']==job['session'] and rows[0]['available']=='yes'
         assert rows[0]['startup']=='pending' and rows[0]['state']=='Connected'
-        config=base/'fixture-claude-config'
-        projects=config/'projects'/'fixture'
-        projects.mkdir(parents=True)
-        transcript=projects/(job['session']+'.jsonl')
-        event=dict(type='assistant',sessionId=job['session'],cwd=str(project),message={'model':'fixture'})
-        with patch.dict(os.environ,{'CLAUDE_CONFIG_DIR':str(config),'TASKTAP_DISCOVER_EXTERNAL':'1'}):
-            transcript.write_text(json.dumps(dict(event,cwd=str(base)))+'\n')
-            assert list(owned_rows(root,runs,[]))[0]['startup']=='pending'
-            transcript.write_text(json.dumps(event)+'\n')
-            assert list(owned_rows(root,runs,[]))[0]['startup']=='confirmed'
         if host=='pty':
             # Wire a known conversation and prove a nudge can only enqueue in that thread.
             handle=str(uuid.uuid4())
@@ -133,26 +96,13 @@ for i in range(350):
         result=subprocess.run([bridge['command'],*bridge['args']],input=json.dumps(msg)+'\n',capture_output=True,text=True,check=True)
         assert not json.loads(result.stdout)['result'].get('isError') and session.load(receipt)['state']=='Complete'
         subprocess.run([sys.executable,str(RUNNER),str(folder)],env=env,check=True)
-        if host in ('pty','tasktap'):
-            from session_lifecycle import completed_handoff
-            def line(kind, timestamp, **values):
-                return json.dumps(dict(type=kind,cwd=str(project),sessionId=job['session'],
-                    timestamp=datetime.fromtimestamp(timestamp,timezone.utc).isoformat(),**values))+'\n'
-            stamp=receipt.stat().st_mtime
-            turn=line('user',stamp-1,message={'content':'fixture'})+line('assistant',stamp+1,message={'stop_reason':'end_turn'})
-            with patch.dict(os.environ,{'CLAUDE_CONFIG_DIR':str(base/'fixture-claude-config')}):
-                transcript.write_text(turn+line('user',stamp+2,message={'content':'another turn'}))
-                assert not completed_handoff(folder,job)
-                transcript.write_text(turn)
-                later=folder/'2-pending.job';session.save(later,dict(job,mode='nudge'))
-                assert not completed_handoff(folder,job)
-                later.unlink()
-                assert completed_handoff(folder,job)==path.name
-            if host=='tasktap':
-                time.sleep(9)
-                assert session.locked(folder),'Embedded workers must stay available after reporting a result'
+        if host=='tasktap':
+            time.sleep(9)
+            assert session.locked(folder),'Embedded workers must stay available after reporting a result'
         if host=='pty':
+            (project/'finish').touch()
             assert proc.wait(timeout=15)==0
+            (project/'finish').unlink()
             with patch.object(session,'open_window') as launch:
                 session.reopen(folder)
                 ticket=launch.call_args.args[2]
@@ -169,10 +119,7 @@ for i in range(350):
             proc.wait(timeout=5)
             os.close(master);os.close(slave)
     until(lambda:not session.locked(folder))
-    if host=='terminal':
-        until(lambda:window['window'] not in terminal_window_ids())
-        assert before.issubset(terminal_window_ids()),'Another terminal window disappeared'
-    history=list(owned_rows(root,runs,[]))[0]
+    history=session_rows(runs)[0]
     assert history['state']=='Complete' and history['resumable']=='yes' and session.load(receipt)['state']=='Complete'
     try:session.focus(folder)
     except ValueError:pass

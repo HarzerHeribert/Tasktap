@@ -163,8 +163,6 @@ body:not(.notch-first) #modal:has(.settings-header){width:min(680px,calc(100% - 
 @media(max-width:420px){.server-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.server-tile span{display:flex;align-items:center}.server-tile img{width:36px;height:34px}.server-tile b{flex:1}.server-target{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){.server-setup[aria-busy=true] .server-status::before{animation:none}}
 
-.terminal-app-icon{display:block;width:var(--s-group);height:var(--s-group);object-fit:contain}
-.terminal-placeholder{display:grid;place-items:center;color:var(--muted)}
 
 .preference-groups{
   display:flex;position:relative;gap:var(--s-tight);overflow-x:auto;overscroll-behavior-inline:contain;scrollbar-width:thin;

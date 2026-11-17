@@ -88,6 +88,9 @@ assert [w['remaining'] for w in windows('codex',data,before)] == [1,95]
 assert [w['remaining'] for w in windows('codex',data,1400)] == [95]
 assert windows('claude',{'rate_limits':{'five_hour':{'utilization':True,'resets_at':1500},
                                         'seven_day':{'utilization':98,'resets_at':'2026-11-16T22:00:00Z'}}},before)[0]['remaining']==2
+from worker_usage import snapshot
+with patch('worker_usage.read_limits',return_value=[{'remaining':50}]):
+    assert snapshot(['claude','codex','pi'])['agents']=={'claude':[{'remaining':50}],'codex':[{'remaining':50}]}
 assert windows('codex',{'rateLimits':{'limitId':'unrelated','primary':{'usedPercent':5,'resetsAt':2000}}},before)==[]
 with patch.object(provider.shutil,'which',return_value='/Applications/Codex CLI/codex'), patch.object(provider.subprocess,'run',return_value=subprocess.CompletedProcess([],0)) as launch:
     provider.worker_login({'agent':'codex'})

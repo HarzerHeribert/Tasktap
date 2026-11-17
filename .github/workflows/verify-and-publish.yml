@@ -43,14 +43,10 @@ jobs:
           git diff --check HEAD^ HEAD
       - name: Session, routing and model regressions
         run: |
-          python3 scripts/verify-session-hosts.py
-          python3 scripts/verify-session-history.py
-          python3 scripts/verify-session-names.py
           python3 scripts/verify-agent-models.py
           python3 scripts/verify-router-providers.py
-          python3 scripts/verify-plan-usage.py
           python3 scripts/verify-project-sessions.py
-          python3 scripts/verify-session-discovery.py
+          python3 scripts/verify-session-rows.py
           python3 scripts/verify-visible-session.py
           python3 scripts/verify-workspace-terminals.py
           python3 scripts/verify-session-observer.py
@@ -67,7 +63,7 @@ jobs:
           export TASKTAP_SCREENSHOTS="$RUNNER_TEMP/tasktap-shots"
           mkdir -p "$TASKTAP_SCREENSHOTS"
           python3 scripts/build-site.py
-          for test in session-attention capture-preparation activity workspace-activity notch-profile notch-glow notch-usage independent-windows plan-usage workspace-deck workspace-navigation workspace-lifecycle workspace-background workspace-splits workspace-drag terminal-viewport terminal-controls terminal-clipboard terminal-input terminal-protocol terminal-resize terminal-reflow workspace-documents appearance home-overview result-presentation settings-layout voice-settings review capture-context notifications pages ui relay decision-rim voice-wave setup setup-preparation first-run model-ui model-server connections session-names session-detail workspace-lists update-ui; do
+          for test in session-attention capture-preparation activity workspace-activity notch-profile notch-glow independent-windows workspace-deck workspace-navigation workspace-lifecycle workspace-background workspace-splits workspace-drag terminal-viewport terminal-controls terminal-clipboard terminal-input terminal-protocol terminal-resize terminal-reflow workspace-documents appearance home-overview result-presentation settings-layout voice-settings review capture-context notifications pages ui relay decision-rim voice-wave setup setup-preparation first-run model-ui model-server connections session-names session-detail workspace-lists update-ui; do
             node "scripts/verify-$test.cjs"
           done
       - uses: actions/upload-artifact@v4
@@ -110,9 +106,9 @@ jobs:
           "$RUNNER_TEMP/context-test"
           swiftc -parse-as-library native/SpeechPreferences.swift native/CloudSpeech.swift native/SpeechService.swift native/Dictation.swift scripts/verify-speech.swift -o "$RUNNER_TEMP/speech-test"
           "$RUNNER_TEMP/speech-test"
-          swiftc native/WorkspaceFolders.swift native/LiveWorkspace.swift native/WorkspaceTerminals.swift native/TerminalCatalog.swift scripts/verify-workspace-folders.swift -o "$RUNNER_TEMP/folders-test"
+          swiftc native/WorkspaceFolders.swift native/LiveWorkspace.swift native/WorkspaceTerminals.swift scripts/verify-workspace-folders.swift -o "$RUNNER_TEMP/folders-test"
           "$RUNNER_TEMP/folders-test"
-          swiftc native/WorkspaceTerminals.swift native/LiveWorkspace.swift native/WorkspaceFolders.swift native/TerminalCatalog.swift scripts/verify-terminal-prerequisites.swift -o "$RUNNER_TEMP/terminal-prerequisites"
+          swiftc native/WorkspaceTerminals.swift native/LiveWorkspace.swift native/WorkspaceFolders.swift scripts/verify-terminal-prerequisites.swift -o "$RUNNER_TEMP/terminal-prerequisites"
           "$RUNNER_TEMP/terminal-prerequisites"
   deploy:
     name: Publish GitHub Pages

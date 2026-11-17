@@ -34,10 +34,10 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tasktap_proto::{
-    Answer, AttemptId, Change, Collection, CoreId, Device, DeviceId, HistoryPage, Layout, Limit,
-    Outcome, Phase, Pref, PrefKey, PrefValue, Project, ProjectId, Question, QuestionId,
-    QuestionState, Reason, ResultId, Rev, Rows, Session, SessionId, SessionState, Set, Status,
-    Terminal, TerminalId, TerminalState, Thought, ThoughtId, Time, TurnResult,
+    Answer, AttemptId, Change, Collection, CoreId, Device, DeviceId, HistoryPage, Isolate, Layout,
+    Limit, Outcome, Phase, Pref, PrefKey, PrefValue, Project, ProjectId, ProjectKind, Question,
+    QuestionId, QuestionState, Reason, ResultId, Rev, Rows, Session, SessionId, SessionState, Set,
+    Status, Terminal, TerminalId, TerminalState, Thought, ThoughtId, Time, TurnResult,
 };
 
 /// Finished thoughts kept live, newest first; older ones leave for history.
@@ -214,16 +214,24 @@ impl Store {
         let tx = store
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        tx.execute(
+        let created = tx.execute(
             "INSERT INTO meta (one, core_id, boot, rev) VALUES (1, ?1, 0, 0) ON CONFLICT DO NOTHING",
             [key(&store.core)?],
-        )?;
+        )? == 1;
         let (core, boot, rev): (String, i64, i64) = tx.query_row(
             "UPDATE meta SET boot = boot + 1 RETURNING core_id, boot, rev",
             [],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?;
         (store.core, store.boot, store.rev) = (parse(&core)?, boot as u64, rev as u64);
+        if created {
+            // Part of a new store, as its meta row is: it takes no revision.
+            let (id, data) = document(&scratch(path, now)?)?;
+            tx.execute(
+                "INSERT INTO projects (id, rev, data) VALUES (?1, 0, ?2)",
+                [id, data],
+            )?;
+        }
         let mut tx = Tx::new(tx, &mut store.rev, store.boot)?;
         tx.recover(now)?;
         let change = tx.commit()?;
@@ -260,6 +268,29 @@ impl Store {
     pub fn core_id(&self) -> CoreId {
         self.core
     }
+}
+
+/// The one built-in scratch project (design §5), seeded with a new store.
+/// Its folder is beside the database; no call removes it or changes its kind.
+fn scratch(path: &Path, now: Time) -> Result<Project> {
+    let dir = path.with_file_name("scratch");
+    std::fs::create_dir_all(&dir).map_err(Error::Io)?;
+    let dir = std::fs::canonicalize(&dir).map_err(Error::Io)?;
+    let folder = (dir.to_str())
+        .ok_or_else(|| Error::Io(std::io::Error::other("the data folder's path is not text")))?;
+    Ok(Project {
+        id: crate::state::fresh(now)?,
+        rev: Rev::ZERO,
+        name: "Scratch".into(),
+        folder: folder.into(),
+        kind: ProjectKind::Scratch,
+        color: String::new(),
+        aliases: Vec::new(),
+        git: false,
+        isolate: Isolate::Never,
+        open: true,
+        available: true,
+    })
 }
 
 fn next(rev: u64) -> Result<Rev> {

@@ -1038,7 +1038,11 @@ fn a_large_snapshot_arrives_in_chunks_and_whole() {
             bytes.len()
         );
     }
-    assert_eq!(snap.model.count("projects"), 12);
+    assert_eq!(
+        snap.model.count("projects"),
+        12 + 1,
+        "and the scratch project"
+    );
     for (p, tree) in ps.iter().zip(&trees) {
         assert_eq!(snap.model.get("layouts", p.id).unwrap()["tree"], *tree);
     }

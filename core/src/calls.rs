@@ -283,12 +283,17 @@ fn add_project(cx: &mut Cx, args: AddProject) -> Result<ProjectId, Error> {
             Err(state::Error::Store(e)) => return Err(stored(e)),
             Err(e) => return Err(Error::new(Code::Conflict, e.to_string())),
         }
+        // A project made otherwise, such as the scratch, keeps its folder.
+        match tx.project(args.id).map_err(stored)? {
+            Some(p) if p.folder == folder => return Ok(p.id),
+            Some(_) => {
+                let why = "the project id was used for another folder";
+                return Err(Error::new(Code::Conflict, why));
+            }
+            None => {}
+        }
         if let Some(p) = tx.project_by_folder(&folder).map_err(stored)? {
             return Ok(p.id);
-        }
-        if tx.project(args.id).map_err(stored)?.is_some() {
-            let why = "the project id was used for another folder";
-            return Err(Error::new(Code::Conflict, why));
         }
         let project = Project {
             id: args.id,

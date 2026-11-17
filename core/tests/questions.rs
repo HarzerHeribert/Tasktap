@@ -1251,6 +1251,11 @@ fn projects_are_added_once_per_folder_and_scanned_when_asked() {
     let data = Folder::new("qj");
     let core = Core::start(&data.0);
     let mut w = core.watch();
+    // A new core has one project: the built-in scratch, with its own folder.
+    let scratch = w.model.projects.values().next().unwrap().clone();
+    assert_eq!(w.model.projects.len(), 1);
+    assert_eq!(scratch.kind, tasktap_proto::ProjectKind::Scratch);
+    assert!(std::path::Path::new(&scratch.folder).is_dir());
     let folder = data.0.join("site");
     std::fs::create_dir_all(folder.join(".git")).unwrap();
     let id = ProjectId::mint();
@@ -1270,7 +1275,7 @@ fn projects_are_added_once_per_folder_and_scanned_when_asked() {
     let spelled = folder.join("..").join("site");
     let again = add(ProjectId::mint(), &spelled, Some("other"));
     assert_eq!(w.ok::<call::ProjectAdd>(&again), id);
-    assert_eq!(w.model.projects.len(), 1);
+    assert_eq!(w.model.projects.len(), 2);
     // The same id for another folder is a conflict; a missing folder is invalid.
     let elsewhere = data.0.join("docs");
     std::fs::create_dir_all(&elsewhere).unwrap();
@@ -1292,6 +1297,12 @@ fn projects_are_added_once_per_folder_and_scanned_when_asked() {
     }
     assert_eq!(w.ok::<call::ProjectAdd>(&add(id, &folder, None)), id);
     assert_eq!(w.ok::<call::ProjectAdd>(&again), id);
+    // The scratch project cannot become a folder project.
+    let taken = add(scratch.id, &folder, None);
+    assert_eq!(code(w.call::<call::ProjectAdd>(&taken)), Code::Conflict);
+    let patch = json!({"c": "projects", "id": scratch.id, "patch": {"kind": "folder"}});
+    assert_eq!(code_of(w.raw("put", patch)), Code::Invalid);
+    assert_eq!(w.model.projects[&scratch.id], scratch);
 
     // Scanning finds the folder gone, then back without git.
     std::fs::remove_dir_all(&folder).unwrap();

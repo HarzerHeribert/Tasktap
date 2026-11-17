@@ -218,7 +218,7 @@ fn live_thoughts(store: &mut Store) -> Vec<Thought> {
 }
 
 #[test]
-fn an_empty_start_has_nothing_and_a_core_id() {
+fn an_empty_start_has_only_the_scratch_project_and_a_core_id() {
     let dir = Dir::new("empty");
     let (mut store, recovered) = open(&dir.db());
     assert_eq!(recovered, None);
@@ -226,9 +226,21 @@ fn an_empty_start_has_nothing_and_a_core_id() {
     assert_eq!(store.boot(), 1);
     let core = store.core_id();
     let tx = store.begin().unwrap();
+    // The one built-in scratch project comes with the store, its folder beside the database.
+    let projects = tx.live(Collection::Projects).unwrap();
+    let Some(Set::Projects(rows)) = &projects else {
+        panic!("{projects:?}")
+    };
+    let [scratch] = rows.put.as_slice() else {
+        panic!("{rows:?}")
+    };
+    let folder = fs::canonicalize(dir.0.join("scratch")).unwrap();
+    assert_eq!(
+        (scratch.kind, scratch.folder.as_str()),
+        (ProjectKind::Scratch, folder.to_str().unwrap())
+    );
     for c in [
         Collection::Thoughts,
-        Collection::Projects,
         Collection::Sessions,
         Collection::Terminals,
         Collection::Questions,
@@ -250,10 +262,12 @@ fn an_empty_start_has_nothing_and_a_core_id() {
     assert_eq!(tx.commit().unwrap(), None, "a read takes no revision");
     drop(store);
 
-    let (store, _) = open(&dir.db());
+    let (mut store, _) = open(&dir.db());
     assert_eq!(store.core_id(), core, "the core id is minted once");
     assert_eq!(store.boot(), 2);
     assert_eq!(store.rev(), Rev::ZERO);
+    let again = store.begin().unwrap().live(Collection::Projects).unwrap();
+    assert_eq!(again, projects, "the scratch project is seeded once");
 }
 
 #[test]

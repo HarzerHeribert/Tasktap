@@ -152,10 +152,15 @@ pub fn pick_folder() -> Option<PathBuf> {
     open.setCanChooseFiles(false);
     open.setAllowsMultipleSelection(false);
     open.setCanCreateDirectories(true);
+    // The panel needs this app active; the app the person was in gets it back afterwards, so the
+    // notch can take the keyboard again without activating anything.
+    let previous = objc2_app_kit::NSWorkspace::sharedWorkspace().frontmostApplication();
     #[allow(deprecated)]
     NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
-    if open.runModal() != NSModalResponseOK {
-        return None;
+    let chosen = open.runModal() == NSModalResponseOK;
+    #[allow(deprecated)]
+    if let Some(app) = previous {
+        app.activateWithOptions(objc2_app_kit::NSApplicationActivationOptions::empty());
     }
-    open.URL().and_then(|url| url.path()).map(|p| PathBuf::from(p.to_string()))
+    chosen.then(|| open.URL().and_then(|url| url.path()).map(|p| PathBuf::from(p.to_string()))).flatten()
 }

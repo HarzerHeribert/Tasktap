@@ -205,6 +205,7 @@ fn every_call_round_trips() {
             kind,
             prompt: "Go on?".into(),
             detail: Some("Deletes build/".into()),
+            source: None,
         };
         round_trip::<call::QuestionAsk>(ask, answer(), seen);
     }
@@ -264,6 +265,7 @@ fn every_call_round_trips() {
                 kind: QuestionKind::Confirm,
                 prompt: "Allow rm?".into(),
                 detail: None,
+                source: None,
             },
         },
     ] {

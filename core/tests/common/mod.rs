@@ -669,6 +669,7 @@ pub fn confirm(request: &str, prompt: &str) -> Ask {
         kind: QuestionKind::Confirm,
         prompt: prompt.into(),
         detail: None,
+        source: None,
     }
 }
 

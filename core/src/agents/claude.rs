@@ -134,6 +134,7 @@ impl Claude {
                     kind,
                     prompt: fit(text, 2000),
                     detail: detail.map(|d| fit(&d, 16 << 10)),
+                    source: None,
                 })
             }
             None => {
@@ -151,6 +152,7 @@ impl Claude {
                     kind: QuestionKind::Text,
                     prompt: fit(prompt, 2000),
                     detail: (texts.len() > 1).then(|| fit(&texts.join("\n"), 16 << 10)),
+                    source: None,
                 })
             }
         }
@@ -290,6 +292,7 @@ impl Agent for Claude {
                     kind: QuestionKind::Text,
                     prompt: fit(message, 2000),
                     detail: None,
+                    source: None,
                 };
                 said(request, subagent, resume, Event::Question { question: ask })
             }

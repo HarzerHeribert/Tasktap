@@ -125,7 +125,7 @@ fn open(core: &mut Core, s: &Session, ask: Ask) -> Result<Question, Refusal> {
         thought_id: s.thought_id,
         session_id: Some(s.id),
         turn: Some(s.turn),
-        source: QuestionSource::Agent,
+        source: ask.source.unwrap_or(QuestionSource::Agent),
         kind: ask.kind,
         prompt: ask.prompt,
         detail: ask.detail,

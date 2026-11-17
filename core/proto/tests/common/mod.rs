@@ -295,6 +295,7 @@ pub fn samples() -> Vec<(&'static str, Frame)> {
                     },
                     prompt: "How should the redirect be remembered?".into(),
                     detail: None,
+                    source: None,
                 },
             )),
         ),

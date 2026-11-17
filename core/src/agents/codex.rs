@@ -372,5 +372,6 @@ fn asked(request: String, input: Option<&Value>) -> Ask {
             2000,
         ),
         detail: (all.len() > 1).then(|| fit(&all.join("\n"), 16 << 10)),
+        source: None,
     }
 }

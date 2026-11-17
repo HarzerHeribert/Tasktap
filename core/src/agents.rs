@@ -278,6 +278,7 @@ pub(crate) fn permission(agent: &str, request: String, tool: &str, input: Option
         kind: tasktap_proto::QuestionKind::Confirm,
         prompt: fit(&format!("{agent} asks to {what}"), 1000),
         detail: detail.map(|d| fit(&d, 16 << 10)),
+        source: Some(tasktap_proto::QuestionSource::Permission),
     }
 }
 

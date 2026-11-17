@@ -7,8 +7,8 @@ use crate::ids::{
     ThoughtId, Time,
 };
 use crate::records::{
-    Collection, Isolate, Mode, PrefKey, PrefValue, Question, QuestionKind, Response, Set, Source,
-    Stroke, Thought, TurnResult,
+    Collection, Isolate, Mode, PrefKey, PrefValue, Question, QuestionKind, QuestionSource,
+    Response, Set, Source, Stroke, Thought, TurnResult,
 };
 use crate::{MAX_LINE, MAX_TEXT};
 use serde::{Deserialize, Serialize};
@@ -277,6 +277,11 @@ pub struct Ask {
     pub prompt: String,
     #[serde(default, deserialize_with = "crate::within::<MAX_TEXT, _, _>")]
     pub detail: Option<String>,
+    /// What asks: `permission` for a permission request a hook waits on;
+    /// without it, `agent`, a question of the agent's own. A session never
+    /// asks as the `router`: that is `invalid`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<QuestionSource>,
 }
 
 /// `session.adopt`: an agent a person started by hand in a Tasktap shell

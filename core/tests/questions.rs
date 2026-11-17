@@ -729,6 +729,31 @@ fn a_token_whose_terminal_runs_no_session_reaches_nothing() {
 // Questions (design §6).
 
 #[test]
+fn a_question_says_whether_it_is_the_agents_own_or_a_permission_and_never_the_routers() {
+    let mut s = Scene::new("qs");
+    let (_, _, mut agent) = s.launch("deploy");
+    agent.ask("own", "Which branch?");
+    agent.ask_with(Ask {
+        source: Some(QuestionSource::Permission),
+        ..confirm("rm", "Allow rm -rf build?")
+    });
+    s.w.until("both open", |m| m.questions.len() == 2);
+    let source = |prompt: &str| {
+        let q = s.w.model.questions.values().find(|q| q.prompt == prompt);
+        q.unwrap().source
+    };
+    assert_eq!(source("Which branch?"), QuestionSource::Agent);
+    assert_eq!(source("Allow rm -rf build?"), QuestionSource::Permission);
+    let router = Ask {
+        source: Some(QuestionSource::Router),
+        ..confirm("route", "Where to?")
+    };
+    assert_eq!(agent.ask_now(router).unwrap_err().code, Code::Invalid);
+    s.w.sync();
+    assert_eq!(s.w.model.questions.len(), 2, "nothing opened");
+}
+
+#[test]
 fn a_waited_question_needs_you_until_answered_and_its_waiter_gets_the_stored_answer() {
     let mut s = Scene::new("qq");
     let (t, session, mut agent) = s.launch("deploy");

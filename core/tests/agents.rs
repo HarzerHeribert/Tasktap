@@ -609,6 +609,8 @@ fn a_claude_hook_waits_on_the_core_and_prints_the_decision() {
         "Claude Code asks to run echo trial > trial.txt"
     );
     assert_eq!(asked.reply_via, tasktap_proto::ReplyVia::Core);
+    // Stored as what it is: the agent's permission request (design §5).
+    assert_eq!(asked.source, tasktap_proto::QuestionSource::Permission);
     let answer = tasktap_proto::AnswerQuestion {
         id: q,
         response: Response::Affirm,

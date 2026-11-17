@@ -530,7 +530,11 @@ impl Machine<'_, '_> {
             }
             // a question opens: unchanged, the status becomes needs you. The
             // same key must bring the same question, and beyond the bound of
-            // open questions a new one is refused (design §6).
+            // open questions a new one is refused (design §6). Only the
+            // router asks as the router, and never through this row.
+            (E::Ask { question: q, .. }, ..) if q.source == QuestionSource::Router => {
+                Err(Error::Invalid("a session does not ask as the router"))
+            }
             (E::Ask { question: q, .. }, .., Some(_)) if !same_ask(&q, question.as_ref()) => Err(
                 Error::Conflict("the request key was used for another question"),
             ),
@@ -1180,7 +1184,7 @@ impl Machine<'_, '_> {
             thought_id: s.thought_id,
             session_id: Some(s.id),
             turn: Some(s.turn),
-            source: QuestionSource::Agent,
+            source: ask.source.unwrap_or(QuestionSource::Agent),
             kind: ask.kind,
             prompt: ask.prompt,
             detail: ask.detail,

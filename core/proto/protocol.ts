@@ -116,7 +116,13 @@ export type Ask = {
  * The asker's key, kept per session: asking again with it reaches the
  * same question, and the same key from another session is another one.
  */
-request: string, prompt: string, detail?: string | null, } & ({ "kind": "confirm" } | { "kind": "choice", choices: Array<string>, } | { "kind": "text" });
+request: string, prompt: string, detail?: string | null,
+/**
+ * What asks: `permission` for a permission request a hook waits on;
+ * without it, `agent`, a question of the agent's own. A session never
+ * asks as the `router`: that is `invalid`.
+ */
+source?: QuestionSource | null, } & ({ "kind": "confirm" } | { "kind": "choice", choices: Array<string>, } | { "kind": "text" });
 
 /**
  * `question.withdraw` and `question.received`: the asker names its question

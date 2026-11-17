@@ -2202,6 +2202,7 @@ impl Sweep {
                         kind: QuestionKind::Confirm,
                         prompt: "Allow rm?".into(),
                         detail: None,
+                        source: None,
                     },
                 },
             ] {

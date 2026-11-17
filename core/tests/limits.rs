@@ -51,6 +51,7 @@ fn largest_ask(request: &str) -> Ask {
         },
         prompt: escaped(MAX_LINE),
         detail: Some(escaped(MAX_TEXT)),
+        source: None,
     }
 }
 

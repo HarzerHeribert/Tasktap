@@ -102,6 +102,8 @@ html,body{background:transparent!important;min-height:0;overflow:hidden}
 #notch .decision-capture{display:grid;margin-top:calc(-1 * var(--s-row))}
 #notch .decision-capture>.text-btn{display:inline-flex;align-items:center;gap:var(--s-icon);justify-self:start;color:var(--panel-muted)}
 #notch .decision-capture>.text-btn .icon{width:14px;height:14px}
+/* Room at the field's left for the input-source bubble macOS shows under the caret. */
+.native-host .guide-editor{--edit-inset-x:18px}
 #notch .decision-btn kbd{margin-left:auto}
 #notch .decision-btn kbd:first-of-type{margin-left:0}
 /* Opened with show(), not showModal(): above the black surface without the top layer's focus trap. */

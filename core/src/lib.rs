@@ -12,6 +12,7 @@ mod command;
 mod conn;
 mod effects;
 mod handshake;
+mod http;
 mod isolate;
 mod launch;
 mod questions;

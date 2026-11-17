@@ -855,6 +855,18 @@ fn a_follow_up_the_shim_cannot_hold_for_fails_and_is_never_typed() {
 
 // Many at once
 
+/// Held by each test that starts processes by the hundred, so that no two
+/// of them share the machine. A burst asks whether one core lets 200 clients
+/// in within their 5 s; while another test starts thousands of processes
+/// beside it on a small machine (the hosted Mac in CI), the processor is
+/// what keeps them waiting, not the core.
+static MACHINE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The machine to this test alone, among those that hold [`MACHINE`].
+fn alone() -> std::sync::MutexGuard<'static, ()> {
+    MACHINE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Spawns every command at once, as a burst of hooks does, and returns
 /// their outputs.
 fn burst(commands: Vec<Command>) -> Vec<Output> {
@@ -875,6 +887,7 @@ fn burst(commands: Vec<Command>) -> Vec<Output> {
 
 #[test]
 fn two_hundred_roles_started_at_once_start_one_core_and_all_get_through() {
+    let _alone = alone();
     let data = Folder::new("rb");
     let _core = Started(&data.0);
     let shims = shim::install(&data.0, Path::new(EXE)).unwrap();
@@ -910,6 +923,7 @@ fn two_hundred_roles_started_at_once_start_one_core_and_all_get_through() {
 
 #[test]
 fn two_hundred_hooks_at_once_on_a_running_core_all_get_through() {
+    let _alone = alone();
     let mut s = Scene::new("rq");
     let (_, session, _agent) = s.launch("tidy up");
     let token = token(&mut s, session);
@@ -938,6 +952,7 @@ fn two_hundred_hooks_at_once_on_a_running_core_all_get_through() {
 #[test]
 fn shims_start_while_other_shim_folders_come_and_go() {
     use std::os::unix::process::ExitStatusExt;
+    let _alone = alone();
     let rounds: Vec<_> = (0..8)
         .map(|_| {
             std::thread::spawn(|| {

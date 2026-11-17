@@ -567,11 +567,20 @@ fn what_a_client_typed_before_it_left_reaches_the_process() {
 /// Input a process does not read stays bounded: a client that sends what it
 /// was granted and closes its stream leaves that input waiting, and a
 /// client attaching after it is granted only what the terminal's budget
-/// leaves, not 64 KiB more each time. The process makes its terminal raw so
-/// that what it does not read stays unwritten (`stty`: Mac and Linux).
+/// leaves, not 64 KiB more each time.
+///
+/// The bound is on what the core holds, so the test keeps the system's own
+/// terminal out of the count. The process says it stalls only once its
+/// terminal is raw (`stty`: Mac and Linux): one still in its line mode
+/// takes whatever is written and drops what it has no room for, so the
+/// core would hold nothing and rightly grant again. And the input comes in
+/// one frame larger than a raw terminal holds unread (about 1 KiB on a
+/// Mac, between 12 and 20 KiB on Linux, by how it is written), so the
+/// input thread never writes it whole and none of it counts as written.
 #[cfg(unix)]
 #[test]
 fn input_a_process_does_not_read_stays_bounded_however_often_clients_reattach() {
+    const INPUT: usize = 64 << 10;
     let data = Folder::new("tt-bound");
     let core = Core::start(&data);
     let mut c = core.device();
@@ -585,18 +594,32 @@ fn input_a_process_does_not_read_stays_bounded_however_often_clients_reattach() 
     until(&mut c, &mut v, "the process stalls", |v| {
         text(v.bytes()).contains("stalling")
     });
+    let first = c.credit(v.s) as usize;
+    assert_eq!(first, INPUT, "what one attached client may have on its way");
     let mut sent = 0;
-    for _ in 0..4 {
+    for round in 0..5 {
         let credit = c.credit(v.s) as usize;
         sent += c.send_some(v.s, &vec![b'x'; credit]).unwrap();
         c.close(v.s).unwrap();
+        // The last one comes once the input thread has had time to write
+        // what the terminal takes: the rest is still the core's to hold.
+        if round == 4 {
+            std::thread::sleep(Duration::from_millis(200));
+        }
         v = open(&mut c, &args(id, None, None, 1 << 20), true);
     }
     sent += c.credit(v.s) as usize;
-    // 64 KiB, and what the terminal itself took before it was full.
     assert!(
-        sent <= (64 + 16) << 10,
+        sent <= INPUT,
         "{sent} bytes accepted for a process that reads none"
+    );
+    // Nothing of it was written as if to a terminal in its line mode,
+    // which would have echoed it.
+    until(&mut c, &mut v, "the replay", |v| !v.lives().is_empty());
+    let shown = text(v.bytes());
+    assert!(
+        !shown.contains("xxxx"),
+        "the terminal was not raw: {shown:?}"
     );
 }
 

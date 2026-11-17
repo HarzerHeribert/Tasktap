@@ -22,7 +22,7 @@
 //! | `sleep:MS` | sleeps |
 //! | `nohup` | ignores hang-up from then on |
 //! | `detach:MS` | prints `detaching`, lets go of its terminal (its standard input, output and error become the null device) and sleeps; Mac and Linux |
-//! | `stall:MS` | prints `stalling`, makes its terminal raw, so input it does not read fills the terminal, sleeps and exits with 0, having read none (Mac and Linux) |
+//! | `stall:MS` | makes its terminal raw, so input it does not read fills the terminal, then prints `stalling`, sleeps and exits with 0, having read none; exits with 1 if `stty` cannot make it raw (Mac and Linux) |
 //! | `query` | asks its terminal what it is, where the cursor is and its two colors, as a program that waits for the answers does, and prints `answered:` and the answers, escaped (Mac and Linux) |
 //! | `exit:CODE` | exits with the code; after the last step it exits with 0 |
 //!
@@ -160,9 +160,16 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
             "sleep" => std::thread::sleep(Duration::from_millis(rest.parse().unwrap_or(0))),
             "nohup" => crate::sys::ignore_hangup(),
             "stall" => {
+                // Raw before it says so: a terminal still in its line mode
+                // takes whatever is written to it and drops what it has no
+                // room for, so nothing would stay unwritten.
+                let raw = Command::new("stty").args(["raw", "-echo"]).status();
+                if !raw.is_ok_and(|status| status.success()) {
+                    eprintln!("fixture-agent: stty could not make the terminal raw");
+                    return ExitCode::FAILURE;
+                }
                 println!("stalling");
                 let _ = io::stdout().flush();
-                let _ = Command::new("stty").args(["raw", "-echo"]).status();
                 std::thread::sleep(Duration::from_millis(rest.parse().unwrap_or(0)));
                 return ExitCode::SUCCESS;
             }

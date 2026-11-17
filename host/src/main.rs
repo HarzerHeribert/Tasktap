@@ -194,6 +194,18 @@ fn command(app: &AppHandle, line: &str) {
                 "workspace": workspace.map(|w| native::ns_window_number(w as usize))}),
             )
         }
+        // `snapshot <page> <file>`: the page as it is drawn, as PNG.
+        "snapshot" => {
+            let path = std::path::PathBuf::from(arg);
+            if let Some(window) = app.get_webview_window(label) {
+                let _ = window.with_webview(move |view| {
+                    let file = path.display().to_string();
+                    native::snapshot(view.inner(), path, move |ok| {
+                        log(json!({"event": "snapshot", "file": file, "ok": ok}))
+                    })
+                });
+            }
+        }
         "text" => report(format!("document.querySelector({arg:?})?.innerText ?? null")),
         "eval" => report(arg.to_owned()),
         "type" => report(format!("document.execCommand('insertText',false,{arg:?})")),

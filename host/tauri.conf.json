@@ -12,7 +12,7 @@
   "bundle": {
     "active": true,
     "targets": ["app"],
-    "icon": ["../prototype/assets/resonator/Tasktap.icns", "icons/icon.png"],
+    "icon": ["icons/Tasktap.icns", "icons/icon.png"],
     "externalBin": ["binaries/tasktap"],
     "macOS": { "minimumSystemVersion": "13.0" }
   }

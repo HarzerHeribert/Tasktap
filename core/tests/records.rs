@@ -11,11 +11,11 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tasktap_core::client::{self, Client};
 use tasktap_proto::call::{self, Call, Code};
 use tasktap_proto::{
-    Auth, CallId, Change, Collection, Control, Delete, DeviceId, Frame, Glance, HEADER, Hello,
-    History, Isolate, LayoutPatch, Limit, Mode, NotePatch, Outcome, Phase, Pref, PrefKey,
-    PrefPatch, PrefValue, Project, ProjectId, ProjectKind, ProjectPatch, Put, PutTarget, Register,
-    Request, ResultId, ResultKind, Retire, Rev, Revision, Role, Rows, Secret, SessionId, Set,
-    Source, Subscribe, Thought, ThoughtId, Time, TurnResult, VERSION, Versions, When,
+    Auth, CallId, Change, Collection, Control, Delete, DeviceId, FixtureClock, Frame, Glance,
+    HEADER, Hello, History, Isolate, LayoutPatch, Limit, Mode, NotePatch, Outcome, Phase, Pref,
+    PrefKey, PrefPatch, PrefValue, Project, ProjectId, ProjectKind, ProjectPatch, Put, PutTarget,
+    Register, Request, ResultId, ResultKind, Retire, Rev, Revision, Role, Rows, Secret, SessionId,
+    Set, Source, Subscribe, Thought, ThoughtId, Time, TurnResult, VERSION, Versions, When,
     encode_control,
 };
 
@@ -76,6 +76,11 @@ impl Core {
     /// A new connection, as a newly registered device. A frame that never
     /// comes fails the test instead of hanging it.
     fn device(&self) -> Client {
+        self.connect(DeviceId::mint(), Some("test"))
+    }
+
+    /// A new connection as the device `id`, registering it under `name` if given.
+    fn connect(&self, id: DeviceId, name: Option<&str>) -> Client {
         let stream = client::connect(&self.data).unwrap();
         #[cfg(unix)]
         stream
@@ -86,11 +91,9 @@ impl Core {
             role: Role::Page,
             client: "records test".into(),
             auth: Some(Auth::Device {
-                device: DeviceId::mint(),
+                device: id,
                 key: Secret([1; 32]),
-                register: Some(Register {
-                    name: "test".into(),
-                }),
+                register: name.map(|name| Register { name: name.into() }),
             }),
             abilities: Vec::new(),
         };
@@ -366,6 +369,11 @@ fn glance(working: u32) -> Glance {
     }
 }
 
+fn wall() -> u64 {
+    let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+    since.unwrap().as_millis() as u64
+}
+
 fn row(value: &impl serde::Serialize) -> Value {
     serde_json::to_value(value).unwrap()
 }
@@ -514,6 +522,37 @@ fn a_subscriber_sees_only_the_collections_it_named() {
     for c in [&mut prefs, &mut layouts, &mut notes, &mut ended] {
         assert!(subscribe(c, &[Collection::Prefs]).before.is_empty());
     }
+}
+
+#[test]
+fn a_device_that_connects_again_writes_and_sends_nothing() {
+    let data = Folder::new();
+    let core = Core::start(&data);
+    let id = DeviceId::mint();
+    drop(core.connect(id, Some("laptop")));
+    let mut s = core.device();
+    let before = subscribe(&mut s, &ALL);
+
+    drop(core.connect(id, None));
+    drop(core.connect(id, None));
+    let after = subscribe(&mut s, &ALL);
+    assert!(after.before.is_empty(), "{:?}", after.before);
+    assert_eq!((after.rev, after.model), (before.rev, before.model));
+
+    // A day later the next connect records it once.
+    let day = 24 * 60 * 60 * 1000;
+    let now = Time::new(wall() + day + 1000).unwrap();
+    let clock = call::FixtureClock::request(CallId(7), &FixtureClock { now });
+    s.send(&clock).unwrap();
+    assert!(matches!(
+        s.recv().unwrap(),
+        Frame::Control(Control::Reply(_))
+    ));
+    drop(core.connect(id, None));
+    let Set::Devices(rows) = one(&mut s, Rev::new(after.rev.get() + 1).unwrap()) else {
+        panic!("expected the device");
+    };
+    assert_eq!((rows.put[0].id, rows.put[0].last_seen), (id, Some(now)));
 }
 
 #[test]

@@ -3,9 +3,13 @@ import { cap, holding } from '../capture.tsx';
 import { call, fail, page, redraw, ui, type View } from './model.ts';
 
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+/** The end of a fold's animation: its own timer, so a hover or a question's timer cannot cancel
+ *  it and leave the folded notch's rows in place. */
+let retract = 0;
 
 export function reveal(mode: 'hover' | 'pinned', view: View, focus = '') {
   clearTimeout(ui.timer);
+  clearTimeout(retract);
   ui.mode = ui.mode === 'pinned' ? 'pinned' : mode;
   ui.view = view;
   ui.retracting = false;
@@ -18,14 +22,15 @@ export function reveal(mode: 'hover' | 'pinned', view: View, focus = '') {
 export function fold() {
   if (ui.mode === 'closed') return;
   clearTimeout(ui.timer);
-  Object.assign(ui, { mode: 'closed', retracting: true, replying: false, auto: false });
+  Object.assign(ui, { mode: 'closed', retracting: true, replying: false, capturing: false, auto: false });
   cap.choosing = false;
   page.error = '';
   // A receipt whose hold is over is done; one still holding keeps its Undo for the next open.
   if (!holding()) cap.sent = null;
   void call('host.notch', { open: false }).catch(fail);
   redraw();
-  ui.timer = window.setTimeout(() => {
+  clearTimeout(retract);
+  retract = window.setTimeout(() => {
     ui.retracting = false;
     ui.seen.clear();
     redraw();

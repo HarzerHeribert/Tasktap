@@ -1418,6 +1418,31 @@ fn glance_counts_working_needs_you_and_done_and_shows_retiring() {
 }
 
 #[test]
+fn glance_counts_failed_thoughts_until_they_are_read_or_retried() {
+    let mut s = Scene::new("qf");
+    let route = clear(s.project);
+    s.script(route.clone(), Some("no terminal here"));
+    let (a, b) = (s.capture("one"), s.capture("two"));
+    s.tick(HOLD_MS);
+    s.w.sync();
+    assert_eq!(
+        (s.w.model.status(a), s.w.model.status(b)),
+        (Status::Failed, Status::Failed)
+    );
+    assert_eq!(s.w.model.glance().failed, 2);
+    // Seen: no longer counted.
+    s.w.ok::<call::ThoughtRead>(&Ref { id: a });
+    assert_eq!(s.w.model.glance().failed, 1);
+    // Retried: routed again, so not failed.
+    s.script(route, None);
+    s.w.ok::<call::ThoughtRetry>(&Ref { id: b });
+    assert_eq!(s.w.model.status(b), Status::Routed);
+    assert_eq!(s.w.model.glance().failed, 0);
+    // A fresh subscriber's snapshot says the same.
+    assert_eq!(s.core.watch().model.glance().failed, 0);
+}
+
+#[test]
 fn projects_are_added_once_per_folder_and_scanned_when_asked() {
     let data = Folder::new("qj");
     let core = Core::start(&data.0);

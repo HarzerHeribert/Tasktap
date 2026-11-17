@@ -252,6 +252,7 @@ fn glance(working: u32) -> Glance {
         working,
         needs_you: 0,
         done: 0,
+        failed: 0,
         question: None,
         retiring: false,
     }
@@ -1283,7 +1284,8 @@ fn memory_rows_start_over_on_restart_while_stored_rows_and_the_revision_go_on() 
     let core = Core::start(&data);
     let mut c = core.device();
     let after = subscribe(&mut c, &ALL);
-    // Counted again from the stored rows, in which recovery failed the working ones.
+    // Counted again from the stored rows, in which recovery failed the four
+    // working ones, unread.
     let g: Glance = serde_json::from_value(after.model.get("glance", "").unwrap().clone()).unwrap();
     assert_eq!(
         Glance {
@@ -1292,6 +1294,7 @@ fn memory_rows_start_over_on_restart_while_stored_rows_and_the_revision_go_on() 
         },
         Glance {
             done: 2,
+            failed: 4,
             ..glance(0)
         }
     );

@@ -178,6 +178,7 @@ pub fn change() -> Change {
                     working: 1,
                     needs_you: 0,
                     done: 3,
+                    failed: 1,
                     question: None,
                     retiring: false,
                 }],

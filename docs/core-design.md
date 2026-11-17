@@ -77,7 +77,7 @@ Calls without a mark are built in Phase 1; (2), (3) and (6) name the phase that 
 
 **Host abilities (18, Phase 4):** `host.show`, `host.notch`, `host.chrome`, `host.drag`, `host.pick`, `host.save`, `host.open`, `host.clipboard`, `host.permission`, `host.settings`, `host.update`, `host.notify`, `host.context`, `host.model`, `host.dictate`, `host.speak`, `host.speech_model`, `host.pdf`. A host lists the ones it has in `hello`. **Page ability (1):** `ui.do {action, id?}`: 14 menu actions, `close-front`, `navigate`, `hover-enter`, `hover-exit`, `previous`, `next`, `confirm`, `back`, `prepare-update`. **Shim ability (1):** `shim.hold` (§7).
 
-**Records (15).** Stored: `thoughts`, `projects`, `sessions`, `terminals`, `questions` (with the answer inside), `results`, `layouts`, `prefs`, `devices`, `previews`, `connections`. In memory only: `glance` (counts for working, needs you, done; the focused question; a pending core update), `dictation`, `host` (one row per connected host: abilities, notch geometry, update state, permissions, launch at login, speech engines, screen reader), `agents` (installed CLIs, sign-in state, identity).
+**Records (15).** Stored: `thoughts`, `projects`, `sessions`, `terminals`, `questions` (with the answer inside), `results`, `layouts`, `prefs`, `devices`, `previews`, `connections`. In memory only: `glance` (counts for working, needs you, done and unread, failed and unread; the focused question; a pending core update), `dictation`, `host` (one row per connected host: abilities, notch geometry, update state, permissions, launch at login, speech engines, screen reader), `agents` (installed CLIs, sign-in state, identity).
 
 ### How the inventory maps
 

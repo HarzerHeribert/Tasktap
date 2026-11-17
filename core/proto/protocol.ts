@@ -375,7 +375,16 @@ marks?: Array<Offset>, };
 /**
  * What a host shows with no page running. Memory only.
  */
-export type Glance = { rev: Rev, working: number, needs_you: number, done: number,
+export type Glance = { rev: Rev, working: number, needs_you: number,
+/**
+ * Done and not read yet.
+ */
+done: number,
+/**
+ * Failed and not read yet: stopped, refused, interrupted or ended
+ * without an answer, and not yet seen (`thought.read`) or retried.
+ */
+failed: number,
 /**
  * The question affirm and deny act on: the oldest open one unless
  * `question.focus` chose another.

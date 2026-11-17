@@ -89,6 +89,7 @@ impl Default for Memory {
                 working: 0,
                 needs_you: 0,
                 done: 0,
+                failed: 0,
                 question: None,
                 retiring: false,
             },

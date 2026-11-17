@@ -395,7 +395,11 @@ pub struct Glance {
     pub rev: Rev,
     pub working: u32,
     pub needs_you: u32,
+    /// Done and not read yet.
     pub done: u32,
+    /// Failed and not read yet: stopped, refused, interrupted or ended
+    /// without an answer, and not yet seen (`thought.read`) or retried.
+    pub failed: u32,
     /// The question affirm and deny act on: the oldest open one unless
     /// `question.focus` chose another.
     pub question: Option<QuestionId>,

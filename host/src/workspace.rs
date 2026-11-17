@@ -192,13 +192,15 @@ pub fn show(app: &AppHandle, at: Option<&str>) -> tauri::Result<()> {
         None => builder.inner_size(1180.0, 760.0).center(),
     };
     let window = builder.build()?;
-    window.on_window_event(|event| {
+    let handle = app.clone();
+    window.on_window_event(move |event| {
         if let WindowEvent::Moved(_) | WindowEvent::Resized(_) | WindowEvent::CloseRequested { .. } = event {
             remember();
         }
         if let WindowEvent::Destroyed = event {
             save();
             with(|st| st.shown = false);
+            crate::forget_page(&handle, LABEL);
         }
     });
     // Shown once the page has drawn, or after 3 s if it never says so.

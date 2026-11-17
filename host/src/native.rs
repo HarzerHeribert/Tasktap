@@ -150,8 +150,15 @@ pub fn watch_pointer(moved: impl Fn() + 'static) {
 
 /// The clipboard's text, or with `text`, the clipboard set to it (the workspace's Copy and Paste
 /// buttons; ⌘C and ⌘V go through the Edit menu).
-pub fn clipboard(text: Option<&str>) -> Option<String> {
-    let board = objc2_app_kit::NSPasteboard::generalPasteboard();
+pub fn clipboard(text: Option<&str>, private: bool) -> Option<String> {
+    // A passive run (the checks) uses a pasteboard of its own, never the person's.
+    let board = if private {
+        objc2_app_kit::NSPasteboard::pasteboardWithName(&objc2_foundation::NSString::from_str(
+            "io.github.harzerheribert.tasktap.next.checks",
+        ))
+    } else {
+        objc2_app_kit::NSPasteboard::generalPasteboard()
+    };
     // SAFETY: a constant AppKit exports.
     let kind = unsafe { objc2_app_kit::NSPasteboardTypeString };
     match text {

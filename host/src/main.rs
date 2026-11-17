@@ -73,6 +73,14 @@ fn bridge_open(
     Ok(())
 }
 
+/// A page whose window is gone lets go of its connection, so the core stops holding its streams
+/// for it and answers its terminals' questions again while no window is attached (design §9).
+fn forget_page(app: &AppHandle, label: &str) {
+    if let Some(stream) = app.state::<Host>().pages.lock().unwrap().remove(label) {
+        let _ = stream.shutdown(Shutdown::Both);
+    }
+}
+
 /// Frames from the page to the core, already encoded; the host does not read them.
 #[tauri::command]
 fn bridge_send(webview: tauri::Webview, request: tauri::ipc::Request, host: tauri::State<Host>) -> Result<(), String> {
@@ -101,7 +109,7 @@ fn bridge_host(app: AppHandle, frame: String) -> String {
             Ok(folder) => json!(folder),
             Err(_) => json!(native::pick_folder()),
         }),
-        "host.clipboard" => Ok(json!(native::clipboard(args["text"].as_str()))),
+        "host.clipboard" => Ok(json!(native::clipboard(args["text"].as_str(), notch::NOTCH.lock().unwrap().passive))),
         "host.appearance" => Ok(workspace::appearance(&app, args)),
         name => Err(format!("this host has no {name}")),
     };
@@ -162,8 +170,9 @@ fn command(app: &AppHandle, line: &str) {
         Some(w) => drop(w.eval(&js)),
         None => log(json!({"event": "report", "label": label, "data": null})),
     };
+    // The value of an expression, awaited when it is a promise (a measurement), as one report.
     let report = |expr: String| {
-        eval(format!("window.__TAURI_INTERNALS__.invoke('debug_report',{{label:{label:?},data:(()=>{{try{{return {expr}}}catch(e){{return 'error: '+e}}}})()}})"))
+        eval(format!("(async()=>{{try{{return await ({expr})}}catch(e){{return 'error: '+e}}}})().then(data=>window.__TAURI_INTERNALS__.invoke('debug_report',{{label:{label:?},data:data??null}}))"))
     };
     match verb {
         "capture" => notch::capture(app),
@@ -173,6 +182,11 @@ fn command(app: &AppHandle, line: &str) {
         "hover" => notch::tell(app, json!({"do": if rest == "in" { "hover-enter" } else { "hover-exit" }})),
         "show" => drop(workspace::show(app, (!rest.is_empty()).then_some(rest))),
         "menu" => workspace::on_menu(app, rest),
+        "close" => {
+            if let Some(window) = app.get_webview_window(rest) {
+                let _ = window.close();
+            }
+        }
         "state" => {
             let workspace = app.get_webview_window(workspace::LABEL).and_then(|w| w.ns_window().ok());
             log(

@@ -74,6 +74,13 @@ function fakeRuntime({ label, records: records0, welcome }) {
     if (name === 'history') return reply(id, { thoughts: [], questions: [], results: [] });
     // `hold`: a capture is never answered, so the field stays as it is while a thought is on its way.
     if (name === 'thought.capture' && records.hold) return;
+    // A thought saved for later is kept as the core keeps it, so the page can show where it landed.
+    if (name === 'thought.capture' && args.mode === 'note') {
+      rev++;
+      push({ t: 'change', rev, sets: [{ c: 'thoughts', put: [{ id: args.id, rev, text: args.text, strokes: [], source: 'typed', mode: 'note', phase: 'captured', status: 'captured',
+        reason: null, live: false, project_id: null, session_id: null, brief: args.text, agent: null, model: null, workdir: null, hold_until: null, read: false, created: Date.now(), updated: Date.now() }] }] });
+      return reply(id, null);
+    }
     // Keep or Discard: what `settles` holds for the thought is the core's refusal in its own words; else it settles,
     // as `kept` where `settles` says a discard found everything already in its branch.
     if (name === 'thought.settle') {

@@ -188,7 +188,7 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .capture.raised .cap-list{display:flex;flex-wrap:wrap;gap:2px}
 .capture.raised .ring{padding:0 5px}
 .capture.raised .ring-o{width:24px;height:24px}
-.capture.raised .cap-said{justify-content:center;margin-top:var(--sp2)}
+.capture.raised .cap-said{margin-top:var(--sp2);padding:0 var(--sp3) 0 22px}
 /* First run: under the Composer, on its own edges, the one thing to do first, said in one line. It is the key until
    the Composer holds a thought; then that one's key is, and this is quiet. */
 .attach{display:flex;align-items:center;justify-content:space-between;gap:var(--sp4);width:min(100%,var(--cap-w));margin:0 auto;padding:0 var(--sp3) 0 22px;font:var(--f-body);color:var(--fg2)}

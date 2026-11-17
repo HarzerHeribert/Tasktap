@@ -45,6 +45,12 @@ export type Options = {
   seed?: number;
   /** At most this many frames a second, once its blend is over (ambient views, whose motion is slow). */
   fps?: number;
+  /** Home's band: how far its row is drawn into a curve that travels along it, its elements leaning with it (head.ts
+   *  u_pose). 0 everywhere else, which is the form as the lab draws it. */
+  pose?: number;
+  /** A calm view that goes on moving at `fps` when its moment is over and when nothing happens (the band while its
+   *  window is the one in use), instead of holding a still frame. */
+  drift?: boolean;
 };
 
 // The lab's: the signal light of each state (amber, pale green, dull red), the studio's level, draws a second.
@@ -56,7 +62,10 @@ const RATE = [20, 60, 60, 30, 30, 60, 60];
 const MOMENT = [0, 0, 2.5, 2, 4.8, 3, 2];
 const VERT = '#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.-1.,0.,1.);}';
 const UNI = { res: 2, org: 2, n: 1, irid: 1, dim: 1, light: 1, hoff: 1, aux: 1, ph: '4fv', v: '4fv', w: '4fv', p: '1fv', st: '1fv',
-  sig: '3fv', ta: '3fv', tb: '3fv', bg: '3fv', lm: '4fv', holes: '4fv', hole: 2 } as const;
+  sig: '3fv', ta: '3fv', tb: '3fv', bg: '3fv', lm: '4fv', holes: '4fv', hole: 2, pose: 2 } as const;
+/** The curve of a posed view travels its own length once in a breath: its phase for each second of the view's time,
+ *  which runs at 3.6 / the breath's seconds (light.tsx pace). */
+const POSE = (2 * Math.PI) / 3.6;
 type Uniforms = { -readonly [K in keyof typeof UNI]: number | ArrayLike<number> };
 const HOLES = 24;
 /** The smallest view, in CSS pixels, that draws (View.shown). */
@@ -158,7 +167,7 @@ export function still(style: StyleId, look: Look, state: MotionState, size: numb
     // Half the palette's iridescence: an object this small in full colour reads as coloured, not as metal.
     render(style, size, size, {
       res: [0, 0], org: [0, 0], n: 1, irid: P.irid * 0.5, dim: DIM[s]!, light: 0, hoff: 0, aux, ph: [phase, 0, 0, 9], p: new Float32Array(8), st, sig: SIGNAL[s]!,
-      ta: P.a, tb: P.b, v: [0, 0, 0, 0.4], w: [0, 0, 0.4, 0], bg: [0, 0, 0], lm: [0, 0, 1, 0], holes: new Float32Array(HOLES * 4), hole: [0, 0],
+      ta: P.a, tb: P.b, v: [0, 0, 0, 0.4], w: [0, 0, 0.4, 0], bg: [0, 0, 0], lm: [0, 0, 1, 0], holes: new Float32Array(HOLES * 4), hole: [0, 0], pose: [0, 0],
     });
     const px = new Uint8Array(size * size * 4);
     g.readPixels(0, 0, size, size, g.RGBA, g.UNSIGNED_BYTE, px);
@@ -208,6 +217,7 @@ export class View {
   private onz = 0;
   private lm = 0;
   private lph = 0;
+  private pose = 0;
   private p = new Float32Array(8);
   private moving = false;
   private slow = 0;
@@ -325,9 +335,10 @@ export class View {
     const s = STATES.indexOf(this.o.state), v = voice ?? SILENT, pace = this.o.pace ?? 'live';
     if (reduced.matches) return this.moving || (s === 1 && Math.abs(v.slow - this.slow) > 0.004) ? 20 : 0;
     if (this.moving) return 60;
-    if (s === 0 || (s >= 5 && this.stT > 3)) return 0;
+    const drift = this.o.drift ? (this.o.fps ?? 10) : 0;
+    if (s === 0 || (s >= 5 && this.stT > 3)) return drift;
     if (s === 1) return v.quiet > 1.5 ? 20 : 60;
-    if (pace !== 'live' && this.stT >= MOMENT[s]!) return this.breathing() ? Math.min(10, this.o.fps ?? 10) : 0;
+    if (pace !== 'live' && this.stT >= MOMENT[s]!) return this.breathing() ? Math.min(10, this.o.fps ?? 10) : drift;
     return Math.min(RATE[s]!, this.o.fps ?? RATE[s]!);
   }
 
@@ -355,6 +366,7 @@ export class View {
       this.ph[1]! += adv * V.level * p[0]!;
       this.aux += adv * p[7]!;
       this.lph += adv * lp;
+      this.pose += adv * POSE;
       this.onz += (V.onsets - this.onz) * (1 - Math.exp(-adv / 0.09));
       this.ph[2] = this.onz;
       this.ph[3] = this.stT;
@@ -374,7 +386,7 @@ export class View {
       res: [0, 0], org: [0, 0], n, irid: P.irid, dim, light: 0, hoff: V.hoff, aux: this.aux, ph: this.ph, p, st: w, sig, ta: P.a, tb: P.b,
       v: [r ? V.slow : V.level, r ? V.slow : V.fast, r ? 0 : V.onset, V.bright],
       w: [r ? V.slow : V.vowel, r ? 0 : V.sib, V.pitch, r ? V.slow : V.activity],
-      bg: [0, 0, 0], lm: [this.lm, this.lph, amb, 0], holes: this.holes, hole: this.hole,
+      bg: [0, 0, 0], lm: [this.lm, this.lph, amb, 0], holes: this.holes, hole: this.hole, pose: [this.o.pose ?? 0, this.pose],
     };
   }
 

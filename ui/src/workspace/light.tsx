@@ -37,8 +37,10 @@ const LIVE = new Set<MotionState>(['listening', 'thinking', 'working', 'needs'])
  *  drifts in the same time: a glance of two or three seconds shows it is alive, and it is too slow to pull the eye
  *  from a row being read. */
 const tempo = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--t-ambient')) || 12;
-/** The share of the lab's pace the chrome moves at in a state's moment, at that tempo. */
+/** The share of the lab's pace the chrome moves at, at that tempo, and the frames a second its band is drawn at while
+ *  it moves. */
 const pace = () => 3.6 / tempo();
+const DRIFT = 8;
 
 /** The glyphs' clock. The pools breathe and the chrome floats by the compositor alone (window.css); a glyph needs its
  *  pose named, since its picture is drawn again as it turns: once a second the clock gives each its next pose and the
@@ -154,7 +156,7 @@ export function Light({ load }: { load: 'quiet' | 'busy' | 'asks' | 'paged' }) {
     <div class="light" data-state={l.state} data-breathe={String(l.breathe)} data-lift={l.lift || undefined} data-stir={ui.greet === 'main' || undefined} data-load={load} style={l.vars} aria-hidden="true">
       <i class="pool a" /><i class="pool b" /><i class="pool c" />
       <span class="band">
-        <Motion look={l.look} state={l.state} pace="calm" tempo={pace()} fps={12} clear=".hx" pad={10} feather={30} soften={7} />
+        <Motion look={l.look} state={l.state} pace="calm" pose={1} drift={l.breathe} primary={debug.primary ?? true} tempo={pace()} fps={debug.fps ?? DRIFT} clear=".hx" pad={10} feather={30} soften={7} />
       </span>
     </div>
   );

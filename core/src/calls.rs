@@ -6,15 +6,19 @@
 //! it runs.
 
 use crate::conn::{Link, Peer};
+use crate::effects::{self, stored};
 use crate::handshake::SUPPORTED;
-use crate::records;
 use crate::serve::{BUILD, Core};
+use crate::state::{Destination, Event};
+use crate::{questions, records};
 use serde_json::Value;
+use std::path::Path;
 use std::rc::Rc;
 use tasktap_proto::call::{self, Call, Code, Error, Name};
 use tasktap_proto::{
-    CallId, Control, CoreStatus, DeviceId, Empty, Identity, NO_SHARED_VERSION, Outcome, Ref, Reply,
-    Request, Retire, TerminalId, When,
+    AddProject, CallId, Collection, Control, CoreStatus, DeviceId, Empty, Identity, Isolate,
+    NO_SHARED_VERSION, Outcome, Project, ProjectId, ProjectKind, Ref, Reply, Request, Retire, Rev,
+    Set, TerminalId, When,
 };
 
 /// Who made a call, as the handshake established it.
@@ -38,10 +42,6 @@ impl Caller {
 }
 
 /// What a handler is given.
-#[expect(
-    dead_code,
-    reason = "`link` and `who` wait for the handlers of packages 5 to 7"
-)]
 pub struct Cx<'a> {
     pub core: &'a mut Core,
     /// The caller's connection. A handler that answers later keeps it and `id`.
@@ -65,10 +65,61 @@ fn handler(name: Name) -> Option<Handler> {
         Name::CoreStatus => |cx, args| now::<call::CoreStatus>(cx, args, status),
         Name::CoreRetire => |cx, args| now::<call::CoreRetire>(cx, args, retire),
         Name::DeviceRevoke => |cx, args| now::<call::DeviceRevoke>(cx, args, revoke),
+        Name::ThoughtCapture => |cx, args| {
+            event::<call::ThoughtCapture>(cx, args, |capture| Event::Capture {
+                capture,
+                agent: effects::AGENT.into(),
+            })
+        },
+        Name::ThoughtUpdate => |cx, args| {
+            event::<call::ThoughtUpdate>(cx, args, |a| Event::Pick {
+                thought: a.id,
+                to: Destination::New(a.project_id),
+            })
+        },
+        Name::ThoughtStart => |cx, args| {
+            event::<call::ThoughtStart>(cx, args, |s| Event::Start {
+                thought: s.id,
+                attempt: s.attempt,
+            })
+        },
+        Name::ThoughtStop => {
+            |cx, args| event::<call::ThoughtStop>(cx, args, |r| Event::Stop { thought: r.id })
+        }
+        Name::ThoughtRetry => {
+            |cx, args| event::<call::ThoughtRetry>(cx, args, |r| Event::Retry { thought: r.id })
+        }
+        Name::ThoughtSettle => |cx, args| {
+            event::<call::ThoughtSettle>(cx, args, |s| Event::Settle {
+                thought: s.id,
+                attempt: s.attempt,
+                keep: s.keep,
+            })
+        },
+        Name::SessionEvent => {
+            |cx, args| now::<call::SessionEvent>(cx, args, effects::session_event)
+        }
+        Name::QuestionAsk => questions::ask,
+        Name::QuestionAnswer => |cx, args| now::<call::QuestionAnswer>(cx, args, questions::answer),
+        Name::QuestionWithdraw => {
+            |cx, args| now::<call::QuestionWithdraw>(cx, args, questions::withdraw)
+        }
+        Name::QuestionReceived => {
+            |cx, args| now::<call::QuestionReceived>(cx, args, questions::received)
+        }
+        Name::QuestionFocus => |cx, args| now::<call::QuestionFocus>(cx, args, questions::focus),
+        Name::Input => |cx, args| now::<call::Input>(cx, args, questions::input),
+        Name::ProjectAdd => |cx, args| now::<call::ProjectAdd>(cx, args, add_project),
+        Name::ProjectScan => |cx, args| now::<call::ProjectScan>(cx, args, scan_projects),
         #[cfg(feature = "fixtures")]
         Name::FixtureStream => {
             |cx, args| now::<call::FixtureStream>(cx, args, crate::stream::fixture)
         }
+        #[cfg(feature = "fixtures")]
+        Name::FixtureScript => |cx, args| now::<call::FixtureScript>(cx, args, effects::script),
+        #[cfg(feature = "fixtures")]
+        Name::FixtureClock => |cx, args| now::<call::FixtureClock>(cx, args, effects::clock),
+        #[cfg(not(feature = "fixtures"))]
         _ => return None,
     };
     Some(handler)
@@ -145,6 +196,17 @@ fn now<C: Call>(
     Some(C::reply(cx.id, result))
 }
 
+/// Runs a call that is one state-machine event (`effects::call`).
+fn event<C: Call<Result = ()>>(
+    cx: &mut Cx,
+    args: Value,
+    event: fn(C::Args) -> Event,
+) -> Option<Control> {
+    let name = C::NAME.as_str();
+    let result = C::args(args).and_then(|args| effects::call(cx.core, name, event(args)));
+    Some(C::reply(cx.id, result))
+}
+
 fn status(cx: &mut Cx, _: Empty) -> Result<CoreStatus, Error> {
     Ok(CoreStatus {
         build: BUILD.to_owned(),
@@ -159,6 +221,7 @@ fn retire(cx: &mut Cx, args: Retire) -> Result<(), Error> {
     if cx.core.retire != Some(When::Now) {
         cx.core.retire = Some(args.when);
     }
+    questions::refresh(cx.core);
     cx.core.events.notify_one();
     Ok(())
 }
@@ -183,4 +246,65 @@ fn revoke(cx: &mut Cx, args: Ref<DeviceId>) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+/// `project.add`: the project that holds the folder, added now unless one
+/// does already. The client's id makes it idempotent: the same id for
+/// another folder is `conflict`.
+fn add_project(cx: &mut Cx, args: AddProject) -> Result<ProjectId, Error> {
+    let invalid = |why: String| Error::new(Code::Invalid, why);
+    let path = std::fs::canonicalize(&args.folder)
+        .ok()
+        .filter(|path| path.is_dir())
+        .ok_or_else(|| invalid(format!("{} is not a folder", args.folder)))?;
+    let folder = (path.to_str())
+        .ok_or_else(|| invalid("the folder's path is not text".into()))?
+        .to_owned();
+    let name = (args.name)
+        .or_else(|| Some(path.file_name()?.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| folder.clone());
+    let git = path.join(".git").exists();
+    effects::write(cx.core, |tx| {
+        if let Some(p) = tx.project_by_folder(&folder).map_err(stored)? {
+            return Ok(p.id);
+        }
+        if tx.project(args.id).map_err(stored)?.is_some() {
+            let why = "the project id was used for another folder";
+            return Err(Error::new(Code::Conflict, why));
+        }
+        let project = Project {
+            id: args.id,
+            rev: Rev::ZERO,
+            name,
+            folder,
+            kind: ProjectKind::Folder,
+            color: String::new(),
+            aliases: Vec::new(),
+            git,
+            isolate: Isolate::Busy,
+            open: true,
+            available: true,
+        };
+        tx.insert_project(&project).map_err(stored)?;
+        Ok(args.id)
+    })
+}
+
+/// `project.scan`: whether each project's folder is still there, and still
+/// a git repository. Projects are looked at when a client asks, never watched.
+fn scan_projects(cx: &mut Cx, _: Empty) -> Result<(), Error> {
+    effects::write(cx.core, |tx| {
+        let Some(Set::Projects(rows)) = tx.live(Collection::Projects).map_err(stored)? else {
+            return Ok(());
+        };
+        for mut p in rows.put {
+            let folder = Path::new(&p.folder);
+            let now = (folder.is_dir(), folder.join(".git").exists());
+            if (p.available, p.git) != now {
+                (p.available, p.git) = now;
+                tx.update_project(&p).map_err(stored)?;
+            }
+        }
+        Ok(())
+    })
 }

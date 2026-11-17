@@ -2,7 +2,10 @@
 //!
 //! An optional argument may be left out or sent as `null`.
 
-use crate::ids::{AttemptId, Invalid, Offset, ProjectId, QuestionId, Rev, SessionId, ThoughtId};
+use crate::ids::{
+    AttemptId, Invalid, Offset, ProjectId, QuestionId, Rev, Secret, SessionId, TerminalId,
+    ThoughtId, Time,
+};
 use crate::records::{
     Collection, Isolate, Mode, PrefKey, PrefValue, Question, QuestionKind, Response, Source,
     Stroke, Thought, TurnResult,
@@ -197,6 +200,16 @@ pub struct Start {
     pub attempt: AttemptId,
 }
 
+/// `thought.settle`: keeps or discards the changes of a thought's worktree,
+/// once its session has ended. The attempt makes a repeat answer from its record.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Settle {
+    pub id: ThoughtId,
+    pub attempt: AttemptId,
+    pub keep: bool,
+}
+
 /// `question.ask`: the reply is the answer, once there is one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
@@ -257,6 +270,12 @@ pub enum Event {
         error: Option<String>,
     },
     TurnInterrupted,
+    /// The agent asked in its terminal and waits there, not on the core: a
+    /// terminal-only question (design §6), bound to the session's turn and
+    /// keyed by the turn and `request`, the agent's own id for the call.
+    Question {
+        question: Ask,
+    },
 }
 
 /// `input`: a key press from any device, bound to the question it was shown for.
@@ -313,6 +332,82 @@ impl FixtureStream {
             .wrapping_mul(0x9E37_79B1)
             .to_be_bytes()[0]
     }
+}
+
+/// `fixture.script`: selects the fixture router and launcher, which a core
+/// built with its test fixtures has instead of the real ones (design §13), and
+/// scripts them. Until it is called such a core has neither, like a release
+/// build. The reply is everything they were asked since.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct FixtureScript {
+    /// What the router answers for every thought from now on.
+    pub route: FixtureRoute,
+    /// The launcher refuses every launch, delivery and settle with this.
+    pub refuse: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "confidence", rename_all = "snake_case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub enum FixtureRoute {
+    Clear {
+        to: Place,
+        brief: String,
+    },
+    Ambiguous {
+        prompt: String,
+        candidates: Vec<FixtureCandidate>,
+    },
+    Unknown,
+}
+
+/// Where a thought goes: a new run in a project, or a follow-up to a session.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub enum Place {
+    Project(ProjectId),
+    Session(SessionId),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct FixtureCandidate {
+    pub label: String,
+    pub to: Place,
+}
+
+/// What the fixture launcher and host were asked, oldest first.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct FixtureLog {
+    pub launched: Vec<FixtureLaunch>,
+    /// The thoughts of the follow-ups handed to a running session.
+    pub delivered: Vec<ThoughtId>,
+    pub killed: Vec<TerminalId>,
+    pub settled: Vec<ThoughtId>,
+    /// The questions the host would have been told about.
+    pub notified: Vec<QuestionId>,
+}
+
+/// One launch: the terminal it started takes the session's id, and carries
+/// the session token a real launch puts in the agent's environment.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct FixtureLaunch {
+    pub thought: ThoughtId,
+    pub session: SessionId,
+    pub prompt: String,
+    pub token: Secret,
+}
+
+/// `fixture.clock`: from now on the core's clock reads `now` and moves only
+/// when called again; every hold that has ended by then ends before the reply.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct FixtureClock {
+    pub now: Time,
 }
 
 /// `project.add`. The reply is the id of the project that holds the folder,

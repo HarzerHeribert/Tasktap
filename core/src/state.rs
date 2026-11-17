@@ -27,8 +27,8 @@ use sha2::{Digest, Sha256};
 use tasktap_proto::{
     Answer, AttemptId, Capture, Changes, Code, DeviceId, Event as A, Mode, Offset, Outcome,
     Phase as P, Pref, PrefKey, PrefValue, ProjectId, Question, QuestionId, QuestionKind,
-    QuestionSource, QuestionState as Q, Reason, ReplyVia, Response, ResultKind, Rev, Session,
-    SessionId, SessionState as S, Source, Status, Terminal, TerminalId, TerminalKind,
+    QuestionSource, QuestionState as Q, Reason, ReplyVia, Response, ResultKind, Rev, Secret,
+    Session, SessionId, SessionState as S, Source, Status, Terminal, TerminalId, TerminalKind,
     TerminalState, Thought, ThoughtId, Time, TurnResult,
 };
 
@@ -277,15 +277,23 @@ pub fn apply(tx: &mut Tx<'_>, now: Time, event: Event) -> Result<Vec<Effect>> {
     Ok(machine.effects)
 }
 
-/// The launcher seam (Phase 2 fills it with terminals and agent adapters).
-/// What it returns goes back in as [`Event::Launched`] or
-/// [`Event::LaunchFailed`]; the end of the process later as [`Event::Exited`].
+/// The launcher seam (Phase 2 fills it with terminals and agent adapters,
+/// Phase 3 with worktrees). What it returns goes back in as
+/// [`Event::Launched`], [`Event::LaunchFailed`] or [`Event::Settled`]; the end
+/// of the process later as [`Event::Exited`].
 pub trait Launcher {
-    /// Starts the run in a new terminal and returns that terminal, which the
-    /// caller stores in the transaction that applies `Launched`.
-    fn launch(&mut self, launch: &Launch) -> Result<Terminal, String>;
+    /// Starts the run in a new terminal whose environment carries the session
+    /// `token`, and returns that terminal, which the caller stores with the
+    /// token's hash in the transaction that applies `Launched`.
+    fn launch(&mut self, launch: &Launch, token: &Secret) -> Result<Terminal, String>;
     /// Hands a follow-up to its session.
     fn deliver(&mut self, deliver: &Deliver) -> Result<(), String>;
+    /// Ends the process of a terminal. True when it has ended already, so the
+    /// caller records the exit at once; otherwise the end is reported when it
+    /// happens.
+    fn kill(&mut self, terminal: TerminalId) -> bool;
+    /// Keeps or discards the changes of a thought's worktree.
+    fn settle(&mut self, thought: ThoughtId, keep: bool) -> Result<(), String>;
 }
 
 /// The route-provider seam (Phase 3 fills it with the router of design §8).
@@ -296,16 +304,22 @@ pub trait Router {
 
 /// A launcher that starts nothing: it records what it was asked and answers
 /// with a running terminal that takes the session's id, or with `refuse`.
+/// A terminal it is asked to kill has ended at once.
 #[derive(Debug, Default)]
 pub struct FixtureLauncher {
     pub refuse: Option<String>,
     pub launched: Vec<Launch>,
+    /// The token of each launch, in the same order.
+    pub tokens: Vec<Secret>,
     pub delivered: Vec<Deliver>,
+    pub killed: Vec<TerminalId>,
+    pub settled: Vec<(ThoughtId, bool)>,
 }
 
 impl Launcher for FixtureLauncher {
-    fn launch(&mut self, launch: &Launch) -> Result<Terminal, String> {
+    fn launch(&mut self, launch: &Launch, token: &Secret) -> Result<Terminal, String> {
         self.launched.push(launch.clone());
+        self.tokens.push(token.clone());
         if let Some(why) = &self.refuse {
             return Err(why.clone());
         }
@@ -327,6 +341,16 @@ impl Launcher for FixtureLauncher {
 
     fn deliver(&mut self, deliver: &Deliver) -> Result<(), String> {
         self.delivered.push(deliver.clone());
+        self.refuse.clone().map_or(Ok(()), Err)
+    }
+
+    fn kill(&mut self, terminal: TerminalId) -> bool {
+        self.killed.push(terminal);
+        true
+    }
+
+    fn settle(&mut self, thought: ThoughtId, keep: bool) -> Result<(), String> {
+        self.settled.push((thought, keep));
         self.refuse.clone().map_or(Ok(()), Err)
     }
 }
@@ -435,17 +459,23 @@ impl Machine<'_, '_> {
             }
             // activity: memory-only text, nothing stored.
             (_, Some(A::Activity { text }), ..) if alive => self.activity(some(session)?, text),
-            // a question opens: unchanged, the status becomes needs you.
+            // a question opens: unchanged, the status becomes needs you. The
+            // same key must bring the same question (design §6).
+            (E::Ask { question: q, .. }, .., Some(_)) if !same_ask(&q, question.as_ref()) => Err(
+                Error::Conflict("the request key was used for another question"),
+            ),
             (E::Ask { question: q, key }, _, _, Some(S::Working), None)
                 if this_turn(&q, &session) =>
             {
                 self.open(q, key)
             }
-            (E::Ask { question: q, .. }, _, _, Some(S::Working), Some(Q::Withdrawn))
-                if this_turn(&q, &session) =>
+            // Its waiter came back while the turn it was asked in is alive.
+            (E::Ask { .. }, _, _, Some(S::Working), Some(Q::Withdrawn))
+                if question.as_ref().is_some_and(|q| this_turn(q, &session)) =>
             {
-                self.reopen(q)
+                self.reopen(some(question)?)
             }
+            (E::Ask { .. }, .., Some(Q::Withdrawn)) => Err(Error::Gone),
             (E::Ask { .. }, .., Some(Q::Open | Q::Answered)) => {
                 Err(Error::Ignored(Ignored::Repeat))
             }
@@ -455,6 +485,7 @@ impl Machine<'_, '_> {
             }
             (E::Answer { .. }, .., Some(_)) => Err(Error::Gone),
             (E::Withdraw { .. }, .., Some(Q::Open)) => self.withdraw(some(question)?),
+            (E::Withdraw { .. }, .., Some(Q::Withdrawn)) => Err(Error::Ignored(Ignored::Repeat)),
             // continued: the turn's terminal-only questions close as answered in the terminal.
             (_, Some(A::Continued), _, Some(S::Working), _) => self.continued(some(session)?),
             // turn_finished: → done with its result; turn_failed, turn_interrupted:
@@ -774,6 +805,7 @@ impl Machine<'_, '_> {
         response: Response,
         device: Option<DeviceId>,
     ) -> Result<()> {
+        fits(&q, &response)?;
         let to = match &response {
             Response::Choice { choice } => {
                 let key = self.tx.request_key(q.id)?.unwrap_or_default();
@@ -997,6 +1029,7 @@ impl Machine<'_, '_> {
     }
 
     fn answer(&mut self, q: Question, response: Response, device: Option<DeviceId>) -> Result<()> {
+        fits(&q, &response)?;
         self.store_answer(q.id, response, device)?;
         if q.reply_via == ReplyVia::Core {
             self.effects.push(Effect::Answer(q.id));
@@ -1271,6 +1304,50 @@ fn pending(thought: &Option<Thought>) -> bool {
         .as_ref()
         .and_then(|t| t.workdir.as_ref())
         .is_some_and(|w| w.changes == Changes::Pending)
+}
+
+/// Whether an answer from a device fits its question: affirm only a confirm,
+/// a choice only one of the question's own, deny and text any of them. A
+/// question asked in the agent's terminal is answered there, which the core
+/// records itself as `terminal` (design §6).
+fn fits(q: &Question, response: &Response) -> Result<()> {
+    if q.reply_via == ReplyVia::Terminal {
+        return Err(Error::Invalid("this question is answered in its terminal"));
+    }
+    match (&q.kind, response) {
+        (_, Response::Deny | Response::Text { .. }) | (QuestionKind::Confirm, Response::Affirm) => {
+            Ok(())
+        }
+        (QuestionKind::Choice { choices }, Response::Choice { choice })
+            if (*choice as usize) < choices.len() =>
+        {
+            Ok(())
+        }
+        _ => Err(Error::Invalid("the answer does not fit the question")),
+    }
+}
+
+/// Whether an ask brings the question its key already names: the same asker
+/// and the same content. Its thought and turn are the asker's current ones,
+/// so they are not compared.
+fn same_ask(q: &Question, stored: Option<&Question>) -> bool {
+    stored.is_some_and(|s| {
+        (
+            s.session_id,
+            s.source,
+            &s.kind,
+            &s.prompt,
+            &s.detail,
+            s.reply_via,
+        ) == (
+            q.session_id,
+            q.source,
+            &q.kind,
+            &q.prompt,
+            &q.detail,
+            q.reply_via,
+        )
+    })
 }
 
 fn this_turn(q: &Question, session: &Option<Session>) -> bool {

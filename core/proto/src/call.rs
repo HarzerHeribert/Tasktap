@@ -1,4 +1,4 @@
-//! The one table of calls built in Phase 1 (design §1, §2): 21 of the 43 core
+//! The one table of calls built in Phase 1 (design §1, §2): 22 of the 43 core
 //! calls, and the test fixtures.
 //!
 //! Each call is a type here, named for the call (`thought.capture` is
@@ -7,8 +7,8 @@
 //! answers a call never writes the name as text.
 
 use crate::args::{
-    AddProject, AnswerQuestion, Ask, AskKey, Assign, Capture, Empty, HistoryPage, Ref, Revision,
-    Start, Subscribe,
+    AddProject, AnswerQuestion, Ask, AskKey, Assign, Capture, Empty, FixtureLog, HistoryPage, Ref,
+    Revision, Settle, Start, Subscribe,
 };
 use crate::bootstrap::{Identity, Retire};
 use crate::frame::{Control, Outcome, Reply, Request};
@@ -72,6 +72,7 @@ table! {
     ThoughtStart "thought.start" Device (Start) -> ();
     ThoughtStop "thought.stop" Device (Ref<ThoughtId>) -> ();
     ThoughtRetry "thought.retry" Device (Ref<ThoughtId>) -> ();
+    ThoughtSettle "thought.settle" Device (Settle) -> ();
     // Questions
     QuestionAsk "question.ask" Session (Ask) -> Answer;
     QuestionAnswer "question.answer" Device (AnswerQuestion) -> ();
@@ -91,6 +92,8 @@ table! {
     CoreRetire "core.retire" Anyone (Retire) -> ();
     // Fixtures (design §13): only a core built with its test fixtures answers these.
     FixtureStream "fixture.stream" Device (crate::args::FixtureStream) -> crate::frame::Opened;
+    FixtureScript "fixture.script" Device (crate::args::FixtureScript) -> FixtureLog;
+    FixtureClock "fixture.clock" Device (crate::args::FixtureClock) -> ();
 }
 
 /// Who may make a call (design §2): authorization is per call.

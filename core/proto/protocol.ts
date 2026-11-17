@@ -141,6 +141,51 @@ export type Empty = Record<string, never>;
  */
 export type Error = { code: Code, message: string, };
 
+export type FixtureCandidate = { label: string, to: Place, };
+
+/**
+ * `fixture.clock`: from now on the core's clock reads `now` and moves only
+ * when called again; every hold that has ended by then ends before the reply.
+ */
+export type FixtureClock = { now: Time, };
+
+/**
+ * One launch: the terminal it started takes the session's id, and carries
+ * the session token a real launch puts in the agent's environment.
+ */
+export type FixtureLaunch = { thought: ThoughtId, session: SessionId, prompt: string, token: Secret, };
+
+/**
+ * What the fixture launcher and host were asked, oldest first.
+ */
+export type FixtureLog = { launched: Array<FixtureLaunch>,
+/**
+ * The thoughts of the follow-ups handed to a running session.
+ */
+delivered: Array<ThoughtId>, killed: Array<TerminalId>, settled: Array<ThoughtId>,
+/**
+ * The questions the host would have been told about.
+ */
+notified: Array<QuestionId>, };
+
+export type FixtureRoute = { "confidence": "clear", to: Place, brief: string, } | { "confidence": "ambiguous", prompt: string, candidates: Array<FixtureCandidate>, } | { "confidence": "unknown" };
+
+/**
+ * `fixture.script`: selects the fixture router and launcher, which a core
+ * built with its test fixtures has instead of the real ones (design §13), and
+ * scripts them. Until it is called such a core has neither, like a release
+ * build. The reply is everything they were asked since.
+ */
+export type FixtureScript = {
+/**
+ * What the router answers for every thought from now on.
+ */
+route: FixtureRoute,
+/**
+ * The launcher refuses every launch, delivery and settle with this.
+ */
+refuse?: string | null, };
+
 /**
  * `fixture.stream`: a stream of known bytes with no terminal behind it, for
  * tests and measurement (design §13). Only a core built with its test
@@ -285,6 +330,11 @@ credit: number, };
 export type Phase = "captured" | "routed" | "working" | "done" | "failed";
 
 /**
+ * Where a thought goes: a new run in a project, or a follow-up to a session.
+ */
+export type Place = { "project": ProjectId } | { "session": SessionId };
+
+/**
  * A preference row: `{id, value, rev}`, where the key fixes the value's type.
  */
 export type Pref = { rev: Rev, } & ({ "id": "hold", "value": number });
@@ -426,7 +476,7 @@ export type SessionEvent = {
 /**
  * The sender's own id for this event; the core ignores a repeat.
  */
-id: string, } & ({ "kind": "ready" } | { "kind": "turn_started", prompt?: string | null, } | { "kind": "activity", text: string, } | { "kind": "continued" } | { "kind": "turn_finished", answer?: string | null, } | { "kind": "turn_failed", error?: string | null, } | { "kind": "turn_interrupted" });
+id: string, } & ({ "kind": "ready" } | { "kind": "turn_started", prompt?: string | null, } | { "kind": "activity", text: string, } | { "kind": "continued" } | { "kind": "turn_finished", answer?: string | null, } | { "kind": "turn_failed", error?: string | null, } | { "kind": "turn_interrupted" } | { "kind": "question", question: Ask, });
 
 /**
  * A UUID v7 in text, minted by whoever creates the record.
@@ -443,6 +493,12 @@ export type SessionState = "starting" | "idle" | "working" | "ended";
  * The rows of one collection that one change touches.
  */
 export type Set = { "c": "thoughts" } & Rows<Thought, ThoughtId> | { "c": "projects" } & Rows<Project, ProjectId> | { "c": "sessions" } & Rows<Session, SessionId> | { "c": "terminals" } & Rows<Terminal, TerminalId> | { "c": "questions" } & Rows<Question, QuestionId> | { "c": "results" } & Rows<TurnResult, ResultId> | { "c": "layouts" } & Rows<Layout, ProjectId> | { "c": "prefs" } & Rows<Pref, PrefKey> | { "c": "devices" } & Rows<Device, DeviceId> | { "c": "glance", put: Array<Glance>, };
+
+/**
+ * `thought.settle`: keeps or discards the changes of a thought's worktree,
+ * once its session has ended. The attempt makes a repeat answer from its record.
+ */
+export type Settle = { id: ThoughtId, attempt: AttemptId, keep: boolean, };
 
 /**
  * A terminal size: `[cols, rows]`.
@@ -549,6 +605,7 @@ export type Calls = {
   "thought.start": { args: Start; result: null; access: "device" };
   "thought.stop": { args: Ref<ThoughtId>; result: null; access: "device" };
   "thought.retry": { args: Ref<ThoughtId>; result: null; access: "device" };
+  "thought.settle": { args: Settle; result: null; access: "device" };
   "question.ask": { args: Ask; result: Answer; access: "session" };
   "question.answer": { args: AnswerQuestion; result: null; access: "device" };
   "question.withdraw": { args: AskKey; result: null; access: "session" };
@@ -562,4 +619,6 @@ export type Calls = {
   "core.status": { args: Empty; result: CoreStatus; access: "anyone" };
   "core.retire": { args: Retire; result: null; access: "anyone" };
   "fixture.stream": { args: FixtureStream; result: Opened; access: "device" };
+  "fixture.script": { args: FixtureScript; result: FixtureLog; access: "device" };
+  "fixture.clock": { args: FixtureClock; result: null; access: "device" };
 };

@@ -8,7 +8,7 @@ use std::process::{Child, Command, ExitStatus};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tasktap_core::client::{self, Client};
-use tasktap_proto::call::{self, Call, Code};
+use tasktap_proto::call::{self, Call, Code, Name};
 use tasktap_proto::{
     Auth, CallId, Control, Decoder, DeviceId, Empty, Frame, HEADER, Hello, Identity, KIND_CONTROL,
     MAX_FRAME, Outcome, Ref, Refuse, RefuseWhy, Register, Request, Retire, Role, Secret, VERSION,
@@ -223,19 +223,9 @@ fn the_handshake_picks_the_highest_shared_version() {
         let c = core.hello(v, None).unwrap();
         assert_eq!(c.welcome.v, VERSION);
         assert_eq!(c.welcome.identity, Identity::Anonymous);
-        assert_eq!(
-            c.welcome.calls,
-            [
-                "sub",
-                "put",
-                "delete",
-                "history",
-                "device.revoke",
-                "core.status",
-                "core.retire",
-                "fixture.stream"
-            ]
-        );
+        // A core built with its test fixtures answers every call in the table.
+        let every: Vec<&str> = Name::ALL.iter().map(|n| n.as_str()).collect();
+        assert_eq!(c.welcome.calls, every);
     }
 }
 
@@ -391,11 +381,6 @@ fn an_unknown_call_is_answered_and_the_connection_stays() {
     let mut c = core.device(DeviceId::mint(), 1, Some("host")).unwrap();
     assert_eq!(
         refused(raw(&mut c, "no.such.call", json!({}))),
-        Code::Unknown
-    );
-    // A call the protocol knows and this build does not answer yet.
-    assert_eq!(
-        refused(raw(&mut c, "project.scan", json!({}))),
         Code::Unknown
     );
     assert_eq!(

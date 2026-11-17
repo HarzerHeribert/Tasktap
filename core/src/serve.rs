@@ -10,6 +10,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::rc::Rc;
+use std::rc::Weak;
 use std::time::Duration;
 use tasktap_proto::{Change, When};
 use tokio::sync::Notify;
@@ -40,6 +41,12 @@ pub struct Core {
     pub links: Vec<Rc<Link>>,
     pub retire: Option<When>,
     pub memory: crate::records::Memory,
+    /// The clock, the hold timers, and the router and launcher when this build has them.
+    pub seams: crate::effects::Seams,
+    /// Who waits for which question, and what `glance` counts.
+    pub questions: crate::questions::Questions,
+    /// The core itself, for a timer that fires later.
+    pub me: Weak<RefCell<Core>>,
     /// Wakes the main loop to look at the lifetime again.
     pub events: Rc<Notify>,
     #[cfg(feature = "fixtures")]
@@ -60,13 +67,16 @@ impl Core {
     /// Every committed change passes here, in the step that committed it,
     /// and is queued at once for the links subscribed to its collections.
     pub fn publish(&mut self, change: Option<Change>) {
-        if let Some(change) = change {
+        if let Some(mut change) = change {
+            self.memory.overlay(&mut change.sets);
             crate::records::publish(&self.links, change);
         }
     }
 
+    /// A connection ended; the questions only it waited for are withdrawn.
     pub fn remove(&mut self, link: &Rc<Link>) {
         self.links.retain(|l| !Rc::ptr_eq(l, link));
+        crate::questions::left(self, link);
         self.events.notify_one();
     }
 }
@@ -102,20 +112,26 @@ async fn serve(opts: Options) -> io::Result<()> {
     ready();
 
     let events = Rc::new(Notify::new());
-    let core = Rc::new(RefCell::new(Core {
-        store,
-        links: Vec::new(),
-        retire: None,
-        memory: Default::default(),
-        events: events.clone(),
-        #[cfg(feature = "fixtures")]
-        fixture_token: opts.token.map(|t| {
-            (
-                crate::handshake::hash(&t),
-                tasktap_proto::TerminalId::mint(),
-            )
-        }),
-    }));
+    let core = Rc::new_cyclic(|me| {
+        RefCell::new(Core {
+            store,
+            links: Vec::new(),
+            retire: None,
+            memory: Default::default(),
+            seams: Default::default(),
+            questions: Default::default(),
+            me: me.clone(),
+            events: events.clone(),
+            #[cfg(feature = "fixtures")]
+            fixture_token: opts.token.map(|t| {
+                (
+                    crate::handshake::hash(&t),
+                    tasktap_proto::TerminalId::mint(),
+                )
+            }),
+        })
+    });
+    crate::questions::start(&mut core.borrow_mut()).map_err(io::Error::other)?;
     tokio::pin!(terminated);
     let mut idle = None;
     let mut accepting = true;

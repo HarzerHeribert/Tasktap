@@ -13,14 +13,15 @@ use crate::serve::Core;
 use crate::store::{self, Tx};
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::io;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
     Change, Collection, Control, Delete, Glance, History, HistoryPage, Layout, LayoutPatch, Mode,
-    NotePatch, PrefValue, ProjectPatch, Put, PutTarget, Rev, Revision, Rows, Set, Subscribe,
-    Thought, ThoughtId, Time, encode_control,
+    NotePatch, PrefValue, ProjectPatch, Put, PutTarget, Rev, Revision, Rows, SessionId, Set,
+    Subscribe, Thought, ThoughtId, Time, encode_control,
 };
 
 /// Most bytes of JSON in one snapshot chunk (design §1).
@@ -31,6 +32,9 @@ const SET: usize = 32;
 /// Most bytes a row written by `put` may take, so that it fits one chunk
 /// and its change fits one frame.
 pub const MAX_ROW: usize = CHUNK - ENVELOPE - SET;
+/// Activity lines a session keeps, and characters of each (design §5).
+const ACTIVITY: usize = 40;
+const ACTIVITY_LINE: usize = 200;
 
 /// The collections a connection subscribed to, one bit each.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -69,11 +73,13 @@ fn collection(set: &Set) -> Collection {
     }
 }
 
-/// The collections that are not stored (Phase 1: `glance`). Their changes
-/// take revisions from the store's counter, so they order with stored ones;
-/// they start over at every run of the core.
+/// The collections that are not stored (Phase 1: `glance`), and the fields
+/// of stored rows that are not (a session's `activity`). Their changes take
+/// revisions from the store's counter, so they order with stored ones; they
+/// start over at every run of the core.
 pub struct Memory {
     glance: Glance,
+    activity: HashMap<SessionId, Vec<String>>,
 }
 
 impl Default for Memory {
@@ -87,11 +93,27 @@ impl Default for Memory {
                 question: None,
                 retiring: false,
             },
+            activity: HashMap::new(),
         }
     }
 }
 
 impl Memory {
+    /// Fills in the memory-only fields of the rows about to be sent, and
+    /// forgets those of sessions that left the live set.
+    pub fn overlay(&mut self, sets: &mut [Set]) {
+        for set in sets {
+            if let Set::Sessions(rows) = set {
+                for s in &mut rows.put {
+                    s.activity = self.activity.get(&s.id).cloned().unwrap_or_default();
+                }
+                for id in &rows.del {
+                    self.activity.remove(id);
+                }
+            }
+        }
+    }
+
     fn rows(&self, c: Collection) -> Option<Set> {
         match c {
             Collection::Glance => Some(Set::Glance {
@@ -105,6 +127,34 @@ impl Memory {
 impl Core {
     pub fn glance(&self) -> &Glance {
         &self.memory.glance
+    }
+
+    /// Adds a line to a session's memory-only activity, and sends the
+    /// session with it in a change at the next revision. The row keeps the
+    /// revision of its last stored write, which is what `rev` names.
+    pub fn add_activity(&mut self, session: SessionId, text: String) -> store::Result<()> {
+        let lines = self.memory.activity.entry(session).or_default();
+        if lines.len() == ACTIVITY {
+            lines.remove(0);
+        }
+        lines.push(text.chars().take(ACTIVITY_LINE).collect());
+        let tx = self.store.begin()?;
+        let Some(row) = tx.session(session)? else {
+            return Ok(());
+        };
+        drop(tx);
+        let rev = self.store.take_rev()?;
+        let put = vec![row];
+        let sets = vec![Set::Sessions(Rows {
+            put,
+            del: Vec::new(),
+        })];
+        self.publish(Some(Change {
+            rev,
+            snap: false,
+            sets,
+        }));
+        Ok(())
     }
 
     /// Replaces the `glance` row; its `rev` is stamped here. Subscribers get
@@ -201,6 +251,7 @@ pub fn sub(cx: &mut Cx, args: Subscribe) -> Result<Revision, Error> {
         }
     }
     drop(tx);
+    core.memory.overlay(&mut sets);
     cx.link.subs.set(subs);
     if !subs.is_empty() {
         snapshot(cx.link, rev, sets);

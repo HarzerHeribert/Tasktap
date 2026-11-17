@@ -19,8 +19,8 @@ use tasktap_proto::{
     AttemptId, Capture, Change, Changes, Code, Collection, Device, DeviceId, Event as Said,
     Isolate, Mode, Offset, Outcome, Phase, PrefKey, PrefValue, Project, ProjectId, ProjectKind,
     Question, QuestionId, QuestionKind, QuestionSource, QuestionState, Reason, ReplyVia, Response,
-    ResultKind, Rev, Session, SessionId, SessionState, Set, Source, Status, Terminal, TerminalId,
-    TerminalKind, TerminalState, Thought, ThoughtId, Time, TurnResult, Workdir,
+    ResultKind, Rev, Secret, Session, SessionId, SessionState, Set, Source, Status, Terminal,
+    TerminalId, TerminalKind, TerminalState, Thought, ThoughtId, Time, TurnResult, Workdir,
 };
 
 /// A fresh folder under the system's temporary folder, removed afterwards.
@@ -255,7 +255,7 @@ impl World {
         let mut out = Vec::new();
         for effect in effects {
             let report = match effect {
-                Effect::Launch(l) => match self.launcher.launch(l) {
+                Effect::Launch(l) => match self.launcher.launch(l, &Secret([3; 32])) {
                     Ok(terminal) => {
                         let now = self.now();
                         let mut tx = self.store.begin().unwrap();
@@ -1042,6 +1042,54 @@ fn a_question_from_another_turn_or_between_turns_is_ignored() {
     let idle = question(&w.session(s), ReplyVia::Core);
     assert_eq!(w.ignored(ask(idle)), Ignored::State);
     assert_eq!(w.thought(t).status, Status::Done);
+}
+
+#[test]
+fn an_answer_must_fit_its_question_and_a_key_its_content() {
+    let mut w = World::new("fits");
+    let (_, s) = w.turn();
+    let waited = w.ask(s, ReplyVia::Core);
+    let in_terminal = w.ask(s, ReplyVia::Terminal);
+    // A question asked in the terminal is answered there, never by a device.
+    let text = Response::Text { text: "no".into() };
+    for response in [Response::Affirm, Response::Deny, text] {
+        let refused = w.answer(in_terminal, response);
+        assert!(matches!(refused, Err(Error::Invalid(_))), "{refused:?}");
+    }
+    // Affirm fits only a confirm, a choice only a choice question's own;
+    // `terminal` is the core's to record.
+    for response in [Response::Choice { choice: 0 }, Response::Terminal] {
+        let refused = w.answer(waited, response);
+        assert!(matches!(refused, Err(Error::Invalid(_))), "{refused:?}");
+    }
+    assert_eq!(w.question(waited).state, QuestionState::Open);
+
+    // The same key with other content is a conflict; with the same, a repeat.
+    let stored = w.question(waited);
+    let other = Question {
+        prompt: "Delete everything?".into(),
+        ..stored.clone()
+    };
+    assert!(matches!(w.apply(ask(other)), Err(Error::Conflict(_))));
+    assert_eq!(w.ignored(ask(stored.clone())), Ignored::Repeat);
+
+    // Withdrawing twice is a repeat. Once its turn has ended it cannot reopen.
+    w.ok(Event::Withdraw { question: waited });
+    let again = Event::Withdraw { question: waited };
+    assert_eq!(w.ignored(again), Ignored::Repeat);
+    w.say(s, Said::TurnFinished { answer: None }).unwrap();
+    let typed = Said::TurnStarted {
+        prompt: Some("and the docs".into()),
+    };
+    w.say(s, typed).unwrap();
+    let now = w.session(s);
+    let back = Question {
+        turn: Some(now.turn),
+        thought_id: now.thought_id,
+        ..stored
+    };
+    assert!(matches!(w.apply(ask(back)), Err(Error::Gone)));
+    assert_eq!(w.question(waited).state, QuestionState::Withdrawn);
 }
 
 #[test]

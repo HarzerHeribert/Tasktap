@@ -899,7 +899,7 @@ export type ShimHold = { hold: boolean, stop: boolean, };
  */
 export type Size = [number, number];
 
-export type Source = "typed" | "voice" | "terminal" | "import";
+export type Source = "typed" | "voice" | "terminal";
 
 /**
  * `thought.start`. The attempt is committed before anything is spawned, so

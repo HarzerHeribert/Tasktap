@@ -107,7 +107,7 @@ pub struct Routing {
 pub type Stroke = Vec<[f64; 2]>;
 
 words! {
-    pub enum Source { Typed, Voice, Terminal, Import }
+    pub enum Source { Typed, Voice, Terminal }
 }
 
 words! {

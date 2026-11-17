@@ -60,7 +60,7 @@ type Frame =                                   // kind 0: one JSON object
 
 **Plain data and effects.** `put {c, id, patch, if_rev?}` and `delete {c, id}` write the collections that are plain data (`prefs`, `layouts`, `previews`, the editable fields of `projects`, and the text of a thought that is captured and was never launched: a note, an idea, or one undone before it started, which `delete` also removes, so a person who undoes and retypes leaves nothing behind; `state::plain` decides). Everything with an effect is a named call. Fields the state machine owns are refused by `put`.
 
-Calls without a mark are built in Phase 1; (2), (3) and (6) name the phase that adds the rest. The protocol crate holds only what exists.
+Calls without a mark are built in Phase 1; (2) and (3) name the phase that adds the rest. The protocol crate holds only what exists.
 
 | Area | Core calls (45) |
 | --- | --- |
@@ -73,7 +73,7 @@ Calls without a mark are built in Phase 1; (2), (3) and (6) name the phase that 
 | Files | `preview.open` (2), `file.read` (2), `result.export` (3) |
 | Input and voice | `input` (affirm and deny now; hold in 3), `dictation.start` (3), `dictation.finish` (3), `dictation.report` (3) |
 | Routing and agents | `route.hint` (2), `route.terms` (3: what routing by a model sends and to whom, §8), `connection.set` (3), `connection.remove` (3), `connection.login` (3), `connection.models` (3), `agents.detect` (2), `agents.login` (2) |
-| Devices and service | `device.revoke`, `core.status`, `core.retire`, `import.v1` (6), `appearance.import` (2) |
+| Devices and service | `device.revoke`, `core.status`, `core.retire`, `appearance.import` (2) |
 
 **Host abilities (18, Phase 4):** `host.show`, `host.notch`, `host.chrome`, `host.drag`, `host.pick`, `host.save`, `host.open`, `host.clipboard`, `host.permission`, `host.settings`, `host.update`, `host.notify`, `host.context`, `host.model`, `host.dictate`, `host.speak`, `host.speech_model`, `host.pdf`. A host lists the ones it has in `hello`. **Page ability (1):** `ui.do {action, id?}`: 14 menu actions, `close-front`, `navigate`, `hover-enter`, `hover-exit`, `previous`, `next`, `confirm`, `back`, `prepare-update`. **Shim ability (1):** `shim.hold` (§7).
 
@@ -174,7 +174,7 @@ One SQLite file, `<data>/core.db`. Ids are UUID v7 text, minted by whoever creat
 
 | Table | Important fields | Notes |
 | --- | --- | --- |
-| `thoughts` | `id`, `text`, `strokes`, `reference`, `source` (typed, voice, terminal, import), `mode` (ask, nudge, note), `phase`, `status`, `reason`, `live`, `project_id`, `session_id`, `brief` (what the agent reads first, §8), `route` (how it found its destination and its brief: who was asked, the model, whether the answer is still pending, why a model's answer was not used, the words quoted for a follow-up, the title a model gave the work, the milliseconds it took; none when nobody was asked), `agent`, `model` (from the capture, §7), `workdir` (path, branch, destination branch or none, base commit, `left_out`, changes: none, pending, kept, discarded, and their `files`, `insertions`, `deletions`; §7, "Isolation"), `hold_until`, `read`, `created`, `updated` | The primary record. A note is a thought with mode `note` that stays captured: **no `notes` table**, and an idea can later be started. |
+| `thoughts` | `id`, `text`, `strokes`, `reference`, `source` (typed, voice, terminal), `mode` (ask, nudge, note), `phase`, `status`, `reason`, `live`, `project_id`, `session_id`, `brief` (what the agent reads first, §8), `route` (how it found its destination and its brief: who was asked, the model, whether the answer is still pending, why a model's answer was not used, the words quoted for a follow-up, the title a model gave the work, the milliseconds it took; none when nobody was asked), `agent`, `model` (from the capture, §7), `workdir` (path, branch, destination branch or none, base commit, `left_out`, changes: none, pending, kept, discarded, and their `files`, `insertions`, `deletions`; §7, "Isolation"), `hold_until`, `read`, `created`, `updated` | The primary record. A note is a thought with mode `note` that stays captured: **no `notes` table**, and an idea can later be started. |
 | `projects` | `id`, `name`, `folder` (canonical, unique), `kind` (folder, scratch), `color`, `aliases`, `git`, `isolate` (busy, always, never), `open`, `available` | The id is random; the folder is a field (hazard 2). One built-in scratch row replaces the virtual `@scratch`: it comes with a new store, its folder is `<data>/scratch`, and no call removes it or changes its kind or folder. |
 | `sessions` | `id`, `project_id`, `agent`, `terminal_id`, `adopted`, `state`, `thought_id` (current turn), `turn`, `resume` (the agent's handle, the latest its reports gave), `name`, `named_at`, `model`, `cwd`, `exit`, `error`; memory only: `activity`, last 40 activity lines | `log`, `nameHistory`, `producerKey`, `planAccount` are dropped. |
 | `terminals` | `id`, `project_id` (may be empty), `kind` (shell, agent, task), `title`, `cwd`, `argv`, `cols`, `rows`, `state` (running, exited, lost), `exit`, `boot`, `offset`, `token_hash` | A terminal can belong to no project (agent sign-in is a `task`). Closing a tab does not touch the row (§9). |
@@ -188,7 +188,7 @@ One SQLite file, `<data>/core.db`. Ids are UUID v7 text, minted by whoever creat
 | `previews` (2) | `id`, `project_id`, `path`, `kind`, `title` | Replaces `WorkspaceMedia.json`, which never shrinks. |
 | `connections` (later) | `id` (route or speech provider), `model`, `server`, `account`, `has_key`, `consent` | For the web providers, which are not built: secrets stay in the OS credential store. Routing by the person's own agent needs none of it: no key, no server, no account of the core's. Its consent is the one preference `route_by` (§8). |
 | `seen_events` | `session_id`, `event` | The event ids already applied, so a repeat is ignored (the guards below). Emptied at start. |
-| `meta` | `core_id`, `boot`, `import_v1` | |
+| `meta` | `core_id`, `boot` | |
 
 ### One state machine
 
@@ -549,7 +549,7 @@ Cut by the owner on 2026-11-17: the new app starts empty, and nothing reads or m
 | Permission prompts (notifications, microphone, automation) | `host.permission`, the `host` record |
 | PDF page images, result as PDF | `host.pdf` (bytes come from the core) |
 | Preview address handler and navigation policy | serves `file.read` streams from the core; rules unchanged |
-| Starting the core, copying its binary, the device key, the import page | host start-up |
+| Starting the core, copying its binary, the device key | host start-up |
 | One app instance, VoiceOver flag, window size and position | host only; the flag is a field of `host` |
 
 **The single pass-through.** The host gives each page one object and nothing else:
@@ -577,7 +577,6 @@ core/src/roles.rs        event, hook, ask; roles/shim.rs, roles/fixture.rs; shim
 core/src/route.rs        the request a router is asked, the local router (2), a model's question, instructions and the acceptance of its answer (3)
 core/src/route/instructions.md   what a model is told with every thought
 core/src/isolate.rs      worktrees: made, looked at, kept, discarded (3); speech.rs, http.rs, secrets.rs (3)
-core/src/import_v1.rs                                                   (Phase 6)
 core/tests/              one file per promise, plus fixtures/
 ```
 
@@ -611,7 +610,7 @@ Phase 1 builds the core alone: protocol, store, service, records, streams, state
 | 3. Flow | Routing and consent, the hold and Undo, ideas, isolation and settlement, connections and keys, cloud speech. |
 | 4. Host and notch | The host the trial chose, the pass-through, the host abilities, input actions, and the new notch page as the first real client. |
 | 5. Workspace | The workspace UI in TypeScript on the core. |
-| 6. Cutover | Import from 1.2 (§11), switch over, delete the old native, prototype and Python code. |
+| 6. Cutover | Switch over: the new app replaces 1.2 and starts empty. The old native, prototype and Python code is deleted. |
 | 7. Windows | Named pipe, ConPTY, the Windows host. |
 
 ### Phase 2 work packages
@@ -636,7 +635,6 @@ Phase 2 puts terminals and agents into the core. Claude Code and Codex are carri
 | 4 | That Codex shows its own approval after a waiting hook's 600 s, and that a person's own Claude Code plugin does not cut a waiting hook short (§7). |
 | 3 | Whether macOS asks for the credential store again when the core binary changes with an update. If it does, the host keeps the keys behind one more ability. |
 | 4 | Bytes into the page on the Mac: a streamed response on a custom address, or text passed to the page. Trial T measures both. |
-| 6 | That the policy for sessions still running in 1.2 (§11) is the only one in code, guide and import report. |
 | 7 | Ending a whole process tree on Windows; the order in which ConPTY output drains on close; the pipe's access rules; the shim without `exec`. |
 | 7 | A terminal's output that stopped part way, seen once on Windows CI (run 44138905457, in 25 runs): `tens_of_megabytes_arrive_intact_through_a_slow_client_and_a_reconnect` received nothing more after 606,300 bytes, in the middle of a line of its second batch, with its one client still connected, reading and granting credit, until its watchdog ended it 60 s later. It is not the loss of what a client sent before it left (§2): that client had not left. Whether the console, the reader thread, the credit or the pipe stopped is not known; the next time, what the test did until then is printed with the watchdog's message. |
 | 7 | A grandchild that escapes the job (Phase 2 review). The job is assigned once `spawn_command` has returned: portable-pty 0.9 starts the child running, with fixed creation flags (`EXTENDED_STARTUPINFO_PRESENT`, `CREATE_UNICODE_ENVIRONMENT`) and an attribute list that holds only the pseudo-console, so whatever the child starts before the core assigns the job is outside it and outlives a stop. The fix needs a ConPTY spawn of the core's own in `sys.rs`: `CreateProcessW` with `CREATE_SUSPENDED`, the job assigned, then the thread resumed; or the job given at creation with `PROC_THREAD_ATTRIBUTE_JOB_LIST`. |
@@ -650,7 +648,7 @@ Each is the default so that building is not blocked. The owner may overrule any 
 1. **Voice waits for Enter.** After hold to talk the text is shown, for a thought and for a spoken reply alike. A mishearing should not start work.
 2. **Undo is a hold. Changes the plan.** A clear thought shows "Sent to X" at once and launches when the Undo seconds have passed. The duration is a preference; zero launches at once. Stopping an agent after it started could not take back what it did in a project that is not isolated.
 3. **A prompt typed by hand becomes a thought**, so Home and the glance list everything in flight.
-4. **Sessions still running in 1.2** are imported as interrupted, with Resume (§11).
+4. **Nothing comes over from 1.2** (the owner's decision, §11): the new app starts empty, and a session still running in 1.2 is not carried over.
 5. **Dropped:** Resume in Terminal and copy-resume (never worked), the Claude brief session in Terminal.app, the discussion step before an answer (a text reply), the terminal typing trace, questions from tools outside Tasktap's terminals. Agent sign-in moves from Terminal.app into a Tasktap terminal that belongs to no project (Phase 2).
 
 Still open: **one host or two**, which trial T settles.

@@ -442,32 +442,13 @@ pub fn delete(cx: &mut Cx, args: Delete) -> Result<Revision, Error> {
 }
 
 /// `history`: finished thoughts that left the live set, newest first, with
-/// their questions and results. The page is cut to the newest thoughts
-/// whose rows fit one chunk, at least one, so the reply stays far below the
-/// frame limit however long the texts are: a short page is not the end,
-/// an empty one is.
+/// their questions and results, in pages whose rows fit one chunk, so a
+/// reply stays far below the frame limit however long the texts are and
+/// however many questions a thought has.
 pub fn history(cx: &mut Cx, args: History) -> Result<HistoryPage, Error> {
     let tx = cx.core.store.begin().map_err(fail)?;
-    let mut page = tx.history(args.before, args.limit).map_err(fail)?;
-    let (mut size, mut keep) = (0, 0);
-    for t in &page.thoughts {
-        let questions = page.questions.iter().filter(|q| q.thought_id == Some(t.id));
-        let results = page.results.iter().filter(|r| r.thought_id == t.id);
-        let len = json_len(t)
-            + questions.map(json_len).sum::<usize>()
-            + results.map(json_len).sum::<usize>();
-        if keep > 0 && size + len > CHUNK {
-            break;
-        }
-        (size, keep) = (size + len, keep + 1);
-    }
-    if keep < page.thoughts.len() {
-        page.thoughts.truncate(keep);
-        let kept = |id: ThoughtId| page.thoughts.iter().any(|t| t.id == id);
-        page.questions.retain(|q| q.thought_id.is_some_and(kept));
-        page.results.retain(|r| kept(r.thought_id));
-    }
-    Ok(page)
+    tx.history(args.before, args.after, args.limit, CHUNK)
+        .map_err(fail)
 }
 
 /// A thought `put` and `delete` may touch: a note. Every other thought
@@ -539,6 +520,15 @@ pub fn fixture(cx: &mut Cx, args: tasktap_proto::FixtureRecords) -> Result<Revis
                         None => tx.insert_project(&p),
                     }
                     .map_err(fail)?;
+                }
+            }
+            Set::Questions(rows) => {
+                for q in rows.put {
+                    let key = format!("fixture {}", q.id.uuid());
+                    tx.insert_question(&q, &key).map_err(fail)?;
+                    if let Some(answer) = &q.answer {
+                        tx.insert_answer(q.id, answer).map_err(fail)?;
+                    }
                 }
             }
             Set::Results(rows) => {

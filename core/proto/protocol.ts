@@ -191,7 +191,8 @@ notified: Array<QuestionId>, };
 /**
  * `fixture.records`: writes rows only the state machine writes otherwise, so
  * records can be proven without it (design §13): the thoughts and projects
- * given are inserted or replaced and the results inserted, in one
+ * given are inserted or replaced and the questions, with their answers,
+ * and results inserted, in one
  * transaction published like a `put`'s. Other collections are `invalid`.
  * Only a core built with its test fixtures answers it.
  */
@@ -273,14 +274,24 @@ client: string, auth?: Auth | null,
 abilities?: Array<string>, };
 
 /**
- * `history`: finished thoughts older than `before`, newest first.
+ * `history`: finished thoughts older than `before`, newest first; with
+ * `after`, first the questions and results of `before` after that id.
  */
-export type History = { before?: ThoughtId | null, limit: Limit, };
+export type History = { before?: ThoughtId | null, after?: string | null, limit: Limit, };
 
 /**
- * Thoughts that left the live set, with their questions and results.
+ * Thoughts that left the live set, each with its questions and results,
+ * cut where the rows stop fitting one snapshot chunk: a short page is not
+ * the end, an empty one is.
  */
-export type HistoryPage = { thoughts: Array<Thought>, questions: Array<Question>, results: Array<TurnResult>, };
+export type HistoryPage = { thoughts: Array<Thought>, questions: Array<Question>, results: Array<TurnResult>,
+/**
+ * Set when the page was cut among a thought's questions and results:
+ * the id of the last it holds, in id order (nil for none). The next
+ * page asks with it as `after` and that thought as `before`: the last
+ * in `thoughts`, or the `before` this page was asked with.
+ */
+after?: string, };
 
 /**
  * Who the core took the connection to be.

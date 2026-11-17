@@ -11,12 +11,13 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tasktap_core::client::{self, Client};
 use tasktap_proto::call::{self, Call, Code};
 use tasktap_proto::{
-    Auth, CallId, Change, Collection, Control, Delete, DeviceId, FixtureClock, FixtureRecords,
-    Frame, Glance, HEADER, Hello, History, Isolate, LayoutPatch, Limit, Mode, NotePatch, Outcome,
-    Phase, Pref, PrefKey, PrefPatch, PrefValue, Project, ProjectId, ProjectKind, ProjectPatch, Put,
-    PutTarget, Register, Request, ResultId, ResultKind, Retire, Rev, Role, Rows, Secret, SessionId,
-    Set, Source, Status, Subscribe, Thought, ThoughtId, Time, TurnResult, VERSION, Versions, When,
-    encode_control,
+    Answer, Auth, CallId, Change, Collection, Control, Delete, DeviceId, FixtureClock,
+    FixtureRecords, Frame, Glance, HEADER, Hello, History, Isolate, LayoutPatch, Limit, Mode,
+    NotePatch, Outcome, Phase, Pref, PrefKey, PrefPatch, PrefValue, Project, ProjectId,
+    ProjectKind, ProjectPatch, Put, PutTarget, Question, QuestionId, QuestionKind, QuestionSource,
+    QuestionState, Register, ReplyVia, Request, Response, ResultId, ResultKind, Retire, Rev, Role,
+    Rows, Secret, SessionId, Set, Source, Status, Subscribe, Thought, ThoughtId, Time, TurnResult,
+    VERSION, Versions, When, encode_control,
 };
 
 mod common;
@@ -266,7 +267,12 @@ fn retext(id: ThoughtId, text: &str) -> PutTarget {
 
 fn history(c: &mut Client, before: Option<ThoughtId>, limit: u32) -> Vec<Thought> {
     let limit = Limit::new(limit).unwrap();
-    let page = c.call::<call::History>(&History { before, limit });
+    let after = None;
+    let page = c.call::<call::History>(&History {
+        before,
+        after,
+        limit,
+    });
     page.unwrap().unwrap().thoughts
 }
 
@@ -956,6 +962,7 @@ fn a_thought_leaving_the_live_set_is_a_delete_and_then_history() {
 
     let page = w.call::<call::History>(&History {
         before: None,
+        after: None,
         limit: Limit::new(10).unwrap(),
     });
     let page = page.unwrap().unwrap();
@@ -1011,6 +1018,101 @@ fn history_pages_newest_first_with_no_duplicates_or_holes() {
         let args = json!({ "limit": limit });
         assert_eq!(refused(raw(&mut w, "history", args)), Code::Invalid);
     }
+}
+
+#[test]
+fn history_pages_the_questions_and_results_of_a_thought_that_do_not_fit_one_reply() {
+    let data = Folder::new();
+    let core = Core::start(&data);
+    let mut w = core.device();
+    let (older, many) = (ThoughtId::mint(), ThoughtId::mint());
+    fixture(
+        &mut w,
+        vec![thoughts(vec![
+            finished(older, "older"),
+            finished(many, "many"),
+        ])],
+    );
+    // Six answered questions and six results of about 128 KiB, taking
+    // turns: 1.5 MB, more than a frame.
+    let long = |i: usize| format!("{}", i % 10).repeat(64 << 10);
+    let mut rows = Vec::new();
+    for i in 0..12 {
+        let set = if i % 2 == 0 {
+            let q = Question {
+                id: QuestionId::mint(),
+                rev: Rev::ZERO,
+                thought_id: Some(many),
+                session_id: None,
+                turn: None,
+                source: QuestionSource::Agent,
+                kind: QuestionKind::Text,
+                prompt: "?".into(),
+                detail: Some(long(i)),
+                reply_via: ReplyVia::Core,
+                state: QuestionState::Answered,
+                answer: Some(Answer {
+                    response: Response::Text { text: long(i + 1) },
+                    device_id: None,
+                    created: Time::new(1).unwrap(),
+                    delivered: None,
+                }),
+            };
+            rows.push(q.id.uuid());
+            Set::Questions(Rows {
+                put: vec![q],
+                del: vec![],
+            })
+        } else {
+            let r = TurnResult {
+                id: ResultId::mint(),
+                rev: Rev::ZERO,
+                thought_id: many,
+                session_id: None,
+                turn: None,
+                kind: ResultKind::Answer,
+                summary: long(i).repeat(2),
+            };
+            rows.push(r.id.uuid());
+            Set::Results(Rows {
+                put: vec![r],
+                del: vec![],
+            })
+        };
+        fixture(&mut w, vec![set]);
+    }
+    let newer = (0..200).map(|_| finished(ThoughtId::mint(), "newer"));
+    fixture(&mut w, vec![thoughts(newer.collect())]);
+
+    // Each page fits a frame; one cut among the rows of `many` says where
+    // the next goes on, which brings the rest once each and in order, then
+    // the older thought.
+    let (mut before, mut after) = (None, None);
+    let (mut got, mut seen, mut cut) = (Vec::new(), Vec::new(), 0);
+    loop {
+        let limit = Limit::MAX;
+        let ask = History {
+            before,
+            after,
+            limit,
+        };
+        let page = w.call::<call::History>(&ask).unwrap().unwrap();
+        if page.thoughts.is_empty() && page.questions.is_empty() && page.results.is_empty() {
+            break;
+        }
+        let mut ids: Vec<_> = (page.questions.iter().map(|q| q.id.uuid()))
+            .chain(page.results.iter().map(|r| r.id.uuid()))
+            .collect();
+        ids.sort();
+        seen.extend(ids);
+        got.extend(page.thoughts.iter().map(|t| t.id));
+        before = page.thoughts.last().map(|t| t.id).or(before);
+        after = page.after;
+        cut += usize::from(after.is_some());
+    }
+    assert_eq!(got, [many, older]);
+    assert_eq!(seen, rows);
+    assert!(cut >= 5, "{cut} pages cut among the rows");
 }
 
 #[test]

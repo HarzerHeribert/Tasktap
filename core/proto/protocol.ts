@@ -210,8 +210,8 @@ export type FixtureLog = { launched: Array<FixtureLaunch>,
  */
 delivered: Array<ThoughtId>,
 /**
- * Follow-ups whose shim holds its terminal for them while `pause` keeps
- * them untyped.
+ * Follow-ups that `pause` keeps untyped, one to an adopted session while
+ * its shim holds the terminal for it.
  */
 held: Array<ThoughtId>, killed: Array<TerminalId>, settled: Array<ThoughtId>,
 /**
@@ -252,10 +252,16 @@ refuse?: string | null,
  */
 unrecordable: boolean,
 /**
- * A follow-up to an adopted session waits, held by its shim, untyped
- * until a script without `pause` arrives.
+ * A follow-up waits untyped, one to an adopted session held by its
+ * shim, until a script without `pause` arrives.
  */
-pause: boolean, };
+pause: boolean,
+/**
+ * Runs start for real: new captures name this agent, and the core's
+ * launcher starts them in terminals. Without it the fixture launcher
+ * only records what it is asked, as `refuse` and `unrecordable` say.
+ */
+agent?: string | null, };
 
 /**
  * `fixture.stream`: a stream of known bytes with no terminal behind it, for

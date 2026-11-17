@@ -823,7 +823,7 @@ fn row_stop_before_launch_is_undo() {
 }
 
 #[test]
-fn row_launch_fails_fails_the_thought_and_ends_its_session() {
+fn row_launch_fails_fails_the_thought_says_why_and_ends_its_session() {
     let mut w = World::new("launch-fails");
     w.launcher.refuse = Some("claude is not installed".into());
     let t = w.routed("fix the build");
@@ -844,6 +844,11 @@ fn row_launch_fails_fails_the_thought_and_ends_its_session() {
     );
     let outcome = failed_reply("claude is not installed");
     assert_eq!(w.outcome(attempt), outcome);
+    let why: Vec<_> = (w.results().into_iter())
+        .map(|r| (r.thought_id, r.kind, r.summary))
+        .collect();
+    let said = (t, ResultKind::Failure, "claude is not installed".to_owned());
+    assert_eq!(why, [said]);
     // Repeating the start answers with that outcome and launches nothing.
     assert_eq!(
         w.ok(Event::Start {
@@ -871,6 +876,11 @@ fn row_launch_fails_fails_the_thought_and_ends_its_session() {
         (Phase::Failed, Status::Failed, Some(Reason::Launch))
     );
     assert_eq!(w.session(s).state, SessionState::Working);
+    let why = w.results().into_iter().find(|r| r.thought_id == f).unwrap();
+    assert_eq!(
+        (why.kind, why.session_id, why.summary.as_str()),
+        (ResultKind::Failure, Some(s), "the terminal is gone")
+    );
 }
 
 #[test]

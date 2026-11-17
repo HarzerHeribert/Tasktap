@@ -284,8 +284,9 @@ pub fn apply(tx: &mut Tx<'_>, now: Time, event: Event) -> Result<Vec<Effect>> {
     Ok(machine.effects)
 }
 
-/// The launcher seam (Phase 2 fills it with terminals and agent adapters,
-/// Phase 3 with worktrees). What it returns goes back in as
+/// The launcher seam: `launch.rs` carries it out with terminals and agent
+/// adapters (Phase 3 adds worktrees), and [`FixtureLauncher`] stands in for
+/// it where a test scripts what it cannot do. What it returns goes back in as
 /// [`Event::Launched`], [`Event::LaunchFailed`] or [`Event::Settled`]; the end
 /// of the process later as [`Event::Exited`].
 pub trait Launcher {
@@ -464,9 +465,12 @@ impl Machine<'_, '_> {
             }
             // thought.stop before launch (Undo): routed → captured.
             (E::Stop { .. }, _, Some(P::Routed), ..) => self.undo(some(thought)?),
-            // launch fails: → failed, its session ended. Both reports have
-            // already recorded the attempt's outcome.
-            (E::LaunchFailed { error, .. }, ..) => self.launch_failed(thought, session, error),
+            // launch fails: → failed, its session ended, why kept as the
+            // thought's failure. Both reports have already recorded the
+            // attempt's outcome.
+            (E::LaunchFailed { attempt, error }, ..) => {
+                self.launch_failed(thought, session, attempt, error)
+            }
             (E::Launched { terminal, .. }, ..) => self.launched(session, terminal),
             // session.adopt: a new adopted session, starting, in a shell where
             // no session is alive.
@@ -987,17 +991,29 @@ impl Machine<'_, '_> {
         &mut self,
         thought: Option<Thought>,
         session: Option<Session>,
+        attempt: AttemptId,
         error: String,
     ) -> Result<()> {
         // A launch ends the session it made; a failed follow-up leaves its session alone.
         let own = session.as_ref().map(|s| s.id);
         if let Some(s) = session.filter(|s| s.state != S::Ended) {
-            self.end(s, None, Some(error))?;
+            self.end(s, None, Some(error.clone()))?;
         }
         match thought {
             Some(mut t) if t.phase == P::Working && (own.is_none() || t.session_id == own) => {
                 t.phase = P::Failed;
                 t.reason = Some(Reason::Launch);
+                // Why the run did not start, or the follow-up was not typed.
+                let result = TurnResult {
+                    id: self.mint(&[b"failure", attempt.uuid().as_bytes()])?,
+                    rev: Rev::ZERO,
+                    thought_id: t.id,
+                    session_id: t.session_id,
+                    turn: None,
+                    kind: ResultKind::Failure,
+                    summary: summary(&error),
+                };
+                self.tx.insert_result(&result, &error)?;
                 self.save(t)
             }
             _ => Ok(()),

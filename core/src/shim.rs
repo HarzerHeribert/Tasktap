@@ -29,10 +29,10 @@ const UNHELD: &str = "the agent no longer runs in its shell, so the follow-up wa
 pub struct Shims {
     /// Each adopted session with the connection of the shim that adopted it.
     adopted: Vec<(SessionId, Rc<Link>)>,
-    /// Set by `fixture.script`'s `pause`: follow-ups held by their shim and
-    /// not typed yet.
+    /// Set by `fixture.script`'s `pause`: follow-ups not typed yet, each
+    /// with the shim that holds its terminal, if its session is adopted.
     #[cfg(feature = "fixtures")]
-    paused: Option<Vec<(Deliver, Rc<Link>)>>,
+    paused: Option<Vec<(Deliver, Option<Rc<Link>>)>>,
 }
 
 /// `session.adopt`: a new session in the caller's shell, owned by this connection.
@@ -78,10 +78,15 @@ pub fn left(core: &mut Core, link: &Rc<Link>) {
 
 /// Takes a follow-up for an adopted session and types it once its shim holds
 /// the terminal; reports a failure instead when it cannot hold it. Any other
-/// follow-up is handed back for the launcher.
+/// follow-up is handed back for the launcher, unless paused.
 pub fn deliver(core: &mut Core, d: Deliver) -> Option<Deliver> {
     let session = effects::read(core, |tx| tx.session(d.session));
     if !session.ok().flatten().is_some_and(|s| s.adopted) {
+        #[cfg(feature = "fixtures")]
+        if let Some(paused) = &mut core.shims.paused {
+            paused.push((d, None));
+            return None;
+        }
         return Some(d);
     }
     let shim = core.shims.adopted.iter().find(|(session, link)| {
@@ -105,7 +110,7 @@ pub fn deliver(core: &mut Core, d: Deliver) -> Option<Deliver> {
         }
         #[cfg(feature = "fixtures")]
         if let Some(paused) = &mut core.shims.paused {
-            paused.push((d, link));
+            paused.push((d, Some(link)));
             return;
         }
         type_held(&mut core, d, &link);
@@ -115,13 +120,14 @@ pub fn deliver(core: &mut Core, d: Deliver) -> Option<Deliver> {
 
 /// Types a follow-up while its shim holds the terminal, then lets the shim go.
 fn type_held(core: &mut Core, d: Deliver, link: &Link) {
-    effects::typed(core, d);
+    effects::typed(core, d, true);
     link.call::<call::ShimHold>(&ShimHold { hold: false });
 }
 
-/// `fixture.script`'s `pause`: follow-ups held by their shim wait untyped
-/// until a script without it, which types each one whose shim is still
-/// connected. A shim that left gave up the terminal, so its text is dropped.
+/// `fixture.script`'s `pause`: follow-ups wait untyped until a script
+/// without it, which has the launcher type each one, and one held by its
+/// shim only while that shim is still connected. A shim that left gave up
+/// the terminal, so its text is dropped.
 #[cfg(feature = "fixtures")]
 pub fn pause(core: &mut Core, pause: bool) {
     let waiting = core.shims.paused.take();
@@ -130,10 +136,12 @@ pub fn pause(core: &mut Core, pause: bool) {
         return;
     }
     for (d, link) in waiting.unwrap_or_default() {
-        if core.links.iter().any(|l| Rc::ptr_eq(l, &link)) {
-            type_held(core, d, &link);
-        } else {
-            effects::failed(core, d.attempt, UNHELD.into());
+        match link {
+            None => drop(effects::typed(core, d, false)),
+            Some(link) if core.links.iter().any(|l| Rc::ptr_eq(l, &link)) => {
+                type_held(core, d, &link);
+            }
+            Some(_) => drop(effects::failed(core, d.attempt, UNHELD.into())),
         }
     }
 }

@@ -35,8 +35,8 @@ pub struct Term {
     readers: Vec<Handle>,
     input: Option<plain::Sender<Vec<u8>>>,
     /// Input handed to the input thread and not yet written, in order: whom
-    /// to grant it back to once it is.
-    owed: VecDeque<(Handle, u32)>,
+    /// to grant it back to once it is, none for what the core typed.
+    owed: VecDeque<(Option<Handle>, u32)>,
 }
 
 impl Term {
@@ -109,16 +109,23 @@ impl Term {
 
     /// Input from an attached client, granted back to it once written.
     fn take(&mut self, from: &Handle, bytes: &[u8]) {
-        if let Some(input) = &self.input
-            && input.send(bytes.to_vec()).is_ok()
-        {
-            self.owed.push_back((from.clone(), bytes.len() as u32));
+        self.send(Some(from), bytes);
+    }
+
+    /// Input for the process; what the core types itself, as the launcher
+    /// types a follow-up, has no client. False when the process takes no more.
+    pub fn send(&mut self, from: Option<&Handle>, bytes: &[u8]) -> bool {
+        let input = self.input.as_ref();
+        let sent = input.is_some_and(|input| input.send(bytes.to_vec()).is_ok());
+        if sent {
+            self.owed.push_back((from.cloned(), bytes.len() as u32));
         }
+        sent
     }
 
     /// The input thread wrote the oldest chunk.
     pub fn wrote(&mut self) {
-        if let Some((from, n)) = self.owed.pop_front() {
+        if let Some((Some(from), n)) = self.owed.pop_front() {
             from.grant(n);
         }
     }

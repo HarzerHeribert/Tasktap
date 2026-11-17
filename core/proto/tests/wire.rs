@@ -388,6 +388,7 @@ fn every_call_round_trips() {
             refuse: Some("no".into()),
             unrecordable: true,
             pause: true,
+            agent: Some("fixture".into()),
         };
         round_trip::<call::FixtureScript>(script, log, seen);
     }

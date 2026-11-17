@@ -424,10 +424,15 @@ pub struct FixtureScript {
     /// project that does not exist), so recording the launch fails.
     #[serde(default)]
     pub unrecordable: bool,
-    /// A follow-up to an adopted session waits, held by its shim, untyped
-    /// until a script without `pause` arrives.
+    /// A follow-up waits untyped, one to an adopted session held by its
+    /// shim, until a script without `pause` arrives.
     #[serde(default)]
     pub pause: bool,
+    /// Runs start for real: new captures name this agent, and the core's
+    /// launcher starts them in terminals. Without it the fixture launcher
+    /// only records what it is asked, as `refuse` and `unrecordable` say.
+    #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub agent: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -471,8 +476,8 @@ pub struct FixtureLog {
     pub launched: Vec<FixtureLaunch>,
     /// The thoughts of the follow-ups handed to a running session.
     pub delivered: Vec<ThoughtId>,
-    /// Follow-ups whose shim holds its terminal for them while `pause` keeps
-    /// them untyped.
+    /// Follow-ups that `pause` keeps untyped, one to an adopted session while
+    /// its shim holds the terminal for it.
     #[serde(default)]
     pub held: Vec<ThoughtId>,
     pub killed: Vec<TerminalId>,

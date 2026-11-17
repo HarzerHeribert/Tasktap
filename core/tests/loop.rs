@@ -248,6 +248,7 @@ fn a_launch_that_cannot_be_stored_stops_the_core_and_never_runs_again() {
         refuse: None,
         unrecordable: true,
         pause: false,
+        agent: None,
     };
     s.w.ok::<call::FixtureScript>(&script);
     let t = s.capture("bump the version");

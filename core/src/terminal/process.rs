@@ -379,8 +379,8 @@ pub fn environment(data: &Path, token: &Secret, shims: Option<&Path>) -> Vec<(St
         }
         put("SHELL", var("SHELL").unwrap_or_else(|| "/bin/sh".into()));
         put("LANG", var("LANG").unwrap_or_else(|| "en_US.UTF-8".into()));
-        put("PATH", path(shims, home.as_deref(), var("PATH")));
     }
+    put("PATH", path(shims));
     // What Windows programs need to find the system, the person's folders
     // and their tools. The PATH is the person's: Windows keeps it in the
     // registry, and the core received it from there.
@@ -414,17 +414,6 @@ pub fn environment(data: &Path, token: &Secret, shims: Option<&Path>) -> Vec<(St
             put(key, value);
         }
     }
-    #[cfg(windows)]
-    {
-        let person = var("PATH")
-            .into_iter()
-            .flat_map(|p| std::env::split_paths(&p).collect::<Vec<_>>());
-        put(
-            "PATH",
-            std::env::join_paths(shims.map(Path::to_owned).into_iter().chain(person))
-                .unwrap_or_default(),
-        );
-    }
     put("TERM", "xterm-256color".into());
     put("COLORTERM", "truecolor".into());
     put("TERM_PROGRAM", "Tasktap".into());
@@ -435,25 +424,26 @@ pub fn environment(data: &Path, token: &Secret, shims: Option<&Path>) -> Vec<(St
     env
 }
 
-/// The shims, then the folders where people's tools live, then the core's
-/// own PATH, then the system's, each once (as 1.2 computed it). A core
-/// started by the app has the system's short PATH, which finds none of them.
-#[cfg(unix)]
-fn path(
-    shims: Option<&Path>,
-    home: Option<&std::ffi::OsStr>,
-    inherited: Option<OsString>,
-) -> OsString {
+/// A child's PATH: the shims when given, then on Mac and Linux the folders
+/// where people's tools live, the core's own PATH and the system's, each
+/// once (as 1.2 computed it), since a core started by the app has the
+/// system's short PATH, which finds none of them. Windows keeps the
+/// person's PATH in the registry, and the core received it from there.
+pub fn path(shims: Option<&Path>) -> OsString {
     let mut dirs: Vec<PathBuf> = shims.map(Path::to_owned).into_iter().collect();
-    if let Some(home) = home {
-        dirs.push(Path::new(home).join(".local/bin"));
-        dirs.push(Path::new(home).join(".opencode/bin"));
+    #[cfg(unix)]
+    if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
+        dirs.push(Path::new(&home).join(".local/bin"));
+        dirs.push(Path::new(&home).join(".opencode/bin"));
     }
+    #[cfg(unix)]
     dirs.extend(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from));
-    dirs.extend(inherited.iter().flat_map(std::env::split_paths));
+    let inherited = std::env::var_os("PATH").unwrap_or_default();
+    dirs.extend(std::env::split_paths(&inherited));
+    #[cfg(unix)]
     dirs.extend(["/usr/bin", "/bin", "/usr/sbin", "/sbin"].map(PathBuf::from));
     let mut seen = std::collections::HashSet::new();
-    dirs.retain(|dir| seen.insert(dir.clone()));
+    dirs.retain(|dir| !dir.as_os_str().is_empty() && seen.insert(dir.clone()));
     std::env::join_paths(dirs).unwrap_or_default()
 }
 

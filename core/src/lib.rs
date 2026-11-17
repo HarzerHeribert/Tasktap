@@ -11,6 +11,7 @@ pub mod client;
 mod conn;
 mod effects;
 mod handshake;
+mod launch;
 mod questions;
 mod records;
 pub mod roles;

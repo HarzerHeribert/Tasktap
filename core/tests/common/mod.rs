@@ -14,11 +14,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tasktap_core::client::{self, Client};
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
-    Answer, Ask, AskKey, Auth, CallId, Capture, Change, Collection, Control, DeviceId, Empty,
-    Event as Said, FixtureClock, FixtureLog, FixtureRoute, Frame, Glance, Hello, Identity, Outcome,
-    Place, Project, ProjectId, Question, QuestionId, QuestionKind, Refuse, Register, Request,
-    ResultId, Retire, Role, Secret, Session, SessionEvent, SessionId, Set, Source, Status,
-    Subscribe, Terminal, TerminalId, Thought, ThoughtId, Time, TurnResult, VERSION, Versions, When,
+    Answer, Ask, AskKey, Auth, CallId, Capture, Change, Collection, Control, Data, DeviceId, Empty,
+    Event as Said, FixtureClock, FixtureLog, FixtureRoute, Frame, Glance, Hello, Identity,
+    OpenTerminal, Outcome, Place, Project, ProjectId, Question, QuestionId, QuestionKind, Refuse,
+    Register, Request, ResultId, Retire, Role, Secret, Session, SessionEvent, SessionId, Set,
+    Source, StartTerminal, Status, StreamId, Subscribe, Terminal, TerminalId, Thought, ThoughtId,
+    Time, TurnResult, VERSION, Versions, When,
 };
 
 mod watchdog;
@@ -96,6 +97,12 @@ impl Core {
     /// The same with more arguments, which may set another idle delay.
     pub fn start_with(data: impl AsRef<Path>, extra: &[&str]) -> Core {
         Self::start_env(data, extra, &[])
+    }
+
+    /// A core that finds the fixture agent's program on its PATH.
+    pub fn with_agents(data: impl AsRef<Path>) -> Core {
+        let data = data.as_ref();
+        Self::start_env(data, &[], &[("PATH", &path_with(&agents(data)))])
     }
 
     /// The same with these variables added to the core's environment.
@@ -677,6 +684,136 @@ pub fn clear(project: ProjectId) -> FixtureRoute {
     }
 }
 
+/// A folder of `data` that holds this binary as `fixture-agent`, the
+/// program the core launches for the fixture agents.
+pub fn agents(data: &Path) -> PathBuf {
+    let folder = data.join("agents");
+    std::fs::create_dir_all(&folder).unwrap();
+    let program = folder
+        .join("fixture-agent")
+        .with_extension(std::env::consts::EXE_EXTENSION);
+    // Never a copy onto a link to the binary itself, which would empty it.
+    if !program.exists() && std::fs::hard_link(EXE, &program).is_err() {
+        std::fs::copy(EXE, &program).unwrap();
+    }
+    folder
+}
+
+/// This process's PATH with `first` before it.
+pub fn path_with(first: &Path) -> String {
+    let inherited = std::env::var_os("PATH").unwrap_or_default();
+    let dirs = std::iter::once(first.to_owned()).chain(std::env::split_paths(&inherited));
+    std::env::join_paths(dirs).unwrap().into_string().unwrap()
+}
+
+/// What a terminal shows, without escapes and line ends.
+pub fn plain(bytes: &[u8]) -> String {
+    let mut text = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            0x1b if bytes.get(i + 1) == Some(&b'[') => {
+                i += 2;
+                while i < bytes.len() && !(0x40..=0x7e).contains(&bytes[i]) {
+                    i += 1;
+                }
+                i += 1;
+            }
+            0x1b if bytes.get(i + 1) == Some(&b']') => {
+                while i < bytes.len() && bytes[i] != 0x07 && !bytes[i..].starts_with(b"\x1b\\") {
+                    i += 1;
+                }
+                i += if bytes.get(i) == Some(&0x07) { 1 } else { 2 };
+            }
+            0x1b => i += 2,
+            b'\r' | b'\n' => i += 1,
+            b => {
+                text.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&text).into_owned()
+}
+
+/// A device attached to one terminal: what it shows, and typing into it as
+/// a person does.
+pub struct Screen {
+    c: Client,
+    s: StreamId,
+    bytes: Vec<u8>,
+    closed: bool,
+}
+
+impl Screen {
+    /// Attaches to terminal `id` from the start of what it kept.
+    pub fn open(core: &Core, id: TerminalId) -> Screen {
+        Self::start(core, id, None)
+    }
+
+    /// Starts terminal `id` as `start` says, and attaches to it.
+    pub fn start(core: &Core, id: TerminalId, start: Option<StartTerminal>) -> Screen {
+        let mut c = core.device();
+        let open = OpenTerminal {
+            id,
+            start,
+            cols: 100,
+            rows: 30,
+            from: None,
+            credit: 1 << 20,
+        };
+        let opened = c.opened::<call::TerminalOpen>(&open, 1 << 20, true);
+        let opened = opened.unwrap().expect("the terminal opens");
+        Screen {
+            c,
+            s: opened.s,
+            bytes: Vec::new(),
+            closed: false,
+        }
+    }
+
+    /// Types `line` and Enter.
+    pub fn line(&mut self, line: &str) {
+        self.c
+            .write(self.s, format!("{line}\r").as_bytes())
+            .unwrap();
+    }
+
+    pub fn text(&self) -> String {
+        plain(&self.bytes)
+    }
+
+    /// Reads until it shows `what`.
+    pub fn until(&mut self, what: &str) {
+        while !self.text().contains(what) {
+            assert!(
+                !self.closed,
+                "it ended without showing {what:?}: {:?}",
+                self.text()
+            );
+            self.pump();
+        }
+    }
+
+    /// Reads until the terminal has ended.
+    pub fn ended(&mut self) {
+        while !self.closed {
+            self.pump();
+        }
+    }
+
+    /// Takes the next frame; false once the core is gone.
+    pub fn pump(&mut self) -> bool {
+        match self.c.recv() {
+            Ok(Frame::Data(Data { s, bytes })) if s == self.s => self.bytes.extend(bytes),
+            Ok(Frame::Control(Control::Close(close))) if close.s == self.s => self.closed = true,
+            Ok(_) => {}
+            Err(_) => return false,
+        }
+        true
+    }
+}
+
 /// A core with a project and its fixtures selected, the router answering
 /// `clear` for that project and the clock held at the wall time.
 pub struct Scene {
@@ -688,8 +825,10 @@ pub struct Scene {
     pub now: u64,
     route: FixtureRoute,
     refuse: Option<String>,
-    /// Follow-ups to adopted sessions wait, held, until the next script without it.
+    /// Follow-ups wait, untyped, until the next script without it.
     pub pause: bool,
+    /// Runs start for real, with this agent, through the real launcher.
+    pub agent: Option<String>,
 }
 
 impl Scene {
@@ -704,6 +843,22 @@ impl Scene {
         let data = Folder::new(prefix);
         let core = Core::start(&data.0);
         Self::build(core, data, false)
+    }
+
+    /// A scene whose runs start for real: the real launcher starts `agent`,
+    /// found on the core's PATH, in real terminals. The router is still the
+    /// fixture's.
+    pub fn real(prefix: &str, agent: &str) -> Scene {
+        let data = Folder::new(prefix);
+        let core = Core::with_agents(&data.0);
+        Self::on(core, data).running(agent)
+    }
+
+    /// The same scene with its runs started for real, with `agent`.
+    pub fn running(mut self, agent: &str) -> Scene {
+        self.agent = Some(agent.into());
+        self.log();
+        self
     }
 
     /// The scene on a core that is already running, as after a restart.
@@ -730,6 +885,7 @@ impl Scene {
             route: clear(project),
             refuse: None,
             pause: false,
+            agent: None,
         };
         scene.log();
         if manual {
@@ -777,6 +933,7 @@ impl Scene {
             refuse: self.refuse.clone(),
             unrecordable: false,
             pause: self.pause,
+            agent: self.agent.clone(),
         };
         self.w.ok::<call::FixtureScript>(&script)
     }

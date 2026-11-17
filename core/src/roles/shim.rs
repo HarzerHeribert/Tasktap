@@ -231,14 +231,21 @@ fn real(name: &str) -> Option<PathBuf> {
     let shims = std::env::var_os(SOCKET)
         .and_then(|socket| Some(Path::new(&socket).parent()?.join(SHIMS)))
         .and_then(|shims| std::fs::canonicalize(shims).ok());
-    for folder in std::env::split_paths(&std::env::var_os("PATH")?) {
-        if folder.as_os_str().is_empty()
-            || shims.is_some() && std::fs::canonicalize(&folder).ok() == shims
-        {
+    find(name, &std::env::var_os("PATH")?, |folder, file| {
+        !(shims.is_some() && std::fs::canonicalize(folder).ok() == shims)
+            && !me.as_deref().is_some_and(|me| same(me, file))
+    })
+}
+
+/// The first runnable file named `name` in the folders of `path`, as a
+/// shell finds a program, that `take` accepts given its folder.
+pub fn find(name: &str, path: &OsStr, take: impl Fn(&Path, &Path) -> bool) -> Option<PathBuf> {
+    for folder in std::env::split_paths(path) {
+        if folder.as_os_str().is_empty() {
             continue;
         }
         for file in candidates(&folder, name) {
-            if runnable(&file) && !me.as_deref().is_some_and(|me| same(me, &file)) {
+            if runnable(&file) && take(&folder, &file) {
                 return Some(file);
             }
         }

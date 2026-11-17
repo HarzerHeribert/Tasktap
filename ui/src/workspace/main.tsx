@@ -11,12 +11,11 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { render } from 'preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
 import { cap } from '../capture.tsx';
-import { trail } from '../trail.ts';
-import { ambient } from './ambient.ts';
 import { I, Mark, Wave, plural } from '../ui.tsx';
 import { apply, fontsReady, look } from './appearance.ts';
 import { Deck, startAgent } from './deck.tsx';
 import { Earlier, Home, homeCounts } from './home.tsx';
+import { wakeLook } from './light.tsx';
 import { stats } from '../motion/engine.ts';
 import { debug } from '../motion/motion.tsx';
 import * as L from './layout.ts';
@@ -24,11 +23,12 @@ import { burst, echo } from './measure.ts';
 import { choose, shown as menu } from './menu.ts';
 import {
   LOOSE, agentName, call, client, closeTab, copy, current, dismiss, fail, focusSession, layout, newTerminal, onRedraw, open, page, paste,
-  records, redraw, reconcile, sessionOf, setLayout, settleFocus, show, textSize, textSizeBy, ui,
+  pref, records, redraw, reconcile, sessionOf, setLayout, settleFocus, show, textSize, textSizeBy, ui,
 } from './model.ts';
 import { Sheets } from './sheets.tsx';
 import { Sidebar } from './sidebar.tsx';
 import { engines, setLook } from './terminal.ts';
+import { wake } from './wake.ts';
 
 /** Below this width the sidebar hides, and its toggle and the window's buttons move into the title bar. */
 const NARROW = 800;
@@ -75,21 +75,18 @@ export function command(id: string) {
   }
 }
 
-/** The sidebar slides in and out; its edge leaves a short trail of glyphs on the window it passes (trail.ts). */
+/** The sidebar slides in and out; its edge sheds a short wake of glyphs on the window it passes (wake.ts). */
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 let sliding = false;
 function toggleSidebar() {
   if (ui.narrow) return void ((ui.peek = !ui.peek), redraw());
   const side = document.querySelector<HTMLElement>('.side');
-  const box = side?.getBoundingClientRect();
-  const glyphs = ambient() !== 'off';
-  if (ui.sidebar && side && box && !reduced.matches) {
+  if (ui.sidebar && side && !reduced.matches) {
     if (sliding) return;
     sliding = true;
-    trail({ box, axis: 'x', back: true, ms: 200 }, glyphs);
     side.animate([{ transform: 'none' }, { transform: 'translateX(-100%)' }], { duration: 200, easing: 'cubic-bezier(.45,0,.5,1)' })
       .finished.then(() => ((sliding = false), (ui.sidebar = false), redraw()), () => (sliding = false));
-    return;
+    return wake(side, 'x', wakeLook());
   }
   ui.sidebar = !ui.sidebar;
   redraw();
@@ -98,9 +95,9 @@ function toggleSidebar() {
     const s = document.querySelector<HTMLElement>('.side');
     if (!s) return;
     s.classList.add('opening');
-    trail({ box: s.getBoundingClientRect(), axis: 'x', ms: 240 }, glyphs);
     s.animate([{ transform: 'translateX(-100%)' }, { transform: 'none' }], { duration: 240, easing: 'cubic-bezier(.19,.76,.19,1)' })
       .finished.then(() => s.classList.remove('opening'), () => {});
+    wake(s, 'x', wakeLook());
   });
 }
 
@@ -128,12 +125,11 @@ document.addEventListener('keydown', (e) => {
   command(name);
 }, true);
 
-/** The terminals take the person's look at once, and again whenever they change it (Settings). */
-export function loadLook() {
+/** The terminals take the look the core's preferences describe. */
+function loadLook() {
   const l = look();
   apply(l);
   setLook(l, textSize);
-  redraw();
 }
 
 /** The title bar: the workspace's name and folder, and Split right, Split down and New task; on Home, "Home". */
@@ -153,7 +149,7 @@ function Bar({ project }: { project: string | null }) {
           <button type="button" class="back" title="Back to Home  ⌘[" onClick={() => show('home')}><I n="chev" /><span>Home</span></button>
           <b class="sub">Earlier</b>
         </span>
-      ) : null}
+      ) : <span class="crumb" data-tauri-drag-region><b>Home</b></span>}
       {project && (
         <span class="bar-r">
           <button type="button" class="ib" title="Split right  ⌘D" aria-label="Split right" onClick={() => command('split-right')}><I n="splitr" /></button>
@@ -200,6 +196,8 @@ function App() {
     document.documentElement.classList.toggle('narrow', ui.narrow);
     settleFocus();
   });
+  // The terminals follow their preferences at once and as they change, from this window or another.
+  useLayoutEffect(loadLook, [pref('terminal_font'), pref('terminal_size'), pref('terminal_line_height')]);
   const side = ui.sidebar && !ui.narrow;
   return (
     <div class={`win${side ? '' : ' solo'}${ui.sheet ? ' dimmed' : ''}${ui.narrow && ui.peek ? ' peek' : ''}`}>
@@ -236,7 +234,6 @@ const win = getCurrentWindow();
 void win.isFocused().then((f) => ((ui.active = f), redraw()), () => {});
 void win.onFocusChanged(({ payload }) => ((ui.active = payload), document.documentElement.classList.toggle('inactive', !payload), redraw()));
 // The window shows once the page has laid out its first frame (a hidden window draws nothing).
-loadLook();
 setTimeout(() => void call('host.ready', {}).catch(() => {}));
 void client
   .sub(['thoughts', 'projects', 'sessions', 'terminals', 'questions', 'results', 'layouts', 'prefs', 'agents'], records)

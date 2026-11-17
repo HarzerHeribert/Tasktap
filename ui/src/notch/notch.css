@@ -93,12 +93,6 @@ html,body{background:transparent!important}
 .result+.rows{margin-top:16px}
 .capture-block{margin-top:4px}
 .rows+.capture-block{margin-top:14px}
-.capture.stack .cap{min-height:44px;border-bottom:0}
-.capture.stack .wave{--wh:30px;--ww:3px;--wg:2.5px}
-.capture.stack .cap input{font:var(--f-question)}
-.cap-dest{display:flex;align-items:center;gap:10px;margin-top:8px;padding-top:10px;border-top:1px solid var(--line);font:var(--f-cap);color:var(--fg2);white-space:nowrap}
-.cap-dest .cap-hint{margin-left:auto}
-.capture:focus-within .cap-dest{border-image:var(--lit) 1}
 .error{margin:0 18px 14px;font:var(--f-small);color:var(--fail)}
 
 /* The content arrives once the shape has grown under it, over the last quarter of the opening; it leaves first. */

@@ -18,6 +18,9 @@ const LISTS = [
   { list: '.ws', row: ':scope > .row.s', parts: { mark: '.st', label: '.lbl' } },
   { list: '.tree', row: ':scope > .row.home, :scope > .ws > .row.w', parts: { label: '.lbl' } },
   { list: '.acts', row: ':scope > .act', parts: { key: 'kbd', label: 'span' } },
+  { list: '.settings', row: ':scope > .set', parts: { label: '.t', fact: '.c' } },
+  { list: '.files', row: ':scope > .file', parts: { mark: '.ch', label: '.path' } },
+  { list: '.cap-list', row: ':scope > button', parts: { mark: '.i, .st', label: 'span' } },
   { list: '.rows', row: ':scope > .row', parts: { mark: '.st', label: '.t', fact: '.x', time: 'time' } },
   { list: '.ask-notch .qa', row: ':scope > .ans', parts: { key: 'kbd', label: 'span' } },
 ];
@@ -62,6 +65,8 @@ async function main() {
   const views = [
     ['busy', null], ['busy', (w) => (w.__ws.ui.fold = 'results')], ['busy', (w) => (w.__ws.ui.fold = 'ideas')], ['normal', null], ['quiet', null], ['first', null],
     ['busy', (w) => w.__ws.show('earlier')], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'agents' })], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'close-tab', project: '', id: '' })],
+    ['busy', (w) => (w.__ws.ui.sheet = { kind: 'settings' })], ['busy', (w) => w.document.querySelector('#dest-chip').click()],
+    ['workspace', (w) => (w.__ws.ui.sheet = { kind: 'review', thought: [...w.__ws.records.thoughts.values()].find((t) => t.workdir?.changes === 'pending').id })],
   ];
   try {
     for (const [state, act] of views)

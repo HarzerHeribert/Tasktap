@@ -1,7 +1,7 @@
 // The window's light, rendered from ui/dist in headless Chromium on fixture records, for judging it by eye and by
-// number: Home in its quiet, normal and busy states in each palette and at three strengths (faint, default, strong),
+// number: Home in its quiet, normal and busy states in each palette,
 // with and without the chrome, at 1x and 2x, beside a workspace with terminals; every line of text measured against
-// the brightest pixel behind it; and clips of the light breathing, of a change of state, and of the wiper's trail
+// the brightest pixel behind it; and clips of the light breathing, of a change of state, and of the wake of glyphs
 // (the sidebar, a sheet) at normal and quarter speed. Writes PNGs, WebM clips and manifest.json into <outdir>.
 // usage: node scripts/light-sheet.cjs <outdir> [--quick]
 const fs = require('node:fs');
@@ -31,7 +31,7 @@ async function contrast(page) {
         if (w > 1 && r.height > 4) out.push({ x, y: r.top + 2, w, h: r.height - 4, color, text: n.textContent.trim().slice(0, 40) });
       }
     }
-    for (const i of document.querySelectorAll('.hx input')) {
+    for (const i of document.querySelectorAll('.hx input, .hx textarea')) {
       const r = i.getBoundingClientRect(), s = getComputedStyle(i, '::placeholder');
       if (!i.value) out.push({ x: r.left, y: r.top, w: Math.min(r.width, 200), h: r.height, color: s.color, text: i.placeholder });
     }
@@ -87,9 +87,8 @@ async function main(out, quick) {
     for (const dpr of quick ? [1] : [1, 2])
       for (const palette of palettes)
         for (const state of states)
-          for (const strength of palette === 'chromatic' ? ['faint', 'default', 'strong'] : ['default']) {
+          for (const strength of ['default']) {
             const { page } = await page1(state, palette, dpr);
-            await set(page, { strength });
             await settle(page, 1500);
             const name = `home-${state}-${palette}-${strength}@${dpr}x.png`;
             await page.screenshot({ path: path.join(out, name) });
@@ -122,7 +121,7 @@ async function main(out, quick) {
         manifest.stills.push({ name, state, palette: 'chromatic', dpr, workspace: true });
         await page.context().close();
       }
-    // Clips: breathing (10 s), a change of state, and the wiper's trail at normal and quarter speed.
+    // Clips: breathing (10 s), a change of state, and the wake of glyphs at normal and quarter speed.
     const clip = async (name, state, act, secs, opts = {}) => {
       const dir = fs.mkdtempSync(path.join(out, '.rec-'));
       const r = scene(state);
@@ -143,8 +142,7 @@ async function main(out, quick) {
       console.log(name);
     };
     if (!quick) {
-      for (const strength of ['faint', 'default', 'strong'])
-        await clip(`breathing-${strength}.webm`, 'normal', (p) => set(p, { strength, breathe: true }), 12);
+      await clip('breathing.webm', 'normal', (p) => set(p, { breathe: true }), 12);
       await clip('state-change.webm', 'quiet', async (p, r) => {
         await settle(p, 1500);
         await p.evaluate(() => (window.__motion.debug.state = 'working', window.__motion.redraw()));
@@ -168,9 +166,8 @@ async function main(out, quick) {
         }, slow ? 3 : 1.5, { slow });
         await clip(`wiper-off-sheet${sfx}.webm`, 'normal', async (p) => {
           await settle(p, 800);
-          await p.evaluate(() => (localStorage.setItem('tasktap.motion_ambient', 'off'), 1));
-          await p.reload();
-          await settle(p, 1200);
+          await p.evaluate(() => window.__fake.push({ t: 'change', rev: 999, sets: [{ c: 'prefs', put: [{ id: 'motion_ambient', value: 'off', rev: 999 }] }] }));
+          await settle(p, 600);
           await p.evaluate(() => window.__ws.command('settings'));
         }, slow ? 3 : 1.5, { slow });
       }

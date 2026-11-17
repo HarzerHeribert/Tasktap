@@ -13,7 +13,7 @@ import { STATES, type MotionState } from './state.ts';
 import { STYLES, type Size, type StyleId } from './styles.ts';
 import type { Voice } from './voice.ts';
 
-export type Look = { style: StyleId; palette: PaletteId; hue: number; lumen: boolean };
+export type Look = { style: Exclude<StyleId, 'glyph'>; palette: PaletteId; hue: number; lumen: boolean };
 export type Options = {
   look: Look;
   state: MotionState;
@@ -140,6 +140,48 @@ function render(id: StyleId, w: number, h: number, U: Uniforms) {
     else g.uniform4fv(l, a);
   }
   g.drawArrays(g.TRIANGLES, 0, 3);
+}
+
+/** One frame of a style as a picture of its own, `size` device pixels square, drawn once and outside any view: what
+ *  the glyphs at the sidebar's foot and in the wiper's wake are made of. Null where the page cannot draw. */
+export function still(style: StyleId, look: Look, state: MotionState, size: number, aux: number, phase: number): HTMLCanvasElement | null {
+  const g = context();
+  if (!g || g.isContextLost()) return null;
+  const fb = g.createFramebuffer(), rb = g.createRenderbuffer();
+  try {
+    g.bindFramebuffer(g.FRAMEBUFFER, fb);
+    g.bindRenderbuffer(g.RENDERBUFFER, rb);
+    g.renderbufferStorage(g.RENDERBUFFER, g.RGBA8, size, size);
+    g.framebufferRenderbuffer(g.FRAMEBUFFER, g.COLOR_ATTACHMENT0, g.RENDERBUFFER, rb);
+    const s = STATES.indexOf(state), P = lights(look.palette, look.hue), st = new Float32Array(7);
+    st[s] = 1;
+    // Half the palette's iridescence: an object this small in full colour reads as coloured, not as metal.
+    render(style, size, size, {
+      res: [0, 0], org: [0, 0], n: 1, irid: P.irid * 0.5, dim: DIM[s]!, light: 0, hoff: 0, aux, ph: [phase, 0, 0, 9], p: new Float32Array(8), st, sig: SIGNAL[s]!,
+      ta: P.a, tb: P.b, v: [0, 0, 0, 0.4], w: [0, 0, 0.4, 0], bg: [0, 0, 0], lm: [0, 0, 1, 0], holes: new Float32Array(HOLES * 4), hole: [0, 0],
+    });
+    const px = new Uint8Array(size * size * 4);
+    g.readPixels(0, 0, size, size, g.RGBA, g.UNSIGNED_BYTE, px);
+    // The frame is bottom-up and its colour is multiplied by its coverage; a picture is neither.
+    const out = new ImageData(size, size);
+    for (let y = 0; y < size; y++)
+      for (let x = 0; x < size; x++) {
+        const i = ((size - 1 - y) * size + x) * 4, j = (y * size + x) * 4, a = px[i + 3]!;
+        for (let c = 0; c < 3; c++) out.data[j + c] = a ? Math.min(255, (px[i + c]! * 255) / a) : 0;
+        out.data[j + 3] = a;
+      }
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = size;
+    cv.getContext('2d')!.putImageData(out, 0, 0);
+    return cv;
+  } catch (e) {
+    console.error(e);
+    return null;
+  } finally {
+    g.bindFramebuffer(g.FRAMEBUFFER, null);
+    g.deleteFramebuffer(fb);
+    g.deleteRenderbuffer(rb);
+  }
 }
 
 // ---- views ----

@@ -2,6 +2,16 @@
 // Columns of type grow with the loudness travelling outward, as the 1.2 dictation strip did. Rising speech leans the glyphs, and a consonant spins them on their axis so the faces flash.
 import type { Style } from './styles.ts';
 
+/** The four characters, as distances: plus, equals, slash, colon. */
+const SHAPES = `
+float glyph(vec2 p, float k){
+  vec2 a=abs(p);
+  if(k<1.) return min(max(a.x-.66,a.y-.24),max(a.x-.24,a.y-.66));                    // +
+  if(k<2.) return max(a.x-.66,abs(a.y-.34)-.19);                                   // =
+  if(k<3.){ vec2 s=abs(rot(.5)*p); return max(s.x-.22,s.y-.78); }                  // /
+  return max(a.x-.25,abs(a.y-.4)-.25);                                            // :
+}`;
+
 export const glyphs: Style = {
   id: 'glyphs',
   n: {hero: 15, icon: 7, box: 5, strip: 11},
@@ -15,14 +25,7 @@ export const glyphs: Style = {
     [0, 0, 0.6, 0, 0, 1, 0, 0],
     [0, 0, 0.4, 0, 0, 0, 1, 0],
   ],
-  frag: `
-float glyph(vec2 p, float k){
-  vec2 a=abs(p);
-  if(k<1.) return min(max(a.x-.66,a.y-.24),max(a.x-.24,a.y-.66));                    // +
-  if(k<2.) return max(a.x-.66,abs(a.y-.34)-.19);                                   // =
-  if(k<3.){ vec2 s=abs(rot(.5)*p); return max(s.x-.22,s.y-.78); }                  // /
-  return max(a.x-.25,abs(a.y-.4)-.25);                                            // :
-}
+  frag: SHAPES + `
 void main(){ VIEW
   float X=min(asp*.84,max(1.75,asp*.66)), sc=min(1.,asp/1.3), pitch=2.*X/u_n, i=floor((q.x+X)/pitch), g=u_p[0];
   vec3 col=vec3(0), glow=lumen(q,span(asp)); float a=0.;
@@ -60,5 +63,29 @@ void main(){ VIEW
     }
   }
   put(col,a,glow);
+}`,
+};
+
+/** One of those glyphs alone, filling its picture, as an object in the same studio: \`u_aux\` says which character,
+ *  \`u_ph.x\` how its face leans, never far enough to lose its shape. Solid where the metal is, clear around it: a
+ *  picture drawn once (engine.ts \`still\`) that the page then moves as it likes. */
+export const glyph: Style = {
+  id: 'glyph',
+  n: {hero: 1, icon: 1, box: 1, strip: 1},
+  p: Array.from({length: 7}, () => [0, 0, 0, 0, 0, 0, 0, 0]),
+  frag: SHAPES + `
+void main(){ VIEW
+  q/=1.12;                                                                  // the glyph fills its picture
+  vec2 tl=vec2(.5*sin(u_ph.x),.14+.1*cos(u_ph.x*.7)), pb=q+tl*.3;        // which way the face looks; the back of the extrusion
+  float d=glyph(q,u_aux), s=1.12/px, af=clamp(.5-d*s,0.,1.), a=max(af,clamp(.5-glyph(pb,u_aux)*s,0.,1.));
+  vec3 col=vec3(0);
+  if(a>0.){
+    vec2 gr=vec2(glyph(q+vec2(.02,0),u_aux)-d,glyph(q+vec2(0,.02),u_aux)-d)/.02;
+    float bev=smoothstep(.15,0.,-d);                                        // a chamfer round the face
+    vec3 nf=vec3(tl+gr*bev*.9+q*.3,1.);                                     // the face a little domed, so the room slides across it
+    vec3 cs=chrome(vec3(-tl*3.,.5),SILVER,.25);                             // the side wall: darker, and nearly without colour
+    col=mix(mix(vec3(dot(cs,vec3(.3,.5,.2))),cs,.15)*.5,chrome(nf,SILVER,clamp(bev*15./s,.04,.45)),af);
+  }
+  o=vec4(tone(col)*a,a);
 }`,
 };

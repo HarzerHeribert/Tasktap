@@ -1,12 +1,13 @@
-// The capture line both the notch and the workspace show: one line, Enter sends; beside it the destination (the
-// person's pick, else where the router says, else the default) and the agent; the receipt offers Undo while the
-// thought waits to start. With no folder open yet, a thought is kept as an idea.
+// The capture field, the same in the notch, the capture sheet and on Home: the thought on lines of its own; under it,
+// inside the field, where it goes (the person's pick, else where the router says, else the default) with the agent, and
+// the button that says what Return does. The receipt offers Undo while the thought waits to start. With no folder open
+// yet, a thought is kept as an idea.
 import type { Route, Thought } from '../../core/proto/protocol.ts';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useRef } from 'preact/hooks';
 import { uuid7 } from './client.ts';
 import { I, Wave } from './ui.tsx';
-import { agent, agentName, call, fail, page, projectName, projects, records, redraw, title, why } from './page.ts';
+import { agent, agentName, call, fail, focus, page, projectName, projects, records, redraw, title, why } from './page.ts';
 
 /** What was just sent, for the receipt and Undo. */
 export type Sent = { id: string; text: string; to: string | 'idea' };
@@ -20,6 +21,8 @@ export const cap = {
   /** The session the person is in, which the router may send a follow-up to. */
   current: null as string | null,
   choosing: false,
+  /** The thought is on its way to the core: the field waits. */
+  sending: false,
   sent: null as Sent | null,
   undone: null as Sent | null,
 };
@@ -82,7 +85,9 @@ async function addProject(hooks: Hooks): Promise<string | undefined> {
 async function send(e: Event, hooks: Hooks) {
   e.preventDefault();
   const text = cap.draft.trim();
-  if (!text) return;
+  if (!text || cap.sending) return;
+  cap.sending = true;
+  redraw();
   const route = hinted();
   const to = route ? routedProject(route) : (destination() ?? 'idea');
   try {
@@ -107,6 +112,7 @@ async function send(e: Event, hooks: Hooks) {
   } catch (err) {
     fail(err);
   }
+  cap.sending = false;
   redraw();
 }
 
@@ -161,7 +167,7 @@ function routeLabel(r: Route) {
 
 export function choose(open: boolean) {
   cap.choosing = open;
-  page.focus = open ? '.cap-list [aria-selected=true], .cap-list button' : '#capture-input';
+  page.focus = open ? '.cap-list [aria-selected=true]' : '#capture-input';
   redraw();
 }
 
@@ -171,9 +177,10 @@ function pick(dest: string) {
   redraw();
 }
 
-/** Up and down move through a list of buttons; the browser's Enter and Space press them. */
-export function arrows(e: KeyboardEvent) {
-  const step = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+/** The arrows move through the destinations; the browser's Enter and Space press one; Escape leaves them as they were. */
+function arrows(e: KeyboardEvent) {
+  if (e.key === 'Escape') return (e.preventDefault(), e.stopPropagation(), choose(false));
+  const step = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 0;
   if (!step) return;
   e.preventDefault();
   const items = [...(e.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('button')];
@@ -207,86 +214,73 @@ function Receipt({ hooks }: { hooks: Hooks }) {
   return line(<>Started in <b>{projectName(t?.project_id ?? sent.to)}</b></>);
 }
 
-/** The capture line. `stack` puts the destination under the field (the notch); `chip` makes the destination one control
- *  inside the field (Home); `go` adds the button that sends it, saying what Return does. */
-export function Capture({ stack = false, invite = false, chip = false, go = false, hint, ...hooks }: Hooks & { stack?: boolean; invite?: boolean; chip?: boolean; go?: boolean; hint?: ComponentChildren }) {
+/** The capture field. `raised` is Home's: a surface of its own, the thought at 20 px, up to six lines; elsewhere it sits
+ *  on its sheet with the wave beside the thought, up to three lines. */
+export function Capture({ raised = false, ...hooks }: Hooks & { raised?: boolean }) {
   const route = hinted();
   const to = route ? undefined : destination();
   const a = agent();
   const folders = projects().some((p) => p.kind === 'folder');
-  const state = !a ? '' : !a.installed ? `${agentName(a.id)} is not installed` : a.signed_in === false ? `${agentName(a.id)} is not signed in` : agentName(a.id);
+  const idea = !route && (!folders || to === 'idea' || !to);
   const session = route?.confidence === 'clear' && 'session' in route.to;
-  const where = !folders && !route && !chip ? null : (
-    <button type="button" class="cap-to" id="dest-chip" aria-haspopup="listbox" aria-expanded={cap.choosing}
-      title={!folders ? 'Kept as an idea until a folder is open' : to === 'idea' ? 'Kept as an idea; nothing starts' : 'Where it goes. Click to change'}
-      onClick={() => choose(!cap.choosing)}
-      onKeyDown={(e) => (e.key === 'ArrowDown' || e.key === 'ArrowUp') && (e.preventDefault(), choose(true))}>
-      <I n={session ? 'term' : 'arrow'} />
-      <span>{route ? routeLabel(route) : to === 'idea' || !to ? 'Idea' : projectName(folder(to))}</span>
-      {chip && state && folders && to !== 'idea' && route?.confidence !== 'ambiguous' && <span class={`ag${a && a.signed_in !== false && a.installed ? '' : ' off'}`}>{state}</span>}
-      {chip && <I n="chev" />}
-    </button>
-  );
-  const agentLine = !folders && !route ? <span class="cap-agent">Kept as an idea until a folder is open</span>
-    : to === 'idea' ? <span class="cap-agent">Kept as an idea; nothing starts</span>
-    : route?.confidence === 'ambiguous' ? <span class="cap-agent">You will be asked which</span>
-    : state && <span class={`cap-agent${a && a.signed_in !== false && a.installed ? '' : ' off'}`}>{state}</span>;
+  const ready = !!a && a.installed && a.signed_in !== false;
+  // Beside the destination: who will work on it, or what happens first.
+  const with_ = idea ? '' : route?.confidence === 'ambiguous' ? 'you will be asked which'
+    : !a ? '' : !a.installed ? `${agentName(a.id)} is not installed` : a.signed_in === false ? `${agentName(a.id)} is not signed in` : agentName(a.id);
+  const does = idea ? 'Keep as an idea' : session ? 'Send' : 'Start';
   const area = useRef<HTMLTextAreaElement>(null);
-  // Home's field grows with the thought, a line at a time, up to six; the notch's stays one line.
+  // The field grows with the thought, a line at a time.
   useLayoutEffect(() => {
     const el = area.current;
     if (!el) return;
     el.style.height = '0';
     el.style.height = `${el.scrollHeight}px`;
   });
-  const props = {
-    id: 'capture-input', autocomplete: 'off', spellcheck: false, 'aria-label': 'New task', placeholder: 'Put a thought in', value: cap.draft,
-    onInput: (e: Event) => {
-      cap.draft = (e.currentTarget as HTMLInputElement | HTMLTextAreaElement).value;
-      if (cap.undone && !cap.draft.trim()) drop();
-      askRoute();
-    },
-    onKeyDown: (e: KeyboardEvent) => {
-      // Return sends; Shift-Return starts a new line in Home's field.
-      if (e.key === 'Enter' && !e.isComposing && !e.shiftKey) void send(e, hooks);
-      else if (e.key === 'z' && e.metaKey && !cap.draft && cap.sent) {
-        e.preventDefault();
-        void undo();
-      }
-    },
-  };
-  const field = chip ? <textarea {...props} ref={area} rows={1} /> : <input {...props} />;
-  const list = cap.choosing && (
-    <div class="cap-list" role="listbox" aria-label="Destination" onKeyDown={arrows}>
-      {projects().filter((p) => p.kind === 'folder').map((p) => (
-        <button type="button" role="option" aria-selected={p.id === (to ?? routedProject(route))} onClick={() => pick(p.id)}>
-          <I n="folder" /><span>{p.name}</span>
-        </button>
-      ))}
-      <button type="button" role="option" aria-selected={to === 'idea'} onClick={() => pick('idea')}><i class="st" data-s="idea" aria-hidden="true" /><span>Idea</span></button>
-      <button type="button" onClick={() => void addProject(hooks)}><I n="plus" /><span>Open a folder…</span></button>
-    </div>
+  const option = (id: string, on: boolean, mark: ComponentChildren, name: string) => (
+    <button type="button" role="option" aria-selected={on} onClick={() => pick(id)}>{mark}<span>{name}</span></button>
   );
   return (
-    <form class={`capture${stack ? ' stack' : ''}${invite ? ' invite' : ''}${chip ? ' chip' : ''}`} onSubmit={(e) => send(e, hooks)}>
-      {stack ? (
-        <>
-          <div class="cap">
-            <Wave n={13} live={!!cap.draft} />{field}
-          </div>
-          <div class="cap-dest">{where}{agentLine}{hint && <span class="cap-hint">{hint}</span>}</div>
-        </>
-      ) : (
-        <div class="cap" onPointerDown={(e) => e.target === e.currentTarget && (e.preventDefault(), document.getElementById('capture-input')?.focus())}>
-          {!chip && <Wave n={9} />}{field}{where}{!chip && agentLine}{hint && <span class="cap-hint">{hint}</span>}
-          {go && (
-            <button type="submit" class="cap-go" disabled={!cap.draft.trim()} aria-label={!folders || to === 'idea' ? 'Keep as an idea' : 'Start'}>
-              <kbd>↩</kbd><span>{!folders || to === 'idea' ? 'Keep' : session ? 'Send' : 'Start'}</span>
+    <form class={`capture${raised ? ' raised' : ''}`} aria-busy={cap.sending} onSubmit={(e) => send(e, hooks)}>
+      <div class="cap" onPointerDown={(e) => e.target === e.currentTarget && (e.preventDefault(), focus('#capture-input'))}>
+        {!raised && <Wave n={13} live={!!cap.draft} />}
+        <textarea id="capture-input" ref={area} rows={1} autocomplete="off" spellcheck={false} aria-label="New task" placeholder="Put a thought in"
+          value={cap.draft} readOnly={cap.sending}
+          onInput={(e) => {
+            cap.draft = e.currentTarget.value;
+            if (cap.undone && !cap.draft.trim()) drop();
+            askRoute();
+          }}
+          onKeyDown={(e) => {
+            // Return sends; Shift-Return starts a new line.
+            if (e.key === 'Enter' && !e.isComposing && !e.shiftKey) void send(e, hooks);
+            else if (e.key === 'z' && e.metaKey && !cap.draft && cap.sent) {
+              e.preventDefault();
+              void undo();
+            }
+          }} />
+        <div class="cap-row">
+          {cap.choosing ? (
+            // The choice opens in the field's own row, so it covers nothing the person is reading.
+            <div class="cap-list" role="listbox" aria-label="Destination" onKeyDown={arrows}
+              onFocusOut={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && cap.choosing && ((cap.choosing = false), redraw())}>
+              {projects().filter((p) => p.kind === 'folder').map((p) => option(p.id, p.id === (to ?? routedProject(route)), <I n="folder" />, p.name))}
+              {option('idea', idea, <i class="st" data-s="idea" aria-hidden="true" />, 'Idea')}
+              <button type="button" onClick={() => void addProject(hooks)}><I n="plus" /><span>Open a folder…</span></button>
+            </div>
+          ) : (
+            <button type="button" class="cap-to" id="dest-chip" aria-haspopup="listbox" aria-expanded={false}
+              title={!folders ? 'Kept as an idea until a folder is open' : idea ? 'Kept as an idea; nothing starts' : 'Where it goes. Click to change'}
+              onClick={() => choose(true)}
+              onKeyDown={(e) => (e.key === 'ArrowDown' || e.key === 'ArrowUp') && (e.preventDefault(), choose(true))}>
+              {idea ? <i class="st" data-s="idea" aria-hidden="true" /> : <I n={session ? 'term' : 'arrow'} />}
+              <b>{route ? routeLabel(route) : idea ? 'Idea' : projectName(folder(to))}</b>
+              {with_ && <span class={ready || route?.confidence === 'ambiguous' ? '' : 'off'}>{with_}</span>}
+              <I n="chev" />
             </button>
           )}
+          <button type="submit" class="cap-go" disabled={!cap.draft.trim() || cap.sending}><kbd>↩</kbd><span>{does}</span></button>
         </div>
-      )}
-      {list}
+      </div>
       <Receipt hooks={hooks} />
     </form>
   );

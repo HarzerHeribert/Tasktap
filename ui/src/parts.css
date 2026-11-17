@@ -1,5 +1,5 @@
 /* The parts both pages share (ui.tsx, question.tsx, capture.tsx): the reset, the focus ring, icons, the state mark,
-   the wave, key caps, answers, buttons, the reply field, the capture line and a question. Values come from tokens.css. */
+   the wave, key caps, answers, buttons, the reply field, the capture field and a question. Values come from tokens.css. */
 *,::before,::after{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden}
 body{font:var(--f-body);color:var(--fg);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;-webkit-user-select:none;user-select:none;cursor:default}
@@ -78,21 +78,39 @@ kbd.key,.ans kbd,.btn kbd,.reply kbd,.act kbd{display:inline-block;flex:none;min
 .diff{font:var(--f-num);color:var(--fg3);white-space:nowrap}
 .diff .p{color:var(--plus)}.diff .m{color:var(--minus)}
 
-/* the capture line: wave, field, destination, agent, hint, over a rule that lights while it has the keyboard */
-.cap{display:flex;align-items:center;gap:14px;min-width:0;border-bottom:1px solid var(--line2)}
-.cap:focus-within{border-image:var(--lit) 1}
-.cap input{flex:1;min-width:0;width:0;font:var(--f-question);letter-spacing:-.01em}
-.cap-to{display:inline-flex;align-items:center;gap:5px;flex:none;font:var(--f-small);color:var(--fg)}
-.cap-to .i{width:12px;height:12px;color:var(--fg3)}
-button.cap-to:hover span{text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--fg3)}
-.cap-agent{flex:none;font:var(--f-small);color:var(--fg2);white-space:nowrap}
-.cap-agent.off{color:var(--asks)}
-.cap-hint{flex:none;font:var(--f-cap);color:var(--fg3);white-space:nowrap}
-.cap-hint kbd{font:var(--f-num)}
-.cap-list{display:grid;padding:var(--sp1) 0;border-bottom:1px solid var(--line)}
-.cap-list button{display:flex;align-items:center;gap:var(--sp2);height:var(--row-h);padding:0 var(--sp2);border-radius:var(--r1);font:var(--f-small);color:var(--fg2)}
-.cap-list button:is(:hover,[aria-selected=true]){background:var(--hover);color:var(--fg)}
-.cap-list .i{width:14px;height:14px;color:var(--fg3)}
+/* what the core said about a thought's changes (changes.tsx Told): its own words in full, wrapped; a command to copy */
+.told{flex-basis:100%;max-width:72ch;margin:6px 0 2px;font:var(--f-small);color:var(--fg2);text-wrap:pretty;overflow-wrap:anywhere;white-space:normal;-webkit-user-select:text;user-select:text}
+.told b{font-weight:600;color:var(--fg)}
+.told.warn b{color:var(--asks)}
+.told code{font:var(--f-num);color:var(--fg)}
+.told ul{margin:4px 0;padding:0;list-style:none}
+.told li{padding:1px 0 1px var(--sp3)}
+.told .btn{display:flex;margin-top:var(--sp2);-webkit-user-select:none;user-select:none}
+
+/* the capture field (capture.tsx): the thought on lines of its own; under it, where it goes and the button that says
+   what Return does. On a sheet it sits bare, the wave beside the thought, over a rule that lights while it has the
+   keyboard; on Home it is a raised surface (window.css). Choosing a destination opens the choice in that same row */
+.cap{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;column-gap:14px;min-width:0;cursor:text}
+.cap .wave{--wh:30px;--ww:3px;--wg:2.5px}
+.cap textarea{grid-column:2;min-width:0;max-height:92px;padding:10px 0;resize:none;overflow:auto;font:var(--f-question);letter-spacing:-.01em;caret-color:var(--accent)}
+.cap textarea:read-only{color:var(--fg2)}
+.cap-row{grid-column:1/-1;display:flex;align-items:flex-start;gap:var(--sp2);min-width:0;padding-top:var(--sp2);border-top:1px solid var(--line);cursor:default}
+.capture:focus-within .cap-row{border-image:var(--lit) 1}
+.cap-to,.cap-list button{display:inline-flex;align-items:center;gap:6px;height:var(--row-h);padding:0 var(--sp2) 0 6px;border-radius:var(--r1);font:var(--f-small);color:var(--fg2);white-space:nowrap}
+.cap-to{min-width:0;margin-left:-6px;padding-right:5px}
+:is(.cap-to,.cap-list button):hover{background:var(--fill);color:var(--fg)}
+.cap-to b{overflow:hidden;text-overflow:ellipsis;font-weight:400;color:var(--fg)}
+.cap-to span::before{content:"·";margin-right:6px;color:var(--fg3)}
+.cap-to span.off{color:var(--asks)}
+:is(.cap-to,.cap-list) .i{width:14px;height:14px;color:var(--fg3)}
+.cap-to .i:last-child{width:12px;height:12px;transform:rotate(90deg)}
+.cap-list{display:flex;flex-wrap:wrap;gap:2px;min-width:0;margin-left:-6px}
+.cap-list [aria-selected=true]{background:var(--sel);color:var(--fg)}
+.cap-go{display:inline-flex;align-items:center;gap:6px;flex:none;height:var(--row-h);margin-left:auto;padding:0 10px 0 var(--sp2);border-radius:var(--r1);background:var(--metal);color:var(--ink);font:var(--f-strong);font-size:12px;box-shadow:var(--cap-edge);white-space:nowrap}
+.cap-go kbd{font:600 12px/1 var(--mono);opacity:.7}
+.cap-go:hover{filter:brightness(1.08)}
+.cap-go:active{filter:brightness(.82)}
+.cap-go:disabled{opacity:1;background:var(--fill);color:var(--fg3);box-shadow:none}
 .cap-said{display:flex;align-items:center;gap:var(--sp2);min-height:var(--row-h);font:var(--f-small);color:var(--fg2)}
 .cap-said b{font-weight:400;color:var(--fg)}
 .cap-said .act{height:22px;margin-left:auto}

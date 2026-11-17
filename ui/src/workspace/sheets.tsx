@@ -5,7 +5,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Capture, cap } from '../capture.tsx';
 import { uuid7 } from '../client.ts';
-import { type Review, lost, pending, review, running, settle } from '../changes.tsx';
+import { type Review, Told, lost, next, pending, review, running, settle } from '../changes.tsx';
 import { Ask } from '../question.tsx';
 import { Answer, Diffstat, I, Mark } from '../ui.tsx';
 import * as L from './layout.ts';
@@ -13,13 +13,13 @@ import {
   LOOSE, agentName, call, dismiss, fail, finishClose, focus, focusTerminal, keepInBackground, label, layout, newTerminal, open, openWorkspace,
   pickFolder, projectName, projects, records, setLayout, stop, title, ui,
 } from './model.ts';
+import { wakeLook } from './light.tsx';
 import { Settings } from './settings.tsx';
-import { trail } from '../trail.ts';
-import { ambient } from './ambient.ts';
 
 /** A sheet replaced by another (Review, then Discard) is not dropped again. */
 let wasOpen = false;
 import { engines } from './terminal.ts';
+import { wake } from './wake.ts';
 
 type Act = { k: string; label: string; do: () => void; kind?: 'primary' | 'danger' };
 
@@ -120,14 +120,17 @@ function ReviewSheet({ id }: { id: string }) {
   if (!t) return null;
   const changes = pending(t) ? t : null;
   const go = (path: string) => document.getElementById(`diff-${path}`)?.scrollIntoView({ block: 'start' });
-  const acts: Act[] = changes ? [
-    { k: '↩', label: 'Keep', kind: 'primary', do: () => (running(changes) ? open({ kind: 'settle', thought: id, keep: true }) : (dismiss(), void settle(changes, true))) },
-    { k: 'D', label: 'Discard', do: () => open({ kind: 'settle', thought: id, keep: false }) },
+  const main = changes && next(changes);
+  const discard = () => open({ kind: 'settle', thought: id, keep: false });
+  const acts: Act[] = [
+    ...(main ? [{ k: '↩', label: main.label, kind: 'primary' as const, do: () => (!main.keep ? discard() : running(changes) ? open({ kind: 'settle', thought: id, keep: true }) : (dismiss(), void settle(changes, true))) }] : []),
+    ...(main?.keep ? [{ k: 'D', label: 'Discard', do: discard }] : []),
     { k: 'esc', label: 'Close', do: dismiss },
-  ] : [{ k: 'esc', label: 'Close', do: dismiss }];
+  ];
   return (
     <Frame wide="review" title={<>{title(t)} {changes && <Diffstat w={changes.workdir} />}</>} acts={acts}>
       <div class="review">
+        {changes && <Told t={changes} />}
         {error && <p class="said">{error}</p>}
         {!r && !error && <p class="said">Reading the changes…</p>}
         {r && (
@@ -219,7 +222,7 @@ function Body() {
     case 'capture':
       return (
         <Frame wide="capture" title="New task">
-          <Capture stack started={dismiss} hint={<><kbd>↩</kbd> start</>} />
+          <Capture started={dismiss} />
         </Frame>
       );
     case 'settings':
@@ -240,7 +243,7 @@ function Body() {
       return <ReviewSheet id={d.thought} />;
     case 'settle': {
       const t = records.thoughts.get(d.thought);
-      if (!pending(t)) return <Frame title="Settled" acts={[{ k: 'esc', label: 'Close', do: dismiss }]}><p>Its changes were kept or discarded.</p></Frame>;
+      if (!pending(t)) return <Frame title="Settled" acts={[{ k: 'esc', label: 'Close', do: dismiss }]}><p>{t?.workdir?.changes === 'kept' ? `Its changes are in ${t.workdir.destination ?? 'their branch'}.` : 'Its changes were discarded.'}</p></Frame>;
       const live = running(t);
       const go = () => (dismiss(), void settle(t, d.keep));
       const s = t.session_id ? records.sessions.get(t.session_id) : undefined;
@@ -249,7 +252,7 @@ function Body() {
           <p>{agentName(s?.agent ?? t.agent)} is still running in its terminal. Its changes can be kept once it has stopped; its history stays.</p>
         </Frame>
       ) : (
-        <Frame title={`Discard the changes of ${quote(title(t))}?`} acts={[{ k: '⌘⌫', label: live ? 'Stop and discard' : 'Discard', kind: 'danger', do: go }, cancel]}>
+        <Frame title={next(t).keep ? `Discard the changes of ${quote(title(t))}?` : `Remove the copy left by ${quote(title(t))}?`} acts={[{ k: '⌘⌫', label: live ? 'Stop and discard' : next(t).keep ? 'Discard' : 'Remove the copy', kind: 'danger', do: go }, cancel]}>
           <p>{live ? 'Its session is stopped first. ' : ''}{lost(t)}</p>
         </Frame>
       );
@@ -309,8 +312,8 @@ export function Sheets() {
     if (!d) return;
     // The sheet takes the keyboard at once, without the ring a key press would show.
     const sheet = document.querySelector<HTMLElement>('.sheet');
-    // As it drops, its edge leaves a short trail of glyphs on the sheet it reveals, gone before its words have come in.
-    if (sheet && !wasOpen) trail({ box: sheet.getBoundingClientRect(), axis: 'y', ms: 220, count: 22 }, ambient() !== 'off');
+    // As it drops, its edge sheds a short wake of glyphs on the sheet it reveals.
+    if (sheet && !wasOpen) wake(sheet, 'y', wakeLook());
     wasOpen = true;
     focus(sheet?.querySelector<HTMLElement>('#capture-input, #find-text, .field input, .ask-notch .ans, .reply input') ?? sheet);
   }, [key]);

@@ -25,15 +25,9 @@ export function Motion({ class: cls, children, ...o }: Options & { class?: strin
   return <span ref={el} class={`motion ${cls ?? ''}`} data-style={o.look.style} data-state={o.state} aria-hidden="true">{children}</span>;
 }
 
-/** For the debug channel: a state shown instead of the product's, and a pace instead of the view's own
- *  (`__motion.debug.state='working'`, `__motion.debug.pace='breathe'`), and the light's strength
- *  (`__motion.debug.strength='strong'`) for comparing. */
+/** For the debug channel: a state shown instead of the product's (`__motion.debug.state='working'`), and the light
+ *  breathing, or not, whatever the window and the state (measure.sh). */
 export const debug = {
   state: null as MotionState | null,
-  pace: null as Options['pace'] | null,
-  strength: null as 'faint' | 'default' | 'strong' | null,
-  /** The light breathing, or not, whatever the window and the state (measure.sh). */
   breathe: null as boolean | null,
-  /** The ambient tempo, for comparing (`slow`, `slower`, `slowest`); `slower` by default. */
-  tempo: null as 'slow' | 'slower' | 'slowest' | null,
 };

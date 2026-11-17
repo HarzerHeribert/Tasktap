@@ -72,6 +72,14 @@ function fakeRuntime({ label, records: records0, welcome }) {
       return;
     }
     if (name === 'history') return reply(id, { thoughts: [], questions: [], results: [] });
+    // Keep or Discard: what `settles` holds for the thought is the core's refusal in its own words; else it settles,
+    // as `kept` where `settles` says a discard found everything already in its branch.
+    if (name === 'thought.settle') {
+      const said = (records.settles || {})[args.id], t = (records.thoughts || []).find((x) => x.id === args.id);
+      if (said && said !== 'kept') return toCore({ t: 'reply', id, err: { code: 'failed', message: said } });
+      if (t) push({ t: 'change', rev: ++rev, sets: [{ c: 'thoughts', put: [{ ...t, rev, workdir: { ...t.workdir, changes: args.keep || said ? 'kept' : 'discarded' } }] }] });
+      return reply(id, null);
+    }
     if (name === 'put' && args.c !== 'prefs') return reply(id, { rev: ++rev });
     if (name === 'sub') {
       const sets = (args.collections || []).map((c) => c === 'glance' ? { c, put: records.glance ? [records.glance] : [] } : { c, put: records[c] || [] });
@@ -141,7 +149,7 @@ function fakeRuntime({ label, records: records0, welcome }) {
   };
 }
 
-const CALLS = ['sub', 'put', 'capture', 'thought.stop', 'question.answer', 'terminal.open', 'thought.changes', 'history'];
+const CALLS = ['sub', 'put', 'capture', 'thought.stop', 'question.answer', 'terminal.open', 'thought.changes', 'thought.settle', 'history'];
 
 // A page with the fake runtime, loaded, with `sub` answered from `records`.
 // `video`: Playwright's recordVideo for the context; `clock`: the page's clock held until the caller runs it.

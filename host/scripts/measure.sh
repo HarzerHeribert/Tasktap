@@ -10,9 +10,10 @@
 #
 # MOTION=1 host/scripts/measure.sh measures the light instead, in one short launch: the whole app idle with the
 # workspace on Home and the notch collapsed; then, in a state held through the debug channel once its moment is over,
-# Home's light breathing (the pools: opacity and transform on the compositor), the sidebar's glyphs turning (10 a
-# second) beside it, and both beside a workspace's terminal; each over 10 s. The system's window compositor
-# (WindowServer) is reported beside the app, since breathing is its work.
+# Home's light held still, the whole ambient layer moving (the pools breathing and the sidebar's glyphs swaying, on one
+# clock, by opacity and transform) on Home and beside a workspace's terminal, and that terminal with the light still;
+# each over 10 s. The system's window compositor (WindowServer) is reported beside the app, since compositing each
+# step is its work; it also draws everything else on the screen, so its share is only as quiet as the machine.
 set -u
 host="$(cd "$(dirname "$0")/.." && pwd)"
 exe="$host/target/release/bundle/macos/Tasktap Next.app/Contents/MacOS/tasktap-next"
@@ -51,12 +52,12 @@ for run in $(seq 1 "${1:-3}"); do
     }
     sleep 15
     printf '%-52s %s\n' "idle: Home shown, notch collapsed" "$(phase 20)"
-    for run in "home working 1 calm" "home working 1 breathe" "home needs 1 calm" "terminal working 1 breathe" "terminal working 0 calm"; do
+    for run in "home working false" "home working true" "home needs true" "terminal working true" "terminal working false"; do
       set -- $run
-      [ "$1" = terminal ] && ask "(__ws.command('open-workspace'), 1)" >/dev/null && echo "click workspace .sheet .act.primary" >&3 && sleep 3
-      ask "(__motion.debug.state='$2', __motion.debug.breathe=$3===1, __motion.debug.pace='$4', __motion.redraw(), 1)" >/dev/null
+      [ "$1" = terminal ] && [ "$(ask "__ws.ui.view")" = home ] && ask "(__ws.command('open-workspace'), 1)" >/dev/null && echo "click workspace .sheet .act.primary" >&3 && sleep 3
+      ask "(__motion.debug.state='$2', __motion.debug.breathe=$3, __motion.redraw(), 1)" >/dev/null
       sleep 8
-      printf '%-52s %s\n' "$1, $2, breathing $3, glyphs $4" "$(phase 10)"
+      printf '%-52s %s\n' "$1, $2, $([ "$3" = true ] && echo "light breathing, glyphs swaying" || echo "light and glyphs still")" "$(phase 10)"
     done
     echo quit >&3
     sleep 1

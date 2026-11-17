@@ -55,7 +55,7 @@ export function Answer({ questions }: { questions: Question[] }) {
       <div class="pad">
         {about && <p class="ctx">{q.source === 'permission' ? `${who} asks permission · ${about}` : about}</p>}
         <Ask q={q} size="notch" who={who} terminal={q.reply_via === 'terminal' && s ? () => peek(s.id) : undefined} />
-        {ui.capturing ? <div class="under"><Capture stack {...hooks} /></div> : (
+        {ui.capturing ? <div class="under"><Capture {...hooks} /></div> : (
           <button type="button" class="act quiet" onClick={capture}><kbd>C</kbd><span>Put a thought in</span></button>
         )}
       </div>

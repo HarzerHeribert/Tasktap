@@ -5,6 +5,7 @@ import type { Session, StartTerminal, Thought } from '../../../core/proto/protoc
 import { uuid7 } from '../client.ts';
 import { agentName, call, fail, focus, openQuestions, page, records, redraw, title, why } from '../page.ts';
 import type { State } from '../ui.tsx';
+import { snap } from './appearance.ts';
 import * as L from './layout.ts';
 import { currentLook, engine, engines } from './terminal.ts';
 
@@ -49,10 +50,6 @@ export const ui = {
   voice: false,
   /** Home's open fold, and how far Running is opened. */
   fold: '' as '' | 'results' | 'ideas' | 'shut' | 'shut-ideas',
-  /** How Home's capture field is drawn, of the variants for the owner to choose from: one lit line with its destination
-   *  inside at its end (the default), a composer whose destination and send button sit on a row of their own, or a bare
-   *  field with its destination on a quiet line beneath. */
-  head: 'lit' as 'lit' | 'composer' | 'beneath',
   more: false,
   /** The window is narrower than the sidebar and a workspace need; the sidebar then comes over the content (`peek`). */
   narrow: false,
@@ -354,7 +351,11 @@ export async function pickFolder() {
 export function textSizeBy(id: string, change: 1 | -1 | 0) {
   const project = projectOf(id);
   const l = layout(project);
-  setLayout(project, L.textSize(l, id, change === 0 ? null : textSize(id) + change));
+  // A step is to the next size whose cells differ: sizes between whole pixels of cell width look the same.
+  const family = currentLook().fontFamily, at = textSize(id);
+  let next = at + change;
+  while (change && snap(family, next) === snap(family, at) && next > 6 && next < 40) next += change;
+  setLayout(project, L.textSize(l, id, change === 0 ? null : next));
   engines.get(id)?.setLook(currentLook(), textSize(id));
 }
 

@@ -12,6 +12,9 @@ log="$caps/trial.log" fifo="$build/trial.fifo"
 mkdir -p "$caps" "$build"
 dry="${TRIAL_DRY:-0}"   # TRIAL_DRY=1 runs the flow on a locked screen: no prompts, no posted input, no captures.
 pause() { [ "$dry" = 1 ] || read -r _; }
+# Pressing Enter here gives this terminal the keyboard, so the script hands it
+# back to TextEdit itself before a step that needs TextEdit in front.
+textedit_front() { [ "$dry" = 1 ] || { open -a TextEdit; sleep 2; }; }
 summary=()
 mark() { summary+=("$(printf '%-11s %s' "$1" "$2")"); printf '\n%-11s %s\n' "$1" "$2"; }
 note() { printf '            %s\n' "$*"; }
@@ -75,9 +78,10 @@ region="$(js 'x,y,w,h,t=map(float,sys.argv[1:]); print("%d,%d,%d,%d"%(x-30,t-(y+
 openregion="$(js 'x,w=map(float,sys.argv[1:3]); print("%d,0,%d,330"%(x+w/2-260,520))' "$fx" "$fw")"
 
 echo "== Item 2: reveal without stealing focus"
-echo "Open a new empty TextEdit document and click into it so it has keyboard focus, then come back here, press Enter and keep your hands off for 20 s."
-echo "(The script types only after the trial's panel reports that it holds keyboard focus.)"
+echo "Open a new empty TextEdit document, then come back here, press Enter and keep your hands off for 20 s."
+echo "(The script brings TextEdit back to the front itself, and types only after the trial's panel reports that it holds keyboard focus.)"
 pause
+textedit_front
 front="$("$tool" frontmost)"
 n=$(count hover)
 "$tool" warp "$tabx" "$taby"
@@ -122,8 +126,9 @@ else mark FAIL "2b click focus: no text reached the trial"; fi
 mark NEEDS-EYES "2c after the notch closes, type in the app you were using: keystrokes must go there without clicking it first"
 
 echo "== Shortcut path (1.2 opens the capture line with focus from a global shortcut)"
-echo "Click back into the TextEdit document, then press Enter here."
+echo "Press Enter here; the script brings the TextEdit document back to the front."
 pause
+textedit_front
 n=$(count typed)
 send capture; sleep 0.6
 cap="$(last capture)"

@@ -241,7 +241,7 @@ Aim for under 20 checks, each named after a promise to the user.
 **Waiting for the owner**
 
 1. Done: `trials/tauri-notch/check.sh` was run. Two focus checks failed and are being investigated against how 1.2 behaves; the look was judged fine apart from a focus outline.
-2. Leave the Mac unlocked for a few minutes so the 1.2 baseline can be measured.
+2. Done: the 1.2 baseline is measured and recorded below.
 3. Done: Phase 0 was tried. Two defects were found, listed at the end of this plan.
 4. Overrule anything in "Changes made while the owner was away" that should not stand.
 
@@ -264,7 +264,19 @@ Aim for under 20 checks, each named after a promise to the user.
 | Stream rate, client to core | 1,039 MB/s | at least 200 MB/s |
 | Program size | 4.4 MB | at most 6 MB |
 
-The 1.2 numbers to compare against are still missing.
+**1.2 baseline, measured on 2026-11-17** on the development build from before the cuts (same machine; one workspace, one idle shell terminal, notch collapsed):
+
+| Measure | 1.2 | How |
+| --- | --- | --- |
+| Processor use while idle, all processes | 1.1 to 1.3 % | `top` over 60 s, 3 runs |
+| Idle wakeups over 60 s, all processes | 77 to 120 | same |
+| Context switches over 60 s, all processes | about 10,200 to 11,400 | same; the host's pointer-hover timer accounts for most |
+| Memory, all processes | 281 to 282 MB | physical footprint, 3 runs: host 34, workspace page 120, notch page 48, graphics and network 27, Python service and bridge 25, the rest helpers |
+| Start to window on screen | 553 ms | median of 3 launches after a full quit |
+| Typing delay, key to echo on screen | about 21 ms | median of 3 runs of 30 keys, with the window behind another app |
+| Terminal output rate | not measured | a 1.3 MB burst made 1.2 lose its terminal connection after about 5,900 lines |
+
+These are whole-app numbers. The core's numbers above cover only the part that replaces the Python service and the host's logic; the fair comparison is made once the new host and pages exist.
 
 **One-host trial:** finished, and the decision is one host. Every automated check passes on an unlocked screen. Two focus checks first failed because they compared two different measures; measured the same way, 1.2 and the trial behave alike. Idle memory including the web view processes was 74 MB for the trial against 208 MB for 1.2, mostly because 1.2 loads its full page twice. Still to be checked by eye in Phase 4: other Spaces and full-screen apps, whether the tab blinks when the notch folds, and VoiceOver.
 
@@ -290,4 +302,4 @@ Each can be overruled. Nothing built so far depends on the answer.
 - The window's close, minimise and zoom buttons are missing.
 - Clicking an element shows a focus outline around it, including around the notch.
 
-Both are being traced to the change that caused them and fixed on `rebuild-phase-0`.
+Neither came from the cuts; both exist in 1.2. The buttons are hidden because the window's background is set while its content view is being installed, which on this macOS leaves the title bar under the page; it is not fixed, since the new host replaces that window. The outline is a keyboard-focus ring: the page moves focus to the notch tab by script whenever the notch opens or folds, and the browser treats that as keyboard focus. The cuts removed a row that used to cover most of it. Fixed for the notch tab on `rebuild-phase-0`. Rule for the new interface: a focus move made by script, not by the keyboard, must not show the ring.

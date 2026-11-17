@@ -268,12 +268,21 @@ fn a_follow_up_to_an_agent_adopted_in_a_shell_is_typed_while_its_shim_holds_it()
     });
     screen.line("event:turn_finished:Tests added.");
     s.w.until("the follow-up is done", |m| m.status(f) == Status::Done);
-    screen.line("exit:0");
-    s.w.until("the session ends", |m| {
-        m.session(session).state == SessionState::Ended
+
+    // Stopping a run of it ends the session and never the person's shell.
+    let g = follow_up(&mut s, session, "and the docs");
+    screen.until("prompt:and the docs");
+    s.w.until("the next follow-up runs", |m| {
+        m.session(session).thought_id == Some(g)
     });
-    // The shell goes on.
+    s.w.ok::<call::ThoughtStop>(&Ref { id: g });
+    assert_eq!(s.w.model.session(session).state, SessionState::Ended);
+    // Nothing was sent to the terminal: the agent, unobserved now, goes on.
+    screen.line("wait");
+    screen.line("still here");
+    screen.until("read:still here");
     assert_eq!(s.w.model.terminals[&shell].state, TerminalState::Running);
+    screen.line("exit:0");
 }
 
 #[test]

@@ -20,10 +20,10 @@
 //! | `nohup` | ignores hang-up from then on |
 //! | `exit:CODE` | exits with the code; after the last step it exits with 0 |
 //!
-//! A line of standard input pasted as a terminal pastes (bracketed paste) is
-//! a prompt, as one typed into a real agent: in place of a step it prints
-//! `prompt:` and the text and reports `turn_started` with it. Lines read
-//! by `wait` lose their paste brackets too.
+//! A line of standard input that is no step, or that was pasted as a
+//! terminal pastes (bracketed paste), is a prompt, as one typed into a real
+//! agent: it prints `prompt:` and the text and reports `turn_started` with
+//! it. Lines read by `wait` lose their paste brackets too.
 //!
 //! Without a hook, as when it runs unobserved, `event` and `ask` do nothing.
 
@@ -82,7 +82,9 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         };
         let (verb, rest) = step.split_once(':').unwrap_or((step.as_str(), ""));
         asked += 1;
-        if let Some(prompt) = pasted(&step) {
+        // Pasted, or with its brackets taken by a Windows console.
+        let prompt = pasted(&step).or((!scripted && !STEPS.contains(&verb)).then_some(&*step));
+        if let Some(prompt) = prompt.filter(|p| !p.is_empty()) {
             println!("prompt:{prompt}");
             if let Some(hook) = &hook {
                 hooked(hook, &said("turn_started", prompt, asked));

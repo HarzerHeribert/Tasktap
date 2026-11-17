@@ -786,19 +786,15 @@ impl Screen {
     /// Reads until it shows `what`.
     pub fn until(&mut self, what: &str) {
         while !self.text().contains(what) {
-            assert!(
-                !self.closed,
-                "it ended without showing {what:?}: {:?}",
-                self.text()
-            );
-            self.pump();
+            let gone = self.closed || !self.pump();
+            assert!(!gone, "it ended before {what:?}: {:?}", self.text());
         }
     }
 
     /// Reads until the terminal has ended.
     pub fn ended(&mut self) {
         while !self.closed {
-            self.pump();
+            assert!(self.pump(), "the core went away first");
         }
     }
 

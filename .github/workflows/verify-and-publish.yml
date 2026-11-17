@@ -5,111 +5,12 @@ on:
     branches: [main, 'rebuild*']
   workflow_dispatch:
 
+# No job reads a secret, so pull requests from forks run every check. Only the deployment
+# asks for more than read access, and it never runs for a pull request.
 permissions:
   contents: read
 
 jobs:
-  quality:
-    name: UI, behavior and documentation
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-      - name: Check the published guide against this change
-        env:
-          BEFORE: ${{ github.event.before }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          if [[ -n "$PR_BASE" ]]; then
-            python3 scripts/verify-docs.py "$(git merge-base "$PR_BASE" "$PR_HEAD")" "$PR_HEAD"
-          elif [[ -n "$BEFORE" && ! "$BEFORE" =~ ^0+$ ]]; then
-            python3 scripts/verify-docs.py "$BEFORE" HEAD
-          else
-            python3 scripts/verify-docs.py HEAD^ HEAD
-          fi
-      - name: Source and design rules
-        run: |
-          python3 scripts/verify-style.py
-          python3 -m compileall -q scripts
-          for file in prototype/*.js site/*.js scripts/*.cjs; do node --check "$file"; done
-          git diff --check HEAD^ HEAD
-      - name: Session, routing and model regressions
-        run: |
-          python3 scripts/verify-agent-models.py
-          python3 scripts/verify-router-providers.py
-          python3 scripts/verify-project-sessions.py
-          python3 scripts/verify-session-rows.py
-          python3 scripts/verify-visible-session.py
-          python3 scripts/verify-workspace-terminals.py
-          python3 scripts/verify-session-observer.py
-          python3 scripts/verify-tasktap-shell.py
-          python3 scripts/verify-terminal-replay.py
-          python3 scripts/verify-release-helpers.py
-          python3 scripts/verify-resource-integrity.py
-          node scripts/verify-model-policy.cjs
-          node scripts/verify-workspace-layout.cjs
-      - run: npm ci --ignore-scripts
-      - run: npx --no-install playwright install --with-deps chromium
-      - name: Build and exercise the public site and the app
-        run: |
-          export TASKTAP_SCREENSHOTS="$RUNNER_TEMP/tasktap-shots"
-          mkdir -p "$TASKTAP_SCREENSHOTS"
-          python3 scripts/build-site.py
-          for test in session-attention capture-preparation activity workspace-activity notch-profile notch-glow independent-windows workspace-deck workspace-navigation workspace-lifecycle workspace-background workspace-splits workspace-drag terminal-viewport terminal-controls terminal-clipboard terminal-input terminal-protocol terminal-resize terminal-reflow workspace-documents appearance home-overview result-presentation settings-layout voice-settings review capture-context notifications pages ui relay decision-rim voice-wave setup setup-preparation first-run model-ui model-server connections session-names session-detail workspace-lists update-ui; do
-            node "scripts/verify-$test.cjs"
-          done
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: ui-checks
-          path: ${{ runner.temp }}/tasktap-shots
-          if-no-files-found: ignore
-      - uses: actions/upload-pages-artifact@v4
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        with:
-          path: build/pages
-
-  mac:
-    name: macOS build and notch geometry
-    runs-on: macos-26
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - name: Verify update lifecycle guards
-        run: node scripts/verify-updates.cjs
-      - name: Verify installer replacement and backups
-        run: bash scripts/verify-installer.sh
-      - name: Build app and verify signature
-        run: ./scripts/build-mac.sh
-      - name: Check notch placement and restored sessions
-        run: |
-          swiftc native/NotchGeometry.swift scripts/verify-notch-geometry.swift -o "$RUNNER_TEMP/notch-test"
-          "$RUNNER_TEMP/notch-test"
-          swiftc -parse-as-library -target "$(uname -m)-apple-macosx26.0" native/HandoffRouter.swift scripts/verify-handoff-router.swift -o "$RUNNER_TEMP/handoff-test"
-          "$RUNNER_TEMP/handoff-test"
-          swiftc native/TerminalInputDiagnostics.swift scripts/verify-terminal-diagnostics.swift -o "$RUNNER_TEMP/input-diagnostics-test"
-          "$RUNNER_TEMP/input-diagnostics-test"
-          python3 scripts/verify-visible-session.py
-          swiftc native/SessionNames.swift scripts/verify-session-names.swift -o "$RUNNER_TEMP/names-test"
-          "$RUNNER_TEMP/names-test"
-          swiftc native/ScreenContext.swift scripts/verify-screen-context.swift -o "$RUNNER_TEMP/context-test"
-          "$RUNNER_TEMP/context-test"
-          swiftc -parse-as-library native/SpeechPreferences.swift native/CloudSpeech.swift native/SpeechService.swift native/Dictation.swift scripts/verify-speech.swift -o "$RUNNER_TEMP/speech-test"
-          "$RUNNER_TEMP/speech-test"
-          swiftc native/WorkspaceFolders.swift native/LiveWorkspace.swift native/WorkspaceTerminals.swift scripts/verify-workspace-folders.swift -o "$RUNNER_TEMP/folders-test"
-          "$RUNNER_TEMP/folders-test"
-          swiftc native/WorkspaceTerminals.swift native/LiveWorkspace.swift native/WorkspaceFolders.swift scripts/verify-terminal-prerequisites.swift -o "$RUNNER_TEMP/terminal-prerequisites"
-          "$RUNNER_TEMP/terminal-prerequisites"
   core:
     name: Core on ${{ matrix.os }}
     strategy:
@@ -136,9 +37,151 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
+  interface:
+    name: Interface (types, tests, build, pages)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
+      - name: No whitespace errors in this change
+        run: git diff --check HEAD^ HEAD
+      - name: Install
+        run: npm ci --no-audit --no-fund
+        working-directory: ui
+      - name: Types and tests
+        run: npm run check
+        working-directory: ui
+      - name: Build the pages
+        run: npm run build
+        working-directory: ui
+      - name: Install the headless browser
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npx --no-install playwright install --with-deps chromium
+      - name: The page scripts parse
+        run: for file in scripts/*.cjs; do node --check "$file"; done
+      - name: Every list keeps its columns
+        run: node scripts/align-check.cjs
+      - name: The notch and the workspace render in every state without a page error
+        run: |
+          node scripts/motion-pages.cjs "$RUNNER_TEMP/pages/states"
+          node scripts/instrument-shots.cjs "$RUNNER_TEMP/pages/instrument" 1
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: interface-pages
+          path: ${{ runner.temp }}/pages
+          if-no-files-found: ignore
+
+  host:
+    name: Host on macOS (lint, release build, smoke)
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy && rustup default stable
+      - name: Format
+        run: cargo fmt --check
+        working-directory: host
+      - name: Build the app (pages, core, host)
+        run: host/scripts/build.sh
+      - name: Lint
+        run: cargo clippy -- -D warnings
+        working-directory: host
+      - name: The app carries its core and its own identity, apart from an installed Tasktap
+        run: |
+          app="host/target/release/bundle/macos/Tasktap Next.app"
+          test -x "$app/Contents/MacOS/tasktap-next"
+          codesign --verify --strict "$app/Contents/MacOS/tasktap"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = io.github.harzerheribert.tasktap.next
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$app/Contents/Info.plist")" = "Tasktap Next"
+          # Not checked, because it is not true yet: the bundle is not sealed. Its executables carry
+          # the linker's ad-hoc signature only; signing is release work (docs/rebuild-plan.md).
+          codesign -dv "$app" 2>&1 | grep -E 'Signature|flags' || true
+      - name: Install the headless browser
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npx --no-install playwright install chromium
+      - name: Smoke (the real app on the fixture agent, passive, in a temporary data folder)
+        run: SHOTS="$RUNNER_TEMP/smoke" host/scripts/smoke.sh
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: host-smoke
+          path: ${{ runner.temp }}/smoke
+          if-no-files-found: ignore
+
+  # The public site still describes the released 1.2. It is built and checked on every run and
+  # published from main only.
+  site:
+    name: Public site
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: The site's scripts parse
+        run: for file in site/*.js site/docs/*.js; do node --check "$file"; done
+      - name: Build the site
+        run: python3 scripts/build-site.py
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npx --no-install playwright install --with-deps chromium
+      - name: Exercise the built site
+        run: |
+          export TASKTAP_SCREENSHOTS="$RUNNER_TEMP/site-shots"
+          mkdir -p "$TASKTAP_SCREENSHOTS"
+          node scripts/verify-pages.cjs
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: site-checks
+          path: ${{ runner.temp }}/site-shots
+          if-no-files-found: ignore
+      - uses: actions/upload-pages-artifact@v4
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        with:
+          path: build/pages
+
+  installer:
+    name: Published 1.2 installer keeps a backup
+    runs-on: macos-26
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      # site/install.sh is served from the site. This runs its replace-and-back-up step on a
+      # temporary folder; it never touches an installed app.
+      - run: bash scripts/verify-installer.sh
+
   deploy:
     name: Publish GitHub Pages
-    needs: [quality, mac]
+    needs: [site, installer]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

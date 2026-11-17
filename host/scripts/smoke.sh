@@ -42,13 +42,16 @@ app=$!
 exec 3>"$tmp/in"
 
 send() { for line in "$@"; do echo "$line" >&3; done; }
-reports() { grep -c '"event":"report"' "$log"; }
-# The data of the next report after sending $2 to page $1: `ask notch "text #notch-home"`.
+reports() { grep -c "\"event\":\"report\",\"label\":\"$1\"" "$log"; }
+# The data of the next report from page $1 after sending it $2: `ask notch "text #notch-home"`.
 ask() {
-  local before; before=$(reports)
+  local before; before=$(reports "$1")
   send "${2%% *} $1 ${2#* }"
   for _ in $(seq 1 50); do
-    [ "$(reports)" -gt "$before" ] && { grep '"event":"report"' "$log" | tail -1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"])'; return; }
+    [ "$(reports "$1")" -gt "$before" ] && {
+      grep "\"event\":\"report\",\"label\":\"$1\"" "$log" | tail -1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"])'
+      return
+    }
     sleep 0.1
   done
 }
@@ -90,18 +93,27 @@ until_has notch "eval document.querySelector('#guide-input').value" 3 "Undo me" 
   && pass "Undo stops the thought before it starts and returns its text to the field" || fail "Undo"
 send "eval notch (document.execCommand('selectAll'),document.execCommand('insertText',false,'Hello from the smoke'))" "key notch Enter"
 until_has notch "text #notch-home" 5 "Sent to project" || fail "the second capture is sent"
+until_has notch "eval [...__records.thoughts.values()].map(t=>t.text).join('|')" 3 "Hello from the smoke" \
+  && ask notch "eval [...__records.thoughts.values()].map(t=>t.text).join('|')" | grep -qv "Undo me" \
+  && pass "the undone thought goes out again with its new text and leaves no stale copy" || fail "Undo and retyping leave one thought"
 shot capture-receipt
 until_has notch "text .glance-left" 10 "1" && pass "the thought starts after its hold and the collapsed glance counts it working" \
   || fail "the collapsed glance shows it working"
 shot collapsed-working
 
 send "hover in"
-# The fixture agent, like Claude Code in a folder it does not trust yet, waits for its terminal.
-until_has notch "text .notch-work" 15 "Waiting in its terminal" \
-  && pass "a run whose agent has not reported says it waits in its terminal" || fail "a silent run says where it waits"
+until_has notch "text .notch-work" 10 "Open" || fail "the working row offers Open"
 ask notch "click .notch-work-row" >/dev/null
 until_has peek "text .xterm-rows" 10 "fixture-agent" && pass "Open shows the agent's terminal in Peek" || fail "Peek shows the terminal"
+# The fixture agent, like Claude Code in a folder it does not trust yet, asks in its terminal first.
+peek_line "print:Do you trust the files in this folder?"
+until_has notch "text #notch" 10 "trust this folder" && ask notch "text #notch" | grep -q "Answer in its terminal" \
+  && pass "a folder-trust prompt in a starting agent's terminal opens the notch with the action that opens its terminal" \
+  || fail "the trust prompt shows in the notch"
+shot trust
 peek_line "event:ready"
+until_has notch "eval String(document.querySelector('#notch')?.open)" 5 "false" \
+  && pass "the agent starting closes the trust question as answered in its terminal" || fail "the trust question closes"
 peek_line "event:turn_started"
 peek_line "ask:Deploy to staging?"
 until_has notch "text #notch" 10 "Deploy to staging?" && pass "a question opens the notch by itself on its answer card" \

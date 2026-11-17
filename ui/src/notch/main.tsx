@@ -4,6 +4,9 @@ import '../../../prototype/style.css';
 import '../../../prototype/appearance.css';
 import '../../../prototype/workspace-activity.css';
 import '../../../prototype/motion.css';
+// The icon and label rows of the answer card's context (`.decision-context>span`), linked before
+// decision.css as 1.2 linked it.
+import '../../../prototype/content-layout.css';
 import '../../../prototype/decision.css';
 import './notch.css';
 import { listen } from '@tauri-apps/api/event';
@@ -56,12 +59,18 @@ records.onchange = () => {
   const fresh = open.some((q) => !known.has(q.id));
   known.clear();
   for (const q of open) known.add(q.id);
-  if (fresh && ui.mode === 'closed') {
+  // A notch the last question opened by itself is still its own to fold: a new question that
+  // arrives while that fold is pending keeps it open.
+  if (fresh && (ui.mode === 'closed' || ui.auto)) {
     reveal('pinned', 'answer');
     ui.auto = true;
     pulse();
   } else if (!open.length && ui.view === 'answer' && ui.mode !== 'closed') {
-    if (ui.auto) ui.timer = window.setTimeout(fold, 500);
+    // One pending fold however many changes arrive meanwhile, so a new question can cancel it.
+    if (ui.auto) {
+      clearTimeout(ui.timer);
+      ui.timer = window.setTimeout(fold, 500);
+    }
     else ui.view = 'home';
   }
   redraw();
@@ -76,7 +85,7 @@ function pulse() {
 /** The glance on the collapsed tab: working on the left, needs you and done on the right. */
 function Wings() {
   const g = records.glance;
-  const failed = [...records.thoughts.values()].filter((t) => t.status === 'failed' && !t.read).length;
+  const failed = g?.failed ?? 0;
   const left = useRef<HTMLSpanElement>(null);
   const right = useRef<HTMLSpanElement>(null);
   const any = !!g && g.working + g.needs_you + g.done + failed > 0;
@@ -104,7 +113,8 @@ function Wings() {
 function label() {
   const g = records.glance;
   if (!g) return 'Tasktap';
-  const parts = [g.needs_you && `${g.needs_you} need you`, g.working && `${g.working} working`, g.done && `${g.done} done`];
+  const parts = [g.needs_you && `${g.needs_you} need you`, g.working && `${g.working} working`, g.done && `${g.done} done`,
+    g.failed && `${g.failed} failed`];
   return 'Tasktap: ' + (parts.filter(Boolean).join(', ') || 'nothing running');
 }
 
@@ -193,14 +203,9 @@ void listen<{ do: keyof typeof host } & Record<string, number | boolean>>('ui', 
   else host[payload.do]?.();
 });
 render(<App />, document.body);
+// For the debug channel's checks (host/scripts/smoke.sh), which read the records the page holds.
+Object.assign(window, { __records: records });
 void client
-  .sub(['glance', 'thoughts', 'questions', 'results', 'sessions', 'projects', 'prefs'], records)
+  .sub(['glance', 'thoughts', 'questions', 'results', 'sessions', 'projects', 'prefs', 'agents'], records)
   .then(() => call('host.notch', {}))
   .catch(fail);
-// Which agent a new run uses, and whether it can: the capture line says so before sending.
-void call('agents.detect', {})
-  .then((r) => {
-    ui.agents = r.agents;
-    redraw();
-  })
-  .catch(() => {});

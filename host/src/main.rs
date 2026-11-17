@@ -288,8 +288,12 @@ fn main() {
                 st.panel = native::make_panel(webview.inner() as usize);
                 notch::position(&handle, &mut st);
             })?;
-            let handle = app.handle().clone();
-            native::watch_pointer(move || notch::moved(&handle));
+            // A passive run (the checks) is driven by its debug channel alone: the person's own
+            // pointer passing the notch must not open or hold it while a check reads it.
+            if !notch::NOTCH.lock().unwrap().passive {
+                let handle = app.handle().clone();
+                native::watch_pointer(move || notch::moved(&handle));
+            }
 
             if std::env::var_os("TASKTAP_DEBUG").is_some() {
                 let handle = app.handle().clone();

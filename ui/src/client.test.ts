@@ -13,7 +13,7 @@ const thought = (id: string, rev: number, status: 'working' | 'done' = 'working'
   project_id: null, session_id: null, brief: null, agent: 'claude', model: null, workdir: null, hold_until: null, read: false,
   created: 1, updated: 1,
 });
-const glance = { rev: 4, working: 1, needs_you: 0, done: 0, question: null, retiring: false };
+const glance = { rev: 4, working: 1, needs_you: 0, done: 0, failed: 0, question: null, retiring: false };
 
 /** A bridge whose core is the test: `push` delivers frames as the host would. */
 function fake() {
@@ -116,4 +116,19 @@ test('host calls go to the host, and a failed call rejects with its code', async
   await settle();
   push({ t: 'reply', id: lastCall(sent).id, err: { code: 'gone', message: 'no such thought' } });
   await assert.rejects(stop, { code: 'gone' });
+});
+
+test('the agents collection is held like any other, in the order the core lists it, and a new snapshot replaces it', async () => {
+  const { client, push } = fake();
+  const records = new Records();
+  void client.sub(['agents'], records);
+  await settle();
+  const agent = (id: string, rev: number, signed_in: boolean | null) => ({ id, rev, checked: 1, installed: true, version: '1', signed_in,
+    identity: null, events: true, resume: true, permissions: 'core', questions: 'terminal' }) as never;
+  push({ t: 'change', rev: 2, snap: true, sets: [{ c: 'agents', put: [agent('claude', 2, null), agent('codex', 2, true)] }] });
+  push({ t: 'change', rev: 3, sets: [{ c: 'agents', put: [agent('claude', 3, true)] }] });
+  assert.deepEqual([...records.agents.keys()], ['claude', 'codex']);
+  assert.equal(records.agents.get('claude')?.signed_in, true);
+  push({ t: 'change', rev: 4, snap: true, sets: [{ c: 'agents', put: [agent('codex', 4, false)] }] });
+  assert.deepEqual([...records.agents.keys()], ['codex']);
 });

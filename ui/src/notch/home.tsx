@@ -1,13 +1,13 @@
 // The open notch: one capture line with its destination, the receipt with Undo, and the
 // thoughts that are working, waiting or finished.
-import type { Thought } from '../../../core/proto/protocol.ts';
+import type { Route, Thought } from '../../../core/proto/protocol.ts';
 import { useEffect } from 'preact/hooks';
 import poster from '../../../prototype/assets/motion/glyph/miniature.jpg';
 import film from '../../../prototype/assets/motion/glyph/miniature.mp4';
 import { uuid7 } from '../client.ts';
 import { Icon } from '../icons.tsx';
 import {
-  agent, agentName, call, destination, fail, openQuestions, projectName, projects, records, redraw, resultOf, title, ui, why,
+  agent, agentName, call, destination, fail, hinted, openQuestions, projectName, projects, records, redraw, resultOf, title, ui, why,
 } from './model.ts';
 import { fold, peek, reveal } from './panel.ts';
 
@@ -29,25 +29,68 @@ async function addProject(): Promise<string | undefined> {
 }
 const folder = (dest: string | undefined) => (dest && dest !== 'idea' ? dest : undefined);
 
+/** Where the router would send it, when that is one project. */
+const routedProject = (r: Route | undefined) => (r?.confidence === 'clear' && 'project' in r.to ? r.to.project : undefined);
+
 async function send(e: Event) {
   e.preventDefault();
   const text = ui.draft.trim();
   if (!text) return;
-  const to = destination() ?? (await addProject());
-  if (!to) return;
+  // The person's pick, else where the router says (it routes the capture itself), else the default.
+  const route = hinted();
+  const to = route ? routedProject(route) : (destination() ?? (await addProject()));
+  if (!route && !to) return;
   try {
     let id = uuid7();
-    if (to === 'idea') await call('thought.capture', { id, text, strokes: [], source: 'typed', mode: 'note' });
-    else if (ui.undone?.text === text) {
-      // The thought Undo returned to the person goes out again rather than a copy of it.
-      id = ui.undone.id;
+    const undone = ui.undone;
+    if (undone && to && to !== 'idea') {
+      // The thought Undo returned to the person goes out again, with what they changed, rather
+      // than a copy of it that would stay behind.
+      id = undone.id;
+      if (undone.text !== text) await call('put', { c: 'thoughts', id, patch: { text } });
       await call('thought.update', { id, project_id: to });
-    } else await call('thought.capture', { id, text, strokes: [], source: 'typed', project_id: to });
-    Object.assign(ui, { sent: { id, text, to }, undone: null, draft: '', error: '' });
+    } else {
+      if (undone) await call('delete', { c: 'thoughts', id: undone.id });
+      if (to === 'idea') await call('thought.capture', { id, text, strokes: [], source: 'typed', mode: 'note' });
+      else await call('thought.capture', { id, text, strokes: [], source: 'typed', ...(route ? {} : { project_id: to }) });
+    }
+    Object.assign(ui, { sent: { id, text, to: to ?? '' }, undone: null, draft: '', error: '', hint: null });
   } catch (err) {
     fail(err);
   }
   redraw();
+}
+
+/** An undone thought whose text the person cleared is gone: nothing stale stays behind. */
+function drop() {
+  const undone = ui.undone;
+  ui.undone = null;
+  if (undone) void call('delete', { c: 'thoughts', id: undone.id }).catch(fail);
+}
+
+let hintTimer = 0;
+/** Asks the core where the text typed so far would go, a moment after typing stops. */
+function hint() {
+  clearTimeout(hintTimer);
+  const text = ui.draft.trim();
+  if (!text) {
+    ui.hint = null;
+    return redraw();
+  }
+  hintTimer = window.setTimeout(() => {
+    void call('route.hint', { text }).then((route) => {
+      ui.hint = { text, route };
+      redraw();
+    }, () => {});
+  }, 150);
+}
+
+function routeLabel(r: Route) {
+  if (r.confidence === 'ambiguous') return r.candidates.map((c) => c.label).join(' or ');
+  if (r.confidence !== 'clear') return '';
+  if ('project' in r.to) return projectName(r.to.project);
+  const s = records.sessions.get(r.to.session);
+  return `Follow-up: ${s?.name || title(records.thoughts.get(s?.thought_id ?? '')) || 'its session'}`;
 }
 
 async function undo() {
@@ -59,7 +102,7 @@ async function undo() {
       await call('thought.stop', { id: sent.id });
       ui.undone = sent;
     }
-    Object.assign(ui, { sent: null, draft: sent.text, dest: sent.to, focus: '#guide-input' });
+    Object.assign(ui, { sent: null, draft: sent.text, dest: sent.to || ui.dest, focus: '#guide-input' });
   } catch (e) {
     fail(e);
   }
@@ -111,22 +154,29 @@ function Receipt() {
   if (holding)
     return (
       <p class="notch-destination" role="status">
-        Sent to <span>{projectName(sent.to)}</span>{t ? ` · starts in ${secondsLeft(t)} s ` : ' '}{undoButton}
+        Sent to <span>{projectName(t?.project_id ?? sent.to)}</span>{t ? ` · starts in ${secondsLeft(t)} s ` : ' '}{undoButton}
       </p>
     );
-  if (t?.status === 'failed') return <p class="notch-destination" role="status">{why(t)} in {projectName(sent.to)}.</p>;
-  return <p class="notch-destination" role="status">Started in <span>{projectName(sent.to)}</span></p>;
+  if (t?.status === 'needs_you' && !t.project_id) return <p class="notch-destination" role="status">Where should it go? Answer above.</p>;
+  if (t?.status === 'failed') return <p class="notch-destination" role="status">{why(t)} in {projectName(t.project_id)}.</p>;
+  return <p class="notch-destination" role="status">Started in <span>{projectName(t?.project_id ?? sent.to)}</span></p>;
 }
 
 function Capture() {
-  const to = destination();
+  const route = hinted();
+  const to = route ? undefined : destination();
   const a = agent();
   const ready = !a ? '' : !a.installed ? `${agentName(a.id)} is not installed` : a.signed_in === false ? `${agentName(a.id)} is not signed in` : agentName(a.id);
+  const session = route?.confidence === 'clear' && 'session' in route.to;
   return (
     <form id="guide-compose" onSubmit={send}>
       <div class="guide-editor">
         <input id="guide-input" autocomplete="off" spellcheck={false} aria-label="Thought" placeholder="Put a thought in"
-          value={ui.draft} onInput={(e) => (ui.draft = e.currentTarget.value)}
+          value={ui.draft} onInput={(e) => {
+            ui.draft = e.currentTarget.value;
+            if (ui.undone && !ui.draft.trim()) drop();
+            hint();
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.isComposing) void send(e);
             else if (e.key === 'z' && e.metaKey && !ui.draft && ui.sent) {
@@ -139,16 +189,18 @@ function Capture() {
         <button type="button" class="guide-project-button" id="dest-chip" aria-haspopup="listbox" aria-expanded={ui.choosing}
           onClick={() => choose(!ui.choosing)}
           onKeyDown={(e) => (e.key === 'ArrowDown' || e.key === 'ArrowUp') && (e.preventDefault(), choose(true))}>
-          <Icon name={to === 'idea' ? 'note' : to ? 'folder' : 'plus'} />
-          <span>{to ? projectName(folder(to)) : 'Add a project'}</span>
+          <Icon name={session ? 'terminal' : to === 'idea' ? 'note' : to || route ? 'folder' : 'plus'} />
+          <span>{route ? routeLabel(route) : to ? projectName(folder(to)) : 'Add a project'}</span>
           <Icon name="down" />
         </button>
-        <small class="guide-session">{to === 'idea' ? 'Kept as an idea; nothing starts' : ready}</small>
+        <small class="guide-session">
+          {to === 'idea' ? 'Kept as an idea; nothing starts' : route?.confidence === 'ambiguous' ? 'You will be asked which' : ready}
+        </small>
       </div>
       {ui.choosing && (
         <div class="dest-list" role="listbox" aria-label="Destination" onKeyDown={arrows}>
           {projects().map((p) => (
-            <button type="button" role="option" aria-selected={p.id === to} class="surface-button" onClick={() => pick(p.id)}>
+            <button type="button" role="option" aria-selected={p.id === (to ?? routedProject(route))} class="surface-button" onClick={() => pick(p.id)}>
               <Icon name="folder" />{p.name}
             </button>
           ))}
@@ -167,17 +219,20 @@ function Row({ t }: { t: Thought }) {
   const session = t.session_id ? records.sessions.get(t.session_id) : undefined;
   const result = resultOf(t);
   const where = [projectName(t.project_id), agentName(t.agent)].join(' / ');
+  const question = openQuestions().find((q) => q.thought_id === t.id);
+  // A question only its terminal can answer, such as a folder-trust prompt before the agent starts.
+  const terminal = question?.reply_via === 'terminal';
   const [mark, detail] = ({
     captured: ['note', where],
     routed: ['arrow', `${projectName(t.project_id)} · starts in ${secondsLeft(t)} s`],
-    working: [t.agent ?? 'terminal', stuck(t) ? 'Waiting in its terminal: open it to see' : (session?.activity.at(-1) ?? where)],
-    needs_you: ['attention', `Needs you · ${where}`],
+    working: [t.agent ?? 'terminal', session?.activity.at(-1) ?? where],
+    needs_you: ['attention', terminal ? `Waiting in its terminal: ${question.prompt}` : `Needs you · ${where}`],
     done: ['check', result?.summary || 'Done'],
     failed: ['x', `${why(t)}${result?.kind === 'failure' && result.summary ? ': ' + result.summary : session?.error ? ': ' + session.error : ''}`],
   } satisfies Record<Thought['status'], [string, string]>)[t.status];
-  const question = openQuestions().find((q) => q.thought_id === t.id);
   const open = () => {
-    if (question) {
+    if (terminal && t.session_id) peek(t.session_id);
+    else if (question) {
       ui.question = question.id;
       reveal('pinned', 'answer', '#notch .decision-btn, #notch #comment');
     } else if (t.session_id) peek(t.session_id);
@@ -187,15 +242,10 @@ function Row({ t }: { t: Thought }) {
       disabled={!question && !t.session_id}>
       <span class="notch-work-mark" aria-hidden="true"><Icon name={mark} /></span>
       <span><strong>{title(t)}</strong><small>{detail}</small></span>
-      {question ? <span class="row-open">Answer</span> : t.session_id && <span class="row-open">Open</span>}
+      {question && !terminal ? <span class="row-open">Answer</span> : t.session_id && <span class="row-open">Open</span>}
     </button>
   );
 }
-
-/** A run whose agent has not reported for a while after it started is most likely asking
- *  something in its terminal before its hooks run (a folder it has not trusted yet). */
-const stuck = (t: Thought) =>
-  t.status === 'working' && records.sessions.get(t.session_id ?? '')?.state === 'starting' && Date.now() - t.updated > 8000;
 
 export function Home() {
   const questions = openQuestions();
@@ -205,12 +255,6 @@ export function Home() {
     .filter((t) => (t.status === 'done' || t.status === 'failed') && (!t.read || ui.seen.has(t.id)))
     .sort((a, b) => b.updated - a.updated)
     .slice(0, 4);
-  // A starting run is looked at again until its agent reports.
-  useEffect(() => {
-    if (!working.some((t) => t.status === 'working' && records.sessions.get(t.session_id ?? '')?.state === 'starting')) return undefined;
-    const timer = setInterval(redraw, 2000);
-    return () => clearInterval(timer);
-  });
   // Seen once the notch has shown it for a moment: the glance stops counting it, the row stays until the fold.
   useEffect(() => {
     const unread = finished.filter((t) => !t.read && !ui.seen.has(t.id));

@@ -625,6 +625,7 @@ export type Calls = {
   "thought.stop": { args: Ref<ThoughtId>; result: null; access: "device" };
   "thought.retry": { args: Ref<ThoughtId>; result: null; access: "device" };
   "thought.settle": { args: Settle; result: null; access: "device" };
+  "thought.read": { args: Ref<ThoughtId>; result: null; access: "device" };
   "question.ask": { args: Ask; result: Answer; access: "session" };
   "question.answer": { args: AnswerQuestion; result: null; access: "device" };
   "question.withdraw": { args: AskKey; result: null; access: "session" };

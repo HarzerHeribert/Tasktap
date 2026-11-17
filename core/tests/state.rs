@@ -1317,6 +1317,19 @@ fn row_retry_routes_a_failed_thought_again() {
 }
 
 #[test]
+fn row_read_marks_an_ended_thought_read_until_it_is_retried() {
+    let mut w = World::new("read");
+    let (t, s) = w.turn();
+    assert_eq!(w.ignored(Event::Read { thought: t }), Ignored::State);
+    w.say(s, Said::TurnFailed { error: None }).unwrap();
+    assert_eq!(w.ok(Event::Read { thought: t }), NONE);
+    assert!(w.thought(t).read);
+    assert_eq!(w.ignored(Event::Read { thought: t }), Ignored::Repeat);
+    w.ok(Event::Retry { thought: t });
+    assert!(!w.thought(t).read);
+}
+
+#[test]
 fn row_settle_keeps_or_discards_pending_changes_once_the_session_ended() {
     let mut w = World::new("settle");
     let (t, s) = w.turn();
@@ -1972,10 +1985,10 @@ impl Known {
         for t in &ts {
             let changes = t.workdir.as_ref().map(|w| w.changes);
             let (held, session) = (t.hold_until.is_some(), at(t.session_id));
-            let (phase, status, reason, mode) = (t.phase, t.status, t.reason, t.mode);
+            let (phase, status, reason, mode, read) = (t.phase, t.status, t.reason, t.mode, t.read);
             write!(
                 sig,
-                "T{phase:?}{status:?}{reason:?}{mode:?}{held}{session:?}{changes:?};"
+                "T{phase:?}{status:?}{reason:?}{mode:?}{read}{held}{session:?}{changes:?};"
             )
             .unwrap();
         }
@@ -2087,6 +2100,7 @@ impl Sweep {
                 },
                 Event::Stop { thought: id },
                 Event::Retry { thought: id },
+                Event::Read { thought: id },
             ]);
             for keep in [true, false] {
                 let attempt = AttemptId::mint();
@@ -2336,6 +2350,7 @@ fn every_event_in_every_reachable_state_keeps_the_rules() {
         "Start",
         "Stop",
         "Retry",
+        "Read",
         "Settle",
         "Settled",
         "Launched",

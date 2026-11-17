@@ -13,10 +13,10 @@ use tasktap_core::client::Client;
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
     Action, AddProject, AnswerQuestion, Ask, Assign, AttemptId, CallId, Capture, Changes, Control,
-    Event as Said, FixtureCandidate, FixtureRoute, Frame, Input, Mode, Outcome, Phase, Place,
-    PrefPatch, ProjectId, Put, PutTarget, QuestionId, QuestionKind, QuestionSource, QuestionState,
-    Reason, Ref, ReplyVia, Response, Retire, Rev, Secret, SessionState, Settle, Source, Start,
-    Status, TerminalState, Thought, ThoughtId, When, Workdir,
+    Event as Said, FixtureCandidate, FixtureRoute, Frame, History, Input, Limit, Mode, Outcome,
+    Phase, Place, PrefPatch, ProjectId, Put, PutTarget, QuestionId, QuestionKind, QuestionSource,
+    QuestionState, Reason, Ref, ReplyVia, Response, Retire, Rev, Secret, SessionState, Settle,
+    Source, Start, Status, TerminalState, Thought, ThoughtId, When, Workdir,
 };
 
 fn code<T: Debug>(result: Result<T, Error>) -> Code {
@@ -402,6 +402,49 @@ fn settling_keeps_or_discards_pending_changes_through_the_launcher() {
     let e = s.w.call::<call::ThoughtSettle>(&discard).unwrap_err();
     assert_eq!((e.code, e.message.as_str()), (Code::Failed, "main moved"));
     assert_eq!(changes(&s, refused.id), Changes::Pending);
+}
+
+#[test]
+fn reading_an_ended_thought_clears_done_and_lets_it_leave_for_history() {
+    let mut s = Scene::new("qread");
+    let (t, _, mut agent) = s.launch("fix the build");
+    let read = Ref { id: t };
+    assert_eq!(code(s.w.call::<call::ThoughtRead>(&read)), Code::Conflict);
+    agent.finish("Fixed.");
+    s.w.sync();
+    let done = (s.w.model.status(t), s.w.model.glance().done);
+    assert_eq!(done, (Status::Done, 1));
+
+    // 200 newer finished thoughts; unread, this one stays live all the same.
+    let row = s.w.model.thought(t).clone();
+    let newer: Vec<Thought> = (0..200)
+        .map(|i| Thought {
+            id: ThoughtId::mint(),
+            text: format!("newer {i}"),
+            session_id: None,
+            read: true,
+            ..row.clone()
+        })
+        .collect();
+    let sets = json!([{ "c": "thoughts", "put": newer }]);
+    let written = s.w.raw("fixture.records", json!({ "sets": sets }));
+    assert!(matches!(written, Outcome::Ok(_)));
+    assert!(s.w.model.thoughts.contains_key(&t));
+
+    // Read, ended and with nothing to settle, it is finished: it leaves for history.
+    s.w.ok::<call::ThoughtRead>(&read);
+    assert_eq!(s.w.model.glance().done, 0);
+    assert!(!s.w.model.thoughts.contains_key(&t));
+    assert!(s.w.model.results.is_empty());
+    let page = s.w.ok::<call::History>(&History {
+        before: None,
+        limit: Limit::MAX,
+    });
+    let left: Vec<_> = page.thoughts.iter().map(|h| (h.id, h.read)).collect();
+    assert_eq!(left, [(t, true)]);
+    assert!(page.results.iter().any(|r| r.thought_id == t));
+    // Reading it again changes nothing.
+    s.w.ok::<call::ThoughtRead>(&read);
 }
 
 #[test]

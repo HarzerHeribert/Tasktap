@@ -24,7 +24,7 @@ Written 2026-11-17, revised the same day after two reviews. It follows [rebuild-
 | Host → UI | 50 named entry points + 45 `workspaceCommand` actions | 0 events: 15 record collections; 1 call `ui.do` with 23 actions |
 | Terminal protocol | 12 socket ops + 9 bridge ops, base64 in JSON lines | 3 calls + 1 binary stream |
 | Agent ↔ app | about 25 kinds of run-folder, inbox and service file; 2 MCP tools | 6 calls: `session.event`, `session.adopt`, `question.ask`, `question.withdraw`, `question.received`, `shim.hold` |
-| Whole protocol | about 235 kinds | 63 calls (43 core, 18 host, 1 page, 1 shim) in 10 frame kinds |
+| Whole protocol | about 235 kinds | 64 calls (44 core, 18 host, 1 page, 1 shim) in 10 frame kinds |
 | Recurring timers | 7: 50 ms, 80 ms, 0.2 s, 0.7 s, 8 s, 20 s, 24 h (inv. §10) | core 0. App 1 (the daily update check) once Phase 4 replaces the 80 ms hover timer |
 | Long-lived processes, one agent running | 4: app, Python bridge, Python service, Python `present` wrapper; +1 polling `ask-user` per open question; a Python start per hook event and per 8 s scan | 2: app and core; one native start (about 2 ms) per hook event. An agent started by hand in a shell keeps one sleeping shim, as today |
 | Languages in the core's area | Python, Swift, JavaScript, Node (observers), AppleScript, shell | Rust |
@@ -62,10 +62,10 @@ type Frame =                                   // kind 0: one JSON object
 
 Calls without a mark are built in Phase 1; (2), (3) and (6) name the phase that adds the rest. The protocol crate holds only what exists.
 
-| Area | Core calls (43) |
+| Area | Core calls (44) |
 | --- | --- |
 | Records | `sub`, `put`, `delete`, `history` |
-| Thoughts | `thought.capture`, `thought.update`, `thought.start`, `thought.stop`, `thought.retry`, `thought.settle` (3) |
+| Thoughts | `thought.capture`, `thought.update`, `thought.start`, `thought.stop`, `thought.retry`, `thought.read`, `thought.settle` (3) |
 | Questions | `question.ask`, `question.answer`, `question.withdraw`, `question.received`, `question.focus` |
 | Sessions | `session.event`, `session.adopt` (2), `session.resume` (2) |
 | Terminals (2) | `terminal.open`, `terminal.resize`, `terminal.stop` |
@@ -207,7 +207,8 @@ Only `state::apply(event)` writes a thought's `phase` and a session's `state`. A
 | `exited(code)` | working → failed; done if code 0 from an agent that sends no events | → ended; its open questions are withdrawn |
 | `lost` (found at core start) | working → failed (interrupted); routed stays routed, timer gone | → ended |
 | `thought.stop` after launch | → failed (stopped) | process stopped, → ended |
-| `thought.retry` | failed → routed | – |
+| `thought.retry` | failed → routed, unread | – |
+| `thought.read` | done or failed: read (finished once nothing is pending, §1) | – |
 | `thought.settle` | done; changes pending → kept or discarded | must be ended (§7) |
 
 Guards kept from 1.2: events from an old token, a sub-agent or a different turn are ignored; event ids are deduplicated; an event that does not fit the current state changes nothing.

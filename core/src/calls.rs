@@ -96,6 +96,9 @@ fn handler(name: Name) -> Option<Handler> {
                 keep: s.keep,
             })
         },
+        Name::ThoughtRead => {
+            |cx, args| event::<call::ThoughtRead>(cx, args, |r| Event::Read { thought: r.id })
+        }
         Name::SessionEvent => {
             |cx, args| now::<call::SessionEvent>(cx, args, effects::session_event)
         }

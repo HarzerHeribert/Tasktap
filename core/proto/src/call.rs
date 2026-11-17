@@ -1,4 +1,4 @@
-//! The one table of calls built in Phase 1 (design §1, §2): 22 of the 43 core
+//! The one table of calls built in Phase 1 (design §1, §2): 23 of the 44 core
 //! calls, and the test fixtures.
 //!
 //! Each call is a type here, named for the call (`thought.capture` is
@@ -73,6 +73,7 @@ table! {
     ThoughtStop "thought.stop" Device (Ref<ThoughtId>) -> ();
     ThoughtRetry "thought.retry" Device (Ref<ThoughtId>) -> ();
     ThoughtSettle "thought.settle" Device (Settle) -> ();
+    ThoughtRead "thought.read" Device (Ref<ThoughtId>) -> ();
     // Questions
     QuestionAsk "question.ask" Session (Ask) -> Answer;
     QuestionAnswer "question.answer" Device (AnswerQuestion) -> ();

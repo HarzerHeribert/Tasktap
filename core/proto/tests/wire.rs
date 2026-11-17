@@ -185,6 +185,7 @@ fn every_call_round_trips() {
         (),
         seen,
     );
+    round_trip::<call::ThoughtRead>(Ref { id: id(1) }, (), seen);
     for kind in [
         QuestionKind::Confirm,
         QuestionKind::Text,
@@ -340,7 +341,7 @@ fn every_call_round_trips() {
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 26);
+    assert_eq!(Name::ALL.len(), 27);
 }
 
 #[test]
@@ -371,7 +372,7 @@ fn access_follows_the_authorization_table() {
             "session.event"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 20);
+    assert_eq!(by(Access::Device).len(), 21);
     for (access, allowed) in [
         (Access::Anyone, [true, true, true]),
         (Access::Device, [true, false, false]),

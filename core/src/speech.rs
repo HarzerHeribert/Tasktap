@@ -650,6 +650,8 @@ fn save(folder: &Path, name: &str, pcm: &[u8]) -> std::io::Result<()> {
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
     let mut file = options.open(folder.join(name))?;
+    // Whole samples only: half of one may have arrived last.
+    let pcm = &pcm[..pcm.len() & !1];
     file.write_all(&wav(pcm.len() as u32))?;
     file.write_all(pcm)
 }

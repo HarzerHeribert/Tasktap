@@ -1252,3 +1252,69 @@ fn a_key_reaches_no_record_no_reply_no_file_and_nothing_the_core_prints() {
         );
     }
 }
+
+/// A real speech service, asked with a real key: never part of the suite,
+/// since every run is a call on somebody's account. One command, with the
+/// key in the environment of that command alone:
+///
+/// `TASKTAP_SPEECH_SERVER=https://api.groq.com/openai TASKTAP_SPEECH_MODEL=whisper-large-v3-turbo
+/// TASKTAP_SPEECH_KEY=… cargo test -p tasktap-core --test speech -- --ignored real --nocapture`
+///
+/// It goes the whole way a dictation goes, through a core of its own with
+/// its keys in memory, and prints what was heard. The sentence is spoken
+/// by the system's own voice on a Mac (no microphone); elsewhere, or for
+/// another sentence, `TASKTAP_SPEECH_WAV` names a 16 kHz mono 16-bit WAV
+/// file. `TASKTAP_SPEECH_LANGUAGES` is the hint, as `de,en`; without a
+/// key, for a server of one's own, none is sent.
+#[test]
+#[ignore = "calls a real speech service with a real key: run by hand"]
+fn a_real_speech_service_hears_a_sentence() {
+    let var = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
+    let need = |name: &str| var(name).unwrap_or_else(|| panic!("set {name}"));
+    let (server, model) = (need("TASKTAP_SPEECH_SERVER"), need("TASKTAP_SPEECH_MODEL"));
+    let (mut s, _) = stage("speech-real", &[]);
+    let said = "Bitte den Login-Bug fixen und danach die Tests laufen lassen. \
+                Also, the build should be green before we merge.";
+    let file = var("TASKTAP_SPEECH_WAV").unwrap_or_else(|| {
+        let file = s.data.0.join("said.wav");
+        let spoken = std::process::Command::new("/usr/bin/say")
+            .args([
+                "-v",
+                "Anna",
+                "--file-format=WAVE",
+                "--data-format=LEI16@16000",
+                "-o",
+            ])
+            .arg(&file)
+            .arg(said)
+            .status();
+        assert!(spoken.is_ok_and(|s| s.success()), "set TASKTAP_SPEECH_WAV");
+        file.to_str().unwrap().to_owned()
+    });
+    let wav = std::fs::read(&file).unwrap();
+    let pcm = &wav[find(&wav, b"data").expect("a WAV file") + 8..];
+    if let Some(key) = var("TASKTAP_SPEECH_KEY") {
+        set_key(&mut s.w, &server, &key).unwrap();
+    }
+    consent(&mut s.w, &server, &model);
+    if let Some(languages) = var("TASKTAP_SPEECH_LANGUAGES") {
+        let languages = languages.split(',').map(String::from).collect();
+        put(&mut s.w, PrefPatch::SpeechLanguages(languages)).unwrap();
+    }
+    let (t, target) = thought();
+    let began = Instant::now();
+    let mut r = recorded(&s, target, pcm);
+    let id = r.id;
+    r.finish().unwrap();
+    let ended = |m: &Model| {
+        let failed = |d: &Dictation| d.phase == DictationPhase::Failed;
+        m.thoughts.contains_key(&t) || m.dictations.get(&id).is_some_and(failed)
+    };
+    s.w.until("the speech service's answer", ended);
+    let took = began.elapsed().as_millis();
+    let seconds = pcm.len() / 32_000;
+    match s.w.model.thoughts.get(&t) {
+        Some(thought) => println!("heard in {took} ms, of {seconds} s: {}", thought.text),
+        None => panic!("{model} at {server}: {:?}", s.w.model.dictations[&id].error),
+    }
+}

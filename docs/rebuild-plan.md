@@ -361,6 +361,6 @@ Every thought keeps the person's words exactly as said, and a **brief**, which i
 
 Two independent reviews of Keep and Discard kept finding new edge cases in guards added for earlier ones. The feature is therefore being simplified to a guarantee that can be checked, in three tiers:
 
-1. **Absolute:** the person's project folder and the commits on their branches are never lost, rewritten or overwritten. The only effect on them is that a Keep adds the agent's commits. There is no undo that touches their folder; if something unexpected happens, Tasktap stops and reports the real state.
+1. **The promise:** Tasktap never deletes or rewrites anything outside its own folder and its own branches. The only effect on the person's project is that a Keep adds the agent's commits, by the same fast-forward the person would run themselves, and it is as safe as that command: git refuses to overwrite uncommitted, untracked or ignored files, but an edit saved in the very instant git is writing can be lost, exactly as with the person's own `git pull`. There is no undo that touches their folder; if something unexpected happens, Tasktap stops and reports the real state.
 2. **As strong as git makes it:** Tasktap's own copies are removed only by Discard, by a successful Keep, or when git itself agrees they are empty at the moment of removal.
 3. **Not a goal:** protecting against programs the person configured in their own git settings. Hooks are off and every command is bounded; Tasktap is not a sandbox.

@@ -366,3 +366,5 @@ Two independent reviews of Keep and Discard kept finding new edge cases in guard
 3. **Not a goal:** protecting against programs the person configured in their own git settings. Hooks are off and every command is bounded; Tasktap is not a sandbox.
 
 **Isolated runs are finished** (2026-11-17): built, reviewed three times, simplified, and closed. No further review is planned for them. Open for the Windows phase: the launch test `two_thoughts_launched_at_once_in_one_project_each_get_their_own_terminal` fails on Windows CI in about half the runs ("still holds its core after 60s"); it does not touch the isolation code and failed before it existed.
+
+**No import from 1.2, no legacy support** (owner, 2026-11-17): "I don't need legacy support; breaking changes welcome and allowed." The import of projects, sessions and history from 1.2 is cut, with its section of the core design (§11). Cutover becomes: the new app replaces the old one and starts empty; `native/`, `prototype/` and the Python service are deleted. Nothing in the new code needs to read, migrate or stay compatible with 1.2's data, protocol or settings.

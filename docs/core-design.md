@@ -471,23 +471,9 @@ These are targets, not results. Phase 1 measures the first three, start time and
 
 **Measured in Phase 2 (package E)** by `core/scripts/measure.sh` on an Apple M4 Pro, macOS 27.0.1; every row passes. Idle: 0 wakeups and 0 context switches in 60 s with two clients subscribed and a quiet terminal open, a client attached to it. Memory with no terminals: 2.7 MB. Start: 3.7 ms (median of 25). Stream: 1668 MB/s to the client, 1318 MB/s from it. A keystroke goes in on a terminal's stream and its echo comes back on it (the terminal runs `cat`, so the system echoes it); the core adds the round trip less the same through a bare pseudo-terminal (2.2 µs median): 0.027 ms (median; p95 0.036 ms) of 500 keys, 0.088 ms (p95 0.102 ms) while another client commits 5430 times, 0.037 ms (p95 0.052 ms) beside a second client attached to the same terminal that reads 80 bytes a second. Memory per terminal with its history full: 2.10 MiB for each of 10 more terminals, 2.17 MiB for each of the first 10, which also pay once for what the allocator sets up. The ring grows by doubling to 64 KiB and then takes its 2 MiB at once: doubling all the way left each outgrown buffer with the allocator, 2.7 to 3.2 MiB a terminal. Binary: 5.4 MB. Measured at commit ba25b69 with every review fix in.
 
-## 11. Import from 1.2 (Phase 6)
+## 11. Import from 1.2
 
-The new store is a new folder, `<appData>/Core/`. The importer opens the old files for reading only, so 1.2 can still run on its own data afterwards.
-
-| Step | Decision |
-| --- | --- |
-| When | Once, at cutover: the host calls `import.v1` before it connects any page. A store that already imported returns its stored report. |
-| Browser storage | Only a page on the old `file://` origin can read `tasktap-live-v1`. The host loads a hidden five-line page from that origin and sends the raw string. This page stays in 2.0 for as long as upgrades from 1.2 are supported. |
-| Files | The core reads `Runs/`, `Notes/`, `Scratch/`, `Agent Inbox/`, `WorkspaceFolders.json`, `WorkspaceMedia.json`, `Speech/preferences.json`, `Terminals/Replay/` itself. |
-| Settings and keys | The host reads its own `router.*` defaults and keychain items and sends them in the same call. |
-| Once, safely | A pure function turns the inputs into rows; one transaction writes them and `meta.import_v1` (time, counts, hash of the blob). A bad row is skipped and counted, never fatal. |
-| Mixed ids | Every project gets a new id. A lookup from old id, folder and canonical folder to the new id resolves `session.project`, note assignments and layout keys; two entries for one folder merge; `@scratch` and anything unresolved go to the scratch project. |
-| String values | One function reads booleans (`true`, `'true'`, `'yes'`, `1`) and applies each key's default when absent (`useScreenContext` absent means on). Numbers are parsed from strings; ranges are clamped; an unknown theme becomes `ghostty`. |
-| Sessions still running in 1.2 | They live in the old Python service and cannot be moved. They are imported as interrupted, with Resume where a handle exists (`observer.json`, `thread.json`), and the app says so once. Nothing is started. |
-| Records | `captures` → thoughts by receipt: Saved → captured; Complete, Closed, Delivered, Copied → done; Failed → failed; Queued, Opening, Opened, Running → failed (interrupted), per the row above. `notes`, `Notes/`, `Scratch/` → thoughts with mode `note`, merged by capture id. `decisions`, `answeredDecisions` and inbox files → questions and answers. `session.result`, `observedAnswers`, `answer-NNNN.txt` → results. `layouts`, `media` and the other deck fields → `layouts`, `previews` (only those a tab refers to) and `prefs`. |
-| Left behind | `session.log`, name history, the activity list, `notificationFailure`, an unfinished first-run step, plan usage settings, sessions marked `external`, `observer-events.jsonl`, `sessions.json`, `lifecycle.json`. |
-| Proof | Fixtures are synthetic, written from the formats in the inventory, with the edge cases (string booleans, mixed ids, external sessions, bad rows). The owner's real data is never copied into the repository, which is public. The test compares the source folder's hashes before and after. |
+Cut by the owner on 2026-11-17: the new app starts empty, and nothing reads or migrates 1.2's data.
 
 ## 12. Host boundary (Phase 4)
 

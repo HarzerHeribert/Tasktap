@@ -8,11 +8,12 @@
 # channel, then quits it and its core. Then, as 1.2 was measured, launch to window again after
 # that full quit, on the same data folder.
 #
-# MOTION=1 host/scripts/measure.sh measures the light instead, in one short launch: the whole app idle with the
-# workspace on Home and the notch collapsed; then, in a state held through the debug channel once its moment is over,
-# Home's light held still, the whole ambient layer moving (the pools breathing and the sidebar's glyphs swaying, on one
-# clock, by opacity and transform) on Home and beside a workspace's terminal, and that terminal with the light still;
-# each over 10 s. The system's window compositor (WindowServer) is reported beside the app, since compositing each
+# MOTION=1 host/scripts/measure.sh measures the light instead, in one short launch: the whole app idle in the
+# background (the window shown but not the one in use, on Home, the notch collapsed: nothing may move); then, held
+# through the debug channel as it is while the window is the one in use, the whole ambient layer moving with nothing
+# running (the pools breathing, the chrome drifting, the sidebar's glyphs swaying: an idle Home in front); then, in a
+# state held once its moment is over, Home's light still, the ambient layer moving on Home and beside a workspace's
+# terminal, and that terminal with the light still; each over 10 s. The system's window compositor (WindowServer) is reported beside the app, since compositing each
 # step is its work; it also draws everything else on the screen, so its share is only as quiet as the machine.
 set -u
 host="$(cd "$(dirname "$0")/.." && pwd)"
@@ -51,13 +52,13 @@ for run in $(seq 1 "${1:-3}"); do
       awk -v n="$(echo $pids | wc -w)" -v ws="$ws" 'NR > 1 && /^[0-9]+ / { p[++i] = $1; c[i] = $2; w[i] = $3 } END { m = n + 1; for (k = i - m + 1; k <= i; k++) { if (p[k] == ws) { s = c[k]; continue } cpu += c[k]; wake += w[k] } printf "%5.1f%% cpu  %5d wakeups/s   WindowServer %5.1f%%\n", cpu, wake, s }' "$tmp/top"
     }
     sleep 15
-    printf '%-52s %s\n' "idle: Home shown, notch collapsed" "$(phase 20)"
-    for run in "home working false" "home working true" "home needs true" "terminal working true" "terminal working false"; do
+    printf '%-52s %s\n' "idle in the background: Home shown, notch collapsed" "$(phase 20)"
+    for run in "home idle true" "home working false" "home working true" "home needs true" "terminal working true" "terminal working false"; do
       set -- $run
       [ "$1" = terminal ] && [ "$(ask "__ws.ui.view")" = home ] && ask "(__ws.command('open-workspace'), 1)" >/dev/null && echo "click workspace .sheet .act.primary" >&3 && sleep 3
-      ask "(__motion.debug.state='$2', __motion.debug.breathe=$3, __motion.redraw(), 1)" >/dev/null
+      ask "(__motion.debug.state=$([ "$2" = idle ] && echo null || echo "'$2'"), __motion.debug.breathe=$3, __motion.redraw(), 1)" >/dev/null
       sleep 8
-      printf '%-52s %s\n' "$1, $2, $([ "$3" = true ] && echo "light breathing, glyphs swaying" || echo "light and glyphs still")" "$(phase 10)"
+      printf '%-52s %s\n' "$1, $2, $([ "$3" = true ] && echo "the ambient layer moving" || echo "light and glyphs still")" "$(phase 10)"
     done
     echo quit >&3
     sleep 1

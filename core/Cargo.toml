@@ -13,3 +13,4 @@ tasktap-proto = { path = "proto" }
 rusqlite = { version = "0.43", features = ["bundled"] }
 serde = "1"
 serde_json = "1"
+sha2 = "0.11"

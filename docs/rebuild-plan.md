@@ -240,6 +240,19 @@ Aim for under 20 checks, each named after a promise to the user.
 
 - Phase 0: built and checked on `rebuild-phase-0` (2026-11-17). 3,979 lines removed, 522 added. Waiting for the owner to try it, and for the baseline numbers, which need an unlocked screen.
 - Phase 1: in progress since 2026-11-17 on `rebuild-phase-1`. The design is in [core-design.md](core-design.md); the description of 1.2 it was built from is in [rebuild-inventory.md](rebuild-inventory.md).
+- Core, measured on 2026-11-17 with `core/scripts/measure.sh` (Apple M4 Pro, two clients subscribed, no terminals; packages 1 to 6 and 8 merged):
+
+  | Measure | Measured | Target |
+  | --- | --- | --- |
+  | Idle wakeups and context switches over 60 s | 0 | 0 |
+  | Processor use while idle | 0.0 % | 0.0 % |
+  | Memory | 2.6 MB | at most 8 MB |
+  | Start to accepting connections | 2.9 ms (median of 25, warm) | at most 30 ms |
+  | Stream rate, core to client | 1,101 MB/s | at least 200 MB/s |
+  | Stream rate, client to core | 1,043 MB/s | at least 200 MB/s |
+  | Program size | 4.5 MB | at most 6 MB |
+
+  The 1.2 numbers to compare against are still missing; they need an unlocked screen.
 - One-host trial: built in `trials/tauri-notch/`. Every check that needs no visible screen passed: identical notch geometry, reveal without activating the app, and comparable speed. The cross-platform host needed about 55 lines of Mac-specific code for the notch, using public interfaces only. The look and real hover, click and typing still need the owner: run `trials/tauri-notch/check.sh` (about five minutes). The trial's own recommendation is one host if those pass.
 - Phases 2 to 7: not started.
 

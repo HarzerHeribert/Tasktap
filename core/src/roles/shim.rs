@@ -32,6 +32,13 @@ pub const SHIMS: &str = "shims";
 /// Makes `<data>/shims` hold this program under each agent's name and as
 /// `tasktap`, which hooks and `tasktap ask` run; a link where the system
 /// allows one. The core's shells put the folder first on their PATH.
+///
+/// On macOS the link is symbolic. A hard link gives the program a second
+/// name, and the system's check of each program it starts may then look
+/// for it under one name in the other's folder, a file that does not
+/// exist, and kill the program it could not read: a shim, or a core or
+/// hook started under the program's own name. A symbolic link leaves the
+/// program one name.
 pub fn install(data: &Path, exe: &Path) -> io::Result<PathBuf> {
     let folder = data.join(SHIMS);
     // A core a hook started runs from the folder, which is filled already.
@@ -47,7 +54,7 @@ pub fn install(data: &Path, exe: &Path) -> io::Result<PathBuf> {
             Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
             _ => {}
         }
-        if std::fs::hard_link(exe, &shim).is_err() {
+        if link(exe, &shim).is_err() {
             std::fs::copy(exe, &shim)?;
         }
     }
@@ -100,6 +107,16 @@ pub fn run(rules: &'static Rules, args: Vec<OsString>) -> ExitCode {
 }
 
 /// Standard input and output are a terminal a person types in.
+#[cfg(target_os = "macos")]
+fn link(exe: &Path, shim: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(exe, shim)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn link(exe: &Path, shim: &Path) -> io::Result<()> {
+    std::fs::hard_link(exe, shim)
+}
+
 fn terminal() -> bool {
     #[cfg(feature = "fixtures")]
     if std::env::var_os(super::fixture::TTY).is_some() {

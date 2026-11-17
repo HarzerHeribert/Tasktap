@@ -711,10 +711,20 @@ pub fn agents(data: &Path) -> PathBuf {
         .join("fixture-agent")
         .with_extension(std::env::consts::EXE_EXTENSION);
     // Never a copy onto a link to the binary itself, which would empty it.
-    if !program.exists() && std::fs::hard_link(EXE, &program).is_err() {
+    if !program.exists() && link(&program).is_err() {
         std::fs::copy(EXE, &program).unwrap();
     }
     folder
+}
+
+/// A link to this binary at `to`: symbolic on macOS, where a second name
+/// for the binary can get it killed as the shims' links would
+/// (`roles::shim::install`).
+fn link(to: &Path) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    return std::os::unix::fs::symlink(EXE, to);
+    #[cfg(not(target_os = "macos"))]
+    return std::fs::hard_link(EXE, to);
 }
 
 /// This process's PATH with `first` before it.

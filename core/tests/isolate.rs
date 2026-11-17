@@ -1398,6 +1398,14 @@ fn forge(s: &mut Scene, workdir: Workdir) -> ThoughtId {
     t.id
 }
 
+/// A file the start sweep removes once it has looked at every recorded
+/// worktree.
+fn sentinel(data: &Folder) -> PathBuf {
+    let path = data.0.join("worktrees").join(".tmp-sentinel.out");
+    write(&path, "");
+    path
+}
+
 fn files_in(dir: &Path) -> Vec<String> {
     let mut names: Vec<_> = (std::fs::read_dir(dir).unwrap().flatten())
         .map(|e| e.file_name().to_string_lossy().into_owned())
@@ -1458,10 +1466,11 @@ fn review_1_nothing_outside_the_worktrees_the_core_made_is_ever_removed() {
     // tie to anything the core made stay through a start.
     write(&root.join("notes").join("todo.txt"), "mine");
     write(&root.join("cccccccccccc").join("draft.txt"), "mine");
-    let s = crashed(s, &work, &repo);
-    let mut s = s;
+    let swept = sentinel(&s.data);
+    let mut s = crashed(s, &work, &repo);
+    eventually("the start sweep ran", || !swept.exists());
     s.w.sync();
-    std::thread::sleep(Duration::from_millis(500));
+    std::thread::sleep(Duration::from_millis(300));
     assert_eq!(read(root.join("notes").join("todo.txt")), "mine");
     assert_eq!(read(root.join("cccccccccccc").join("draft.txt")), "mine");
     assert_eq!(read(victim.join("precious.txt")), "mine");
@@ -1728,9 +1737,11 @@ fn review_7_a_worktree_whose_git_link_is_gone_is_left_for_the_person_to_discard(
     let t = pending(&mut s, "write:u.txt:mine");
     let wt = PathBuf::from(workdir(&s, t).path);
     std::fs::remove_file(wt.join(".git")).unwrap();
+    let swept = sentinel(&s.data);
     let mut s = crashed(s, &work, &repo);
+    eventually("the start sweep ran", || !swept.exists());
     s.w.sync();
-    std::thread::sleep(Duration::from_millis(500));
+    std::thread::sleep(Duration::from_millis(300));
     assert_eq!(read(wt.join("u.txt")), "mine");
     assert_eq!(changes(&s, t), Changes::Pending);
     // Kept, it cannot be; discarded on the person's word, it goes.

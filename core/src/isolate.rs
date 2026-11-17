@@ -1037,7 +1037,7 @@ impl Git {
     /// it; moved aside first, which on Windows a folder in use refuses and
     /// after which nothing reaches it by its name; then git's record of it,
     /// the folder, and its branch where that still points at `tip`.
-    fn remove(&self, repo: &Path, own: &Own, tip: Option<&str>) -> Result<(), String> {
+    fn remove(&mut self, repo: &Path, own: &Own, tip: Option<&str>) -> Result<(), String> {
         if own.path.symlink_metadata().is_ok() {
             let in_use = || {
                 format!(
@@ -1045,10 +1045,11 @@ impl Git {
                     own.path.display()
                 )
             };
-            if crate::sys::working_folders()
-                .iter()
-                .any(|cwd| cwd.starts_with(&own.path))
-            {
+            let used = |path: &Path| {
+                let mut cwds = crate::sys::working_folders().into_iter();
+                cwds.any(|cwd| cwd.starts_with(path))
+            };
+            if used(&own.path) {
                 return Err(in_use());
             }
             let aside = self.root.join(format!(".{}.removing", own.name));
@@ -1056,6 +1057,14 @@ impl Git {
                 std::fs::remove_dir_all(&aside).map_err(|e| e.to_string())?;
             }
             std::fs::rename(&own.path, &aside).map_err(|e| format!("{}: {e}", in_use()))?;
+            // One that went in between the look and the move is there now.
+            if used(&aside) {
+                let back = std::fs::rename(&aside, &own.path);
+                return Err(match back {
+                    Ok(()) => in_use(),
+                    Err(e) => format!("{}; it was left at {}: {e}", in_use(), aside.display()),
+                });
+            }
             self.forget(repo, own);
             std::fs::remove_dir_all(&aside)
                 .map_err(|e| format!("{} could not be removed: {e}", aside.display()))?;
@@ -1068,6 +1077,15 @@ impl Git {
                 self.ok(repo, &["update-ref", "-d", &at, tip], LOOK)
                     .map_err(|e| format!("the branch {} was left: {e}", own.branch))?;
             }
+        }
+        // Nothing is left to hold.
+        if self
+            .hold
+            .as_ref()
+            .is_some_and(|(held, _)| *held == own.name)
+        {
+            self.hold = None;
+            let _ = std::fs::remove_file(self.root.join(format!(".{}.lock", own.name)));
         }
         Ok(())
     }
@@ -1335,7 +1353,16 @@ fn finish_removing(data: &Path, name: &str) {
         return;
     };
     let aside = git.root.join(format!(".{name}.removing"));
-    if named(name) && git.hold(name).is_ok() && aside.symlink_metadata().is_ok_and(|m| m.is_dir()) {
+    let used = || {
+        crate::sys::working_folders()
+            .iter()
+            .any(|cwd| cwd.starts_with(&aside))
+    };
+    if named(name)
+        && git.hold(name).is_ok()
+        && aside.symlink_metadata().is_ok_and(|m| m.is_dir())
+        && !used()
+    {
         let _ = std::fs::remove_dir_all(&aside);
     }
 }

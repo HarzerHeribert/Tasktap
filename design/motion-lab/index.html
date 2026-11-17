@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Tasktap · Motion lab</title>
+<style>
+:root{
+  --bg:#08090a; --fg:#e6e8ec; --mut:#8b9097; --dim:#585d64; --line:rgba(255,255,255,.085); --hi:rgba(255,255,255,.06);
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0}
+html{height:100%}body{min-height:100%}
+body{background:var(--bg);color:var(--fg);font:13px/1.5 var(--sans);-webkit-font-smoothing:antialiased;display:grid;grid-template-rows:auto 1fr auto;min-width:1080px}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:left}
+button:focus-visible,input:focus-visible{outline:1px solid rgba(255,255,255,.55);outline-offset:3px;border-radius:4px}
+kbd{font:10.5px/1 var(--mono);color:var(--dim);letter-spacing:.02em}
+.cap,h2,figcaption,dt{font:10.5px/1.4 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--mut);font-weight:400}
+[hidden]{display:none!important}
+
+header{display:flex;align-items:center;justify-content:space-between;padding:22px 36px 0}
+.brand{display:flex;align-items:baseline;gap:14px}
+.wordmark{font-size:19px;font-weight:610;letter-spacing:-.04em}
+.voice{display:flex;align-items:center;gap:16px}
+#meter{width:96px;height:20px;opacity:.9}
+.btn{border:1px solid var(--line);border-radius:999px;padding:7px 14px 7px 16px;font-size:12.5px;display:inline-flex;gap:10px;align-items:center;transition:background .2s,border-color .2s}
+.btn:hover{background:var(--hi);border-color:rgba(255,255,255,.18)}
+.btn[aria-pressed=true]{background:#e6e8ec;color:#08090a;border-color:transparent}
+.btn[aria-pressed=true] kbd{color:#555}
+#mic-error{color:#e8b267;font-size:12px;max-width:300px;text-align:right}
+
+main{display:grid;grid-template-columns:248px minmax(0,1fr) 216px;gap:52px;padding:34px 36px 20px;align-items:start}
+
+/* concepts */
+#concepts{display:flex;flex-direction:column}
+#concepts>button{display:grid;grid-template-columns:20px 1fr;gap:1px 6px;padding:10px 0 11px 12px;border-left:1px solid var(--line);color:var(--mut);transition:color .2s,border-color .2s}
+#concepts>button kbd{grid-row:1/3;padding-top:5px}
+#concepts>button b{font-size:15px;font-weight:560;letter-spacing:-.015em;color:var(--fg);opacity:.62;transition:opacity .2s}
+#concepts>button span{grid-column:2;font-size:12px;line-height:1.42;max-height:0;overflow:hidden;opacity:0;transition:max-height .3s,opacity .3s}
+#concepts>button:hover b{opacity:.9}
+#concepts>button[aria-pressed=true]{border-left-color:var(--fg)}
+#concepts>button[aria-pressed=true] b{opacity:1}
+#concepts>button[aria-pressed=true] span{max-height:5em;opacity:1}
+#concepts>button.pinned{border-left-color:#c9a27a}
+#concepts>button.pinned b::after{content:"pinned";font:9.5px var(--mono);letter-spacing:.09em;text-transform:uppercase;color:#c9a27a;margin-left:8px;vertical-align:1px}
+#note{margin-top:26px;padding-left:13px;color:var(--mut);font-size:12px;line-height:1.5}
+#note p{color:#b9bdc3;margin-bottom:12px}
+#note dt{margin-top:10px;color:var(--dim)}
+#note dd{margin:1px 0 0}
+
+/* stage */
+#stage{display:grid;grid-template-columns:minmax(0,1fr);gap:44px;min-width:0}
+#stage.pair{grid-template-columns:repeat(2,minmax(0,1fr))}
+.col{min-width:0}
+figure{display:block}
+.hero canvas{display:block;width:100%;height:clamp(250px,45vh,500px);border-radius:16px}
+.pair .hero canvas{height:clamp(210px,36vh,400px)}
+.hero figcaption{display:flex;gap:14px;align-items:baseline;margin-top:10px;text-transform:none;letter-spacing:0;font:12px/1.4 var(--sans)}
+.hero figcaption b{font:10.5px/1.4 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--fg);font-weight:400}
+.sizes{display:flex;flex-wrap:wrap;gap:30px 44px;align-items:flex-end;margin-top:34px}
+.sizes figcaption{margin-top:12px}
+.sizes figcaption span{color:var(--dim);margin-left:6px}
+.sizes canvas{display:block}
+.appicon{width:112px;height:112px;border-radius:25px;overflow:hidden;background:#000;box-shadow:0 0 0 1px rgba(255,255,255,.07),0 10px 30px rgba(0,0,0,.55)}
+.sheet{position:relative;width:292px;height:92px;background:#000;border-radius:0 0 22px 22px;box-shadow:0 0 0 1px rgba(255,255,255,.05)}
+.sheet i{position:absolute;left:18px;height:6px;border-radius:3px;background:#24272b}
+.sheet i:nth-child(1){top:20px;width:74px;background:#3a3e44}.sheet i:nth-child(2){top:42px;width:150px}.sheet i:nth-child(3){top:58px;width:108px;background:#1b1d20}
+.sheet canvas{position:absolute;right:14px;top:12px;border-radius:7px;box-shadow:0 0 0 1px rgba(255,255,255,.08)}
+.screen{position:relative;width:376px;height:112px;border-radius:12px 12px 0 0;overflow:hidden;background:linear-gradient(158deg,#263442 0%,#17212b 46%,#2b2638 100%);box-shadow:0 0 0 1px rgba(255,255,255,.06);-webkit-mask-image:linear-gradient(#000 62%,transparent)}
+body.light .screen{background:linear-gradient(158deg,#cdd7de 0%,#b3c0cb 46%,#d2c9da 100%)}
+.menubar{position:absolute;inset:0 0 auto 0;height:32px;background:rgba(0,0,0,.16)}
+.menubar i{position:absolute;top:13px;height:6px;border-radius:3px;background:rgba(255,255,255,.34)}
+.menubar i:nth-child(1){left:14px;width:9px}.menubar i:nth-child(2){left:32px;width:30px}.menubar i:nth-child(3){left:70px;width:18px;opacity:.6}.menubar i:nth-child(4){right:14px;width:34px}.menubar i:nth-child(5){right:56px;width:9px;opacity:.6}
+.notch{position:absolute;top:0;left:50%;width:200px;height:32px;margin-left:-100px;background:#000;border-radius:0 0 11px 11px;overflow:hidden}
+.glow{position:absolute;left:50%;top:-8px;width:420px;height:160px;margin-left:-210px;filter:blur(9px) saturate(1.35)}
+#error,.nogl{color:#e8b267;font:12px/1.5 var(--mono);white-space:pre-wrap;margin-top:16px}
+.nogl{font:14px/1.6 var(--sans);padding:80px 0}
+
+/* controls */
+aside section+section{margin-top:26px}
+h2{margin-bottom:9px;color:var(--dim)}
+#states{display:flex;flex-direction:column}
+#states button,.toggle{display:flex;justify-content:space-between;align-items:center;padding:4.5px 0;color:var(--mut);transition:color .15s}
+#states button:hover,.toggle:hover{color:var(--fg)}
+#states button[aria-pressed=true]{color:var(--fg)}
+#states button::before{content:"";width:5px;height:5px;border-radius:50%;margin-right:10px;background:currentColor;opacity:0;transition:opacity .2s}
+#states button[aria-pressed=true]::before{opacity:1}
+#states button kbd{margin-left:auto}
+#states button:nth-child(5)[aria-pressed=true]::before{background:#f2b04a}#states button:nth-child(6)[aria-pressed=true]::before{background:#7fe0b0}#states button:nth-child(7)[aria-pressed=true]::before{background:#e0554a}
+#palettes{display:flex;gap:11px;align-items:center}
+.sw{width:20px;height:20px;border-radius:50%;box-shadow:0 0 0 1px rgba(255,255,255,.14);transition:box-shadow .15s,transform .15s}
+.sw[aria-pressed=true]{box-shadow:0 0 0 2px var(--bg),0 0 0 3px var(--fg)}
+.sw-neutral{background:linear-gradient(135deg,#f4f6f8,#6d737b 45%,#e6e9ee 60%,#3a3f46)}
+.sw-irid{background:conic-gradient(from 210deg,#9fd8ff,#c7a6ff,#ffb3d0,#ffe1a6,#a8f0d0,#9fd8ff)}
+.sw-warm{background:linear-gradient(135deg,#ffd9a0,#e8743c 60%,#7a3418)}
+.sw-cool{background:linear-gradient(135deg,#bfe3ff,#4f8fe8 55%,#5a3fc0)}
+.sw-hue{background:conic-gradient(#f55,#fc5,#5f8,#5cf,#85f,#f5c,#f55)}
+#palette-name{margin-left:auto;color:var(--mut);font-size:12px}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:16px;background:none;margin:6px 0 0;cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:2px;background:var(--track,rgba(255,255,255,.18));border-radius:1px}
+input[type=range]::-moz-range-track{height:2px;background:var(--track,rgba(255,255,255,.18));border-radius:1px}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;background:var(--fg);margin-top:-5px}
+input[type=range]::-moz-range-thumb{width:12px;height:12px;border:0;border-radius:50%;background:var(--fg)}
+#hue{--track:linear-gradient(90deg,#f55,#fc5,#5f8,#5cf,#85f,#f5c,#f55)}
+label{display:flex;justify-content:space-between;color:var(--mut)}
+.toggle{width:100%}
+.toggle i{font-style:normal;margin-left:auto;margin-right:12px;font:10.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+.toggle[aria-pressed=true]{color:var(--fg)}
+.toggle[aria-pressed=true] i{color:var(--fg)}
+.toggle i::before{content:"Off"}.toggle[aria-pressed=true] i::before{content:"On"}
+#pin i{display:none}#pin kbd{margin-left:auto}
+dl.read{display:grid;gap:7px}
+dl.read dt{color:var(--dim)}
+dl.read dd{color:#b9bdc3;font-size:12px;line-height:1.4;margin:-5px 0 2px;font-variant-numeric:tabular-nums}
+#measure{margin-top:12px;padding:6px 14px}
+.fine{color:var(--dim);font-size:11.5px;line-height:1.5;margin-top:10px}
+
+footer{display:flex;justify-content:space-between;gap:40px;padding:14px 36px 20px;color:var(--dim);font-size:11.5px}
+footer .keys{font:10.5px/1.6 var(--mono);letter-spacing:.04em;text-align:right}
+footer .keys b{color:var(--mut);font-weight:400}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="wordmark">Tasktap</span><span class="cap">Motion lab</span></div>
+  <div class="voice">
+    <span id="mic-error" hidden></span>
+    <canvas id="meter" width="96" height="20" aria-hidden="true"></canvas>
+    <span id="source" class="cap">Simulated voice</span>
+    <button id="mic" class="btn" aria-pressed="false">Use microphone <kbd>M</kbd></button>
+  </div>
+</header>
+
+<main>
+  <nav id="concepts" aria-label="Concepts"><div id="note"></div></nav>
+
+  <div><section id="stage" aria-label="Stage"></section><p id="error" hidden></p></div>
+
+  <aside aria-label="Controls">
+    <section><h2>State</h2><div id="states"></div></section>
+    <section><h2>Palette</h2>
+      <div id="palettes"><span id="palette-name"></span></div>
+      <div id="hue-row" hidden><input id="hue" type="range" min="0" max="360" step="1" aria-label="Hue"></div>
+    </section>
+    <section><h2>Voice</h2>
+      <label for="sens">Sensitivity</label>
+      <input id="sens" type="range" min="-1" max="1" step="0.01" value="0">
+    </section>
+    <section><h2>View</h2>
+      <button id="reduce" class="toggle">Reduce Motion<i></i><kbd>R</kbd></button>
+      <button id="light" class="toggle">Light backdrop<i></i><kbd>B</kbd></button>
+      <button id="pin" class="toggle"><b style="font-weight:400">Pin</b><i></i><kbd>P</kbd></button>
+    </section>
+    <section><h2>Cost</h2>
+      <dl class="read">
+        <dt>Page work per frame</dt><dd id="r-frame">–</dd>
+        <dt>GPU time</dt><dd id="r-gpu">–</dd>
+        <dt>Drawing</dt><dd id="r-rate">–</dd>
+        <dt>Renderer</dt><dd id="r-gfx">–</dd>
+      </dl>
+      <button id="measure" class="btn">Measure each size</button>
+      <p class="fine">Measure draws every size forty times and waits for the GPU after each, so the figure is the whole cost of a frame, a little overstated. The worst page-work figure includes the one-off compile when a concept is first shown.</p>
+    </section>
+  </aside>
+</main>
+
+<footer>
+  <p>The microphone is analysed inside this page, a frame at a time. Nothing is recorded, stored or sent anywhere.<br>Until you allow it, a built-in simulated voice plays so the page is alive.</p>
+  <p class="keys"><b>1–6</b> concept · <b>I L T W N D F</b> state · <b>[ ]</b> palette · <b>P</b> pin · <b>M</b> microphone · <b>R</b> reduce motion · <b>B</b> backdrop<br><b>← →</b> next concept · <b>↑ ↓</b> next state</p>
+</footer>
+<script type="module" src="lab.js"></script>
+</body>
+</html>

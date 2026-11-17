@@ -393,6 +393,16 @@ fn arguments_of_the_wrong_shape_are_invalid() {
         call::History::args(json!({"limit": 100})).unwrap().limit,
         Limit::MAX
     );
+    // A patch names only fields it has: the others belong to the state machine.
+    let id: ProjectId = id(1);
+    for (c, patch) in [
+        ("projects", json!({"name": "ok", "open": false})),
+        ("thoughts", json!({"text": "ok", "phase": "done"})),
+        ("layouts", json!({"tree": {}, "rev": 1})),
+    ] {
+        let put = call::Put::args(json!({"c": c, "id": id, "patch": patch}));
+        assert_eq!(put.unwrap_err().code, Code::Invalid, "{c}");
+    }
 }
 
 #[test]

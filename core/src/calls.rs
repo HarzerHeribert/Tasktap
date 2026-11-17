@@ -59,7 +59,7 @@ pub type Handler = fn(&mut Cx, Value) -> Option<Control>;
 fn handler(name: Name) -> Option<Handler> {
     let handler: Handler = match name {
         Name::Sub => |cx, args| now::<call::Sub>(cx, args, records::sub),
-        Name::Put => |cx, args| Some(call::Put::reply(cx.id, records::put(cx, args))),
+        Name::Put => |cx, args| now::<call::Put>(cx, args, records::put),
         Name::Delete => |cx, args| now::<call::Delete>(cx, args, records::delete),
         Name::History => |cx, args| now::<call::History>(cx, args, records::history),
         Name::CoreStatus => |cx, args| now::<call::CoreStatus>(cx, args, status),

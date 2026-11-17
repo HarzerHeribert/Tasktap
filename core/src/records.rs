@@ -19,9 +19,9 @@ use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
-    Change, Collection, Control, Delete, Glance, History, HistoryPage, Layout, LayoutPatch, Mode,
-    NotePatch, PrefValue, ProjectPatch, Put, PutTarget, Rev, Revision, Rows, SessionId, Set,
-    Subscribe, Thought, ThoughtId, Time, encode_control,
+    Change, Collection, Control, Delete, Glance, History, HistoryPage, Layout, Mode, NotePatch,
+    PrefValue, ProjectPatch, Put, PutTarget, Rev, Revision, Rows, SessionId, Set, Subscribe,
+    Thought, ThoughtId, Time, encode_control,
 };
 
 /// Most bytes of JSON in one snapshot chunk (design §1).
@@ -347,9 +347,8 @@ impl Chunk {
 }
 
 /// `put`: writes plain data and names the revision of the change.
-pub fn put(cx: &mut Cx, args: Value) -> Result<Revision, Error> {
-    plain(&args)?;
-    let Put { target, if_rev } = call::Put::args(args)?;
+pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
+    let Put { target, if_rev } = args;
     // A row that does not exist yet is at revision 0.
     let check = |rev: Option<Rev>| match if_rev {
         Some(want) if want != rev.unwrap_or(Rev::ZERO) => Err(Error::new(
@@ -407,35 +406,6 @@ pub fn put(cx: &mut Cx, args: Value) -> Result<Revision, Error> {
     .map_err(fail)?;
     let change = tx.commit().map_err(fail)?;
     Ok(published(core, change))
-}
-
-/// Refuses a patch that names a field the collection cannot be put. Serde
-/// would skip it silently, and the caller would believe it wrote a field
-/// the state machine owns.
-fn plain(args: &Value) -> Result<(), Error> {
-    let Some(patch) = args.get("patch").and_then(Value::as_object) else {
-        return Ok(());
-    };
-    let c = args.get("c").and_then(Value::as_str).unwrap_or_default();
-    let editable = match c {
-        "projects" => serde_json::to_value(ProjectPatch::default()),
-        "thoughts" => serde_json::to_value(NotePatch::default()),
-        "layouts" => serde_json::to_value(LayoutPatch { tree: Value::Null }),
-        _ => return Ok(()),
-    }
-    .unwrap_or_default();
-    match patch
-        .keys()
-        .find(|field| editable.get(field.as_str()).is_none())
-    {
-        Some(field) => Err(invalid(format!(
-            "{field} is not plain data; {c} may put {}",
-            editable.as_object().map_or(String::new(), |e| {
-                e.keys().map(String::as_str).collect::<Vec<_>>().join(", ")
-            })
-        ))),
-        None => Ok(()),
-    }
 }
 
 /// `delete`: removes plain data. A preference or layout that is not stored

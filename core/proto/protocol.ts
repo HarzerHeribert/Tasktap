@@ -374,7 +374,8 @@ export type ProjectKind = "folder" | "scratch";
 export type ProjectPatch = { name?: string | null, color?: string | null, aliases?: Array<string> | null, isolate?: Isolate | null, };
 
 /**
- * `put`: writes plain data. Fields the state machine owns cannot be named here.
+ * `put`: writes plain data. Fields the state machine owns cannot be named
+ * here: a patch with a field it does not have is `invalid`.
  */
 export type Put = {
 /**

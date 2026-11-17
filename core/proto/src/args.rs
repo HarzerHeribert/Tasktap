@@ -39,7 +39,8 @@ pub struct Revision {
     pub rev: Rev,
 }
 
-/// `put`: writes plain data. Fields the state machine owns cannot be named here.
+/// `put`: writes plain data. Fields the state machine owns cannot be named
+/// here: a patch with a field it does not have is `invalid`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct Put {
@@ -86,6 +87,7 @@ impl From<PrefPatch> for PrefValue {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct LayoutPatch {
     #[cfg_attr(test, ts(type = "unknown"))]
@@ -94,6 +96,7 @@ pub struct LayoutPatch {
 
 /// The editable fields of a project; a missing one is left as it is.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct ProjectPatch {
     pub name: Option<String>,
@@ -104,6 +107,7 @@ pub struct ProjectPatch {
 
 /// The editable fields of a note; a missing one is left as it is.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct NotePatch {
     pub text: Option<String>,

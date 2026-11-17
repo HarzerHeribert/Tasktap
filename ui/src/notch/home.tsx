@@ -1,13 +1,13 @@
-// The open notch: one capture line with its destination, the receipt with Undo, and the
-// thoughts that are working, waiting or finished.
+// The notch open with nothing asking: the newest result the person has not seen, with Keep and Discard when it ran in
+// its own copy of the project; what runs and what else finished, one line each; and the capture line, first when the
+// capture shortcut opened it.
 import type { Thought } from '../../../core/proto/protocol.ts';
-import { useEffect } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { Capture, cap } from '../capture.tsx';
-import { Icon } from '../icons.tsx';
-import { agentName, call, fail, openQuestions, page, projectName, records, redraw, resultOf, ui, why } from './model.ts';
-import { fold, peek, reveal } from './panel.ts';
-
-const secondsLeft = (t: Thought | undefined) => (t?.hold_until ? Math.max(0, Math.ceil((t.hold_until - Date.now()) / 1000)) : 0);
+import { lost, pending, running, settle, settling, Status } from '../changes.tsx';
+import { Answer as Act, Mark, type State, elapsed, plural, when } from '../ui.tsx';
+import { agentName, call, fail, openQuestions, projectName, records, redraw, resultOf, title, ui, why } from './model.ts';
+import { fold, peek } from './panel.ts';
 
 /** The notch's hooks into the shared capture line, here and under a question. */
 export const hooks = {
@@ -17,48 +17,83 @@ export const hooks = {
   started: () => ui.mode === 'pinned' && !ui.inside && !openQuestions().length && fold(),
 };
 
+const stateOf = (t: Thought): State =>
+  t.status === 'working' || t.status === 'routed' ? 'working' : t.status === 'failed' ? 'failed' : t.status === 'done' ? (t.read ? 'ended' : 'ready') : 'ended';
+
 function Row({ t }: { t: Thought }) {
-  const session = t.session_id ? records.sessions.get(t.session_id) : undefined;
-  const result = resultOf(t);
-  const where = [projectName(t.project_id), agentName(t.agent)].join(' / ');
-  const question = openQuestions().find((q) => q.thought_id === t.id);
-  // A question only its terminal can answer, such as a folder-trust prompt before the agent starts.
-  const terminal = question?.reply_via === 'terminal';
-  const [mark, detail] = ({
-    captured: ['note', where],
-    routed: ['arrow', `${projectName(t.project_id)} · starts in ${secondsLeft(t)} s`],
-    working: [t.agent ?? 'terminal', session?.activity.at(-1) ?? where],
-    needs_you: ['attention', question?.prompt ?? where],
-    done: ['check', result?.summary || 'Done'],
-    failed: ['x', `${why(t)}${result?.kind === 'failure' && result.summary ? ': ' + result.summary : session?.error ? ': ' + session.error : ''}`],
-  } satisfies Record<Thought['status'], [string, string]>)[t.status];
-  // The state is a label of its own, so the line keeps all of what it says.
-  const state = t.status === 'needs_you' ? (terminal ? 'Waiting in its terminal' : 'Needs you') : '';
-  const open = () => {
-    if (terminal && t.session_id) peek(t.session_id);
-    else if (question) {
-      ui.question = question.id;
-      reveal('pinned', 'answer', '#notch .decision-btn, #notch #comment');
-    } else if (t.session_id) peek(t.session_id);
-  };
+  const s = t.session_id ? records.sessions.get(t.session_id) : undefined;
+  const live = t.status === 'working' || t.status === 'routed';
+  const fact = t.status === 'routed' ? 'Starting soon' : live ? s?.activity.at(-1) : t.status === 'failed' ? why(t) : resultOf(t)?.summary;
   return (
-    <button type="button" class="notch-work-row" data-status={t.status} title={`${t.text}\n${detail}`} onClick={open}
-      disabled={!question && !t.session_id}>
-      <span class="notch-work-mark" aria-hidden="true"><Icon name={mark} /></span>
-      <span><strong>{t.text.trim().split('\n')[0]}</strong>{state && <em class="row-state">{state}</em>}<small>{detail}</small></span>
-      {question && !terminal ? <span class="row-open">Answer</span> : t.session_id && <span class="row-open">Open</span>}
+    <button type="button" class="row" data-status={t.status} title={[t.text, fact].filter(Boolean).join('\n')} disabled={!t.session_id}
+      onClick={() => t.session_id && peek(t.session_id)}>
+      <Mark s={stateOf(t)} />
+      <span class="t">{title(t)}</span>
+      {fact && <span class="x">{fact}</span>}
+      <time>{live ? elapsed(t.created) : when(t.updated)}</time>
     </button>
   );
 }
 
+/** A result: the thought, its summary, its changes, and what can be done with it. */
+function Result({ t }: { t: Thought }) {
+  const [asking, ask] = useState<'' | 'keep' | 'discard'>('');
+  const r = resultOf(t);
+  const changes = pending(t) ? t : null;
+  const s = settling.get(t.id);
+  const busy = s?.step === 'stopping' || s?.step === 'settling';
+  const open = () => t.session_id && peek(t.session_id);
+  const keep = () => (changes && running(changes) ? ask('keep') : changes && void settle(changes, true));
+  const discard = () => ask('discard');
+  const confirm = () => {
+    if (!changes) return;
+    void settle(changes, asking === 'keep');
+    ask('');
+  };
+  const keys = (e: KeyboardEvent) => {
+    if ((e.target as HTMLElement).matches('input') || e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (asking && k === 'enter') confirm();
+    else if (asking && k === 'escape') ask('');
+    else if (!asking && changes && !busy && k === 'enter' && !(e.target as HTMLElement).closest('button')) keep();
+    else if (!asking && changes && !busy && k === 'd') discard();
+    else if (!asking && k === 'o') open();
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  return (
+    <section class="result" tabIndex={-1} data-result={t.id} onKeyDown={keys}>
+      <p class="ctx">{t.status === 'failed' ? 'Failed' : 'Result'}</p>
+      <p class="qp">{title(t)}</p>
+      {(t.status === 'failed' || r?.summary) && <p class="sum">{t.status === 'failed' ? `${why(t)}${r?.summary ? `: ${r.summary}` : ''}` : r!.summary}</p>}
+      {changes && <p class="status"><Status t={changes} /></p>}
+      {asking ? (
+        <div class="confirm">
+          <p>{asking === 'keep' ? 'The session is still running. Stop it and keep its changes?' : `${running(changes!) ? 'Stop the session and discard? ' : 'Discard? '}${lost(changes!)}`}</p>
+          <div class="qa">
+            <Act k="↩" label={asking === 'keep' ? 'Stop and keep' : 'Discard'} primary={asking === 'keep'} danger={asking === 'discard'} onClick={confirm} />
+            <Act k="esc" label="Cancel" onClick={() => ask('')} />
+          </div>
+        </div>
+      ) : (
+        <div class="qa">
+          {changes && !busy && <Act k="↩" label="Keep" primary onClick={keep} />}
+          {changes && !busy && <Act k="D" label="Discard" onClick={discard} />}
+          {t.session_id && <Act k="O" label="Open" onClick={open} />}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function Home() {
-  const questions = openQuestions();
   const thoughts = [...records.thoughts.values()].filter((t) => t.mode !== 'note' && t.id !== cap.undone?.id);
-  const working = thoughts.filter((t) => ['routed', 'working', 'needs_you'].includes(t.status)).sort((a, b) => b.created - a.created);
+  const working = thoughts.filter((t) => t.status === 'routed' || t.status === 'working').sort((a, b) => b.created - a.created);
   const finished = thoughts
-    .filter((t) => (t.status === 'done' || t.status === 'failed') && (!t.read || ui.seen.has(t.id)))
-    .sort((a, b) => b.updated - a.updated)
-    .slice(0, 4);
+    .filter((t) => (t.status === 'done' || t.status === 'failed') && (!t.read || ui.seen.has(t.id) || pending(t)))
+    .sort((a, b) => Number(pending(b)) - Number(pending(a)) || b.updated - a.updated);
+  const [top, ...rest] = finished;
   // Seen once the notch has shown it for a moment: the glance stops counting it, the row stays until the fold.
   useEffect(() => {
     const unread = finished.filter((t) => !t.read && !ui.seen.has(t.id));
@@ -71,24 +106,24 @@ export function Home() {
     }, 1200);
     return () => clearTimeout(timer);
   });
-  // An open question is never announced here: the notch shows the question itself (answer.tsx).
-  const heading = working.length ? 'Working now' : finished.length ? 'Done' : 'Ready to capture';
+  const first = ui.capturing || !top;
+  const rows = [...working, ...(first ? finished : rest)].slice(0, 4);
+  const capture = <div class="capture-block"><Capture stack {...hooks} hint={<><kbd>↩</kbd> start</>} /></div>;
+  const words = [working.length && `${working.length} working`, finished.filter((t) => !t.read).length && plural(finished.filter((t) => !t.read).length, 'new result', 'new results')]
+    .filter(Boolean).join(' · ');
   return (
-    <>
-      <header class="home-heading">
-        <div><h1>{heading}</h1></div>
-        <button type="button" class="surface-button collapse-button" aria-label="Collapse notch" onClick={fold}><Icon name="down" /></button>
+    <div class="view">
+      <header class="band">
+        {first ? <span>New task</span> : <span><b>{projectName(top!.project_id)}</b>{agentName(top!.agent)}</span>}
+        <time>{first ? words : when(top!.updated)}</time>
       </header>
-      <Capture {...hooks} />
-      {working.length + finished.length > 0 && (
-        <section class="notch-work" aria-label="Thoughts">
-          {[...working, ...finished].map((t) => <Row key={t.id} t={t} />)}
-        </section>
-      )}
-      {page.error && <p class="notch-error" role="alert">{page.error}</p>}
-      <footer class="home-actions">
-        <small class="notch-keys"><kbd>⌃⌥Space</kbd> capture · <kbd>Esc</kbd> close</small>
-      </footer>
-    </>
+      <div class="pad">
+        {first ? capture : <Result t={top!} />}
+        {rows.length > 0 && <div class="rows">{rows.map((t) => <Row key={t.id} t={t} />)}</div>}
+        {!first && capture}
+      </div>
+    </div>
   );
 }
+
+export { redraw };

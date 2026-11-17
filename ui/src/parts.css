@@ -1,0 +1,105 @@
+/* The parts both pages share (ui.tsx, question.tsx, capture.tsx): the reset, the focus ring, icons, the state mark,
+   the wave, key caps, answers, buttons, the reply field, the capture line and a question. Values come from tokens.css. */
+*,::before,::after{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{font:var(--f-body);color:var(--fg);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;-webkit-user-select:none;user-select:none;cursor:default}
+:where(h1,h2,h3,h4,p,figure,ul,ol,dl,dd){margin:0;padding:0;font:inherit}
+:where(button,input,textarea,select){font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;outline:0;text-align:inherit;border-radius:0}
+:where(input,textarea){-webkit-user-select:text;user-select:text}
+button{cursor:default}
+kbd{font:inherit}
+i{font-style:normal}
+[hidden]{display:none!important}
+::placeholder{color:var(--fg3);opacity:1}
+/* A ring for keyboard focus only: a click or a move by script never shows it (page.ts focus). Text fields always match
+   :focus-visible, so theirs is their own underline or lit rule instead. */
+:focus{outline:0}
+:focus-visible{outline:1.5px solid var(--accent);outline-offset:1px;border-radius:var(--r1)}
+:is(input,textarea):focus-visible{outline:0}
+:is(:disabled,.is-off){opacity:.38;pointer-events:none}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+
+/* icons: one owned set, 16 px grid, strokes */
+.i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:var(--i-w);stroke-linecap:var(--i-cap);stroke-linejoin:var(--i-join)}
+.ib{display:inline-grid;place-items:center;flex:none;width:28px;height:var(--ctl-h);border-radius:var(--r1);color:var(--fg3)}
+.ib:hover{background:var(--hover);color:var(--fg)}
+.ib:active{background:var(--sel)}
+
+/* the state mark: five bars of the wave in 14 × 14. The words are its tooltip and accessible name */
+.st{display:inline-flex;align-items:center;justify-content:center;gap:1px;flex:none;width:14px;height:14px;color:#e9ebee}
+.st b{display:block;width:2px;height:2px;border-radius:.5px;background:currentColor}
+.st[data-s=working] b{animation:st-w var(--t-wave) ease-in-out infinite alternate}
+.st[data-s=working] b:nth-child(1){height:5px;animation-delay:-200ms}
+.st[data-s=working] b:nth-child(2){height:10px;animation-delay:-650ms}
+.st[data-s=working] b:nth-child(3){height:13px;animation-delay:-100ms}
+.st[data-s=working] b:nth-child(4){height:8px;animation-delay:-480ms}
+.st[data-s=working] b:nth-child(5){height:4px;animation-delay:-820ms}
+@keyframes st-w{from{transform:scaleY(.35)}to{transform:scaleY(1)}}
+.st[data-s=asks]{color:var(--asks);filter:drop-shadow(0 0 3px rgb(234 182 118/.75))}
+.st[data-s=asks] b{height:8px}.st[data-s=asks] b:nth-child(even){height:12px}.st[data-s=asks] b:nth-child(3){height:14px}
+.st[data-s=ready]{color:#fff}.st[data-s=ready] b{box-shadow:0 0 3px rgb(255 255 255/.8)}
+.st[data-s=ended]{color:var(--fg3)}
+.st[data-s=failed]{color:var(--fail)}.st[data-s=failed] b:nth-child(3){height:10px}
+.st.bgd{opacity:.45}
+.st[data-s=shell]{color:var(--fg3)}.st[data-s=shell] .i{width:14px;height:14px}
+.st[data-s=idea]::before{content:"";width:5px;height:5px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--fg2)}
+.st[data-s=dot]::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--fg)}
+.st[data-s=off]::before{content:"";width:5px;height:5px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--asks)}
+
+/* the wave: chrome bars, the brand mark at work */
+.wave{display:inline-flex;align-items:center;gap:var(--wg,2px);height:var(--wh,16px);flex:none}
+.wave b{display:block;width:var(--ww,2px);height:var(--h);transform:translateY(var(--o,0));border-radius:1px;background:var(--bar-silver)}
+.wave b.cu{background:var(--bar-copper)}.wave b.gr{background:var(--bar-graphite)}
+.wave.live b{animation:wave 1.3s ease-in-out var(--d) infinite alternate}
+@keyframes wave{from{transform:translateY(var(--o,0)) scaleY(.5)}to{transform:translateY(var(--o,0)) scaleY(1)}}
+.wave.rest b{height:2px;transform:none}
+
+/* key caps, answers, buttons */
+kbd.key,.ans kbd,.btn kbd,.reply kbd,.act kbd{display:inline-block;flex:none;min-width:var(--key-h);height:var(--key-h);padding:0 4px;border-radius:var(--r1);background:var(--metal);
+  color:var(--ink);font:var(--f-key);text-align:center;box-shadow:var(--cap-edge)}
+.ans,.act{display:inline-flex;align-items:center;gap:var(--sp2);height:var(--row-h);padding:0 var(--sp2) 0 6px;border-radius:var(--r1);font:var(--f-body);color:var(--fg);white-space:nowrap;flex:none}
+.ans:hover,.act:hover{background:var(--fill)}
+.ans:active,.act:active{background:var(--line2)}
+:is(.ans,.act):active kbd{transform:translateY(1px);box-shadow:inset 0 0 0 .5px rgb(255 255 255/.75)}
+.ans.primary span,.act.primary span{font-weight:600}
+.act.danger span{color:var(--fail)}
+.btn{display:inline-flex;align-items:center;gap:var(--sp2);height:var(--ctl-h);padding:0 10px;border-radius:var(--r1);font:var(--f-small);color:var(--fg);background:var(--fill);white-space:nowrap;flex:none}
+.btn:hover{background:var(--fill-hover)}
+.btn:active{background:var(--line2)}
+.btn.primary{background:var(--metal);color:var(--ink);font-weight:600;box-shadow:inset 0 0 0 .5px rgb(255 255 255/.8),0 1px 0 #000}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.primary:active{filter:brightness(.82)}
+.reply{display:inline-flex;align-items:center;gap:var(--sp2);flex:1 1 180px;min-width:0;height:var(--row-h);padding:0 6px;border-radius:var(--r1);color:var(--fg)}
+.reply input{flex:1;min-width:0;width:0;font:var(--f-body)}
+.reply:hover{background:var(--fill)}
+.reply:focus-within{background:var(--fill);box-shadow:inset 0 -1px 0 var(--accent)}
+
+/* a diffstat: "3 files +14 −3" */
+.diff{font:var(--f-num);color:var(--fg3);white-space:nowrap}
+.diff .p{color:var(--plus)}.diff .m{color:var(--minus)}
+
+/* the capture line: wave, field, destination, agent, hint, over a rule that lights while it has the keyboard */
+.cap{display:flex;align-items:center;gap:14px;min-width:0;border-bottom:1px solid var(--line2)}
+.cap:focus-within{border-image:var(--lit) 1}
+.cap input{flex:1;min-width:0;width:0;font:var(--f-question);letter-spacing:-.01em}
+.cap-to{display:inline-flex;align-items:center;gap:5px;flex:none;font:var(--f-small);color:var(--fg)}
+.cap-to .i{width:12px;height:12px;color:var(--fg3)}
+button.cap-to:hover span{text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--fg3)}
+.cap-agent{flex:none;font:var(--f-small);color:var(--fg2);white-space:nowrap}
+.cap-agent.off{color:var(--asks)}
+.cap-hint{flex:none;font:var(--f-cap);color:var(--fg3);white-space:nowrap}
+.cap-hint kbd{font:var(--f-num)}
+.cap-list{display:grid;padding:var(--sp1) 0;border-bottom:1px solid var(--line)}
+.cap-list button{display:flex;align-items:center;gap:var(--sp2);height:var(--row-h);padding:0 var(--sp2);border-radius:var(--r1);font:var(--f-small);color:var(--fg2)}
+.cap-list button:is(:hover,[aria-selected=true]){background:var(--hover);color:var(--fg)}
+.cap-list .i{width:14px;height:14px;color:var(--fg3)}
+.cap-said{display:flex;align-items:center;gap:var(--sp2);min-height:var(--row-h);font:var(--f-small);color:var(--fg2)}
+.cap-said b{font-weight:400;color:var(--fg)}
+.cap-said .act{height:22px;margin-left:auto}
+
+/* a question: in full, its answers as key caps, a reply in the person's own words */
+.qp{text-wrap:pretty;overflow-wrap:anywhere;-webkit-user-select:text;user-select:text}
+.qa{display:flex;flex-wrap:wrap;align-items:center;gap:2px 14px;margin-left:-6px}
+.q-detail{margin-top:var(--sp1);font:var(--f-small);color:var(--fg2);text-wrap:pretty;overflow-wrap:anywhere}
+
+@media(prefers-reduced-motion:reduce){*,::before,::after{animation:none!important;transition:none!important}}

@@ -40,6 +40,8 @@ pub const FLARE: f64 = 24.0;
 /// Transparent room beside and below the shape for its light to fade out in before the window's
 /// edge. It never takes the pointer: the panel ignores the mouse outside the outline.
 pub const BLOOM: f64 = 40.0;
+/// The open sheet's width (--notch-w in the pages' tokens).
+pub const SHEET: f64 = 420.0;
 
 #[derive(Clone, Copy)]
 pub struct Geometry {
@@ -87,9 +89,6 @@ impl Geometry {
         self
     }
 
-    pub fn compact(&self) -> bool {
-        self.screen.w >= 1920.0 || self.screen.w >= 1680.0 && self.screen.h >= 1000.0
-    }
     pub fn corner(&self) -> f64 {
         1f64.max(10f64.min((self.tab.h / (4.0 * self.pixel)).round() * self.pixel))
     }
@@ -97,12 +96,17 @@ impl Geometry {
         1f64.max(self.tab.y - self.visible.y - 12.0)
     }
 
+    /// The panel: collapsed, the tab and `requested_h` more for the line under it; open, `requested_h` deep.
     pub fn panel_frame(&self, collapsed: bool, requested_h: f64) -> Rect {
-        let content: f64 = if self.compact() { 400.0 } else { 432.0 };
+        let content: f64 = SHEET;
         let shape = if collapsed { self.tab.w } else { content.max(self.tab.w) };
         let width = self.screen.w.min(shape + 2.0 * (FLARE + BLOOM));
-        let height =
-            BLOOM + if collapsed { self.tab.h } else { self.tab.h.max(requested_h).min(self.tab.h + self.available()) };
+        let height = BLOOM
+            + if collapsed {
+                self.tab.h + requested_h
+            } else {
+                self.tab.h.max(requested_h).min(self.tab.h + self.available())
+            };
         let x = self.screen.x.max((self.screen.max_x() - width).min(self.tab.mid_x() - width / 2.0));
         Rect { x, y: self.tab.max_y() - height, w: width, h: height }
     }
@@ -152,6 +156,6 @@ mod tests {
         assert!(g.cutout);
         assert_eq!((g.tab.w, g.tab.h), (220.0, 38.0));
         let open = g.panel_frame(false, 300.0);
-        assert_eq!((open.w, open.h, open.mid_x()), (400.0 + 2.0 * (FLARE + BLOOM), 300.0 + BLOOM, 900.0));
+        assert_eq!((open.w, open.h, open.mid_x()), (SHEET + 2.0 * (FLARE + BLOOM), 300.0 + BLOOM, 900.0));
     }
 }

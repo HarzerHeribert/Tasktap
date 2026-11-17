@@ -13,11 +13,12 @@ export const ui = {
   timer: 0,
   height: 260,
   wing: 0,
+  /** The line under a collapsed notch with a cutout, while something asks. */
+  line: 0,
   /** Opened by a question rather than by the person. */
   auto: false,
   question: null as string | null,
   seen: new Set<string>(),
-  replying: false,
   /** The capture line is open under the question card. */
   capturing: false,
   geometry: null as Record<string, number | boolean> | null,

@@ -84,21 +84,21 @@ test('a divider resizes within 10 to 90 percent and balances at 50', () => {
   assert.equal((resize(l, branch, 50).tree as { ratio: number }).ratio, 50);
 });
 
-test('geometry places panes with a 6 px gap and divider targets over it; focus shows one pane', () => {
+test('geometry places panes with a 1 px seam and divider targets over it; focus shows one pane', () => {
   const id = ids();
   let l = split(open(empty(), 'a', undefined, id), 'n1', 'x', 'b', false, id);
   l = split(l, l.selected!, 'y', 'c', false, id);
-  const g = geometry(l, 806, 406);
-  assert.deepEqual(g.panes.get(paneOf(l, 'a')!.id), { x: 0, y: 0, w: 400, h: 406 });
-  assert.deepEqual(g.panes.get(paneOf(l, 'b')!.id), { x: 406, y: 0, w: 400, h: 200 });
-  assert.deepEqual(g.panes.get(paneOf(l, 'c')!.id), { x: 406, y: 206, w: 400, h: 200 });
+  const g = geometry(l, 801, 401);
+  assert.deepEqual(g.panes.get(paneOf(l, 'a')!.id), { x: 0, y: 0, w: 400, h: 401 });
+  assert.deepEqual(g.panes.get(paneOf(l, 'b')!.id), { x: 401, y: 0, w: 400, h: 200 });
+  assert.deepEqual(g.panes.get(paneOf(l, 'c')!.id), { x: 401, y: 201, w: 400, h: 200 });
   assert.deepEqual(g.dividers.map((d) => [d.axis, d.rect]), [
-    ['x', { x: 396, y: 0, w: 14, h: 406 }],
-    ['y', { x: 406, y: 196, w: 400, h: 14 }],
+    ['x', { x: 397, y: 0, w: 7, h: 401 }],
+    ['y', { x: 401, y: 197, w: 400, h: 7 }],
   ]);
-  // Dragging the first divider to x = 203 gives the left part a quarter.
-  assert.equal(Math.round(ratioAt(g.dividers[0]!, { x: 203, y: 10 })), 25);
-  const focused = geometry(toggleFocus(l), 806, 406);
+  // Dragging the first divider to x = 200.5 gives the left part a quarter.
+  assert.equal(Math.round(ratioAt(g.dividers[0]!, { x: 200.5, y: 10 })), 25);
+  const focused = geometry(toggleFocus(l), 801, 401);
   assert.deepEqual([...focused.panes.keys()], [l.selected]);
   assert.equal(focused.dividers.length, 0);
 });

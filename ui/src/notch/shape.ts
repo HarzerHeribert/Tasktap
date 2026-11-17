@@ -139,8 +139,8 @@ export type Temperament = keyof typeof temperaments;
 /** The easing where the camera housing's upright sides leave the top edge: out along the edge,
  *  down the side, and nearly straight between, like the sloped tab's. */
 export const HOUSING = { shoulder: 6, drop: 11, tension: 0.42 };
-/** The open sheet's bottom corners: --r-island. */
-export const SHEET_CORNER = 18;
+/** The open sheet's bottom corners: --r3. */
+export const SHEET_CORNER = 10;
 
 /** What the host says about the display: the tab (the cutout, or the tab on a display without
  *  one), widened by the glance's wings, and where the open sheet sits. */

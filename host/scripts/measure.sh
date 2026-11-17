@@ -8,10 +8,11 @@
 # channel, then quits it and its core. Then, as 1.2 was measured, launch to window again after
 # that full quit, on the same data folder.
 #
-# MOTION=1 host/scripts/measure.sh measures the motion instead, in one short launch: the whole app idle with the
-# workspace on Home and the notch collapsed, then Home's motion in a state held through the debug channel, once its
-# moment is over: calm (still), breathing (10 a second), and as if it moved all the time (30 a second working, 60
-# thinking, the rate listening draws at), each over 10 s.
+# MOTION=1 host/scripts/measure.sh measures the light instead, in one short launch: the whole app idle with the
+# workspace on Home and the notch collapsed; then, in a state held through the debug channel once its moment is over,
+# Home's light breathing (the pools: opacity and transform on the compositor), the sidebar's glyphs turning (10 a
+# second) beside it, and both beside a workspace's terminal; each over 10 s. The system's window compositor
+# (WindowServer) is reported beside the app, since breathing is its work.
 set -u
 host="$(cd "$(dirname "$0")/.." && pwd)"
 exe="$host/target/release/bundle/macos/Tasktap Next.app/Contents/MacOS/tasktap-next"
@@ -43,18 +44,19 @@ for run in $(seq 1 "${1:-3}"); do
   if [ -n "${MOTION:-}" ]; then
     # Processor use and idle wakeups of the whole app over $1 seconds, as one line.
     phase() {
-      local core pages pids; core=$(pgrep -f "$tmp/data/bin/" | head -1); pages=$(comm -13 <(echo "$before") <(webkit) | tr '\n' ' ')
-      pids="$app $core $pages"
-      top -c d -l 2 -s "$1" -stats pid,cpu,idlew $(for p in $pids; do printf -- '-pid %s ' "$p"; done) > "$tmp/top" 2>/dev/null
-      awk -v n="$(echo $pids | wc -w)" 'NR > 1 && /^[0-9]+ / { c[++i] = $2; w[i] = $3 } END { for (k = i - n + 1; k <= i; k++) { cpu += c[k]; wake += w[k] } printf "%5.1f%% cpu  %5d wakeups/s\n", cpu, wake }' "$tmp/top"
+      local core pages pids ws; core=$(pgrep -f "$tmp/data/bin/" | head -1); pages=$(comm -13 <(echo "$before") <(webkit) | tr '\n' ' ')
+      pids="$app $core $pages"; ws=$(pgrep -x WindowServer | head -1)
+      top -c d -l 2 -s "$1" -stats pid,cpu,idlew $(for p in $pids $ws; do printf -- '-pid %s ' "$p"; done) > "$tmp/top" 2>/dev/null
+      awk -v n="$(echo $pids | wc -w)" -v ws="$ws" 'NR > 1 && /^[0-9]+ / { p[++i] = $1; c[i] = $2; w[i] = $3 } END { m = n + 1; for (k = i - m + 1; k <= i; k++) { if (p[k] == ws) { s = c[k]; continue } cpu += c[k]; wake += w[k] } printf "%5.1f%% cpu  %5d wakeups/s   WindowServer %5.1f%%\n", cpu, wake, s }' "$tmp/top"
     }
     sleep 15
-    printf '%-46s %s\n' "idle: Home shown, notch collapsed" "$(phase 20)"
-    for run in "object working calm" "object working breathe" "object working live" "object thinking live" "wash working live" "wash thinking live"; do
+    printf '%-52s %s\n' "idle: Home shown, notch collapsed" "$(phase 20)"
+    for run in "home working 1 calm" "home working 1 breathe" "home needs 1 calm" "terminal working 1 breathe" "terminal working 0 calm"; do
       set -- $run
-      ask "(__motion.place.home='$1', __motion.debug.state='$2', __motion.debug.pace='$3', __motion.redraw(), 1)" >/dev/null
-      sleep 6
-      printf '%-46s %s\n' "Home, $1, $2, $3" "$(phase 10)"
+      [ "$1" = terminal ] && ask "(__ws.command('open-workspace'), 1)" >/dev/null && echo "click workspace .sheet .act.primary" >&3 && sleep 3
+      ask "(__motion.debug.state='$2', __motion.debug.breathe=$3===1, __motion.debug.pace='$4', __motion.redraw(), 1)" >/dev/null
+      sleep 8
+      printf '%-52s %s\n' "$1, $2, breathing $3, glyphs $4" "$(phase 10)"
     done
     echo quit >&3
     sleep 1
@@ -66,7 +68,7 @@ for run in $(seq 1 "${1:-3}"); do
   fi
   ask "(__ws.command('open-workspace'), 1)" >/dev/null
   sleep 0.5
-  echo "click workspace .workspace-picker-actions .btn" >&3
+  echo "click workspace .sheet .act.primary" >&3
   for _ in $(seq 1 100); do case "$(ask "__ws.text()")" in *project*) break ;; esac; sleep 0.2; done
   sleep 20
   core=$(pgrep -f "$tmp/data/bin/" | head -1)

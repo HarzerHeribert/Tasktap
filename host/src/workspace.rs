@@ -321,7 +321,7 @@ pub fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
                     &item("reset", "Reset Text Size", Some("CmdOrCtrl+0"))?,
                     &sep()?,
                     &CheckMenuItem::with_id(app, "ghostty", "Follow Ghostty Colours", true, ghostty, None::<&str>)?,
-                    &item("appearance", "Appearance…", None)?,
+                    &item("settings", "Settings…", Some("CmdOrCtrl+,"))?,
                 ],
             )?,
             &Submenu::with_items(
@@ -349,7 +349,7 @@ pub fn on_menu(app: &AppHandle, id: &str) {
             let on = !with(|st| st.settings.ghostty);
             appearance(app, &json!({"ghostty": on}));
         }
-        "new-task" | "new-terminal" | "open-workspace" | "appearance" => {
+        "new-task" | "new-terminal" | "open-workspace" | "settings" => {
             let _ = show(app, None);
             let _ = app.emit_to(LABEL, "ui", json!({"do": "menu", "id": id}));
         }

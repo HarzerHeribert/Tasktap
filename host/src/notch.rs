@@ -18,6 +18,8 @@ pub struct Notch {
     screens: usize,
     height: f64,
     wing: f64,
+    /// The line under a collapsed notch with a cutout that says who asks and what.
+    line: f64,
     /// The outline the page is drawing towards (shape.ts), from the tab's centre line and down
     /// from the top edge: the notch takes the pointer only inside it.
     hit: Vec<(f64, f64)>,
@@ -36,6 +38,7 @@ pub static NOTCH: Mutex<Notch> = Mutex::new(Notch {
     screens: 1,
     height: 260.0,
     wing: 0.0,
+    line: 0.0,
     hit: Vec::new(),
     generation: 0,
     passive: false,
@@ -66,7 +69,7 @@ pub fn position(app: &AppHandle, st: &mut Notch) {
         return;
     }
     let g = anchored(st);
-    let want = g.panel_frame(st.collapsed, st.height);
+    let want = g.panel_frame(st.collapsed, if st.collapsed { st.line } else { st.height });
     let held = native::frame(st.panel);
     let same_place = held.max_y() == want.max_y() && g.screen.contains(held.mid_x(), held.max_y() - 0.5);
     let frame = if same_place { held.union(want) } else { want };
@@ -100,7 +103,7 @@ fn describe(app: &AppHandle, st: &Notch, g: &Geometry, frame: Rect) {
     let side = geometry::FLARE + geometry::BLOOM;
     tell(
         app,
-        json!({"do": "geometry", "width": g.tab.w, "height": g.tab.h, "cutout": g.cutout, "compact": g.compact(),
+        json!({"do": "geometry", "width": g.tab.w, "height": g.tab.h, "cutout": g.cutout,
         "surfaceWidth": open.w - 2.0 * side, "surfaceOffset": open.mid_x() - g.tab.mid_x(), "span": open.w,
         "pixel": g.pixel, "corner": g.corner(), "offset": g.tab.mid_x() - frame.mid_x(),
         "available": g.available().max(1.0), "collapsed": st.collapsed}),
@@ -146,7 +149,7 @@ pub fn moved(app: &AppHandle) {
     tell(app, json!({"do": if inside { "hover-enter" } else { "hover-exit" }}));
 }
 
-/// `host.notch {open?, key?, height?, wing?, hit?}` from the page.
+/// `host.notch {open?, key?, height?, wing?, line?, hit?}` from the page.
 pub fn request(app: &AppHandle, args: &Value) {
     let mut st = NOTCH.lock().unwrap();
     if let Some(points) = args.get("hit").and_then(Value::as_array) {
@@ -160,6 +163,9 @@ pub fn request(app: &AppHandle, args: &Value) {
     }
     if let Some(w) = args.get("wing").and_then(Value::as_f64) {
         st.wing = w.clamp(0.0, 160.0);
+    }
+    if let Some(l) = args.get("line").and_then(Value::as_f64) {
+        st.line = l.clamp(0.0, 40.0);
     }
     match args.get("open").and_then(Value::as_bool) {
         Some(true) => open(app, &mut st, args.get("key").and_then(Value::as_bool).unwrap_or(false)),

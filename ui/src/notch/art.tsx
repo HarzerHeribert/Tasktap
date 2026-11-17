@@ -10,7 +10,7 @@ import { cubicBezier, type Display, mix, outline, path, polygon, type Shape, sha
 export const look = { shape: 'medium' as Temperament, glow: 'chromatic' as 'chromatic' | 'warm' | 'cool' };
 
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
-/** --notch-unfold and --notch-fold in prototype/style.css. */
+/** --t-notch-open and --t-notch-fold in tokens.css. */
 const unfold = { ms: 510, ease: cubicBezier(0.19, 0.76, 0.19, 1) };
 const refold = { ms: 320, ease: cubicBezier(0.45, 0, 0.5, 1) };
 /** How far the light's source reaches above the top edge, so the light beside the shape is as
@@ -24,12 +24,13 @@ let hit = '';
 
 const same = (a: Shape, b: Shape) => (Object.keys(a) as (keyof Shape)[]).every((k) => Math.abs(a[k] - b[k]) < 0.01);
 
-/** The shape for the notch as the page shows it now: collapsed on the tab, or open to `bottom`. */
-export function place(open: boolean, bottom: number) {
+/** The shape for the notch as the page shows it now: collapsed on the tab (`line` deeper while it says who asks), or
+ *  open to `bottom`. */
+export function place(open: boolean, bottom: number, line = 0) {
   const m = ui.geometry;
   if (!m || typeof m.width !== 'number') return;
   const d: Display = {
-    cutout: m.cutout === true, width: m.width, height: m.height as number, corner: m.corner as number,
+    cutout: m.cutout === true, width: m.width, height: (m.height as number) + (open ? 0 : line), corner: m.corner as number,
     sheetWidth: m.surfaceWidth as number, sheetOffset: m.surfaceOffset as number,
   };
   const next = shapeFor(d, look.shape, open, bottom);

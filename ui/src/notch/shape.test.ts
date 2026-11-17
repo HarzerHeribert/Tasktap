@@ -2,7 +2,7 @@
 // an opening. Run by `npm run check` with Node's own test runner.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { type Display, mix, outline, path, polygon, type Shape, shapeFor, temperaments, type Temperament } from './shape.ts';
+import { type Display, SHEET_CORNER, mix, outline, path, polygon, type Shape, shapeFor, temperaments, type Temperament } from './shape.ts';
 
 type P = [number, number];
 const cross = (o: P, a: P, b: P) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
@@ -89,9 +89,9 @@ test('open on a display without a cutout, the sheet is a plain rectangle hanging
     assert.deepEqual([open.run, open.shoulder, open.drop], [0, 0, 0], t);
     // Every point above the bottom corners lies on one of the two upright sides, from the top edge down.
     const pts = polygon(outline(open), 8);
-    const sides = pts.filter(([, y]) => y <= 300 - 18 + 1e-9);
+    const sides = pts.filter(([, y]) => y <= 300 - SHEET_CORNER + 1e-9);
     assert.ok(sides.length >= 4 && sides.every(([x]) => Math.abs(Math.abs(x + 12) - 216) < 1e-9), t);
-    assert.ok(sides.some(([, y]) => y === 0) && sides.some(([, y]) => Math.abs(y - (300 - 18)) < 1e-9), t);
+    assert.ok(sides.some(([, y]) => y === 0) && sides.some(([, y]) => Math.abs(y - (300 - SHEET_CORNER)) < 1e-9), t);
     // Its lean goes down as it opens, never back up.
     const tab = shapeFor(d, t, false, 0);
     let last = Infinity;

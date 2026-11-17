@@ -31,6 +31,14 @@ export type Options = {
    *  drives it live. `breathe`: calm, but while thinking or working it drifts at a fifth of its pace, 10 frames a
    *  second. */
   pace?: 'live' | 'calm' | 'breathe';
+  /** The smallest size, in CSS pixels, at which this view draws, where it asks for fewer elements than its size would
+   *  (`count`), so each is still large enough for the metal to read. Otherwise MIN. */
+  min?: [number, number];
+  /** How many elements it draws, instead of what its kind of size asks for. */
+  count?: number;
+  /** Light behind the page rather than an object: a copied frame is softened by this many CSS pixels of blur, once, as
+   *  it is copied, so the compositor never blurs it again. */
+  soften?: number;
 };
 
 // The lab's: the signal light of each state (amber, pale green, dull red), the studio's level, draws a second.
@@ -46,7 +54,7 @@ const UNI = { res: 2, org: 2, n: 1, irid: 1, dim: 1, light: 1, hoff: 1, aux: 1, 
 type Uniforms = { -readonly [K in keyof typeof UNI]: number | ArrayLike<number> };
 const HOLES = 24;
 /** The smallest view, in CSS pixels, that draws (View.shown). */
-const MIN = [400, 200];
+const MIN: [number, number] = [400, 200];
 /** No voice: silence, as the shaders read it. */
 const SILENT = { level: 0, fast: 0, slow: 0, onset: 0, onsets: 0, bright: 0.4, vowel: 0, sib: 0, pitch: 0.4, activity: 0, quiet: 9, hoff: 0 };
 
@@ -163,7 +171,8 @@ export class View {
     const resize = new ResizeObserver(([e]) => {
       const b = e!.contentRect;
       this.css = [b.width, b.height];
-      el.toggleAttribute('data-small', b.width < MIN[0]! || b.height < MIN[1]!);
+      const [mw, mh] = this.o.min ?? MIN;
+      el.toggleAttribute('data-small', b.width < mw || b.height < mh);
       this.dirty = this.stale = true;
       this.watch();
       wake();
@@ -228,7 +237,8 @@ export class View {
   /** Below about 400 by 200 CSS pixels an element of the form is narrower than 8 device pixels on a 1x display, where
    *  the full shader stops reading as metal; such a view draws nothing at all. */
   shown() {
-    return this.seen && this.o.active !== false && this.css[0]! >= MIN[0]! && this.css[1]! >= MIN[1]! && !document.hidden;
+    const [mw, mh] = this.o.min ?? MIN;
+    return this.seen && this.o.active !== false && this.css[0]! >= mw && this.css[1]! >= mh && !document.hidden;
   }
 
   /** Its size in drawn pixels. */
@@ -312,6 +322,7 @@ export class View {
 
   /** How many elements its style draws at its size, by the lab's kinds of size. */
   count() {
+    if (this.o.count) return this.o.count;
     const [w, h] = this.css as [number, number], kind: Size = h < 48 ? (w / h > 4 ? 'strip' : 'box') : w < 200 ? 'icon' : 'hero';
     return STYLES[this.o.look.style].n[kind];
   }
@@ -351,6 +362,7 @@ export class View {
     if (this.cv.width !== bw || this.cv.height !== bh) [this.cv.width, this.cv.height] = [bw, bh];
     const g = this.cv.getContext('2d')!;
     g.clearRect(0, 0, bw, bh);
+    g.filter = this.o.soften ? `blur(${(this.o.soften * bw) / Math.max(1, this.css[0]!)}px)` : 'none';
     g.drawImage(canvas!, 0, H - rh, rw, rh, 0, 0, bw, bh);
   }
 }

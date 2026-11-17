@@ -1,5 +1,4 @@
-// The workspace's look, as prototype/appearance.js and workspace-deck.js set it in 1.2: one
-// palette for the chrome and the terminals, Midnight by default, or Follow Ghostty, which takes
+// The terminals' look, as 1.2 set it: Midnight by default, or Follow Ghostty, which takes
 // the colours, font, cursor, padding and opacity from Ghostty's own resolved configuration. The
 // host runs `ghostty +show-config` and passes on only its appearance lines (host.appearance).
 
@@ -29,10 +28,10 @@ const colorKeys: Record<string, string> = {
   'selection-background': 'selectionBackground', 'selection-foreground': 'selectionForeground',
 };
 
-/** The neutral look of 1.2's deck: Menlo 14, block cursor, 8 px padding, 0.93 opacity. */
+/** Midnight's look: Menlo 14, block cursor, padded 10 by 14 as Instrument pads a terminal, 0.93 opacity. */
 export const neutral = (): Look => ({
   ghostty: false, fontFamily: '"Menlo", "Monaco", monospace', fontSize: 14, cursorStyle: 'block', cursorBlink: false,
-  padding: '8px 8px 8px 8px', opacity: 0.93, theme: { ...midnight },
+  padding: '10px 14px 10px 14px', opacity: 0.93, theme: { ...midnight },
 });
 
 const hex = (v: string) => {
@@ -82,46 +81,11 @@ export function ghostty(text: string): Look {
   return look;
 }
 
-const channels = (v: string) => [1, 3, 5].map((i) => parseInt(v.slice(i, i + 2), 16));
-const mix = (a: string, b: string, r: number) =>
-  '#' + channels(a).map((v, i) => Math.round(v + (channels(b)[i]! - v) * r).toString(16).padStart(2, '0')).join('');
-const luminance = (v: string) =>
-  channels(v).map((c) => ((c /= 255) <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)).reduce((s, c, i) => s + c * [0.2126, 0.7152, 0.0722][i]!, 0);
-const contrast = (a: string, b: string) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05);
-function legible(v: string, bg: string, ratio = 4.5) {
-  const target = luminance(bg) < 0.25 ? '#ffffff' : '#111318';
-  for (let i = 0; i <= 20; i++) {
-    const c = mix(v, target, i / 20);
-    if (contrast(c, bg) >= ratio) return c;
-  }
-  return target;
-}
-
-/** The chrome palette appearance.js derives from a terminal theme, as `--app-*` values. */
-export function palette(theme: TerminalTheme): Record<string, string> {
-  const bg = theme.background;
-  const fg = legible(theme.foreground, bg, 7);
-  const dark = luminance(bg) < 0.25;
-  const accent = legible(theme.blue ?? '#a4bbef', bg);
-  return {
-    bg, fg, surface: mix(bg, fg, 0.025), raised: mix(bg, fg, dark ? 0.055 : 0.025), sidebar: mix(bg, fg, dark ? 0.035 : 0.025),
-    overlay: mix(bg, fg, dark ? 0.065 : 0.018), input: dark ? mix(bg, fg, 0.035) : '#ffffff',
-    muted: legible(mix(bg, fg, 0.67), mix(bg, fg, 0.12)), subtle: legible(mix(bg, fg, 0.52), mix(bg, fg, 0.12)),
-    edge: mix(bg, fg, dark ? 0.15 : 0.17), 'edge-strong': mix(bg, fg, 0.3), hover: mix(bg, fg, 0.07), selected: mix(bg, fg, 0.105),
-    accent, 'accent-ink': contrast(accent, '#111318') > contrast(accent, '#ffffff') ? '#111318' : '#ffffff',
-    'accent-soft': mix(bg, accent, 0.13), positive: legible(theme.green ?? '#9bcba7', bg), warning: legible(theme.yellow ?? '#e9c387', bg),
-    negative: legible(theme.red ?? '#f18b93', bg), shadow: dark ? '#00000066' : '#17203424',
-  };
-}
-
-/** Puts a look on the page: the palette, the deck's colours and padding, and the window's tint. */
+/** Puts a look on the terminals: their colours, padding and opacity. The window around them is Instrument's and never
+ *  takes a colour from them. */
 export function apply(look: Look) {
   const root = document.documentElement;
-  const dark = luminance(look.theme.background) < 0.25;
-  root.dataset.appearance = look.ghostty ? 'ghostty' : 'dark';
-  root.dataset.appearanceMode = dark ? 'dark' : 'light';
-  root.style.colorScheme = dark ? 'dark' : 'light';
-  for (const [k, v] of Object.entries(palette(look.theme))) root.style.setProperty('--app-' + k, v);
+  root.dataset.appearance = look.ghostty ? 'ghostty' : 'midnight';
   root.style.setProperty('--deck-bg', look.theme.background);
   root.style.setProperty('--deck-fg', look.theme.foreground);
   root.style.setProperty('--deck-padding', look.padding);

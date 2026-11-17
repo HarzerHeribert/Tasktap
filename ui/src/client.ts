@@ -2,7 +2,7 @@
 // calls, records kept from a snapshot and the ordered changes after it, and streams with
 // credit. It knows only the Bridge, so it runs the same in a page and in a test.
 import type {
-  AgentHealth, Calls, Change, Close, CloseWhy, Code, Collection, Control, Credit, Device, Glance, Layout, Mark, Opened, Pref,
+  AgentHealth, Calls, Change, Close, CloseWhy, Code, Collection, Control, Credit, Device, Diff, Glance, Layout, Mark, Opened, Pref,
   Project, Question, Session, SessionId, Set as RowSet, Terminal, Thought, TurnResult, Welcome,
 } from '../../core/proto/protocol.ts';
 import { MAX_DATA, VERSION } from '../../core/proto/protocol.ts';
@@ -16,7 +16,7 @@ export interface Bridge {
 
 /** The host's abilities this slice has. */
 export type HostCalls = {
-  'host.notch': { args: { open?: boolean; key?: boolean; height?: number; wing?: number; hit?: number[] }; result: null };
+  'host.notch': { args: { open?: boolean; key?: boolean; height?: number; wing?: number; line?: number; hit?: number[] }; result: null };
   /** The workspace window, in front, showing a session's or terminal's tab when `at` names one. */
   'host.show': { args: { surface: 'workspace'; at?: SessionId }; result: null };
   'host.pick': { args: { folder: true }; result: string | null };
@@ -175,12 +175,18 @@ export class Client {
     args: Args<'terminal.open'> | Args<'fixture.stream'>,
     on: Partial<Pick<Stream, 'ondata' | 'onmark' | 'onclose'>>,
   ): Promise<Stream> {
-    return this.request(name, args, (v) => {
-      const opened = v as Opened;
-      const stream = Object.assign(new Stream(this, opened.s, opened.credit, args.credit, opened.from ?? null), on);
-      this.streams.set(opened.s, stream);
-      return stream;
-    });
+    return this.request(name, args, (v) => this.stream(v as Opened, args.credit, on));
+  }
+
+  /** `thought.changes`: the files in the reply, and the diff on the stream it opens. */
+  changes(args: Args<'thought.changes'>, on: Partial<Pick<Stream, 'ondata' | 'onclose'>>): Promise<{ diff: Diff; stream: Stream }> {
+    return this.request('thought.changes', args, (v) => ({ diff: v as Diff, stream: this.stream((v as Diff).stream, args.credit, on) }));
+  }
+
+  private stream(opened: Opened, window: number, on: Partial<Pick<Stream, 'ondata' | 'onmark' | 'onclose'>>) {
+    const stream = Object.assign(new Stream(this, opened.s, opened.credit, window, opened.from ?? null), on);
+    this.streams.set(opened.s, stream);
+    return stream;
   }
 
   /** A call whose reply `map` turns into its result as it arrives, before any later frame. */

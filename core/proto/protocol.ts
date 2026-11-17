@@ -7,6 +7,14 @@ export const MAX_DATA = 65531;
 export const MAX_CREDIT = 4194304;
 export const MAX_PENDING_CALLS = 64;
 export const MAX_STREAMS = 64;
+// Bounds of what a call writes into a row; a call over one is `invalid`. MAX_TEXT: a thought's
+// text, a question's detail, a text answer. MAX_LINE: a question's prompt and its choices, a
+// router's brief, a session's error, a project's name, color, folder and aliases, a device's
+// name. Both count bytes of JSON: `new TextEncoder().encode(JSON.stringify(value)).length`.
+// MAX_POINTS: the points of a thought's strokes, an empty stroke counting as one.
+export const MAX_TEXT = 65536;
+export const MAX_LINE = 8192;
+export const MAX_POINTS = 2048;
 /** The value of each preference while none is stored: deleting one restores it. */
 export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] } = {"hold":5};
 

@@ -897,6 +897,25 @@ fn delete_restores_a_default_and_removes_a_note() {
 }
 
 #[test]
+fn a_note_edit_is_stamped_with_the_cores_clock() {
+    let mut s = common::Scene::new("note-clock");
+    let id = ThoughtId::mint();
+    let note = tasktap_proto::Capture {
+        mode: Some(Mode::Note),
+        ..common::typed(id, "milk")
+    };
+    s.w.ok::<call::ThoughtCapture>(&note);
+    // A minute ahead of the wall clock.
+    s.tick(60_000);
+    let put = Put {
+        target: retext(id, "oat milk"),
+        if_rev: None,
+    };
+    s.w.ok::<call::Put>(&put);
+    assert_eq!(s.w.model.thought(id).updated, common::time(s.now));
+}
+
+#[test]
 fn a_thought_leaving_the_live_set_is_a_delete_and_then_history() {
     let data = Folder::new();
     let core = Core::start(&data);

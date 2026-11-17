@@ -54,11 +54,12 @@ fn any_chunking_yields_the_same_frames() {
         s: StreamId(7),
         bytes: vec![],
     }));
+    // A layout's tree is opaque, so its call may take up to a frame.
     let long = "x".repeat(150_000);
-    frames.push(Frame::Control(call::ThoughtCapture::request(
+    frames.push(Frame::Control(call::Put::request(
         CallId(u32::MAX),
         &serde_json::from_value(
-            json!({"id": common::id::<ThoughtId>(1), "text": long, "source": "typed"}),
+            json!({"c": "layouts", "id": common::id::<ProjectId>(1), "patch": {"tree": long}}),
         )
         .unwrap(),
     )));

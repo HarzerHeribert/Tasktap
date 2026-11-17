@@ -75,7 +75,7 @@ for run in $(seq 1 "${1:-3}"); do
   echo "launch to window after a full quit: $(grep '"event":"window"' "$tmp/log2" | sed 's/.*"ms":\([0-9]*\).*/\1/') ms"
   sleep 1
   kill "$app" 2>/dev/null
-  sleep 1
+  wait "$app" 2>/dev/null
   pkill -f "$tmp/data/bin/" 2>/dev/null
   rm -rf "$tmp"
 done

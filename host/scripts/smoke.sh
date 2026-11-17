@@ -253,6 +253,8 @@ ask workspace "click #modal .stack .btn" >/dev/null
 until_has workspace "text .nav-background" 3 "zsh" && pass "Keep running in background lists the session under its workspace" \
   || fail "the background row"
 js workspace "(window.__kept = __ws.engines.get('$shell'), 1)" >/dev/null
+[ "$(js workspace "String(!__ws.engines.get('$shell').element.isConnected && [...document.querySelectorAll('.deck-surface')].every(s => s.querySelectorAll('.deck-terminal:not([hidden])').length <= 1))")" = true ] \
+  && pass "its terminal leaves the screen, and each surface shows one terminal" || fail "a backgrounded terminal stays on screen"
 shot background workspace
 ask workspace "click .nav-background-session" >/dev/null
 until_has workspace "$(screen)" 5 "smoke-42" \
@@ -265,6 +267,10 @@ js workspace "(__ws.command('close-tab'), 1)" >/dev/null
 until_has workspace "text #modal" 3 "Stop session" || fail "the close dialog again"
 ask workspace "click #modal .stack .btn:nth-child(2)" >/dev/null
 until_has workspace "eval __ws.records.terminals.get('$shell').state" 5 "exited" && pass "Stop session ends the process" || fail "stop"
+sleep 1.5
+gone="(l => !__ws.L.tabs(l).includes('$shell') && !l.background.includes('$shell'))"
+[ "$(js workspace "String($gone(__ws.layout('$project')) && $gone(__ws.records.layouts.get('$project').tree))")" = true ] \
+  && pass "a stopped session leaves the layout, in the page and in the core's record" || fail "the stopped session left the layout"
 # Closing the window leaves the notch; showing it again comes back to the same workspace.
 panes=$(ask workspace "eval __ws.L.panes(__ws.layout('$project')).length")
 send "close workspace"

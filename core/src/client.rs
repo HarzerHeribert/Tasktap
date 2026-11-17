@@ -161,6 +161,17 @@ impl Client {
         credit: u32,
         auto: bool,
     ) -> io::Result<Result<StreamId, Error>> {
+        Ok(self.opened::<C>(args, credit, auto)?.map(|opened| opened.s))
+    }
+
+    /// [`Client::open`], with the whole reply: a terminal's says where its
+    /// stream starts.
+    pub fn opened<C: Call<Result = Opened>>(
+        &mut self,
+        args: &C::Args,
+        credit: u32,
+        auto: bool,
+    ) -> io::Result<Result<Opened, Error>> {
         let opened = match self.call::<C>(args)? {
             Ok(opened) => opened,
             Err(e) => return Ok(Err(e)),
@@ -171,7 +182,7 @@ impl Client {
             auto: auto.then_some((credit, 0)),
         };
         self.streams.insert(opened.s, Some(flow));
-        Ok(Ok(opened.s))
+        Ok(Ok(opened))
     }
 
     /// Lets the core send `n` more bytes on `s`.

@@ -95,9 +95,15 @@ impl Core {
 
     /// The same with more arguments, which may set another idle delay.
     pub fn start_with(data: impl AsRef<Path>, extra: &[&str]) -> Core {
+        Self::start_env(data, extra, &[])
+    }
+
+    /// The same with these variables added to the core's environment.
+    pub fn start_env(data: impl AsRef<Path>, extra: &[&str], env: &[(&str, &str)]) -> Core {
         let data = data.as_ref();
         let mut serve = client::serve_command(Path::new(EXE), data);
         serve.args(["--idle-ms", "600000"]).args(extra);
+        serve.envs(env.iter().copied());
         let child = client::start(serve).unwrap();
         Core {
             _watchdog: Watchdog::new(&child),

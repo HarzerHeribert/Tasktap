@@ -287,11 +287,20 @@ fn settle(s: &mut Scene, t: ThoughtId, keep: bool) -> Result<(), Error> {
 /// Waits for something the core does on its own off its thread.
 /// A busy Windows runner starts each git command slowly, and a look or a
 /// tidy runs a dozen of them.
-fn eventually(what: &str, mut done: impl FnMut() -> bool) {
+fn eventually(what: &str, done: impl FnMut() -> bool) {
+    eventually_shown(what, done, String::new);
+}
+
+/// [`eventually`], saying what `shown` finds when it never happens.
+fn eventually_shown(what: &str, mut done: impl FnMut() -> bool, shown: impl Fn() -> String) {
     let patience = if cfg!(windows) { 120 } else { 20 };
     let deadline = Instant::now() + Duration::from_secs(patience);
     while !done() {
-        assert!(Instant::now() < deadline, "{what} never happened");
+        assert!(
+            Instant::now() < deadline,
+            "{what} never happened {}",
+            shown()
+        );
         std::thread::sleep(Duration::from_millis(20));
     }
 }
@@ -1265,7 +1274,18 @@ fn a_run_that_changes_nothing_leaves_no_worktree_and_a_retry_works_where_it_bega
         th.status == Status::Done && th.workdir.is_some()
     });
     let w = workdir(&s, t);
-    eventually("the worktree is tidied", || !Path::new(&w.path).exists());
+    let root = s.data.0.join("worktrees");
+    let left = || {
+        let status = ["status", "--porcelain", "--ignored=matching", "-uall"];
+        let wt = Path::new(&w.path);
+        let status = wt.exists().then(|| work.git(wt, &status));
+        format!("{:?} {status:?}", files_in(&root))
+    };
+    eventually_shown(
+        "the worktree is tidied",
+        || !Path::new(&w.path).exists(),
+        left,
+    );
     eventually("the branch is deleted", || {
         work.branch(&repo, &w.branch).is_none()
     });

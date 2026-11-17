@@ -1,8 +1,9 @@
-// The backdrop's placements on the real pages, for the owner to choose from: every placement of the notch sheet and
-// of Home, with each style, Lumen on and off, in idle, working, needs you and done, the notch at 2x and Home at 1x
-// (with a 2x and a 1x row of each), short clips of each placement moving, the text's contrast over the backdrop
-// against the same page without it, and the notch's shape opening on a display without a camera cutout.
-// node scripts/motion-sheet.cjs <outdir>   (ui/dist must be built; ffmpeg turns the clips into mp4)
+// Home's motion on the real pages, for the owner to judge: the form as an object in the free space at the foot of Home
+// (its content held to a left column, as the Folds layout will have it), each style with Lumen on and off in idle,
+// working, needs you and done at 1x and 2x; the moving backdrop it replaces, for comparison; the open notch, which
+// carries no form; clips of what moves and when; the text's contrast with and without the motion; the lab's hero and
+// the app's object side by side at the same pixel size; and the notch opening on a display without a camera cutout.
+// node scripts/motion-sheet.cjs <outdir>   (ui/dist must be built, or DIST names a copy; ffmpeg makes the clips)
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
@@ -11,7 +12,6 @@ const root = path.resolve(__dirname, '..');
 const { chromium } = require('playwright');
 
 const STYLES = ['slats', 'glyphs', 'resonator'];
-const PLACES = { notch: ['crown', 'rise', 'glass'], home: ['header', 'low', 'wash'] };
 const STATES = ['idle', 'working', 'needs', 'done'];
 const GPU = ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'];
 const GEOMETRY = (cutout) => ({ do: 'geometry', width: cutout ? 185 : 120, height: cutout ? 32 : 20, cutout, compact: false, surfaceWidth: 432,
@@ -44,23 +44,33 @@ const housing = () => {
   document.body.append(el);
 };
 
-async function notchPage(browser, url, { state, style, lumen, place, dpr, video, cutout = true }) {
-  const page = await open(browser, { label: 'notch', records: records(state, style, lumen), url, dpr, viewport: { width: 560, height: 640 }, video });
-  await page.evaluate((p) => (window.__motion.place.notch = p), place);
+async function notchPage(browser, url, { state, lumen, dpr, video, cutout = true }) {
+  const page = await open(browser, { label: 'notch', records: records(state, 'slats', lumen), url, dpr, viewport: { width: 560, height: 640 }, video });
   if (cutout) await page.evaluate(housing);
   await page.evaluate((g) => window.__fake.emit(g), GEOMETRY(cutout));
   await page.evaluate((s) => window.__fake.emit({ do: s === 'needs' ? 'answer' : 'capture' }), state);
   return page;
 }
-async function homePage(browser, url, { state, style, lumen, place, dpr, video }) {
+// Home with its content in a left column of 824 pixels plus its gutter, where the Folds layout will put it.
+async function homePage(browser, url, { state, style, lumen, place = 'object', pace = null, dpr, video }) {
   const page = await open(browser, { label: 'workspace', records: records(state, style, lumen), url, dpr, video });
-  await page.evaluate((p) => ((window.__motion.place.home = p), window.__motion.redraw()), place);
+  await page.addStyleTag({ content: '.work>main{max-width:896px}' });
+  await page.evaluate(([p, q]) => ((window.__motion.place.home = p), (window.__motion.debug.pace = q), window.__motion.redraw()), [place, pace]);
   return page;
 }
 const sheetClip = (page) => page.evaluate(() => {
-  const b = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sheet-bottom')) || 400;
-  return { x: 52, y: 0, width: 456, height: Math.min(640, b + 14) };
+  const el = document.querySelector('#notch[open]') || document.querySelector('#notch-home');
+  return { x: 52, y: 0, width: 456, height: Math.min(640, Math.ceil(el.getBoundingClientRect().bottom) + 14) };
 });
+const finish = (page) => page.evaluate(() => {
+  // Everything working finishes, unread: the motion's change of state, as it happens in the app.
+  const f = window.__fake, now = Date.now();
+  const thoughts = f.records.thoughts.filter((t) => t.status === 'working').map((t) => ({ ...t, status: 'done', phase: 'done', read: false, updated: now, rev: t.rev + 100 }));
+  const sessions = f.records.sessions.map((s) => ({ ...s, state: 'idle', rev: s.rev + 100 }));
+  f.push({ t: 'change', rev: 900, sets: [{ c: 'thoughts', put: thoughts }, { c: 'sessions', put: sessions }] });
+});
+const encode = (raw, out, from, secs, crop = '') => execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-ss', String(from), '-i', raw, '-t', String(secs),
+  '-vf', `${crop}fps=25,format=yuv420p`, '-c:v', 'libx264', '-crf', '24', '-preset', 'slow', '-movflags', '+faststart', '-an', out]);
 
 // Contrast: every line of text against the brightest pixel behind it, with the backdrop and without it.
 async function contrast(page, roots) {
@@ -123,59 +133,91 @@ async function contrast(page, roots) {
 async function main(out) {
   fs.mkdirSync(out, { recursive: true });
   const server = await serve(process.env.DIST || path.join(root, 'ui/dist'));
+  const lab = await serve(path.join(root, 'design/motion-lab'));
   const browser = await chromium.launch({ headless: true, args: GPU });
-  const manifest = { stills: [], clips: [], contrast: [], shape: [] };
+  const manifest = { stills: [], clips: [], contrast: [], shape: [], pairs: [] };
   const errors = [];
   const done = async (page, name) => {
     errors.push(...page.errors.map((e) => `${name}: ${e}`));
     await page.context().close();
   };
   try {
-    // Stills: the notch at 2x, Home at 1x, and a row of the other scale for working with Lumen on.
-    for (const [surface, places] of Object.entries(PLACES))
-      for (const place of places)
-        for (const style of STYLES)
-          for (const lumen of [true, false])
-            for (const state of STATES)
-              for (const dpr of [1, 2]) {
-                const main = surface === 'notch' ? 2 : 1;
-                if (dpr !== main && !(state === 'working' && lumen)) continue;
-                const o = { state, style, lumen, place, dpr };
-                const page = surface === 'notch' ? await notchPage(browser, server.url, o) : await homePage(browser, server.url, o);
-                await page.waitForTimeout(state === 'done' ? 2200 : 1500);
-                await page.evaluate(() => document.fonts.ready);
-                const file = `${surface}-${place}-${style}-${lumen ? 'lumen' : 'plain'}-${state}-${dpr}x.jpg`;
-                await page.screenshot({ path: path.join(out, file), type: 'jpeg', quality: 84, clip: surface === 'notch' ? await sheetClip(page) : undefined });
-                manifest.stills.push({ surface, place, style, lumen, state, dpr, file });
-                if (style === 'slats' && dpr === main)
-                  manifest.contrast.push({ surface, place, lumen, state, ...(await contrast(page, surface === 'notch' ? '#notch-home:not([hidden]),#notch[open]' : '.work>.toolbar,#main')) });
-                await done(page, file);
-              }
+    // Home: the object in every style, state and Lumen setting at 1x and 2x; the wash with Slats at 1x.
+    for (const place of ['object', 'wash'])
+      for (const style of place === 'wash' ? ['slats'] : STYLES)
+        for (const lumen of [true, false])
+          for (const state of STATES)
+            for (const dpr of place === 'wash' ? [1] : [1, 2]) {
+              const page = await homePage(browser, server.url, { state, style, lumen, place, dpr });
+              await page.waitForTimeout(state === 'done' ? 3600 : state === 'needs' ? 5400 : 2600);
+              await page.evaluate(() => document.fonts.ready);
+              const file = `home-${place}-${style}-${lumen ? 'lumen' : 'plain'}-${state}-${dpr}x.png`;
+              await page.screenshot({ path: path.join(out, file) });
+              manifest.stills.push({ surface: 'home', place, style, lumen, state, dpr, file });
+              if (style === 'slats' && dpr === 1) manifest.contrast.push({ surface: 'home', place, lumen, state, ...(await contrast(page, '.work>.toolbar,#main')) });
+              await done(page, file);
+            }
+    // The open notch, which carries no form: its glow takes Lumen's colours when a question waits.
+    for (const lumen of [true, false])
+      for (const state of STATES) {
+        const page = await notchPage(browser, server.url, { state, lumen, dpr: 2 });
+        await page.waitForTimeout(1500);
+        const file = `notch-${lumen ? 'lumen' : 'plain'}-${state}-2x.png`;
+        await page.screenshot({ path: path.join(out, file), clip: await sheetClip(page) });
+        manifest.stills.push({ surface: 'notch', place: 'none', style: 'slats', lumen, state, dpr: 2, file });
+        await done(page, file);
+      }
     console.log(`${manifest.stills.length} stills`);
 
-    // Clips: each placement with each style, working, Lumen on and off, about three seconds.
-    for (const [surface, places] of Object.entries(PLACES))
-      for (const place of places)
-        for (const style of STYLES)
-          for (const lumen of [true, false]) {
-            const size = surface === 'notch' ? { width: 560, height: 520 } : { width: 1180, height: 760 };
-            const video = { dir: path.join(out, 'raw'), size: surface === 'notch' ? size : { width: 944, height: 608 } };
-            const o = { state: 'working', style, lumen, place, dpr: 1, video };
-            const page = surface === 'notch' ? await notchPage(browser, server.url, o) : await homePage(browser, server.url, o);
-            await page.waitForTimeout(4200);
-            const raw = await page.video().path();
-            await done(page, 'clip');
-            const file = `${surface}-${place}-${style}-${lumen ? 'lumen' : 'plain'}.mp4`;
-            const crop = surface === 'notch' ? 'crop=456:520:52:0,' : '';
-            execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-ss', '1.2', '-i', raw, '-t', '3', '-vf', `${crop}fps=25,format=yuv420p`, '-c:v', 'libx264',
-              '-crf', '27', '-preset', 'slow', '-movflags', '+faststart', '-an', path.join(out, file)]);
-            manifest.clips.push({ surface, place, style, lumen, file });
-          }
+    // The lab's hero and the app's object at the same pixel size, side by side at 100 %, at 1x and 2x.
+    for (const style of STYLES)
+      for (const dpr of [1, 2]) {
+        const page = await homePage(browser, server.url, { state: 'idle', style, lumen: false, dpr });
+        await page.waitForTimeout(1200);
+        const box = await page.locator('.home-backdrop').boundingBox();
+        await page.screenshot({ path: path.join(out, `pair-${style}-${dpr}x-app.png`), clip: box });
+        await done(page, 'pair');
+        const lp = await browser.newPage({ viewport: { width: 1400, height: 900 }, deviceScaleFactor: dpr });
+        await lp.goto(`${lab.url}/index.html#c=${style}&s=idle&p=irid`);
+        await lp.addStyleTag({ content: `.hero canvas{width:${box.width}px!important;height:${box.height}px!important;display:block;border-radius:0!important}` });
+        await lp.waitForTimeout(1200);
+        await lp.locator('.hero canvas').first().screenshot({ path: path.join(out, `pair-${style}-${dpr}x-lab.png`) });
+        await lp.close();
+        manifest.pairs.push({ style, dpr, app: `pair-${style}-${dpr}x-app.png`, lab: `pair-${style}-${dpr}x-lab.png`, size: `${box.width} × ${box.height}` });
+      }
+
+    // Clips: what moves and when. The object while work finishes (its blend, done's pass of light, then still), the
+    // object breathing while it works, the moving backdrop, and the notch's glow while a question waits.
+    const clips = [
+      ...STYLES.map((style) => ({ name: `home-object-${style}-lumen-finish`, style, lumen: true, finish: true, line: 'Still while it works; when the work finishes, the blend and done’s pass of light play for about three seconds, then it holds still.' })),
+      { name: 'home-object-slats-plain-finish', style: 'slats', lumen: false, finish: true, line: 'The same with Lumen off: the form alone.' },
+      { name: 'home-object-slats-lumen-breathe', style: 'slats', lumen: true, pace: 'breathe', line: 'Breathing while it works: its own motion at a fifth of its pace, ten frames a second, for as long as the work runs.' },
+      { name: 'home-wash-slats-lumen-working', style: 'slats', lumen: true, place: 'wash', line: 'The moving backdrop, for comparison: thirty frames a second behind the whole view for as long as anything works.' },
+    ];
+    for (const c of clips) {
+      const video = { dir: path.join(out, 'raw'), size: { width: 944, height: 608 } };
+      const page = await homePage(browser, server.url, { state: 'working', style: c.style, lumen: c.lumen, place: c.place ?? 'object', pace: c.pace ?? null, dpr: 1, video });
+      await page.waitForTimeout(3500);
+      if (c.finish) await finish(page);
+      await page.waitForTimeout(c.finish ? 5000 : 4000);
+      const raw = await page.video().path();
+      await done(page, 'clip');
+      encode(raw, path.join(out, `${c.name}.mp4`), c.finish ? 2.5 : 3, c.finish ? 6.5 : 4);
+      manifest.clips.push({ ...c, file: `${c.name}.mp4` });
+    }
+    {
+      const video = { dir: path.join(out, 'raw'), size: { width: 560, height: 520 } };
+      const page = await notchPage(browser, server.url, { state: 'needs', lumen: true, dpr: 1, video });
+      await page.waitForTimeout(5000);
+      const raw = await page.video().path();
+      await done(page, 'clip');
+      encode(raw, path.join(out, 'notch-glow-lumen-needs.mp4'), 1.2, 3.5, 'crop=456:520:52:0,');
+      manifest.clips.push({ name: 'notch-glow-lumen-needs', file: 'notch-glow-lumen-needs.mp4', line: 'The open notch carries no form. While a question waits its light breathes behind the sheet, in Lumen’s colours when Lumen is on.' });
+    }
     fs.rmSync(path.join(out, 'raw'), { recursive: true, force: true });
     console.log(`${manifest.clips.length} clips`);
 
-    // The shape opening on a display without a cutout: the tab, two steps, the open rectangle. The page's clock is
-    // held so each step is taken at its moment.
+    // The shape opening on a display without a cutout: the tab, two steps, the open rectangle, the page's clock held.
     {
       const page = await open(browser, { label: 'notch', records: records('idle', 'slats', false), url: server.url, dpr: 2, viewport: { width: 560, height: 360 }, clock: true });
       await page.evaluate((g) => window.__fake.emit(g), GEOMETRY(false));
@@ -197,10 +239,11 @@ async function main(out) {
   } finally {
     await browser.close();
     await server.close();
+    await lab.close();
   }
   fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 1));
   const worst = manifest.contrast.reduce((m, c) => Math.min(m, c.worst.ratio), Infinity);
-  console.log(`contrast with the backdrop against without, worst line: ${worst}`);
+  console.log(`contrast with the motion against without, worst line: ${worst}`);
   for (const e of errors) console.error(e);
   if (errors.length) process.exitCode = 1;
 }

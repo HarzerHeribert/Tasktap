@@ -183,8 +183,7 @@ async function main(out) {
     console.log(`same uniforms, lab and app shaders: largest difference ${worst} of 255 over ${report.equivalence.length} renders`);
 
     // Each placement's drawn size at 2x: the box in CSS pixels, times 2, times the placement's scale.
-    const placed = [['notch crown', 432, 84], ['notch rise', 432, 92], ['notch glass', 216, 150], ['home header', 600, 124], ['home low', 968, 354],
-      ['home wash', 484, 354], ['home header, full resolution', 1200, 248]];
+    const placed = [['Home object, 1x', 760, 340], ['Home object, 2x', 1520, 680], ['Home wash, 1x', 968, 708], ['Home wash, 2x', 1936, 1416]];
     report.cost = await page.evaluate(timing, { styles: STYLES, sizes: placed });
     for (const c of report.cost) console.log(`${c.style.padEnd(10)} ${c.place.padEnd(30)} ${c.px.padEnd(12)} ${c.ms} ms`);
 

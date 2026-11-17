@@ -105,19 +105,19 @@ send 'call put {"c":"prefs","id":"agent","patch":"fixture"}' 'call put {"c":"pre
 sleep 1
 shot collapsed-idle
 shot home workspace
-# The motion's backdrop: Home draws one still frame while nothing happens, the collapsed notch nothing at all, and the
-# person's choice reaches both pages at once.
-until_has workspace "eval String(!!document.querySelector('#main .motion canvas') && __motion.stats.frames > 0)" 5 "true" \
-  && pass "Home's backdrop is a canvas and draws" || fail "Home's backdrop draws"
+# The motion: Home draws its object once and then nothing while nothing happens, the notch draws no form at all, and
+# the person's choice reaches both pages at once.
+until_has workspace "eval String(!!document.querySelector('.home-backdrop .motion canvas') && __motion.stats.frames > 0)" 5 "true" \
+  && pass "Home's motion is a canvas and draws" || fail "Home's motion draws"
 frames=$(js workspace "__motion.stats.frames")
 sleep 2
-[ "$(js workspace "__motion.stats.frames")" = "$frames" ] && [ "$(js notch "__motion.stats.frames + '/' + __motion.stats.contexts")" = "0/0" ] \
-  && pass "while idle nothing is drawn: Home holds its still frame, the collapsed notch has no WebGL context" || fail "nothing draws while idle"
+[ "$(js workspace "__motion.stats.frames")" = "$frames" ] && [ "$(js notch "document.querySelectorAll('canvas').length")" = 0 ] \
+  && pass "while idle nothing is drawn: Home holds its still frame, and the notch has no canvas at all" || fail "nothing draws while idle"
 send 'call put {"c":"prefs","id":"motion_style","patch":"glyphs"}' 'call put {"c":"prefs","id":"motion_lumen","patch":true}'
-until_has workspace "eval document.querySelector('#main .motion').dataset.style" 3 "glyphs" \
-  && until_has notch "eval document.querySelector('.notch-backdrop .motion').dataset.style + ' ' + document.querySelector('#notch-art').dataset.glow" 3 "glyphs motion" \
+until_has workspace "eval document.querySelector('.home-backdrop .motion').dataset.style" 3 "glyphs" \
+  && until_has notch "eval document.querySelector('#notch-art').dataset.glow" 3 "motion" \
   && [ "$(js workspace "String(__motion.stats.frames > $frames)")" = true ] \
-  && pass "a preference changes the motion in both pages at once, and Lumen gives the notch's glow its colours" || fail "a preference reaches both pages"
+  && pass "a preference changes Home's motion at once, and Lumen gives the notch's glow its colours" || fail "a preference reaches both pages"
 send 'call delete {"c":"prefs","id":"motion_style"}' 'call delete {"c":"prefs","id":"motion_lumen"}'
 # The Appearance panel's microphone trial needs a secure page that offers getUserMedia; nothing here asks for it.
 [ "$(js workspace "String(isSecureContext && typeof navigator.mediaDevices?.getUserMedia === 'function')")" = true ] \
@@ -148,8 +148,7 @@ send "hover in"
 until_has notch "text .notch-work" 10 "Open" || fail "the working row offers Open"
 # A person can click a row only once the sheet is open and live, not while it folds away.
 until_has notch "eval String(!document.querySelector('#notch-home').inert)" 5 true || fail "the notch opens to its rows"
-until_has notch "eval String(__motion.stats.frames > 0 && !!document.querySelector('.notch-backdrop .motion canvas'))" 5 "true" \
-  && pass "the open notch draws its backdrop" || fail "the open notch's backdrop"
+[ "$(js notch "document.querySelectorAll('canvas').length")" = 0 ] && pass "the open notch carries no chrome form" || fail "the open notch carries no form"
 ask notch "click .notch-work-row" >/dev/null
 until_has workspace "$(screen)" 10 "fixture-agent" && pass "Open shows the agent's terminal in the workspace" || fail "Open shows the terminal"
 # The fixture agent, like Claude Code in a folder it does not trust yet, asks in its terminal first.

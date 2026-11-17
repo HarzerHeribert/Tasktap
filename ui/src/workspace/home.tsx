@@ -4,7 +4,7 @@
 import type { Thought } from '../../../core/proto/protocol.ts';
 import { routing } from '../capture.tsx';
 import { Icon } from '../icons.tsx';
-import { Backdrop, lookOf, place } from '../motion/motion.tsx';
+import { Backdrop, lookOf } from '../motion/motion.tsx';
 import { motionState } from '../motion/state.ts';
 import {
   LOOSE, agentName, call, fail, focusSession, newTerminal, open, openQuestions, projectName, records, resultOf, title, ui, why,
@@ -103,7 +103,7 @@ function Agents() {
 export function Home() {
   // The motion behind Home, in the person's look and the product's state; the engine draws it only while it is seen.
   const backdrop = (
-    <Backdrop surface="home" look={lookOf(records.prefs)} clear=".work > .toolbar, #main" state={motionState({
+    <Backdrop look={lookOf(records.prefs)} clear=".work > .toolbar, #main" state={motionState({
       thoughts: records.thoughts.values(), sessions: records.sessions.values(), questions: openQuestions().length, routing: routing(), voice: ui.voice,
     })} />
   );
@@ -115,11 +115,10 @@ export function Home() {
   const date = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
   return (
     <>
-      {place.home !== 'header' && backdrop}
+      {backdrop}
       <main id="main" tabIndex={-1}>
         <div class="resonator-stage">
           <div class="page-heading"><div class="eyebrow">{date}</div><h1>Home</h1></div>
-          {place.home === 'header' && backdrop}
           <button type="button" class="home-art-toggle" title="Appearance" aria-label="Appearance" onClick={() => open({ kind: 'appearance' })}>
             <Icon name="settings" />
           </button>

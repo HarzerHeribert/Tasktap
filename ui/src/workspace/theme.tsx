@@ -6,7 +6,7 @@ import { useEffect } from 'preact/hooks';
 import type { MotionPalette, MotionStyle, PrefPatch } from '../../../core/proto/protocol.ts';
 import { routing } from '../capture.tsx';
 import { setVoice } from '../motion/engine.ts';
-import { Backdrop, Motion, lookOf } from '../motion/motion.tsx';
+import { Motion, lookOf } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
 import { motionState } from '../motion/state.ts';
 import { Voice } from '../motion/voice.ts';
@@ -81,22 +81,13 @@ export function Theme() {
   useEffect(() => () => void (trial && stopTrial()), []);
   return (
     <div class="theme">
-      <div class="theme-previews" aria-hidden="true">
-        <figure>
-          <div class="mini mini-notch"><Backdrop surface="notch" look={look} state={state} mini /><i /><i /><i /><i /></div>
-          <figcaption>Notch</figcaption>
-        </figure>
-        <figure>
-          <div class="mini mini-home"><Backdrop surface="home" look={look} state={state} mini /><b /><i /><i /><i /></div>
-          <figcaption>Home</figcaption>
-        </figure>
-      </div>
+      {/* As it is on Home: drawn at full size, never as a small thumbnail, where the metal stops reading as metal. */}
+      <Motion class="theme-preview" look={look} state={state} pace="calm" />
       <Choice name="Motion">
         <div class="theme-styles" role="radiogroup" aria-label="Motion">
           {styles.map(([id, name]) => (
             <button type="button" role="radio" aria-checked={look.style === id} key={id} onClick={() => setPref({ id: 'motion_style', patch: id })}>
-              <Motion class="theme-thumb" look={{ ...look, style: id }} state={state} />
-              <span>{name}</span>
+              {name}
             </button>
           ))}
         </div>

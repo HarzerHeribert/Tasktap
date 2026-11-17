@@ -33,14 +33,7 @@ html,body{background:transparent!important;min-height:0;overflow:hidden}
    is ever stroked: the prototype's tab, edge and focus outline give way to the shape. */
 #notch-art{position:fixed;inset:0;z-index:4;pointer-events:none}
 .glow-set{position:absolute;inset:0}
-.notch-fill,.notch-behind,.glow{position:absolute;top:0;bottom:0;left:calc(50% + var(--camera-offset) - var(--art-half,0px));width:calc(2 * var(--art-half,0px))}
-/* The motion's backdrop on the black, in the open sheet's box; it leaves with the content. */
-.notch-behind{opacity:0;transition:opacity 150ms ease}
-.notch-open .notch-behind{opacity:1;transition-duration:400ms}
-.notch-behind .notch-backdrop{--sheet-w:min(var(--surface-width),100vw);left:calc(var(--art-half,0px) - var(--camera-offset,0px) - var(--sheet-w) / 2);
-  width:var(--sheet-w);top:0;height:var(--sheet-bottom,0px)}
-/* A band rising from the bottom edge needs room below the content to rise in. */
-[data-backdrop=rise] :is(#notch-home,#notch[open]){padding-bottom:calc(var(--s-block) + 36px)}
+.notch-fill,.glow{position:absolute;top:0;bottom:0;left:calc(50% + var(--camera-offset) - var(--art-half,0px));width:calc(2 * var(--art-half,0px))}
 .notch-fill{background:#000;transition:background-color 320ms ease}
 .notch-open .notch-fill{background:var(--notch-black)}
 .native-host .island button{background:transparent;border-radius:0}

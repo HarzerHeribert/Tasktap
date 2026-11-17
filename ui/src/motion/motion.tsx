@@ -25,38 +25,26 @@ export function Motion({ class: cls, children, ...o }: Options & { class?: strin
   return <span ref={el} class={`motion ${cls ?? ''}`} data-style={o.look.style} data-state={o.state} aria-hidden="true">{children}</span>;
 }
 
-/** Where a backdrop sits, how finely it is drawn, and how bright its metal is with Lumen on and off. Its box is in
- *  motion.css. With Lumen off every placement shows the form alone, drawn brighter; idle holds it still. */
-type Place = { name: string; scale: number; form: [on: number, off: number] };
+/** Where the motion sits on Home. `object`: the form as a thing of its own in the free space at the foot of the view,
+ *  at full resolution and full brightness, moving only when something happens. `wash`: a moving backdrop behind the
+ *  whole view, kept for comparison. Their boxes are in motion.css. */
+type Place = { name: string; pace: 'live' | 'calm' };
 export const PLACES = {
-  notch: {
-    glass: { name: 'Dark glass: the form large and soft behind the whole sheet, mostly its light', scale: 0.25, form: [0.35, 0.55] },
-    rise: { name: 'Rising band: from the bottom edge, fading out below the content', scale: 0.5, form: [0.8, 1] },
-    crown: { name: 'Crown: from behind the camera along the top edge, fading out above the content', scale: 0.5, form: [0.55, 0.8] },
-  },
-  home: {
-    header: { name: 'Header light: across the top, where 1.2 played its artwork', scale: 0.5, form: [0.75, 1] },
-    low: { name: 'Low form: large and low in the view, behind the lists', scale: 0.5, form: [0.6, 0.8] },
-    wash: { name: 'Wash: the whole view, mostly its light', scale: 0.25, form: [0.3, 0.5] },
-  },
-} satisfies Record<string, Record<string, Place>>;
-export type Surface = keyof typeof PLACES;
-/** The placement each surface uses. The debug channel may change it to compare them: `eval notch __motion.place.notch='glass'`. */
-export const place: { notch: keyof typeof PLACES.notch; home: keyof typeof PLACES.home } = { notch: 'rise', home: 'header' };
-/** For the debug channel's measurements: a state every backdrop shows instead of the product's (`__motion.debug.state='working'`). */
-export const debug = { state: null as MotionState | null };
+  object: { name: 'Object: in the free space at the foot of Home, moving only when something happens', pace: 'calm' },
+  wash: { name: 'Wash: behind the whole view, always moving', pace: 'live' },
+} satisfies Record<string, Place>;
+/** The placement Home uses; the debug channel may change it to compare: `eval workspace __motion.place.home='wash'`. */
+export const place: { home: keyof typeof PLACES } = { home: 'object' };
+/** For the debug channel: a state shown instead of the product's, and a pace instead of the placement's
+ *  (`__motion.debug.state='working'`, `__motion.debug.pace='breathe'`). */
+export const debug = { state: null as MotionState | null, pace: null as Options['pace'] | null };
 
-/** The motion behind a surface's content, keeping clear the words `clear` names. A miniature (the appearance
- *  panel's preview) is a copy, drawn finely, with no words to keep clear. */
-export function Backdrop({ surface, at, look, state, active, clear, mini }: {
-  surface: Surface; at?: string; look: Look; state: MotionState; active?: boolean; clear?: string; mini?: boolean;
-}) {
-  const id = (at ?? place[surface]) as keyof (typeof PLACES)[Surface];
-  const P: Place = (PLACES[surface] as Record<string, Place>)[id] ?? Object.values(PLACES[surface])[0]!;
+/** The motion on Home, keeping clear the words `clear` names. */
+export function Backdrop({ look, state, clear }: { look: Look; state: MotionState; clear?: string }) {
+  const P: Place = PLACES[place.home] ?? PLACES.object;
   return (
-    <span class={`backdrop-box ${surface}-backdrop`} data-place={id} aria-hidden="true">
-      <Motion class="backdrop" look={look} state={debug.state ?? state} active={active} primary={!mini} clear={mini ? undefined : clear}
-        scale={mini ? 1 : P.scale} form={P.form[look.lumen ? 0 : 1]} pad={3} feather={12} />
+    <span class="backdrop-box home-backdrop" data-place={place.home} aria-hidden="true">
+      <Motion class="backdrop" look={look} state={debug.state ?? state} primary clear={clear} pace={debug.pace ?? P.pace} pad={3} feather={12} />
     </span>
   );
 }

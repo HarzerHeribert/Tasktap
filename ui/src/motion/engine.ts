@@ -30,12 +30,20 @@ export type Options = {
   active?: boolean;
   /** May draw into the context's own canvas rather than be a copy. */
   primary?: boolean;
+  /** How it moves. `live`, as the lab: the state's own motion keeps running. `calm`: it moves only when something
+   *  happens: a change of state plays its blend and the state's moment (MOMENT), then holds a still frame; the voice
+   *  drives it live. `breathe`: calm, but while thinking or working it drifts at a fifth of its pace, 10 frames a
+   *  second. */
+  pace?: 'live' | 'calm' | 'breathe';
 };
 
 // The lab's: the signal light of each state (amber, pale green, dull red), the studio's level, draws a second.
 const SIGNAL = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [2, 1.05, 0.22], [0.45, 1.2, 0.75], [1.25, 0.1, 0.07]];
 const DIM = [0.8, 1, 0.95, 0.92, 0.85, 1.05, 0.42];
 const RATE = [20, 60, 60, 30, 30, 60, 60];
+/** Seconds a calm view plays a state for after it begins: the packet's shuttle, the hump's wander, two beats of needs
+ *  you, done's pass of light, failed's slump. */
+const MOMENT = [0, 0, 2.5, 2, 4.8, 3, 2];
 const VERT = '#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.-1.,0.,1.);}';
 const UNI = { res: 2, org: 2, n: 1, irid: 1, dim: 1, light: 1, hoff: 1, aux: 1, ph: '4fv', v: '4fv', w: '4fv', p: '1fv', st: '1fv',
   sig: '3fv', ta: '3fv', tb: '3fv', bg: '3fv', lm: '4fv', form: 1, holes: '4fv', hole: 2 } as const;
@@ -218,8 +226,10 @@ export class View {
     if (canvas?.parentElement === this.el) canvas.remove();
   }
 
+  /** Below about 400 by 200 CSS pixels an element of the form is narrower than 8 device pixels on a 1x display, where
+   *  the full shader stops reading as metal; such a view draws nothing at all. */
   shown() {
-    return this.seen && this.o.active !== false && this.css[0]! > 0 && this.css[1]! > 0 && !document.hidden;
+    return this.seen && this.o.active !== false && this.css[0]! >= 400 && this.css[1]! >= 200 && !document.hidden;
   }
 
   /** Its size in drawn pixels. */
@@ -242,14 +252,22 @@ export class View {
     this.stT += dt;
   }
 
-  /** Draws a second it asks for now. The lab's policy, except that idle holds a still frame here. */
+  /** Draws a second it asks for now. The lab's policy, except that idle holds a still frame here; a calm view holds
+   *  one once its state's moment is over, or drifts at 10 a second while it breathes. */
   rate() {
-    const s = STATES.indexOf(this.o.state), v = voice ?? SILENT;
+    const s = STATES.indexOf(this.o.state), v = voice ?? SILENT, pace = this.o.pace ?? 'live';
     if (reduced.matches) return this.moving || (s === 1 && Math.abs(v.slow - this.slow) > 0.004) ? 20 : 0;
     if (this.moving) return 60;
     if (s === 0 || (s >= 5 && this.stT > 3)) return 0;
-    if (s === 1 && v.quiet > 1.5) return 20;
+    if (s === 1) return v.quiet > 1.5 ? 20 : 60;
+    if (pace !== 'live' && this.stT >= MOMENT[s]!) return this.breathing() ? 10 : 0;
     return RATE[s]!;
+  }
+
+  /** A breathing view after its moment, thinking or working: its own motion runs at a fifth of its pace. */
+  private breathing() {
+    const s = STATES.indexOf(this.o.state);
+    return this.o.pace === 'breathe' && (s === 2 || s === 3) && this.stT >= MOMENT[s]!;
   }
 
   /** The lab's uniforms for this view, its phases moved on by `adv` seconds. */
@@ -263,6 +281,7 @@ export class View {
       p[k] = x;
     }
     for (let i = 0; i < 7; i++) (lp += w[i]! * LUMEN[i]![1]!), (amb += w[i]! * LUMEN[i]![7]!);
+    if (this.breathing()) adv *= 0.2;
     if (!r) {
       this.ph[0]! += adv * p[1]!;
       this.ph[1]! += adv * V.level * p[0]!;

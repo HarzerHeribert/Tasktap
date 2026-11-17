@@ -61,8 +61,9 @@ pub const PREFIX: &str = "tasktap/";
 pub const FOLDER: &str = "worktrees";
 /// Hex digits of a worktree's name.
 pub const NAME: usize = 12;
-/// Longest a job waits for another of this core to let go of a worktree.
-const HOLD: Duration = Duration::from_secs(3);
+/// Longest a job waits for a worktree's lock file that another process
+/// has open.
+const HOLD: Duration = Duration::from_secs(2);
 /// Who Tasktap commits as where the person configured nobody.
 const AUTHOR: &str = "Tasktap";
 const EMAIL: &str = "tasktap@localhost";
@@ -106,8 +107,8 @@ pub struct Git {
     filters: Vec<String>,
     /// The folders whose configuration was read for them.
     quieted: Vec<PathBuf>,
-    /// The worktree this job holds, by name, and the file that holds it.
-    hold: Option<(String, File)>,
+    /// The worktree this job holds.
+    hold: Option<Held>,
 }
 
 /// What a command did.
@@ -143,6 +144,55 @@ struct Own {
     name: String,
     path: PathBuf,
     branch: String,
+}
+
+/// A worktree a job of this core holds, by name, and the file that holds
+/// it from other processes.
+struct Held {
+    name: String,
+    file: Option<File>,
+}
+
+/// The worktrees jobs of this core hold, and the signal that one let go.
+static HELD: std::sync::Mutex<BTreeSet<String>> = std::sync::Mutex::new(BTreeSet::new());
+static FREED: std::sync::Condvar = std::sync::Condvar::new();
+
+impl Held {
+    /// The worktree `name` for this job, once no other job of this core has
+    /// it, waiting as long as a job may run.
+    fn take(name: &str) -> Result<Held, String> {
+        let deadline = std::time::Instant::now() + WRITE;
+        let mut held = HELD
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while held.contains(name) {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                return Err("another job of this Tasktap still works on this worktree".into());
+            }
+            held = FREED
+                .wait_timeout(held, left)
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .0;
+        }
+        held.insert(name.to_owned());
+        Ok(Held {
+            name: name.to_owned(),
+            file: None,
+        })
+    }
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        // The file first, so the next job finds it free.
+        drop(self.file.take());
+        let mut held = HELD
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        held.remove(&self.name);
+        FREED.notify_all();
+    }
 }
 
 /// What a worktree's folder holds against its branch.
@@ -236,28 +286,36 @@ impl Git {
         Ok(())
     }
 
-    /// Holds a worktree for this job (see the module's notes), waiting a
-    /// moment for another job of this core that holds it. Refused while a
-    /// git command left by a core that stopped holds it: on Unix through
-    /// the lock of its file, which lasts while any process has it open, and
-    /// on Windows because a file a process has open without leave to delete
-    /// it cannot be removed.
+    /// Holds a worktree for this job (see the module's notes). Jobs of this
+    /// core take turns, each waiting for the one before. Refused while a git
+    /// command left by a core that stopped holds it: on Unix through the
+    /// lock of its file, which lasts while any process has it open, and on
+    /// Windows because a file a process has open without leave to delete it
+    /// cannot be removed. A moment's wait covers what only looks at the
+    /// file, such as a virus scanner.
     fn hold(&mut self, name: &str) -> Result<(), String> {
-        if self.hold.as_ref().is_some_and(|(held, _)| held == name) {
+        if self.hold.as_ref().is_some_and(|held| held.name == name) {
             return Ok(());
         }
+        self.hold = None;
+        let mut held = Held::take(name)?;
         let deadline = std::time::Instant::now() + HOLD;
         loop {
-            match self.try_hold(name) {
+            match self.lock_file(name) {
+                Ok(file) => {
+                    held.file = Some(file);
+                    self.hold = Some(held);
+                    return Ok(());
+                }
                 Err(e) if e == BUSY && std::time::Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(50));
                 }
-                done => return done,
+                Err(e) => return Err(e),
             }
         }
     }
 
-    fn try_hold(&mut self, name: &str) -> Result<(), String> {
+    fn lock_file(&self, name: &str) -> Result<File, String> {
         let path = self.root.join(format!(".{name}.lock"));
         #[cfg(unix)]
         let file = {
@@ -291,8 +349,7 @@ impl Git {
                 .open(&path);
             open.map_err(|_| BUSY.to_owned())?
         };
-        self.hold = Some((name.to_owned(), file));
-        Ok(())
+        Ok(file)
     }
 
     /// Holds the worktree a record names, for a look that may decide a
@@ -1056,7 +1113,8 @@ impl Git {
             if aside.symlink_metadata().is_ok_and(|m| m.is_dir()) {
                 std::fs::remove_dir_all(&aside).map_err(|e| e.to_string())?;
             }
-            std::fs::rename(&own.path, &aside).map_err(|e| format!("{}: {e}", in_use()))?;
+            patiently(|| std::fs::rename(&own.path, &aside))
+                .map_err(|e| format!("{}: {e}", in_use()))?;
             // One that went in between the look and the move is there now.
             if used(&aside) {
                 let back = std::fs::rename(&aside, &own.path);
@@ -1066,7 +1124,7 @@ impl Git {
                 });
             }
             self.forget(repo, own);
-            std::fs::remove_dir_all(&aside)
+            patiently(|| std::fs::remove_dir_all(&aside))
                 .map_err(|e| format!("{} could not be removed: {e}", aside.display()))?;
         } else {
             self.forget(repo, own);
@@ -1078,14 +1136,14 @@ impl Git {
                     .map_err(|e| format!("the branch {} was left: {e}", own.branch))?;
             }
         }
-        // Nothing is left to hold.
-        if self
-            .hold
-            .as_ref()
-            .is_some_and(|(held, _)| *held == own.name)
+        // Nothing is left to hold. The file goes while no other job of this
+        // core can take it.
+        if self.hold.as_ref().is_some_and(|held| held.name == own.name)
+            && let Some(mut held) = self.hold.take()
         {
-            self.hold = None;
+            drop(held.file.take());
             let _ = std::fs::remove_file(self.root.join(format!(".{}.lock", own.name)));
+            drop(held);
         }
         Ok(())
     }
@@ -1248,8 +1306,8 @@ impl Git {
         err: &Path,
     ) -> Result<Option<i32>, String> {
         let file = |path: &Path| File::create(path).map_err(|e| e.to_string());
-        let input = match &self.hold {
-            Some((_, hold)) => Stdio::from(hold.try_clone().map_err(|e| e.to_string())?),
+        let input = match self.hold.as_ref().and_then(|held| held.file.as_ref()) {
+            Some(file) => Stdio::from(file.try_clone().map_err(|e| e.to_string())?),
             None => Stdio::null(),
         };
         let mut child = self
@@ -1488,6 +1546,21 @@ fn pause(step: &str) {
 
 #[cfg(not(feature = "fixtures"))]
 fn pause(_: &str) {}
+
+/// A change to a folder, tried again for a few seconds on Windows, where
+/// what only looks at a file for a moment, such as a virus scanner, refuses
+/// it meanwhile; a process that works there refuses it for good.
+fn patiently(mut change: impl FnMut() -> std::io::Result<()>) -> std::io::Result<()> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        match change() {
+            Err(_) if cfg!(windows) && std::time::Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            done => return done,
+        }
+    }
+}
 
 /// The first `keep` bytes of a file.
 fn kept(path: &Path, keep: usize) -> Vec<u8> {

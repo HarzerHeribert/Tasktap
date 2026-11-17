@@ -124,7 +124,7 @@ The inventory's headings say 15 and 17 types for §1.5 and §1.6; its tables lis
 
 | Topic | Decision |
 | --- | --- |
-| Lifetime | Runs while any client is connected or any terminal is alive. When both become false it arms one 60 s timer and exits when it fires. |
+| Lifetime | Runs while any client is connected, any terminal is alive or a hold timer is armed. When all become false it arms one 60 s timer and exits when it fires. |
 | Single instance | An exclusive file lock on `<data>/core.lock`, held for life. A second `serve` exits 0. The lock, not the socket file, is the truth. |
 | Start on demand | A client that finds no socket starts `tasktap serve --data <dir>` detached and waits on a pipe the core closes once it listens. No retry loop. The data folder is always passed; there is no default path (hazard 7). |
 | Where it runs from | A copy at `<data>/bin/<build>/tasktap`. Windows cannot replace a running program, and hooks of running sessions keep pointing at the build that started them. Unreferenced builds are deleted at start. |

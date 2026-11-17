@@ -129,6 +129,11 @@ struct Fixture {
 }
 
 impl Seams {
+    /// Whether a hold timer is armed.
+    pub fn holding(&self) -> bool {
+        !self.timers.is_empty()
+    }
+
     pub fn now(&self) -> Time {
         self.manual().unwrap_or_else(|| {
             let since = SystemTime::now().duration_since(UNIX_EPOCH);
@@ -517,6 +522,8 @@ fn cancel(core: &mut Core, thought: ThoughtId) {
 
 fn fire(core: &mut Core, thought: ThoughtId, until: Time) {
     core.seams.timers.remove(&thought);
+    // The last hold may have kept the core alive.
+    core.events.notify_one();
     // The timer counts on a steady clock; when the wall clock lags it, the rest is slept.
     if core.seams.now() < until {
         return arm(core, thought, until);

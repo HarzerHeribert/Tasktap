@@ -59,9 +59,10 @@ impl Core {
         0
     }
 
-    /// The lifetime condition: a client connected or a terminal alive.
+    /// The lifetime condition: a client connected, a terminal alive or a
+    /// hold armed, which would be lost with the core.
     pub fn busy(&self) -> bool {
-        !self.links.is_empty() || self.terminals() > 0
+        !self.links.is_empty() || self.terminals() > 0 || self.seams.holding()
     }
 
     /// Every committed change passes here, in the step that committed it,

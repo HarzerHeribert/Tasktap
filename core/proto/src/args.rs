@@ -7,7 +7,7 @@ use crate::ids::{
     ThoughtId, Time,
 };
 use crate::records::{
-    Collection, Isolate, Mode, PrefKey, PrefValue, Question, QuestionKind, Response, Source,
+    Collection, Isolate, Mode, PrefKey, PrefValue, Question, QuestionKind, Response, Set, Source,
     Stroke, Thought, TurnResult,
 };
 use serde::{Deserialize, Serialize};
@@ -412,6 +412,17 @@ pub struct FixtureLaunch {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct FixtureClock {
     pub now: Time,
+}
+
+/// `fixture.records`: writes rows only the state machine writes otherwise, so
+/// records can be proven without it (design §13): the thoughts and projects
+/// given are inserted or replaced and the results inserted, in one
+/// transaction published like a `put`'s. Other collections are `invalid`.
+/// Only a core built with its test fixtures answers it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct FixtureRecords {
+    pub sets: Vec<Set>,
 }
 
 /// `project.add`. The reply is the id of the project that holds the folder,

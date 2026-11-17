@@ -94,6 +94,7 @@ table! {
     FixtureStream "fixture.stream" Device (crate::args::FixtureStream) -> crate::frame::Opened;
     FixtureScript "fixture.script" Device (crate::args::FixtureScript) -> FixtureLog;
     FixtureClock "fixture.clock" Device (crate::args::FixtureClock) -> ();
+    FixtureRecords "fixture.records" Device (crate::args::FixtureRecords) -> Revision;
 }
 
 /// Who may make a call (design §2): authorization is per call.

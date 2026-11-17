@@ -177,6 +177,15 @@ delivered: Array<ThoughtId>, killed: Array<TerminalId>, settled: Array<ThoughtId
  */
 notified: Array<QuestionId>, };
 
+/**
+ * `fixture.records`: writes rows only the state machine writes otherwise, so
+ * records can be proven without it (design §13): the thoughts and projects
+ * given are inserted or replaced and the results inserted, in one
+ * transaction published like a `put`'s. Other collections are `invalid`.
+ * Only a core built with its test fixtures answers it.
+ */
+export type FixtureRecords = { sets: Array<Set>, };
+
 export type FixtureRoute = { "confidence": "clear", to: Place, brief: string, } | { "confidence": "ambiguous", prompt: string, candidates: Array<FixtureCandidate>, } | { "confidence": "unknown" };
 
 /**
@@ -631,4 +640,5 @@ export type Calls = {
   "fixture.stream": { args: FixtureStream; result: Opened; access: "device" };
   "fixture.script": { args: FixtureScript; result: FixtureLog; access: "device" };
   "fixture.clock": { args: FixtureClock; result: null; access: "device" };
+  "fixture.records": { args: FixtureRecords; result: Revision; access: "device" };
 };

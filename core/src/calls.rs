@@ -119,6 +119,8 @@ fn handler(name: Name) -> Option<Handler> {
         Name::FixtureScript => |cx, args| now::<call::FixtureScript>(cx, args, effects::script),
         #[cfg(feature = "fixtures")]
         Name::FixtureClock => |cx, args| now::<call::FixtureClock>(cx, args, effects::clock),
+        #[cfg(feature = "fixtures")]
+        Name::FixtureRecords => |cx, args| now::<call::FixtureRecords>(cx, args, records::fixture),
         #[cfg(not(feature = "fixtures"))]
         _ => return None,
     };
@@ -145,10 +147,6 @@ pub fn supported(v: u32) -> Vec<String> {
 /// and nowhere else.
 pub fn call(core: &mut Core, link: &Rc<Link>, peer: Peer, request: Request) {
     let Request { id, name, args } = request;
-    #[cfg(feature = "fixtures")]
-    if name == records::FIXTURE {
-        return link.send(&records::fixture(core, id, args));
-    }
     let reply = match Name::parse(&name).filter(|&n| offered(n, peer.v)) {
         None => Some(refuse(id, Code::Unknown, format!("no call {name}"))),
         Some(n) if !n.access().permits(peer.who.identity()) => Some(refuse(

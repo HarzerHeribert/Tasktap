@@ -12,12 +12,11 @@ use crate::conn::Link;
 use crate::serve::Core;
 use crate::store::{self, Tx};
 use serde::Serialize;
-use serde_json::Value;
 use std::collections::HashMap;
 use std::io;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tasktap_proto::call::{self, Call, Code, Error};
+use tasktap_proto::call::{Code, Error};
 use tasktap_proto::{
     Change, Collection, Control, Delete, Glance, History, HistoryPage, Layout, Mode, NotePatch,
     PrefValue, ProjectPatch, Put, PutTarget, Rev, Revision, Rows, SessionId, Set, Subscribe,
@@ -475,7 +474,7 @@ fn note(tx: &Tx, id: ThoughtId) -> Result<Thought, Error> {
 /// nothing names the current one, which already holds what was asked.
 fn published(core: &mut Core, change: Option<Change>) -> Revision {
     let rev = change.as_ref().map_or_else(|| core.store.rev(), |c| c.rev);
-    core.publish(change);
+    crate::effects::published(core, change);
     Revision { rev }
 }
 
@@ -529,61 +528,40 @@ fn now() -> Time {
     Time::new(since.map_or(0, |d| d.as_millis() as u64)).unwrap_or(Time::ZERO)
 }
 
-/// The name of the test-only call that writes rows the state machine would
-/// otherwise write, so records can be proven before it exists (design §13).
+/// `fixture.records`: rows only the state machine writes otherwise, written
+/// and published as a `put`'s are, so `glance` follows them.
 #[cfg(feature = "fixtures")]
-pub const FIXTURE: &str = "fixture.records";
-
-/// `fixture.records {sets}`: inserts or replaces the thoughts and projects
-/// given and inserts the results, in one transaction, then sets the glance
-/// row if one is given. Replies like `put`.
-#[cfg(feature = "fixtures")]
-pub fn fixture(core: &mut Core, id: tasktap_proto::CallId, args: Value) -> Control {
-    #[derive(serde::Deserialize)]
-    struct Args {
-        sets: Vec<Set>,
-    }
-    let write = |core: &mut Core| -> Result<Revision, Error> {
-        let Args { sets } = serde_json::from_value(args).map_err(|e| invalid(e.to_string()))?;
-        let mut tx = core.store.begin().map_err(fail)?;
-        let mut glance = None;
-        for set in sets {
-            match set {
-                Set::Thoughts(rows) => {
-                    for t in rows.put {
-                        match tx.thought(t.id).map_err(fail)? {
-                            Some(_) => tx.update_thought(&t),
-                            None => tx.insert_thought(&t),
-                        }
-                        .map_err(fail)?;
+pub fn fixture(cx: &mut Cx, args: tasktap_proto::FixtureRecords) -> Result<Revision, Error> {
+    let core = &mut *cx.core;
+    let mut tx = core.store.begin().map_err(fail)?;
+    for set in args.sets {
+        match set {
+            Set::Thoughts(rows) => {
+                for t in rows.put {
+                    match tx.thought(t.id).map_err(fail)? {
+                        Some(_) => tx.update_thought(&t),
+                        None => tx.insert_thought(&t),
                     }
+                    .map_err(fail)?;
                 }
-                Set::Projects(rows) => {
-                    for p in rows.put {
-                        match tx.project(p.id).map_err(fail)? {
-                            Some(_) => tx.update_project(&p),
-                            None => tx.insert_project(&p),
-                        }
-                        .map_err(fail)?;
-                    }
-                }
-                Set::Results(rows) => {
-                    for r in rows.put {
-                        tx.insert_result(&r, "").map_err(fail)?;
-                    }
-                }
-                Set::Glance { put } => glance = put.into_iter().last(),
-                _ => return Err(invalid("not a fixture collection".into())),
             }
+            Set::Projects(rows) => {
+                for p in rows.put {
+                    match tx.project(p.id).map_err(fail)? {
+                        Some(_) => tx.update_project(&p),
+                        None => tx.insert_project(&p),
+                    }
+                    .map_err(fail)?;
+                }
+            }
+            Set::Results(rows) => {
+                for r in rows.put {
+                    tx.insert_result(&r, "").map_err(fail)?;
+                }
+            }
+            _ => return Err(invalid("not a fixture collection".into())),
         }
-        let change = tx.commit().map_err(fail)?;
-        core.publish(change);
-        if let Some(glance) = glance {
-            core.set_glance(glance).map_err(fail)?;
-        }
-        Ok(Revision {
-            rev: core.store.rev(),
-        })
-    };
-    call::Put::reply(id, write(core))
+    }
+    let change = tx.commit().map_err(fail)?;
+    Ok(published(core, change))
 }

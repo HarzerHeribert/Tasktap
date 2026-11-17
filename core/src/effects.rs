@@ -275,10 +275,10 @@ pub fn read<T>(core: &mut Core, f: impl FnOnce(&Tx) -> store::Result<T>) -> Resu
     f(&tx).map_err(stored)
 }
 
-/// Every commit of this module passes here: the change is published,
-/// `glance` follows what it changed, and askers whose question it withdrew
-/// stop waiting.
-fn published(core: &mut Core, change: Option<Change>) {
+/// Every commit of a record `glance` counts passes here: the change is
+/// published, `glance` follows what it changed, and askers whose question it
+/// withdrew stop waiting.
+pub fn published(core: &mut Core, change: Option<Change>) {
     let Some(change) = change else {
         return;
     };

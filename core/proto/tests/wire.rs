@@ -332,10 +332,15 @@ fn every_call_round_trips() {
         round_trip::<call::FixtureScript>(script, log, seen);
     }
     round_trip::<call::FixtureClock>(FixtureClock { now: time(5) }, (), seen);
+    let sets = vec![Set::Thoughts(Rows {
+        put: vec![thought()],
+        del: vec![],
+    })];
+    round_trip::<call::FixtureRecords>(FixtureRecords { sets }, Revision { rev: rev(8) }, seen);
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 25);
+    assert_eq!(Name::ALL.len(), 26);
 }
 
 #[test]
@@ -366,7 +371,7 @@ fn access_follows_the_authorization_table() {
             "session.event"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 19);
+    assert_eq!(by(Access::Device).len(), 20);
     for (access, allowed) in [
         (Access::Anyone, [true, true, true]),
         (Access::Device, [true, false, false]),

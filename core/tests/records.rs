@@ -11,11 +11,11 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tasktap_core::client::{self, Client};
 use tasktap_proto::call::{self, Call, Code};
 use tasktap_proto::{
-    Auth, CallId, Change, Collection, Control, Delete, DeviceId, FixtureClock, Frame, Glance,
-    HEADER, Hello, History, Isolate, LayoutPatch, Limit, Mode, NotePatch, Outcome, Phase, Pref,
-    PrefKey, PrefPatch, PrefValue, Project, ProjectId, ProjectKind, ProjectPatch, Put, PutTarget,
-    Register, Request, ResultId, ResultKind, Retire, Rev, Revision, Role, Rows, Secret, SessionId,
-    Set, Source, Subscribe, Thought, ThoughtId, Time, TurnResult, VERSION, Versions, When,
+    Auth, CallId, Change, Collection, Control, Delete, DeviceId, FixtureClock, FixtureRecords,
+    Frame, Glance, HEADER, Hello, History, Isolate, LayoutPatch, Limit, Mode, NotePatch, Outcome,
+    Phase, Pref, PrefKey, PrefPatch, PrefValue, Project, ProjectId, ProjectKind, ProjectPatch, Put,
+    PutTarget, Register, Request, ResultId, ResultKind, Retire, Rev, Role, Rows, Secret, SessionId,
+    Set, Source, Status, Subscribe, Thought, ThoughtId, Time, TurnResult, VERSION, Versions, When,
     encode_control,
 };
 
@@ -289,10 +289,8 @@ fn refused(outcome: Outcome) -> Code {
 
 /// Writes rows only the state machine writes otherwise; returns the revision after.
 fn fixture(c: &mut Client, sets: Vec<Set>) -> Rev {
-    match raw(c, "fixture.records", json!({ "sets": sets })) {
-        Outcome::Ok(v) => serde_json::from_value::<Revision>(v).unwrap().rev,
-        Outcome::Err(e) => panic!("{e}"),
-    }
+    let written = c.call::<call::FixtureRecords>(&FixtureRecords { sets });
+    written.unwrap().unwrap_or_else(|e| panic!("{e}")).rev
 }
 
 fn thoughts(put: Vec<Thought>) -> Set {
@@ -499,12 +497,9 @@ fn a_subscriber_sees_only_the_collections_it_named() {
     // One change that touches two collections reaches `notes` cut to one.
     let both = vec![projects(vec![renamed]), thoughts(vec![note("n")])];
     let r5 = fixture(&mut w, both);
-    let r3 = fixture(
-        &mut w,
-        vec![Set::Glance {
-            put: vec![glance(2)],
-        }],
-    );
+    // A working thought: `glance` follows it at the next revision.
+    let working = thought(ThoughtId::mint(), Mode::Ask, Phase::Working, "w");
+    let r3 = fixture(&mut w, vec![thoughts(vec![working])]);
     let r4 = hold(&mut w, 6);
 
     // The next change: its revision and the collections it touches.
@@ -516,8 +511,10 @@ fn a_subscriber_sees_only_the_collections_it_named() {
     assert_eq!(seen(&mut prefs), (r1, r#""prefs""#.into()));
     assert_eq!(seen(&mut prefs), (r4, r#""prefs""#.into()));
     assert_eq!(seen(&mut layouts), (r2, r#""layouts""#.into()));
-    assert_eq!(seen(&mut layouts), (r3, r#""glance""#.into()));
+    let rg = Rev::new(r3.get() + 1).unwrap();
+    assert_eq!(seen(&mut layouts), (rg, r#""glance""#.into()));
     assert_eq!(seen(&mut notes), (r5, r#""thoughts""#.into()));
+    assert_eq!(seen(&mut notes), (r3, r#""thoughts""#.into()));
     // Nothing else was sent: subscribing again finds no change queued before it.
     for c in [&mut prefs, &mut layouts, &mut notes, &mut ended] {
         assert!(subscribe(c, &[Collection::Prefs]).before.is_empty());
@@ -1169,20 +1166,23 @@ fn memory_rows_start_over_on_restart_while_stored_rows_and_the_revision_go_on() 
     let snap = subscribe(&mut s, &ALL);
     assert_eq!(snap.model.get("glance", ""), Some(&row(&glance(0))));
 
-    let set = Glance {
+    // `glance` follows the rows: three working, one that needs you, two done and unread.
+    let mut ts: Vec<Thought> = (0..3)
+        .map(|_| thought(ThoughtId::mint(), Mode::Ask, Phase::Working, "w"))
+        .collect();
+    ts.push(Thought {
+        status: Status::NeedsYou,
+        ..thought(ThoughtId::mint(), Mode::Ask, Phase::Working, "q")
+    });
+    ts.extend((0..2).map(|_| thought(ThoughtId::mint(), Mode::Ask, Phase::Done, "d")));
+    let rt = fixture(&mut w, vec![thoughts(ts)]);
+    assert!(matches!(one(&mut s, rt), Set::Thoughts(_)));
+    let rg = Rev::new(rt.get() + 1).unwrap();
+    let sent = Glance {
+        rev: rg,
         needs_you: 1,
         done: 2,
         ..glance(3)
-    };
-    let rg = fixture(
-        &mut w,
-        vec![Set::Glance {
-            put: vec![set.clone()],
-        }],
-    );
-    let sent = Glance {
-        rev: rg,
-        ..set.clone()
     };
     assert_eq!(
         one(&mut s, rg),
@@ -1190,8 +1190,7 @@ fn memory_rows_start_over_on_restart_while_stored_rows_and_the_revision_go_on() 
             put: vec![sent.clone()]
         }
     );
-    // The same value again is no change and takes no revision.
-    assert_eq!(fixture(&mut w, vec![Set::Glance { put: vec![set] }]), rg);
+    // A write that leaves the counts as they were takes no revision for `glance`.
     let rp = hold(&mut w, 12);
     assert_eq!(
         rp.get(),
@@ -1206,7 +1205,18 @@ fn memory_rows_start_over_on_restart_while_stored_rows_and_the_revision_go_on() 
     let core = Core::start(&data);
     let mut c = core.device();
     let after = subscribe(&mut c, &ALL);
-    assert_eq!(after.model.get("glance", ""), Some(&row(&glance(0))));
+    // Counted again from the stored rows, in which recovery failed the working ones.
+    let g: Glance = serde_json::from_value(after.model.get("glance", "").unwrap().clone()).unwrap();
+    assert_eq!(
+        Glance {
+            rev: Rev::ZERO,
+            ..g
+        },
+        Glance {
+            done: 2,
+            ..glance(0)
+        }
+    );
     let hold_row = json!({ "id": "hold", "value": 12, "rev": rp });
     assert_eq!(after.model.get("prefs", PrefKey::Hold), Some(&hold_row));
     assert!(after.rev >= rp);

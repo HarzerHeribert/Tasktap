@@ -116,8 +116,9 @@ sleep 2
 send 'call put {"c":"prefs","id":"motion_style","patch":"glyphs"}' 'call put {"c":"prefs","id":"motion_lumen","patch":true}'
 until_has workspace "eval document.querySelector('.home-backdrop .motion').dataset.style" 3 "glyphs" \
   && until_has notch "eval document.querySelector('#notch-art').dataset.glow" 3 "motion" \
-  && [ "$(js workspace "String(__motion.stats.frames > $frames)")" = true ] \
-  && pass "a preference changes Home's motion at once, and Lumen gives the notch's glow its colours" || fail "a preference reaches both pages"
+  && [ "$(js workspace "String(__motion.stats.frames > $frames || document.hidden || document.querySelector('.home-backdrop .motion').hasAttribute('data-small'))")" = true ] \
+  && pass "a preference changes Home's motion at once (redrawn unless the window is covered or Home's rows leave it no room), and Lumen gives the notch's glow its colours" \
+  || fail "a preference reaches both pages"
 send 'call delete {"c":"prefs","id":"motion_style"}' 'call delete {"c":"prefs","id":"motion_lumen"}'
 # The Appearance panel's microphone trial needs a secure page that offers getUserMedia; nothing here asks for it.
 [ "$(js workspace "String(isSecureContext && typeof navigator.mediaDevices?.getUserMedia === 'function')")" = true ] \

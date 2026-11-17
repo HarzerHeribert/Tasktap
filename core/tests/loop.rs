@@ -31,6 +31,10 @@ struct InTerminal(Screen);
 impl InTerminal {
     /// The agent the launch started, once it runs.
     fn start(s: &mut Scene, session: SessionId) -> InTerminal {
+        // The launcher finds the program off the core's thread.
+        s.w.until("the launch stored its terminal", |m| {
+            m.session(session).terminal_id.is_some()
+        });
         let terminal = s.w.model.session(session).terminal_id;
         let terminal = terminal.expect("the launch stored its terminal");
         let mut screen = Screen::open(&s.core, terminal);

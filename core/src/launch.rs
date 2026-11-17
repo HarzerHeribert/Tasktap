@@ -8,7 +8,7 @@
 //! `Launched` or `LaunchFailed` (`effects.rs`), and the end of its process as
 //! `Exited`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use tasktap_proto::{
     Offset, Rev, Secret, SessionState, Terminal, TerminalId, TerminalKind, TerminalState,
@@ -25,18 +25,16 @@ const UNHELD: &str = "no shim holds the agent's shell, so the follow-up was not 
 const INDIRECT: &str =
     "the agent is not its terminal's direct child, so the follow-up was not typed";
 
-/// A run's command line, its program found, and the check it needs before
-/// it starts, if any.
+/// A run's command line, and the check it needs before it starts, if any.
 pub struct Prepared {
     agent: &'static dyn Agent,
     argv: Vec<String>,
-    pub probe: Option<Probe>,
+    probe: Option<Probe>,
 }
 
-/// The command line of a run, with its program found on the PATH its
-/// terminal will have; a program that is not there fails the launch before
-/// anything starts. A check the agent needs is left to the caller, which
-/// runs it off the core's thread and adds what it says (`start`).
+/// The command line of a run. Its program is found, and the check its
+/// agent needs is run, off the core's thread (`Prepared::look`); `start`
+/// takes what they found.
 pub fn prepare(l: &Launch) -> Result<Prepared, String> {
     let agent =
         agents::find(&l.agent).ok_or_else(|| format!("this build cannot run {}", l.agent))?;
@@ -49,30 +47,52 @@ pub fn prepare(l: &Launch) -> Result<Prepared, String> {
         resume: l.resume.as_deref(),
         hook: &hook,
     };
-    let mut argv = agent.launch(&run);
-    let name = argv.first().cloned().unwrap_or_default();
-    let program = terminal::find(&name)
-        .ok_or_else(|| format!("{name} is not installed: no folder of the PATH has it"))?;
-    argv[0] = program.to_string_lossy().into_owned();
+    let argv = agent.launch(&run);
     let probe = agent.probe(&hook, Path::new(&l.cwd));
     Ok(Prepared { agent, argv, probe })
 }
 
+impl Prepared {
+    /// What finds the run's program on the PATH its terminal will have
+    /// and then runs its check, if it has one, on a thread that may block:
+    /// the program, and the arguments the check adds. A program that is not
+    /// there fails the launch before anything starts.
+    pub fn look(
+        &mut self,
+        l: &Launch,
+    ) -> impl FnOnce() -> Result<(PathBuf, Vec<String>), String> + Send + 'static {
+        let name = self.argv.first().cloned().unwrap_or_default();
+        let (probe, cwd) = (self.probe.take(), PathBuf::from(&l.cwd));
+        move || {
+            let program = terminal::find(&name)
+                .ok_or_else(|| format!("{name} is not installed: no folder of the PATH has it"))?;
+            let more = match probe {
+                Some(probe) => agents::checks::probe(probe, &cwd)?,
+                None => Vec::new(),
+            };
+            Ok((program, more))
+        }
+    }
+}
+
 /// Starts a prepared run in a new terminal and returns that terminal, which
 /// the caller stores in the same step, before anything else runs (design
-/// §3). `more` are the arguments its check added, which follow the
-/// program. It takes the session's id, as the session takes the attempt's,
-/// so one attempt never starts two. A failure leaves nothing running.
+/// §3). `program` is where its program was found, and `more` are the
+/// arguments its check added, which follow the program. It takes the
+/// session's id, as the session takes the attempt's, so one attempt never
+/// starts two. A failure leaves nothing running.
 pub fn start(
     core: &mut Core,
     l: &Launch,
     prepared: Prepared,
+    program: PathBuf,
     more: Vec<String>,
     token: &Secret,
 ) -> Result<Terminal, String> {
     let Prepared {
         agent, mut argv, ..
     } = prepared;
+    argv[0] = program.to_string_lossy().into_owned();
     argv.splice(1..1, more);
     let id = TerminalId::try_from(l.session.uuid()).map_err(|e| e.to_string())?;
     let (known, project) = effects::read(core, |tx| Ok((tx.terminal(id)?, tx.project(l.project)?)))

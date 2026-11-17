@@ -389,11 +389,13 @@ fn route(core: &mut Core, id: ThoughtId, current: Option<SessionId>) {
     report(core, Event::Routed { thought: id, route }, |_| Ok(()));
 }
 
-/// Starts a run and answers with its outcome. A run whose agent needs a
-/// check before it starts (design §7, an adapter's probe) starts once that
-/// check, on a thread of its own, has answered; its outcome then reaches
-/// its thought's record and attempt, not the call that started it, which
-/// answers at once.
+/// Starts a run. Its program is looked up on the PATH, and the check its
+/// agent needs before it starts run (design §7, an adapter's probe), on a
+/// thread of their own, since a folder of the PATH may be on a stalled
+/// mount; the run starts once they have answered, and its outcome then
+/// reaches its thought's record and attempt, not the call that started it,
+/// which answers at once. What the fixture launcher does, and a run this
+/// build cannot prepare, answer the call.
 fn launch(core: &mut Core, launch: Launch) -> Option<Outcome> {
     let token = Secret::mint();
     let attempt = launch.attempt;
@@ -405,24 +407,14 @@ fn launch(core: &mut Core, launch: Launch) -> Option<Outcome> {
         Ok(prepared) => prepared,
         Err(error) => return Some(failed(core, attempt, error)),
     };
-    let Some(probe) = prepared.probe.take() else {
-        let started = crate::launch::start(core, &launch, prepared, Vec::new(), &token);
-        return Some(launched(core, attempt, started, &token));
-    };
-    let (said, heard) = tokio::sync::oneshot::channel();
-    let cwd = std::path::PathBuf::from(&launch.cwd);
-    std::thread::spawn(move || {
-        let _ = said.send(agents::checks::probe(probe, &cwd));
-    });
-    let me = core.me.clone();
-    tokio::task::spawn_local(async move {
-        let lost = |_| Err("the check before the start ended without an answer".to_owned());
-        let more = heard.await.unwrap_or_else(lost);
-        let Some(core) = me.upgrade() else { return };
-        let mut core = core.borrow_mut();
-        let started =
-            more.and_then(|more| crate::launch::start(&mut core, &launch, prepared, more, &token));
-        launched(&mut core, attempt, started, &token);
+    let look = prepared.look(&launch);
+    crate::calls::aside(core, look, move |core, found| {
+        let lost = || "the check before the start ended without an answer".to_owned();
+        let found = found.ok_or_else(lost).flatten();
+        let started = found.and_then(|(program, more)| {
+            crate::launch::start(core, &launch, prepared, program, more, &token)
+        });
+        launched(core, attempt, started, &token);
     });
     None
 }

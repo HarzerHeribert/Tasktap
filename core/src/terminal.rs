@@ -50,6 +50,9 @@ pub struct Terminals {
     /// The core is shutting down: nothing new starts.
     closing: bool,
     kills: Kills,
+    /// Terminals that ended and whose history is being written, off the
+    /// core's thread: a client attaching meanwhile replays it from memory.
+    saving: HashMap<TerminalId, Rc<RefCell<Term>>>,
 }
 
 /// The kills that stops armed, each due at its deadline: a stop's kill
@@ -123,6 +126,7 @@ impl Terminals {
             shims: Default::default(),
             closing: false,
             kills: Kills::default(),
+            saving: HashMap::new(),
         }
     }
 
@@ -141,7 +145,7 @@ impl Terminals {
 
     /// Live terminals, which keep the core running (design §3).
     pub fn count(&self) -> u32 {
-        self.live.len() as u32
+        (self.live.len() + self.saving.len()) as u32
     }
 
     pub fn running(&self, id: TerminalId) -> bool {
@@ -370,6 +374,11 @@ async fn run(core: Weak<RefCell<Core>>, id: TerminalId, mut reports: mpsc::Recei
 /// history goes to disk, and its row and session learn of it. What it
 /// started and left running ends with it, as a stop ends it: it would
 /// otherwise run on with no terminal to show it and nothing to stop it.
+///
+/// The history is written off the core's thread, since the data folder may
+/// stall; the row says the terminal exited once it is on disk, so a client
+/// that finds it exited reads it from there, and one that attaches before
+/// replays it from memory.
 fn end(core: &mut Core, id: TerminalId, exit: Option<u32>) {
     let Some(mut live) = core.terminals.live.remove(&id) else {
         return;
@@ -377,14 +386,19 @@ fn end(core: &mut Core, id: TerminalId, exit: Option<u32>) {
     live.stop();
     let mut term = live.term.borrow_mut();
     term.ended(exit);
-    // A history that cannot be written is lost; the terminal still ends.
-    let _ = term.save(&core.terminals.history(id));
-    let offset = Offset::new(term.end());
+    let (history, offset) = (term.history(), Offset::new(term.end()));
     drop(term);
     live.process.end();
-    effects::ended(core, id, exit, offset);
-    left(core, id, exit);
-    core.events.notify_one();
+    core.terminals.saving.insert(id, live.term);
+    let path = core.terminals.history(id);
+    // A history that cannot be written is lost; the terminal still ends.
+    let write = move || drop(ring::write(&path, &history));
+    crate::calls::aside(core, write, move |core, _| {
+        core.terminals.saving.remove(&id);
+        effects::ended(core, id, exit, offset);
+        left(core, id, exit);
+        core.events.notify_one();
+    });
 }
 
 /// The session running in a terminal whose child has exited ends. Not while
@@ -442,8 +456,9 @@ pub fn paste(core: &mut Core, id: TerminalId, text: &str) -> bool {
 fn attach(cx: &mut Cx, t: &Terminal, from: Option<Offset>, credit: u32) -> Result<Opened, Error> {
     let terminals = &cx.core.terminals;
     let live = terminals.live.get(&t.id).map(|live| live.term.clone());
-    let feed = match &live {
-        Some(term) => Feed::Live(term.clone()),
+    let saving = terminals.saving.get(&t.id).cloned();
+    let feed = match live.clone().or(saving) {
+        Some(term) => Feed::Live(term),
         None => Feed::Saved(Saved::open(&terminals.history(t.id), t)),
     };
     let (start, end) = feed.bounds();

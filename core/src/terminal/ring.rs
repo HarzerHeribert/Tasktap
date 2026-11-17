@@ -160,18 +160,19 @@ impl Term {
 
     /// Writes the history to `path`, replacing what was there in one step.
     pub fn save(&self, path: &Path) -> io::Result<()> {
-        if let Some(folder) = path.parent() {
-            fs::create_dir_all(folder)?;
-        }
-        let new = path.with_extension("new");
-        let mut file = io::BufWriter::new(File::create(&new)?);
-        serde_json::to_writer(&mut file, &(self.start, &self.sizes))?;
-        file.write_all(b"\n")?;
+        write(path, &self.history())
+    }
+
+    /// The history as it is written: a header line with the ring's start
+    /// offset and sizes, then the bytes.
+    pub fn history(&self) -> Vec<u8> {
+        let mut history = serde_json::to_vec(&(self.start, &self.sizes)).unwrap_or_default();
+        history.push(b'\n');
         let (a, b) = self.ring.as_slices();
-        file.write_all(a)?;
-        file.write_all(b)?;
-        file.into_inner().map_err(|e| e.into_error())?;
-        fs::rename(new, path)
+        history.reserve_exact(a.len() + b.len());
+        history.extend_from_slice(a);
+        history.extend_from_slice(b);
+        history
     }
 
     fn discard(&mut self, until: u64) {
@@ -260,6 +261,18 @@ impl Saved {
 }
 
 type Header = (File, u64, u64, Vec<(u64, Size)>, u64);
+
+/// Writes a history to `path`, replacing what was there in one step.
+pub fn write(path: &Path, history: &[u8]) -> io::Result<()> {
+    if let Some(folder) = path.parent() {
+        fs::create_dir_all(folder)?;
+    }
+    let new = path.with_extension("new");
+    let mut file = File::create(&new)?;
+    file.write_all(history)?;
+    drop(file);
+    fs::rename(new, path)
+}
 
 fn header(path: &Path) -> io::Result<Header> {
     let mut file = BufReader::new(File::open(path)?);

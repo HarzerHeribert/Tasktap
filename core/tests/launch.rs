@@ -15,10 +15,21 @@ use tasktap_proto::{
     ThoughtId,
 };
 
+/// Waits until a thought's run has started in its terminal, or failed: the
+/// launcher finds the program and runs its check off the core's thread.
+fn launched(s: &mut Scene, t: ThoughtId) {
+    s.w.until("the run started or failed", |m| {
+        let th = &m.thoughts[&t];
+        let session = th.session_id.and_then(|id| m.sessions.get(&id));
+        th.status == Status::Failed || session.is_some_and(|s| s.terminal_id.is_some())
+    });
+}
+
 /// A thought launched once its hold passed, with its session and terminal.
 fn started(s: &mut Scene, text: &str) -> (ThoughtId, SessionId, TerminalId) {
     let t = s.capture(text);
     s.tick(HOLD_MS);
+    launched(s, t);
     let th = s.w.model.thought(t);
     assert_eq!(th.status, Status::Working, "{th:?}");
     let session = th.session_id.unwrap();
@@ -100,6 +111,7 @@ fn an_agent_not_installed_fails_its_run_says_why_and_leaves_nothing_running() {
     let mut s = Scene::on(Core::start(&data.0), data).running("fixture");
     let t = s.capture("fix the build");
     s.tick(HOLD_MS);
+    launched(&mut s, t);
     let th = s.w.model.thought(t).clone();
     assert_eq!(
         (th.status, th.reason),
@@ -374,6 +386,8 @@ fn two_thoughts_launched_at_once_in_one_project_each_get_their_own_terminal() {
     let b = s.capture("update the docs");
     // Both holds end at once.
     s.tick(HOLD_MS);
+    launched(&mut s, a);
+    launched(&mut s, b);
     let run = |t: ThoughtId| {
         let session = s.w.model.thought(t).session_id.unwrap();
         (session, s.w.model.session(session).terminal_id.unwrap())

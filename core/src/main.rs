@@ -47,8 +47,9 @@ fn main() -> ExitCode {
 }
 
 /// `serve --data <folder>`; with the test fixtures also `--idle-ms <ms>`,
-/// `--hello-ms <ms>`, `--check-ms <ms>` (each folder check waits that long
-/// first) and `--fixture-token <64 hex digits>`.
+/// `--hello-ms <ms>`, `--check-ms <ms>` (each folder check, search for a
+/// launch's program and history write waits that long first) and
+/// `--fixture-token <64 hex digits>`.
 fn serve(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
     let mut data = None;
     let mut locked = false;

@@ -647,6 +647,7 @@ fn without_its_fixtures_a_build_routes_by_name_and_runs_only_agents_it_has() {
         ..typed(picked, "fix it")
     };
     w.ok::<call::ThoughtCapture>(&capture);
+    w.until("the run failed", |m| m.status(picked) == Status::Failed);
     let th = w.model.thought(picked);
     assert_eq!(
         (th.status, th.reason),

@@ -783,6 +783,43 @@ fn the_exit_code_is_recorded_and_marked() {
     assert_eq!(opened.unwrap().unwrap().credit, 0);
 }
 
+/// A terminal's history is written off the core's thread (design §10): a
+/// data folder that stalls, here a pipe nobody reads where the history is
+/// written, holds up nothing else. Until the history is on disk the row
+/// says the terminal runs, and a client attaching meanwhile replays it from
+/// memory; once it is written the row says it exited.
+#[cfg(unix)]
+#[test]
+fn a_stalled_history_write_holds_up_nothing_else() {
+    let data = Folder::new("tt-stall");
+    let core = Core::start(&data);
+    let mut w = core.watch();
+    let mut c = core.device();
+    let id = TerminalId::mint();
+    let folder = data.0.join("scrollback");
+    std::fs::create_dir_all(&folder).unwrap();
+    let pipe = folder.join(format!("{}.new", id.uuid()));
+    let made = std::process::Command::new("mkfifo").arg(&pipe).status();
+    assert!(made.unwrap().success(), "mkfifo");
+    let start = fixture(&["print 3"]);
+    let mut v = open(&mut c, &args(id, Some(start), None, 1 << 20), true);
+    closed(&mut c, &mut v);
+    assert_eq!(v.exit(), Some(Some(0)));
+    let asked = Instant::now();
+    w.ok::<call::CoreStatus>(&Empty {});
+    assert!(asked.elapsed() < Duration::from_secs(2), "the core waited");
+    let mut again = open(&mut c, &args(id, None, Some(0), 1 << 20), true);
+    closed(&mut c, &mut again);
+    assert_printed(again.bytes(), 0, 3);
+    w.sync();
+    assert_eq!(w.model.terminals[&id].state, TerminalState::Running);
+    // Someone reads the pipe: the history is written, and the terminal exited.
+    let reader = std::thread::spawn(move || std::fs::read(pipe).unwrap());
+    state(&mut w, id, TerminalState::Exited);
+    let written = reader.join().unwrap();
+    assert!(String::from_utf8_lossy(&written).contains(&line(2)));
+}
+
 #[test]
 fn history_survives_a_clean_restart() {
     let data = Folder::new("tt-keep");

@@ -629,6 +629,14 @@ fn an_agent_typed_in_a_shell_of_the_core_is_adopted() {
     };
     let opened = c.opened::<call::TerminalOpen>(&open, 1 << 20, true);
     let shell = opened.unwrap().unwrap().s;
+    // The first shell filled the shim folder: a shim for each agent with an
+    // adapter, and tasktap; any other agent runs as typed.
+    let mut shims: Vec<String> = std::fs::read_dir(s.data.0.join("shims"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    shims.sort();
+    assert_eq!(shims, ["claude", "codex", "fixture", "tasktap"]);
     let typed = b"fixture event:ready event:turn_started:tidy exit:4\r";
     c.write(shell, typed).unwrap();
     let ended = |m: &Model| {

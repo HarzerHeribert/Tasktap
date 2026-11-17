@@ -2,8 +2,9 @@
 //! Tasktap shell: when to step aside, and which approval policy to add.
 //! The rules are those of `scripts/tasktap_shell.py`, carried over as they
 //! were. The adapters keep their own and add the same default policy to the
-//! runs the core launches; the agents without an adapter yet keep theirs
-//! here, so that their shims step aside by these rules.
+//! runs the core launches. Only an agent with an adapter has a shim: one
+//! without runs as typed, with no shim on its way; its adapter brings its
+//! rules when it is built.
 
 use std::ffi::OsStr;
 use std::path::Path;
@@ -26,30 +27,9 @@ pub struct Rules {
 const RULES: &[&Rules] = &[
     &super::codex::RULES,
     &super::claude::RULES,
-    &OPENCODE,
-    &PI,
     #[cfg(feature = "fixtures")]
     &FIXTURE,
 ];
-
-#[rustfmt::skip]
-const OPENCODE: Rules = Rules {
-    agent: "opencode",
-    passthrough: &["acp", "auth", "bench", "completion", "db", "debug", "export", "import",
-        "mcp", "models", "pr", "run", "serve", "session", "stats", "uninstall", "upgrade",
-        "web", "help"],
-    noninteractive: &[],
-    policy: &["--auto"],
-    default: &["--auto"],
-};
-
-const PI: Rules = Rules {
-    agent: "pi",
-    passthrough: &["install", "remove", "update", "list", "config"],
-    noninteractive: &["-p", "--mode", "--mode="],
-    policy: &["--approve", "-a", "--no-approve", "-na"],
-    default: &["--approve"],
-};
 
 #[cfg(feature = "fixtures")]
 const FIXTURE: Rules = Rules {
@@ -147,18 +127,22 @@ mod tests {
             ("codex", &["-c", "model=o3", "resume"], true),
             ("codex", &["-p", "work"], true),
             ("codex", &["--json"], false),
-            ("pi", &["-p", "x"], false),
-            ("pi", &["--mode=rpc"], false),
-            ("pi", &["--mode", "rpc"], false),
-            ("pi", &["install"], false),
-            ("opencode", &["run", "x"], false),
-            ("opencode", &["-V"], false),
         ] {
             assert_eq!(
                 rules(agent).interactive(&words(args)),
                 typed,
                 "{agent} {args:?}"
             );
+        }
+    }
+
+    #[test]
+    fn only_an_agent_with_an_adapter_has_a_shim() {
+        for agent in ["pi", "opencode", "cursor"] {
+            assert!(named(OsStr::new(agent)).is_none(), "{agent}");
+        }
+        for agent in shimmed() {
+            assert!(crate::agents::find(agent).is_some(), "{agent}");
         }
     }
 
@@ -171,9 +155,6 @@ mod tests {
             ("codex", &[], &["--approve-for-me"]),
             ("codex", &["-c", "approval_policy=never"], &[]),
             ("codex", &["--sandbox=read-only"], &[]),
-            ("pi", &["-na"], &[]),
-            ("pi", &["x"], &["--approve"]),
-            ("opencode", &[], &["--auto"]),
         ] {
             assert_eq!(
                 rules(agent).approval(&words(args)),

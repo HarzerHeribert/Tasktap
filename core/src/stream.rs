@@ -15,6 +15,17 @@
 //! waits behind at most `WINDOW` plus one data frame, and data waits only for
 //! the control frames queued before it, which the connection's 8 MiB bound
 //! limits. The streams of one connection take turns, one frame each.
+//!
+//! Incoming frames come first: the connection reads before it writes
+//! whenever input is known to wait, and yields after every [`TURN`] bytes
+//! written so the runtime notices new input at all. A call that arrives
+//! while a stream is saturated is read after at most `TURN` and one more
+//! write, then answered behind at most `WINDOW` and one frame: at most
+//! `TURN + 2 × (WINDOW + MAX_DATA_FRAME)`, 512 KiB, of stream data reaches
+//! the client after the call could be read and before its reply, whatever
+//! the socket buffers. Input cannot shut output out for long either: it is
+//! bounded by the credit and pending calls that only output replenishes,
+//! and a client that floods frames needing no answer delays only itself.
 
 use crate::conn::Link;
 use std::cell::Cell;
@@ -26,6 +37,8 @@ use tasktap_proto::{
 
 /// Unwritten bytes on a connection below which stream data is queued.
 pub const WINDOW: usize = 128 << 10;
+/// Bytes a connection writes before it looks for incoming frames again.
+pub const TURN: usize = 128 << 10;
 
 /// The core's end of a stream. Both methods run on the core's thread and
 /// must not block. `write` runs while the connection holds `Core`, so an

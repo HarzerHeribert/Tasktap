@@ -148,6 +148,8 @@ async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: impl AsyncRead + A
     let mut input = [0; READ];
     // Bytes taken from the link, written from `at` on.
     let (mut out, mut at) = (Vec::new(), 0);
+    // Bytes written since incoming frames last had a turn.
+    let mut since = 0;
     loop {
         stream::pull(&link);
         if at == out.len() {
@@ -167,7 +169,16 @@ async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: impl AsyncRead + A
             Some(false) => break,
             None => {}
         }
+        if since >= stream::TURN {
+            // Tokio learns that a socket became readable only when its
+            // driver runs, which a task whose writes keep succeeding allows
+            // only after 128 of them: megabytes. Yielding runs it, and the
+            // read below then goes first.
+            since = 0;
+            tokio::task::yield_now().await;
+        }
         tokio::select! {
+            biased;
             read = rd.read(&mut input) => match read {
                 Ok(n) if n > 0 => {
                     decoder.push(&input[..n]);
@@ -180,6 +191,7 @@ async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: impl AsyncRead + A
             wrote = wr.write(&out[at..]), if at < out.len() => match wrote {
                 Ok(n) if n > 0 => {
                     at += n;
+                    since += n;
                     link.queued.set(link.queued.get() - n);
                 }
                 _ => break,

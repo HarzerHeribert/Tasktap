@@ -1,3 +1,15 @@
 [workspace]
 resolver = "3"
 members = ["proto"]
+
+[package]
+name = "tasktap-core"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+tasktap-proto = { path = "proto" }
+rusqlite = { version = "0.43", features = ["bundled"] }
+serde = "1"
+serde_json = "1"

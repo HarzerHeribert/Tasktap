@@ -325,8 +325,8 @@ async fn run(core: Weak<RefCell<Core>>, id: TerminalId, mut reports: mpsc::Recei
                 }
                 continue;
             }
-            Some(Report::Wrote) => {
-                live.term.borrow_mut().wrote();
+            Some(Report::Wrote(whole)) => {
+                live.term.borrow_mut().wrote(whole);
                 continue;
             }
             Some(Report::Unwritable(why)) => {
@@ -452,11 +452,21 @@ pub fn paste(core: &mut Core, id: TerminalId, text: &str) -> Option<Result<Typin
         return None;
     }
     let typed = [PASTE.0, &pasteable(text), PASTE.1, "\r"].concat();
-    Some(live.term.borrow_mut().type_text(typed.as_bytes()))
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let done = live
+        .term
+        .borrow_mut()
+        .type_text(typed.as_bytes(), cancel.clone());
+    Some(done.map(|done| Typing { done, cancel }))
 }
 
 /// What the core typed, until the input thread has written it or could not.
-pub type Typing = tokio::sync::oneshot::Receiver<ring::Typed>;
+pub struct Typing {
+    pub done: tokio::sync::oneshot::Receiver<ring::Typed>,
+    /// Gives up on what is still to be written: the input thread writes no
+    /// more of it than the piece it is writing, and then says so.
+    pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
 
 /// The text a paste may carry: no control character but its own line
 /// breaks and tabs. Without ESC the text cannot end the paste early or

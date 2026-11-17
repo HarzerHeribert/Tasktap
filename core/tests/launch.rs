@@ -422,6 +422,56 @@ fn a_follow_up_to_an_agent_adopted_in_a_shell_is_typed_while_its_shim_holds_it()
     screen.line("exit:0");
 }
 
+/// An agent adopted in a shell that stops reading its input, with a
+/// follow-up on its way that does not fit what the terminal holds, and then
+/// exits: its shim holds the shell until the core has written all of it or
+/// none is still to come, so none of it reaches the shell, which would run it.
+#[cfg(unix)]
+#[test]
+fn a_follow_up_its_adopted_agent_never_read_never_reaches_the_shell() {
+    let data = Folder::new("lr");
+    let real = data.0.join("real");
+    std::fs::create_dir_all(&real).unwrap();
+    std::fs::copy(EXE, real.join("fixture")).unwrap();
+    let env = [("SHELL", "/bin/sh"), ("PATH", &path_with(&real))];
+    let core = Core::start_env(&data.0, &[], &env);
+    let mut s = Scene::on(core, data).running("fixture");
+    let shell = TerminalId::mint();
+    let start = tasktap_proto::StartTerminal {
+        project: None,
+        argv: Vec::new(),
+        title: None,
+    };
+    let mut screen = Screen::start(&s.core, shell, Some(start));
+    screen.line("fixture");
+    screen.until("fixture-agent --hook");
+    s.w.until("an adopted session", |m| {
+        m.sessions.values().any(|s| s.adopted)
+    });
+    let session = s.w.model.sessions.values().find(|s| s.adopted).unwrap().id;
+    screen.line("event:ready");
+    s.w.until("the session is ready", |m| {
+        m.session(session).state == SessionState::Idle
+    });
+    screen.line("stall:1500");
+    screen.until("stalling");
+    // Larger than any terminal holds unread, so the core is still writing
+    // when the agent exits; its end is a command the shell would run.
+    let text = format!("{} ; echo LEAKED-$((6*7))", "x".repeat(16 << 10));
+    let f = follow_up(&mut s, session, &text);
+    s.w.until("the agent has exited", |m| {
+        (m.sessions.get(&session)).is_none_or(|s| s.state == SessionState::Ended)
+    });
+    s.w.until("the follow-up has ended", |m| m.status(f) == Status::Failed);
+    // It failed as a follow-up whose agent exited before reading it.
+    assert_eq!(s.w.model.thought(f).reason, Some(Reason::Exited));
+    screen.line("echo back-$((1+1))");
+    screen.until("back-2");
+    assert!(!screen.text().contains("LEAKED-42"), "{}", screen.text());
+    assert_eq!(s.w.model.terminals[&shell].state, TerminalState::Running);
+    screen.line("exit");
+}
+
 #[test]
 fn a_restart_mid_run_interrupts_the_thought_and_starts_nothing() {
     // A crash loses the terminal; a clean restart ends it first.

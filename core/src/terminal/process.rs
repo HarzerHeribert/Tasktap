@@ -15,6 +15,8 @@ use std::ffi::OsString;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc as plain;
 use tasktap_proto::{Secret, Size};
 use tokio::sync::mpsc;
@@ -26,6 +28,17 @@ pub const QUEUE: usize = 8;
 const READ: usize = 16 << 10;
 /// None of the threads keeps a buffer on its stack.
 const STACK: usize = 128 << 10;
+/// What the core types is written this much at a time, so that once it
+/// gives up on it no more than this is still on its way.
+const PIECE: usize = 256;
+
+/// A chunk of input for the input thread.
+pub struct Input {
+    pub bytes: Vec<u8>,
+    /// For what the core types: set when the core gives up on it, after
+    /// which none of it that is still to come is written.
+    pub cancel: Option<Arc<AtomicBool>>,
+}
 
 /// What a terminal's threads tell the core's thread.
 pub enum Report {
@@ -36,8 +49,9 @@ pub enum Report {
     Output(Vec<u8>),
     /// The output ended: nothing holds the terminal's other side any more.
     Closed,
-    /// One chunk of input went to the process.
-    Wrote,
+    /// One chunk of input went to the process, whole, or with `false` only
+    /// the part written before the core gave up on it.
+    Wrote(bool),
     /// Input could not be written, and none will be: why. The input thread
     /// has ended, so what was on its way is not written either.
     Unwritable(String),
@@ -69,7 +83,7 @@ pub struct Process {
 
 /// What [`Process::start`] hands over: the process, where its input goes
 /// (to the input thread, which writes it in order), and its reports.
-pub type Started = (Process, plain::Sender<Vec<u8>>, mpsc::Receiver<Report>);
+pub type Started = (Process, plain::Sender<Input>, mpsc::Receiver<Report>);
 
 /// What [`Process::hang_up`] asked to end, for the timer that kills it.
 /// On Mac and Linux that is every process group in the child's session,
@@ -348,12 +362,12 @@ fn folder(path: PathBuf) -> PathBuf {
 /// reported written.
 fn write(
     mut writer: Box<dyn Write + Send>,
-    inputs: plain::Receiver<Vec<u8>>,
+    inputs: plain::Receiver<Input>,
     tx: mpsc::Sender<Report>,
 ) {
-    while let Ok(bytes) = inputs.recv() {
-        let report = match writer.write_all(&bytes).and_then(|()| writer.flush()) {
-            Ok(()) => Report::Wrote,
+    while let Ok(input) = inputs.recv() {
+        let report = match pieces(&mut *writer, &input) {
+            Ok(whole) => Report::Wrote(whole),
             Err(e) => Report::Unwritable(e.to_string()),
         };
         let failed = matches!(report, Report::Unwritable(_));
@@ -361,6 +375,24 @@ fn write(
             break;
         }
     }
+}
+
+/// Writes a chunk: a client's whole, what the core types a piece at a
+/// time until it is written or the core gives up on it. Whether it was
+/// written whole.
+fn pieces(writer: &mut dyn Write, input: &Input) -> io::Result<bool> {
+    let Some(cancel) = &input.cancel else {
+        writer.write_all(&input.bytes)?;
+        return writer.flush().map(|()| true);
+    };
+    for piece in input.bytes.chunks(PIECE) {
+        if cancel.load(Ordering::SeqCst) {
+            return Ok(false);
+        }
+        writer.write_all(piece)?;
+        writer.flush()?;
+    }
+    Ok(true)
 }
 
 /// The environment of every child, built from a fixed list and never

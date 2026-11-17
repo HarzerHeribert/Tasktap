@@ -113,15 +113,18 @@ pub fn deliver(core: &mut Core, d: Deliver) -> Option<Deliver> {
             paused.push((d, Some(link)));
             return;
         }
-        type_held(&mut core, d, &link);
+        type_held(&mut core, d, link);
     });
     None
 }
 
-/// Types a follow-up while its shim holds the terminal, then lets the shim go.
-fn type_held(core: &mut Core, d: Deliver, link: &Link) {
-    effects::typed(core, d, true);
-    link.call::<call::ShimHold>(&ShimHold { hold: false });
+/// Types a follow-up while its shim holds the terminal, and lets the shim
+/// go once the text is written, or none of it is still to come.
+fn type_held(core: &mut Core, d: Deliver, link: Rc<Link>) {
+    let release: effects::Release = Box::new(move |_| {
+        link.call::<call::ShimHold>(&ShimHold { hold: false });
+    });
+    effects::typed(core, d, Some(release));
 }
 
 /// `fixture.script`'s `pause`: follow-ups wait untyped until a script
@@ -137,9 +140,9 @@ pub fn pause(core: &mut Core, pause: bool) {
     }
     for (d, link) in waiting.unwrap_or_default() {
         match link {
-            None => drop(effects::typed(core, d, false)),
+            None => drop(effects::typed(core, d, None)),
             Some(link) if core.links.iter().any(|l| Rc::ptr_eq(l, &link)) => {
-                type_held(core, d, &link);
+                type_held(core, d, link);
             }
             Some(_) => drop(effects::failed(core, d.attempt, UNHELD.into())),
         }

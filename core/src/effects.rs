@@ -443,34 +443,41 @@ fn launched(
 /// A follow-up for an adopted session waits for its shim to hold the
 /// terminal, and its outcome reaches the thought's records, not the call.
 fn deliver(core: &mut Core, deliver: Deliver) -> Option<Outcome> {
-    crate::shim::deliver(core, deliver).map(|deliver| typed(core, deliver, false))
+    crate::shim::deliver(core, deliver).map(|deliver| typed(core, deliver, None))
 }
 
+/// What runs once a held follow-up is written, or will not be: the shim's
+/// release.
+pub type Release = Box<dyn FnOnce(&mut Core)>;
+
+/// How long a follow-up its shim holds the terminal for may take to be
+/// written. Past it the rest is not typed, and the hold ends once the piece
+/// on its way is written, so the shim, which waits for that, never returns
+/// to the shell with any of it still to come.
+const TYPING: Duration = Duration::from_secs(5);
+
 /// Has the launcher type a follow-up into its session's terminal, `held`
-/// when the shim of an adopted session holds it, and reports how that went:
-/// typed once the terminal's input thread has written it, failed when it
-/// could not. The answer is the call's when it is known at once.
-pub fn typed(core: &mut Core, deliver: Deliver, held: bool) -> Outcome {
+/// with the release of the shim of an adopted session that holds it, and
+/// reports how that went: typed once the terminal's input thread has written
+/// it, failed when it could not. The release runs only after that. The
+/// answer is the call's when it is known at once.
+pub fn typed(core: &mut Core, deliver: Deliver, held: Option<Release>) -> Outcome {
     let attempt = deliver.attempt;
     let handed = match core.seams.launcher() {
         Some(launcher) => launcher.deliver(&deliver),
-        None => match crate::launch::deliver(core, &deliver, held) {
+        None => match crate::launch::deliver(core, &deliver, held.is_some()) {
             Ok(typing) => {
                 let me = core.me.clone();
                 tokio::task::spawn_local(async move {
-                    let written = typing.await;
+                    let written = written(typing, held.is_some()).await;
                     let Some(core) = me.upgrade() else { return };
                     let mut core = core.borrow_mut();
                     match written {
-                        Ok(Ok(())) => drop(written_by(&mut core, attempt)),
-                        Ok(Err(why)) => {
-                            drop(failed(&mut core, attempt, crate::launch::unwritten(why)))
-                        }
-                        Err(_) => drop(failed(
-                            &mut core,
-                            attempt,
-                            crate::launch::unwritten("the terminal has ended".into()),
-                        )),
+                        Ok(()) => drop(written_by(&mut core, attempt)),
+                        Err(why) => drop(failed(&mut core, attempt, crate::launch::unwritten(why))),
+                    }
+                    if let Some(release) = held {
+                        release(&mut core);
                     }
                 });
                 return Outcome::Ok(Value::Null);
@@ -478,10 +485,30 @@ pub fn typed(core: &mut Core, deliver: Deliver, held: bool) -> Outcome {
             Err(error) => Err(error),
         },
     };
-    match handed {
+    let outcome = match handed {
         Ok(()) => written_by(core, attempt),
         Err(error) => failed(core, attempt, error),
+    };
+    if let Some(release) = held {
+        release(core);
     }
+    outcome
+}
+
+/// Waits until a follow-up is written or will not be; one its shim holds
+/// for is given up past [`TYPING`], and still waited for until the input
+/// thread says it wrote no more.
+async fn written(mut typing: crate::terminal::Typing, held: bool) -> Result<(), String> {
+    let gone = |_| "the terminal has ended".to_owned();
+    if held {
+        match tokio::time::timeout(TYPING, &mut typing.done).await {
+            Ok(done) => return done.map_err(gone)?,
+            Err(_) => typing
+                .cancel
+                .store(true, std::sync::atomic::Ordering::SeqCst),
+        }
+    }
+    typing.done.await.map_err(gone)?
 }
 
 /// A follow-up was typed.

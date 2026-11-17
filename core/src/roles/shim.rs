@@ -11,7 +11,7 @@
 //! live with the agents (`agents::rules`).
 
 use std::ffi::{OsStr, OsString};
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, mpsc};
@@ -420,6 +420,9 @@ impl Hold {
         let deadline = Instant::now() + WAIT;
         let mut s = self.state();
         s.ended = true;
+        if s.held && !s.gone {
+            drain();
+        }
         while s.held && !s.gone {
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
@@ -431,6 +434,25 @@ impl Hold {
         }
         s.typed
     }
+}
+
+/// Reads the terminal into nothing from now on. The agent has gone while
+/// the core types a follow-up it will never read: what the core is still
+/// writing goes nowhere, so the core can finish and let go, and none of it
+/// is left for the shell once this returns to it. The thread ends with the
+/// process.
+fn drain() {
+    if !io::stdin().is_terminal() {
+        return;
+    }
+    let reads = || {
+        let mut buf = [0; 4096];
+        let mut input = io::stdin().lock();
+        while input.read(&mut buf).is_ok_and(|n| n > 0) {}
+    };
+    let _ = std::thread::Builder::new()
+        .name("drain".into())
+        .spawn(reads);
 }
 
 /// Answers the core's calls on the adopting connection until it ends.

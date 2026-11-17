@@ -6,6 +6,7 @@
 //! wrote. A stream counts its own bytes from 0, so it says once where it
 //! starts (`Opened.from`) and again after each gap (`Mark.from`).
 
+use super::process::Input;
 use super::queries::Queries;
 use crate::stream::{Endpoint, Handle, Next, Room};
 use std::collections::VecDeque;
@@ -13,6 +14,8 @@ use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc as plain;
 use tasktap_proto::{CloseWhy, MAX_SAFE, Mark, Offset, Size, Terminal, TerminalState};
 use tokio::sync::oneshot;
@@ -22,6 +25,8 @@ pub type Typed = Result<(), String>;
 
 /// Why typed text was not written, once the terminal took no more input.
 const UNWRITABLE: &str = "the terminal no longer takes input";
+/// Why typed text was not written whole, once the core gave up on it.
+const UNTAKEN: &str = "the agent did not take the text in time";
 
 /// Output kept per terminal (design §10: 2 MiB at full scrollback).
 pub const RING: usize = 2 << 20;
@@ -46,7 +51,7 @@ pub struct Term {
     /// Once the terminal has ended: its exit code, none when it has none.
     exit: Option<Option<u32>>,
     readers: Vec<Handle>,
-    input: Option<plain::Sender<Vec<u8>>>,
+    input: Option<plain::Sender<Input>>,
     /// Input handed to the input thread and not yet written, in order.
     owed: VecDeque<(Owner, u32)>,
     /// Why the input thread stopped writing, once it did.
@@ -57,7 +62,7 @@ pub struct Term {
 }
 
 impl Term {
-    pub fn new(size: Size, input: plain::Sender<Vec<u8>>) -> Term {
+    pub fn new(size: Size, input: plain::Sender<Input>) -> Term {
         Term {
             ring: VecDeque::new(),
             start: 0,
@@ -173,38 +178,50 @@ impl Term {
             Some(handle) => Owner::Client(handle.clone()),
             None => Owner::Core(None),
         };
-        self.hand(owner, bytes)
+        self.hand(owner, bytes, None)
     }
 
     /// Text the core types, as the launcher types a follow-up, and how its
-    /// writing went once the input thread has written it or could not;
-    /// `Err` with why when the process takes no input any more.
-    pub fn type_text(&mut self, bytes: &[u8]) -> Result<oneshot::Receiver<Typed>, String> {
+    /// writing went once the input thread has written it, could not, or
+    /// stopped because `cancel` was set; `Err` with why when the process
+    /// takes no input any more.
+    pub fn type_text(
+        &mut self,
+        bytes: &[u8],
+        cancel: Arc<AtomicBool>,
+    ) -> Result<oneshot::Receiver<Typed>, String> {
         if let Some(why) = &self.unwritable {
             return Err(format!("{UNWRITABLE}: {why}"));
         }
         let (typist, typed) = oneshot::channel();
-        match self.hand(Owner::Core(Some(typist)), bytes) {
+        match self.hand(Owner::Core(Some(typist)), bytes, Some(cancel)) {
             true => Ok(typed),
             false => Err("the terminal has ended".into()),
         }
     }
 
-    fn hand(&mut self, owner: Owner, bytes: &[u8]) -> bool {
+    fn hand(&mut self, owner: Owner, bytes: &[u8], cancel: Option<Arc<AtomicBool>>) -> bool {
         let input = self.input.as_ref();
-        let sent = input.is_some_and(|input| input.send(bytes.to_vec()).is_ok());
+        let chunk = || Input {
+            bytes: bytes.to_vec(),
+            cancel: cancel.clone(),
+        };
+        let sent = input.is_some_and(|input| input.send(chunk()).is_ok());
         if sent {
             self.owed.push_back((owner, bytes.len() as u32));
         }
         sent
     }
 
-    /// The input thread wrote the oldest chunk: a client may send as much
-    /// again, and the core's typist learns it was written.
-    pub fn wrote(&mut self) {
+    /// The input thread wrote the oldest chunk, `whole` or only until the
+    /// core gave up on it: a client may send as much again, and the core's
+    /// typist learns how it went.
+    pub fn wrote(&mut self, whole: bool) {
         match self.owed.pop_front() {
             Some((Owner::Client(from), n)) => from.grant(n),
-            Some((Owner::Core(Some(typist)), _)) => drop(typist.send(Ok(()))),
+            Some((Owner::Core(Some(typist)), _)) => {
+                drop(typist.send(if whole { Ok(()) } else { Err(UNTAKEN.into()) }));
+            }
             _ => {}
         }
     }

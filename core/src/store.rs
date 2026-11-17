@@ -212,6 +212,10 @@ impl Store {
             return Err(Error::Io(std::io::Error::other(why)));
         }
         db.pragma_update(None, "synchronous", "FULL")?;
+        // Not F_FULLFSYNC on macOS (design §3): it made a commit, which holds
+        // up the core's thread, a hundred times slower, and what a power cut
+        // loses the recovery pass closes.
+        db.pragma_update(None, "fullfsync", false)?;
         migrate(&mut db, path, migrations)?;
         db.pragma_update(None, "foreign_keys", true)?;
 

@@ -18,6 +18,11 @@ use tasktap_proto::{CloseWhy, MAX_SAFE, Mark, Offset, Size, Terminal, TerminalSt
 
 /// Output kept per terminal (design §10: 2 MiB at full scrollback).
 pub const RING: usize = 2 << 20;
+/// History a ring grows to by doubling; past it the ring takes all of
+/// [`RING`] at once. Each buffer a ring outgrows goes back to the allocator,
+/// which keeps it: doubling all the way left 0.6 to 1 MiB a terminal more
+/// than its 2 MiB (measured by `scripts/measure.sh`).
+const GROWN: usize = 64 << 10;
 /// Input one attached client may have on its way to the process.
 pub const INPUT: u32 = 64 << 10;
 /// Sizes remembered for the bytes in the ring. A client resizing faster
@@ -90,9 +95,12 @@ impl Term {
         self.discard(self.start + over as u64);
         let need = self.ring.len() + bytes.len();
         if need > self.ring.capacity() {
-            // Doubling, but never past the ring: a full ring holds 2 MiB,
-            // not the 4 a doubling buffer would reach.
-            let room = need.next_power_of_two().min(RING);
+            // Doubling while small, then the whole ring: a full ring holds
+            // 2 MiB, not the 4 a doubling buffer would reach.
+            let room = match need > GROWN {
+                true => RING,
+                false => need.next_power_of_two(),
+            };
             self.ring.reserve_exact(room - self.ring.len());
         }
         self.ring.extend(bytes);

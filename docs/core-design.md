@@ -132,7 +132,7 @@ The inventory's headings say 15 and 17 types for §1.5 and §1.6; its tables lis
 | Effects happen once | Every call that starts a process names an attempt id. Before spawning, the core commits the attempt with a hash of its arguments. The same id with the same arguments returns the first outcome; with different arguments it is `conflict`. When what was spawned cannot be stored, the core exits non-zero instead of answering, and the next start closes the attempt as `interrupted`. Creates are idempotent on the client-minted id in the same way: each is recorded as an attempt under its id with a hash of all its arguments, checked before anything else. |
 | Crash recovery | At start, in one transaction: an attempt with no recorded outcome is `interrupted`; terminals marked running by an earlier boot become `lost`, their sessions `ended`, their thoughts `failed (interrupted)`, their open questions `withdrawn`; so does a session whose terminal a clean shutdown ended (§9). Hold timers are not restored, and none fires once a shutdown has begun: a held thought stays `routed` with no timer and waits for the person to press Start. |
 | Never rerun | There is no queue to drain and recovery only closes things. A launch happens only inside a call from a live client. The 1.2 start-up relaunch of jobs without receipts (hazard 12) is gone. |
-| Durability | SQLite in WAL mode with `synchronous=FULL`: a reply is sent after its transaction is on disk. Writes are state changes only. Whether a commit delays typing is measured before the targets are claimed (§14). |
+| Durability | SQLite in WAL mode with `synchronous=FULL`: a reply is sent after its transaction is on disk. Writes are state changes only. **Decided in package E, without `F_FULLFSYNC` on macOS** (`PRAGMA fullfsync` off, set so in the store). There `fsync` hands the commit to the drive, which may still hold it in its cache when the power goes; `F_FULLFSYNC` flushes that cache too. Measured by `core/scripts/measure.sh` (Apple M4 Pro, macOS 27.0.1, 500 commits each of a 400-byte row as the store writes one): `synchronous=FULL` alone 0.042 ms a commit (median; p95 0.051 ms), with `F_FULLFSYNC` 4.02 ms (p95 4.92 ms), a hundred times more. A commit runs on the core's thread, so every commit would hold up a keystroke by 4 ms, thirteen times the 0.3 ms the core may add; the stricter setting was worth it only at a negligible cost. What it buys is small: the records are small and rarely written, and a power cut that loses the last commits leaves an older consistent file that the recovery pass closes as for a crash. The script fails this row should `F_FULLFSYNC` ever cost less than 0.3 ms, so the choice is made again. While another client commits all along, a keystroke waits 0.09 ms more (below). |
 
 When a newer app meets a running core it calls `core.status`:
 
@@ -413,6 +413,8 @@ Not used: an argument parser, error or logging crates, an asynchronous HTTP stac
 
 These are targets, not results. Phase 1 measures the first three, start time and stream rate; Phase 2 measures the rest. None is claimed before it is measured.
 
+**Measured in Phase 2 (package E)** by `core/scripts/measure.sh` on an Apple M4 Pro, macOS 27.0.1; every row passes. Idle: 0 wakeups and 0 context switches in 60 s with two clients subscribed and a quiet terminal open, a client attached to it. Memory with no terminals: 2.7 MB. Start: 4.2 ms (median of 25). Stream: 1112 MB/s to the client, 1072 MB/s from it. A keystroke goes in on a terminal's stream and its echo comes back on it (the terminal runs `cat`, so the system echoes it); the core adds the round trip less the same through a bare pseudo-terminal (1.3 µs median): 0.025 ms (median; p95 0.043 ms) of 500 keys, 0.091 ms (p95 0.109 ms) while another client commits 5000 times, 0.023 ms (p95 0.034 ms) beside a second client attached to the same terminal that reads 80 bytes a second. Memory per terminal with its history full: 2.10 MiB for each of 10 more terminals, 2.21 MiB for each of the first 10, which also pay once for what the allocator sets up. The ring grows by doubling to 64 KiB and then takes its 2 MiB at once: doubling all the way left each outgrown buffer with the allocator, 2.7 to 3.2 MiB a terminal. Binary: 5.3 MB.
+
 ## 11. Import from 1.2 (Phase 6)
 
 The new store is a new folder, `<appData>/Core/`. The importer opens the old files for reading only, so 1.2 can still run on its own data afterwards.
@@ -527,7 +529,7 @@ Phase 2 puts terminals and agents into the core. Claude Code and Codex are carri
 
 | Phase | What |
 | --- | --- |
-| 2 | Typing delay while the store commits and while a second client is slow, before any efficiency target is claimed. |
+| 2 | Done in package E (§10): typing delay while the store commits and while a second client is slow, measured before any efficiency target is claimed. |
 | 2 | Done in package D (§7): a waiting hook answers both tools' permission requests and Claude Code's questions (`reply_via: core`); Codex's questions stay `reply_via: terminal`. |
 | 2 | Done in the Phase 2 close-out (§7, §9): a Codex run launched with no client attached starts, since the core answers its terminal's questions while no client is attached. |
 | 4 | That Codex shows its own approval after a waiting hook's 600 s, and that a person's own Claude Code plugin does not cut a waiting hook short (§7). |

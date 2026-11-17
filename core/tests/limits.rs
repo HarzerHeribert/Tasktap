@@ -8,18 +8,19 @@ mod common;
 use common::*;
 use serde_json::Value;
 use std::collections::BTreeMap;
-use tasktap_core::client::{self, Client};
+use tasktap_core::client::Client;
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
-    AnswerQuestion, Ask, Auth, Capture, Change, Control, DeviceId, Empty, Event as Said,
-    FixtureRecords, FixtureRoute, Frame, HEADER, Hello, Identity, LayoutPatch, MAX_FRAME, MAX_LINE,
-    MAX_POINTS, MAX_TEXT, Place, Project, ProjectId, ProjectKind, ProjectPatch, Put, PutTarget,
-    QuestionKind, Register, Response, ResultId, Role, Rows, Secret, Set, Stroke, Subscribe,
-    Thought, ThoughtId, VERSION, Versions, encode_control,
+    AnswerQuestion, Ask, Capture, Change, Control, DeviceId, Empty, Event as Said, FixtureRecords,
+    FixtureRoute, Frame, HEADER, Identity, Layout, LayoutPatch, MAX_FRAME, MAX_LINE, MAX_POINTS,
+    MAX_TEXT, Place, Project, ProjectId, ProjectKind, ProjectPatch, Put, PutTarget, QuestionKind,
+    Response, ResultId, Rows, Set, Stroke, Subscribe, Thought, ThoughtId, encode_control, json_len,
 };
 
 /// Most bytes of JSON in one snapshot chunk (design §1).
 const CHUNK: usize = 256 << 10;
+/// Most bytes of JSON in a row: a chunk, less its envelope and a set's.
+const MAX_ROW: usize = CHUNK - 64 - 32;
 
 /// A text of exactly `n` bytes of JSON, quotes included.
 fn text(n: usize) -> String {
@@ -96,6 +97,49 @@ fn a_capture_at_the_bound_reaches_a_subscriber_whole_and_one_over_is_refused() {
             s.w.refused::<call::ThoughtCapture>(&over)
         });
     }
+}
+
+#[test]
+fn no_write_stores_a_row_larger_than_a_chunk_as_it_would_be_sent() {
+    let mut s = Scene::new("limit-commit");
+    let mut other = s.core.watch();
+    // The next write's revision has more digits than the 0 in the row a
+    // call builds, so a layout row measured that way at the bound would be
+    // stored one byte over it.
+    let mut next = 0;
+    while next < 10 {
+        let hold = PutTarget::Prefs(tasktap_proto::PrefPatch::Hold(next as u32));
+        next = put(&mut s, hold).unwrap().rev.get() + 1;
+    }
+    let id = s.project;
+    let row = |n: usize| Layout {
+        id,
+        rev: tasktap_proto::Rev::new(next).unwrap(),
+        tree: Value::String(text(n)),
+    };
+    let n = MAX_ROW + 1 - (json_len(&row(2)) - 2);
+    assert_eq!(json_len(&row(n)), MAX_ROW + 1);
+    let layout = |n: usize| PutTarget::Layouts {
+        id,
+        patch: LayoutPatch {
+            tree: Value::String(text(n)),
+        },
+    };
+    assert_eq!(put(&mut s, layout(n)).unwrap_err(), Code::Invalid);
+    // One byte less is taken, at the revision the refused write did not use.
+    assert_eq!(put(&mut s, layout(n - 1)).unwrap().rev.get(), next);
+
+    // A path that bounds nothing itself, the test fixture, is refused too.
+    let t = s.capture("short");
+    let mut over = s.w.model.thought(t).clone();
+    over.text = text(MAX_ROW);
+    let sets = vec![Set::Thoughts(Rows {
+        put: vec![over],
+        del: Vec::new(),
+    })];
+    refused(&mut s, &mut other, |s| {
+        s.w.refused::<call::FixtureRecords>(&FixtureRecords { sets })
+    });
 }
 
 #[test]
@@ -280,22 +324,8 @@ fn the_largest_row_of_every_collection_goes_out_in_a_snapshot_and_a_change() {
     let mut seen = subscribe(&mut first);
 
     // A device with the longest name.
-    let stream = client::connect(&s.core.data).unwrap();
     let d = DeviceId::mint();
-    let hello = Hello {
-        v: Versions(VERSION, VERSION),
-        role: Role::Cli,
-        client: "limits test".into(),
-        auth: Some(Auth::Device {
-            device: d,
-            key: Secret([2; 32]),
-            register: Some(Register {
-                name: escaped(MAX_LINE),
-            }),
-        }),
-        abilities: Vec::new(),
-    };
-    let device = Client::hello(stream, hello).unwrap().unwrap();
+    let device = s.core.device_as(d, 2, Some(&escaped(MAX_LINE))).unwrap();
     assert_eq!(device.welcome.identity, Identity::Device);
 
     // The largest thought: the longest text, the most strokes and the

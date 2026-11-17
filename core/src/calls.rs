@@ -13,7 +13,7 @@ use crate::state::{self, Destination, Event};
 use crate::store::AttemptKind;
 use crate::{questions, records};
 use serde_json::Value;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use tasktap_proto::call::{self, Call, Code, Error, Name};
 use tasktap_proto::{
@@ -113,8 +113,8 @@ fn handler(name: Name) -> Option<Handler> {
         }
         Name::QuestionFocus => |cx, args| now::<call::QuestionFocus>(cx, args, questions::focus),
         Name::Input => |cx, args| now::<call::Input>(cx, args, questions::input),
-        Name::ProjectAdd => |cx, args| now::<call::ProjectAdd>(cx, args, add_project),
-        Name::ProjectScan => |cx, args| now::<call::ProjectScan>(cx, args, scan_projects),
+        Name::ProjectAdd => |cx, args| later::<call::ProjectAdd>(cx, args, add_project),
+        Name::ProjectScan => |cx, args| later::<call::ProjectScan>(cx, args, scan_projects),
         #[cfg(feature = "fixtures")]
         Name::FixtureStream => {
             |cx, args| now::<call::FixtureStream>(cx, args, crate::stream::fixture)
@@ -198,6 +198,56 @@ fn now<C: Call>(
     Some(C::reply(cx.id, result))
 }
 
+/// Runs a handler that may answer later, as [`off_thread`] does.
+fn later<C: Call>(
+    cx: &mut Cx,
+    args: Value,
+    handler: fn(&mut Cx, C::Args) -> Option<Control>,
+) -> Option<Control> {
+    match C::args(args) {
+        Ok(args) => handler(cx, args),
+        Err(e) => Some(C::reply(cx.id, Err(e))),
+    }
+}
+
+/// Folder checks running at once.
+const CHECKS: usize = 4;
+
+/// Answers a call that needs the file system: `look` runs on a short-lived
+/// thread, since a folder on a stalled network mount blocks for as long as
+/// the system lets it, and `then` answers on the core's thread once it
+/// reports. With [`CHECKS`] running, the call is refused.
+fn off_thread<C: Call, T: Send + 'static>(
+    cx: &mut Cx,
+    look: impl FnOnce() -> T + Send + 'static,
+    then: impl FnOnce(&mut Core, T) -> Result<C::Result, Error> + 'static,
+) -> Option<Control> {
+    if cx.core.checks == CHECKS {
+        let busy = Error::new(Code::Failed, "too many folder checks are running");
+        return Some(C::reply(cx.id, Err(busy)));
+    }
+    cx.core.checks += 1;
+    #[cfg(feature = "fixtures")]
+    let slow = cx.core.fixture_check;
+    let (found, report) = tokio::sync::oneshot::channel();
+    std::thread::spawn(move || {
+        #[cfg(feature = "fixtures")]
+        std::thread::sleep(slow);
+        let _ = found.send(look());
+    });
+    let (core, link, id) = (cx.core.me.clone(), cx.link.clone(), cx.id);
+    tokio::task::spawn_local(async move {
+        let found = report.await;
+        let Some(core) = core.upgrade() else { return };
+        let mut core = core.borrow_mut();
+        core.checks -= 1;
+        let lost = |_| Error::new(Code::Failed, "the folder check ended without an answer");
+        let result = found.map_err(lost).and_then(|found| then(&mut core, found));
+        link.send(&C::reply(id, result));
+    });
+    None
+}
+
 /// Runs a call that is one state-machine event (`effects::call`).
 fn event<C: Call<Result = ()>>(
     cx: &mut Cx,
@@ -253,12 +303,26 @@ fn revoke(cx: &mut Cx, args: Ref<DeviceId>) -> Result<(), Error> {
 /// `project.add`: the project that holds the folder, added now unless one
 /// does already. The client's id makes it idempotent: the same id for
 /// another folder is `conflict`.
-fn add_project(cx: &mut Cx, args: AddProject) -> Result<ProjectId, Error> {
+fn add_project(cx: &mut Cx, args: AddProject) -> Option<Control> {
+    let folder = args.folder.clone();
+    let look = move || {
+        let path = std::fs::canonicalize(folder)
+            .ok()
+            .filter(|path| path.is_dir());
+        let git = path.as_ref().is_some_and(|path| path.join(".git").exists());
+        (path, git)
+    };
+    off_thread::<call::ProjectAdd, _>(cx, look, |core, found| add_found(core, args, found))
+}
+
+/// Adds the project once its folder was looked at.
+fn add_found(
+    core: &mut Core,
+    args: AddProject,
+    (path, git): (Option<PathBuf>, bool),
+) -> Result<ProjectId, Error> {
     let invalid = |why: String| Error::new(Code::Invalid, why);
-    let path = std::fs::canonicalize(&args.folder)
-        .ok()
-        .filter(|path| path.is_dir())
-        .ok_or_else(|| invalid(format!("{} is not a folder", args.folder)))?;
+    let path = path.ok_or_else(|| invalid(format!("{} is not a folder", args.folder)))?;
     let folder = (path.to_str())
         .ok_or_else(|| invalid("the folder's path is not text".into()))?
         .to_owned();
@@ -271,9 +335,8 @@ fn add_project(cx: &mut Cx, args: AddProject) -> Result<ProjectId, Error> {
     let name = (args.name.clone())
         .or_else(|| Some(path.file_name()?.to_string_lossy().into_owned()))
         .unwrap_or_else(|| folder.clone());
-    let git = path.join(".git").exists();
-    let now = cx.core.seams.now();
-    effects::write(cx.core, |tx| {
+    let now = core.seams.now();
+    effects::write(core, |tx| {
         // The id first: the same id with other arguments is a conflict even
         // when another project holds the folder.
         let kind = AttemptKind::Project(args.id);
@@ -315,19 +378,32 @@ fn add_project(cx: &mut Cx, args: AddProject) -> Result<ProjectId, Error> {
 
 /// `project.scan`: whether each project's folder is still there, and still
 /// a git repository. Projects are looked at when a client asks, never watched.
-fn scan_projects(cx: &mut Cx, _: Empty) -> Result<(), Error> {
-    effects::write(cx.core, |tx| {
-        let Some(Set::Projects(rows)) = tx.live(Collection::Projects).map_err(stored)? else {
-            return Ok(());
-        };
-        for mut p in rows.put {
-            let folder = Path::new(&p.folder);
-            let now = (folder.is_dir(), folder.join(".git").exists());
-            if (p.available, p.git) != now {
-                (p.available, p.git) = now;
-                tx.update_project(&p).map_err(stored)?;
+fn scan_projects(cx: &mut Cx, _: Empty) -> Option<Control> {
+    let live = effects::read(cx.core, |tx| tx.live(Collection::Projects));
+    let folders: Vec<_> = match live {
+        Ok(Some(Set::Projects(rows))) => rows.put.into_iter().map(|p| (p.id, p.folder)).collect(),
+        Ok(_) => Vec::new(),
+        Err(e) => return Some(call::ProjectScan::reply(cx.id, Err(e))),
+    };
+    let look = move || {
+        let found = folders.into_iter().map(|(id, folder)| {
+            let folder = Path::new(&folder);
+            (id, (folder.is_dir(), folder.join(".git").exists()))
+        });
+        found.collect::<Vec<_>>()
+    };
+    off_thread::<call::ProjectScan, _>(cx, look, |core, found| {
+        effects::write(core, |tx| {
+            for (id, now) in found {
+                let Some(mut p) = tx.project(id).map_err(stored)? else {
+                    continue;
+                };
+                if (p.available, p.git) != now {
+                    (p.available, p.git) = now;
+                    tx.update_project(&p).map_err(stored)?;
+                }
             }
-        }
-        Ok(())
+            Ok(())
+        })
     })
 }

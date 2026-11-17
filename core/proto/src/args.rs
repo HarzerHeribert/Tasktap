@@ -13,6 +13,7 @@ use crate::records::{
 use crate::{MAX_LINE, MAX_TEXT};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use uuid::Uuid;
 
 /// Arguments of a call that takes none: `{}`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -130,11 +131,14 @@ pub enum Delete {
     Thoughts { id: ThoughtId },
 }
 
-/// `history`: finished thoughts older than `before`, newest first.
+/// `history`: finished thoughts older than `before`, newest first; with
+/// `after`, first the questions and results of `before` after that id.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct History {
     pub before: Option<ThoughtId>,
+    #[cfg_attr(test, ts(as = "Option<String>"))]
+    pub after: Option<Uuid>,
     pub limit: Limit,
 }
 
@@ -169,13 +173,22 @@ impl From<Limit> for u32 {
     }
 }
 
-/// Thoughts that left the live set, with their questions and results.
+/// Thoughts that left the live set, each with its questions and results,
+/// cut where the rows stop fitting one snapshot chunk: a short page is not
+/// the end, an empty one is.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct HistoryPage {
     pub thoughts: Vec<Thought>,
     pub questions: Vec<Question>,
     pub results: Vec<TurnResult>,
+    /// Set when the page was cut among a thought's questions and results:
+    /// the id of the last it holds, in id order (nil for none). The next
+    /// page asks with it as `after` and that thought as `before`: the last
+    /// in `thoughts`, or the `before` this page was asked with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(as = "Option<String>", optional))]
+    pub after: Option<Uuid>,
 }
 
 /// `thought.capture`. A project or session given here is the person's own
@@ -447,7 +460,8 @@ pub struct FixtureClock {
 
 /// `fixture.records`: writes rows only the state machine writes otherwise, so
 /// records can be proven without it (design §13): the thoughts and projects
-/// given are inserted or replaced and the results inserted, in one
+/// given are inserted or replaced and the questions, with their answers,
+/// and results inserted, in one
 /// transaction published like a `put`'s. Other collections are `invalid`.
 /// Only a core built with its test fixtures answers it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

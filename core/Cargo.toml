@@ -33,3 +33,11 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 
 [dev-dependencies]
 tasktap-core = { path = ".", features = ["fixtures"] }
+
+# A panic anywhere must end the core, never just the task it happened in:
+# the next start's recovery pass then closes what was under way.
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

@@ -26,6 +26,8 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::Path;
 
+use crate::records::MAX_ROW;
+
 use rusqlite::types::{FromSql, Type};
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Params, Row, ToSql, TransactionBehavior, ffi, params,
@@ -37,7 +39,8 @@ use tasktap_proto::{
     Answer, AttemptId, Change, Collection, CoreId, Device, DeviceId, HistoryPage, Isolate, Layout,
     Limit, Outcome, Phase, Pref, PrefKey, PrefValue, Project, ProjectId, ProjectKind, Question,
     QuestionId, QuestionState, Reason, ResultId, Rev, Rows, Session, SessionId, SessionState, Set,
-    Status, Terminal, TerminalId, TerminalState, Thought, ThoughtId, Time, TurnResult,
+    Status, Terminal, TerminalId, TerminalState, Thought, ThoughtId, Time, TurnResult, Uuid,
+    json_len,
 };
 
 /// Finished thoughts kept live, newest first; older ones leave for history.
@@ -62,6 +65,9 @@ pub enum Error {
     Reference,
     /// The row to change does not exist.
     NotFound,
+    /// A row written takes this many bytes of JSON, more than one snapshot
+    /// chunk carries (design §1); nothing was written.
+    TooLarge(usize),
     /// A stored value this build cannot read back.
     Corrupt(String),
     /// A file beside the database could not be handled: the backup, or the log.
@@ -89,6 +95,10 @@ impl fmt::Display for Error {
             Error::Duplicate(what) => write!(f, "already exists: {what}"),
             Error::Reference => f.write_str("a reference names a row that does not exist"),
             Error::NotFound => f.write_str("no such row"),
+            Error::TooLarge(len) => write!(
+                f,
+                "the row would take {len} bytes; a row is at most {MAX_ROW}"
+            ),
             Error::Corrupt(what) => write!(f, "unreadable stored value: {what}"),
             Error::Io(e) => write!(f, "{e}"),
             Error::Sqlite(e) => write!(f, "sqlite: {e}"),
@@ -459,6 +469,7 @@ impl<'s> Tx<'s> {
         Ok(Some(Change {
             rev: Rev::new(rev).unwrap_or(Rev::ZERO),
             snap: false,
+            more: false,
             sets,
         }))
     }
@@ -510,7 +521,10 @@ impl<'s> Tx<'s> {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    fn emit<R: DeserializeOwned, I: DeserializeOwned>(
+    /// Adds a table's rows to the change, refusing the transaction when a
+    /// row it wrote, as a client would be sent it, is larger than a chunk:
+    /// the one place every write passes.
+    fn emit<R: DeserializeOwned + Serialize, I: DeserializeOwned>(
         &self,
         seen: &Seen,
         table: Table,
@@ -522,7 +536,14 @@ impl<'s> Tx<'s> {
             del: Vec::new(),
         };
         for ((_, id), &(before, wrote)) in seen.iter().filter(|((t, _), _)| *t == table) {
-            match self.select(table, "WHERE id = ?1", [id])?.pop() {
+            let found = self.select::<R>(table, "WHERE id = ?1", [id])?.pop();
+            if let Some((row, _)) = &found
+                && wrote
+                && json_len(row) > MAX_ROW
+            {
+                return Err(Error::TooLarge(json_len(row)));
+            }
+            match found {
                 Some((row, true)) => {
                     if wrote || !before {
                         rows.put.push(row);
@@ -882,26 +903,83 @@ impl<'s> Tx<'s> {
     }
 
     /// Thoughts that left the live set and are older than `before`, newest
-    /// first, with their questions and results.
-    pub fn history(&self, before: Option<ThoughtId>, limit: Limit) -> Result<HistoryPage> {
-        // Every id sorts below "~", so no `before` means no bound.
+    /// first, each followed by its questions and results in id order; with
+    /// `after`, first those of `before` after that id. Rows are taken while
+    /// their JSON stays within `budget` bytes, and at least one, so no thought
+    /// makes a page too large, however many questions it has.
+    pub fn history(
+        &self,
+        before: Option<ThoughtId>,
+        after: Option<Uuid>,
+        limit: Limit,
+        budget: usize,
+    ) -> Result<HistoryPage> {
+        let mut page = HistoryPage {
+            thoughts: Vec::new(),
+            questions: Vec::new(),
+            results: Vec::new(),
+            after: None,
+        };
+        let mut size = 0;
+        let mut fits = |len: usize| {
+            let fits = size == 0 || size + len <= budget;
+            size += if fits { len } else { 0 };
+            fits
+        };
         let before = before.map(|b| key(&b)).transpose()?;
-        let params = params![before.as_deref().unwrap_or("~"), limit.get()];
-        macro_rules! page {
-            () => {
-                "WHERE live = 0 AND finished = 1 AND id < ?1 ORDER BY id DESC LIMIT ?2"
-            };
+        if let (Some(thought), Some(after)) = (&before, after)
+            && !self.history_rows(thought, &key(&after)?, &mut page, &mut fits)?
+        {
+            return Ok(page);
         }
-        let of_page = concat!(
-            "WHERE thought_id IN (SELECT id FROM thoughts ",
-            page!(),
-            ") ORDER BY id"
-        );
-        Ok(HistoryPage {
-            thoughts: self.all(Table::Thoughts, page!(), params)?,
-            questions: self.all(Table::Questions, of_page, params)?,
-            results: self.all(Table::Results, of_page, params)?,
-        })
+        // Every id sorts below "~", so no `before` means no bound.
+        let older = "WHERE live = 0 AND finished = 1 AND id < ?1 ORDER BY id DESC LIMIT ?2";
+        let params = params![before.as_deref().unwrap_or("~"), limit.get()];
+        for t in self.all::<Thought>(Table::Thoughts, older, params)? {
+            if !fits(json_len(&t)) {
+                break;
+            }
+            let thought = key(&t.id)?;
+            page.thoughts.push(t);
+            if !self.history_rows(&thought, "", &mut page, &mut fits)? {
+                break;
+            }
+        }
+        Ok(page)
+    }
+
+    /// Takes a thought's questions and results with ids after `after` into
+    /// `page` while they fit. False when one did not: the page then names
+    /// the last taken in its `after`.
+    fn history_rows(
+        &self,
+        thought: &str,
+        after: &str,
+        page: &mut HistoryPage,
+        fits: &mut impl FnMut(usize) -> bool,
+    ) -> Result<bool> {
+        let mut rows = self.db.prepare_cached(
+            "SELECT q.data, rev, live, a.data, id, 1 \
+             FROM questions q LEFT JOIN answers a ON a.question_id = q.id \
+             WHERE thought_id = ?1 AND id > ?2 \
+             UNION ALL SELECT data, rev, live, NULL, id, 0 FROM results \
+             WHERE thought_id = ?1 AND id > ?2 ORDER BY 5",
+        )?;
+        let mut rows = rows.query([thought, after])?;
+        let mut last = None;
+        while let Some(r) = rows.next()? {
+            let taken = if r.get(5)? {
+                take(record(r)?.0, &mut page.questions, fits)
+            } else {
+                take(record(r)?.0, &mut page.results, fits)
+            };
+            if !taken {
+                page.after = Some(last.unwrap_or_default());
+                return Ok(false);
+            }
+            last = Some(parse(&r.get::<_, String>(4)?)?);
+        }
+        Ok(true)
     }
 
     // Writes. An update or delete of a row that is not there is `NotFound`;
@@ -1193,6 +1271,15 @@ fn record<R: DeserializeOwned>(r: &Row) -> rusqlite::Result<(R, bool)> {
     let record = serde_json::from_str(&text)
         .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, Type::Text, e.into()))?;
     Ok((record, live))
+}
+
+/// Adds a row to a page when it fits.
+fn take<R: Serialize>(row: R, rows: &mut Vec<R>, fits: &mut impl FnMut(usize) -> bool) -> bool {
+    let fits = fits(json_len(&row));
+    if fits {
+        rows.push(row);
+    }
+    fits
 }
 
 /// The wire text of an id or a word.

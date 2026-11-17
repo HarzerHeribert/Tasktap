@@ -97,10 +97,11 @@ export type Capture = { id: ThoughtId, text: string, strokes: Array<Array<[numbe
  * at most 256 KiB of JSON each. A transaction too large for one frame is cut
  * the same way, without `snap`: several frames in a row with the same `rev`
  * and nothing between them, each holding whole rows, a set's rows before its
- * deletions (so a collection may appear in more than one set). Each frame
- * applies as it arrives; the transaction is whole once the last has.
+ * deletions (so a collection may appear in more than one set). Every frame
+ * of a snapshot or a transaction but the last is marked `more`, so a client
+ * applies a transaction whole once its last frame has arrived.
  */
-export type Change = { rev: Rev, snap?: boolean, sets: Array<Set>, };
+export type Change = { rev: Rev, snap?: boolean, more?: boolean, sets: Array<Set>, };
 
 export type Changes = "none" | "pending" | "kept" | "discarded";
 
@@ -190,7 +191,8 @@ notified: Array<QuestionId>, };
 /**
  * `fixture.records`: writes rows only the state machine writes otherwise, so
  * records can be proven without it (design §13): the thoughts and projects
- * given are inserted or replaced and the results inserted, in one
+ * given are inserted or replaced and the questions, with their answers,
+ * and results inserted, in one
  * transaction published like a `put`'s. Other collections are `invalid`.
  * Only a core built with its test fixtures answers it.
  */
@@ -277,14 +279,24 @@ client: string, auth?: Auth | null,
 abilities?: Array<string>, };
 
 /**
- * `history`: finished thoughts older than `before`, newest first.
+ * `history`: finished thoughts older than `before`, newest first; with
+ * `after`, first the questions and results of `before` after that id.
  */
-export type History = { before?: ThoughtId | null, limit: Limit, };
+export type History = { before?: ThoughtId | null, after?: string | null, limit: Limit, };
 
 /**
- * Thoughts that left the live set, with their questions and results.
+ * Thoughts that left the live set, each with its questions and results,
+ * cut where the rows stop fitting one snapshot chunk: a short page is not
+ * the end, an empty one is.
  */
-export type HistoryPage = { thoughts: Array<Thought>, questions: Array<Question>, results: Array<TurnResult>, };
+export type HistoryPage = { thoughts: Array<Thought>, questions: Array<Question>, results: Array<TurnResult>,
+/**
+ * Set when the page was cut among a thought's questions and results:
+ * the id of the last it holds, in id order (nil for none). The next
+ * page asks with it as `after` and that thought as `before`: the last
+ * in `thoughts`, or the `before` this page was asked with.
+ */
+after?: string, };
 
 /**
  * Who the core took the connection to be.

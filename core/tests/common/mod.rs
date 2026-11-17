@@ -6,8 +6,9 @@
 
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::process::Child;
+use std::process::{Child, ExitStatus};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tasktap_core::client::{self, Client};
@@ -15,9 +16,9 @@ use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
     Answer, Ask, AskKey, Auth, CallId, Capture, Change, Collection, Control, DeviceId, Empty,
     Event as Said, FixtureClock, FixtureLog, FixtureRoute, Frame, Glance, Hello, Identity, Outcome,
-    Place, Project, ProjectId, Question, QuestionId, QuestionKind, Register, Request, ResultId,
-    Retire, Role, Secret, Session, SessionEvent, SessionId, Set, Source, Status, Subscribe,
-    Terminal, TerminalId, Thought, ThoughtId, Time, TurnResult, VERSION, Versions, When,
+    Place, Project, ProjectId, Question, QuestionId, QuestionKind, Refuse, Register, Request,
+    ResultId, Retire, Role, Secret, Session, SessionEvent, SessionId, Set, Source, Status,
+    Subscribe, Terminal, TerminalId, Thought, ThoughtId, Time, TurnResult, VERSION, Versions, When,
 };
 
 mod watchdog;
@@ -73,6 +74,12 @@ impl Drop for Folder {
     }
 }
 
+impl AsRef<Path> for Folder {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
 /// A core this test started; killed if the test ends with it still running.
 pub struct Core {
     child: Child,
@@ -81,11 +88,14 @@ pub struct Core {
 }
 
 impl Core {
-    pub fn start(data: &Path) -> Core {
+    /// A core whose idle delay is long enough never to matter.
+    pub fn start(data: impl AsRef<Path>) -> Core {
         Self::start_with(data, &[])
     }
 
-    pub fn start_with(data: &Path, extra: &[&str]) -> Core {
+    /// The same with more arguments, which may set another idle delay.
+    pub fn start_with(data: impl AsRef<Path>, extra: &[&str]) -> Core {
+        let data = data.as_ref();
         let mut serve = client::serve_command(Path::new(EXE), data);
         serve.args(["--idle-ms", "600000"]).args(extra);
         let child = client::start(serve).unwrap();
@@ -96,7 +106,9 @@ impl Core {
         }
     }
 
-    fn hello(&self, auth: Auth) -> Client {
+    /// A new connection that offers versions `v` and proves `auth`; a
+    /// refusal is the `Err`.
+    pub fn hello_with(&self, v: Versions, auth: Option<Auth>) -> Result<Client, Refuse> {
         let stream = client::connect(&self.data).unwrap();
         // A frame that never comes fails the test instead of hanging it.
         #[cfg(unix)]
@@ -104,33 +116,46 @@ impl Core {
             .set_read_timeout(Some(std::time::Duration::from_secs(20)))
             .unwrap();
         let hello = Hello {
-            v: Versions(VERSION, VERSION),
+            v,
             role: Role::Cli,
-            client: "questions test".into(),
-            auth: Some(auth),
+            client: "test".into(),
+            auth,
             abilities: Vec::new(),
         };
-        Client::hello(stream, hello).unwrap().unwrap()
+        Client::hello(stream, hello).unwrap()
+    }
+
+    /// A new connection with neither a device key nor a session token.
+    pub fn anonymous(&self) -> Client {
+        self.hello_with(Versions(VERSION, VERSION), None).unwrap()
+    }
+
+    /// A new connection as device `id` proving the key `[key; 32]`, which
+    /// registers it under `name` if given.
+    pub fn device_as(&self, id: DeviceId, key: u8, name: Option<&str>) -> Result<Client, Refuse> {
+        let auth = Auth::Device {
+            device: id,
+            key: Secret([key; 32]),
+            register: name.map(|name| Register { name: name.into() }),
+        };
+        self.hello_with(Versions(VERSION, VERSION), Some(auth))
     }
 
     /// A new connection, as a newly registered device.
     pub fn device(&self) -> Client {
-        let c = self.hello(Auth::Device {
-            device: DeviceId::mint(),
-            key: Secret([1; 32]),
-            register: Some(Register {
-                name: "test".into(),
-            }),
-        });
+        let c = self.device_as(DeviceId::mint(), 1, Some("test")).unwrap();
         assert_eq!(c.welcome.identity, Identity::Device);
         c
     }
 
     /// A connection with a session token, as `tasktap ask` or a hook makes.
     pub fn agent(&self, token: &Secret) -> Agent {
-        let c = self.hello(Auth::Session {
+        let auth = Auth::Session {
             token: token.clone(),
-        });
+        };
+        let c = self
+            .hello_with(Versions(VERSION, VERSION), Some(auth))
+            .unwrap();
         assert_eq!(c.welcome.identity, Identity::Session);
         Agent {
             c,
@@ -158,8 +183,17 @@ impl Core {
         self.child.try_wait().unwrap().is_none()
     }
 
+    /// Waits for the core to exit.
+    pub fn exit(&mut self) -> ExitStatus {
+        self.child.wait().unwrap()
+    }
+
     pub fn wait(&mut self) {
-        assert!(self.child.wait().unwrap().success());
+        assert!(self.exit().success());
+    }
+
+    pub fn pid(&self) -> u32 {
+        self.child.id()
     }
 
     /// Waits until the core has exited on its own, and says how.
@@ -288,6 +322,8 @@ pub struct Watch {
     pub model: Model,
     /// Each thought's statuses in the order its rows arrived, repeats folded.
     pub statuses: HashMap<ThoughtId, Vec<Status>>,
+    /// The frames of a change cut into several, until its last arrives.
+    part: Option<Change>,
     next: u32,
 }
 
@@ -302,11 +338,12 @@ impl Watch {
             c,
             model: Model::default(),
             statuses: HashMap::new(),
+            part: None,
             next: 10,
         };
         loop {
             match w.c.recv().unwrap() {
-                Frame::Control(Control::Change(change)) => w.apply(&change),
+                Frame::Control(Control::Change(change)) => w.apply(change),
                 Frame::Control(Control::Reply(reply)) if reply.id == id => {
                     call::Sub::result(reply.outcome).unwrap();
                     return w;
@@ -316,8 +353,25 @@ impl Watch {
         }
     }
 
-    fn apply(&mut self, change: &Change) {
-        self.model.apply(change);
+    /// Applies a change whole: one cut into several frames once its last,
+    /// the one not marked `more`, has arrived.
+    fn apply(&mut self, change: Change) {
+        let change = match self.part.take() {
+            Some(mut whole) => {
+                assert_eq!(whole.rev, change.rev, "a frame of another change");
+                whole.sets.extend(change.sets);
+                Change {
+                    more: change.more,
+                    ..whole
+                }
+            }
+            None => change,
+        };
+        if change.more {
+            self.part = Some(change);
+            return;
+        }
+        self.model.apply(&change);
         for set in &change.sets {
             if let Set::Thoughts(rows) = set {
                 for t in &rows.put {
@@ -334,7 +388,7 @@ impl Watch {
     fn step(&mut self) -> Option<(CallId, Outcome)> {
         match self.c.recv().unwrap() {
             Frame::Control(Control::Change(change)) => {
-                self.apply(&change);
+                self.apply(change);
                 None
             }
             Frame::Control(Control::Reply(reply)) => Some((reply.id, reply.outcome)),
@@ -540,18 +594,44 @@ impl Agent {
 
     /// A call by name with any arguments.
     pub fn raw(&mut self, name: &str, args: Value) -> Outcome {
-        let id = CallId(self.next);
-        self.next += 1;
-        let name = name.to_owned();
-        self.c
-            .send(&Control::Call(Request { id, name, args }))
-            .unwrap();
-        loop {
-            if let Frame::Control(Control::Reply(reply)) = self.c.recv().unwrap()
-                && reply.id == id
-            {
-                return reply.outcome;
+        raw(&mut self.c, name, args)
+    }
+}
+
+/// A call by name, for names and arguments the typed calls cannot make.
+/// Other frames are dropped meanwhile.
+pub fn raw(c: &mut Client, name: &str, args: Value) -> Outcome {
+    let id = CallId(9000);
+    let name = name.to_owned();
+    c.send(&Control::Call(Request { id, name, args })).unwrap();
+    loop {
+        if let Frame::Control(Control::Reply(reply)) = c.recv().unwrap()
+            && reply.id == id
+        {
+            return reply.outcome;
+        }
+    }
+}
+
+/// `core.status` answers, at the version this build speaks and with no terminal.
+pub fn status(c: &mut Client) {
+    let status = c.call::<call::CoreStatus>(&Empty {}).unwrap().unwrap();
+    assert_eq!(status.v, Versions(VERSION, VERSION));
+    assert_eq!(status.terminals, 0);
+}
+
+/// The core closed this connection.
+pub fn dropped(c: &mut Client) {
+    loop {
+        match c.recv() {
+            Err(e) => {
+                let ended = [ErrorKind::UnexpectedEof, ErrorKind::ConnectionReset];
+                assert!(ended.contains(&e.kind()), "{e}");
+                return;
             }
+            // What was queued before the connection ended may still arrive.
+            Ok(Frame::Data(_) | Frame::Control(Control::Credit(_))) => {}
+            Ok(frame) => panic!("expected the connection to end, got {frame:?}"),
         }
     }
 }

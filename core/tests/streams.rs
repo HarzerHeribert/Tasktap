@@ -2,133 +2,55 @@
 //! protocol through `client.rs`, with `fixture.stream` in place of a terminal.
 
 use std::collections::HashSet;
-use std::io::{ErrorKind, Write};
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::io::Write;
+use std::process::Command;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
-use tasktap_core::client::{self, Client};
+use tasktap_core::client::Client;
 use tasktap_core::stream::{TURN, WINDOW};
 use tasktap_proto::call::{self, Call, Code};
 use tasktap_proto::{
-    CallId, CloseWhy, Control, DeviceId, Empty, FixtureStream, Frame, Hello, MAX_CREDIT,
-    MAX_DATA_FRAME, MAX_STREAMS, Offset, Register, Role, Secret, StreamId, VERSION, Versions,
-    encode_data,
+    CallId, CloseWhy, Control, Empty, FixtureStream, Frame, MAX_CREDIT, MAX_DATA_FRAME,
+    MAX_STREAMS, Offset, StreamId, encode_data,
 };
 
 mod common;
 
-const EXE: &str = env!("CARGO_BIN_EXE_tasktap");
+use common::*;
+
 const MIB: u64 = 1 << 20;
 /// More than any stream sends here: the fixture keeps going until closed.
 const ENDLESS: u64 = 1 << 50;
 
-/// A fresh data folder, removed afterwards.
-struct Folder(PathBuf);
-
-impl Folder {
-    fn new() -> Folder {
-        static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let n = NEXT.fetch_add(1, Ordering::Relaxed);
-        // Short: a socket path has a length limit.
-        let path = std::env::temp_dir().join(format!("ts-{}-{n}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&path);
-        std::fs::create_dir_all(&path).unwrap();
-        Folder(path)
+/// The core's resident size in KiB. Windows has no `ps`: there the size
+/// reads as zero, so the tests still drive the same path and only the
+/// comparison says nothing.
+fn rss(core: &Core) -> u64 {
+    if cfg!(windows) {
+        return 0;
     }
+    let pid = core.pid().to_string();
+    let ps = Command::new("ps")
+        .args(["-o", "rss=", "-p", &pid])
+        .output()
+        .unwrap();
+    String::from_utf8(ps.stdout)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap()
 }
 
-impl Drop for Folder {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
-/// A core this test started; killed if the test ends with it still running.
-struct Core<'a> {
-    child: Child,
-    data: &'a Path,
-    _watchdog: common::Watchdog,
-}
-
-impl<'a> Core<'a> {
-    fn start(data: &'a Folder) -> Core<'a> {
-        Core::idle(data, 600_000)
-    }
-
-    fn idle(data: &'a Folder, ms: u32) -> Core<'a> {
-        let mut serve = client::serve_command(Path::new(EXE), &data.0);
-        serve.args(["--idle-ms", &ms.to_string()]);
-        let child = client::start(serve).unwrap();
-        Core {
-            _watchdog: common::Watchdog::new(&child),
-            child,
-            data: &data.0,
+/// Waits up to `limit` for the core to exit by itself.
+fn exits_within(core: &mut Core, limit: Duration) -> bool {
+    let start = Instant::now();
+    while start.elapsed() < limit {
+        if !core.running() {
+            return true;
         }
+        std::thread::sleep(Duration::from_millis(20));
     }
-
-    fn hello(&self, auth: bool) -> Client {
-        let auth = auth.then(|| tasktap_proto::Auth::Device {
-            device: DeviceId::mint(),
-            key: Secret([1; 32]),
-            register: Some(Register {
-                name: "streams test".into(),
-            }),
-        });
-        let hello = Hello {
-            v: Versions(VERSION, VERSION),
-            role: Role::Cli,
-            client: "streams test".into(),
-            auth,
-            abilities: Vec::new(),
-        };
-        Client::hello(client::connect(self.data).unwrap(), hello)
-            .unwrap()
-            .unwrap()
-    }
-
-    fn device(&self) -> Client {
-        self.hello(true)
-    }
-
-    /// The core's resident size in KiB. Windows has no `ps`: there the
-    /// size reads as zero, so the tests still drive the same path and only
-    /// the comparison says nothing.
-    fn rss(&self) -> u64 {
-        if cfg!(windows) {
-            return 0;
-        }
-        let pid = self.child.id().to_string();
-        let ps = Command::new("ps")
-            .args(["-o", "rss=", "-p", &pid])
-            .output()
-            .unwrap();
-        String::from_utf8(ps.stdout)
-            .unwrap()
-            .trim()
-            .parse()
-            .unwrap()
-    }
-
-    /// Waits up to `limit` for the core to exit by itself.
-    fn exits_within(&mut self, limit: Duration) -> bool {
-        let start = Instant::now();
-        while start.elapsed() < limit {
-            if self.child.try_wait().unwrap().is_some() {
-                return true;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        false
-    }
-}
-
-impl Drop for Core<'_> {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
+    false
 }
 
 fn fixture(credit: u32, send: u64, receive: u64, chunk: u32, marks: &[u64]) -> FixtureStream {
@@ -293,34 +215,9 @@ fn read(c: &mut Client, s: StreamId, n: u64) {
     }
 }
 
-/// The core closed this connection.
-fn dropped(c: &mut Client) {
-    loop {
-        match c.recv() {
-            Err(e) => {
-                assert!(
-                    matches!(
-                        e.kind(),
-                        ErrorKind::UnexpectedEof | ErrorKind::ConnectionReset
-                    ),
-                    "{e}"
-                );
-                return;
-            }
-            // What was queued before the violation may still arrive.
-            Ok(Frame::Data(_) | Frame::Control(Control::Credit(_))) => {}
-            Ok(frame) => panic!("expected the connection to end, got {frame:?}"),
-        }
-    }
-}
-
-fn status(c: &mut Client) {
-    c.call::<call::CoreStatus>(&Empty {}).unwrap().unwrap();
-}
-
 #[test]
 fn bytes_arrive_intact_and_in_order_from_the_core() {
-    let data = Folder::new();
+    let data = Folder::new("ts");
     let core = Core::start(&data);
     let mut c = core.device();
     assert!(c.welcome.calls.iter().any(|n| n == "fixture.stream"));
@@ -338,7 +235,7 @@ fn bytes_arrive_intact_and_in_order_from_the_core() {
 
 #[test]
 fn bytes_arrive_intact_and_in_order_at_the_core() {
-    let data = Folder::new();
+    let data = Folder::new("ts");
     let core = Core::start(&data);
     let mut c = core.device();
     // The core grants `chunk` at a time; it closes with `done` only when
@@ -362,7 +259,7 @@ fn bytes_arrive_intact_and_in_order_at_the_core() {
 
 #[test]
 fn marks_arrive_at_exactly_their_byte_offsets() {
-    let data = Folder::new();
+    let data = Folder::new("ts");
     let core = Core::start(&data);
     let mut c = core.device();
     let marks = [0, 0, 1, 7, 8, 65520, 65521, 65531, 65532, 99_999, 200_000];
@@ -383,7 +280,7 @@ fn marks_arrive_at_exactly_their_byte_offsets() {
 
 #[test]
 fn several_streams_on_one_connection_interleave_without_corruption() {
-    let data = Folder::new();
+    let data = Folder::new("ts");
     let core = Core::start(&data);
     let mut c = core.device();
     // (credit, bytes from the core, bytes to it, chunk)
@@ -422,7 +319,7 @@ fn several_streams_on_one_connection_interleave_without_corruption() {
 
 #[test]
 fn bytes_beyond_a_grant_end_the_connection() {
-    let data = Folder::new();
+    let data = Folder::new("ts");
     let core = Core::start(&data);
     let mut other = core.device();
     let raw = |c: &mut Client, s: StreamId, bytes: &[u8]| {
@@ -464,7 +361,7 @@ fn bytes_beyond_a_grant_end_the_connection() {
 
 #[test]
 fn closing_a_stream_stops_delivery_and_its_id_is_never_reused() {
-    let data = Folder::new();
+    let data = Folder::new("ts");
     let core = Core::start(&data);
     let mut c = core.device();
     let endless = open(
@@ -536,7 +433,7 @@ const RSS_TOLERANCE_KIB: u64 = 8 << 10;
 #[cfg(unix)]
 #[test]
 fn a_stalled_reader_costs_a_fixed_bound_and_holds_up_nobody() {
-    let data = Folder::new();
+    let data = Folder::new("ts");
     let core = Core::start(&data);
     let mut warm = core.device();
     let s = open(
@@ -545,7 +442,7 @@ fn a_stalled_reader_costs_a_fixed_bound_and_holds_up_nobody() {
         true,
     );
     run(&mut warm, &mut [Flow::new(s)]);
-    let before = core.rss();
+    let before = rss(&core);
 
     // 4 connections × 64 streams × 4 MiB: a gibibyte granted, and far more
     // asked for, by clients that never read.
@@ -573,7 +470,7 @@ fn a_stalled_reader_costs_a_fixed_bound_and_holds_up_nobody() {
     run(&mut c, &mut flows);
     flows[0].done(32 * MIB);
 
-    let after = core.rss();
+    let after = rss(&core);
     eprintln!(
         "stalled readers: core resident {before} KiB before, {after} KiB with 1 GiB granted and unread"
     );
@@ -588,10 +485,10 @@ fn a_stalled_reader_costs_a_fixed_bound_and_holds_up_nobody() {
 
 #[test]
 fn a_connection_dropped_mid_stream_is_cleaned_up() {
-    let data = Folder::new();
-    let mut core = Core::idle(&data, 300);
+    let data = Folder::new("ts");
+    let mut core = Core::start_with(&data, &["--idle-ms", "300"]);
     let mut probe = core.device();
-    let before = core.rss();
+    let before = rss(&core);
     for _ in 0..8 {
         let mut c = core.device();
         let streams: Vec<_> = (0..MAX_STREAMS)
@@ -608,19 +505,19 @@ fn a_connection_dropped_mid_stream_is_cleaned_up() {
         drop(c);
     }
     status(&mut probe);
-    let after = core.rss();
+    let after = rss(&core);
     assert!(
         after < before + RSS_TOLERANCE_KIB,
         "{before} KiB grew to {after} KiB"
     );
     // With its streams gone and nobody connected, the core idles out.
     drop(probe);
-    assert!(core.exits_within(Duration::from_secs(10)));
+    assert!(exits_within(&mut core, Duration::from_secs(10)));
 }
 
 #[test]
 fn calls_are_answered_promptly_while_a_stream_is_saturated() {
-    let data = Folder::new();
+    let data = Folder::new("ts");
     let core = Core::start(&data);
     let mut c = core.device();
     let s = open(
@@ -686,7 +583,7 @@ fn socket_holds() -> u64 {
 
 #[test]
 fn fixture_arguments_and_the_stream_bound_are_checked() {
-    let data = Folder::new();
+    let data = Folder::new("ts");
     let core = Core::start(&data);
     let mut c = core.device();
     let code = |c: &mut Client, args: FixtureStream| {
@@ -706,7 +603,7 @@ fn fixture_arguments_and_the_stream_bound_are_checked() {
         code(&mut c, fixture(MAX_CREDIT + 1, 9, 0, 1, &[])),
         Code::Invalid
     );
-    let mut anonymous = core.hello(false);
+    let mut anonymous = core.anonymous();
     assert_eq!(code(&mut anonymous, fixture(0, 1, 0, 1, &[])), Code::Denied);
 
     // MAX_STREAMS open at once; one more and the client is over a bound.
@@ -720,7 +617,7 @@ fn fixture_arguments_and_the_stream_bound_are_checked() {
 
 #[test]
 fn throughput_through_the_fixture() {
-    let data = Folder::new();
+    let data = Folder::new("ts");
     let core = Core::start(&data);
     let mut c = core.device();
     let total = 256 * MIB;

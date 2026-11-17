@@ -256,7 +256,7 @@ fn an_empty_start_has_only_the_scratch_project_and_a_core_id() {
         );
     }
     assert_eq!(tx.live(Collection::Glance).unwrap(), None);
-    let page = tx.history(None, Limit::MAX).unwrap();
+    let page = tx.history(None, None, Limit::MAX, usize::MAX).unwrap();
     assert!(page.thoughts.is_empty() && page.questions.is_empty() && page.results.is_empty());
     assert!(tx.open_questions().unwrap().is_empty());
     assert_eq!(tx.commit().unwrap(), None, "a read takes no revision");
@@ -729,7 +729,11 @@ fn finished_thoughts_beyond_the_bound_leave_as_deletes_and_page_back() {
         t.rev = r2;
         t.live = false;
     });
-    let page = store.begin().unwrap().history(None, Limit::MAX).unwrap();
+    let page = store
+        .begin()
+        .unwrap()
+        .history(None, None, Limit::MAX, usize::MAX)
+        .unwrap();
     assert_eq!(page.thoughts, vec![left.clone()]);
     assert_eq!(page.questions, vec![sent(&q, |q| q.rev = rev(1))]);
     assert_eq!(page.results, vec![sent(&r, |r| r.rev = rev(1))]);
@@ -781,10 +785,14 @@ fn finished_thoughts_beyond_the_bound_leave_as_deletes_and_page_back() {
     evicted.reverse();
     assert_eq!(evicted.len(), 3);
     let tx = store.begin().unwrap();
-    let first = tx.history(None, Limit::new(2).unwrap()).unwrap();
+    let first = tx
+        .history(None, None, Limit::new(2).unwrap(), usize::MAX)
+        .unwrap();
     let ids: Vec<_> = first.thoughts.iter().map(|t| t.id).collect();
     assert_eq!(ids, evicted[..2]);
-    let second = tx.history(Some(ids[1]), Limit::new(2).unwrap()).unwrap();
+    let second = tx
+        .history(Some(ids[1]), None, Limit::new(2).unwrap(), usize::MAX)
+        .unwrap();
     let ids: Vec<_> = second.thoughts.iter().map(|t| t.id).collect();
     assert_eq!(ids, evicted[2..]);
     assert!(second.thoughts.iter().all(|t| !t.live));
@@ -1419,7 +1427,11 @@ fn hot_path_timings() {
     time(&format!("snapshot of {live} live thoughts"), 1000, || {
         std::hint::black_box(store.begin().unwrap().live(Collection::Thoughts)).unwrap();
     });
-    let page = store.begin().unwrap().history(None, Limit::MAX).unwrap();
+    let page = store
+        .begin()
+        .unwrap()
+        .history(None, None, Limit::MAX, usize::MAX)
+        .unwrap();
     let what = format!(
         "history page of {} thoughts, {} questions, {} results",
         page.thoughts.len(),
@@ -1427,6 +1439,12 @@ fn hot_path_timings() {
         page.results.len()
     );
     time(&what, 1000, || {
-        std::hint::black_box(store.begin().unwrap().history(None, Limit::MAX)).unwrap();
+        std::hint::black_box(
+            store
+                .begin()
+                .unwrap()
+                .history(None, None, Limit::MAX, usize::MAX),
+        )
+        .unwrap();
     });
 }

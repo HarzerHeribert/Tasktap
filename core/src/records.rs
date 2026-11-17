@@ -6,6 +6,8 @@
 //! queues it with its reply and marks the connection subscribed in one
 //! step, and every commit is published in the step that made it. A change
 //! is therefore either in the snapshot (at or below R) or sent after it.
+//! The snapshot goes out as the connection drains, and what is queued for
+//! the connection meanwhile waits behind it, in order (`Link::snapshot`).
 
 use crate::calls::Cx;
 use crate::conn::Link;
@@ -26,8 +28,8 @@ pub const CHUNK: usize = 256 << 10;
 /// Room a chunk keeps for its envelope, and each set in it for `{"c":…,"put":[]}`.
 const ENVELOPE: usize = 64;
 const SET: usize = 32;
-/// Most bytes a row written by `put` may take, so that it fits one chunk
-/// and its change fits one frame.
+/// Most bytes a row may take, so that it fits one chunk and its change one
+/// frame. The store refuses a transaction that writes a larger one.
 pub const MAX_ROW: usize = CHUNK - ENVELOPE - SET;
 /// Activity lines a session keeps, and characters of each (design §5).
 const ACTIVITY: usize = 40;
@@ -122,10 +124,6 @@ impl Memory {
 }
 
 impl Core {
-    pub fn glance(&self) -> &Glance {
-        &self.memory.glance
-    }
-
     /// Adds a line to a session's memory-only activity, and sends the
     /// session with it in a change at the next revision. The row keeps the
     /// revision of its last stored write, which is what `rev` names.
@@ -149,6 +147,7 @@ impl Core {
         self.publish(Some(Change {
             rev,
             snap: false,
+            more: false,
             sets,
         }));
         Ok(())
@@ -172,6 +171,7 @@ impl Core {
         self.publish(Some(Change {
             rev,
             snap: false,
+            more: false,
             sets,
         }));
         Ok(())
@@ -206,6 +206,7 @@ pub fn publish(links: &[Rc<Link>], change: Change) {
                 encode(Change {
                     rev,
                     snap: false,
+                    more: false,
                     sets,
                 }),
             )
@@ -265,17 +266,16 @@ pub fn sub(cx: &mut Cx, args: Subscribe) -> Result<Revision, Error> {
     core.memory.overlay(&mut sets);
     cx.link.subs.set(subs);
     if !subs.is_empty() {
-        for change in chunks(rev, true, sets) {
-            cx.link.send(&Control::Change(change));
-        }
+        cx.link.snapshot(chunks(rev, true, sets));
     }
     Ok(Revision { rev })
 }
 
 /// Cuts sets into changes at revision `rev` of at most [`CHUNK`] bytes of
-/// JSON each, in order: each set's rows, then its deletions. A row is never
-/// split; one larger than a chunk goes alone. There is always one change, so
-/// a client sees even an empty snapshot begin.
+/// JSON each, in order: each set's rows, then its deletions, every change
+/// but the last marked `more`. A row is never split; one larger than a
+/// chunk goes alone. There is always one change, so a client sees even an
+/// empty snapshot begin.
 fn chunks(rev: Rev, snap: bool, sets: Vec<Set>) -> Vec<Change> {
     let mut chunk = Chunk {
         rev,
@@ -336,9 +336,17 @@ impl Chunk {
     }
 
     fn cut(&mut self) {
+        if let Some(last) = self.done.last_mut() {
+            last.more = true;
+        }
         let sets = std::mem::take(&mut self.sets);
         let (rev, snap) = (self.rev, self.snap);
-        self.done.push(Change { rev, snap, sets });
+        self.done.push(Change {
+            rev,
+            snap,
+            more: false,
+            sets,
+        });
         self.size = ENVELOPE;
     }
 }
@@ -370,7 +378,6 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
                 rev: Rev::ZERO,
                 tree,
             };
-            fits(&layout)?;
             tx.put_layout(&layout)
         }
         PutTarget::Projects { id, patch } => {
@@ -386,7 +393,6 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
             p.color = color.unwrap_or(p.color);
             p.aliases = aliases.unwrap_or(p.aliases);
             p.isolate = isolate.unwrap_or(p.isolate);
-            fits(&p)?;
             tx.update_project(&p)
         }
         PutTarget::Thoughts { id, patch } => {
@@ -396,7 +402,6 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
             t.text = text.unwrap_or(t.text);
             t.strokes = strokes.unwrap_or(t.strokes);
             t.updated = core.seams.now();
-            fits(&t)?;
             tx.update_thought(&t)
         }
     }
@@ -430,32 +435,13 @@ pub fn delete(cx: &mut Cx, args: Delete) -> Result<Revision, Error> {
 }
 
 /// `history`: finished thoughts that left the live set, newest first, with
-/// their questions and results. The page is cut to the newest thoughts
-/// whose rows fit one chunk, at least one, so the reply stays far below the
-/// frame limit however long the texts are: a short page is not the end,
-/// an empty one is.
+/// their questions and results, in pages whose rows fit one chunk, so a
+/// reply stays far below the frame limit however long the texts are and
+/// however many questions a thought has.
 pub fn history(cx: &mut Cx, args: History) -> Result<HistoryPage, Error> {
     let tx = cx.core.store.begin().map_err(fail)?;
-    let mut page = tx.history(args.before, args.limit).map_err(fail)?;
-    let (mut size, mut keep) = (0, 0);
-    for t in &page.thoughts {
-        let questions = page.questions.iter().filter(|q| q.thought_id == Some(t.id));
-        let results = page.results.iter().filter(|r| r.thought_id == t.id);
-        let len = json_len(t)
-            + questions.map(json_len).sum::<usize>()
-            + results.map(json_len).sum::<usize>();
-        if keep > 0 && size + len > CHUNK {
-            break;
-        }
-        (size, keep) = (size + len, keep + 1);
-    }
-    if keep < page.thoughts.len() {
-        page.thoughts.truncate(keep);
-        let kept = |id: ThoughtId| page.thoughts.iter().any(|t| t.id == id);
-        page.questions.retain(|q| q.thought_id.is_some_and(kept));
-        page.results.retain(|r| kept(r.thought_id));
-    }
-    Ok(page)
+    tx.history(args.before, args.after, args.limit, CHUNK)
+        .map_err(fail)
 }
 
 /// A thought `put` and `delete` may touch: a note. Every other thought
@@ -476,19 +462,11 @@ fn published(core: &mut Core, change: Option<Change>) -> Revision {
     Revision { rev }
 }
 
-fn fits(row: &impl Serialize) -> Result<(), Error> {
-    match json_len(row) {
-        len if len > MAX_ROW => Err(invalid(format!(
-            "the row would take {len} bytes; a row is at most {MAX_ROW}"
-        ))),
-        _ => Ok(()),
-    }
-}
-
 fn fail(e: store::Error) -> Error {
     let code = match e {
         // The row named, or the project a layout belongs to, is not there.
         store::Error::NotFound | store::Error::Reference => Code::Gone,
+        store::Error::TooLarge(_) => Code::Invalid,
         _ => Code::Failed,
     };
     Error::new(code, e.to_string())
@@ -527,6 +505,15 @@ pub fn fixture(cx: &mut Cx, args: tasktap_proto::FixtureRecords) -> Result<Revis
                         None => tx.insert_project(&p),
                     }
                     .map_err(fail)?;
+                }
+            }
+            Set::Questions(rows) => {
+                for q in rows.put {
+                    let key = format!("fixture {}", q.id.uuid());
+                    tx.insert_question(&q, &key).map_err(fail)?;
+                    if let Some(answer) = &q.answer {
+                        tx.insert_answer(q.id, answer).map_err(fail)?;
+                    }
                 }
             }
             Set::Results(rows) => {

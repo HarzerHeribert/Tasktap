@@ -95,6 +95,7 @@ pub fn stored(e: store::Error) -> Error {
     let code = match e {
         store::Error::NotFound | store::Error::Reference => Code::Gone,
         store::Error::Duplicate(_) => Code::Conflict,
+        store::Error::TooLarge(_) => Code::Invalid,
         _ => Code::Failed,
     };
     Error::new(code, e.to_string())

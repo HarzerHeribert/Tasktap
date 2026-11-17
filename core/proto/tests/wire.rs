@@ -135,14 +135,17 @@ fn every_call_round_trips() {
     ] {
         round_trip::<call::Delete>(target, at, seen);
     }
+    let after = Some(question().id.uuid());
     let page = HistoryPage {
         thoughts: vec![thought()],
         questions: vec![question()],
         results: vec![result()],
+        after,
     };
     round_trip::<call::History>(
         History {
             before: Some(id(1)),
+            after,
             limit: Limit::MAX,
         },
         page,

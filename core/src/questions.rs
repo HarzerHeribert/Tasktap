@@ -379,6 +379,7 @@ pub fn start(core: &mut Core) -> crate::store::Result<()> {
         &Change {
             rev,
             snap: true,
+            more: false,
             sets,
         },
     );

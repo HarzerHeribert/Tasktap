@@ -39,6 +39,7 @@ pub use codec::*;
 pub use frame::*;
 pub use ids::*;
 pub use records::*;
+pub use uuid::Uuid;
 
 /// The protocol version this crate speaks.
 pub const VERSION: u32 = 1;

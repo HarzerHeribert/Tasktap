@@ -544,6 +544,7 @@ fn reading_an_ended_thought_clears_done_and_lets_it_leave_for_history() {
     assert!(s.w.model.results.is_empty());
     let page = s.w.ok::<call::History>(&History {
         before: None,
+        after: None,
         limit: Limit::MAX,
     });
     let left: Vec<_> = page.thoughts.iter().map(|h| (h.id, h.read)).collect();

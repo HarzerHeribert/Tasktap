@@ -8,6 +8,8 @@ The root crate (`tasktap-core`) has the store so far: `src/store.rs` keeps every
 
 It also builds the binary `tasktap`, whose role so far is the service: `tasktap serve --data <folder>`. One core serves a folder, held by the lock `core.lock`; a client that finds none starts it and waits for its `ready` line (`src/client.rs`). It listens on `core.sock` (a named pipe on Windows) for peers of the same user only, answers `hello` (`src/handshake.rs`), authorizes every call in one place and runs it from one table (`src/calls.rs`), bounds each connection (`src/conn.rs`), and exits a minute after the last client left, or when asked with `core.retire`. Platform code lives in `src/sys.rs` alone. `tests/service.rs` starts the real binary and proves each promise; the binary's test hooks (`--idle-ms`, `--fixture-token`) exist only with the `fixtures` feature, which only the tests turn on.
 
+Records (`src/records.rs`) are how every client sees state. `sub` names whole collections and gets a snapshot at revision R, in chunks of at most 256 KiB, then every committed change after R that touches them, fanned out on the write path in commit order (`Core::publish`). `put` and `delete` write the plain data: preferences, layouts, a project's editable fields, a note's text and strokes. `history` pages back the thoughts that left the live set. `glance` lives in memory, takes its revisions from the same counter and starts over at every run (`Core::set_glance`). `tests/records.rs` proves it; rows only the state machine writes come from the test-only call `fixture.records`.
+
 Prove it from this folder:
 
     cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test --workspace

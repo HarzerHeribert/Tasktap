@@ -106,6 +106,8 @@ pub fn stored(e: store::Error) -> Error {
 pub struct Seams {
     /// One one-shot timer per held thought; nothing else is ever armed here.
     timers: HashMap<ThoughtId, Timer>,
+    /// The core is shutting down: no hold is armed or ends any more.
+    closing: bool,
     /// Set by `fixture.clock`: the time stands still until it is called again.
     #[cfg(feature = "fixtures")]
     clock: Option<Time>,
@@ -586,9 +588,12 @@ fn notify(core: &mut Core, question: QuestionId) {
 }
 
 /// Arms the hold timer of a thought, replacing any it had. A hold that has
-/// already ended ends now.
+/// already ended ends now. Not while the core shuts down (`close`).
 fn arm(core: &mut Core, thought: ThoughtId, until: Time) {
     cancel(core, thought);
+    if core.seams.closing {
+        return;
+    }
     let now = core.seams.now();
     if until <= now {
         return fire(core, thought, until);
@@ -618,6 +623,9 @@ fn cancel(core: &mut Core, thought: ThoughtId) {
 
 fn fire(core: &mut Core, thought: ThoughtId, until: Time) {
     core.seams.timers.remove(&thought);
+    if core.seams.closing {
+        return;
+    }
     // The last hold may have kept the core alive.
     core.events.notify_one();
     // The timer counts on a steady clock; when the wall clock lags it, the rest is slept.
@@ -626,6 +634,18 @@ fn fire(core: &mut Core, thought: ThoughtId, until: Time) {
     }
     let attempt = state::fresh(core.seams.now()).unwrap_or_else(|e| stop(e));
     report(core, Event::HoldEnded { thought, attempt }, |_| Ok(()));
+}
+
+/// The core is shutting down: every hold timer ends without firing, and
+/// none is armed again, so a held thought stays routed with no timer, as a
+/// restart leaves it (design §3), and nothing launches while the core goes.
+pub fn close(core: &mut Core) {
+    core.seams.closing = true;
+    for (_, timer) in core.seams.timers.drain() {
+        if let Some(task) = timer.task {
+            task.abort();
+        }
+    }
 }
 
 /// `fixture.script`: selects the fixture router, and the fixture launcher

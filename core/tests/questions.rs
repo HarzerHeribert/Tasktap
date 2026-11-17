@@ -233,6 +233,51 @@ fn a_hold_that_ends_with_nobody_connected_lets_the_core_go() {
 }
 
 #[test]
+fn a_hold_that_ends_while_the_core_shuts_down_starts_nothing() {
+    let mut s = Scene::wall("qshut");
+    set_hold(&mut s, 1);
+    // A terminal that ignores hang-up keeps the core shutting down until
+    // its kill, 2 s later: past the end of the hold.
+    let argv = [
+        EXE,
+        "fixture-terminal",
+        "ignore-hup",
+        "print 1",
+        "sleep 30000",
+    ];
+    let start = tasktap_proto::StartTerminal {
+        project: None,
+        argv: argv.map(String::from).to_vec(),
+        title: None,
+    };
+    let mut screen = Screen::start(&s.core, tasktap_proto::TerminalId::mint(), Some(start));
+    screen.until(&tasktap_core::fixture_line(0));
+    let t = s.capture("fix the build");
+    let held = Instant::now();
+    assert_eq!(s.w.model.status(t), Status::Routed);
+    let Scene { core, data, w, .. } = s;
+    drop((w, screen));
+    core.stop();
+    // Windows ends the terminal when it closes its console, so there the
+    // core may be gone before the hold would have ended.
+    if cfg!(unix) {
+        assert!(
+            held.elapsed() >= Duration::from_secs(1),
+            "the hold ended while the core shut down: {:?}",
+            held.elapsed()
+        );
+    }
+    // Nothing launched: the thought waits for the person, as after a restart.
+    let s = Scene::on(Core::start(&data.0), data);
+    let th = s.w.model.thought(t);
+    assert_eq!(
+        (th.status, th.session_id, th.hold_until),
+        (Status::Routed, None, None)
+    );
+    assert!(s.w.model.sessions.is_empty(), "no session started");
+}
+
+#[test]
 fn an_ambiguous_route_asks_and_an_unknown_one_keeps_an_idea() {
     let mut s = Scene::new("qr");
     let site = s.project("site");

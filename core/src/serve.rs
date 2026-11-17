@@ -213,7 +213,9 @@ async fn serve(opts: Options) -> io::Result<()> {
             },
         }
     }
-    // Terminals end first, so their clients see them end.
+    // Nothing launches from here on: the holds end unfired, as a restart
+    // would end them. Then the terminals end, so their clients see them end.
+    crate::effects::close(&mut core.borrow_mut());
     crate::terminal::shutdown(&core).await;
     // What is queued, such as the reply to `core.retire`, gets one write.
     for link in &core.borrow().links {

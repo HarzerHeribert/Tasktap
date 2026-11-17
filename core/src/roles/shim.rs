@@ -478,7 +478,10 @@ fn end(hold: &Arc<Hold>, agent: u32) {
     {
         let _ = hold;
         let pid = agent.to_string();
-        let kill = Command::new("taskkill")
+        // By its path: the shell's PATH need not name the system's folder.
+        let root = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+        let taskkill = Path::new(&root).join(r"System32\taskkill.exe");
+        let kill = Command::new(taskkill)
             .args(["/PID", &pid, "/T", "/F"])
             .output();
         drop(kill);

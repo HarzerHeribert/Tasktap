@@ -9,15 +9,12 @@ Tasktap owns the working surface: project navigation, terminal tabs, nested resi
 - Stop session is a separate, confirmed action. A stopped session is never silently restarted. Supported agent resume uses a fresh, explicitly requested resume ticket.
 - A machine reboot ends processes. A service restart restores terminal metadata as not running; it does not rerun commands. Provider conversation resume remains distinct from process restoration.
 - Scrollback is bounded to 2 MiB per process in service memory and 10,000 lines in the renderer. It is not an unlimited archive. When the idle service exits after all sessions and clients have closed, terminal scrollback is released. Agent reports and capture history remain in Tasktap's existing store.
-- New installations default to the embedded Tasktap host. Existing saved terminal preferences remain respected. Previously external sessions stay in their original hosts.
 
 ## Choosing and opening workspaces
 
 A project folder and an open workspace are separate. **+** beside Workspaces opens an existing folder, creates a new one, or restores a closed workspace. The sidebar lists only workspaces you open, in opening order. Discovering a folder or a running session does not open it. On first migration, existing layouts with surfaces remain open; old empty layouts remain in the chooser. Closing a workspace confirms the number of running or opening sessions, stops all its Tasktap terminals (including background sessions), and saves its layout. The workspace stays visible until the terminal service confirms that its processes have ended. The service blocks late launches into a closed workspace until it is explicitly reopened. Reopening restores the layout and history; it never reruns a command automatically.
 
 **Preferences → Workspaces → Default workspace folder** chooses where new folders are created. The initial default is `~/projects`, but it is not required or created at startup. Immediate child directories appear in the folder chooser. **Open folder…** also accepts a selected folder elsewhere. Changing the default preserves previously known workspaces and their locations. Missing folders remain identifiable and unavailable until the same location returns or the user chooses its current location. Choosing or creating a fresh workspace opens its first terminal; restoring a saved layout does not add another terminal.
-
-External-session discovery is off by default. **Preferences → Workspaces → Find sessions in other apps**, also available in Other apps, explicitly enables reading supported apps’ local session metadata for the configured project folders. With discovery off, Tasktap reads its own managed-session records; it does not poll cmux or Claude, scan Claude transcript directories, read Codex databases, or recover provider transcripts. Previously saved external sessions remain accessible. With provider scanning disabled, managed Claude follow-up readiness waits for Tasktap’s own question or result event rather than reading Claude transcripts; direct terminal interaction remains available. macOS may separately restrict protected app data, including access by commands launched inside a terminal. Built-in workspaces do not require broad access to other apps’ data.
 
 ## Workspace interaction
 
@@ -38,8 +35,6 @@ The project surface fills the native window with thin project and tab bars. Pane
 Switching tabs, moving previews and navigating away preserve live view instances. A flat view layer keeps iframe documents mounted while a recursive split tree supplies geometry. Legacy two-pane layouts migrate in place. Closing a view explicitly disposes it; reopening the same session focuses an existing view rather than spawning another process.
 
 Each pending launch has a closable tab and belongs to its requesting surface. Backgrounding it before the launch finishes keeps the panel closed and the session visible in the sidebar. Stopping a pending launch cancels its session ID before the process can start. A workspace close also fences its folder against late launches. Responses arriving out of order do not change that ownership or steal focus. Input received during initial terminal replay is bounded and delivered in order to the exact session after replay completes. Terminal fitting measures the unpadded inner content box, keeping PTY rows and columns inside visible bounds across font, padding and split changes.
-
-Sessions discovered in external apps live in the searchable Other apps picker, with their original host shown. Open focuses an addressable session in its host. If the host cannot focus it directly, Details exposes the available explicit actions; Tasktap does not silently reattach, resume, or migrate it. Historical external conversations never become embedded surface rows.
 
 Each pane’s Follow up action targets its own agent conversation. Ordinary shells do not masquerade as agent conversations. Capture and follow-up review continue to use the existing routing, model policy, and delivery contracts. Codex queue delivery remains supported; agents without a dependable inbox retain the explicit copy/paste handoff. Terminal text and OSC titles are never interpreted as instructions, notification requests, or proof of completion.
 
@@ -89,19 +84,19 @@ Session details show public activity, bounded timestamped events, and answers by
 
 Claude uses invocation-only `--settings`; Pi uses `-e`; OpenCode 1.x uses an invocation environment config adding a local plugin. Codex discovers its exact injected hook hashes and trusts those definitions through invocation-only overrides. Other hook trust is preserved. Versioned helper bundles include and hash the observer plugins so app updates do not break running agents. Automatic modes are Codex `--approve-for-me`, Claude `--permission-mode auto`, Cursor `--auto-review`, OpenCode `--auto`, Pi's built-in execution with invocation project trust, and Antigravity `--mode auto`.
 
-Verification: `verify-session-observer.py` covers state transitions, exact copying, no model feedback, concurrent callbacks, stale/subagent isolation, scoped Codex trust, Cursor payloads, real PTY event publication, and discovery. `verify-session-attention.cjs` covers rings, per-pane reads, pending prompts, sidebar/notch, duplicate recovery, safe Markdown, stable terminal views, reduced motion and narrow layouts. Native `--verify-workspace` additionally exercises bundled helpers, the real observer → PTY → WebKit path, permission cues and exact saved-answer retrieval. `observer-poc` remains a disposable developer harness; its `--scenario tools --follow-up ...` exercises a tool call and a second turn without installing hooks globally. Live Codex, Claude Code, Pi and OpenCode have passed tool/consecutive-turn tests; Cursor requires sign-in and Antigravity hook injection remains unverified.
+Verification: `verify-session-observer.py` covers state transitions, exact copying, no model feedback, concurrent callbacks, stale/subagent isolation, scoped Codex trust, Cursor payloads, and real PTY event publication. `verify-session-attention.cjs` covers rings, per-pane reads, pending prompts, sidebar/notch, duplicate recovery, safe Markdown, stable terminal views, reduced motion and narrow layouts. Native `--verify-workspace` additionally exercises bundled helpers, the real observer → PTY → WebKit path, permission cues and exact saved-answer retrieval.  Live Codex, Claude Code, Pi and OpenCode have passed tool/consecutive-turn tests; Cursor requires sign-in and Antigravity hook injection remains unverified.
 
 ## Implementation boundaries
 
 - `scripts/workspace_terminal.py`: private Unix-domain socket, PTYs, launch idempotence, bounded replay, resize/input/stop, reconnecting stdio bridge.
 - `native/WorkspaceFolders.swift`: persisted default folder, explicit folder approvals, missing-folder metadata, and shared native launch validation.
-- `prototype/workspace-settings.js`: folder selection, creation, and optional external discovery preferences.
+- `prototype/workspace-settings.js`: folder selection and creation.
 - `native/WorkspaceTerminals.swift`: native validation and bounded asynchronous delivery to WebKit. Terminal parsing completion applies backpressure.
 - `native/WorkspaceMedia.swift`: explicit file registry, isolated local resources, text loading, PDFKit rendering.
 - `prototype/workspace-deck.js` and `.css`: persistent views, tabs/splits, focus, contextual follow-ups, media, Activity.
 - `prototype/workspace-layout.js`: recursive pane geometry, stable group identities, legacy migration, and branch collapse.
 - `prototype/workspace-documents.js` and `.css`: themed Markdown with bundled Marked parsing and DOMPurify sanitization; validated links and local-only image loading.
-- `prototype/workspace-navigation.js` and `.css`: compact workspace sidebar, attention markers, and explicit external-host focus.
+- `prototype/workspace-navigation.js` and `.css`: compact workspace sidebar, and attention markers.
 - `prototype/handoff-review.js` and `.css`: Task/Destination/Context review, focused edits, pending-mutation guard, persistent failure feedback and redacted diagnostics.
 - `prototype/result-presentation.js` and `.css`: labeled report excerpts and exact-receipt reading/copy/narration/summary export.
 - `prototype/appearance.js` and `.css`: persisted app palette, system appearance updates, semantic color tokens, and Appearance controls.
@@ -123,7 +118,7 @@ These checks exercise different boundaries. Passing a browser or native fixture 
 | Terminal final-row and right-edge geometry | `verify-terminal-viewport.cjs` |
 | Typing, VoiceOver, IME and bounded resize work | `verify-terminal-input.cjs`, `verify-terminal-input.swift`, `verify-terminal-resize.cjs`, `verify-terminal-diagnostics.swift` |
 | Preview rendering and isolation | `verify-workspace-documents.cjs`, native `--verify-workspace` |
-| Sidebar and external-host actions | `verify-workspace-navigation.cjs` |
+| Sidebar | `verify-workspace-navigation.cjs` |
 | Themes, contrast and settings | `verify-appearance.cjs`, `verify-settings-layout.cjs` |
 | Task review and exact report identity | `verify-review.cjs`, `verify-result-presentation.cjs`, `verify-session-detail.cjs` |
 | Shared Mac window and notch behavior | native `--verify-interface` |

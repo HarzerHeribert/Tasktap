@@ -248,7 +248,7 @@ def native_event(agent, payload):
 
 def prepare(job, folder, resume=None):
     """Return process-only arguments/env, leaving all user/project configuration intact."""
-    if job.get('host') != 'tasktap' or job.get('observer') is not True:
+    if job.get('observer') is not True:
         raise ValueError('Observers are limited to Tasktap multiplexer launches.')
     folder = Path(folder).resolve()
     agent = job['agent']

@@ -43,13 +43,10 @@ jobs:
           git diff --check HEAD^ HEAD
       - name: Session, routing and model regressions
         run: |
-          python3 scripts/verify-session-hosts.py
-          python3 scripts/verify-session-history.py
-          python3 scripts/verify-session-names.py
           python3 scripts/verify-agent-models.py
           python3 scripts/verify-router-providers.py
           python3 scripts/verify-project-sessions.py
-          python3 scripts/verify-session-discovery.py
+          python3 scripts/verify-session-rows.py
           python3 scripts/verify-visible-session.py
           python3 scripts/verify-workspace-terminals.py
           python3 scripts/verify-session-observer.py
@@ -109,9 +106,9 @@ jobs:
           "$RUNNER_TEMP/context-test"
           swiftc -parse-as-library native/SpeechPreferences.swift native/CloudSpeech.swift native/SpeechService.swift native/Dictation.swift scripts/verify-speech.swift -o "$RUNNER_TEMP/speech-test"
           "$RUNNER_TEMP/speech-test"
-          swiftc native/WorkspaceFolders.swift native/LiveWorkspace.swift native/WorkspaceTerminals.swift native/TerminalCatalog.swift scripts/verify-workspace-folders.swift -o "$RUNNER_TEMP/folders-test"
+          swiftc native/WorkspaceFolders.swift native/LiveWorkspace.swift native/WorkspaceTerminals.swift scripts/verify-workspace-folders.swift -o "$RUNNER_TEMP/folders-test"
           "$RUNNER_TEMP/folders-test"
-          swiftc native/WorkspaceTerminals.swift native/LiveWorkspace.swift native/WorkspaceFolders.swift native/TerminalCatalog.swift scripts/verify-terminal-prerequisites.swift -o "$RUNNER_TEMP/terminal-prerequisites"
+          swiftc native/WorkspaceTerminals.swift native/LiveWorkspace.swift native/WorkspaceFolders.swift scripts/verify-terminal-prerequisites.swift -o "$RUNNER_TEMP/terminal-prerequisites"
           "$RUNNER_TEMP/terminal-prerequisites"
   deploy:
     name: Publish GitHub Pages

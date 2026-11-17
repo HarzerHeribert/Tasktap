@@ -13,68 +13,34 @@ function projectsDiscovered(rows){
   for(const p of state.projects){if(!rows.some(r=>r.folder===p.folder))p.available=false}
   persist();render();
 }
-function externalSessions(rows){
+function sessionRows(rows){
   const previousNames=state.sessions.filter(s=>s.sessionName);
-  firstRun.liveSessions=new Set(rows.filter(r=>r.owned==='yes'?r.available==='yes':r.source==='desktop' || r.surface).map(r=>r.id));
-  const seen=new Set();
+  firstRun.liveSessions=new Set(rows.filter(r=>r.available==='yes').map(r=>r.id));
   const pendingTurns=new Set(state.captures.filter(c=>['Queued','Opening','Running'].includes(c.receipt)).map(c=>c.session));
-  const managed=new Set(state.sessions.filter(s=>s.managed).map(s=>s.id));
-  // The CLI can register a thread one scan before we identify the owning terminal.
-  const adopted=new Set(rows.filter(r=>r.owned==='yes' && r.conversation).map(r=>r.conversation));
-  const hosted=new Set(rows.filter(r=>r.surface && r.conversation).map(r=>r.conversation));
-  const history=new Set([...state.captures,...state.decisions].map(record=>record.session));
-  state.sessions=state.sessions.filter(s=>!s.external || !(adopted.has(s.id) || s.source==='terminal' && hosted.has(s.conversation)) || history.has(s.id));
   for(const row of rows){
-    if(row.owned==='yes'){
-      let s=sess(row.id);
-      if(!s){s={id:row.id,log:[],managed:true};state.sessions.unshift(s)}
-      inheritSessionNames(s,row,previousNames);
-      Object.assign(s,{interactive:row.host!=='claude-desktop',host:row.host,agent:row.agent,task:row.task,project:row.folder,available:row.available==='yes',inbox:row.inbox,conversation:row.conversation,waitingFor:row.waitingFor||''});
-      s.resumable=row.resumable==='yes';
-      if(row.updatedAt)s.updatedAt=Number(row.updatedAt);
-      if(row.agent==='claude')s.startup=s.result?'confirmed':row.startup || 'pending';
-      if(row.scratch==='yes')s.project='@scratch';
-      const handoffPending=row.state==='Connected' && pendingTurns.has(s.id) && ['Queued','Opening','Running'].includes(s.state);
-      const failedLaunch=row.state==='Closed' && state.captures.some(c=>c.session===s.id && c.kind==='Agent question' && c.receipt==='Failed');
-      if(state.decisions.some(q=>q.session===s.id))s.state='Needs input';
-      else if(failedLaunch)s.state='Failed';
-      else if(!handoffPending)s.state=row.state;
-      if(row.observation)sessionObservation.receive(s.id,row.observation,{restored:!s.observation});
-      sessionObservation.apply(s);
-      seen.add(s.id);continue;
-    }
-    if(managed.has(row.conversation) || managed.has(row.id) || adopted.has(row.id))continue;
-    const project=state.projects.find(p=>p.folder===row.folder);
-    if(!project)continue;
     let s=sess(row.id);
-    if(!s){s={id:row.id,external:true,log:[]};state.sessions.push(s)}
+    if(!s){s={id:row.id,log:[],managed:true};state.sessions.unshift(s)}
     inheritSessionNames(s,row,previousNames);
-    Object.assign(s,{agent:row.agent,task:row.task,project:project.id,available:true,host:row.host || (row.surface?'cmux':undefined),source:row.source||'cmux',
-      inbox:row.inbox || (row.source==='desktop'?'codex':row.surface?'cmux':''),conversation:row.conversation,waitingFor:row.waitingFor||''});
+    Object.assign(s,{interactive:true,host:'tasktap',agent:row.agent,task:row.task,project:row.folder,available:row.available==='yes',inbox:row.inbox,conversation:row.conversation});
+    s.resumable=row.resumable==='yes';
+    if(row.updatedAt)s.updatedAt=Number(row.updatedAt);
+    if(row.agent==='claude')s.startup=s.result?'confirmed':row.startup || 'pending';
+    if(row.scratch==='yes')s.project='@scratch';
+    const handoffPending=row.state==='Connected' && pendingTurns.has(s.id) && ['Queued','Opening','Running'].includes(s.state);
+    const failedLaunch=row.state==='Closed' && state.captures.some(c=>c.session===s.id && c.kind==='Agent question' && c.receipt==='Failed');
     if(state.decisions.some(q=>q.session===s.id))s.state='Needs input';
-    else if(row.state==='Needs input' || !pendingTurns.has(s.id))s.state=row.state||'Connected';
-    seen.add(s.id);
-  }
-  for(const s of state.sessions){
-    if(!s.external || seen.has(s.id))continue;
-    s.available=false;s.waitingFor='';
-    if(!pendingTurns.has(s.id))s.state='Unavailable';
+    else if(failedLaunch)s.state='Failed';
+    else if(!handoffPending)s.state=row.state;
+    if(row.observation)sessionObservation.receive(s.id,row.observation,{restored:!s.observation});
+    sessionObservation.apply(s);
   }
   persist();render();
   const active=sess(openedSession);
   if(active && $('#modal[open] #dialog-heading')?.textContent===sessionDisplayName(active))showSession(active.id);
 }
-const canNudge=s=>s && s.host!=='claude-desktop' && (s.interactive && s.available!==false && (s.agent!=='claude' || s.startup==='confirmed') && !['Closed','Failed','Opening','Queued'].includes(s.state) || s.external && s.available && s.inbox!=='manual' && ['cmux','desktop'].includes(s.source));
-function sessionHost(d){
-  if(d.mode==='nudge'){const s=sess(d.session);return s?.host || (s?.source==='desktop'?'desktop':'cmux')}
-  if(d.host==='claude-desktop' && d.agent!=='claude')return 'terminal';
-  if(terminalHosts.valid(d.host))return d.host;
-  if(state.sessionHost==='claude-desktop' && d.agent!=='claude')return 'terminal';
-  return terminalHosts.valid(state.sessionHost)?state.sessionHost:'tasktap';
-}
-function sessionHostLabel(d){return terminalHosts.label(sessionHost(d))}
+const canNudge=s=>s && s.interactive && s.available!==false && (s.agent!=='claude' || s.startup==='confirmed') && !['Closed','Failed','Opening','Queued'].includes(s.state);
 function failedStart(s){
-  if(!live || !s?.managed || !s.interactive || s.external || s.result || s.available===true || !['Failed','Closed'].includes(s.state))return;
+  if(!live || !s?.managed || !s.interactive || s.result || s.available===true || !['Failed','Closed'].includes(s.state))return;
   if(s.agent==='codex' && s.conversation || s.agent==='claude' && s.startup==='confirmed')return;
   const turns=state.captures.filter(c=>c.session===s.id);
   const entry=turns[0];
@@ -88,22 +54,20 @@ function reviewFailedHandoff(job){
   const reference=job.reference?.value?job.reference:null;
   const suffix=reference?captureContext.brief({brief:'',reference}):'';
   const brief=job.brief ?? c.brief;
-  Object.assign(draft,{retryOf:s.id,retryCapture:c.id,agent:job.agent,host:job.host,agentChoice:'manual',
+  Object.assign(draft,{retryOf:s.id,retryCapture:c.id,agent:job.agent,agentChoice:'manual',
     modelOverride:{agent:job.agent,value:job.model||'',reviewed:true},brief:suffix && brief.endsWith(suffix)?brief.slice(0,-suffix.length):brief,
     reference,strokes:job.strokes || [],viewer:s.viewer||'',hasVoice:c.duration==='Voice'});
   if(firstMode() && firstRun.visible && state.firstRun?.session===s.id)draft.guide='start';
   review();
 }
 function sessionActivityLine(s,line){
-  // Installed versions stored the subprocess exception (including its AppleScript) in history.
-  if(line.startsWith('Failed. Command ') && line.includes('/usr/bin/osascript') && line.includes('timed out'))
-    return 'Failed. '+sessionLocation(s)+' took too long to confirm the new window.';
+  // Earlier versions stored a failed launch's subprocess exception, including its script, in history.
+  if(line.startsWith('Failed. Command ') && line.includes('/usr/bin/osascript'))return 'Failed. Tasktap could not open the session.';
   if(/^Failed\. The interactive CLI exited with status -?\d+\.$/.test(line))
-    return 'Failed. The agent exited before reporting a result. Check the error in '+sessionLocation(s)+'.';
+    return 'Failed. The agent exited before reporting a result. Check the error in Tasktap.';
   return s.result && line==='Complete. '+s.result?'Complete':line;
 }
 function manualNudge(d){const s=sess(d.session);return live && d.mode==='nudge' && (s?.nudgeFailed || s?.interactive && (!s.inbox || s.inbox==='manual' || d.manualNudge))}
-function sessionLocation(s){return s?.host?terminalHosts.label(s.host):s?.source==='cmux'?'cmux':s?.source==='desktop'?'ChatGPT':s?.source==='terminal'?'External terminal':s?.source==='claude'?'External session':''}
 const checkpointGuidance='Complete the authorized scope, run relevant checks, and leave no silent loose ends. In a Git project, follow the user’s and repository’s workflow; default to the current checkout and branch. For implementation work, make focused commits of only your own completed changes, preserving other people’s edits and staged changes. Respect review-only, planning-only and no-commit requests. In your existing final answer, report what changed, checks run, any actual commit IDs, blockers and remaining work. Do not claim implementation or commits based only on forwarding, a final response or a successful process exit.';
 const forwardingGuidance='When forwarding work to another session, verify its identity and current status using available session information or tools. If neither is available, state that the target status is unverified. Report its actual title or original request, exact session ID, and observed status. Never invent a session name or describe an interrupted, unloaded, or merely connected conversation as actively working. A send acknowledgement confirms delivery only; report implementation as pending until the receiving session reports its outcome.';
 const hasSessionTools=d=>['claude','codex'].includes(d.agent)&&!d.monitoring&&!sessionObservation.uses(d);
@@ -131,7 +95,7 @@ function deliveryInstructions(d){
   return 'For current Tasktap sessions in this checkout, you can call list_project_sessions. Use the workspace_assistant ask_user tool when a decision is needed. Interpret freeform replies by their intent; ask again if unclear. When the task is complete, report the outcome and changed files with report_result for Tasktap receipt '+d.captureId+'.';
 }
 function deliveryAudit(d) {
-  return {mode:d.mode,host:d.mode==='note'?'':sessionHostLabel(d),manual:d.mode!=='note'&&!!manualNudge(d),
+  return {mode:d.mode,manual:d.mode!=='note'&&!!manualNudge(d),
     outgoing:d.mode==='note'?captureContext.brief(d):deliveryText(d),instructions:deliveryInstructions(d)};
 }
 function reviewReceipt(d,phase,label){
@@ -155,9 +119,9 @@ function submitLive(d){
   if(!folder){toast('Choose a workspace first.');return}
   d.captureId??=uid();d.runId??=d.mode==='nudge' && prior?prior.id:d.mode==='ask' && d.retryOf?d.retryCapture:uid();
   d.accountReceipt=aiConnections.record(d);
-  const job={delivery:'interactive',host:sessionHost(d),manual:!!manualNudge(d),outgoing:deliveryText(d),instructions:deliveryInstructions(d),
+  const job={delivery:'interactive',manual:!!manualNudge(d),outgoing:deliveryText(d),instructions:deliveryInstructions(d),
     routingEvidence:routingEvidence(d).join('\n'),routingPayload:tasktapRoutingPayload(d),transcript:d.text,accounts:d.accountReceipt,session:d.runId,capture:d.captureId,task:(d.mode==='nudge' && prior?.task)||d.brief.slice(0,78)||'Review sketch',agent:(d.mode==='nudge' && prior?.agent)||d.agent,folder,
-    external:d.mode==='nudge' && !!prior?.external,brief:captureContext.brief(d),reference:d.reference,strokes:d.strokes,note:d.mode==='note'?captureContext.brief(d):d.note||d.brief,mode:d.mode,keep:d.keep,create};
+    brief:captureContext.brief(d),reference:d.reference,strokes:d.strokes,note:d.mode==='note'?captureContext.brief(d):d.note||d.brief,mode:d.mode,keep:d.keep,create};
   if(d.mode==='ask')job.model=modelPlanFor(d).model;
   const trust=$('#modal[open] #folder-trust:checked');
   if(d.mode==='ask' && d.agent==='codex' && trust)job.reviewedFolder=trust.dataset.folder;
@@ -166,7 +130,7 @@ function submitLive(d){
   delete d.handoffError;$('#handoff-error')?.remove();
   reviewReceipt(d,'submitting','Submitting handoff');
   try{
-    const reopening=d.mode==='ask'&&job.host==='tasktap'&&p?workspaceDeck.prepareLaunch(p.id):null;
+    const reopening=d.mode==='ask'&&p?workspaceDeck.prepareLaunch(p.id):null;
     if(reopening)reopening.then(()=>postLive('enqueue',{job})).catch(error=>acceptLive({capture:d.captureId,error:error.message}));
     else postLive('enqueue',{job});
   }catch(error){acceptLive({capture:d.captureId,error:error.message})}
@@ -177,18 +141,16 @@ function acceptLive(data){
   d.submitting=false;
   if(data.error){d.handoffError=data.error;reviewReceipt(d,'failed','Handoff failed');let error=$('#handoff-error');if(!error){error=document.createElement('p');error.id='handoff-error';error.setAttribute('role','alert');$('#modal .form-actions').prepend(error)}error.textContent=data.error+' Your request is preserved. Choose Change destination to change the terminal or agent, then try again.';return}
   const existing=byId(state.captures,d.captureId);
-  const jobHost=sessionHost(d);
   const receiptState=existing?.receipt || (d.mode==='note'?'Saved':'Queued');
   if(d.mode!=='note')handoffRelay.event(d.captureId,receiptState.toLowerCase());
   let p=state.projects.find(p=>p.folder===data.folder);
   if(!p && d.project!=='@scratch'){p={id:data.folder,name:data.name,folder:data.folder,aliases:[],color:'#a8c3ae'};state.projects.push(p)}
   const c={id:d.captureId,routingEvidence:routingEvidence(d).join('\n'),routingPayload:tasktapRoutingPayload(d),outgoing:deliveryText(d),instructions:deliveryInstructions(d),accounts:d.accountReceipt || aiConnections.record(d),time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}),text:d.text,brief:captureContext.brief(d),reference:d.reference,strokes:d.strokes,project:d.project==='@scratch'?'@scratch':p?.id||'',duration:d.hasVoice?'Voice':'Text',
     quiet:!!d.guide && !d.hasVoice,receipt:receiptState,kind:{ask:'Agent question',nudge:'Session nudge',note:'Note'}[d.mode]};
-  if(d.mode==='nudge' && sess(d.runId)?.external)c.external=true;
   if(d.mode!=='note'){
     c.session=d.runId;
     let s=sess(d.runId);
-    if(!s){s={id:d.runId,interactive:true,host:jobHost,managed:true,model:modelPlanFor(d).model,task:data.task,project:c.project,agent:d.agent,viewer:d.viewer,capture:c.id,log:[],producerKey:JSON.stringify([d.agent,data.folder,d.runId])};state.sessions.unshift(s)}
+    if(!s){s={id:d.runId,interactive:true,host:'tasktap',managed:true,model:modelPlanFor(d).model,task:data.task,project:c.project,agent:d.agent,viewer:d.viewer,capture:c.id,log:[],producerKey:JSON.stringify([d.agent,data.folder,d.runId])};state.sessions.unshift(s)}
     if(!existing){s.state='Queued';s.log.push('Queued. '+d.brief)}
   }
   if(d.mode==='note'||d.keep){const text=d.mode==='note'?captureContext.brief(d):d.note||d.brief;state.notes.unshift({id:uid(),project:c.project==='@scratch'?'':c.project,text,title:text.slice(0,64)||'Sketch',capture:c.id})}
@@ -204,26 +166,23 @@ function agentReceipt(e){
   if(!s && e.folder){
     const p=e.scratch==='true'?scratchProject:state.projects.find(p=>p.folder===e.folder)||{id:e.folder,folder:e.folder,name:e.folder.split('/').pop(),aliases:[]};
     if(!proj(p.id))state.projects.push(p);
-    s={id:e.session,host:e.host,interactive:e.delivery==='interactive' && e.external!=='true',planAccount:e.planAccount,managed:e.external!=='true',model:e.model||'',external:e.external==='true',project:p.id,agent:e.agent,task:e.task,log:[],producerKey:JSON.stringify([e.agent,e.folder,e.session])};state.sessions.unshift(s);
+    s={id:e.session,host:'tasktap',interactive:e.delivery==='interactive',planAccount:e.planAccount,managed:true,model:e.model||'',project:p.id,agent:e.agent,task:e.task,log:[],producerKey:JSON.stringify([e.agent,e.folder,e.session])};state.sessions.unshift(s);
   }
   if(!c && s){c={id:e.capture,accounts:e.accounts,session:s.id,project:s.project,brief:e.brief,text:e.transcript || e.brief,routingEvidence:e.routingEvidence,routingPayload:e.routingPayload,outgoing:e.outgoing,instructions:e.instructions,receipt:'Queued',kind:e.mode==='nudge'?'Session nudge':'Agent question',time:'',strokes:[]};state.captures.unshift(c)}
-  if(s && e.delivery==='interactive' && e.external!=='true'){s.interactive=true;s.host=e.host}
+  if(s && e.delivery==='interactive'){s.interactive=true;s.host='tasktap'}
   if(s && e.planAccount)s.planAccount=e.planAccount;
-  if(c && e.external==='true')c.external=true;
   if(s && e.model)s.model=e.model;
   if(!c||!s||c.receipt===e.state)return;
   handoffRelay.event(e.capture,e.state.toLowerCase(),{restored:!!e.recovered});
   c.receipt=e.state;s.log.push(e.state+(e.message?'. '+e.message:''));
   if(e.state==='Complete'){c.result=e.message;s.result=e.message;if(s.interactive && s.agent==='claude')s.startup='confirmed'}
   if(e.state==='Opened' && !e.recovered){s.available=true;s.inbox??='manual';if(s.agent==='claude')s.startup??='pending';firstRun.liveSessions.add(s.id)}
-  if(e.state==='Prepared'){s.interactive=false;s.available=true;s.state='Ready to send';firstRun.liveSessions.add(s.id)}
   if(e.state==='Closed'){s.available=false;firstRun.liveSessions.delete(s.id)}
-  if(e.state==='Failed' && e.mode==='nudge' && (s.interactive || s.external)){s.inbox='manual';s.nudgeFailed=true}
+  if(e.state==='Failed' && e.mode==='nudge' && s.interactive){s.inbox='manual';s.nudgeFailed=true}
   const outstanding=state.captures.filter(c=>c.session===s.id && ['Queued','Opening','Running'].includes(c.receipt));
   const activeState=['Running','Opening','Queued'].find(status=>outstanding.some(c=>c.receipt===status));
   s.state=state.decisions.some(q=>q.session===s.id)?'Needs input':activeState || (s.interactive && e.mode==='nudge' && ['Failed','Copied','Delivered'].includes(e.state)?(s.available===false?'Closed':'Connected'):e.state);
   sessionObservation.apply(s);
-  if(s.state==='Prepared')s.state='Ready to send';
   if(s.state==='Opened' && s.agent==='claude' && s.startup!=='confirmed')s.state='Awaiting agent';
   if(typeof workspaceDeck!=='undefined')workspaceDeck.outcome(e);
   if(e.state==='Complete' && state.speak && !c.quiet && !e.recovered)readAloud(e.message);

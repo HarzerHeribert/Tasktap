@@ -58,17 +58,6 @@
 .workspace-picker-row strong,.workspace-picker-row small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .workspace-picker-row strong{font-size:var(--t-label);font-weight:500;color:var(--deck-fg)}
 .workspace-picker-row small,.workspace-picker-row>.icon{color:var(--deck-muted);font-size:var(--t-small)}
-.nav-external-picker{display:grid;gap:var(--s-row)}
-.nav-external-picker>.hint{margin:0}
-.nav-external-optin{display:grid;gap:var(--s-icon);justify-items:start;padding:var(--s-row);border:1px solid var(--deck-edge);border-radius:var(--r-control);background:var(--deck-hover)}
-#workspace-external-results{max-height:52dvh;overflow:auto;min-width:0}
-.nav-external-row{display:flex;align-items:center;gap:var(--s-row);padding:var(--s-row) 0;border-top:1px solid var(--deck-edge);min-width:0}
-.nav-external-icon{flex:none;color:var(--deck-muted);display:flex}
-.nav-external-copy{display:grid;gap:var(--s-tight);min-width:0;flex:1}
-.nav-external-copy>strong{font-size:var(--t-label);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--deck-fg)}
-.nav-external-copy>span{font-size:var(--t-small);color:var(--deck-muted);overflow-wrap:anywhere}
-.nav-external-actions{display:flex;gap:var(--s-icon);align-items:center;flex:none}
-.nav-external-actions>.btn{font-size:var(--t-small)}
 .nav-external-empty{padding:var(--s-block) 0;color:var(--deck-muted);font-size:var(--t-small)}
 .workspace-navigation.deck-focus .shell,.workspace-navigation.deck-sidebar-hidden .shell{grid-template-columns:minmax(0,1fr)}
 .workspace-navigation.deck-focus #sidebar,.workspace-navigation.deck-sidebar-hidden #sidebar{display:none}
@@ -77,9 +66,6 @@
  .workspace-navigation .shell{grid-template-columns:minmax(0,1fr);position:relative}
  .workspace-navigation #sidebar{display:none}
  .workspace-navigation.nav-open #sidebar{display:flex;position:absolute;left:0;top:0;bottom:0;width:216px;max-width:85vw;z-index:15;background:var(--deck-popup);border-radius:0;box-shadow:8px 0 24px color-mix(in srgb,var(--deck-bg) 35%,transparent)}
- .nav-external-row{flex-wrap:wrap;gap:var(--s-icon)}
- .nav-external-copy{flex-basis:calc(100% - 32px)}
- .nav-external-actions{padding-left:var(--s-section);flex-wrap:wrap}
 }
 
 /* A quiet update reminder stays with Preferences, outside workspace content. */

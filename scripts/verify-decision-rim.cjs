@@ -18,7 +18,7 @@ const { chromium } = require('playwright');
       animation:getComputedStyle(document.querySelector('#islandToggle'),'::after').animationName,
       count:window.events.filter(m=>m.type==='status').at(-1)?.count}));
     assert.equal((await signal()).on,false);
-    await page.evaluate(()=>{projectsDiscovered([{folder:'/test/projects/example',name:'Example'}]);externalSessions([{id:'external',agent:'claude',source:'claude',folder:'/test/projects/example',task:'External terminal',state:'Needs input'}])});
+    await page.evaluate(()=>{projectsDiscovered([{folder:'/test/projects/example',name:'Example'}]);});
     assert.equal((await signal()).count,0);
     const first=await page.evaluate(event=>receiveAgentQuestion(event,{id:'restored-first',status:'pending',discussion:['Earlier clarification']}),event);
     assert.equal(first.id,'restored-first');assert.deepEqual(first.discussion,['Earlier clarification']);
@@ -38,6 +38,6 @@ const { chromium } = require('playwright');
     assert.ok(!await page.locator('#notch').isVisible());
     assert.deepEqual(await signal(),{on:false,caption:'All clear',animation:'none',count:0});
     assert.ok(await page.evaluate(id=>events.some(e=>e.type==='clear'&&e.id===id),first.id));
-    console.log('Actionable inbox edge, external waiting, retries, multiple decisions, deferral, relaunch, withdrawal and Reduce Motion verified.');
+    console.log('Actionable inbox edge, retries, multiple decisions, deferral, relaunch, withdrawal and Reduce Motion verified.');
   }finally{await browser.close()}
 })().catch(error=>{console.error(error);process.exitCode=1});

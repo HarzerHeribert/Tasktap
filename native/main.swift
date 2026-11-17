@@ -680,8 +680,8 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 sessionNames.changed = { [weak self] id, name, fingerprint in
                     self?.js("sessionNameChanged(id,name,fingerprint)",["id":id,"name":name,"fingerprint":fingerprint])
                 }
-                runtime.externalChanged={ [weak self] rows in
-                    self?.js("externalSessions(rows)",["rows":rows.map { $0.filter { $0.key != "activity" } }])
+                runtime.sessionsChanged={ [weak self] rows in
+                    self?.js("sessionRows(rows)",["rows":rows.map { $0.filter { $0.key != "activity" } }])
                     if self?.liveTest == false { self?.sessionNames.receive(rows) }
                 }
                 do {try runtime.start();if !liveTest {runtime.watchSessions()}} catch {deliver("live-error",error.localizedDescription,reveal:false)}
@@ -709,10 +709,6 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
             do {let folder=try runtime.folders.create(name:name);runtime.refresh()
                 js("workspaceSettings.opened(row)",["row":["folder":folder.path,"name":folder.lastPathComponent,"checkout":folder.resolvingSymlinksInPath().path,"available":"true"]])
             } catch {js("workspaceSettings.failed(message)",["message":error.localizedDescription])}
-        case "workspace-discovery":
-            guard !verifying,!liveTest,let enabled=data["enabled"] as? Bool else{return}
-            do {try runtime.folders.setExternalDiscovery(enabled);publishWorkspaceConfiguration();runtime.refreshExternal()}
-            catch {publishWorkspaceConfiguration();deliver("live-error",error.localizedDescription,reveal:false)}
         case "workspace-appearance":refreshTerminalAppearance()
         case "terminal-input-trace":
             if !verifying,!liveTest,message.webView === web,let events=data["events"] as? [[String:Any]] {inputDiagnostics.receive(events)}
@@ -783,8 +779,6 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         case "workspace-open-url":
             guard let value=data["url"] as? String,let url=URL(string:value),["http","https"].contains(url.scheme?.lowercased() ?? "") else {return}
             NSWorkspace.shared.open(url)
-        case "terminal-catalog":
-            js("terminalHosts.receive(found)",["found":TerminalCatalog.installed()])
         case "ai-refresh":
             refreshWorkers()
         case "worker-usage":
@@ -950,7 +944,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         case "speech-remove-model":if !dictation.isActive {speech.removeWhisper()} else {speech.reportError("Finish dictation before removing its model.")}
         case "speech-microphone-settings":
             if let url=URL(string:"x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {NSWorkspace.shared.open(url)}
-        case "refresh":if !verifying {runtime.refresh();if !liveTest {runtime.refreshExternal()}}
+        case "refresh":if !verifying {runtime.refresh();if !liveTest {runtime.refreshSessions()}}
         case "route":
             guard let id=data["id"] as? String,let input=data["input"] as? [String:Any] else {return}
             routeTask?.cancel()
@@ -996,13 +990,9 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 result["capture"]=capture;result["task"]=job["task"] as? String
                 js("acceptLive(data)",["data":result])
             } catch {js("acceptLive(data)",["data":["capture":capture,"error":error.localizedDescription]])}
-        case "open-desktop-chat":
-            guard let id=data["id"] as? String, UUID(uuidString:id) != nil, let url=URL(string:"codex://threads/"+id) else{return}
-            if NSWorkspace.shared.open(url){deliver("session-focused",id,reveal:false)}
-            else {deliver("live-error","Install the ChatGPT desktop app to open this chat.",reveal:false)}
-        case "focus-session","reopen-session":
+        case "reopen-session":
             guard let id=data["id"] as? String else {return}
-            runtime.focusSession(id,reopen:type=="reopen-session"){[weak self] error in
+            runtime.reopenSession(id){[weak self] error in
                 if let error {self?.deliver("live-error",error,reveal:false)}
                 else {self?.deliver("session-focused",id,reveal:false)}
             }
@@ -1249,11 +1239,10 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
     }
     @MainActor private func verifySessionObservation(folder:URL) async throws {
         let fm=FileManager.default,id=UUID().uuidString.lowercased(),capture=UUID().uuidString.lowercased()
-        guard ["claude","codex","pi","opencode"].allSatisfy({LiveWorkspace.observes(agent:$0,host:"tasktap")}),
-              !LiveWorkspace.observes(agent:"claude",host:"terminal"),!LiveWorkspace.observes(agent:"agy",host:"tasktap") else {throw Check.failed(#line)}
+        guard ["claude","codex","pi","opencode"].allSatisfy({LiveWorkspace.observes(agent:$0)}),!LiveWorkspace.observes(agent:"agy") else {throw Check.failed(#line)}
         let run=runtime.data.appendingPathComponent(id)
         try fm.createDirectory(at:run,withIntermediateDirectories:true)
-        let job:[String:Any]=["agent":"claude","host":"tasktap","observer":true,"session":id,"capture":capture,
+        let job:[String:Any]=["agent":"claude","observer":true,"session":id,"capture":capture,
             "mode":"ask","delivery":"interactive","folder":folder.path,"outgoing":"Native observer fixture","instructions":"","task":"Observed fixture"]
         let file=run.appendingPathComponent("1-\(capture).job")
         try JSONSerialization.data(withJSONObject:job).write(to:file)

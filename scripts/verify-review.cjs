@@ -13,10 +13,10 @@ const shots=process.env.TASKTAP_SCREENSHOTS||'/tmp';fs.mkdirSync(shots,{recursiv
   await page.goto(pathToFileURL(path.resolve('prototype/index.html')).href+'#workspace');
   await page.evaluate(()=>{
    state.firstRun={done:true};state.projects=[{id:'cuegrid',name:'Cuegrid',folder:'/tmp/cuegrid',aliases:[]},{id:'lightbox',name:'Lightbox',folder:'/tmp/lightbox',aliases:[]}];state.captures=[];state.decisions=[];
-   state.sessions=[{id:'peer',project:'cuegrid',agent:'claude',host:'tasktap',task:'Improve keyboard navigation',state:'Running',available:true,interactive:true,managed:true,log:[]},{id:'external',project:'cuegrid',agent:'codex',host:'iterm2',task:'Review the export pipeline',state:'Connected',available:true,interactive:true,external:true,inbox:'manual',log:[]}];
+   state.sessions=[{id:'peer',project:'cuegrid',agent:'claude',host:'tasktap',task:'Improve keyboard navigation',state:'Running',available:true,interactive:true,managed:true,log:[]},{id:'manual',project:'cuegrid',agent:'codex',host:'tasktap',task:'Review the export pipeline',state:'Connected',available:true,interactive:true,inbox:'manual',log:[]}];
    aiConnections.receive({choice:'local',workerHealth:{codex:'signedIn',claude:'signedIn'},accounts:[],workers:{},models:{},keys:{}});state.workerRouting={automatic:false};
    captureDraft('','cuegrid','Improve the Cuegrid timeline. Preserve keyboard shortcuts and make the active clip clear.');
-   Object.assign(draft,{brief:draft.text,agent:'codex',agentChoice:'manual',host:'tasktap',modelOverride:{agent:'codex',value:'review-model'},captureId:'review-capture',reference:{kind:'file',value:'/tmp/cuegrid/Timeline.swift',app:'Finder'},strokes:[[[1,2],[3,4]]],keep:true,note:'Timeline review',routingSource:'apple'});review();appAppearance.setTheme('dark');
+   Object.assign(draft,{brief:draft.text,agent:'codex',agentChoice:'manual',modelOverride:{agent:'codex',value:'review-model'},captureId:'review-capture',reference:{kind:'file',value:'/tmp/cuegrid/Timeline.swift',app:'Finder'},strokes:[[[1,2],[3,4]]],keep:true,note:'Timeline review',routingSource:'apple'});review();appAppearance.setTheme('dark');
   });
   const click=name=>page.getByRole('button',{name,exact:true}).click();
   let text=await page.locator('#handoff-review').innerText();
@@ -27,11 +27,11 @@ const shots=process.env.TASKTAP_SCREENSHOTS||'/tmp';fs.mkdirSync(shots,{recursiv
   assert.equal(await page.getByRole('button',{name:'Change reference',exact:true}).count(),0,'context has one focused edit action');
   assert.ok(await page.locator('#review-brief').evaluate(el=>parseFloat(getComputedStyle(el).fontSize)>=16));
   await page.screenshot({path:path.join(shots,'tasktap-review-summary.png')});
-  const preserved=await page.evaluate(()=>({project:draft.project,agent:draft.agent,host:draft.host,capture:draft.captureId,reference:draft.reference,model:draft.modelOverride,strokes:draft.strokes}));
+  const preserved=await page.evaluate(()=>({project:draft.project,agent:draft.agent,capture:draft.captureId,reference:draft.reference,model:draft.modelOverride,strokes:draft.strokes}));
   await click('Edit task');await page.getByLabel('Task',{exact:true}).fill('Refine the timeline controls and preserve every keyboard shortcut.');await click('Save task');
-  assert.deepEqual(await page.evaluate(()=>({project:draft.project,agent:draft.agent,host:draft.host,capture:draft.captureId,reference:draft.reference,model:draft.modelOverride,strokes:draft.strokes})),preserved);
+  assert.deepEqual(await page.evaluate(()=>({project:draft.project,agent:draft.agent,capture:draft.captureId,reference:draft.reference,model:draft.modelOverride,strokes:draft.strokes})),preserved);
   assert.match(await page.evaluate(()=>draft.text),/^Improve the Cuegrid timeline/,'original capture remains in audit');
-  await click('Change destination');await page.getByLabel('Workspace',{exact:true}).selectOption('@new');await page.getByLabel('New project name').fill('..');await click('Review changes');assert.equal(await page.locator('#dialog-heading').innerText(),'Change destination');assert.equal(await page.getByLabel('New project name').evaluate(el=>el.validity.valid),false);await page.getByLabel('Workspace',{exact:true}).selectOption('lightbox');await page.getByLabel('Open this session in').selectOption('terminal');await click('Review changes');
+  await click('Change destination');await page.getByLabel('Workspace',{exact:true}).selectOption('@new');await page.getByLabel('New project name').fill('..');await click('Review changes');assert.equal(await page.locator('#dialog-heading').innerText(),'Change destination');assert.equal(await page.getByLabel('New project name').evaluate(el=>el.validity.valid),false);await page.getByLabel('Workspace',{exact:true}).selectOption('lightbox');await click('Review changes');
   assert.equal(await page.evaluate(()=>draft.project),'lightbox');assert.equal(await page.evaluate(()=>draft.keep),true);assert.equal(await page.evaluate(()=>draft.note),'Timeline review');assert.equal(await page.evaluate(()=>draft.reference.value),'/tmp/cuegrid/Timeline.swift');
   assert.match(await page.locator('#review-brief').innerText(),/^Refine the timeline/);
   await click('Edit context');await page.getByLabel('URL or file path').fill('/tmp/cuegrid/Timeline-v2.swift');await click('Save context');
@@ -46,7 +46,7 @@ const shots=process.env.TASKTAP_SCREENSHOTS||'/tmp';fs.mkdirSync(shots,{recursiv
   assert.ok(await page.getByRole('button',{name:'Remove reference',exact:true}).isDisabled());
   assert.ok(await page.getByRole('button',{name:'Start session',exact:true}).isDisabled(),'pending handoff cannot be submitted twice');
   let job=await page.evaluate(()=>sent.findLast(m=>m.type==='enqueue').job);
-  assert.match(job.instructions,/report_result.*review-capture/);assert.match(job.outgoing,/current checkout and branch/);assert.match(job.outgoing,/review-only, planning-only and no-commit/);assert.equal(job.outgoing.match(/Complete the authorized scope/g).length,1,'the shared completion contract is sent once');assert.doesNotMatch(job.instructions,/Complete the authorized scope/);assert.match(job.outgoing,/Other sessions in this checkout/);assert.equal(job.reviewedFolder,undefined);
+  assert.match(job.outgoing,/current checkout and branch/);assert.match(job.outgoing,/review-only, planning-only and no-commit/);assert.equal(job.outgoing.match(/Complete the authorized scope/g).length,1,'the shared completion contract is sent once');assert.doesNotMatch(job.instructions,/Complete the authorized scope/);assert.match(job.outgoing,/Other sessions in this checkout/);assert.equal(job.reviewedFolder,undefined);
   await page.evaluate(()=>acceptLive({capture:draft.captureId,error:'Fixture: terminal could not open.'}));
   assert.ok(await page.getByRole('button',{name:'Edit task',exact:true}).isEnabled(),'failed handoff restores editing');
   assert.match(await page.locator('#handoff-error').innerText(),/request is preserved.*Change destination/);assert.equal(await page.evaluate(()=>draft.brief),'Refine the timeline controls and preserve every keyboard shortcut.');
@@ -59,7 +59,7 @@ const shots=process.env.TASKTAP_SCREENSHOTS||'/tmp';fs.mkdirSync(shots,{recursiv
   await page.evaluate(()=>{draft.remoteAttempts=[{label:'Remote preparation',account:'Configured account',payload:'{"api_key":"fixture-api-secret","safe":"keep-this","token":"fixture-token-secret"}\nAuthorization: Bearer fixture-bearer-secret\nhttps://name:fixture-url-secret@example.com/path?access_token=fixture-query-secret\nsk-fixtureCredential123456789\nCookie: session=fixture-cookie-secret; refresh=fixture-refresh-secret\nghp_fixtureGithubCredential123456'}];review()});
   assert.match(await page.locator('#handoff-review').innerText(),/Preparation was requested from Remote preparation/);
   await click('Diagnostics');const diagnostic=await page.locator('#review-diagnostics').innerText(),data=JSON.parse(diagnostic);
-  assert.match(data.delivery.instructions,/report_result.*review-capture/);assert.match(diagnostic,/keep-this/);assert.match(diagnostic,/\[redacted\]/);
+  assert.match(diagnostic,/keep-this/);assert.match(diagnostic,/\[redacted\]/);
   for(const secret of ['fixture-api-secret','fixture-token-secret','fixture-bearer-secret','fixture-url-secret','fixture-query-secret','sk-fixtureCredential123456789','fixture-cookie-secret','fixture-refresh-secret','ghp_fixtureGithubCredential123456'])assert.ok(!diagnostic.includes(secret),secret+' is redacted');
   await click('Copy diagnostics');await click('Export diagnostics');
   const copies=await page.evaluate(()=>sent.filter(m=>['copy-diagnostics','export-diagnostics'].includes(m.type)));
@@ -67,10 +67,10 @@ const shots=process.env.TASKTAP_SCREENSHOTS||'/tmp';fs.mkdirSync(shots,{recursiv
   assert.match(await page.evaluate(()=>draft.remoteAttempts[0].payload),/fixture-api-secret/,'redaction never mutates actual delivery');
   await click('Back to review');
   // Existing manual sessions retain exact identity and disclose paste immediately beside confirmation.
-  await click('Change destination');await page.getByLabel('Action',{exact:true}).selectOption('nudge');await page.getByLabel('Existing session',{exact:true}).selectOption('external');await click('Review changes');
-  assert.match(await page.locator('.review-footer .review-manual').innerText(),/paste.*iTerm2.*press Return/);
+  await click('Change destination');await page.getByLabel('Action',{exact:true}).selectOption('nudge');await page.getByLabel('Existing session',{exact:true}).selectOption('manual');await click('Review changes');
+  assert.match(await page.locator('.review-footer .review-manual').innerText(),/paste.*Tasktap.*press Return/);
   assert.match(await page.locator('[aria-label="Destination"]').innerText(),/Existing conversation.*Review the export pipeline/s);
-  await click('Copy nudge & open session');job=await page.evaluate(()=>sent.findLast(m=>m.type==='enqueue').job);assert.equal(job.session,'external');assert.equal(job.mode,'nudge');assert.equal(job.manual,true);
+  await click('Copy nudge & open session');job=await page.evaluate(()=>sent.findLast(m=>m.type==='enqueue').job);assert.equal(job.session,'manual');assert.equal(job.mode,'nudge');assert.equal(job.manual,true);
   await page.evaluate(()=>{draft.submitting=false;draft.brief=Array(8).fill('Refine the Cuegrid timeline, preserve keyboard shortcuts, and make every control easy to understand.').join(' ');review()});
   for(const variant of [{width:1280,zoom:'',compact:false,name:'desktop'},{width:560,zoom:'',compact:true,name:'notch'},{width:390,zoom:'',compact:false,name:'narrow'},{width:640,height:450,zoom:'',compact:false,name:'zoom'}]){
    await page.setViewportSize({width:variant.width,height:variant.height||900});await page.evaluate(v=>{document.documentElement.style.zoom=v.zoom;document.body.classList.toggle('notch-first',v.compact);review()},variant);
@@ -98,7 +98,7 @@ const shots=process.env.TASKTAP_SCREENSHOTS||'/tmp';fs.mkdirSync(shots,{recursiv
   await page.evaluate(()=>{
    state.workerRouting={automatic:false};state.sessions=[];showHome(true);
    captureDraft('','cuegrid','Make the rehearsal timer easier to read on mobile. Keep the keyboard shortcuts.');
-   Object.assign(draft,{brief:draft.text,agent:'codex',agentChoice:'manual',host:'tasktap',reference:{kind:'website',value:'http://localhost:3000/rehearsal',app:'Safari'}});
+   Object.assign(draft,{brief:draft.text,agent:'codex',agentChoice:'manual',reference:{kind:'website',value:'http://localhost:3000/rehearsal',app:'Safari'}});
    document.body.style.setProperty('--native-surface-width','560px');review();
   });
   for(const width of [592,390,320]){

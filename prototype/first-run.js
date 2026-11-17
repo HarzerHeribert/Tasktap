@@ -99,12 +99,10 @@ const firstRun = {
       return '';
     }
     const copied=nudge?.receipt==='Copied', delivered=nudge?.receipt==='Delivered';
-    const agent=providers[s?.agent] || 'Agent', terminal=s && sessionLocation(s);
-    let title='Opening '+(terminal || 'your session'), hint='';
+    const agent=providers[s?.agent] || 'Agent', terminal='Tasktap';
+    let title='Opening Tasktap', hint='';
     if (failed) {
       title=nudge?'Follow-up failed':'Session failed to start';
-    } else if (s?.host==='claude-desktop' && receipt?.receipt==='Prepared') {
-      title='Brief ready in Claude Desktop';hint='Confirm the project folder and send in Claude. Activity and replies stay there.';
     } else if (copied) {
       title='Nudge copied';hint='Paste at the agent prompt and press Return.';
     } else if (delivered) {
@@ -113,7 +111,7 @@ const firstRun = {
       title='Sending your nudge';hint='Waiting for a delivery receipt.';
     } else if (available && s.state==='Needs input') {
       title=agent+' needs input';
-      hint=s.waitingFor || (question?'':'Check the prompt in '+terminal+'.');
+      hint=question?'':'Check the prompt in '+terminal+'.';
     } else if (available && s.agent==='claude' && !canNudge(s)) {
       title='Opening Claude Code';
       hint='If Claude asks whether you trust this folder, answer in '+terminal+'.';
@@ -122,8 +120,7 @@ const firstRun = {
     }
     let actions='';
     if (available) {
-      const label=s.source==='desktop'?'Open in ChatGPT':s.host==='warp'?'Reattach in Warp':'Open in '+terminal;
-      actions+=button(label,s.source==='desktop'?'openchat':'focus-session',s.id,'voice-trigger','out');
+      actions+=button('Open in '+terminal,'focus-session',s.id,'voice-trigger','out');
       if ((!nudge || failed) && canNudge(s)) actions+=surfaceButton('Nudge session','guide-type','pen','surface-button');
     }
     if (!nudge && failedStart(s)) actions+=button('Review & retry','review-retry',s.id,'voice-trigger');

@@ -16,7 +16,7 @@ const setupWizard = (() => {
     if(document.querySelector('dialog[open]') && !from){toast('Finish or close the open panel to run setup.');return}
     showWorkspace();
     draft={origin,from,step:0,context:state.useScreenContext!==false,agent:sessionModelPolicy().defaultAgent,
-      host:terminalHosts.valid(state.sessionHost)?state.sessionHost:'tasktap',art:TasktapArt.current(),summaryVoice:null,prep:setupPreparation.create()};
+      art:TasktapArt.current(),summaryVoice:null,prep:setupPreparation.create()};
     dialog('Set up Tasktap','','<div id="setup-wizard" class="settings-form"><section id="setup-page" class="settings-section"></section>'+
       '<footer class="setup-actions"><button type="button" id="setup-back" class="btn"></button>'+
       '<button type="button" id="setup-next" class="primary"></button></footer></div>');
@@ -89,15 +89,14 @@ const setupWizard = (() => {
       const agents=Object.entries(providers).map(([id,label])=>option(id,label,agent)).join('');
       page.innerHTML='<p class="hint">After you review the brief, this agent opens in your project to do the work.</p>'+settingsField('setup-agent','Project agent','<select id="setup-agent">'+agents+'</select>')+
         (live?'<div id="setup-health">'+aiConnections.setupField(agent)+'</div>':'')+
-        '<p class="hint" id="setup-worker-account"></p>'+settingsField('setup-host','Open sessions in','<select id="setup-host">'+terminalHosts.options(host)+'</select>')+
+        '<p class="hint" id="setup-worker-account"></p>'+
         '<p class="hint">'+(state.workerRouting?.automatic?'Your agent ranking takes priority for new sessions. ':'')+'Follow-ups stay in their original session.</p><details class="route-evidence"><summary>Request preparation</summary><p id="setup-route-summary"></p></details>';
       $('#setup-agent').onchange=e=>{
         draft.agent=e.target.value;setupPreparation.refresh(draft.prep);
         if(live){$('#setup-health').innerHTML=aiConnections.setupField(draft.agent);aiConnections.updateSetup()}
       };
-      $('#setup-host').onchange=e=>{draft.host=e.target.value};
       setupPreparation.refresh(draft.prep);
-      if(live){aiConnections.refresh();postLive('terminal-catalog')}
+      if(live)aiConnections.refresh();
     }else{
       page.innerHTML='<fieldset class="setup-art"><legend>Notch artwork</legend><div class="setup-studies">'+TasktapArt.catalog.map(s=>
         '<label><input type="radio" name="setup-art" value="'+s.id+'" '+(s.id===art?'checked':'')+'><img src="'+attr(s.poster)+'" alt=""><span>'+esc(s.name)+'</span></label>').join('')+'</div></fieldset>'+
@@ -137,7 +136,6 @@ const setupWizard = (() => {
     const commit=()=>{
       state.useScreenContext=settings.context;
       state.sessionModels={...state.sessionModels,defaultAgent:settings.agent};
-      state.sessionHost=settings.host;
       if(settings.summaryVoice!==null){
         state.speak=!!settings.summaryVoice;
         if(state.speak)state.voiceEngine=settings.summaryVoice;

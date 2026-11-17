@@ -103,7 +103,6 @@ function updateSignal(){
   else if(simVoice!==null){mode='listening';label='Listening to sample'}
   else if(spoken){mode='speaking';label='Reading aloud'}
   else if(draft?.routing){mode='working';label='Preparing handoff'}
-  else if(state.captures.some(c=>c.external && c.receipt==='Running')){mode='sending';label='Sending nudge'}
   else if(state.captures.some(c=>c.receipt==='Queued')){mode='sending';label='Handoff queued'}
   else if(pending()){mode='waiting';label=state.decisions.length===1?'Waiting for your answer':state.decisions.length+' decisions pending'}
   else if(sessionObservation.attention().length){const s=sessionObservation.attention()[0],cue=sessionObservation.cue(s.id);mode=cue.kind==='complete'?'ready':'waiting';label=cue.label+' · '+sessionDisplayName(s)}
@@ -129,7 +128,7 @@ function drawHome(){
   const session=s || (receipt && sess(receipt.session));
   const title=q?.q || (receipt && ({
     Started:'Session started',Queued:'Handoff queued',Opening:'Opening session',Opened:'Session opened',
-    Running:receipt.external?'Sending nudge':'Agent working',Copied:'Nudge copied',Delivered:'Nudge delivered',
+    Running:'Agent working',Copied:'Nudge copied',Delivered:'Nudge delivered',
     Failed:'Handoff failed',Complete:'Report received',Closed:'Session closed'
   }[receipt.receipt] || receipt.receipt)) || (observed.length?sessionObservation.cue(observed[0].id).label:working.length?'Working now':'Ready to capture');
   const destination=session?[proj(session.project)?.name || 'Scratch',providers[session.agent]].filter(Boolean).map(esc).join(' <span aria-hidden="true">/</span> '):'';

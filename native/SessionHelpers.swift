@@ -7,7 +7,7 @@ enum SessionHelpers {
         let fm = FileManager.default
         guard let resources = Bundle.main.resourceURL else { throw CocoaError(.fileNoSuchFile) }
         var files = try fm.contentsOfDirectory(at: resources, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "py" || ["run-agent", "agent-tools", "ask-user", "cmux-sessions", "router-provider", "kokoro-voice"].contains($0.lastPathComponent) }
+            .filter { $0.pathExtension == "py" || ["run-agent", "agent-tools", "ask-user", "router-provider", "kokoro-voice"].contains($0.lastPathComponent) }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
         let observers=resources.appendingPathComponent("observers",isDirectory:true)
         if let entries=fm.enumerator(at:observers,includingPropertiesForKeys:[.isRegularFileKey]) {

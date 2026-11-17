@@ -26,22 +26,6 @@ const path = require('node:path');
     await page.getByRole('button',{name:'Session models',exact:true}).click();
     assert.equal(await page.locator('.settings-header-art video').getAttribute('data-study'),'phase');
     assert.ok(!await page.getByLabel('Choose models by task difficulty').isChecked());
-    const hosts=process.env.TASKTAP_TERMINAL_ICONS?JSON.parse(require('node:fs').readFileSync(process.env.TASKTAP_TERMINAL_ICONS)):{terminal:'',cmux:'',ghostty:'',iterm2:'',warp:''};
-    await page.evaluate(hosts=>terminalHosts.receive(hosts),hosts);
-    const terminal=page.getByRole('combobox',{name:'Open new sessions in',exact:true});
-    await terminal.click();
-    const hostMenu=page.getByRole('listbox',{name:'Open new sessions in',exact:true});
-    assert.equal(await hostMenu.getByRole('option').count(),9);
-    if (!Object.hasOwn(hosts,'claude-desktop'))assert.equal(await hostMenu.getByRole('option',{name:/Claude Desktop/}).getAttribute('aria-disabled'),'true');
-    if (process.env.TASKTAP_SCREENSHOTS) {
-      const sheet=await page.locator('#modal').boundingBox(), menu=await hostMenu.boundingBox();
-      await page.screenshot({path:path.join(process.env.TASKTAP_SCREENSHOTS,'terminal-picker.png'),animations:'disabled',clip:{
-        x:sheet.x,y:Math.min(sheet.y,menu.y),width:sheet.width,height:Math.max(sheet.y+sheet.height,menu.y+menu.height)-Math.min(sheet.y,menu.y)
-      }});
-    }
-    if (!Object.hasOwn(hosts,'kitty'))assert.equal(await hostMenu.getByRole('option',{name:/kitty/}).getAttribute('aria-disabled'),'true');
-    await hostMenu.getByRole('option',{name:/Ghostty/}).click();
-    assert.equal(await terminal.inputValue(),'ghostty');
     const defaultAgent=page.getByRole('combobox',{name:'Default agent',exact:true});
     await defaultAgent.click();
     const agentMenu=page.getByRole('listbox',{name:'Default agent',exact:true});
@@ -82,13 +66,11 @@ const path = require('node:path');
     assert.deepEqual(await page.evaluate(()=>{const p=modelPlanFor(draft);return [p.tier,p.score,p.model]}),['complex',9,'large']);
     await page.getByRole('button',{name:'Change destination',exact:true}).click();
     await page.getByLabel('Model for this session').fill('one-off');
-    assert.equal(await page.getByLabel('Open this session in').inputValue(),'ghostty');
-    await page.getByLabel('Open this session in').selectOption('iterm2');
     await page.getByRole('button',{name:'Review changes',exact:true}).click();
     assert.equal(await page.locator('#review-model').textContent(),'one-off');
     await page.locator('#modal').getByRole('button',{name:'Start session',exact:true}).click();
     let job=await page.evaluate(()=>window.sent.findLast(m=>m.type==='enqueue').job);
-    assert.equal(job.host,'iterm2');assert.equal(job.model,'one-off');assert.equal(job.agent,'codex');
+    assert.equal(job.model,'one-off');assert.equal(job.agent,'codex');
     await page.evaluate(job=>acceptLive({capture:job.capture,folder:job.folder,name:'Example',task:job.task}),job);
     await page.evaluate(id=>{agentReceipt({session:id,capture:state.captures[0].id,state:'Complete',message:'Done',model:'resolved-model'});showSession(id)},job.session);
     assert.match(await page.locator('#modal').innerText(),/resolved-model/i);
@@ -99,7 +81,7 @@ const path = require('node:path');
     assert.equal(await page.locator('#review-model').textContent(),'Current session model');
     await page.getByRole('button',{name:'Copy nudge & open session',exact:true}).click();
     job=await page.evaluate(()=>window.sent.findLast(m=>m.type==='enqueue').job);
-    assert.equal(job.mode,'nudge');assert.equal(job.host,'iterm2');assert.ok(!Object.hasOwn(job,'model'));
+    assert.equal(job.mode,'nudge');assert.ok(!Object.hasOwn(job,'model'));
     await page.evaluate(job=>acceptLive({capture:job.capture,folder:job.folder,name:'Example',task:job.task}),job);
     await page.getByRole('button',{name:'Preferences',exact:true}).click();
     await page.getByRole('button',{name:'Session models',exact:true}).click();

@@ -177,7 +177,7 @@ const aiConnections = (() => {
     const agent=d.mode==='nudge'?sess(d.session)?.agent:d.agent;
     const sources=(d.remoteAttempts||[]).map(a=>a.label+' / '+a.account);
     const prep=d.directPreparation?('Claude Code / '+d.directPreparation.account+(d.routingSource==='claude-session'?' / reviewed brief':' / original wording used')):sources.length?('Requested '+sources.join(' / ')+(['local','skipped'].includes(d.routingSource)?' / finished on this Mac':'')):'On this Mac / no cloud usage';
-    const next=d.mode==='ask' && d.noPick?'Choose an agent':d.mode==='note'?'Local note / no worker':(providers[agent]||'Worker')+' / '+sessionHostLabel(d)+' / '+worker(agent,d.mode==='nudge');
+    const next=d.mode==='ask' && d.noPick?'Choose an agent':d.mode==='note'?'Local note / no worker':(providers[agent]||'Worker')+' / Tasktap / '+worker(agent,d.mode==='nudge');
     return {prep,next};
   }
   function receipt(d) {

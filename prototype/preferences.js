@@ -20,7 +20,7 @@ const preferencesPanel=(()=>{
       const policy=sessionModelPolicy(),profile=policy.agents[policy.defaultAgent];
       return section('Request preparation',aiConnections.jump())+
         section('Project work',(live?jump('Agent setup','Manage installed coding agents and their own sign-ins.','agent-setup','settings'):'')+
-          jump('Session models',[providers[policy.defaultAgent],policy.adaptive?'Difficulty curve':profile.fixed,terminalHosts.label(state.sessionHost)].filter(Boolean).join(' / '),'session-models','sessions')+
+          jump('Session models',[providers[policy.defaultAgent],policy.adaptive?'Difficulty curve':profile.fixed].filter(Boolean).join(' / '),'session-models','sessions')+
           (live?workerRouting.jump():''))+
         section('Language',settingsField('agent-reply-language','Reply language','<select id="agent-reply-language">'+option('request','Follow my request',state.agentReplyLanguage||'request')+option('english','English',state.agentReplyLanguage||'request')+'</select>')+
           '<p class="hint">Code, comments, and documentation follow the project’s conventions. Final replies follow your request, unless you choose English. Your original request is preserved.</p>');
@@ -48,7 +48,6 @@ const preferencesPanel=(()=>{
     const close=$('#modal .dialog-title .icon-btn');close.classList.add('preferences-close');
     $('#preferences').append(close);
     $('#modal .dialog-title').hidden=true;
-    if(group==='workspaces')workspaceSettings.bind();
     if(group==='general'&&live){postLive('application-settings');$('#launch-at-login').onchange=e=>{const enabled=e.target.checked;e.target.disabled=true;postLive('launch-at-login',{enabled})}}
     if(group==='capture')captureContext.bindPreference();
     if(group==='agents'){

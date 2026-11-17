@@ -15,7 +15,7 @@ require('node:fs').mkdirSync(shots,{recursive:true});
    state.firstRun={done:true};state.projects=[{id:'cuegrid',name:'Cuegrid',folder:'/tmp/cuegrid',aliases:[]}];state.notes=[];
    const row=(id,task,result,extra={})=>({id,project:'cuegrid',agent:'codex',host:'tasktap',interactive:true,available:true,state:'Complete',task,result,log:[],...extra});
    state.sessions=[
-    row('unknown','Make Cuegrid feel calm, fast, and native. The current implementation needs a complete pass over every interaction, especially how users switch between tracks, move clips, and discover the keyboard shortcuts.','External result',{host:'cmux',source:'cmux',inbox:'cmux',updatedAt:Date.now()}),
+    row('unknown','Make Cuegrid feel calm, fast, and native. The current implementation needs a complete pass over every interaction, especially how users switch between tracks, move clips, and discover the keyboard shortcuts.','External result',{host:'',inbox:'manual',updatedAt:Date.now()}),
     row('older','Rework Cuegrid’s onboarding into a clear first-run experience. Every step should teach one thing and lead people naturally into their first useful project without adding distractions.','Earlier completed result'),
     row('newest','Please go through the complete Cuegrid application and improve the polish in every screen. Make it consistent and carefully test the edge cases.','Latest completed result',{sessionName:'Refine Cuegrid’s multi-track timeline and keyboard shortcuts'}),
     row('hidden-result','An earlier archived result','Archived result'),
@@ -57,7 +57,7 @@ require('node:fs').mkdirSync(shots,{recursive:true});
   assert.match(await page.locator('.deck-document').innerText(),/Latest completed result/,'managed results still open the exact session report');
   await page.evaluate(()=>go('overview'));
   await page.locator('[data-home-section="results"] [data-id="unknown"]').click();
-  assert.match(await page.locator('#dialog-heading').innerText(),/complete pass over every interaction/,'external results still open their session details');
+  assert.match(await page.locator('#dialog-heading').innerText(),/complete pass over every interaction/,'results without a Tasktap terminal still open their session details');
   await page.getByRole('button',{name:'Close dialog',exact:true}).click();
   await page.locator('[data-home-section="results"]').getByRole('button',{name:'History',exact:true}).click();
   assert.equal(await page.evaluate(()=>view),'sessions');

@@ -17,10 +17,10 @@ const escape=text=>String(text).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','
   await page.evaluate(({theme,zoom})=>{
    state=structuredClone(seed);state.firstRun={done:true};state.setupSeen=true;firstRun.visible=false;
    state.projects.forEach(p=>p.available=true);
-   state.sessions.forEach(s=>Object.assign(s,{managed:true,interactive:true,available:true,host:'ghostty',startup:'confirmed',conversation:s.id}));
+   state.sessions.forEach(s=>Object.assign(s,{managed:true,interactive:true,available:true,host:'tasktap',startup:'confirmed',conversation:s.id}));
    state.captures[0].session='s1';
    aiConnections.receive({choice:'local',workers:{codex:'Existing CLI account',claude:'Existing CLI account'},workerHealth:{codex:'signedIn',claude:'signedIn',agy:'missing','cursor-agent':'missing',pi:'missing'},models:{},keys:{},accounts:[],account:'',cloud:''});aiConnections.checked();
-   terminalHosts.receive({terminal:'',cmux:'',ghostty:'',iterm:'',warp:'',wezterm:'',kitty:''});workerRouting.receive({checkedAt:Date.now()/1000,agents:{}});
+   workerRouting.receive({checkedAt:Date.now()/1000,agents:{}});
    configureVoices([{id:'fixture-voice',name:'Local voice'}]);state.voiceEngine='fixture-voice';
    document.body.style.zoom=zoom;appAppearance.setTheme(theme);showWorkspace();go('overview');
   },{theme,zoom});

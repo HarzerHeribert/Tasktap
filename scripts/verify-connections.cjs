@@ -121,27 +121,26 @@ const { chromium } = require('playwright');
     await click('Diagnostics');
     assert.ok((await page.locator('#review-diagnostics').innerText()).includes('Studio / 123456'));
     assert.equal(await page.evaluate(()=>sent.filter(m=>m.type==='route').length),3);
-    // This branch deliberately covers an external terminal and its manual nudge fallback.
-    await page.evaluate(()=>{draft.agent='codex';draft.host='terminal';review()});
+    await page.evaluate(()=>{draft.agent='codex';review()});
     const trust=page.getByRole('checkbox',{name:'Use project settings'});
     assert.ok(await trust.isChecked());
     await trust.uncheck();
     await click('Start session');
     const job=await page.evaluate(()=>sent.findLast(m=>m.type==='enqueue').job);
     assert.equal(job.reviewedFolder,undefined);
-    assert.equal(job.planAccount,undefined);assert.equal(job.host,'terminal');assert.equal(job.delivery,'interactive');
+    assert.equal(job.planAccount,undefined);assert.equal(job.delivery,'interactive');
     assert.ok(job.accounts.includes('Studio'));assert.match(job.routingPayload,/Lighting/);
-    assert.ok(!job.routingPayload.includes('Unrelated'));assert.match(job.instructions,/report_result/);
+    assert.ok(!job.routingPayload.includes('Unrelated'));assert.equal(job.instructions,'');
     assert.ok(job.outgoing.startsWith(job.brief));assert.match(job.outgoing,/project’s established language/);
     await page.evaluate(j=>acceptLive({capture:j.capture,folder:j.folder,name:'Lighting',task:j.task}),job);
     await page.evaluate(({c,j})=>{
       aiConnections.receive({...c,workerAccount:''});
-      agentReceipt({...j,state:'Opened',message:'Interactive session opened in Terminal.'});
+      agentReceipt({...j,state:'Opened',message:'Interactive session opened in Tasktap.'});
       newDraft(j.session);
       draft.text='Check the glass too.';draft.brief=draft.text;review();
     },{c:config,j:job});
     await click('Diagnostics');
-    assert.ok((await page.locator('#review-diagnostics').innerText()).includes('Codex / Terminal / Existing session'));
+    assert.ok((await page.locator('#review-diagnostics').innerText()).includes('Codex / Tasktap / Existing session'));
     await click('Back to review');
     await click('Copy nudge & open session');
     assert.equal((await page.evaluate(()=>sent.findLast(m=>m.type==='enqueue').job)).manual,true);
@@ -201,32 +200,24 @@ const { chromium } = require('playwright');
     for(const text of routes.others){assert.match(text,/current checkout and branch/);assert.match(text,/solver/);assert.equal(text.match(/Complete the authorized scope/g).length,1);assert.match(text,/review-only, planning-only and no-commit/)}
     assert.match(routes.nudge,/actual commit IDs/);assert.match(routes.nudge,/preserving other people’s edits and staged changes/);
     assert.ok(routes.nudge.startsWith('Add a cue'));assert.match(routes.nudge,/final response in the language/);assert.ok(routes.isolated);
-    const identity=await page.evaluate(()=>{
-      const folder='/projects/Lighting',thread='discovered-thread',owned='owned-session';
-      const external={id:thread,conversation:thread,source:'terminal',agent:'codex',folder,task:'Starting',state:'Running'};
-      externalSessions([external]);
-      externalSessions([external,{...external,id:owned,owned:'yes',available:'yes',host:'ghostty',task:'Finish the lights'}]);
-      return [Boolean(sess(owned)),Boolean(sess(thread))];
-    });
-    assert.deepEqual(identity,[true,false],'A newly identified worker should appear once in Sessions');
     await page.evaluate(()=>{
       dismissCard();
-      externalSessions([{id:'owned-session',owned:'yes',agent:'codex',folder:'/projects/Lighting',task:'Finish the lights',
-        host:'ghostty',conversation:'discovered-thread',state:'Complete',available:'no',resumable:'yes',updatedAt:'1794669251000'}]);
+      sessionRows([{id:'owned-session',owned:'yes',agent:'codex',folder:'/projects/Lighting',task:'Finish the lights',
+        conversation:'discovered-thread',state:'Complete',available:'no',resumable:'yes',updatedAt:'1794669251000'}]);
       state.captures.unshift({id:'saved-nudge',session:'owned-session',brief:'Polish the reflections',kind:'Session nudge'});
       go('sessions');
     });
     const filter=page.getByLabel('Find a session');
     await filter.fill('Lighting reflections');
     assert.equal(await page.locator('#session-history .session-row').count(),1);
-    await page.locator('#session-history .session-row').click();
-    await click('Resume in Ghostty');
+    await page.evaluate(()=>showSession('owned-session'));
+    await click('Resume in Tasktap');
     assert.deepEqual(await page.evaluate(()=>sent.at(-1)),{type:'reopen-session',id:'owned-session'});
     await page.setViewportSize({width:390,height:750});
     await page.evaluate(()=>aiConnections.show('chatgpt'));
     assert.ok(await page.locator('#ai-route').isVisible());
     assert.ok(await page.evaluate(()=>document.querySelector('#ai-settings').scrollWidth<=document.querySelector('#ai-settings').clientWidth+1));
     assert.deepEqual(errors,[]);
-    console.log('Agent setup, consent, saved nudge identity, same-project peers and reviewed Git guidance passed.');
+    console.log('Agent setup, consent, same-project peers and reviewed Git guidance passed.');
   } finally {await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

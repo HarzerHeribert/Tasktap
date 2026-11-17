@@ -36,7 +36,7 @@ with tempfile.TemporaryDirectory(prefix='tasktap-resource-integrity-', dir='/tmp
     # Prove each entry point protects the signed resources without relying on the caller.
     for key in ('PYTHONDONTWRITEBYTECODE', 'PYTHONPYCACHEPREFIX', 'PYTHONPATH'):
         env.pop(key, None)
-    for name, arguments in [('run-agent', []), ('cmux-sessions', []),
+    for name, arguments in [('run-agent', []),
                             ('agent-tools', ['--agent', 'codex', '--session', str(uuid.uuid4()), '--workspace', str(base)])]:
         program = 'import runpy,sys;sys.path.insert(0,sys.argv[1]);path=sys.argv[2];sys.argv=sys.argv[2:];runpy.run_path(path,run_name="resource_inspection")'
         subprocess.run([sys.executable, '-c', program, str(resources), str(resources/name), *arguments],

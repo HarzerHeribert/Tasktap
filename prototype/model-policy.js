@@ -92,7 +92,6 @@ function sessionModelSettings() {
   const profiles=settingsField('model-agent','Configure models for','<select id="model-agent">'+agents(agent)+'</select>');
   dialog('Session models','Preferences','<form id="session-models" class="settings-form">'+
     '<section class="settings-section">'+defaults+(live?aiConnections.setupField(policy.defaultAgent):'')+
-    settingsField('session-host','Open new sessions in','<select id="session-host">'+terminalHosts.options(state.sessionHost||'tasktap')+'</select>')+'<p class="hint" id="session-host-help" hidden>Claude Desktop prepares Claude Code briefs for you to send in the app. Other agents use Terminal when this host is selected.</p>'+
     '<label class="policy-switch" for="difficulty-curve"><span>Choose models by task difficulty</span><input id="difficulty-curve" type="checkbox" '+(policy.adaptive?'checked':'')+'></label>'+
     '<div class="curve-controls" id="curve-controls"></div></section>'+
     '<section class="settings-section"><div class="profile-fields">'+profiles+'<div id="model-fields"></div></div>'+
@@ -100,7 +99,6 @@ function sessionModelSettings() {
     '<div class="form-actions">'+button('Cancel','prefs')+'<button class="primary" type="submit">Save models</button></div></form>');
   settingsHeader();
   const form = $('#session-models');
-  if(live)postLive('terminal-catalog');
   function models() {
     const keys = policy.adaptive ? Object.keys(modelTiers) : ['fixed'];
     const ranges = {quick:'1–'+(policy.standardAt-1),standard:policy.standardAt+'–'+(policy.complexAt-1),complex:policy.complexAt+'–10'};
@@ -129,9 +127,7 @@ function sessionModelSettings() {
     }
   };
   $('#model-agent',form).onchange=e=>{agent=e.target.value;models()};
-  const updateHostHint=()=>{$('#session-host-help',form).hidden=$('#session-host',form).value!=='claude-desktop'};
-  $('#session-host',form).onchange=updateHostHint;updateHostHint();
   $('#difficulty-curve',form).onchange=e=>{policy.adaptive=e.target.checked;limits();models()};
-  form.onsubmit=e=>{e.preventDefault();state.sessionHost=$('#session-host').value;state.sessionModels=policy;persist();prefs();toast('Session models saved.')};
+  form.onsubmit=e=>{e.preventDefault();state.sessionModels=policy;persist();prefs();toast('Session models saved.')};
   limits();models();settingsPickers.mount(form);if(live)aiConnections.refresh();
 }

@@ -34,17 +34,16 @@ require('node:fs').mkdirSync(shots,{recursive:true});
   assert.equal(await page.evaluate(()=>state.workspaceDeck.activity.length),3,'grouping preserves receipt history');
   assert.equal(await page.evaluate(()=>sent.filter(message=>message.type==='enqueue').length),0,'opening activity starts no work');
   await page.evaluate(()=>{
-   for(const [id,task,status,extra] of [['queued','Prepare the reviewed request','Queued',{}],['opening','Open the selected agent','Opening',{}],['external-send','Follow up on the notch glow','Running',{external:true,source:'desktop',host:'desktop'}]])state.sessions.push({id,task,state:status,project:'tasktap',agent:'codex',host:'tasktap',available:true,interactive:true,log:[],...extra});
-   state.captures.unshift({id:'sending-receipt',session:'external-send',kind:'Session nudge',external:true,receipt:'Running'});
+   for(const [id,task,status,extra] of [['queued','Prepare the reviewed request','Queued',{}],['opening','Open the selected agent','Opening',{}]])state.sessions.push({id,task,state:status,project:'tasktap',agent:'codex',host:'tasktap',available:true,interactive:true,log:[],...extra});
    workspaceDeck.refreshActivity();
   });
   const handoffs=feed.locator('[data-activity-section="handoffs"]');
-  assert.equal(await feed.locator('[data-activity-section="working"] .activity-row').count(),1,'queued, opening and external delivery are not counted as actual work');
-  assert.equal(await handoffs.locator('.activity-row').count(),3,'every in-flight handoff remains visible');
-  assert.deepEqual(await handoffs.locator('.activity-state').allTextContents(),['Queued','Opening','Sending follow-up']);
-  assert.match(await feed.locator('.activity-summary').innerText(),/^1 working · 3 handoffs/);
+  assert.equal(await feed.locator('[data-activity-section="working"] .activity-row').count(),1,'queued and opening handoffs are not counted as actual work');
+  assert.equal(await handoffs.locator('.activity-row').count(),2,'every in-flight handoff remains visible');
+  assert.deepEqual(await handoffs.locator('.activity-state').allTextContents(),['Queued','Opening']);
+  assert.match(await feed.locator('.activity-summary').innerText(),/^1 working · 2 handoffs/);
   await page.evaluate(()=>{
-   state.sessions=state.sessions.filter(session=>!['queued','opening','external-send'].includes(session.id));
+   state.sessions=state.sessions.filter(session=>!['queued','opening'].includes(session.id));
    state.captures=state.captures.filter(capture=>capture.id!=='sending-receipt');workspaceDeck.refreshActivity();
   });
   const current=feed.locator('[data-activity-section="working"] .activity-row');await current.focus();

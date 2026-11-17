@@ -7,11 +7,8 @@ import shutil
 
 HELPERS = (
     'workspace_terminal.py', 'terminal_replay.py', 'session_observer.py', 'tasktap_shell.py', 'observers',
-    'claude_desktop.py', 'session_activity.py', 'project_sessions.py',
-    'visible_session.py', 'session_lifecycle.py', 'terminal_hosts.py',
-    'extra_terminals.py', 'cmux_host.py', 'router-provider', 'worker_usage.py',
-    'ask-user', 'agent-tools', 'run-agent',
-    'cmux-sessions', 'cmux_sessions.py', 'desktop_sessions.py', 'kokoro-voice',
+    'project_sessions.py', 'visible_session.py', 'session_lifecycle.py', 'session_rows.py',
+    'router-provider', 'worker_usage.py', 'ask-user', 'agent-tools', 'run-agent', 'kokoro-voice',
     'session_models.py',
 )
 

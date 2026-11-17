@@ -52,7 +52,7 @@ const {pathToFileURL}=require('node:url');
   assert.equal(await page.locator('.deck-report script,.deck-report img[src]').count(),0);
   assert.equal(await page.evaluate(()=>sess('one').result),report,'report source remains exact');
   await page.evaluate(()=>{
-   sess('one').host='ghostty';sess('one').sessionName='A deliberately long session title that describes many details without forcing the history list into a wall of text. '.repeat(4);go('sessions');
+   delete sess('one').host;sess('one').sessionName='A deliberately long session title that describes many details without forcing the history list into a wall of text. '.repeat(4);go('sessions');
   });
   await page.setViewportSize({width:390,height:900});
   assert.ok(await page.locator('#session-history .row-title').evaluate(e=>e.clientHeight<=parseFloat(getComputedStyle(e).lineHeight)*2+1));

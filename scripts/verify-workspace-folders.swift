@@ -1,5 +1,5 @@
 // swiftc native/WorkspaceFolders.swift native/LiveWorkspace.swift
-//   native/WorkspaceTerminals.swift native/TerminalCatalog.swift
+//   native/WorkspaceTerminals.swift
 //   scripts/verify-workspace-folders.swift -o /tmp/verify-workspace-folders
 // A harmless runner validates native handoffs without invoking an agent or app.
 import Foundation
@@ -15,7 +15,7 @@ enum SessionHelpers {
     }
     static func job(folder:URL,mode:String="note")->[String:Any] {
         ["session":UUID().uuidString,"capture":UUID().uuidString,"folder":folder.path,"mode":mode,
-         "agent":"codex","host":"tasktap","delivery":"interactive","outgoing":"Fixture request","instructions":"Fixture","note":"A saved note."]
+         "agent":"codex","delivery":"interactive","outgoing":"Fixture request","instructions":"Fixture","note":"A saved note."]
     }
     static func main()throws {
         let base=fm.temporaryDirectory.appendingPathComponent("tasktap-folder-check-"+UUID().uuidString,isDirectory:true)
@@ -33,7 +33,6 @@ enum SessionHelpers {
         let alpha=root.appendingPathComponent("Alpha"),alias=root.appendingPathComponent("Alias")
         try mkdir(alpha);try fm.createSymbolicLink(at:alias,withDestinationURL:outside)
         let folders=WorkspaceFolders(storage:storage,defaultRoot:root)
-        precondition(!folders.externalDiscovery)
         precondition(folders.allowsExisting(alpha) && folders.allowsExisting(alias),"Logical root aliases remain valid projects.")
         precondition(!folders.allowsExisting(outside),"An alias does not authorize arbitrary bridge paths outside the root.")
         let initial=folders.projects()
@@ -43,11 +42,8 @@ enum SessionHelpers {
         precondition(!folders.allowsExisting(nested),"Only immediate root children are implicitly authorized.")
         _=try folders.authorize(outside);precondition(folders.allowsExisting(outside))
         _=try folders.authorize(outside);precondition(folders.projects().filter{$0["folder"]==outside.path}.count==1)
-        try folders.setExternalDiscovery(true)
         let reloaded=WorkspaceFolders(storage:storage,defaultRoot:missing)
-        precondition(reloaded.root.path==root.path && reloaded.externalDiscovery && reloaded.allowsExisting(outside))
-        try reloaded.setExternalDiscovery(false)
-        precondition(!WorkspaceFolders(storage:storage).externalDiscovery)
+        precondition(reloaded.root.path==root.path && reloaded.allowsExisting(outside))
         try fm.removeItem(at:alpha)
         precondition(reloaded.projects().first{$0["folder"]==alpha.path}?["available"]=="false","Missing folders remain identifiable.")
         precondition(WorkspaceFolders(storage:storage).projects().first{$0["folder"]==alpha.path}?["available"]=="false")

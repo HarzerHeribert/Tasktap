@@ -14,7 +14,6 @@ final class WorkspaceFolders {
         var rootCheckout: String?
         var approved: [Folder]
         var known: [Folder]
-        var externalDiscovery: Bool?
     }
     enum Failure: LocalizedError {
         case reason(String)
@@ -28,7 +27,6 @@ final class WorkspaceFolders {
     private var approved=[Folder]()
     private var known=[Folder]()
     private(set) var root:URL
-    private(set) var externalDiscovery=false
 
     init(storage:URL,defaultRoot:URL=WorkspaceFolders.defaultRoot) {
         self.storage=storage;root=defaultRoot.standardizedFileURL;rootCheckout=Self.canonical(defaultRoot).path
@@ -37,7 +35,6 @@ final class WorkspaceFolders {
             rootCheckout=saved.rootCheckout?.hasPrefix("/")==true ? saved.rootCheckout! : Self.canonical(root).path
             approved=saved.approved.filter{$0.folder.hasPrefix("/") && $0.checkout.hasPrefix("/")}
             known=saved.known.filter{URL(fileURLWithPath:$0.folder).deletingLastPathComponent().standardizedFileURL.path==root.path}
-            externalDiscovery=saved.externalDiscovery ?? false
         }
     }
     /// An isolated, non-persisting catalog for fixtures and verification builds.
@@ -54,18 +51,14 @@ final class WorkspaceFolders {
     private func save()throws {
         guard let storage else{return}
         let encoder=JSONEncoder();encoder.outputFormatting=[.prettyPrinted,.sortedKeys]
-        let bytes=try encoder.encode(Stored(root:root.path,rootCheckout:rootCheckout,approved:approved,known:known,externalDiscovery:externalDiscovery))
+        let bytes=try encoder.encode(Stored(root:root.path,rootCheckout:rootCheckout,approved:approved,known:known))
         try fm.createDirectory(at:storage.deletingLastPathComponent(),withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
         try bytes.write(to:storage,options:.atomic)
         try fm.setAttributes([.posixPermissions:0o600],ofItemAtPath:storage.path)
     }
     var configuration:[String:Any] {
-        ["root":root.path,"rootAvailable":rootAvailable,"externalDiscovery":externalDiscovery,
+        ["root":root.path,"rootAvailable":rootAvailable,
          "additionalFolders":approved.map{["name":$0.name,"folder":$0.folder,"checkout":$0.checkout]}]
-    }
-    func setExternalDiscovery(_ enabled:Bool)throws {
-        let previous=externalDiscovery;externalDiscovery=enabled
-        do {try save()}catch{externalDiscovery=previous;throw error}
     }
     func setRoot(_ selected:URL)throws {
         let url=selected.standardizedFileURL

@@ -127,12 +127,12 @@ def cli(agent, args):
         except BlockingIOError:
             # A nested agent cannot replace the outer CLI's lifecycle or answers.
             os.execv(executable,[executable,*args])
-        job=dict(agent=agent,host='tasktap',mode='ask',delivery='interactive',observer=True,shellLaunch=True,
+        job=dict(agent=agent,mode='ask',delivery='interactive',observer=True,shellLaunch=True,
                  session=session,capture=str(uuid.uuid4()),folder=os.getcwd(),terminalFolder=os.environ['TASKTAP_TERMINAL_FOLDER'],
                  task=agent+' · '+Path.cwd().name,outgoing='',instructions='')
         atomic(folder/'shell.receipt',dict(state='Opened'))
         atomic(folder/'shell.job',job)
-        surface=dict(host='tasktap',open=True,tty=os.ttyname(0),pid=os.getpid(),shellLaunch=True)
+        surface=dict(open=True,tty=os.ttyname(0),pid=os.getpid(),shellLaunch=True)
         atomic(folder/'surface.json',surface)
         process=None;code=1;saved_tty=termios.tcgetattr(sys.stdin.fileno())
         try:

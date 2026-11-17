@@ -42,6 +42,8 @@ let state;
 try{state=JSON.parse(localStorage.getItem(storageKey))}catch{}
 const returningInstall=!!state;
 state ||= live?emptyState():structuredClone(seed);
+// Sessions found in other apps by earlier versions are no longer tracked.
+state.sessions=state.sessions.filter(s=>!s.external);
 let view='overview',draft=null,openedSession=null,spoken=false,simVoice=null,returnFocus=null;
 const persist=()=>{try{if(window.tasktapSurface!=='notch')localStorage.setItem(storageKey,JSON.stringify(state));if(typeof sharedState!=='undefined')sharedState.publish()}catch{toast('Storage unavailable. Changes will last for this visit.')}};
 const scratchProject={id:'@scratch',name:'Scratch',folder:'Scratch',aliases:[]};
@@ -52,10 +54,10 @@ const attr=(s)=>esc(s);
 const button=(label,action,id='',style='btn',sym='')=>'<button type="button" class="'+style+'" data-action="'+action+'" data-id="'+attr(id)+'">'+(sym?icon(sym):'')+esc(label)+'</button>';
 const option=(value,text,selected='')=>'<option value="'+attr(value)+'" '+(value===selected?'selected':'')+'>'+esc(text)+'</option>';
 const heading=(over,title,sub='')=>'<div class="page-heading"><div class="eyebrow">'+esc(over)+'</div><h1>'+esc(title)+'</h1>'+(sub?'<p class="subtitle">'+esc(sub)+'</p>':'')+'</div>';
-const statusClass=s=>['Needs input','Needs permission','Awaiting agent','Ready to send'].includes(s)?'waiting':['Complete','Answer ready'].includes(s)?'complete':['Running','Queued'].includes(s)?'running':'offline';
+const statusClass=s=>['Needs input','Needs permission','Awaiting agent'].includes(s)?'waiting':['Complete','Answer ready'].includes(s)?'complete':['Running','Queued'].includes(s)?'running':'offline';
 const navLink=(id,label,sym,end='')=>'<button class="nav-link '+(view===id?'active':'')+'" '+(view===id?'aria-current="page"':'')+' data-action="view" data-id="'+attr(id)+'">'+sym+'<span class="label">'+esc(label)+'</span>'+end+'</button>';
 const count=n=>'<span class="nav-count">'+n+'</span>';
-const activeSessionStates=new Set(['Running','Ready','Needs input','Queued','Opening','Awaiting agent','Ready to send','Connected']);
+const activeSessionStates=new Set(['Running','Ready','Needs input','Queued','Opening','Awaiting agent','Connected']);
 function activeSessions(){
   const pending=new Set(state.decisions.map(q=>q.session));
   return state.sessions.filter(s=>pending.has(s.id)||activeSessionStates.has(s.state));
@@ -71,7 +73,7 @@ function peerDisclosure(peers,project,links=false){
   if(!peers.length)return '';
   const rows=peers.map(s=>{
     const label=[s.task,providers[s.agent],s.state].filter(Boolean).join(' / ');
-    return '<li>'+(links?'<button class="peer-session" data-action="session" data-id="'+attr(s.id)+'"><span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span><span><span class="row-title">'+esc(s.task)+'</span><span class="row-sub">'+esc([providers[s.agent],sessionLocation(s),s.state].filter(Boolean).join(' / '))+'</span></span>'+icon('right')+'</button>':esc(label))+'</li>';
+    return '<li>'+(links?'<button class="peer-session" data-action="session" data-id="'+attr(s.id)+'"><span class="agent-mark '+attr(s.agent)+'">'+icon(s.agent)+'</span><span><span class="row-title">'+esc(s.task)+'</span><span class="row-sub">'+esc([providers[s.agent],'Tasktap',s.state].filter(Boolean).join(' / '))+'</span></span>'+icon('right')+'</button>':esc(label))+'</li>';
   });
   return '<details class="route-evidence" data-project-peers><summary>'+peers.length+' other session'+(peers.length===1?'':'s')+' in '+esc(proj(project).name)+'</summary><ul>'+rows.join('')+'</ul></details>';
 }
@@ -95,16 +97,16 @@ function sessionUpdated(s){
 }
 function sessionColumns(){return '<div class="list-columns" aria-hidden="true"><span>Session</span><span class="row-project">Project</span><span class="row-agent">Agent / host</span><span>Status</span><span class="row-updated">Updated</span><span></span></div>'}
 function historySessionRow(s,{question,fixture=false,title=question?.q || sessionDisplayName(s),status=question?'Needs input':s.state}={}){
-  const project=proj(s.project)?.name||'Scratch',agent=providers[s.agent]||'Agent',host=sessionLocation(s);
+  const project=proj(s.project)?.name||'Scratch',agent=providers[s.agent]||'Agent',host='Tasktap';
   const context=question?'<span class="row-sub row-context">'+esc(sessionDisplayName(s))+'</span>':'';
   return '<button class="session-row work-row" data-action="'+(question?'notch':'session')+'" data-id="'+attr(question?.id || s.id)+'">'+
     '<span class="session-cell"><span class="agent-mark '+attr(s.agent||'')+'" aria-hidden="true">'+icon(s.agent||'sessions')+'</span><span class="session-copy"><span class="row-title" title="'+attr(title)+'">'+esc(title)+'</span>'+context+'<span class="row-compact"><span class="row-compact-project">'+esc(project)+'</span><span class="row-compact-agent">'+esc([agent,host].filter(Boolean).join(' / '))+'</span></span></span></span>'+
     '<span class="row-project" title="'+attr(project)+'">'+esc(project)+'</span><span class="row-agent"><span>'+esc(agent)+'</span><span class="row-sub">'+esc(host||'—')+'</span></span><span class="row-state '+statusClass(question?'Needs input':s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(status)+'</span>'+sessionUpdated(s)+icon('right')+'</button>';
 }
 function sessionRow(s,{question,fixture=false,title=question?.q || sessionDisplayName(s),status=question?'Needs input':s.state,home='',resultTime=0}={}){
-  const agent=[providers[s.agent]||'Agent',sessionLocation(s)].filter(Boolean).join(' / '),p=proj(s.project);
+  const agent=[providers[s.agent]||'Agent','Tasktap'].join(' / '),p=proj(s.project);
   if(home){
-    const result=home==='result',host=sessionLocation(s),project=p?.name||'Scratch';
+    const result=home==='result',host='Tasktap',project=p?.name||'Scratch';
     const sentence=!s.sessionName&&typeof title==='string'&&title===s.task&&home!=='attention'?title.match(/^(.{16,160}?[.!?])\s+(?=[A-Z“"\d])/):null;
     const headline=sentence&&!/\b(?:e\.g|i\.e|Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|etc)\.$/i.test(sentence[1])?sentence[1]:title;
     const metadata='<span class="home-row-project" title="'+attr(p?.folder||project)+'">'+esc(project)+'</span><span class="home-row-agent">'+esc(providers[s.agent]||'Agent')+'</span>'+(host?'<span class="home-row-host">'+esc(host)+'</span>':'');
@@ -136,7 +138,7 @@ function workOverview(active){
     const observed=sessionObservation.cue(session.id);
     if(pending)attention.push(...pending.map(question=>sessionRow(session,{question,home:'attention'})));
     else if(observed&&['input','permission'].includes(observed.kind))attention.push(sessionRow(session,{title:observed.activity||session.task,status:observed.label,home:'attention'}));
-    else if(session.state==='Needs input')attention.push(sessionRow(session,{title:session.waitingFor || session.task,home:'attention'}));
+    else if(session.state==='Needs input')attention.push(sessionRow(session,{title:session.task,home:'attention'}));
     else if(session.monitoring&&session.state==='Ready')continue;
     else{
       const turn=state.captures.find(c=>c.session===session.id);
@@ -285,30 +287,24 @@ function showSession(id){
   openedSession=id;
   const q=state.decisions.find(q=>q.session===id);
   const actions=[];
-  if(live && s.host==='claude-desktop' && s.available)actions.push(button('Open brief in Claude Desktop','focus-session',id,'primary','out'));
-  if(live && (s.interactive && s.available===true && !['Closed','Queued','Opening'].includes(s.state) || s.source==='cmux' && s.available)){
-    actions.push(button(s.host==='warp'?'Reattach in Warp':'Open in '+sessionLocation(s),'focus-session',id,'primary','out'));
-  }
-  if(live && s.resumable && !s.available)actions.push(button('Resume in '+sessionLocation(s),'reopen-session',id,'primary','out'));
+  if(live && s.interactive && s.available===true && !['Closed','Queued','Opening'].includes(s.state))actions.push(button('Open in Tasktap','focus-session',id,'primary','out'));
+  if(live && s.resumable && !s.available)actions.push(button('Resume in Tasktap','reopen-session',id,'primary','out'));
   if(!live || canNudge(s))actions.push(button('Follow up','follow',id,actions.length?'btn':'primary','mic'));
   const latest=state.captures.find(c=>c.session===id);
   const retry=failedStart(s);
   if(retry)actions.push(button('Review & retry','review-retry',id,'primary'));
   if(latest)actions.push(button('View handoff','detailcapture',latest.id));
-  if(live && s.source==='desktop')actions.push(button('Open in ChatGPT','openchat',id,'primary'));
   if(live && s.managed && !s.interactive && !s.planAccount && ['claude','codex'].includes(s.agent) && ['Failed','Complete'].includes(s.state))actions.push(button('Resume in Terminal','terminal',id),button('Copy resume command','copyresume',id));
   if(q)actions.push(button('Review decision','notch',q.id));
   if(!live && s.state==='Running' && !s.producerKey)actions.push(button('Simulate completion','complete',id));
   const turns=state.captures.filter(c=>c.session===id);
   const history=turns.length>1?'<details class="route-evidence"><summary>Handoff history / '+turns.length+'</summary><ul>'+turns.map(c=>'<li>'+button(c.kind+' / '+(c.brief||c.text||'Sketch').slice(0,70),'detailcapture',c.id,'text-btn')+'</li>').join('')+'</ul></details>':'';
-  const location=s.interactive && !retry && !s.resumable?'<p class="hint">'+esc(s.state==='Closed' || s.state==='Complete' && !s.available?'The terminal session has closed.':s.state==='Failed'?'Check the terminal for the launch error.':s.available===false?'Waiting for the terminal session.':s.state==='Awaiting agent'?'Open '+sessionLocation(s)+' to check for a sign-in or folder trust prompt.':'You can type, interrupt, and answer approvals in '+sessionLocation(s)+'.')+'</p>':'';
-  const desktopHint=s.host==='claude-desktop'?'<p class="hint">Confirm the project folder and send the prepared brief in Claude Desktop. Activity and replies stay in Claude.</p>':'';
-  const waiting=s.waitingFor?'<p class="hint">'+esc('Waiting in the original session / '+s.waitingFor)+'</p>':'';
+  const location=s.interactive && !retry && !s.resumable?'<p class="hint">'+esc(s.state==='Closed' || s.state==='Complete' && !s.available?'The terminal session has closed.':s.state==='Failed'?'Check the terminal for the launch error.':s.available===false?'Waiting for the terminal session.':s.state==='Awaiting agent'?'Open Tasktap to check for a sign-in or folder trust prompt.':'You can type, interrupt, and answer approvals in Tasktap.')+'</p>':'';
   const turn=state.captures.find(c=>c.session===s.id);
   const relay=live && (!s.result || turn?.receipt!=='Complete')?handoffRelay.forCapture(turn):'';
-  const status='<section class="session-summary"><div class="session-summary-line"><span class="row-state '+statusClass(s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(s.state)+'</span><span class="row-sub">'+esc(sessionLocation(s))+'</span></div><span class="session-folder">'+icon('folder')+esc(proj(s.project)?.folder)+'</span></section>';
+  const status='<section class="session-summary"><div class="session-summary-line"><span class="row-state '+statusClass(s.state)+'"><i class="state-dot" aria-hidden="true"></i>'+esc(s.state)+'</span><span class="row-sub">'+'Tasktap</span></div><span class="session-folder">'+icon('folder')+esc(proj(s.project)?.folder)+'</span></section>';
   const activity=s.log.length?'<details class="session-activity"><summary>Activity / '+s.log.length+'</summary><ul class="time-line">'+s.log.map(e=>'<li><i class="state-dot"></i>'+esc(sessionActivityLine(s,e))+'</li>').join('')+'</ul></details>':'';
-  dialog(sessionDisplayName(s),[providers[s.agent],s.model].filter(Boolean).join(' / '),'<div class="session-detail">'+status+(s.monitoring?sessionObservation.details(id):'')+(s.result?resultPresentation.markup(s.result,id):'')+(actions.length?'<div class="session-actions inline">'+actions.join('')+'</div>':'')+location+desktopHint+waiting+(relay?'<div class="session-receipt">'+relay+'</div>':'')+peerDisclosure(projectPeers(s.project,id),s.project,true)+activity+history+sessionNameHistory(s)+'</div>');
+  dialog(sessionDisplayName(s),[providers[s.agent],s.model].filter(Boolean).join(' / '),'<div class="session-detail">'+status+(s.monitoring?sessionObservation.details(id):'')+(s.result?resultPresentation.markup(s.result,id):'')+(actions.length?'<div class="session-actions inline">'+actions.join('')+'</div>':'')+location+(relay?'<div class="session-receipt">'+relay+'</div>':'')+peerDisclosure(projectPeers(s.project,id),s.project,true)+activity+history+sessionNameHistory(s)+'</div>');
   resultPresentation.paint($('#modal'));
   const disclosure=$('#modal [data-project-peers]');
   if(peersWereOpen && disclosure){
@@ -595,7 +591,6 @@ document.addEventListener('click',e=>{
     case 'prefs-group':prefs(id);$('#preferences [aria-pressed=true]').focus({preventScroll:true});break;
     case 'start-session':newDraft('',id);break;case 'follow':newDraft(id);break;case 'session':if(sess(id)?.host==='tasktap' && typeof workspaceDeck!=='undefined')workspaceDeck.open('terminal:'+id,sess(id).project);else showSession(id);break;case 'close':dismissCard();break;case 'prefs':prefs();break;case 'session-models':sessionModelSettings();break;case 'ai-connections':aiConnections.show();break;
     case 'speakresult':speak(sess(id).result);break;
-    case 'openchat':postLive('open-desktop-chat',{id:sess(id).conversation});break;
     case 'setup-voice':postLive('install-kokoro');break;
     case 'worker-routing':workerRouting.settings();break;
     case 'agent-setup':if(live)aiConnections.setup();break;
@@ -604,7 +599,7 @@ document.addEventListener('click',e=>{
     case 'terminal':postLive('resume-terminal',{id});break;
     case 'check-updates':if(live)postLive('check-updates');break;
     case 'open-docs':{const section=({agents:'agents',capture:'capture',voice:'voice',appearance:'appearance',workspaces:'workspaces'})[id]||'install';if(live)postLive('open-docs',{section});else window.open('https://harzerheribert.github.io/Tasktap/docs/#'+section,'_blank','noopener');break}
-    case 'focus-session':if(sess(id)?.host==='tasktap')workspaceDeck.open('terminal:'+id,sess(id).project);else postLive('focus-session',{id});break;
+    case 'focus-session':if(sess(id)?.host==='tasktap')workspaceDeck.open('terminal:'+id,sess(id).project);break;
     case 'reopen-session':postLive('reopen-session',{id});break;
     case 'review-retry':{const c=failedStart(sess(id));if(c)postLive('review-failed-handoff',{session:id,capture:c.id});break}
     case 'copyresume':postLive('copy-resume',{id});break;

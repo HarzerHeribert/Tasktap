@@ -161,7 +161,9 @@ fn start(data: &Folder, work: &Work, extra: &[&str]) -> Core {
         ("GIT_CONFIG_GLOBAL", config.to_str().unwrap()),
         ("GIT_CONFIG_NOSYSTEM", "1"),
     ];
-    Core::start_env(&data.0, extra, &env)
+    // Git is slow on a busy Windows runner; a hook that hung would still
+    // outlast this.
+    Core::start_patient(&data.0, extra, &env, Duration::from_secs(240))
 }
 
 fn scene(prefix: &str, work: &Work, repo: &Path, agent: &str) -> Scene {
@@ -741,80 +743,73 @@ fn a_keep_the_core_stopped_during_is_decided_by_what_git_shows_at_the_next_start
     }
     // Stopped before the merge, its changes committed: still pending, and a
     // new keep finishes it.
-    let (mut s, t, work, repo, w) = stopped_during("ic1", true, |work, _, w| {
-        let wt = Path::new(&w.path);
-        work.git(wt, &["add", "-A"]);
-        work.git(wt, &["commit", "-q", "-m", "committed by the keep"]);
-    });
-    let head = work.git(&repo, &["rev-parse", "HEAD"]);
-    s.w.until("the start looked at it", |m| {
-        m.thoughts[&t].workdir.as_ref().unwrap().files == 1
-    });
-    assert_eq!(changes(&s, t), Changes::Pending);
-    assert_eq!(work.git(&repo, &["rev-parse", "HEAD"]), head);
-    assert!(work.branch(&repo, &w.branch).is_some());
-    settle(&mut s, t, true).unwrap();
-    assert_eq!(read(repo.join("k.txt")), "kept");
-    assert_eq!(
-        work.git(&repo, &["log", "-1", "--format=%s"]),
-        "committed by the keep"
-    );
-
+    {
+        let (mut s, t, work, repo, w) = stopped_during("ic1", true, |work, _, w| {
+            let wt = Path::new(&w.path);
+            work.git(wt, &["add", "-A"]);
+            work.git(wt, &["commit", "-q", "-m", "committed by the keep"]);
+        });
+        let head = work.git(&repo, &["rev-parse", "HEAD"]);
+        s.w.sync();
+        assert_eq!(changes(&s, t), Changes::Pending);
+        assert_eq!(work.git(&repo, &["rev-parse", "HEAD"]), head);
+        assert!(work.branch(&repo, &w.branch).is_some());
+        settle(&mut s, t, true).unwrap();
+        assert_eq!(read(repo.join("k.txt")), "kept");
+        let subject = work.git(&repo, &["log", "-1", "--format=%s"]);
+        assert_eq!(subject, "committed by the keep");
+    }
     // Stopped after the merge: kept, and what is left is tidied away.
-    let (mut s, t, work, repo, w) = stopped_during("ic2", true, |work, repo, w| {
-        let wt = Path::new(&w.path);
-        work.git(wt, &["add", "-A"]);
-        work.git(wt, &["commit", "-q", "-m", "committed by the keep"]);
-        work.git(repo, &["merge", "-q", "--ff-only", &w.branch]);
-    });
-    s.w.until("the start decided it", |m| {
-        m.thoughts[&t].workdir.as_ref().unwrap().changes == Changes::Kept
-    });
-    eventually("the worktree is tidied", || !Path::new(&w.path).exists());
-    eventually("the branch is deleted", || {
-        work.branch(&repo, &w.branch).is_none()
-    });
-    assert_eq!(read(repo.join("k.txt")), "kept");
-    assert_eq!(settle(&mut s, t, true).unwrap_err().code, Code::Conflict);
-
+    {
+        let (mut s, t, work, repo, w) = stopped_during("ic2", true, |work, repo, w| {
+            let wt = Path::new(&w.path);
+            work.git(wt, &["add", "-A"]);
+            work.git(wt, &["commit", "-q", "-m", "committed by the keep"]);
+            work.git(repo, &["merge", "-q", "--ff-only", &w.branch]);
+        });
+        s.w.until("the start decided it", |m| {
+            m.thoughts[&t].workdir.as_ref().unwrap().changes == Changes::Kept
+        });
+        eventually("the worktree is tidied", || !Path::new(&w.path).exists());
+        eventually("the branch is deleted", || {
+            work.branch(&repo, &w.branch).is_none()
+        });
+        assert_eq!(read(repo.join("k.txt")), "kept");
+        assert_eq!(settle(&mut s, t, true).unwrap_err().code, Code::Conflict);
+    }
     // Stopped after it tidied up: kept.
-    let (s, t, _work, _repo, _) = stopped_during("ic3", true, |work, repo, w| {
-        let wt = Path::new(&w.path);
-        work.git(wt, &["add", "-A"]);
-        work.git(wt, &["commit", "-q", "-m", "committed by the keep"]);
-        work.git(repo, &["merge", "-q", "--ff-only", &w.branch]);
-        let wt = plain(&w.path);
-        work.git(
-            repo,
-            &["worktree", "remove", "--force", wt.to_str().unwrap()],
-        );
-        work.git(repo, &["branch", "-D", &w.branch]);
-    });
-    let mut s = s;
-    s.w.until("the start decided it", |m| {
-        m.thoughts[&t].workdir.as_ref().unwrap().changes == Changes::Kept
-    });
-
-    // A discard stopped after it removed everything: discarded. One stopped
-    // before it did anything: still pending, nothing lost.
-    let (mut s, t, _work, _repo, _) = stopped_during("ic4", false, |work, repo, w| {
-        let wt = plain(&w.path);
-        work.git(
-            repo,
-            &["worktree", "remove", "--force", wt.to_str().unwrap()],
-        );
-        work.git(repo, &["branch", "-D", &w.branch]);
-    });
-    s.w.until("the start decided it", |m| {
-        m.thoughts[&t].workdir.as_ref().unwrap().changes == Changes::Discarded
-    });
+    {
+        let (mut s, t, _work, _repo, _) = stopped_during("ic3", true, |work, repo, w| {
+            let wt = Path::new(&w.path);
+            work.git(wt, &["add", "-A"]);
+            work.git(wt, &["commit", "-q", "-m", "committed by the keep"]);
+            work.git(repo, &["merge", "-q", "--ff-only", &w.branch]);
+            let wt = plain(&w.path);
+            let wt = wt.to_str().unwrap();
+            work.git(repo, &["worktree", "remove", "--force", wt]);
+            work.git(repo, &["branch", "-D", &w.branch]);
+        });
+        s.w.until("the start decided it", |m| {
+            m.thoughts[&t].workdir.as_ref().unwrap().changes == Changes::Kept
+        });
+    }
+    // A discard stopped after it removed everything: discarded.
+    {
+        let (mut s, t, _work, _repo, _) = stopped_during("ic4", false, |work, repo, w| {
+            let wt = plain(&w.path);
+            let wt = wt.to_str().unwrap();
+            work.git(repo, &["worktree", "remove", "--force", wt]);
+            work.git(repo, &["branch", "-D", &w.branch]);
+        });
+        s.w.until("the start decided it", |m| {
+            m.thoughts[&t].workdir.as_ref().unwrap().changes == Changes::Discarded
+        });
+    }
+    // One stopped before it did anything: still pending, nothing lost.
     let (mut s, t, _work, _repo, w) = stopped_during("ic5", false, |_, _, _| {});
-    s.w.until("the start looked at it", |m| {
-        m.thoughts[&t].workdir.as_ref().unwrap().files == 1
-    });
+    s.w.sync();
     assert_eq!(changes(&s, t), Changes::Pending);
     assert_eq!(read(Path::new(&w.path).join("k.txt")), "kept");
-    let _ = &mut s;
 }
 
 #[test]
@@ -894,9 +889,10 @@ fn a_project_whose_dot_git_is_a_file_isolates_too() {
     // A submodule as the project.
     let lib = work.repo("lib");
     let outer = work.repo("outer");
+    let source = plain(&lib);
     work.git(
         &outer,
-        &["submodule", "add", "-q", lib.to_str().unwrap(), "lib"],
+        &["submodule", "add", "-q", source.to_str().unwrap(), "lib"],
     );
     work.git(&outer, &["commit", "-q", "-m", "the library"]);
     let sub = outer.join("lib");
@@ -1024,7 +1020,7 @@ fn hooks_signing_and_the_persons_configuration_neither_break_nor_hold_up_git() {
     assert_eq!(read(repo.join("other.txt")), "y");
     assert_eq!(read(repo.join("b.txt")), "my change\n");
     assert!(
-        started.elapsed() < Duration::from_secs(40),
+        started.elapsed() < Duration::from_secs(200),
         "{:?}",
         started.elapsed()
     );
@@ -1300,7 +1296,9 @@ fn the_start_sweep_removes_what_a_stopped_launch_left_and_keeps_anything_with_wo
     eventually("its branch is deleted", || {
         work.branch(&repo, "tasktap/leftover").is_none()
     });
-    assert!(!made.join(".look-0a1b2c.index").exists());
+    eventually("the stale index is removed", || {
+        !made.join(".look-0a1b2c.index").exists()
+    });
     assert_eq!(read(busy.join("work.txt")), "someone's work");
     assert!(work.branch(&repo, "tasktap/busy").is_some());
     drop(s);

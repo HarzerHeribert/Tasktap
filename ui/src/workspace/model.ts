@@ -40,6 +40,8 @@ export const ui = {
   replying: '',
   /** The first snapshot arrived: until then nothing is reconciled. */
   ready: false,
+  /** The window is the key window: only then does what a pane shows count as seen. */
+  active: false,
 };
 
 let toastTimer = 0;
@@ -163,7 +165,7 @@ export function cue(id: string): Cue {
   const activity = s?.activity.at(-1);
   if (s?.state === 'working') return { kind: 'working', label: 'Working', symbol: '◌', activity };
   if (s?.state === 'starting') return { kind: 'working', label: 'Starting', symbol: '◌', activity };
-  if (s?.state === 'idle') return { kind: 'ready', label: 'Ready', symbol: '○', activity };
+  if (s?.state === 'idle') return { kind: 'ready', label: 'Ready', symbol: '○' };
   if (t.kind === 'shell') return { kind: 'connected', label: 'Terminal', symbol: '○' };
   return { kind: 'working', label: 'Running', symbol: '◌' };
 }
@@ -365,7 +367,7 @@ export async function paste(id: string) {
 }
 
 export function readSoon(t: Thought | undefined) {
-  if (t && !t.read && (t.status === 'done' || t.status === 'failed') && document.hasFocus())
+  if (t && !t.read && (t.status === 'done' || t.status === 'failed') && ui.active)
     window.setTimeout(() => records.thoughts.get(t.id)?.read === false && void call('thought.read', { id: t.id }).catch(() => {}), 1200);
 }
 

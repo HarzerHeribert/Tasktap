@@ -149,7 +149,7 @@ function Pane({ project, pane, index, rect, selected, several }: {
   };
   // A result shown in the selected pane of the window in use is read.
   const th = thoughtOf(s);
-  useEffect(() => void (selected && readSoon(th)), [selected, th?.id, th?.read, th?.status]);
+  useEffect(() => void (selected && readSoon(th)), [selected, th?.id, th?.read, th?.status, ui.active]);
   const style = rect ? { left: rect.x + 'px', top: rect.y + 'px', width: rect.w + 'px', height: rect.h + 'px' } : undefined;
   const status = !!id && (!!s || t?.kind === 'agent');
   return (

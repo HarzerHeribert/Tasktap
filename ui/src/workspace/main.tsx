@@ -2,6 +2,7 @@
 // stylesheets are linked in 1.2's order so its class names keep their look.
 import './styles.css';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { render } from 'preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
 import { cap } from '../capture.tsx';
@@ -135,6 +136,10 @@ void listen<{ do: string; at?: string; id?: string }>('ui', ({ payload }) => {
   else if (payload.do === 'appearance') void loadLook();
 });
 render(<App />, document.body);
+// Whether the window is the one in use, from the host's own account of it.
+const win = getCurrentWindow();
+void win.isFocused().then((f) => ((ui.active = f), redraw()), () => {});
+void win.onFocusChanged(({ payload }) => ((ui.active = payload), redraw()));
 // The window shows once the page has laid out its first frame (a hidden window draws nothing).
 void loadLook().then(() => setTimeout(() => void call('host.ready', {}).catch(() => {})));
 void client

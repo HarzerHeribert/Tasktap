@@ -2,7 +2,7 @@ name: Verify and publish Tasktap
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, 'rebuild*']
   workflow_dispatch:
 
 permissions:
@@ -110,6 +110,32 @@ jobs:
           "$RUNNER_TEMP/folders-test"
           swiftc native/WorkspaceTerminals.swift native/LiveWorkspace.swift native/WorkspaceFolders.swift scripts/verify-terminal-prerequisites.swift -o "$RUNNER_TEMP/terminal-prerequisites"
           "$RUNNER_TEMP/terminal-prerequisites"
+  core:
+    name: Core on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows from day one, so nothing Unix-only slips into the protocol.
+        os: [ubuntu-latest, macos-26, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy && rustup default stable
+      - name: Format
+        run: cargo fmt --check
+      - name: Lint
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --workspace
+
   deploy:
     name: Publish GitHub Pages
     needs: [quality, mac]

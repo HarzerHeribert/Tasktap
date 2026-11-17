@@ -24,6 +24,20 @@ const MAX_OUTPUT: u64 = 4 << 20;
 /// Most bytes of an answer to a headless question; more is no answer.
 const MAX_ANSWER: u64 = 64 << 10;
 
+/// Why a headless question got no answer.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Failed {
+    /// Its tool no longer offers the model it is asked for.
+    Gone,
+    Why(String),
+}
+
+impl From<String> for Failed {
+    fn from(why: String) -> Failed {
+        Failed::Why(why)
+    }
+}
+
 /// What ends the wait for a headless question's answer.
 pub enum Asked {
     /// Everything it printed on standard output.
@@ -147,7 +161,7 @@ pub fn ask(
     schema: &str,
     folder: &Path,
     (hear, heard): (mpsc::Sender<Asked>, mpsc::Receiver<Asked>),
-) -> Result<String, String> {
+) -> Result<String, Failed> {
     let name = agent.program();
     let program = crate::terminal::find(name)
         .ok_or_else(|| format!("{name} is not installed: no folder of the PATH has it"))?;
@@ -212,7 +226,7 @@ pub fn ask(
     let printed = match heard.recv_timeout(how.limit) {
         Ok(Asked::Printed(printed)) => Ok(printed),
         Ok(Asked::Stop) | Err(RecvTimeoutError::Disconnected) => {
-            Err("it was not waited for".into())
+            Err("it was not waited for".to_owned())
         }
         Err(RecvTimeoutError::Timeout) => Err(format!(
             "it did not answer within {} s",
@@ -223,12 +237,15 @@ pub fn ask(
     end(&mut child);
     let printed = printed?;
     if printed.len() as u64 > MAX_ANSWER {
-        return Err("its answer is too large".into());
+        return Err("its answer is too large".to_owned().into());
     }
-    (how.answer)(&String::from_utf8_lossy(&printed)).map_err(|why| {
-        match said.join().unwrap_or_default().trim() {
-            "" => why,
-            last => format!("{why} ({})", line(last, 200)),
+    let printed = String::from_utf8_lossy(&printed);
+    (how.answer)(&printed).map_err(|why| {
+        let said = said.join().unwrap_or_default();
+        match said.trim() {
+            _ if (how.gone)(&printed, &said) => Failed::Gone,
+            "" => Failed::Why(why),
+            last => Failed::Why(format!("{why} ({})", line(last, 200))),
         }
     })
 }

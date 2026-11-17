@@ -13,7 +13,7 @@
 #
 # Per thought it prints: the destination, right or wrong; how many of the
 # facts a good brief must have are in it; what it has that the person never
-# said; the time the call took. --briefs prints the briefs as well, which is
+# said; the title it gave the work, in brackets; the time the call took. --briefs prints the briefs as well, which is
 # how they are judged in the end: by reading them.
 #
 # The tool runs in a temporary folder with the environment the core gives

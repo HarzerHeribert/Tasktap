@@ -223,6 +223,7 @@ impl Agent for Codex {
     /// 4.4 s against 6.6 s with them on.
     fn headless(&self) -> Option<Headless> {
         Some(Headless {
+            tool: "Codex",
             model: SMALL,
             limit: Duration::from_secs(15),
             args: |schema| {
@@ -246,6 +247,13 @@ impl Agent for Codex {
             answer: |out| match serde_json::from_str::<Value>(out.trim()) {
                 Ok(Value::Object(_)) => Ok(out.trim().into()),
                 _ => Err("it printed no answer".into()),
+            },
+            // "ERROR: The '…' model is not supported when using Codex with
+            // a ChatGPT account."; with a key, the provider's own words.
+            gone: |_, said| {
+                let said = said.to_lowercase();
+                let unknown = ["not supported", "does not exist", "not found"];
+                said.contains("model") && unknown.iter().any(|u| said.contains(u))
             },
         })
     }

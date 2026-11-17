@@ -44,6 +44,10 @@ pub struct Options {
     /// How long each folder check waits first, for tests.
     #[cfg(feature = "fixtures")]
     pub check: Duration,
+    /// Detect the agents as the core starts: always in a normal build; in a
+    /// build with the test fixtures only when a test asks (`--detect`),
+    /// and then only the fixture agents (`agents::at_start`).
+    pub detect: bool,
 }
 
 /// Everything the core's thread owns. Tasks borrow it between awaits, never across one.
@@ -172,6 +176,9 @@ async fn serve(opts: Options) -> io::Result<()> {
         })
     });
     crate::questions::start(&mut core.borrow_mut()).map_err(io::Error::other)?;
+    if opts.detect {
+        crate::calls::detect_at_start(&core.borrow());
+    }
     tokio::pin!(terminated);
     let mut idle = None;
     let mut accepting = true;
@@ -213,7 +220,9 @@ async fn serve(opts: Options) -> io::Result<()> {
             },
         }
     }
-    // Terminals end first, so their clients see them end.
+    // Nothing launches from here on: the holds end unfired, as a restart
+    // would end them. Then the terminals end, so their clients see them end.
+    crate::effects::close(&mut core.borrow_mut());
     crate::terminal::shutdown(&core).await;
     // What is queued, such as the reply to `core.retire`, gets one write.
     for link in &core.borrow().links {

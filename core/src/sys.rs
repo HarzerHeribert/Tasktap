@@ -24,6 +24,8 @@ mod tty {
         fn tcsetattr(fd: c_int, when: c_int, modes: *const u64) -> c_int;
         fn tcgetpgrp(fd: c_int) -> i32;
         fn getpgrp() -> i32;
+        #[cfg(feature = "fixtures")]
+        fn dup2(old: c_int, new: c_int) -> c_int;
     }
 
     // The same numbers on Mac and Linux.
@@ -82,6 +84,23 @@ mod tty {
         // SAFETY: ignoring a signal installs no code.
         unsafe { signal(SIGHUP, SIG_IGN) };
     }
+
+    /// Lets go of the terminal while this process goes on: its standard
+    /// input, output and error become the null device.
+    #[cfg(feature = "fixtures")]
+    pub fn let_go() {
+        use std::os::fd::AsRawFd;
+        let null = std::fs::File::options()
+            .read(true)
+            .write(true)
+            .open("/dev/null");
+        if let Ok(null) = null {
+            for fd in 0..3 {
+                // SAFETY: both are open descriptors; dup2 touches no memory.
+                unsafe { dup2(null.as_raw_fd(), fd) };
+            }
+        }
+    }
 }
 
 /// Windows has no terminal modes to restore from here, no foreground group
@@ -108,6 +127,9 @@ mod tty {
 
     #[cfg(feature = "fixtures")]
     pub fn ignore_hangup() {}
+
+    #[cfg(feature = "fixtures")]
+    pub fn let_go() {}
 }
 
 #[cfg(unix)]
@@ -130,6 +152,24 @@ mod unix {
         data.join("core.sock")
     }
 
+    /// The process at the other end of a connection, as the kernel says.
+    pub fn peer_pid(stream: &Stream) -> Option<u32> {
+        let pid = stream.peer_cred().ok()?.pid()?;
+        u32::try_from(pid).ok()
+    }
+
+    /// The process group of process `pid`.
+    #[allow(unsafe_code)]
+    pub fn group_of(pid: u32) -> Option<u32> {
+        // SAFETY: getpgid(2) takes and returns a pid_t, a 32-bit integer on
+        // Linux and macOS, and touches no memory.
+        unsafe extern "C" {
+            safe fn getpgid(pid: i32) -> i32;
+        }
+        let group = getpgid(i32::try_from(pid).ok()?);
+        u32::try_from(group).ok().filter(|&g| g > 0)
+    }
+
     /// Sends hang-up, or with `kill` the kill signal, to every process in
     /// process group `group`. Never to the core's own group, nor to 0 or 1,
     /// which `kill` reads as "this group" and "every process".
@@ -147,6 +187,99 @@ mod unix {
         let Ok(id) = i32::try_from(group) else { return };
         if id > 1 && group != std::process::id() {
             kill_group(-id, if kill { kill_signal } else { hang_up });
+        }
+    }
+
+    /// Whether process group `group` still has a process.
+    #[allow(unsafe_code)]
+    pub fn group_alive(group: u32) -> bool {
+        // SAFETY: as in `signal_group`; signal 0 only checks.
+        unsafe extern "C" {
+            #[link_name = "kill"]
+            safe fn probe(pid: i32, sig: i32) -> i32;
+        }
+        i32::try_from(group).is_ok_and(|id| id > 1 && probe(-id, 0) == 0)
+    }
+
+    /// The process groups that have a process in session `session`, the
+    /// id of the process that leads it or led it: every process a
+    /// terminal's child started, unless it left the session itself (with
+    /// `setsid`, as a daemon does). Empty where the processes cannot be
+    /// listed.
+    #[allow(unsafe_code)]
+    pub fn session_groups(session: u32) -> Vec<u32> {
+        // SAFETY: the signatures of getsid(2) and getpgid(2) on Linux and
+        // macOS: an integer in, an integer out, no memory touched.
+        unsafe extern "C" {
+            safe fn getsid(pid: i32) -> i32;
+            safe fn getpgid(pid: i32) -> i32;
+        }
+        let Ok(sid) = i32::try_from(session) else {
+            return Vec::new();
+        };
+        let mut groups: Vec<u32> = (processes().into_iter())
+            .filter(|&pid| pid > 1 && getsid(pid) == sid)
+            .filter_map(|pid| u32::try_from(getpgid(pid)).ok())
+            .collect();
+        groups.sort_unstable();
+        groups.dedup();
+        groups
+    }
+
+    /// Every process's id.
+    #[cfg(target_os = "linux")]
+    fn processes() -> Vec<i32> {
+        let entries = fs::read_dir("/proc").into_iter().flatten().flatten();
+        entries
+            .filter_map(|e| e.file_name().to_str()?.parse().ok())
+            .collect()
+    }
+
+    /// Every process's id.
+    #[cfg(target_os = "macos")]
+    #[allow(unsafe_code)]
+    fn processes() -> Vec<i32> {
+        use std::ffi::{c_int, c_void};
+        // SAFETY: the signature of proc_listallpids in libproc, part of
+        // the system library: it writes at most `size` bytes of process
+        // ids into `buffer` and returns how many it wrote; with no buffer
+        // it returns how many there are.
+        unsafe extern "C" {
+            fn proc_listallpids(buffer: *mut c_void, size: c_int) -> c_int;
+        }
+        // SAFETY: no buffer: nothing is written.
+        let n = unsafe { proc_listallpids(std::ptr::null_mut(), 0) };
+        let Ok(n) = usize::try_from(n) else {
+            return Vec::new();
+        };
+        // Room for processes started since.
+        let mut pids = vec![0i32; n + 64];
+        let size = c_int::try_from(pids.len() * size_of::<i32>()).unwrap_or(c_int::MAX);
+        // SAFETY: `pids` holds `size` bytes and lives through the call.
+        let got = unsafe { proc_listallpids(pids.as_mut_ptr().cast(), size) };
+        pids.truncate(usize::try_from(got).unwrap_or(0).min(pids.len()));
+        pids
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    fn processes() -> Vec<i32> {
+        Vec::new()
+    }
+
+    /// Sends hang-up, or with `kill` the kill signal, to process `pid` alone.
+    /// Never to this process, nor to 0 or 1.
+    #[allow(unsafe_code)]
+    pub fn signal_process(pid: u32, kill: bool) {
+        // SAFETY: as for `signal_group`: kill(2) takes two integers and
+        // touches no memory of this process.
+        unsafe extern "C" {
+            #[link_name = "kill"]
+            safe fn kill_process(pid: i32, sig: i32) -> i32;
+        }
+        let (hang_up, kill_signal) = (1, 9);
+        let Ok(id) = i32::try_from(pid) else { return };
+        if id > 1 && pid != std::process::id() {
+            kill_process(id, if kill { kill_signal } else { hang_up });
         }
     }
 
@@ -485,6 +618,12 @@ mod windows {
     /// the pipe already holds and then the end, and its blocked write fails.
     /// (`disconnect` would also free it, but discards what the pipe holds and
     /// fails the client's reads instead of ending them.)
+    /// Not asked on Windows, where no program holds a console the way a
+    /// foreground group holds a terminal (design §14, "Verify when reached").
+    pub fn peer_pid(_: &Stream) -> Option<u32> {
+        None
+    }
+
     pub fn hang_up(pipe: &Stream) {
         // SAFETY: the handle is open for the call, and a null OVERLAPPED
         // cancels every I/O in flight on it; mio takes a cancelled

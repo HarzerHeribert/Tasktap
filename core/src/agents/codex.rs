@@ -7,7 +7,8 @@
 //! hooks.state=…`, keeping the trust the person gave their own hooks. The
 //! run's folder is trusted for the run with `-c projects=…`, as 1.2 trusted
 //! a folder the person had chosen, so that Codex does not stop at its trust
-//! prompt and nothing is written to `~/.codex`. It runs without the shared
+//! prompt and nothing is written to `~/.codex`; the setting adds that folder
+//! to the person's own trusted folders, which still apply. It runs without the shared
 //! background server (`--no-daemon`), so these settings are its own, and
 //! with `--approve-for-me`, as 1.2 had it.
 //!
@@ -158,6 +159,9 @@ impl Agent for Codex {
     fn launch(&self, run: &Run) -> Vec<String> {
         let cwd = run.cwd.to_string_lossy();
         let mut argv: Vec<String> = vec![self.program().into(), "--no-daemon".into()];
+        // An inline table, which Codex adds to the person's `projects`; the
+        // dotted `projects.<folder>.trust_level` breaks on a folder with a
+        // dot, since Codex splits the key on every one.
         argv.extend([
             "-c".into(),
             format!("projects={{{}={{trust_level=\"trusted\"}}}}", toml(&cwd)),
@@ -186,6 +190,12 @@ impl Agent for Codex {
                 ["-c".into(), hook.into()]
             })
             .collect()
+    }
+
+    /// Its sign-in with an API key, and the folder it keeps its sign-in and
+    /// settings in when moved.
+    fn variables(&self) -> &'static [&'static str] {
+        &["OPENAI_API_KEY", "CODEX_HOME"]
     }
 
     fn probe(&self, exe: &Path, cwd: &Path) -> Option<Probe> {
@@ -290,6 +300,10 @@ impl Agent for Codex {
                 let event = Event::Continued { request: None };
                 said(format!("{name}:{call}"), subagent, resume, event)
             }
+            // A sub-agent's request is the sub-agent's, which the core does not
+            // follow (design §5, the guards): no hook waits for it, and Codex
+            // asks in its own terminal.
+            "PermissionRequest" if subagent => return Ok(None),
             "PermissionRequest" => {
                 let what = input.map(Value::to_string).unwrap_or_default();
                 let request = format!(
@@ -368,5 +382,6 @@ fn asked(request: String, input: Option<&Value>) -> Ask {
             2000,
         ),
         detail: (all.len() > 1).then(|| fit(&all.join("\n"), 16 << 10)),
+        source: None,
     }
 }

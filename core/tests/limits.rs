@@ -12,9 +12,9 @@ use tasktap_core::client::Client;
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
     AnswerQuestion, Ask, Capture, Change, Control, DeviceId, Empty, Event as Said, FixtureRecords,
-    FixtureRoute, Frame, HEADER, Identity, Layout, LayoutPatch, MAX_FRAME, MAX_LINE, MAX_POINTS,
-    MAX_TEXT, Place, Project, ProjectId, ProjectKind, ProjectPatch, Put, PutTarget, QuestionKind,
-    Response, ResultId, Rows, Set, Stroke, Subscribe, Thought, ThoughtId, encode_control, json_len,
+    Frame, HEADER, Identity, Layout, LayoutPatch, MAX_FRAME, MAX_LINE, MAX_POINTS, MAX_TEXT, Place,
+    Project, ProjectId, ProjectKind, ProjectPatch, Put, PutTarget, QuestionKind, Response,
+    ResultId, Route, Rows, Set, Stroke, Subscribe, Thought, ThoughtId, encode_control, json_len,
 };
 
 /// Most bytes of JSON in one snapshot chunk (design §1).
@@ -51,6 +51,7 @@ fn largest_ask(request: &str) -> Ask {
         },
         prompt: escaped(MAX_LINE),
         detail: Some(escaped(MAX_TEXT)),
+        source: None,
     }
 }
 
@@ -340,7 +341,7 @@ fn the_largest_row_of_every_collection_goes_out_in_a_snapshot_and_a_change() {
     s.w.ok::<call::ThoughtCapture>(&picked);
     let brief = escaped(MAX_LINE);
     s.script(
-        FixtureRoute::Clear {
+        Route::Clear {
             to: Place::Project(p),
             brief,
         },
@@ -434,7 +435,10 @@ fn the_largest_row_of_every_collection_goes_out_in_a_snapshot_and_a_change() {
     }
     let s_row = m.session(session);
     assert_eq!(s_row.activity.len(), 40);
-    assert!(s_row.activity.iter().all(|l| l.chars().count() == 200));
+    // The second turn's start is its last line.
+    let (started, lines) = s_row.activity.split_last().unwrap();
+    assert_eq!(started, tasktap_core::state::TURN_STARTED);
+    assert!(lines.iter().all(|l| l.chars().count() == 200));
     assert_eq!(s_row.error.as_deref(), Some(escaped(MAX_LINE).as_str()));
     assert_eq!(m.results_of(a)[0].summary, "\u{1}".repeat(200));
     assert_eq!(

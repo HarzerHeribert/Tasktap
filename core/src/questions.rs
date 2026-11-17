@@ -36,7 +36,7 @@ pub struct Questions {
     waits: Vec<Wait>,
     /// The thoughts `glance` counts, and how many there are of each kind.
     counted: HashMap<ThoughtId, Count>,
-    counts: [u32; 3],
+    counts: [u32; 4],
     /// Each open question with the revision it opened at: `glance` shows the
     /// oldest, whichever clock minted its id.
     open: BTreeMap<QuestionId, Rev>,
@@ -57,6 +57,8 @@ enum Count {
     NeedsYou,
     /// Done and not read yet.
     Done,
+    /// Failed and not read yet.
+    Failed,
 }
 
 impl Questions {
@@ -65,6 +67,7 @@ impl Questions {
             Status::Working => Some(Count::Working),
             Status::NeedsYou => Some(Count::NeedsYou),
             Status::Done if !thought.read => Some(Count::Done),
+            Status::Failed if !thought.read => Some(Count::Failed),
             _ => None,
         };
         self.count(thought.id, now);
@@ -125,7 +128,7 @@ fn open(core: &mut Core, s: &Session, ask: Ask) -> Result<Question, Refusal> {
         thought_id: s.thought_id,
         session_id: Some(s.id),
         turn: Some(s.turn),
-        source: QuestionSource::Agent,
+        source: ask.source.unwrap_or(QuestionSource::Agent),
         kind: ask.kind,
         prompt: ask.prompt,
         detail: ask.detail,
@@ -344,12 +347,13 @@ pub fn refresh(core: &mut Core) {
     if q.focus.is_some_and(|f| !q.open.contains_key(&f)) {
         q.focus = None;
     }
-    let [working, needs_you, done] = q.counts;
+    let [working, needs_you, done, failed] = q.counts;
     let glance = Glance {
         rev: Rev::ZERO,
         working,
         needs_you,
         done,
+        failed,
         question: (q.focus).or_else(|| {
             q.open
                 .iter()

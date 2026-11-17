@@ -12,12 +12,11 @@ use std::time::{Duration, Instant};
 use tasktap_core::client::Client;
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
-    Action, AddProject, AnswerQuestion, Ask, Assign, AttemptId, CallId, Capture, Changes, Control,
-    Event as Said, FixtureCandidate, FixtureClock, FixtureRoute, Frame, History, Input, Limit,
-    Mode, Outcome, Phase, Place, PrefPatch, ProjectId, Put, PutTarget, QuestionId, QuestionKind,
-    QuestionSource, QuestionState, Reason, Ref, ReplyVia, Response, ResultKind, Retire, Rev,
-    Secret, SessionState, Settle, Source, Start, Status, TerminalState, Thought, ThoughtId, When,
-    Workdir,
+    Action, AddProject, AnswerQuestion, Ask, Assign, AttemptId, CallId, Candidate, Capture,
+    Changes, Control, Event as Said, FixtureClock, Frame, History, Input, Limit, Mode, Outcome,
+    Phase, Place, PrefPatch, ProjectId, Put, PutTarget, QuestionId, QuestionKind, QuestionSource,
+    QuestionState, Reason, Ref, ReplyVia, Response, ResultKind, Retire, Rev, Route, Secret,
+    SessionState, Settle, Source, Start, Status, TerminalState, Thought, ThoughtId, When, Workdir,
 };
 
 fn code<T: Debug>(result: Result<T, Error>) -> Code {
@@ -111,6 +110,47 @@ fn a_capture_is_routed_held_and_launched_when_the_hold_ends() {
     agent.ready();
     s.w.sync();
     assert_eq!(s.w.model.session(session).state, SessionState::Idle);
+}
+
+/// A thought undone before it started is the person's again, as a note is:
+/// its text can be changed and it can be thrown away, so retyping it leaves
+/// nothing behind. One that ever ran stays the state machine's, also when
+/// it is undone after a retry.
+#[test]
+fn a_thought_undone_before_it_started_is_edited_and_deleted_as_a_note_is() {
+    let mut s = Scene::new("qd");
+    let t = s.capture("fix the login");
+    s.w.ok::<call::ThoughtStop>(&Ref { id: t });
+    assert_eq!(s.w.model.status(t), Status::Captured);
+    let text = |id, text: &str| PutTarget::Thoughts {
+        id,
+        patch: tasktap_proto::NotePatch {
+            text: Some(text.into()),
+            strokes: None,
+        },
+    };
+    s.w.ok::<call::Put>(&Put {
+        target: text(t, "fix the logout"),
+        if_rev: None,
+    });
+    assert_eq!(s.w.model.thought(t).text, "fix the logout");
+    s.w.ok::<call::Delete>(&tasktap_proto::Delete::Thoughts { id: t });
+    assert!(!s.w.model.thoughts.contains_key(&t));
+
+    let (ran, _, mut agent) = s.launch("tidy the tests");
+    agent.say(Said::TurnFailed { error: None });
+    s.w.sync();
+    s.w.ok::<call::ThoughtRetry>(&Ref { id: ran });
+    s.w.ok::<call::ThoughtStop>(&Ref { id: ran });
+    assert_eq!(s.w.model.status(ran), Status::Captured);
+    let put = Put {
+        target: text(ran, "something else"),
+        if_rev: None,
+    };
+    assert_eq!(s.w.refused::<call::Put>(&put).code, Code::Invalid);
+    let delete = tasktap_proto::Delete::Thoughts { id: ran };
+    assert_eq!(s.w.refused::<call::Delete>(&delete).code, Code::Invalid);
+    assert_eq!(s.w.model.thought(ran).text, "tidy the tests");
 }
 
 #[test]
@@ -234,20 +274,65 @@ fn a_hold_that_ends_with_nobody_connected_lets_the_core_go() {
 }
 
 #[test]
+fn a_hold_that_ends_while_the_core_shuts_down_starts_nothing() {
+    let mut s = Scene::wall("qshut");
+    set_hold(&mut s, 1);
+    // A terminal that ignores hang-up keeps the core shutting down until
+    // its kill, 2 s later: past the end of the hold.
+    let argv = [
+        EXE,
+        "fixture-terminal",
+        "ignore-hup",
+        "print 1",
+        "sleep 30000",
+    ];
+    let start = tasktap_proto::StartTerminal {
+        project: None,
+        argv: argv.map(String::from).to_vec(),
+        title: None,
+    };
+    let mut screen = Screen::start(&s.core, tasktap_proto::TerminalId::mint(), Some(start));
+    screen.until(&tasktap_core::fixture_line(0));
+    let t = s.capture("fix the build");
+    let held = Instant::now();
+    assert_eq!(s.w.model.status(t), Status::Routed);
+    let Scene { core, data, w, .. } = s;
+    drop((w, screen));
+    core.stop();
+    // Windows ends the terminal when it closes its console, so there the
+    // core may be gone before the hold would have ended.
+    if cfg!(unix) {
+        assert!(
+            held.elapsed() >= Duration::from_secs(1),
+            "the hold ended while the core shut down: {:?}",
+            held.elapsed()
+        );
+    }
+    // Nothing launched: the thought waits for the person, as after a restart.
+    let s = Scene::on(Core::start(&data.0), data);
+    let th = s.w.model.thought(t);
+    assert_eq!(
+        (th.status, th.session_id, th.hold_until),
+        (Status::Routed, None, None)
+    );
+    assert!(s.w.model.sessions.is_empty(), "no session started");
+}
+
+#[test]
 fn an_ambiguous_route_asks_and_an_unknown_one_keeps_an_idea() {
     let mut s = Scene::new("qr");
     let site = s.project("site");
     let candidates = vec![
-        FixtureCandidate {
+        Candidate {
             label: "app".into(),
             to: Place::Project(s.project),
         },
-        FixtureCandidate {
+        Candidate {
             label: "site".into(),
             to: Place::Project(site),
         },
     ];
-    let route = FixtureRoute::Ambiguous {
+    let route = Route::Ambiguous {
         prompt: "Which project?".into(),
         candidates,
     };
@@ -269,7 +354,7 @@ fn an_ambiguous_route_asks_and_an_unknown_one_keeps_an_idea() {
     let th = s.w.model.thought(t);
     assert_eq!((th.status, th.project_id), (Status::Routed, Some(site)));
 
-    s.script(FixtureRoute::Unknown, None);
+    s.script(Route::Unknown, None);
     let idea = s.capture("someday: dark mode");
     let th = s.w.model.thought(idea);
     assert_eq!((th.status, th.mode), (Status::Captured, Mode::Note));
@@ -318,7 +403,7 @@ fn a_capture_repeats_by_id_and_calls_that_do_not_fit_are_refused() {
         code(s.w.call::<call::ThoughtRetry>(&Ref { id })),
         Code::Conflict
     );
-    s.script(FixtureRoute::Unknown, None);
+    s.script(Route::Unknown, None);
     let idea = s.capture("an idea");
     assert_eq!(code(start(&mut s, idea, AttemptId::mint())), Code::Conflict);
     // A working thought cannot be picked again.
@@ -558,7 +643,7 @@ fn reading_an_ended_thought_clears_done_and_lets_it_leave_for_history() {
 }
 
 #[test]
-fn without_its_fixtures_a_build_routes_nothing_and_runs_only_agents_it_has() {
+fn without_its_fixtures_a_build_routes_by_name_and_runs_only_agents_it_has() {
     let data = Folder::new("qn");
     let core = Core::start(&data.0);
     let mut w = core.watch();
@@ -571,17 +656,12 @@ fn without_its_fixtures_a_build_routes_nothing_and_runs_only_agents_it_has() {
     };
     let project = w.ok::<call::ProjectAdd>(&add);
 
-    // Routing needs the router: refused, and nothing is stored.
+    // The local router routes it: naming no project, it stays an idea
+    // (`tests/route.rs` proves the rest).
     let t = ThoughtId::mint();
-    let e = w
-        .call::<call::ThoughtCapture>(&typed(t, "fix it"))
-        .unwrap_err();
-    assert_eq!(
-        (e.code, e.message.as_str()),
-        (Code::Failed, "this build has no router yet")
-    );
-    w.sync();
-    assert!(w.model.thoughts.is_empty());
+    w.ok::<call::ThoughtCapture>(&typed(t, "fix it"));
+    let th = w.model.thought(t);
+    assert_eq!((th.status, th.mode), (Status::Captured, Mode::Note));
 
     // A pick needs no router: with no hold it launches at once, for real.
     // The agent it names is not installed here, so the run fails and says
@@ -608,6 +688,7 @@ fn without_its_fixtures_a_build_routes_nothing_and_runs_only_agents_it_has() {
         ..typed(picked, "fix it")
     };
     w.ok::<call::ThoughtCapture>(&capture);
+    w.until("the run failed", |m| m.status(picked) == Status::Failed);
     let th = w.model.thought(picked);
     assert_eq!(
         (th.status, th.reason),
@@ -660,20 +741,26 @@ fn session_events_come_from_the_token_and_drive_its_session() {
         (SessionState::Working, 1, Some(t))
     );
     // Activity is kept in memory, sent with the session, and stays on it.
+    // The turn's start is its first line, so a turn that uses no tool
+    // still shows it is under way.
+    let started = tasktap_core::state::TURN_STARTED;
+    assert_eq!(s.w.model.session(session).activity, [started]);
     let line = "Editing src/lib.rs";
     agent.say(Said::Activity { text: line.into() });
-    s.w.until("the activity", |m| m.session(session).activity == [line]);
+    s.w.until("the activity", |m| {
+        m.session(session).activity == [started, line]
+    });
     agent.finish("Fixed.\nThe login works again.");
     s.w.sync();
     let sess = s.w.model.session(session);
     assert_eq!(
         (sess.state, sess.activity.clone()),
-        (SessionState::Idle, vec![line.into()])
+        (SessionState::Idle, vec![started.into(), line.into()])
     );
     assert_eq!(s.w.model.status(t), Status::Done);
     assert_eq!(s.w.model.results_of(t)[0].summary, "Fixed.");
     let fresh = s.core.watch();
-    assert_eq!(fresh.model.session(session).activity, [line]);
+    assert_eq!(fresh.model.session(session).activity, [started, line]);
 
     // The same event id again is applied once.
     agent.repeat(Said::TurnStarted { prompt: None });
@@ -700,7 +787,8 @@ fn an_event_for_another_turn_or_from_a_sub_agent_changes_nothing() {
         (None, true, Said::TurnInterrupted),
         (Some(1), false, ask("late")),
         (None, true, ask("sub")),
-        (Some(3), false, Said::TurnStarted { prompt: None }),
+        // A turn start must name the next turn, 3; 4 is another.
+        (Some(4), false, Said::TurnStarted { prompt: None }),
     ] {
         agent.try_say_as(turn, subagent, said).unwrap();
     }
@@ -732,6 +820,31 @@ fn a_token_whose_terminal_runs_no_session_reaches_nothing() {
 }
 
 // Questions (design §6).
+
+#[test]
+fn a_question_says_whether_it_is_the_agents_own_or_a_permission_and_never_the_routers() {
+    let mut s = Scene::new("qs");
+    let (_, _, mut agent) = s.launch("deploy");
+    agent.ask("own", "Which branch?");
+    agent.ask_with(Ask {
+        source: Some(QuestionSource::Permission),
+        ..confirm("rm", "Allow rm -rf build?")
+    });
+    s.w.until("both open", |m| m.questions.len() == 2);
+    let source = |prompt: &str| {
+        let q = s.w.model.questions.values().find(|q| q.prompt == prompt);
+        q.unwrap().source
+    };
+    assert_eq!(source("Which branch?"), QuestionSource::Agent);
+    assert_eq!(source("Allow rm -rf build?"), QuestionSource::Permission);
+    let router = Ask {
+        source: Some(QuestionSource::Router),
+        ..confirm("route", "Where to?")
+    };
+    assert_eq!(agent.ask_now(router).unwrap_err().code, Code::Invalid);
+    s.w.sync();
+    assert_eq!(s.w.model.questions.len(), 2, "nothing opened");
+}
 
 #[test]
 fn a_waited_question_needs_you_until_answered_and_its_waiter_gets_the_stored_answer() {
@@ -1257,9 +1370,9 @@ fn glance_shows_the_oldest_open_question_whichever_clock_runs() {
     let mut s = Scene::new("qk");
     // The held clock runs a day ahead of the system's.
     s.tick(24 * 60 * 60 * 1000);
-    let route = FixtureRoute::Ambiguous {
+    let route = Route::Ambiguous {
         prompt: "Which project?".into(),
-        candidates: vec![FixtureCandidate {
+        candidates: vec![Candidate {
             label: "app".into(),
             to: Place::Project(s.project),
         }],
@@ -1302,6 +1415,31 @@ fn glance_counts_working_needs_you_and_done_and_shows_retiring() {
     s.w.ok::<call::CoreRetire>(&retire);
     assert!(s.w.model.glance().retiring);
     s.core.wait();
+}
+
+#[test]
+fn glance_counts_failed_thoughts_until_they_are_read_or_retried() {
+    let mut s = Scene::new("qf");
+    let route = clear(s.project);
+    s.script(route.clone(), Some("no terminal here"));
+    let (a, b) = (s.capture("one"), s.capture("two"));
+    s.tick(HOLD_MS);
+    s.w.sync();
+    assert_eq!(
+        (s.w.model.status(a), s.w.model.status(b)),
+        (Status::Failed, Status::Failed)
+    );
+    assert_eq!(s.w.model.glance().failed, 2);
+    // Seen: no longer counted.
+    s.w.ok::<call::ThoughtRead>(&Ref { id: a });
+    assert_eq!(s.w.model.glance().failed, 1);
+    // Retried: routed again, so not failed.
+    s.script(route, None);
+    s.w.ok::<call::ThoughtRetry>(&Ref { id: b });
+    assert_eq!(s.w.model.status(b), Status::Routed);
+    assert_eq!(s.w.model.glance().failed, 0);
+    // A fresh subscriber's snapshot says the same.
+    assert_eq!(s.core.watch().model.glance().failed, 0);
 }
 
 #[test]

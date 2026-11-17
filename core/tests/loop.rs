@@ -20,9 +20,8 @@ use Status::{Captured, Done, NeedsYou, Routed, Working};
 use common::*;
 use tasktap_proto::call;
 use tasktap_proto::{
-    Answer, AnswerQuestion, AttemptId, Control, Empty, FixtureCandidate, FixtureRoute,
-    FixtureScript, Frame, Place, QuestionState, Ref, Response, SessionId, SessionState, Start,
-    Status, TerminalState,
+    Answer, AnswerQuestion, AttemptId, Candidate, Control, Empty, FixtureScript, Frame, Place,
+    QuestionState, Ref, Response, Route, SessionId, SessionState, Start, Status, TerminalState,
 };
 
 /// The agent of the loop: the fixture agent in the terminal the launch
@@ -32,6 +31,10 @@ struct InTerminal(Screen);
 impl InTerminal {
     /// The agent the launch started, once it runs.
     fn start(s: &mut Scene, session: SessionId) -> InTerminal {
+        // The launcher finds the program off the core's thread.
+        s.w.until("the launch stored its terminal", |m| {
+            m.session(session).terminal_id.is_some()
+        });
         let terminal = s.w.model.session(session).terminal_id;
         let terminal = terminal.expect("the launch stored its terminal");
         let mut screen = Screen::open(&s.core, terminal);
@@ -192,9 +195,9 @@ fn the_loop() {
 fn a_restart_with_a_router_question_open_keeps_it_answerable() {
     let mut s = Scene::real("tr", "fixture");
     let other = s.project;
-    let route = FixtureRoute::Ambiguous {
+    let route = Route::Ambiguous {
         prompt: "Which project?".into(),
-        candidates: vec![FixtureCandidate {
+        candidates: vec![Candidate {
             label: "app".into(),
             to: Place::Project(other),
         }],

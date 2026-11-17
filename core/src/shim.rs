@@ -96,7 +96,10 @@ pub fn deliver(core: &mut Core, d: Deliver) -> Option<Deliver> {
         effects::failed(core, d.attempt, UNHELD.into());
         return None;
     };
-    let held = link.call::<call::ShimHold>(&ShimHold { hold: true });
+    let held = link.call::<call::ShimHold>(&ShimHold {
+        hold: true,
+        stop: false,
+    });
     let me = core.me.clone();
     tokio::task::spawn_local(async move {
         let held = tokio::time::timeout(ANSWER, held).await;
@@ -104,7 +107,10 @@ pub fn deliver(core: &mut Core, d: Deliver) -> Option<Deliver> {
         let mut core = core.borrow_mut();
         if !matches!(held, Ok(Ok(Outcome::Ok(_)))) {
             // A late yes must not keep the shim waiting for a release.
-            link.call::<call::ShimHold>(&ShimHold { hold: false });
+            link.call::<call::ShimHold>(&ShimHold {
+                hold: false,
+                stop: false,
+            });
             effects::failed(&mut core, d.attempt, UNHELD.into());
             return;
         }
@@ -113,15 +119,42 @@ pub fn deliver(core: &mut Core, d: Deliver) -> Option<Deliver> {
             paused.push((d, Some(link)));
             return;
         }
-        type_held(&mut core, d, &link);
+        type_held(&mut core, d, link);
     });
     None
 }
 
-/// Types a follow-up while its shim holds the terminal, then lets the shim go.
-fn type_held(core: &mut Core, d: Deliver, link: &Link) {
-    effects::typed(core, d, true);
-    link.call::<call::ShimHold>(&ShimHold { hold: false });
+/// Has the shim of an adopted session end its agent, whose session the
+/// state machine has ended (`thought.stop`). A shim that cannot be asked,
+/// having offered no `shim.hold`, leaves its agent running unobserved.
+pub fn stop(core: &mut Core, session: SessionId) {
+    let shim = core
+        .shims
+        .adopted
+        .iter()
+        .find(|(s, link)| *s == session && link.peer().is_some_and(|peer| peer.holds));
+    if let Some((_, link)) = shim {
+        let stop = ShimHold {
+            hold: false,
+            stop: true,
+        };
+        link.call::<call::ShimHold>(&stop);
+    }
+}
+
+/// Types a follow-up while its shim holds the terminal, and lets the shim
+/// go once the text is written, or none of it is still to come.
+fn type_held(core: &mut Core, d: Deliver, link: Rc<Link>) {
+    let held = effects::Held {
+        by: crate::launch::Holder(link.pid.get()),
+        release: Box::new(move |_| {
+            link.call::<call::ShimHold>(&ShimHold {
+                hold: false,
+                stop: false,
+            });
+        }),
+    };
+    effects::typed(core, d, Some(held));
 }
 
 /// `fixture.script`'s `pause`: follow-ups wait untyped until a script
@@ -137,9 +170,9 @@ pub fn pause(core: &mut Core, pause: bool) {
     }
     for (d, link) in waiting.unwrap_or_default() {
         match link {
-            None => drop(effects::typed(core, d, false)),
+            None => drop(effects::typed(core, d, None)),
             Some(link) if core.links.iter().any(|l| Rc::ptr_eq(l, &link)) => {
-                type_held(core, d, &link);
+                type_held(core, d, link);
             }
             Some(_) => drop(effects::failed(core, d.attempt, UNHELD.into())),
         }

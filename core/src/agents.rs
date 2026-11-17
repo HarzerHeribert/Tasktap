@@ -94,6 +94,94 @@ pub struct Probe {
     pub read: Reader,
 }
 
+/// Something an agent shows in its terminal and waits on there before it
+/// is ready.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Prompt {
+    /// Words its terminal shows then, as text: a control sequence or a run
+    /// of spaces between them is one space.
+    pub shows: &'static str,
+    /// The question's prompt.
+    pub asks: &'static str,
+}
+
+/// Reads a terminal's output for the prompts of its agent: the text without
+/// the terminal's control sequences, each prompt found once. The core reads
+/// with it only until the agent is ready, never to follow its work.
+pub struct Watch {
+    prompts: &'static [Prompt],
+    found: Vec<bool>,
+    /// The end of the text read so far.
+    tail: Vec<u8>,
+    escape: Escape,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Escape {
+    No,
+    Esc,
+    /// `ESC [` up to its final byte.
+    Csi,
+    /// `ESC ]` up to BEL or `ESC \`.
+    Osc,
+    OscEsc,
+}
+
+impl Watch {
+    /// None for an agent that shows nothing to wait on.
+    pub fn new(prompts: &'static [Prompt]) -> Option<Watch> {
+        (!prompts.is_empty()).then(|| Watch {
+            prompts,
+            found: vec![false; prompts.len()],
+            tail: Vec::new(),
+            escape: Escape::No,
+        })
+    }
+
+    /// Reads more output: the first prompt it completes, once.
+    pub fn read(&mut self, bytes: &[u8]) -> Option<&'static Prompt> {
+        let longest = self
+            .prompts
+            .iter()
+            .map(|p| p.shows.len())
+            .max()
+            .unwrap_or(0);
+        let mut first = None;
+        for &b in bytes {
+            let (escape, text) = match (self.escape, b) {
+                (Escape::No, 0x1b) => (Escape::Esc, None),
+                (Escape::No, b) if b <= b' ' || b == 0x7f => (Escape::No, Some(b' ')),
+                (Escape::No, b) => (Escape::No, Some(b)),
+                (Escape::Esc, b'[') => (Escape::Csi, None),
+                (Escape::Esc, b']') => (Escape::Osc, None),
+                (Escape::Esc, _) => (Escape::No, Some(b' ')),
+                (Escape::Csi, 0x40..=0x7e) => (Escape::No, Some(b' ')),
+                (Escape::Csi, _) => (Escape::Csi, None),
+                (Escape::Osc, 0x07) => (Escape::No, Some(b' ')),
+                (Escape::Osc, 0x1b) => (Escape::OscEsc, None),
+                (Escape::Osc, _) => (Escape::Osc, None),
+                (Escape::OscEsc, _) => (Escape::No, Some(b' ')),
+            };
+            self.escape = escape;
+            let Some(c) = text else { continue };
+            if c == b' ' && self.tail.last() == Some(&b' ') {
+                continue;
+            }
+            self.tail.push(c);
+            if self.tail.len() > 2 * longest {
+                self.tail.drain(..self.tail.len() - longest);
+            }
+            for (i, p) in self.prompts.iter().enumerate() {
+                if !self.found[i] && self.tail.ends_with(p.shows.as_bytes()) {
+                    self.found[i] = true;
+                    first = first.or(Some(p));
+                }
+            }
+        }
+        first
+    }
+}
+
 pub trait Agent: Sync {
     /// Its name: the shim's program name and the `<agent>` of `tasktap hook`.
     fn id(&self) -> &'static str;
@@ -121,6 +209,20 @@ pub trait Agent: Sync {
 
     fn detect(&self) -> Detect;
 
+    /// Variables of the core's own environment that its runs need, such as
+    /// the key a person signs it in with (design §7, §9): the only ones a
+    /// terminal gets beyond the fixed list. None for most agents.
+    fn variables(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// What it may show in its terminal and wait on there before it is
+    /// ready, before any hook runs (design §7): a question the core opens,
+    /// answered in that terminal. None for most agents.
+    fn prompts(&self) -> &'static [Prompt] {
+        &[]
+    }
+
     /// What a hook says, from the arguments after `hook <id>` and the
     /// payload on standard input: `None` when nothing the core keeps, `Err`
     /// only when it is no payload at all, which the hook reports and exits.
@@ -139,6 +241,25 @@ pub fn find(id: &str) -> Option<&'static dyn Agent> {
 /// Every agent this build has, the default first.
 pub fn all() -> &'static [&'static dyn Agent] {
     AGENTS
+}
+
+/// The agents a core detects as it starts (`agents` collection, design §7):
+/// every one, except in a build with the test fixtures, where only the
+/// fixture agents, so that a test never runs a real agent's commands.
+pub fn at_start() -> Vec<&'static dyn Agent> {
+    #[cfg(feature = "fixtures")]
+    let detected = |a: &&dyn Agent| a.program() == crate::roles::fixture::PROGRAM;
+    #[cfg(not(feature = "fixtures"))]
+    let detected = |_: &&dyn Agent| true;
+    AGENTS.iter().copied().filter(detected).collect()
+}
+
+/// The variables every agent declares it needs, each once.
+pub fn variables() -> Vec<&'static str> {
+    let mut all: Vec<&'static str> = AGENTS.iter().flat_map(|a| a.variables()).copied().collect();
+    all.sort_unstable();
+    all.dedup();
+    all
 }
 
 /// The registry: the one list that names agents outside their adapters.
@@ -278,6 +399,7 @@ pub(crate) fn permission(agent: &str, request: String, tool: &str, input: Option
         kind: tasktap_proto::QuestionKind::Confirm,
         prompt: fit(&format!("{agent} asks to {what}"), 1000),
         detail: detail.map(|d| fit(&d, 16 << 10)),
+        source: Some(tasktap_proto::QuestionSource::Permission),
     }
 }
 
@@ -352,6 +474,18 @@ impl Agent for Fixture {
 
     fn attach(&self, exe: &Path) -> Vec<OsString> {
         vec!["--hook".into(), exe.into()]
+    }
+
+    fn variables(&self) -> &'static [&'static str] {
+        &["FIXTURE_AGENT_KEY"]
+    }
+
+    fn prompts(&self) -> &'static [Prompt] {
+        const TRUST: &[Prompt] = &[Prompt {
+            shows: "Do you trust the files in this folder?",
+            asks: "The fixture agent is asking whether to trust this folder",
+        }];
+        if self.events { TRUST } else { &[] }
     }
 
     fn probe(&self, _: &Path, _: &Path) -> Option<Probe> {

@@ -212,6 +212,10 @@ impl Store {
             return Err(Error::Io(std::io::Error::other(why)));
         }
         db.pragma_update(None, "synchronous", "FULL")?;
+        // Not F_FULLFSYNC on macOS (design §3): it made a commit, which holds
+        // up the core's thread, a hundred times slower, and what a power cut
+        // loses the recovery pass closes.
+        db.pragma_update(None, "fullfsync", false)?;
         migrate(&mut db, path, migrations)?;
         db.pragma_update(None, "foreign_keys", true)?;
 
@@ -898,7 +902,7 @@ impl<'s> Tx<'s> {
                         put: self.all(Table::$table, "WHERE live = 1 ORDER BY id", [])?,
                         del: Vec::new(),
                     }),)*
-                    Collection::Glance => return Ok(None),
+                    Collection::Glance | Collection::Agents => return Ok(None),
                 }
             };
         }
@@ -1011,6 +1015,17 @@ impl<'s> Tx<'s> {
             return Err(Error::Reference);
         }
         self.delete(Table::Terminals, &id)
+    }
+
+    /// Whether a run of the thought was ever launched or a follow-up typed:
+    /// a launch attempt was written for it (design §3).
+    pub fn launched(&self, thought: ThoughtId) -> Result<bool> {
+        Ok(self
+            .db
+            .prepare_cached(
+                "SELECT EXISTS (SELECT 1 FROM attempts WHERE kind = 'launch' AND target = ?1)",
+            )?
+            .query_row([key(&thought)?], |r| r.get(0))?)
     }
 
     pub fn delete_thought(&mut self, id: ThoughtId) -> Result<bool> {

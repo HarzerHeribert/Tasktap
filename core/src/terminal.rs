@@ -11,6 +11,7 @@
 #[cfg(feature = "fixtures")]
 pub mod fixture;
 mod process;
+mod queries;
 mod ring;
 
 use crate::calls::Cx;
@@ -20,7 +21,7 @@ use crate::state::{self, Error as Refused};
 use crate::store::AttemptKind;
 use crate::stream;
 use process::{Plan, Process, Report};
-use ring::{Attachment, Feed, INPUT, Saved, Term};
+use ring::{Attachment, Feed, Saved, Term};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -48,26 +49,84 @@ pub struct Terminals {
     shims: std::cell::OnceCell<Option<PathBuf>>,
     /// The core is shutting down: nothing new starts.
     closing: bool,
+    kills: Kills,
+    /// Terminals that ended and whose history is being written, off the
+    /// core's thread: a client attaching meanwhile replays it from memory.
+    saving: HashMap<TerminalId, Rc<RefCell<Term>>>,
+}
+
+/// The kills that stops armed, each due at its deadline: a stop's kill
+/// outlives its terminal, and shutdown carries out the ones still armed
+/// before the core exits, so that what ignored hang-up never outlives it.
+#[derive(Clone, Default)]
+struct Kills(Rc<RefCell<Armed>>);
+
+#[derive(Default)]
+struct Armed {
+    next: u64,
+    due: HashMap<u64, (tokio::time::Instant, process::Doomed)>,
+}
+
+impl Kills {
+    /// Kills what `doomed` names [`KILL`] from now: one timer, which fires once.
+    fn arm(&self, doomed: process::Doomed) {
+        let at = tokio::time::Instant::now() + KILL;
+        let id = {
+            let mut armed = self.0.borrow_mut();
+            armed.next += 1;
+            let id = armed.next;
+            armed.due.insert(id, (at, doomed));
+            id
+        };
+        let kills = self.clone();
+        tokio::task::spawn_local(async move {
+            tokio::time::sleep_until(at).await;
+            let due = kills.0.borrow_mut().due.remove(&id);
+            if let Some((_, doomed)) = due {
+                doomed.kill();
+            }
+        });
+    }
+
+    /// Carries out every kill still armed, each at its deadline, unless
+    /// what it names has ended by itself.
+    async fn finish(&self) {
+        let mut due: Vec<_> = self.0.borrow_mut().due.drain().map(|(_, d)| d).collect();
+        due.sort_by_key(|&(at, _)| at);
+        for (at, doomed) in due {
+            if doomed.alive() {
+                tokio::time::sleep_until(at).await;
+                doomed.kill();
+            }
+        }
+    }
 }
 
 struct Live {
     term: Rc<RefCell<Term>>,
     process: Process,
+    kills: Kills,
     project: Option<ProjectId>,
     stopping: bool,
     /// The child exited with this code.
     exited: Option<Option<u32>>,
     /// The output ended.
     closed: bool,
+    /// Reads the output for what its agent waits on before it is ready.
+    watch: Option<crate::agents::Watch>,
 }
 
 impl Terminals {
     pub fn new(data: &Path) -> Terminals {
+        // Taken at start, from the environment the core was started with.
+        process::declared();
         Terminals {
             live: HashMap::new(),
             data: data.to_owned(),
             shims: Default::default(),
             closing: false,
+            kills: Kills::default(),
+            saving: HashMap::new(),
         }
     }
 
@@ -86,7 +145,7 @@ impl Terminals {
 
     /// Live terminals, which keep the core running (design §3).
     pub fn count(&self) -> u32 {
-        self.live.len() as u32
+        (self.live.len() + self.saving.len()) as u32
     }
 
     pub fn running(&self, id: TerminalId) -> bool {
@@ -111,10 +170,7 @@ impl Live {
 
     fn hang_up(&mut self) {
         if let Some(doomed) = self.process.hang_up() {
-            tokio::task::spawn_local(async move {
-                tokio::time::sleep(KILL).await;
-                doomed.kill();
-            });
+            self.kills.arm(doomed);
         }
     }
 }
@@ -234,10 +290,12 @@ pub fn spawn(core: &mut Core, t: &Terminal, token: &Secret) -> std::io::Result<(
     let live = Live {
         term: Rc::new(RefCell::new(Term::new(size, input))),
         process,
+        kills: terminals.kills.clone(),
         project: t.project_id,
         stopping: false,
         exited: None,
         closed: false,
+        watch: None,
     };
     terminals.live.insert(t.id, live);
     tokio::task::spawn_local(run(core.me.clone(), t.id, reports));
@@ -261,10 +319,18 @@ async fn run(core: Weak<RefCell<Core>>, id: TerminalId, mut reports: mpsc::Recei
         let exit = match report {
             Some(Report::Output(bytes)) => {
                 live.term.borrow_mut().push(&bytes);
+                let shown = live.watch.as_mut().and_then(|w| w.read(&bytes));
+                if let Some(prompt) = shown {
+                    effects::shown(&mut core, id, prompt.asks);
+                }
                 continue;
             }
-            Some(Report::Wrote) => {
-                live.term.borrow_mut().wrote();
+            Some(Report::Wrote(whole)) => {
+                live.term.borrow_mut().wrote(whole);
+                continue;
+            }
+            Some(Report::Unwritable(why)) => {
+                live.term.borrow_mut().unwritable(why);
                 continue;
             }
             Some(Report::Started(group)) => {
@@ -309,21 +375,34 @@ async fn run(core: Weak<RefCell<Core>>, id: TerminalId, mut reports: mpsc::Recei
 }
 
 /// The terminal has ended: its clients get the rest and an `exit` mark, its
-/// history goes to disk, and its row and session learn of it.
+/// history goes to disk, and its row and session learn of it. What it
+/// started and left running ends with it, as a stop ends it: it would
+/// otherwise run on with no terminal to show it and nothing to stop it.
+///
+/// The history is written off the core's thread, since the data folder may
+/// stall; the row says the terminal exited once it is on disk, so a client
+/// that finds it exited reads it from there, and one that attaches before
+/// replays it from memory.
 fn end(core: &mut Core, id: TerminalId, exit: Option<u32>) {
-    let Some(live) = core.terminals.live.remove(&id) else {
+    let Some(mut live) = core.terminals.live.remove(&id) else {
         return;
     };
+    live.stop();
     let mut term = live.term.borrow_mut();
     term.ended(exit);
-    // A history that cannot be written is lost; the terminal still ends.
-    let _ = term.save(&core.terminals.history(id));
-    let offset = Offset::new(term.end());
+    let (history, offset) = (term.history(), Offset::new(term.end()));
     drop(term);
     live.process.end();
-    effects::ended(core, id, exit, offset);
-    left(core, id, exit);
-    core.events.notify_one();
+    core.terminals.saving.insert(id, live.term);
+    let path = core.terminals.history(id);
+    // A history that cannot be written is lost; the terminal still ends.
+    let write = move || drop(ring::write(&path, &history));
+    crate::calls::aside(core, write, move |core, _| {
+        core.terminals.saving.remove(&id);
+        effects::ended(core, id, exit, offset);
+        left(core, id, exit);
+        core.events.notify_one();
+    });
 }
 
 /// The session running in a terminal whose child has exited ends. Not while
@@ -332,6 +411,20 @@ fn end(core: &mut Core, id: TerminalId, exit: Option<u32>) {
 fn left(core: &mut Core, id: TerminalId, exit: Option<u32>) {
     if !core.terminals.closing {
         effects::exited(core, id, exit);
+    }
+}
+
+/// Reads a running terminal's output for what its agent waits on before it
+/// is ready (design §7), until it is.
+pub fn watch(core: &mut Core, id: TerminalId, watch: crate::agents::Watch) {
+    if let Some(live) = core.terminals.live.get_mut(&id) {
+        live.watch = Some(watch);
+    }
+}
+
+pub fn unwatch(core: &mut Core, id: TerminalId) {
+    if let Some(live) = core.terminals.live.get_mut(&id) {
+        live.watch = None;
     }
 }
 
@@ -347,28 +440,68 @@ pub fn environment_of_checks() -> Vec<(String, std::ffi::OsString)> {
     process::fixed(process::path(None, None))
 }
 
-/// Types `text` into a terminal as a bracketed paste and Enter, as the
-/// launcher types a follow-up (design §7). False, with nothing typed, when
-/// its child has exited or is being stopped.
-pub fn paste(core: &mut Core, id: TerminalId, text: &str) -> bool {
-    const PASTE: (&str, &str) = ("\x1b[200~", "\x1b[201~");
-    let Some(live) = core.terminals.live.get(&id) else {
+/// Whether process `pid`'s group has the terminal's foreground, which its
+/// own child (the shell) does not: then what is typed goes to that group's
+/// program, not the shell. Never on Windows, which has no foreground group.
+pub fn foreground_is(core: &Core, id: TerminalId, pid: Option<u32>) -> bool {
+    let live = core.terminals.live.get(&id);
+    let Some((fg, own)) = live.and_then(|live| live.process.foreground()) else {
         return false;
     };
+    #[cfg(unix)]
+    let group = pid.and_then(crate::sys::group_of);
+    #[cfg(windows)]
+    let group: Option<u32> = pid.and(None);
+    fg != own && group == Some(fg)
+}
+
+/// Types `text` into a terminal as a bracketed paste and Enter, as the
+/// launcher types a follow-up (design §7), and says once the input thread
+/// has written it, or why it did not. `None`, with nothing typed, when its
+/// child has exited or is being stopped; `Some(Err)` when the terminal
+/// takes no input.
+pub fn paste(core: &mut Core, id: TerminalId, text: &str) -> Option<Result<Typing, String>> {
+    const PASTE: (&str, &str) = ("\x1b[200~", "\x1b[201~");
+    let live = core.terminals.live.get(&id)?;
     if live.exited.is_some() || live.stopping {
-        return false;
+        return None;
     }
-    // The text cannot end the paste early.
-    let text = text.replace(PASTE.1, "");
-    let typed = [PASTE.0, &text, PASTE.1, "\r"].concat();
-    live.term.borrow_mut().send(None, typed.as_bytes())
+    let typed = [PASTE.0, &pasteable(text), PASTE.1, "\r"].concat();
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let done = live
+        .term
+        .borrow_mut()
+        .type_text(typed.as_bytes(), cancel.clone());
+    Some(done.map(|done| Typing { done, cancel }))
+}
+
+/// What the core typed, until the input thread has written it or could not.
+pub struct Typing {
+    pub done: tokio::sync::oneshot::Receiver<ring::Typed>,
+    /// Gives up on what is still to be written: the input thread writes no
+    /// more of it than the piece it is writing, and then says so.
+    pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// The text a paste may carry: no control character but its own line
+/// breaks and tabs. Without ESC the text cannot end the paste early or
+/// start any other sequence, whatever it holds, and without the others the
+/// terminal's line discipline acts on none of it (interrupt, suspend, end
+/// of input, erase). A line break is part of the text a raw agent reads
+/// inside a paste; a carriage return, alone or before a line feed, is one.
+fn pasteable(text: &str) -> String {
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    text.chars()
+        .filter(|&c| c == '\n' || c == '\t' || !c.is_control())
+        .collect()
 }
 
 fn attach(cx: &mut Cx, t: &Terminal, from: Option<Offset>, credit: u32) -> Result<Opened, Error> {
     let terminals = &cx.core.terminals;
     let live = terminals.live.get(&t.id).map(|live| live.term.clone());
-    let feed = match &live {
-        Some(term) => Feed::Live(term.clone()),
+    let saving = terminals.saving.get(&t.id).cloned();
+    let feed = match live.clone().or(saving) {
+        Some(term) => Feed::Live(term),
         None => Feed::Saved(Saved::open(&terminals.history(t.id), t)),
     };
     let (start, end) = feed.bounds();
@@ -378,10 +511,12 @@ fn attach(cx: &mut Cx, t: &Terminal, from: Option<Offset>, credit: u32) -> Resul
         None => (start, false),
     };
     // Input only while there is a process to take it.
-    let grant = if live.is_some() { INPUT } else { 0 };
+    let grant = live
+        .as_ref()
+        .map_or(0, |term| term.borrow_mut().grantable());
     let opened = stream::open(cx.link, credit, grant, |handle| {
         if let Some(term) = &live {
-            term.borrow_mut().attach(handle.clone());
+            term.borrow_mut().attach(handle.clone(), grant);
         }
         Box::new(Attachment::new(feed, handle, pos, gap))
     })?;
@@ -472,7 +607,9 @@ pub fn forget(core: &Core, id: TerminalId) {
 
 /// Stops every terminal and waits until they have ended or the kill had its
 /// time (design §3). One that outlives even that keeps the history it has,
-/// and the next start finds it lost.
+/// and the next start finds it lost. A terminal can end before its kill is
+/// due, when its child ended on hang-up and what ignored it let go of the
+/// terminal: every kill still armed is carried out at its deadline first.
 pub async fn shutdown(core: &Rc<RefCell<Core>>) {
     let events = {
         let mut core = core.borrow_mut();
@@ -490,12 +627,16 @@ pub async fn shutdown(core: &Rc<RefCell<Core>>) {
             () = &mut deadline => break,
         }
     }
-    let mut core = core.borrow_mut();
-    let left: Vec<_> = core.terminals.live.drain().collect();
-    for (id, live) in left {
-        let _ = live.term.borrow().save(&core.terminals.history(id));
-        live.process.end();
-    }
+    let kills = {
+        let mut core = core.borrow_mut();
+        let left: Vec<_> = core.terminals.live.drain().collect();
+        for (id, live) in left {
+            let _ = live.term.borrow().save(&core.terminals.history(id));
+            live.process.end();
+        }
+        core.terminals.kills.clone()
+    };
+    kills.finish().await;
 }
 
 fn known(core: &mut Core, id: TerminalId) -> Result<(), Error> {

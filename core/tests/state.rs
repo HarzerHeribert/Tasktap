@@ -86,6 +86,7 @@ fn capture(id: ThoughtId, text: &str) -> Capture {
         session_id: None,
         agent: None,
         model: None,
+        current: None,
     }
 }
 
@@ -297,7 +298,13 @@ impl World {
 
     fn capture(&mut self, text: &str) -> ThoughtId {
         let id = ThoughtId::mint();
-        assert_eq!(self.ok(captured(capture(id, text))), [Effect::Route(id)]);
+        assert_eq!(
+            self.ok(captured(capture(id, text))),
+            [Effect::Route {
+                thought: id,
+                current: None
+            }]
+        );
         id
     }
 
@@ -365,6 +372,14 @@ impl World {
     }
 }
 
+/// What a turn's start does besides its records: its first activity line.
+fn started(session: SessionId) -> [Effect; 1] {
+    [Effect::Activity {
+        session,
+        text: state::TURN_STARTED.into(),
+    }]
+}
+
 fn shape(t: &Thought) -> (Phase, Status, Option<Reason>) {
     (t.phase, t.status, t.reason)
 }
@@ -376,7 +391,13 @@ fn row_capture_makes_a_captured_thought_and_asks_the_router() {
     let mut w = World::new("capture");
     let id = ThoughtId::mint();
     let c = capture(id, "fix the build");
-    assert_eq!(w.ok(captured(c.clone())), [Effect::Route(id)]);
+    assert_eq!(
+        w.ok(captured(c.clone())),
+        [Effect::Route {
+            thought: id,
+            current: None
+        }]
+    );
     let t = w.thought(id);
     assert_eq!(shape(&t), (Phase::Captured, Status::Captured, None));
     assert_eq!(
@@ -739,6 +760,36 @@ fn row_follow_up_is_delivered_and_bound_at_turn_start() {
     assert_eq!(w.thought(t).phase, Phase::Done);
 }
 
+/// A follow-up whose delivery is reported failed after its agent's
+/// turn_started bound it was typed after all: its turn decides how it ends.
+#[test]
+fn a_follow_up_its_agent_began_is_left_to_its_turn_when_its_delivery_is_reported_failed() {
+    let mut w = World::new("follow-up-late");
+    let (_, s) = w.turn();
+    w.say(s, Said::TurnFinished { answer: None }).unwrap();
+    let f = ThoughtId::mint();
+    let follow = Capture {
+        session_id: Some(s),
+        ..capture(f, "now run the tests")
+    };
+    w.ok(captured(follow));
+    let attempt = AttemptId::mint();
+    w.ok(Event::Start {
+        thought: f,
+        attempt,
+    });
+    let prompt = Some("now run the tests".into());
+    w.say(s, Said::TurnStarted { prompt }).unwrap();
+    assert_eq!(w.session(s).thought_id, Some(f));
+    let error = "late".to_string();
+    assert_eq!(w.ok(Event::LaunchFailed { attempt, error }), []);
+    assert_eq!(w.thought(f).phase, Phase::Working);
+    assert!(w.outcome(attempt).is_some(), "the attempt has its outcome");
+    let answer = Some("Tested.".into());
+    w.say(s, Said::TurnFinished { answer }).unwrap();
+    assert_eq!(w.thought(f).phase, Phase::Done);
+}
+
 #[test]
 fn a_follow_up_to_an_ended_session_continues_it_in_a_new_one() {
     let mut w = World::new("follow-up-ended");
@@ -897,11 +948,57 @@ fn row_ready_makes_a_starting_session_idle() {
 }
 
 #[test]
+fn row_shown_asks_in_the_terminal_until_the_agent_is_ready() {
+    let mut w = World::new("shown");
+    let (t, s) = w.running();
+    let shown = || Event::Shown {
+        session: s,
+        prompt: "Trust this folder?".into(),
+    };
+    let effects = w.ok(shown());
+    let [Effect::Notify(q)] = effects[..] else {
+        panic!("{effects:?}")
+    };
+    let asked = w.question(q);
+    assert_eq!(
+        (asked.reply_via, asked.source, asked.turn, asked.thought_id),
+        (ReplyVia::Terminal, QuestionSource::Agent, Some(0), Some(t))
+    );
+    assert_eq!(w.thought(t).status, Status::NeedsYou);
+    assert_eq!(w.session(s).state, SessionState::Starting);
+    // Drawn again: the same question.
+    assert_eq!(w.ignored(shown()), Ignored::Repeat);
+    // Ready: the person answered it there.
+    w.say(s, Said::Ready).unwrap();
+    let answered = w.question(q);
+    assert_eq!(answered.state, QuestionState::Answered);
+    assert_eq!(answered.answer.unwrap().response, Response::Terminal);
+    assert_eq!(w.thought(t).status, Status::Working);
+    // Once ready, nothing it shows asks.
+    assert_eq!(w.ignored(shown()), Ignored::State);
+    // An agent that sends no ready goes on by starting its turn.
+    let (t, s) = w.running();
+    let effects = w.ok(Event::Shown {
+        session: s,
+        prompt: "Trust this folder?".into(),
+    });
+    let [Effect::Notify(q)] = effects[..] else {
+        panic!("{effects:?}")
+    };
+    w.say(s, Said::TurnStarted { prompt: None }).unwrap();
+    assert_eq!(w.question(q).state, QuestionState::Answered);
+    assert_eq!(w.thought(t).status, Status::Working);
+}
+
+#[test]
 fn row_turn_started_binds_the_launched_thought() {
     let mut w = World::new("turn-started");
     let (t, s) = w.running();
     // An agent that sends no ready starts its turn straight from starting.
-    assert_eq!(w.say(s, Said::TurnStarted { prompt: None }).unwrap(), NONE);
+    assert_eq!(
+        w.say(s, Said::TurnStarted { prompt: None }).unwrap(),
+        started(s)
+    );
     let session = w.session(s);
     assert_eq!(
         (session.state, session.turn, session.thought_id),
@@ -911,9 +1008,39 @@ fn row_turn_started_binds_the_launched_thought() {
         shape(&w.thought(t)),
         (Phase::Working, Status::Working, None)
     );
-    // A second start while the turn runs does not fit.
-    let again = w.report(s, Said::TurnStarted { prompt: None });
-    assert_eq!(w.ignored(Event::Report(again)), Ignored::State);
+}
+
+#[test]
+fn row_turn_started_in_an_open_turn_interrupts_it_first() {
+    let mut w = World::new("restarted");
+    let (t, s) = w.turn();
+    let q = w.ask(s, ReplyVia::Core);
+    // Interrupted in the terminal without a word, the agent takes the next
+    // prompt: the open turn ends as turn_interrupted ends it, then the new
+    // turn starts with a thought of its own.
+    let prompt = Some("do this instead".to_string());
+    assert_eq!(w.say(s, Said::TurnStarted { prompt }).unwrap(), started(s));
+    assert_eq!(
+        shape(&w.thought(t)),
+        (Phase::Failed, Status::Failed, Some(Reason::Interrupted))
+    );
+    assert_eq!(w.question(q).state, QuestionState::Withdrawn);
+    let session = w.session(s);
+    let typed = session.thought_id.unwrap();
+    assert_ne!(typed, t);
+    assert_eq!((session.state, session.turn), (SessionState::Working, 2));
+    assert_eq!(
+        (w.thought(typed).text.as_str(), w.thought(typed).phase),
+        ("do this instead", Phase::Working)
+    );
+    // The answer that ends the new turn is the new thought's, not the old one's.
+    let answer = Some("done instead".to_string());
+    w.say(s, Said::TurnFinished { answer }).unwrap();
+    assert_eq!(w.thought(typed).phase, Phase::Done);
+    assert_eq!(w.thought(t).phase, Phase::Failed);
+    let results = w.results();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].thought_id, typed);
 }
 
 #[test]
@@ -1246,6 +1373,65 @@ fn row_exited_fails_a_working_thought_or_finishes_a_silent_one() {
     assert_eq!(w.session(s).state, SessionState::Ended);
 }
 
+/// A shell terminal of the project, running, as an agent is adopted in.
+fn shell(tx: &mut Tx, project: ProjectId) -> TerminalId {
+    let t = Terminal {
+        id: TerminalId::mint(),
+        rev: Rev::ZERO,
+        project_id: Some(project),
+        kind: TerminalKind::Shell,
+        title: "sh".into(),
+        cwd: FOLDER.into(),
+        argv: Vec::new(),
+        cols: 80,
+        rows: 24,
+        state: TerminalState::Running,
+        exit: None,
+        offset: Offset::ZERO,
+    };
+    tx.insert_terminal(&t, None).unwrap();
+    t.id
+}
+
+#[test]
+fn row_stop_of_an_adopted_agent_has_its_shim_end_it_and_never_the_shell() {
+    let mut w = World::new("stop-adopted");
+    let project = w.project;
+    let mut terminal = None;
+    w.write(|tx| terminal = Some(shell(tx, project)));
+    let terminal = terminal.unwrap();
+    let s = SessionId::mint();
+    let adopt = Event::Adopt {
+        session: s,
+        terminal,
+        agent: "fixture".into(),
+        cwd: FOLDER.into(),
+    };
+    assert_eq!(w.ok(adopt), []);
+    let f = ThoughtId::mint();
+    let follow = Capture {
+        session_id: Some(s),
+        ..capture(f, "and the docs")
+    };
+    w.ok(captured(follow));
+    let attempt = AttemptId::mint();
+    let started = w.ok(Event::Start {
+        thought: f,
+        attempt,
+    });
+    assert!(w.carry(&started).is_empty());
+    assert_eq!(w.thought(f).phase, Phase::Working);
+    assert_eq!(w.ok(Event::Stop { thought: f }), [Effect::StopAdopted(s)]);
+    assert_eq!(
+        shape(&w.thought(f)),
+        (Phase::Failed, Status::Failed, Some(Reason::Stopped))
+    );
+    assert_eq!(w.session(s).state, SessionState::Ended);
+    // The shim's report of the agent's exit changes nothing more.
+    let exited = w.report(s, Said::Exited { code: Some(129) });
+    assert_eq!(w.ignored(Event::Report(exited)), Ignored::State);
+}
+
 #[test]
 fn row_stop_after_launch_stops_the_process() {
     let mut w = World::new("stop");
@@ -1535,10 +1721,9 @@ fn an_event_that_does_not_fit_changes_nothing() {
         let shown = format!("{event:?}");
         assert_eq!(w.ignored(event), Ignored::State, "{shown}");
     }
-    for said in [Said::Ready, Said::TurnStarted { prompt: None }] {
-        let report = w.report(s, said);
-        assert_eq!(w.ignored(Event::Report(report)), Ignored::State);
-    }
+    // Ready while a turn runs; a turn start there is a row of its own.
+    let report = w.report(s, Said::Ready);
+    assert_eq!(w.ignored(Event::Report(report)), Ignored::State);
     assert_eq!(w.store.rev(), rev);
     // Records that do not exist are gone.
     let missing = Event::Stop {
@@ -1809,7 +1994,7 @@ fn a_thought_runs_captured_routed_working_needs_you_working_done() {
         to: Destination::New(w.project),
         brief: "Fix the failing build".into(),
     });
-    let route = router.route(&w.thought(t));
+    let route = router.route(&tasktap_core::route::Request::default());
     let effects = w.ok(Event::Routed { thought: t, route });
     seen(&mut w, t);
     let &[Effect::Hold { until, .. }] = effects.as_slice() else {
@@ -1950,6 +2135,9 @@ impl Known {
             {
                 self.sessions.insert(own(*attempt));
             }
+            Some(Event::Adopt { session, .. }) => {
+                self.sessions.insert(*session);
+            }
             _ => {}
         }
         self.questions
@@ -2050,6 +2238,9 @@ struct Sweep {
     project: ProjectId,
     first: ThoughtId,
     second: ThoughtId,
+    /// A shell terminal, and the session an agent adopted in it gets.
+    shell: TerminalId,
+    adopted: SessionId,
     events: u64,
 }
 
@@ -2072,8 +2263,23 @@ impl Sweep {
     /// Every event the state can be fed, with fresh ids where an event brings one.
     fn moves(&mut self, tx: &Tx, known: &Known, path: &[Step]) -> Vec<Step> {
         let p = Destination::New(self.project);
-        let mut moves = vec![captured(capture(self.first, "fix the build"))];
-        if let Some(s) = tx.thought(self.first).unwrap().and_then(|t| t.session_id) {
+        // Either the first thought runs and the second follows it up, or an
+        // agent adopted in a shell, from the start, takes the second.
+        let launched = tx.thought(self.first).unwrap().and_then(|t| t.session_id);
+        let adopted = tx.session(self.adopted).unwrap().map(|s| s.id);
+        let mut moves = Vec::new();
+        if adopted.is_none() {
+            moves.push(captured(capture(self.first, "fix the build")));
+        }
+        if path.is_empty() {
+            moves.push(Event::Adopt {
+                session: self.adopted,
+                terminal: self.shell,
+                agent: "fixture".into(),
+                cwd: FOLDER.into(),
+            });
+        }
+        if let Some(s) = adopted.or(launched) {
             moves.push(captured(Capture {
                 session_id: Some(s),
                 ..capture(self.second, "and the docs")
@@ -2160,6 +2366,7 @@ impl Sweep {
                         kind: QuestionKind::Confirm,
                         prompt: "Allow rm?".into(),
                         detail: None,
+                        source: None,
                     },
                 },
             ] {
@@ -2191,6 +2398,10 @@ impl Sweep {
             }
             moves.push(ask(question(s, ReplyVia::Core)));
             moves.push(ask(question(s, ReplyVia::Terminal)));
+            moves.push(Event::Shown {
+                session: s.id,
+                prompt: "Trust this folder?".into(),
+            });
         }
         let open = known.questions(tx).into_iter();
         if let Some(q) = open.rev().find(|q| q.state == QuestionState::Open) {
@@ -2230,6 +2441,12 @@ fn check(tx: &Tx, known: &Known, effects: &[Effect], step: &Step) {
         if matches!(t.phase, Phase::Routed | Phase::Working) {
             assert_ne!(t.mode, Mode::Note, "a note left captured: {t:?}");
         }
+        // Plain data, which put and delete touch, was never run: no
+        // session names it, so deleting it takes nothing of a run with it.
+        if state::plain(tx, t).unwrap() {
+            assert_eq!(t.phase, Phase::Captured, "{t:?}");
+            assert!(!ss.iter().any(|s| s.thought_id == Some(t.id)), "{t:?}");
+        }
         if t.phase == Phase::Working {
             let s = session(t.session_id.expect("a working thought has a session"));
             assert_ne!(
@@ -2248,7 +2465,7 @@ fn check(tx: &Tx, known: &Known, effects: &[Effect], step: &Step) {
             assert_eq!(
                 (t.phase, t.session_id),
                 (Phase::Working, Some(s.id)),
-                "{s:?}"
+                "{s:?} after {step:?}"
             );
         }
     }
@@ -2268,6 +2485,19 @@ fn check(tx: &Tx, known: &Known, effects: &[Effect], step: &Step) {
     }
     for effect in effects {
         let (attempt, kind) = match effect {
+            // An adopted agent is ended by its shim, never its shell's terminal.
+            Effect::Kill {
+                session: s,
+                terminal: Some(_),
+            } => {
+                assert!(!session(*s).adopted, "{effect:?} would end a shell");
+                continue;
+            }
+            Effect::StopAdopted(s) => {
+                let s = session(*s);
+                assert_eq!((s.adopted, s.state), (true, SessionState::Ended));
+                continue;
+            }
             Effect::Launch(l) => {
                 let s = session(l.session);
                 assert_eq!(
@@ -2294,6 +2524,16 @@ fn check(tx: &Tx, known: &Known, effects: &[Effect], step: &Step) {
     }
 }
 
+/// Whether `step` starts a turn in a session whose turn is still open.
+fn restarts(tx: &Tx, step: &Step) -> bool {
+    let Some(Event::Report(r)) = step.event() else {
+        return false;
+    };
+    let session = tx.session(r.session).unwrap();
+    matches!(r.event, Said::TurnStarted { .. })
+        && session.is_some_and(|s| s.state == SessionState::Working)
+}
+
 /// The kind of a step: its event's name, a route's or a report's.
 fn label(step: &Step) -> String {
     let text = match step.event() {
@@ -2312,11 +2552,14 @@ fn every_event_in_every_reachable_state_keeps_the_rules() {
     let p = project(FOLDER);
     let mut tx = store.begin().unwrap();
     tx.insert_project(&p).unwrap();
+    let terminal = shell(&mut tx, p.id);
     tx.commit().unwrap();
     let mut sweep = Sweep {
         project: p.id,
         first: ThoughtId::mint(),
         second: ThoughtId::mint(),
+        shell: terminal,
+        adopted: SessionId::mint(),
         events: 0,
     };
     let began = Instant::now();
@@ -2330,6 +2573,7 @@ fn every_event_in_every_reachable_state_keeps_the_rules() {
         let now = at_step(path.len());
         for step in sweep.moves(&tx, &known, &path) {
             fed += 1;
+            let restart = restarts(&tx, &step);
             match run(&mut tx, now, &step) {
                 Err(Error::Store(e)) => panic!("{step:?} after {path:?}: {e}"),
                 // Refused: nothing changed, so the same transaction serves the next move.
@@ -2343,10 +2587,21 @@ fn every_event_in_every_reachable_state_keeps_the_rules() {
                     learned.learn(&tx, &step);
                     check(&tx, &learned, &effects, &step);
                     applied.insert(label(&step));
+                    if restart {
+                        applied.insert("TurnStarted in an open turn".into());
+                    }
                     let mut next = path.clone();
                     next.push(step);
                     let state = learned.signature(&tx, &next);
-                    if next.len() < SWEEP_DEPTH && states.insert(state) {
+                    // An adopted agent takes reports from the first step on,
+                    // so its paths are cut shorter; the rest is the same.
+                    let adopted = matches!(next[0].event(), Some(Event::Adopt { .. }));
+                    let depth = if adopted {
+                        SWEEP_DEPTH - 2
+                    } else {
+                        SWEEP_DEPTH
+                    };
+                    if next.len() < depth && states.insert(state) {
                         queue.push_back((next, learned));
                     }
                     drop(tx);
@@ -2362,6 +2617,7 @@ fn every_event_in_every_reachable_state_keeps_the_rules() {
     );
     let every = [
         "Capture",
+        "Adopt",
         "Pick",
         "Clear",
         "Ambiguous",
@@ -2378,12 +2634,14 @@ fn every_event_in_every_reachable_state_keeps_the_rules() {
         "Exited",
         "Ready",
         "TurnStarted",
+        "TurnStarted in an open turn",
         "Activity",
         "Continued",
         "TurnFinished",
         "TurnFailed",
         "TurnInterrupted",
         "Question",
+        "Shown",
         "Ask",
         "Answer",
         "Withdraw",

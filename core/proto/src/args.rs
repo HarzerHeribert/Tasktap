@@ -7,8 +7,8 @@ use crate::ids::{
     ThoughtId, Time,
 };
 use crate::records::{
-    Collection, Isolate, Mode, PrefKey, PrefValue, Question, QuestionKind, Response, Set, Source,
-    Stroke, Thought, TurnResult,
+    Collection, Isolate, Mode, PrefKey, PrefValue, Question, QuestionKind, QuestionSource,
+    Response, Set, Source, Stroke, Thought, TurnResult,
 };
 use crate::{MAX_LINE, MAX_TEXT};
 use serde::{Deserialize, Serialize};
@@ -65,7 +65,8 @@ pub enum PutTarget {
         id: ProjectId,
         patch: ProjectPatch,
     },
-    /// A note's text; the core refuses a thought that is not a note.
+    /// The text of a thought that is captured and never started: a note,
+    /// an idea, or one undone before its launch; the core refuses any other.
     Thoughts {
         id: ThoughtId,
         patch: NotePatch,
@@ -218,6 +219,23 @@ pub struct Capture {
     /// The model a new run asks its agent for; without one, the agent's own default.
     #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub model: Option<String>,
+    /// The session the person was in when they captured, which the router
+    /// sends the thought on to unless its text names another project. Not
+    /// a pick: unlike `session_id`, the router still decides (design §8).
+    #[serde(default)]
+    pub current: Option<SessionId>,
+}
+
+/// `route.hint`: where a capture would go, asked while it is typed (the
+/// destination chip). The same match the router makes, with no effect.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct Hint {
+    #[serde(deserialize_with = "crate::within::<MAX_TEXT, _, _>")]
+    pub text: String,
+    /// As `thought.capture`'s `current`.
+    #[serde(default)]
+    pub current: Option<SessionId>,
 }
 
 /// `thought.update`: assigns a note to a project.
@@ -260,6 +278,11 @@ pub struct Ask {
     pub prompt: String,
     #[serde(default, deserialize_with = "crate::within::<MAX_TEXT, _, _>")]
     pub detail: Option<String>,
+    /// What asks: `permission` for a permission request a hook waits on;
+    /// without it, `agent`, a question of the agent's own. A session never
+    /// asks as the `router`: that is `invalid`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<QuestionSource>,
 }
 
 /// `session.adopt`: an agent a person started by hand in a Tasktap shell
@@ -294,12 +317,17 @@ pub struct Agents {
     pub agents: Vec<AgentHealth>,
 }
 
-/// One agent as found on this computer, and what its runs can do.
+/// One agent as found on this computer, and what its runs can do: a row of
+/// the in-memory `agents` collection, and of the reply of `agents.detect`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct AgentHealth {
     /// Its id, as a capture and `tasktap hook` name it.
     pub id: String,
+    /// The revision of the change that last put the row.
+    pub rev: crate::ids::Rev,
+    /// When its commands last said what follows.
+    pub checked: crate::ids::Time,
     /// Its program is on the PATH the core's terminals get.
     pub installed: bool,
     /// As it reports its version.
@@ -322,11 +350,14 @@ pub struct AgentHealth {
 /// it types a follow-up into the shell's terminal (design §7). With `hold` the
 /// shim confirms its agent runs in the foreground and keeps the terminal
 /// until a call without it, sent once the text is written; a shim whose agent
-/// has ended answers `gone`.
+/// has ended answers `gone`. With `stop` the shim ends its agent, as
+/// `thought.stop` stops a run, and never the shell it runs in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ShimHold {
     pub hold: bool,
+    #[serde(default)]
+    pub stop: bool,
 }
 
 /// `question.withdraw` and `question.received`: the asker names its question
@@ -486,7 +517,7 @@ impl FixtureStream {
 #[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct FixtureScript {
     /// What the router answers for every thought from now on.
-    pub route: FixtureRoute,
+    pub route: Route,
     /// The launcher refuses every launch, delivery and settle with this.
     #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub refuse: Option<String>,
@@ -505,10 +536,13 @@ pub struct FixtureScript {
     pub agent: Option<String>,
 }
 
+/// Where a router sends a thought (design §8): the answer of `route.hint`,
+/// and what `fixture.script` has the fixture router answer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "confidence", rename_all = "snake_case")]
 #[cfg_attr(test, derive(ts_rs::TS))]
-pub enum FixtureRoute {
+pub enum Route {
+    /// One destination; `brief` is what the run is told.
     Clear {
         to: Place,
         #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
@@ -518,8 +552,9 @@ pub enum FixtureRoute {
         #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
         prompt: String,
         #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
-        candidates: Vec<FixtureCandidate>,
+        candidates: Vec<Candidate>,
     },
+    /// Nowhere: the thought stays an idea.
     Unknown,
 }
 
@@ -532,9 +567,10 @@ pub enum Place {
     Session(SessionId),
 }
 
+/// One choice of an ambiguous route, as its question shows it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
-pub struct FixtureCandidate {
+pub struct Candidate {
     pub label: String,
     pub to: Place,
 }

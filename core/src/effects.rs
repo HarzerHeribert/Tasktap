@@ -6,13 +6,14 @@
 //! The rules stay in `state.rs`; this module only moves things between it
 //! and the world.
 //!
-//! The launcher is `launch.rs`, which starts runs in real terminals. The
-//! router, and the worktrees a settle needs, are still the state machine's
-//! fixtures, which only a core built with its test fixtures has, once
-//! `fixture.script` selects them; the fixture launcher stands in for the
-//! real one only where a test scripts what the real one cannot do. Without
-//! them an event whose effects need one is refused with `failed` before
-//! anything is committed: the core never pretends to route or settle.
+//! The launcher is `launch.rs`, which starts runs in real terminals; the
+//! router is `route.rs`'s local match, unless `fixture.script` has
+//! selected the fixture router in a core built with its test fixtures. The
+//! worktrees a settle needs are still the state machine's fixture, which
+//! only such a core has; the fixture launcher stands in for the real one
+//! only where a test scripts what the real one cannot do. Without it a
+//! settle is refused with `failed` before anything is committed: the core
+//! never pretends to settle.
 
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -20,7 +21,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 use tasktap_proto::call::{Code, Error};
 use tasktap_proto::{
-    AttemptId, Change, Offset, Outcome, QuestionId, Secret, SessionEvent, TerminalId,
+    AttemptId, Change, Offset, Outcome, QuestionId, Secret, SessionEvent, SessionId, TerminalId,
     TerminalState, ThoughtId, Time,
 };
 use tokio::task::AbortHandle;
@@ -31,14 +32,13 @@ use crate::state::{self, Deliver, Effect, Event, Launch, Launcher, Report, Route
 use crate::store::{self, AttemptOutcome, Tx};
 use crate::{agents, questions};
 
-const NO_ROUTER: &str = "this build has no router yet";
 const NO_ISOLATION: &str = "this build has no worktrees to settle yet";
 
 /// Why an event was not applied.
 #[derive(Debug)]
 pub enum Refusal {
     State(state::Error),
-    /// This build has no router or no worktrees yet.
+    /// This build has no worktrees yet.
     Unbuilt(&'static str),
 }
 
@@ -65,7 +65,7 @@ impl From<store::Error> for Refusal {
 /// | the record named does not exist, or the question is settled | `gone` |
 /// | an id or request key reused with other content; something must happen first | `conflict` |
 /// | a value the transition refuses; an answer that does not fit its question | `invalid` |
-/// | this build has no router or no worktrees yet | `failed` |
+/// | this build has no worktrees yet | `failed` |
 /// | the store failed | `failed`; `gone` for a missing row, `conflict` for a duplicate |
 ///
 /// What the launcher reports as a failure, and an attempt the core stopped
@@ -100,12 +100,14 @@ pub fn stored(e: store::Error) -> Error {
     Error::new(code, e.to_string())
 }
 
-/// The clock and the hold timers, and in a fixtures build the fixture
-/// router, launcher and host.
+/// The clock, the hold timers and the router, and in a fixtures build the
+/// fixture router, launcher and host.
 #[derive(Default)]
 pub struct Seams {
     /// One one-shot timer per held thought; nothing else is ever armed here.
     timers: HashMap<ThoughtId, Timer>,
+    /// The core is shutting down: no hold is armed or ends any more.
+    closing: bool,
     /// Set by `fixture.clock`: the time stands still until it is called again.
     #[cfg(feature = "fixtures")]
     clock: Option<Time>,
@@ -143,7 +145,6 @@ impl Seams {
     /// Why this build cannot carry out the effects, when it cannot.
     fn unbuilt(&self, effects: &[Effect]) -> Option<&'static str> {
         effects.iter().find_map(|effect| match effect {
-            Effect::Route(_) if !self.selected() => Some(NO_ROUTER),
             Effect::Settle { .. } if !self.stands_in() => Some(NO_ISOLATION),
             _ => None,
         })
@@ -168,16 +169,6 @@ impl Seams {
         None
     }
 
-    #[cfg(feature = "fixtures")]
-    fn selected(&self) -> bool {
-        self.fixture.is_some()
-    }
-
-    #[cfg(not(feature = "fixtures"))]
-    fn selected(&self) -> bool {
-        false
-    }
-
     /// The fixture launcher stands in for the real one.
     #[cfg(feature = "fixtures")]
     fn stands_in(&self) -> bool {
@@ -189,15 +180,14 @@ impl Seams {
         false
     }
 
-    #[cfg(feature = "fixtures")]
-    fn router(&mut self) -> Option<&mut dyn Router> {
-        let f = self.fixture.as_mut()?;
-        Some(&mut f.router)
-    }
-
-    #[cfg(not(feature = "fixtures"))]
-    fn router(&mut self) -> Option<&mut dyn Router> {
-        None
+    /// The local router's answer, or the fixture router's once
+    /// `fixture.script` selected it.
+    fn route(&mut self, request: &crate::route::Request) -> state::Route {
+        #[cfg(feature = "fixtures")]
+        if let Some(f) = self.fixture.as_mut() {
+            return f.router.route(request);
+        }
+        crate::route::Local.route(request)
     }
 
     /// The fixture launcher, where it stands in for the real one.
@@ -246,6 +236,10 @@ pub fn session_event(cx: &mut Cx, args: SessionEvent) -> Result<(), Error> {
         ));
     };
     let session = questions::session(cx.core, terminal)?;
+    // Ready, the agent shows nothing more to wait on before it is.
+    if args.event == tasktap_proto::Event::Ready {
+        crate::terminal::unwatch(cx.core, terminal);
+    }
     let report = Report {
         session: session.id,
         terminal,
@@ -313,8 +307,8 @@ fn carry(core: &mut Core, effects: Vec<Effect>) -> Option<Outcome> {
     let mut outcome = None;
     for effect in effects {
         let reply = match effect {
-            Effect::Route(thought) => {
-                route(core, thought);
+            Effect::Route { thought, current } => {
+                route(core, thought, current);
                 None
             }
             Effect::Hold { thought, until } => {
@@ -336,6 +330,10 @@ fn carry(core: &mut Core, effects: Vec<Effect>) -> Option<Outcome> {
             }
             // The launch's report asks again once it names the terminal.
             Effect::Kill { terminal: None, .. } => None,
+            Effect::StopAdopted(session) => {
+                crate::shim::stop(core, session);
+                None
+            }
             Effect::Settle {
                 attempt,
                 thought,
@@ -383,22 +381,25 @@ fn stop(why: impl std::fmt::Display) -> ! {
     std::process::exit(1)
 }
 
-fn route(core: &mut Core, id: ThoughtId) {
-    let Ok(Some(thought)) = read(core, |tx| tx.thought(id)) else {
+fn route(core: &mut Core, id: ThoughtId, current: Option<SessionId>) {
+    let request = read(core, |tx| {
+        let thought = tx.thought(id)?;
+        (thought.map(|t| crate::route::request(tx, &t.text, current))).transpose()
+    });
+    let Ok(Some(request)) = request else {
         return;
     };
-    let Some(router) = core.seams.router() else {
-        return;
-    };
-    let route = router.route(&thought);
+    let route = core.seams.route(&request);
     report(core, Event::Routed { thought: id, route }, |_| Ok(()));
 }
 
-/// Starts a run and answers with its outcome. A run whose agent needs a
-/// check before it starts (design §7, an adapter's probe) starts once that
-/// check, on a thread of its own, has answered; its outcome then reaches
-/// its thought's record and attempt, not the call that started it, which
-/// answers at once.
+/// Starts a run. Its program is looked up on the PATH, and the check its
+/// agent needs before it starts run (design §7, an adapter's probe), on a
+/// thread of their own, since a folder of the PATH may be on a stalled
+/// mount; the run starts once they have answered, and its outcome then
+/// reaches its thought's record and attempt, not the call that started it,
+/// which answers at once. What the fixture launcher does, and a run this
+/// build cannot prepare, answer the call.
 fn launch(core: &mut Core, launch: Launch) -> Option<Outcome> {
     let token = Secret::mint();
     let attempt = launch.attempt;
@@ -410,24 +411,14 @@ fn launch(core: &mut Core, launch: Launch) -> Option<Outcome> {
         Ok(prepared) => prepared,
         Err(error) => return Some(failed(core, attempt, error)),
     };
-    let Some(probe) = prepared.probe.take() else {
-        let started = crate::launch::start(core, &launch, prepared, Vec::new(), &token);
-        return Some(launched(core, attempt, started, &token));
-    };
-    let (said, heard) = tokio::sync::oneshot::channel();
-    let cwd = std::path::PathBuf::from(&launch.cwd);
-    std::thread::spawn(move || {
-        let _ = said.send(agents::checks::probe(probe, &cwd));
-    });
-    let me = core.me.clone();
-    tokio::task::spawn_local(async move {
-        let lost = |_| Err("the check before the start ended without an answer".to_owned());
-        let more = heard.await.unwrap_or_else(lost);
-        let Some(core) = me.upgrade() else { return };
-        let mut core = core.borrow_mut();
-        let started =
-            more.and_then(|more| crate::launch::start(&mut core, &launch, prepared, more, &token));
-        launched(&mut core, attempt, started, &token);
+    let look = prepared.look(&launch);
+    crate::calls::aside(core, look, move |core, found| {
+        let lost = || "the check before the start ended without an answer".to_owned();
+        let found = found.ok_or_else(lost).flatten();
+        let started = found.and_then(|(program, more)| {
+            crate::launch::start(core, &launch, prepared, program, more, &token)
+        });
+        launched(core, attempt, started, &token);
     });
     None
 }
@@ -456,28 +447,85 @@ fn launched(
 /// A follow-up for an adopted session waits for its shim to hold the
 /// terminal, and its outcome reaches the thought's records, not the call.
 fn deliver(core: &mut Core, deliver: Deliver) -> Option<Outcome> {
-    crate::shim::deliver(core, deliver).map(|deliver| typed(core, deliver, false))
+    crate::shim::deliver(core, deliver).map(|deliver| typed(core, deliver, None))
 }
 
+/// The shim that holds the terminal for a follow-up, and what runs once the
+/// follow-up is written, or will not be: its release.
+pub struct Held {
+    pub by: crate::launch::Holder,
+    pub release: Box<dyn FnOnce(&mut Core)>,
+}
+
+/// How long a follow-up its shim holds the terminal for may take to be
+/// written. Past it the rest is not typed, and the hold ends once the piece
+/// on its way is written, so the shim, which waits for that, never returns
+/// to the shell with any of it still to come.
+const TYPING: Duration = Duration::from_secs(5);
+
 /// Has the launcher type a follow-up into its session's terminal, `held`
-/// when the shim of an adopted session holds it, and reports how that went.
-pub fn typed(core: &mut Core, deliver: Deliver, held: bool) -> Outcome {
+/// with the release of the shim of an adopted session that holds it, and
+/// reports how that went: typed once the terminal's input thread has written
+/// it, failed when it could not. The release runs only after that. The
+/// answer is the call's when it is known at once.
+pub fn typed(core: &mut Core, deliver: Deliver, held: Option<Held>) -> Outcome {
+    let attempt = deliver.attempt;
     let handed = match core.seams.launcher() {
         Some(launcher) => launcher.deliver(&deliver),
-        None => crate::launch::deliver(core, &deliver, held),
+        None => match crate::launch::deliver(core, &deliver, held.as_ref().map(|h| &h.by)) {
+            Ok(typing) => {
+                let me = core.me.clone();
+                tokio::task::spawn_local(async move {
+                    let written = written(typing, held.is_some()).await;
+                    let Some(core) = me.upgrade() else { return };
+                    let mut core = core.borrow_mut();
+                    match written {
+                        Ok(()) => drop(written_by(&mut core, attempt)),
+                        Err(why) => drop(failed(&mut core, attempt, crate::launch::unwritten(why))),
+                    }
+                    if let Some(held) = held {
+                        (held.release)(&mut core);
+                    }
+                });
+                return Outcome::Ok(Value::Null);
+            }
+            Err(error) => Err(error),
+        },
     };
-    let attempt = deliver.attempt;
-    match handed {
-        Ok(()) => {
-            let event = Event::Launched {
-                attempt,
-                terminal: None,
-            };
-            report(core, event, |_| Ok(()));
-            Outcome::Ok(Value::Null)
-        }
+    let outcome = match handed {
+        Ok(()) => written_by(core, attempt),
         Err(error) => failed(core, attempt, error),
+    };
+    if let Some(held) = held {
+        (held.release)(core);
     }
+    outcome
+}
+
+/// Waits until a follow-up is written or will not be; one its shim holds
+/// for is given up past [`TYPING`], and still waited for until the input
+/// thread says it wrote no more.
+async fn written(mut typing: crate::terminal::Typing, held: bool) -> Result<(), String> {
+    let gone = |_| "the terminal has ended".to_owned();
+    if held {
+        match tokio::time::timeout(TYPING, &mut typing.done).await {
+            Ok(done) => return done.map_err(gone)?,
+            Err(_) => typing
+                .cancel
+                .store(true, std::sync::atomic::Ordering::SeqCst),
+        }
+    }
+    typing.done.await.map_err(gone)?
+}
+
+/// A follow-up was typed.
+fn written_by(core: &mut Core, attempt: AttemptId) -> Outcome {
+    let event = Event::Launched {
+        attempt,
+        terminal: None,
+    };
+    report(core, event, |_| Ok(()));
+    Outcome::Ok(Value::Null)
 }
 
 pub fn failed(core: &mut Core, attempt: AttemptId, error: String) -> Outcome {
@@ -513,6 +561,23 @@ pub(crate) fn ended(core: &mut Core, terminal: TerminalId, code: Option<u32>, en
         Ok(())
     });
     written.unwrap_or_else(|e| stop(e));
+}
+
+/// A terminal shows what its agent waits on there before it is ready: the
+/// session running in it asks the person to answer there.
+pub(crate) fn shown(core: &mut Core, terminal: TerminalId, prompt: &str) {
+    let session = read(core, |tx| tx.terminal_session(terminal));
+    if let Some(s) = session.unwrap_or_else(|e| stop(e)) {
+        let prompt = prompt.to_owned();
+        report(
+            core,
+            Event::Shown {
+                session: s.id,
+                prompt,
+            },
+            |_| Ok(()),
+        );
+    }
 }
 
 /// The direct child of a terminal exited: the session still running in it
@@ -576,9 +641,12 @@ fn notify(core: &mut Core, question: QuestionId) {
 }
 
 /// Arms the hold timer of a thought, replacing any it had. A hold that has
-/// already ended ends now.
+/// already ended ends now. Not while the core shuts down (`close`).
 fn arm(core: &mut Core, thought: ThoughtId, until: Time) {
     cancel(core, thought);
+    if core.seams.closing {
+        return;
+    }
     let now = core.seams.now();
     if until <= now {
         return fire(core, thought, until);
@@ -608,6 +676,9 @@ fn cancel(core: &mut Core, thought: ThoughtId) {
 
 fn fire(core: &mut Core, thought: ThoughtId, until: Time) {
     core.seams.timers.remove(&thought);
+    if core.seams.closing {
+        return;
+    }
     // The last hold may have kept the core alive.
     core.events.notify_one();
     // The timer counts on a steady clock; when the wall clock lags it, the rest is slept.
@@ -618,6 +689,18 @@ fn fire(core: &mut Core, thought: ThoughtId, until: Time) {
     report(core, Event::HoldEnded { thought, attempt }, |_| Ok(()));
 }
 
+/// The core is shutting down: every hold timer ends without firing, and
+/// none is armed again, so a held thought stays routed with no timer, as a
+/// restart leaves it (design §3), and nothing launches while the core goes.
+pub fn close(core: &mut Core) {
+    core.seams.closing = true;
+    for (_, timer) in core.seams.timers.drain() {
+        if let Some(task) = timer.task {
+            task.abort();
+        }
+    }
+}
+
 /// `fixture.script`: selects the fixture router, and the fixture launcher
 /// or with `agent` the real one, and scripts them; the reply is everything
 /// they were asked since.
@@ -626,28 +709,9 @@ pub fn script(
     cx: &mut Cx,
     args: tasktap_proto::FixtureScript,
 ) -> Result<tasktap_proto::FixtureLog, Error> {
-    use state::{Candidate, Destination, FixtureLauncher, FixtureRouter, Route};
-    use tasktap_proto::{FixtureLaunch, FixtureLog, FixtureRoute, Place};
-    let to = |place| match place {
-        Place::Project(id) => Destination::New(id),
-        Place::Session(id) => Destination::Session(id),
-    };
-    let route = match args.route {
-        FixtureRoute::Clear { to: place, brief } => Route::Clear {
-            to: to(place),
-            brief,
-        },
-        FixtureRoute::Ambiguous { prompt, candidates } => Route::Ambiguous {
-            prompt,
-            candidates: (candidates.into_iter())
-                .map(|c| Candidate {
-                    label: c.label,
-                    to: to(c.to),
-                })
-                .collect(),
-        },
-        FixtureRoute::Unknown => Route::Unknown,
-    };
+    use state::{FixtureLauncher, FixtureRouter, Route};
+    use tasktap_proto::{FixtureLaunch, FixtureLog};
+    let route = crate::route::unwire(args.route);
     let f = cx.core.seams.fixture.get_or_insert_with(|| Fixture {
         router: FixtureRouter(Route::Unknown),
         launcher: FixtureLauncher::default(),

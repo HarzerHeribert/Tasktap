@@ -38,6 +38,8 @@ use Event as E;
 
 /// Characters of an answer's first line kept as its result's summary.
 const SUMMARY: usize = 200;
+/// The activity line a turn starts with.
+pub const TURN_STARTED: &str = "Started on the prompt";
 
 /// Everything that can move a thought, a session or a question.
 #[derive(Clone, Debug, PartialEq)]
@@ -92,6 +94,10 @@ pub enum Event {
     },
     /// What a session's agent says (`session.event`).
     Report(Report),
+    /// A session's terminal shows what its agent waits on there before it
+    /// is ready, which its adapter names (`Agent::prompts`): the prompt of
+    /// the question that opens for it.
+    Shown { session: SessionId, prompt: String },
     /// `session.adopt`: an agent a person started in a shell becomes a
     /// session of the shell's terminal, under an id the core minted.
     Adopt {
@@ -167,7 +173,11 @@ pub struct Candidate {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Effect {
     /// Ask the router; its answer comes back as [`Event::Routed`].
-    Route(ThoughtId),
+    /// `current` is the session the capture was made in.
+    Route {
+        thought: ThoughtId,
+        current: Option<SessionId>,
+    },
     /// Arm the hold timer and apply [`Event::HoldEnded`] at `until`, which
     /// is now when the hold is zero.
     Hold { thought: ThoughtId, until: Time },
@@ -183,6 +193,9 @@ pub enum Effect {
         session: SessionId,
         terminal: Option<TerminalId>,
     },
+    /// End the agent of an adopted session through the shim that adopted
+    /// it, which ends its own child and never the person's shell.
+    StopAdopted(SessionId),
     /// Keep or discard the thought's worktree; report with [`Event::Settled`].
     Settle {
         attempt: AttemptId,
@@ -306,10 +319,11 @@ pub trait Launcher {
     fn settle(&mut self, thought: ThoughtId, keep: bool) -> Result<(), String>;
 }
 
-/// The route-provider seam (Phase 3 fills it with the router of design §8).
-/// Its answer goes back in as [`Event::Routed`].
+/// The route-provider seam: the local router of design §8
+/// (`route::Local`), later a model behind it. It is asked with what the
+/// core's records offer, and its answer goes back in as [`Event::Routed`].
 pub trait Router {
-    fn route(&mut self, thought: &Thought) -> Route;
+    fn route(&mut self, request: &crate::route::Request) -> Route;
 }
 
 /// A launcher that starts nothing: it records what it was asked and answers
@@ -376,7 +390,7 @@ impl Launcher for FixtureLauncher {
 pub struct FixtureRouter(pub Route);
 
 impl Router for FixtureRouter {
-    fn route(&mut self, _: &Thought) -> Route {
+    fn route(&mut self, _: &crate::route::Request) -> Route {
         self.0.clone()
     }
 }
@@ -498,12 +512,29 @@ impl Machine<'_, '_> {
                 _,
             ) => self.adopt(id, terminal, agent, cwd),
             (E::Adopt { .. }, ..) => Err(Error::Conflict("an agent already runs in this terminal")),
-            // ready: starting → idle.
+            // ready: starting → idle; what it showed in its terminal before
+            // closes as answered there.
             (_, Some(A::Ready), _, Some(S::Starting), _) => self.ready(some(session)?),
+            // shown: what an agent waits on in its terminal before it is
+            // ready opens as a question answered there.
+            (E::Shown { prompt, .. }, _, _, Some(S::Starting), _) => {
+                self.shown(some(session)?, prompt)
+            }
             // turn_started: → working. Binds the waiting thought, or makes one
             // from a prompt typed by hand.
             (_, Some(A::TurnStarted { prompt }), _, Some(S::Starting | S::Idle), _) => {
                 self.start_turn(some(session)?, prompt)
+            }
+            // turn_started while a turn is open: the person interrupted it in
+            // the terminal and the agent did not say so, as an agent with no
+            // interrupt hook cannot. That turn ends as turn_interrupted would
+            // end it, then the new one starts.
+            (_, Some(A::TurnStarted { prompt }), _, Some(S::Working), _) => {
+                let s = some(session)?;
+                let id = s.id;
+                self.end_turn(s, thought, Ending::Failed(Reason::Interrupted, None))?;
+                let s = self.tx.session(id)?.ok_or(Error::Gone)?;
+                self.start_turn(s, prompt)
             }
             // activity: memory-only text, nothing stored.
             (_, Some(A::Activity { text }), ..) if alive => self.activity(some(session)?, text),
@@ -514,7 +545,11 @@ impl Machine<'_, '_> {
             }
             // a question opens: unchanged, the status becomes needs you. The
             // same key must bring the same question, and beyond the bound of
-            // open questions a new one is refused (design §6).
+            // open questions a new one is refused (design §6). Only the
+            // router asks as the router, and never through this row.
+            (E::Ask { question: q, .. }, ..) if q.source == QuestionSource::Router => {
+                Err(Error::Invalid("a session does not ask as the router"))
+            }
             (E::Ask { question: q, .. }, .., Some(_)) if !same_ask(&q, question.as_ref()) => Err(
                 Error::Conflict("the request key was used for another question"),
             ),
@@ -667,7 +702,9 @@ impl Machine<'_, '_> {
                 s.thought = self.tx.thought(thought)?;
                 s.attempt = Some(a);
             }
-            Event::Exited { session, .. } => self.of_session(&mut s, *session)?,
+            Event::Exited { session, .. } | Event::Shown { session, .. } => {
+                self.of_session(&mut s, *session)?
+            }
             Event::Adopt { terminal, .. } => s.session = self.tx.terminal_session(*terminal)?,
             Event::Report(r) => {
                 let session = self.tx.session(r.session)?.ok_or(Error::Gone)?;
@@ -790,7 +827,10 @@ impl Machine<'_, '_> {
             Some(to) => self.route(t, to, None),
             None if mode == Mode::Note => Ok(()),
             None => {
-                self.effects.push(Effect::Route(t.id));
+                self.effects.push(Effect::Route {
+                    thought: t.id,
+                    current: c.current,
+                });
                 Ok(())
             }
         }
@@ -1015,8 +1055,20 @@ impl Machine<'_, '_> {
         if let Some(s) = session.filter(|s| s.state != S::Ended) {
             self.end(s, None, Some(error.clone()))?;
         }
+        // A follow-up its agent began already (its turn_started came first)
+        // was typed after all: its turn decides how it ends.
+        let begun = match (&thought, own) {
+            (Some(t), None) => match t.session_id {
+                Some(id) => (self.tx.session(id)?)
+                    .is_some_and(|s| s.state == S::Working && s.thought_id == Some(t.id)),
+                None => false,
+            },
+            _ => false,
+        };
         match thought {
-            Some(mut t) if t.phase == P::Working && (own.is_none() || t.session_id == own) => {
+            Some(mut t)
+                if t.phase == P::Working && !begun && (own.is_none() || t.session_id == own) =>
+            {
                 t.phase = P::Failed;
                 t.reason = Some(Reason::Launch);
                 // Why the run did not start, or the follow-up was not typed.
@@ -1078,11 +1130,29 @@ impl Machine<'_, '_> {
     }
 
     fn ready(&mut self, mut s: Session) -> Result<()> {
+        self.went_on(&s)?;
         s.state = S::Idle;
         Ok(self.tx.update_session(&s)?)
     }
 
+    /// The agent went on from what it showed in its terminal before it was
+    /// ready: the person answered there.
+    fn went_on(&mut self, s: &Session) -> Result<()> {
+        let (id, turn) = (s.id, s.turn);
+        self.close(
+            |q| {
+                q.session_id == Some(id)
+                    && q.turn == Some(turn)
+                    && q.reply_via == ReplyVia::Terminal
+            },
+            Q::Answered,
+        )
+    }
+
     fn start_turn(&mut self, mut s: Session, prompt: Option<String>) -> Result<()> {
+        if s.state == S::Starting {
+            self.went_on(&s)?;
+        }
         s.turn = s.turn.saturating_add(1);
         s.state = S::Working;
         let waiting = self
@@ -1095,6 +1165,12 @@ impl Machine<'_, '_> {
             (None, Some(text)) => Some(self.typed(&s, text)?),
             (None, None) => None,
         };
+        // The turn's first activity line: an answer that uses no tool
+        // reports no other, and a working thought should show it is under way.
+        self.effects.push(Effect::Activity {
+            session: s.id,
+            text: TURN_STARTED.into(),
+        });
         Ok(self.tx.update_session(&s)?)
     }
 
@@ -1147,9 +1223,31 @@ impl Machine<'_, '_> {
         self.refresh(q.thought_id)
     }
 
+    /// What its agent waits on in its terminal before it is ready, as a
+    /// question answered there; shown again it is the same question.
+    fn shown(&mut self, s: Session, prompt: String) -> Result<()> {
+        let ask = tasktap_proto::Ask {
+            request: format!("shown {prompt}"),
+            kind: QuestionKind::Confirm,
+            prompt,
+            detail: None,
+            source: None,
+        };
+        let (question, key) = self.in_terminal(&s, ask)?;
+        if self.tx.question_by_request(&key)?.is_some() {
+            return Err(Error::Ignored(Ignored::Repeat));
+        }
+        self.open(question, key)
+    }
+
     /// A terminal-only question (design §6), keyed by the session, its turn
     /// and the agent's own id for the call.
     fn hook(&mut self, s: Session, ask: tasktap_proto::Ask) -> Result<()> {
+        let (question, key) = self.in_terminal(&s, ask)?;
+        self.apply(E::Ask { question, key })
+    }
+
+    fn in_terminal(&mut self, s: &Session, ask: tasktap_proto::Ask) -> Result<(Question, String)> {
         let key = format!("hook {} {} {}", s.id.uuid(), s.turn, ask.request);
         let id = match self.tx.question_by_request(&key)? {
             Some(q) => q.id,
@@ -1161,7 +1259,7 @@ impl Machine<'_, '_> {
             thought_id: s.thought_id,
             session_id: Some(s.id),
             turn: Some(s.turn),
-            source: QuestionSource::Agent,
+            source: ask.source.unwrap_or(QuestionSource::Agent),
             kind: ask.kind,
             prompt: ask.prompt,
             detail: ask.detail,
@@ -1169,7 +1267,7 @@ impl Machine<'_, '_> {
             state: Q::Open,
             answer: None,
         };
-        self.apply(E::Ask { question, key })
+        Ok((question, key))
     }
 
     fn reopen(&mut self, q: Question) -> Result<()> {
@@ -1314,11 +1412,14 @@ impl Machine<'_, '_> {
     fn stop(&mut self, mut t: Thought, session: Option<Session>) -> Result<()> {
         if let Some(s) = session.filter(|s| s.state != S::Ended) {
             let id = s.id;
-            self.effects.push(Effect::Kill {
-                session: id,
-                // An adopted agent's terminal runs the person's shell, which
-                // stopping the agent must not end.
-                terminal: s.terminal_id.filter(|_| !s.adopted),
+            // An adopted agent's terminal runs the person's shell, which
+            // stopping the agent must not end: its shim ends the agent.
+            self.effects.push(match s.adopted {
+                true => Effect::StopAdopted(id),
+                false => Effect::Kill {
+                    session: id,
+                    terminal: s.terminal_id,
+                },
             });
             self.end(s, None, None)?;
             // Follow-ups waiting in the same process are stopped with it.
@@ -1449,6 +1550,15 @@ impl Machine<'_, '_> {
 
 /// A new random id at `now`, the core's clock, for a record the core creates
 /// outside an event, so every id it mints carries the same clock.
+/// Whether `put` and `delete` may treat a thought as plain data, editing
+/// its text or removing it (design §1, §5): while it is captured and nothing
+/// of it was ever launched. A note, an idea the router found no place for,
+/// and a thought the person undid before it started are such; one that ever
+/// ran belongs to the state machine, with its sessions, results and attempts.
+pub fn plain(tx: &Tx, t: &Thought) -> store::Result<bool> {
+    Ok(t.phase == P::Captured && !tx.launched(t.id)?)
+}
+
 pub fn fresh<I: DeserializeOwned>(now: Time) -> store::Result<I> {
     uuid(now, &digest(&[&Secret::mint().0]))
 }

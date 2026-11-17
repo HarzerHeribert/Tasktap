@@ -277,8 +277,12 @@ fn output_arrives_intact_and_in_order_through_tiny_credit() {
     let data = Folder::new("tt-tiny");
     let core = Core::start(&data);
     let mut c = core.device();
-    // Within the ring: nothing is lost however slowly it is read.
-    let n = 12_000;
+    // Within the ring: nothing is lost however slowly it is read. Every 13
+    // bytes are a round trip, which a Windows pipe and console make several
+    // times slower than Mac and Linux do: up to 18 s of the 60 a test may
+    // take there. So Windows reads a third as many lines, still far more
+    // than any pipe or console holds.
+    let n = if cfg!(windows) { 4_000 } else { 12_000 };
     let start = fixture(&[&format!("print {n}"), "sleep 30000"]);
     let mut v = open(
         &mut c,
@@ -305,8 +309,12 @@ fn tens_of_megabytes_arrive_intact_through_a_slow_client_and_a_reconnect() {
     let mut c = core.device();
     let id = TerminalId::mint();
     // The fixture prints each batch when asked, so the client, however slow,
-    // stays within the ring: a slow client loses nothing then.
-    let (batch, batches) = (4096, 70);
+    // stays within the ring: a slow client loses nothing then. Windows'
+    // console renders each line before it passes it on, several times
+    // slower than a Mac or Linux terminal: up to 10 s of the 60 a test may
+    // take there. So Windows prints a third as much, still three times what
+    // the ring holds.
+    let (batch, batches) = (4096, if cfg!(windows) { 24 } else { 70 });
     let mut v = open(
         &mut c,
         &args(id, Some(fixture(&["serve"])), None, 16 << 10),
@@ -337,9 +345,10 @@ fn tens_of_megabytes_arrive_intact_through_a_slow_client_and_a_reconnect() {
     all.extend_from_slice(v.bytes());
     assert!(v.marks.iter().all(|(_, m)| !m.gap), "no gap");
     let total = batch * batches;
+    let least = if cfg!(windows) { 3 * RING } else { 20 << 20 };
     assert!(
-        all.len() as u64 > 20 << 20,
-        "tens of megabytes: {}",
+        all.len() as u64 > least,
+        "more than {least} bytes: {}",
         all.len()
     );
     if cfg!(windows) {
@@ -523,6 +532,42 @@ fn input_reaches_the_process_and_comes_back() {
 
 const FNV: u64 = 0xcbf2_9ce4_8422_2325;
 
+/// Input a process does not read stays bounded: a client that sends what it
+/// was granted and closes its stream leaves that input waiting, and a
+/// client attaching after it is granted only what the terminal's budget
+/// leaves, not 64 KiB more each time. The process makes its terminal raw so
+/// that what it does not read stays unwritten (`stty`: Mac and Linux).
+#[cfg(unix)]
+#[test]
+fn input_a_process_does_not_read_stays_bounded_however_often_clients_reattach() {
+    let data = Folder::new("tt-bound");
+    let core = Core::start(&data);
+    let mut c = core.device();
+    let id = TerminalId::mint();
+    let start = StartTerminal {
+        project: None,
+        argv: vec![EXE.into(), "fixture-agent".into(), "stall:30000".into()],
+        title: None,
+    };
+    let mut v = open(&mut c, &args(id, Some(start), None, 1 << 20), true);
+    until(&mut c, &mut v, "the process stalls", |v| {
+        text(v.bytes()).contains("stalling")
+    });
+    let mut sent = 0;
+    for _ in 0..4 {
+        let credit = c.credit(v.s) as usize;
+        sent += c.send_some(v.s, &vec![b'x'; credit]).unwrap();
+        c.close(v.s).unwrap();
+        v = open(&mut c, &args(id, None, None, 1 << 20), true);
+    }
+    sent += c.credit(v.s) as usize;
+    // 64 KiB, and what the terminal itself took before it was full.
+    assert!(
+        sent <= (64 + 16) << 10,
+        "{sent} bytes accepted for a process that reads none"
+    );
+}
+
 #[test]
 fn a_resize_reaches_the_process_and_is_a_mark_where_it_happened() {
     let data = Folder::new("tt-size");
@@ -600,18 +645,7 @@ fn stop_ends_a_process_that_ignores_hang_up_and_its_descendants() {
     let start = fixture(&["ignore-hup", &child, "print 1", "sleep 30000"]);
     let mut v = open(&mut c, &args(id, Some(start), None, 1 << 20), true);
     until(&mut c, &mut v, "the first line", |v| shows(v.bytes(), 0));
-    let held = || {
-        let file = std::fs::File::open(&lock);
-        file.is_ok_and(|f| f.try_lock().is_err())
-    };
-    let waited = Instant::now();
-    while !held() {
-        assert!(
-            waited.elapsed() < PATIENCE,
-            "the descendant never took its lock"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    taken(&lock);
     let stopped = Instant::now();
     w.ok::<call::TerminalStop>(&Ref { id });
     closed(&mut c, &mut v);
@@ -627,13 +661,8 @@ fn stop_ends_a_process_that_ignores_hang_up_and_its_descendants() {
         took < Duration::from_millis(4500),
         "ended by the deadline: {took:?}"
     );
-    while held() {
-        assert!(
-            stopped.elapsed() < Duration::from_secs(5),
-            "the descendant outlived the stop"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    let why = "the descendant outlived the stop";
+    released(&lock, stopped, Duration::from_secs(5), why);
     state(&mut w, id, TerminalState::Exited);
     // Stopping what has stopped does nothing; what never was is gone.
     w.ok::<call::TerminalStop>(&Ref { id });
@@ -641,6 +670,94 @@ fn stop_ends_a_process_that_ignores_hang_up_and_its_descendants() {
         id: TerminalId::mint(),
     };
     assert_eq!(w.refused::<call::TerminalStop>(&never).code, Code::Gone);
+}
+
+/// Waits until a process holds the lock on `file`.
+fn taken(file: &Path) {
+    let waited = Instant::now();
+    while !locked(file) {
+        assert!(waited.elapsed() < PATIENCE, "nothing ever took {file:?}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Waits until nothing holds the lock on `file`, `limit` after `since` at most.
+fn released(file: &Path, since: Instant, limit: Duration, why: &str) {
+    while locked(file) {
+        assert!(since.elapsed() < limit, "{why}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn locked(file: &Path) -> bool {
+    std::fs::File::open(file).is_ok_and(|f| f.try_lock().is_err())
+}
+
+/// A stop ends every process the terminal started, also one a program put
+/// in a process group of its own that ignores hang-up and lets go of the
+/// terminal (design §9): what is in the child's session.
+#[cfg(unix)]
+#[test]
+fn stop_ends_descendants_in_process_groups_of_their_own() {
+    let data = Folder::new("tt-groups");
+    let core = Core::start(&data);
+    let mut w = core.watch();
+    let mut c = core.device();
+    let lock = data.0.join("child.lock");
+    let id = TerminalId::mint();
+    let child = format!("spawn-group ignore-hup;lock {};sleep 30000", lock.display());
+    let start = fixture(&[&child, "print 1", "sleep 30000"]);
+    let mut v = open(&mut c, &args(id, Some(start), None, 1 << 20), true);
+    until(&mut c, &mut v, "the first line", |v| shows(v.bytes(), 0));
+    taken(&lock);
+    let stopped = Instant::now();
+    w.ok::<call::TerminalStop>(&Ref { id });
+    closed(&mut c, &mut v);
+    let why = "the descendant in a group of its own outlived the stop";
+    released(&lock, stopped, Duration::from_secs(5), why);
+}
+
+/// Shutting down waits for the kill of every terminal it stopped, also of
+/// one that ended before its kill was due: its child ended on hang-up and
+/// what ignored hang-up let go of the terminal (design §9).
+#[test]
+fn shutdown_carries_out_the_kills_it_armed() {
+    let data = Folder::new("tt-shut");
+    let core = Core::start(&data);
+    let mut c = core.device();
+    let lock = data.0.join("child.lock");
+    let id = TerminalId::mint();
+    let child = format!("spawn ignore-hup;lock {};sleep 30000", lock.display());
+    let start = fixture(&[&child, "print 1", "sleep 30000"]);
+    let mut v = open(&mut c, &args(id, Some(start), None, 1 << 20), true);
+    until(&mut c, &mut v, "the first line", |v| shows(v.bytes(), 0));
+    taken(&lock);
+    core.stop();
+    let why = "the descendant outlived the core";
+    released(&lock, Instant::now(), Duration::from_secs(1), why);
+}
+
+/// What a terminal's child started and left running when it exited ends
+/// with the terminal, as a stop ends it, also when it ignores hang-up and
+/// holds the terminal (which then ends a second after the child, design
+/// §9): it would otherwise run on with nothing to show or stop it.
+#[cfg(unix)]
+#[test]
+fn what_a_terminal_left_running_ends_with_it() {
+    let data = Folder::new("tt-held");
+    let core = Core::start(&data);
+    let mut c = core.device();
+    let lock = data.0.join("child.lock");
+    let id = TerminalId::mint();
+    let child = format!("spawn-held ignore-hup;lock {};sleep 30000", lock.display());
+    let start = fixture(&[&child, "print 1", "sleep 3000", "exit 0"]);
+    let mut v = open(&mut c, &args(id, Some(start), None, 1 << 20), true);
+    until(&mut c, &mut v, "the first line", |v| shows(v.bytes(), 0));
+    taken(&lock);
+    closed(&mut c, &mut v);
+    assert_eq!(v.exit(), Some(Some(0)));
+    let why = "what held the terminal outlived it";
+    released(&lock, Instant::now(), Duration::from_secs(4), why);
 }
 
 #[test]
@@ -700,6 +817,43 @@ fn the_exit_code_is_recorded_and_marked() {
     let mut again = core.device();
     let opened = again.opened::<call::TerminalOpen>(&args(id, None, None, 1024), 1024, true);
     assert_eq!(opened.unwrap().unwrap().credit, 0);
+}
+
+/// A terminal's history is written off the core's thread (design §10): a
+/// data folder that stalls, here a pipe nobody reads where the history is
+/// written, holds up nothing else. Until the history is on disk the row
+/// says the terminal runs, and a client attaching meanwhile replays it from
+/// memory; once it is written the row says it exited.
+#[cfg(unix)]
+#[test]
+fn a_stalled_history_write_holds_up_nothing_else() {
+    let data = Folder::new("tt-stall");
+    let core = Core::start(&data);
+    let mut w = core.watch();
+    let mut c = core.device();
+    let id = TerminalId::mint();
+    let folder = data.0.join("scrollback");
+    std::fs::create_dir_all(&folder).unwrap();
+    let pipe = folder.join(format!("{}.new", id.uuid()));
+    let made = std::process::Command::new("mkfifo").arg(&pipe).status();
+    assert!(made.unwrap().success(), "mkfifo");
+    let start = fixture(&["print 3"]);
+    let mut v = open(&mut c, &args(id, Some(start), None, 1 << 20), true);
+    closed(&mut c, &mut v);
+    assert_eq!(v.exit(), Some(Some(0)));
+    let asked = Instant::now();
+    w.ok::<call::CoreStatus>(&Empty {});
+    assert!(asked.elapsed() < Duration::from_secs(2), "the core waited");
+    let mut again = open(&mut c, &args(id, None, Some(0), 1 << 20), true);
+    closed(&mut c, &mut again);
+    assert_printed(again.bytes(), 0, 3);
+    w.sync();
+    assert_eq!(w.model.terminals[&id].state, TerminalState::Running);
+    // Someone reads the pipe: the history is written, and the terminal exited.
+    let reader = std::thread::spawn(move || std::fs::read(pipe).unwrap());
+    state(&mut w, id, TerminalState::Exited);
+    let written = reader.join().unwrap();
+    assert!(String::from_utf8_lossy(&written).contains(&line(2)));
 }
 
 #[test]
@@ -830,10 +984,15 @@ fn a_terminal_may_belong_to_no_project_and_a_closed_project_starts_none() {
 #[test]
 fn the_environment_holds_exactly_the_fixed_list() {
     let data = Folder::new("tt-env");
+    // The fixture agent declares FIXTURE_AGENT_KEY, as an adapter declares
+    // the key a person signs in with; nothing else of the core's own
+    // environment passes.
     let leak = [
         ("TASKTAP_LEAK", "1"),
         ("USER", "someone"),
         ("LANG", "de_DE.UTF-8"),
+        ("FIXTURE_AGENT_KEY", "not-a-real-key"),
+        ("OTHER_API_KEY", "not-declared"),
     ];
     let core = Core::start_env(&data, &[], &leak);
     let mut c = core.device();
@@ -868,10 +1027,19 @@ fn the_environment_holds_exactly_the_fixed_list() {
         "TASKTAP_DATA",
         "TASKTAP_SOCKET",
         "TASKTAP_TOKEN",
+        "FIXTURE_AGENT_KEY",
     ]
     .into_iter()
     .map(fold)
     .collect();
+    // What the real adapters declare passes too, when whoever runs the
+    // tests has it.
+    let declared = tasktap_core::agents::variables().into_iter();
+    want.extend(
+        declared
+            .filter(|k| std::env::var_os(k).is_some_and(|v| !v.is_empty()))
+            .map(fold),
+    );
     if cfg!(windows) {
         let fixed = [
             "SystemRoot",

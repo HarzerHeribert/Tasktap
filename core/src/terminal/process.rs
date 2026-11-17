@@ -15,6 +15,8 @@ use std::ffi::OsString;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc as plain;
 use tasktap_proto::{Secret, Size};
 use tokio::sync::mpsc;
@@ -26,6 +28,17 @@ pub const QUEUE: usize = 8;
 const READ: usize = 16 << 10;
 /// None of the threads keeps a buffer on its stack.
 const STACK: usize = 128 << 10;
+/// What the core types is written this much at a time, so that once it
+/// gives up on it no more than this is still on its way.
+const PIECE: usize = 256;
+
+/// A chunk of input for the input thread.
+pub struct Input {
+    pub bytes: Vec<u8>,
+    /// For what the core types: set when the core gives up on it, after
+    /// which none of it that is still to come is written.
+    pub cancel: Option<Arc<AtomicBool>>,
+}
 
 /// What a terminal's threads tell the core's thread.
 pub enum Report {
@@ -36,9 +49,12 @@ pub enum Report {
     Output(Vec<u8>),
     /// The output ended: nothing holds the terminal's other side any more.
     Closed,
-    /// One chunk of input went to the process, or was dropped because it
-    /// no longer takes any.
-    Wrote,
+    /// One chunk of input went to the process, whole, or with `false` only
+    /// the part written before the core gave up on it.
+    Wrote(bool),
+    /// Input could not be written, and none will be: why. The input thread
+    /// has ended, so what was on its way is not written either.
+    Unwritable(String),
     /// The child exited: its code, none when a signal ended it.
     Exited(Option<u32>),
 }
@@ -67,10 +83,16 @@ pub struct Process {
 
 /// What [`Process::start`] hands over: the process, where its input goes
 /// (to the input thread, which writes it in order), and its reports.
-pub type Started = (Process, plain::Sender<Vec<u8>>, mpsc::Receiver<Report>);
+pub type Started = (Process, plain::Sender<Input>, mpsc::Receiver<Report>);
 
 /// What [`Process::hang_up`] asked to end, for the timer that kills it.
+/// On Mac and Linux that is every process group in the child's session,
+/// which it leads: what the terminal started, in whatever group, unless a
+/// process left the session itself. On Windows it is the job.
 pub struct Doomed {
+    #[cfg(unix)]
+    session: u32,
+    /// The groups hang-up was sent to, in case the processes cannot be listed.
     #[cfg(unix)]
     groups: Vec<u32>,
     #[cfg(windows)]
@@ -80,11 +102,30 @@ pub struct Doomed {
 impl Doomed {
     pub fn kill(self) {
         #[cfg(unix)]
-        for group in self.groups {
+        for group in self.groups() {
             sys::signal_group(group, true);
         }
         #[cfg(windows)]
         self.job.kill();
+    }
+
+    /// Whether anything it would kill is left. On Windows closing the job,
+    /// as the core does when it exits, ends what is left without waiting.
+    pub fn alive(&self) -> bool {
+        #[cfg(unix)]
+        let alive = self.groups().into_iter().any(sys::group_alive);
+        #[cfg(windows)]
+        let alive = false;
+        alive
+    }
+
+    #[cfg(unix)]
+    fn groups(&self) -> Vec<u32> {
+        let mut groups = sys::session_groups(self.session);
+        groups.extend(&self.groups);
+        groups.sort_unstable();
+        groups.dedup();
+        groups
     }
 }
 
@@ -135,25 +176,41 @@ impl Process {
         }
     }
 
-    /// Hangs up on the process group and the foreground group, or on
-    /// Windows closes the console, which asks its processes to end. Returns
-    /// what to kill if they have not ended by the deadline; nothing before
-    /// the child has started.
+    /// The terminal's foreground process group, and the group of its own
+    /// child, once it runs; none on Windows.
+    pub fn foreground(&self) -> Option<(u32, u32)> {
+        #[cfg(unix)]
+        {
+            let fg = self.master.as_ref()?.process_group_leader()?;
+            Some((u32::try_from(fg).ok()?, **self.group.as_ref()?))
+        }
+        #[cfg(windows)]
+        None
+    }
+
+    /// Hangs up on every process group of the child's session, the
+    /// foreground group among them, or on Windows closes the console, which
+    /// asks its processes to end. Returns what to kill if they have not
+    /// ended by the deadline; nothing before the child has started, nor on
+    /// Mac and Linux when nothing is left.
     pub fn hang_up(&mut self) -> Option<Doomed> {
         let group = self.group.clone()?;
         #[cfg(unix)]
         {
             let mut groups = vec![*group];
             let foreground = self.master.as_ref().and_then(|m| m.process_group_leader());
-            if let Some(fg) = foreground.and_then(|fg| u32::try_from(fg).ok())
-                && fg != *group
-            {
-                groups.push(fg);
+            groups.extend(foreground.and_then(|fg| u32::try_from(fg).ok()));
+            let doomed = Doomed {
+                session: *group,
+                groups,
+            };
+            if !doomed.alive() {
+                return None;
             }
-            for &group in &groups {
+            for group in doomed.groups() {
                 sys::signal_group(group, false);
             }
-            Some(Doomed { groups })
+            Some(doomed)
         }
         #[cfg(windows)]
         {
@@ -217,8 +274,6 @@ fn read(
         }
     };
     let mut buf = vec![0; READ];
-    #[cfg(windows)]
-    let mut seen = 0;
     loop {
         let n = match reader.read(&mut buf) {
             Ok(0) => break,
@@ -228,8 +283,6 @@ fn read(
         };
         if listening {
             let chunk = buf[..n].to_vec();
-            #[cfg(windows)]
-            let chunk = unask(chunk, &mut seen);
             listening = tx.blocking_send(Report::Output(chunk)).is_ok();
         }
     }
@@ -316,53 +369,49 @@ fn folder(path: PathBuf) -> PathBuf {
 }
 
 /// The input thread: writes each chunk whole, in order, and says so, which
-/// is when the client that sent it may send more.
+/// is when the client that sent it may send more. The first write that
+/// fails ends it, and it says why instead: what it did not write is never
+/// reported written.
 fn write(
     mut writer: Box<dyn Write + Send>,
-    inputs: plain::Receiver<Vec<u8>>,
+    inputs: plain::Receiver<Input>,
     tx: mpsc::Sender<Report>,
 ) {
-    // conhost asks where the cursor is before it shows anything, because
-    // portable-pty asks it to inherit the cursor, and waits for the answer.
-    // The core gives it, so no client sees the question (`unask`).
-    #[cfg(windows)]
-    let _ = writer.write_all(b"\x1b[1;1R");
-    let mut taking = true;
-    while let Ok(bytes) = inputs.recv() {
-        taking = taking
-            && writer
-                .write_all(&bytes)
-                .and_then(|()| writer.flush())
-                .is_ok();
-        if tx.blocking_send(Report::Wrote).is_err() {
+    while let Ok(input) = inputs.recv() {
+        let report = match pieces(&mut *writer, &input) {
+            Ok(whole) => Report::Wrote(whole),
+            Err(e) => Report::Unwritable(e.to_string()),
+        };
+        let failed = matches!(report, Report::Unwritable(_));
+        if tx.blocking_send(report).is_err() || failed {
             break;
         }
     }
 }
 
-/// Takes conhost's first cursor question, which the input thread answered,
-/// out of the output.
-#[cfg(windows)]
-fn unask(mut chunk: Vec<u8>, seen: &mut usize) -> Vec<u8> {
-    const QUESTION: &[u8] = b"\x1b[6n";
-    const WITHIN: usize = 64;
-    if *seen < WITHIN {
-        let found = chunk.windows(QUESTION.len()).position(|w| w == QUESTION);
-        match found.filter(|&at| *seen + at < WITHIN) {
-            Some(at) => {
-                chunk.drain(at..at + QUESTION.len());
-                *seen = WITHIN;
-            }
-            None => *seen += chunk.len(),
+/// Writes a chunk: a client's whole, what the core types a piece at a
+/// time until it is written or the core gives up on it. Whether it was
+/// written whole.
+fn pieces(writer: &mut dyn Write, input: &Input) -> io::Result<bool> {
+    let Some(cancel) = &input.cancel else {
+        writer.write_all(&input.bytes)?;
+        return writer.flush().map(|()| true);
+    };
+    for piece in input.bytes.chunks(PIECE) {
+        if cancel.load(Ordering::SeqCst) {
+            return Ok(false);
         }
+        writer.write_all(piece)?;
+        writer.flush()?;
     }
-    chunk
+    Ok(true)
 }
 
 /// The environment of every child, built from a fixed list and never
 /// inherited whole from whoever started the core (design §7, hazard 14):
 /// the person's home, user, language and shell, the PATH computed from the
-/// usual tool folders, the terminal variables, and how to reach the core.
+/// usual tool folders, the terminal variables, the variables the agents
+/// declare they need ([`declared`]), and how to reach the core.
 /// `path` is the child's PATH (`path`).
 pub fn environment(data: &Path, token: &Secret, path: OsString) -> Vec<(String, OsString)> {
     let mut env = fixed(path);
@@ -430,7 +479,24 @@ pub fn fixed(path: OsString) -> Vec<(String, OsString)> {
     put("TERM", "xterm-256color".into());
     put("COLORTERM", "truecolor".into());
     put("TERM_PROGRAM", "Tasktap".into());
+    for (key, value) in declared() {
+        put(key, value.clone());
+    }
     env
+}
+
+/// The variables the agents declare they need (`Agent::variables`), as the
+/// core's own environment had them when it started, and nothing else. Their
+/// values, a person's keys among them, go to children only, never to a
+/// record or a log.
+pub fn declared() -> &'static [(&'static str, OsString)] {
+    static DECLARED: std::sync::OnceLock<Vec<(&'static str, OsString)>> =
+        std::sync::OnceLock::new();
+    DECLARED.get_or_init(|| {
+        let set = crate::agents::variables().into_iter();
+        set.filter_map(|key| Some((key, std::env::var_os(key).filter(|v| !v.is_empty())?)))
+            .collect()
+    })
 }
 
 /// A child's PATH: `first` when given, then on Mac and Linux the folders

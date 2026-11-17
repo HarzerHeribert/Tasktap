@@ -6,18 +6,38 @@
 //! wrote. A stream counts its own bytes from 0, so it says once where it
 //! starts (`Opened.from`) and again after each gap (`Mark.from`).
 
+use super::process::Input;
+use super::queries::Queries;
 use crate::stream::{Endpoint, Handle, Next, Room};
 use std::collections::VecDeque;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc as plain;
 use tasktap_proto::{CloseWhy, MAX_SAFE, Mark, Offset, Size, Terminal, TerminalState};
+use tokio::sync::oneshot;
+
+/// Whether what the core typed was written: `Err` says why not.
+pub type Typed = Result<(), String>;
+
+/// Why typed text was not written, once the terminal took no more input.
+const UNWRITABLE: &str = "the terminal no longer takes input";
+/// Why typed text was not written whole, once the core gave up on it.
+const UNTAKEN: &str = "the agent did not take the text in time";
 
 /// Output kept per terminal (design §10: 2 MiB at full scrollback).
 pub const RING: usize = 2 << 20;
-/// Input one attached client may have on its way to the process.
+/// History a ring grows to by doubling; past it the ring takes all of
+/// [`RING`] at once. Each buffer a ring outgrows goes back to the allocator,
+/// which keeps it: doubling all the way left 0.6 to 1 MiB a terminal more
+/// than its 2 MiB (measured by `scripts/measure.sh`).
+const GROWN: usize = 64 << 10;
+/// Input one attached client may have on its way to the process, and the
+/// most a terminal holds for its process before it grants any more: what
+/// a client sent and closed its stream on, and what the core typed, count.
 pub const INPUT: u32 = 64 << 10;
 /// Sizes remembered for the bytes in the ring. A client resizing faster
 /// than the terminal writes costs the oldest bytes, never more memory.
@@ -32,23 +52,32 @@ pub struct Term {
     sizes: Vec<(u64, Size)>,
     /// Once the terminal has ended: its exit code, none when it has none.
     exit: Option<Option<u32>>,
-    readers: Vec<Handle>,
-    input: Option<plain::Sender<Vec<u8>>>,
-    /// Input handed to the input thread and not yet written, in order: whom
-    /// to grant it back to once it is, none for what the core typed.
-    owed: VecDeque<(Option<Handle>, u32)>,
+    readers: Vec<Reader>,
+    /// Bytes of input handed to the input thread and not yet written.
+    queued: u32,
+    input: Option<plain::Sender<Input>>,
+    /// Input handed to the input thread and not yet written, in order.
+    owed: VecDeque<(Owner, u32)>,
+    /// Why the input thread stopped writing, once it did.
+    unwritable: Option<String>,
+    /// What the program asks its terminal, which the core answers while no
+    /// client is attached.
+    queries: Queries,
 }
 
 impl Term {
-    pub fn new(size: Size, input: plain::Sender<Vec<u8>>) -> Term {
+    pub fn new(size: Size, input: plain::Sender<Input>) -> Term {
         Term {
             ring: VecDeque::new(),
             start: 0,
             sizes: vec![(0, size)],
             exit: None,
             readers: Vec::new(),
+            queued: 0,
             input: Some(input),
             owed: VecDeque::new(),
+            unwritable: None,
+            queries: Queries::new(),
         }
     }
 
@@ -60,19 +89,50 @@ impl Term {
         self.sizes.last().map_or(Size(0, 0), |&(_, size)| size)
     }
 
-    pub fn attach(&mut self, reader: Handle) {
-        self.readers.push(reader);
+    /// What a client attaching now is granted: as much as one client may
+    /// have on its way, while the terminal holds less than that for its
+    /// process; never what input already waiting there takes.
+    pub fn grantable(&mut self) -> u32 {
+        self.readers.retain(|r| r.handle.is_open());
+        INPUT.saturating_sub(self.queued)
     }
 
-    /// Appends output, dropping the oldest bytes beyond [`RING`].
+    /// A client attached, `granted` what [`Term::grantable`] said.
+    pub fn attach(&mut self, handle: Handle, granted: u32) {
+        self.readers.push(Reader {
+            handle,
+            unused: granted,
+            sent: 0,
+        });
+    }
+
+    /// Appends output, dropping the oldest bytes beyond [`RING`], and
+    /// answers what it asks the terminal while no client is attached to
+    /// answer it (`queries`).
     pub fn push(&mut self, bytes: &[u8]) {
+        self.readers.retain(|r| r.handle.is_open());
+        let found = self.queries.scan(bytes, !self.readers.is_empty());
+        let kept;
+        let bytes = match found.hidden {
+            Some(hidden) => {
+                kept = [&bytes[..hidden.start], &bytes[hidden.end..]].concat();
+                &kept[..]
+            }
+            None => bytes,
+        };
+        if !found.answers.is_empty() {
+            self.send(None, &found.answers);
+        }
         let over = (self.ring.len() + bytes.len()).saturating_sub(RING);
         self.discard(self.start + over as u64);
         let need = self.ring.len() + bytes.len();
         if need > self.ring.capacity() {
-            // Doubling, but never past the ring: a full ring holds 2 MiB,
-            // not the 4 a doubling buffer would reach.
-            let room = need.next_power_of_two().min(RING);
+            // Doubling while small, then the whole ring: a full ring holds
+            // 2 MiB, not the 4 a doubling buffer would reach.
+            let room = match need > GROWN {
+                true => RING,
+                false => need.next_power_of_two(),
+            };
             self.ring.reserve_exact(room - self.ring.len());
         }
         self.ring.extend(bytes);
@@ -103,47 +163,134 @@ impl Term {
     pub fn ended(&mut self, exit: Option<u32>) {
         self.exit = Some(exit);
         self.input = None;
-        self.owed.clear();
+        self.unwritten("the terminal has ended");
         self.wake();
     }
 
-    /// Input from an attached client, granted back to it once written.
+    /// The input thread could not write and stopped: no more input. Nothing
+    /// it held is granted back, and what the core typed was not written.
+    pub fn unwritable(&mut self, why: String) {
+        self.input = None;
+        self.unwritten(&format!("{UNWRITABLE}: {why}"));
+        self.unwritable = Some(why);
+    }
+
+    /// Everything still owed was not written: whoever typed it learns so.
+    fn unwritten(&mut self, why: &str) {
+        self.queued = 0;
+        for (owner, _) in self.owed.drain(..) {
+            if let Owner::Core(Some(typist)) = owner {
+                let _ = typist.send(Err(why.into()));
+            }
+        }
+    }
+
+    /// Input from an attached client, within what it was granted.
     fn take(&mut self, from: &Handle, bytes: &[u8]) {
+        let n = bytes.len() as u32;
+        if let Some(r) = self.readers.iter_mut().find(|r| r.handle.same(from)) {
+            r.unused = r.unused.saturating_sub(n);
+            r.sent += n;
+        }
         self.send(Some(from), bytes);
     }
 
-    /// Input for the process; what the core types itself, as the launcher
-    /// types a follow-up, has no client. False when the process takes no more.
+    /// Input for the process; what the core types itself, as the answers to
+    /// what the program asks, has no client. False when the process takes no more.
     pub fn send(&mut self, from: Option<&Handle>, bytes: &[u8]) -> bool {
+        let owner = match from {
+            Some(handle) => Owner::Client(handle.clone()),
+            None => Owner::Core(None),
+        };
+        self.hand(owner, bytes, None)
+    }
+
+    /// Text the core types, as the launcher types a follow-up, and how its
+    /// writing went once the input thread has written it, could not, or
+    /// stopped because `cancel` was set; `Err` with why when the process
+    /// takes no input any more.
+    pub fn type_text(
+        &mut self,
+        bytes: &[u8],
+        cancel: Arc<AtomicBool>,
+    ) -> Result<oneshot::Receiver<Typed>, String> {
+        if let Some(why) = &self.unwritable {
+            return Err(format!("{UNWRITABLE}: {why}"));
+        }
+        let (typist, typed) = oneshot::channel();
+        match self.hand(Owner::Core(Some(typist)), bytes, Some(cancel)) {
+            true => Ok(typed),
+            false => Err("the terminal has ended".into()),
+        }
+    }
+
+    fn hand(&mut self, owner: Owner, bytes: &[u8], cancel: Option<Arc<AtomicBool>>) -> bool {
         let input = self.input.as_ref();
-        let sent = input.is_some_and(|input| input.send(bytes.to_vec()).is_ok());
+        let chunk = || Input {
+            bytes: bytes.to_vec(),
+            cancel: cancel.clone(),
+        };
+        let sent = input.is_some_and(|input| input.send(chunk()).is_ok());
         if sent {
-            self.owed.push_back((from.cloned(), bytes.len() as u32));
+            self.owed.push_back((owner, bytes.len() as u32));
+            self.queued = self.queued.saturating_add(bytes.len() as u32);
         }
         sent
     }
 
-    /// The input thread wrote the oldest chunk.
-    pub fn wrote(&mut self) {
-        if let Some((Some(from), n)) = self.owed.pop_front() {
-            from.grant(n);
+    /// The input thread wrote the oldest chunk, `whole` or only until the
+    /// core gave up on it: a client may send as much again, and the core's
+    /// typist learns how it went.
+    pub fn wrote(&mut self, whole: bool) {
+        let Some((owner, n)) = self.owed.pop_front() else {
+            return;
+        };
+        self.queued = self.queued.saturating_sub(n);
+        match owner {
+            Owner::Client(from) => {
+                if let Some(r) = self.readers.iter_mut().find(|r| r.handle.same(&from)) {
+                    r.sent = r.sent.saturating_sub(n);
+                }
+            }
+            Owner::Core(Some(typist)) => {
+                drop(typist.send(if whole { Ok(()) } else { Err(UNTAKEN.into()) }));
+            }
+            Owner::Core(None) => {}
+        }
+        self.top_up();
+    }
+
+    /// Grants each attached client what it may have on its way again, out
+    /// of what the terminal does not hold for its process yet. A client
+    /// that closed its stream gave up what it was granted.
+    fn top_up(&mut self) {
+        self.readers.retain(|r| r.handle.is_open());
+        let mut room = INPUT.saturating_sub(self.queued);
+        for r in &mut self.readers {
+            let grant = INPUT.saturating_sub(r.unused + r.sent).min(room);
+            if grant > 0 {
+                r.handle.grant(grant);
+                r.unused += grant;
+                room -= grant;
+            }
         }
     }
 
     /// Writes the history to `path`, replacing what was there in one step.
     pub fn save(&self, path: &Path) -> io::Result<()> {
-        if let Some(folder) = path.parent() {
-            fs::create_dir_all(folder)?;
-        }
-        let new = path.with_extension("new");
-        let mut file = io::BufWriter::new(File::create(&new)?);
-        serde_json::to_writer(&mut file, &(self.start, &self.sizes))?;
-        file.write_all(b"\n")?;
+        write(path, &self.history())
+    }
+
+    /// The history as it is written: a header line with the ring's start
+    /// offset and sizes, then the bytes.
+    pub fn history(&self) -> Vec<u8> {
+        let mut history = serde_json::to_vec(&(self.start, &self.sizes)).unwrap_or_default();
+        history.push(b'\n');
         let (a, b) = self.ring.as_slices();
-        file.write_all(a)?;
-        file.write_all(b)?;
-        file.into_inner().map_err(|e| e.into_error())?;
-        fs::rename(new, path)
+        history.reserve_exact(a.len() + b.len());
+        history.extend_from_slice(a);
+        history.extend_from_slice(b);
+        history
     }
 
     fn discard(&mut self, until: u64) {
@@ -156,9 +303,9 @@ impl Term {
     }
 
     fn wake(&mut self) {
-        self.readers.retain(Handle::is_open);
-        for reader in &self.readers {
-            reader.wake();
+        self.readers.retain(|r| r.handle.is_open());
+        for r in &self.readers {
+            r.handle.wake();
         }
     }
 
@@ -178,6 +325,23 @@ impl Term {
             n + room.put(second)
         }
     }
+}
+
+/// An attached client, and the input it may send.
+struct Reader {
+    handle: Handle,
+    /// Granted and not sent yet.
+    unused: u32,
+    /// Sent and not written yet.
+    sent: u32,
+}
+
+/// Who sent input on its way to the process.
+enum Owner {
+    /// A client, granted it back once it is written.
+    Client(Handle),
+    /// The core, which may wait to learn whether it was written.
+    Core(Option<oneshot::Sender<Typed>>),
 }
 
 /// The history of a terminal that is no longer running, read from disk as
@@ -232,6 +396,18 @@ impl Saved {
 }
 
 type Header = (File, u64, u64, Vec<(u64, Size)>, u64);
+
+/// Writes a history to `path`, replacing what was there in one step.
+pub fn write(path: &Path, history: &[u8]) -> io::Result<()> {
+    if let Some(folder) = path.parent() {
+        fs::create_dir_all(folder)?;
+    }
+    let new = path.with_extension("new");
+    let mut file = File::create(&new)?;
+    file.write_all(history)?;
+    drop(file);
+    fs::rename(new, path)
+}
 
 fn header(path: &Path) -> io::Result<Header> {
     let mut file = BufReader::new(File::open(path)?);

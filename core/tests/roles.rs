@@ -132,7 +132,7 @@ fn event_reports_to_the_session_of_its_terminal() {
     assert_eq!(s.w.model.session(session).thought_id, Some(t));
     event(&["activity", "Editing", "src/login.ts"]);
     s.w.until("the activity", |m| {
-        m.session(session).activity == ["Editing src/login.ts"]
+        m.session(session).activity == [tasktap_core::state::TURN_STARTED, "Editing src/login.ts"]
     });
     event(&["turn_finished", "Fixed.\nThe login works again."]);
     s.w.until("the result", |m| m.status(t) == Status::Done);
@@ -297,7 +297,10 @@ fn a_hook_reports_or_waits_and_prints_its_adapters_reply() {
     let activity = r#"{"id": "a1", "kind": "activity", "text": "Reading notes.md"}"#;
     assert!(run(hook(), activity).status.success());
     s.w.until("the activity", |m| {
-        m.session(session).activity == ["Reading notes.md"]
+        m.session(session)
+            .activity
+            .last()
+            .is_some_and(|l| l == "Reading notes.md")
     });
 
     let mut waiter = hook();
@@ -629,6 +632,14 @@ fn an_agent_typed_in_a_shell_of_the_core_is_adopted() {
     };
     let opened = c.opened::<call::TerminalOpen>(&open, 1 << 20, true);
     let shell = opened.unwrap().unwrap().s;
+    // The first shell filled the shim folder: a shim for each agent with an
+    // adapter, and tasktap; any other agent runs as typed.
+    let mut shims: Vec<String> = std::fs::read_dir(s.data.0.join("shims"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    shims.sort();
+    assert_eq!(shims, ["claude", "codex", "fixture", "tasktap"]);
     let typed = b"fixture event:ready event:turn_started:tidy exit:4\r";
     c.write(shell, typed).unwrap();
     let ended = |m: &Model| {
@@ -701,7 +712,7 @@ fn a_shim_killed_ends_its_session_and_stopping_one_never_ends_the_shell() {
     // The agent it left reads the end of its input and goes.
     drop(child.stdin.take());
 
-    let child = sh.spawn(&["event:ready", "wait"]);
+    let mut child = sh.spawn(&["event:ready", "wait"]);
     let session = sh.adopted();
     sh.s.w.until("idle", |m| {
         m.session(session.id).state == SessionState::Idle
@@ -709,11 +720,20 @@ fn a_shim_killed_ends_its_session_and_stopping_one_never_ends_the_shell() {
     let f = sh.follow_up(session.id, "and the docs");
     assert!(soon(|| sh.s.log().delivered.contains(&f)));
     sh.s.w.ok::<call::ThoughtStop>(&Ref { id: f });
+    // No terminal is stopped: the shim ends its agent, which waited to read
+    // a line, and then itself, with the agent's end.
     let log = sh.s.log();
     assert!(log.killed.is_empty(), "{:?}", log.killed);
     sh.ended(session.id);
-    child.stdin.as_ref().unwrap().write_all(b"bye\n").unwrap();
-    assert!(child.wait_with_output().unwrap().status.success());
+    // The session ends with the stop; the shim ends with its agent, which
+    // must go without its input closing, as it would never close there.
+    assert!(
+        soon(|| child.try_wait().unwrap().is_some()),
+        "the agent runs on"
+    );
+    let out = child.wait_with_output().unwrap();
+    assert!(!out.status.success(), "{out:?}");
+    assert!(!text(&out.stdout).contains("read:"), "{out:?}");
 }
 
 #[test]
@@ -811,7 +831,10 @@ fn a_follow_up_the_shim_cannot_hold_for_fails_and_is_never_typed() {
     assert_eq!(request.name, "shim.hold");
     assert_eq!(
         call::ShimHold::args(request.args).unwrap(),
-        ShimHold { hold: true }
+        ShimHold {
+            hold: true,
+            stop: false
+        }
     );
     let gone = tasktap_proto::Error::new(Code::Gone, "the agent has exited");
     shim.send(&call::ShimHold::reply(request.id, Err(gone)))
@@ -831,6 +854,18 @@ fn a_follow_up_the_shim_cannot_hold_for_fails_and_is_never_typed() {
 }
 
 // Many at once
+
+/// Held by each test that starts processes by the hundred, so that no two
+/// of them share the machine. A burst asks whether one core lets 200 clients
+/// in within their 5 s; while another test starts thousands of processes
+/// beside it on a small machine (the hosted Mac in CI), the processor is
+/// what keeps them waiting, not the core.
+static MACHINE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The machine to this test alone, among those that hold [`MACHINE`].
+fn alone() -> std::sync::MutexGuard<'static, ()> {
+    MACHINE.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// Spawns every command at once, as a burst of hooks does, and returns
 /// their outputs.
@@ -852,7 +887,9 @@ fn burst(commands: Vec<Command>) -> Vec<Output> {
 
 #[test]
 fn two_hundred_roles_started_at_once_start_one_core_and_all_get_through() {
+    let _alone = alone();
     let data = Folder::new("rb");
+    let _core = Started(&data.0);
     let shims = shim::install(&data.0, Path::new(EXE)).unwrap();
     let real = data.0.join("real");
     std::fs::create_dir_all(&real).unwrap();
@@ -882,11 +919,11 @@ fn two_hundred_roles_started_at_once_start_one_core_and_all_get_through() {
     assert!(outs.iter().any(|out| got(out).contains("--hook")));
     let starts = std::fs::read_to_string(data.0.join("starts")).unwrap();
     assert_eq!(starts.lines().count(), 1, "{starts}");
-    retire(&data.0);
 }
 
 #[test]
 fn two_hundred_hooks_at_once_on_a_running_core_all_get_through() {
+    let _alone = alone();
     let mut s = Scene::new("rq");
     let (_, session, _agent) = s.launch("tidy up");
     let token = token(&mut s, session);
@@ -906,8 +943,63 @@ fn two_hundred_hooks_at_once_on_a_running_core_all_get_through() {
     assert_eq!(starts.lines().count(), 1, "{starts}");
 }
 
-fn device(data: &Path) -> Client {
-    let stream = client::connect(data).unwrap();
+/// macOS checks each program it starts by reading it, and kills the one it
+/// cannot read. With a second name for the binary (a hard link) the name it
+/// reads may be one link's name in another link's folder, a file that does
+/// not exist: the shims, and the binary under its own name, must start
+/// while other shim folders come and go, as each test's do.
+#[cfg(target_os = "macos")]
+#[test]
+fn shims_start_while_other_shim_folders_come_and_go() {
+    use std::os::unix::process::ExitStatusExt;
+    let _alone = alone();
+    let rounds: Vec<_> = (0..8)
+        .map(|_| {
+            std::thread::spawn(|| {
+                let mut killed = Vec::new();
+                for _ in 0..12 {
+                    let data = Folder::new("rk");
+                    let shims = shim::install(&data.0, Path::new(EXE)).unwrap();
+                    let tasktap = shims.join("tasktap");
+                    let runs: Vec<Child> = (0..80)
+                        .map(|i| {
+                            let program = if i % 2 == 0 { &tasktap } else { Path::new(EXE) };
+                            let mut c = Command::new(program);
+                            c.stdout(Stdio::null()).stderr(Stdio::null());
+                            c.spawn().unwrap()
+                        })
+                        .collect();
+                    for mut run in runs {
+                        let status = run.wait().unwrap();
+                        killed.extend(status.signal());
+                    }
+                }
+                killed
+            })
+        })
+        .collect();
+    let killed: Vec<i32> = rounds.into_iter().flat_map(|r| r.join().unwrap()).collect();
+    assert!(killed.is_empty(), "signals that ended a run: {killed:?}");
+}
+
+/// The core a role started on a folder: retired when this is dropped, also
+/// when the test fails, so it never outlives its test by its idle delay.
+struct Started<'a>(&'a Path);
+
+impl Drop for Started<'_> {
+    fn drop(&mut self) {
+        let retire = tasktap_proto::Retire {
+            when: tasktap_proto::When::Now,
+        };
+        // No panic here: it would abort the test that is already failing.
+        if let Some(mut c) = device(self.0) {
+            let _ = c.call::<call::CoreRetire>(&retire);
+        }
+    }
+}
+
+fn device(data: &Path) -> Option<Client> {
+    let stream = client::connect(data).ok()?;
     let hello = Hello {
         v: Versions(VERSION, VERSION),
         role: Role::Cli,
@@ -921,17 +1013,7 @@ fn device(data: &Path) -> Client {
         }),
         abilities: Vec::new(),
     };
-    Client::hello(stream, hello).unwrap().unwrap()
-}
-
-fn retire(data: &Path) {
-    let retire = tasktap_proto::Retire {
-        when: tasktap_proto::When::Now,
-    };
-    device(data)
-        .call::<call::CoreRetire>(&retire)
-        .unwrap()
-        .unwrap();
+    Client::hello(stream, hello).ok()?.ok()
 }
 
 // Speed

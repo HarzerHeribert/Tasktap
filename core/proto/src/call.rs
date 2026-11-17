@@ -1,4 +1,4 @@
-//! The one table of calls (design §1, §2): the 29 of the 44 core calls built
+//! The one table of calls (design §1, §2): the 30 of the 44 core calls built
 //! so far, the shim's ability, and the test fixtures.
 //!
 //! Each call is a type here, named for the call (`thought.capture` is
@@ -8,8 +8,8 @@
 
 use crate::args::{
     AddProject, Adopt, Agents, AnswerQuestion, Ask, AskKey, Assign, Capture, CloseProject,
-    DetectAgents, Empty, FixtureLog, HistoryPage, OpenTerminal, Ref, ResizeTerminal, Revision,
-    Settle, Start, Subscribe,
+    DetectAgents, Empty, FixtureLog, Hint, HistoryPage, OpenTerminal, Ref, ResizeTerminal,
+    Revision, Route, Settle, Start, Subscribe,
 };
 use crate::bootstrap::{Identity, Retire};
 use crate::frame::{Control, Outcome, Reply, Request};
@@ -84,7 +84,8 @@ table! {
     // Sessions
     SessionEvent "session.event" Session (crate::args::SessionEvent) -> ();
     SessionAdopt "session.adopt" Session (Adopt) -> SessionId;
-    // Agents
+    // Routing and agents
+    RouteHint "route.hint" Device (Hint) -> Route;
     AgentsDetect "agents.detect" Device (DetectAgents) -> Agents;
     // Terminals
     TerminalOpen "terminal.open" Device (OpenTerminal) -> crate::frame::Opened;
@@ -96,10 +97,11 @@ table! {
     ProjectClose "project.close" Device (CloseProject) -> ();
     // Input
     Input "input" Device (crate::args::Input) -> ();
-    // Devices and service; the last two are the frozen bootstrap calls.
+    // Devices and service; the last two are the frozen bootstrap calls, which
+    // with no shared version anyone the user check admits may make (bootstrap.rs).
     DeviceRevoke "device.revoke" Device (Ref<DeviceId>) -> ();
     CoreStatus "core.status" Anyone (Empty) -> crate::bootstrap::CoreStatus;
-    CoreRetire "core.retire" Anyone (Retire) -> ();
+    CoreRetire "core.retire" Device (Retire) -> ();
     // The shim's ability (design §7): the core calls it on a shim.
     ShimHold "shim.hold" Ability (crate::args::ShimHold) -> ();
     // Fixtures (design §13): only a core built with its test fixtures answers these.

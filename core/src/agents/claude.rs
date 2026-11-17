@@ -38,7 +38,8 @@ use tasktap_proto::{Answer, Ask, Event, MAX_LINE, MAX_TEXT, QuestionKind, ReplyV
 
 use super::rules::Rules;
 use super::{
-    Agent, Caps, Detect, Heard, Payload, Run, activity, digest, fit, line, permission, quoted, said,
+    Agent, Caps, Detect, Heard, Payload, Prompt, Run, activity, digest, fit, line, permission,
+    quoted, said,
 };
 
 pub struct Claude;
@@ -134,6 +135,7 @@ impl Claude {
                     kind,
                     prompt: fit(text, 2000),
                     detail: detail.map(|d| fit(&d, 16 << 10)),
+                    source: None,
                 })
             }
             None => {
@@ -151,6 +153,7 @@ impl Claude {
                     kind: QuestionKind::Text,
                     prompt: fit(prompt, 2000),
                     detail: (texts.len() > 1).then(|| fit(&texts.join("\n"), 16 << 10)),
+                    source: None,
                 })
             }
         }
@@ -194,6 +197,27 @@ impl Agent for Claude {
 
     fn attach(&self, exe: &Path) -> Vec<OsString> {
         vec!["--settings".into(), Self::settings(exe).into()]
+    }
+
+    /// Its sign-in when it is not in the keychain: an API key, the
+    /// long-lived token `claude setup-token` makes for a subscription, and
+    /// the folder it keeps its sign-in and settings in when moved.
+    fn variables(&self) -> &'static [&'static str] {
+        &[
+            "ANTHROPIC_API_KEY",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "CLAUDE_CONFIG_DIR",
+        ]
+    }
+
+    /// Its folder-trust dialog, which it shows before anything else in a
+    /// folder it does not trust, and before any hook runs (design §7: it has
+    /// no way to trust a folder for one run).
+    fn prompts(&self) -> &'static [Prompt] {
+        &[Prompt {
+            shows: "Yes, I trust this folder",
+            asks: "Claude Code is asking whether to trust this folder",
+        }]
     }
 
     fn detect(&self) -> Detect {
@@ -262,6 +286,10 @@ impl Agent for Claude {
                     Event::Continued { request },
                 )
             }
+            // A sub-agent's request is the sub-agent's, which the core does not
+            // follow (design §5, the guards): no hook waits for it, and
+            // Claude Code asks in its own terminal.
+            "PermissionRequest" if subagent => return Ok(None),
             "PermissionRequest" if tool == QUESTION => {
                 let request = Self::request(&turn, input);
                 match Self::asked(request.clone(), input) {
@@ -286,6 +314,7 @@ impl Agent for Claude {
                     kind: QuestionKind::Text,
                     prompt: fit(message, 2000),
                     detail: None,
+                    source: None,
                 };
                 said(request, subagent, resume, Event::Question { question: ask })
             }

@@ -99,6 +99,7 @@ fn handler(name: Name) -> Option<Handler> {
             |cx, args| now::<call::SessionEvent>(cx, args, effects::session_event)
         }
         Name::SessionAdopt => |cx, args| now::<call::SessionAdopt>(cx, args, crate::shim::adopt),
+        Name::RouteHint => |cx, args| now::<call::RouteHint>(cx, args, crate::route::hint),
         Name::AgentsDetect => |cx, args| later::<call::AgentsDetect>(cx, args, detect),
         // The core makes this call; it never answers it.
         Name::ShimHold => return None,
@@ -143,6 +144,13 @@ fn offered(name: Name, v: u32) -> bool {
     v != NO_SHARED_VERSION || BOOTSTRAP.contains(&name)
 }
 
+/// Who may make a call: who its access names, except that with no shared
+/// version the bootstrap calls are anyone's (`bootstrap.rs`).
+fn permitted(name: Name, peer: &Peer) -> bool {
+    name.access().permits(peer.who.identity())
+        || (peer.v == NO_SHARED_VERSION && BOOTSTRAP.contains(&name))
+}
+
 /// What `welcome` lists: the calls this build answers at version `v`.
 pub fn supported(v: u32) -> Vec<String> {
     let names = Name::ALL.iter().copied();
@@ -158,7 +166,7 @@ pub fn call(core: &mut Core, link: &Rc<Link>, peer: Peer, request: Request) {
     let Request { id, name, args } = request;
     let reply = match Name::parse(&name).filter(|&n| offered(n, peer.v)) {
         None => Some(refuse(id, Code::Unknown, format!("no call {name}"))),
-        Some(n) if !n.access().permits(peer.who.identity()) => Some(refuse(
+        Some(n) if !permitted(n, &peer) => Some(refuse(
             id,
             Code::Denied,
             format!("{name} is not for this caller"),
@@ -232,25 +240,41 @@ fn off_thread<C: Call, T: Send + 'static>(
         return Some(C::reply(cx.id, Err(busy)));
     }
     cx.core.checks += 1;
+    let (link, id) = (cx.link.clone(), cx.id);
+    aside(cx.core, look, move |core, found| {
+        core.checks -= 1;
+        let lost = || Error::new(Code::Failed, "the folder check ended without an answer");
+        let result = found.ok_or_else(lost).and_then(|found| then(core, found));
+        link.send(&C::reply(id, result));
+    });
+    None
+}
+
+/// Runs `work` on a short-lived thread, since the file system may block
+/// for as long as the system lets it (a stalled network mount), and then
+/// `then` on the core's thread with what it returned, or with nothing when
+/// the thread ended without an answer. The folder checks, a launch's search
+/// for its program and the saving of a terminal's history run so. In a
+/// build with the test fixtures `--check-ms` has each wait first.
+pub fn aside<T: Send + 'static>(
+    core: &Core,
+    work: impl FnOnce() -> T + Send + 'static,
+    then: impl FnOnce(&mut Core, Option<T>) + 'static,
+) {
     #[cfg(feature = "fixtures")]
-    let slow = cx.core.fixture_check;
+    let slow = core.fixture_check;
     let (found, report) = tokio::sync::oneshot::channel();
     std::thread::spawn(move || {
         #[cfg(feature = "fixtures")]
         std::thread::sleep(slow);
-        let _ = found.send(look());
+        let _ = found.send(work());
     });
-    let (core, link, id) = (cx.core.me.clone(), cx.link.clone(), cx.id);
+    let me = core.me.clone();
     tokio::task::spawn_local(async move {
-        let found = report.await;
-        let Some(core) = core.upgrade() else { return };
-        let mut core = core.borrow_mut();
-        core.checks -= 1;
-        let lost = |_| Error::new(Code::Failed, "the folder check ended without an answer");
-        let result = found.map_err(lost).and_then(|found| then(&mut core, found));
-        link.send(&C::reply(id, result));
+        let found = report.await.ok();
+        let Some(core) = me.upgrade() else { return };
+        then(&mut core.borrow_mut(), found);
     });
-    None
 }
 
 /// `thought.capture`, naming the agent a new run of the thought would use:
@@ -427,7 +451,8 @@ fn reopen(tx: &mut crate::store::Tx, mut p: Project) -> Result<ProjectId, Error>
 }
 
 /// `agents.detect`: each agent asked for, or every one, as its own commands
-/// find it, each agent on a thread of its own.
+/// find it, each agent on a thread of its own. What it finds goes to the
+/// `agents` collection too, and the reply is those rows.
 fn detect(cx: &mut Cx, args: DetectAgents) -> Option<Control> {
     let all = crate::agents::all();
     let asked: Vec<_> = match &args.agents {
@@ -444,16 +469,26 @@ fn detect(cx: &mut Cx, args: DetectAgents) -> Option<Control> {
             found
         }
     };
-    let look = move || {
-        std::thread::scope(|scope| {
-            let checks: Vec<_> = (asked.iter())
-                .map(|agent| scope.spawn(|| crate::agents::checks::detect(*agent)))
-                .collect();
-            let found = checks.into_iter().filter_map(|c| c.join().ok());
-            found.collect::<Vec<_>>()
-        })
-    };
-    off_thread::<call::AgentsDetect, _>(cx, look, |_, agents| Ok(Agents { agents }))
+    let look = move || crate::agents::checks::detect_all(&asked);
+    off_thread::<call::AgentsDetect, _>(cx, look, |core, found| {
+        let agents = core.set_agents(found).map_err(effects::stored)?;
+        Ok(Agents { agents })
+    })
+}
+
+/// Detects the agents once as the core starts, off its thread, so the
+/// `agents` collection is filled before a page asks (design §7). It keeps
+/// nothing alive: a core that idles out meanwhile ends without the rows.
+pub fn detect_at_start(core: &Core) {
+    let agents = crate::agents::at_start();
+    if agents.is_empty() {
+        return;
+    }
+    let look = move || crate::agents::checks::detect_all(&agents);
+    aside(core, look, |core, found| {
+        // Memory only: a revision not taken leaves the collection as it was.
+        let _ = core.set_agents(found.unwrap_or_default());
+    });
 }
 
 /// `project.scan`: whether each project's folder is still there, and still

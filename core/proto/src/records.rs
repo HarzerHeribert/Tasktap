@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 words! {
-    pub enum Collection { Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices, Glance }
+    pub enum Collection { Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices, Glance, Agents }
 }
 
 /// The rows of one collection that one change touches.
@@ -33,6 +33,9 @@ pub enum Set {
     Glance {
         put: Vec<Glance>,
     },
+    /// In memory: one row per agent this core has, once it has been
+    /// detected; rows are only ever put.
+    Agents(Rows<crate::args::AgentHealth, String>),
 }
 
 /// Rows put whole, and ids of rows that stopped being live.
@@ -395,7 +398,11 @@ pub struct Glance {
     pub rev: Rev,
     pub working: u32,
     pub needs_you: u32,
+    /// Done and not read yet.
     pub done: u32,
+    /// Failed and not read yet: stopped, refused, interrupted or ended
+    /// without an answer, and not yet seen (`thought.read`) or retried.
+    pub failed: u32,
     /// The question affirm and deny act on: the oldest open one unless
     /// `question.focus` chose another.
     pub question: Option<QuestionId>,

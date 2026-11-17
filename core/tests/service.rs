@@ -67,10 +67,23 @@ fn clients_start_the_core_on_demand_without_waiting_in_a_loop() {
         status(c);
     }
     let retire = Retire { when: When::Now };
-    clients[0]
-        .call::<call::CoreRetire>(&retire)
-        .unwrap()
-        .unwrap();
+    // With a shared version only a device retires the core.
+    let stream = client::connect_or_start(Path::new(EXE), &data.0).unwrap();
+    let hello = Hello {
+        v: CURRENT,
+        role: Role::Host,
+        client: "host".into(),
+        auth: Some(Auth::Device {
+            device: DeviceId::mint(),
+            key: Secret([1; 32]),
+            register: Some(Register {
+                name: "host".into(),
+            }),
+        }),
+        abilities: Vec::new(),
+    };
+    let mut host = Client::hello(stream, hello).unwrap().unwrap();
+    host.call::<call::CoreRetire>(&retire).unwrap().unwrap();
     dropped(&mut clients[1]);
 }
 
@@ -235,6 +248,9 @@ fn each_caller_reaches_only_its_own_calls() {
         code(raw(&mut agent, "device.revoke", revoke())),
         Code::Denied
     );
+    // An agent holds a token: it cannot end the core and every terminal in it.
+    let now = || json!({ "when": "now" });
+    assert_eq!(code(raw(&mut agent, "core.retire", now())), Code::Denied);
     status(&mut agent);
 
     let wrong = Some(Auth::Session {
@@ -255,7 +271,15 @@ fn each_caller_reaches_only_its_own_calls() {
         code(raw(&mut nobody, "device.revoke", revoke())),
         Code::Denied
     );
+    // With a version shared, retiring is a device's call; without one it
+    // is anyone's (`without_a_shared_version_only_the_bootstrap_calls_work`).
+    assert_eq!(code(raw(&mut nobody, "core.retire", now())), Code::Denied);
     status(&mut nobody);
+    let mut core = core;
+    host.call::<call::CoreRetire>(&Retire { when: When::Now })
+        .unwrap()
+        .unwrap();
+    assert!(core.exit().success());
 }
 
 #[test]
@@ -338,7 +362,7 @@ fn retire_now_exits_at_once_and_frees_the_folder() {
     let data = Folder::new("tt");
     let mut core = Core::start(&data);
     let mut watcher = core.anonymous();
-    let mut c = core.anonymous();
+    let mut c = core.device();
     let retire = Retire { when: When::Now };
     c.call::<call::CoreRetire>(&retire).unwrap().unwrap();
     dropped(&mut watcher);
@@ -354,7 +378,7 @@ fn retire_idle_exits_once_no_terminal_is_alive() {
     let data = Folder::new("tt");
     let mut core = Core::start(&data);
     let mut watcher = core.anonymous();
-    let mut c = core.anonymous();
+    let mut c = core.device();
     let retire = Retire { when: When::Idle };
     c.call::<call::CoreRetire>(&retire).unwrap().unwrap();
     dropped(&mut watcher);

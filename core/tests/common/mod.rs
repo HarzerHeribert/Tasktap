@@ -15,11 +15,11 @@ use tasktap_core::client::{self, Client};
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
     Answer, Ask, AskKey, Auth, CallId, Capture, Change, Collection, Control, Data, DeviceId, Empty,
-    Event as Said, FixtureClock, FixtureLog, FixtureRoute, Frame, Glance, Hello, Identity,
-    OpenTerminal, Outcome, Place, Project, ProjectId, Question, QuestionId, QuestionKind, Refuse,
-    Register, Request, ResultId, Retire, Role, Secret, Session, SessionEvent, SessionId, Set,
-    Source, StartTerminal, Status, StreamId, Subscribe, Terminal, TerminalId, Thought, ThoughtId,
-    Time, TurnResult, VERSION, Versions, When,
+    Event as Said, FixtureClock, FixtureLog, Frame, Glance, Hello, Identity, OpenTerminal, Outcome,
+    Place, Project, ProjectId, Question, QuestionId, QuestionKind, Refuse, Register, Request,
+    ResultId, Retire, Role, Route, Secret, Session, SessionEvent, SessionId, Set, Source,
+    StartTerminal, Status, StreamId, Subscribe, Terminal, TerminalId, Thought, ThoughtId, Time,
+    TurnResult, VERSION, Versions, When,
 };
 
 mod watchdog;
@@ -28,7 +28,7 @@ pub use watchdog::Watchdog;
 pub const EXE: &str = env!("CARGO_BIN_EXE_tasktap");
 /// Milliseconds a thought is held while the preference is unset.
 pub const HOLD_MS: u64 = tasktap_proto::DEFAULT_HOLD as u64 * 1000;
-pub const ALL: [Collection; 10] = [
+pub const ALL: [Collection; 11] = [
     Collection::Thoughts,
     Collection::Projects,
     Collection::Sessions,
@@ -39,6 +39,7 @@ pub const ALL: [Collection; 10] = [
     Collection::Prefs,
     Collection::Devices,
     Collection::Glance,
+    Collection::Agents,
 ];
 
 pub fn wall_ms() -> u64 {
@@ -247,6 +248,7 @@ pub struct Model {
     pub questions: BTreeMap<QuestionId, Question>,
     pub results: BTreeMap<ResultId, TurnResult>,
     pub glance: Option<Glance>,
+    pub agents: BTreeMap<String, tasktap_proto::AgentHealth>,
 }
 
 impl Model {
@@ -275,6 +277,11 @@ impl Model {
                 Set::Questions(r) => rows!(questions, r),
                 Set::Results(r) => rows!(results, r),
                 Set::Glance { put } => self.glance = put.last().cloned(),
+                Set::Agents(r) => {
+                    for a in &r.put {
+                        self.agents.insert(a.id.clone(), a.clone());
+                    }
+                }
                 _ => {}
             }
         }
@@ -669,6 +676,7 @@ pub fn confirm(request: &str, prompt: &str) -> Ask {
         kind: QuestionKind::Confirm,
         prompt: prompt.into(),
         detail: None,
+        source: None,
     }
 }
 
@@ -690,11 +698,12 @@ pub fn typed(id: ThoughtId, text: &str) -> Capture {
         session_id: None,
         agent: None,
         model: None,
+        current: None,
     }
 }
 
-pub fn clear(project: ProjectId) -> FixtureRoute {
-    FixtureRoute::Clear {
+pub fn clear(project: ProjectId) -> Route {
+    Route::Clear {
         to: Place::Project(project),
         brief: "Fix the failing build".into(),
     }
@@ -709,10 +718,20 @@ pub fn agents(data: &Path) -> PathBuf {
         .join("fixture-agent")
         .with_extension(std::env::consts::EXE_EXTENSION);
     // Never a copy onto a link to the binary itself, which would empty it.
-    if !program.exists() && std::fs::hard_link(EXE, &program).is_err() {
+    if !program.exists() && link(&program).is_err() {
         std::fs::copy(EXE, &program).unwrap();
     }
     folder
+}
+
+/// A link to this binary at `to`: symbolic on macOS, where a second name
+/// for the binary can get it killed as the shims' links would
+/// (`roles::shim::install`).
+fn link(to: &Path) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    return std::os::unix::fs::symlink(EXE, to);
+    #[cfg(not(target_os = "macos"))]
+    return std::fs::hard_link(EXE, to);
 }
 
 /// This process's PATH with `first` before it.
@@ -795,8 +814,54 @@ impl Screen {
             .unwrap();
     }
 
+    /// Types one byte and says whether the core granted it back, as it does
+    /// once the byte is written, within `wait`.
+    #[cfg(unix)]
+    pub fn acknowledged(&mut self, wait: std::time::Duration) -> bool {
+        let before = self.c.credit(self.s);
+        assert_eq!(self.c.send_some(self.s, b" ").unwrap(), 1, "no credit");
+        let patience = self.c.stream().read_timeout().unwrap();
+        self.c.stream().set_read_timeout(Some(wait)).unwrap();
+        let deadline = std::time::Instant::now() + wait;
+        while self.c.credit(self.s) < before && std::time::Instant::now() < deadline {
+            match self.c.recv() {
+                Ok(Frame::Data(Data { s, bytes })) if s == self.s => self.bytes.extend(bytes),
+                Ok(_) => {}
+                Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => break,
+                Err(e) => panic!("the core went away: {e}"),
+            }
+        }
+        self.c.stream().set_read_timeout(patience).unwrap();
+        self.c.credit(self.s) >= before
+    }
+
+    /// Sends `bytes` as they are, as a terminal answers its program.
+    pub fn write(&mut self, bytes: &[u8]) {
+        self.c.write(self.s, bytes).unwrap();
+    }
+
     pub fn text(&self) -> String {
         plain(&self.bytes)
+    }
+
+    /// Reads until the bytes received hold `what` and something after it.
+    pub fn until_after(&mut self, what: &[u8]) {
+        let after = |bytes: &[u8]| {
+            let at = bytes.windows(what.len()).position(|w| w == what);
+            at.is_some_and(|at| bytes.len() > at + what.len())
+        };
+        while !after(&self.bytes) {
+            let gone = self.closed || !self.pump();
+            assert!(!gone, "it ended before {what:?}: {:?}", self.text());
+        }
+    }
+
+    /// Reads until the bytes received hold `what`, escapes and all.
+    pub fn until_bytes(&mut self, what: &[u8]) {
+        while !self.bytes.windows(what.len()).any(|w| w == what) {
+            let gone = self.closed || !self.pump();
+            assert!(!gone, "it ended before {what:?}: {:?}", self.text());
+        }
     }
 
     /// Reads until it shows `what`.
@@ -835,7 +900,7 @@ pub struct Scene {
     pub data: Folder,
     pub project: ProjectId,
     pub now: u64,
-    route: FixtureRoute,
+    route: Route,
     refuse: Option<String>,
     /// Follow-ups wait, untyped, until the next script without it.
     pub pause: bool,
@@ -942,7 +1007,7 @@ impl Scene {
         self.w.ok::<call::FixtureClock>(&FixtureClock { now });
     }
 
-    pub fn script(&mut self, route: FixtureRoute, refuse: Option<&str>) -> FixtureLog {
+    pub fn script(&mut self, route: Route, refuse: Option<&str>) -> FixtureLog {
         self.route = route;
         self.refuse = refuse.map(Into::into);
         self.log()

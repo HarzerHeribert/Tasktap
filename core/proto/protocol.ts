@@ -49,13 +49,22 @@ agent: string,
 cwd: string, };
 
 /**
- * One agent as found on this computer, and what its runs can do.
+ * One agent as found on this computer, and what its runs can do: a row of
+ * the in-memory `agents` collection, and of the reply of `agents.detect`.
  */
 export type AgentHealth = {
 /**
  * Its id, as a capture and `tasktap hook` name it.
  */
 id: string,
+/**
+ * The revision of the change that last put the row.
+ */
+rev: Rev,
+/**
+ * When its commands last said what follows.
+ */
+checked: Time,
 /**
  * Its program is on the PATH the core's terminals get.
  */
@@ -116,7 +125,13 @@ export type Ask = {
  * The asker's key, kept per session: asking again with it reaches the
  * same question, and the same key from another session is another one.
  */
-request: string, prompt: string, detail?: string | null, } & ({ "kind": "confirm" } | { "kind": "choice", choices: Array<string>, } | { "kind": "text" });
+request: string, prompt: string, detail?: string | null,
+/**
+ * What asks: `permission` for a permission request a hook waits on;
+ * without it, `agent`, a question of the agent's own. A session never
+ * asks as the `router`: that is `invalid`.
+ */
+source?: QuestionSource | null, } & ({ "kind": "confirm" } | { "kind": "choice", choices: Array<string>, } | { "kind": "text" });
 
 /**
  * `question.withdraw` and `question.received`: the asker names its question
@@ -148,6 +163,11 @@ register?: Register | null, } | { token: Secret, };
 export type CallId = number;
 
 /**
+ * One choice of an ambiguous route, as its question shows it.
+ */
+export type Candidate = { label: string, to: Place, };
+
+/**
  * `thought.capture`. A project or session given here is the person's own
  * pick, which routes the thought without asking the router.
  */
@@ -161,7 +181,13 @@ agent?: string | null,
 /**
  * The model a new run asks its agent for; without one, the agent's own default.
  */
-model?: string | null, };
+model?: string | null,
+/**
+ * The session the person was in when they captured, which the router
+ * sends the thought on to unless its text names another project. Not
+ * a pick: unlike `session_id`, the router still decides (design §8).
+ */
+current?: SessionId | null, };
 
 /**
  * One committed transaction, or one chunk of a snapshot.
@@ -191,7 +217,7 @@ export type CloseWhy = "done" | "overflow" | "gone" | "denied";
 
 export type Code = "unknown" | "invalid" | "denied" | "conflict" | "gone" | "failed";
 
-export type Collection = "thoughts" | "projects" | "sessions" | "terminals" | "questions" | "results" | "layouts" | "prefs" | "devices" | "glance";
+export type Collection = "thoughts" | "projects" | "sessions" | "terminals" | "questions" | "results" | "layouts" | "prefs" | "devices" | "glance" | "agents";
 
 /**
  * A kind 0 frame. Unknown fields are ignored, so a newer peer may add fields
@@ -250,8 +276,6 @@ export type Empty = Record<string, never>;
  */
 export type Error = { code: Code, message: string, };
 
-export type FixtureCandidate = { label: string, to: Place, };
-
 /**
  * `fixture.clock`: from now on the core's clock reads `now` and moves only
  * when called again; every hold that has ended by then ends before the reply.
@@ -292,8 +316,6 @@ notified: Array<QuestionId>, };
  */
 export type FixtureRecords = { sets: Array<Set>, };
 
-export type FixtureRoute = { "confidence": "clear", to: Place, brief: string, } | { "confidence": "ambiguous", prompt: string, candidates: Array<FixtureCandidate>, } | { "confidence": "unknown" };
-
 /**
  * `fixture.script`: selects the fixture router and launcher, which a core
  * built with its test fixtures has instead of the real ones (design §13), and
@@ -304,7 +326,7 @@ export type FixtureScript = {
 /**
  * What the router answers for every thought from now on.
  */
-route: FixtureRoute,
+route: Route,
 /**
  * The launcher refuses every launch, delivery and settle with this.
  */
@@ -362,7 +384,16 @@ marks?: Array<Offset>, };
 /**
  * What a host shows with no page running. Memory only.
  */
-export type Glance = { rev: Rev, working: number, needs_you: number, done: number,
+export type Glance = { rev: Rev, working: number, needs_you: number,
+/**
+ * Done and not read yet.
+ */
+done: number,
+/**
+ * Failed and not read yet: stopped, refused, interrupted or ended
+ * without an answer, and not yet seen (`thought.read`) or retried.
+ */
+failed: number,
 /**
  * The question affirm and deny act on: the oldest open one unless
  * `question.focus` chose another.
@@ -382,6 +413,16 @@ client: string, auth?: Auth | null,
  * The `host.*` calls a host answers.
  */
 abilities?: Array<string>, };
+
+/**
+ * `route.hint`: where a capture would go, asked while it is typed (the
+ * destination chip). The same match the router makes, with no effect.
+ */
+export type Hint = { text: string,
+/**
+ * As `thought.capture`'s `current`.
+ */
+current?: SessionId | null, };
 
 /**
  * `history`: finished thoughts older than `before`, newest first; with
@@ -640,6 +681,12 @@ export type Revision = { rev: Rev, };
 export type Role = "page" | "host" | "cli";
 
 /**
+ * Where a router sends a thought (design §8): the answer of `route.hint`,
+ * and what `fixture.script` has the fixture router answer.
+ */
+export type Route = { "confidence": "clear", to: Place, brief: string, } | { "confidence": "ambiguous", prompt: string, candidates: Array<Candidate>, } | { "confidence": "unknown" };
+
+/**
  * Rows put whole, and ids of rows that stopped being live.
  */
 export type Rows<R, I> = { put?: Array<R>, del?: Array<I>, };
@@ -705,7 +752,7 @@ export type SessionState = "starting" | "idle" | "working" | "ended";
 /**
  * The rows of one collection that one change touches.
  */
-export type Set = { "c": "thoughts" } & Rows<Thought, ThoughtId> | { "c": "projects" } & Rows<Project, ProjectId> | { "c": "sessions" } & Rows<Session, SessionId> | { "c": "terminals" } & Rows<Terminal, TerminalId> | { "c": "questions" } & Rows<Question, QuestionId> | { "c": "results" } & Rows<TurnResult, ResultId> | { "c": "layouts" } & Rows<Layout, ProjectId> | { "c": "prefs" } & Rows<Pref, PrefKey> | { "c": "devices" } & Rows<Device, DeviceId> | { "c": "glance", put: Array<Glance>, };
+export type Set = { "c": "thoughts" } & Rows<Thought, ThoughtId> | { "c": "projects" } & Rows<Project, ProjectId> | { "c": "sessions" } & Rows<Session, SessionId> | { "c": "terminals" } & Rows<Terminal, TerminalId> | { "c": "questions" } & Rows<Question, QuestionId> | { "c": "results" } & Rows<TurnResult, ResultId> | { "c": "layouts" } & Rows<Layout, ProjectId> | { "c": "prefs" } & Rows<Pref, PrefKey> | { "c": "devices" } & Rows<Device, DeviceId> | { "c": "glance", put: Array<Glance>, } | { "c": "agents" } & Rows<AgentHealth, string>;
 
 /**
  * `thought.settle`: keeps or discards the changes of a thought's worktree,
@@ -718,9 +765,10 @@ export type Settle = { id: ThoughtId, attempt: AttemptId, keep: boolean, };
  * it types a follow-up into the shell's terminal (design §7). With `hold` the
  * shim confirms its agent runs in the foreground and keeps the terminal
  * until a call without it, sent once the text is written; a shim whose agent
- * has ended answers `gone`.
+ * has ended answers `gone`. With `stop` the shim ends its agent, as
+ * `thought.stop` stops a run, and never the shell it runs in.
  */
-export type ShimHold = { hold: boolean, };
+export type ShimHold = { hold: boolean, stop: boolean, };
 
 /**
  * A terminal size: `[cols, rows]`.
@@ -856,6 +904,7 @@ export type Calls = {
   "question.focus": { args: Ref<QuestionId>; result: null; access: "device" };
   "session.event": { args: SessionEvent; result: null; access: "session" };
   "session.adopt": { args: Adopt; result: SessionId; access: "session" };
+  "route.hint": { args: Hint; result: Route; access: "device" };
   "agents.detect": { args: DetectAgents; result: Agents; access: "device" };
   "terminal.open": { args: OpenTerminal; result: Opened; access: "device" };
   "terminal.resize": { args: ResizeTerminal; result: null; access: "device" };
@@ -866,7 +915,7 @@ export type Calls = {
   "input": { args: Input; result: null; access: "device" };
   "device.revoke": { args: Ref<DeviceId>; result: null; access: "device" };
   "core.status": { args: Empty; result: CoreStatus; access: "anyone" };
-  "core.retire": { args: Retire; result: null; access: "anyone" };
+  "core.retire": { args: Retire; result: null; access: "device" };
   "shim.hold": { args: ShimHold; result: null; access: "ability" };
   "fixture.stream": { args: FixtureStream; result: Opened; access: "device" };
   "fixture.script": { args: FixtureScript; result: FixtureLog; access: "device" };

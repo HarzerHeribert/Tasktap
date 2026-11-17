@@ -11,7 +11,7 @@
 //! live with the agents (`agents::rules`).
 
 use std::ffi::{OsStr, OsString};
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, mpsc};
@@ -32,6 +32,13 @@ pub const SHIMS: &str = "shims";
 /// Makes `<data>/shims` hold this program under each agent's name and as
 /// `tasktap`, which hooks and `tasktap ask` run; a link where the system
 /// allows one. The core's shells put the folder first on their PATH.
+///
+/// On macOS the link is symbolic. A hard link gives the program a second
+/// name, and the system's check of each program it starts may then look
+/// for it under one name in the other's folder, a file that does not
+/// exist, and kill the program it could not read: a shim, or a core or
+/// hook started under the program's own name. A symbolic link leaves the
+/// program one name.
 pub fn install(data: &Path, exe: &Path) -> io::Result<PathBuf> {
     let folder = data.join(SHIMS);
     // A core a hook started runs from the folder, which is filled already.
@@ -47,7 +54,7 @@ pub fn install(data: &Path, exe: &Path) -> io::Result<PathBuf> {
             Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
             _ => {}
         }
-        if std::fs::hard_link(exe, &shim).is_err() {
+        if link(exe, &shim).is_err() {
             std::fs::copy(exe, &shim)?;
         }
     }
@@ -100,6 +107,16 @@ pub fn run(rules: &'static Rules, args: Vec<OsString>) -> ExitCode {
 }
 
 /// Standard input and output are a terminal a person types in.
+#[cfg(target_os = "macos")]
+fn link(exe: &Path, shim: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(exe, shim)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn link(exe: &Path, shim: &Path) -> io::Result<()> {
+    std::fs::hard_link(exe, shim)
+}
+
 fn terminal() -> bool {
     #[cfg(feature = "fixtures")]
     if std::env::var_os(super::fixture::TTY).is_some() {
@@ -279,9 +296,10 @@ fn observe(
     };
     let hold = Arc::new(Hold::default());
     let tty = io::stdin().is_terminal();
+    let agent = child.id();
     std::thread::spawn({
         let hold = hold.clone();
-        move || answer(link, &hold, tty)
+        move || answer(link, &hold, tty, agent)
     });
     let status = {
         let _interrupts = sys::ignore_interrupts();
@@ -403,6 +421,9 @@ impl Hold {
         let deadline = Instant::now() + WAIT;
         let mut s = self.state();
         s.ended = true;
+        if s.held && !s.gone {
+            drain();
+        }
         while s.held && !s.gone {
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
@@ -416,8 +437,59 @@ impl Hold {
     }
 }
 
+/// Reads the terminal into nothing from now on. The agent has gone while
+/// the core types a follow-up it will never read: what the core is still
+/// writing goes nowhere, so the core can finish and let go, and none of it
+/// is left for the shell once this returns to it. The thread ends with the
+/// process.
+fn drain() {
+    if !io::stdin().is_terminal() {
+        return;
+    }
+    let reads = || {
+        let mut buf = [0; 4096];
+        let mut input = io::stdin().lock();
+        while input.read(&mut buf).is_ok_and(|n| n > 0) {}
+    };
+    let _ = std::thread::Builder::new()
+        .name("drain".into())
+        .spawn(reads);
+}
+
+/// Ends the agent, as the core asks once its run was stopped: hang-up, and
+/// the kill after 2 s if it has not exited by then; on Windows the agent's
+/// process tree at once. Only the agent: this shim and the shell it runs
+/// in go on, and once the agent has gone the shim reports its exit.
+fn end(hold: &Arc<Hold>, agent: u32) {
+    #[cfg(unix)]
+    {
+        sys::signal_process(agent, false);
+        let hold = hold.clone();
+        let _ = std::thread::Builder::new()
+            .name("kill".into())
+            .spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                if !hold.state().ended {
+                    sys::signal_process(agent, true);
+                }
+            });
+    }
+    #[cfg(windows)]
+    {
+        let _ = hold;
+        let pid = agent.to_string();
+        // By its path: the shell's PATH need not name the system's folder.
+        let root = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+        let taskkill = Path::new(&root).join(r"System32\taskkill.exe");
+        let kill = Command::new(taskkill)
+            .args(["/PID", &pid, "/T", "/F"])
+            .output();
+        drop(kill);
+    }
+}
+
 /// Answers the core's calls on the adopting connection until it ends.
-fn answer(mut link: Client, hold: &Hold, tty: bool) {
+fn answer(mut link: Client, hold: &Arc<Hold>, tty: bool, agent: u32) {
     loop {
         let request = match link.recv() {
             Ok(Frame::Control(Control::Call(request))) => request,
@@ -425,7 +497,13 @@ fn answer(mut link: Client, hold: &Hold, tty: bool) {
             Err(_) => return hold.gone(),
         };
         let reply = if request.name == call::ShimHold::NAME.as_str() {
-            let held = call::ShimHold::args(request.args).and_then(|h| hold.set(h.hold, tty));
+            let held = call::ShimHold::args(request.args).and_then(|h| match h.stop {
+                true => {
+                    end(hold, agent);
+                    Ok(())
+                }
+                false => hold.set(h.hold, tty),
+            });
             call::ShimHold::reply(request.id, held)
         } else {
             let why = format!("a shim answers no {}", request.name);

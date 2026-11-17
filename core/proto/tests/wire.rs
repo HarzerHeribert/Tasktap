@@ -162,6 +162,7 @@ fn every_call_round_trips() {
         session_id: Some(id(3)),
         agent: None,
         model: Some("sonnet".into()),
+        current: Some(id(4)),
     };
     round_trip::<call::ThoughtCapture>(capture, (), seen);
     round_trip::<call::ThoughtUpdate>(
@@ -204,6 +205,7 @@ fn every_call_round_trips() {
             kind,
             prompt: "Go on?".into(),
             detail: Some("Deletes build/".into()),
+            source: None,
         };
         round_trip::<call::QuestionAsk>(ask, answer(), seen);
     }
@@ -263,6 +265,7 @@ fn every_call_round_trips() {
                 kind: QuestionKind::Confirm,
                 prompt: "Allow rm?".into(),
                 detail: None,
+                source: None,
             },
         },
     ] {
@@ -283,8 +286,19 @@ fn every_call_round_trips() {
         cwd: "/Users/someone/tasktap".into(),
     };
     round_trip::<call::SessionAdopt>(adopt, id(3), seen);
+    let hint = Hint {
+        text: "fix the header in folio".into(),
+        current: Some(id(3)),
+    };
+    let route = Route::Clear {
+        to: Place::Project(id(2)),
+        brief: "fix the header in folio".into(),
+    };
+    round_trip::<call::RouteHint>(hint, route, seen);
     let health = AgentHealth {
         id: "codex".into(),
+        rev: rev(7),
+        checked: time(42),
         installed: true,
         version: Some("0.169.0".into()),
         signed_in: Some(true),
@@ -367,8 +381,8 @@ fn every_call_round_trips() {
     };
     round_trip::<call::CoreStatus>(Empty {}, status, seen);
     round_trip::<call::CoreRetire>(Retire { when: When::Now }, (), seen);
-    for hold in [true, false] {
-        round_trip::<call::ShimHold>(ShimHold { hold }, (), seen);
+    for (hold, stop) in [(true, false), (false, false), (false, true)] {
+        round_trip::<call::ShimHold>(ShimHold { hold, stop }, (), seen);
     }
     let fixture = FixtureStream {
         credit: 7,
@@ -385,18 +399,18 @@ fn every_call_round_trips() {
     round_trip::<call::FixtureStream>(fixture, opened, seen);
     let to = Place::Project(id(2));
     for route in [
-        FixtureRoute::Clear {
+        Route::Clear {
             to,
             brief: "Fix it".into(),
         },
-        FixtureRoute::Ambiguous {
+        Route::Ambiguous {
             prompt: "Where?".into(),
-            candidates: vec![FixtureCandidate {
+            candidates: vec![Candidate {
                 label: "app".into(),
                 to: Place::Session(id(3)),
             }],
         },
-        FixtureRoute::Unknown,
+        Route::Unknown,
     ] {
         let log = FixtureLog {
             launched: vec![FixtureLaunch {
@@ -425,7 +439,7 @@ fn every_call_round_trips() {
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 34);
+    assert_eq!(Name::ALL.len(), 35);
 }
 
 #[test]
@@ -446,7 +460,10 @@ fn access_follows_the_authorization_table() {
             .map(|name| name.as_str())
             .collect::<Vec<_>>()
     };
-    assert_eq!(by(Access::Anyone), ["core.status", "core.retire"]);
+    // With no shared version both bootstrap calls are anyone's (the core's
+    // calls.rs); with one, retiring the core is a device's.
+    assert_eq!(by(Access::Anyone), ["core.status"]);
+    assert!(by(Access::Device).contains(&"core.retire"));
     assert_eq!(
         by(Access::Session),
         [
@@ -457,7 +474,7 @@ fn access_follows_the_authorization_table() {
             "session.adopt"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 26);
+    assert_eq!(by(Access::Device).len(), 28);
     assert_eq!(by(Access::Ability), ["shim.hold"]);
     for (access, allowed) in [
         (Access::Anyone, [true, true, true]),

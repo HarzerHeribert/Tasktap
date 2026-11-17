@@ -609,6 +609,8 @@ fn a_claude_hook_waits_on_the_core_and_prints_the_decision() {
         "Claude Code asks to run echo trial > trial.txt"
     );
     assert_eq!(asked.reply_via, tasktap_proto::ReplyVia::Core);
+    // Stored as what it is: the agent's permission request (design §5).
+    assert_eq!(asked.source, tasktap_proto::QuestionSource::Permission);
     let answer = tasktap_proto::AnswerQuestion {
         id: q,
         response: Response::Affirm,
@@ -628,6 +630,87 @@ fn a_claude_hook_waits_on_the_core_and_prints_the_decision() {
             .is_some_and(|a| a.delivered.is_some())
     });
     agent.sync();
+}
+
+#[test]
+fn claudes_trust_dialog_is_read_from_its_terminal_once() {
+    // Claude Code 2.1.326 in a folder it does not trust shows this before
+    // anything else, and runs no hook until it is answered; it has no way
+    // to trust a folder for one run (design §7). Recorded with the folder
+    // replaced; each word is placed with a cursor move, not a space.
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/agents/claude/trust-dialog.bin");
+    let dialog = std::fs::read(path).unwrap();
+    let claude = agents::find("claude").unwrap();
+    let mut watch = agents::Watch::new(claude.prompts()).unwrap();
+    // In pieces, as the terminal delivers it.
+    let found: Vec<_> = dialog.chunks(7).filter_map(|c| watch.read(c)).collect();
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].asks,
+        "Claude Code is asking whether to trust this folder"
+    );
+    // Drawn again, it is the same question: nothing new.
+    assert!(watch.read(&dialog).is_none());
+    let mut other = agents::Watch::new(claude.prompts()).unwrap();
+    assert!(other.read(b"Yes, I trust that folder").is_none());
+    // Codex is trusted for each run (`-c projects=`): it shows nothing to wait on.
+    let codex = agents::find("codex").unwrap();
+    assert!(agents::Watch::new(codex.prompts()).is_none());
+}
+
+#[test]
+fn a_sub_agents_permission_request_opens_nothing_and_waits_for_nothing() {
+    // The guards drop what a sub-agent reports; a hook that waited would ask
+    // past them, as the main agent.
+    for agent in ["claude", "codex"] {
+        let sub = changed(
+            agent,
+            "permission-request-bash",
+            json!({ "agent_id": "a1" }),
+        );
+        assert!(heard(agent, &sub).is_none(), "{agent}");
+    }
+    let mut s = Scene::new("as");
+    let (_, session, mut agent) = s.launch("tidy up");
+    let log = s.log();
+    let token = log
+        .launched
+        .iter()
+        .find(|l| l.session == session)
+        .unwrap()
+        .token
+        .clone();
+    let mut hook = Command::new(EXE);
+    hook.args(["hook", "claude"])
+        .env("TASKTAP_SOCKET", s.data.0.join("core.sock"))
+        .env(
+            "TASKTAP_TOKEN",
+            serde_json::to_value(&token).unwrap().as_str().unwrap(),
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped());
+    let mut child = hook.spawn().unwrap();
+    let sub = changed(
+        "claude",
+        "permission-request-bash",
+        json!({ "agent_id": "a1" }),
+    );
+    child.stdin.take().unwrap().write_all(&sub).unwrap();
+    let began = std::time::Instant::now();
+    while child.try_wait().unwrap().is_none() {
+        if began.elapsed() > std::time::Duration::from_secs(10) {
+            let _ = child.kill();
+            panic!("the hook of a sub-agent waits");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    assert!(out.stdout.is_empty(), "it leaves the decision to the agent");
+    agent.sync();
+    s.w.sync();
+    assert!(s.w.model.questions.is_empty(), "no question opened");
 }
 
 #[test]
@@ -699,6 +782,51 @@ fn detection_runs_each_agents_own_commands() {
     };
     let e = c.call::<call::AgentsDetect>(&unknown).unwrap().unwrap_err();
     assert_eq!(e.code, tasktap_proto::Code::Invalid);
+}
+
+#[test]
+fn the_agents_are_detected_as_the_core_starts_and_again_when_asked() {
+    let data = Folder::new("aa");
+    let path = path_with(&agents(&data.0));
+    let core = Core::start_env(&data.0, &["--detect"], &[("PATH", &path)]);
+    let mut w = core.watch();
+    // Detected off the core's thread as it starts: the rows come as a change.
+    w.until("the agents are detected", |m| m.agents.len() == 3);
+    // A build with the test fixtures detects only the fixture agents, so no
+    // test runs a real agent's commands.
+    let ids: Vec<&str> = w.model.agents.keys().map(String::as_str).collect();
+    assert_eq!(ids, ["fixture", "fixture-probed", "fixture-silent"]);
+    let fixture = w.model.agents["fixture"].clone();
+    assert!(fixture.installed && fixture.events);
+    assert_eq!(
+        (
+            fixture.version.as_deref(),
+            fixture.signed_in,
+            fixture.identity.as_deref()
+        ),
+        (Some("fixture 1.0"), Some(true), Some("fixture"))
+    );
+    assert!(fixture.checked > tasktap_proto::Time::ZERO);
+    // A fresh subscriber's snapshot holds them.
+    assert_eq!(core.watch().model.agents.len(), 3);
+    // agents.detect puts the rows it found again, at a new revision.
+    let asked = DetectAgents {
+        agents: Some(vec!["fixture".into()]),
+    };
+    let Agents { agents } = w.ok::<call::AgentsDetect>(&asked);
+    assert_eq!(agents.len(), 1);
+    assert!(agents[0].rev > fixture.rev);
+    w.until("the row changes", |m| {
+        m.agents["fixture"].rev == agents[0].rev
+    });
+    assert_eq!(w.model.agents["fixture"], agents[0]);
+
+    // Without being asked to, such a build detects nothing as it starts.
+    let quiet = Folder::new("ab");
+    let core = Core::start_env(&quiet.0, &[], &[("PATH", &path)]);
+    let mut w = core.watch();
+    w.sync();
+    assert!(w.model.agents.is_empty());
 }
 
 #[test]

@@ -8,7 +8,7 @@
 //! `Launched` or `LaunchFailed` (`effects.rs`), and the end of its process as
 //! `Exited`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use tasktap_proto::{
     Offset, Rev, Secret, SessionState, Terminal, TerminalId, TerminalKind, TerminalState,
@@ -22,21 +22,25 @@ use crate::terminal;
 
 const EXITED: &str = "the agent has exited, so the follow-up was not typed";
 const UNHELD: &str = "no shim holds the agent's shell, so the follow-up was not typed";
+const BACKGROUND: &str =
+    "the shim that holds the shell does not have its terminal, so the follow-up was not typed";
+
+/// The shim that holds an adopted agent's shell for a follow-up: the
+/// process at the other end of its connection, as the system names it.
+pub struct Holder(pub Option<u32>);
 const INDIRECT: &str =
     "the agent is not its terminal's direct child, so the follow-up was not typed";
 
-/// A run's command line, its program found, and the check it needs before
-/// it starts, if any.
+/// A run's command line, and the check it needs before it starts, if any.
 pub struct Prepared {
     agent: &'static dyn Agent,
     argv: Vec<String>,
-    pub probe: Option<Probe>,
+    probe: Option<Probe>,
 }
 
-/// The command line of a run, with its program found on the PATH its
-/// terminal will have; a program that is not there fails the launch before
-/// anything starts. A check the agent needs is left to the caller, which
-/// runs it off the core's thread and adds what it says (`start`).
+/// The command line of a run. Its program is found, and the check its
+/// agent needs is run, off the core's thread (`Prepared::look`); `start`
+/// takes what they found.
 pub fn prepare(l: &Launch) -> Result<Prepared, String> {
     let agent =
         agents::find(&l.agent).ok_or_else(|| format!("this build cannot run {}", l.agent))?;
@@ -49,30 +53,52 @@ pub fn prepare(l: &Launch) -> Result<Prepared, String> {
         resume: l.resume.as_deref(),
         hook: &hook,
     };
-    let mut argv = agent.launch(&run);
-    let name = argv.first().cloned().unwrap_or_default();
-    let program = terminal::find(&name)
-        .ok_or_else(|| format!("{name} is not installed: no folder of the PATH has it"))?;
-    argv[0] = program.to_string_lossy().into_owned();
+    let argv = agent.launch(&run);
     let probe = agent.probe(&hook, Path::new(&l.cwd));
     Ok(Prepared { agent, argv, probe })
 }
 
+impl Prepared {
+    /// What finds the run's program on the PATH its terminal will have
+    /// and then runs its check, if it has one, on a thread that may block:
+    /// the program, and the arguments the check adds. A program that is not
+    /// there fails the launch before anything starts.
+    pub fn look(
+        &mut self,
+        l: &Launch,
+    ) -> impl FnOnce() -> Result<(PathBuf, Vec<String>), String> + Send + 'static {
+        let name = self.argv.first().cloned().unwrap_or_default();
+        let (probe, cwd) = (self.probe.take(), PathBuf::from(&l.cwd));
+        move || {
+            let program = terminal::find(&name)
+                .ok_or_else(|| format!("{name} is not installed: no folder of the PATH has it"))?;
+            let more = match probe {
+                Some(probe) => agents::checks::probe(probe, &cwd)?,
+                None => Vec::new(),
+            };
+            Ok((program, more))
+        }
+    }
+}
+
 /// Starts a prepared run in a new terminal and returns that terminal, which
 /// the caller stores in the same step, before anything else runs (design
-/// §3). `more` are the arguments its check added, which follow the
-/// program. It takes the session's id, as the session takes the attempt's,
-/// so one attempt never starts two. A failure leaves nothing running.
+/// §3). `program` is where its program was found, and `more` are the
+/// arguments its check added, which follow the program. It takes the
+/// session's id, as the session takes the attempt's, so one attempt never
+/// starts two. A failure leaves nothing running.
 pub fn start(
     core: &mut Core,
     l: &Launch,
     prepared: Prepared,
+    program: PathBuf,
     more: Vec<String>,
     token: &Secret,
 ) -> Result<Terminal, String> {
     let Prepared {
         agent, mut argv, ..
     } = prepared;
+    argv[0] = program.to_string_lossy().into_owned();
     argv.splice(1..1, more);
     let id = TerminalId::try_from(l.session.uuid()).map_err(|e| e.to_string())?;
     let (known, project) = effects::read(core, |tx| Ok((tx.terminal(id)?, tx.project(l.project)?)))
@@ -98,15 +124,24 @@ pub fn start(
         offset: Offset::ZERO,
     };
     terminal::spawn(core, &t, token).map_err(|e| format!("cannot open a terminal: {e}"))?;
+    if let Some(watch) = agents::Watch::new(agent.prompts()) {
+        terminal::watch(core, id, watch);
+    }
     Ok(t)
 }
 
 /// Types a follow-up into its session's terminal as a bracketed paste and
 /// Enter (design §7), only where no shell can run it: the terminal's direct
 /// child is the agent this core launched and has not exited, or the shim of
-/// an agent adopted in a shell holds that shell (`held`). Otherwise nothing
-/// is typed and the reason is the thought's.
-pub fn deliver(core: &mut Core, d: &Deliver, held: bool) -> Result<(), String> {
+/// an agent adopted in a shell holds that shell (`held`) and the core sees
+/// that shim's group have the terminal's foreground, not the shell's own.
+/// Otherwise nothing is typed and the reason is the thought's. What is typed
+/// is a follow-up once the input thread has written it.
+pub fn deliver(
+    core: &mut Core,
+    d: &Deliver,
+    held: Option<&Holder>,
+) -> Result<terminal::Typing, String> {
     let found = effects::read(core, |tx| {
         let s = tx.session(d.session)?;
         let t = s.as_ref().and_then(|s| s.terminal_id);
@@ -116,13 +151,23 @@ pub fn deliver(core: &mut Core, d: &Deliver, held: bool) -> Result<(), String> {
         return Err(EXITED.into());
     };
     match (s.adopted, held, t.kind) {
-        (true, false, _) => Err(UNHELD.into()),
-        (false, _, kind) if kind != TerminalKind::Agent => Err(INDIRECT.into()),
-        _ if s.state == SessionState::Ended || !terminal::paste(core, t.id, &d.text) => {
-            Err(EXITED.into())
+        (true, None, _) => Err(UNHELD.into()),
+        (true, Some(Holder(pid)), _) if !terminal::foreground_is(core, t.id, *pid) => {
+            Err(BACKGROUND.into())
         }
-        _ => Ok(()),
+        (false, _, kind) if kind != TerminalKind::Agent => Err(INDIRECT.into()),
+        _ if s.state == SessionState::Ended => Err(EXITED.into()),
+        _ => match terminal::paste(core, t.id, &d.text) {
+            None => Err(EXITED.into()),
+            Some(Err(why)) => Err(unwritten(why)),
+            Some(Ok(typing)) => Ok(typing),
+        },
     }
+}
+
+/// Why a follow-up handed to the input thread was not written.
+pub fn unwritten(why: String) -> String {
+    format!("{why}, so the follow-up was not typed")
 }
 
 /// Stops a run's terminal. The state machine never names an adopted

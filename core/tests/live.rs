@@ -37,6 +37,11 @@ fn project() -> PathBuf {
         || std::env::temp_dir().join("tasktap-live-agents/project"),
         PathBuf::from,
     );
+    repository(folder)
+}
+
+/// A new git repository at `folder`, made anew.
+fn repository(folder: PathBuf) -> PathBuf {
     let _ = std::fs::remove_dir_all(&folder);
     std::fs::create_dir_all(&folder).unwrap();
     let init = std::process::Command::new("git")
@@ -212,7 +217,11 @@ struct Live {
 
 impl Live {
     fn new(prefix: &str) -> Live {
-        let folder = project();
+        Self::in_folder(prefix, project())
+    }
+
+    /// The same with the project in `folder`.
+    fn in_folder(prefix: &str, folder: PathBuf) -> Live {
         let data = Folder::new(prefix);
         let core = Core::live(&data.0, PATIENCE);
         let mut w = core.watch();
@@ -487,6 +496,81 @@ fn codex_runs_follows_up_and_resumes() {
     s.core.stop();
 }
 
+/// Claude Code in a folder it has not seen stops at its folder-trust dialog
+/// before any hook runs (design §7): the core sees the dialog in the
+/// terminal and asks the person to answer it there, so the thought does
+/// not sit silently working. The dialog is left unanswered and the run
+/// stopped, so no turn is used.
+#[test]
+#[ignore = "starts Claude Code in a folder it has not seen; uses no turn"]
+fn claude_in_a_new_folder_asks_to_be_trusted_there() {
+    let unique = format!("tasktap-live-trust/{}", ThoughtId::mint().uuid());
+    let folder = repository(std::env::temp_dir().join(unique));
+    let mut s = Live::in_folder("live-claude-trust", folder.clone());
+    let t = s.ask("claude", "Reply with the single word trusted.");
+    until(
+        &s.core,
+        &mut s.w,
+        None,
+        "a question opened",
+        Duration::from_secs(60),
+        |m| m.glance().question.is_some(),
+    );
+    let q =
+        s.w.model
+            .question(s.w.model.glance().question.unwrap())
+            .clone();
+    say(&format!(
+        "question: {:?}, reply via {:?}",
+        q.prompt, q.reply_via
+    ));
+    assert!(q.prompt.contains("trust"), "{q:?}");
+    assert_eq!(q.reply_via, ReplyVia::Terminal);
+    assert_eq!(s.w.model.status(t), Status::NeedsYou);
+    let session = s.w.model.thought(t).session_id.unwrap();
+    assert_eq!(s.w.model.session(session).state, SessionState::Starting);
+    let terminal = s.w.model.session(session).terminal_id.unwrap();
+    let tty = Tty::attach(&s.core, terminal);
+    s.end(session, &tty);
+    assert_eq!(s.w.model.question(q.id).state, QuestionState::Withdrawn);
+    s.core.stop();
+    let _ = std::fs::remove_dir_all(folder);
+}
+
+/// A Codex run that no window shows (design §9): the core answers what
+/// Codex asks its terminal when it starts, so it starts, takes its prompt
+/// and finishes, all before any client attaches.
+#[test]
+#[ignore = "runs Codex for one turn on this computer's subscription"]
+fn codex_runs_with_no_window() {
+    let mut s = Live::new("live-codex-alone");
+    let t = s.ask(
+        "codex",
+        "Reply with the single word alone. Do not use any tools.",
+    );
+    until(
+        &s.core,
+        &mut s.w,
+        None,
+        "the thought is done, with no client attached",
+        Duration::from_secs(150),
+        |m| matches!(m.status(t), Status::Done | Status::Failed),
+    );
+    let results = s.w.model.results_of(t);
+    assert_eq!(s.w.model.status(t), Status::Done, "{results:?}");
+    let summary = results[0].summary.clone();
+    say(&format!(
+        "result: {summary:?}; statuses {:?}",
+        s.w.statuses[&t]
+    ));
+    assert!(summary.to_lowercase().contains("alone"), "{summary}");
+    let session = s.w.model.thought(t).session_id.unwrap();
+    let terminal = s.w.model.session(session).terminal_id.unwrap();
+    let tty = Tty::attach(&s.core, terminal);
+    s.end(session, &tty);
+    s.core.stop();
+}
+
 /// The loop check (design §13, `tests/loop.rs`) with Claude Code as its
 /// agent: a device captures a thought, the fixture router sends it on, the
 /// hold passes, Claude Code runs in the terminal the real launcher started,
@@ -513,7 +597,7 @@ fn the_loop_on_claude() {
     let brief = "Use the AskUserQuestion tool to ask me whether to deploy to staging, with the \
                  options Yes and No. Then reply with exactly: Deployed to staging. \
                  Do not use any other tool.";
-    let route = tasktap_proto::FixtureRoute::Clear {
+    let route = tasktap_proto::Route::Clear {
         to: tasktap_proto::Place::Project(s.project),
         brief: brief.into(),
     };

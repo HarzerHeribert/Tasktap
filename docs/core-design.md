@@ -108,7 +108,7 @@ The inventory's headings say 15 and 17 types for §1.5 and §1.6; its tables lis
 | Bootstrap contract | Frozen forever: the frame layout, `hello.v`, `welcome.v` and `build`, `refuse`, and the calls `core.status` (build, versions, live terminal count) and `core.retire`. With no shared version, `welcome` says `v: 0` and only those two calls work. They need the local user check and nothing else. | Any app can ask any core what it is and ask it to retire. |
 | Local peer check | On accept: the peer's user id must equal the core's. The data folder must be 0700 and owned by the user, as today. | Keeps today's protections. |
 | Device identity | Each host has a row in `devices` and proves a 32-byte key, stored hashed. A local peer that passed the user check may register itself. `device.revoke` drops its connections at once. Pages use the host's connections. | Identity that can be listed and revoked. A program running as the same user can read the data folder anyway, so the key is identity, not a wall. |
-| Session tokens | Each terminal the core starts gets a random token in its environment (`TASKTAP_SOCKET`, `TASKTAP_TOKEN`), stored hashed. | Replaces the per-launch observer token. |
+| Session tokens | Each terminal the core starts gets a random token in its environment (`TASKTAP_SOCKET`, `TASKTAP_TOKEN`), stored hashed. `TASKTAP_SOCKET` is `<data>/core.sock` on every system; on Windows it only names the folder the pipe's name is made from. | Replaces the per-launch observer token. |
 
 **Authorization is per call.** The core takes the session, the terminal and a question's source from the token, never from arguments.
 
@@ -116,6 +116,7 @@ The inventory's headings say 15 and 17 types for §1.5 and §1.6; its tables lis
 | --- | --- |
 | Device | everything except the token calls below. Only a device may call `question.answer` or `input`. |
 | Session token | `session.event`, `session.adopt` (a shell's token), `question.ask`, and `question.withdraw` and `question.received` for its own questions. Nothing else. |
+| Nobody | the abilities (`shim.hold`, later `host.*` and `ui.do`): the core calls them on a client that offered them in `hello`. |
 | Local peer with neither | the bootstrap calls, and registering a device. Tools outside Tasktap's terminals get nothing more: other apps' sessions are cut. |
 
 **Other machines, later.** Three additions, none of which changes a frame above: a second `auth` variant that proves a public key, a one-time pairing call, and a relay that carries these same frames between a device and a core that both dial out. Snapshots make reconnects cheap, credit handles latency, and `host.*` calls go to the remote device's own host. None of it is in the Phase 1 types.
@@ -126,7 +127,7 @@ The inventory's headings say 15 and 17 types for §1.5 and §1.6; its tables lis
 | --- | --- |
 | Lifetime | Runs while any client (a connection that said `hello`) is connected, any terminal is alive or a hold timer is armed. When all become false it arms one 60 s timer and exits when it fires. |
 | Single instance | An exclusive file lock on `<data>/core.lock`, held for life. A second `serve` exits 0. The lock, not the socket file, is the truth. |
-| Start on demand | A client that finds no socket starts `tasktap serve --data <dir>` detached and waits on a pipe for the `ready` line the core writes once it listens. No retry loop. The data folder is always passed; there is no default path (hazard 7). |
+| Start on demand | A client that finds no socket starts `tasktap serve --data <dir>` detached and waits on a pipe for the `ready` line the core writes once it listens. No retry loop. The data folder is always passed; there is no default path (hazard 7). Many clients at once start one core and all get in, waiting for each other on `start.lock` in the kernel: each holds it shared from before it connects until it is welcomed; a starting core holds it alone until it listens. A client that finds no core, or is refused because the listen queue is full (128 on macOS, which refuses at once rather than waiting), takes it alone, which it gets once every client connecting before it is in, and connects again; only when no core holds `core.lock` does it start one, with `--locked`, keeping the lock until it listens. A core that idles out takes `start.lock` alone first and keeps it until it is gone, so no client is left in its queue; with a client connecting it stays. |
 | Where it runs from | A copy at `<data>/bin/<build>/tasktap`. Windows cannot replace a running program, and hooks of running sessions keep pointing at the build that started them. Unreferenced builds are deleted at start. |
 | Effects happen once | Every call that starts a process names an attempt id. Before spawning, the core commits the attempt with a hash of its arguments. The same id with the same arguments returns the first outcome; with different arguments it is `conflict`. When what was spawned cannot be stored, the core exits non-zero instead of answering, and the next start closes the attempt as `interrupted`. Creates are idempotent on the client-minted id in the same way: each is recorded as an attempt under its id with a hash of all its arguments, checked before anything else. |
 | Crash recovery | At start, in one transaction: an attempt with no recorded outcome is `interrupted`; terminals marked running by an earlier boot become `lost`, their sessions `ended`, their thoughts `failed (interrupted)`, their open questions `withdrawn`. Hold timers are not restored: a held thought stays `routed` with no timer and waits for the person to press Start. |
@@ -152,11 +153,15 @@ The binary is `tasktap` (the service is still "tasktap-core"). All roles but `se
 | Role | Run by | Replaces |
 | --- | --- | --- |
 | `serve` | the host, or any client on demand | `workspace_terminal.py` (service and bridge), `run-agent`, `LiveWorkspace`'s runner, `QuestionInbox` |
-| `hook <agent>` / `event <kind>` | an agent's hook or plugin. Forwards the agent's payload unchanged in one `session.event`; the adapter inside the core interprets it. Exits, or waits for an answer when the core says the question can be answered in place | `session_observer.py ingest`, `observers/emit.mjs` |
-| `ask` | an agent in a Tasktap terminal. Sends `question.ask`, sleeps on the socket, prints the answer, confirms with `question.received` | `ask-user`, and the `agent-tools` MCP server (`report_result` becomes `event result`) |
+| `hook <agent>` | an agent's hook, with the payload on standard input. The agent's adapter (§7) runs here, in this process: it maps the payload to one `session.event` in the core's vocabulary, to nothing, or to a question the agent lets the hook decide. Then the hook asks with `question.ask`, waits on the socket, prints the reply the adapter formats and confirms with `question.received`. **Changes the design:** the core never sees an agent's own payload, so one it would not understand never reaches it | `session_observer.py ingest` |
+| `event <kind> [TEXT]` | an agent's plugin that can run a command: one `session.event`, `TEXT` in the field its kind has, with `--id`, `--turn`, `--subagent`, and for a question `--request`, `--detail`, `--choice`, `--text` | `observers/emit.mjs` |
+| `ask [PROMPT...]` | an agent in a Tasktap terminal, with `--request KEY`, `--detail`, `--choice` (repeated) or `--text`; without a prompt the first line of standard input is the prompt and the rest the detail. Sends `question.ask`, sleeps on the socket, prints the answer (`yes` or `no`, the choice, or the text), confirms with `question.received`. The same key asks once: again it gets the stored answer | `ask-user`, and the `agent-tools` MCP server (`report_result` becomes `event turn_finished`) |
 | shim: the same file named `claude`, `codex`, … | a person typing the agent's name in a Tasktap shell | `tasktap_shell.py cli`, `Shells/<id>/bin/*` |
+| `fixture-agent` | tests, and package C's loop in a real terminal; only in a build with the test fixtures. A scripted agent that prints, reports through its hook, asks and waits, reads a line, sleeps, ignores hang-up and exits with a code | – |
 
-**The shim** keeps the rules of `scripts/tasktap_shell.py`. It finds the real executable on the PATH, skipping shim folders. It steps aside (runs the real CLI directly, unobserved) when input or output is not a terminal, for print, help, version and remote modes, for the listed non-interactive subcommands, and when the terminal already has a live observed agent. Otherwise it calls `session.adopt`, adds the hooks, adds the default approval flag only if the person gave no policy of their own, starts the real CLI as its child, waits, restores the terminal modes, and reports the exit. It stays the parent because the core parents only the shell.
+The roles use the blocking client and nothing else: no runtime, no store. `event` takes about 2 ms from start to exit against a running core. Each waits at most 5 s for the core, its lock or its agent's pipe; a question's wait lasts as long as its connection, which the core withdraws the question with. Exit codes: 0 done (for `ask` and a waiting hook, answered); 1 the core refused the call or the connection ended; 3 no answer, the question was withdrawn or its session has ended; 64 wrong arguments; 65 a hook payload the adapter cannot read, nothing sent; 69 no core reached or started in time; 77 the session token refused or malformed; 78 no session token, not in a Tasktap terminal. None is 2, which Claude Code reads as a hook blocking its tool.
+
+**The shim** keeps the rules of `scripts/tasktap_shell.py`. The shim folder is `<data>/shims`: hard links (copies where links fail) of the binary named after each agent, and `tasktap` itself, which the hooks and `tasktap ask` run; a shell puts it first on its PATH. The shim finds the real executable on the PATH, skipping that folder and any file that is the shim itself. It steps aside (runs the real CLI directly, unobserved: `exec` on Unix) when input or output is not a terminal, for print, help, version and remote modes, for the listed non-interactive subcommands, when the agent has no adapter yet, when the core does not answer within 5 s, and when the terminal already has a live observed agent, which `session.adopt` reports as `conflict`. Otherwise it calls `session.adopt` on a connection that offers `shim.hold`, adds the hooks (the adapter's `attach`), adds the default approval flag only if the person gave no policy of their own, starts the real CLI as its child, ignores Ctrl-C while it waits, restores the terminal modes, and reports the exit as `session.event exited` on a second connection. It stays the parent because the core parents only the shell. The adopted session belongs to the adopting connection: when that ends first, a shim killed, the session ends with no exit code.
 
 Improvements on the hypothesis: (1) **a hook can wait**, so a question can be answered from the notch where the agent allows it (§6); (2) **no wrapper for agents the core launches**: the core is their parent and knows start and exit itself, so `present`, `surface.json`, three lock files and three sources of `process_exited` go; (3) **no MCP server**: `tasktap ask` is an ordinary command; (4) **activity is not written to disk**, only state changes are. This removes the 0.7 s receipt poll, the 8 s scan, the 0.2 s answer poll and every run-folder file.
 
@@ -197,6 +202,7 @@ Only `state::apply(event)` writes a thought's `phase` and a session's `state`, a
 | hold ends, or `thought.start` | routed → working, after the attempt is committed | new session: starting. Follow-up: delivered as §7 allows |
 | `thought.stop` before launch (Undo) | routed → captured | – |
 | launch fails | → failed | a new session ends; a follow-up's session is left as it is |
+| `session.adopt` (a shell's token) | – | new adopted session: starting, in the shell's terminal and project (the scratch when it has none). `conflict` while a session in that terminal is alive |
 | `ready` | – | starting → idle |
 | `turn_started` | working. Binds the waiting follow-up delivered first, as the agent reads typed text in order; a prompt typed by hand creates its thought here | → working |
 | `activity` | – | – (memory-only text) |
@@ -206,8 +212,9 @@ Only `state::apply(event)` writes a thought's `phase` and a session's `state`, a
 | `turn_finished` | → done, result stored; the turn's open questions are withdrawn | → idle |
 | `turn_failed`, `turn_interrupted` | → failed (reason); the turn's open questions are withdrawn | → idle |
 | `exited(code)` | working → failed; done if code 0 from an agent that sends no events | → ended; its open questions are withdrawn |
+| `exited(code)` as a `session.event`, or the adopting connection ends (no code) | as `exited(code)`; ignored from a session that was not adopted | as `exited(code)` |
 | `lost` (found at core start) | working → failed (interrupted); routed stays routed, timer gone | → ended |
-| `thought.stop` after launch | → failed (stopped) | process stopped, → ended |
+| `thought.stop` after launch | → failed (stopped) | process stopped, → ended; an adopted agent is not stopped, since its terminal is the person's shell |
 | `thought.retry` | failed → routed, unread | – |
 | `thought.read` | done or failed: read (finished once nothing is pending, §1) | – |
 | `thought.settle` | done or failed; changes pending → kept or discarded | must be ended (§7) |
@@ -243,9 +250,11 @@ trait Agent {
     fn caps(&self) -> Caps;                                        // events, resume, questions: Core | Terminal | None
     fn detect(&self, env: &Env) -> Health;                         // installed, signed in, identity
     fn launch(&self, l: &Launch) -> Result<Spawn, Error>;          // new run or resume
-    fn event(&self, hook: &str, payload: &Value) -> Option<Event>; // runs in the core: the agent's payload → the one vocabulary
-    fn reply(&self, hook: &str, answer: &Answer) -> Option<String>;// hook output that answers in place, if the agent allows it
+    fn attach(&self, exe: &Path) -> Vec<OsString>;                 // arguments that make a run call `<exe> hook <id>`; launch and shim
+    fn event(&self, args: &[String], payload: &[u8]) -> Result<Option<Heard>, String>; // runs in `tasktap hook`: payload → the one vocabulary
+    fn reply(&self, args: &[String], payload: &[u8], answer: &Answer) -> Option<String>; // what a hook that waited prints
 }
+enum Heard { Event(SessionEvent), Wait(Ask) }                      // report and exit, or ask and wait: the agent lets the hook decide
 struct Launch<'a> { session: Id, cwd: &'a Path, prompt: &'a str, model: Option<&'a str>, resume: Option<&'a str>, hook: &'a Path, token: &'a str }
 struct Spawn { argv: Vec<String>, env: Vec<(String, String)>, probe: Option<Probe> }  // probe: a check that must pass before the spawn
 ```
@@ -254,7 +263,9 @@ Three things are the same for every agent and therefore not in the adapter.
 
 **Environment.** The core builds each child's environment from a fixed list (home, user, language, shell, the computed PATH, terminal variables, `TASKTAP_*`). Nothing is inherited from whichever process started the service (hazard 14).
 
-**Follow-ups.** A follow-up is typed into a terminal (bracketed paste, then Enter) only when that terminal's direct child is the agent the core launched and the session is not ended. Then no shell exists underneath that could execute the text. For an adopted session (an agent started by hand inside a shell) the follow-up is offered as text to paste, unless the shim answers `shim.hold`: it confirms its child is alive and in the foreground and keeps the terminal until the core has written the text; if the agent exits meanwhile, the shim discards unread input before it returns to the shell. This replaces `codex queue`, `pbcopy` and the Copied and Delivered states.
+The hook part, `id`, `attach`, `event` and `reply`, is built in `core/src/agents.rs` with one test agent; package D adds the rest and the adapters. `event` and `reply` run in the `tasktap hook` process (§4), not in the core.
+
+**Follow-ups.** A follow-up is typed into a terminal (bracketed paste, then Enter) only when that terminal's direct child is the agent the core launched and the session is not ended. Then no shell exists underneath that could execute the text. For an adopted session (an agent started by hand inside a shell) the follow-up is typed only while the shim holds the terminal, and otherwise fails, its text left to paste. The core calls `shim.hold {hold: true}` on the adopting connection, if it offered the ability; the shim answers once it has checked its child is alive and its process group owns the terminal's foreground, or `gone`. The core types the text and then calls `shim.hold {hold: false}`. A shim whose agent exits meanwhile waits for that call, or for its connection to end, at most 5 s, before it returns to the shell, and restores the terminal with `TCSAFLUSH` whenever a follow-up was typed during the run, so input the agent never read is discarded, not run. The core waits 5 s for the answer. The follow-up's outcome reaches its thought's record, not the `thought.start` call, which answers once the hold is asked. This replaces `codex queue`, `pbcopy` and the Copied and Delivered states.
 
 **Isolation.** `isolate::prepare(project, thought)` returns the folder to launch in: the project folder, or a new `git worktree` under `<data>/worktrees/` when the project's setting says so (busy means it has a session that is not idle or ended). Git is run as a command.
 
@@ -308,7 +319,7 @@ type RouteResult = { confidence: "clear" | "ambiguous" | "unknown"; mode: "ask" 
 | Input | Bytes on the same stream, against credit from the core: each attached client may have 64 KiB on its way to the process, granted back as the input thread writes it. No size cap, no chunking rules. | Hazard 18. |
 | Scrollback | In memory while the process runs; written to `<data>/scrollback/<id>` (a header line with the ring's start offset and sizes, then the bytes) when it exits and when the core shuts down; read back as a client takes it. The record's `offset` is written at start, at each resize and at exit. | After quit, reboot or update the history is there (hazard 13). Only a core crash loses it, and then its terminals are gone too while thoughts and results are safe. |
 | Stopping | Hang-up to the process group and the foreground group, kill after 2 s (one timer). Shutting down stops every terminal so and waits for them, at most 4 s. On Windows each terminal's processes are in a job: hang-up closes the console, the kill ends the job, and closing the job's last handle, with the terminal or the core, ends them too. | As today. Background jobs a shell put in groups of their own and that ignore hang-up outlive a stop on Mac and Linux. |
-| Environment | The fixed list of §7: `HOME`, `USER`, `LOGNAME`, `SHELL`, `LANG` (`en_US.UTF-8` when the core has none), `PATH`, `TERM=xterm-256color`, `COLORTERM=truecolor`, `TERM_PROGRAM=Tasktap`, `TASKTAP_DATA`, `TASKTAP_SOCKET`, `TASKTAP_TOKEN` (every terminal has a session token). `PATH` is `~/.local/bin`, `~/.opencode/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, then the core's own `PATH`, then the system folders, as 1.2 computed it. Windows gets the variables its programs need to find the system, the person's folders and the person's `PATH` instead of the Unix ones. | Hazard 14. |
+| Environment | The fixed list of §7: `HOME`, `USER`, `LOGNAME`, `SHELL`, `LANG` (`en_US.UTF-8` when the core has none), `PATH`, `TERM=xterm-256color`, `COLORTERM=truecolor`, `TERM_PROGRAM=Tasktap`, `TASKTAP_DATA`, `TASKTAP_SOCKET`, `TASKTAP_TOKEN` (every terminal has a session token; the last two come from the roles' one definition, `roles::environment`, §2). `PATH` is `~/.local/bin`, `~/.opencode/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, then the core's own `PATH`, then the system folders, as 1.2 computed it. Windows gets the variables its programs need to find the system, the person's folders and the person's `PATH` instead of the Unix ones. A shell's `PATH` starts with the shim folder (§4), which the core fills from its own program when it starts. | Hazard 14. |
 
 ## 10. Efficiency
 
@@ -401,7 +412,8 @@ core/src/store.rs        SQLite, migrations, transactions that yield a revision 
 core/src/records.rs      sub, put, delete, history;   stream.rs: open, credit, close
 core/src/calls.rs        the call table: one match from name to handler
 core/src/state.rs        the state machine and attempts;   questions.rs: ask, answer, withdraw, received
-core/src/terminal.rs, agents/ (trait, claude.rs, codex.rs), shim.rs     (Phase 2)
+core/src/terminal.rs, agents.rs (trait), agents/ (claude.rs, codex.rs)  (Phase 2)
+core/src/roles.rs        event, hook, ask; roles/shim.rs, roles/fixture.rs; shim.rs: adopted agents (2)
 core/src/route.rs, isolate.rs, speech.rs, http.rs, secrets.rs           (Phase 3)
 core/src/import_v1.rs                                                   (Phase 6)
 core/tests/              one file per promise, plus fixtures/

@@ -210,6 +210,7 @@ fn a_hold_that_ends_with_nobody_connected_lets_the_core_go() {
         route,
         refuse: None,
         unrecordable: false,
+        pause: false,
     });
     let target = PutTarget::Prefs(PrefPatch::Hold(1));
     w.ok::<call::Put>(&Put {

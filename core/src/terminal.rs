@@ -23,7 +23,6 @@ use process::{Plan, Process, Report};
 use ring::{Attachment, Feed, INPUT, Saved, Term};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 use std::time::Duration;
@@ -44,8 +43,8 @@ const LINGER: Duration = Duration::from_secs(1);
 pub struct Terminals {
     live: HashMap<TerminalId, Live>,
     data: PathBuf,
-    /// What a terminal's processes connect to (`TASKTAP_SOCKET`).
-    socket: OsString,
+    /// The shim folder a shell puts first on its PATH, once it is installed.
+    shims: Option<PathBuf>,
     /// The core is shutting down: nothing new starts.
     closing: bool,
 }
@@ -62,13 +61,18 @@ struct Live {
 }
 
 impl Terminals {
-    pub fn new(data: &Path) -> std::io::Result<Terminals> {
-        Ok(Terminals {
+    /// Installs the shims from this program. Where it cannot, as on Windows
+    /// while one of them runs, the folder an earlier core filled serves.
+    pub fn new(data: &Path) -> Terminals {
+        let exe = std::env::current_exe();
+        let installed = exe.and_then(|exe| crate::roles::shim::install(data, &exe));
+        let folder = data.join(crate::roles::shim::SHIMS);
+        Terminals {
             live: HashMap::new(),
             data: data.to_owned(),
-            socket: crate::sys::address(data)?,
+            shims: installed.ok().or_else(|| folder.is_dir().then_some(folder)),
             closing: false,
-        })
+        }
     }
 
     /// Live terminals, which keep the core running (design §3).
@@ -205,7 +209,13 @@ pub fn spawn(core: &mut Core, t: &Terminal, token: &Secret) -> std::io::Result<(
             t.argv.clone()
         },
         cwd: PathBuf::from(&t.cwd),
-        env: process::environment(&terminals.data, &terminals.socket, token),
+        env: process::environment(
+            &terminals.data,
+            token,
+            (t.kind == TerminalKind::Shell)
+                .then_some(terminals.shims.as_deref())
+                .flatten(),
+        ),
         size,
     };
     let (process, input, reports) = Process::start(plan)?;

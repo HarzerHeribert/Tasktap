@@ -34,7 +34,11 @@ pub struct Options {
     pub idle: Duration,
     /// How long a connection may take to say hello.
     pub hello: Duration,
-    /// A session token that names no terminal, for tests (design §13).
+    /// The client that started this core holds `start.lock` for it until it
+    /// reads `ready` (`client::admit`).
+    pub locked: bool,
+    /// The session token of a shell terminal that has a record and no
+    /// process, for tests (design §13).
     #[cfg(feature = "fixtures")]
     pub token: Option<tasktap_proto::Secret>,
     /// How long each folder check waits first, for tests.
@@ -59,11 +63,11 @@ pub struct Core {
     /// Folder checks running on their own threads (`calls::off_thread`).
     pub checks: usize,
     pub terminals: crate::terminal::Terminals,
+    /// The agents adopted by shims, each with the connection it belongs to.
+    pub shims: crate::shim::Shims,
     /// How long each folder check waits first, for tests (design §13).
     #[cfg(feature = "fixtures")]
     pub fixture_check: Duration,
-    #[cfg(feature = "fixtures")]
-    pub fixture_token: Option<(crate::store::Hash, tasktap_proto::TerminalId)>,
 }
 
 impl Core {
@@ -94,6 +98,7 @@ impl Core {
     pub fn remove(&mut self, link: &Rc<Link>) {
         self.links.retain(|l| !Rc::ptr_eq(l, link));
         crate::questions::left(self, link);
+        crate::shim::left(self, link);
         self.events.notify_one();
     }
 }
@@ -110,9 +115,21 @@ pub fn run(opts: Options) -> io::Result<()> {
 
 async fn serve(opts: Options) -> io::Result<()> {
     sys::prepare(&opts.data)?;
+    #[cfg(feature = "fixtures")]
+    {
+        // Every start, for the test that counts how many a burst of clients made.
+        let starts = File::options()
+            .create(true)
+            .append(true)
+            .open(opts.data.join("starts"));
+        let _ = writeln!(starts?, "{}", std::process::id());
+    }
     // A second `serve` waits here until the first listens, then finds the
     // lock taken and exits: the client that started it can connect at once.
-    let starting = lock(&opts.data.join("start.lock"))?;
+    let starting = match opts.locked {
+        true => None,
+        false => Some(lock(&opts.data.join("start.lock"))?),
+    };
     let life = open(&opts.data.join("core.lock"))?;
     match life.try_lock() {
         Ok(()) => {}
@@ -123,8 +140,14 @@ async fn serve(opts: Options) -> io::Result<()> {
         Err(TryLockError::Error(e)) => return Err(e),
     }
     let db = opts.data.join("core.db");
-    let (store, _) = Store::open(&db, crate::effects::wall()).map_err(io::Error::other)?;
-    let terminals = crate::terminal::Terminals::new(&opts.data)?;
+    #[cfg_attr(not(feature = "fixtures"), allow(unused_mut))]
+    let (mut store, _) = Store::open(&db, crate::effects::wall()).map_err(io::Error::other)?;
+    #[cfg(feature = "fixtures")]
+    if let Some(token) = &opts.token {
+        let now = crate::effects::wall();
+        crate::shim::fixture_shell(&mut store, token, now).map_err(io::Error::other)?;
+    }
+    let terminals = crate::terminal::Terminals::new(&opts.data);
     let mut listener = sys::Listener::bind(&opts.data)?;
     let terminated = sys::terminated()?;
     drop(starting);
@@ -143,15 +166,9 @@ async fn serve(opts: Options) -> io::Result<()> {
             events: events.clone(),
             checks: 0,
             terminals,
+            shims: Default::default(),
             #[cfg(feature = "fixtures")]
             fixture_check: opts.check,
-            #[cfg(feature = "fixtures")]
-            fixture_token: opts.token.map(|t| {
-                (
-                    crate::handshake::hash(&t),
-                    tasktap_proto::TerminalId::mint(),
-                )
-            }),
         })
     });
     crate::questions::start(&mut core.borrow_mut()).map_err(io::Error::other)?;
@@ -184,7 +201,16 @@ async fn serve(opts: Options) -> io::Result<()> {
                 Err(_) => accepting = false,
             },
             () = events.notified() => accepting = true,
-            () = fire(&mut idle) => break,
+            () = fire(&mut idle) => match closing(&opts.data) {
+                Some(gate) => {
+                    // Held until the process is gone: a client that comes
+                    // now waits for that in the kernel and starts a new core.
+                    std::mem::forget(gate);
+                    break;
+                }
+                // A client is between connecting and its hello: stay for it.
+                None => idle = None,
+            },
         }
     }
     // Terminals end first, so their clients see them end.
@@ -221,6 +247,14 @@ fn open(path: &Path) -> io::Result<File> {
         .truncate(false)
         .write(true)
         .open(path)
+}
+
+/// `start.lock` taken alone, which no client connecting through
+/// `client::admit` holds: none of them can be left in the listen queue of a
+/// core that is about to exit.
+fn closing(data: &Path) -> Option<File> {
+    let gate = open(&data.join("start.lock")).ok()?;
+    gate.try_lock().ok().map(|()| gate)
 }
 
 fn lock(path: &Path) -> io::Result<File> {

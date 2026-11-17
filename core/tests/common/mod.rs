@@ -688,6 +688,8 @@ pub struct Scene {
     pub now: u64,
     route: FixtureRoute,
     refuse: Option<String>,
+    /// Follow-ups to adopted sessions wait, held, until the next script without it.
+    pub pause: bool,
 }
 
 impl Scene {
@@ -727,6 +729,7 @@ impl Scene {
             now: wall_ms(),
             route: clear(project),
             refuse: None,
+            pause: false,
         };
         scene.log();
         if manual {
@@ -773,6 +776,7 @@ impl Scene {
             route: self.route.clone(),
             refuse: self.refuse.clone(),
             unrecordable: false,
+            pause: self.pause,
         };
         self.w.ok::<call::FixtureScript>(&script)
     }

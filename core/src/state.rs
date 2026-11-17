@@ -92,6 +92,14 @@ pub enum Event {
     },
     /// What a session's agent says (`session.event`).
     Report(Report),
+    /// `session.adopt`: an agent a person started in a shell becomes a
+    /// session of the shell's terminal, under an id the core minted.
+    Adopt {
+        session: SessionId,
+        terminal: TerminalId,
+        agent: String,
+        cwd: String,
+    },
     /// An agent's question opens, or a withdrawn one reopens because its
     /// waiter came back. The caller has matched the request key (design §6).
     Ask { question: Question, key: String },
@@ -410,6 +418,7 @@ impl Machine<'_, '_> {
         let state = session.as_ref().map(|s| s.state);
         let asked = question.as_ref().map(|q| q.state);
         let alive = matches!(state, Some(S::Starting | S::Idle | S::Working));
+        let adopted = session.as_ref().is_some_and(|s| s.adopted);
         let router = question.as_ref().map(|q| q.source) == Some(QuestionSource::Router);
         match (event, said, phase, state, asked) {
             // thought.capture: → captured.
@@ -459,6 +468,21 @@ impl Machine<'_, '_> {
             // already recorded the attempt's outcome.
             (E::LaunchFailed { error, .. }, ..) => self.launch_failed(thought, session, error),
             (E::Launched { terminal, .. }, ..) => self.launched(session, terminal),
+            // session.adopt: a new adopted session, starting, in a shell where
+            // no session is alive.
+            (
+                E::Adopt {
+                    session: id,
+                    terminal,
+                    agent,
+                    cwd,
+                },
+                _,
+                _,
+                None,
+                _,
+            ) => self.adopt(id, terminal, agent, cwd),
+            (E::Adopt { .. }, ..) => Err(Error::Conflict("an agent already runs in this terminal")),
             // ready: starting → idle.
             (_, Some(A::Ready), _, Some(S::Starting), _) => self.ready(some(session)?),
             // turn_started: → working. Binds the waiting thought, or makes one
@@ -520,6 +544,11 @@ impl Machine<'_, '_> {
             // cleanly; the session ends and its open questions are withdrawn.
             (E::Exited { code, silent, .. }, ..) if alive => {
                 self.exited(some(session)?, code, silent)
+            }
+            // The same, reported by the shim of an adopted session, which
+            // alone sees that agent exit.
+            (_, Some(A::Exited { code }), ..) if alive && adopted => {
+                self.exited(some(session)?, code, false)
             }
             // thought.stop after launch: → failed (stopped); the process is stopped, → ended.
             (E::Stop { .. }, _, Some(P::Working), ..) => self.stop(some(thought)?, session),
@@ -622,6 +651,7 @@ impl Machine<'_, '_> {
                 s.attempt = Some(a);
             }
             Event::Exited { session, .. } => self.of_session(&mut s, *session)?,
+            Event::Adopt { terminal, .. } => s.session = self.tx.terminal_session(*terminal)?,
             Event::Report(r) => {
                 let session = self.tx.session(r.session)?.ok_or(Error::Gone)?;
                 let turn = match r.event {
@@ -974,6 +1004,47 @@ impl Machine<'_, '_> {
         }
     }
 
+    /// An agent started by hand in a shell: a new session of the shell's
+    /// terminal, in the shell's project or else the scratch.
+    fn adopt(
+        &mut self,
+        id: SessionId,
+        terminal: TerminalId,
+        agent: String,
+        cwd: String,
+    ) -> Result<()> {
+        let shell = self.tx.terminal(terminal)?.ok_or(Error::Gone)?;
+        if shell.kind != TerminalKind::Shell || shell.state != TerminalState::Running {
+            return Err(Error::Invalid(
+                "an agent is adopted only in a running shell",
+            ));
+        }
+        let project_id = match shell.project_id {
+            Some(project) => project,
+            None => self.tx.scratch()?.ok_or(Error::Gone)?.id,
+        };
+        let session = Session {
+            id,
+            rev: Rev::ZERO,
+            project_id,
+            agent,
+            terminal_id: Some(terminal),
+            adopted: true,
+            state: S::Starting,
+            thought_id: None,
+            turn: 0,
+            resume: None,
+            name: None,
+            named_at: None,
+            model: None,
+            cwd,
+            exit: None,
+            error: None,
+            activity: Vec::new(),
+        };
+        Ok(self.tx.insert_session(&session)?)
+    }
+
     fn ready(&mut self, mut s: Session) -> Result<()> {
         s.state = S::Idle;
         Ok(self.tx.update_session(&s)?)
@@ -1200,7 +1271,9 @@ impl Machine<'_, '_> {
             let id = s.id;
             self.effects.push(Effect::Kill {
                 session: id,
-                terminal: s.terminal_id,
+                // An adopted agent's terminal runs the person's shell, which
+                // stopping the agent must not end.
+                terminal: s.terminal_id.filter(|_| !s.adopted),
             });
             self.end(s, None, None)?;
             // Follow-ups waiting in the same process are stopped with it.

@@ -47,13 +47,6 @@ def copy_helpers(root, resources):
     resources = Path(resources)
     files = helper_files(root)
     verify_dependencies(root, files)
-    # Retire removed observer modules when an existing build directory is reused.
-    observers = resources/'observers'
-    if observers.exists():
-        shutil.rmtree(observers)
-    bytecode = resources/'__pycache__'
-    if bytecode.exists():
-        shutil.rmtree(bytecode)
     for relative, source in files.items():
         destination = resources/relative
         destination.parent.mkdir(parents=True, exist_ok=True)

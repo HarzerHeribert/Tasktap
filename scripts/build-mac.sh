@@ -6,9 +6,9 @@ bash "$root/scripts/fetch-sparkle.sh"
 bash "$root/scripts/build-speech.sh"
 out="${1:-$root/build}/Tasktap${TASKTAP_DEV:+ Dev}.app"
 contents="$out/Contents"
+# Start from an empty bundle so files removed from the source never stay packaged.
+rm -rf "$out"
 mkdir -p "$contents/MacOS" "$contents/Resources/prototype/assets"
-# Retire bundled worker adapters when updating an existing build.
-rm -f "$contents/Resources/agy_session.py"
 python3 "$root/scripts/release_helpers.py" copy "$contents/Resources"
 ditto "$root/prototype" "$contents/Resources/prototype"
 cp "$root/LICENSE" "$contents/Resources/"

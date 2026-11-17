@@ -40,12 +40,7 @@ with tempfile.TemporaryDirectory(prefix='tasktap-release-helpers-') as directory
         packaged.write_bytes(original)
     (resources/'observers/retired.mjs').write_text('old module')
     rejects(lambda: verify_helpers(root, resources), 'Unexpected bundled observer resources')
-    (resources/'__pycache__').mkdir()
-    (resources/'__pycache__/old.pyc').write_bytes(b'old bytecode')
-    copy_helpers(root, resources)
-    assert not (resources/'observers/retired.mjs').exists()
-    assert not (resources/'__pycache__').exists()
-    verify_helpers(root, resources)
+    (resources/'observers/retired.mjs').unlink()
     # Build-time checks also reject manifest omissions that break helper imports.
     for missing in ('session_rows.py', 'session_observer.py', 'observers/emit.mjs'):
         incomplete = {p: source for p, source in files.items() if p != Path(missing)}
@@ -54,4 +49,4 @@ with tempfile.TemporaryDirectory(prefix='tasktap-release-helpers-') as directory
     executable.chmod(0o600)
     rejects(lambda: verify_helpers(root, resources), 'Bundled helper is not executable: run-agent')
 
-print('PASS: required helper manifest, nested observers, missing/stale resources, dependency closure, executable modes and retired-resource cleanup.')
+print('PASS: required helper manifest, nested observers, missing/stale resources, dependency closure, executable modes and unexpected observer resources.')

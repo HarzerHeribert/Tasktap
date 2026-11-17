@@ -406,6 +406,65 @@ fn every_call_round_trips() {
             seen,
         );
     }
+    let spoken = Capture {
+        id: id(1),
+        text: String::new(),
+        strokes: vec![],
+        source: Source::Voice,
+        mode: None,
+        project_id: Some(id(2)),
+        session_id: None,
+        agent: None,
+        model: None,
+        current: None,
+    };
+    for (target, stream) in [
+        (
+            DictationTarget::Thought(Box::new(spoken)),
+            Some(Opened {
+                s: StreamId(3),
+                credit: MAX_CREDIT,
+                from: None,
+            }),
+        ),
+        (DictationTarget::Answer { question: id(5) }, None),
+    ] {
+        let start = StartDictation {
+            id: id(6),
+            target,
+            local: stream.is_none(),
+        };
+        let listening = Listening {
+            stream,
+            seconds: 300,
+        };
+        round_trip::<call::DictationStart>(start, listening, seen);
+    }
+    for (text, level) in [(Some("Hallo".to_owned()), None), (None, Some(40))] {
+        let report = ReportDictation {
+            id: id(6),
+            text,
+            level,
+        };
+        round_trip::<call::DictationReport>(report, (), seen);
+    }
+    round_trip::<call::DictationFinish>(Ref { id: id(6) }, (), seen);
+    round_trip::<call::DictationCancel>(Ref { id: id(6) }, (), seen);
+    let terms = SpeechTerms {
+        sent: vec!["The recording".into()],
+        path: "/v1/audio/transcriptions".into(),
+        seconds: 300,
+    };
+    round_trip::<call::SpeechTerms>(Empty {}, terms, seen);
+    let server = || "https://api.openai.com".to_owned();
+    let set = SetKey {
+        server: server(),
+        key: "sk-not-a-key".into(),
+    };
+    // Printing the arguments never shows the key.
+    assert!(!format!("{set:?}").contains("sk-not-a-key"));
+    round_trip::<call::KeySet>(set, (), seen);
+    round_trip::<call::KeyRemove>(Server { server: server() }, (), seen);
     round_trip::<call::DeviceRevoke>(Ref { id: id(9) }, (), seen);
     let status = CoreStatus {
         build: "2.0.0".into(),
@@ -472,7 +531,7 @@ fn every_call_round_trips() {
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 37);
+    assert_eq!(Name::ALL.len(), 44);
 }
 
 #[test]
@@ -507,7 +566,7 @@ fn access_follows_the_authorization_table() {
             "session.adopt"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 30);
+    assert_eq!(by(Access::Device).len(), 37);
     assert_eq!(by(Access::Ability), ["shim.hold"]);
     for (access, allowed) in [
         (Access::Anyone, [true, true, true]),
@@ -727,7 +786,24 @@ fn ambient_and_terminal_preferences_put_as_the_wire_says_within_their_bounds() {
             PrefPatch::TerminalLineHeight(120),
             PrefKey::TerminalLineHeight,
         ),
+        (
+            json!({"c": "prefs", "id": "speech_by", "patch":
+                {"server": "https://api.groq.com/openai", "model": "whisper-large-v3-turbo"}}),
+            PrefPatch::SpeechBy(Some(SpeechBy {
+                server: "https://api.groq.com/openai".into(),
+                model: "whisper-large-v3-turbo".into(),
+            })),
+            PrefKey::SpeechBy,
+        ),
+        (
+            json!({"c": "prefs", "id": "speech_languages", "patch": ["de", "en"]}),
+            PrefPatch::SpeechLanguages(vec!["de".into(), "en".into()]),
+            PrefKey::SpeechLanguages,
+        ),
     ];
+    // The servers a key is stored for are the core's to write: no patch names them.
+    let keys = json!({"c": "prefs", "id": "keys", "patch": ["https://api.openai.com"]});
+    assert!(serde_json::from_value::<PutTarget>(keys).is_err());
     for (wire, patch, key) in cases {
         let target: PutTarget = serde_json::from_value(wire.clone()).unwrap();
         assert_eq!(target, PutTarget::Prefs(patch.clone()));

@@ -1090,6 +1090,7 @@ fn fire(core: &mut Core, thought: ThoughtId, until: Time) {
 /// restart leaves it (design §3), and nothing launches while the core goes.
 pub fn close(core: &mut Core) {
     core.seams.closing = true;
+    crate::speech::close(core);
     for (_, (_, hear)) in core.seams.routes.drain() {
         let _ = hear.send(Asked::Stop);
     }

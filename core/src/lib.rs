@@ -22,6 +22,7 @@ pub mod route;
 pub mod secrets;
 pub mod serve;
 mod shim;
+mod speech;
 pub mod state;
 pub mod store;
 pub mod stream;

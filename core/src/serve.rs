@@ -44,6 +44,10 @@ pub struct Options {
     /// How long each folder check waits first, for tests.
     #[cfg(feature = "fixtures")]
     pub check: Duration,
+    /// How long a second of a dictation's deadline and of a web call's
+    /// limit lasts, for tests.
+    #[cfg(feature = "fixtures")]
+    pub second: Duration,
     /// Detect the agents as the core starts: always in a normal build; in a
     /// build with the test fixtures only when a test asks (`--detect`),
     /// and then only the fixture agents (`agents::at_start`).
@@ -71,6 +75,8 @@ pub struct Core {
     pub shims: crate::shim::Shims,
     /// The diffs `thought.changes` streams hold, counted to bound them.
     pub diffs: Rc<std::cell::Cell<usize>>,
+    /// The dictations under way (design §8).
+    pub speech: crate::speech::Speech,
     /// How long each folder check waits first, for tests (design §13).
     #[cfg(feature = "fixtures")]
     pub fixture_check: Duration,
@@ -82,13 +88,14 @@ impl Core {
         self.terminals.count()
     }
 
-    /// The lifetime condition: a client connected, a terminal alive or a
-    /// hold armed, which would be lost with the core. A connection is a
+    /// The lifetime condition: a client connected, a terminal alive, a
+    /// hold armed or a dictation under way, which would be lost with the core. A connection is a
     /// client once it said hello.
     pub fn busy(&self) -> bool {
         self.links.iter().any(|l| l.peer().is_some())
             || self.terminals() > 0
             || self.seams.holding()
+            || self.speech.busy()
     }
 
     /// Every committed change passes here, in the step that committed it,
@@ -105,6 +112,7 @@ impl Core {
         self.links.retain(|l| !Rc::ptr_eq(l, link));
         crate::questions::left(self, link);
         crate::shim::left(self, link);
+        crate::speech::left(self, link);
         self.events.notify_one();
     }
 }
@@ -154,6 +162,11 @@ async fn serve(opts: Options) -> io::Result<()> {
         crate::shim::fixture_shell(&mut store, token, now).map_err(io::Error::other)?;
     }
     let terminals = crate::terminal::Terminals::new(&opts.data);
+    crate::speech::sweep(&opts.data);
+    #[cfg(feature = "fixtures")]
+    let second = opts.second;
+    #[cfg(not(feature = "fixtures"))]
+    let second = Duration::from_secs(1);
     let mut listener = sys::Listener::bind(&opts.data)?;
     let terminated = sys::terminated()?;
     drop(starting);
@@ -174,6 +187,7 @@ async fn serve(opts: Options) -> io::Result<()> {
             terminals,
             shims: Default::default(),
             diffs: Default::default(),
+            speech: crate::speech::Speech::new(second),
             #[cfg(feature = "fixtures")]
             fixture_check: opts.check,
         })

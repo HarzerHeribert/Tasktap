@@ -129,6 +129,11 @@ function Pane({ project, pane, index, rect, selected, several }: {
   const t = id ? records.terminals.get(id) : undefined;
   // The tabs' terminals live in this surface: moved here, never rebuilt; only the active one shows.
   useLayoutEffect(() => {
+    // A terminal that left this pane (to the background, or closed) leaves its surface too.
+    for (const el of [...surface.current!.children]) {
+      const owner = [...engines].find(([, e]) => e.element === el)?.[0];
+      if (owner && !pane.tabs.includes(owner)) el.remove();
+    }
     for (const tab of pane.tabs) {
       const e = engine(tab);
       if (e.element.parentElement !== surface.current) surface.current!.append(e.element);

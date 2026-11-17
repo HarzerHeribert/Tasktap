@@ -56,7 +56,12 @@ export const dismiss = () => ((ui.dialog = null), redraw());
 
 const layouts = new Map<string, L.Layout>();
 const seen = new Map<string, number>();
+/** Writes waiting for their moment, writes the core has not answered, and the revision of this
+ *  page's last write: a record at or below it, or one that arrives while this page writes, is
+ *  this page's own echo, never a reason to go back to an older arrangement. */
 const writes = new Map<string, number>();
+const inflight = new Map<string, number>();
+const ours = new Map<string, number>();
 
 export function layout(project: string): L.Layout {
   let l = layouts.get(project);
@@ -72,7 +77,10 @@ export function setLayout(project: string, l: L.Layout, store = true) {
   clearTimeout(writes.get(project));
   writes.set(project, window.setTimeout(() => {
     writes.delete(project);
-    void call('put', { c: 'layouts', id: project, patch: { tree: layouts.get(project) } }).catch(fail);
+    inflight.set(project, (inflight.get(project) ?? 0) + 1);
+    void call('put', { c: 'layouts', id: project, patch: { tree: layouts.get(project) } })
+      .then((r) => ours.set(project, Math.max(ours.get(project) ?? 0, r.rev)), fail)
+      .finally(() => inflight.set(project, (inflight.get(project) ?? 1) - 1));
   }, 250));
 }
 /** Writes what a drag left once it ends. */
@@ -105,7 +113,8 @@ export function reconcile() {
   for (const [id, row] of records.layouts) {
     if (seen.get(id) === row.rev) continue;
     seen.set(id, row.rev);
-    if (!writes.has(id) && JSON.stringify(row.tree) !== JSON.stringify(layouts.get(id))) layouts.set(id, L.normalize(row.tree));
+    if (writes.has(id) || inflight.get(id) || row.rev <= (ours.get(id) ?? 0)) continue;
+    layouts.set(id, L.normalize(row.tree));
   }
   for (const project of [...workspaces().map((p) => p.id), LOOSE]) {
     const known = new Set([...records.terminals.values()].filter((t) => (t.project_id ?? LOOSE) === project).map((t) => t.id));

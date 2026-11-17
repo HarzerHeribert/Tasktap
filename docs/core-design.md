@@ -65,7 +65,7 @@ Calls without a mark are built in Phase 1; (2), (3) and (6) name the phase that 
 | Area | Core calls (44) |
 | --- | --- |
 | Records | `sub`, `put`, `delete`, `history` |
-| Thoughts | `thought.capture`, `thought.update`, `thought.start`, `thought.stop`, `thought.retry`, `thought.read`, `thought.settle` (3) |
+| Thoughts | `thought.capture`, `thought.update`, `thought.start`, `thought.stop`, `thought.retry`, `thought.read`, `thought.settle` (3; in Phase 1 through the fixture launcher only) |
 | Questions | `question.ask`, `question.answer`, `question.withdraw`, `question.received`, `question.focus` |
 | Sessions | `session.event`, `session.adopt` (2), `session.resume` (2) |
 | Terminals (2) | `terminal.open`, `terminal.resize`, `terminal.stop` |
@@ -126,7 +126,7 @@ The inventory's headings say 15 and 17 types for §1.5 and §1.6; its tables lis
 | --- | --- |
 | Lifetime | Runs while any client is connected, any terminal is alive or a hold timer is armed. When all become false it arms one 60 s timer and exits when it fires. |
 | Single instance | An exclusive file lock on `<data>/core.lock`, held for life. A second `serve` exits 0. The lock, not the socket file, is the truth. |
-| Start on demand | A client that finds no socket starts `tasktap serve --data <dir>` detached and waits on a pipe the core closes once it listens. No retry loop. The data folder is always passed; there is no default path (hazard 7). |
+| Start on demand | A client that finds no socket starts `tasktap serve --data <dir>` detached and waits on a pipe for the `ready` line the core writes once it listens. No retry loop. The data folder is always passed; there is no default path (hazard 7). |
 | Where it runs from | A copy at `<data>/bin/<build>/tasktap`. Windows cannot replace a running program, and hooks of running sessions keep pointing at the build that started them. Unreferenced builds are deleted at start. |
 | Effects happen once | Every call that starts a process names an attempt id. Before spawning, the core commits the attempt with a hash of its arguments. The same id with the same arguments returns the first outcome; with different arguments it is `conflict`. Creates are idempotent on the client-minted id in the same way. |
 | Crash recovery | At start, in one transaction: an attempt with no recorded outcome is `interrupted`; terminals marked running by an earlier boot become `lost`, their sessions `ended`, their thoughts `failed (interrupted)`, their open questions `withdrawn`. Hold timers are not restored: a held thought stays `routed` with no timer and waits for the person to press Start. |
@@ -181,21 +181,22 @@ One SQLite file, `<data>/core.db`. Ids are UUID v7 text, minted by whoever creat
 | `devices` | `id`, `name`, `key_hash`, `last_seen`, `revoked` | |
 | `previews` (2) | `id`, `project_id`, `path`, `kind`, `title` | Replaces `WorkspaceMedia.json`, which never shrinks. |
 | `connections` (3) | `id` (route or speech provider), `model`, `server`, `account`, `has_key`, `consent` | Secrets stay in the OS credential store. |
+| `seen_events` | `session_id`, `event` | The event ids already applied, so a repeat is ignored (the guards below). Emptied at start. |
 | `meta` | `core_id`, `boot`, `import_v1` | |
 
 ### One state machine
 
-Only `state::apply(event)` writes a thought's `phase` and a session's `state`. A thought's **status** is derived in the same transaction: **needs you** while the thought has any open question, otherwise its phase (captured, routed, working, done, failed). A session shows `asking` by the same rule. So answering one of several questions does not clear needs you. Event names are the observer's (inv. §5.3). The receipt, row and JS vocabularies (Opening, Opened, Closed, Copied, Delivered, Complete, Connected, Queued, Saved, Last seen, Awaiting agent) are dropped.
+Only `state::apply(event)` writes a thought's `phase` and a session's `state`, apart from the store's recovery pass at open (§3). A thought's **status** is derived in the same transaction: **needs you** while the thought has any open question, otherwise its phase (captured, routed, working, done, failed). A session shows `asking` by the same rule. So answering one of several questions does not clear needs you. Event names are the observer's (inv. §5.3). The receipt, row and JS vocabularies (Opening, Opened, Closed, Copied, Delivered, Complete, Connected, Queued, Saved, Last seen, Awaiting agent) are dropped.
 
 | Event | Thought phase | Session state |
 | --- | --- | --- |
 | `thought.capture` | → captured | – |
-| route `clear`; a router question answered; the person picks a destination | captured → routed. The hold timer starts (a preference; 0 means none) | – |
+| route `clear`; a router question answered; the person picks a destination | captured → routed. The hold timer starts (a preference, 5 s by default; 0 means none) | – |
 | route `ambiguous` | stays captured; a router question opens | – |
 | route `unknown` | stays captured, mode becomes `note` (an idea) | – |
 | hold ends, or `thought.start` | routed → working, after the attempt is committed | new session: starting. Follow-up: delivered as §7 allows |
 | `thought.stop` before launch (Undo) | routed → captured | – |
-| launch fails | → failed | ended |
+| launch fails | → failed | a new session ends; a follow-up's session is left as it is |
 | `ready` | – | starting → idle |
 | `turn_started` | working. Binds the waiting follow-up; a prompt typed by hand creates its thought here | → working |
 | `activity` | – | – (memory-only text) |
@@ -209,7 +210,7 @@ Only `state::apply(event)` writes a thought's `phase` and a session's `state`. A
 | `thought.stop` after launch | → failed (stopped) | process stopped, → ended |
 | `thought.retry` | failed → routed, unread | – |
 | `thought.read` | done or failed: read (finished once nothing is pending, §1) | – |
-| `thought.settle` | done; changes pending → kept or discarded | must be ended (§7) |
+| `thought.settle` | done or failed; changes pending → kept or discarded | must be ended (§7) |
 
 Guards kept from 1.2: events from an old token, a sub-agent or a different turn are ignored; event ids are deduplicated; an event that does not fit the current state changes nothing.
 

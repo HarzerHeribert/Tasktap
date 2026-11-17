@@ -272,10 +272,22 @@ fn every_call_round_trips() {
     };
     round_trip::<call::CoreStatus>(Empty {}, status, seen);
     round_trip::<call::CoreRetire>(Retire { when: When::Now }, (), seen);
+    let fixture = FixtureStream {
+        credit: 7,
+        send: Offset::new(1 << 40).unwrap(),
+        receive: Offset::ZERO,
+        chunk: 1,
+        marks: vec![Offset::ZERO, Offset::new(9).unwrap()],
+    };
+    let opened = Opened {
+        s: StreamId(3),
+        credit: 0,
+    };
+    round_trip::<call::FixtureStream>(fixture, opened, seen);
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 21);
+    assert_eq!(Name::ALL.len(), 22);
 }
 
 #[test]
@@ -306,7 +318,7 @@ fn access_follows_the_authorization_table() {
             "session.event"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 15);
+    assert_eq!(by(Access::Device).len(), 16);
     for (access, allowed) in [
         (Access::Anyone, [true, true, true]),
         (Access::Device, [true, false, false]),
@@ -348,6 +360,11 @@ fn optional_arguments_may_be_left_out() {
     let put =
         call::Put::args(json!({"c": "projects", "id": id::<ProjectId>(2), "patch": {}})).unwrap();
     assert_eq!(put.if_rev, None);
+    let fixture = call::FixtureStream::args(json!({"credit": 1, "chunk": 1})).unwrap();
+    assert_eq!(
+        (fixture.send, fixture.receive, fixture.marks.len()),
+        (Offset::ZERO, Offset::ZERO, 0)
+    );
 }
 
 #[test]

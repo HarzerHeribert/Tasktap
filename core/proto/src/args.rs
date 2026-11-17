@@ -2,7 +2,7 @@
 //!
 //! An optional argument may be left out or sent as `null`.
 
-use crate::ids::{AttemptId, Invalid, ProjectId, QuestionId, Rev, SessionId, ThoughtId};
+use crate::ids::{AttemptId, Invalid, Offset, ProjectId, QuestionId, Rev, SessionId, ThoughtId};
 use crate::records::{
     Collection, Isolate, Mode, PrefKey, PrefValue, Question, QuestionKind, Response, Source,
     Stroke, Thought, TurnResult,
@@ -273,6 +273,45 @@ words! {
         Affirm,
         #[serde(rename = "answer.deny")]
         Deny,
+    }
+}
+
+/// `fixture.stream`: a stream of known bytes with no terminal behind it, for
+/// tests and measurement (design §13). Only a core built with its test
+/// fixtures answers it. The reply is the stream.
+///
+/// Both directions carry the fixture's bytes from offset 0: byte `i` is the
+/// top byte of the 32-bit product `(i mod 65521) × 0x9E3779B1`. The core
+/// closes the stream with `done` once it sent `send` bytes and took
+/// `receive` bytes, or with `denied` at the first byte taken that differs.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct FixtureStream {
+    /// What the caller grants the core on this stream at once.
+    pub credit: u32,
+    /// Bytes the core sends.
+    #[serde(default)]
+    pub send: Offset,
+    /// Bytes the core takes. It never grants more than are still to come.
+    #[serde(default)]
+    pub receive: Offset,
+    /// Most bytes the core puts in one data frame, and the credit it keeps
+    /// granted toward it; up to `MAX_CREDIT`.
+    pub chunk: u32,
+    /// Offsets of the sent bytes where the core puts a plain mark, ascending.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub marks: Vec<Offset>,
+}
+
+impl FixtureStream {
+    /// A prime, so no frame size lines up with the pattern.
+    pub const PERIOD: u64 = 65521;
+
+    /// Byte `at` of the fixture's bytes.
+    pub const fn byte(at: u64) -> u8 {
+        ((at % Self::PERIOD) as u32)
+            .wrapping_mul(0x9E37_79B1)
+            .to_be_bytes()[0]
     }
 }
 

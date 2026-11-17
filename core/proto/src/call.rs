@@ -1,4 +1,5 @@
-//! The one table of calls built in Phase 1 (design §1, §2): 21 of the 43 core calls.
+//! The one table of calls built in Phase 1 (design §1, §2): 21 of the 43 core
+//! calls, and the test fixtures.
 //!
 //! Each call is a type here, named for the call (`thought.capture` is
 //! `call::ThoughtCapture`), that ties its name to its
@@ -88,6 +89,8 @@ table! {
     DeviceRevoke "device.revoke" Device (Ref<DeviceId>) -> ();
     CoreStatus "core.status" Anyone (Empty) -> crate::bootstrap::CoreStatus;
     CoreRetire "core.retire" Anyone (Retire) -> ();
+    // Fixtures (design §13): only a core built with its test fixtures answers these.
+    FixtureStream "fixture.stream" Device (crate::args::FixtureStream) -> crate::frame::Opened;
 }
 
 /// Who may make a call (design §2): authorization is per call.

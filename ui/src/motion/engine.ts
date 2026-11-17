@@ -223,7 +223,7 @@ export class View {
   private lph = 0;
   /** The pulse passing through a posed view: when it began and when the next is due (the page's clock, ms), its
    *  strength, how many there have been, and the kick last answered. */
-  private pulse = { began: -1e9, due: 0, strength: 0, n: 0, kick: 0 };
+  private pulse = { began: -1e9, due: 0, strength: 0, n: 0, kick: 0, on: false };
   private p = new Float32Array(8);
   private moving = false;
   private slow = 0;
@@ -354,12 +354,14 @@ export class View {
     return this.o.pace === 'breathe' && (s === 2 || s === 3) && this.stT >= MOMENT[s]!;
   }
 
-  /** The clock of the view's pulse, in its units; the next begins when its time has come: at once on a kick, else
-   *  about a breath and a quarter after the last began, give or take a third, each of its own strength, so it is
-   *  never a metronome. With no pulse, past it. */
+  /** The clock of the view's pulse, in its units; the next begins when its time has come: about a breath and a
+   *  quarter after the last began, give or take a third, each of its own strength, so it is never a metronome. With
+   *  no pulse, past it. */
   private beat() {
-    const P = this.pulse, now = performance.now(), kicked = (this.o.kick ?? 0) !== P.kick;
+    // A kick, or its pulses beginning again (the window back in use), starts one at once.
+    const P = this.pulse, now = performance.now(), kicked = (this.o.kick ?? 0) !== P.kick || (!!this.o.pulse && !P.on);
     P.kick = this.o.kick ?? 0;
+    P.on = !!this.o.pulse;
     if (this.o.pulse && !reduced.matches && (kicked || now >= P.due)) {
       const r = (k: number) => Math.abs(Math.sin((++P.n + k) * 12.9898) * 43758.5453) % 1, breath = 3600 / (this.o.tempo ?? 0.3);
       Object.assign(P, { began: now, strength: this.o.pulse * (kicked ? 0.8 : 0.6 + 0.4 * r(0.3)), due: now + breath * (0.9 + 0.7 * r(0.7)) });

@@ -1169,6 +1169,50 @@ fn constraint_violations_are_typed() {
     );
 }
 
+#[test]
+fn a_session_event_is_seen_once_and_forgotten_at_start() {
+    let dir = Dir::new("seen");
+    let (mut store, _) = open(&dir.db());
+    let p = project("/work/seen");
+    let s = session(p.id, None, None, SessionState::Idle);
+    let other = session(p.id, None, None, SessionState::Idle);
+    let mut tx = store.begin().unwrap();
+    tx.insert_project(&p).unwrap();
+    tx.insert_session(&s).unwrap();
+    tx.insert_session(&other).unwrap();
+    tx.commit().unwrap();
+
+    let mut tx = store.begin().unwrap();
+    assert!(tx.see_event(s.id, "event-1").unwrap());
+    assert!(!tx.see_event(s.id, "event-1").unwrap());
+    // Ids are the sender's, so they are only unique within a session.
+    assert!(tx.see_event(other.id, "event-1").unwrap());
+    // Remembering an event is not a record change.
+    assert_eq!(tx.commit().unwrap(), None);
+    let mut tx = store.begin().unwrap();
+    assert!(!tx.see_event(s.id, "event-1").unwrap());
+    drop(tx);
+
+    // Every session of the boot before has ended, so the next start forgets them.
+    drop(store);
+    let (mut store, _) = open(&dir.db());
+    assert!(store.begin().unwrap().see_event(s.id, "event-1").unwrap());
+}
+
+#[test]
+fn a_request_key_reads_back_by_question() {
+    let dir = Dir::new("request-key");
+    let (mut store, _) = open(&dir.db());
+    let q = question(None, None);
+    let mut tx = store.begin().unwrap();
+    tx.insert_question(&q, "router 1 n:2").unwrap();
+    assert_eq!(
+        tx.request_key(q.id).unwrap().as_deref(),
+        Some("router 1 n:2")
+    );
+    assert_eq!(tx.request_key(QuestionId::mint()).unwrap(), None);
+}
+
 const CHILD: &str = "TASKTAP_STORE_CHILD";
 
 /// Run by the next test as a child process: writes until it is killed.

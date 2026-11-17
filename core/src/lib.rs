@@ -10,5 +10,6 @@ pub mod client;
 mod conn;
 mod handshake;
 pub mod serve;
+pub mod state;
 pub mod store;
 mod sys;

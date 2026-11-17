@@ -225,7 +225,15 @@ fn the_handshake_picks_the_highest_shared_version() {
         assert_eq!(c.welcome.identity, Identity::Anonymous);
         assert_eq!(
             c.welcome.calls,
-            ["device.revoke", "core.status", "core.retire"]
+            [
+                "sub",
+                "put",
+                "delete",
+                "history",
+                "device.revoke",
+                "core.status",
+                "core.retire"
+            ]
         );
     }
 }
@@ -338,8 +346,10 @@ fn an_unknown_call_is_answered_and_the_connection_stays() {
         Code::Unknown
     );
     // A call the protocol knows and this build does not answer yet.
-    let sub = json!({ "collections": [] });
-    assert_eq!(refused(raw(&mut c, "sub", sub)), Code::Unknown);
+    assert_eq!(
+        refused(raw(&mut c, "project.scan", json!({}))),
+        Code::Unknown
+    );
     assert_eq!(
         refused(raw(&mut c, "device.revoke", json!({}))),
         Code::Invalid

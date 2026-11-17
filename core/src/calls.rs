@@ -7,6 +7,7 @@
 
 use crate::conn::{Link, Peer};
 use crate::handshake::SUPPORTED;
+use crate::records;
 use crate::serve::{BUILD, Core};
 use serde_json::Value;
 use std::rc::Rc;
@@ -57,6 +58,10 @@ pub type Handler = fn(&mut Cx, Value) -> Option<Control>;
 /// The calls this build answers.
 fn handler(name: Name) -> Option<Handler> {
     let handler: Handler = match name {
+        Name::Sub => |cx, args| now::<call::Sub>(cx, args, records::sub),
+        Name::Put => |cx, args| Some(call::Put::reply(cx.id, records::put(cx, args))),
+        Name::Delete => |cx, args| now::<call::Delete>(cx, args, records::delete),
+        Name::History => |cx, args| now::<call::History>(cx, args, records::history),
         Name::CoreStatus => |cx, args| now::<call::CoreStatus>(cx, args, status),
         Name::CoreRetire => |cx, args| now::<call::CoreRetire>(cx, args, retire),
         Name::DeviceRevoke => |cx, args| now::<call::DeviceRevoke>(cx, args, revoke),
@@ -85,6 +90,10 @@ pub fn supported(v: u32) -> Vec<String> {
 /// and nowhere else.
 pub fn call(core: &mut Core, link: &Rc<Link>, peer: Peer, request: Request) {
     let Request { id, name, args } = request;
+    #[cfg(feature = "fixtures")]
+    if name == records::FIXTURE {
+        return link.send(&records::fixture(core, id, args));
+    }
     let reply = match Name::parse(&name).filter(|&n| offered(n, peer.v)) {
         None => Some(refuse(id, Code::Unknown, format!("no call {name}"))),
         Some(n) if !n.access().permits(peer.who.identity()) => Some(refuse(

@@ -43,8 +43,8 @@ const LINGER: Duration = Duration::from_secs(1);
 pub struct Terminals {
     live: HashMap<TerminalId, Live>,
     data: PathBuf,
-    /// The shim folder a shell puts first on its PATH and any other child
-    /// last, installed when the first terminal starts.
+    /// The shim folder a shell puts first on its PATH, installed when the
+    /// first shell starts.
     shims: std::cell::OnceCell<Option<PathBuf>>,
     /// The core is shutting down: nothing new starts.
     closing: bool,
@@ -216,12 +216,13 @@ pub fn spawn(core: &mut Core, t: &Terminal, token: &Secret) -> std::io::Result<(
     let shell = t.kind == TerminalKind::Shell;
     let size = Size(t.cols, t.rows);
     // A shell finds the shims first, so that an agent typed there is
-    // adopted; any other child finds `tasktap` last, for its hooks and
-    // `tasktap ask`, and the real agents before the shims.
-    let shims = terminals.shims();
+    // adopted; any other child finds `tasktap`, for `tasktap ask`, in the
+    // core's own folder, last, with no shim on its PATH at all.
+    let own = crate::roles::program().ok();
+    let own = own.as_deref().and_then(Path::parent);
     let path = match shell {
-        true => process::path(shims, None),
-        false => process::path(None, shims),
+        true => process::path(terminals.shims(), None),
+        false => process::path(None, own),
     };
     let plan = Plan {
         argv: if shell { Vec::new() } else { t.argv.clone() },

@@ -28,7 +28,7 @@ pub use watchdog::Watchdog;
 pub const EXE: &str = env!("CARGO_BIN_EXE_tasktap");
 /// Milliseconds a thought is held while the preference is unset.
 pub const HOLD_MS: u64 = tasktap_proto::DEFAULT_HOLD as u64 * 1000;
-pub const ALL: [Collection; 10] = [
+pub const ALL: [Collection; 11] = [
     Collection::Thoughts,
     Collection::Projects,
     Collection::Sessions,
@@ -39,6 +39,7 @@ pub const ALL: [Collection; 10] = [
     Collection::Prefs,
     Collection::Devices,
     Collection::Glance,
+    Collection::Agents,
 ];
 
 pub fn wall_ms() -> u64 {
@@ -247,6 +248,7 @@ pub struct Model {
     pub questions: BTreeMap<QuestionId, Question>,
     pub results: BTreeMap<ResultId, TurnResult>,
     pub glance: Option<Glance>,
+    pub agents: BTreeMap<String, tasktap_proto::AgentHealth>,
 }
 
 impl Model {
@@ -275,6 +277,11 @@ impl Model {
                 Set::Questions(r) => rows!(questions, r),
                 Set::Results(r) => rows!(results, r),
                 Set::Glance { put } => self.glance = put.last().cloned(),
+                Set::Agents(r) => {
+                    for a in &r.put {
+                        self.agents.insert(a.id.clone(), a.clone());
+                    }
+                }
                 _ => {}
             }
         }

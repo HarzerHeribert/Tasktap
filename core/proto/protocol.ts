@@ -49,13 +49,22 @@ agent: string,
 cwd: string, };
 
 /**
- * One agent as found on this computer, and what its runs can do.
+ * One agent as found on this computer, and what its runs can do: a row of
+ * the in-memory `agents` collection, and of the reply of `agents.detect`.
  */
 export type AgentHealth = {
 /**
  * Its id, as a capture and `tasktap hook` name it.
  */
 id: string,
+/**
+ * The revision of the change that last put the row.
+ */
+rev: Rev,
+/**
+ * When its commands last said what follows.
+ */
+checked: Time,
 /**
  * Its program is on the PATH the core's terminals get.
  */
@@ -208,7 +217,7 @@ export type CloseWhy = "done" | "overflow" | "gone" | "denied";
 
 export type Code = "unknown" | "invalid" | "denied" | "conflict" | "gone" | "failed";
 
-export type Collection = "thoughts" | "projects" | "sessions" | "terminals" | "questions" | "results" | "layouts" | "prefs" | "devices" | "glance";
+export type Collection = "thoughts" | "projects" | "sessions" | "terminals" | "questions" | "results" | "layouts" | "prefs" | "devices" | "glance" | "agents";
 
 /**
  * A kind 0 frame. Unknown fields are ignored, so a newer peer may add fields
@@ -743,7 +752,7 @@ export type SessionState = "starting" | "idle" | "working" | "ended";
 /**
  * The rows of one collection that one change touches.
  */
-export type Set = { "c": "thoughts" } & Rows<Thought, ThoughtId> | { "c": "projects" } & Rows<Project, ProjectId> | { "c": "sessions" } & Rows<Session, SessionId> | { "c": "terminals" } & Rows<Terminal, TerminalId> | { "c": "questions" } & Rows<Question, QuestionId> | { "c": "results" } & Rows<TurnResult, ResultId> | { "c": "layouts" } & Rows<Layout, ProjectId> | { "c": "prefs" } & Rows<Pref, PrefKey> | { "c": "devices" } & Rows<Device, DeviceId> | { "c": "glance", put: Array<Glance>, };
+export type Set = { "c": "thoughts" } & Rows<Thought, ThoughtId> | { "c": "projects" } & Rows<Project, ProjectId> | { "c": "sessions" } & Rows<Session, SessionId> | { "c": "terminals" } & Rows<Terminal, TerminalId> | { "c": "questions" } & Rows<Question, QuestionId> | { "c": "results" } & Rows<TurnResult, ResultId> | { "c": "layouts" } & Rows<Layout, ProjectId> | { "c": "prefs" } & Rows<Pref, PrefKey> | { "c": "devices" } & Rows<Device, DeviceId> | { "c": "glance", put: Array<Glance>, } | { "c": "agents" } & Rows<AgentHealth, string>;
 
 /**
  * `thought.settle`: keeps or discards the changes of a thought's worktree,

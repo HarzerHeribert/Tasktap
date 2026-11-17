@@ -317,12 +317,17 @@ pub struct Agents {
     pub agents: Vec<AgentHealth>,
 }
 
-/// One agent as found on this computer, and what its runs can do.
+/// One agent as found on this computer, and what its runs can do: a row of
+/// the in-memory `agents` collection, and of the reply of `agents.detect`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct AgentHealth {
     /// Its id, as a capture and `tasktap hook` name it.
     pub id: String,
+    /// The revision of the change that last put the row.
+    pub rev: crate::ids::Rev,
+    /// When its commands last said what follows.
+    pub checked: crate::ids::Time,
     /// Its program is on the PATH the core's terminals get.
     pub installed: bool,
     /// As it reports its version.

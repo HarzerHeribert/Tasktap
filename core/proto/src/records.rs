@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 words! {
-    pub enum Collection { Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices, Glance }
+    pub enum Collection { Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices, Glance, Agents }
 }
 
 /// The rows of one collection that one change touches.
@@ -33,6 +33,9 @@ pub enum Set {
     Glance {
         put: Vec<Glance>,
     },
+    /// In memory: one row per agent this core has, once it has been
+    /// detected; rows are only ever put.
+    Agents(Rows<crate::args::AgentHealth, String>),
 }
 
 /// Rows put whole, and ids of rows that stopped being live.

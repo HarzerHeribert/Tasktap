@@ -451,7 +451,8 @@ fn reopen(tx: &mut crate::store::Tx, mut p: Project) -> Result<ProjectId, Error>
 }
 
 /// `agents.detect`: each agent asked for, or every one, as its own commands
-/// find it, each agent on a thread of its own.
+/// find it, each agent on a thread of its own. What it finds goes to the
+/// `agents` collection too, and the reply is those rows.
 fn detect(cx: &mut Cx, args: DetectAgents) -> Option<Control> {
     let all = crate::agents::all();
     let asked: Vec<_> = match &args.agents {
@@ -468,16 +469,26 @@ fn detect(cx: &mut Cx, args: DetectAgents) -> Option<Control> {
             found
         }
     };
-    let look = move || {
-        std::thread::scope(|scope| {
-            let checks: Vec<_> = (asked.iter())
-                .map(|agent| scope.spawn(|| crate::agents::checks::detect(*agent)))
-                .collect();
-            let found = checks.into_iter().filter_map(|c| c.join().ok());
-            found.collect::<Vec<_>>()
-        })
-    };
-    off_thread::<call::AgentsDetect, _>(cx, look, |_, agents| Ok(Agents { agents }))
+    let look = move || crate::agents::checks::detect_all(&asked);
+    off_thread::<call::AgentsDetect, _>(cx, look, |core, found| {
+        let agents = core.set_agents(found).map_err(effects::stored)?;
+        Ok(Agents { agents })
+    })
+}
+
+/// Detects the agents once as the core starts, off its thread, so the
+/// `agents` collection is filled before a page asks (design §7). It keeps
+/// nothing alive: a core that idles out meanwhile ends without the rows.
+pub fn detect_at_start(core: &Core) {
+    let agents = crate::agents::at_start();
+    if agents.is_empty() {
+        return;
+    }
+    let look = move || crate::agents::checks::detect_all(&agents);
+    aside(core, look, |core, found| {
+        // Memory only: a revision not taken leaves the collection as it was.
+        let _ = core.set_agents(found.unwrap_or_default());
+    });
 }
 
 /// `project.scan`: whether each project's folder is still there, and still

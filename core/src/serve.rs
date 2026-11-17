@@ -44,6 +44,10 @@ pub struct Options {
     /// How long each folder check waits first, for tests.
     #[cfg(feature = "fixtures")]
     pub check: Duration,
+    /// Detect the agents as the core starts: always in a normal build; in a
+    /// build with the test fixtures only when a test asks (`--detect`),
+    /// and then only the fixture agents (`agents::at_start`).
+    pub detect: bool,
 }
 
 /// Everything the core's thread owns. Tasks borrow it between awaits, never across one.
@@ -172,6 +176,9 @@ async fn serve(opts: Options) -> io::Result<()> {
         })
     });
     crate::questions::start(&mut core.borrow_mut()).map_err(io::Error::other)?;
+    if opts.detect {
+        crate::calls::detect_at_start(&core.borrow());
+    }
     tokio::pin!(terminated);
     let mut idle = None;
     let mut accepting = true;

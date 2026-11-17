@@ -243,6 +243,17 @@ pub fn all() -> &'static [&'static dyn Agent] {
     AGENTS
 }
 
+/// The agents a core detects as it starts (`agents` collection, design §7):
+/// every one, except in a build with the test fixtures, where only the
+/// fixture agents, so that a test never runs a real agent's commands.
+pub fn at_start() -> Vec<&'static dyn Agent> {
+    #[cfg(feature = "fixtures")]
+    let detected = |a: &&dyn Agent| a.program() == crate::roles::fixture::PROGRAM;
+    #[cfg(not(feature = "fixtures"))]
+    let detected = |_: &&dyn Agent| true;
+    AGENTS.iter().copied().filter(detected).collect()
+}
+
 /// The variables every agent declares it needs, each once.
 pub fn variables() -> Vec<&'static str> {
     let mut all: Vec<&'static str> = AGENTS.iter().flat_map(|a| a.variables()).copied().collect();

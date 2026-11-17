@@ -785,6 +785,51 @@ fn detection_runs_each_agents_own_commands() {
 }
 
 #[test]
+fn the_agents_are_detected_as_the_core_starts_and_again_when_asked() {
+    let data = Folder::new("aa");
+    let path = path_with(&agents(&data.0));
+    let core = Core::start_env(&data.0, &["--detect"], &[("PATH", &path)]);
+    let mut w = core.watch();
+    // Detected off the core's thread as it starts: the rows come as a change.
+    w.until("the agents are detected", |m| m.agents.len() == 3);
+    // A build with the test fixtures detects only the fixture agents, so no
+    // test runs a real agent's commands.
+    let ids: Vec<&str> = w.model.agents.keys().map(String::as_str).collect();
+    assert_eq!(ids, ["fixture", "fixture-probed", "fixture-silent"]);
+    let fixture = w.model.agents["fixture"].clone();
+    assert!(fixture.installed && fixture.events);
+    assert_eq!(
+        (
+            fixture.version.as_deref(),
+            fixture.signed_in,
+            fixture.identity.as_deref()
+        ),
+        (Some("fixture 1.0"), Some(true), Some("fixture"))
+    );
+    assert!(fixture.checked > tasktap_proto::Time::ZERO);
+    // A fresh subscriber's snapshot holds them.
+    assert_eq!(core.watch().model.agents.len(), 3);
+    // agents.detect puts the rows it found again, at a new revision.
+    let asked = DetectAgents {
+        agents: Some(vec!["fixture".into()]),
+    };
+    let Agents { agents } = w.ok::<call::AgentsDetect>(&asked);
+    assert_eq!(agents.len(), 1);
+    assert!(agents[0].rev > fixture.rev);
+    w.until("the row changes", |m| {
+        m.agents["fixture"].rev == agents[0].rev
+    });
+    assert_eq!(w.model.agents["fixture"], agents[0]);
+
+    // Without being asked to, such a build detects nothing as it starts.
+    let quiet = Folder::new("ab");
+    let core = Core::start_env(&quiet.0, &[], &[("PATH", &path)]);
+    let mut w = core.watch();
+    w.sync();
+    assert!(w.model.agents.is_empty());
+}
+
+#[test]
 fn a_run_whose_agent_needs_a_check_starts_once_it_passed() {
     let mut s = Scene::real("ap", "fixture-probed");
     let t = s.capture("tidy up");

@@ -297,6 +297,8 @@ fn every_call_round_trips() {
     round_trip::<call::RouteHint>(hint, route, seen);
     let health = AgentHealth {
         id: "codex".into(),
+        rev: rev(7),
+        checked: time(42),
         installed: true,
         version: Some("0.169.0".into()),
         signed_in: Some(true),

@@ -48,8 +48,9 @@ fn main() -> ExitCode {
 
 /// `serve --data <folder>`; with the test fixtures also `--idle-ms <ms>`,
 /// `--hello-ms <ms>`, `--check-ms <ms>` (each folder check, search for a
-/// launch's program and history write waits that long first) and
-/// `--fixture-token <64 hex digits>`.
+/// launch's program and history write waits that long first),
+/// `--fixture-token <64 hex digits>` and `--detect` (detect the fixture
+/// agents as it starts, as a normal build detects every agent).
 fn serve(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
     let mut data = None;
     let mut locked = false;
@@ -61,6 +62,8 @@ fn serve(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
     let mut token = None;
     #[cfg(feature = "fixtures")]
     let mut check = std::time::Duration::ZERO;
+    #[cfg_attr(not(feature = "fixtures"), allow(unused_mut))]
+    let mut detect = !cfg!(feature = "fixtures");
     while let Some(flag) = args.next() {
         let mut value = || {
             args.next()
@@ -76,6 +79,8 @@ fn serve(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
             Some("--hello-ms") => hello = ms(value()?)?,
             #[cfg(feature = "fixtures")]
             Some("--check-ms") => check = ms(value()?)?,
+            #[cfg(feature = "fixtures")]
+            Some("--detect") => detect = true,
             #[cfg(feature = "fixtures")]
             Some("--fixture-token") => {
                 let hex = value()?.into_string().unwrap_or_default();
@@ -94,6 +99,7 @@ fn serve(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
         token,
         #[cfg(feature = "fixtures")]
         check,
+        detect,
     };
     serve::run(opts).map_err(|e| e.to_string())
 }

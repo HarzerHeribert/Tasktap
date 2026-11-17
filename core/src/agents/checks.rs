@@ -27,6 +27,9 @@ pub fn detect(agent: &dyn Agent) -> AgentHealth {
     let caps = agent.caps();
     let mut health = AgentHealth {
         id: agent.id().into(),
+        // Stamped once the collection takes the row.
+        rev: tasktap_proto::Rev::ZERO,
+        checked: tasktap_proto::Time::ZERO,
         installed: false,
         version: None,
         signed_in: None,
@@ -50,6 +53,17 @@ pub fn detect(agent: &dyn Agent) -> AgentHealth {
         health.identity = identity.map(|i| fit(&i, 200));
     }
     health
+}
+
+/// [`detect`] for each of `agents`, all at once, each on a thread of its own.
+pub fn detect_all(agents: &[&'static dyn Agent]) -> Vec<AgentHealth> {
+    std::thread::scope(|scope| {
+        let checks: Vec<_> = (agents.iter())
+            .map(|agent| scope.spawn(|| detect(*agent)))
+            .collect();
+        let found = checks.into_iter().filter_map(|c| c.join().ok());
+        found.collect()
+    })
 }
 
 /// Runs a probe in `cwd` and returns the arguments it adds to the run.

@@ -29,14 +29,14 @@ use tasktap_core::client::{self, Client};
 use tasktap_proto::call;
 use tasktap_proto::{
     Auth, Collection, Control, DeviceId, FixtureStream, Frame, Hello, MAX_CREDIT, Offset,
-    OpenTerminal, PrefPatch, Put, PutTarget, Register, Role, Secret, StartTerminal, StreamId,
+    OpenTerminal, PrefPatch, Put, PutTarget, Register, Role, Secret, Set, StartTerminal, StreamId,
     Subscribe, TerminalId, VERSION, Versions,
 };
 
 /// Keys typed before the timed ones, while `cat` starts.
 const WARM: u64 = 20;
 
-const ALL: [Collection; 10] = [
+const ALL: [Collection; 11] = [
     Collection::Thoughts,
     Collection::Projects,
     Collection::Sessions,
@@ -47,6 +47,7 @@ const ALL: [Collection; 10] = [
     Collection::Prefs,
     Collection::Devices,
     Collection::Glance,
+    Collection::Agents,
 ];
 
 fn main() -> io::Result<()> {
@@ -102,8 +103,17 @@ fn hold(data: &Path) -> io::Result<()> {
         .map_err(|e| io::Error::other(format!("sub: {e:?}")))?;
     println!("subscribed");
     io::stdout().flush()?;
+    // The agents the core detects as it starts come as one change.
+    let mut detected = false;
     loop {
-        c.recv()?;
+        if let Frame::Control(Control::Change(change)) = c.recv()? {
+            let agents = |set: &Set| matches!(set, Set::Agents(rows) if !rows.put.is_empty());
+            if !detected && change.sets.iter().any(agents) {
+                detected = true;
+                println!("detected");
+                io::stdout().flush()?;
+            }
+        }
     }
 }
 

@@ -18,9 +18,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use tasktap_proto::call::{Code, Error};
 use tasktap_proto::{
-    Change, Collection, Control, Delete, Glance, History, HistoryPage, Layout, NotePatch,
-    PrefValue, ProjectPatch, Put, PutTarget, Rev, Revision, Rows, SessionId, Set, Subscribe,
-    Thought, ThoughtId, encode_control, json_len,
+    AgentHealth, Change, Collection, Control, Delete, Glance, History, HistoryPage, Layout,
+    NotePatch, PrefValue, ProjectPatch, Put, PutTarget, Rev, Revision, Rows, SessionId, Set,
+    Subscribe, Thought, ThoughtId, encode_control, json_len,
 };
 
 /// Most bytes of JSON in one snapshot chunk (design §1).
@@ -69,6 +69,7 @@ fn collection(set: &Set) -> Collection {
         Set::Prefs(_) => Collection::Prefs,
         Set::Devices(_) => Collection::Devices,
         Set::Glance { .. } => Collection::Glance,
+        Set::Agents(_) => Collection::Agents,
     }
 }
 
@@ -78,6 +79,8 @@ fn collection(set: &Set) -> Collection {
 /// start over at every run of the core.
 pub struct Memory {
     glance: Glance,
+    /// Each agent as last detected, in the order the core lists its agents.
+    agents: Vec<AgentHealth>,
     activity: HashMap<SessionId, Vec<String>>,
 }
 
@@ -93,6 +96,7 @@ impl Default for Memory {
                 question: None,
                 retiring: false,
             },
+            agents: Vec::new(),
             activity: HashMap::new(),
         }
     }
@@ -119,6 +123,10 @@ impl Memory {
             Collection::Glance => Some(Set::Glance {
                 put: vec![self.glance.clone()],
             }),
+            Collection::Agents => Some(Set::Agents(Rows {
+                put: self.agents.clone(),
+                del: Vec::new(),
+            })),
             _ => None,
         }
     }
@@ -152,6 +160,40 @@ impl Core {
             sets,
         }));
         Ok(())
+    }
+
+    /// Puts the agents just detected in the `agents` collection, each
+    /// stamped with the change's revision and the time, and sends them as
+    /// one change. Returns the rows as put.
+    pub fn set_agents(&mut self, found: Vec<AgentHealth>) -> store::Result<Vec<AgentHealth>> {
+        if found.is_empty() {
+            return Ok(found);
+        }
+        let rev = self.store.take_rev()?;
+        let checked = self.seams.now();
+        let found: Vec<AgentHealth> = (found.into_iter())
+            .map(|a| AgentHealth { rev, checked, ..a })
+            .collect();
+        let agents = &mut self.memory.agents;
+        for a in &found {
+            match agents.iter_mut().find(|row| row.id == a.id) {
+                Some(row) => *row = a.clone(),
+                None => agents.push(a.clone()),
+            }
+        }
+        let order = |id: &str| crate::agents::all().iter().position(|a| a.id() == id);
+        agents.sort_by_key(|a| order(&a.id));
+        let sets = vec![Set::Agents(Rows {
+            put: found.clone(),
+            del: Vec::new(),
+        })];
+        self.publish(Some(Change {
+            rev,
+            snap: false,
+            more: false,
+            sets,
+        }));
+        Ok(found)
     }
 
     /// Replaces the `glance` row; its `rev` is stamped here. Subscribers get
@@ -299,7 +341,7 @@ fn chunks(rev: Rev, snap: bool, sets: Vec<Set>) -> Vec<Change> {
     for set in sets {
         split!(
             set, Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs,
-            Devices
+            Devices, Agents
         );
     }
     if !chunk.sets.is_empty() || chunk.done.is_empty() {

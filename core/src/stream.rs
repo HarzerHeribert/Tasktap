@@ -28,7 +28,8 @@ use tasktap_proto::{
 pub const WINDOW: usize = 128 << 10;
 
 /// The core's end of a stream. Both methods run on the core's thread and
-/// must not block.
+/// must not block. `write` runs while the connection holds `Core`, so an
+/// endpoint keeps what it needs itself, a terminal's ring behind an `Rc`.
 pub trait Endpoint {
     /// Puts the next bytes for the client in `room`, as many as it has up to
     /// [`Room::left`], and says what follows them. Asked again after `More`
@@ -108,7 +109,8 @@ impl Handle {
         self.poke();
     }
 
-    /// Lets the client send `n` more bytes.
+    /// Lets the client send `n` more bytes, never more than `MAX_CREDIT`
+    /// outstanding: the rest is not granted.
     pub fn grant(&self, n: u32) {
         let grant = &self.shared.grant;
         grant.set(grant.get().saturating_add(n));

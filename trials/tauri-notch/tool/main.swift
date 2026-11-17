@@ -115,14 +115,95 @@ case "drag": // Press at (x1,y1), drag through (x2,y2), release back at (x1,y1).
     events.append(CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: a, mouseButton: .left))
     events.append(CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: a, mouseButton: .left))
     post(events)
-case "type":
+case "type", "typeonly": // Unicode keystrokes; "type" ends with Return.
     for ch in (args.count > 1 ? args[1] : "").utf16 {
         let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true), up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
         var c = ch
         down?.keyboardSetUnicodeString(stringLength: 1, unicodeString: &c); up?.keyboardSetUnicodeString(stringLength: 1, unicodeString: &c)
         post([down, up])
     }
-    post([CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: true), CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: false)])
+    if args[0] == "type" { post([CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: true), CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: false)]) }
+case "key": // key CODE [ctrl,alt,cmd,shift]: one press, e.g. "key 49 ctrl,alt" is 1.2's capture shortcut, "key 53" is Escape.
+    let mods = args.count > 2 ? args[2] : ""
+    var flags = CGEventFlags()
+    if mods.contains("ctrl") { flags.insert(.maskControl) }; if mods.contains("alt") { flags.insert(.maskAlternate) }
+    if mods.contains("cmd") { flags.insert(.maskCommand) }; if mods.contains("shift") { flags.insert(.maskShift) }
+    let down = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(num(1)), keyDown: true), up = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(num(1)), keyDown: false)
+    down?.flags = flags; up?.flags = flags
+    post([down, up])
+case "state": // How the system sees a process. The same outside measurement for the trial and for 1.2.
+    let pid = pid_t(num(1)), ws = NSWorkspace.shared
+    var focused: CFTypeRef?, focusedPid: pid_t = 0
+    if AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedApplicationAttribute as CFString, &focused) == .success, let f = focused {
+        AXUIElementGetPid(f as! AXUIElement, &focusedPid)
+    }
+    json(["runningActive": NSRunningApplication(processIdentifier: pid)?.isActive ?? false, "frontmost": ws.frontmostApplication?.bundleIdentifier ?? "",
+          "menuBarOwner": ws.menuBarOwningApplication?.bundleIdentifier ?? "", "keyboardFocusPid": focusedPid, "keyboardFocusIsTarget": focusedPid == pid])
+case "axvalue": // The text of an app's focused element, e.g. the TextEdit document.
+    var focused: CFTypeRef?, value: CFTypeRef?
+    if AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid_t(num(1))), kAXFocusedUIElementAttribute as CFString, &focused) == .success, let f = focused {
+        AXUIElementCopyAttributeValue(f as! AXUIElement, kAXValueAttribute as CFString, &value)
+    }
+    print(value as? String ?? "")
+case "ax": // ax PID [ROLE]: elements with role, label and frame in top-left points, to find a field to click.
+    var count = 0
+    func walk(_ e: AXUIElement, _ depth: Int) {
+        guard depth < 40, count < 600 else { return }
+        func attr(_ name: String) -> CFTypeRef? { var v: CFTypeRef?; return AXUIElementCopyAttributeValue(e, name as CFString, &v) == .success ? v : nil }
+        let role = attr(kAXRoleAttribute) as? String ?? ""
+        var p = CGPoint.zero, s = CGSize.zero
+        if let v = attr(kAXPositionAttribute) { AXValueGetValue(v as! AXValue, .cgPoint, &p) }
+        if let v = attr(kAXSizeAttribute) { AXValueGetValue(v as! AXValue, .cgSize, &s) }
+        if args.count < 3 || role.contains(args[2]) {
+            count += 1
+            let label = [attr(kAXTitleAttribute), attr(kAXDescriptionAttribute), attr(kAXValueAttribute)].compactMap { $0 as? String }.filter { !$0.isEmpty }.first ?? ""
+            json(["role": role, "label": String(label.prefix(40)), "x": p.x, "y": p.y, "w": s.width, "h": s.height,
+                  "focused": attr(kAXFocusedAttribute) as? Bool ?? false])
+        }
+        for child in attr(kAXChildrenAttribute) as? [AXUIElement] ?? [] { walk(child, depth + 1) }
+    }
+    walk(AXUIElementCreateApplication(pid_t(num(1))), 0)
+case "frontwindow": // frontwindow PID [TITLE]: the frontmost normal window of a process, optionally by title prefix.
+    let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+    print(list.first { ($0[kCGWindowOwnerPID as String] as? Int) == Int(num(1)) && ($0[kCGWindowLayer as String] as? Int) == 0
+        && (args.count < 3 || (($0[kCGWindowName as String] as? String) ?? "").hasPrefix(args[2])) }?[kCGWindowNumber as String] ?? 0)
+case "closedoc": // closedoc PID PATH: close the window of an app whose accessibility document is PATH.
+    var windows: CFTypeRef?
+    AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid_t(num(1))), kAXWindowsAttribute as CFString, &windows)
+    for w in windows as? [AXUIElement] ?? [] {
+        var doc: CFTypeRef?, button: CFTypeRef?
+        AXUIElementCopyAttributeValue(w, kAXDocumentAttribute as CFString, &doc)
+        guard let url = doc as? String, URL(string: url)?.path == args[2],
+              AXUIElementCopyAttributeValue(w, kAXCloseButtonAttribute as CFString, &button) == .success, let b = button else { continue }
+        print(AXUIElementPerformAction(b as! AXUIElement, kAXPressAction as CFString) == .success ? "closed" : "not closed")
+    }
+case "keylook": // Whether a window shows the key appearance: a red close button at the top left of its capture.
+    let file = NSTemporaryDirectory() + "keylook-\(getpid()).png"
+    let capture = Process()
+    capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture"); capture.arguments = ["-x", "-o", "-l\(Int(num(1)))", file]
+    try? capture.run(); capture.waitUntilExit()
+    guard let rep = NSBitmapImageRep(data: (try? Data(contentsOf: URL(fileURLWithPath: file))) ?? Data()) else { json(["error": "no capture"]); break }
+    var red = 0
+    for y in 0..<min(rep.pixelsHigh, 120) { for x in 0..<min(rep.pixelsWide, 200) {
+        if let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.redComponent > 0.8, c.greenComponent < 0.5, c.blueComponent < 0.5 { red += 1 }
+    } }
+    try? FileManager.default.removeItem(atPath: file)
+    json(["window": Int(num(1)), "redPixels": red, "keyAppearance": red > 20])
+case "panelprobe": // A plain AppKit non-activating panel with a text field, no Tauri: panelprobe accessory|regular SECONDS [HANDBACK].
+    NSApplication.shared.setActivationPolicy(args.count > 1 && args[1] == "regular" ? .regular : .accessory)
+    final class KeyPanel: NSPanel { override var canBecomeKey: Bool { true } }
+    let frame = NSRect(x: screen.frame.midX - 160, y: screen.visibleFrame.maxY - 220, width: 320, height: 90)
+    let panel = KeyPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
+    let field = NSTextField(frame: NSRect(x: 20, y: 30, width: 280, height: 28))
+    panel.contentView?.addSubview(field)
+    panel.backgroundColor = .darkGray
+    panel.orderFrontRegardless()
+    // An optional third argument: after that many seconds, give the key focus back by ordering out and in again.
+    if num(3) > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + num(3)) { panel.orderOut(nil); panel.orderFrontRegardless() } }
+    json(["event": "panelprobe", "fieldX": frame.minX + 160, "fieldY": frame.minY + 44, "pid": getpid()])
+    fflush(stdout)
+    runApp(seconds: num(2) > 0 ? num(2) : 30)
 case "rim": // The real 1.2 decision rim, for side-by-side captures.
     NSApplication.shared.setActivationPolicy(.accessory)
     let rim = WorkspaceDecisionRim()
@@ -161,5 +242,5 @@ case "bench": // The 1.2 bridge mechanism in a panel shaped like the notch, load
     bench.web.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent())
     runApp(seconds: 240)
 default:
-    print("usage: trialtool locked|access|geometry|screens|windows PID|frontmost|pointer|warp X Y|click X Y|drag X1 Y1 X2 Y2|type TEXT|rim SECONDS|backdrop X Y SECONDS|bench PAGE")
+    print("usage: trialtool locked|access|geometry|screens|windows PID|frontmost|state PID|ax PID [ROLE]|axvalue PID|frontwindow PID|closedoc PID PATH|keylook WINDOW|key CODE [MODS]|typeonly TEXT|panelprobe POLICY SECONDS|pointer|warp X Y|click X Y|drag X1 Y1 X2 Y2|type TEXT|rim SECONDS|backdrop X Y SECONDS|bench PAGE")
 }

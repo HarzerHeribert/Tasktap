@@ -64,6 +64,15 @@ pub fn set_frame(ptr: usize, r: Rect) {
 pub fn ignore_mouse(ptr: usize, ignore: bool) { if panel(ptr).ignoresMouseEvents() != ignore { panel(ptr).setIgnoresMouseEvents(ignore) } }
 /// The 1.2 shortcut path: panel.orderFrontRegardless(); panel.makeKey() without activating the app.
 pub fn make_key(ptr: usize) { panel(ptr).orderFrontRegardless(); panel(ptr).makeKeyWindow() }
+/// 1.2 leaves the closed notch key, so typing goes nowhere until the person clicks their app again.
+/// Ordering the panel out and straight back in hands the keyboard back to the active app's window.
+pub fn give_back_key(ptr: usize) -> bool {
+    let p = panel(ptr);
+    let key = p.isKeyWindow();
+    if key { p.orderOut(None); p.orderFrontRegardless() }
+    key
+}
+pub fn order_front(ns_window: usize) { unsafe { &*(ns_window as *const NSWindow) }.orderFrontRegardless() }
 pub fn reduce_transparency() -> bool { NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceTransparency() }
 
 pub fn focus(mtm: MainThreadMarker, ptr: usize) -> Value {

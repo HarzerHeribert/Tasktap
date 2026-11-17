@@ -89,7 +89,8 @@ fn fold(app: &AppHandle, st: &mut Notch) {
             if st.generation != generation || st.inside { return }
             st.collapsed = true;
             position(&inner, &mut st);
-            log(json!({"event": "folded", "focus": native::focus(mtm(), st.panel)}));
+            let handed_back = native::give_back_key(st.panel);
+            log(json!({"event": "folded", "handedBackKey": handed_back, "focus": native::focus(mtm(), st.panel)}));
         });
     });
 }
@@ -109,6 +110,7 @@ fn command(app: &AppHandle, line: &str) {
             let (what, on) = line.split_once(' ').unwrap();
             eval(app, &format!("trial.{what}({})", on == "on"));
         }
+        "backdrop front" => if let Some(w) = app.get_webview_window("backdrop") { native::order_front(w.ns_window().unwrap() as usize) },
         "probe" => log(json!({"event": "probe", "panel": native::probe(st.panel), "focus": native::focus(mtm(), st.panel)})),
         "quit" => app.exit(0),
         _ => log(json!({"event": "unknown-command", "line": line})),

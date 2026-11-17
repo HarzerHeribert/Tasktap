@@ -20,9 +20,8 @@ use Status::{Captured, Done, NeedsYou, Routed, Working};
 use common::*;
 use tasktap_proto::call;
 use tasktap_proto::{
-    Answer, AnswerQuestion, AttemptId, Control, Empty, FixtureCandidate, FixtureRoute,
-    FixtureScript, Frame, Place, QuestionState, Ref, Response, SessionId, SessionState, Start,
-    Status, TerminalState,
+    Answer, AnswerQuestion, AttemptId, Candidate, Control, Empty, FixtureScript, Frame, Place,
+    QuestionState, Ref, Response, Route, SessionId, SessionState, Start, Status, TerminalState,
 };
 
 /// The agent of the loop: the fixture agent in the terminal the launch
@@ -192,9 +191,9 @@ fn the_loop() {
 fn a_restart_with_a_router_question_open_keeps_it_answerable() {
     let mut s = Scene::real("tr", "fixture");
     let other = s.project;
-    let route = FixtureRoute::Ambiguous {
+    let route = Route::Ambiguous {
         prompt: "Which project?".into(),
-        candidates: vec![FixtureCandidate {
+        candidates: vec![Candidate {
             label: "app".into(),
             to: Place::Project(other),
         }],

@@ -513,7 +513,7 @@ fn the_loop_on_claude() {
     let brief = "Use the AskUserQuestion tool to ask me whether to deploy to staging, with the \
                  options Yes and No. Then reply with exactly: Deployed to staging. \
                  Do not use any other tool.";
-    let route = tasktap_proto::FixtureRoute::Clear {
+    let route = tasktap_proto::Route::Clear {
         to: tasktap_proto::Place::Project(s.project),
         brief: brief.into(),
     };

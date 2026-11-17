@@ -6,13 +6,14 @@
 //! The rules stay in `state.rs`; this module only moves things between it
 //! and the world.
 //!
-//! The launcher is `launch.rs`, which starts runs in real terminals. The
-//! router, and the worktrees a settle needs, are still the state machine's
-//! fixtures, which only a core built with its test fixtures has, once
-//! `fixture.script` selects them; the fixture launcher stands in for the
-//! real one only where a test scripts what the real one cannot do. Without
-//! them an event whose effects need one is refused with `failed` before
-//! anything is committed: the core never pretends to route or settle.
+//! The launcher is `launch.rs`, which starts runs in real terminals; the
+//! router is `route.rs`'s local match, unless `fixture.script` has
+//! selected the fixture router in a core built with its test fixtures. The
+//! worktrees a settle needs are still the state machine's fixture, which
+//! only such a core has; the fixture launcher stands in for the real one
+//! only where a test scripts what the real one cannot do. Without it a
+//! settle is refused with `failed` before anything is committed: the core
+//! never pretends to settle.
 
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -20,7 +21,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 use tasktap_proto::call::{Code, Error};
 use tasktap_proto::{
-    AttemptId, Change, Offset, Outcome, QuestionId, Secret, SessionEvent, TerminalId,
+    AttemptId, Change, Offset, Outcome, QuestionId, Secret, SessionEvent, SessionId, TerminalId,
     TerminalState, ThoughtId, Time,
 };
 use tokio::task::AbortHandle;
@@ -31,14 +32,13 @@ use crate::state::{self, Deliver, Effect, Event, Launch, Launcher, Report, Route
 use crate::store::{self, AttemptOutcome, Tx};
 use crate::{agents, questions};
 
-const NO_ROUTER: &str = "this build has no router yet";
 const NO_ISOLATION: &str = "this build has no worktrees to settle yet";
 
 /// Why an event was not applied.
 #[derive(Debug)]
 pub enum Refusal {
     State(state::Error),
-    /// This build has no router or no worktrees yet.
+    /// This build has no worktrees yet.
     Unbuilt(&'static str),
 }
 
@@ -65,7 +65,7 @@ impl From<store::Error> for Refusal {
 /// | the record named does not exist, or the question is settled | `gone` |
 /// | an id or request key reused with other content; something must happen first | `conflict` |
 /// | a value the transition refuses; an answer that does not fit its question | `invalid` |
-/// | this build has no router or no worktrees yet | `failed` |
+/// | this build has no worktrees yet | `failed` |
 /// | the store failed | `failed`; `gone` for a missing row, `conflict` for a duplicate |
 ///
 /// What the launcher reports as a failure, and an attempt the core stopped
@@ -100,8 +100,8 @@ pub fn stored(e: store::Error) -> Error {
     Error::new(code, e.to_string())
 }
 
-/// The clock and the hold timers, and in a fixtures build the fixture
-/// router, launcher and host.
+/// The clock, the hold timers and the router, and in a fixtures build the
+/// fixture router, launcher and host.
 #[derive(Default)]
 pub struct Seams {
     /// One one-shot timer per held thought; nothing else is ever armed here.
@@ -143,7 +143,6 @@ impl Seams {
     /// Why this build cannot carry out the effects, when it cannot.
     fn unbuilt(&self, effects: &[Effect]) -> Option<&'static str> {
         effects.iter().find_map(|effect| match effect {
-            Effect::Route(_) if !self.selected() => Some(NO_ROUTER),
             Effect::Settle { .. } if !self.stands_in() => Some(NO_ISOLATION),
             _ => None,
         })
@@ -168,16 +167,6 @@ impl Seams {
         None
     }
 
-    #[cfg(feature = "fixtures")]
-    fn selected(&self) -> bool {
-        self.fixture.is_some()
-    }
-
-    #[cfg(not(feature = "fixtures"))]
-    fn selected(&self) -> bool {
-        false
-    }
-
     /// The fixture launcher stands in for the real one.
     #[cfg(feature = "fixtures")]
     fn stands_in(&self) -> bool {
@@ -189,15 +178,14 @@ impl Seams {
         false
     }
 
-    #[cfg(feature = "fixtures")]
-    fn router(&mut self) -> Option<&mut dyn Router> {
-        let f = self.fixture.as_mut()?;
-        Some(&mut f.router)
-    }
-
-    #[cfg(not(feature = "fixtures"))]
-    fn router(&mut self) -> Option<&mut dyn Router> {
-        None
+    /// The local router's answer, or the fixture router's once
+    /// `fixture.script` selected it.
+    fn route(&mut self, request: &crate::route::Request) -> state::Route {
+        #[cfg(feature = "fixtures")]
+        if let Some(f) = self.fixture.as_mut() {
+            return f.router.route(request);
+        }
+        crate::route::Local.route(request)
     }
 
     /// The fixture launcher, where it stands in for the real one.
@@ -313,8 +301,8 @@ fn carry(core: &mut Core, effects: Vec<Effect>) -> Option<Outcome> {
     let mut outcome = None;
     for effect in effects {
         let reply = match effect {
-            Effect::Route(thought) => {
-                route(core, thought);
+            Effect::Route { thought, current } => {
+                route(core, thought, current);
                 None
             }
             Effect::Hold { thought, until } => {
@@ -383,14 +371,15 @@ fn stop(why: impl std::fmt::Display) -> ! {
     std::process::exit(1)
 }
 
-fn route(core: &mut Core, id: ThoughtId) {
-    let Ok(Some(thought)) = read(core, |tx| tx.thought(id)) else {
+fn route(core: &mut Core, id: ThoughtId, current: Option<SessionId>) {
+    let request = read(core, |tx| {
+        let thought = tx.thought(id)?;
+        (thought.map(|t| crate::route::request(tx, &t.text, current))).transpose()
+    });
+    let Ok(Some(request)) = request else {
         return;
     };
-    let Some(router) = core.seams.router() else {
-        return;
-    };
-    let route = router.route(&thought);
+    let route = core.seams.route(&request);
     report(core, Event::Routed { thought: id, route }, |_| Ok(()));
 }
 
@@ -626,28 +615,9 @@ pub fn script(
     cx: &mut Cx,
     args: tasktap_proto::FixtureScript,
 ) -> Result<tasktap_proto::FixtureLog, Error> {
-    use state::{Candidate, Destination, FixtureLauncher, FixtureRouter, Route};
-    use tasktap_proto::{FixtureLaunch, FixtureLog, FixtureRoute, Place};
-    let to = |place| match place {
-        Place::Project(id) => Destination::New(id),
-        Place::Session(id) => Destination::Session(id),
-    };
-    let route = match args.route {
-        FixtureRoute::Clear { to: place, brief } => Route::Clear {
-            to: to(place),
-            brief,
-        },
-        FixtureRoute::Ambiguous { prompt, candidates } => Route::Ambiguous {
-            prompt,
-            candidates: (candidates.into_iter())
-                .map(|c| Candidate {
-                    label: c.label,
-                    to: to(c.to),
-                })
-                .collect(),
-        },
-        FixtureRoute::Unknown => Route::Unknown,
-    };
+    use state::{FixtureLauncher, FixtureRouter, Route};
+    use tasktap_proto::{FixtureLaunch, FixtureLog};
+    let route = crate::route::unwire(args.route);
     let f = cx.core.seams.fixture.get_or_insert_with(|| Fixture {
         router: FixtureRouter(Route::Unknown),
         launcher: FixtureLauncher::default(),

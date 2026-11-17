@@ -15,6 +15,7 @@ mod launch;
 mod questions;
 mod records;
 pub mod roles;
+pub mod route;
 pub mod serve;
 mod shim;
 pub mod state;

@@ -15,11 +15,11 @@ use tasktap_core::client::{self, Client};
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
     Answer, Ask, AskKey, Auth, CallId, Capture, Change, Collection, Control, Data, DeviceId, Empty,
-    Event as Said, FixtureClock, FixtureLog, FixtureRoute, Frame, Glance, Hello, Identity,
-    OpenTerminal, Outcome, Place, Project, ProjectId, Question, QuestionId, QuestionKind, Refuse,
-    Register, Request, ResultId, Retire, Role, Secret, Session, SessionEvent, SessionId, Set,
-    Source, StartTerminal, Status, StreamId, Subscribe, Terminal, TerminalId, Thought, ThoughtId,
-    Time, TurnResult, VERSION, Versions, When,
+    Event as Said, FixtureClock, FixtureLog, Frame, Glance, Hello, Identity, OpenTerminal, Outcome,
+    Place, Project, ProjectId, Question, QuestionId, QuestionKind, Refuse, Register, Request,
+    ResultId, Retire, Role, Route, Secret, Session, SessionEvent, SessionId, Set, Source,
+    StartTerminal, Status, StreamId, Subscribe, Terminal, TerminalId, Thought, ThoughtId, Time,
+    TurnResult, VERSION, Versions, When,
 };
 
 mod watchdog;
@@ -690,11 +690,12 @@ pub fn typed(id: ThoughtId, text: &str) -> Capture {
         session_id: None,
         agent: None,
         model: None,
+        current: None,
     }
 }
 
-pub fn clear(project: ProjectId) -> FixtureRoute {
-    FixtureRoute::Clear {
+pub fn clear(project: ProjectId) -> Route {
+    Route::Clear {
         to: Place::Project(project),
         brief: "Fix the failing build".into(),
     }
@@ -835,7 +836,7 @@ pub struct Scene {
     pub data: Folder,
     pub project: ProjectId,
     pub now: u64,
-    route: FixtureRoute,
+    route: Route,
     refuse: Option<String>,
     /// Follow-ups wait, untyped, until the next script without it.
     pub pause: bool,
@@ -942,7 +943,7 @@ impl Scene {
         self.w.ok::<call::FixtureClock>(&FixtureClock { now });
     }
 
-    pub fn script(&mut self, route: FixtureRoute, refuse: Option<&str>) -> FixtureLog {
+    pub fn script(&mut self, route: Route, refuse: Option<&str>) -> FixtureLog {
         self.route = route;
         self.refuse = refuse.map(Into::into);
         self.log()

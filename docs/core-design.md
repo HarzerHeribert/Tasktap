@@ -72,7 +72,7 @@ Calls without a mark are built in Phase 1; (2), (3) and (6) name the phase that 
 | Projects | `project.add`, `project.scan`, `project.close` (2) |
 | Files | `preview.open` (2), `file.read` (2), `result.export` (3) |
 | Input and voice | `input` (affirm and deny now; hold in 3), `dictation.start` (3), `dictation.finish` (3), `dictation.report` (3) |
-| Routing and agents | `route.hint` (3), `connection.set` (3), `connection.remove` (3), `connection.login` (3), `connection.models` (3), `agents.detect` (2), `agents.login` (2) |
+| Routing and agents | `route.hint` (2), `connection.set` (3), `connection.remove` (3), `connection.login` (3), `connection.models` (3), `agents.detect` (2), `agents.login` (2) |
 | Devices and service | `device.revoke`, `core.status`, `core.retire`, `import.v1` (6), `appearance.import` (2) |
 
 **Host abilities (18, Phase 4):** `host.show`, `host.notch`, `host.chrome`, `host.drag`, `host.pick`, `host.save`, `host.open`, `host.clipboard`, `host.permission`, `host.settings`, `host.update`, `host.notify`, `host.context`, `host.model`, `host.dictate`, `host.speak`, `host.speech_model`, `host.pdf`. A host lists the ones it has in `hello`. **Page ability (1):** `ui.do {action, id?}`: 14 menu actions, `close-front`, `navigate`, `hover-enter`, `hover-exit`, `previous`, `next`, `confirm`, `back`, `prepare-update`. **Shim ability (1):** `shim.hold` (§7).
@@ -341,6 +341,16 @@ type RouteResult = { confidence: "clear" | "ambiguous" | "unknown"; mode: "ask" 
 - The core builds the request from its own records and applies the acceptance rules of inv. §7.2 once: a session is taken only when confidence is clear, the quote appears in the capture and the session is still eligible; a constraint of 3 to 1000 characters found word for word in the capture but missing from the brief is appended; difficulty counts only for ask, as a whole number 1 to 10, with `scopeEvidence` found in the capture. Ids replace indexes. `agent`, `viewer`, `note` and `question` leave the schema (hazard 20).
 - **Consent.** Today a hosted provider is used only after the person has seen the payload and the instructions. With automatic routing that consent is given once per connection: the setup screen shows the instructions and exactly which fields are sent, and the answer is stored in `connections.consent` with the provider, server and model it covers. Changing any of them clears it. Without it, routing uses only the on-device model or the name match.
 - Three kinds of provider behind one function: **web** (OpenAI, ChatGPT sign-in, Anthropic, a model server) called by the core; **command** (`codex exec`, `claude -p`) spawned with a time limit; **host** (the on-device model) through `host.model`. A local match on names and aliases answers `route.hint` and is the fallback.
+- **The local router (built in Phase 2, `core/src/route.rs`).** A pure function over the request the core builds from its records: the open projects whose folder is there, with their names and aliases, and the sessions a follow-up can reach in them (not ended, or ended with a resume handle). It needs no model, no provider and no setting, so a normal build routes every capture with it; the fixture router replaces it only in a test that scripts a result. A name is named when it appears in the capture as whole words, ignoring case; the brief is the person's text unchanged. `route.hint {text, current?}` answers with the same match and no effect, as the protocol's `Route` (`clear` with `to` and `brief`, `ambiguous` with `prompt` and `candidates`, or `unknown`); `thought.capture {current?}` names the session the person was in, which, unlike `session_id`, is not a pick.
+
+| The capture | Route |
+| --- | --- |
+| has a project or session the person picked | never asked: routed to it at capture (§5) |
+| names one session, and no project but that session's | `clear`: a follow-up to that session |
+| names no session, was made in a current session, and names no project but that session's | `clear`: a follow-up to the current session |
+| names one project and no session | `clear`: a new run in that project |
+| names several projects or sessions | `ambiguous`: those are the choices, projects first |
+| names nothing | `unknown`: it stays an idea |
 - Session naming runs when a turn event arrives, at most once per 180 s per session. No loop.
 - **Dictation** is one in-memory record `{id, phase, text, level, target}`. The host always records. Local engines transcribe in the host and report through `dictation.report`; for cloud engines the host sends the recording as a stream and the core makes the web call. **Narration** is `host.speak`, called by the core once per result.
 - Keys live in the OS credential store behind one small module.
@@ -455,7 +465,8 @@ core/src/calls.rs        the call table: one match from name to handler
 core/src/state.rs        the state machine and attempts;   questions.rs: ask, answer, withdraw, received
 core/src/terminal.rs, agents.rs (trait, registry), agents/ (claude.rs, codex.rs, rules.rs, checks.rs)  (Phase 2)
 core/src/roles.rs        event, hook, ask; roles/shim.rs, roles/fixture.rs; shim.rs: adopted agents (2)
-core/src/route.rs, isolate.rs, speech.rs, http.rs, secrets.rs           (Phase 3)
+core/src/route.rs        the request a router is asked and the local router (2); its providers (3)
+core/src/isolate.rs, speech.rs, http.rs, secrets.rs                     (Phase 3)
 core/src/import_v1.rs                                                   (Phase 6)
 core/tests/              one file per promise, plus fixtures/
 ```

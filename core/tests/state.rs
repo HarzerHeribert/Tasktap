@@ -86,6 +86,7 @@ fn capture(id: ThoughtId, text: &str) -> Capture {
         session_id: None,
         agent: None,
         model: None,
+        current: None,
     }
 }
 
@@ -297,7 +298,13 @@ impl World {
 
     fn capture(&mut self, text: &str) -> ThoughtId {
         let id = ThoughtId::mint();
-        assert_eq!(self.ok(captured(capture(id, text))), [Effect::Route(id)]);
+        assert_eq!(
+            self.ok(captured(capture(id, text))),
+            [Effect::Route {
+                thought: id,
+                current: None
+            }]
+        );
         id
     }
 
@@ -376,7 +383,13 @@ fn row_capture_makes_a_captured_thought_and_asks_the_router() {
     let mut w = World::new("capture");
     let id = ThoughtId::mint();
     let c = capture(id, "fix the build");
-    assert_eq!(w.ok(captured(c.clone())), [Effect::Route(id)]);
+    assert_eq!(
+        w.ok(captured(c.clone())),
+        [Effect::Route {
+            thought: id,
+            current: None
+        }]
+    );
     let t = w.thought(id);
     assert_eq!(shape(&t), (Phase::Captured, Status::Captured, None));
     assert_eq!(
@@ -1809,7 +1822,7 @@ fn a_thought_runs_captured_routed_working_needs_you_working_done() {
         to: Destination::New(w.project),
         brief: "Fix the failing build".into(),
     });
-    let route = router.route(&w.thought(t));
+    let route = router.route(&tasktap_core::route::Request::default());
     let effects = w.ok(Event::Routed { thought: t, route });
     seen(&mut w, t);
     let &[Effect::Hold { until, .. }] = effects.as_slice() else {

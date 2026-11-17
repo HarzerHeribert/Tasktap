@@ -12,9 +12,9 @@ use tasktap_core::client::Client;
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
     AnswerQuestion, Ask, Capture, Change, Control, DeviceId, Empty, Event as Said, FixtureRecords,
-    FixtureRoute, Frame, HEADER, Identity, Layout, LayoutPatch, MAX_FRAME, MAX_LINE, MAX_POINTS,
-    MAX_TEXT, Place, Project, ProjectId, ProjectKind, ProjectPatch, Put, PutTarget, QuestionKind,
-    Response, ResultId, Rows, Set, Stroke, Subscribe, Thought, ThoughtId, encode_control, json_len,
+    Frame, HEADER, Identity, Layout, LayoutPatch, MAX_FRAME, MAX_LINE, MAX_POINTS, MAX_TEXT, Place,
+    Project, ProjectId, ProjectKind, ProjectPatch, Put, PutTarget, QuestionKind, Response,
+    ResultId, Route, Rows, Set, Stroke, Subscribe, Thought, ThoughtId, encode_control, json_len,
 };
 
 /// Most bytes of JSON in one snapshot chunk (design §1).
@@ -340,7 +340,7 @@ fn the_largest_row_of_every_collection_goes_out_in_a_snapshot_and_a_change() {
     s.w.ok::<call::ThoughtCapture>(&picked);
     let brief = escaped(MAX_LINE);
     s.script(
-        FixtureRoute::Clear {
+        Route::Clear {
             to: Place::Project(p),
             brief,
         },

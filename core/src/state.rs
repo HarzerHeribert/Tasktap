@@ -167,7 +167,11 @@ pub struct Candidate {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Effect {
     /// Ask the router; its answer comes back as [`Event::Routed`].
-    Route(ThoughtId),
+    /// `current` is the session the capture was made in.
+    Route {
+        thought: ThoughtId,
+        current: Option<SessionId>,
+    },
     /// Arm the hold timer and apply [`Event::HoldEnded`] at `until`, which
     /// is now when the hold is zero.
     Hold { thought: ThoughtId, until: Time },
@@ -306,10 +310,11 @@ pub trait Launcher {
     fn settle(&mut self, thought: ThoughtId, keep: bool) -> Result<(), String>;
 }
 
-/// The route-provider seam (Phase 3 fills it with the router of design §8).
-/// Its answer goes back in as [`Event::Routed`].
+/// The route-provider seam: the local router of design §8
+/// (`route::Local`), later a model behind it. It is asked with what the
+/// core's records offer, and its answer goes back in as [`Event::Routed`].
 pub trait Router {
-    fn route(&mut self, thought: &Thought) -> Route;
+    fn route(&mut self, request: &crate::route::Request) -> Route;
 }
 
 /// A launcher that starts nothing: it records what it was asked and answers
@@ -376,7 +381,7 @@ impl Launcher for FixtureLauncher {
 pub struct FixtureRouter(pub Route);
 
 impl Router for FixtureRouter {
-    fn route(&mut self, _: &Thought) -> Route {
+    fn route(&mut self, _: &crate::route::Request) -> Route {
         self.0.clone()
     }
 }
@@ -790,7 +795,10 @@ impl Machine<'_, '_> {
             Some(to) => self.route(t, to, None),
             None if mode == Mode::Note => Ok(()),
             None => {
-                self.effects.push(Effect::Route(t.id));
+                self.effects.push(Effect::Route {
+                    thought: t.id,
+                    current: c.current,
+                });
                 Ok(())
             }
         }

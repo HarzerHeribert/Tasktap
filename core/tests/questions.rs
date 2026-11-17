@@ -12,12 +12,11 @@ use std::time::{Duration, Instant};
 use tasktap_core::client::Client;
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
-    Action, AddProject, AnswerQuestion, Ask, Assign, AttemptId, CallId, Capture, Changes, Control,
-    Event as Said, FixtureCandidate, FixtureClock, FixtureRoute, Frame, History, Input, Limit,
-    Mode, Outcome, Phase, Place, PrefPatch, ProjectId, Put, PutTarget, QuestionId, QuestionKind,
-    QuestionSource, QuestionState, Reason, Ref, ReplyVia, Response, ResultKind, Retire, Rev,
-    Secret, SessionState, Settle, Source, Start, Status, TerminalState, Thought, ThoughtId, When,
-    Workdir,
+    Action, AddProject, AnswerQuestion, Ask, Assign, AttemptId, CallId, Candidate, Capture,
+    Changes, Control, Event as Said, FixtureClock, Frame, History, Input, Limit, Mode, Outcome,
+    Phase, Place, PrefPatch, ProjectId, Put, PutTarget, QuestionId, QuestionKind, QuestionSource,
+    QuestionState, Reason, Ref, ReplyVia, Response, ResultKind, Retire, Rev, Route, Secret,
+    SessionState, Settle, Source, Start, Status, TerminalState, Thought, ThoughtId, When, Workdir,
 };
 
 fn code<T: Debug>(result: Result<T, Error>) -> Code {
@@ -238,16 +237,16 @@ fn an_ambiguous_route_asks_and_an_unknown_one_keeps_an_idea() {
     let mut s = Scene::new("qr");
     let site = s.project("site");
     let candidates = vec![
-        FixtureCandidate {
+        Candidate {
             label: "app".into(),
             to: Place::Project(s.project),
         },
-        FixtureCandidate {
+        Candidate {
             label: "site".into(),
             to: Place::Project(site),
         },
     ];
-    let route = FixtureRoute::Ambiguous {
+    let route = Route::Ambiguous {
         prompt: "Which project?".into(),
         candidates,
     };
@@ -269,7 +268,7 @@ fn an_ambiguous_route_asks_and_an_unknown_one_keeps_an_idea() {
     let th = s.w.model.thought(t);
     assert_eq!((th.status, th.project_id), (Status::Routed, Some(site)));
 
-    s.script(FixtureRoute::Unknown, None);
+    s.script(Route::Unknown, None);
     let idea = s.capture("someday: dark mode");
     let th = s.w.model.thought(idea);
     assert_eq!((th.status, th.mode), (Status::Captured, Mode::Note));
@@ -318,7 +317,7 @@ fn a_capture_repeats_by_id_and_calls_that_do_not_fit_are_refused() {
         code(s.w.call::<call::ThoughtRetry>(&Ref { id })),
         Code::Conflict
     );
-    s.script(FixtureRoute::Unknown, None);
+    s.script(Route::Unknown, None);
     let idea = s.capture("an idea");
     assert_eq!(code(start(&mut s, idea, AttemptId::mint())), Code::Conflict);
     // A working thought cannot be picked again.
@@ -558,7 +557,7 @@ fn reading_an_ended_thought_clears_done_and_lets_it_leave_for_history() {
 }
 
 #[test]
-fn without_its_fixtures_a_build_routes_nothing_and_runs_only_agents_it_has() {
+fn without_its_fixtures_a_build_routes_by_name_and_runs_only_agents_it_has() {
     let data = Folder::new("qn");
     let core = Core::start(&data.0);
     let mut w = core.watch();
@@ -571,17 +570,12 @@ fn without_its_fixtures_a_build_routes_nothing_and_runs_only_agents_it_has() {
     };
     let project = w.ok::<call::ProjectAdd>(&add);
 
-    // Routing needs the router: refused, and nothing is stored.
+    // The local router routes it: naming no project, it stays an idea
+    // (`tests/route.rs` proves the rest).
     let t = ThoughtId::mint();
-    let e = w
-        .call::<call::ThoughtCapture>(&typed(t, "fix it"))
-        .unwrap_err();
-    assert_eq!(
-        (e.code, e.message.as_str()),
-        (Code::Failed, "this build has no router yet")
-    );
-    w.sync();
-    assert!(w.model.thoughts.is_empty());
+    w.ok::<call::ThoughtCapture>(&typed(t, "fix it"));
+    let th = w.model.thought(t);
+    assert_eq!((th.status, th.mode), (Status::Captured, Mode::Note));
 
     // A pick needs no router: with no hold it launches at once, for real.
     // The agent it names is not installed here, so the run fails and says
@@ -1257,9 +1251,9 @@ fn glance_shows_the_oldest_open_question_whichever_clock_runs() {
     let mut s = Scene::new("qk");
     // The held clock runs a day ahead of the system's.
     s.tick(24 * 60 * 60 * 1000);
-    let route = FixtureRoute::Ambiguous {
+    let route = Route::Ambiguous {
         prompt: "Which project?".into(),
-        candidates: vec![FixtureCandidate {
+        candidates: vec![Candidate {
             label: "app".into(),
             to: Place::Project(s.project),
         }],

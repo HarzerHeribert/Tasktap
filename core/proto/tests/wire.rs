@@ -162,6 +162,7 @@ fn every_call_round_trips() {
         session_id: Some(id(3)),
         agent: None,
         model: Some("sonnet".into()),
+        current: Some(id(4)),
     };
     round_trip::<call::ThoughtCapture>(capture, (), seen);
     round_trip::<call::ThoughtUpdate>(
@@ -283,6 +284,15 @@ fn every_call_round_trips() {
         cwd: "/Users/someone/tasktap".into(),
     };
     round_trip::<call::SessionAdopt>(adopt, id(3), seen);
+    let hint = Hint {
+        text: "fix the header in folio".into(),
+        current: Some(id(3)),
+    };
+    let route = Route::Clear {
+        to: Place::Project(id(2)),
+        brief: "fix the header in folio".into(),
+    };
+    round_trip::<call::RouteHint>(hint, route, seen);
     let health = AgentHealth {
         id: "codex".into(),
         installed: true,
@@ -385,18 +395,18 @@ fn every_call_round_trips() {
     round_trip::<call::FixtureStream>(fixture, opened, seen);
     let to = Place::Project(id(2));
     for route in [
-        FixtureRoute::Clear {
+        Route::Clear {
             to,
             brief: "Fix it".into(),
         },
-        FixtureRoute::Ambiguous {
+        Route::Ambiguous {
             prompt: "Where?".into(),
-            candidates: vec![FixtureCandidate {
+            candidates: vec![Candidate {
                 label: "app".into(),
                 to: Place::Session(id(3)),
             }],
         },
-        FixtureRoute::Unknown,
+        Route::Unknown,
     ] {
         let log = FixtureLog {
             launched: vec![FixtureLaunch {
@@ -425,7 +435,7 @@ fn every_call_round_trips() {
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 34);
+    assert_eq!(Name::ALL.len(), 35);
 }
 
 #[test]
@@ -457,7 +467,7 @@ fn access_follows_the_authorization_table() {
             "session.adopt"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 26);
+    assert_eq!(by(Access::Device).len(), 27);
     assert_eq!(by(Access::Ability), ["shim.hold"]);
     for (access, allowed) in [
         (Access::Anyone, [true, true, true]),

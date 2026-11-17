@@ -218,6 +218,23 @@ pub struct Capture {
     /// The model a new run asks its agent for; without one, the agent's own default.
     #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub model: Option<String>,
+    /// The session the person was in when they captured, which the router
+    /// sends the thought on to unless its text names another project. Not
+    /// a pick: unlike `session_id`, the router still decides (design §8).
+    #[serde(default)]
+    pub current: Option<SessionId>,
+}
+
+/// `route.hint`: where a capture would go, asked while it is typed (the
+/// destination chip). The same match the router makes, with no effect.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct Hint {
+    #[serde(deserialize_with = "crate::within::<MAX_TEXT, _, _>")]
+    pub text: String,
+    /// As `thought.capture`'s `current`.
+    #[serde(default)]
+    pub current: Option<SessionId>,
 }
 
 /// `thought.update`: assigns a note to a project.
@@ -486,7 +503,7 @@ impl FixtureStream {
 #[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct FixtureScript {
     /// What the router answers for every thought from now on.
-    pub route: FixtureRoute,
+    pub route: Route,
     /// The launcher refuses every launch, delivery and settle with this.
     #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub refuse: Option<String>,
@@ -505,10 +522,13 @@ pub struct FixtureScript {
     pub agent: Option<String>,
 }
 
+/// Where a router sends a thought (design §8): the answer of `route.hint`,
+/// and what `fixture.script` has the fixture router answer.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "confidence", rename_all = "snake_case")]
 #[cfg_attr(test, derive(ts_rs::TS))]
-pub enum FixtureRoute {
+pub enum Route {
+    /// One destination; `brief` is what the run is told.
     Clear {
         to: Place,
         #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
@@ -518,8 +538,9 @@ pub enum FixtureRoute {
         #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
         prompt: String,
         #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
-        candidates: Vec<FixtureCandidate>,
+        candidates: Vec<Candidate>,
     },
+    /// Nowhere: the thought stays an idea.
     Unknown,
 }
 
@@ -532,9 +553,10 @@ pub enum Place {
     Session(SessionId),
 }
 
+/// One choice of an ambiguous route, as its question shows it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
-pub struct FixtureCandidate {
+pub struct Candidate {
     pub label: String,
     pub to: Place,
 }

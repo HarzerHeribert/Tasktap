@@ -10,7 +10,7 @@ use common::*;
 use std::path::Path;
 use tasktap_proto::call;
 use tasktap_proto::{
-    Capture, Empty, FixtureRoute, Place, Reason, Ref, ResultKind, SessionId, SessionState, Status,
+    Capture, Empty, Place, Reason, Ref, ResultKind, Route, SessionId, SessionState, Status,
     TerminalId, TerminalKind, TerminalState, ThoughtId,
 };
 
@@ -41,7 +41,7 @@ fn screen(s: &Scene, terminal: TerminalId) -> Screen {
 fn brief(s: &mut Scene, brief: &str) {
     let to = Place::Project(s.project);
     let brief = brief.into();
-    s.script(FixtureRoute::Clear { to, brief }, None);
+    s.script(Route::Clear { to, brief }, None);
 }
 
 /// A follow-up for the session, started once its hold ends.

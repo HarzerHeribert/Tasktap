@@ -270,6 +270,7 @@ pub fn samples() -> Vec<(&'static str, Frame)> {
                     session_id: None,
                     agent: Some("claude".into()),
                     model: None,
+                    current: None,
                 },
             )),
         ),

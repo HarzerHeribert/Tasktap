@@ -148,6 +148,11 @@ register?: Register | null, } | { token: Secret, };
 export type CallId = number;
 
 /**
+ * One choice of an ambiguous route, as its question shows it.
+ */
+export type Candidate = { label: string, to: Place, };
+
+/**
  * `thought.capture`. A project or session given here is the person's own
  * pick, which routes the thought without asking the router.
  */
@@ -161,7 +166,13 @@ agent?: string | null,
 /**
  * The model a new run asks its agent for; without one, the agent's own default.
  */
-model?: string | null, };
+model?: string | null,
+/**
+ * The session the person was in when they captured, which the router
+ * sends the thought on to unless its text names another project. Not
+ * a pick: unlike `session_id`, the router still decides (design §8).
+ */
+current?: SessionId | null, };
 
 /**
  * One committed transaction, or one chunk of a snapshot.
@@ -250,8 +261,6 @@ export type Empty = Record<string, never>;
  */
 export type Error = { code: Code, message: string, };
 
-export type FixtureCandidate = { label: string, to: Place, };
-
 /**
  * `fixture.clock`: from now on the core's clock reads `now` and moves only
  * when called again; every hold that has ended by then ends before the reply.
@@ -292,8 +301,6 @@ notified: Array<QuestionId>, };
  */
 export type FixtureRecords = { sets: Array<Set>, };
 
-export type FixtureRoute = { "confidence": "clear", to: Place, brief: string, } | { "confidence": "ambiguous", prompt: string, candidates: Array<FixtureCandidate>, } | { "confidence": "unknown" };
-
 /**
  * `fixture.script`: selects the fixture router and launcher, which a core
  * built with its test fixtures has instead of the real ones (design §13), and
@@ -304,7 +311,7 @@ export type FixtureScript = {
 /**
  * What the router answers for every thought from now on.
  */
-route: FixtureRoute,
+route: Route,
 /**
  * The launcher refuses every launch, delivery and settle with this.
  */
@@ -382,6 +389,16 @@ client: string, auth?: Auth | null,
  * The `host.*` calls a host answers.
  */
 abilities?: Array<string>, };
+
+/**
+ * `route.hint`: where a capture would go, asked while it is typed (the
+ * destination chip). The same match the router makes, with no effect.
+ */
+export type Hint = { text: string,
+/**
+ * As `thought.capture`'s `current`.
+ */
+current?: SessionId | null, };
 
 /**
  * `history`: finished thoughts older than `before`, newest first; with
@@ -640,6 +657,12 @@ export type Revision = { rev: Rev, };
 export type Role = "page" | "host" | "cli";
 
 /**
+ * Where a router sends a thought (design §8): the answer of `route.hint`,
+ * and what `fixture.script` has the fixture router answer.
+ */
+export type Route = { "confidence": "clear", to: Place, brief: string, } | { "confidence": "ambiguous", prompt: string, candidates: Array<Candidate>, } | { "confidence": "unknown" };
+
+/**
  * Rows put whole, and ids of rows that stopped being live.
  */
 export type Rows<R, I> = { put?: Array<R>, del?: Array<I>, };
@@ -856,6 +879,7 @@ export type Calls = {
   "question.focus": { args: Ref<QuestionId>; result: null; access: "device" };
   "session.event": { args: SessionEvent; result: null; access: "session" };
   "session.adopt": { args: Adopt; result: SessionId; access: "session" };
+  "route.hint": { args: Hint; result: Route; access: "device" };
   "agents.detect": { args: DetectAgents; result: Agents; access: "device" };
   "terminal.open": { args: OpenTerminal; result: Opened; access: "device" };
   "terminal.resize": { args: ResizeTerminal; result: null; access: "device" };

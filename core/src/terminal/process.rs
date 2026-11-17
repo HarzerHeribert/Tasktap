@@ -355,7 +355,7 @@ fn command(plan: Plan) -> CommandBuilder {
 /// A canonical Windows path (`\\?\C:\…`, as `project.add` stores it) is
 /// no working folder Windows takes; the same path without the prefix is.
 #[cfg(windows)]
-fn folder(path: PathBuf) -> PathBuf {
+pub fn folder(path: PathBuf) -> PathBuf {
     let plain = path.to_str().and_then(|p| p.strip_prefix(r"\\?\"));
     match plain {
         Some(plain) if plain.as_bytes().get(1) == Some(&b':') => PathBuf::from(plain),
@@ -364,7 +364,7 @@ fn folder(path: PathBuf) -> PathBuf {
 }
 
 #[cfg(unix)]
-fn folder(path: PathBuf) -> PathBuf {
+pub fn folder(path: PathBuf) -> PathBuf {
     path
 }
 

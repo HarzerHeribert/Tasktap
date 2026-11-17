@@ -193,6 +193,30 @@ fn every_call_round_trips() {
         seen,
     );
     round_trip::<call::ThoughtRead>(Ref { id: id(1) }, (), seen);
+    let diff = Diff {
+        stream: Opened {
+            s: StreamId(4),
+            credit: 0,
+            from: None,
+        },
+        files: vec![ChangedFile {
+            path: "src/login.ts".into(),
+            change: FileChange::Modified,
+            insertions: Some(14),
+            deletions: Some(3),
+        }],
+        more: 0,
+        size: 1200,
+        cut: false,
+    };
+    for path in [None, Some("src/login.ts".to_owned())] {
+        let read = ReadChanges {
+            id: id(1),
+            credit: 1 << 20,
+            path,
+        };
+        round_trip::<call::ThoughtChanges>(read, diff.clone(), seen);
+    }
     for kind in [
         QuestionKind::Confirm,
         QuestionKind::Text,
@@ -439,7 +463,7 @@ fn every_call_round_trips() {
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 35);
+    assert_eq!(Name::ALL.len(), 36);
 }
 
 #[test]
@@ -474,7 +498,7 @@ fn access_follows_the_authorization_table() {
             "session.adopt"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 28);
+    assert_eq!(by(Access::Device).len(), 29);
     assert_eq!(by(Access::Ability), ["shim.hold"]);
     for (access, allowed) in [
         (Access::Anyone, [true, true, true]),

@@ -850,49 +850,116 @@ impl<'s> Tx<'s> {
     }
 
     pub fn attempt(&self, id: AttemptId) -> Result<Option<Attempt>> {
-        let sql = "SELECT kind, target, args_hash, started, outcome FROM attempts WHERE id = ?1";
-        let row = self
-            .db
-            .prepare_cached(sql)?
-            .query_row([key(&id)?], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get(2)?,
-                    r.get::<_, i64>(3)?,
-                    r.get::<_, Option<String>>(4)?,
-                ))
-            })
-            .optional()?;
-        let Some((kind, target, args_hash, started, outcome)) = row else {
-            return Ok(None);
-        };
-        let kind = match kind.as_str() {
-            "launch" => AttemptKind::Launch(parse(&target)?),
-            "resume" => AttemptKind::Resume(parse(&target)?),
-            "terminal" => AttemptKind::Terminal(parse(&target)?),
-            "settle" => AttemptKind::Settle(parse(&target)?),
-            "capture" => AttemptKind::Capture(parse(&target)?),
-            "project" => AttemptKind::Project(parse(&target)?),
-            other => return Err(Error::Corrupt(format!("attempt kind {other}"))),
-        };
-        let outcome = match outcome {
-            None => None,
-            Some(text) => match serde_json::from_str::<Value>(&text)? {
-                Value::String(s) if s == "interrupted" => Some(AttemptOutcome::Interrupted),
-                reply => Some(AttemptOutcome::Reply(serde_json::from_value(reply)?)),
-            },
-        };
-        Ok(Some(Attempt {
-            id,
-            kind,
-            args_hash,
-            started: Time::new(started as u64)
-                .ok_or_else(|| Error::Corrupt(format!("attempt start {started}")))?,
-            outcome,
-        }))
+        Ok(self.attempts("WHERE id = ?1", &id)?.pop())
     }
 
+    /// A thought's settle attempts, its tidies among them, oldest first.
+    pub fn settles(&self, thought: ThoughtId) -> Result<Vec<Attempt>> {
+        self.attempts(
+            "WHERE kind = 'settle' AND target = ?1 ORDER BY rowid",
+            &thought,
+        )
+    }
+
+    /// Thoughts whose worktree is not settled: its changes none or pending.
+    pub fn worktrees(&self) -> Result<Vec<Thought>> {
+        let clause = "WHERE data ->> '$.workdir.changes' IN ('none', 'pending')";
+        self.all(Table::Thoughts, clause, [])
+    }
+
+    /// Every thought that has had a worktree.
+    pub fn isolated(&self) -> Result<Vec<Thought>> {
+        self.all(
+            Table::Thoughts,
+            "WHERE data ->> '$.workdir.path' IS NOT NULL",
+            [],
+        )
+    }
+
+    /// Whether a project is busy (design §7): one of its sessions starting
+    /// or working, or one of its thoughts with changes waiting to be kept or
+    /// discarded.
+    pub fn busy(&self, project: ProjectId) -> Result<bool> {
+        let sql = "SELECT EXISTS (SELECT 1 FROM sessions                        WHERE project_id = ?1 AND state IN ('starting', 'working'))                    OR EXISTS (SELECT 1 FROM thoughts                        WHERE project_id = ?1 AND data ->> '$.workdir.changes' = 'pending')";
+        Ok(self.value(sql, &project)?.unwrap_or(false))
+    }
+
+    /// Whether a session that has not ended, or a running terminal, works
+    /// in `folder` or a folder inside it.
+    pub fn occupied(&self, folder: &str) -> Result<bool> {
+        let inside = |cwd: &str| Path::new(cwd).starts_with(folder);
+        let sessions: Vec<Session> = self.all(Table::Sessions, "WHERE state <> 'ended'", [])?;
+        let running = "WHERE state = 'running'";
+        let terminals: Vec<Terminal> = self.all(Table::Terminals, running, [])?;
+        Ok(sessions.iter().any(|s| inside(&s.cwd)) || terminals.iter().any(|t| inside(&t.cwd)))
+    }
+
+    fn attempts(&self, clause: &str, of: &impl Serialize) -> Result<Vec<Attempt>> {
+        let sql =
+            format!("SELECT id, kind, target, args_hash, started, outcome FROM attempts {clause}");
+        let mut stmt = self.db.prepare_cached(&sql)?;
+        let rows = stmt.query_map([key(of)?], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, Option<String>>(5)?,
+            ))
+        })?;
+        let mut all = Vec::new();
+        for row in rows {
+            let (id, kind, target, args_hash, started, outcome) = row?;
+            all.push(attempt(
+                parse(&id)?,
+                &kind,
+                &target,
+                args_hash,
+                started,
+                outcome,
+            )?);
+        }
+        Ok(all)
+    }
+}
+
+/// An attempt as its row holds it.
+fn attempt(
+    id: AttemptId,
+    kind: &str,
+    target: &str,
+    args_hash: Hash,
+    started: i64,
+    outcome: Option<String>,
+) -> Result<Attempt> {
+    let kind = match kind {
+        "launch" => AttemptKind::Launch(parse(target)?),
+        "resume" => AttemptKind::Resume(parse(target)?),
+        "terminal" => AttemptKind::Terminal(parse(target)?),
+        "settle" => AttemptKind::Settle(parse(target)?),
+        "capture" => AttemptKind::Capture(parse(target)?),
+        "project" => AttemptKind::Project(parse(target)?),
+        other => return Err(Error::Corrupt(format!("attempt kind {other}"))),
+    };
+    let outcome = match outcome {
+        None => None,
+        Some(text) => match serde_json::from_str::<Value>(&text)? {
+            Value::String(s) if s == "interrupted" => Some(AttemptOutcome::Interrupted),
+            reply => Some(AttemptOutcome::Reply(serde_json::from_value(reply)?)),
+        },
+    };
+    Ok(Attempt {
+        id,
+        kind,
+        args_hash,
+        started: Time::new(started as u64)
+            .ok_or_else(|| Error::Corrupt(format!("attempt start {started}")))?,
+        outcome,
+    })
+}
+
+impl Tx<'_> {
     /// Every live row of a stored collection, oldest first; `None` for one kept in memory.
     pub fn live(&self, c: Collection) -> Result<Option<Set>> {
         macro_rules! live {

@@ -6,40 +6,41 @@
 //! The rules stay in `state.rs`; this module only moves things between it
 //! and the world.
 //!
-//! The launcher is `launch.rs`, which starts runs in real terminals; the
-//! router is `route.rs`'s local match, unless `fixture.script` has
-//! selected the fixture router in a core built with its test fixtures. The
-//! worktrees a settle needs are still the state machine's fixture, which
-//! only such a core has; the fixture launcher stands in for the real one
-//! only where a test scripts what the real one cannot do. Without it a
-//! settle is refused with `failed` before anything is committed: the core
-//! never pretends to settle.
+//! The launcher is `launch.rs`, which starts runs in real terminals, in
+//! the worktrees `isolate.rs` makes, keeps and removes on threads of their
+//! own; the router is `route.rs`'s local match, unless `fixture.script`
+//! has selected the fixture router in a core built with its test fixtures.
+//! The fixture launcher stands in for the real one only where a test
+//! scripts what the real one cannot do.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
-use tasktap_proto::call::{Code, Error};
+use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
-    AttemptId, Change, Offset, Outcome, QuestionId, Secret, SessionEvent, SessionId, TerminalId,
-    TerminalState, ThoughtId, Time,
+    AttemptId, CallId, Change, Offset, Outcome, QuestionId, Secret, SessionEvent, SessionId,
+    Settle, TerminalId, TerminalState, Thought, ThoughtId, Time, Workdir,
 };
 use tokio::task::AbortHandle;
 
 use crate::calls::{Caller, Cx};
+use crate::conn::Link;
+use crate::isolate::{Git, Owner};
 use crate::serve::Core;
-use crate::state::{self, Deliver, Effect, Event, Launch, Launcher, Report, Router};
+use crate::state::{self, Deliver, Effect, Event, Launch, Launcher, Report, Router, Worktree};
 use crate::store::{self, AttemptOutcome, Tx};
 use crate::{agents, questions};
 
-const NO_ISOLATION: &str = "this build has no worktrees to settle yet";
+/// Characters of a thought's first line that title what Keep commits.
+const TITLE: usize = 72;
 
 /// Why an event was not applied.
 #[derive(Debug)]
 pub enum Refusal {
     State(state::Error),
-    /// This build has no worktrees yet.
-    Unbuilt(&'static str),
 }
 
 impl From<state::Error> for Refusal {
@@ -65,8 +66,8 @@ impl From<store::Error> for Refusal {
 /// | the record named does not exist, or the question is settled | `gone` |
 /// | an id or request key reused with other content; something must happen first | `conflict` |
 /// | a value the transition refuses; an answer that does not fit its question | `invalid` |
-/// | this build has no worktrees yet | `failed` |
 /// | the store failed | `failed`; `gone` for a missing row, `conflict` for a duplicate |
+/// | git refused a keep or a discard, or could not run | `failed`, saying why and what the person can do |
 ///
 /// What the launcher reports as a failure, and an attempt the core stopped
 /// during, reach a call as its attempt's outcome: `failed` too.
@@ -85,7 +86,6 @@ pub fn refusal(call: &str, r: Refusal) -> Option<Error> {
         Refusal::State(E::Conflict(why)) => (Code::Conflict, why.into()),
         Refusal::State(E::Invalid(why)) => (Code::Invalid, why.into()),
         Refusal::State(E::Store(e)) => return Some(stored(e)),
-        Refusal::Unbuilt(why) => (Code::Failed, why.into()),
     };
     Some(Error::new(code, message))
 }
@@ -113,6 +113,10 @@ pub struct Seams {
     clock: Option<Time>,
     #[cfg(feature = "fixtures")]
     fixture: Option<Fixture>,
+    /// Git work running on its own threads (`isolate.rs`).
+    git: usize,
+    /// The `thought.settle` calls waiting for their attempt's git work.
+    settling: HashMap<AttemptId, Vec<(Rc<Link>, CallId)>>,
 }
 
 struct Timer {
@@ -133,21 +137,14 @@ struct Fixture {
 }
 
 impl Seams {
-    /// Whether a hold timer is armed.
+    /// Whether a hold timer is armed or git work runs, either of which
+    /// would be lost with the core.
     pub fn holding(&self) -> bool {
-        !self.timers.is_empty()
+        !self.timers.is_empty() || self.git > 0
     }
 
     pub fn now(&self) -> Time {
         self.manual().unwrap_or_else(wall)
-    }
-
-    /// Why this build cannot carry out the effects, when it cannot.
-    fn unbuilt(&self, effects: &[Effect]) -> Option<&'static str> {
-        effects.iter().find_map(|effect| match effect {
-            Effect::Settle { .. } if !self.stands_in() => Some(NO_ISOLATION),
-            _ => None,
-        })
     }
 
     /// The agent `fixture.script` has new captures name, in a fixtures build.
@@ -167,17 +164,6 @@ impl Seams {
     #[cfg(not(feature = "fixtures"))]
     fn manual(&self) -> Option<Time> {
         None
-    }
-
-    /// The fixture launcher stands in for the real one.
-    #[cfg(feature = "fixtures")]
-    fn stands_in(&self) -> bool {
-        self.fixture.as_ref().is_some_and(|f| f.agent.is_none())
-    }
-
-    #[cfg(not(feature = "fixtures"))]
-    fn stands_in(&self) -> bool {
-        false
     }
 
     /// The local router's answer, or the fixture router's once
@@ -267,9 +253,6 @@ fn commit(
     let mut tx = core.store.begin()?;
     first(&mut tx)?;
     let effects = state::apply(&mut tx, now, event)?;
-    if let Some(why) = core.seams.unbuilt(&effects) {
-        return Err(Refusal::Unbuilt(why));
-    }
     let change = tx.commit()?;
     published(core, change);
     Ok(effects)
@@ -338,7 +321,15 @@ fn carry(core: &mut Core, effects: Vec<Effect>) -> Option<Outcome> {
                 attempt,
                 thought,
                 keep,
-            } => Some(settle(core, attempt, thought, keep)),
+            } => settle(core, attempt, thought, keep),
+            Effect::Survey(thought) => {
+                survey(core, thought);
+                None
+            }
+            Effect::Tidy { attempt, thought } => {
+                tidy(core, attempt, thought);
+                None
+            }
             Effect::Notify(question) => {
                 notify(core, question);
                 None
@@ -407,6 +398,53 @@ fn launch(core: &mut Core, launch: Launch) -> Option<Outcome> {
         let started = launcher.launch(&launch, &token);
         return Some(launched(core, attempt, started, &token));
     }
+    let Some(worktree) = launch.worktree.clone() else {
+        return begin(core, launch, token);
+    };
+    // Its worktree first, which the session then works in.
+    let repo = read(core, |tx| tx.project(launch.project)).ok().flatten();
+    let Some(repo) = repo.map(|p| PathBuf::from(p.folder)) else {
+        return Some(failed(core, attempt, "the project is gone".into()));
+    };
+    let owner = match &worktree {
+        Worktree::New { .. } => launch.thought,
+        Worktree::Again { owner, .. } => *owner,
+    };
+    git(
+        core,
+        move |git| git.prepare(&repo, &worktree),
+        move |core, made| match made {
+            Ok(workdir) => {
+                let cwd = workdir.path.clone();
+                let made = Event::Prepared {
+                    attempt,
+                    owner,
+                    workdir,
+                };
+                // Recorded before anything runs in it; a worktree no thought
+                // records is never run in, and the next start tidies it.
+                match commit(core, made, |_| Ok(())) {
+                    Ok(effects) => {
+                        carry(core, effects);
+                        begin(core, Launch { cwd, ..launch }, token);
+                    }
+                    Err(Refusal::State(state::Error::Store(e))) => stop(e),
+                    Err(_) => {
+                        let why = "the run's worktree could not be recorded";
+                        drop(failed(core, attempt, why.into()));
+                    }
+                }
+            }
+            Err(e) => drop(failed(core, attempt, e)),
+        },
+    );
+    None
+}
+
+/// Starts a run in the folder it names: its command line, then its program
+/// found and its check run off the core's thread, then its terminal.
+fn begin(core: &mut Core, launch: Launch, token: Secret) -> Option<Outcome> {
+    let attempt = launch.attempt;
     let mut prepared = match crate::launch::prepare(&launch) {
         Ok(prepared) => prepared,
         Err(error) => return Some(failed(core, attempt, error)),
@@ -596,12 +634,64 @@ pub(crate) fn exited(core: &mut Core, terminal: TerminalId, code: Option<u32>) {
     }
 }
 
-fn settle(core: &mut Core, attempt: AttemptId, thought: ThoughtId, keep: bool) -> Outcome {
-    let settled = match core.seams.launcher() {
-        Some(launcher) => launcher.settle(thought, keep),
-        None => Err(NO_ISOLATION.into()),
+/// `thought.settle`: answered once its git work has, which takes as long
+/// as the repository needs. A repeat while it runs is `conflict`, as for
+/// any attempt without an outcome; the same attempt afterwards answers as
+/// the first did.
+pub fn settle_call(cx: &mut Cx, args: Value) -> Option<tasktap_proto::Control> {
+    let reply = |result| Some(call::ThoughtSettle::reply(cx.id, result));
+    let s: Settle = match call::ThoughtSettle::args(args) {
+        Ok(s) => s,
+        Err(e) => return reply(Err(e)),
     };
-    let error = settled.err();
+    let event = Event::Settle {
+        thought: s.id,
+        attempt: s.attempt,
+        keep: s.keep,
+    };
+    match run(cx.core, event) {
+        Ok(Some(Outcome::Err(e))) => reply(Err(e)),
+        Ok(Some(_)) => reply(Ok(())),
+        // Its git work runs: the reply waits for it.
+        Ok(None) => {
+            let waiting = cx.core.seams.settling.entry(s.attempt).or_default();
+            waiting.push((cx.link.clone(), cx.id));
+            None
+        }
+        Err(r) => reply(refusal("thought.settle", r).map_or(Ok(()), Err)),
+    }
+}
+
+/// Keeps or discards a thought's worktree (`isolate.rs`) off the core's
+/// thread; the fixture launcher's settle where it stands in, at once.
+fn settle(core: &mut Core, attempt: AttemptId, thought: ThoughtId, keep: bool) -> Option<Outcome> {
+    if let Some(launcher) = core.seams.launcher() {
+        let error = launcher.settle(thought, keep).err();
+        return Some(settled(core, attempt, error));
+    }
+    let Some((repo, workdir, title)) = worktree_of(core, thought) else {
+        let gone = "the thought's worktree is gone".to_owned();
+        return Some(settled(core, attempt, Some(gone)));
+    };
+    let work = move |git: &Git| match keep {
+        true => git.keep(&repo, &workdir, &title),
+        false => git.discard(&repo, &workdir),
+    };
+    git(core, work, move |core, done| {
+        let outcome = settled(core, attempt, done.err());
+        let reply = match outcome {
+            Outcome::Ok(_) => Ok(()),
+            Outcome::Err(e) => Err(e),
+        };
+        for (link, id) in core.seams.settling.remove(&attempt).unwrap_or_default() {
+            link.send(&call::ThoughtSettle::reply(id, reply.clone()));
+        }
+    });
+    None
+}
+
+/// Records how a settle or a tidy went, and returns it as a call's outcome.
+fn settled(core: &mut Core, attempt: AttemptId, error: Option<String>) -> Outcome {
     let event = Event::Settled {
         attempt,
         error: error.clone(),
@@ -611,6 +701,158 @@ fn settle(core: &mut Core, attempt: AttemptId, thought: ThoughtId, keep: bool) -
         None => Outcome::Ok(Value::Null),
         Some(why) => Outcome::Err(Error::new(Code::Failed, why)),
     }
+}
+
+/// Looks at a thought's worktree off the core's thread.
+fn survey(core: &mut Core, thought: ThoughtId) {
+    let Some((repo, workdir, _)) = worktree_of(core, thought) else {
+        return;
+    };
+    let path = workdir.path.clone();
+    git(
+        core,
+        move |git| git.survey(&repo, &workdir),
+        move |core, found| {
+            // A look that failed changes nothing: the next one may do better.
+            if let Ok(found) = found {
+                report(
+                    core,
+                    Event::Surveyed {
+                        thought,
+                        path,
+                        found,
+                    },
+                    |_| Ok(()),
+                );
+            }
+        },
+    );
+}
+
+/// Removes a thought's worktree off the core's thread if nothing would be
+/// lost, and otherwise records the changes it found there.
+fn tidy(core: &mut Core, attempt: AttemptId, thought: ThoughtId) {
+    let Some((repo, workdir, _)) = worktree_of(core, thought) else {
+        drop(settled(
+            core,
+            attempt,
+            Some("the thought's worktree is gone".into()),
+        ));
+        return;
+    };
+    let path = workdir.path.clone();
+    git(
+        core,
+        move |git| git.tidy(&repo, &workdir),
+        move |core, done| {
+            let (error, found) = match done {
+                Ok(None) => (None, None),
+                Ok(Some(found)) => (Some("it has changes, so it stays".into()), Some(found)),
+                Err(e) => (Some(e), None),
+            };
+            drop(settled(core, attempt, error));
+            // Once the tidy has ended, what it found counts.
+            if let Some(found) = found {
+                report(
+                    core,
+                    Event::Surveyed {
+                        thought,
+                        path,
+                        found,
+                    },
+                    |_| Ok(()),
+                );
+            }
+        },
+    );
+}
+
+/// A thought's worktree, its project's folder, and the title what Keep
+/// commits gets: the first line of its brief, or of its text.
+fn worktree_of(core: &mut Core, thought: ThoughtId) -> Option<(PathBuf, Workdir, String)> {
+    let found = read(core, |tx| {
+        let Some(t) = tx.thought(thought)? else {
+            return Ok(None);
+        };
+        let project = t.project_id.map(|p| tx.project(p)).transpose()?.flatten();
+        Ok(project.map(|p| (t, p.folder)))
+    });
+    let (t, folder) = found.ok().flatten()?;
+    let title = title(&t);
+    Some((PathBuf::from(folder), t.workdir?, title))
+}
+
+fn title(t: &Thought) -> String {
+    let text = t.brief.as_deref().unwrap_or(&t.text);
+    let line = text.lines().map(str::trim).find(|l| !l.is_empty());
+    let line: String = line.unwrap_or("Changes").chars().take(TITLE).collect();
+    line
+}
+
+/// Runs git work on a thread of its own and `then` on the core's thread
+/// with what it returned. The core stays while any runs, so a keep is not
+/// cut short by the core idling out.
+fn git<T: Send + 'static>(
+    core: &mut Core,
+    work: impl FnOnce(&Git) -> Result<T, String> + Send + 'static,
+    then: impl FnOnce(&mut Core, Result<T, String>) + 'static,
+) {
+    let data = core.terminals.data().to_owned();
+    core.seams.git += 1;
+    let work = move || Git::new(&data).and_then(|git| work(&git));
+    crate::calls::aside(core, work, move |core, done| {
+        core.seams.git -= 1;
+        core.events.notify_one();
+        let lost = || Err("the git work ended without an answer".to_owned());
+        then(core, done.unwrap_or_else(lost));
+    });
+}
+
+/// At start, off the core's thread (design §3): the worktrees of the
+/// thoughts not settled are looked at, which also decides a settle the core
+/// stopped during; worktrees with nothing to lose that no thought needs go.
+/// Only what was there before any launch of this run of the core is
+/// tidied, since none has started yet.
+pub fn sweep(core: &mut Core) {
+    let owners = read(core, |tx| {
+        let mut owners = Vec::new();
+        for t in tx.isolated()? {
+            let project = t.project_id.map(|p| tx.project(p)).transpose()?.flatten();
+            if let (Some(p), Some(workdir)) = (project, t.workdir) {
+                owners.push(Owner {
+                    thought: t.id,
+                    repo: PathBuf::from(p.folder),
+                    workdir,
+                });
+            }
+        }
+        Ok(owners)
+    });
+    let owners = owners.unwrap_or_else(|e| stop(e));
+    let root = core.terminals.data().join(crate::isolate::FOLDER);
+    let there: Vec<_> = std::fs::read_dir(&root)
+        .map(|entries| entries.flatten().map(|e| e.path()).collect())
+        .unwrap_or_default();
+    if owners.is_empty() && there.is_empty() {
+        return;
+    }
+    git(
+        core,
+        move |git| Ok(git.sweep(&owners, &there)),
+        |core, found| {
+            for (thought, path, found) in found.unwrap_or_default() {
+                report(
+                    core,
+                    Event::Surveyed {
+                        thought,
+                        path,
+                        found,
+                    },
+                    |_| Ok(()),
+                );
+            }
+        },
+    );
 }
 
 /// A repeated attempt answers with the outcome of its first call.

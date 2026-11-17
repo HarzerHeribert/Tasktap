@@ -9,6 +9,7 @@ mod calls;
 pub mod client;
 mod conn;
 mod handshake;
+mod records;
 pub mod serve;
 pub mod state;
 pub mod store;

@@ -7,6 +7,7 @@
 
 use crate::calls::{self, Caller};
 use crate::handshake;
+use crate::records::Subs;
 use crate::serve::Core;
 use std::cell::{Cell, RefCell};
 use std::pin::Pin;
@@ -44,6 +45,8 @@ pub struct Link {
     /// Set once the connection is ending: whether what is queued gets one last write.
     closing: Cell<Option<bool>>,
     wake: Notify,
+    /// The collections this connection subscribed to.
+    pub subs: Cell<Subs>,
 }
 
 impl Link {
@@ -69,6 +72,22 @@ impl Link {
         drop(out);
         self.queued.set(queued);
         if !encoded || queued > MAX_QUEUED {
+            self.close(false);
+        } else {
+            self.wake.notify_one();
+        }
+    }
+
+    /// Queues a frame already encoded, so that a change sent to many
+    /// connections is encoded once. Bounded like [`Link::send`].
+    pub fn push(&self, frame: &[u8]) {
+        if self.closing.get().is_some() {
+            return;
+        }
+        self.out.borrow_mut().extend_from_slice(frame);
+        let queued = self.queued.get() + frame.len();
+        self.queued.set(queued);
+        if queued > MAX_QUEUED {
             self.close(false);
         } else {
             self.wake.notify_one();

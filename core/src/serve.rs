@@ -39,6 +39,7 @@ pub struct Core {
     pub store: Store,
     pub links: Vec<Rc<Link>>,
     pub retire: Option<When>,
+    pub memory: crate::records::Memory,
     /// Wakes the main loop to look at the lifetime again.
     pub events: Rc<Notify>,
     #[cfg(feature = "fixtures")]
@@ -56,10 +57,12 @@ impl Core {
         !self.links.is_empty() || self.terminals() > 0
     }
 
-    /// Every committed change passes here. Package 5 sends it to the links
-    /// subscribed to its collections.
+    /// Every committed change passes here, in the step that committed it,
+    /// and is queued at once for the links subscribed to its collections.
     pub fn publish(&mut self, change: Option<Change>) {
-        let _ = change;
+        if let Some(change) = change {
+            crate::records::publish(&self.links, change);
+        }
     }
 
     pub fn remove(&mut self, link: &Rc<Link>) {
@@ -103,6 +106,7 @@ async fn serve(opts: Options) -> io::Result<()> {
         store,
         links: Vec::new(),
         retire: None,
+        memory: Default::default(),
         events: events.clone(),
         #[cfg(feature = "fixtures")]
         fixture_token: opts.token.map(|t| {

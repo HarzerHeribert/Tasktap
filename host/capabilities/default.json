@@ -1,5 +1,5 @@
 {
   "identifier": "default",
-  "windows": ["notch", "peek"],
-  "permissions": ["core:default"]
+  "windows": ["notch", "workspace"],
+  "permissions": ["core:default", "core:window:allow-start-dragging"]
 }

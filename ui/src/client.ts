@@ -17,8 +17,16 @@ export interface Bridge {
 /** The host's abilities this slice has. */
 export type HostCalls = {
   'host.notch': { args: { open?: boolean; key?: boolean; height?: number; wing?: number }; result: null };
-  'host.show': { args: { surface: 'peek'; at: SessionId }; result: null };
+  /** The workspace window, in front, showing a session's or terminal's tab when `at` names one. */
+  'host.show': { args: { surface: 'workspace'; at?: SessionId }; result: null };
   'host.pick': { args: { folder: true }; result: string | null };
+  /** Reads the clipboard's text, or with `text` writes it. */
+  'host.clipboard': { args: { text?: string }; result: string | null };
+  /** Whether the palette follows Ghostty, and Ghostty's appearance lines (null until read or
+   *  when it is not installed); with `ghostty`, sets the first. */
+  'host.appearance': { args: { ghostty?: boolean }; result: { ghostty: boolean; config: string | null } };
+  /** The workspace page has drawn: its window may show. */
+  'host.ready': { args: Record<string, never>; result: null };
 };
 type AllCalls = { [K in keyof Calls]: { args: Calls[K]['args']; result: Calls[K]['result'] } } & HostCalls;
 export type Name = keyof AllCalls;

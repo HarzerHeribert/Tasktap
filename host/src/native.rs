@@ -118,6 +118,10 @@ pub fn give_back_key(ptr: usize) {
 pub fn window_number(ptr: usize) -> isize {
     panel(ptr).windowNumber()
 }
+/// The number of an ordinary window, as `screencapture -l` takes it.
+pub fn ns_window_number(ptr: usize) -> isize {
+    unsafe { &*(ptr as *const NSWindow) }.windowNumber()
+}
 /// Whether this app is the active one, as other apps see it (not `NSApp.isActive`, which a key
 /// non-activating panel also sets; see trials/tauri-notch/RESULT.md).
 pub fn app_active() -> bool {
@@ -142,6 +146,22 @@ pub fn watch_pointer(moved: impl Fn() + 'static) {
     // The monitors live as long as the app; AppKit keeps them.
     std::mem::forget(NSEvent::addGlobalMonitorForEventsMatchingMask_handler(mask, &global));
     std::mem::forget(unsafe { NSEvent::addLocalMonitorForEventsMatchingMask_handler(mask, &local) });
+}
+
+/// The clipboard's text, or with `text`, the clipboard set to it (the workspace's Copy and Paste
+/// buttons; ⌘C and ⌘V go through the Edit menu).
+pub fn clipboard(text: Option<&str>) -> Option<String> {
+    let board = objc2_app_kit::NSPasteboard::generalPasteboard();
+    // SAFETY: a constant AppKit exports.
+    let kind = unsafe { objc2_app_kit::NSPasteboardTypeString };
+    match text {
+        Some(text) => {
+            board.clearContents();
+            board.setString_forType(&objc2_foundation::NSString::from_str(text), kind);
+            None
+        }
+        None => board.stringForType(kind).map(|s| s.to_string()),
+    }
 }
 
 /// A folder panel, in front of every app; the person chose to open it.

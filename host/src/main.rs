@@ -5,6 +5,7 @@ mod core;
 mod geometry;
 mod native;
 mod notch;
+mod workspace;
 
 use crate::core::{Core, Link};
 use serde_json::{json, Value};
@@ -12,12 +13,11 @@ use std::collections::HashMap;
 use std::io::{BufRead, Read, Write};
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Instant;
 use tasktap_proto::{QuestionId, Role};
 use tauri::ipc::{Channel, InvokeBody, InvokeResponseBody};
-use tauri::utils::config::{BackgroundThrottlingPolicy, WindowEffectsConfig};
-use tauri::utils::{WindowEffect, WindowEffectState};
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 struct Host {
@@ -37,6 +37,13 @@ const ANSWER_KEYS: [Code; 3] = [Code::KeyY, Code::KeyN, Code::KeyJ];
 
 fn log(value: Value) {
     println!("{value}");
+}
+
+/// The app, for window events that carry none; and when it started, for the launch measure.
+static APP: OnceLock<AppHandle> = OnceLock::new();
+static START: OnceLock<Instant> = OnceLock::new();
+fn since_start() -> u128 {
+    START.get().map_or(0, |s| s.elapsed().as_millis())
 }
 
 /// Opens this page's connection; the core's bytes reach the page on `frames` as they arrive,
@@ -85,11 +92,17 @@ fn bridge_host(app: AppHandle, frame: String) -> String {
             notch::request(&app, args);
             Ok(Value::Null)
         }
-        "host.show" => peek(&app, args["at"].as_str().unwrap_or_default()).map(|_| Value::Null),
+        "host.show" => workspace::show(&app, args["at"].as_str()).map(|_| Value::Null).map_err(|e| e.to_string()),
+        "host.ready" => {
+            workspace::ready(&app);
+            Ok(Value::Null)
+        }
         "host.pick" => Ok(match std::env::var("TASKTAP_PICK") {
             Ok(folder) => json!(folder),
             Err(_) => json!(native::pick_folder()),
         }),
+        "host.clipboard" => Ok(json!(native::clipboard(args["text"].as_str()))),
+        "host.appearance" => Ok(workspace::appearance(&app, args)),
         name => Err(format!("this host has no {name}")),
     };
     match outcome {
@@ -102,47 +115,6 @@ fn bridge_host(app: AppHandle, frame: String) -> String {
 #[tauri::command]
 fn debug_report(label: String, data: Value) {
     log(json!({"event": "report", "label": label, "data": data}));
-}
-
-/// Peek: one plain window with the terminal of a session.
-fn peek(app: &AppHandle, session: &str) -> Result<(), String> {
-    let path = format!("peek.html?session={session}");
-    let passive = notch::NOTCH.lock().unwrap().passive;
-    let window = match app.get_webview_window("peek") {
-        Some(w) => {
-            let url = w.url().map_err(|e| e.to_string())?.join(&path).map_err(|e| e.to_string())?;
-            w.navigate(url).map_err(|e| e.to_string())?;
-            w
-        }
-        None => {
-            let effects = WindowEffectsConfig {
-                effects: vec![WindowEffect::UnderWindowBackground],
-                state: Some(WindowEffectState::FollowsWindowActiveState),
-                ..Default::default()
-            };
-            WebviewWindowBuilder::new(app, "peek", WebviewUrl::App(path.into()))
-                .title("Peek")
-                .inner_size(860.0, 540.0)
-                .min_inner_size(420.0, 240.0)
-                .transparent(true)
-                .effects(effects)
-                .focused(!passive)
-                // A check reads the terminal from the page while the window sits behind the
-                // person's own apps, where WebKit would stop drawing it.
-                .background_throttling(if passive {
-                    BackgroundThrottlingPolicy::Disabled
-                } else {
-                    BackgroundThrottlingPolicy::Suspend
-                })
-                .build()
-                .map_err(|e| e.to_string())?
-        }
-    };
-    if passive {
-        window.show().map_err(|e| e.to_string())
-    } else {
-        window.set_focus().map_err(|e| e.to_string())
-    }
 }
 
 /// Affirm and deny act on the question `glance` names, from any app.
@@ -199,9 +171,15 @@ fn command(app: &AppHandle, line: &str) {
         "affirm" => input(app, "answer.affirm"),
         "deny" => input(app, "answer.deny"),
         "hover" => notch::tell(app, json!({"do": if rest == "in" { "hover-enter" } else { "hover-exit" }})),
-        "state" => log(
-            json!({"event": "state", "notch": notch::state(), "question": *app.state::<Host>().question.lock().unwrap()}),
-        ),
+        "show" => drop(workspace::show(app, (!rest.is_empty()).then_some(rest))),
+        "menu" => workspace::on_menu(app, rest),
+        "state" => {
+            let workspace = app.get_webview_window(workspace::LABEL).and_then(|w| w.ns_window().ok());
+            log(
+                json!({"event": "state", "notch": notch::state(), "question": *app.state::<Host>().question.lock().unwrap(),
+                "workspace": workspace.map(|w| native::ns_window_number(w as usize))}),
+            )
+        }
         "text" => report(format!("document.querySelector({arg:?})?.innerText ?? null")),
         "eval" => report(arg.to_owned()),
         "type" => report(format!("document.execCommand('insertText',false,{arg:?})")),
@@ -226,7 +204,10 @@ fn command(app: &AppHandle, line: &str) {
                 move |outcome| log(json!({"event": "reply", "name": name, "outcome": outcome})),
             );
         }
-        "quit" => app.exit(0),
+        "quit" => {
+            workspace::quit();
+            app.exit(0)
+        }
         _ => log(json!({"event": "unknown-command", "line": line})),
     }
 }
@@ -240,7 +221,8 @@ fn data_folder() -> std::path::PathBuf {
 }
 
 fn main() {
-    tauri::Builder::default()
+    START.get_or_init(Instant::now);
+    let app = tauri::Builder::default()
         .activate_ignoring_other_apps(false)
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -252,9 +234,17 @@ fn main() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![bridge_open, bridge_send, bridge_host, debug_report])
+        .on_menu_event(|app, event| workspace::on_menu(app, event.id().as_ref()))
         .setup(|app| {
-            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-            notch::NOTCH.lock().unwrap().passive = std::env::var_os("TASKTAP_PASSIVE").is_some();
+            let passive = std::env::var_os("TASKTAP_PASSIVE").is_some();
+            notch::NOTCH.lock().unwrap().passive = passive;
+            // In the Dock with a menu, as 1.2 was; a passive run (the checks) stays out of both.
+            app.set_activation_policy(if passive {
+                tauri::ActivationPolicy::Accessory
+            } else {
+                tauri::ActivationPolicy::Regular
+            });
+            let _ = APP.set(app.handle().clone());
             // The core this app bundles, next to its own program; a check may name another.
             let (exe, build) = match (std::env::var_os("TASKTAP_CORE_EXE"), std::env::var("TASKTAP_CORE_BUILD")) {
                 (Some(exe), Ok(build)) => (exe.into(), build),
@@ -266,6 +256,8 @@ fn main() {
                 let inner = handle.clone();
                 let _ = handle.run_on_main_thread(move || glance(&inner, g.question));
             })?;
+            workspace::start(app.handle(), core.data.clone());
+            app.set_menu(workspace::menu(app.handle())?)?;
             app.manage(Host { core, link, pages: Mutex::default(), question: Mutex::default() });
             app.global_shortcut().register(keys(Code::Space))?;
 
@@ -304,11 +296,17 @@ fn main() {
                     }
                 });
             }
+            workspace::show(app.handle(), None)?;
             log(json!({"event": "ready", "data": app.state::<Host>().core.data}));
             Ok(())
         })
-        // Closing Peek never quits: the notch's own (hidden) Tauri window stays open. ⌘Q in
-        // Tauri's default menu does.
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("Tasktap Next failed to start");
+    // Closing the workspace never quits: the notch's own (hidden) Tauri window stays open. The
+    // Dock icon brings the workspace back; Quit in the menu ends the app.
+    app.run(|app, event| match event {
+        RunEvent::Reopen { .. } => drop(workspace::show(app, None)),
+        RunEvent::ExitRequested { .. } => workspace::quit(),
+        _ => {}
+    });
 }

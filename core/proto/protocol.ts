@@ -90,7 +90,7 @@ permissions: ReplyVia | null,
 questions: ReplyVia | null, };
 
 /**
- * The reply of `agent.detect`, in the order the core lists its agents.
+ * The reply of `agents.detect`, in the order the core lists its agents.
  */
 export type Agents = { agents: Array<AgentHealth>, };
 
@@ -153,7 +153,7 @@ export type CallId = number;
  */
 export type Capture = { id: ThoughtId, text: string, strokes: Array<Array<[number, number]>>, source: Source, mode?: Mode | null, project_id?: ProjectId | null, session_id?: SessionId | null,
 /**
- * The agent a new run of the thought uses, by the id `agent.detect`
+ * The agent a new run of the thought uses, by the id `agents.detect`
  * lists; without one, the `agent` preference, else the first agent
  * this core has. A follow-up uses its session's agent.
  */
@@ -227,7 +227,7 @@ export type Credit = { s: StreamId, n: number, };
 export type Delete = { "c": "prefs", id: PrefKey, } | { "c": "layouts", id: ProjectId, } | { "c": "thoughts", id: ThoughtId, } | { "c": "terminals", id: TerminalId, };
 
 /**
- * `agent.detect`: whether each agent this core can run is installed on the
+ * `agents.detect`: whether each agent this core can run is installed on the
  * PATH its terminals get and signed in, as the agent itself says. Without
  * `agents`, every one. Each check runs the agent's own command, at most 4 s.
  */
@@ -856,7 +856,7 @@ export type Calls = {
   "question.focus": { args: Ref<QuestionId>; result: null; access: "device" };
   "session.event": { args: SessionEvent; result: null; access: "session" };
   "session.adopt": { args: Adopt; result: SessionId; access: "session" };
-  "agent.detect": { args: DetectAgents; result: Agents; access: "device" };
+  "agents.detect": { args: DetectAgents; result: Agents; access: "device" };
   "terminal.open": { args: OpenTerminal; result: Opened; access: "device" };
   "terminal.resize": { args: ResizeTerminal; result: null; access: "device" };
   "terminal.stop": { args: Ref<TerminalId>; result: null; access: "device" };

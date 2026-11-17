@@ -99,7 +99,7 @@ fn handler(name: Name) -> Option<Handler> {
             |cx, args| now::<call::SessionEvent>(cx, args, effects::session_event)
         }
         Name::SessionAdopt => |cx, args| now::<call::SessionAdopt>(cx, args, crate::shim::adopt),
-        Name::AgentDetect => |cx, args| later::<call::AgentDetect>(cx, args, detect),
+        Name::AgentsDetect => |cx, args| later::<call::AgentsDetect>(cx, args, detect),
         // The core makes this call; it never answers it.
         Name::ShimHold => return None,
         Name::QuestionAsk => questions::ask,
@@ -426,7 +426,7 @@ fn reopen(tx: &mut crate::store::Tx, mut p: Project) -> Result<ProjectId, Error>
     Ok(p.id)
 }
 
-/// `agent.detect`: each agent asked for, or every one, as its own commands
+/// `agents.detect`: each agent asked for, or every one, as its own commands
 /// find it, each agent on a thread of its own.
 fn detect(cx: &mut Cx, args: DetectAgents) -> Option<Control> {
     let all = crate::agents::all();
@@ -435,8 +435,11 @@ fn detect(cx: &mut Cx, args: DetectAgents) -> Option<Control> {
         Some(names) => {
             let found: Option<Vec<_>> = names.iter().map(|n| crate::agents::find(n)).collect();
             let Some(found) = found else {
-                let e = Error::new(Code::Invalid, "agent.detect names an agent this core lacks");
-                return Some(call::AgentDetect::reply(cx.id, Err(e)));
+                let e = Error::new(
+                    Code::Invalid,
+                    "agents.detect names an agent this core lacks",
+                );
+                return Some(call::AgentsDetect::reply(cx.id, Err(e)));
             };
             found
         }
@@ -450,7 +453,7 @@ fn detect(cx: &mut Cx, args: DetectAgents) -> Option<Control> {
             found.collect::<Vec<_>>()
         })
     };
-    off_thread::<call::AgentDetect, _>(cx, look, |_, agents| Ok(Agents { agents }))
+    off_thread::<call::AgentsDetect, _>(cx, look, |_, agents| Ok(Agents { agents }))
 }
 
 /// `project.scan`: whether each project's folder is still there, and still

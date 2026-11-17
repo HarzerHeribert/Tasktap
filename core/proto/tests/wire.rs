@@ -300,7 +300,7 @@ fn every_call_round_trips() {
     let agents = Agents {
         agents: vec![health],
     };
-    round_trip::<call::AgentDetect>(detect, agents, seen);
+    round_trip::<call::AgentsDetect>(detect, agents, seen);
     for (start, from) in [
         (None, None),
         (

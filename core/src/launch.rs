@@ -2,9 +2,11 @@
 //! and `Kill` effects carried out with real terminals. An agent runs as the
 //! direct child of its own terminal, with no shell underneath that could run
 //! what is typed into it, and its session's token in its environment. The
-//! command line is its adapter's; starting and stopping is the terminal
-//! layer's. What it did goes back to the state machine as `Launched` or
-//! `LaunchFailed` (`effects.rs`), and the end of its process as `Exited`.
+//! command line is its adapter's, with what its probe added when it has one
+//! (`effects.rs` runs that off the core's thread); starting and stopping is
+//! the terminal layer's. What it did goes back to the state machine as
+//! `Launched` or `LaunchFailed` (`effects.rs`), and the end of its process as
+//! `Exited`.
 
 use std::path::Path;
 

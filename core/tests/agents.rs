@@ -660,7 +660,7 @@ fn detection_runs_each_agents_own_commands() {
     let asked = DetectAgents {
         agents: Some(vec!["fixture".into()]),
     };
-    let Agents { agents } = c.call::<call::AgentDetect>(&asked).unwrap().unwrap();
+    let Agents { agents } = c.call::<call::AgentsDetect>(&asked).unwrap().unwrap();
     assert_eq!(agents.len(), 1);
     let fixture = &agents[0];
     assert_eq!(fixture.id, "fixture");
@@ -673,7 +673,7 @@ fn detection_runs_each_agents_own_commands() {
     let unknown = DetectAgents {
         agents: Some(vec!["nobody".into()]),
     };
-    let e = c.call::<call::AgentDetect>(&unknown).unwrap().unwrap_err();
+    let e = c.call::<call::AgentsDetect>(&unknown).unwrap().unwrap_err();
     assert_eq!(e.code, tasktap_proto::Code::Invalid);
 }
 

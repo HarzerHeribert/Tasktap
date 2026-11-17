@@ -240,7 +240,9 @@ fn observe(
     let exe = super::program().unwrap_or_else(|_| "tasktap".into());
     let mut run = Command::new(real);
     run.args(agent.attach(&exe));
-    // The check its hooks need, with the agent the shim found.
+    // The check its hooks need, with the agent the shim found. One that
+    // fails leaves the agent to run untouched, its session ended with this
+    // connection.
     let cwd = std::env::current_dir().unwrap_or_default();
     if let Some(mut probe) = agent.probe(&exe, &cwd) {
         probe.argv[0] = real.to_string_lossy().into_owned();
@@ -254,6 +256,8 @@ fn observe(
                     "tasktap: {} runs unobserved: {why}",
                     rules.agent
                 );
+                drop(link);
+                return pass(real, args);
             }
         }
     }

@@ -910,6 +910,36 @@ fn the_environment_holds_exactly_the_fixed_list() {
 }
 
 #[test]
+fn a_terminal_other_than_a_shell_finds_tasktap_in_the_shim_folder() {
+    // An agent's hooks run the core's program by its path; `tasktap ask` by
+    // its name, found last on the PATH of every terminal but a shell.
+    let data = Folder::new("tt-path");
+    let core = Core::start(&data);
+    let mut c = core.device();
+    let mut v = open(
+        &mut c,
+        &args(
+            TerminalId::mint(),
+            Some(fixture(&["find tasktap", "exit 0"])),
+            None,
+            1 << 20,
+        ),
+        true,
+    );
+    closed(&mut c, &mut v);
+    let shown = text(v.bytes());
+    let found = (shown.split('|'))
+        .find_map(|l| {
+            l.rsplit_once("found:")
+                .map(|(_, path)| path.trim().to_owned())
+        })
+        .expect("it looked");
+    let folder = Path::new(&found).parent().map(std::fs::canonicalize);
+    let shims = std::fs::canonicalize(data.0.join("shims")).unwrap();
+    assert_eq!(folder.and_then(Result::ok), Some(shims), "{shown}");
+}
+
+#[test]
 fn the_core_stays_while_a_terminal_lives_and_retires_after_it() {
     let data = Folder::new("tt-life");
     let mut core = Core::start_with(&data, &["--idle-ms", "200"]);

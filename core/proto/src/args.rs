@@ -210,7 +210,7 @@ pub struct Capture {
     pub mode: Option<Mode>,
     pub project_id: Option<ProjectId>,
     pub session_id: Option<SessionId>,
-    /// The agent a new run of the thought uses, by the id `agent.detect`
+    /// The agent a new run of the thought uses, by the id `agents.detect`
     /// lists; without one, the `agent` preference, else the first agent
     /// this core has. A follow-up uses its session's agent.
     #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
@@ -277,7 +277,7 @@ pub struct Adopt {
     pub cwd: String,
 }
 
-/// `agent.detect`: whether each agent this core can run is installed on the
+/// `agents.detect`: whether each agent this core can run is installed on the
 /// PATH its terminals get and signed in, as the agent itself says. Without
 /// `agents`, every one. Each check runs the agent's own command, at most 4 s.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -287,7 +287,7 @@ pub struct DetectAgents {
     pub agents: Option<Vec<String>>,
 }
 
-/// The reply of `agent.detect`, in the order the core lists its agents.
+/// The reply of `agents.detect`, in the order the core lists its agents.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Agents {

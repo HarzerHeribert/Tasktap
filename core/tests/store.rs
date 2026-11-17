@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 
 use serde_json::json;
 use tasktap_core::store::{
-    Attempt, AttemptKind, AttemptOutcome, Error, LIVE_FINISHED, MIGRATIONS, Store,
+    Attempt, AttemptKind, AttemptOutcome, Error, LIVE_FINISHED, MIGRATIONS, Store, Tx,
 };
 use tasktap_proto::{
     Answer, AttemptId, Change, Collection, Device, DeviceId, Isolate, Layout, Limit, Mode, Outcome,
@@ -1277,4 +1277,82 @@ fn killed_writer_loses_no_commit() {
     );
     // Each transaction took one revision and wrote two rows: none is half there.
     assert_eq!(live_thoughts(&mut store).len() as u64, 2 * committed);
+}
+
+/// Runs `f` `n` times after a tenth of that to warm up, and prints its median cost.
+fn time(what: &str, n: u32, mut f: impl FnMut()) {
+    for _ in 0..n / 10 {
+        f();
+    }
+    let mut took: Vec<_> = (0..n)
+        .map(|_| {
+            let start = std::time::Instant::now();
+            f();
+            start.elapsed()
+        })
+        .collect();
+    took.sort();
+    let us = took[took.len() / 2].as_secs_f64() * 1e6;
+    println!("{what}: {us:.1} µs");
+}
+
+/// Prints what the store's hot paths cost, to compare two builds of it:
+/// `cargo test --release --test store -- --ignored --nocapture hot_path_timings`.
+#[test]
+#[ignore = "prints timings; run by hand"]
+fn hot_path_timings() {
+    let dir = Dir::new("timings");
+    let (mut store, _) = open(&dir.db());
+    let p = project("/work/timings");
+    let mut working = thought(Some(p.id), Phase::Working);
+    let mut s = session(p.id, None, Some(working.id), SessionState::Working);
+    let mut tx = store.begin().unwrap();
+    tx.insert_project(&p).unwrap();
+    tx.insert_thought(&working).unwrap();
+    tx.insert_session(&s).unwrap();
+    working.session_id = Some(s.id);
+    tx.update_thought(&working).unwrap();
+    // The live bound's worth of finished thoughts, and a history page beyond it.
+    for i in 0..LIVE_FINISHED + u32::from(Limit::MAX) {
+        let t = finished(p.id);
+        tx.insert_thought(&t).unwrap();
+        let q = Question {
+            state: QuestionState::Answered,
+            ..question(Some(t.id), None)
+        };
+        tx.insert_question(&q, &format!("timings {i}")).unwrap();
+        tx.insert_result(&result(t.id), "the answer").unwrap();
+    }
+    tx.commit().unwrap();
+
+    let mut n = 0;
+    let mut step = |tx: &mut Tx<'_>| {
+        n += 1;
+        working.updated = at(n);
+        s.turn = n as u32;
+        tx.update_thought(&working).unwrap();
+        tx.update_session(&s).unwrap();
+    };
+    time("transition, thought and session, committed", 500, || {
+        let mut tx = store.begin().unwrap();
+        step(&mut tx);
+        tx.commit().unwrap().unwrap();
+    });
+    time("transition, thought and session, rolled back", 2000, || {
+        step(&mut store.begin().unwrap());
+    });
+    let live = live_thoughts(&mut store).len();
+    time(&format!("snapshot of {live} live thoughts"), 1000, || {
+        std::hint::black_box(store.begin().unwrap().live(Collection::Thoughts)).unwrap();
+    });
+    let page = store.begin().unwrap().history(None, Limit::MAX).unwrap();
+    let what = format!(
+        "history page of {} thoughts, {} questions, {} results",
+        page.thoughts.len(),
+        page.questions.len(),
+        page.results.len()
+    );
+    time(&what, 1000, || {
+        std::hint::black_box(store.begin().unwrap().history(None, Limit::MAX)).unwrap();
+    });
 }

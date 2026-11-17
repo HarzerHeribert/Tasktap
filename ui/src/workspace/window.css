@@ -410,14 +410,16 @@ button.line:hover{background:var(--hover)}
 .pool.b{right:-26%;bottom:-42%;width:82%;height:118%;background:var(--noise,none),var(--c2)}
 .pool.c{left:-30%;bottom:-56%;width:64%;height:86%;background:var(--noise,none),var(--c3)}
 [data-lift] .pool{opacity:1}
-/* While the window is in use the light breathes: each pool's opacity rises and falls from its resting level, each in
-   its own time, carried by the compositor, which costs the page nothing (measured: host/scripts/measure.sh). */
+/* While the window is in use the light breathes: each pool's opacity rises and falls about its resting level, each in
+   its own time, carried by the compositor from one end of the breath to the other, so it never stops and starts and
+   costs the page nothing. It holds where it is while the window is not in use. --ambient is how far all of it goes. */
 @media(prefers-reduced-motion:no-preference){
-  [data-breathe=true] .pool{animation:breath calc(2 * var(--t-ambient)) ease-in-out infinite}
-  [data-breathe=true] .pool.b{animation-duration:calc(2.46 * var(--t-ambient))}
-  [data-breathe=true] .pool.c{animation-duration:calc(2.94 * var(--t-ambient))}
+  .pool{animation:breath calc(2 * var(--t-ambient)) ease-in-out infinite paused}
+  .pool.b{animation-duration:calc(2.46 * var(--t-ambient))}
+  .pool.c{animation-duration:calc(2.94 * var(--t-ambient))}
+  [data-breathe=true] :is(.pool,.band .motion,.turn){animation-play-state:running}
 }
-@keyframes breath{0%,100%{opacity:.88}35%{opacity:.66}75%{opacity:1}}
+@keyframes breath{0%,100%{opacity:.88}35%{opacity:calc(.88 - .12 * var(--ambient))}75%{opacity:calc(.88 + .09 * var(--ambient))}}
 .band{position:absolute;left:0;right:0;bottom:0;height:min(52%,420px);opacity:.5;
   -webkit-mask-image:linear-gradient(90deg,transparent 8%,#000 42%,#000 86%,transparent),linear-gradient(0deg,transparent 4%,#000 34%,#000 52%,transparent);-webkit-mask-composite:source-in;
   mask-image:linear-gradient(90deg,transparent 8%,#000 42%,#000 86%,transparent),linear-gradient(0deg,transparent 4%,#000 34%,#000 52%,transparent);mask-composite:intersect}
@@ -426,10 +428,11 @@ button.line:hover{background:var(--hover)}
 /* While the light breathes the chrome floats: the compositor carries its picture a few pixels each way, never further
    than the room its words are given (light.tsx pad), and its light rises and falls a little; nothing is drawn. */
 @media(prefers-reduced-motion:no-preference){
-  [data-breathe=true] .band .motion{animation:float var(--t-ambient) ease-in-out infinite,glow calc(.7 * var(--t-ambient)) ease-in-out infinite alternate}
+  .band .motion{animation:float var(--t-ambient) linear infinite paused,glow calc(.7 * var(--t-ambient)) ease-in-out infinite alternate paused}
 }
-@keyframes float{0%,100%{translate:-8px 3px}25%{translate:2px -5px}50%{translate:8px 2px}75%{translate:-3px 5px}}
-@keyframes glow{to{opacity:.8}}
+/* A slow round, at an even pace: it never stops at a corner. */
+@keyframes float{0%,100%{translate:calc(var(--ambient) * -5px) calc(var(--ambient) * 1px)}12.5%{translate:calc(var(--ambient) * -3.5px) calc(var(--ambient) * -2px)}25%{translate:0 calc(var(--ambient) * -3px)}37.5%{translate:calc(var(--ambient) * 3.5px) calc(var(--ambient) * -2px)}50%{translate:calc(var(--ambient) * 5px) calc(var(--ambient) * 1px)}62.5%{translate:calc(var(--ambient) * 3.5px) calc(var(--ambient) * 3px)}75%{translate:0 calc(var(--ambient) * 4px)}87.5%{translate:calc(var(--ambient) * -3.5px) calc(var(--ambient) * 3px)}}
+@keyframes glow{to{opacity:calc(1 - .12 * var(--ambient))}}
 .light[data-load=busy] .band{opacity:.375}
 .light[data-load=asks] .band{opacity:.225}
 .light[data-load=paged] .band{opacity:.15}
@@ -446,16 +449,22 @@ button.line:hover{background:var(--hover)}
    terminals one glint runs along the lit edge of the focused tab, over no text. */
 @media(prefers-reduced-motion:no-preference){
   [data-greet=side] .glyph.in{animation:greet .9s var(--ease) calc(var(--i) * 90ms) both}
-  .light[data-stir]{animation:lift 1.1s var(--ease)}
-  [data-stir] .band{animation:stir 1.1s var(--ease)}
+  .light[data-stir]{animation:lift 1.2s ease-in-out}
   [data-greet=main] .pane.focus .tabw.on::after{content:"";position:absolute;z-index:1;top:0;width:40px;height:2px;background:linear-gradient(90deg,#fff0,#fff,#fff0);animation:glint .7s ease-out both;pointer-events:none}
 }
-@keyframes greet{from{opacity:.5;transform:translateY(4px) scale(.985)}}
-@keyframes lift{25%{filter:brightness(1.5)}}
-@keyframes stir{25%{translate:0 -7px}}
+@keyframes greet{from{opacity:.6;transform:translateY(3px) scale(.99)}}
+@keyframes lift{25%{filter:brightness(1.25)}}
 @keyframes glint{from{left:-40px}to{left:100%}}
 .turn,.turn canvas{position:absolute;inset:0;width:100%;height:100%}
-/* The clock names a pose a second and the compositor carries the picture there; a new picture comes in over the last. */
-.turn{transition:transform 1s linear}
+/* A glyph sways by the compositor alone: a drift of a few pixels, a tilt, and a rock about its upright axis that never
+   brings it near edge-on, each in its own time and each glyph out of step with the others, so it never stops and
+   starts; it holds its pose while the window is not in use. A new picture of it comes in over the last (light.tsx). */
+@media(prefers-reduced-motion:no-preference){
+  .turn{animation:sway var(--t-ambient) ease-in-out calc(var(--i) * -.37 * var(--t-ambient)) infinite alternate paused,tilt calc(1.61 * var(--t-ambient)) ease-in-out calc(var(--i) * -.53 * var(--t-ambient)) infinite alternate paused,
+    rock calc(.81 * var(--t-ambient)) ease-in-out calc(var(--i) * -.29 * var(--t-ambient)) infinite alternate paused}
+}
+@keyframes sway{from{translate:calc(var(--ambient) * -4px) calc(var(--ambient) * 4px)}to{translate:calc(var(--ambient) * 4px) calc(var(--ambient) * -4px)}}
+@keyframes tilt{from{rotate:calc(var(--ambient) * -5deg)}to{rotate:calc(var(--ambient) * 5deg)}}
+@keyframes rock{from{transform:perspective(480px) rotateY(calc(var(--ambient) * -16deg))}to{transform:perspective(480px) rotateY(calc(var(--ambient) * 16deg))}}
 .turn canvas{transition:opacity 1.2s linear}
 @starting-style{.turn canvas{opacity:0}}

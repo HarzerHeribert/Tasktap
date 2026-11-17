@@ -26,6 +26,9 @@ cargo build --quiet --manifest-path "$host/Cargo.toml" || { echo "FAIL  host bui
 echo "== Lists keep their columns (headless, fixture records)"
 if out="$(node "$root/scripts/align-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "list alignment"; fi
 
+echo "== The ambient layer holds steady (headless, two and a half minutes)"
+if out="$(node "$root/scripts/soak-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the ambient layer holds steady"; fi
+
 tmp="$(mktemp -d)"
 log="$tmp/log"
 mkdir -p "$tmp/agents" "$tmp/project"

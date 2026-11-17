@@ -30,7 +30,4 @@ export function Motion({ class: cls, children, ...o }: Options & { class?: strin
 export const debug = {
   state: null as MotionState | null,
   breathe: null as boolean | null,
-  /** For a measurement: the band's frames a second, and whether it draws into the context's own canvas. */
-  fps: null as number | null,
-  primary: null as boolean | null,
 };

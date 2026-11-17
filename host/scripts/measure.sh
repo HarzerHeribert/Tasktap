@@ -13,7 +13,8 @@
 # through the debug channel as it is while the window is the one in use, the whole ambient layer moving with nothing
 # running (the pools breathing, the chrome drifting, the sidebar's glyphs swaying: an idle Home in front); then, in a
 # state held once its moment is over, Home's light still, the ambient layer moving on Home and beside a workspace's
-# terminal, and that terminal with the light still; each over 10 s. The system's window compositor (WindowServer) is reported beside the app, since compositing each
+# terminal, and that terminal with the light still; each over 10 s. Last, an idle Home in front again once the layer
+# has moved for five minutes: it must cost what it cost at the start, since nothing it does may pile up. The system's window compositor (WindowServer) is reported beside the app, since compositing each
 # step is its work; it also draws everything else on the screen, so its share is only as quiet as the machine.
 set -u
 host="$(cd "$(dirname "$0")/.." && pwd)"
@@ -53,6 +54,7 @@ for run in $(seq 1 "${1:-3}"); do
     }
     sleep 15
     printf '%-52s %s\n' "idle in the background: Home shown, notch collapsed" "$(phase 20)"
+    began=$SECONDS
     for run in "home idle true" "home working false" "home working true" "home needs true" "terminal working true" "terminal working false"; do
       set -- $run
       [ "$1" = terminal ] && [ "$(ask "__ws.ui.view")" = home ] && ask "(__ws.command('open-workspace'), 1)" >/dev/null && echo "click workspace .sheet .act.primary" >&3 && sleep 3
@@ -60,6 +62,9 @@ for run in $(seq 1 "${1:-3}"); do
       sleep 8
       printf '%-52s %s\n' "$1, $2, $([ "$3" = true ] && echo "the ambient layer moving" || echo "light and glyphs still")" "$(phase 10)"
     done
+    ask "(__ws.show('home'), __motion.debug.state=null, __motion.debug.breathe=true, __motion.redraw(), 1)" >/dev/null
+    [ $((began + 300 - SECONDS)) -gt 0 ] && sleep $((began + 300 - SECONDS))
+    printf '%-52s %s\n' "home, idle, moving, five minutes on" "$(phase 10)"
     echo quit >&3
     sleep 1
     kill "$app" 2>/dev/null

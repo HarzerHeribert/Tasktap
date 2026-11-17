@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite';
 
-// Two pages, built into dist/ for the host to embed. The prototype's stylesheets and motion
+// Two pages (the notch and the workspace), built into dist/ for the host to embed. The prototype's stylesheets and motion
 // assets are imported from ../prototype as they are.
 export default defineConfig({
   base: './',
@@ -12,7 +12,9 @@ export default defineConfig({
   oxc: { jsx: { runtime: 'automatic', importSource: 'preact' } },
   build: {
     target: 'safari16',
-    rollupOptions: { input: { notch: 'notch.html', peek: 'peek.html' } },
+    // xterm.js and its WebGL renderer are most of the workspace page; one file is fine in an app.
+    chunkSizeWarningLimit: 800,
+    rollupOptions: { input: { notch: 'notch.html', workspace: 'workspace.html' } },
   },
   server: { fs: { allow: ['..'] } },
 });

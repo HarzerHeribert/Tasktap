@@ -1,0 +1,11 @@
+/* What the workspace adds to 1.2's stylesheets: the window's tint over its backdrop (1.2 drew it
+   natively: the theme's background at the Ghostty or default opacity), and the answer row a
+   question shows in its pane. */
+html,body{height:100%;overflow:hidden}
+html{background:color-mix(in srgb,var(--deck-bg) calc(var(--window-opacity,.93) * 100%),transparent)}
+@media(prefers-reduced-transparency:reduce){html{background:var(--deck-bg)}}
+.deck-question .inline{display:flex;align-items:center;gap:var(--s-icon);flex:none;flex-wrap:nowrap}
+.deck-question .deck-reply{flex:1;max-width:480px}
+.deck-question .deck-reply input{min-height:32px;font-size:var(--t-small);padding:var(--s-tight) var(--s-icon)}
+.deck-question :is(.btn,.primary){min-height:30px;font-size:var(--t-small)}
+.deck-question .icon{width:14px;height:14px}

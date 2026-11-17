@@ -345,9 +345,23 @@ fn carry(core: &mut Core, effects: Vec<Effect>) -> Option<Outcome> {
 /// Applies what a seam reported and carries out what follows. Nobody waits
 /// on it, so a refusal is dropped: it changed nothing.
 fn report(core: &mut Core, event: Event, first: impl FnOnce(&mut Tx) -> store::Result<()>) {
-    if let Ok(effects) = commit(core, event, first) {
-        carry(core, effects);
+    match commit(core, event, first) {
+        Ok(effects) => {
+            carry(core, effects);
+        }
+        Err(Refusal::State(state::Error::Store(e))) => stop(e),
+        Err(_) => {}
     }
+}
+
+/// What a seam did, or that it did nothing, cannot be stored. Going on would
+/// answer as if it had been; exiting leaves the attempt without an outcome,
+/// which the next start's recovery closes as interrupted (design §3).
+fn stop(why: impl std::fmt::Display) -> ! {
+    // Nobody may read stderr any more: a failed write must not stop the exit.
+    let what = format!("tasktap: stopping, what was done cannot be stored: {why}\n");
+    let _ = std::io::Write::write_all(&mut std::io::stderr(), what.as_bytes());
+    std::process::exit(1)
 }
 
 fn route(core: &mut Core, id: ThoughtId) {
@@ -432,7 +446,7 @@ fn exited(core: &mut Core, terminal: TerminalId, code: Option<u32>) {
         }
         Ok(session)
     });
-    if let Ok(Some(session)) = session {
+    if let Some(session) = session.unwrap_or_else(|e| stop(e)) {
         let event = Event::Exited {
             session: session.id,
             code,
@@ -565,6 +579,7 @@ pub fn script(
     });
     f.router = FixtureRouter(route);
     f.launcher.refuse = args.refuse;
+    f.launcher.unrecordable = args.unrecordable;
     let l = &f.launcher;
     let launched = l.launched.iter().zip(&l.tokens);
     Ok(FixtureLog {

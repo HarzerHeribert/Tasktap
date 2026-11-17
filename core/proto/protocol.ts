@@ -212,7 +212,12 @@ route: FixtureRoute,
 /**
  * The launcher refuses every launch, delivery and settle with this.
  */
-refuse?: string | null, };
+refuse?: string | null,
+/**
+ * The launcher starts each run in a terminal the store refuses (one of a
+ * project that does not exist), so recording the launch fails.
+ */
+unrecordable: boolean, };
 
 /**
  * `fixture.stream`: a stream of known bytes with no terminal behind it, for

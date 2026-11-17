@@ -373,6 +373,10 @@ pub struct FixtureScript {
     /// The launcher refuses every launch, delivery and settle with this.
     #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub refuse: Option<String>,
+    /// The launcher starts each run in a terminal the store refuses (one of a
+    /// project that does not exist), so recording the launch fails.
+    #[serde(default)]
+    pub unrecordable: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

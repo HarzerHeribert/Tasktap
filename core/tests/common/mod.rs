@@ -161,6 +161,11 @@ impl Core {
     pub fn wait(&mut self) {
         assert!(self.child.wait().unwrap().success());
     }
+
+    /// Waits until the core has exited on its own, and says how.
+    pub fn exited(&mut self) -> std::process::ExitStatus {
+        self.child.wait().unwrap()
+    }
 }
 
 impl Drop for Core {
@@ -681,6 +686,7 @@ impl Scene {
         let script = tasktap_proto::FixtureScript {
             route: self.route.clone(),
             refuse: self.refuse.clone(),
+            unrecordable: false,
         };
         self.w.ok::<call::FixtureScript>(&script)
     }

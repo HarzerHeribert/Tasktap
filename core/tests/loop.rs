@@ -14,8 +14,9 @@ use Status::{Captured, Done, NeedsYou, Routed, Working};
 use common::*;
 use tasktap_proto::call;
 use tasktap_proto::{
-    Answer, AnswerQuestion, AttemptId, FixtureCandidate, FixtureRoute, Place, QuestionState, Ref,
-    Response, SessionId, SessionState, Start, Status, TerminalState,
+    Answer, AnswerQuestion, AttemptId, Control, FixtureCandidate, FixtureRoute, FixtureScript,
+    Frame, Place, QuestionState, Ref, Response, SessionId, SessionState, Start, Status,
+    TerminalState,
 };
 
 /// The agent of the loop: what `tasktap fixture-agent` does in Phase 2.
@@ -236,6 +237,43 @@ fn a_restart_mid_turn_fails_the_thought_and_starts_nothing() {
     // Retrying routes it again; only Start launches.
     s.w.ok::<call::ThoughtRetry>(&Ref { id: t });
     assert_eq!(s.w.model.status(t), Routed);
+    assert!(s.log().launched.is_empty());
+}
+
+#[test]
+fn a_launch_that_cannot_be_stored_stops_the_core_and_never_runs_again() {
+    let mut s = Scene::new("tu");
+    let script = FixtureScript {
+        route: clear(s.project),
+        refuse: None,
+        unrecordable: true,
+    };
+    s.w.ok::<call::FixtureScript>(&script);
+    let t = s.capture("bump the version");
+    let start = Start {
+        id: t,
+        attempt: AttemptId::mint(),
+    };
+    // The run starts and storing its launch fails: the core stops without answering.
+    s.w.send::<call::ThoughtStart>(&start);
+    while let Ok(frame) = s.w.c.recv() {
+        assert!(
+            !matches!(frame, Frame::Control(Control::Reply(_))),
+            "{frame:?}"
+        );
+    }
+    assert!(!s.core.exited().success());
+
+    let Scene { core, data, w, .. } = s;
+    drop((w, core));
+    let mut s = Scene::on(Core::start(&data.0), data);
+    let th = s.w.model.thought(t);
+    assert_eq!(
+        (th.status, th.reason),
+        (Status::Failed, Some(tasktap_proto::Reason::Interrupted))
+    );
+    let e = s.w.call::<call::ThoughtStart>(&start).unwrap_err();
+    assert_eq!(e.code, tasktap_proto::Code::Failed, "{e}");
     assert!(s.log().launched.is_empty());
 }
 

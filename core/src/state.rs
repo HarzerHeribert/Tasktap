@@ -307,6 +307,8 @@ pub trait Router {
 #[derive(Debug, Default)]
 pub struct FixtureLauncher {
     pub refuse: Option<String>,
+    /// Each terminal names a project that does not exist, so storing it fails.
+    pub unrecordable: bool,
     pub launched: Vec<Launch>,
     /// The token of each launch, in the same order.
     pub tokens: Vec<Secret>,
@@ -325,7 +327,11 @@ impl Launcher for FixtureLauncher {
         Ok(Terminal {
             id: TerminalId::try_from(launch.session.uuid()).map_err(|e| e.to_string())?,
             rev: Rev::ZERO,
-            project_id: Some(launch.project),
+            project_id: Some(if self.unrecordable {
+                ProjectId::mint()
+            } else {
+                launch.project
+            }),
             kind: TerminalKind::Agent,
             title: launch.agent.clone(),
             cwd: launch.cwd.clone(),

@@ -246,19 +246,22 @@ fn withdrawn() -> Error {
 }
 
 /// Hands a stored answer to its waiters (the effect `Answer`).
+/// The answer is stored first, so one that cannot be read back is not lost:
+/// the waiter is told, and asking again with its key returns it.
 pub fn deliver(core: &mut Core, question: QuestionId) {
-    let Ok(Some(Question {
-        answer: Some(answer),
-        ..
-    })) = effects::read(core, |tx| tx.question(question))
-    else {
-        return;
+    let reply = match effects::read(core, |tx| tx.question(question)) {
+        Ok(Some(Question {
+            answer: Some(answer),
+            ..
+        })) => Ok(answer),
+        Ok(_) => return,
+        Err(e) => Err(e),
     };
     core.questions.waits.retain(|w| {
         let waits = w.question != question;
         if !waits {
             w.link
-                .send(&call::QuestionAsk::reply(w.call, Ok(answer.clone())));
+                .send(&call::QuestionAsk::reply(w.call, reply.clone()));
         }
         waits
     });

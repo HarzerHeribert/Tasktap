@@ -331,6 +331,7 @@ fn every_call_round_trips() {
         let script = FixtureScript {
             route,
             refuse: Some("no".into()),
+            unrecordable: true,
         };
         round_trip::<call::FixtureScript>(script, log, seen);
     }

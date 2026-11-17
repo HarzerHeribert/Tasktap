@@ -1,5 +1,5 @@
 //! Speech (design §8, "Speech"): dictations, from the recorder's call to
-//! the thought or the answer they become. The rules are `state::dictate`;
+//! the thought they become or the words they leave for a field. The rules are `state::dictate`;
 //! this module moves things between them and the world, as `effects.rs`
 //! does for the stored records: the audio arriving on a stream and its
 //! level, the one deadline of a dictation, the call to the speech service
@@ -21,13 +21,13 @@ use std::time::Duration;
 use serde_json::Value;
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
-    CloseWhy, Control, DeviceId, DictationId, DictationPhase, DictationTarget, Empty, Listening,
-    MAX_CREDIT, MAX_TEXT, PrefKey, PrefValue, QuestionState, Ref, ReplyVia, ReportDictation,
-    Response, Server, SetKey, Source, SpeechBy, SpeechTerms, StartDictation, json_len,
+    CloseWhy, Control, DictationId, DictationPhase, DictationTarget, Empty, Listening, MAX_CREDIT,
+    MAX_TEXT, PrefKey, PrefValue, Ref, ReportDictation, Server, SetKey, Source, SpeechBy,
+    SpeechTerms, StartDictation, json_len,
 };
 use tokio::task::AbortHandle;
 
-use crate::calls::{Caller, Cx};
+use crate::calls::Cx;
 use crate::command::Signal;
 use crate::conn::Link;
 use crate::effects::{self, Refusal};
@@ -68,8 +68,6 @@ pub struct Speech {
 struct Live {
     /// The connection that records: only it may finish the dictation.
     recorder: Weak<Link>,
-    /// The device that started it, which a spoken answer is the answer of.
-    by: Option<DeviceId>,
     audio: Option<Rc<RefCell<Audio>>>,
     stream: Option<Handle>,
     deadline: Option<AbortHandle>,
@@ -89,7 +87,8 @@ impl Speech {
 
     /// Whether a dictation is under way, which would be lost with the core.
     pub fn busy(&self) -> bool {
-        (self.all.iter()).any(|d| d.row.phase != DictationPhase::Failed)
+        let under_way = [DictationPhase::Recording, DictationPhase::Transcribing];
+        (self.all.iter()).any(|d| under_way.contains(&d.row.phase))
     }
 }
 
@@ -266,36 +265,12 @@ fn carry(core: &mut Core, effect: Heard) {
             core.events.notify_one();
         }
         Heard::Transcribe(id) => transcribe(core, id),
-        Heard::Deliver { id, target, text } => {
-            let by = core.speech.live.get(&id).and_then(|live| live.by);
-            let refused = deliver(core, by, target, text).err().map(|e| e.message);
+        // The transcript is the thought's text: exactly the capture that
+        // typing it would have been.
+        Heard::Deliver { id, capture, text } => {
+            let capture = tasktap_proto::Capture { text, ..*capture };
+            let refused = (crate::calls::capture(core, capture).err()).map(|e| e.message);
             let _ = apply(core, Spoken::Delivered { id, refused });
-        }
-    }
-}
-
-/// A transcript goes where typing it would have gone.
-fn deliver(
-    core: &mut Core,
-    by: Option<DeviceId>,
-    target: DictationTarget,
-    text: String,
-) -> Result<(), Error> {
-    match target {
-        DictationTarget::Thought(mut capture) => {
-            // What the person typed before they spoke comes first.
-            capture.text = match capture.text.trim_end() {
-                "" => text,
-                typed => format!("{typed} {text}"),
-            };
-            if json_len(&capture.text) > MAX_TEXT {
-                return Err(Error::new(Code::Invalid, "The thought is too long"));
-            }
-            crate::calls::capture(core, *capture)
-        }
-        DictationTarget::Answer { question } => {
-            let response = Response::Text { text };
-            crate::questions::respond(core, by, "dictation.finish", question, response)
         }
     }
 }
@@ -308,23 +283,20 @@ fn fits(core: &mut Core, target: &DictationTarget) -> Result<(), Error> {
                 let why = "the capture of a dictation has the source voice";
                 return Err(Error::new(Code::Invalid, why));
             }
+            // One mechanism for speech into a field that holds text: the
+            // text target, whose words the page places itself.
+            if !capture.text.is_empty() {
+                let why = "a spoken thought's text is its transcript; \
+                           speech into a field that holds text has the target text";
+                return Err(Error::new(Code::Invalid, why));
+            }
             crate::calls::check(capture)?;
             match effects::read(core, |tx| tx.thought(capture.id))? {
                 Some(_) => Err(Error::new(Code::Conflict, "a thought with this id exists")),
                 None => Ok(()),
             }
         }
-        DictationTarget::Answer { question } => {
-            let q = effects::read(core, |tx| tx.question(*question))?;
-            match q.filter(|q| q.state == QuestionState::Open) {
-                None => Err(Error::new(Code::Gone, "the question is not open")),
-                Some(q) if q.reply_via == ReplyVia::Terminal => Err(Error::new(
-                    Code::Invalid,
-                    "this question is answered in its terminal",
-                )),
-                Some(_) => Ok(()),
-            }
-        }
+        DictationTarget::Text => Ok(()),
     }
 }
 
@@ -348,15 +320,10 @@ pub fn start(cx: &mut Cx, args: StartDictation) -> Result<Listening, Error> {
             "a dictation with this id exists",
         ));
     }
-    let by = match cx.who {
-        Caller::Device(id) => Some(id),
-        _ => None,
-    };
     let stream = service.is_some();
     let audio = stream.then(Rc::<RefCell<Audio>>::default);
     let live = Live {
         recorder: Rc::downgrade(cx.link),
-        by,
         audio: audio.clone(),
         stream: None,
         deadline: None,

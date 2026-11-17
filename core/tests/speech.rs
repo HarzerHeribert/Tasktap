@@ -392,11 +392,9 @@ fn a_spoken_thought_is_captured_routed_and_held_as_a_typed_one_is() {
     assert_eq!(wav[44..], tone(1000, 8000)[..]);
     nothing_left(&s.data.0);
 
-    // What was typed before comes first, and a picked destination is the
-    // person's: the router is not asked.
+    // A picked destination is the person's: the router is not asked.
     let other = s.project("other");
     let (t, mut capture) = spoken();
-    capture.text = "Noch etwas: ".into();
     capture.project_id = Some(other);
     let mut r = recorded(
         &s,
@@ -406,7 +404,7 @@ fn a_spoken_thought_is_captured_routed_and_held_as_a_typed_one_is() {
     r.finish().unwrap();
     delivered(&mut s.w, r.id, t);
     let thought = s.w.model.thought(t).clone();
-    assert_eq!(thought.text, format!("Noch etwas: {HEARD}"));
+    assert_eq!(thought.text, HEARD);
     assert_eq!(
         (thought.project_id, thought.status),
         (Some(other), Status::Routed)
@@ -416,61 +414,72 @@ fn a_spoken_thought_is_captured_routed_and_held_as_a_typed_one_is() {
 }
 
 #[test]
-fn a_spoken_follow_up_and_a_spoken_answer_go_where_typing_them_would() {
+fn words_for_a_field_are_only_heard_and_a_spoken_follow_up_is_a_thought() {
     let (mut s, service) = stage("speech-reply", &[]);
     consent(&mut s.w, &service.url(), "ok");
     let (first, session, mut agent) = s.launch("Fix the build");
-    let text = |request: &str| Ask {
+    let ask = Ask {
         kind: QuestionKind::Text,
-        ..confirm(request, "Which branch?")
+        ..confirm("r1", "Which branch?")
     };
-    agent.ask_with(text("r1"));
+    agent.ask_with(ask);
     let question = s.shown();
+    let thoughts = s.w.model.thoughts.len();
 
-    // The answer to a question, by the device that spoke it.
-    let mut r = recorded(&s, DictationTarget::Answer { question }, &tone(300, 8000));
+    // Speech into the answer's field, or into a thought half typed: the
+    // words are there to read, and the core does nothing with them.
+    let mut r = recorded(&s, DictationTarget::Text, &tone(300, 8000));
     let id = r.id;
     r.finish().unwrap();
-    let answer = agent.reply("r1").unwrap();
-    let heard = HEARD.to_owned();
-    assert_eq!(answer.response, Response::Text { text: heard });
-    assert!(answer.device_id.is_some());
-    s.w.until("the row goes", |m| !m.dictations.contains_key(&id));
+    assert_eq!(r.closed(), Some(CloseWhy::Done));
+    let heard =
+        |m: &Model| (m.dictations.get(&id)).is_some_and(|d| d.phase == DictationPhase::Heard);
+    s.w.until("the words", heard);
+    let row = s.w.model.dictations[&id].clone();
+    assert_eq!((row.text.as_str(), row.level, row.error), (HEARD, 0, None));
+    assert_eq!(row.target, DictationTarget::Text);
     // No language was set, so none was sent, and no key was stored.
     let seen = service.seen().pop().unwrap();
     assert!(seen.fields("language").is_empty() && seen.header("authorization").is_none());
-
-    // A question that is answered meanwhile keeps the words with why.
-    agent.ask_with(text("r2"));
-    s.w.until("the next question", |m| {
-        m.glance().question.is_some_and(|q| q != question)
-    });
-    let second = s.w.model.glance().question.unwrap();
-    let mut r = recorded(
-        &s,
-        DictationTarget::Answer { question: second },
-        &tone(300, 8000),
+    // Nothing was captured and nothing answered: the question waits for
+    // the person, who sends what they read, as typed.
+    s.w.sync();
+    assert_eq!(s.w.model.thoughts.len(), thoughts);
+    assert_eq!(s.w.model.glance().question, Some(question));
+    assert_eq!(
+        s.w.model.question(question).state,
+        tasktap_proto::QuestionState::Open
     );
+    nothing_left(&s.data.0);
+    // It is over for its recorder, and stays until it is dismissed.
+    assert_eq!(r.finish().unwrap_err().code, Code::Gone);
     let answered = tasktap_proto::AnswerQuestion {
-        id: second,
-        response: Response::Deny,
+        id: question,
+        response: Response::Text { text: row.text },
     };
     s.w.ok::<call::QuestionAnswer>(&answered);
-    r.finish().unwrap();
-    let row = failed(&mut s.w, r.id);
-    assert_eq!(row.text, HEARD);
-    assert_eq!(
-        row.error.as_deref(),
-        Some("the question was answered already")
-    );
-    // Nobody speaks to a question that is not open.
-    let gone = Recorder::start(&s.core, DictationTarget::Answer { question: second }, false);
-    assert_eq!(gone.err().map(|e| e.code), Some(Code::Gone));
-    cancel(&mut s.w, row.id);
+    let answer = agent.reply("r1").unwrap();
+    let text = HEARD.to_owned();
+    assert_eq!(answer.response, Response::Text { text });
+    cancel(&mut s.w, id);
     assert!(s.w.model.dictations.is_empty());
+    // A recorder that transcribes itself leaves its words the same way,
+    // and the next start clears them.
+    s.w.ok::<call::Delete>(&Delete::Prefs {
+        id: PrefKey::SpeechBy,
+    });
+    let mut r = Recorder::start(&s.core, DictationTarget::Text, true).unwrap();
+    r.finish().unwrap();
+    r.report(Some("Nein, lass es."), None).unwrap();
+    s.w.sync();
+    let row = s.w.model.dictations[&r.id].clone();
+    assert_eq!(
+        (row.phase, row.text.as_str()),
+        (DictationPhase::Heard, "Nein, lass es.")
+    );
+    consent(&mut s.w, &service.url(), "ok");
 
-    // A follow-up to the session, once its turn is over.
-    agent.reply("r2").unwrap();
+    // A follow-up to the session, once its turn is over, is a thought.
     agent.finish("Built.");
     s.w.until("the first is done", |m| m.status(first) == Status::Done);
     let (t, mut capture) = spoken();
@@ -482,6 +491,10 @@ fn a_spoken_follow_up_and_a_spoken_answer_go_where_typing_them_would() {
     );
     r.finish().unwrap();
     delivered(&mut s.w, r.id, t);
+    assert!(
+        s.w.model.dictations.is_empty(),
+        "the start cleared the words"
+    );
     assert_eq!(s.w.model.status(t), Status::Routed);
     s.tick(HOLD_MS);
     let log = s.log();
@@ -654,15 +667,19 @@ fn nothing_leaves_the_machine_without_consent_or_when_nothing_was_heard() {
         id: s.capture("Typed before"),
         ..spoken().1
     };
+    let half_typed = Capture {
+        text: "Noch etwas:".into(),
+        ..spoken().1
+    };
     for (target, code) in [
         (typed_one, Code::Invalid),
         (DictationTarget::Thought(Box::new(strange)), Code::Invalid),
         (DictationTarget::Thought(Box::new(existing)), Code::Conflict),
+        // Speech into a field that holds text is the text target's: a
+        // spoken thought's text is its transcript and nothing else.
         (
-            DictationTarget::Answer {
-                question: tasktap_proto::QuestionId::mint(),
-            },
-            Code::Gone,
+            DictationTarget::Thought(Box::new(half_typed)),
+            Code::Invalid,
         ),
     ] {
         let refused = Recorder::start(&s.core, target, true).err().unwrap();

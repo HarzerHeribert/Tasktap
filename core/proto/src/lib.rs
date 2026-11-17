@@ -48,6 +48,12 @@ pub const MAX_CREDIT: u32 = 4 << 20;
 pub const MAX_PENDING_CALLS: usize = 64;
 /// Streams open at once on a connection.
 pub const MAX_STREAMS: usize = 64;
+/// Questions one session may have open at once. An agent asks one at a time,
+/// or a few when its sub-steps ask together.
+pub const MAX_SESSION_QUESTIONS: usize = 8;
+/// Questions all sessions together may have open at once; a router's question
+/// is one per captured thought and not counted.
+pub const MAX_OPEN_QUESTIONS: usize = 64;
 
 // The bounds of what a call may write into a row. A bounded value is counted
 // in bytes of its JSON, quotes included: in a page, the length of

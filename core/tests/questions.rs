@@ -1008,6 +1008,45 @@ fn a_question_asked_in_the_terminal_closes_on_continue_turn_end_or_session_end()
 }
 
 #[test]
+fn open_questions_are_bounded_per_session_and_in_all() {
+    use tasktap_proto::{MAX_OPEN_QUESTIONS, MAX_SESSION_QUESTIONS};
+    let mut s = Scene::new("qm");
+    let hook = |n: usize| Said::Question {
+        question: confirm(&format!("call-{n}"), "Allow?"),
+    };
+    let (t, _, mut agent) = s.launch("go");
+    for n in 0..MAX_SESSION_QUESTIONS {
+        agent.say(hook(n));
+    }
+    // One more, asked in the terminal or waited on, is refused; a repeat is not.
+    assert_eq!(code(agent.try_say(hook(99))), Code::Conflict);
+    assert_eq!(code(agent.ask_now(confirm("wait", "Go?"))), Code::Conflict);
+    agent.say(hook(0));
+    // Once they close there is room again.
+    agent.say(Said::Continued);
+    agent.ask("wait", "Go?");
+    agent.sync();
+    s.w.sync();
+    assert_eq!(s.w.model.status(t), Status::NeedsYou);
+    agent.finish("Done.");
+    assert_eq!(code(agent.reply("wait")), Code::Gone);
+
+    // All sessions together hold no more than the total.
+    for _ in 0..MAX_OPEN_QUESTIONS / MAX_SESSION_QUESTIONS {
+        let (_, _, mut agent) = s.launch("go");
+        for n in 0..MAX_SESSION_QUESTIONS {
+            agent.say(hook(n));
+        }
+    }
+    let (_, _, mut last) = s.launch("one more");
+    assert_eq!(code(last.try_say(hook(0))), Code::Conflict);
+    s.w.sync();
+    let open = s.w.model.questions.values();
+    let open = open.filter(|q| q.state == QuestionState::Open).count();
+    assert_eq!(open, MAX_OPEN_QUESTIONS);
+}
+
+#[test]
 fn an_answer_never_acknowledged_stays_undelivered_and_turn_end_withdraws_the_rest() {
     let mut s = Scene::new("qg");
     let (t, _, mut agent) = s.launch("go");

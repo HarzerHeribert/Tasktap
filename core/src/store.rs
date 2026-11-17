@@ -749,6 +749,23 @@ impl<'s> Tx<'s> {
         self.all(Table::Questions, "WHERE state = 'open' ORDER BY id", [])
     }
 
+    /// Whether a thought has an open question, read without loading one.
+    pub fn asking(&self, thought: ThoughtId) -> Result<bool> {
+        let sql =
+            "SELECT EXISTS (SELECT 1 FROM questions WHERE thought_id = ?1 AND state = 'open')";
+        Ok(self.value(sql, &thought)?.unwrap_or(false))
+    }
+
+    /// How many questions a session has open, and all sessions together.
+    pub fn open_asked(&self, session: SessionId) -> Result<(usize, usize)> {
+        let sql = "SELECT count(*) FILTER (WHERE session_id = ?1), count(*) FROM questions \
+                   WHERE state = 'open' AND session_id IS NOT NULL";
+        let mut stmt = self.db.prepare_cached(sql)?;
+        let (mine, all): (i64, i64) =
+            stmt.query_row([key(&session)?], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok((mine as usize, all as usize))
+    }
+
     /// A result's body, which is not part of the record.
     pub fn result_body(&self, id: ResultId) -> Result<Option<String>> {
         self.value("SELECT body FROM results WHERE id = ?1", &id)

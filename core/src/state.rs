@@ -25,11 +25,11 @@ use sha2::{Digest, Sha256};
 // Short names keep each row of the table on one line: E an event, A what an
 // agent said, P a thought's phase, S a session's state, Q a question's state.
 use tasktap_proto::{
-    Answer, AttemptId, Capture, Changes, Code, DeviceId, Event as A, Mode, Offset, Outcome,
-    Phase as P, PrefKey, PrefValue, ProjectId, Question, QuestionId, QuestionKind, QuestionSource,
-    QuestionState as Q, Reason, ReplyVia, Response, ResultKind, Rev, Secret, Session, SessionId,
-    SessionState as S, Source, Status, Terminal, TerminalId, TerminalKind, TerminalState, Thought,
-    ThoughtId, Time, TurnResult,
+    Answer, AttemptId, Capture, Changes, Code, DeviceId, Event as A, MAX_OPEN_QUESTIONS,
+    MAX_SESSION_QUESTIONS, Mode, Offset, Outcome, Phase as P, PrefKey, PrefValue, ProjectId,
+    Question, QuestionId, QuestionKind, QuestionSource, QuestionState as Q, Reason, ReplyVia,
+    Response, ResultKind, Rev, Secret, Session, SessionId, SessionState as S, Source, Status,
+    Terminal, TerminalId, TerminalKind, TerminalState, Thought, ThoughtId, Time, TurnResult,
 };
 
 use crate::store::{self, Attempt, AttemptKind, AttemptOutcome, Hash, Tx};
@@ -464,7 +464,8 @@ impl Machine<'_, '_> {
                 self.hook(some(session)?, ask)
             }
             // a question opens: unchanged, the status becomes needs you. The
-            // same key must bring the same question (design §6).
+            // same key must bring the same question, and beyond the bound of
+            // open questions a new one is refused (design §6).
             (E::Ask { question: q, .. }, .., Some(_)) if !same_ask(&q, question.as_ref()) => Err(
                 Error::Conflict("the request key was used for another question"),
             ),
@@ -1014,6 +1015,7 @@ impl Machine<'_, '_> {
     }
 
     fn open(&mut self, q: Question, key: String) -> Result<()> {
+        self.room(&q)?;
         let q = Question {
             state: Q::Open,
             answer: None,
@@ -1050,9 +1052,25 @@ impl Machine<'_, '_> {
     }
 
     fn reopen(&mut self, q: Question) -> Result<()> {
+        self.room(&q)?;
         self.tx.set_question_state(q.id, Q::Open)?;
         self.effects.push(Effect::Notify(q.id));
         self.refresh(q.thought_id)
+    }
+
+    /// Open questions are bounded per session and in all (design §6): beyond
+    /// that an agent's question waits until one closes.
+    fn room(&self, q: &Question) -> Result<()> {
+        let Some(session) = q.session_id else {
+            return Ok(());
+        };
+        let (mine, all) = self.tx.open_asked(session)?;
+        if mine >= MAX_SESSION_QUESTIONS || all >= MAX_OPEN_QUESTIONS {
+            return Err(Error::Conflict(
+                "too many questions are open; one must close before another opens",
+            ));
+        }
+        Ok(())
     }
 
     fn answer(&mut self, q: Question, response: Response, device: Option<DeviceId>) -> Result<()> {
@@ -1278,12 +1296,7 @@ impl Machine<'_, '_> {
     }
 
     fn status(&self, t: &Thought) -> Result<Status> {
-        let asking = self
-            .tx
-            .open_questions()?
-            .iter()
-            .any(|q| q.thought_id == Some(t.id));
-        Ok(if asking {
+        Ok(if self.tx.asking(t.id)? {
             Status::NeedsYou
         } else {
             t.phase.into()

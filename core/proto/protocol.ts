@@ -505,7 +505,17 @@ export type SessionEvent = {
 /**
  * The sender's own id for this event; the core ignores a repeat.
  */
-id: string, } & ({ "kind": "ready" } | { "kind": "turn_started", prompt?: string | null, } | { "kind": "activity", text: string, } | { "kind": "continued" } | { "kind": "turn_finished", answer?: string | null, } | { "kind": "turn_failed", error?: string | null, } | { "kind": "turn_interrupted" } | { "kind": "question", question: Ask, });
+id: string,
+/**
+ * The session's turn the event belongs to, when the sender knows it; a
+ * turn start names the turn it begins. The core ignores an event for
+ * another turn (design §5).
+ */
+turn?: number | null,
+/**
+ * Sent for one of the agent's sub-agents, whose events the core ignores.
+ */
+subagent?: boolean, } & ({ "kind": "ready" } | { "kind": "turn_started", prompt?: string | null, } | { "kind": "activity", text: string, } | { "kind": "continued" } | { "kind": "turn_finished", answer?: string | null, } | { "kind": "turn_failed", error?: string | null, } | { "kind": "turn_interrupted" } | { "kind": "question", question: Ask, });
 
 /**
  * A UUID v7 in text, minted by whoever creates the record.

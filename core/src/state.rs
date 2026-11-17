@@ -458,6 +458,11 @@ impl Machine<'_, '_> {
             }
             // activity: memory-only text, nothing stored.
             (_, Some(A::Activity { text }), ..) if alive => self.activity(some(session)?, text),
+            // a question asked in the agent's terminal opens as the agent's
+            // question of this turn, once it passed the guards of every event.
+            (_, Some(A::Question { question: ask }), _, Some(S::Working), _) => {
+                self.hook(some(session)?, ask)
+            }
             // a question opens: unchanged, the status becomes needs you. The
             // same key must bring the same question (design §6).
             (E::Ask { question: q, .. }, .., Some(_)) if !same_ask(&q, question.as_ref()) => Err(
@@ -1017,6 +1022,31 @@ impl Machine<'_, '_> {
         self.tx.insert_question(&q, &key)?;
         self.effects.push(Effect::Notify(q.id));
         self.refresh(q.thought_id)
+    }
+
+    /// A terminal-only question (design §6), keyed by the session, its turn
+    /// and the agent's own id for the call.
+    fn hook(&mut self, s: Session, ask: tasktap_proto::Ask) -> Result<()> {
+        let key = format!("hook {} {} {}", s.id.uuid(), s.turn, ask.request);
+        let id = match self.tx.question_by_request(&key)? {
+            Some(q) => q.id,
+            None => self.mint(&[b"hook", key.as_bytes()])?,
+        };
+        let question = Question {
+            id,
+            rev: Rev::ZERO,
+            thought_id: s.thought_id,
+            session_id: Some(s.id),
+            turn: Some(s.turn),
+            source: QuestionSource::Agent,
+            kind: ask.kind,
+            prompt: ask.prompt,
+            detail: ask.detail,
+            reply_via: ReplyVia::Terminal,
+            state: Q::Open,
+            answer: None,
+        };
+        self.apply(E::Ask { question, key })
     }
 
     fn reopen(&mut self, q: Question) -> Result<()> {

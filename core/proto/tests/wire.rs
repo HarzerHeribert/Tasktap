@@ -259,6 +259,8 @@ fn every_call_round_trips() {
         round_trip::<call::SessionEvent>(
             SessionEvent {
                 id: "e".into(),
+                turn: Some(2),
+                subagent: true,
                 event,
             },
             (),

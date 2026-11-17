@@ -314,6 +314,8 @@ pub fn samples() -> Vec<(&'static str, Frame)> {
                 CallId(7),
                 &SessionEvent {
                     id: "stop-1".into(),
+                    turn: None,
+                    subagent: false,
                     event: Event::TurnFinished {
                         answer: Some("Done: the redirect is kept in a cookie.".into()),
                     },

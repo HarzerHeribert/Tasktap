@@ -256,10 +256,19 @@ pub struct AnswerQuestion {
 
 /// `session.event`: what the session's agent reports, in the core's one vocabulary.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct SessionEvent {
     /// The sender's own id for this event; the core ignores a repeat.
     pub id: String,
+    /// The session's turn the event belongs to, when the sender knows it; a
+    /// turn start names the turn it begins. The core ignores an event for
+    /// another turn (design §5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<u32>,
+    /// Sent for one of the agent's sub-agents, whose events the core ignores.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[cfg_attr(test, ts(as = "Option<bool>", optional))]
+    pub subagent: bool,
     #[serde(flatten)]
     pub event: Event,
 }

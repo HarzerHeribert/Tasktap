@@ -212,7 +212,7 @@ Only `state::apply(event)` writes a thought's `phase` and a session's `state`, a
 | `thought.read` | done or failed: read (finished once nothing is pending, §1) | – |
 | `thought.settle` | done or failed; changes pending → kept or discarded | must be ended (§7) |
 
-Guards kept from 1.2: events from an old token, a sub-agent or a different turn are ignored; event ids are deduplicated; an event that does not fit the current state changes nothing.
+Guards kept from 1.2: events from an old token, a sub-agent or a different turn are ignored (`session.event` names its turn and whether a sub-agent sent it); event ids are deduplicated; an event that does not fit the current state changes nothing. A question asked in the terminal arrives as such an event and passes the same guards.
 
 ## 6. Questions
 

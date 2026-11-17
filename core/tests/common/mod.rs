@@ -410,7 +410,8 @@ impl Watch {
 /// `tasktap hook`, `tasktap event` and `tasktap ask` will send (design §4).
 pub struct Agent {
     pub c: Client,
-    events: u32,
+    /// The id of the last event sent; unique in the test, as a hook's own ids are.
+    events: usize,
     /// Asks sent and not answered yet, by request key.
     asked: Vec<(String, CallId)>,
     /// Replies that came before they were looked for.
@@ -420,11 +421,26 @@ pub struct Agent {
 
 impl Agent {
     pub fn try_say(&mut self, event: Said) -> Result<(), Error> {
-        self.events += 1;
+        self.try_say_as(None, false, event)
+    }
+
+    /// An event that names its turn, or comes from a sub-agent.
+    pub fn try_say_as(
+        &mut self,
+        turn: Option<u32>,
+        subagent: bool,
+        event: Said,
+    ) -> Result<(), Error> {
+        static NEXT: AtomicUsize = AtomicUsize::new(1);
+        self.events = NEXT.fetch_add(1, Ordering::Relaxed);
         let id = format!("event-{}", self.events);
-        self.c
-            .call::<call::SessionEvent>(&SessionEvent { id, event })
-            .unwrap()
+        let event = SessionEvent {
+            id,
+            turn,
+            subagent,
+            event,
+        };
+        self.c.call::<call::SessionEvent>(&event).unwrap()
     }
 
     pub fn say(&mut self, event: Said) {
@@ -436,7 +452,12 @@ impl Agent {
     /// The same event id again.
     pub fn repeat(&mut self, event: Said) {
         let id = format!("event-{}", self.events);
-        let call = SessionEvent { id, event };
+        let call = SessionEvent {
+            id,
+            turn: None,
+            subagent: false,
+            event,
+        };
         self.c.call::<call::SessionEvent>(&call).unwrap().unwrap();
     }
 

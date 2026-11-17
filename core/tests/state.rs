@@ -2142,6 +2142,14 @@ impl Sweep {
                     error: Some("rate limited".into()),
                 },
                 Said::TurnInterrupted,
+                Said::Question {
+                    question: tasktap_proto::Ask {
+                        request: "call-1".into(),
+                        kind: QuestionKind::Confirm,
+                        prompt: "Allow rm?".into(),
+                        detail: None,
+                    },
+                },
             ] {
                 moves.push(Event::Report(self.report(s, said)));
             }
@@ -2363,6 +2371,7 @@ fn every_event_in_every_reachable_state_keeps_the_rules() {
         "TurnFinished",
         "TurnFailed",
         "TurnInterrupted",
+        "Question",
         "Ask",
         "Answer",
         "Withdraw",

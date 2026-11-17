@@ -607,6 +607,43 @@ fn session_events_come_from_the_token_and_drive_its_session() {
 }
 
 #[test]
+fn an_event_for_another_turn_or_from_a_sub_agent_changes_nothing() {
+    let mut s = Scene::new("qe");
+    let (_, session, mut agent) = s.launch("fix it");
+    agent.finish("Fixed.");
+    agent.say(Said::TurnStarted {
+        prompt: Some("and the docs".into()),
+    });
+    s.w.sync();
+    let second = s.w.model.session(session).thought_id.unwrap();
+    let ask = |request: &str| Said::Question {
+        question: confirm(request, "Allow?"),
+    };
+    // A late failure of turn 1, a sub-agent's ending, and their questions.
+    for (turn, subagent, said) in [
+        (Some(1), false, Said::TurnFailed { error: None }),
+        (None, true, Said::TurnInterrupted),
+        (Some(1), false, ask("late")),
+        (None, true, ask("sub")),
+        (Some(3), false, Said::TurnStarted { prompt: None }),
+    ] {
+        agent.try_say_as(turn, subagent, said).unwrap();
+    }
+    s.w.sync();
+    assert_eq!(s.w.model.status(second), Status::Working);
+    assert_eq!(s.w.model.session(session).turn, 2);
+    assert!(s.w.model.questions.is_empty(), "{:?}", s.w.model.questions);
+    // The same events for this turn apply.
+    agent.try_say_as(Some(2), false, ask("now")).unwrap();
+    let q = s.shown();
+    assert_eq!(s.w.model.question(q).turn, Some(2));
+    let fail = Said::TurnFailed { error: None };
+    agent.try_say_as(Some(2), false, fail).unwrap();
+    s.w.sync();
+    assert_eq!(s.w.model.status(second), Status::Failed);
+}
+
+#[test]
 fn a_token_whose_terminal_runs_no_session_reaches_nothing() {
     let data = Folder::new("qt");
     let token = Secret([7; 32]);

@@ -18,8 +18,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 use tasktap_proto::call::{Code, Error};
 use tasktap_proto::{
-    AttemptId, Change, Event as Said, Outcome, QuestionId, Secret, SessionEvent, TerminalId,
-    TerminalState, ThoughtId, Time,
+    AttemptId, Change, Outcome, QuestionId, Secret, SessionEvent, TerminalId, TerminalState,
+    ThoughtId, Time,
 };
 use tokio::task::AbortHandle;
 
@@ -228,15 +228,12 @@ pub fn session_event(cx: &mut Cx, args: SessionEvent) -> Result<(), Error> {
         ));
     };
     let session = questions::session(cx.core, terminal)?;
-    if let Said::Question { question } = args.event {
-        return questions::hook(cx.core, &session, question);
-    }
     let report = Report {
         session: session.id,
         terminal,
         id: args.id,
-        turn: None,
-        subagent: false,
+        turn: args.turn,
+        subagent: args.subagent,
         event: args.event,
     };
     match run(cx.core, Event::Report(report)) {

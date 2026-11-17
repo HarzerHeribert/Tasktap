@@ -4,8 +4,9 @@
 //!
 //! An agent names its question by its own key, which the core keeps per
 //! session, so a token can never reach another session's question: `ask
-//! <session> <request>` for `question.ask`, and for a question the agent
-//! asked in its terminal (`session.event`) `hook <session> <turn> <request>`.
+//! <session> <request>` for `question.ask`. A question the agent asked in
+//! its terminal comes as a `session.event`, which the state machine keys
+//! `hook <session> <turn> <request>` after the guards every event passes.
 //! A `question.ask` call is its question's waiter: the reply is the answer.
 //! A waiter whose connection ends withdraws its question at once; asking
 //! again with the key while the turn is alive reopens it, or returns the
@@ -86,7 +87,7 @@ pub fn ask(cx: &mut Cx, args: Value) -> Option<Control> {
     let id = cx.id;
     let asked = call::QuestionAsk::args(args).and_then(|ask| {
         let session = session(cx.core, token(cx.who)?)?;
-        let q = open(cx.core, &session, ask, ReplyVia::Core);
+        let q = open(cx.core, &session, ask);
         q.map_err(|r| refuse("question.ask", r))
     });
     let reply = match asked {
@@ -105,22 +106,10 @@ pub fn ask(cx: &mut Cx, args: Value) -> Option<Control> {
     Some(call::QuestionAsk::reply(id, reply))
 }
 
-/// A question the agent asked in its terminal, reported by `session.event`.
-/// Like the agent's other events, one that does not fit is dropped.
-pub fn hook(core: &mut Core, session: &Session, ask: Ask) -> Result<(), Error> {
-    match open(core, session, ask, ReplyVia::Terminal) {
-        Ok(_) | Err(Refusal::State(state::Error::Ignored(_))) => Ok(()),
-        Err(r) => Err(refuse("session.event", r)),
-    }
-}
-
 /// Opens the question an agent asks, or finds the one its key already
 /// names, and returns it as it stands afterwards.
-fn open(core: &mut Core, s: &Session, ask: Ask, via: ReplyVia) -> Result<Question, Refusal> {
-    let key = match via {
-        ReplyVia::Core => key(s, &ask.request),
-        ReplyVia::Terminal => format!("hook {} {} {}", s.id.uuid(), s.turn, ask.request),
-    };
+fn open(core: &mut Core, s: &Session, ask: Ask) -> Result<Question, Refusal> {
+    let key = key(s, &ask.request);
     let tx = core.store.begin()?;
     let stored = tx.question_by_request(&key)?;
     drop(tx);
@@ -134,7 +123,7 @@ fn open(core: &mut Core, s: &Session, ask: Ask, via: ReplyVia) -> Result<Questio
         kind: ask.kind,
         prompt: ask.prompt,
         detail: ask.detail,
-        reply_via: via,
+        reply_via: ReplyVia::Core,
         state: Q::Open,
         answer: None,
     };

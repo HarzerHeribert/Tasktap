@@ -17,14 +17,16 @@ def rows(runs):
             row = dict(id=job['session'], agent=job['agent'], folder=job['folder'], owned='yes', task=job['task'],
                        inbox='manual', state='Connected', available='yes',
                        scratch='yes' if Path(job['folder']) == runs.parent/'Scratch' else 'no')
-            alive = visible.load(folder/'surface.json').get('open') and visible.locked(folder)
+            # Tasktap 1.2 also ran sessions in other apps' terminals. Those stay closed history.
+            hosted = job.get('host', 'tasktap') == 'tasktap'
+            alive = hosted and visible.load(folder/'surface.json').get('open') and visible.locked(folder)
             if not alive:
                 row.update(state='Closed', available='no')
             thread = job['session'] if job['agent'] == 'claude' else ''
             if (folder/'thread.json').exists():
                 thread = str(uuid.UUID(visible.load(folder/'thread.json')['id']))
             row['conversation'] = thread
-            if not alive and visible.resume_id(folder, job):
+            if not alive and hosted and visible.resume_id(folder, job):
                 row['resumable'] = 'yes'
             latest = jobs[-1]
             receipt = latest.with_suffix('.receipt')

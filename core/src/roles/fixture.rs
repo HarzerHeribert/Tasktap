@@ -13,6 +13,7 @@
 //! | Step | Does |
 //! | --- | --- |
 //! | `print:TEXT` | prints the text |
+//! | `write:PATH:TEXT` | writes the text, `\n` in it a line break, to the file at `PATH` in its working folder, making its folders; prints `wrote:` and the path |
 //! | `event:KIND[:TEXT]` | reports the event, the text in the field its kind has; `\n` in it is a line break |
 //! | `ask:PROMPT` | asks through a hook that waits, and prints `answer:` and what it printed |
 //! | `wait` | reads a line of standard input and prints `read:` and the line |
@@ -48,8 +49,8 @@ pub const REAL: &str = "TASKTAP_FIXTURE_AGENT";
 /// Set by a test: a shim takes pipes for a terminal a person types in.
 pub const TTY: &str = "TASKTAP_FIXTURE_TTY";
 
-const STEPS: [&str; 10] = [
-    "print", "event", "ask", "wait", "sleep", "nohup", "detach", "stall", "query", "exit",
+const STEPS: [&str; 11] = [
+    "print", "event", "ask", "wait", "sleep", "nohup", "detach", "stall", "query", "write", "exit",
 ];
 /// What `query` asks: primary and secondary device attributes, the cursor
 /// position, and the foreground and background colors, one ended with ST
@@ -103,6 +104,16 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         }
         match verb {
             "print" => println!("{rest}"),
+            "write" => {
+                let (path, text) = rest.split_once(':').unwrap_or((rest, ""));
+                let path = Path::new(path);
+                let folder = path.parent().filter(|p| !p.as_os_str().is_empty());
+                let made = folder.map_or(Ok(()), std::fs::create_dir_all);
+                match made.and_then(|()| std::fs::write(path, text.replace("\\n", "\n"))) {
+                    Ok(()) => println!("wrote:{}", path.display()),
+                    Err(e) => println!("not written:{e}"),
+                }
+            }
             "event" => {
                 let (kind, text) = rest.split_once(':').unwrap_or((rest, ""));
                 if let Some(hook) = &hook {

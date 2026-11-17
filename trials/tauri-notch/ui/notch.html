@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="color-scheme" content="dark"><title>Notch trial</title>
+<!-- The existing notch styles, linked from the repository unchanged. -->
+<link rel="stylesheet" href="../../../prototype/style.css">
+<link rel="stylesheet" href="../../../prototype/decision.css">
+<link rel="stylesheet" href="notch.css">
+</head>
+<body class="native-host notch-first">
+<div id="notch-shell" aria-hidden="true"><div class="notch-surface"></div></div>
+<div class="island" id="island"><button id="islandToggle" aria-label="Toggle notch" aria-expanded="false"></button></div>
+<svg id="rim" aria-hidden="true"><defs>
+  <linearGradient id="metal" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#9a8065"/><stop offset=".18" stop-color="#e6c6a0"/><stop offset=".42" stop-color="#fff1db"/>
+    <stop offset=".65" stop-color="#b6a08b"/><stop offset=".85" stop-color="#e5caa6"/><stop offset="1" stop-color="#a88c70"/>
+  </linearGradient>
+  <filter id="bloom-blur" x="-50%" y="-50%" width="200%" height="300%"><feGaussianBlur stdDeviation="6"/></filter>
+  <filter id="halo-blur" x="-50%" y="-50%" width="200%" height="300%"><feGaussianBlur stdDeviation="3"/></filter>
+</defs>
+  <g class="pulse"><path class="rim-path" id="bloom" filter="url(#bloom-blur)"/></g>
+  <g class="pulse"><path class="rim-path" id="halo-shadow" filter="url(#halo-blur)"/><path class="rim-path" id="halo"/></g>
+  <path class="rim-path" id="edge"/>
+</svg>
+<dialog id="notch" aria-label="Notch trial"><div class="dialog-body notch-content decision-sheet">
+  <div class="dialog-title"><div>
+    <div class="decision-context"><span>tasktap</span><span>Codex</span><span>1 of 1</span></div>
+    <h2>Keep the detailed log in the release notes?</h2>
+  </div></div>
+  <div class="block"><button class="decision-btn" type="button"><kbd>1</kbd> Keep it</button><button class="decision-btn" type="button"><kbd>2</kbd> Leave it out</button></div>
+  <form id="capture" class="field"><label for="field">Reply or capture</label><input id="field" autocomplete="off" placeholder="Type and press Enter"></form>
+</div></dialog>
+<script src="notch.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+/* Trial-only additions. The decision rim reproduces native/WorkspaceDecisionRim.swift in SVG. */
+#rim{position:fixed;top:0;left:0;z-index:6;pointer-events:none;overflow:visible;display:none}
+.trial-rim:not(.notch-open) #rim{display:block}
+.rim-path{fill:none;stroke-linecap:round;stroke-linejoin:round}
+#bloom{stroke:rgb(230 163 94);stroke-width:5;opacity:.9}
+#halo,#halo-shadow{stroke:rgb(255 199 122/.16);stroke-width:1}
+#halo-shadow{opacity:.45}
+#edge{stroke:url(#metal);stroke-width:1;opacity:.1}
+@media(prefers-reduced-motion:no-preference){.trial-rim .pulse{animation:rim-pulse 600ms ease-in-out 4 alternate}}
+@keyframes rim-pulse{from{opacity:.62}to{opacity:.9}}
+#notch .block{display:grid;gap:var(--s-icon)}
+#capture{display:grid;gap:var(--s-small)}

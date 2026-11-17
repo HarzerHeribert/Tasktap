@@ -7,7 +7,7 @@ use crate::ids::{
     ThoughtId, Time,
 };
 use crate::records::{
-    Collection, Isolate, Mode, PrefKey, PrefValue, Question, QuestionKind, Response, Source,
+    Collection, Isolate, Mode, PrefKey, PrefValue, Question, QuestionKind, Response, Set, Source,
     Stroke, Thought, TurnResult,
 };
 use serde::{Deserialize, Serialize};
@@ -39,7 +39,8 @@ pub struct Revision {
     pub rev: Rev,
 }
 
-/// `put`: writes plain data. Fields the state machine owns cannot be named here.
+/// `put`: writes plain data. Fields the state machine owns cannot be named
+/// here: a patch with a field it does not have is `invalid`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct Put {
@@ -86,6 +87,7 @@ impl From<PrefPatch> for PrefValue {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct LayoutPatch {
     #[cfg_attr(test, ts(type = "unknown"))]
@@ -94,6 +96,7 @@ pub struct LayoutPatch {
 
 /// The editable fields of a project; a missing one is left as it is.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct ProjectPatch {
     pub name: Option<String>,
@@ -104,6 +107,7 @@ pub struct ProjectPatch {
 
 /// The editable fields of a note; a missing one is left as it is.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct NotePatch {
     pub text: Option<String>,
@@ -214,7 +218,8 @@ pub struct Settle {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct Ask {
-    /// The asker's key: asking again with it reaches the same question.
+    /// The asker's key, kept per session: asking again with it reaches the
+    /// same question, and the same key from another session is another one.
     pub request: String,
     #[serde(flatten)]
     pub kind: QuestionKind,
@@ -223,7 +228,8 @@ pub struct Ask {
 }
 
 /// `question.withdraw` and `question.received`: the asker names its question
-/// by its own key, the only name it holds while it waits.
+/// by its own key, the only name it holds while it waits. The key reaches
+/// only its own session's questions.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct AskKey {
@@ -272,7 +278,8 @@ pub enum Event {
     TurnInterrupted,
     /// The agent asked in its terminal and waits there, not on the core: a
     /// terminal-only question (design §6), bound to the session's turn and
-    /// keyed by the turn and `request`, the agent's own id for the call.
+    /// keyed by the session, the turn and `request`, the agent's own id for
+    /// the call.
     Question {
         question: Ask,
     },
@@ -408,6 +415,17 @@ pub struct FixtureLaunch {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct FixtureClock {
     pub now: Time,
+}
+
+/// `fixture.records`: writes rows only the state machine writes otherwise, so
+/// records can be proven without it (design §13): the thoughts and projects
+/// given are inserted or replaced and the results inserted, in one
+/// transaction published like a `put`'s. Other collections are `invalid`.
+/// Only a core built with its test fixtures answers it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct FixtureRecords {
+    pub sets: Vec<Set>,
 }
 
 /// `project.add`. The reply is the id of the project that holds the folder,

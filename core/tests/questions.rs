@@ -8,15 +8,15 @@ mod common;
 use common::*;
 use serde_json::{Value, json};
 use std::fmt::Debug;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tasktap_core::client::Client;
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
     Action, AddProject, AnswerQuestion, Ask, Assign, AttemptId, CallId, Capture, Changes, Control,
-    Event as Said, FixtureCandidate, FixtureRoute, Frame, Input, Mode, Outcome, Phase, Place,
-    PrefPatch, ProjectId, Put, PutTarget, QuestionId, QuestionKind, QuestionSource, QuestionState,
-    Reason, Ref, ReplyVia, Response, Retire, Rev, Secret, SessionState, Settle, Source, Start,
-    Status, TerminalState, Thought, ThoughtId, When, Workdir,
+    Event as Said, FixtureCandidate, FixtureClock, FixtureRoute, Frame, History, Input, Limit,
+    Mode, Outcome, Phase, Place, PrefPatch, ProjectId, Put, PutTarget, QuestionId, QuestionKind,
+    QuestionSource, QuestionState, Reason, Ref, ReplyVia, Response, Retire, Rev, Secret,
+    SessionState, Settle, Source, Start, Status, TerminalState, Thought, ThoughtId, When, Workdir,
 };
 
 fn code<T: Debug>(result: Result<T, Error>) -> Code {
@@ -167,6 +167,66 @@ fn a_hold_ends_on_a_real_timer_on_the_wall_clock() {
     s.w.until("the hold ends", |m| m.status(t) == Status::Working);
     assert!(began.elapsed().as_millis() >= 900, "{:?}", began.elapsed());
     assert_eq!(s.log().launched.len(), 1);
+}
+
+#[test]
+fn a_held_thought_keeps_the_core_alive_after_its_clients_leave() {
+    let data = Folder::new("qalive");
+    let core = Core::start_with(&data.0, &["--idle-ms", "200"]);
+    let mut s = Scene::on(core, data);
+    let t = s.capture("fix the build");
+    assert_eq!(s.w.model.status(t), Status::Routed);
+    let Scene {
+        mut core, w, now, ..
+    } = s;
+    drop(w);
+    // Elapsed time is what is being tested here, not a way to wait for an event.
+    std::thread::sleep(Duration::from_millis(600));
+    assert!(core.running(), "the core left with a hold armed");
+
+    // The hold ends and launches; then nothing keeps the core.
+    let mut w = core.watch();
+    let now = time(now + HOLD_MS);
+    w.ok::<call::FixtureClock>(&FixtureClock { now });
+    assert_eq!(w.model.status(t), Status::Working);
+    drop(w);
+    core.wait();
+}
+
+#[test]
+fn a_hold_that_ends_with_nobody_connected_lets_the_core_go() {
+    let data = Folder::new("qgone");
+    let mut core = Core::start_with(&data.0, &["--idle-ms", "100"]);
+    let mut w = core.watch();
+    let folder = data.0.join("app");
+    std::fs::create_dir_all(&folder).unwrap();
+    let add = AddProject {
+        id: ProjectId::mint(),
+        folder: folder.to_str().unwrap().into(),
+        name: None,
+    };
+    let route = clear(w.ok::<call::ProjectAdd>(&add));
+    w.ok::<call::FixtureScript>(&tasktap_proto::FixtureScript {
+        route,
+        refuse: None,
+    });
+    let target = PutTarget::Prefs(PrefPatch::Hold(1));
+    w.ok::<call::Put>(&Put {
+        target,
+        if_rev: None,
+    });
+    w.ok::<call::ThoughtCapture>(&typed(ThoughtId::mint(), "fix the build"));
+    drop(w);
+    // The process ending is what is being waited for; it has no event to wait on.
+    let left = Instant::now();
+    while core.running() {
+        assert!(
+            left.elapsed() < Duration::from_secs(20),
+            "the core never left"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(left.elapsed() >= Duration::from_millis(900));
 }
 
 #[test]
@@ -402,6 +462,49 @@ fn settling_keeps_or_discards_pending_changes_through_the_launcher() {
     let e = s.w.call::<call::ThoughtSettle>(&discard).unwrap_err();
     assert_eq!((e.code, e.message.as_str()), (Code::Failed, "main moved"));
     assert_eq!(changes(&s, refused.id), Changes::Pending);
+}
+
+#[test]
+fn reading_an_ended_thought_clears_done_and_lets_it_leave_for_history() {
+    let mut s = Scene::new("qread");
+    let (t, _, mut agent) = s.launch("fix the build");
+    let read = Ref { id: t };
+    assert_eq!(code(s.w.call::<call::ThoughtRead>(&read)), Code::Conflict);
+    agent.finish("Fixed.");
+    s.w.sync();
+    let done = (s.w.model.status(t), s.w.model.glance().done);
+    assert_eq!(done, (Status::Done, 1));
+
+    // 200 newer finished thoughts; unread, this one stays live all the same.
+    let row = s.w.model.thought(t).clone();
+    let newer: Vec<Thought> = (0..200)
+        .map(|i| Thought {
+            id: ThoughtId::mint(),
+            text: format!("newer {i}"),
+            session_id: None,
+            read: true,
+            ..row.clone()
+        })
+        .collect();
+    let sets = json!([{ "c": "thoughts", "put": newer }]);
+    let written = s.w.raw("fixture.records", json!({ "sets": sets }));
+    assert!(matches!(written, Outcome::Ok(_)));
+    assert!(s.w.model.thoughts.contains_key(&t));
+
+    // Read, ended and with nothing to settle, it is finished: it leaves for history.
+    s.w.ok::<call::ThoughtRead>(&read);
+    assert_eq!(s.w.model.glance().done, 0);
+    assert!(!s.w.model.thoughts.contains_key(&t));
+    assert!(s.w.model.results.is_empty());
+    let page = s.w.ok::<call::History>(&History {
+        before: None,
+        limit: Limit::MAX,
+    });
+    let left: Vec<_> = page.thoughts.iter().map(|h| (h.id, h.read)).collect();
+    assert_eq!(left, [(t, true)]);
+    assert!(page.results.iter().any(|r| r.thought_id == t));
+    // Reading it again changes nothing.
+    s.w.ok::<call::ThoughtRead>(&read);
 }
 
 #[test]

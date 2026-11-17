@@ -4,8 +4,9 @@
 use crate::call::{self, Call, Visit};
 use crate::{
     Access, Control, MAX_CREDIT, MAX_DATA, MAX_DATA_FRAME, MAX_FRAME, MAX_PENDING_CALLS,
-    MAX_STREAMS, Opened, VERSION,
+    MAX_STREAMS, Opened, PrefKey, VERSION,
 };
+use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use ts_rs::{TS, TypeVisitor};
@@ -67,6 +68,22 @@ fn typescript() -> String {
     ] {
         writeln!(out, "export const {name} = {value};").unwrap();
     }
+    let defaults: Map<String, Value> = (PrefKey::ALL.iter())
+        .map(|key| {
+            let mut pref = serde_json::to_value(key.default()).unwrap();
+            (
+                pref["id"].as_str().unwrap().to_owned(),
+                pref["value"].take(),
+            )
+        })
+        .collect();
+    writeln!(
+        out,
+        "/** The value of each preference while none is stored: deleting one restores it. */\n\
+         export const PREF_DEFAULTS: {{ [K in PrefKey]: Extract<Pref, {{ id: K }}>[\"value\"] }} = {};",
+        Value::Object(defaults)
+    )
+    .unwrap();
     out.push('\n');
     for declaration in calls.types.0.values() {
         out.push_str(declaration);

@@ -24,8 +24,10 @@ mod watchdog;
 pub use watchdog::Watchdog;
 
 pub const EXE: &str = env!("CARGO_BIN_EXE_tasktap");
-/// Seconds a thought is held when the preference is unset (`state::DEFAULT_HOLD`).
-pub const HOLD_MS: u64 = 5000;
+/// Milliseconds a thought is held while the preference is unset.
+pub const HOLD_MS: u64 = match tasktap_proto::PrefKey::Hold.default() {
+    tasktap_proto::PrefValue::Hold(seconds) => seconds as u64 * 1000,
+};
 pub const ALL: [Collection; 10] = [
     Collection::Thoughts,
     Collection::Projects,

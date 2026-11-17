@@ -12,16 +12,15 @@ use crate::conn::Link;
 use crate::serve::Core;
 use crate::store::{self, Tx};
 use serde::Serialize;
-use serde_json::Value;
 use std::collections::HashMap;
 use std::io;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tasktap_proto::call::{self, Call, Code, Error};
+use tasktap_proto::call::{Code, Error};
 use tasktap_proto::{
-    Change, Collection, Control, Delete, Glance, History, HistoryPage, Layout, LayoutPatch, Mode,
-    NotePatch, PrefValue, ProjectPatch, Put, PutTarget, Rev, Revision, Rows, SessionId, Set,
-    Subscribe, Thought, ThoughtId, Time, encode_control,
+    Change, Collection, Control, Delete, Glance, History, HistoryPage, Layout, Mode, NotePatch,
+    PrefValue, ProjectPatch, Put, PutTarget, Rev, Revision, Rows, SessionId, Set, Subscribe,
+    Thought, ThoughtId, Time, encode_control,
 };
 
 /// Most bytes of JSON in one snapshot chunk (design §1).
@@ -182,7 +181,8 @@ impl Core {
 }
 
 /// Sends a committed change to every connection subscribed to a collection
-/// it touches, cut to those collections. Each distinct cut is encoded once.
+/// it touches, cut to those collections. Each distinct cut is encoded once,
+/// in chunks when it is over the frame limit.
 /// A connection over its bound is dropped by its link: nothing here waits.
 pub fn publish(links: &[Rc<Link>], change: Change) {
     let touched = change
@@ -196,7 +196,7 @@ pub fn publish(links: &[Rc<Link>], change: Change) {
             cuts.push(cut);
         }
     }
-    let mut frames: Vec<(Subs, Option<Vec<u8>>)> = cuts
+    let mut frames: Vec<(Subs, Option<Vec<Vec<u8>>>)> = cuts
         .iter()
         .filter(|&&cut| cut != touched)
         .map(|&cut| {
@@ -220,18 +220,31 @@ pub fn publish(links: &[Rc<Link>], change: Change) {
     for link in links {
         let cut = link.subs.get().and(touched);
         match frames.iter().find(|(c, _)| *c == cut) {
-            Some((_, Some(frame))) => link.push(frame),
-            // Over the frame limit: no peer could read it.
+            Some((_, Some(frames))) => frames.iter().for_each(|frame| link.push(frame)),
+            // A row over the frame limit: no peer could read it.
             Some((_, None)) => link.close(false),
             None => {}
         }
     }
 }
 
-fn encode(change: Change) -> Option<Vec<u8>> {
-    let mut out = Vec::new();
-    encode_control(&Control::Change(change), &mut out).ok()?;
-    Some(out)
+/// A change as frames: one when it fits, the usual case; otherwise cut into
+/// chunks at its revision as a snapshot is. `None` when one row is over the
+/// frame limit.
+fn encode(change: Change) -> Option<Vec<Vec<u8>>> {
+    let frame = |control: &Control| {
+        let mut out = Vec::new();
+        encode_control(control, &mut out).ok().map(|()| out)
+    };
+    let control = Control::Change(change);
+    if let Some(one) = frame(&control) {
+        return Some(vec![one]);
+    }
+    let Control::Change(Change { rev, sets, .. }) = control else {
+        return None;
+    };
+    let chunks = chunks(rev, false, sets).into_iter();
+    chunks.map(|c| frame(&Control::Change(c))).collect()
 }
 
 /// `sub`: replaces the connection's subscription; an empty list ends it.
@@ -254,26 +267,32 @@ pub fn sub(cx: &mut Cx, args: Subscribe) -> Result<Revision, Error> {
     core.memory.overlay(&mut sets);
     cx.link.subs.set(subs);
     if !subs.is_empty() {
-        snapshot(cx.link, rev, sets);
+        for change in chunks(rev, true, sets) {
+            cx.link.send(&Control::Change(change));
+        }
     }
     Ok(Revision { rev })
 }
 
-/// Queues a snapshot as `change` frames of at most [`CHUNK`] bytes of JSON.
-/// A row is never split; one larger than a chunk goes alone. There is always
-/// one frame, so a client sees even an empty snapshot begin.
-fn snapshot(link: &Link, rev: Rev, sets: Vec<Set>) {
+/// Cuts sets into changes at revision `rev` of at most [`CHUNK`] bytes of
+/// JSON each, in order: each set's rows, then its deletions. A row is never
+/// split; one larger than a chunk goes alone. There is always one change, so
+/// a client sees even an empty snapshot begin.
+fn chunks(rev: Rev, snap: bool, sets: Vec<Set>) -> Vec<Change> {
     let mut chunk = Chunk {
-        link,
         rev,
+        snap,
         sets: Vec::new(),
         size: ENVELOPE,
-        sent: false,
+        done: Vec::new(),
     };
     macro_rules! split {
         ($set:expr, $($c:ident),*) => {
             match $set {
-                $(Set::$c(rows) => chunk.rows(rows.put, |put| Set::$c(Rows { put, del: Vec::new() })),)*
+                $(Set::$c(rows) => {
+                    chunk.rows(rows.put, |put| Set::$c(Rows { put, del: Vec::new() }));
+                    chunk.rows(rows.del, |del| Set::$c(Rows { put: Vec::new(), del }));
+                })*
                 Set::Glance { put } => chunk.rows(put, |put| Set::Glance { put }),
             }
         };
@@ -284,21 +303,22 @@ fn snapshot(link: &Link, rev: Rev, sets: Vec<Set>) {
             Devices
         );
     }
-    if !chunk.sets.is_empty() || !chunk.sent {
-        chunk.send();
+    if !chunk.sets.is_empty() || chunk.done.is_empty() {
+        chunk.cut();
     }
+    chunk.done
 }
 
-struct Chunk<'a> {
-    link: &'a Link,
+struct Chunk {
     rev: Rev,
+    snap: bool,
     sets: Vec<Set>,
     /// Bytes of JSON in this chunk so far, counting the rows not yet in `sets`.
     size: usize,
-    sent: bool,
+    done: Vec<Change>,
 }
 
-impl Chunk<'_> {
+impl Chunk {
     fn rows<R: Serialize>(&mut self, rows: Vec<R>, wrap: fn(Vec<R>) -> Set) {
         let mut part = Vec::new();
         for row in rows {
@@ -307,7 +327,7 @@ impl Chunk<'_> {
                 if !part.is_empty() {
                     self.sets.push(wrap(std::mem::take(&mut part)));
                 }
-                self.send();
+                self.cut();
             }
             self.size += len + if part.is_empty() { SET } else { 0 };
             part.push(row);
@@ -317,23 +337,17 @@ impl Chunk<'_> {
         }
     }
 
-    fn send(&mut self) {
+    fn cut(&mut self) {
         let sets = std::mem::take(&mut self.sets);
-        let rev = self.rev;
-        self.link.send(&Control::Change(Change {
-            rev,
-            snap: true,
-            sets,
-        }));
+        let (rev, snap) = (self.rev, self.snap);
+        self.done.push(Change { rev, snap, sets });
         self.size = ENVELOPE;
-        self.sent = true;
     }
 }
 
 /// `put`: writes plain data and names the revision of the change.
-pub fn put(cx: &mut Cx, args: Value) -> Result<Revision, Error> {
-    plain(&args)?;
-    let Put { target, if_rev } = call::Put::args(args)?;
+pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
+    let Put { target, if_rev } = args;
     // A row that does not exist yet is at revision 0.
     let check = |rev: Option<Rev>| match if_rev {
         Some(want) if want != rev.unwrap_or(Rev::ZERO) => Err(Error::new(
@@ -391,35 +405,6 @@ pub fn put(cx: &mut Cx, args: Value) -> Result<Revision, Error> {
     .map_err(fail)?;
     let change = tx.commit().map_err(fail)?;
     Ok(published(core, change))
-}
-
-/// Refuses a patch that names a field the collection cannot be put. Serde
-/// would skip it silently, and the caller would believe it wrote a field
-/// the state machine owns.
-fn plain(args: &Value) -> Result<(), Error> {
-    let Some(patch) = args.get("patch").and_then(Value::as_object) else {
-        return Ok(());
-    };
-    let c = args.get("c").and_then(Value::as_str).unwrap_or_default();
-    let editable = match c {
-        "projects" => serde_json::to_value(ProjectPatch::default()),
-        "thoughts" => serde_json::to_value(NotePatch::default()),
-        "layouts" => serde_json::to_value(LayoutPatch { tree: Value::Null }),
-        _ => return Ok(()),
-    }
-    .unwrap_or_default();
-    match patch
-        .keys()
-        .find(|field| editable.get(field.as_str()).is_none())
-    {
-        Some(field) => Err(invalid(format!(
-            "{field} is not plain data; {c} may put {}",
-            editable.as_object().map_or(String::new(), |e| {
-                e.keys().map(String::as_str).collect::<Vec<_>>().join(", ")
-            })
-        ))),
-        None => Ok(()),
-    }
 }
 
 /// `delete`: removes plain data. A preference or layout that is not stored
@@ -489,7 +474,7 @@ fn note(tx: &Tx, id: ThoughtId) -> Result<Thought, Error> {
 /// nothing names the current one, which already holds what was asked.
 fn published(core: &mut Core, change: Option<Change>) -> Revision {
     let rev = change.as_ref().map_or_else(|| core.store.rev(), |c| c.rev);
-    core.publish(change);
+    crate::effects::published(core, change);
     Revision { rev }
 }
 
@@ -543,61 +528,40 @@ fn now() -> Time {
     Time::new(since.map_or(0, |d| d.as_millis() as u64)).unwrap_or(Time::ZERO)
 }
 
-/// The name of the test-only call that writes rows the state machine would
-/// otherwise write, so records can be proven before it exists (design §13).
+/// `fixture.records`: rows only the state machine writes otherwise, written
+/// and published as a `put`'s are, so `glance` follows them.
 #[cfg(feature = "fixtures")]
-pub const FIXTURE: &str = "fixture.records";
-
-/// `fixture.records {sets}`: inserts or replaces the thoughts and projects
-/// given and inserts the results, in one transaction, then sets the glance
-/// row if one is given. Replies like `put`.
-#[cfg(feature = "fixtures")]
-pub fn fixture(core: &mut Core, id: tasktap_proto::CallId, args: Value) -> Control {
-    #[derive(serde::Deserialize)]
-    struct Args {
-        sets: Vec<Set>,
-    }
-    let write = |core: &mut Core| -> Result<Revision, Error> {
-        let Args { sets } = serde_json::from_value(args).map_err(|e| invalid(e.to_string()))?;
-        let mut tx = core.store.begin().map_err(fail)?;
-        let mut glance = None;
-        for set in sets {
-            match set {
-                Set::Thoughts(rows) => {
-                    for t in rows.put {
-                        match tx.thought(t.id).map_err(fail)? {
-                            Some(_) => tx.update_thought(&t),
-                            None => tx.insert_thought(&t),
-                        }
-                        .map_err(fail)?;
+pub fn fixture(cx: &mut Cx, args: tasktap_proto::FixtureRecords) -> Result<Revision, Error> {
+    let core = &mut *cx.core;
+    let mut tx = core.store.begin().map_err(fail)?;
+    for set in args.sets {
+        match set {
+            Set::Thoughts(rows) => {
+                for t in rows.put {
+                    match tx.thought(t.id).map_err(fail)? {
+                        Some(_) => tx.update_thought(&t),
+                        None => tx.insert_thought(&t),
                     }
+                    .map_err(fail)?;
                 }
-                Set::Projects(rows) => {
-                    for p in rows.put {
-                        match tx.project(p.id).map_err(fail)? {
-                            Some(_) => tx.update_project(&p),
-                            None => tx.insert_project(&p),
-                        }
-                        .map_err(fail)?;
-                    }
-                }
-                Set::Results(rows) => {
-                    for r in rows.put {
-                        tx.insert_result(&r, "").map_err(fail)?;
-                    }
-                }
-                Set::Glance { put } => glance = put.into_iter().last(),
-                _ => return Err(invalid("not a fixture collection".into())),
             }
+            Set::Projects(rows) => {
+                for p in rows.put {
+                    match tx.project(p.id).map_err(fail)? {
+                        Some(_) => tx.update_project(&p),
+                        None => tx.insert_project(&p),
+                    }
+                    .map_err(fail)?;
+                }
+            }
+            Set::Results(rows) => {
+                for r in rows.put {
+                    tx.insert_result(&r, "").map_err(fail)?;
+                }
+            }
+            _ => return Err(invalid("not a fixture collection".into())),
         }
-        let change = tx.commit().map_err(fail)?;
-        core.publish(change);
-        if let Some(glance) = glance {
-            core.set_glance(glance).map_err(fail)?;
-        }
-        Ok(Revision {
-            rev: core.store.rev(),
-        })
-    };
-    call::Put::reply(id, write(core))
+    }
+    let change = tx.commit().map_err(fail)?;
+    Ok(published(core, change))
 }

@@ -24,7 +24,7 @@ Written 2026-11-17, revised the same day after two reviews. It follows [rebuild-
 | Host → UI | 50 named entry points + 45 `workspaceCommand` actions | 0 events: 15 record collections; 1 call `ui.do` with 23 actions |
 | Terminal protocol | 12 socket ops + 9 bridge ops, base64 in JSON lines | 3 calls + 1 binary stream |
 | Agent ↔ app | about 25 kinds of run-folder, inbox and service file; 2 MCP tools | 6 calls: `session.event`, `session.adopt`, `question.ask`, `question.withdraw`, `question.received`, `shim.hold` |
-| Whole protocol | about 235 kinds | 63 calls (43 core, 18 host, 1 page, 1 shim) in 10 frame kinds |
+| Whole protocol | about 235 kinds | 64 calls (44 core, 18 host, 1 page, 1 shim) in 10 frame kinds |
 | Recurring timers | 7: 50 ms, 80 ms, 0.2 s, 0.7 s, 8 s, 20 s, 24 h (inv. §10) | core 0. App 1 (the daily update check) once Phase 4 replaces the 80 ms hover timer |
 | Long-lived processes, one agent running | 4: app, Python bridge, Python service, Python `present` wrapper; +1 polling `ask-user` per open question; a Python start per hook event and per 8 s scan | 2: app and core; one native start (about 2 ms) per hook event. An agent started by hand in a shell keeps one sleeping shim, as today |
 | Languages in the core's area | Python, Swift, JavaScript, Node (observers), AppleScript, shell | Rust |
@@ -54,7 +54,7 @@ type Frame =                                   // kind 0: one JSON object
 // kind 1: stream bytes = u32 stream id, then raw bytes
 ```
 
-**Subscriptions.** `sub {collections}` is the only form: no filters, no limits, one subscription per connection (a second `sub` replaces the first; an empty list ends it). The core answers in one step on its single thread: the snapshot as `change` frames marked `snap` (chunks of at most 256 KiB), then `reply {rev: R}`, then every change after R that touches a named collection. Nothing can fall between the snapshot and the first change. One `change` is one committed transaction, so a client never sees half of it. Memory-only collections use the same counter. Revisions order changes within one run of the core; a client always starts from a snapshot.
+**Subscriptions.** `sub {collections}` is the only form: no filters, no limits, one subscription per connection (a second `sub` replaces the first; an empty list ends it). The core answers in one step on its single thread: the snapshot as `change` frames marked `snap` (chunks of at most 256 KiB), then `reply {rev: R}`, then every change after R that touches a named collection. Nothing can fall between the snapshot and the first change. One `change` is one committed transaction, so a client never sees half of it; one too large for a frame is cut like a snapshot, into frames with the same `rev` in a row. Memory-only collections use the same counter. Revisions order changes within one run of the core; a client always starts from a snapshot.
 
 **Live rows only.** Collections hold what is live. A thought is live until it is finished (done or failed, read, settled) and 200 newer finished thoughts exist; its sessions, questions and results are live with it. A row that stops being live is a `del` in the change that caused it. Older thoughts are fetched with `history {before?, limit ≤ 100}`, which returns them with their questions and results; they are not subscribed. This bounds every snapshot. I found no case that needs more.
 
@@ -62,10 +62,10 @@ type Frame =                                   // kind 0: one JSON object
 
 Calls without a mark are built in Phase 1; (2), (3) and (6) name the phase that adds the rest. The protocol crate holds only what exists.
 
-| Area | Core calls (43) |
+| Area | Core calls (44) |
 | --- | --- |
 | Records | `sub`, `put`, `delete`, `history` |
-| Thoughts | `thought.capture`, `thought.update`, `thought.start`, `thought.stop`, `thought.retry`, `thought.settle` (3) |
+| Thoughts | `thought.capture`, `thought.update`, `thought.start`, `thought.stop`, `thought.retry`, `thought.read`, `thought.settle` (3; in Phase 1 through the fixture launcher only) |
 | Questions | `question.ask`, `question.answer`, `question.withdraw`, `question.received`, `question.focus` |
 | Sessions | `session.event`, `session.adopt` (2), `session.resume` (2) |
 | Terminals (2) | `terminal.open`, `terminal.resize`, `terminal.stop` |
@@ -124,9 +124,9 @@ The inventory's headings say 15 and 17 types for §1.5 and §1.6; its tables lis
 
 | Topic | Decision |
 | --- | --- |
-| Lifetime | Runs while any client is connected or any terminal is alive. When both become false it arms one 60 s timer and exits when it fires. |
+| Lifetime | Runs while any client is connected, any terminal is alive or a hold timer is armed. When all become false it arms one 60 s timer and exits when it fires. |
 | Single instance | An exclusive file lock on `<data>/core.lock`, held for life. A second `serve` exits 0. The lock, not the socket file, is the truth. |
-| Start on demand | A client that finds no socket starts `tasktap serve --data <dir>` detached and waits on a pipe the core closes once it listens. No retry loop. The data folder is always passed; there is no default path (hazard 7). |
+| Start on demand | A client that finds no socket starts `tasktap serve --data <dir>` detached and waits on a pipe for the `ready` line the core writes once it listens. No retry loop. The data folder is always passed; there is no default path (hazard 7). |
 | Where it runs from | A copy at `<data>/bin/<build>/tasktap`. Windows cannot replace a running program, and hooks of running sessions keep pointing at the build that started them. Unreferenced builds are deleted at start. |
 | Effects happen once | Every call that starts a process names an attempt id. Before spawning, the core commits the attempt with a hash of its arguments. The same id with the same arguments returns the first outcome; with different arguments it is `conflict`. Creates are idempotent on the client-minted id in the same way. |
 | Crash recovery | At start, in one transaction: an attempt with no recorded outcome is `interrupted`; terminals marked running by an earlier boot become `lost`, their sessions `ended`, their thoughts `failed (interrupted)`, their open questions `withdrawn`. Hold timers are not restored: a held thought stays `routed` with no timer and waits for the person to press Start. |
@@ -181,21 +181,22 @@ One SQLite file, `<data>/core.db`. Ids are UUID v7 text, minted by whoever creat
 | `devices` | `id`, `name`, `key_hash`, `last_seen`, `revoked` | |
 | `previews` (2) | `id`, `project_id`, `path`, `kind`, `title` | Replaces `WorkspaceMedia.json`, which never shrinks. |
 | `connections` (3) | `id` (route or speech provider), `model`, `server`, `account`, `has_key`, `consent` | Secrets stay in the OS credential store. |
+| `seen_events` | `session_id`, `event` | The event ids already applied, so a repeat is ignored (the guards below). Emptied at start. |
 | `meta` | `core_id`, `boot`, `import_v1` | |
 
 ### One state machine
 
-Only `state::apply(event)` writes a thought's `phase` and a session's `state`. A thought's **status** is derived in the same transaction: **needs you** while the thought has any open question, otherwise its phase (captured, routed, working, done, failed). A session shows `asking` by the same rule. So answering one of several questions does not clear needs you. Event names are the observer's (inv. §5.3). The receipt, row and JS vocabularies (Opening, Opened, Closed, Copied, Delivered, Complete, Connected, Queued, Saved, Last seen, Awaiting agent) are dropped.
+Only `state::apply(event)` writes a thought's `phase` and a session's `state`, apart from the store's recovery pass at open (§3). A thought's **status** is derived in the same transaction: **needs you** while the thought has any open question, otherwise its phase (captured, routed, working, done, failed). A session shows `asking` by the same rule. So answering one of several questions does not clear needs you. Event names are the observer's (inv. §5.3). The receipt, row and JS vocabularies (Opening, Opened, Closed, Copied, Delivered, Complete, Connected, Queued, Saved, Last seen, Awaiting agent) are dropped.
 
 | Event | Thought phase | Session state |
 | --- | --- | --- |
 | `thought.capture` | → captured | – |
-| route `clear`; a router question answered; the person picks a destination | captured → routed. The hold timer starts (a preference; 0 means none) | – |
+| route `clear`; a router question answered; the person picks a destination | captured → routed. The hold timer starts (a preference, 5 s by default; 0 means none) | – |
 | route `ambiguous` | stays captured; a router question opens | – |
 | route `unknown` | stays captured, mode becomes `note` (an idea) | – |
 | hold ends, or `thought.start` | routed → working, after the attempt is committed | new session: starting. Follow-up: delivered as §7 allows |
 | `thought.stop` before launch (Undo) | routed → captured | – |
-| launch fails | → failed | ended |
+| launch fails | → failed | a new session ends; a follow-up's session is left as it is |
 | `ready` | – | starting → idle |
 | `turn_started` | working. Binds the waiting follow-up; a prompt typed by hand creates its thought here | → working |
 | `activity` | – | – (memory-only text) |
@@ -207,8 +208,9 @@ Only `state::apply(event)` writes a thought's `phase` and a session's `state`. A
 | `exited(code)` | working → failed; done if code 0 from an agent that sends no events | → ended; its open questions are withdrawn |
 | `lost` (found at core start) | working → failed (interrupted); routed stays routed, timer gone | → ended |
 | `thought.stop` after launch | → failed (stopped) | process stopped, → ended |
-| `thought.retry` | failed → routed | – |
-| `thought.settle` | done; changes pending → kept or discarded | must be ended (§7) |
+| `thought.retry` | failed → routed, unread | – |
+| `thought.read` | done or failed: read (finished once nothing is pending, §1) | – |
+| `thought.settle` | done or failed; changes pending → kept or discarded | must be ended (§7) |
 
 Guards kept from 1.2: events from an old token, a sub-agent or a different turn are ignored; event ids are deduplicated; an event that does not fit the current state changes nothing.
 
@@ -216,7 +218,7 @@ Guards kept from 1.2: events from an old token, a sub-agent or a different turn 
 
 One record and one flow replace the file inbox (path A) and the observer display (path B).
 
-1. **Ask.** A question is opened by the core's router, by `question.ask` from `tasktap ask`, or by the adapter reading a `session.event`. It is idempotent on `request_key` (for `ask`, its `request` argument; for a hook, the session, turn and the agent's own call id): the same key with the same content is the same question; different content is an error. A request never changes.
+1. **Ask.** A question is opened by the core's router, by `question.ask` from `tasktap ask`, or by the adapter reading a `session.event`. It is idempotent on `request_key` (for `ask`, the session and its `request` argument; for a hook, the session, turn and the agent's own call id): the same key with the same content is the same question; different content is an error. The key is per session, so one session's token never reaches another session's question. A request never changes.
 2. **Show.** The thought's status becomes needs you, `glance` changes, the core calls `host.notify`. `glance.question` is the focused question (the oldest open one unless `question.focus` chose another), so a host can bind the affirm and deny keys with no page running.
 3. **Answer.** `question.answer {id, …}` or `input {answer.affirm | answer.deny, question}`, from a device only. One transaction inserts the `answers` row (its key is the question id, so a question is settled once, and only by an answer that names it) and sets `answered`. Answering a withdrawn question is `gone`.
 

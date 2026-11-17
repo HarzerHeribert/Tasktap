@@ -7,6 +7,8 @@ export const MAX_DATA = 65531;
 export const MAX_CREDIT = 4194304;
 export const MAX_PENDING_CALLS = 64;
 export const MAX_STREAMS = 64;
+/** The value of each preference while none is stored: deleting one restores it. */
+export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] } = {"hold":5};
 
 /**
  * Who may make a call (design §2): authorization is per call.
@@ -40,13 +42,15 @@ export type AnswerQuestion = { id: QuestionId, } & ({ "kind": "affirm" } | { "ki
  */
 export type Ask = {
 /**
- * The asker's key: asking again with it reaches the same question.
+ * The asker's key, kept per session: asking again with it reaches the
+ * same question, and the same key from another session is another one.
  */
 request: string, prompt: string, detail?: string | null, } & ({ "kind": "confirm" } | { "kind": "choice", choices: Array<string>, } | { "kind": "text" });
 
 /**
  * `question.withdraw` and `question.received`: the asker names its question
- * by its own key, the only name it holds while it waits.
+ * by its own key, the only name it holds while it waits. The key reaches
+ * only its own session's questions.
  */
 export type AskKey = { request: string, };
 
@@ -80,6 +84,13 @@ export type Capture = { id: ThoughtId, text: string, strokes: Array<Array<[numbe
 
 /**
  * One committed transaction, or one chunk of a snapshot.
+ *
+ * A snapshot arrives before the reply to `sub` as frames marked `snap`, of
+ * at most 256 KiB of JSON each. A transaction too large for one frame is cut
+ * the same way, without `snap`: several frames in a row with the same `rev`
+ * and nothing between them, each holding whole rows, a set's rows before its
+ * deletions (so a collection may appear in more than one set). Each frame
+ * applies as it arrives; the transaction is whole once the last has.
  */
 export type Change = { rev: Rev, snap?: boolean, sets: Array<Set>, };
 
@@ -167,6 +178,15 @@ delivered: Array<ThoughtId>, killed: Array<TerminalId>, settled: Array<ThoughtId
  * The questions the host would have been told about.
  */
 notified: Array<QuestionId>, };
+
+/**
+ * `fixture.records`: writes rows only the state machine writes otherwise, so
+ * records can be proven without it (design §13): the thoughts and projects
+ * given are inserted or replaced and the results inserted, in one
+ * transaction published like a `put`'s. Other collections are `invalid`.
+ * Only a core built with its test fixtures answers it.
+ */
+export type FixtureRecords = { sets: Array<Set>, };
 
 export type FixtureRoute = { "confidence": "clear", to: Place, brief: string, } | { "confidence": "ambiguous", prompt: string, candidates: Array<FixtureCandidate>, } | { "confidence": "unknown" };
 
@@ -365,7 +385,8 @@ export type ProjectKind = "folder" | "scratch";
 export type ProjectPatch = { name?: string | null, color?: string | null, aliases?: Array<string> | null, isolate?: Isolate | null, };
 
 /**
- * `put`: writes plain data. Fields the state machine owns cannot be named here.
+ * `put`: writes plain data. Fields the state machine owns cannot be named
+ * here: a patch with a field it does not have is `invalid`.
  */
 export type Put = {
 /**
@@ -606,6 +627,7 @@ export type Calls = {
   "thought.stop": { args: Ref<ThoughtId>; result: null; access: "device" };
   "thought.retry": { args: Ref<ThoughtId>; result: null; access: "device" };
   "thought.settle": { args: Settle; result: null; access: "device" };
+  "thought.read": { args: Ref<ThoughtId>; result: null; access: "device" };
   "question.ask": { args: Ask; result: Answer; access: "session" };
   "question.answer": { args: AnswerQuestion; result: null; access: "device" };
   "question.withdraw": { args: AskKey; result: null; access: "session" };
@@ -621,4 +643,5 @@ export type Calls = {
   "fixture.stream": { args: FixtureStream; result: Opened; access: "device" };
   "fixture.script": { args: FixtureScript; result: FixtureLog; access: "device" };
   "fixture.clock": { args: FixtureClock; result: null; access: "device" };
+  "fixture.records": { args: FixtureRecords; result: Revision; access: "device" };
 };

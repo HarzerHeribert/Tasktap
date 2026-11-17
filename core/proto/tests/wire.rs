@@ -185,6 +185,7 @@ fn every_call_round_trips() {
         (),
         seen,
     );
+    round_trip::<call::ThoughtRead>(Ref { id: id(1) }, (), seen);
     for kind in [
         QuestionKind::Confirm,
         QuestionKind::Text,
@@ -332,10 +333,15 @@ fn every_call_round_trips() {
         round_trip::<call::FixtureScript>(script, log, seen);
     }
     round_trip::<call::FixtureClock>(FixtureClock { now: time(5) }, (), seen);
+    let sets = vec![Set::Thoughts(Rows {
+        put: vec![thought()],
+        del: vec![],
+    })];
+    round_trip::<call::FixtureRecords>(FixtureRecords { sets }, Revision { rev: rev(8) }, seen);
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 25);
+    assert_eq!(Name::ALL.len(), 27);
 }
 
 #[test]
@@ -366,7 +372,7 @@ fn access_follows_the_authorization_table() {
             "session.event"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 19);
+    assert_eq!(by(Access::Device).len(), 21);
     for (access, allowed) in [
         (Access::Anyone, [true, true, true]),
         (Access::Device, [true, false, false]),
@@ -393,6 +399,16 @@ fn arguments_of_the_wrong_shape_are_invalid() {
         call::History::args(json!({"limit": 100})).unwrap().limit,
         Limit::MAX
     );
+    // A patch names only fields it has: the others belong to the state machine.
+    let id: ProjectId = id(1);
+    for (c, patch) in [
+        ("projects", json!({"name": "ok", "open": false})),
+        ("thoughts", json!({"text": "ok", "phase": "done"})),
+        ("layouts", json!({"tree": {}, "rev": 1})),
+    ] {
+        let put = call::Put::args(json!({"c": c, "id": id, "patch": patch}));
+        assert_eq!(put.unwrap_err().code, Code::Invalid, "{c}");
+    }
 }
 
 #[test]
@@ -481,6 +497,25 @@ fn bootstrap_frames_from_a_newer_peer_still_decode() {
             why: RefuseWhy::Unknown
         })
     );
+}
+
+#[test]
+fn every_preference_default_is_in_the_typescript() {
+    let ts = include_str!("../protocol.ts");
+    let line = ts
+        .lines()
+        .find(|l| l.starts_with("export const PREF_DEFAULTS"));
+    let (_, json) = line.unwrap().split_once(" = ").unwrap();
+    let defaults: serde_json::Value = serde_json::from_str(json.trim_end_matches(';')).unwrap();
+    assert_eq!(defaults.as_object().unwrap().len(), PrefKey::ALL.len());
+    for key in PrefKey::ALL {
+        let pref = serde_json::to_value(key.default()).unwrap();
+        assert_eq!(
+            defaults[pref["id"].as_str().unwrap()],
+            pref["value"],
+            "{key:?}"
+        );
+    }
 }
 
 #[test]

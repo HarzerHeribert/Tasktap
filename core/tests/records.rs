@@ -11,11 +11,11 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tasktap_core::client::{self, Client};
 use tasktap_proto::call::{self, Call, Code};
 use tasktap_proto::{
-    Auth, CallId, Change, Collection, Control, Delete, DeviceId, Frame, Glance, HEADER, Hello,
-    History, Isolate, LayoutPatch, Limit, Mode, NotePatch, Outcome, Phase, Pref, PrefKey,
-    PrefPatch, PrefValue, Project, ProjectId, ProjectKind, ProjectPatch, Put, PutTarget, Register,
-    Request, ResultId, ResultKind, Retire, Rev, Revision, Role, Rows, Secret, SessionId, Set,
-    Source, Subscribe, Thought, ThoughtId, Time, TurnResult, VERSION, Versions, When,
+    Auth, CallId, Change, Collection, Control, Delete, DeviceId, FixtureClock, FixtureRecords,
+    Frame, Glance, HEADER, Hello, History, Isolate, LayoutPatch, Limit, Mode, NotePatch, Outcome,
+    Phase, Pref, PrefKey, PrefPatch, PrefValue, Project, ProjectId, ProjectKind, ProjectPatch, Put,
+    PutTarget, Register, Request, ResultId, ResultKind, Retire, Rev, Role, Rows, Secret, SessionId,
+    Set, Source, Status, Subscribe, Thought, ThoughtId, Time, TurnResult, VERSION, Versions, When,
     encode_control,
 };
 
@@ -80,6 +80,11 @@ impl Core {
     /// A new connection, as a newly registered device. A frame that never
     /// comes fails the test instead of hanging it.
     fn device(&self) -> Client {
+        self.connect(DeviceId::mint(), Some("test"))
+    }
+
+    /// A new connection as the device `id`, registering it under `name` if given.
+    fn connect(&self, id: DeviceId, name: Option<&str>) -> Client {
         let stream = client::connect(&self.data).unwrap();
         #[cfg(unix)]
         stream
@@ -90,11 +95,9 @@ impl Core {
             role: Role::Page,
             client: "records test".into(),
             auth: Some(Auth::Device {
-                device: DeviceId::mint(),
+                device: id,
                 key: Secret([1; 32]),
-                register: Some(Register {
-                    name: "test".into(),
-                }),
+                register: name.map(|name| Register { name: name.into() }),
             }),
             abilities: Vec::new(),
         };
@@ -290,10 +293,8 @@ fn refused(outcome: Outcome) -> Code {
 
 /// Writes rows only the state machine writes otherwise; returns the revision after.
 fn fixture(c: &mut Client, sets: Vec<Set>) -> Rev {
-    match raw(c, "fixture.records", json!({ "sets": sets })) {
-        Outcome::Ok(v) => serde_json::from_value::<Revision>(v).unwrap().rev,
-        Outcome::Err(e) => panic!("{e}"),
-    }
+    let written = c.call::<call::FixtureRecords>(&FixtureRecords { sets });
+    written.unwrap().unwrap_or_else(|e| panic!("{e}")).rev
 }
 
 fn thoughts(put: Vec<Thought>) -> Set {
@@ -368,6 +369,11 @@ fn glance(working: u32) -> Glance {
         question: None,
         retiring: false,
     }
+}
+
+fn wall() -> u64 {
+    let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+    since.unwrap().as_millis() as u64
 }
 
 fn row(value: &impl serde::Serialize) -> Value {
@@ -495,12 +501,9 @@ fn a_subscriber_sees_only_the_collections_it_named() {
     // One change that touches two collections reaches `notes` cut to one.
     let both = vec![projects(vec![renamed]), thoughts(vec![note("n")])];
     let r5 = fixture(&mut w, both);
-    let r3 = fixture(
-        &mut w,
-        vec![Set::Glance {
-            put: vec![glance(2)],
-        }],
-    );
+    // A working thought: `glance` follows it at the next revision.
+    let working = thought(ThoughtId::mint(), Mode::Ask, Phase::Working, "w");
+    let r3 = fixture(&mut w, vec![thoughts(vec![working])]);
     let r4 = hold(&mut w, 6);
 
     // The next change: its revision and the collections it touches.
@@ -512,12 +515,45 @@ fn a_subscriber_sees_only_the_collections_it_named() {
     assert_eq!(seen(&mut prefs), (r1, r#""prefs""#.into()));
     assert_eq!(seen(&mut prefs), (r4, r#""prefs""#.into()));
     assert_eq!(seen(&mut layouts), (r2, r#""layouts""#.into()));
-    assert_eq!(seen(&mut layouts), (r3, r#""glance""#.into()));
+    let rg = Rev::new(r3.get() + 1).unwrap();
+    assert_eq!(seen(&mut layouts), (rg, r#""glance""#.into()));
     assert_eq!(seen(&mut notes), (r5, r#""thoughts""#.into()));
+    assert_eq!(seen(&mut notes), (r3, r#""thoughts""#.into()));
     // Nothing else was sent: subscribing again finds no change queued before it.
     for c in [&mut prefs, &mut layouts, &mut notes, &mut ended] {
         assert!(subscribe(c, &[Collection::Prefs]).before.is_empty());
     }
+}
+
+#[test]
+fn a_device_that_connects_again_writes_and_sends_nothing() {
+    let data = Folder::new();
+    let core = Core::start(&data);
+    let id = DeviceId::mint();
+    drop(core.connect(id, Some("laptop")));
+    let mut s = core.device();
+    let before = subscribe(&mut s, &ALL);
+
+    drop(core.connect(id, None));
+    drop(core.connect(id, None));
+    let after = subscribe(&mut s, &ALL);
+    assert!(after.before.is_empty(), "{:?}", after.before);
+    assert_eq!((after.rev, after.model), (before.rev, before.model));
+
+    // A day later the next connect records it once.
+    let day = 24 * 60 * 60 * 1000;
+    let now = Time::new(wall() + day + 1000).unwrap();
+    let clock = call::FixtureClock::request(CallId(7), &FixtureClock { now });
+    s.send(&clock).unwrap();
+    assert!(matches!(
+        s.recv().unwrap(),
+        Frame::Control(Control::Reply(_))
+    ));
+    drop(core.connect(id, None));
+    let Set::Devices(rows) = one(&mut s, Rev::new(after.rev.get() + 1).unwrap()) else {
+        panic!("expected the device");
+    };
+    assert_eq!((rows.put[0].id, rows.put[0].last_seen), (id, Some(now)));
 }
 
 #[test]
@@ -990,6 +1026,48 @@ fn a_large_snapshot_arrives_in_chunks_and_whole() {
 }
 
 #[test]
+fn a_change_larger_than_a_frame_arrives_whole_in_chunks_of_one_revision() {
+    let data = Folder::new();
+    let core = Core::start(&data);
+    let mut w = core.device();
+    // Six finished thoughts of 200 KiB each, out of the live set behind 200
+    // newer finished ones. No call is over a frame.
+    let big: Vec<Thought> = (0..6)
+        .map(|i| finished(ThoughtId::mint(), &format!("{i}").repeat(200 << 10)))
+        .collect();
+    for t in &big {
+        fixture(&mut w, vec![thoughts(vec![t.clone()])]);
+    }
+    let newer: Vec<Thought> = (0..200)
+        .map(|i| finished(ThoughtId::mint(), &format!("new {i}")))
+        .collect();
+    fixture(&mut w, vec![thoughts(newer.clone())]);
+    let mut s = core.device();
+    let mut model = subscribe(&mut s, &ALL).model;
+    assert!(model.get("thoughts", big[0].id).is_none());
+    let mut late = core.device();
+
+    // Unread, the newer ones are no longer finished, so one small write
+    // brings the six back: a change of more than a frame.
+    let unread = newer.into_iter().map(|t| Thought { read: false, ..t });
+    let rev = fixture(&mut w, vec![thoughts(unread.collect())]);
+    let after = hold(&mut w, 1);
+
+    let changes = until(&mut s, after);
+    let chunks = changes.iter().filter(|c| c.rev == rev).count();
+    assert!(chunks >= 6, "{chunks} chunks");
+    for change in &changes {
+        let mut bytes = Vec::new();
+        encode_control(&Control::Change(change.clone()), &mut bytes).unwrap();
+        let len = bytes.len() - HEADER;
+        assert!(len <= CHUNK, "a chunk of {len} bytes");
+        model.apply(&change.sets);
+    }
+    assert!(big.iter().all(|t| model.get("thoughts", t.id).is_some()));
+    assert_eq!(model, subscribe(&mut late, &ALL).model);
+}
+
+#[test]
 fn a_subscriber_that_stops_reading_is_dropped_and_the_others_get_everything() {
     const WRITES: usize = 80;
     let data = Folder::new();
@@ -1092,20 +1170,23 @@ fn memory_rows_start_over_on_restart_while_stored_rows_and_the_revision_go_on() 
     let snap = subscribe(&mut s, &ALL);
     assert_eq!(snap.model.get("glance", ""), Some(&row(&glance(0))));
 
-    let set = Glance {
+    // `glance` follows the rows: three working, one that needs you, two done and unread.
+    let mut ts: Vec<Thought> = (0..3)
+        .map(|_| thought(ThoughtId::mint(), Mode::Ask, Phase::Working, "w"))
+        .collect();
+    ts.push(Thought {
+        status: Status::NeedsYou,
+        ..thought(ThoughtId::mint(), Mode::Ask, Phase::Working, "q")
+    });
+    ts.extend((0..2).map(|_| thought(ThoughtId::mint(), Mode::Ask, Phase::Done, "d")));
+    let rt = fixture(&mut w, vec![thoughts(ts)]);
+    assert!(matches!(one(&mut s, rt), Set::Thoughts(_)));
+    let rg = Rev::new(rt.get() + 1).unwrap();
+    let sent = Glance {
+        rev: rg,
         needs_you: 1,
         done: 2,
         ..glance(3)
-    };
-    let rg = fixture(
-        &mut w,
-        vec![Set::Glance {
-            put: vec![set.clone()],
-        }],
-    );
-    let sent = Glance {
-        rev: rg,
-        ..set.clone()
     };
     assert_eq!(
         one(&mut s, rg),
@@ -1113,8 +1194,7 @@ fn memory_rows_start_over_on_restart_while_stored_rows_and_the_revision_go_on() 
             put: vec![sent.clone()]
         }
     );
-    // The same value again is no change and takes no revision.
-    assert_eq!(fixture(&mut w, vec![Set::Glance { put: vec![set] }]), rg);
+    // A write that leaves the counts as they were takes no revision for `glance`.
     let rp = hold(&mut w, 12);
     assert_eq!(
         rp.get(),
@@ -1129,7 +1209,18 @@ fn memory_rows_start_over_on_restart_while_stored_rows_and_the_revision_go_on() 
     let core = Core::start(&data);
     let mut c = core.device();
     let after = subscribe(&mut c, &ALL);
-    assert_eq!(after.model.get("glance", ""), Some(&row(&glance(0))));
+    // Counted again from the stored rows, in which recovery failed the working ones.
+    let g: Glance = serde_json::from_value(after.model.get("glance", "").unwrap().clone()).unwrap();
+    assert_eq!(
+        Glance {
+            rev: Rev::ZERO,
+            ..g
+        },
+        Glance {
+            done: 2,
+            ..glance(0)
+        }
+    );
     let hold_row = json!({ "id": "hold", "value": 12, "rev": rp });
     assert_eq!(after.model.get("prefs", PrefKey::Hold), Some(&hold_row));
     assert!(after.rev >= rp);

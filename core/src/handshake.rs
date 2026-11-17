@@ -6,14 +6,17 @@ use crate::conn::Peer;
 use crate::serve::{BUILD, Core};
 use crate::store::Hash;
 use sha2::{Digest, Sha256};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tasktap_proto::{
     Auth, Device, DeviceId, Hello, NO_SHARED_VERSION, RefuseWhy, Register, Rev, Secret, TerminalId,
-    Time, VERSION, Versions, Welcome,
+    VERSION, Versions, Welcome,
 };
 
 /// The protocol versions this build speaks.
 pub const SUPPORTED: Versions = Versions(VERSION, VERSION);
+
+/// Milliseconds a device's `last_seen` stands: a connect within a day of it
+/// writes nothing, so a window that reconnects costs no commit and no change.
+const SEEN: u64 = 24 * 60 * 60 * 1000;
 
 /// Answers `hello`. `Err(None)` ends the connection without a word, because
 /// the store failed and no refusal reason fits.
@@ -70,12 +73,18 @@ fn device(
     register: Option<Register>,
 ) -> Result<DeviceId, Option<RefuseWhy>> {
     let key = hash(key);
+    let now = core.seams.now();
     let mut tx = core.store.begin().map_err(|_| None)?;
     let written = match tx.device(id).map_err(|_| None)? {
         Some((_, stored)) if stored != key => return Err(Some(RefuseWhy::Auth)),
         Some((device, _)) if device.revoked => return Err(Some(RefuseWhy::Revoked)),
+        Some((device, _))
+            if (device.last_seen).is_some_and(|t| now.get().saturating_sub(t.get()) < SEEN) =>
+        {
+            return Ok(id);
+        }
         Some((device, _)) => tx.update_device(&Device {
-            last_seen: now(),
+            last_seen: Some(now),
             ..device
         }),
         None => {
@@ -86,7 +95,7 @@ fn device(
                 id,
                 rev: Rev::ZERO,
                 name,
-                last_seen: now(),
+                last_seen: Some(now),
                 revoked: false,
             };
             tx.insert_device(&device, &key)
@@ -96,9 +105,4 @@ fn device(
     let change = tx.commit().map_err(|_| None)?;
     core.publish(change);
     Ok(id)
-}
-
-fn now() -> Option<Time> {
-    let since = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
-    Time::new(since.as_millis() as u64)
 }

@@ -59,6 +59,13 @@ pub enum Outcome {
 }
 
 /// One committed transaction, or one chunk of a snapshot.
+///
+/// A snapshot arrives before the reply to `sub` as frames marked `snap`, of
+/// at most 256 KiB of JSON each. A transaction too large for one frame is cut
+/// the same way, without `snap`: several frames in a row with the same `rev`
+/// and nothing between them, each holding whole rows, a set's rows before its
+/// deletions (so a collection may appear in more than one set). Each frame
+/// applies as it arrives; the transaction is whole once the last has.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Change {

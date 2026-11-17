@@ -26,18 +26,15 @@ use sha2::{Digest, Sha256};
 // agent said, P a thought's phase, S a session's state, Q a question's state.
 use tasktap_proto::{
     Answer, AttemptId, Capture, Changes, Code, DeviceId, Event as A, Mode, Offset, Outcome,
-    Phase as P, Pref, PrefKey, PrefValue, ProjectId, Question, QuestionId, QuestionKind,
-    QuestionSource, QuestionState as Q, Reason, ReplyVia, Response, ResultKind, Rev, Secret,
-    Session, SessionId, SessionState as S, Source, Status, Terminal, TerminalId, TerminalKind,
-    TerminalState, Thought, ThoughtId, Time, TurnResult,
+    Phase as P, PrefKey, PrefValue, ProjectId, Question, QuestionId, QuestionKind, QuestionSource,
+    QuestionState as Q, Reason, ReplyVia, Response, ResultKind, Rev, Secret, Session, SessionId,
+    SessionState as S, Source, Status, Terminal, TerminalId, TerminalKind, TerminalState, Thought,
+    ThoughtId, Time, TurnResult,
 };
 
 use crate::store::{self, Attempt, AttemptKind, AttemptOutcome, Hash, Tx};
 
 use Event as E;
-
-/// Seconds a routed thought waits for Undo while the `hold` preference is unset.
-pub const DEFAULT_HOLD: u32 = 5;
 
 /// Characters of an answer's first line kept as its result's summary.
 const SUMMARY: usize = 200;
@@ -71,6 +68,8 @@ pub enum Event {
         attempt: AttemptId,
         keep: bool,
     },
+    /// `thought.read`: the person has seen how a thought ended.
+    Read { thought: ThoughtId },
     /// The launcher did what a `Launch` or `Deliver` effect asked. A launch
     /// names the terminal it started, which the caller has stored.
     Launched {
@@ -508,8 +507,10 @@ impl Machine<'_, '_> {
             }
             // thought.stop after launch: → failed (stopped); the process is stopped, → ended.
             (E::Stop { .. }, _, Some(P::Working), ..) => self.stop(some(thought)?, session),
-            // thought.retry: failed → routed.
+            // thought.retry: failed → routed, its next ending unread.
             (E::Retry { .. }, _, Some(P::Failed), ..) => self.retry(some(thought)?),
+            // thought.read: a done or failed thought is read; settled too, it is finished.
+            (E::Read { .. }, _, Some(P::Done | P::Failed), ..) => self.read(some(thought)?),
             // thought.settle: changes pending → kept or discarded, once the session has ended.
             (E::Settle { .. }, _, Some(P::Done | P::Failed), ..) if alive && pending(&thought) => {
                 Err(Error::Conflict(
@@ -543,7 +544,8 @@ impl Machine<'_, '_> {
             Event::Pick { thought, .. }
             | Event::Routed { thought, .. }
             | Event::Stop { thought }
-            | Event::Retry { thought } => self.of_thought(&mut s, *thought)?,
+            | Event::Retry { thought }
+            | Event::Read { thought } => self.of_thought(&mut s, *thought)?,
             Event::HoldEnded { thought, attempt } | Event::Start { thought, attempt } => {
                 let kind = AttemptKind::Launch(*thought);
                 if self.repeated(*attempt, kind, launch_hash(*thought))? {
@@ -739,13 +741,8 @@ impl Machine<'_, '_> {
 
     fn route(&mut self, mut t: Thought, to: Destination, brief: Option<String>) -> Result<()> {
         let (project, session) = self.target(to)?;
-        let hold = match self.tx.pref(PrefKey::Hold)? {
-            Some(Pref {
-                value: PrefValue::Hold(seconds),
-                ..
-            }) => seconds,
-            None => DEFAULT_HOLD,
-        };
+        let pref = self.tx.pref(PrefKey::Hold)?;
+        let PrefValue::Hold(hold) = pref.map_or(PrefKey::Hold.default(), |p| p.value);
         let until = Time::new(self.now.get() + u64::from(hold) * 1000).ok_or(Error::Invalid(
             "the hold would end beyond the clock's range",
         ))?;
@@ -1157,6 +1154,15 @@ impl Machine<'_, '_> {
     fn retry(&mut self, mut t: Thought) -> Result<()> {
         t.phase = P::Routed;
         t.reason = None;
+        t.read = false;
+        self.save(t)
+    }
+
+    fn read(&mut self, mut t: Thought) -> Result<()> {
+        if t.read {
+            return Err(Error::Ignored(Ignored::Repeat));
+        }
+        t.read = true;
         self.save(t)
     }
 

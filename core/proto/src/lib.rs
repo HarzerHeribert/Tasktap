@@ -14,6 +14,11 @@ macro_rules! words {
         #[serde(rename_all = "snake_case")]
         #[cfg_attr(test, derive(ts_rs::TS))]
         pub enum $name { $($(#[$vmeta])* $variant),* }
+
+        impl $name {
+            /// Every word, in order.
+            pub const ALL: &'static [$name] = &[$($name::$variant),*];
+        }
     };
 }
 

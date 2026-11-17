@@ -201,9 +201,7 @@ export class Engine {
   }
 
   setSize(size: number) {
-    this.term.options.fontSize = size;
-    this.size = size;
-    queueFit(this);
+    this.setLook(look, size);
   }
 
   /** Gives the pointer and the keyboard modes back after a program that left them captured

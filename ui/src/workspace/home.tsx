@@ -7,7 +7,7 @@ import type { Question, Thought } from '../../../core/proto/protocol.ts';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useState } from 'preact/hooks';
 import { Capture } from '../capture.tsx';
-import { pending, running, settle, Status } from '../changes.tsx';
+import { next, pending, running, settle, Status, Told } from '../changes.tsx';
 import { Ask } from '../question.tsx';
 import { Answer, I, Mark, type State, elapsed, plural, when } from '../ui.tsx';
 import { Light, useLight } from './light.tsx';
@@ -93,7 +93,7 @@ function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean })
         if ((e.target as HTMLElement) !== e.currentTarget || e.metaKey || e.ctrlKey) return;
         const key = e.key.toLowerCase();
         if (key === 'enter') go();
-        else if (changes && key === 'k') keep(changes);
+        else if (changes && key === 'k') main(changes);
         else if (changes && key === 'd') open({ kind: 'settle', thought: t.id, keep: false });
         else if (changes && key === 'r') open({ kind: 'review', thought: t.id });
         else return;
@@ -103,23 +103,25 @@ function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean })
       <span class="hr-w">{projectName(t.project_id)}</span>
       <span class="hr-t">{title(t)}</span>
       <span class="hr-x">{fact}</span>
-      {kind === 'res' && <span class="hr-d">{changes ? <Status t={changes} /> : null}</span>}
+      {kind === 'res' && <span class="hr-d">{t.workdir ? <Status t={{ ...t, workdir: t.workdir }} /> : null}</span>}
       <time>{kind === 'run' ? elapsed(t.created) : when(t.updated)}</time>
+      {changes && <Told t={changes} />}
       {acts}
     </div>
   );
 }
 
-const keep = (t: Thought & { workdir: NonNullable<Thought['workdir']> }) =>
-  running(t) ? open({ kind: 'settle', thought: t.id, keep: true }) : void settle(t, true);
+type Changed = Thought & { workdir: NonNullable<Thought['workdir']> };
+/** The main action on changes that wait (changes.tsx `next`): a session still running is asked about first, and so is any discard. */
+const main = (t: Changed) => (next(t).keep && !running(t) ? void settle(t, true) : open({ kind: 'settle', thought: t.id, keep: next(t).keep }));
 
 /** Keep, Discard and Review changes, for a result whose changes wait. */
-export function ChangeActs({ t }: { t: Thought & { workdir: NonNullable<Thought['workdir']> } }) {
+export function ChangeActs({ t }: { t: Changed }) {
   return (
     <>
-      <button type="button" class="btn primary" onClick={() => keep(t)}>Keep</button>
-      <button type="button" class="btn" onClick={() => open({ kind: 'settle', thought: t.id, keep: false })}>Discard</button>
-      <button type="button" class="btn" onClick={() => open({ kind: 'review', thought: t.id })}>Review changes</button>
+      <button type="button" class="btn primary" onClick={() => main(t)}>{next(t).label}</button>
+      {next(t).keep && <button type="button" class="btn" onClick={() => open({ kind: 'settle', thought: t.id, keep: false })}>Discard</button>}
+      {next(t).keep && <button type="button" class="btn" onClick={() => open({ kind: 'review', thought: t.id })}>Review changes</button>}
     </>
   );
 }
@@ -228,9 +230,9 @@ export function Home() {
   return (
     <div class="room" style={light.vars}>
     <Light load={asks ? 'asks' : h.running.length ? 'busy' : 'quiet'} />
-    <div class={`home${asks ? ' asks' : h.running.length ? ' busy' : ' quiet'}`} id="main" tabIndex={-1} data-head={ui.head}>
+    <div class={`home${asks ? ' asks' : h.running.length ? ' busy' : ' quiet'}`} id="main" tabIndex={-1}>
       <div class={`hx${two ? ' two' : ''}`} onKeyDown={nav}>
-        <Header invite={!asks} />
+        <Capture raised />
         <div class="cols">
         <div class="col">
         {asks && (
@@ -307,12 +309,6 @@ function useWide() {
     return () => watch.disconnect();
   }, []);
   return wide;
-}
-
-/** The capture line as the page's one inviting control: a field with its destination inside it, lit from behind. */
-/** Home's capture field, in the variant chosen (`ui.head`). */
-export function Header({ invite }: { invite: boolean }) {
-  return <Capture invite={invite} chip go={ui.head === 'composer'} />;
 }
 
 // ——— Earlier: every result by day, with ideas and a find field ———

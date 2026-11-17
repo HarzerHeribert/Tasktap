@@ -9,7 +9,7 @@
 # nothing rerun). It never sends keys or clicks to the system: every step is a line on the app's
 # standard input, and the app is passive (its windows never take the keyboard; no system menu is
 # ever opened). Prints PASS or FAIL per promise; exits non-zero on any FAIL. SHOTS=<folder> also
-# saves captures of the app's own windows (needs screen recording permission for the terminal).
+# saves pictures of the app's own pages, taken by the app itself (`snapshot`), so no permission is involved.
 set -u
 host="$(cd "$(dirname "$0")/.." && pwd)"
 root="$(cd "$host/.." && pwd)"
@@ -34,7 +34,7 @@ ln "$host/binaries/fixtures/tasktap" "$tmp/agents/fixture"
 # The project is a git repository with one commit, so a run can work in a copy of it (Keep and Discard).
 printf '[user]\n\tname = Smoke\n\temail = smoke@example.com\n[init]\n\tdefaultBranch = main\n' > "$tmp/gitconfig"
 export GIT_CONFIG_GLOBAL="$tmp/gitconfig" GIT_CONFIG_NOSYSTEM=1
-git -C "$tmp/project" init -q && echo "smoke" > "$tmp/project/README" && git -C "$tmp/project" add README && git -C "$tmp/project" commit -qm "Start" \
+git -C "$tmp/project" init -q && echo "smoke" > "$tmp/project/README" && echo "*.log" > "$tmp/project/.gitignore" && git -C "$tmp/project" add README .gitignore && git -C "$tmp/project" commit -qm "Start" \
   || { echo "FAIL  the project's repository"; exit 1; }
 app=0
 cleanup() {
@@ -95,10 +95,7 @@ until_has() {
 js() { ask "$1" "eval $2"; }
 shot() {
   [ -n "${SHOTS:-}" ] || return 0
-  mkdir -p "$SHOTS"; send state; sleep 0.5
-  local line id; line=$(grep '"event":"state"' "$log" | tail -1)
-  if [ "${2:-notch}" = notch ]; then id=$(echo "$line" | sed 's/.*"window":\([0-9]*\).*/\1/'); else id=$(echo "$line" | sed 's/.*"workspace":\([0-9]*\).*/\1/'); fi
-  screencapture -x -o -l "$id" "$SHOTS/$1.png" 2>/dev/null
+  mkdir -p "$SHOTS"; send "snapshot ${2:-notch} $SHOTS/$1.png"; sleep 0.5
 }
 # A line typed into the workspace's shown terminal.
 term_line() { js workspace "__ws.type('$1')" >/dev/null; sleep 0.4; }
@@ -122,7 +119,8 @@ shot collapsed-idle
 shot home workspace
 until_has workspace "text .hx" 5 "Open a folder" && ask workspace "text .hx" | grep -q "Agents" \
   && [ "$(js workspace "document.querySelector('#dest-chip')?.textContent")" = Idea ] \
-  && pass "with no folder open, Home offers to open one, lists the agents apart, and its field's chip says Idea" || fail "Home on first run"
+  && [ "$(js workspace "(b => b.textContent + ' ' + b.disabled)(document.querySelector('.home .cap-go'))")" = "↩Keep as an idea true" ] \
+  && pass "with no folder open, Home offers to open one, lists the agents apart; its field's chip says Idea and its button, with its key, that Return keeps an idea" || fail "Home on first run"
 # The light: Home's chrome is drawn once and then nothing while nothing happens, the notch draws no form at all, and
 # the person's choice reaches both pages at once.
 # A window the person has covered draws nothing (WebKit reports it hidden), so a covered window is said, not failed.
@@ -138,6 +136,22 @@ sleep 2
 [ "$(js workspace "__motion.stats.frames")" = "$frames" ] && [ "$(js notch "document.querySelectorAll('canvas').length")" = 0 ] \
   && [ "$(js workspace "document.querySelector('.light')?.dataset.breathe")" = false ] \
   && pass "while idle nothing is drawn and nothing breathes: Home holds its still light, and the notch has no canvas at all" || fail "nothing draws while idle"
+# The sidebar's glyphs: a few, large, each a picture drawn once (no view of the motion's own), still while idle.
+glyphs="[...document.querySelectorAll('.spark .glyph.in')]"
+if [ "$(js workspace "String(document.hidden)")" = true ]; then
+  pass "the sidebar's glyphs: the window is covered, so nothing is drawn yet"
+else
+  until_has workspace "eval String((g => g.length >= 2 && g.every(x => x.offsetWidth >= 56 && x.querySelector('.turn canvas')) && !document.querySelector('.spark .motion'))($glyphs))" 5 "true" \
+    && a="$(js workspace "$glyphs.map(x => x.querySelector('.turn').style.transform).join('|')")" && sleep 1.5 \
+    && [ "$(js workspace "$glyphs.map(x => x.querySelector('.turn').style.transform).join('|')")" = "$a" ] \
+    && pass "the sidebar's foot shows a few large chrome glyphs, each a picture drawn once, at rest while idle" || fail "the sidebar's glyphs" "$(js workspace "$glyphs.length")"
+fi
+# The ambient light is the core's preference: Off removes the light and the glyphs, and the page keeps nothing itself.
+send 'call put {"c":"prefs","id":"motion_ambient","patch":"off"}'
+until_has workspace "eval String(!document.querySelector('.light') && !document.querySelector('.spark .glyph'))" 3 "true" \
+  && send 'call delete {"c":"prefs","id":"motion_ambient"}' \
+  && until_has workspace "eval String(!!document.querySelector('.light') && localStorage.length === 0)" 3 "true" \
+  && pass "Ambient light is the core's preference: Off takes the light and the glyphs away at once, and nothing is kept in the page" || fail "the ambient light preference"
 send 'call put {"c":"prefs","id":"motion_style","patch":"glyphs"}' 'call put {"c":"prefs","id":"motion_lumen","patch":true}'
 until_has workspace "eval document.querySelector('.light .motion').dataset.style" 3 "glyphs" \
   && until_has notch "eval document.querySelector('#notch-art').dataset.glow" 3 "motion" \
@@ -151,7 +165,8 @@ send 'call delete {"c":"prefs","id":"motion_style"}' 'call delete {"c":"prefs","
 
 echo "== An idea, kept before a folder is open, then sent to one"
 send capture
-until_has notch "text #sheet" 5 "Kept as an idea until a folder is open" && pass "the capture shortcut opens one line; with no folder yet it says the thought is kept as an idea" \
+until_has notch "text #sheet" 5 "Keep as an idea" && [ "$(js notch "(c => c.textContent + ': ' + c.title)(document.querySelector('#dest-chip'))")" = "Idea: Kept as an idea until a folder is open" ] \
+  && pass "the capture shortcut opens the field; with no folder yet its chip says Idea and its button that Return keeps an idea" \
   || fail "capture opens"
 send "type notch Hello from the smoke" "key notch Enter"
 until_has notch "text .cap-said" 5 "Kept as an idea" && [ "$(js notch "[...__records.thoughts.values()].find(t=>t.text==='Hello from the smoke')?.mode")" = note ] \
@@ -339,7 +354,15 @@ press workspace "#find-thought" Escape >/dev/null
 until_has workspace "eval __ws.ui.view" 3 "home" && ! ask workspace "text .bar" | grep -q "Earlier" && pass "Escape goes back to Home" || fail "back from Earlier"
 js workspace "(document.querySelector('.home #capture-input').focus(), document.execCommand('insertText', false, 'A thought typed on Home that runs long enough to need a second line of the field, which grows to hold it'), 1)" >/dev/null
 until_has workspace "eval String(document.querySelector('.home #capture-input').clientHeight > 44 && !!document.querySelector('.home .capture #dest-chip'))" 3 "true" \
-  && pass "Home's capture field grows a line for a longer thought, its destination a chip inside it" || fail "Home's capture field"
+  && [ "$(js workspace "(b => b.textContent + ' ' + b.disabled)(document.querySelector('.home .cap-go'))")" = "↩Start false" ] \
+  && pass "Home's capture field grows a line for a longer thought, its destination a chip inside it, its button saying that Return starts it" || fail "Home's capture field"
+# Choosing a destination opens in the field's own row: nothing under the field is covered.
+js workspace "(document.querySelector('.home #dest-chip').click(), 1)" >/dev/null
+inside="((l, f) => l.top >= f.top && l.bottom <= f.bottom && l.left >= f.left && l.right <= f.right)(document.querySelector('.home .cap-list').getBoundingClientRect(), document.querySelector('.home .cap').getBoundingClientRect())"
+until_has workspace "text .home .cap-list" 3 "project" && [ "$(js workspace "String($inside)")" = true ] \
+  && press workspace ".home .cap-list [aria-selected=true]" Escape >/dev/null \
+  && until_has workspace "eval String(!document.querySelector('.cap-list') && document.activeElement.id === 'capture-input')" 3 "true" \
+  && pass "the destinations open inside the field, covering no row, and Escape returns to the thought" || fail "choosing a destination on Home"
 js workspace "(document.execCommand('selectAll'), document.execCommand('delete'), 1)" >/dev/null
 js workspace "(document.querySelector('.fold-b') || document.querySelector('.folds .fold-h').click(), 1)" >/dev/null
 ask workspace "click .fold-b .hr" >/dev/null
@@ -350,8 +373,9 @@ until_has workspace "eval document.querySelector('.sheet #dest-chip')?.textConte
   && pass "New task opens the capture line in a sheet, its destination this workspace" || fail "New task"
 press workspace ".sheet" Escape >/dev/null
 js workspace "(__ws.focusSession('$shell'), __ws.command('bigger'), __ws.command('bigger'), 1)" >/dev/null
-until_has workspace "eval String(__ws.layout('$project').sizes['$shell'] === __ws.engines.get('$shell').term.options.fontSize && __ws.layout('$project').sizes['$shell'] > 0)" 3 "true" \
-  && pass "⌘+ enlarges the terminal's text, remembered in its layout" \
+cell="(e => e.term.options.fontSize * 0.60205)(__ws.engines.get('$shell'))"
+until_has workspace "eval String(__ws.layout('$project').sizes['$shell'] === __ws.engines.get('$shell').size && __ws.layout('$project').sizes['$shell'] > 14 && Math.abs($cell - 10) < 0.01)" 3 "true" \
+  && pass "⌘+ enlarges the terminal's text by a whole pixel of cell width each time (8 to 10 in Hack), remembered in its layout" \
   || fail "text size"
 js workspace "(__ws.command('close-tab'), 1)" >/dev/null
 until_has workspace "text .sheet" 3 "Keep running in background" && ask workspace "text .sheet" | grep -q "Stop session" \
@@ -380,6 +404,14 @@ gone="(l => !__ws.L.tabs(l).includes('$shell') && !l.background.includes('$shell
 [ "$(js workspace "String($gone(__ws.layout('$project')) && $gone(__ws.records.layouts.get('$project').tree))")" = true ] \
   && pass "a stopped session leaves the layout, in the page and in the core's record" || fail "the stopped session left the layout"
 terminals=$(ask workspace "eval __ws.records.terminals.size")
+
+# The terminal's font, size and line height are the core's preferences: every terminal takes them at once.
+send 'call put {"c":"prefs","id":"terminal_size","patch":16}' 'call put {"c":"prefs","id":"terminal_line_height","patch":120}'
+other="[...__ws.engines.values()].find(e => e.id !== '$shell')"
+until_has workspace "eval String((e => !!e && Math.abs(e.term.options.fontSize * 0.60205 - 10) < 0.01 && e.term.options.lineHeight === 1.2)($other))" 3 "true" \
+  && send 'call delete {"c":"prefs","id":"terminal_size"}' 'call delete {"c":"prefs","id":"terminal_line_height"}' \
+  && until_has workspace "eval String((e => Math.abs(e.term.options.fontSize * 0.60205 - 8) < 0.01 && e.term.options.lineHeight === 1)($other))" 3 "true" \
+  && pass "the terminal's size and line height are the core's preferences, taken at once in cells of whole pixels, and deleting them restores Default" || fail "the terminal preferences"
 
 echo "== Keep and Discard"
 send "call put {\"c\":\"projects\",\"id\":\"$project\",\"patch\":{\"isolate\":\"always\"}}"
@@ -423,8 +455,51 @@ echo "mine" > "$tmp/project/kept.txt" && git -C "$tmp/project" commit -qam "Mine
 js workspace "(__ws.show('home'), 1)" >/dev/null
 until_has workspace "text .waiting" 5 "Keep" || fail "the third run waits"
 ask workspace "click .waiting .btn.primary" >/dev/null
-until_has workspace "text .waiting" 30 "Keep was refused" && ask workspace "text .waiting" | grep -q "tasktap/" \
-  && pass "a refused Keep shows the core's reason and the branch to merge by hand" || fail "Keep refused"
+until_has workspace "text .waiting .told" 30 "Not kept" && ask workspace "text .waiting .told" | grep -q "conflict with this thought's in kept.txt" && ask workspace "text .waiting .told" | grep -q "tasktap/" \
+  && pass "a refused Keep says the branch is as it was and shows the core's reason in full: the file in conflict and the branch to merge by hand" || fail "Keep refused" "$(ask workspace "text .waiting")"
+# What the core says when it stops short is shown as what it is. A file of the person's in the way: git's own words
+# name it, in full; once it is moved away, Keep goes through.
+run() { send "call thought.capture {\"id\":\"$(python3 -c 'import uuid,time;t=int(time.time()*1000);b=t.to_bytes(6,"big")+uuid.uuid4().bytes[6:];b=bytearray(b);b[6]=0x70|(b[6]&15);b[8]=0x80|(b[8]&63);print(uuid.UUID(bytes=bytes(b)))')\",\"text\":\"$1\",\"strokes\":[],\"source\":\"typed\",\"project_id\":\"$project\"}"; }
+row() { echo ".waiting [data-thought='$(js workspace "[...__ws.records.thoughts.values()].find(t=>t.text==='$1')?.id")']"; }
+run "write:way.txt:agent"
+until_has workspace "$(thought 'write:way.txt:agent' 'workdir?.changes')" 30 "pending" || fail "a fourth run's changes come back pending"
+echo "mine" > "$tmp/project/way.txt"
+way="$(row 'write:way.txt:agent')"
+ask workspace "click $way .btn.primary" >/dev/null
+until_has workspace "text $way .told" 30 "Not kept" && ask workspace "text $way .told" | grep -q "way.txt" && [ "$(cat "$tmp/project/way.txt")" = mine ] \
+  && pass "a Keep that git refuses, a file of the person's being in the way, names the file in git's own words and touches nothing" || fail "Keep refused by git" "$(ask workspace "text $way")"
+rm "$tmp/project/way.txt"
+ask workspace "click $way .btn.primary" >/dev/null
+until_has workspace "$(thought 'write:way.txt:agent' 'workdir?.changes')" 30 "kept" && [ "$(cat "$tmp/project/way.txt")" = agent ] \
+  && pass "with the file moved away, Keep again brings the changes in" || fail "Keep after a refusal"
+# The changes are in, but git will not remove the copy: said as kept with one thing left, with Tidy up as the action;
+# Discard then removes what is left and the result reads as kept, not discarded.
+run "write:locked.txt:n"
+until_has workspace "$(thought 'write:locked.txt:n' 'workdir?.changes')" 30 "pending" || fail "a fifth run's changes come back pending"
+git -C "$tmp/project" worktree lock "$(js workspace "[...__ws.records.thoughts.values()].find(t=>t.text==='write:locked.txt:n').workdir.path")"
+locked="$(row 'write:locked.txt:n')"
+ask workspace "click $locked .btn.primary" >/dev/null
+until_has workspace "text $locked .told" 30 "Kept, with one thing left" && [ "$(cat "$tmp/project/locked.txt")" = n ] \
+  && [ "$(js workspace "document.querySelector(\"$locked .btn.primary\").textContent + ' ' + document.querySelector(\"$locked .told\").getAttribute('role')")" = "Tidy up status" ] \
+  && pass "a Keep whose changes are in while its copy stays says so as a success with one thing left, and offers Tidy up" || fail "Keep with the copy left" "$(ask workspace "text $locked")"
+ask workspace "click $locked .btn:nth-of-type(2)" >/dev/null
+until_has workspace "text .sheet" 3 "The changes stay in main" || fail "the discard sheet after a Keep"
+press workspace ".sheet" Backspace true >/dev/null
+until_has workspace "$(thought 'write:locked.txt:n' 'workdir?.changes')" 30 "kept" && [ "$(cat "$tmp/project/locked.txt")" = n ] \
+  && js workspace "(__ws.ui.fold = 'results', __motion.redraw(), 1)" >/dev/null \
+  && until_has workspace "text [data-thought='$(js workspace "[...__ws.records.thoughts.values()].find(t=>t.text==='write:locked.txt:n').id")']" 3 "Kept in main" \
+  && pass "Discard then removes what is left, and the result reads Kept in main, not discarded" || fail "Discard after a Keep"
+# A run that left only an ignored file: its copy cannot be removed by itself and waits, with nothing in it to keep.
+run "write:out.log:built"
+until_has workspace "$(thought 'write:out.log:built' 'workdir?.changes')" 30 "pending" || fail "a sixth run's copy is left over"
+left="$(row 'write:out.log:built')"
+until_has workspace "text $left" 5 "Copy left over" && ask workspace "text $left" | grep -q "A copy of the project is left over" \
+  && [ "$(js workspace "[...document.querySelectorAll(\"$left .btn\")].map(b => b.textContent).join('|')")" = "Remove the copy" ] && ! ask workspace "text $left" | grep -q "0 files" \
+  && pass "a copy left over with nothing in it to keep says so, with Remove the copy as its one action" || fail "a leftover copy" "$(ask workspace "text $left")"
+ask workspace "click $left .btn.primary" >/dev/null
+until_has workspace "text .sheet" 3 "Remove the copy left by" || fail "the sheet for a leftover copy"
+press workspace ".sheet" Backspace true >/dev/null
+until_has workspace "$(thought 'write:out.log:built' 'workdir?.changes')" 30 "discarded" && pass "⌘⌫ removes the leftover copy" || fail "removing a leftover copy"
 send "call put {\"c\":\"projects\",\"id\":\"$project\",\"patch\":{\"isolate\":\"busy\"}}"
 js workspace "(__ws.show('$project'), 1)" >/dev/null
 terminals=$(ask workspace "eval __ws.records.terminals.size")

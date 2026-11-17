@@ -694,3 +694,56 @@ fn motion_preferences_put_as_the_wire_says() {
         assert!(serde_json::from_value::<PutTarget>(bad).is_err());
     }
 }
+
+#[test]
+fn ambient_and_terminal_preferences_put_as_the_wire_says_within_their_bounds() {
+    let cases = [
+        (
+            json!({"c": "prefs", "id": "motion_ambient", "patch": "still"}),
+            PrefPatch::MotionAmbient(MotionAmbient::Still),
+            PrefKey::MotionAmbient,
+        ),
+        (
+            json!({"c": "prefs", "id": "terminal_font", "patch": "JetBrains Mono"}),
+            PrefPatch::TerminalFont("JetBrains Mono".into()),
+            PrefKey::TerminalFont,
+        ),
+        (
+            json!({"c": "prefs", "id": "terminal_size", "patch": 16}),
+            PrefPatch::TerminalSize(16),
+            PrefKey::TerminalSize,
+        ),
+        (
+            json!({"c": "prefs", "id": "terminal_line_height", "patch": 120}),
+            PrefPatch::TerminalLineHeight(120),
+            PrefKey::TerminalLineHeight,
+        ),
+    ];
+    for (wire, patch, key) in cases {
+        let target: PutTarget = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(target, PutTarget::Prefs(patch.clone()));
+        assert_eq!(serde_json::to_value(&target).unwrap(), wire);
+        assert_eq!(PrefValue::from(patch).key(), key);
+    }
+    for (key, default) in [
+        (PrefKey::MotionAmbient, json!("breathing")),
+        (PrefKey::TerminalFont, json!("")),
+        (PrefKey::TerminalSize, json!(14)),
+        (PrefKey::TerminalLineHeight, json!(100)),
+    ] {
+        assert_eq!(
+            serde_json::to_value(key.default()).unwrap()["value"],
+            default
+        );
+    }
+    for bad in [
+        json!({"c": "prefs", "id": "motion_ambient", "patch": "strong"}),
+        json!({"c": "prefs", "id": "terminal_font", "patch": "x".repeat(200)}),
+        json!({"c": "prefs", "id": "terminal_size", "patch": 7}),
+        json!({"c": "prefs", "id": "terminal_size", "patch": 33}),
+        json!({"c": "prefs", "id": "terminal_line_height", "patch": 99}),
+        json!({"c": "prefs", "id": "terminal_line_height", "patch": 201}),
+    ] {
+        assert!(serde_json::from_value::<PutTarget>(bad).is_err());
+    }
+}

@@ -1,12 +1,14 @@
 // What every page has: its one connection to the core, the records it holds, one redraw, the
 // element to focus next, and the words the records are shown in. Each page's bundle has its own.
-import type { AgentHealth, Question, Thought, TurnResult } from '../../core/proto/protocol.ts';
+import { type AgentHealth, PREF_DEFAULTS, type Question, type Thought, type TurnResult } from '../../core/proto/protocol.ts';
 import { tauriBridge } from './bridge.ts';
 import { Client, Records } from './client.ts';
 
 export const client = new Client(tauriBridge());
 export const records = new Records();
 export const call: typeof client.call = (name, args) => client.call(name, args);
+/** A preference as the core keeps it, or the protocol's default while none is stored. */
+export const pref = <K extends keyof typeof PREF_DEFAULTS>(k: K) => (records.prefs.get(k)?.value ?? PREF_DEFAULTS[k]) as (typeof PREF_DEFAULTS)[K];
 
 let redrawn = () => {};
 export const redraw = () => redrawn();

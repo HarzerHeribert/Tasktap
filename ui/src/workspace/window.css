@@ -156,57 +156,36 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .hx.two .folds{margin-top:26px}
 .col{min-width:0;container-type:inline-size}
 .hx :is(button.hq,.fold-h){width:100%}
-/* The capture field: where a thought goes, the page's one inviting control. A soft raised surface lit from behind by
-   the room's light, no border; the thought at 20 px, growing a line at a time; the destination one control inside it.
-   Centred, as wide as a thought needs rather than as wide as the page. While it has the keyboard its surface brightens
-   and a lit edge shows under it. Three variants for the owner (ui.head): lit (the default), composer, beneath. */
-.home .capture{position:relative;width:min(100%,var(--cap-w));margin:6px auto 14px}
+/* The capture field on Home: the page's one inviting control. A soft raised surface lit from behind by the room's
+   light, no border; the thought at 20 px, growing a line at a time; under it, inside the surface, where it goes and the
+   button that starts it. Centred, as wide as a thought needs rather than as wide as the page. While it has the keyboard
+   its surface brightens and a lit edge shows under it. */
+.capture.raised{position:relative;width:min(100%,var(--cap-w));margin:6px auto 14px}
 /* The light gathered behind the field: full under it, gone a little beyond it, short of the nearest words. */
-.home .capture::before{content:"";position:absolute;z-index:-1;inset:-34px -90px;background:radial-gradient(closest-side,var(--glow,transparent) 50%,transparent);opacity:.75;transition:opacity var(--t-slow);pointer-events:none}
-.home .capture:focus-within::before{opacity:1}
-.home .capture .cap{position:relative;align-items:flex-end;gap:var(--sp3);min-height:68px;padding:14px 14px 14px 26px;border:0;border-radius:20px;cursor:text;
+.capture.raised::before{content:"";position:absolute;z-index:-1;inset:-34px -90px;background:radial-gradient(closest-side,var(--glow,transparent) 50%,transparent);opacity:.75;transition:opacity var(--t-sheet);pointer-events:none}
+.capture.raised:focus-within::before{opacity:1}
+.capture.raised .cap{position:relative;row-gap:var(--sp1);padding:var(--sp3);border-radius:20px;
   background:linear-gradient(180deg,rgb(255 255 255/.075),rgb(255 255 255/.04));
   box-shadow:inset 0 1px 0 rgb(255 255 255/.09),0 1px 0 rgb(0 0 0/.5),0 30px 60px -28px rgb(0 0 0/.85);transition:background var(--t-fast)}
-.home .capture .cap::after{content:"";position:absolute;left:26px;right:26px;bottom:0;height:1px;background:var(--lit);opacity:0;transition:opacity var(--t-fast);pointer-events:none}
-.home .capture .cap:focus-within{background:linear-gradient(180deg,rgb(255 255 255/.095),rgb(255 255 255/.05));border-image:none}
-.home .capture .cap:focus-within::after{opacity:.6}
-.home .capture textarea{flex:1;min-width:0;max-height:180px;padding:6px 0;resize:none;overflow:auto;font:400 20px/28px var(--ui);letter-spacing:-.014em;color:var(--fg);caret-color:var(--accent)}
-.home .capture textarea::placeholder{color:var(--fg-field);opacity:1}
-.capture.chip .cap-to{gap:7px;height:40px;padding:0 12px 0 14px;border-radius:13px;background:rgb(255 255 255/.06);box-shadow:inset 0 1px 0 rgb(255 255 255/.05);color:var(--fg);font:var(--f-body)}
-.capture.chip .cap-to:hover,.capture.chip .cap-to[aria-expanded=true]{background:rgb(255 255 255/.1)}
-.capture.chip .cap-to:hover span{text-decoration:none}
-.capture.chip .cap-to .i{width:14px;height:14px;color:var(--fg2)}
-.capture.chip .cap-to .ag{color:var(--fg-field)}
-.capture.chip .cap-to .ag::before{content:"·";margin-right:7px;color:var(--fg3)}
-.capture.chip .cap-to .ag.off{color:var(--asks)}
-.capture.chip .cap-to .i:last-child{width:12px;height:12px;margin-left:1px;transform:rotate(90deg)}
-.cap-go{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px 0 10px;border-radius:12px;background:var(--metal);color:var(--ink);font:var(--f-strong);box-shadow:var(--cap-edge)}
-.cap-go kbd{font:var(--f-key);opacity:.7}
-.cap-go:disabled{background:rgb(255 255 255/.06);color:var(--fg3);box-shadow:none}
-.home .cap-list{position:absolute;z-index:3;right:14px;top:calc(100% + 6px);min-width:240px;padding:var(--sp1);border:0;border-radius:var(--r3);background:var(--sheet);box-shadow:var(--sheet-shadow)}
-.home .capture:has(.cap-said) .cap-list{top:auto}
-.home .cap-said{justify-content:center;margin-top:var(--sp2);padding:0 26px}
-/* Composer: the thought on lines of its own; under it, inside the field, the destination and the button that sends. */
-.home[data-head=composer] .capture{--cap-w:740px}
-.home[data-head=composer] .capture .cap{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px 0;min-height:120px;padding:14px 12px 12px 22px}
-.home[data-head=composer] .capture .cap::after{left:22px;right:22px}
-.home[data-head=composer] .capture textarea{grid-column:1/-1;align-self:start;min-height:52px;padding:6px 4px 0}
-.home[data-head=composer] .capture .cap-to{grid-row:2;grid-column:1;height:36px;margin-left:-6px;padding-left:10px;background:none;box-shadow:none}
-.home[data-head=composer] .capture .cap-to:hover,.home[data-head=composer] .capture .cap-to[aria-expanded=true]{background:rgb(255 255 255/.07)}
-.home[data-head=composer] .capture .cap-go{grid-row:2;grid-column:3}
-.home[data-head=composer] .cap-list{left:12px;right:auto}
-/* Beneath: the field holds only the thought; its destination is a quiet line under it, on the thought's own edge. */
-.home[data-head=beneath] .capture{--cap-w:640px}
-.home[data-head=beneath] .capture .cap{display:grid;grid-template-columns:minmax(0,1fr);gap:0;min-height:0;padding:0;background:none;box-shadow:none;border-radius:0}
-.home[data-head=beneath] .capture textarea{padding:18px 24px;border-radius:18px;
-  background:linear-gradient(180deg,rgb(255 255 255/.075),rgb(255 255 255/.04));
-  box-shadow:inset 0 1px 0 rgb(255 255 255/.09),0 1px 0 rgb(0 0 0/.5),0 30px 60px -28px rgb(0 0 0/.85)}
-.home[data-head=beneath] .capture textarea:focus{background:var(--lit) center bottom/calc(100% - 48px) 1px no-repeat,linear-gradient(180deg,rgb(255 255 255/.095),rgb(255 255 255/.05))}
-.home[data-head=beneath] .capture .cap::after{content:none}
-.home[data-head=beneath] .capture .cap-to{justify-self:start;height:28px;margin:10px 0 0 16px;padding:0 8px;background:none;box-shadow:none;border-radius:var(--r2);font:var(--f-small)}
-.home[data-head=beneath] .capture .cap-to:hover,.home[data-head=beneath] .capture .cap-to[aria-expanded=true]{background:rgb(255 255 255/.06)}
-.home[data-head=beneath] .cap-list{left:16px;right:auto}
-.home[data-head=bar] .hx{padding-top:6px}
+.capture.raised .cap::after{content:"";position:absolute;left:22px;right:22px;bottom:0;height:1px;background:var(--lit);opacity:0;transition:opacity var(--t-fast);pointer-events:none;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 14%,#000 86%,transparent);mask-image:linear-gradient(90deg,transparent,#000 14%,#000 86%,transparent)}
+.capture.raised .cap:focus-within{background:linear-gradient(180deg,rgb(255 255 255/.095),rgb(255 255 255/.05))}
+.capture.raised .cap:focus-within::after{opacity:.6}
+.capture.raised textarea{grid-column:1/-1;max-height:176px;padding:6px 10px 8px;font:400 20px/28px var(--ui);letter-spacing:-.014em;color:var(--fg)}
+.capture.raised textarea::placeholder{color:var(--fg-field)}
+.capture.raised textarea:read-only{color:var(--fg-field)}
+.capture.raised .cap-row{gap:6px;padding:0;border:0}
+/* Its controls keep the surface's corner: 20 px less the 12 px they stand in from it. */
+.capture.raised :is(.cap-to,.cap-list button,.cap-go){height:34px;border-radius:9px;font:var(--f-body)}
+.capture.raised :is(.cap-to,.cap-list button){gap:7px;padding:0 10px;color:var(--fg-field)}
+.capture.raised :is(.cap-to,.cap-list){margin:0}
+.capture.raised :is(.cap-to,.cap-list button):hover{background:rgb(255 255 255/.07);color:var(--fg)}
+.capture.raised .cap-list [aria-selected=true]{background:rgb(255 255 255/.11);color:var(--fg)}
+.capture.raised :is(.cap-to,.cap-list) .i{color:var(--fg-field)}
+.capture.raised .cap-go{gap:var(--sp2);padding:0 14px 0 var(--sp3);font-weight:600}
+.capture.raised .cap-go kbd{font-size:13px}
+.capture.raised .cap-go:disabled{background:rgb(255 255 255/.06);color:var(--fg-field)}
+.capture.raised .cap-said{justify-content:center;margin-top:var(--sp2)}
 .hsec{margin-top:26px}
 .hsec h3{display:flex;align-items:center;gap:var(--sp2);padding-bottom:var(--sp2);border-bottom:1px solid var(--line);font:var(--f-head);color:var(--fg2)}
 .hsec h3 i{font:var(--f-num);color:var(--fg3)}
@@ -247,6 +226,7 @@ button.hq:hover{background:var(--hover)}
 .hr.seen .hr-t{font-weight:400;color:var(--fg2)}
 .hr.seen .hr-x{color:var(--fg3)}
 .hr-a{grid-column:3/-1;display:flex;gap:6px;padding:0 0 10px}
+.hr>.told{grid-column:3/-1;margin:0 0 10px}
 .hr .said{font:var(--f-small);color:var(--fg2);white-space:normal}
 .hr .said.refused{color:var(--fg)}
 .hr.idea{grid-template-columns:28px minmax(0,1.3fr) minmax(0,1fr) auto 48px}
@@ -301,8 +281,7 @@ button.hq:hover{background:var(--hover)}
   .fold-h{grid-template-columns:28px 80px minmax(0,1fr) 48px}
   .fold-p{display:none}
   .more{padding-left:28px}
-  .capture .cap-hint,.capture .cap-agent,.capture.chip .cap-to .ag{display:none}
-  .home .capture .cap{padding-left:20px}
+  .capture .cap-to span{display:none}
 }
 
 /* ——— sheets hang from the title bar, as the notch hangs from the screen ——— */
@@ -312,13 +291,13 @@ button.hq:hover{background:var(--hover)}
 .sheet::before{content:"";position:sticky;display:block;top:-16px;height:1px;margin:-16px -18px 15px;background:var(--lit)}
 @media(prefers-reduced-motion:no-preference){
   .sheet{animation:drop var(--t-sheet) var(--ease)}
-  .sheet>*,.side.opening>*{animation:arrive 260ms ease-out 150ms both}
+  .sheet>*,.side.opening>*{animation:arrive 240ms ease-out 240ms both}
 }
 @keyframes drop{from{transform:translate(-50%,-100%)}}
 @keyframes arrive{from{opacity:0}}
-/* The wiper's trail (trail.ts): glyphs in metal, crisp at any size, made for one sweep and gone after it. */
-.trail{position:fixed;z-index:30;overflow:hidden;pointer-events:none}
-.trail i{position:absolute;font-family:var(--mono);font-weight:600;line-height:1;color:transparent;background:var(--metal);-webkit-background-clip:text;background-clip:text;opacity:0}
+/* The wake an edge sheds as it sweeps (wake.ts): chrome glyphs, each a picture, there for one sweep. */
+.wake{position:fixed;inset:0;z-index:30;overflow:hidden;pointer-events:none}
+.wake canvas{position:absolute;opacity:0}
 .sheet header{display:flex;align-items:center;justify-content:space-between;gap:var(--sp3)}
 .sheet h2{display:flex;align-items:baseline;gap:var(--sp3);min-width:0;font:var(--f-title)}
 .sheet h2 .diff{font:var(--f-num)}
@@ -360,8 +339,9 @@ button.line:hover{background:var(--hover)}
 .set{display:grid;grid-template-columns:190px minmax(0,1fr);align-items:start;gap:0 var(--sp3);padding:10px 18px;border-bottom:1px solid var(--line)}
 .set .t{padding-top:3px;font:var(--f-lead);color:var(--fg)}
 .set .c{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp2) var(--sp3);min-width:0}
-.set .v{font:var(--f-small);color:var(--fg2)}
+.set .v{font:var(--f-small);line-height:var(--ctl-h);color:var(--fg2)}
 .set .v.mono,.mono{font:var(--f-num)}
+.set .v.mono{line-height:var(--ctl-h)}
 .set .hint{flex-basis:100%;margin:0;font:var(--f-cap);color:var(--fg3)}
 .seg{display:inline-flex;flex-wrap:wrap;gap:2px}
 .seg button{display:inline-flex;align-items:center;gap:6px;height:var(--ctl-h);padding:0 9px;border-radius:var(--r1);font:var(--f-small);color:var(--fg2)}
@@ -382,6 +362,7 @@ button.line:hover{background:var(--hover)}
 .win.solo .sheet.review{width:calc(100% - 32px)}
 .review{min-height:0;overflow:auto}
 .review>.said{padding:14px 18px}
+.review>.told{margin:14px 18px 10px}
 .files{display:grid;padding:6px 10px;border-bottom:1px solid var(--line)}
 .file{display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:var(--sp2);align-items:center;height:24px;padding:0 var(--sp2);border-radius:var(--r1);font:var(--f-num);color:var(--fg2);text-align:left}
 .file:hover{background:var(--hover);color:var(--fg)}
@@ -403,10 +384,10 @@ button.line:hover{background:var(--hover)}
 .code tr.h td{padding:4px 18px 4px 112px;color:var(--fg3);background:var(--hover)}
 .code .said{padding:var(--sp3) 18px;font:var(--f-small);color:var(--fg2)}
 
-/* ——— the light (light.tsx): pools of the person's colour, dithered, breathing only by opacity (set from light.tsx); one
+/* ——— the light (light.tsx): pools of the person's colour, dithered, breathing only by opacity (set by its clock); one
    low band of chrome, softened, kept from under the words, dimmer as the page fills ——— */
 .light{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none}
-.pool{position:absolute;border-radius:50%;opacity:.88;transition:opacity 1.2s ease;
+.pool{position:absolute;border-radius:50%;opacity:.88;transition:opacity 1.2s ease,background-color 1.2s ease;
   -webkit-mask-image:radial-gradient(closest-side,#000,rgb(0 0 0/.8) 18%,rgb(0 0 0/.5) 42%,rgb(0 0 0/.2) 68%,rgb(0 0 0/.05) 88%,transparent);
   mask-image:radial-gradient(closest-side,#000,rgb(0 0 0/.8) 18%,rgb(0 0 0/.5) 42%,rgb(0 0 0/.2) 68%,rgb(0 0 0/.05) 88%,transparent)}
 .pool.a{left:-14%;top:-46%;width:100%;height:100%;background:var(--noise,none),var(--c1)}
@@ -415,16 +396,25 @@ button.line:hover{background:var(--hover)}
 [data-lift] .pool{opacity:1}
 /* While it breathes its opacity is set in steps, each pool on a layer of its own so a step is composited, not painted;
    a transition would turn each step into an animation at the display's rate. */
-[data-breathe=true] .pool{transition:none;will-change:opacity}
-.band{position:absolute;left:0;right:0;bottom:0;height:min(52%,420px);opacity:var(--chrome);
+[data-breathe=true] .pool{transition:background-color 1.2s ease;will-change:opacity}
+.band{position:absolute;left:0;right:0;bottom:0;height:min(52%,420px);opacity:.5;
   -webkit-mask-image:linear-gradient(90deg,transparent 8%,#000 42%,#000 86%,transparent),linear-gradient(0deg,transparent 4%,#000 34%,#000 52%,transparent);-webkit-mask-composite:source-in;
   mask-image:linear-gradient(90deg,transparent 8%,#000 42%,#000 86%,transparent),linear-gradient(0deg,transparent 4%,#000 34%,#000 52%,transparent);mask-composite:intersect}
 /* The form is far larger than the band and drawn at half that size, then scaled: only its light reaches the band. */
 .band .motion{position:absolute;left:-6%;top:-55%;width:62%;height:105%;transform:scale(2);transform-origin:0 0}
-.light[data-load=busy] .band{opacity:calc(var(--chrome) * .75)}
-.light[data-load=asks] .band{opacity:calc(var(--chrome) * .45)}
-.light[data-load=paged] .band{opacity:calc(var(--chrome) * .3)}
-.spark{position:relative;flex:1 1 0;min-height:0;overflow:hidden;pointer-events:none}
-.spark .glyph{position:absolute;opacity:calc(var(--spark,1) * var(--depth,1));transition:opacity 1.2s ease}
-.spark .glyph .motion{width:100%;height:100%}
+.light[data-load=busy] .band{opacity:.375}
+.light[data-load=asks] .band{opacity:.225}
+.light[data-load=paged] .band{opacity:.15}
+/* The sidebar's foot: the same light, and a few large chrome glyphs (light.tsx), each a picture the clock sways. A
+   glyph arrives and leaves by fading and settling, one after another; it steps back while the window is not in use. */
+.spark{position:relative;flex:1 1 0;min-height:0;overflow:hidden;pointer-events:none;-webkit-mask-image:linear-gradient(#0000,#000 28px);mask-image:linear-gradient(#0000,#000 28px)}
 .spark .pool.s{left:-40%;bottom:-70%;width:180%;height:130%;background:var(--noise,none),var(--c2)}
+.glyph{position:absolute;opacity:0;transform:translateY(10px) scale(.94);transition:opacity .9s var(--ease),transform 1.2s var(--ease);transition-delay:calc(var(--i) * 140ms)}
+.glyph.in{opacity:var(--spark,1);transform:none}
+.spark[data-away] .glyph.in{opacity:.5;transform:translateY(4px) scale(.985)}
+@starting-style{.glyph.in{opacity:0;transform:translateY(10px) scale(.94)}}
+.turn,.turn canvas{position:absolute;inset:0;width:100%;height:100%}
+/* The clock names a pose a second and the compositor carries the picture there; a new picture comes in over the last. */
+.turn{transition:transform 1s linear}
+.turn canvas{transition:opacity 1.2s linear}
+@starting-style{.turn canvas{opacity:0}}

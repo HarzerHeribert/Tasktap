@@ -3,26 +3,23 @@
 // Every choice the core keeps is a preference (`prefs`), written at once, so the notch and the workspace both follow.
 import type { ComponentChildren } from 'preact';
 import { useEffect } from 'preact/hooks';
-import type { MotionPalette, MotionStyle, PrefPatch } from '../../../core/proto/protocol.ts';
+import type { MotionAmbient, MotionPalette, MotionStyle, PrefPatch } from '../../../core/proto/protocol.ts';
 import { routing } from '../capture.tsx';
 import { setVoice } from '../motion/engine.ts';
 import { Motion, lookOf } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
 import { motionState } from '../motion/state.ts';
 import { Voice } from '../motion/voice.ts';
-import { type Ambient, ambient, setAmbient } from './ambient.ts';
-import { own, setOwn } from './appearance.ts';
-import { loadLook } from './main.tsx';
-import { call, fail, openQuestions, records, redraw, ui } from './model.ts';
+import { call, fail, openQuestions, pref, records, redraw, ui } from './model.ts';
 
 const styles: [MotionStyle, string][] = [['slats', 'Slats'], ['glyphs', 'Glyphs'], ['resonator', 'Resonator']];
 const palettes: [MotionPalette, string][] = [['chrome', 'Chrome'], ['chromatic', 'Chromatic'], ['warm', 'Warm'], ['cool', 'Cool'], ['custom', 'Custom']];
-const lights: [Ambient, string][] = [['off', 'Off'], ['still', 'Still'], ['breathing', 'Breathing']];
+const lights: [MotionAmbient, string][] = [['off', 'Off'], ['still', 'Still'], ['breathing', 'Breathing']];
 const holds: [number, string][] = [[0, 'At once'], [3, '3 s'], [5, '5 s'], [10, '10 s']];
-const sizes: [number, string][] = [12, 13, 14, 15, 16].map((n) => [n, String(n)]);
-const heights: [number, string][] = [[1, '1.0'], [1.1, '1.1'], [1.2, '1.2'], [1.3, '1.3']];
+// Sizes whose cells differ by a whole pixel in the Default face.
+const sizes: [number, string][] = [12, 14, 15, 16, 18].map((n) => [n, String(n)]);
+const heights: [number, string][] = [[100, '1.0'], [110, '1.1'], [120, '1.2'], [130, '1.3']];
 const FONTS = ['Hack Nerd Font Mono', 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Menlo'];
-const setTerminal = (patch: Partial<ReturnType<typeof own>>) => (setOwn({ ...own(), ...patch }), loadLook());
 
 // One write in flight per preference; the latest value waits for it (a hue slider moves faster than the core needs).
 const pending = new Map<string, PrefPatch | null>();
@@ -93,7 +90,6 @@ const Switch = ({ on, name, set }: { on: boolean; name: string; set: (on: boolea
 export function Settings() {
   const look = lookOf(records.prefs);
   const hold = records.prefs.get('hold');
-  const t = own();
   const state = motionState({
     thoughts: records.thoughts.values(), sessions: records.sessions.values(), questions: openQuestions().length, routing: routing(), voice: ui.voice,
   });
@@ -107,12 +103,12 @@ export function Settings() {
       <Row name="Capture shortcut"><span class="v mono">⌃⌥Space</span></Row>
       <h3>Terminal</h3>
       <Row name="Font" hint="Any installed monospace family. Prompt symbols come from the Nerd Fonts symbols either way.">
-        <input class="text" list="fonts" placeholder="Default (Hack)" aria-label="Font" spellcheck={false} defaultValue={t.font}
-          onChange={(e) => setTerminal({ font: e.currentTarget.value })} />
+        <input class="text" list="fonts" placeholder="Default (Hack)" aria-label="Font" spellcheck={false} maxLength={100} defaultValue={pref('terminal_font')}
+          onChange={(e) => setPref({ id: 'terminal_font', patch: e.currentTarget.value.trim() })} />
         <datalist id="fonts">{FONTS.map((f) => <option value={f} />)}</datalist>
       </Row>
-      <Row name="Size"><Choice name="Size" value={t.size} all={sizes} set={(size) => setTerminal({ size })} /></Row>
-      <Row name="Line height"><Choice name="Line height" value={t.lineHeight} all={heights} set={(lineHeight) => setTerminal({ lineHeight })} /></Row>
+      <Row name="Size"><Choice name="Size" value={pref('terminal_size')} all={sizes} set={(v) => setPref({ id: 'terminal_size', patch: v })} /></Row>
+      <Row name="Line height"><Choice name="Line height" value={pref('terminal_line_height')} all={heights} set={(v) => setPref({ id: 'terminal_line_height', patch: v })} /></Row>
       <h3>Appearance</h3>
       {/* As Home shows it: drawn at full size, never as a small thumbnail, where the metal stops reading as metal. */}
       <Motion class="preview" look={look} state={state} pace="calm" />
@@ -134,7 +130,7 @@ export function Settings() {
         <Switch on={look.lumen} name="Lumen" set={(on) => setPref({ id: 'motion_lumen', patch: on })} />
       </Row>
       <Row name="Ambient light" hint="Light in the window's black, in the form's colours, that breathes while agents work.">
-        <Choice name="Ambient light" value={ambient()} all={lights} set={(v) => (setAmbient(v), redraw())} />
+        <Choice name="Ambient light" value={pref('motion_ambient')} all={lights} set={(v) => setPref({ id: 'motion_ambient', patch: v })} />
       </Row>
       <Row name="Microphone" hint="The form listens while this is on and this sheet is open. Nothing is recorded or sent anywhere.">
         <button type="button" class="btn" aria-pressed={!!trial} disabled={asking} onClick={() => void toggleTrial()}>

@@ -17,7 +17,7 @@ export const MAX_TEXT = 65536;
 export const MAX_LINE = 8192;
 export const MAX_POINTS = 2048;
 /** The value of each preference while none is stored: deleting one restores it. */
-export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] } = {"agent":null,"hold":5,"motion_hue":265,"motion_lumen":false,"motion_palette":"chromatic","motion_style":"slats"};
+export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] } = {"agent":null,"hold":5,"motion_ambient":"breathing","motion_hue":265,"motion_lumen":false,"motion_palette":"chromatic","motion_style":"slats","terminal_font":"","terminal_line_height":100,"terminal_size":14};
 
 /**
  * Who may make a call (design §2): authorization is per call.
@@ -534,6 +534,8 @@ exit?: number | null, };
 
 export type Mode = "ask" | "nudge" | "note";
 
+export type MotionAmbient = "off" | "still" | "breathing";
+
 export type MotionPalette = "chrome" | "chromatic" | "warm" | "cool" | "custom";
 
 export type MotionStyle = "slats" | "glyphs" | "resonator";
@@ -605,14 +607,14 @@ export type Place = { "project": ProjectId } | { "session": SessionId };
 /**
  * A preference row: `{id, value, rev}`, where the key fixes the value's type.
  */
-export type Pref = { rev: Rev, } & ({ "id": "hold", "value": number } | { "id": "agent", "value": string | null } | { "id": "motion_style", "value": MotionStyle } | { "id": "motion_palette", "value": MotionPalette } | { "id": "motion_hue", "value": number } | { "id": "motion_lumen", "value": boolean });
+export type Pref = { rev: Rev, } & ({ "id": "hold", "value": number } | { "id": "agent", "value": string | null } | { "id": "motion_style", "value": MotionStyle } | { "id": "motion_palette", "value": MotionPalette } | { "id": "motion_hue", "value": number } | { "id": "motion_lumen", "value": boolean } | { "id": "motion_ambient", "value": MotionAmbient } | { "id": "terminal_font", "value": string } | { "id": "terminal_size", "value": number } | { "id": "terminal_line_height", "value": number });
 
-export type PrefKey = "hold" | "agent" | "motion_style" | "motion_palette" | "motion_hue" | "motion_lumen";
+export type PrefKey = "hold" | "agent" | "motion_style" | "motion_palette" | "motion_hue" | "motion_lumen" | "motion_ambient" | "terminal_font" | "terminal_size" | "terminal_line_height";
 
 /**
  * A preference write: `{id, patch}`, where the key fixes the value's type.
  */
-export type PrefPatch = { "id": "hold", "patch": number } | { "id": "agent", "patch": string | null } | { "id": "motion_style", "patch": MotionStyle } | { "id": "motion_palette", "patch": MotionPalette } | { "id": "motion_hue", "patch": number } | { "id": "motion_lumen", "patch": boolean };
+export type PrefPatch = { "id": "hold", "patch": number } | { "id": "agent", "patch": string | null } | { "id": "motion_style", "patch": MotionStyle } | { "id": "motion_palette", "patch": MotionPalette } | { "id": "motion_hue", "patch": number } | { "id": "motion_lumen", "patch": boolean } | { "id": "motion_ambient", "patch": MotionAmbient } | { "id": "terminal_font", "patch": string } | { "id": "terminal_size", "patch": number } | { "id": "terminal_line_height", "patch": number };
 
 export type Project = { id: ProjectId, rev: Rev, name: string,
 /**

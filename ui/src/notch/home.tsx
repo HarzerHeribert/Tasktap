@@ -4,7 +4,7 @@
 import type { Thought } from '../../../core/proto/protocol.ts';
 import { useEffect, useState } from 'preact/hooks';
 import { Capture, cap } from '../capture.tsx';
-import { lost, pending, running, settle, settling, Status } from '../changes.tsx';
+import { lost, next, pending, running, settle, settling, Status, Told } from '../changes.tsx';
 import { Answer as Act, Mark, type State, elapsed, plural, when } from '../ui.tsx';
 import { agentName, call, fail, openQuestions, projectName, records, redraw, resultOf, title, ui, why } from './model.ts';
 import { fold, peek } from './panel.ts';
@@ -43,8 +43,9 @@ function Result({ t }: { t: Thought }) {
   const s = settling.get(t.id);
   const busy = s?.step === 'stopping' || s?.step === 'settling';
   const open = () => t.session_id && peek(t.session_id);
-  const keep = () => (changes && running(changes) ? ask('keep') : changes && void settle(changes, true));
+  const main = changes && next(changes);
   const discard = () => ask('discard');
+  const keep = () => (!main?.keep ? discard() : running(changes!) ? ask('keep') : void settle(changes!, true));
   const confirm = () => {
     if (!changes) return;
     void settle(changes, asking === 'keep');
@@ -56,7 +57,7 @@ function Result({ t }: { t: Thought }) {
     if (asking && k === 'enter') confirm();
     else if (asking && k === 'escape') ask('');
     else if (!asking && changes && !busy && k === 'enter' && !(e.target as HTMLElement).closest('button')) keep();
-    else if (!asking && changes && !busy && k === 'd') discard();
+    else if (!asking && main?.keep && !busy && k === 'd') discard();
     else if (!asking && k === 'o') open();
     else return;
     e.preventDefault();
@@ -67,19 +68,20 @@ function Result({ t }: { t: Thought }) {
       <p class="ctx">{t.status === 'failed' ? 'Failed' : 'Result'}</p>
       <p class="qp">{title(t)}</p>
       {(t.status === 'failed' || r?.summary) && <p class="sum">{t.status === 'failed' ? `${why(t)}${r?.summary ? `: ${r.summary}` : ''}` : r!.summary}</p>}
-      {changes && <p class="status"><Status t={changes} /></p>}
+      {t.workdir && t.workdir.changes !== 'none' && <p class="status"><Status t={{ ...t, workdir: t.workdir }} /></p>}
+      {changes && <Told t={changes} />}
       {asking ? (
         <div class="confirm">
           <p>{asking === 'keep' ? 'The session is still running. Stop it and keep its changes?' : `${running(changes!) ? 'Stop the session and discard? ' : 'Discard? '}${lost(changes!)}`}</p>
           <div class="qa">
-            <Act k="↩" label={asking === 'keep' ? 'Stop and keep' : 'Discard'} primary={asking === 'keep'} danger={asking === 'discard'} onClick={confirm} />
+            <Act k="↩" label={asking === 'keep' ? 'Stop and keep' : main?.keep ? 'Discard' : 'Remove the copy'} primary={asking === 'keep'} danger={asking === 'discard'} onClick={confirm} />
             <Act k="esc" label="Cancel" onClick={() => ask('')} />
           </div>
         </div>
       ) : (
         <div class="qa">
-          {changes && !busy && <Act k="↩" label="Keep" primary onClick={keep} />}
-          {changes && !busy && <Act k="D" label="Discard" onClick={discard} />}
+          {main && !busy && <Act k="↩" label={main.label} primary onClick={keep} />}
+          {main?.keep && !busy && <Act k="D" label="Discard" onClick={discard} />}
           {t.session_id && <Act k="O" label="Open" onClick={open} />}
         </div>
       )}
@@ -108,7 +110,7 @@ export function Home() {
   });
   const first = ui.capturing || !top;
   const rows = [...working, ...(first ? finished : rest)].slice(0, 4);
-  const capture = <div class="capture-block"><Capture stack {...hooks} hint={<><kbd>↩</kbd> start</>} /></div>;
+  const capture = <div class="capture-block"><Capture {...hooks} /></div>;
   const words = [working.length && `${working.length} working`, finished.filter((t) => !t.read).length && plural(finished.filter((t) => !t.read).length, 'new result', 'new results')]
     .filter(Boolean).join(' · ');
   return (

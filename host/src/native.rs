@@ -171,6 +171,32 @@ pub fn clipboard(text: Option<&str>, private: bool) -> Option<String> {
     }
 }
 
+/// A picture of a page as its web view draws it now, written to `path` as PNG at the display's own scale, then
+/// `done`. The app pictures its own view, so a check's captures need no screen recording permission.
+pub fn snapshot(webview: *mut std::ffi::c_void, path: PathBuf, done: impl Fn(bool) + 'static) {
+    use objc2::runtime::AnyObject;
+    use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImage};
+    let written = RcBlock::new(move |image: *mut NSImage, _error: *mut AnyObject| {
+        // SAFETY: WebKit hands the block an NSImage or nil.
+        let png = unsafe { image.as_ref() }.and_then(|image| {
+            let tiff = image.TIFFRepresentation()?;
+            let rep = NSBitmapImageRep::imageRepWithData(&tiff)?;
+            // SAFETY: PNG takes no properties.
+            unsafe {
+                rep.representationUsingType_properties(
+                    NSBitmapImageFileType::PNG,
+                    &objc2_foundation::NSDictionary::new(),
+                )
+            }
+        });
+        done(png.is_some_and(|png| std::fs::write(&path, png.to_vec()).is_ok()));
+    });
+    // SAFETY: `webview` is the window's WKWebView; a nil configuration pictures all of it.
+    let _: () = unsafe {
+        msg_send![webview as *mut AnyObject, takeSnapshotWithConfiguration: std::ptr::null::<AnyObject>(), completionHandler: &*written]
+    };
+}
+
 /// A folder panel, in front of every app; the person chose to open it.
 pub fn pick_folder() -> Option<PathBuf> {
     let mtm = mtm();

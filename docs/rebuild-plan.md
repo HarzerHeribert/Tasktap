@@ -344,6 +344,17 @@ These replace "Keep the look" for the interface. The chrome identity and motion 
 8. **Standing rules:** an icon and its label form one centred row; a focus ring shows for keyboard focus only.
 9. **Ambient light.** Soft pools of coloured light breathe slowly behind Home, in the colours of the chosen palette, tinted by state. It is light, not a picture: no edges, never behind terminal text, still when idle. The sharp chrome form sits in it as an object. A rendered chrome form behind text was tried and rejected.
 
+**The owner's choices on the first Instrument build (2026-11-17), all built:**
+
+- The capture field is the Composer: the thought, then a row with the destination and a button that says what Return does. The other two variants are gone. Its destinations open in its own row, so they cover nothing.
+- The ambient light keeps its default strength and one tempo, a breath of 24 s (`--t-ambient`); the fainter and stronger lights and the other tempos are gone.
+- The sidebar's glyphs stay at its foot: few, large (100, 76 and 64 px), there only where the rows leave room, each a picture drawn once that sways and never turns edge-on.
+- The wiper's trail stays, as a wake: three to five of the same glyphs, each readable, shed in order by the moving edge and gone within half a second.
+- The ambient light's setting and the terminal's font, size and line height are preferences of the core (`motion_ambient`, `terminal_font`, `terminal_size`, `terminal_line_height`); the pages keep nothing of their own.
+- The terminal's cells are a whole number of pixels wide, as a native terminal's are (Default's 14 is 13.3 px in cells of 8), and every colour keeps 4.5 : 1 on what it is drawn over. Decided by looking at the real app: blocks and bars showed a seam at every cell, and black on a coloured badge could not be read.
+
+Measured, for the app's own processes: light breathing and glyphs swaying 1.6 to 1.7 % of a core on Home and 0.9 % beside a terminal with the machine quiet (2.0 to 2.1 % and 1.6 % with it busy), against 3.1 to 4.6 % before; idle 0.0 %. The pools are most of it: each step of their opacity makes the system composite the window, so they step twice a second, and the compositor carries each glyph to one pose a second. Memory is 131 MB against 129 MB measured back to back on a 2x display.
+
 ## The brief: requirements for the routing phase
 
 Every thought keeps the person's words exactly as said, and a **brief**, which is what the agent receives. Spoken thoughts ramble; the gain for large agents is less in deleting filler than in resolving what the rambling leaves unclear.

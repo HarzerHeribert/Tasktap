@@ -7,8 +7,8 @@ use crate::ids::{
     ThoughtId, Time,
 };
 use crate::records::{
-    Collection, Isolate, Mode, MotionPalette, MotionStyle, PrefKey, PrefValue, Question,
-    QuestionKind, QuestionSource, Response, Set, Source, Stroke, Thought, TurnResult,
+    Collection, Isolate, Mode, MotionAmbient, MotionPalette, MotionStyle, PrefKey, PrefValue,
+    Question, QuestionKind, QuestionSource, Response, Set, Source, Stroke, Thought, TurnResult,
 };
 use crate::{MAX_LINE, MAX_TEXT};
 use serde::{Deserialize, Serialize};
@@ -84,6 +84,29 @@ pub enum PrefPatch {
     MotionPalette(MotionPalette),
     MotionHue(u16),
     MotionLumen(bool),
+    MotionAmbient(MotionAmbient),
+    TerminalFont(#[serde(deserialize_with = "crate::within::<MAX_FONT, _, _>")] String),
+    TerminalSize(#[serde(deserialize_with = "ranged::<8, 32, _, _>")] u8),
+    TerminalLineHeight(#[serde(deserialize_with = "ranged::<100, 200, _, _>")] u16),
+}
+
+/// A font family's name, as JSON, is at most this many bytes.
+const MAX_FONT: usize = 128;
+
+/// For `deserialize_with`: a whole number from `LO` to `HI`.
+fn ranged<'de, const LO: u16, const HI: u16, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de> + Copy + Into<u16>,
+{
+    let value = T::deserialize(d)?;
+    if (LO..=HI).contains(&value.into()) {
+        Ok(value)
+    } else {
+        Err(serde::de::Error::custom(format_args!(
+            "outside {LO} to {HI}"
+        )))
+    }
 }
 
 impl From<PrefPatch> for PrefValue {
@@ -95,6 +118,10 @@ impl From<PrefPatch> for PrefValue {
             PrefPatch::MotionPalette(v) => PrefValue::MotionPalette(v),
             PrefPatch::MotionHue(v) => PrefValue::MotionHue(v),
             PrefPatch::MotionLumen(v) => PrefValue::MotionLumen(v),
+            PrefPatch::MotionAmbient(v) => PrefValue::MotionAmbient(v),
+            PrefPatch::TerminalFont(v) => PrefValue::TerminalFont(v),
+            PrefPatch::TerminalSize(v) => PrefValue::TerminalSize(v),
+            PrefPatch::TerminalLineHeight(v) => PrefValue::TerminalLineHeight(v),
         }
     }
 }

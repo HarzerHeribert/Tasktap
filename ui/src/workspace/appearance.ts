@@ -1,6 +1,7 @@
 // The terminals' look: one built-in look, Default, and the person's own font, size and line height from the Settings
 // sheet. Default takes its colours from a terminal the owner likes (a GitHub-dark palette) on Instrument's black, and is
 // set in Hack with the Nerd Fonts symbols, both shipped with the app (fonts.css), so it looks the same everywhere.
+import { pref } from '../page.ts';
 
 export type TerminalTheme = Record<string, string> & { background: string; foreground: string };
 export type Look = {
@@ -24,30 +25,12 @@ export const DEFAULT: TerminalTheme = {
 /** Default's faces: the bundled Hack, the bundled symbols for prompt icons, then the system's monospace face. */
 export const DEFAULT_FONT = '"Hack", "Symbols Nerd Font Mono", ui-monospace, Menlo, monospace';
 
-/** The person's own terminal settings. The core has no preferences for them yet, so the page keeps them; the keys it
- *  needs are `terminal_font` (text, empty for Default), `terminal_size` (number, 14) and `terminal_line_height` (number, 1). */
-export type Own = { font: string; size: number; lineHeight: number };
-const KEY = 'tasktap.terminal';
-export function own(): Own {
-  try {
-    const v = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Own>;
-    return { font: typeof v.font === 'string' ? v.font : '', size: Number(v.size) || 14, lineHeight: Number(v.lineHeight) || 1 };
-  } catch {
-    return { font: '', size: 14, lineHeight: 1 };
-  }
-}
-export function setOwn(o: Own) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(o));
-  } catch {
-    // Kept for this page's life only.
-  }
-}
-
-/** The look the terminals take now. A family the person names comes first, with the symbols behind it. */
-export function look(o = own()): Look {
-  const family = o.font.trim() ? `${JSON.stringify(o.font.trim())}, "Symbols Nerd Font Mono", ${DEFAULT_FONT}` : DEFAULT_FONT;
-  return { fontFamily: family, fontSize: o.size, lineHeight: o.lineHeight, cursorStyle: 'bar', cursorBlink: false, padding: '12px 14px', theme: { ...DEFAULT } };
+/** The look the terminals take now, from the core's preferences: a family the person names comes first, with the
+ *  symbols behind it; the size; the line height, kept in hundredths of the font's own. */
+export function look(): Look {
+  const font = pref('terminal_font').trim();
+  const family = font ? `${JSON.stringify(font)}, "Symbols Nerd Font Mono", ${DEFAULT_FONT}` : DEFAULT_FONT;
+  return { fontFamily: family, fontSize: pref('terminal_size'), lineHeight: pref('terminal_line_height') / 100, cursorStyle: 'bar', cursorBlink: false, padding: '12px 14px', theme: { ...DEFAULT } };
 }
 
 /** Puts a look on the terminals' surroundings: their background, text colour and padding. */
@@ -58,10 +41,23 @@ export function apply(l: Look) {
   root.setProperty('--deck-padding', l.padding);
 }
 
-/** What xterm.js takes from a look: the theme over a clear background, so the pane's own shows. */
+/** The size nearest to `size` at which a cell of the face is a whole number of pixels wide, as a native terminal
+ *  sets its cells. A cell that ends between pixels blurs every letter differently and leaves a seam between the blocks
+ *  and lines a full-screen program draws side by side. Default's 14 is then 13.3 px in cells of 8. */
+export function snap(family: string, size: number) {
+  const g = document.createElement('canvas').getContext('2d');
+  if (!g) return size;
+  g.font = `100px ${family}`;
+  const advance = g.measureText('M').width / 100;
+  return advance > 0.3 ? Math.max(4, Math.round(size * advance)) / advance : size;
+}
+
+/** What xterm.js takes from a look: its face at a size that fills whole pixels; the theme over a clear background, so
+ *  the pane's own shows; and every colour a program asks for kept legible on whatever it is drawn over, as the
+ *  system's own terminals and editors do (black text on a green badge stays readable). */
 export const terminalOptions = (l: Look, fontSize: number) => ({
-  fontFamily: l.fontFamily, fontSize, lineHeight: l.lineHeight, cursorStyle: l.cursorStyle, cursorBlink: l.cursorBlink,
-  theme: { ...l.theme, background: l.theme.background + '00' },
+  fontFamily: l.fontFamily, fontSize: snap(l.fontFamily, fontSize), lineHeight: l.lineHeight, cursorStyle: l.cursorStyle, cursorBlink: l.cursorBlink,
+  minimumContrastRatio: 4.5, theme: { ...l.theme, background: l.theme.background + '00' },
 });
 
 /** The face the terminals measure their cells with, loaded before the first one opens. Bold, italic and the symbols

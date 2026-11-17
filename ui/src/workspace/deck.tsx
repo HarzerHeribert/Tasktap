@@ -4,7 +4,7 @@
 // system's (menu.ts), and the window's menu and keys carry the rest.
 import type { Question, Thought } from '../../../core/proto/protocol.ts';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { pending, running, settle, settling, Status } from '../changes.tsx';
+import { next, pending, running, settle, settling, Status, Told } from '../changes.tsx';
 import { Ask } from '../question.tsx';
 import { Answer, I, Mark, ago, madeAt, when } from '../ui.tsx';
 import * as L from './layout.ts';
@@ -139,26 +139,28 @@ export function ResultStrip({ t }: { t: Thought & { workdir: NonNullable<Thought
   const r = resultOf(t);
   const s = settling.get(t.id);
   const busy = s?.step === 'stopping' || s?.step === 'settling';
-  const keep = () => (running(t) ? open({ kind: 'settle', thought: t.id, keep: true }) : void settle(t, true));
+  const main = next(t);
   const discard = () => open({ kind: 'settle', thought: t.id, keep: false });
+  const keep = () => (!main.keep ? discard() : running(t) ? open({ kind: 'settle', thought: t.id, keep: true }) : void settle(t, true));
   const review = () => open({ kind: 'review', thought: t.id });
   return (
     <div class="strip" data-result={t.id} tabIndex={-1} onKeyDown={(e) => {
       if ((e.target as HTMLElement).matches('input') || e.metaKey || e.ctrlKey || e.altKey || busy) return;
       const k = e.key.toLowerCase();
       if (k === 'enter' && !(e.target as HTMLElement).closest('button')) keep();
-      else if (k === 'd') discard();
-      else if (k === 'r') review();
+      else if (k === 'd' && main.keep) discard();
+      else if (k === 'r' && main.keep) review();
       else return;
       e.preventDefault();
     }}>
       <p class="meta"><b>Result</b><time>{when(t.updated)}</time><span class="end"><Status t={t} /></span></p>
       {r?.summary && <p class="qp">{r.summary}</p>}
+      <Told t={t} />
       {!busy && (
         <div class="qa">
-          <Answer k="↩" label="Keep" primary onClick={keep} />
-          <Answer k="D" label="Discard" onClick={discard} />
-          <Answer k="R" label="Review changes" onClick={review} />
+          <Answer k="↩" label={main.label} primary onClick={keep} />
+          {main.keep && <Answer k="D" label="Discard" onClick={discard} />}
+          {main.keep && <Answer k="R" label="Review changes" onClick={review} />}
         </div>
       )}
     </div>

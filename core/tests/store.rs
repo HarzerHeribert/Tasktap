@@ -50,8 +50,11 @@ impl Drop for Dir {
     }
 }
 
+/// The time each open gives the store for what its recovery pass stamps.
+const OPENED: u64 = 1_000_000;
+
 fn open(path: &Path) -> (Store, Option<Change>) {
-    Store::open(path).unwrap()
+    Store::open(path, at(OPENED)).unwrap()
 }
 
 fn rev(n: u64) -> Rev {
@@ -357,7 +360,7 @@ fn a_newer_schema_is_refused_and_left_untouched() {
     let known = MIGRATIONS.len() as u32;
     let wal = dir.0.join("core.db-wal");
     let refused = || {
-        let err = Store::open(&dir.db()).err().unwrap();
+        let err = Store::open(&dir.db(), at(OPENED)).err().unwrap();
         assert!(
             matches!(err, Error::Newer { found, known: k } if found == known + 1 && k == known),
             "{err}"
@@ -414,12 +417,12 @@ fn a_migration_backs_up_first_and_applies() {
     let dir = Dir::new("migrate");
     let p = project("/work/migrate");
     {
-        let (mut store, _) = Store::open_with(&dir.db(), &MIGRATIONS[..1]).unwrap();
+        let (mut store, _) = Store::open_with(&dir.db(), &MIGRATIONS[..1], at(OPENED)).unwrap();
         let mut tx = store.begin().unwrap();
         tx.insert_project(&p).unwrap();
         tx.commit().unwrap();
     }
-    let (mut store, _) = Store::open_with(&dir.db(), &[MIGRATIONS[0], V2]).unwrap();
+    let (mut store, _) = Store::open_with(&dir.db(), &[MIGRATIONS[0], V2], at(OPENED)).unwrap();
     assert_eq!(
         store
             .begin()
@@ -440,7 +443,7 @@ fn a_migration_backs_up_first_and_applies() {
     let (version, names) = tables(&backup);
     assert_eq!(version, 1);
     assert!(!names.contains(&"extra".into()));
-    let (mut old, _) = Store::open_with(&backup, &MIGRATIONS[..1]).unwrap();
+    let (mut old, _) = Store::open_with(&backup, &MIGRATIONS[..1], at(OPENED)).unwrap();
     assert!(old.begin().unwrap().project(p.id).unwrap().is_some());
 }
 
@@ -449,7 +452,7 @@ fn a_migration_that_fails_halfway_changes_nothing() {
     let dir = Dir::new("migrate-fail");
     let p = project("/work/fail");
     {
-        let (mut store, _) = Store::open_with(&dir.db(), &MIGRATIONS[..1]).unwrap();
+        let (mut store, _) = Store::open_with(&dir.db(), &MIGRATIONS[..1], at(OPENED)).unwrap();
         let mut tx = store.begin().unwrap();
         tx.insert_project(&p).unwrap();
         tx.commit().unwrap();
@@ -458,7 +461,7 @@ fn a_migration_that_fails_halfway_changes_nothing() {
     // The first two statements succeed; the third breaks a NOT NULL column.
     let broken = "CREATE TABLE extra (x INTEGER); INSERT INTO extra VALUES (1); \
                   INSERT INTO projects (id) VALUES ('x');";
-    let err = Store::open_with(&dir.db(), &[MIGRATIONS[0], broken])
+    let err = Store::open_with(&dir.db(), &[MIGRATIONS[0], broken], at(OPENED))
         .err()
         .unwrap();
     assert!(matches!(err, Error::Migration { version: 2, .. }), "{err}");
@@ -467,7 +470,7 @@ fn a_migration_that_fails_halfway_changes_nothing() {
     let (version, names) = tables(&dir.db());
     assert_eq!(version, 1);
     assert!(!names.contains(&"extra".into()));
-    let (mut store, _) = Store::open_with(&dir.db(), &MIGRATIONS[..1]).unwrap();
+    let (mut store, _) = Store::open_with(&dir.db(), &MIGRATIONS[..1], at(OPENED)).unwrap();
     assert_eq!(
         store
             .begin()
@@ -926,7 +929,7 @@ fn recovery_closes_exactly_what_an_earlier_boot_left_open() {
     };
     let mut thoughts = thoughts.clone();
     for t in &mut thoughts.put {
-        assert!(t.updated > s.interrupted.updated || t.id == s.held.id);
+        assert!(t.updated == at(OPENED) || t.id == s.held.id);
         t.updated = s.interrupted.updated;
     }
     let mut expected = vec![

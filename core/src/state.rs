@@ -1325,23 +1325,33 @@ impl Machine<'_, '_> {
     /// rest comes from what the record is unique to, so applying the same
     /// event twice cannot make two.
     fn mint<I: DeserializeOwned>(&self, parts: &[&[u8]]) -> Result<I> {
-        let hash = digest(parts);
-        let mut b = [0u8; 16];
-        b[..6].copy_from_slice(&self.now.get().to_be_bytes()[2..]);
-        b[6..].copy_from_slice(&hash[..10]);
-        b[6] = 0x70 | (b[6] & 0x0f);
-        b[8] = 0x80 | (b[8] & 0x3f);
-        let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
-        let text = format!(
-            "{}-{}-{}-{}-{}",
-            &hex[..8],
-            &hex[8..12],
-            &hex[12..16],
-            &hex[16..20],
-            &hex[20..]
-        );
-        serde_json::from_value(Value::String(text)).map_err(|e| Error::Store(e.into()))
+        uuid(self.now, &digest(parts))
     }
+}
+
+/// A new random id at `now`, the core's clock, for a record the core creates
+/// outside an event, so every id it mints carries the same clock.
+pub fn fresh<I: DeserializeOwned>(now: Time) -> Result<I> {
+    uuid(now, &digest(&[&Secret::mint().0]))
+}
+
+/// A UUID v7 at `at` whose other bits are the first ten bytes of `rest`.
+fn uuid<I: DeserializeOwned>(at: Time, rest: &[u8; 32]) -> Result<I> {
+    let mut b = [0u8; 16];
+    b[..6].copy_from_slice(&at.get().to_be_bytes()[2..]);
+    b[6..].copy_from_slice(&rest[..10]);
+    b[6] = 0x70 | (b[6] & 0x0f);
+    b[8] = 0x80 | (b[8] & 0x3f);
+    let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    let text = format!(
+        "{}-{}-{}-{}-{}",
+        &hex[..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..]
+    );
+    serde_json::from_value(Value::String(text)).map_err(|e| Error::Store(e.into()))
 }
 
 fn some<T>(record: Option<T>) -> Result<T> {

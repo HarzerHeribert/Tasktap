@@ -157,7 +157,7 @@ struct World {
 impl World {
     fn new(name: &str) -> World {
         let dir = Dir::new(name);
-        let (mut store, _) = Store::open(&dir.db()).unwrap();
+        let (mut store, _) = Store::open(&dir.db(), time(START)).unwrap();
         let p = project(FOLDER);
         let device = Device {
             id: DeviceId::mint(),
@@ -251,7 +251,7 @@ impl World {
 
     /// Starts the core again on the same folder: the recovery pass runs.
     fn reopen(&mut self) {
-        self.store = Store::open(&self.dir.db()).unwrap().0;
+        self.store = Store::open(&self.dir.db(), self.now()).unwrap().0;
     }
 
     /// Does the caller's part of launch and delivery effects: asks the
@@ -2296,7 +2296,7 @@ fn label(step: &Step) -> String {
 #[test]
 fn every_event_in_every_reachable_state_keeps_the_rules() {
     let dir = Dir::new("sweep");
-    let (mut store, _) = Store::open(&dir.db()).unwrap();
+    let (mut store, _) = Store::open(&dir.db(), time(START)).unwrap();
     let p = project(FOLDER);
     let mut tx = store.begin().unwrap();
     tx.insert_project(&p).unwrap();

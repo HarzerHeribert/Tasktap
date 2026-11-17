@@ -25,7 +25,6 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::types::{FromSql, Type};
 use rusqlite::{
@@ -174,14 +173,19 @@ pub struct Store {
 impl Store {
     /// Opens or creates the database, migrates it, starts a new boot and runs
     /// the recovery pass. Returns the change the recovery made, if any.
-    pub fn open(path: &Path) -> Result<(Store, Option<Change>)> {
-        Self::open_with(path, MIGRATIONS)
+    /// `now` stamps the rows the recovery pass changes.
+    pub fn open(path: &Path, now: Time) -> Result<(Store, Option<Change>)> {
+        Self::open_with(path, MIGRATIONS, now)
     }
 
     /// [`Store::open`] with another schema list. Tests use it to prove that
     /// migrations are backed up and atomic.
     #[doc(hidden)]
-    pub fn open_with(path: &Path, migrations: &[&str]) -> Result<(Store, Option<Change>)> {
+    pub fn open_with(
+        path: &Path,
+        migrations: &[&str],
+        now: Time,
+    ) -> Result<(Store, Option<Change>)> {
         let known = migrations.len() as u32;
         if path.exists() {
             // Read-only, so a refused file is not even checkpointed.
@@ -221,7 +225,7 @@ impl Store {
         )?;
         (store.core, store.boot, store.rev) = (parse(&core)?, boot as u64, rev as u64);
         let mut tx = Tx::new(tx, &mut store.rev, store.boot)?;
-        tx.recover(now())?;
+        tx.recover(now)?;
         let change = tx.commit()?;
         Ok((store, change))
     }
@@ -319,13 +323,6 @@ fn backup(db: &Connection, path: &Path, version: u32) -> Result<()> {
     })?;
     db.execute("VACUUM INTO ?1", [to])?;
     Ok(())
-}
-
-fn now() -> Time {
-    let ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64);
-    Time::new(ms).unwrap_or(Time::ZERO)
 }
 
 /// The tables clients see, in the order a change lists them.

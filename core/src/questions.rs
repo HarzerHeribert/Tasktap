@@ -13,7 +13,7 @@
 //! answer stored meanwhile. Every rule about which question may open,
 //! reopen, be answered or close is the state machine's.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 
 use serde_json::Value;
@@ -37,7 +37,9 @@ pub struct Questions {
     /// The thoughts `glance` counts, and how many there are of each kind.
     counted: HashMap<ThoughtId, Count>,
     counts: [u32; 3],
-    open: BTreeSet<QuestionId>,
+    /// Each open question with the revision it opened at: `glance` shows the
+    /// oldest, whichever clock minted its id.
+    open: BTreeMap<QuestionId, Rev>,
     /// Chosen with `question.focus`; while it is open it is the one affirm and deny act on.
     focus: Option<QuestionId>,
 }
@@ -113,8 +115,12 @@ fn open(core: &mut Core, s: &Session, ask: Ask) -> Result<Question, Refusal> {
     let tx = core.store.begin()?;
     let stored = tx.question_by_request(&key)?;
     drop(tx);
+    let id = match stored {
+        Some(q) => q.id,
+        None => state::fresh(core.seams.now())?,
+    };
     let question = Question {
-        id: stored.map_or_else(QuestionId::mint, |q| q.id),
+        id,
         rev: Rev::ZERO,
         thought_id: s.thought_id,
         session_id: Some(s.id),
@@ -127,7 +133,6 @@ fn open(core: &mut Core, s: &Session, ask: Ask) -> Result<Question, Refusal> {
         state: Q::Open,
         answer: None,
     };
-    let id = question.id;
     match effects::run(core, Event::Ask { question, key }) {
         Ok(_) | Err(Refusal::State(state::Error::Ignored(Ignored::Repeat))) => {}
         Err(r) => return Err(r),
@@ -202,7 +207,7 @@ pub fn received(cx: &mut Cx, args: AskKey) -> Result<(), Error> {
 /// `question.focus`: the open question affirm and deny act on.
 pub fn focus(cx: &mut Cx, args: Ref<QuestionId>) -> Result<(), Error> {
     let q = &mut cx.core.questions;
-    if !q.open.contains(&args.id) {
+    if !q.open.contains_key(&args.id) {
         return Err(Error::new(Code::Gone, "the question is not open"));
     }
     q.focus = Some(args.id);
@@ -315,7 +320,7 @@ pub fn absorb(core: &mut Core, change: &Change) -> Vec<QuestionId> {
             Set::Questions(rows) => {
                 for row in &rows.put {
                     if row.state == Q::Open {
-                        q.open.insert(row.id);
+                        q.open.insert(row.id, row.rev);
                     } else {
                         q.open.remove(&row.id);
                     }
@@ -336,7 +341,7 @@ pub fn absorb(core: &mut Core, change: &Change) -> Vec<QuestionId> {
 /// Sets `glance` from the counts; an unchanged value sends nothing.
 pub fn refresh(core: &mut Core) {
     let q = &mut core.questions;
-    if q.focus.is_some_and(|f| !q.open.contains(&f)) {
+    if q.focus.is_some_and(|f| !q.open.contains_key(&f)) {
         q.focus = None;
     }
     let [working, needs_you, done] = q.counts;
@@ -345,7 +350,12 @@ pub fn refresh(core: &mut Core) {
         working,
         needs_you,
         done,
-        question: q.focus.or_else(|| q.open.first().copied()),
+        question: (q.focus).or_else(|| {
+            q.open
+                .iter()
+                .min_by_key(|(_, rev)| **rev)
+                .map(|(id, _)| *id)
+        }),
         retiring: core.retire == Some(When::Idle),
     };
     // Memory only: a failure to take a revision leaves the old row.

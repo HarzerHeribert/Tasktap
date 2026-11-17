@@ -106,7 +106,8 @@ async fn serve(opts: Options) -> io::Result<()> {
         }
         Err(TryLockError::Error(e)) => return Err(e),
     }
-    let (store, _) = Store::open(&opts.data.join("core.db")).map_err(io::Error::other)?;
+    let db = opts.data.join("core.db");
+    let (store, _) = Store::open(&db, crate::effects::wall()).map_err(io::Error::other)?;
     let mut listener = sys::Listener::bind(&opts.data)?;
     let terminated = sys::terminated()?;
     drop(starting);

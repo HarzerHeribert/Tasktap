@@ -1195,6 +1195,31 @@ fn code_of(outcome: Outcome) -> Code {
 }
 
 #[test]
+fn glance_shows_the_oldest_open_question_whichever_clock_runs() {
+    let mut s = Scene::new("qk");
+    // The held clock runs a day ahead of the system's.
+    s.tick(24 * 60 * 60 * 1000);
+    let route = FixtureRoute::Ambiguous {
+        prompt: "Which project?".into(),
+        candidates: vec![FixtureCandidate {
+            label: "app".into(),
+            to: Place::Project(s.project),
+        }],
+    };
+    s.script(route, None);
+    s.capture("update the docs");
+    let router = s.shown();
+    s.script(clear(s.project), None);
+    let (_, _, mut agent) = s.launch("go");
+    agent.ask("k", "Go?");
+    agent.sync();
+    s.w.sync();
+    assert_eq!(s.w.model.glance().question, Some(router));
+    // Every id the core mints carries its clock.
+    assert!(asked(&s, "Go?") > router);
+}
+
+#[test]
 fn glance_counts_working_needs_you_and_done_and_shows_retiring() {
     let mut s = Scene::new("ql");
     let (_, _, _working) = s.launch("one");

@@ -135,10 +135,7 @@ impl Seams {
     }
 
     pub fn now(&self) -> Time {
-        self.manual().unwrap_or_else(|| {
-            let since = SystemTime::now().duration_since(UNIX_EPOCH);
-            Time::new(since.map_or(0, |d| d.as_millis() as u64)).unwrap_or(Time::ZERO)
-        })
+        self.manual().unwrap_or_else(wall)
     }
 
     /// Why this build cannot carry out the effects, when it cannot. A hold
@@ -199,6 +196,12 @@ impl Seams {
     fn launcher(&mut self) -> Option<&mut dyn Launcher> {
         None
     }
+}
+
+/// The system's clock, which the core reads unless `fixture.clock` holds it.
+pub fn wall() -> Time {
+    let since = SystemTime::now().duration_since(UNIX_EPOCH);
+    Time::new(since.map_or(0, |d| d.as_millis() as u64)).unwrap_or(Time::ZERO)
 }
 
 /// Applies one event and carries out its effects. Returns the outcome a
@@ -539,7 +542,7 @@ fn fire(core: &mut Core, thought: ThoughtId, until: Time) {
     if core.seams.now() < until {
         return arm(core, thought, until);
     }
-    let attempt = AttemptId::mint();
+    let attempt = state::fresh(core.seams.now()).unwrap_or_else(|e| stop(e));
     report(core, Event::HoldEnded { thought, attempt }, |_| Ok(()));
 }
 

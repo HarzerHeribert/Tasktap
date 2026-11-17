@@ -162,7 +162,7 @@ Improvements on the hypothesis: (1) **a hook can wait**, so a question can be an
 
 ## 5. Data model
 
-One SQLite file, `<data>/core.db`. Ids are UUID v7 text, minted by whoever creates the record. Every row has `rev`. `PRAGMA user_version` is the schema version; migrations are an ordered list of SQL in the binary, applied in one transaction after a backup made with `VACUUM INTO`; a database newer than the binary is refused with a clear message.
+One SQLite file, `<data>/core.db`. Ids are UUID v7 text, minted by whoever creates the record; the core mints its own on its clock, which tests may hold. Every row has `rev`. `PRAGMA user_version` is the schema version; migrations are an ordered list of SQL in the binary, applied in one transaction after a backup made with `VACUUM INTO`; a database newer than the binary is refused with a clear message.
 
 **Core id.** `meta.core_id` is minted once. `welcome` names it, so a client can hold records from several cores. It is not a column on every table: a value that is the same in every row is not data. References never cross cores.
 
@@ -219,7 +219,7 @@ Guards kept from 1.2: events from an old token, a sub-agent or a different turn 
 One record and one flow replace the file inbox (path A) and the observer display (path B).
 
 1. **Ask.** A question is opened by the core's router, by `question.ask` from `tasktap ask`, or by the adapter reading a `session.event`. It is idempotent on `request_key` (for `ask`, the session and its `request` argument; for a hook, the session, turn and the agent's own call id): the same key with the same content is the same question; different content is an error. The key is per session, so one session's token never reaches another session's question. A request never changes. A session holds at most 8 open questions and all sessions together 64 (`MAX_SESSION_QUESTIONS`, `MAX_OPEN_QUESTIONS`); beyond that a new one is `conflict` until one closes.
-2. **Show.** The thought's status becomes needs you, `glance` changes, the core calls `host.notify`. `glance.question` is the focused question (the oldest open one unless `question.focus` chose another), so a host can bind the affirm and deny keys with no page running.
+2. **Show.** The thought's status becomes needs you, `glance` changes, the core calls `host.notify`. `glance.question` is the focused question (the one that opened first, by the revision it opened at rather than its id, unless `question.focus` chose another), so a host can bind the affirm and deny keys with no page running.
 3. **Answer.** `question.answer {id, …}` or `input {answer.affirm | answer.deny, question}`, from a device only. One transaction inserts the `answers` row (its key is the question id, so a question is settled once, and only by an answer that names it) and sets `answered`. Answering a withdrawn question is `gone`.
 
 **Lifetime depends on who is waiting.**

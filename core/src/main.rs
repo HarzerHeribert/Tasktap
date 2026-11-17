@@ -13,8 +13,13 @@ const USAGE: &str = "usage: tasktap serve --data <folder> | event <kind> [TEXT] 
 
 fn main() -> ExitCode {
     let mut args = std::env::args_os();
+    let program = args.next();
+    #[cfg(feature = "fixtures")]
+    if program.as_deref().is_some_and(roles::fixture::named) {
+        return roles::fixture::run(args.collect());
+    }
     // A shim is this file named `claude`, `codex`, …
-    if let Some(rules) = args.next().as_deref().and_then(shim::named) {
+    if let Some(rules) = program.as_deref().and_then(shim::named) {
         return shim::run(rules, args.collect());
     }
     let result = match args.next().as_deref().and_then(|role| role.to_str()) {

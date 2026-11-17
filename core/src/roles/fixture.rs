@@ -4,26 +4,32 @@
 //! through its hooks, which a launch or a shim attaches as `--hook <exe>`,
 //! by running `<exe> hook fixture` with the payload on standard input.
 //!
-//! `tasktap fixture-agent [--hook EXE] [STEP]...` first prints
-//! `fixture-agent` and its arguments, then runs the steps in order; with
-//! none among its arguments, it reads them one per line from standard input.
-//! Other arguments, an agent's flags and subcommands, are ignored.
+//! `tasktap fixture-agent [--hook EXE] [STEP]...`, or the same program named
+//! `fixture-agent` as the core launches it, first prints `fixture-agent` and
+//! its arguments, then runs the steps in order; with none among its
+//! arguments, it reads them one per line from standard input. Other
+//! arguments, an agent's flags and subcommands, are ignored.
 //!
 //! | Step | Does |
 //! | --- | --- |
 //! | `print:TEXT` | prints the text |
-//! | `event:KIND[:TEXT]` | reports the event, the text in the field its kind has |
+//! | `event:KIND[:TEXT]` | reports the event, the text in the field its kind has; `\n` in it is a line break |
 //! | `ask:PROMPT` | asks through a hook that waits, and prints `answer:` and what it printed |
 //! | `wait` | reads a line of standard input and prints `read:` and the line |
 //! | `sleep:MS` | sleeps |
 //! | `nohup` | ignores hang-up from then on |
 //! | `exit:CODE` | exits with the code; after the last step it exits with 0 |
 //!
+//! A line of standard input pasted as a terminal pastes (bracketed paste) is
+//! a prompt, as one typed into a real agent: in place of a step it prints
+//! `prompt:` and the text and reports `turn_started` with it. Lines read
+//! by `wait` lose their paste brackets too.
+//!
 //! Without a hook, as when it runs unobserved, `event` and `ask` do nothing.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::io::{self, BufRead, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::time::Duration;
 
@@ -31,6 +37,8 @@ use serde_json::{Value, json};
 
 /// The test agent's name: its shim and `tasktap hook fixture`.
 pub const AGENT: &str = "fixture";
+/// The program the core launches for it: this binary under that name.
+pub const PROGRAM: &str = "fixture-agent";
 /// Set by a shim on the agent it runs: the program named [`AGENT`] that sees
 /// it is the agent itself, not another shim.
 pub const REAL: &str = "TASKTAP_FIXTURE_AGENT";
@@ -38,6 +46,12 @@ pub const REAL: &str = "TASKTAP_FIXTURE_AGENT";
 pub const TTY: &str = "TASKTAP_FIXTURE_TTY";
 
 const STEPS: [&str; 7] = ["print", "event", "ask", "wait", "sleep", "nohup", "exit"];
+const PASTED: (&str, &str) = ("\x1b[200~", "\x1b[201~");
+
+/// Whether this program runs as [`PROGRAM`].
+pub fn named(program: &OsStr) -> bool {
+    Path::new(program).file_stem() == Some(OsStr::new(PROGRAM))
+}
 
 pub fn run(args: Vec<OsString>) -> ExitCode {
     let args: Vec<String> = (args.iter())
@@ -68,6 +82,14 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         };
         let (verb, rest) = step.split_once(':').unwrap_or((step.as_str(), ""));
         asked += 1;
+        if let Some(prompt) = pasted(&step) {
+            println!("prompt:{prompt}");
+            if let Some(hook) = &hook {
+                hooked(hook, &said("turn_started", prompt, asked));
+            }
+            let _ = io::stdout().flush();
+            continue;
+        }
         match verb {
             "print" => println!("{rest}"),
             "event" => {
@@ -90,7 +112,7 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
             }
             "wait" => {
                 let line = lines.next().and_then(Result::ok).unwrap_or_default();
-                println!("read:{line}");
+                println!("read:{}", pasted(&line).unwrap_or(&line));
             }
             "sleep" => std::thread::sleep(Duration::from_millis(rest.parse().unwrap_or(0))),
             "nohup" => crate::sys::ignore_hangup(),
@@ -105,11 +127,18 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
     }
 }
 
+/// The text of a line pasted as a terminal pastes, without its brackets.
+fn pasted(line: &str) -> Option<&str> {
+    let line = line.trim_end_matches('\r');
+    line.strip_prefix(PASTED.0)?.strip_suffix(PASTED.1)
+}
+
 /// The payload of one hook: a `session.event`'s arguments.
 fn said(kind: &str, text: &str, n: usize) -> Value {
     let id = format!("{}-{n}", std::process::id());
     let mut said = json!({ "id": id, "kind": kind });
-    let text = Some(text).filter(|t| !t.is_empty());
+    let text = text.replace("\\n", "\n");
+    let text = Some(text.as_str()).filter(|t| !t.is_empty());
     match kind {
         "turn_started" => said["prompt"] = text.into(),
         "activity" => said["text"] = text.unwrap_or_default().into(),

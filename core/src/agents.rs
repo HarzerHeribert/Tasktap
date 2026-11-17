@@ -1,14 +1,13 @@
-//! The agents the core knows (design §7), as far as their hooks go: what a
-//! hook's payload says in the core's one vocabulary, what a hook that waited
-//! prints for its agent, and the arguments that attach the hooks to a run.
-//! It runs in `tasktap hook`, so a payload the core would not understand
-//! never reaches it. Package D adds launching and detection, and the
-//! adapters of Claude Code and Codex.
+//! The agents the core knows (design §7): how a run of each starts, what its
+//! hooks say in the core's one vocabulary, and what a hook that waited
+//! prints for its agent. The hook half runs in `tasktap hook`, so a payload
+//! the core would not understand never reaches it; the launcher reads the
+//! rest. Package D adds detection and the adapters of Claude Code and Codex.
 
 use std::ffi::OsString;
 use std::path::Path;
 
-use tasktap_proto::{Answer, Ask, SessionEvent};
+use tasktap_proto::{Answer, Ask, SessionEvent, SessionId};
 
 /// What one hook says.
 pub enum Heard {
@@ -19,9 +18,38 @@ pub enum Heard {
     Wait(Ask),
 }
 
+/// What an agent's runs can do, read where the core decides.
+#[derive(Clone, Copy, Debug)]
+pub struct Caps {
+    /// Its runs report through hooks. One that does not finishes its work
+    /// by exiting 0 (design §5, `exited`).
+    pub events: bool,
+}
+
+/// A new run, as the launcher starts it.
+pub struct Run<'a> {
+    pub session: SessionId,
+    /// The folder it runs in.
+    pub cwd: &'a Path,
+    pub prompt: &'a str,
+    pub model: Option<&'a str>,
+    /// The agent's handle of the conversation this run continues.
+    pub resume: Option<&'a str>,
+    /// This program, which the hooks run as `<hook> hook <id>`.
+    pub hook: &'a Path,
+}
+
 pub trait Agent: Sync {
     /// Its name: the shim's program name and the `<agent>` of `tasktap hook`.
     fn id(&self) -> &'static str;
+
+    fn caps(&self) -> Caps;
+
+    /// The command line of a run: first the program, a name the launcher
+    /// looks up on the PATH of the run's terminal, then its arguments, with
+    /// the hooks attached as [`Agent::attach`] does. The core starts it as
+    /// the terminal's direct child, with no shell around it.
+    fn launch(&self, run: &Run) -> Vec<String>;
 
     /// Arguments, put before the person's own, with which a run of the agent
     /// calls `<exe> hook <id>` on its hook events.
@@ -43,14 +71,20 @@ pub fn find(id: &str) -> Option<&'static dyn Agent> {
 
 const AGENTS: &[&dyn Agent] = &[
     #[cfg(feature = "fixtures")]
-    &Fixture,
+    &Fixture { events: true },
+    #[cfg(feature = "fixtures")]
+    &Fixture { events: false },
 ];
 
-/// The stand-in agent of the tests (`tasktap fixture-agent`). Its payloads
-/// are already in the core's words: a `session.event`'s arguments, and a
-/// question with `"wait": true` waits.
+/// The stand-in agent of the tests: the program `fixture-agent`, this
+/// binary under that name (design §13). As `fixture` its payloads are
+/// already in the core's words: a `session.event`'s arguments, and a
+/// question with `"wait": true` waits. As `fixture-silent` it has no hooks
+/// and reports only by exiting.
 #[cfg(feature = "fixtures")]
-struct Fixture;
+struct Fixture {
+    events: bool,
+}
 
 #[cfg(feature = "fixtures")]
 impl Fixture {
@@ -70,7 +104,26 @@ impl Fixture {
 #[cfg(feature = "fixtures")]
 impl Agent for Fixture {
     fn id(&self) -> &'static str {
-        "fixture"
+        if self.events {
+            "fixture"
+        } else {
+            "fixture-silent"
+        }
+    }
+
+    fn caps(&self) -> Caps {
+        Caps {
+            events: self.events,
+        }
+    }
+
+    fn launch(&self, run: &Run) -> Vec<String> {
+        let hooks = self.events.then(|| self.attach(run.hook));
+        let hooks = hooks.into_iter().flatten();
+        let mut argv = vec![crate::roles::fixture::PROGRAM.to_owned()];
+        argv.extend(hooks.map(|a| a.to_string_lossy().into_owned()));
+        argv.push(run.prompt.to_owned());
+        argv
     }
 
     fn attach(&self, exe: &Path) -> Vec<OsString> {

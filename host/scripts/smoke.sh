@@ -23,11 +23,14 @@ mkdir -p "$tmp/agents" "$tmp/project"
 ln "$host/binaries/fixtures/tasktap" "$tmp/agents/fixture-agent"
 mkfifo "$tmp/in"
 cleanup() {
-  echo quit >&3 2>/dev/null
-  sleep 1
+  # Writing to the app's input once it has quit would end this script with SIGPIPE.
+  trap '' PIPE
+  kill -0 "$app" 2>/dev/null && echo quit >&3 && sleep 1
   kill "$app" 2>/dev/null
   # The core idles out a minute after its last client; this one is ours, so it goes now.
-  pkill -f "$tmp/data/bin/" 2>/dev/null
+  pkill -f "$tmp/" 2>/dev/null
+  sleep 1
+  pkill -9 -f "$tmp/" 2>/dev/null
   if [ "$fails" = 0 ]; then rm -rf "$tmp"; else echo "The app's log is in $log"; fi
 }
 trap cleanup EXIT

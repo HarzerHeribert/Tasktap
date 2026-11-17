@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tasktap · UI directions</title>
+<link rel="stylesheet" href="mock.css">
+<link rel="stylesheet" href="d1.css">
+<link rel="stylesheet" href="d2.css">
+<link rel="stylesheet" href="d3.css">
+<link rel="stylesheet" href="harness.css">
+</head>
+<body>
+<header id="bar">
+  <strong>Tasktap<span>UI directions</span></strong>
+  <nav class="seg" aria-label="Direction">
+    <button data-dir="0"><kbd>0</kbd>Current</button>
+    <button data-dir="2"><kbd>2</kbd>Instrument</button>
+    <button id="b-nc" data-act="nc" title="The two directions that were not chosen">Not chosen</button>
+    <button data-dir="1" class="ncd"><kbd>1</kbd>Native</button>
+    <button data-dir="3" class="ncd"><kbd>3</kbd>Ledger</button>
+  </nav>
+  <nav class="seg" aria-label="Screen">
+    <button data-screen="workspace">Workspace<kbd>W</kbd></button>
+    <button data-screen="home">Home<kbd>H</kbd></button>
+    <button data-screen="homes" title="Three layerings of Home in four states">Home × 12<kbd>G</kbd></button>
+    <button data-screen="notch">Notch<kbd>N</kbd></button>
+    <button data-screen="specimen">Specimen<kbd>S</kbd></button>
+  </nav>
+  <span id="hints"><kbd>←</kbd><kbd>→</kbd>flip<kbd>K</kbd>capture<kbd>O</kbd>open the notch<kbd>esc</kbd>close</span>
+  <div id="sub"><span id="idea"></span>
+  <span class="opts">
+    <button id="b-hl" class="hxo" data-act="hl" title="How the second layer opens"><b></b><kbd>X</kbd></button>
+    <button id="b-hs" class="hxo" data-act="hs" title="The state of the day"><b></b><kbd>Z</kbd></button>
+    <button id="b-h2" class="hxo" data-act="h2" title="Open or close the second layer">Second layer<kbd>E</kbd></button>
+    <button id="b-bd" class="hxo" data-act="bd" title="The chrome backdrop (a stand-in for the motion lab's)">Backdrop<kbd>B</kbd></button>
+    <button id="b-term" data-act="term" title="Switch the terminal theme. It is the person's, not ours"><b></b><kbd>T</kbd></button>
+    <button id="b-mode" data-act="mode" title="Appearance"><b></b><kbd>L</kbd></button>
+    <button id="b-size" data-act="size" title="Window size"><b></b><kbd>M</kbd></button>
+    <button id="b-dlg" data-act="dialog" title="The tab-close dialog">Dialog<kbd>D</kbd></button>
+    <button id="b-cmp" data-act="compare" title="Side by side with the current app">Compare<kbd>C</kbd></button>
+  </span>
+  </div>
+</header>
+<main id="stage"></main>
+<script src="home.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

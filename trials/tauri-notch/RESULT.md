@@ -1,5 +1,7 @@
 # Tauri notch trial: result
 
+**Kept as the record of the one-host decision.** The trial's code (`check.sh`, `src-tauri/`, `tool/`, `ui/`) compiled 1.2's Swift sources and loaded 1.2's stylesheets, so it was removed with them at the repository cutover; it is in the history at commit `4b6408f`. What it proved lives on in `host/src/notch.rs`, `native.rs` and `geometry.rs`. The measurements in `captures/` are the ones this result cites; the pictures it names were never committed.
+
 Run on 2026-11-17 on a MacBook Pro (M4 Pro, built-in display 1800×1169 pt with a camera cutout), Darwin 27.0. Tauri 2.12.6 (wry 0.57.2, tao 0.37.2), objc2 0.6.5 and objc2-app-kit 0.3.2.
 
 The first run had the screen locked. The owner then ran `check.sh` unlocked, and a follow-up the same day measured the two failed focus checks against Tasktap Dev 1.2 (see [Keyboard focus against 1.2](#keyboard-focus-against-12)). Both are folded in below.

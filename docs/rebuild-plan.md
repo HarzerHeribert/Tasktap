@@ -1,6 +1,8 @@
 # Tasktap rebuild plan
 
-Written 2026-11-17. This plan replaces [implementation-gap-plan.md](implementation-gap-plan.md) for anything about structure. [requirements.md](requirements.md) still defines behavior, except where this plan changes it; each change is marked **Changes a requirement**.
+Written 2026-11-17. This plan replaces [implementation-gap-plan.md](https://github.com/HarzerHeribert/Tasktap/blob/v1.2.0/docs/implementation-gap-plan.md) for anything about structure. [requirements.md](https://github.com/HarzerHeribert/Tasktap/blob/v1.2.0/docs/requirements.md) still defines behavior, except where this plan changes it; each change is marked **Changes a requirement**.
+
+**Since the repository cutover** (see [the last section](#repository-cutover)) this plan is the record of what was decided and why. The paths it names under `native/`, `prototype/` and `scripts/`, the trial's `check.sh` and the documents of 1.0 to 1.2 are no longer in the repository; the links to those documents lead to the tag `v1.2.0`.
 
 ## Why rebuild now
 
@@ -109,7 +111,7 @@ Today the app is organised around sessions and terminals, which makes it read as
 
 ### 2. Each thought can run in isolation
 
-**Changes a requirement.** [interaction-design.md](interaction-design.md) says Tasktap creates no branch or worktree. Starting work without review is only safe if two thoughts in one project cannot overwrite each other.
+**Changes a requirement.** [interaction-design.md](https://github.com/HarzerHeribert/Tasktap/blob/v1.2.0/docs/interaction-design.md) says Tasktap creates no branch or worktree. Starting work without review is only safe if two thoughts in one project cannot overwrite each other.
 
 - In a git project that already has running work, a new thought gets its own worktree and branch.
 - The result comes back as a summary plus the changes, with **Keep** and **Discard**.

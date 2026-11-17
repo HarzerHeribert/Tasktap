@@ -1,5 +1,7 @@
 # Tasktap 1.2 contract inventory
 
+**Historical reference.** This describes Tasktap 1.2, which is no longer in this repository: `native/`, `prototype/`, the Python service and the documents cited below were removed at the cutover, and every `path:line` here points into the branch `rebuild-phase-0` (the release itself is the tag `v1.2.0`). It is kept because the core design cites it as "inv. §…".
+
 Input for the rebuild protocol and data model (`docs/rebuild-plan.md`). It records what the code on branch `rebuild-phase-0` does on 2026-11-17. It contains no recommendations.
 
 Conventions:

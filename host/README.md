@@ -28,7 +28,7 @@ Tasktap Next is in the Dock and has a menu. Closing the workspace window leaves 
 
 ## Deliberately missing
 
-Document and web previews, Preferences, Notebook, Session history and Activity, speech, screen context, the updater, notifications, routing by a model, import from 1.2, Windows, and terminal themes other than Default.
+Document and web previews, Preferences, Notebook, Session history and Activity, speech, screen context, the updater, notifications, routing by a model, Windows, and terminal themes other than Default.
 
 ## How it fits together
 

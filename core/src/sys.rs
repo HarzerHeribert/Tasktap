@@ -243,7 +243,9 @@ mod windows {
     use std::process::Command;
     use std::ptr::{null, null_mut};
     use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
-    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_PIPE_BUSY, HANDLE};
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, ERROR_PIPE_BUSY, HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation,
+    };
     use windows_sys::Win32::Security::{
         GetLengthSid, GetTokenInformation, TOKEN_QUERY, TOKEN_USER, TokenUser,
     };
@@ -360,9 +362,24 @@ mod windows {
         unsafe { CancelIoEx(pipe.as_raw_handle() as HANDLE, null()) };
     }
 
-    /// No console, so the client's Ctrl-C and closing its window leave it running.
+    /// No console, so the client's Ctrl-C and closing its window leave it
+    /// running. Windows hands a child every handle that may be inherited, and
+    /// this process's standard handles may, having been inherited themselves:
+    /// a core a hook started would keep that hook's output open, and its agent
+    /// would wait for the end of it as long as the core lives. A child of this
+    /// process still gets them, as std passes standard handles as copies.
     pub fn detach(cmd: &mut Command) {
         cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+        let std = [
+            io::stdin().as_raw_handle(),
+            io::stdout().as_raw_handle(),
+            io::stderr().as_raw_handle(),
+        ];
+        for handle in std {
+            // SAFETY: changes one flag of a handle this process holds; one it
+            // has not is refused, which changes nothing.
+            unsafe { SetHandleInformation(handle as HANDLE, HANDLE_FLAG_INHERIT, 0) };
+        }
     }
 
     /// Completes on Ctrl-C, Ctrl-Break, closing the console, or shutdown.

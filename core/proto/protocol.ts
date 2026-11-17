@@ -18,7 +18,7 @@ export const MAX_TEXT = 65536;
 export const MAX_LINE = 8192;
 export const MAX_POINTS = 2048;
 /** The value of each preference while none is stored: deleting one restores it. */
-export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] } = {"agent":null,"hold":5,"motion_ambient":"breathing","motion_hue":265,"motion_lumen":false,"motion_palette":"chromatic","motion_style":"slats","route_by":null,"terminal_font":"","terminal_line_height":100,"terminal_size":14};
+export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] } = {"agent":null,"hold":5,"keys":[],"motion_ambient":"breathing","motion_hue":265,"motion_lumen":false,"motion_palette":"chromatic","motion_style":"slats","route_by":null,"speech_by":null,"speech_languages":[],"terminal_font":"","terminal_line_height":100,"terminal_size":14};
 
 /**
  * Who may make a call (design §2): authorization is per call.
@@ -223,7 +223,7 @@ export type CloseWhy = "done" | "overflow" | "gone" | "denied";
 
 export type Code = "unknown" | "invalid" | "denied" | "conflict" | "gone" | "failed";
 
-export type Collection = "thoughts" | "projects" | "sessions" | "terminals" | "questions" | "results" | "layouts" | "prefs" | "devices" | "glance" | "agents";
+export type Collection = "thoughts" | "projects" | "sessions" | "terminals" | "questions" | "results" | "layouts" | "prefs" | "devices" | "glance" | "agents" | "dictations";
 
 /**
  * A kind 0 frame. Unknown fields are ignored, so a newer peer may add fields
@@ -271,6 +271,39 @@ export type Device = { id: DeviceId, rev: Rev, name: string, last_seen: Time | n
  * A UUID v7 in text, minted by whoever creates the record.
  */
 export type DeviceId = string;
+
+/**
+ * A dictation that is under way or has failed (design §8). Memory only:
+ * one that was delivered has no row, since it became its thought or its
+ * answer.
+ */
+export type Dictation = { id: DictationId, rev: Rev, phase: DictationPhase,
+/**
+ * What was heard: the transcript so far while a recorder that
+ * transcribes reports it, and the whole of it when it could not be
+ * delivered.
+ */
+text: string,
+/**
+ * How loud the microphone is, 0 to 100, while recording.
+ */
+level: number, target: DictationTarget,
+/**
+ * Why it failed, in words the interface shows as they are.
+ */
+error: string | null, };
+
+/**
+ * A UUID v7 in text, minted by whoever creates the record.
+ */
+export type DictationId = string;
+
+export type DictationPhase = "recording" | "transcribing" | "failed";
+
+/**
+ * What a dictation becomes: exactly what typing it would have been.
+ */
+export type DictationTarget = { "kind": "thought" } & Capture | { "kind": "answer", question: QuestionId, };
 
 /**
  * The reply of `thought.changes`: the files, and the stream of the diff
@@ -510,6 +543,21 @@ export type LayoutPatch = { tree: unknown, };
 export type Limit = number;
 
 /**
+ * The reply to `dictation.start`.
+ */
+export type Listening = {
+/**
+ * Where the samples go, 16 kHz, one channel, signed 16-bit
+ * little-endian, when the core transcribes; none: the caller
+ * transcribes and reports with `dictation.report`.
+ */
+stream: Opened | null,
+/**
+ * The longest a recording lasts.
+ */
+seconds: number, };
+
+/**
  * Something that happened at byte offset `at` of stream `s`.
  */
 export type Mark = { s: StreamId, at: Offset, size?: Size | null,
@@ -608,14 +656,14 @@ export type Place = { "project": ProjectId } | { "session": SessionId };
 /**
  * A preference row: `{id, value, rev}`, where the key fixes the value's type.
  */
-export type Pref = { rev: Rev, } & ({ "id": "hold", "value": number } | { "id": "agent", "value": string | null } | { "id": "route_by", "value": RouteBy | null } | { "id": "motion_style", "value": MotionStyle } | { "id": "motion_palette", "value": MotionPalette } | { "id": "motion_hue", "value": number } | { "id": "motion_lumen", "value": boolean } | { "id": "motion_ambient", "value": MotionAmbient } | { "id": "terminal_font", "value": string } | { "id": "terminal_size", "value": number } | { "id": "terminal_line_height", "value": number });
+export type Pref = { rev: Rev, } & ({ "id": "hold", "value": number } | { "id": "agent", "value": string | null } | { "id": "route_by", "value": RouteBy | null } | { "id": "motion_style", "value": MotionStyle } | { "id": "motion_palette", "value": MotionPalette } | { "id": "motion_hue", "value": number } | { "id": "motion_lumen", "value": boolean } | { "id": "motion_ambient", "value": MotionAmbient } | { "id": "terminal_font", "value": string } | { "id": "terminal_size", "value": number } | { "id": "terminal_line_height", "value": number } | { "id": "speech_by", "value": SpeechBy | null } | { "id": "speech_languages", "value": Array<string> } | { "id": "keys", "value": Array<string> });
 
-export type PrefKey = "hold" | "agent" | "route_by" | "motion_style" | "motion_palette" | "motion_hue" | "motion_lumen" | "motion_ambient" | "terminal_font" | "terminal_size" | "terminal_line_height";
+export type PrefKey = "hold" | "agent" | "route_by" | "motion_style" | "motion_palette" | "motion_hue" | "motion_lumen" | "motion_ambient" | "terminal_font" | "terminal_size" | "terminal_line_height" | "speech_by" | "speech_languages" | "keys";
 
 /**
  * A preference write: `{id, patch}`, where the key fixes the value's type.
  */
-export type PrefPatch = { "id": "hold", "patch": number } | { "id": "agent", "patch": string | null } | { "id": "route_by", "patch": RouteBy | null } | { "id": "motion_style", "patch": MotionStyle } | { "id": "motion_palette", "patch": MotionPalette } | { "id": "motion_hue", "patch": number } | { "id": "motion_lumen", "patch": boolean } | { "id": "motion_ambient", "patch": MotionAmbient } | { "id": "terminal_font", "patch": string } | { "id": "terminal_size", "patch": number } | { "id": "terminal_line_height", "patch": number };
+export type PrefPatch = { "id": "hold", "patch": number } | { "id": "agent", "patch": string | null } | { "id": "route_by", "patch": RouteBy | null } | { "id": "motion_style", "patch": MotionStyle } | { "id": "motion_palette", "patch": MotionPalette } | { "id": "motion_hue", "patch": number } | { "id": "motion_lumen", "patch": boolean } | { "id": "motion_ambient", "patch": MotionAmbient } | { "id": "terminal_font", "patch": string } | { "id": "terminal_size", "patch": number } | { "id": "terminal_line_height", "patch": number } | { "id": "speech_by", "patch": SpeechBy | null } | { "id": "speech_languages", "patch": Array<string> };
 
 export type Project = { id: ProjectId, rev: Rev, name: string,
 /**
@@ -697,6 +745,16 @@ export type Reply = { id: CallId, } & ({ "ok": unknown } | { "err": Error });
  * answers in the agent's terminal.
  */
 export type ReplyVia = "core" | "terminal";
+
+/**
+ * `dictation.report`, from a recorder that transcribes: while recording,
+ * the transcript so far and the level; once finished, the transcript.
+ */
+export type ReportDictation = { id: DictationId, text?: string | null,
+/**
+ * 0 to 100.
+ */
+level?: number | null, };
 
 /**
  * A `call` frame. The name stays text so that a name this side does not know
@@ -820,6 +878,11 @@ export type Rows<R, I> = { put?: Array<R>, del?: Array<I>, };
  */
 export type Secret = string;
 
+/**
+ * `key.remove`: the server whose key goes.
+ */
+export type Server = { server: string, };
+
 export type Session = { id: SessionId, rev: Rev, project_id: ProjectId, agent: string, terminal_id: TerminalId | null,
 /**
  * Started by hand in a shell rather than launched by the core.
@@ -876,7 +939,13 @@ export type SessionState = "starting" | "idle" | "working" | "ended";
 /**
  * The rows of one collection that one change touches.
  */
-export type Set = { "c": "thoughts" } & Rows<Thought, ThoughtId> | { "c": "projects" } & Rows<Project, ProjectId> | { "c": "sessions" } & Rows<Session, SessionId> | { "c": "terminals" } & Rows<Terminal, TerminalId> | { "c": "questions" } & Rows<Question, QuestionId> | { "c": "results" } & Rows<TurnResult, ResultId> | { "c": "layouts" } & Rows<Layout, ProjectId> | { "c": "prefs" } & Rows<Pref, PrefKey> | { "c": "devices" } & Rows<Device, DeviceId> | { "c": "glance", put: Array<Glance>, } | { "c": "agents" } & Rows<AgentHealth, string>;
+export type Set = { "c": "thoughts" } & Rows<Thought, ThoughtId> | { "c": "projects" } & Rows<Project, ProjectId> | { "c": "sessions" } & Rows<Session, SessionId> | { "c": "terminals" } & Rows<Terminal, TerminalId> | { "c": "questions" } & Rows<Question, QuestionId> | { "c": "results" } & Rows<TurnResult, ResultId> | { "c": "layouts" } & Rows<Layout, ProjectId> | { "c": "prefs" } & Rows<Pref, PrefKey> | { "c": "devices" } & Rows<Device, DeviceId> | { "c": "glance", put: Array<Glance>, } | { "c": "agents" } & Rows<AgentHealth, string> | { "c": "dictations" } & Rows<Dictation, DictationId>;
+
+/**
+ * `key.set`: stores the key of a server in the system's credential
+ * store. No call returns a key.
+ */
+export type SetKey = { server: string, key: string, };
 
 /**
  * `thought.settle`: keeps or discards the changes of a thought's worktree,
@@ -902,10 +971,48 @@ export type Size = [number, number];
 export type Source = "typed" | "voice" | "terminal";
 
 /**
+ * What the `speech_by` preference names: a server that speaks the
+ * OpenAI transcription endpoint, and the model it is asked for.
+ */
+export type SpeechBy = {
+/**
+ * Where `/v1/audio/transcriptions` is added: `https://api.openai.com`.
+ */
+server: string, model: string, };
+
+/**
+ * `speech.terms`: what a speech service is sent (design §8), for the
+ * person to read before they consent with the `speech_by` preference.
+ */
+export type SpeechTerms = {
+/**
+ * What is sent, one line for each thing.
+ */
+sent: Array<string>,
+/**
+ * What is added to the server's address: where it is sent.
+ */
+path: string,
+/**
+ * The longest recording, which is the most that is sent at once.
+ */
+seconds: number, };
+
+/**
  * `thought.start`. The attempt is committed before anything is spawned, so
  * repeating this call never launches twice.
  */
 export type Start = { id: ThoughtId, attempt: AttemptId, };
+
+/**
+ * `dictation.start` (design §8): the caller records, and is the only one
+ * that may finish the dictation.
+ */
+export type StartDictation = { id: DictationId, target: DictationTarget,
+/**
+ * The caller can transcribe by itself when no speech service is set up.
+ */
+local: boolean, };
 
 /**
  * What a new terminal runs.
@@ -1067,6 +1174,13 @@ export type Calls = {
   "project.scan": { args: Empty; result: null; access: "device" };
   "project.close": { args: CloseProject; result: null; access: "device" };
   "input": { args: Input; result: null; access: "device" };
+  "dictation.start": { args: StartDictation; result: Listening; access: "device" };
+  "dictation.report": { args: ReportDictation; result: null; access: "device" };
+  "dictation.finish": { args: Ref<DictationId>; result: null; access: "device" };
+  "dictation.cancel": { args: Ref<DictationId>; result: null; access: "device" };
+  "speech.terms": { args: Empty; result: SpeechTerms; access: "device" };
+  "key.set": { args: SetKey; result: null; access: "device" };
+  "key.remove": { args: Server; result: null; access: "device" };
   "device.revoke": { args: Ref<DeviceId>; result: null; access: "device" };
   "core.status": { args: Empty; result: CoreStatus; access: "anyone" };
   "core.retire": { args: Retire; result: null; access: "device" };

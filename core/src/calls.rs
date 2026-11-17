@@ -66,7 +66,9 @@ fn handler(name: Name) -> Option<Handler> {
         Name::CoreStatus => |cx, args| now::<call::CoreStatus>(cx, args, status),
         Name::CoreRetire => |cx, args| now::<call::CoreRetire>(cx, args, retire),
         Name::DeviceRevoke => |cx, args| now::<call::DeviceRevoke>(cx, args, revoke),
-        Name::ThoughtCapture => |cx, args| now::<call::ThoughtCapture>(cx, args, capture),
+        Name::ThoughtCapture => {
+            |cx, args| now::<call::ThoughtCapture>(cx, args, |cx, c| capture(cx.core, c))
+        }
         Name::ThoughtUpdate => |cx, args| {
             event::<call::ThoughtUpdate>(cx, args, |a| Event::Pick {
                 thought: a.id,
@@ -109,6 +111,21 @@ fn handler(name: Name) -> Option<Handler> {
         }
         Name::QuestionFocus => |cx, args| now::<call::QuestionFocus>(cx, args, questions::focus),
         Name::Input => |cx, args| now::<call::Input>(cx, args, questions::input),
+        Name::DictationStart => {
+            |cx, args| now::<call::DictationStart>(cx, args, crate::speech::start)
+        }
+        Name::DictationReport => {
+            |cx, args| now::<call::DictationReport>(cx, args, crate::speech::report)
+        }
+        Name::DictationFinish => {
+            |cx, args| now::<call::DictationFinish>(cx, args, crate::speech::finish)
+        }
+        Name::DictationCancel => {
+            |cx, args| now::<call::DictationCancel>(cx, args, crate::speech::cancel)
+        }
+        Name::SpeechTerms => |cx, args| now::<call::SpeechTerms>(cx, args, crate::speech::terms),
+        Name::KeySet => |cx, args| later::<call::KeySet>(cx, args, crate::speech::set_key),
+        Name::KeyRemove => |cx, args| later::<call::KeyRemove>(cx, args, crate::speech::remove_key),
         Name::ProjectAdd => |cx, args| later::<call::ProjectAdd>(cx, args, add_project),
         Name::ProjectScan => |cx, args| later::<call::ProjectScan>(cx, args, scan_projects),
         Name::ProjectClose => {
@@ -276,8 +293,27 @@ pub fn aside<T: Send + 'static>(
 /// `thought.capture`, naming the agent a new run of the thought would use:
 /// the one the capture names, else the one `fixture.script` names in a
 /// fixtures build, else the `agent` preference, else the registry's first.
-/// A preference naming an agent this build lacks is passed over.
-fn capture(cx: &mut Cx, capture: tasktap_proto::Capture) -> Result<(), Error> {
+/// A preference naming an agent this build lacks is passed over. A
+/// dictation's transcript is captured here too (design §8).
+pub fn capture(core: &mut Core, capture: tasktap_proto::Capture) -> Result<(), Error> {
+    check(&capture)?;
+    let pref = effects::read(core, |tx| tx.pref(PrefKey::Agent))
+        .ok()
+        .flatten();
+    let preferred = match pref.map(|p| p.value) {
+        Some(PrefValue::Agent(Some(name))) if crate::agents::find(&name).is_some() => Some(name),
+        _ => None,
+    };
+    let agent = (capture.agent.clone())
+        .or_else(|| core.seams.agent())
+        .or(preferred)
+        .unwrap_or_else(|| crate::agents::all()[0].id().into());
+    effects::call(core, "thought.capture", Event::Capture { capture, agent })
+}
+
+/// Whether a capture names an agent this core has and a model an agent
+/// can be given.
+pub fn check(capture: &tasktap_proto::Capture) -> Result<(), Error> {
     let invalid = |why: String| Error::new(Code::Invalid, why);
     if let Some(name) = &capture.agent {
         crate::agents::find(name)
@@ -292,22 +328,7 @@ fn capture(cx: &mut Cx, capture: tasktap_proto::Capture) -> Result<(), Error> {
             ));
         }
     }
-    let pref = effects::read(cx.core, |tx| tx.pref(PrefKey::Agent))
-        .ok()
-        .flatten();
-    let preferred = match pref.map(|p| p.value) {
-        Some(PrefValue::Agent(Some(name))) if crate::agents::find(&name).is_some() => Some(name),
-        _ => None,
-    };
-    let agent = (capture.agent.clone())
-        .or_else(|| cx.core.seams.agent())
-        .or(preferred)
-        .unwrap_or_else(|| crate::agents::all()[0].id().into());
-    effects::call(
-        cx.core,
-        "thought.capture",
-        Event::Capture { capture, agent },
-    )
+    Ok(())
 }
 
 fn event<C: Call<Result = ()>>(

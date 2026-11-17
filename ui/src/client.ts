@@ -2,7 +2,8 @@
 // calls, records kept from a snapshot and the ordered changes after it, and streams with
 // credit. It knows only the Bridge, so it runs the same in a page and in a test.
 import type {
-  AgentHealth, Calls, Change, Close, CloseWhy, Code, Collection, Control, Credit, Device, Diff, Glance, Layout, Mark, Opened, Pref,
+  AgentHealth, Calls, Change, Close, CloseWhy, Code, Collection, Control, Credit, Device, Dictation, Diff, Glance, Layout, Mark, Opened,
+  Pref,
   Project, Question, Session, SessionId, Set as RowSet, Terminal, Thought, TurnResult, Welcome,
 } from '../../core/proto/protocol.ts';
 import { MAX_DATA, VERSION } from '../../core/proto/protocol.ts';
@@ -51,6 +52,8 @@ export class Records {
   devices = new Map<string, Device>();
   /** In the order the core lists its agents. */
   agents = new Map<string, AgentHealth>();
+  /** Speech under way or failed; none is kept across a restart of the core. */
+  dictations = new Map<string, Dictation>();
   glance: Glance | null = null;
   rev = 0;
   /** Called once per transaction applied, with the snapshot first. */
@@ -59,7 +62,7 @@ export class Records {
   apply(change: Change, sets: RowSet[]): void {
     if (change.snap) {
       for (const map of [this.thoughts, this.projects, this.sessions, this.terminals, this.questions, this.results,
-        this.layouts, this.prefs, this.devices, this.agents]) map.clear();
+        this.layouts, this.prefs, this.devices, this.agents, this.dictations]) map.clear();
     }
     for (const set of sets) {
       if (set.c === 'glance') {

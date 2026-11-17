@@ -3601,3 +3601,459 @@ fn a_restart_between_the_routers_answer_and_the_launch_runs_nothing_again() {
         Err(Error::Ignored(Ignored::State))
     ));
 }
+
+// Dictations (design §8, "Speech"): the rows of its table, on the pure
+// function. What moves audio, time and the speech service around them is
+// proven through the binary in `tests/speech.rs`.
+
+mod dictations {
+    use tasktap_core::state::{
+        DICTATIONS, Dictating, Error, Heard, INTERRUPTED, Ignored, NOTHING_HEARD, RECORDING,
+        Spoken, dictate,
+    };
+    use tasktap_proto::{
+        Capture, DictationId, DictationPhase as P, DictationTarget, QuestionId, Source, ThoughtId,
+    };
+
+    fn thought() -> DictationTarget {
+        DictationTarget::Thought(Box::new(Capture {
+            id: ThoughtId::mint(),
+            text: String::new(),
+            strokes: Vec::new(),
+            source: Source::Voice,
+            mode: None,
+            project_id: None,
+            session_id: None,
+            agent: None,
+            model: None,
+            current: None,
+        }))
+    }
+
+    /// A dictation that is recording, transcribed by the core (`stream`)
+    /// or by its recorder.
+    fn recording(all: &mut Vec<Dictating>, stream: bool) -> DictationId {
+        let (id, target) = (DictationId::mint(), thought());
+        let told = dictate(all, Spoken::Start { id, target, stream }).unwrap();
+        let seconds = RECORDING + 10;
+        let tail = [Heard::Put(id), Heard::Deadline { id, seconds }];
+        assert!(told.ends_with(&tail), "{told:?}");
+        id
+    }
+
+    fn transcribing(all: &mut Vec<Dictating>, stream: bool) -> DictationId {
+        let id = recording(all, stream);
+        dictate(all, Spoken::Finish { id, heard: true }).unwrap();
+        id
+    }
+
+    fn failed(all: &mut Vec<Dictating>) -> DictationId {
+        let id = recording(all, true);
+        dictate(all, Spoken::Deadline { id }).unwrap();
+        id
+    }
+
+    fn row(all: &[Dictating], id: DictationId) -> &tasktap_proto::Dictation {
+        &all.iter().find(|d| d.row.id == id).expect("its row").row
+    }
+
+    fn gone(all: &[Dictating], id: DictationId) -> bool {
+        all.iter().all(|d| d.row.id != id)
+    }
+
+    /// The effects of a failure, and the row it leaves.
+    fn fails(all: &[Dictating], id: DictationId, told: Vec<Heard>, why: &str) {
+        assert_eq!(told, [Heard::Put(id), Heard::End(id)]);
+        let row = row(all, id);
+        assert_eq!((row.phase, row.level), (P::Failed, 0));
+        assert_eq!(row.error.as_deref(), Some(why));
+    }
+
+    #[test]
+    fn a_start_records_with_a_deadline_and_one_records_at_a_time() {
+        let mut all = Vec::new();
+        let id = recording(&mut all, true);
+        let r = row(&all, id);
+        assert_eq!((r.phase, r.level, r.text.as_str()), (P::Recording, 0, ""));
+        assert_eq!(r.error, None);
+        // A second start while one records, and the same id again.
+        for (id, why) in [
+            (DictationId::mint(), "another dictation is recording"),
+            (id, "a dictation with this id exists"),
+        ] {
+            let (target, stream) = (thought(), false);
+            let refused = dictate(&mut all, Spoken::Start { id, target, stream });
+            assert!(matches!(refused, Err(Error::Conflict(w)) if w == why));
+        }
+        assert_eq!(all.len(), 1);
+    }
+
+    #[test]
+    fn the_next_starts_while_the_last_is_transcribed_up_to_four() {
+        let mut all = Vec::new();
+        for _ in 0..DICTATIONS {
+            transcribing(&mut all, true);
+        }
+        let (id, target) = (DictationId::mint(), thought());
+        let refused = dictate(
+            &mut all,
+            Spoken::Start {
+                id,
+                target,
+                stream: true,
+            },
+        );
+        assert!(matches!(refused, Err(Error::Conflict(w)) if w.contains("four")));
+        // One of them done makes room.
+        let first = all[0].row.id;
+        dictate(&mut all, Spoken::Cancel { id: first }).unwrap();
+        recording(&mut all, true);
+        assert_eq!(all.len(), DICTATIONS);
+    }
+
+    #[test]
+    fn a_start_clears_what_failed_before() {
+        let mut all = Vec::new();
+        let old = failed(&mut all);
+        let (id, target) = (DictationId::mint(), thought());
+        let told = dictate(
+            &mut all,
+            Spoken::Start {
+                id,
+                target,
+                stream: false,
+            },
+        )
+        .unwrap();
+        assert_eq!(told[..2], [Heard::Del(old), Heard::End(old)]);
+        assert!(gone(&all, old) && row(&all, id).phase == P::Recording);
+    }
+
+    #[test]
+    fn the_level_follows_the_stream_and_only_while_recording() {
+        let mut all = Vec::new();
+        let id = recording(&mut all, true);
+        let level = |all: &mut Vec<Dictating>, level| dictate(all, Spoken::Level { id, level });
+        assert_eq!(level(&mut all, 40).unwrap(), [Heard::Put(id)]);
+        assert_eq!(row(&all, id).level, 40);
+        // The same level again changes nothing, so nothing is sent.
+        assert_eq!(level(&mut all, 40).unwrap(), []);
+        assert_eq!(level(&mut all, 250).unwrap(), [Heard::Put(id)]);
+        assert_eq!(row(&all, id).level, 100);
+        dictate(&mut all, Spoken::Finish { id, heard: true }).unwrap();
+        assert_eq!(row(&all, id).level, 0);
+        assert_eq!(level(&mut all, 40).unwrap(), []);
+        assert_eq!(row(&all, id).level, 0);
+        // The core transcribes this one: nobody reports for it.
+        let report = Spoken::Report {
+            id,
+            text: Some("x".into()),
+            level: None,
+        };
+        assert!(matches!(dictate(&mut all, report), Err(Error::Conflict(_))));
+    }
+
+    #[test]
+    fn a_recorder_that_transcribes_reports_the_words_so_far_and_then_all_of_them() {
+        let mut all = Vec::new();
+        let id = recording(&mut all, false);
+        let report = |all: &mut Vec<Dictating>, text: Option<&str>, level| {
+            let text = text.map(String::from);
+            dictate(all, Spoken::Report { id, text, level })
+        };
+        assert_eq!(
+            report(&mut all, Some("Bitte den"), Some(30)).unwrap(),
+            [Heard::Put(id)]
+        );
+        assert_eq!(report(&mut all, None, Some(55)).unwrap(), [Heard::Put(id)]);
+        let r = row(&all, id);
+        assert_eq!((r.text.as_str(), r.level), ("Bitte den", 55));
+        assert_eq!(report(&mut all, Some("Bitte den"), Some(55)).unwrap(), []);
+        // Its level is none of the stream's.
+        assert_eq!(
+            dictate(&mut all, Spoken::Level { id, level: 9 }).unwrap(),
+            []
+        );
+        let told = dictate(&mut all, Spoken::Finish { id, heard: true }).unwrap();
+        assert_eq!(told, [Heard::Put(id), Heard::Deadline { id, seconds: 120 }]);
+        assert_eq!(row(&all, id).phase, P::Transcribing);
+        // Once finished a report is the transcript, and it must carry one.
+        assert!(matches!(
+            report(&mut all, None, Some(1)),
+            Err(Error::Invalid(_))
+        ));
+        let told = report(&mut all, Some(" Bitte den Bug fixen. "), None).unwrap();
+        let [Heard::Deliver { id: to, text, .. }] = &told[..] else {
+            panic!("{told:?}");
+        };
+        assert_eq!((*to, text.as_str()), (id, "Bitte den Bug fixen."));
+        assert!(matches!(
+            report(&mut all, Some("x"), None).map(|_| ()).and(dictate(
+                &mut all,
+                Spoken::Report {
+                    id: DictationId::mint(),
+                    text: None,
+                    level: None
+                }
+            )),
+            Err(Error::Gone)
+        ));
+    }
+
+    #[test]
+    fn a_finish_starts_the_transcription_unless_nothing_was_heard() {
+        let mut all = Vec::new();
+        let id = recording(&mut all, true);
+        let told = dictate(&mut all, Spoken::Finish { id, heard: true }).unwrap();
+        assert_eq!(
+            told,
+            [Heard::Put(id), Heard::End(id), Heard::Transcribe(id)]
+        );
+        assert_eq!(row(&all, id).phase, P::Transcribing);
+        // A repeat changes nothing and transcribes nothing again.
+        assert_eq!(
+            dictate(&mut all, Spoken::Finish { id, heard: true }).unwrap(),
+            []
+        );
+        // No audio, or silence: nothing is sent anywhere.
+        let quiet = recording(&mut all, true);
+        let told = dictate(
+            &mut all,
+            Spoken::Finish {
+                id: quiet,
+                heard: false,
+            },
+        )
+        .unwrap();
+        fails(&all, quiet, told, NOTHING_HEARD);
+        // What failed is not finished, and what is not there is gone.
+        let again = dictate(
+            &mut all,
+            Spoken::Finish {
+                id: quiet,
+                heard: true,
+            },
+        );
+        assert!(matches!(again, Err(Error::Ignored(Ignored::State))));
+        let unknown = Spoken::Finish {
+            id: DictationId::mint(),
+            heard: true,
+        };
+        assert!(matches!(dictate(&mut all, unknown), Err(Error::Gone)));
+    }
+
+    #[test]
+    fn a_transcript_is_delivered_to_its_target_and_the_row_goes() {
+        let mut all = Vec::new();
+        let question = QuestionId::mint();
+        for target in [thought(), DictationTarget::Answer { question }] {
+            let id = DictationId::mint();
+            let start = Spoken::Start {
+                id,
+                target: target.clone(),
+                stream: true,
+            };
+            dictate(&mut all, start).unwrap();
+            dictate(&mut all, Spoken::Finish { id, heard: true }).unwrap();
+            let transcript = Ok("  Mach das Fenster zu.\n".to_owned());
+            let told = dictate(&mut all, Spoken::Transcribed { id, transcript }).unwrap();
+            let text = "Mach das Fenster zu.".to_owned();
+            assert_eq!(told, [Heard::Deliver { id, target, text }]);
+            // Still transcribing until its delivery is known.
+            assert_eq!(row(&all, id).phase, P::Transcribing);
+            let told = dictate(&mut all, Spoken::Delivered { id, refused: None }).unwrap();
+            assert_eq!(told, [Heard::Del(id), Heard::End(id)]);
+            assert!(gone(&all, id));
+        }
+    }
+
+    #[test]
+    fn what_cannot_be_transcribed_or_delivered_fails_and_keeps_the_words() {
+        let mut all = Vec::new();
+        // The speech service failed.
+        let id = transcribing(&mut all, true);
+        let transcript = Err("The speech service refused the key".to_owned());
+        let told = dictate(&mut all, Spoken::Transcribed { id, transcript }).unwrap();
+        fails(&all, id, told, "The speech service refused the key");
+        // It heard nothing in what it was sent.
+        let id = transcribing(&mut all, true);
+        let transcript = Ok(" \n".to_owned());
+        let told = dictate(&mut all, Spoken::Transcribed { id, transcript }).unwrap();
+        fails(&all, id, told, NOTHING_HEARD);
+        // The target refused it: the words stay with why.
+        let id = transcribing(&mut all, true);
+        let transcript = Ok("Ja, mach das.".to_owned());
+        dictate(&mut all, Spoken::Transcribed { id, transcript }).unwrap();
+        let refused = Some("the question was answered already".to_owned());
+        let told = dictate(&mut all, Spoken::Delivered { id, refused }).unwrap();
+        fails(&all, id, told, "the question was answered already");
+        assert_eq!(row(&all, id).text, "Ja, mach das.");
+        // An answer for what was cancelled meanwhile, or failed, is dropped.
+        for id in [id, DictationId::mint()] {
+            let transcript = Ok("late".to_owned());
+            assert_eq!(
+                dictate(&mut all, Spoken::Transcribed { id, transcript }).unwrap(),
+                []
+            );
+        }
+        assert_eq!(row(&all, id).text, "Ja, mach das.");
+    }
+
+    #[test]
+    fn cancel_removes_a_dictation_at_every_point() {
+        let mut all = Vec::new();
+        let made: [fn(&mut Vec<Dictating>) -> DictationId; 5] = [
+            |all| recording(all, true),
+            |all| recording(all, false),
+            |all| transcribing(all, true),
+            |all| transcribing(all, false),
+            failed,
+        ];
+        for make in made {
+            let id = make(&mut all);
+            let told = dictate(&mut all, Spoken::Cancel { id }).unwrap();
+            assert_eq!(told, [Heard::Del(id), Heard::End(id)]);
+            assert!(all.is_empty());
+            // Again, or for one that never was: nothing, as for a repeat.
+            assert_eq!(dictate(&mut all, Spoken::Cancel { id }).unwrap(), []);
+        }
+        // Between its transcript and its delivery too: the delivery's
+        // outcome then finds no row.
+        let id = transcribing(&mut all, true);
+        dictate(&mut all, Spoken::Cancel { id }).unwrap();
+        assert_eq!(
+            dictate(&mut all, Spoken::Delivered { id, refused: None }).unwrap(),
+            []
+        );
+    }
+
+    #[test]
+    fn a_recorder_that_leaves_interrupts_what_only_it_could_finish() {
+        let mut all = Vec::new();
+        for stream in [true, false] {
+            let id = recording(&mut all, stream);
+            let told = dictate(&mut all, Spoken::Left { id }).unwrap();
+            fails(&all, id, told, INTERRUPTED);
+            dictate(&mut all, Spoken::Cancel { id }).unwrap();
+        }
+        let id = transcribing(&mut all, false);
+        let told = dictate(&mut all, Spoken::Left { id }).unwrap();
+        fails(&all, id, told, INTERRUPTED);
+        // What the core transcribes it has whole: it goes on.
+        let id = transcribing(&mut all, true);
+        assert_eq!(dictate(&mut all, Spoken::Left { id }).unwrap(), []);
+        assert_eq!(row(&all, id).phase, P::Transcribing);
+        // One that failed already stays as it failed.
+        let id = failed(&mut all);
+        assert_eq!(dictate(&mut all, Spoken::Left { id }).unwrap(), []);
+    }
+
+    #[test]
+    fn the_deadline_ends_a_recording_and_a_wait_for_the_recorder() {
+        let mut all = Vec::new();
+        let id = recording(&mut all, true);
+        let told = dictate(&mut all, Spoken::Deadline { id }).unwrap();
+        fails(&all, id, told, "The recording did not end within 5 minutes");
+        dictate(&mut all, Spoken::Cancel { id }).unwrap();
+        let id = transcribing(&mut all, false);
+        let told = dictate(&mut all, Spoken::Deadline { id }).unwrap();
+        fails(
+            &all,
+            id,
+            told,
+            "The transcript did not arrive within 2 minutes",
+        );
+        // The speech service's call has its own limit; an old deadline, or
+        // one for a dictation that is gone, changes nothing.
+        let id = transcribing(&mut all, true);
+        for id in [id, DictationId::mint()] {
+            assert_eq!(dictate(&mut all, Spoken::Deadline { id }).unwrap(), []);
+        }
+        assert_eq!(row(&all, id).phase, P::Transcribing);
+    }
+
+    /// Every event in every state: none panics, at most one dictation
+    /// records, at most four are under way, only a failed one has an
+    /// error, and a refusal changes nothing.
+    #[test]
+    fn every_event_in_every_state_keeps_the_rules() {
+        let states: [fn(&mut Vec<Dictating>) -> DictationId; 6] = [
+            |_| DictationId::mint(),
+            |all| recording(all, true),
+            |all| recording(all, false),
+            |all| transcribing(all, true),
+            |all| transcribing(all, false),
+            failed,
+        ];
+        let events = |id: DictationId| {
+            let text = || Some("Hallo".to_owned());
+            vec![
+                Spoken::Start {
+                    id,
+                    target: thought(),
+                    stream: true,
+                },
+                Spoken::Start {
+                    id: DictationId::mint(),
+                    target: thought(),
+                    stream: false,
+                },
+                Spoken::Level { id, level: 60 },
+                Spoken::Report {
+                    id,
+                    text: text(),
+                    level: Some(7),
+                },
+                Spoken::Report {
+                    id,
+                    text: None,
+                    level: None,
+                },
+                Spoken::Finish { id, heard: true },
+                Spoken::Finish { id, heard: false },
+                Spoken::Transcribed {
+                    id,
+                    transcript: Ok("Hallo".into()),
+                },
+                Spoken::Transcribed {
+                    id,
+                    transcript: Err("No network".into()),
+                },
+                Spoken::Delivered { id, refused: None },
+                Spoken::Delivered {
+                    id,
+                    refused: Some("gone".into()),
+                },
+                Spoken::Cancel { id },
+                Spoken::Left { id },
+                Spoken::Deadline { id },
+            ]
+        };
+        for (s, state) in states.iter().enumerate() {
+            for e in 0..events(DictationId::mint()).len() {
+                let mut all = Vec::new();
+                // Beside two others that are being transcribed.
+                transcribing(&mut all, true);
+                transcribing(&mut all, false);
+                let id = state(&mut all);
+                let before = all.clone();
+                let event = events(id).swap_remove(e);
+                let told = dictate(&mut all, event.clone());
+                let what = format!("state {s}, {event:?}: {told:?}");
+                if told.is_err() {
+                    assert_eq!(all, before, "{what}");
+                }
+                let recording = all.iter().filter(|d| d.row.phase == P::Recording).count();
+                let under_way = all.iter().filter(|d| d.row.phase != P::Failed).count();
+                assert!(recording <= 1 && under_way <= DICTATIONS, "{what}");
+                for d in &all {
+                    let failed = d.row.phase == P::Failed;
+                    assert_eq!(d.row.error.is_some(), failed, "{what}");
+                    assert!(d.row.level == 0 || d.row.phase == P::Recording, "{what}");
+                }
+                // The others are never touched by an event of this one.
+                assert_eq!(all[..2], before[..2], "{what}");
+            }
+        }
+    }
+}

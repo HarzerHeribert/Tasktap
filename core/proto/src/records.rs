@@ -6,13 +6,14 @@
 //! on the wire. Every row is keyed by `id`, so one client loop merges them all.
 
 use crate::ids::{
-    DeviceId, Offset, ProjectId, QuestionId, ResultId, Rev, SessionId, TerminalId, ThoughtId, Time,
+    DeviceId, DictationId, Offset, ProjectId, QuestionId, ResultId, Rev, SessionId, TerminalId,
+    ThoughtId, Time,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 words! {
-    pub enum Collection { Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices, Glance, Agents }
+    pub enum Collection { Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices, Glance, Agents, Dictations }
 }
 
 /// The rows of one collection that one change touches.
@@ -36,6 +37,8 @@ pub enum Set {
     /// In memory: one row per agent this core has, once it has been
     /// detected; rows are only ever put.
     Agents(Rows<crate::args::AgentHealth, String>),
+    /// In memory: the dictations under way or failed (design §8).
+    Dictations(Rows<Dictation, DictationId>),
 }
 
 /// Rows put whole, and ids of rows that stopped being live.
@@ -422,6 +425,31 @@ pub enum PrefValue {
     TerminalSize(u8),
     /// The terminals' line height in hundredths of the font's own: 100 is the font's.
     TerminalLineHeight(u16),
+    /// The person's consent to a speech service (design §8): the server
+    /// their recordings are sent to and the model it is asked for, which
+    /// is all the consent covers. None: nothing is sent, and whoever
+    /// records transcribes.
+    SpeechBy(Option<SpeechBy>),
+    /// The languages the person speaks, as a hint to whoever transcribes:
+    /// ISO 639-1 codes, at most four. Empty: no hint.
+    SpeechLanguages(Vec<String>),
+    /// The servers a key is stored for in the system's credential store.
+    /// Only the core writes it, with `key.set` and `key.remove`; the
+    /// keys themselves are in no record.
+    Keys(Vec<String>),
+}
+
+/// What the `speech_by` preference names: a server that speaks the
+/// OpenAI transcription endpoint, and the model it is asked for.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SpeechBy {
+    /// Where `/v1/audio/transcriptions` is added: `https://api.openai.com`.
+    #[serde(deserialize_with = "crate::within::<{ crate::MAX_LINE }, _, _>")]
+    pub server: String,
+    #[serde(deserialize_with = "crate::within::<{ crate::MAX_LINE }, _, _>")]
+    pub model: String,
 }
 
 /// What the `route_by` preference names: a tool and the model it asks.
@@ -440,7 +468,7 @@ pub struct RouteBy {
 words! {
     pub enum PrefKey {
         Hold, Agent, RouteBy, MotionStyle, MotionPalette, MotionHue, MotionLumen, MotionAmbient,
-        TerminalFont, TerminalSize, TerminalLineHeight
+        TerminalFont, TerminalSize, TerminalLineHeight, SpeechBy, SpeechLanguages, Keys
     }
 }
 
@@ -479,6 +507,9 @@ impl PrefKey {
             PrefKey::TerminalFont => PrefValue::TerminalFont(String::new()),
             PrefKey::TerminalSize => PrefValue::TerminalSize(14),
             PrefKey::TerminalLineHeight => PrefValue::TerminalLineHeight(100),
+            PrefKey::SpeechBy => PrefValue::SpeechBy(None),
+            PrefKey::SpeechLanguages => PrefValue::SpeechLanguages(Vec::new()),
+            PrefKey::Keys => PrefValue::Keys(Vec::new()),
         }
     }
 }
@@ -497,6 +528,9 @@ impl PrefValue {
             PrefValue::TerminalFont(_) => PrefKey::TerminalFont,
             PrefValue::TerminalSize(_) => PrefKey::TerminalSize,
             PrefValue::TerminalLineHeight(_) => PrefKey::TerminalLineHeight,
+            PrefValue::SpeechBy(_) => PrefKey::SpeechBy,
+            PrefValue::SpeechLanguages(_) => PrefKey::SpeechLanguages,
+            PrefValue::Keys(_) => PrefKey::Keys,
         }
     }
 }
@@ -528,4 +562,41 @@ pub struct Glance {
     pub question: Option<QuestionId>,
     /// `core.retire {when: idle}` was called: the core exits when its last terminal ends.
     pub retiring: bool,
+}
+
+/// A dictation that is under way or has failed (design §8). Memory only:
+/// one that was delivered has no row, since it became its thought or its
+/// answer.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Dictation {
+    pub id: DictationId,
+    pub rev: Rev,
+    pub phase: DictationPhase,
+    /// What was heard: the transcript so far while a recorder that
+    /// transcribes reports it, and the whole of it when it could not be
+    /// delivered.
+    pub text: String,
+    /// How loud the microphone is, 0 to 100, while recording.
+    pub level: u8,
+    pub target: DictationTarget,
+    /// Why it failed, in words the interface shows as they are.
+    pub error: Option<String>,
+}
+
+words! {
+    pub enum DictationPhase { Recording, Transcribing, Failed }
+}
+
+/// What a dictation becomes: exactly what typing it would have been.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub enum DictationTarget {
+    /// A capture, as `thought.capture` takes it: its `source` is `voice`,
+    /// and its `text` is what the person typed before they spoke, which
+    /// the transcript follows.
+    Thought(Box<crate::args::Capture>),
+    /// The text answer to a question.
+    Answer { question: QuestionId },
 }

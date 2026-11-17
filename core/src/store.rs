@@ -1002,7 +1002,9 @@ impl Tx<'_> {
                         put: self.all(Table::$table, "WHERE live = 1 ORDER BY id", [])?,
                         del: Vec::new(),
                     }),)*
-                    Collection::Glance | Collection::Agents => return Ok(None),
+                    Collection::Glance | Collection::Agents | Collection::Dictations => {
+                        return Ok(None);
+                    }
                 }
             };
         }

@@ -342,18 +342,30 @@ These replace "Keep the look" for the interface. The chrome identity and motion 
 6. **Motion sits behind the content as a backdrop**, in the open notch and in the workspace, never in a box in a corner, never behind terminal text. Idle is a still frame.
 7. **Appearance choices are preferences stored in the core**, so every window follows them. Themes are sets of design values, not a general template engine.
 8. **Standing rules:** an icon and its label form one centred row; a focus ring shows for keyboard focus only.
-9. **Ambient light.** Soft pools of coloured light breathe slowly behind Home, in the colours of the chosen palette, tinted by state. It is light, not a picture: no edges, never behind terminal text, still when idle. The sharp chrome form sits in it as an object. A rendered chrome form behind text was tried and rejected.
+9. **Ambient light.** Soft pools of coloured light breathe slowly behind Home, in the colours of the chosen palette, tinted by state. It is light, not a picture: no edges, never behind terminal text, moving while its surface is shown in the window in use (the rule below). The sharp chrome form sits in it as an object. A rendered chrome form behind text was tried and rejected.
 
 **The owner's choices on the first Instrument build (2026-11-17), all built:**
 
 - The capture field is the Composer: the thought, then a row with the destination and a button that says what Return does. The other two variants are gone. Its destinations open in its own row, so they cover nothing.
-- The ambient light keeps its default strength and one tempo, a breath of 24 s (`--t-ambient`); the fainter and stronger lights and the other tempos are gone.
+- The ambient light keeps its default strength and one tempo (`--t-ambient`; 24 s then, 12 s since the second build, below); the fainter and stronger lights and the other tempos are gone.
 - The sidebar's glyphs stay at its foot: few, large (100, 76 and 64 px), there only where the rows leave room, each a picture drawn once that sways and never turns edge-on.
 - The wiper's trail stays, as a wake: three to five of the same glyphs, each readable, shed in order by the moving edge and gone within half a second.
 - The ambient light's setting and the terminal's font, size and line height are preferences of the core (`motion_ambient`, `terminal_font`, `terminal_size`, `terminal_line_height`); the pages keep nothing of their own.
 - The terminal's cells are a whole number of pixels wide, as a native terminal's are (Default's 14 is 13.3 px in cells of 8), and every colour keeps 4.5 : 1 on what it is drawn over. Decided by looking at the real app: blocks and bars showed a seam at every cell, and black on a coloured badge could not be read.
 
 Measured, for the app's own processes: light breathing and glyphs swaying 1.6 to 1.7 % of a core on Home and 0.9 % beside a terminal with the machine quiet (2.0 to 2.1 % and 1.6 % with it busy), against 3.1 to 4.6 % before; idle 0.0 %. The pools are most of it: each step of their opacity makes the system composite the window, so they step twice a second, and the compositor carries each glyph to one pose a second. Memory is 131 MB against 129 MB measured back to back on a 2x display.
+
+**The owner's choices on the second Instrument build (2026-11-17 and 18), all built** (`design/ui-directions/NOTES.md` has each in full):
+
+- **One material system.** Every control is one of four materials on one ground: the surface (the Composer), metal (the key, which is the one primary action in view, and key caps: a flat, evenly lit face with the metal at its edges, never a band behind its words), quiet (everything else), and the lit edge (focus and what is live). The Composer's key and Open a folder are the same key.
+- **First run is one composition**, centred on the Composer, with Open a folder on its edges. A thought with no folder to go to is **saved for later** ("Save for later", "For later", "Saved for later": one word everywhere; "idea" is gone), and lands on Home with Send to a folder on it.
+- **The agents are rings** in the Composer: the lit one runs the next thought, a click on another picks it; an open ring is not signed in; a ring turns while its sessions work and takes the attention colour when one asks. No table of agents on Home; no usage is shown, since the core has none.
+- **The sidebar slides with its content**, the whole way on one curve, and its wake lies behind its edge: left of it opening, right of it closing.
+- **No scrollbars anywhere.** Where there is more beyond an edge, the content dissolves at that edge only; a terminal scrolled back shows how far and the way to the end.
+- **The ambient layer moves while its surface is shown in the window in use**, whether or not agents work: Home visible and the window the one in use. It is a still frame that costs nothing while the window is not in use, hidden, minimised or covered, while Home is not the view shown (beside terminals only the sidebar's glyphs remain, on the same rule), under Reduce Motion, and with Ambient light at Still or Off. A change of state still plays its moment. So an idle Tasktap in the background costs nothing, and one he is looking at is alive.
+- **The band is a pulsing wave, not a sine, and never straight.** It stands in the icon's S and stays there; a pulse swells its heights from the centre outward and settles, at uneven intervals, its faces turning a little as it passes. Calm: the middle of three amounts.
+- **A region answers when it takes focus**: the sidebar's glyphs, Home's light and chrome, or the focused tab's lit edge among terminals; once per entry, and once when the window comes back into use.
+- **Frozen by the owner:** how the Appearance settings look, and how the chrome pieces look (their material, lighting, palettes and resolution). The band's pose and motion are the one exception he made.
 
 ## The brief: requirements for the routing phase
 

@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tasktap_core::client::{self, Client};
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
@@ -99,7 +99,7 @@ impl Core {
         // A frame that never comes fails the test instead of hanging it.
         #[cfg(unix)]
         stream
-            .set_read_timeout(Some(Duration::from_secs(20)))
+            .set_read_timeout(Some(std::time::Duration::from_secs(20)))
             .unwrap();
         let hello = Hello {
             v: Versions(VERSION, VERSION),

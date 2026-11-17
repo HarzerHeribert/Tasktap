@@ -16,7 +16,7 @@ export interface Bridge {
 
 /** The host's abilities this slice has. */
 export type HostCalls = {
-  'host.notch': { args: { open?: boolean; key?: boolean; height?: number; wing?: number }; result: null };
+  'host.notch': { args: { open?: boolean; key?: boolean; height?: number; wing?: number; hit?: number[] }; result: null };
   /** The workspace window, in front, showing a session's or terminal's tab when `at` names one. */
   'host.show': { args: { surface: 'workspace'; at?: SessionId }; result: null };
   'host.pick': { args: { folder: true }; result: string | null };

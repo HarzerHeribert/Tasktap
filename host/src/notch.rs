@@ -18,6 +18,9 @@ pub struct Notch {
     screens: usize,
     height: f64,
     wing: f64,
+    /// The outline the page is drawing towards (shape.ts), from the tab's centre line and down
+    /// from the top edge: the notch takes the pointer only inside it.
+    hit: Vec<(f64, f64)>,
     generation: u64,
     /// Automated runs (TASKTAP_PASSIVE): the panel never takes the keyboard.
     pub passive: bool,
@@ -29,10 +32,11 @@ pub static NOTCH: Mutex<Notch> = Mutex::new(Notch {
     frame: Rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 },
     collapsed: true,
     inside: false,
-    ignoring: false,
+    ignoring: true,
     screens: 1,
     height: 260.0,
     wing: 0.0,
+    hit: Vec::new(),
     generation: 0,
     passive: false,
 });
@@ -54,22 +58,52 @@ fn anchored(st: &mut Notch) -> Geometry {
     native::geometry(screen).widen(st.wing)
 }
 
+/// Places the panel for the notch's state. A window that grows does so at once; one that shrinks
+/// keeps holding the old frame until the page has drawn the shape in (its fold takes 320 ms), so
+/// neither the shape nor its light is cut at the window's edge on the way.
 pub fn position(app: &AppHandle, st: &mut Notch) {
     if st.panel == 0 {
         return;
     }
     let g = anchored(st);
-    let frame = g.panel_frame(st.collapsed, st.height);
+    let want = g.panel_frame(st.collapsed, st.height);
+    let held = native::frame(st.panel);
+    let same_place = held.max_y() == want.max_y() && g.screen.contains(held.mid_x(), held.max_y() - 0.5);
+    let frame = if same_place { held.union(want) } else { want };
+    st.generation += 1;
+    if frame != want {
+        let (generation, handle) = (st.generation, app.clone());
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(360));
+            let inner = handle.clone();
+            let _ = handle.run_on_main_thread(move || {
+                let mut st = NOTCH.lock().unwrap();
+                if st.generation == generation {
+                    native::set_frame(st.panel, want);
+                    st.frame = want;
+                    describe(&inner, &st, &g, want);
+                }
+            });
+        });
+    }
     native::set_frame(st.panel, frame);
     st.frame = frame;
+    // The panel passes the pointer through until a move lands on the shape; a passive run's
+    // never takes it at all.
+    native::ignore_mouse(st.panel, st.ignoring || st.passive);
+    describe(app, st, &g, frame);
+}
+
+/// Tells the page where the tab and the open sheet are, from the frame on screen.
+fn describe(app: &AppHandle, st: &Notch, g: &Geometry, frame: Rect) {
     let open = g.panel_frame(false, st.height);
+    let side = geometry::FLARE + geometry::BLOOM;
     tell(
         app,
-        json!({"do": "geometry", "width": g.tab.w, "height": g.tab.h, "shoulder": geometry::SHOULDER,
-        "compact": g.compact(), "surfaceWidth": open.w - 2.0 * geometry::SHOULDER,
-        "surfaceOffset": open.mid_x() - g.tab.mid_x(), "pixel": g.pixel, "corner": g.corner(),
-        "rimOffset": g.rim_offset(), "offset": g.tab.mid_x() - frame.mid_x(), "available": g.available().max(1.0),
-        "tabLeft": g.tab.x - frame.x, "frameWidth": frame.w, "frameHeight": frame.h, "collapsed": st.collapsed}),
+        json!({"do": "geometry", "width": g.tab.w, "height": g.tab.h, "cutout": g.cutout, "compact": g.compact(),
+        "surfaceWidth": open.w - 2.0 * side, "surfaceOffset": open.mid_x() - g.tab.mid_x(), "span": open.w,
+        "pixel": g.pixel, "corner": g.corner(), "offset": g.tab.mid_x() - frame.mid_x(),
+        "available": g.available().max(1.0), "collapsed": st.collapsed}),
     );
 }
 
@@ -96,8 +130,14 @@ pub fn moved(app: &AppHandle) {
     }
     let g = anchored(&mut st);
     let top_band = y >= g.tab.y && y <= g.tab.max_y();
-    let inside = g.contains(x, y, native::frame(st.panel), st.collapsed);
-    st.ignoring = !inside || (top_band && !g.tab.contains(x, y));
+    let hit = match st.hit.is_empty() {
+        true => g.tab.contains(x, y),
+        false => geometry::inside(&st.hit, x - g.tab.mid_x(), g.tab.max_y() - y),
+    };
+    // Open, the top edge beside the tab keeps the notch open; everywhere outside the outline,
+    // and on the top edge beside the tab, the pointer and its clicks go to what is beneath.
+    let inside = hit || (!st.collapsed && top_band && native::frame(st.panel).contains(x, y));
+    st.ignoring = !hit || (top_band && !g.tab.contains(x, y));
     native::ignore_mouse(st.panel, st.ignoring);
     if dragging || inside == st.inside {
         return;
@@ -106,9 +146,15 @@ pub fn moved(app: &AppHandle) {
     tell(app, json!({"do": if inside { "hover-enter" } else { "hover-exit" }}));
 }
 
-/// `host.notch {open?, key?, height?, wing?}` from the page.
+/// `host.notch {open?, key?, height?, wing?, hit?}` from the page.
 pub fn request(app: &AppHandle, args: &Value) {
     let mut st = NOTCH.lock().unwrap();
+    if let Some(points) = args.get("hit").and_then(Value::as_array) {
+        st.hit = points.chunks(2).filter_map(|p| Some((p.first()?.as_f64()?, p.get(1)?.as_f64()?))).collect();
+        if args.as_object().is_some_and(|o| o.len() == 1) {
+            return;
+        }
+    }
     if let Some(h) = args.get("height").and_then(Value::as_f64) {
         st.height = h;
     }
@@ -124,7 +170,6 @@ pub fn request(app: &AppHandle, args: &Value) {
 }
 
 pub fn open(app: &AppHandle, st: &mut Notch, key: bool) {
-    st.generation += 1;
     st.collapsed = false;
     position(app, st);
     native::show(st.panel);
@@ -137,19 +182,8 @@ pub fn open(app: &AppHandle, st: &mut Notch, key: bool) {
 /// animation (320 ms) is over.
 fn fold(app: &AppHandle, st: &mut Notch) {
     native::give_back_key(st.panel);
-    st.generation += 1;
-    let (generation, handle) = (st.generation, app.clone());
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(360));
-        let inner = handle.clone();
-        let _ = handle.run_on_main_thread(move || {
-            let mut st = NOTCH.lock().unwrap();
-            if st.generation == generation {
-                st.collapsed = true;
-                position(&inner, &mut st);
-            }
-        });
-    });
+    st.collapsed = true;
+    position(app, st);
 }
 
 /// The capture shortcut: open with the keyboard in the field.

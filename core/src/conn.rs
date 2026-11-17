@@ -64,6 +64,8 @@ pub struct Link {
     pending: Cell<usize>,
     /// Set once the connection is ending: whether what is queued gets one last write.
     closing: Cell<Option<bool>>,
+    /// The client no longer reads: nothing more is queued for it.
+    deaf: Cell<bool>,
     wake: Notify,
     /// The collections this connection subscribed to.
     pub subs: Cell<Subs>,
@@ -125,7 +127,7 @@ impl Link {
     /// Queues a frame already encoded, so that a change sent to many
     /// connections is encoded once. Bounded like [`Link::send`].
     pub fn push(&self, frame: &[u8]) {
-        if self.closing.get().is_some() {
+        if self.closing.get().is_some() || self.deaf.get() {
             return;
         }
         let mut later = self.later.borrow_mut();
@@ -150,6 +152,9 @@ impl Link {
     /// toward the bound; so does a snapshot queued behind another, so a
     /// client holds at most one uncounted.
     pub fn snapshot(&self, chunks: Vec<Change>) {
+        if self.deaf.get() {
+            return;
+        }
         let paced = self.later.borrow().is_empty();
         for change in chunks {
             let mut frame = Vec::new();
@@ -186,11 +191,21 @@ impl Link {
         let id = CallId(self.next.get());
         self.next.set(id.0.wrapping_add(1));
         let (reply, replied) = oneshot::channel();
-        if !self.is_closing() {
+        if !self.is_closing() && !self.deaf.get() {
             self.calls.borrow_mut().insert(id, reply);
         }
         self.send(&C::request(id, args));
         replied
+    }
+
+    /// The client no longer reads: what is queued for it is dropped, and
+    /// nothing more is queued.
+    fn deafen(&self) {
+        self.deaf.set(true);
+        self.out.borrow_mut().clear();
+        self.later.borrow_mut().clear();
+        self.queued.set(0);
+        self.held.set(0);
     }
 
     /// Ends the connection. With `flush`, what is queued gets one write
@@ -231,16 +246,24 @@ async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: sys::Stream, hello
     let mut since = 0;
     // One timer, dropped at hello: a connection that said it costs no wakeup.
     let mut deadline = Some(Box::pin(tokio::time::sleep(hello)));
+    // A write to the client failed: it is gone, and nothing more is written
+    // to it. What it sent before it went is still read, to its end: the
+    // core may learn that a client left from a write before it has read
+    // what the client sent last, and that is not lost.
+    let mut gone = false;
     let flushed = loop {
-        stream::pull(&link);
-        if at == out.len() {
-            // Gives back what a burst took before taking more.
-            out.clear();
-            out.shrink_to(READ);
-            at = 0;
-            std::mem::swap(&mut out, &mut *link.out.borrow_mut());
+        if !gone {
+            stream::pull(&link);
+            if at == out.len() {
+                // Gives back what a burst took before taking more.
+                out.clear();
+                out.shrink_to(READ);
+                at = 0;
+                std::mem::swap(&mut out, &mut *link.out.borrow_mut());
+            }
         }
         match link.closing.get() {
+            Some(_) if gone => break false,
             Some(true) => {
                 let mut rest = out.split_off(at);
                 rest.extend_from_slice(&link.out.take());
@@ -279,7 +302,12 @@ async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: sys::Stream, hello
                     since += n;
                     link.queued.set(link.queued.get() - n);
                 }
-                _ => break false,
+                _ => {
+                    gone = true;
+                    link.deafen();
+                    out.clear();
+                    at = 0;
+                }
             },
             () = link.wake.notified() => {}
             () = serve::fire(&mut deadline) => break false,

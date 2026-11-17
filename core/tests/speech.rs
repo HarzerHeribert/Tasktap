@@ -524,10 +524,10 @@ fn the_newer_model_is_given_every_language_and_a_key_goes_only_to_its_server() {
 
 #[test]
 fn every_failure_of_the_speech_service_says_what_the_interface_shows() {
-    // A second of this core's limits lasts 10 ms: the call's 90 s are 0.9 s.
-    let (mut s, service) = stage("speech-failures", &["--second-ms", "10"]);
+    // A second of this core's limits lasts 20 ms: the call's 90 s are 1.8 s,
+    // which the slow answer of the service, after 3 s, misses.
+    let (mut s, service) = stage("speech-failures", &["--second-ms", "20"]);
     set_key(&mut s.w, &service.url(), KEY).unwrap();
-    let nowhere = "http://127.0.0.1:1";
     let cases = [
         ("refuse", "The speech service refused the key"),
         ("large", "The recording is too long for the speech service"),
@@ -553,16 +553,9 @@ fn every_failure_of_the_speech_service_says_what_the_interface_shows() {
             "The speech service could not be called (the answer is too large)",
         ),
         ("slow", "The speech service did not answer within 90 s"),
-        (
-            nowhere,
-            "No network: the speech service could not be reached",
-        ),
     ];
     for (model, shown) in cases {
-        match model == nowhere {
-            true => consent(&mut s.w, nowhere, "ok"),
-            false => consent(&mut s.w, &service.url(), model),
-        }
+        consent(&mut s.w, &service.url(), model);
         let (t, target) = thought();
         let mut r = recorded(&s, target, &tone(300, 8000));
         r.finish().unwrap();
@@ -572,13 +565,14 @@ fn every_failure_of_the_speech_service_says_what_the_interface_shows() {
         assert!(!s.w.model.thoughts.contains_key(&t), "{model}");
         nothing_left(&s.data.0);
     }
-    // A connection that ends with no answer: curl's own reason is shown.
+    // A connection that ends with no answer: curl's own reason is shown
+    // ("(52) Empty reply from server"; a reset where the system sends one).
     consent(&mut s.w, &service.url(), "cut");
     let mut r = recorded(&s, thought().1, &tone(300, 8000));
     r.finish().unwrap();
     let error = failed(&mut s.w, r.id).error.unwrap();
     assert!(
-        error.starts_with("The speech service could not be called ((52) "),
+        error.starts_with("The speech service could not be called (("),
         "{error}"
     );
     assert_eq!(
@@ -599,6 +593,21 @@ fn every_failure_of_the_speech_service_says_what_the_interface_shows() {
     let wants = "The speech service wants a key, and none is stored for it";
     assert_eq!(row.error.as_deref(), Some(wants));
     assert_eq!(service.seen().pop().unwrap().header("authorization"), None);
+}
+
+#[test]
+fn a_server_that_cannot_be_reached_says_no_network() {
+    // On a core with its real limits: Windows takes two seconds to say
+    // that nothing listens on a port.
+    let (mut s, service) = stage("speech-nowhere", &[]);
+    consent(&mut s.w, "http://127.0.0.1:1", "ok");
+    let mut r = recorded(&s, thought_target(), &tone(300, 8000));
+    r.finish().unwrap();
+    let row = failed(&mut s.w, r.id);
+    let shown = "No network: the speech service could not be reached";
+    assert_eq!(row.error.as_deref(), Some(shown));
+    assert!(service.seen().is_empty() && s.w.model.thoughts.is_empty());
+    nothing_left(&s.data.0);
 }
 
 #[test]
@@ -1102,6 +1111,22 @@ impl Tap {
     }
 }
 
+/// A core this file started itself, ended when the test ends, however it ends.
+struct Ended(std::process::Child);
+
+impl Ended {
+    fn end(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+impl Drop for Ended {
+    fn drop(&mut self) {
+        self.end();
+    }
+}
+
 /// Every file below `folder`, with its bytes.
 fn files(folder: &Path, found: &mut Vec<(std::path::PathBuf, Vec<u8>)>) {
     for entry in std::fs::read_dir(folder).into_iter().flatten().flatten() {
@@ -1130,7 +1155,7 @@ fn a_key_reaches_no_record_no_reply_no_file_and_nothing_the_core_prints() {
         .stdin(std::process::Stdio::null())
         .stdout(out.try_clone().unwrap())
         .stderr(out);
-    let mut child = serve.spawn().unwrap();
+    let mut core = Ended(serve.spawn().unwrap());
     let deadline = Instant::now() + Duration::from_secs(20);
     while !std::fs::read_to_string(&printed).unwrap().contains("ready") {
         assert!(Instant::now() < deadline, "the core never listened");
@@ -1239,8 +1264,7 @@ fn a_key_reaches_no_record_no_reply_no_file_and_nothing_the_core_prints() {
         "the server is what a client sees"
     );
     assert!(!tap.said.contains(KEY), "a key in what the core sent");
-    let _ = child.kill();
-    let _ = child.wait();
+    core.end();
     let mut found = Vec::new();
     files(&data.0, &mut found);
     assert!(found.iter().any(|(path, _)| path.ends_with("core.db")));

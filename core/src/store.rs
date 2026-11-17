@@ -13,25 +13,32 @@
 //! is live while it has not ended or while its current thought is live.
 //! Projects, terminals, layouts, prefs and devices are always live. Thoughts
 //! that left are paged back with [`Tx::history`].
+//!
+//! A record is stored as its serde document in a `data` column, beside the
+//! columns the store keeps itself (`id`, `rev`, `live`) and the values only
+//! the core reads (token and key hashes, request keys, result bodies). The
+//! keys a query, a unique index or a foreign key needs are columns SQLite
+//! reads from the document. So a field added to a record needs no migration,
+//! and a document a newer build wrote reads here with the fields it does not
+//! know ignored.
 
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::types::{Null, ToSqlOutput, Type, ValueRef};
+use rusqlite::types::{FromSql, Type};
 use rusqlite::{
-    Connection, OpenFlags, OptionalExtension, Params, Row, ToSql, TransactionBehavior, ffi,
-    named_params, params,
+    Connection, OpenFlags, OptionalExtension, Params, Row, ToSql, TransactionBehavior, ffi, params,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tasktap_proto::{
-    Answer, AttemptId, Change, Changes, Collection, CoreId, Device, DeviceId, HistoryPage, Layout,
-    Limit, Outcome, Phase, Pref, PrefKey, PrefValue, Project, ProjectId, Question, QuestionId,
-    QuestionState, ResultId, Rev, Rows, Session, SessionId, SessionState, Set, Status, Terminal,
-    TerminalId, TerminalState, Thought, ThoughtId, Time, TurnResult,
+    Answer, AttemptId, Change, Collection, CoreId, Device, DeviceId, HistoryPage, Layout, Limit,
+    Outcome, Phase, Pref, PrefKey, PrefValue, Project, ProjectId, Question, QuestionId,
+    QuestionState, Reason, ResultId, Rev, Rows, Session, SessionId, SessionState, Set, Status,
+    Terminal, TerminalId, TerminalState, Thought, ThoughtId, Time, TurnResult,
 };
 
 /// Finished thoughts kept live, newest first; older ones leave for history.
@@ -202,15 +209,15 @@ impl Store {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute(
             "INSERT INTO meta (one, core_id, boot, rev) VALUES (1, ?1, 0, 0) ON CONFLICT DO NOTHING",
-            [W(&store.core)],
+            [key(&store.core)?],
         )?;
-        let (core, boot, rev) = tx.query_row(
+        let (core, boot, rev): (String, i64, i64) = tx.query_row(
             "UPDATE meta SET boot = boot + 1 RETURNING core_id, boot, rev",
             [],
-            |r| Ok((word(r, 0)?, word(r, 1)?, word(r, 2)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?;
-        (store.core, store.boot, store.rev) = (core, boot, rev);
-        let mut tx = Tx::new(tx, &mut store.rev, boot)?;
+        (store.core, store.boot, store.rev) = (parse(&core)?, boot as u64, rev as u64);
+        let mut tx = Tx::new(tx, &mut store.rev, store.boot)?;
         tx.recover(now())?;
         let change = tx.commit()?;
         Ok((store, change))
@@ -332,6 +339,22 @@ enum Table {
     Devices,
 }
 
+impl Table {
+    fn name(self) -> &'static str {
+        match self {
+            Table::Thoughts => "thoughts",
+            Table::Projects => "projects",
+            Table::Sessions => "sessions",
+            Table::Terminals => "terminals",
+            Table::Questions => "questions",
+            Table::Results => "results",
+            Table::Layouts => "layouts",
+            Table::Prefs => "prefs",
+            Table::Devices => "devices",
+        }
+    }
+}
+
 /// A row seen by a commit: whether a client could see it before, and whether the transaction wrote it.
 type Seen = BTreeMap<(Table, String), (bool, bool)>;
 
@@ -388,15 +411,15 @@ impl<'s> Tx<'s> {
         }
         let mut sets = Vec::new();
         macro_rules! emit {
-            ($($set:ident $read:ident),*) => {
-                $(self.emit(&seen, Table::$set, $read, Set::$set, &mut sets)?;)*
+            ($($table:ident),*) => {
+                $(self.emit(&seen, Table::$table, Set::$table, &mut sets)?;)*
             };
         }
-        emit!(Thoughts read_thought, Projects read_project, Sessions read_session,
-              Terminals read_terminal, Questions read_question, Results read_result,
-              Layouts read_layout, Prefs read_pref, Devices read_device);
+        emit!(
+            Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices
+        );
         self.db
-            .execute("UPDATE meta SET rev = ?1", [W(&self.rev)])?;
+            .execute("UPDATE meta SET rev = ?1", [self.rev as i64])?;
         let Tx {
             db, counter, rev, ..
         } = self;
@@ -412,7 +435,7 @@ impl<'s> Tx<'s> {
     /// Brings every thought's live flag in line with the rule, stamping those
     /// that flip. Returns them with their new flag.
     fn relive(&mut self) -> Result<Vec<(String, bool)>> {
-        let rev = self.rev;
+        let rev = self.rev as i64;
         // With fewer finished thoughts than the bound the cutoff is "", below every id.
         let cutoff: String = self
             .db
@@ -426,20 +449,20 @@ impl<'s> Tx<'s> {
         for id in self.ids(
             "UPDATE thoughts SET live = 0, rev = ?1 \
              WHERE live = 1 AND finished = 1 AND id < ?2 RETURNING id",
-            params![W(&rev), cutoff],
+            params![rev, cutoff],
         )? {
             flipped.push((id, false));
         }
         for id in self.ids(
             "UPDATE thoughts SET live = 1, rev = ?1 WHERE live = 0 AND finished = 0 RETURNING id",
-            params![W(&rev)],
+            [rev],
         )? {
             flipped.push((id, true));
         }
         for id in self.ids(
             "UPDATE thoughts SET live = 1, rev = ?1 \
              WHERE live = 0 AND finished = 1 AND id >= ?2 RETURNING id",
-            params![W(&rev), cutoff],
+            params![rev, cutoff],
         )? {
             flipped.push((id, true));
         }
@@ -447,21 +470,19 @@ impl<'s> Tx<'s> {
     }
 
     fn children(&self, table: Table, thought: &str) -> Result<Vec<(String, bool)>> {
-        let sql = match table {
-            Table::Sessions => "SELECT id, live FROM sessions WHERE thought_id = ?1",
-            Table::Questions => "SELECT id, live FROM questions WHERE thought_id = ?1",
-            _ => "SELECT id, live FROM results WHERE thought_id = ?1",
-        };
-        let mut stmt = self.db.prepare_cached(sql)?;
+        let sql = format!(
+            "SELECT id, live FROM {} WHERE thought_id = ?1",
+            table.name()
+        );
+        let mut stmt = self.db.prepare_cached(&sql)?;
         let rows = stmt.query_map([thought], |r| Ok((r.get(0)?, r.get(1)?)))?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    fn emit<R, I: DeserializeOwned>(
+    fn emit<R: DeserializeOwned, I: DeserializeOwned>(
         &self,
         seen: &Seen,
         table: Table,
-        read: Reader<R>,
         wrap: fn(Rows<R, I>) -> Set,
         sets: &mut Vec<Set>,
     ) -> Result<()> {
@@ -470,7 +491,7 @@ impl<'s> Tx<'s> {
             del: Vec::new(),
         };
         for ((_, id), &(before, wrote)) in seen.iter().filter(|((t, _), _)| *t == table) {
-            match read(&self.db, id)? {
+            match self.select(table, "WHERE id = ?1", [id])?.pop() {
                 Some((row, true)) => {
                     if wrote || !before {
                         rows.put.push(row);
@@ -494,64 +515,88 @@ impl<'s> Tx<'s> {
 
     /// Runs a write whose statement returns whether a client could see the
     /// row before, and remembers the row. False when no row matched.
-    fn write(&mut self, table: Table, id: String, sql: &str, params: impl Params) -> Result<bool> {
+    fn write(&mut self, table: Table, id: &str, sql: &str, params: impl Params) -> Result<bool> {
         let before: Option<bool> = self
             .db
             .prepare_cached(sql)?
             .query_row(params, |r| r.get(0))
             .optional()?;
         if let Some(before) = before {
-            self.wrote.entry((table, id)).or_insert(before);
+            self.wrote.entry((table, id.to_owned())).or_insert(before);
         }
         Ok(before.is_some())
     }
 
-    /// Writes a row that is always live, inserting or replacing it.
-    fn upsert(
+    /// Writes a record with a statement that binds its id, the revision and
+    /// its [`document`] as ?1 to ?3 and `extra` after them; see [`Tx::write`].
+    fn put(
         &mut self,
         table: Table,
-        id: String,
-        exists: &str,
+        record: &impl Serialize,
         sql: &str,
-        params: impl Params,
-    ) -> Result<()> {
-        let before: bool = self
-            .db
-            .prepare_cached(exists)?
-            .query_row([&id], |r| r.get(0))?;
-        self.db.prepare_cached(sql)?.execute(params)?;
-        self.wrote.entry((table, id)).or_insert(before);
+        extra: &[&dyn ToSql],
+    ) -> Result<bool> {
+        let (id, data) = document(record)?;
+        let rev = self.rev as i64;
+        let base: [&dyn ToSql; 3] = [&id, &rev, &data];
+        let params: Vec<_> = base.into_iter().chain(extra.iter().copied()).collect();
+        self.write(table, &id, sql, params.as_slice())
+    }
+
+    fn insert(&mut self, table: Table, record: &impl Serialize) -> Result<()> {
+        let sql = format!(
+            "INSERT INTO {} (id, rev, data) VALUES (?1, ?2, ?3) RETURNING 0",
+            table.name()
+        );
+        self.put(table, record, &sql, &[]).map(drop)
+    }
+
+    /// False when there is no such row.
+    fn update(&mut self, table: Table, record: &impl Serialize) -> Result<bool> {
+        let sql = format!(
+            "UPDATE {} SET rev = ?2, data = ?3 WHERE id = ?1 RETURNING live",
+            table.name()
+        );
+        self.put(table, record, &sql, &[])
+    }
+
+    /// Writes a row that is always live, inserting or replacing it.
+    fn upsert(&mut self, table: Table, record: &impl Serialize) -> Result<()> {
+        if !self.update(table, record)? {
+            self.insert(table, record)?;
+        }
         Ok(())
+    }
+
+    fn delete(&mut self, table: Table, id: &impl Serialize) -> Result<bool> {
+        let sql = format!("DELETE FROM {} WHERE id = ?1 RETURNING live", table.name());
+        let id = key(id)?;
+        self.write(table, &id, &sql, [&id])
     }
 
     /// The recovery pass (design §3): nothing of an earlier boot still runs,
     /// so it closes what was left open and never opens or starts anything.
     fn recover(&mut self, now: Time) -> Result<()> {
-        let running = self.ids(
-            "SELECT id FROM terminals WHERE state = 'running' AND boot < ?1",
-            [W(&self.boot)],
-        )?;
-        for id in running {
-            if let Some((mut t, _)) = read_terminal(&self.db, &id)? {
-                t.state = TerminalState::Lost;
-                self.update_terminal(&t)?;
-            }
+        let running = "WHERE state = 'running' AND boot < ?1";
+        for t in self.all::<Terminal>(Table::Terminals, running, [self.boot as i64])? {
+            self.update_terminal(&Terminal {
+                state: TerminalState::Lost,
+                ..t
+            })?;
         }
         // A session lives only through a running terminal of this core; that
         // also ends one whose launch was committed but whose terminal never was.
-        let orphaned = self.ids(
-            "SELECT id FROM sessions WHERE state <> 'ended' AND NOT EXISTS \
-             (SELECT 1 FROM terminals t WHERE t.id = sessions.terminal_id AND t.state = 'running')",
-            [],
-        )?;
-        for id in orphaned {
-            if let Some((mut s, _)) = read_session(&self.db, &id)? {
-                s.state = SessionState::Ended;
-                self.update_session(&s)?;
-            }
+        let orphaned = "WHERE state <> 'ended' AND NOT EXISTS \
+             (SELECT 1 FROM terminals t WHERE t.id = sessions.terminal_id AND t.state = 'running')";
+        for s in self.all::<Session>(Table::Sessions, orphaned, [])? {
+            self.update_session(&Session {
+                state: SessionState::Ended,
+                ..s
+            })?;
         }
-        let interrupted = self.ids(
-            "SELECT id FROM thoughts WHERE phase = 'working' AND NOT EXISTS \
+        let interrupted: Vec<Thought> = self.all(
+            Table::Thoughts,
+            "WHERE phase = 'working' AND NOT EXISTS \
              (SELECT 1 FROM sessions s WHERE s.id = thoughts.session_id AND s.state <> 'ended')",
             [],
         )?;
@@ -562,27 +607,27 @@ impl<'s> Tx<'s> {
                     .is_some_and(|s| s.state == SessionState::Ended),
                 None => false,
             };
-            let thought = q.thought_id.map(|t| key(&t)).transpose()?;
-            if ended || thought.is_some_and(|t| interrupted.contains(&t)) {
+            if ended || interrupted.iter().any(|t| Some(t.id) == q.thought_id) {
                 self.set_question_state(q.id, QuestionState::Withdrawn)?;
             }
         }
         // Every open question of these was just withdrawn, so none needs you.
-        for id in &interrupted {
-            if let Some((mut t, _)) = read_thought(&self.db, id)? {
-                t.phase = Phase::Failed;
-                t.reason = Some(tasktap_proto::Reason::Interrupted);
-                t.status = Status::Failed;
-                t.updated = now;
-                self.update_thought(&t)?;
-            }
+        for t in interrupted {
+            self.update_thought(&Thought {
+                phase: Phase::Failed,
+                reason: Some(Reason::Interrupted),
+                status: Status::Failed,
+                updated: now,
+                ..t
+            })?;
         }
         // Hold timers are not restored: a held thought waits for Start.
-        for id in self.ids("SELECT id FROM thoughts WHERE hold_until IS NOT NULL", [])? {
-            if let Some((mut t, _)) = read_thought(&self.db, &id)? {
-                t.hold_until = None;
-                self.update_thought(&t)?;
-            }
+        let held = "WHERE data ->> 'hold_until' IS NOT NULL";
+        for t in self.all::<Thought>(Table::Thoughts, held, [])? {
+            self.update_thought(&Thought {
+                hold_until: None,
+                ..t
+            })?;
         }
         self.db.execute(
             "UPDATE attempts SET outcome = '\"interrupted\"' WHERE outcome IS NULL",
@@ -595,111 +640,132 @@ impl<'s> Tx<'s> {
 
     // Reads.
 
+    /// The records a clause selects from a table, each with whether a client can see it.
+    fn select<R: DeserializeOwned>(
+        &self,
+        table: Table,
+        clause: &'static str,
+        params: impl Params,
+    ) -> Result<Vec<(R, bool)>> {
+        let sql = match table {
+            // Clients see the answer inside the question.
+            Table::Questions => format!(
+                "SELECT q.data, rev, live, a.data \
+                 FROM questions q LEFT JOIN answers a ON a.question_id = q.id {clause}"
+            ),
+            _ => format!(
+                "SELECT data, rev, live, NULL FROM {} {clause}",
+                table.name()
+            ),
+        };
+        let mut stmt = self.db.prepare_cached(&sql)?;
+        let rows = stmt.query_map(params, record)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    fn all<R: DeserializeOwned>(
+        &self,
+        table: Table,
+        clause: &'static str,
+        params: impl Params,
+    ) -> Result<Vec<R>> {
+        let rows = self.select(table, clause, params)?;
+        Ok(rows.into_iter().map(|(row, _)| row).collect())
+    }
+
+    fn one<R: DeserializeOwned>(
+        &self,
+        table: Table,
+        clause: &'static str,
+        params: impl Params,
+    ) -> Result<Option<R>> {
+        Ok(self.all(table, clause, params)?.into_iter().next())
+    }
+
+    fn get<R: DeserializeOwned>(&self, table: Table, id: &impl Serialize) -> Result<Option<R>> {
+        self.one(table, "WHERE id = ?1", [key(id)?])
+    }
+
+    /// A value only the core reads, from the row with the id.
+    fn value<T: FromSql>(&self, sql: &str, id: &impl Serialize) -> Result<Option<T>> {
+        let mut stmt = self.db.prepare_cached(sql)?;
+        Ok(stmt.query_row([key(id)?], |r| r.get(0)).optional()?)
+    }
+
     pub fn thought(&self, id: ThoughtId) -> Result<Option<Thought>> {
-        Ok(read_thought(&self.db, &key(&id)?)?.map(|r| r.0))
+        self.get(Table::Thoughts, &id)
     }
 
     /// The session's thoughts that are captured, routed or working, oldest first.
     pub fn thoughts_in_flight(&self, session: SessionId) -> Result<Vec<Thought>> {
-        self.all(
-            concat!(
-                thought_select!(),
-                " WHERE session_id = ?1 ",
-                "AND phase IN ('captured', 'routed', 'working') ORDER BY id"
-            ),
-            [W(&session)],
-            thought_row,
-        )
+        let clause = "WHERE session_id = ?1 AND phase IN ('captured', 'routed', 'working') \
+                      ORDER BY id";
+        self.all(Table::Thoughts, clause, [key(&session)?])
     }
 
     pub fn project(&self, id: ProjectId) -> Result<Option<Project>> {
-        Ok(read_project(&self.db, &key(&id)?)?.map(|r| r.0))
+        self.get(Table::Projects, &id)
     }
 
     /// The project that holds a canonical folder.
     pub fn project_by_folder(&self, folder: &str) -> Result<Option<Project>> {
-        let sql = concat!(project_select!(), " WHERE folder = ?1");
-        Ok(one(&self.db, sql, folder, project_row)?.map(|r| r.0))
+        self.one(Table::Projects, "WHERE folder = ?1", [folder])
     }
 
     pub fn session(&self, id: SessionId) -> Result<Option<Session>> {
-        Ok(read_session(&self.db, &key(&id)?)?.map(|r| r.0))
+        self.get(Table::Sessions, &id)
     }
 
     /// The newest session in a terminal that has not ended.
     pub fn terminal_session(&self, terminal: TerminalId) -> Result<Option<Session>> {
-        let sql = concat!(
-            session_select!(),
-            " WHERE terminal_id = ?1 ",
-            "AND state <> 'ended' ORDER BY id DESC LIMIT 1"
-        );
-        Ok(one(&self.db, sql, &key(&terminal)?, session_row)?.map(|r| r.0))
+        let clause = "WHERE terminal_id = ?1 AND state <> 'ended' ORDER BY id DESC LIMIT 1";
+        self.one(Table::Sessions, clause, [key(&terminal)?])
     }
 
     pub fn terminal(&self, id: TerminalId) -> Result<Option<Terminal>> {
-        Ok(read_terminal(&self.db, &key(&id)?)?.map(|r| r.0))
+        self.get(Table::Terminals, &id)
     }
 
     /// The terminal a session token was minted for.
     pub fn terminal_by_token(&self, token_hash: &Hash) -> Result<Option<Terminal>> {
-        let sql = concat!(terminal_select!(), " WHERE token_hash = ?1");
-        Ok(self
-            .db
-            .prepare_cached(sql)?
-            .query_row([token_hash], terminal_row)
-            .optional()?
-            .map(|r| r.0))
+        self.one(Table::Terminals, "WHERE token_hash = ?1", [token_hash])
     }
 
     pub fn question(&self, id: QuestionId) -> Result<Option<Question>> {
-        Ok(read_question(&self.db, &key(&id)?)?.map(|r| r.0))
+        self.get(Table::Questions, &id)
     }
 
     pub fn question_by_request(&self, request_key: &str) -> Result<Option<Question>> {
-        let sql = concat!(question_select!(), " WHERE q.request_key = ?1");
-        Ok(one(&self.db, sql, request_key, question_row)?.map(|r| r.0))
+        self.one(Table::Questions, "WHERE request_key = ?1", [request_key])
     }
 
     /// The key a question was asked under, which only the core reads.
     pub fn request_key(&self, question: QuestionId) -> Result<Option<String>> {
-        let sql = "SELECT request_key FROM questions WHERE id = ?1";
-        Ok(self
-            .db
-            .prepare_cached(sql)?
-            .query_row([W(&question)], |r| r.get(0))
-            .optional()?)
+        self.value("SELECT request_key FROM questions WHERE id = ?1", &question)
     }
 
     /// Every open question, oldest first.
     pub fn open_questions(&self) -> Result<Vec<Question>> {
-        let sql = concat!(question_select!(), " WHERE q.state = 'open' ORDER BY q.id");
-        self.all(sql, [], question_row)
+        self.all(Table::Questions, "WHERE state = 'open' ORDER BY id", [])
     }
 
     /// A result's body, which is not part of the record.
     pub fn result_body(&self, id: ResultId) -> Result<Option<String>> {
-        let sql = "SELECT body FROM results WHERE id = ?1";
-        Ok(self
-            .db
-            .prepare_cached(sql)?
-            .query_row([W(&id)], |r| r.get(0))
-            .optional()?)
+        self.value("SELECT body FROM results WHERE id = ?1", &id)
     }
 
     pub fn layout(&self, project: ProjectId) -> Result<Option<Layout>> {
-        Ok(read_layout(&self.db, &key(&project)?)?.map(|r| r.0))
+        self.get(Table::Layouts, &project)
     }
 
     pub fn pref(&self, key: PrefKey) -> Result<Option<Pref>> {
-        Ok(read_pref(&self.db, &self::key(&key)?)?.map(|r| r.0))
+        self.get(Table::Prefs, &key)
     }
 
     /// A device with the hash of its key.
     pub fn device(&self, id: DeviceId) -> Result<Option<(Device, Hash)>> {
-        let sql = concat!(device_select!(), " WHERE id = ?1");
-        one(&self.db, sql, &key(&id)?, |r| {
-            Ok((device_row(r)?.0, r.get(6)?))
-        })
+        let key_hash = self.value("SELECT key_hash FROM devices WHERE id = ?1", &id)?;
+        Ok(self.get(Table::Devices, &id)?.zip(key_hash))
     }
 
     pub fn attempt(&self, id: AttemptId) -> Result<Option<Attempt>> {
@@ -707,12 +773,12 @@ impl<'s> Tx<'s> {
         let row = self
             .db
             .prepare_cached(sql)?
-            .query_row([W(&id)], |r| {
+            .query_row([key(&id)?], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
                     r.get::<_, String>(1)?,
                     r.get(2)?,
-                    word(r, 3)?,
+                    r.get::<_, i64>(3)?,
                     r.get::<_, Option<String>>(4)?,
                 ))
             })
@@ -738,55 +804,28 @@ impl<'s> Tx<'s> {
             id,
             kind,
             args_hash,
-            started,
+            started: Time::new(started as u64)
+                .ok_or_else(|| Error::Corrupt(format!("attempt start {started}")))?,
             outcome,
         }))
     }
 
     /// Every live row of a stored collection, oldest first; `None` for one kept in memory.
     pub fn live(&self, c: Collection) -> Result<Option<Set>> {
-        macro_rules! all {
-            ($set:ident, $select:ident, $rest:literal, $row:ident) => {
-                Set::$set(Rows {
-                    put: self.all(concat!($select!(), " ", $rest), [], $row)?,
-                    del: Vec::new(),
-                })
+        macro_rules! live {
+            ($($table:ident),*) => {
+                match c {
+                    $(Collection::$table => Set::$table(Rows {
+                        put: self.all(Table::$table, "WHERE live = 1 ORDER BY id", [])?,
+                        del: Vec::new(),
+                    }),)*
+                    Collection::Glance => return Ok(None),
+                }
             };
         }
-        Ok(Some(match c {
-            Collection::Thoughts => all!(
-                Thoughts,
-                thought_select,
-                "WHERE live = 1 ORDER BY id",
-                thought_row
-            ),
-            Collection::Projects => all!(Projects, project_select, "ORDER BY id", project_row),
-            Collection::Sessions => all!(
-                Sessions,
-                session_select,
-                "WHERE live = 1 ORDER BY id",
-                session_row
-            ),
-            Collection::Terminals => all!(Terminals, terminal_select, "ORDER BY id", terminal_row),
-            Collection::Questions => {
-                all!(
-                    Questions,
-                    question_select,
-                    "WHERE q.live = 1 ORDER BY q.id",
-                    question_row
-                )
-            }
-            Collection::Results => all!(
-                Results,
-                result_select,
-                "WHERE live = 1 ORDER BY id",
-                result_row
-            ),
-            Collection::Layouts => all!(Layouts, layout_select, "ORDER BY project_id", layout_row),
-            Collection::Prefs => all!(Prefs, pref_select, "ORDER BY key", pref_row),
-            Collection::Devices => all!(Devices, device_select, "ORDER BY id", device_row),
-            Collection::Glance => return Ok(None),
-        }))
+        Ok(Some(live!(
+            Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices
+        )))
     }
 
     /// Thoughts that left the live set and are older than `before`, newest
@@ -800,125 +839,48 @@ impl<'s> Tx<'s> {
                 "WHERE live = 0 AND finished = 1 AND id < ?1 ORDER BY id DESC LIMIT ?2"
             };
         }
-        macro_rules! of_page {
-            () => {
-                concat!("IN (SELECT id FROM thoughts ", page!(), ")")
-            };
-        }
+        let of_page = concat!(
+            "WHERE thought_id IN (SELECT id FROM thoughts ",
+            page!(),
+            ") ORDER BY id"
+        );
         Ok(HistoryPage {
-            thoughts: self.all(
-                concat!(thought_select!(), " ", page!()),
-                params,
-                thought_row,
-            )?,
-            questions: self.all(
-                concat!(
-                    question_select!(),
-                    " WHERE q.thought_id ",
-                    of_page!(),
-                    " ORDER BY q.id"
-                ),
-                params,
-                question_row,
-            )?,
-            results: self.all(
-                concat!(
-                    result_select!(),
-                    " WHERE thought_id ",
-                    of_page!(),
-                    " ORDER BY id"
-                ),
-                params,
-                result_row,
-            )?,
+            thoughts: self.all(Table::Thoughts, page!(), params)?,
+            questions: self.all(Table::Questions, of_page, params)?,
+            results: self.all(Table::Results, of_page, params)?,
         })
-    }
-
-    fn all<R>(&self, sql: &str, params: impl Params, f: Mapper<R>) -> Result<Vec<R>> {
-        let mut stmt = self.db.prepare_cached(sql)?;
-        let rows = stmt.query_map(params, |r| Ok(f(r)?.0))?;
-        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     // Writes. An update or delete of a row that is not there is `NotFound`;
     // a failed write changes nothing, but the caller should drop the transaction.
 
     pub fn insert_thought(&mut self, t: &Thought) -> Result<()> {
-        self.write_thought(
-            concat!(
-                "INSERT INTO thoughts (id, rev, live, finished, text, strokes, source, mode, phase, ",
-                "status, reason, project_id, session_id, brief, agent, model, workdir, hold_until, ",
-                "read, created, updated) VALUES (:id, :rev, 0, :finished, :text, :strokes, :source, ",
-                ":mode, :phase, :status, :reason, :project_id, :session_id, :brief, :agent, :model, ",
-                ":workdir, :hold_until, :read, :created, :updated) RETURNING 0"
-            ),
-            t,
-        )
-        .map(drop)
+        self.insert(Table::Thoughts, t)
     }
 
     pub fn update_thought(&mut self, t: &Thought) -> Result<()> {
-        found(self.write_thought(
-            concat!(
-                "UPDATE thoughts SET rev = :rev, finished = :finished, text = :text, ",
-                "strokes = :strokes, source = :source, mode = :mode, phase = :phase, ",
-                "status = :status, reason = :reason, project_id = :project_id, ",
-                "session_id = :session_id, brief = :brief, agent = :agent, model = :model, ",
-                "workdir = :workdir, hold_until = :hold_until, read = :read, created = :created, ",
-                "updated = :updated WHERE id = :id RETURNING live"
-            ),
-            t,
-        )?)
-    }
-
-    fn write_thought(&mut self, sql: &str, t: &Thought) -> Result<bool> {
-        let finished = matches!(t.phase, Phase::Done | Phase::Failed)
-            && t.read
-            && !t
-                .workdir
-                .as_ref()
-                .is_some_and(|w| w.changes == Changes::Pending);
-        let rev = self.rev;
-        self.write(
-            Table::Thoughts,
-            key(&t.id)?,
-            sql,
-            named_params! {
-                ":id": W(&t.id), ":rev": W(&rev), ":finished": finished, ":text": t.text,
-                ":strokes": J(&t.strokes), ":source": W(&t.source), ":mode": W(&t.mode),
-                ":phase": W(&t.phase), ":status": W(&t.status), ":reason": W(&t.reason),
-                ":project_id": W(&t.project_id), ":session_id": W(&t.session_id),
-                ":brief": t.brief, ":agent": t.agent, ":model": t.model,
-                ":workdir": J(&t.workdir), ":hold_until": W(&t.hold_until), ":read": t.read,
-                ":created": W(&t.created), ":updated": W(&t.updated),
-            },
-        )
+        found(self.update(Table::Thoughts, t)?)
     }
 
     /// Removes a thought with its questions, their answers, and its results.
     /// A session whose current thought it is makes this `Reference`.
     pub fn delete_thought(&mut self, id: ThoughtId) -> Result<bool> {
-        let id = key(&id)?;
+        let key = key(&id)?;
         let named: bool = self
             .db
             .prepare_cached("SELECT EXISTS (SELECT 1 FROM sessions WHERE thought_id = ?1)")?
-            .query_row([&id], |r| r.get(0))?;
+            .query_row([&key], |r| r.get(0))?;
         if named {
             return Err(Error::Reference);
         }
-        for (table, sql) in [
-            (
-                Table::Questions,
-                "DELETE FROM questions WHERE thought_id = ?1 RETURNING id, live",
-            ),
-            (
-                Table::Results,
-                "DELETE FROM results WHERE thought_id = ?1 RETURNING id, live",
-            ),
-        ] {
-            let mut stmt = self.db.prepare_cached(sql)?;
+        for table in [Table::Questions, Table::Results] {
+            let sql = format!(
+                "DELETE FROM {} WHERE thought_id = ?1 RETURNING id, live",
+                table.name()
+            );
+            let mut stmt = self.db.prepare_cached(&sql)?;
             let gone = stmt
-                .query_map([&id], |r| {
+                .query_map([&key], |r| {
                     Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -927,184 +889,67 @@ impl<'s> Tx<'s> {
                 self.wrote.entry((table, child)).or_insert(before);
             }
         }
-        self.write(
-            Table::Thoughts,
-            id.clone(),
-            "DELETE FROM thoughts WHERE id = ?1 RETURNING live",
-            [&id],
-        )
+        self.delete(Table::Thoughts, &id)
     }
 
     pub fn insert_project(&mut self, p: &Project) -> Result<()> {
-        self.write_project(
-            concat!(
-                "INSERT INTO projects (id, rev, name, folder, kind, color, aliases, git, isolate, ",
-                "open, available) VALUES (:id, :rev, :name, :folder, :kind, :color, :aliases, ",
-                ":git, :isolate, :open, :available) RETURNING 0"
-            ),
-            p,
-        )
-        .map(drop)
+        self.insert(Table::Projects, p)
     }
 
     pub fn update_project(&mut self, p: &Project) -> Result<()> {
-        found(self.write_project(
-            concat!(
-                "UPDATE projects SET rev = :rev, name = :name, folder = :folder, kind = :kind, ",
-                "color = :color, aliases = :aliases, git = :git, isolate = :isolate, open = :open, ",
-                "available = :available WHERE id = :id RETURNING 1"
-            ),
-            p,
-        )?)
-    }
-
-    fn write_project(&mut self, sql: &str, p: &Project) -> Result<bool> {
-        let rev = self.rev;
-        self.write(
-            Table::Projects,
-            key(&p.id)?,
-            sql,
-            named_params! {
-                ":id": W(&p.id), ":rev": W(&rev), ":name": p.name, ":folder": p.folder,
-                ":kind": W(&p.kind), ":color": p.color, ":aliases": J(&p.aliases), ":git": p.git,
-                ":isolate": W(&p.isolate), ":open": p.open, ":available": p.available,
-            },
-        )
+        found(self.update(Table::Projects, p)?)
     }
 
     pub fn insert_session(&mut self, s: &Session) -> Result<()> {
-        self.write_session(
-            concat!(
-                "INSERT INTO sessions (id, rev, live, project_id, agent, terminal_id, adopted, ",
-                "state, thought_id, turn, resume, name, named_at, model, cwd, exit, error) VALUES ",
-                "(:id, :rev, 0, :project_id, :agent, :terminal_id, :adopted, :state, :thought_id, ",
-                ":turn, :resume, :name, :named_at, :model, :cwd, :exit, :error) RETURNING 0"
-            ),
-            s,
-        )
-        .map(drop)
+        self.insert(Table::Sessions, s)
     }
 
     pub fn update_session(&mut self, s: &Session) -> Result<()> {
-        found(self.write_session(
-            concat!(
-                "UPDATE sessions SET rev = :rev, project_id = :project_id, agent = :agent, ",
-                "terminal_id = :terminal_id, adopted = :adopted, state = :state, ",
-                "thought_id = :thought_id, turn = :turn, resume = :resume, name = :name, ",
-                "named_at = :named_at, model = :model, cwd = :cwd, exit = :exit, error = :error ",
-                "WHERE id = :id RETURNING live"
-            ),
-            s,
-        )?)
-    }
-
-    fn write_session(&mut self, sql: &str, s: &Session) -> Result<bool> {
-        let rev = self.rev;
-        self.write(
-            Table::Sessions,
-            key(&s.id)?,
-            sql,
-            named_params! {
-                ":id": W(&s.id), ":rev": W(&rev), ":project_id": W(&s.project_id), ":agent": s.agent,
-                ":terminal_id": W(&s.terminal_id), ":adopted": s.adopted, ":state": W(&s.state),
-                ":thought_id": W(&s.thought_id), ":turn": s.turn, ":resume": s.resume,
-                ":name": s.name, ":named_at": W(&s.named_at), ":model": s.model, ":cwd": s.cwd,
-                ":exit": s.exit, ":error": s.error,
-            },
-        )
+        found(self.update(Table::Sessions, s)?)
     }
 
     /// Records a terminal of this boot, with the hash of its session token if it has one.
     pub fn insert_terminal(&mut self, t: &Terminal, token_hash: Option<&Hash>) -> Result<()> {
-        self.write_terminal(
-            concat!(
-                "INSERT INTO terminals (id, rev, project_id, kind, title, cwd, argv, cols, \"rows\", ",
-                "state, exit, \"offset\", boot, token_hash) VALUES (:id, :rev, :project_id, :kind, ",
-                ":title, :cwd, :argv, :cols, :rows, :state, :exit, :offset, :boot, :token_hash) ",
-                "RETURNING 0"
-            ),
-            t,
-            token_hash,
-        )
-        .map(drop)
+        let sql = "INSERT INTO terminals (id, rev, data, boot, token_hash) \
+                   VALUES (?1, ?2, ?3, ?4, ?5) RETURNING 0";
+        let boot = self.boot as i64;
+        self.put(Table::Terminals, t, sql, &[&boot, &token_hash])
+            .map(drop)
     }
 
     /// Updates a terminal and marks it as written by this boot; its token stays.
     pub fn update_terminal(&mut self, t: &Terminal) -> Result<()> {
-        found(self.write_terminal(
-            concat!(
-                "UPDATE terminals SET rev = :rev, project_id = :project_id, kind = :kind, ",
-                "title = :title, cwd = :cwd, argv = :argv, cols = :cols, \"rows\" = :rows, ",
-                "state = :state, exit = :exit, \"offset\" = :offset, boot = :boot, ",
-                "token_hash = coalesce(:token_hash, token_hash) WHERE id = :id RETURNING 1"
-            ),
-            t,
-            None,
-        )?)
-    }
-
-    fn write_terminal(&mut self, sql: &str, t: &Terminal, token: Option<&Hash>) -> Result<bool> {
-        let (rev, boot) = (self.rev, self.boot);
-        self.write(
-            Table::Terminals,
-            key(&t.id)?,
-            sql,
-            named_params! {
-                ":id": W(&t.id), ":rev": W(&rev), ":project_id": W(&t.project_id),
-                ":kind": W(&t.kind), ":title": t.title, ":cwd": t.cwd, ":argv": J(&t.argv),
-                ":cols": t.cols, ":rows": t.rows, ":state": W(&t.state), ":exit": t.exit,
-                ":offset": W(&t.offset), ":boot": W(&boot), ":token_hash": token,
-            },
-        )
+        let sql =
+            "UPDATE terminals SET rev = ?2, data = ?3, boot = ?4 WHERE id = ?1 RETURNING live";
+        let boot = self.boot as i64;
+        found(self.put(Table::Terminals, t, sql, &[&boot])?)
     }
 
     /// Inserts a question under the asker's key, which no other question may hold.
     pub fn insert_question(&mut self, q: &Question, request_key: &str) -> Result<()> {
-        let rev = self.rev;
-        self.write(
-            Table::Questions,
-            key(&q.id)?,
-            concat!(
-                "INSERT INTO questions (id, rev, live, thought_id, session_id, turn, source, kind, ",
-                "prompt, detail, reply_via, request_key, state) VALUES (:id, :rev, 0, :thought_id, ",
-                ":session_id, :turn, :source, :kind, :prompt, :detail, :reply_via, :request_key, ",
-                ":state) RETURNING 0"
-            ),
-            named_params! {
-                ":id": W(&q.id), ":rev": W(&rev), ":thought_id": W(&q.thought_id),
-                ":session_id": W(&q.session_id), ":turn": q.turn, ":source": W(&q.source),
-                ":kind": J(&q.kind), ":prompt": q.prompt, ":detail": q.detail,
-                ":reply_via": W(&q.reply_via), ":request_key": request_key, ":state": W(&q.state),
-            },
-        )
-        .map(drop)
+        let sql = "INSERT INTO questions (id, rev, data, request_key) \
+                   VALUES (?1, ?2, ?3, ?4) RETURNING 0";
+        self.put(Table::Questions, q, sql, &[&request_key])
+            .map(drop)
     }
 
     /// A question's state is the only part of it that changes.
     pub fn set_question_state(&mut self, id: QuestionId, state: QuestionState) -> Result<()> {
-        let rev = self.rev;
+        let (rev, id) = (self.rev as i64, key(&id)?);
         found(self.write(
             Table::Questions,
-            key(&id)?,
-            "UPDATE questions SET state = ?1, rev = ?2 WHERE id = ?3 RETURNING live",
-            params![W(&state), W(&rev), W(&id)],
+            &id,
+            "UPDATE questions SET rev = ?1, data = json_set(data, '$.state', ?2) \
+             WHERE id = ?3 RETURNING live",
+            params![rev, key(&state)?, id],
         )?)
     }
 
     /// Stores the answer to a question. A second answer to it is `Duplicate`.
     pub fn insert_answer(&mut self, question: QuestionId, a: &Answer) -> Result<()> {
         self.db
-            .prepare_cached(
-                "INSERT INTO answers (question_id, response, device_id, created, delivered) \
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-            )?
-            .execute(params![
-                W(&question),
-                J(&a.response),
-                W(&a.device_id),
-                W(&a.created),
-                W(&a.delivered)
-            ])?;
+            .prepare_cached("INSERT INTO answers (question_id, data) VALUES (?1, ?2)")?
+            .execute([key(&question)?, serde_json::to_string(a)?])?;
         self.touch_question(question)
     }
 
@@ -1112,8 +957,10 @@ impl<'s> Tx<'s> {
     pub fn set_delivered(&mut self, question: QuestionId, at: Time) -> Result<()> {
         let n = self
             .db
-            .prepare_cached("UPDATE answers SET delivered = ?1 WHERE question_id = ?2")?
-            .execute(params![W(&at), W(&question)])?;
+            .prepare_cached(
+                "UPDATE answers SET data = json_set(data, '$.delivered', ?1) WHERE question_id = ?2",
+            )?
+            .execute(params![at.get() as i64, key(&question)?])?;
         if n == 0 {
             return Err(Error::NotFound);
         }
@@ -1122,112 +969,47 @@ impl<'s> Tx<'s> {
 
     /// Stamps a question whose answer changed, since clients see the answer inside it.
     fn touch_question(&mut self, id: QuestionId) -> Result<()> {
-        let rev = self.rev;
+        let (rev, id) = (self.rev as i64, key(&id)?);
         found(self.write(
             Table::Questions,
-            key(&id)?,
+            &id,
             "UPDATE questions SET rev = ?1 WHERE id = ?2 RETURNING live",
-            params![W(&rev), W(&id)],
+            params![rev, id],
         )?)
     }
 
     /// Stores a result; results never change.
     pub fn insert_result(&mut self, r: &TurnResult, body: &str) -> Result<()> {
-        let rev = self.rev;
-        self.write(
-            Table::Results,
-            key(&r.id)?,
-            concat!(
-                "INSERT INTO results (id, rev, live, thought_id, session_id, turn, kind, summary, ",
-                "body) VALUES (:id, :rev, 0, :thought_id, :session_id, :turn, :kind, :summary, ",
-                ":body) RETURNING 0"
-            ),
-            named_params! {
-                ":id": W(&r.id), ":rev": W(&rev), ":thought_id": W(&r.thought_id),
-                ":session_id": W(&r.session_id), ":turn": r.turn, ":kind": W(&r.kind),
-                ":summary": r.summary, ":body": body,
-            },
-        )
-        .map(drop)
+        let sql = "INSERT INTO results (id, rev, data, body) VALUES (?1, ?2, ?3, ?4) RETURNING 0";
+        self.put(Table::Results, r, sql, &[&body]).map(drop)
     }
 
     pub fn put_layout(&mut self, l: &Layout) -> Result<()> {
-        let rev = self.rev;
-        self.upsert(
-            Table::Layouts,
-            key(&l.id)?,
-            "SELECT EXISTS (SELECT 1 FROM layouts WHERE project_id = ?1)",
-            "INSERT INTO layouts (project_id, rev, tree) VALUES (?1, ?2, ?3) \
-             ON CONFLICT (project_id) DO UPDATE SET rev = excluded.rev, tree = excluded.tree",
-            params![W(&l.id), W(&rev), J(&l.tree)],
-        )
+        self.upsert(Table::Layouts, l)
     }
 
     pub fn delete_layout(&mut self, project: ProjectId) -> Result<bool> {
-        let id = key(&project)?;
-        self.write(
-            Table::Layouts,
-            id.clone(),
-            "DELETE FROM layouts WHERE project_id = ?1 RETURNING 1",
-            [&id],
-        )
+        self.delete(Table::Layouts, &project)
     }
 
     pub fn put_pref(&mut self, value: &PrefValue) -> Result<()> {
-        let rev = self.rev;
-        let id = key(&value.key())?;
-        self.upsert(
-            Table::Prefs,
-            id.clone(),
-            "SELECT EXISTS (SELECT 1 FROM prefs WHERE key = ?1)",
-            "INSERT INTO prefs (key, rev, value) VALUES (?1, ?2, ?3) \
-             ON CONFLICT (key) DO UPDATE SET rev = excluded.rev, value = excluded.value",
-            params![id, W(&rev), J(value)],
-        )
+        self.upsert(Table::Prefs, value)
     }
 
     pub fn delete_pref(&mut self, pref: PrefKey) -> Result<bool> {
-        let id = key(&pref)?;
-        self.write(
-            Table::Prefs,
-            id.clone(),
-            "DELETE FROM prefs WHERE key = ?1 RETURNING 1",
-            [&id],
-        )
+        self.delete(Table::Prefs, &pref)
     }
 
     /// Registers a device with the hash of its key.
     pub fn insert_device(&mut self, d: &Device, key_hash: &Hash) -> Result<()> {
-        self.write_device(
-            "INSERT INTO devices (id, rev, name, key_hash, last_seen, revoked) \
-             VALUES (:id, :rev, :name, :key_hash, :last_seen, :revoked) RETURNING 0",
-            d,
-            Some(key_hash),
-        )
-        .map(drop)
+        let sql =
+            "INSERT INTO devices (id, rev, data, key_hash) VALUES (?1, ?2, ?3, ?4) RETURNING 0";
+        self.put(Table::Devices, d, sql, &[key_hash]).map(drop)
     }
 
     /// Updates a device; its key stays.
     pub fn update_device(&mut self, d: &Device) -> Result<()> {
-        found(self.write_device(
-            "UPDATE devices SET rev = :rev, name = :name, key_hash = coalesce(:key_hash, key_hash), \
-             last_seen = :last_seen, revoked = :revoked WHERE id = :id RETURNING 1",
-            d,
-            None,
-        )?)
-    }
-
-    fn write_device(&mut self, sql: &str, d: &Device, key_hash: Option<&Hash>) -> Result<bool> {
-        let rev = self.rev;
-        self.write(
-            Table::Devices,
-            key(&d.id)?,
-            sql,
-            named_params! {
-                ":id": W(&d.id), ":rev": W(&rev), ":name": d.name, ":key_hash": key_hash,
-                ":last_seen": W(&d.last_seen), ":revoked": d.revoked,
-            },
-        )
+        found(self.update(Table::Devices, d)?)
     }
 
     /// Commits an attempt before its process is spawned; the same id twice is `Duplicate`.
@@ -1244,7 +1026,13 @@ impl<'s> Tx<'s> {
                 "INSERT INTO attempts (id, kind, target, args_hash, started, outcome) \
                  VALUES (?1, ?2, ?3, ?4, ?5, NULL)",
             )?
-            .execute(params![W(&a.id), kind, target, a.args_hash, W(&a.started)])?;
+            .execute(params![
+                key(&a.id)?,
+                kind,
+                target,
+                a.args_hash,
+                a.started.get() as i64
+            ])?;
         if let Some(outcome) = &a.outcome {
             self.set_outcome(a.id, outcome)?;
         }
@@ -1259,7 +1047,7 @@ impl<'s> Tx<'s> {
             .prepare_cached(
                 "INSERT INTO seen_events (session_id, event) VALUES (?1, ?2) ON CONFLICT DO NOTHING",
             )?
-            .execute(params![W(&session), event])?;
+            .execute(params![key(&session)?, event])?;
         Ok(n == 1)
     }
 
@@ -1273,7 +1061,7 @@ impl<'s> Tx<'s> {
         let n = self
             .db
             .prepare_cached("UPDATE attempts SET outcome = ?1 WHERE id = ?2 AND outcome IS NULL")?
-            .execute(params![text, W(&id)])?;
+            .execute(params![text, key(&id)?])?;
         if n == 0 {
             return Err(Error::NotFound);
         }
@@ -1308,350 +1096,48 @@ fn follow(table: Table) -> Option<&'static str> {
     })
 }
 
-// Rows. Each mapper returns the record and whether a client can see it,
-// which every column list below ends with.
+// Documents. Ids and words are their wire text, so the database reads like
+// the protocol.
 
-type Mapper<R> = fn(&Row) -> rusqlite::Result<(R, bool)>;
-type Reader<R> = fn(&Connection, &str) -> Result<Option<(R, bool)>>;
-
-fn one<R>(
-    db: &Connection,
-    sql: &str,
-    id: &str,
-    f: impl FnOnce(&Row) -> rusqlite::Result<R>,
-) -> Result<Option<R>> {
-    Ok(db.prepare_cached(sql)?.query_row([id], f).optional()?)
-}
-
-macro_rules! thought_select {
-    () => {
-        "SELECT id, rev, text, strokes, source, mode, phase, status, reason, live, project_id, \
-         session_id, brief, agent, model, workdir, hold_until, read, created, updated, live \
-         FROM thoughts"
+/// A record's id, and its serde document without the fields the store keeps
+/// as columns (`rev`, a thought's `live`) or beside it (a question's
+/// `answer`), and with a session's memory-only `activity` empty.
+fn document(record: &impl Serialize) -> Result<(String, String)> {
+    let Value::Object(mut doc) = serde_json::to_value(record)? else {
+        return Err(Error::Corrupt("a record that is not an object".into()));
     };
-}
-use thought_select;
-
-fn thought_row(r: &Row) -> rusqlite::Result<(Thought, bool)> {
-    let t = Thought {
-        id: word(r, 0)?,
-        rev: word(r, 1)?,
-        text: r.get(2)?,
-        strokes: json(r, 3)?,
-        source: word(r, 4)?,
-        mode: word(r, 5)?,
-        phase: word(r, 6)?,
-        status: word(r, 7)?,
-        reason: word(r, 8)?,
-        live: r.get(9)?,
-        project_id: word(r, 10)?,
-        session_id: word(r, 11)?,
-        brief: r.get(12)?,
-        agent: r.get(13)?,
-        model: r.get(14)?,
-        workdir: json(r, 15)?,
-        hold_until: word(r, 16)?,
-        read: r.get(17)?,
-        created: word(r, 18)?,
-        updated: word(r, 19)?,
-    };
-    Ok((t, r.get(20)?))
-}
-
-fn read_thought(db: &Connection, id: &str) -> Result<Option<(Thought, bool)>> {
-    let sql = concat!(thought_select!(), " WHERE id = ?1");
-    one(db, sql, id, thought_row)
-}
-
-macro_rules! project_select {
-    () => {
-        "SELECT id, rev, name, folder, kind, color, aliases, git, isolate, open, available, 1 \
-         FROM projects"
-    };
-}
-use project_select;
-
-fn project_row(r: &Row) -> rusqlite::Result<(Project, bool)> {
-    let p = Project {
-        id: word(r, 0)?,
-        rev: word(r, 1)?,
-        name: r.get(2)?,
-        folder: r.get(3)?,
-        kind: word(r, 4)?,
-        color: r.get(5)?,
-        aliases: json(r, 6)?,
-        git: r.get(7)?,
-        isolate: word(r, 8)?,
-        open: r.get(9)?,
-        available: r.get(10)?,
-    };
-    Ok((p, r.get(11)?))
-}
-
-fn read_project(db: &Connection, id: &str) -> Result<Option<(Project, bool)>> {
-    let sql = concat!(project_select!(), " WHERE id = ?1");
-    one(db, sql, id, project_row)
-}
-
-macro_rules! session_select {
-    () => {
-        "SELECT id, rev, project_id, agent, terminal_id, adopted, state, thought_id, turn, resume, \
-         name, named_at, model, cwd, exit, error, live FROM sessions"
-    };
-}
-use session_select;
-
-fn session_row(r: &Row) -> rusqlite::Result<(Session, bool)> {
-    let s = Session {
-        id: word(r, 0)?,
-        rev: word(r, 1)?,
-        project_id: word(r, 2)?,
-        agent: r.get(3)?,
-        terminal_id: word(r, 4)?,
-        adopted: r.get(5)?,
-        state: word(r, 6)?,
-        thought_id: word(r, 7)?,
-        turn: r.get(8)?,
-        resume: r.get(9)?,
-        name: r.get(10)?,
-        named_at: word(r, 11)?,
-        model: r.get(12)?,
-        cwd: r.get(13)?,
-        exit: r.get(14)?,
-        error: r.get(15)?,
-        activity: Vec::new(),
-    };
-    Ok((s, r.get(16)?))
-}
-
-fn read_session(db: &Connection, id: &str) -> Result<Option<(Session, bool)>> {
-    let sql = concat!(session_select!(), " WHERE id = ?1");
-    one(db, sql, id, session_row)
-}
-
-macro_rules! terminal_select {
-    () => {
-        "SELECT id, rev, project_id, kind, title, cwd, argv, cols, \"rows\", state, exit, \"offset\", 1 \
-         FROM terminals"
-    };
-}
-use terminal_select;
-
-fn terminal_row(r: &Row) -> rusqlite::Result<(Terminal, bool)> {
-    let t = Terminal {
-        id: word(r, 0)?,
-        rev: word(r, 1)?,
-        project_id: word(r, 2)?,
-        kind: word(r, 3)?,
-        title: r.get(4)?,
-        cwd: r.get(5)?,
-        argv: json(r, 6)?,
-        cols: r.get(7)?,
-        rows: r.get(8)?,
-        state: word(r, 9)?,
-        exit: r.get(10)?,
-        offset: word(r, 11)?,
-    };
-    Ok((t, r.get(12)?))
-}
-
-fn read_terminal(db: &Connection, id: &str) -> Result<Option<(Terminal, bool)>> {
-    let sql = concat!(terminal_select!(), " WHERE id = ?1");
-    one(db, sql, id, terminal_row)
-}
-
-macro_rules! question_select {
-    () => {
-        "SELECT q.id, q.rev, q.thought_id, q.session_id, q.turn, q.source, q.kind, q.prompt, q.detail, \
-         q.reply_via, q.state, a.response, a.device_id, a.created, a.delivered, q.live \
-         FROM questions q LEFT JOIN answers a ON a.question_id = q.id"
-    };
-}
-use question_select;
-
-fn question_row(r: &Row) -> rusqlite::Result<(Question, bool)> {
-    let answer = match r.get_ref(11)? {
-        ValueRef::Null => None,
-        _ => Some(Answer {
-            response: json(r, 11)?,
-            device_id: word(r, 12)?,
-            created: word(r, 13)?,
-            delivered: word(r, 14)?,
-        }),
-    };
-    let q = Question {
-        id: word(r, 0)?,
-        rev: word(r, 1)?,
-        thought_id: word(r, 2)?,
-        session_id: word(r, 3)?,
-        turn: r.get(4)?,
-        source: word(r, 5)?,
-        kind: json(r, 6)?,
-        prompt: r.get(7)?,
-        detail: r.get(8)?,
-        reply_via: word(r, 9)?,
-        state: word(r, 10)?,
-        answer,
-    };
-    Ok((q, r.get(15)?))
-}
-
-fn read_question(db: &Connection, id: &str) -> Result<Option<(Question, bool)>> {
-    let sql = concat!(question_select!(), " WHERE q.id = ?1");
-    one(db, sql, id, question_row)
-}
-
-macro_rules! result_select {
-    () => {
-        "SELECT id, rev, thought_id, session_id, turn, kind, summary, live FROM results"
-    };
-}
-use result_select;
-
-fn result_row(r: &Row) -> rusqlite::Result<(TurnResult, bool)> {
-    let t = TurnResult {
-        id: word(r, 0)?,
-        rev: word(r, 1)?,
-        thought_id: word(r, 2)?,
-        session_id: word(r, 3)?,
-        turn: r.get(4)?,
-        kind: word(r, 5)?,
-        summary: r.get(6)?,
-    };
-    Ok((t, r.get(7)?))
-}
-
-fn read_result(db: &Connection, id: &str) -> Result<Option<(TurnResult, bool)>> {
-    let sql = concat!(result_select!(), " WHERE id = ?1");
-    one(db, sql, id, result_row)
-}
-
-macro_rules! layout_select {
-    () => {
-        "SELECT project_id, rev, tree, 1 FROM layouts"
-    };
-}
-use layout_select;
-
-fn layout_row(r: &Row) -> rusqlite::Result<(Layout, bool)> {
-    let l = Layout {
-        id: word(r, 0)?,
-        rev: word(r, 1)?,
-        tree: json(r, 2)?,
-    };
-    Ok((l, r.get(3)?))
-}
-
-fn read_layout(db: &Connection, id: &str) -> Result<Option<(Layout, bool)>> {
-    let sql = concat!(layout_select!(), " WHERE project_id = ?1");
-    one(db, sql, id, layout_row)
-}
-
-macro_rules! pref_select {
-    () => {
-        "SELECT key, rev, value, 1 FROM prefs"
-    };
-}
-use pref_select;
-
-fn pref_row(r: &Row) -> rusqlite::Result<(Pref, bool)> {
-    let p = Pref {
-        value: json(r, 2)?,
-        rev: word(r, 1)?,
-    };
-    Ok((p, r.get(3)?))
-}
-
-fn read_pref(db: &Connection, id: &str) -> Result<Option<(Pref, bool)>> {
-    let sql = concat!(pref_select!(), " WHERE key = ?1");
-    one(db, sql, id, pref_row)
-}
-
-macro_rules! device_select {
-    () => {
-        // The key hash comes last, after the columns of the record; only `device` reads it.
-        "SELECT id, rev, name, last_seen, revoked, 1, key_hash FROM devices"
-    };
-}
-use device_select;
-
-fn device_row(r: &Row) -> rusqlite::Result<(Device, bool)> {
-    let d = Device {
-        id: word(r, 0)?,
-        rev: word(r, 1)?,
-        name: r.get(2)?,
-        last_seen: word(r, 3)?,
-        revoked: r.get(4)?,
-    };
-    Ok((d, r.get(5)?))
-}
-
-fn read_device(db: &Connection, id: &str) -> Result<Option<(Device, bool)>> {
-    let sql = concat!(device_select!(), " WHERE id = ?1");
-    one(db, sql, id, device_row)
-}
-
-// Values. Ids and words are stored as their wire text, so the database reads
-// like the protocol; lists and nested values as JSON text.
-
-/// Binds a value by its serde form: text, an integer, or NULL for `None`.
-struct W<'a, T>(&'a T);
-
-impl<T: Serialize> ToSql for W<'_, T> {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        let fail = |why: String| rusqlite::Error::ToSqlConversionFailure(why.into());
-        Ok(
-            match serde_json::to_value(self.0).map_err(|e| fail(e.to_string()))? {
-                Value::Null => ToSqlOutput::from(Null),
-                Value::Bool(b) => ToSqlOutput::from(b),
-                Value::Number(n) => {
-                    ToSqlOutput::from(n.as_i64().ok_or_else(|| fail(n.to_string()))?)
-                }
-                Value::String(s) => ToSqlOutput::from(s),
-                other => return Err(fail(format!("{other} is not a scalar"))),
-            },
-        )
+    for field in ["rev", "live", "answer"] {
+        doc.remove(field);
     }
-}
-
-/// Binds a value as JSON text.
-struct J<'a, T>(&'a T);
-
-impl<T: Serialize> ToSql for J<'_, T> {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        let text = serde_json::to_string(self.0)
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))?;
-        Ok(ToSqlOutput::from(text))
+    if let Some(activity) = doc.get_mut("activity") {
+        *activity = Value::Array(Vec::new());
     }
-}
-
-/// Reads a column bound with [`W`].
-fn word<T: DeserializeOwned>(r: &Row, i: usize) -> rusqlite::Result<T> {
-    let value = match r.get_ref(i)? {
-        ValueRef::Null => Value::Null,
-        ValueRef::Integer(n) => Value::from(n),
-        ValueRef::Text(t) => Value::String(
-            std::str::from_utf8(t)
-                .map_err(|e| rusqlite::Error::FromSqlConversionFailure(i, Type::Text, e.into()))?
-                .to_owned(),
-        ),
-        other => {
-            return Err(rusqlite::Error::InvalidColumnType(
-                i,
-                String::new(),
-                other.data_type(),
-            ));
-        }
+    let Some(Value::String(id)) = doc.get("id") else {
+        return Err(Error::Corrupt("a record without an id".into()));
     };
-    serde_json::from_value(value)
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(i, Type::Text, e.into()))
+    Ok((id.clone(), serde_json::to_string(&doc)?))
 }
 
-/// Reads a column bound with [`J`].
-fn json<T: DeserializeOwned>(r: &Row, i: usize) -> rusqlite::Result<T> {
-    let text: String = r.get(i)?;
-    serde_json::from_str(&text)
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(i, Type::Text, e.into()))
+/// Reads a row selected as `data, rev, live, answer` into its record and
+/// whether a client can see it. The fields [`document`] took out are written
+/// in front of the document's own, so serde reads the record in one pass; it
+/// ignores `live` on a record without one, as it does fields a newer build
+/// added.
+fn record<R: DeserializeOwned>(r: &Row) -> rusqlite::Result<(R, bool)> {
+    let (rev, live): (i64, bool) = (r.get(1)?, r.get(2)?);
+    let answer = match r.get_ref(3)?.as_str_or_null()? {
+        Some(answer) => format!(r#""answer":{answer},"#),
+        None => String::new(),
+    };
+    // A document is an object with at least an id; anything else fails to parse.
+    let fields = r.get_ref(0)?.as_str()?.strip_prefix('{');
+    let text = format!(
+        r#"{{"rev":{rev},"live":{live},{answer}{}"#,
+        fields.unwrap_or_default()
+    );
+    let record = serde_json::from_str(&text)
+        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, Type::Text, e.into()))?;
+    Ok((record, live))
 }
 
 /// The wire text of an id or a word.
@@ -1667,8 +1153,13 @@ fn parse<T: DeserializeOwned>(text: &str) -> Result<T> {
 }
 
 /// Schema version 1 (design §5): every table without a later-phase mark.
-/// `live` is the store's: whether clients see the row. `finished` is derived
-/// from a thought on every write so the live rule can use an index.
+///
+/// A record table holds the record's document in `data` and the store's
+/// `live`: whether clients see the row, always for some tables, otherwise set
+/// by each commit (a new row is not live until then). The columns after
+/// `data` are read from it: the keys the core queries, constrains or
+/// references. `finished` is the live rule's test of a thought, kept in an
+/// index so the rule needs no scan.
 const SCHEMA_V1: &str = r#"
 CREATE TABLE meta (
     one INTEGER PRIMARY KEY CHECK (one = 1),
@@ -1680,61 +1171,39 @@ CREATE TABLE meta (
 CREATE TABLE projects (
     id TEXT PRIMARY KEY,
     rev INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    folder TEXT NOT NULL UNIQUE,
-    kind TEXT NOT NULL,
-    color TEXT NOT NULL,
-    aliases TEXT NOT NULL,
-    git INTEGER NOT NULL,
-    isolate TEXT NOT NULL,
-    open INTEGER NOT NULL,
-    available INTEGER NOT NULL
+    live INTEGER NOT NULL AS (1),
+    data TEXT NOT NULL,
+    folder TEXT NOT NULL UNIQUE AS (data ->> 'folder')
 ) STRICT;
 
 CREATE TABLE devices (
     id TEXT PRIMARY KEY,
     rev INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    key_hash BLOB NOT NULL,
-    last_seen INTEGER,
-    revoked INTEGER NOT NULL
+    live INTEGER NOT NULL AS (1),
+    data TEXT NOT NULL,
+    key_hash BLOB NOT NULL
 ) STRICT;
 
 CREATE TABLE terminals (
     id TEXT PRIMARY KEY,
     rev INTEGER NOT NULL,
-    project_id TEXT REFERENCES projects (id),
-    kind TEXT NOT NULL,
-    title TEXT NOT NULL,
-    cwd TEXT NOT NULL,
-    argv TEXT NOT NULL,
-    cols INTEGER NOT NULL,
-    "rows" INTEGER NOT NULL,
-    state TEXT NOT NULL,
-    exit INTEGER,
-    "offset" INTEGER NOT NULL,
+    live INTEGER NOT NULL AS (1),
+    data TEXT NOT NULL,
     boot INTEGER NOT NULL,
-    token_hash BLOB UNIQUE
+    token_hash BLOB UNIQUE,
+    project_id TEXT AS (data ->> 'project_id') REFERENCES projects (id),
+    state TEXT NOT NULL AS (data ->> 'state')
 ) STRICT;
 
 CREATE TABLE sessions (
     id TEXT PRIMARY KEY,
     rev INTEGER NOT NULL,
-    live INTEGER NOT NULL,
-    project_id TEXT NOT NULL REFERENCES projects (id),
-    agent TEXT NOT NULL,
-    terminal_id TEXT REFERENCES terminals (id),
-    adopted INTEGER NOT NULL,
-    state TEXT NOT NULL,
-    thought_id TEXT REFERENCES thoughts (id),
-    turn INTEGER NOT NULL,
-    resume TEXT,
-    name TEXT,
-    named_at INTEGER,
-    model TEXT,
-    cwd TEXT NOT NULL,
-    exit INTEGER,
-    error TEXT
+    live INTEGER NOT NULL DEFAULT 0,
+    data TEXT NOT NULL,
+    project_id TEXT NOT NULL AS (data ->> 'project_id') REFERENCES projects (id),
+    terminal_id TEXT AS (data ->> 'terminal_id') REFERENCES terminals (id),
+    thought_id TEXT AS (data ->> 'thought_id') REFERENCES thoughts (id),
+    state TEXT NOT NULL AS (data ->> 'state')
 ) STRICT;
 CREATE INDEX sessions_thought ON sessions (thought_id);
 CREATE INDEX sessions_terminal ON sessions (terminal_id);
@@ -1750,25 +1219,13 @@ CREATE TABLE seen_events (
 CREATE TABLE thoughts (
     id TEXT PRIMARY KEY,
     rev INTEGER NOT NULL,
-    live INTEGER NOT NULL,
-    finished INTEGER NOT NULL,
-    text TEXT NOT NULL,
-    strokes TEXT NOT NULL,
-    source TEXT NOT NULL,
-    mode TEXT NOT NULL,
-    phase TEXT NOT NULL,
-    status TEXT NOT NULL,
-    reason TEXT,
-    project_id TEXT REFERENCES projects (id),
-    session_id TEXT REFERENCES sessions (id),
-    brief TEXT,
-    agent TEXT,
-    model TEXT,
-    workdir TEXT NOT NULL,
-    hold_until INTEGER,
-    read INTEGER NOT NULL,
-    created INTEGER NOT NULL,
-    updated INTEGER NOT NULL
+    live INTEGER NOT NULL DEFAULT 0,
+    data TEXT NOT NULL,
+    project_id TEXT AS (data ->> 'project_id') REFERENCES projects (id),
+    session_id TEXT AS (data ->> 'session_id') REFERENCES sessions (id),
+    phase TEXT NOT NULL AS (data ->> 'phase'),
+    finished INTEGER NOT NULL AS (phase IN ('done', 'failed') AND data ->> 'read'
+        AND coalesce(data ->> '$.workdir.changes', '') <> 'pending')
 ) STRICT;
 CREATE INDEX thoughts_finished ON thoughts (finished, id);
 CREATE INDEX thoughts_live ON thoughts (live, finished, id);
@@ -1777,39 +1234,31 @@ CREATE INDEX thoughts_session ON thoughts (session_id);
 CREATE TABLE questions (
     id TEXT PRIMARY KEY,
     rev INTEGER NOT NULL,
-    live INTEGER NOT NULL,
-    thought_id TEXT REFERENCES thoughts (id),
-    session_id TEXT REFERENCES sessions (id),
-    turn INTEGER,
-    source TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    prompt TEXT NOT NULL,
-    detail TEXT,
-    reply_via TEXT NOT NULL,
+    live INTEGER NOT NULL DEFAULT 0,
+    data TEXT NOT NULL,
     request_key TEXT NOT NULL UNIQUE,
-    state TEXT NOT NULL
+    thought_id TEXT AS (data ->> 'thought_id') REFERENCES thoughts (id),
+    session_id TEXT AS (data ->> 'session_id') REFERENCES sessions (id),
+    state TEXT NOT NULL AS (data ->> 'state')
 ) STRICT;
 CREATE INDEX questions_thought ON questions (thought_id);
 CREATE INDEX questions_open ON questions (id) WHERE state = 'open';
 
+-- Written once, apart from `delivered`; clients see it inside the question.
 CREATE TABLE answers (
     question_id TEXT PRIMARY KEY REFERENCES questions (id) ON DELETE CASCADE,
-    response TEXT NOT NULL,
-    device_id TEXT REFERENCES devices (id),
-    created INTEGER NOT NULL,
-    delivered INTEGER
+    data TEXT NOT NULL,
+    device_id TEXT AS (data ->> 'device_id') REFERENCES devices (id)
 ) STRICT;
 
 CREATE TABLE results (
     id TEXT PRIMARY KEY,
     rev INTEGER NOT NULL,
-    live INTEGER NOT NULL,
-    thought_id TEXT NOT NULL REFERENCES thoughts (id),
-    session_id TEXT REFERENCES sessions (id),
-    turn INTEGER,
-    kind TEXT NOT NULL,
-    summary TEXT NOT NULL,
-    body TEXT NOT NULL
+    live INTEGER NOT NULL DEFAULT 0,
+    data TEXT NOT NULL,
+    body TEXT NOT NULL,
+    thought_id TEXT NOT NULL AS (data ->> 'thought_id') REFERENCES thoughts (id),
+    session_id TEXT AS (data ->> 'session_id') REFERENCES sessions (id)
 ) STRICT;
 CREATE INDEX results_thought ON results (thought_id);
 
@@ -1823,14 +1272,16 @@ CREATE TABLE attempts (
 ) STRICT;
 
 CREATE TABLE layouts (
-    project_id TEXT PRIMARY KEY REFERENCES projects (id),
+    id TEXT PRIMARY KEY REFERENCES projects (id),
     rev INTEGER NOT NULL,
-    tree TEXT NOT NULL
+    live INTEGER NOT NULL AS (1),
+    data TEXT NOT NULL
 ) STRICT;
 
 CREATE TABLE prefs (
-    key TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY,
     rev INTEGER NOT NULL,
-    value TEXT NOT NULL
+    live INTEGER NOT NULL AS (1),
+    data TEXT NOT NULL
 ) STRICT;
 "#;

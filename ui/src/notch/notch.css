@@ -22,6 +22,11 @@ html,body{background:transparent!important;min-height:0;overflow:hidden}
 .glance-count[data-status=done]{color:var(--app-positive)}
 .glance-count[data-status=failed]{color:var(--app-negative)}
 @media(prefers-reduced-motion:reduce){.glance-count i{animation:none!important}}
+/* A count that arrives waits for the shape to widen under it. */
+@media(prefers-reduced-motion:no-preference){
+  .glance-count{transition:opacity 180ms ease-out 150ms}
+  @starting-style{.glance-count{opacity:0}}
+}
 
 /* The shape and the light behind it (art.tsx): one outline cuts the black and the light's source.
    Every layer sits on the tab's centre line, so the window may grow or shrink around it. Nothing
@@ -37,6 +42,8 @@ html,body{background:transparent!important;min-height:0;overflow:hidden}
 .native-host.notch-open .island button:focus-visible::after{content:"";inset:auto auto -8px 50%;width:24px;height:3px;border:0;
   border-radius:2px;opacity:1;filter:none;animation:none;background:var(--panel-muted);transform:translateX(-50%)}
 .native-host #notch:has(.decision-sheet){background:transparent}
+/* The card arrives as the home sheet does, once the shape has grown under it, not at 60% at once. */
+.native-host #notch[open] .notch-content{animation:none}
 
 /* The light: a wide halo and a close core, each a blurred copy of the outline whose gradient
    drifts sideways. Only opacity and that one transform move, so it costs the compositor alone. */

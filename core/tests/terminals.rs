@@ -277,8 +277,12 @@ fn output_arrives_intact_and_in_order_through_tiny_credit() {
     let data = Folder::new("tt-tiny");
     let core = Core::start(&data);
     let mut c = core.device();
-    // Within the ring: nothing is lost however slowly it is read.
-    let n = 12_000;
+    // Within the ring: nothing is lost however slowly it is read. Every 13
+    // bytes are a round trip, which a Windows pipe and console make several
+    // times slower than Mac and Linux do: up to 18 s of the 60 a test may
+    // take there. So Windows reads a third as many lines, still far more
+    // than any pipe or console holds.
+    let n = if cfg!(windows) { 4_000 } else { 12_000 };
     let start = fixture(&[&format!("print {n}"), "sleep 30000"]);
     let mut v = open(
         &mut c,
@@ -305,8 +309,12 @@ fn tens_of_megabytes_arrive_intact_through_a_slow_client_and_a_reconnect() {
     let mut c = core.device();
     let id = TerminalId::mint();
     // The fixture prints each batch when asked, so the client, however slow,
-    // stays within the ring: a slow client loses nothing then.
-    let (batch, batches) = (4096, 70);
+    // stays within the ring: a slow client loses nothing then. Windows'
+    // console renders each line before it passes it on, several times
+    // slower than a Mac or Linux terminal: up to 10 s of the 60 a test may
+    // take there. So Windows prints a third as much, still three times what
+    // the ring holds.
+    let (batch, batches) = (4096, if cfg!(windows) { 24 } else { 70 });
     let mut v = open(
         &mut c,
         &args(id, Some(fixture(&["serve"])), None, 16 << 10),
@@ -337,9 +345,10 @@ fn tens_of_megabytes_arrive_intact_through_a_slow_client_and_a_reconnect() {
     all.extend_from_slice(v.bytes());
     assert!(v.marks.iter().all(|(_, m)| !m.gap), "no gap");
     let total = batch * batches;
+    let least = if cfg!(windows) { 3 * RING } else { 20 << 20 };
     assert!(
-        all.len() as u64 > 20 << 20,
-        "tens of megabytes: {}",
+        all.len() as u64 > least,
+        "more than {least} bytes: {}",
         all.len()
     );
     if cfg!(windows) {

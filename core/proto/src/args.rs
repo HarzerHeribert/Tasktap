@@ -7,8 +7,8 @@ use crate::ids::{
     ThoughtId, Time,
 };
 use crate::records::{
-    Collection, Isolate, Mode, PrefKey, PrefValue, Question, QuestionKind, QuestionSource,
-    Response, Set, Source, Stroke, Thought, TurnResult,
+    Collection, Isolate, Mode, MotionPalette, MotionStyle, PrefKey, PrefValue, Question,
+    QuestionKind, QuestionSource, Response, Set, Source, Stroke, Thought, TurnResult,
 };
 use crate::{MAX_LINE, MAX_TEXT};
 use serde::{Deserialize, Serialize};
@@ -80,6 +80,10 @@ pub enum PutTarget {
 pub enum PrefPatch {
     Hold(u32),
     Agent(#[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")] Option<String>),
+    MotionStyle(MotionStyle),
+    MotionPalette(MotionPalette),
+    MotionHue(u16),
+    MotionLumen(bool),
 }
 
 impl From<PrefPatch> for PrefValue {
@@ -87,6 +91,10 @@ impl From<PrefPatch> for PrefValue {
         match patch {
             PrefPatch::Hold(seconds) => PrefValue::Hold(seconds),
             PrefPatch::Agent(agent) => PrefValue::Agent(agent),
+            PrefPatch::MotionStyle(v) => PrefValue::MotionStyle(v),
+            PrefPatch::MotionPalette(v) => PrefValue::MotionPalette(v),
+            PrefPatch::MotionHue(v) => PrefValue::MotionHue(v),
+            PrefPatch::MotionLumen(v) => PrefValue::MotionLumen(v),
         }
     }
 }

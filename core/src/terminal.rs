@@ -155,6 +155,12 @@ impl Terminals {
         (self.live.len() + self.saving.len()) as u32
     }
 
+    /// The sessions of the running terminals (`sys::in_use`).
+    pub fn sessions(&self) -> Vec<u32> {
+        let live = self.live.values();
+        live.filter_map(|live| live.process.session()).collect()
+    }
+
     pub fn running(&self, id: TerminalId) -> bool {
         self.live.contains_key(&id)
     }

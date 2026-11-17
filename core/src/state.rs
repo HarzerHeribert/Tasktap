@@ -87,7 +87,10 @@ pub enum Event {
     /// The launcher could not do it.
     LaunchFailed { attempt: AttemptId, error: String },
     /// The `Settle` or `Tidy` effect finished, or refused with the reason.
+    /// `kept` says what a settle that finished did: a Keep, or a Discard
+    /// that found all of it in its destination already, kept.
     Settled {
+        kept: bool,
         attempt: AttemptId,
         error: Option<String>,
     },
@@ -224,9 +227,9 @@ pub enum Effect {
     /// Look at the changes of the thought's worktree; report with
     /// [`Event::Surveyed`].
     Survey(ThoughtId),
-    /// Remove the thought's worktree and branch if nothing would be lost:
-    /// no changes, or all in its destination. Report what it found instead
-    /// with [`Event::Surveyed`], then the end with [`Event::Settled`].
+    /// Remove the thought's worktree and branch where git itself agrees
+    /// nothing is in them. Report what is there instead with
+    /// [`Event::Surveyed`], and the end with [`Event::Settled`].
     Tidy {
         attempt: AttemptId,
         thought: ThoughtId,
@@ -282,15 +285,12 @@ pub struct Found {
     pub files: u32,
     pub insertions: u32,
     pub deletions: u32,
-    /// Its branch has commits of its own, all of them in its destination,
-    /// and nothing is left uncommitted: what a Keep leaves before it tidies.
-    pub merged: bool,
     /// Neither its folder nor its branch is there any more.
     pub gone: bool,
     /// Removing it would lose nothing: its folder, where it is there, is
-    /// still the worktree git knows on its branch, with nothing staged,
-    /// changed, untracked or ignored beside the branch's files, and the
-    /// branch is at its base or in its destination.
+    /// still a worktree on its branch, with nothing staged, changed,
+    /// untracked or ignored beside the branch's files, and the branch is
+    /// at its base.
     pub spare: bool,
 }
 
@@ -704,9 +704,12 @@ impl Machine<'_, '_> {
             {
                 self.settle(some(thought)?, attempt, keep)
             }
-            (E::Settled { error: None, .. }, ..) if pending(&thought) => {
-                self.settled(some(thought)?, attempt)
-            }
+            (
+                E::Settled {
+                    error: None, kept, ..
+                },
+                ..,
+            ) if pending(&thought) => self.settled(some(thought)?, attempt, kept),
             // A refused settle leaves the changes pending; the outcome is recorded.
             (E::Settled { .. }, ..) => Ok(()),
             // Anything else does not fit the current state and changes nothing.
@@ -1571,18 +1574,16 @@ impl Machine<'_, '_> {
         Ok(())
     }
 
-    fn settled(&mut self, mut t: Thought, attempt: Option<Attempt>) -> Result<()> {
-        // The attempt's hash says which it was; a tidy changes no record.
-        let hash = attempt.map(|a| a.args_hash);
-        let changes = if hash == Some(settle_hash(t.id, true)) {
-            Changes::Kept
-        } else if hash == Some(settle_hash(t.id, false)) {
-            Changes::Discarded
-        } else {
+    fn settled(&mut self, mut t: Thought, attempt: Option<Attempt>, kept: bool) -> Result<()> {
+        // The attempt's hash says whether it was a tidy, which changes no record.
+        if attempt.map(|a| a.args_hash) == Some(tidy_hash(t.id)) {
             return Ok(());
-        };
+        }
         if let Some(w) = &mut t.workdir {
-            w.changes = changes;
+            w.changes = match kept {
+                true => Changes::Kept,
+                false => Changes::Discarded,
+            };
         }
         self.save(t)
     }
@@ -1654,11 +1655,11 @@ impl Machine<'_, '_> {
     }
 
     /// What a look found: the changes pending or none, with their size. A
-    /// settle the core stopped during happened when what it does is done: a
-    /// keep whose branch is in its destination or gone with its folder, a
-    /// discard that left neither. A worktree with nothing to lose, its
-    /// changes none or kept, is tidied once nothing works in it. While a
-    /// settle or tidy runs, a look counts for nothing.
+    /// settle the core stopped during happened when it left neither the
+    /// folder nor the branch; anything it left is pending again, for the
+    /// person's next Keep or Discard. A worktree with nothing to lose is
+    /// tidied once nothing works in it. While a settle or tidy runs, a look
+    /// counts for nothing.
     fn surveyed(&mut self, mut t: Thought, path: String, found: Found) -> Result<()> {
         // A look from before a settle under way would undo what it records.
         if self.settling(t.id)? {
@@ -1675,7 +1676,7 @@ impl Machine<'_, '_> {
         // or ignored, or a worktree git no longer ties to its branch, waits
         // for the person.
         w.changes = match () {
-            () if keep && (found.merged || found.gone) => Changes::Kept,
+            () if keep && found.gone => Changes::Kept,
             () if discard && found.gone => Changes::Discarded,
             () if found.gone || found.spare => Changes::Clean,
             () => Changes::Pending,
@@ -1683,7 +1684,7 @@ impl Machine<'_, '_> {
         if matches!(w.changes, Changes::Pending | Changes::Clean) {
             (w.files, w.insertions, w.deletions) = (found.files, found.insertions, found.deletions);
         }
-        let tidy = matches!(w.changes, Changes::Clean | Changes::Kept)
+        let tidy = w.changes == Changes::Clean
             && found.spare
             && !found.gone
             && !self.tx.occupied(&path)?

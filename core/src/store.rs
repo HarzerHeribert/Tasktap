@@ -876,15 +876,6 @@ impl<'s> Tx<'s> {
         Ok(names.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// Every thought that has had a worktree.
-    pub fn isolated(&self) -> Result<Vec<Thought>> {
-        self.all(
-            Table::Thoughts,
-            "WHERE data ->> '$.workdir.path' IS NOT NULL",
-            [],
-        )
-    }
-
     /// Whether a project is busy (design §7): one of its sessions starting
     /// or working, or one of its thoughts with changes waiting to be kept or
     /// discarded.

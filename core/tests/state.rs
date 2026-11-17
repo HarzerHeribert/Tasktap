@@ -1601,6 +1601,7 @@ fn row_settle_keeps_or_discards_pending_changes_once_the_session_ended() {
     ));
     let refused = Event::Settled {
         attempt: first,
+        kept: false,
         error: Some("main moved".into()),
     };
     assert_eq!(w.ok(refused), NONE);
@@ -1616,6 +1617,7 @@ fn row_settle_keeps_or_discards_pending_changes_once_the_session_ended() {
     w.ok(settle(second, false));
     w.ok(Event::Settled {
         attempt: second,
+        kept: false,
         error: None,
     });
     let th = w.thought(t);
@@ -1627,30 +1629,34 @@ fn row_settle_keeps_or_discards_pending_changes_once_the_session_ended() {
     let third = AttemptId::mint();
     assert_eq!(w.ignored(settle(third, true)), Ignored::State);
 
-    // Keep on another thought.
-    let (k, s) = w.turn();
-    w.say(s, Said::TurnFinished { answer: None }).unwrap();
-    w.write(|tx| {
-        let mut th = tx.thought(k).unwrap().unwrap();
-        th.workdir = Some(workdir(Changes::Pending));
-        tx.update_thought(&th).unwrap();
-    });
-    w.ok(Event::Exited {
-        session: s,
-        code: Some(0),
-        silent: false,
-    });
-    let keep = AttemptId::mint();
-    w.ok(Event::Settle {
-        thought: k,
-        attempt: keep,
-        keep: true,
-    });
-    w.ok(Event::Settled {
-        attempt: keep,
-        error: None,
-    });
-    assert_eq!(w.thought(k).workdir.unwrap().changes, Changes::Kept);
+    // Keep on another thought; and a discard that found all of it in its
+    // destination already, which is kept too.
+    for keep in [true, false] {
+        let (k, s) = w.turn();
+        w.say(s, Said::TurnFinished { answer: None }).unwrap();
+        w.write(|tx| {
+            let mut th = tx.thought(k).unwrap().unwrap();
+            th.workdir = Some(workdir(Changes::Pending));
+            tx.update_thought(&th).unwrap();
+        });
+        w.ok(Event::Exited {
+            session: s,
+            code: Some(0),
+            silent: false,
+        });
+        let attempt = AttemptId::mint();
+        w.ok(Event::Settle {
+            thought: k,
+            attempt,
+            keep,
+        });
+        w.ok(Event::Settled {
+            attempt,
+            kept: true,
+            error: None,
+        });
+        assert_eq!(w.thought(k).workdir.unwrap().changes, Changes::Kept);
+    }
 }
 
 // Guards.
@@ -1822,6 +1828,7 @@ fn an_attempt_id_reused_with_other_arguments_is_a_conflict() {
     assert_eq!(w.thought(other).phase, Phase::Routed);
     let report = Event::Settled {
         attempt,
+        kept: true,
         error: None,
     };
     assert!(matches!(w.apply(report), Err(Error::Invalid(_))));
@@ -2368,8 +2375,17 @@ impl Sweep {
             steps.push(Step::Launched(attempt));
         }
         if let Some((_, attempt)) = last_attempt(path, true) {
-            for error in [None, Some("main moved".to_string())] {
-                moves.push(Event::Settled { attempt, error });
+            for (kept, error) in [
+                (true, None),
+                (false, None),
+                (false, Some("main moved".to_string())),
+            ] {
+                let settled = Event::Settled {
+                    attempt,
+                    kept,
+                    error,
+                };
+                moves.push(settled);
             }
         }
         if let Some(s) = known.sessions(tx).last() {
@@ -2593,7 +2609,6 @@ fn found(files: u32) -> state::Found {
         files,
         insertions: files * 2,
         deletions: files,
-        merged: false,
         gone: false,
         spare: files == 0,
     }
@@ -2707,6 +2722,7 @@ fn rows_a_worktree_is_recorded_looked_at_and_tidied_once_it_holds_nothing() {
     // It found changes after all: they wait to be kept or discarded.
     let refused = Event::Settled {
         attempt,
+        kept: false,
         error: Some("it has changes".into()),
     };
     assert_eq!(w.ok(refused), NONE);
@@ -2753,41 +2769,26 @@ fn rows_a_worktree_is_recorded_looked_at_and_tidied_once_it_holds_nothing() {
     assert!(matches!(w.apply(adopt), Err(Error::Conflict(_))));
     w.ok(Event::Settled {
         attempt: first,
+        kept: false,
         error: None,
     });
     assert_eq!(w.thought(t).workdir.unwrap().changes, Changes::Discarded);
 }
 
 #[test]
-fn row_surveyed_decides_a_settle_the_core_stopped_during_by_what_git_shows() {
+fn row_surveyed_decides_a_settle_the_core_stopped_during_only_when_it_left_nothing() {
+    let gone = state::Found {
+        gone: true,
+        ..found(0)
+    };
+    // What a keep left, in its destination or not, is pending again; what a
+    // discard left with nothing in it is none, and tidied.
     for (keep, found, after) in [
-        (
-            true,
-            state::Found {
-                merged: true,
-                spare: true,
-                ..found(1)
-            },
-            Changes::Kept,
-        ),
-        (
-            true,
-            state::Found {
-                gone: true,
-                ..found(0)
-            },
-            Changes::Kept,
-        ),
+        (true, gone, Changes::Kept),
         (true, found(1), Changes::Pending),
-        (
-            false,
-            state::Found {
-                gone: true,
-                ..found(0)
-            },
-            Changes::Discarded,
-        ),
+        (false, gone, Changes::Discarded),
         (false, found(1), Changes::Pending),
+        (false, found(0), Changes::Clean),
     ] {
         let mut w = World::new("stopped");
         let (t, s) = w.turn();
@@ -2821,8 +2822,7 @@ fn row_surveyed_decides_a_settle_the_core_stopped_during_by_what_git_shows() {
             after,
             "{keep} {found:?}"
         );
-        // Kept with something left of it: that is tidied.
-        let tidied = after == Changes::Kept && !found.gone;
+        let tidied = after == Changes::Clean;
         assert_eq!(
             matches!(&effects[..], [Effect::Tidy { .. }]),
             tidied,

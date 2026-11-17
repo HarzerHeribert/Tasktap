@@ -6,6 +6,10 @@
 //! agent (design §4).
 
 pub use tty::*;
+
+/// What a worktree is called for the moment Windows is asked whether it is in
+/// use (`in_use` there), after its own name.
+pub const PROBE: &str = ".probe";
 #[cfg(unix)]
 pub use unix::*;
 #[cfg(windows)]
@@ -226,12 +230,34 @@ mod unix {
         groups
     }
 
-    /// The working folder of every process this user may look at: a folder
-    /// about to be removed must be none of theirs, nor hold one. Empty where
-    /// the system does not say.
-    pub fn working_folders() -> Vec<std::path::PathBuf> {
-        let pids = processes().into_iter().filter(|&pid| pid > 0);
-        pids.filter_map(working_folder).collect()
+    /// Whether a process works in `folder` or below it. A process of one of
+    /// `sessions`, those of the core's terminals, whose working folder the
+    /// system does not show counts as working there. None where the
+    /// processes cannot be listed.
+    #[allow(unsafe_code)]
+    pub fn in_use(folder: &Path, sessions: &[u32]) -> Option<bool> {
+        // SAFETY: the signature of getsid(2) on Linux and macOS: an integer
+        // in, an integer out, no memory touched.
+        unsafe extern "C" {
+            safe fn getsid(pid: i32) -> i32;
+        }
+        let pids = processes();
+        if pids.is_empty() || blind("processes") {
+            return None;
+        }
+        let ours = |pid| u32::try_from(getsid(pid)).is_ok_and(|s| sessions.contains(&s));
+        let works = |pid| match working_folder(pid).filter(|_| !blind("folders")) {
+            Some(cwd) => cwd.starts_with(folder),
+            None => ours(pid),
+        };
+        Some(pids.into_iter().filter(|&pid| pid > 0).any(works))
+    }
+
+    /// In a build with the test fixtures, what `TASKTAP_FIXTURE_BLIND` says
+    /// the system does not show: `processes`, or their working `folders`.
+    fn blind(what: &str) -> bool {
+        cfg!(feature = "fixtures")
+            && std::env::var("TASKTAP_FIXTURE_BLIND").is_ok_and(|b| b == what)
     }
 
     #[cfg(target_os = "linux")]
@@ -512,11 +538,28 @@ mod windows {
         Ok(format!(r"\\.\pipe\tasktap-{hex}"))
     }
 
-    /// Windows does not say where another process works without reading
-    /// its memory; instead a folder a process works in cannot be renamed,
-    /// which is how one is found in use there (`isolate.rs`).
-    pub fn working_folders() -> Vec<std::path::PathBuf> {
-        Vec::new()
+    /// Whether a process works in `folder` or below it, or holds a file of
+    /// it. Windows does not say where another process works without reading
+    /// its memory, but refuses to rename a folder in use: one that takes
+    /// another name for a moment is in use by none. What only looks at a
+    /// file, such as a virus scanner, refuses it for a moment too, so it is
+    /// tried for a few seconds. A folder that could not be given its name
+    /// back counts as in use, and the next start gives it back.
+    pub fn in_use(folder: &Path, _: &[u32]) -> Option<bool> {
+        let mut aside = folder.as_os_str().to_owned();
+        aside.push(super::PROBE);
+        let aside = Path::new(&aside);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let patiently = |from: &Path, to: &Path| {
+            while fs::rename(from, to).is_err() {
+                if std::time::Instant::now() >= deadline {
+                    return false;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            true
+        };
+        Some(!(patiently(folder, aside) && patiently(aside, folder)))
     }
 
     /// Ends process `pid` at once: a git command past its time.

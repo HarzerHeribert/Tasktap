@@ -17,10 +17,6 @@ export type Look = { style: StyleId; palette: PaletteId; hue: number; lumen: boo
 export type Options = {
   look: Look;
   state: MotionState;
-  /** Pixels drawn per device pixel: a soft backdrop needs fewer. */
-  scale?: number;
-  /** How bright the metal is under the light: 1 as in the lab. */
-  form?: number;
   /** Selector of the elements whose words this view keeps clear: each line is cut out of the light, `pad` CSS pixels
    *  round it, and the light comes back over `feather` more. */
   clear?: string;
@@ -46,7 +42,7 @@ const RATE = [20, 60, 60, 30, 30, 60, 60];
 const MOMENT = [0, 0, 2.5, 2, 4.8, 3, 2];
 const VERT = '#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.-1.,0.,1.);}';
 const UNI = { res: 2, org: 2, n: 1, irid: 1, dim: 1, light: 1, hoff: 1, aux: 1, ph: '4fv', v: '4fv', w: '4fv', p: '1fv', st: '1fv',
-  sig: '3fv', ta: '3fv', tb: '3fv', bg: '3fv', lm: '4fv', form: 1, holes: '4fv', hole: 2 } as const;
+  sig: '3fv', ta: '3fv', tb: '3fv', bg: '3fv', lm: '4fv', holes: '4fv', hole: 2 } as const;
 type Uniforms = { -readonly [K in keyof typeof UNI]: number | ArrayLike<number> };
 const HOLES = 24;
 /** No voice: silence, as the shaders read it. */
@@ -234,7 +230,8 @@ export class View {
 
   /** Its size in drawn pixels. */
   size() {
-    const k = Math.min(window.devicePixelRatio || 1, 2) * (this.o.scale ?? 1);
+    // Every device pixel: the metal's edges and reflections are the point.
+    const k = Math.min(window.devicePixelRatio || 1, 2);
     return [Math.max(2, Math.round(this.css[0]! * k)), Math.max(2, Math.round(this.css[1]! * k))];
   }
 
@@ -306,7 +303,7 @@ export class View {
       res: [0, 0], org: [0, 0], n, irid: P.irid, dim, light: 0, hoff: V.hoff, aux: this.aux, ph: this.ph, p, st: w, sig, ta: P.a, tb: P.b,
       v: [r ? V.slow : V.level, r ? V.slow : V.fast, r ? 0 : V.onset, V.bright],
       w: [r ? V.slow : V.vowel, r ? 0 : V.sib, V.pitch, r ? V.slow : V.activity],
-      bg: [0, 0, 0], lm: [this.lm, this.lph, amb, 0], form: this.o.form ?? 1, holes: this.holes, hole: this.hole,
+      bg: [0, 0, 0], lm: [this.lm, this.lph, amb, 0], holes: this.holes, hole: this.hole,
     };
   }
 

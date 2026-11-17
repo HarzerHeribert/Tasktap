@@ -11,9 +11,8 @@ uniform vec4 u_w;                   // vowel, sibilance, pitch, activity
 uniform float u_p[8], u_st[7];      // concept parameters; state weights
 uniform vec3 u_sig, u_ta, u_tb, u_bg;   // signal light of the state; the palette's two lights; backdrop
 uniform sampler2D u_data;           // row 0: two seconds of (level, bright, onset, vowel); row 1: spectrum
-// The app's own, none of which changes a lab concept at its defaults (u_lm.x 0, u_form 1, no holes):
+// The app's own, neither of which changes a lab concept at its defaults (u_lm.x 0, no holes):
 uniform vec4 u_lm;                  // Lumen laid over the form: how much of it, its own phase, the room's level under it
-uniform float u_form;               // how bright the metal is: 1 as in the lab, less where the light should lead
 uniform vec4 u_holes[24];           // text the motion keeps clear, in this view's pixels: centre and half size
 uniform vec2 u_hole;                // how many, and how far the light takes to come back around each
 out vec4 o;
@@ -79,7 +78,7 @@ void put(vec3 c, float a, vec3 g){
   g=1.-exp(-g);
   float ga=max(g.r,max(g.g,g.b));
   vec3 b=mix(u_bg+g,u_bg*(1.-ga)+g*.92,u_light);
-  vec3 m=tone(c)*u_form;
+  vec3 m=tone(c);
   float z=(fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(.06711056,.00583715))))-.5)/255.;
   o=vec4(mix(b,m,a)+z,1.);
   // In the app a view is light over the page: black is clear. Where words sit above it there is none at all, so they keep

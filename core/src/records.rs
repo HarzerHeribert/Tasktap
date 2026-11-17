@@ -182,7 +182,8 @@ impl Core {
 }
 
 /// Sends a committed change to every connection subscribed to a collection
-/// it touches, cut to those collections. Each distinct cut is encoded once.
+/// it touches, cut to those collections. Each distinct cut is encoded once,
+/// in chunks when it is over the frame limit.
 /// A connection over its bound is dropped by its link: nothing here waits.
 pub fn publish(links: &[Rc<Link>], change: Change) {
     let touched = change
@@ -196,7 +197,7 @@ pub fn publish(links: &[Rc<Link>], change: Change) {
             cuts.push(cut);
         }
     }
-    let mut frames: Vec<(Subs, Option<Vec<u8>>)> = cuts
+    let mut frames: Vec<(Subs, Option<Vec<Vec<u8>>>)> = cuts
         .iter()
         .filter(|&&cut| cut != touched)
         .map(|&cut| {
@@ -220,18 +221,31 @@ pub fn publish(links: &[Rc<Link>], change: Change) {
     for link in links {
         let cut = link.subs.get().and(touched);
         match frames.iter().find(|(c, _)| *c == cut) {
-            Some((_, Some(frame))) => link.push(frame),
-            // Over the frame limit: no peer could read it.
+            Some((_, Some(frames))) => frames.iter().for_each(|frame| link.push(frame)),
+            // A row over the frame limit: no peer could read it.
             Some((_, None)) => link.close(false),
             None => {}
         }
     }
 }
 
-fn encode(change: Change) -> Option<Vec<u8>> {
-    let mut out = Vec::new();
-    encode_control(&Control::Change(change), &mut out).ok()?;
-    Some(out)
+/// A change as frames: one when it fits, the usual case; otherwise cut into
+/// chunks at its revision as a snapshot is. `None` when one row is over the
+/// frame limit.
+fn encode(change: Change) -> Option<Vec<Vec<u8>>> {
+    let frame = |control: &Control| {
+        let mut out = Vec::new();
+        encode_control(control, &mut out).ok().map(|()| out)
+    };
+    let control = Control::Change(change);
+    if let Some(one) = frame(&control) {
+        return Some(vec![one]);
+    }
+    let Control::Change(Change { rev, sets, .. }) = control else {
+        return None;
+    };
+    let chunks = chunks(rev, false, sets).into_iter();
+    chunks.map(|c| frame(&Control::Change(c))).collect()
 }
 
 /// `sub`: replaces the connection's subscription; an empty list ends it.
@@ -254,26 +268,32 @@ pub fn sub(cx: &mut Cx, args: Subscribe) -> Result<Revision, Error> {
     core.memory.overlay(&mut sets);
     cx.link.subs.set(subs);
     if !subs.is_empty() {
-        snapshot(cx.link, rev, sets);
+        for change in chunks(rev, true, sets) {
+            cx.link.send(&Control::Change(change));
+        }
     }
     Ok(Revision { rev })
 }
 
-/// Queues a snapshot as `change` frames of at most [`CHUNK`] bytes of JSON.
-/// A row is never split; one larger than a chunk goes alone. There is always
-/// one frame, so a client sees even an empty snapshot begin.
-fn snapshot(link: &Link, rev: Rev, sets: Vec<Set>) {
+/// Cuts sets into changes at revision `rev` of at most [`CHUNK`] bytes of
+/// JSON each, in order: each set's rows, then its deletions. A row is never
+/// split; one larger than a chunk goes alone. There is always one change, so
+/// a client sees even an empty snapshot begin.
+fn chunks(rev: Rev, snap: bool, sets: Vec<Set>) -> Vec<Change> {
     let mut chunk = Chunk {
-        link,
         rev,
+        snap,
         sets: Vec::new(),
         size: ENVELOPE,
-        sent: false,
+        done: Vec::new(),
     };
     macro_rules! split {
         ($set:expr, $($c:ident),*) => {
             match $set {
-                $(Set::$c(rows) => chunk.rows(rows.put, |put| Set::$c(Rows { put, del: Vec::new() })),)*
+                $(Set::$c(rows) => {
+                    chunk.rows(rows.put, |put| Set::$c(Rows { put, del: Vec::new() }));
+                    chunk.rows(rows.del, |del| Set::$c(Rows { put: Vec::new(), del }));
+                })*
                 Set::Glance { put } => chunk.rows(put, |put| Set::Glance { put }),
             }
         };
@@ -284,21 +304,22 @@ fn snapshot(link: &Link, rev: Rev, sets: Vec<Set>) {
             Devices
         );
     }
-    if !chunk.sets.is_empty() || !chunk.sent {
-        chunk.send();
+    if !chunk.sets.is_empty() || chunk.done.is_empty() {
+        chunk.cut();
     }
+    chunk.done
 }
 
-struct Chunk<'a> {
-    link: &'a Link,
+struct Chunk {
     rev: Rev,
+    snap: bool,
     sets: Vec<Set>,
     /// Bytes of JSON in this chunk so far, counting the rows not yet in `sets`.
     size: usize,
-    sent: bool,
+    done: Vec<Change>,
 }
 
-impl Chunk<'_> {
+impl Chunk {
     fn rows<R: Serialize>(&mut self, rows: Vec<R>, wrap: fn(Vec<R>) -> Set) {
         let mut part = Vec::new();
         for row in rows {
@@ -307,7 +328,7 @@ impl Chunk<'_> {
                 if !part.is_empty() {
                     self.sets.push(wrap(std::mem::take(&mut part)));
                 }
-                self.send();
+                self.cut();
             }
             self.size += len + if part.is_empty() { SET } else { 0 };
             part.push(row);
@@ -317,16 +338,11 @@ impl Chunk<'_> {
         }
     }
 
-    fn send(&mut self) {
+    fn cut(&mut self) {
         let sets = std::mem::take(&mut self.sets);
-        let rev = self.rev;
-        self.link.send(&Control::Change(Change {
-            rev,
-            snap: true,
-            sets,
-        }));
+        let (rev, snap) = (self.rev, self.snap);
+        self.done.push(Change { rev, snap, sets });
         self.size = ENVELOPE;
-        self.sent = true;
     }
 }
 

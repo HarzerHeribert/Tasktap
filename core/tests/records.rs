@@ -1025,6 +1025,48 @@ fn a_large_snapshot_arrives_in_chunks_and_whole() {
 }
 
 #[test]
+fn a_change_larger_than_a_frame_arrives_whole_in_chunks_of_one_revision() {
+    let data = Folder::new();
+    let core = Core::start(&data);
+    let mut w = core.device();
+    // Six finished thoughts of 200 KiB each, out of the live set behind 200
+    // newer finished ones. No call is over a frame.
+    let big: Vec<Thought> = (0..6)
+        .map(|i| finished(ThoughtId::mint(), &format!("{i}").repeat(200 << 10)))
+        .collect();
+    for t in &big {
+        fixture(&mut w, vec![thoughts(vec![t.clone()])]);
+    }
+    let newer: Vec<Thought> = (0..200)
+        .map(|i| finished(ThoughtId::mint(), &format!("new {i}")))
+        .collect();
+    fixture(&mut w, vec![thoughts(newer.clone())]);
+    let mut s = core.device();
+    let mut model = subscribe(&mut s, &ALL).model;
+    assert!(model.get("thoughts", big[0].id).is_none());
+    let mut late = core.device();
+
+    // Unread, the newer ones are no longer finished, so one small write
+    // brings the six back: a change of more than a frame.
+    let unread = newer.into_iter().map(|t| Thought { read: false, ..t });
+    let rev = fixture(&mut w, vec![thoughts(unread.collect())]);
+    let after = hold(&mut w, 1);
+
+    let changes = until(&mut s, after);
+    let chunks = changes.iter().filter(|c| c.rev == rev).count();
+    assert!(chunks >= 6, "{chunks} chunks");
+    for change in &changes {
+        let mut bytes = Vec::new();
+        encode_control(&Control::Change(change.clone()), &mut bytes).unwrap();
+        let len = bytes.len() - HEADER;
+        assert!(len <= CHUNK, "a chunk of {len} bytes");
+        model.apply(&change.sets);
+    }
+    assert!(big.iter().all(|t| model.get("thoughts", t.id).is_some()));
+    assert_eq!(model, subscribe(&mut late, &ALL).model);
+}
+
+#[test]
 fn a_subscriber_that_stops_reading_is_dropped_and_the_others_get_everything() {
     const WRITES: usize = 80;
     let data = Folder::new();

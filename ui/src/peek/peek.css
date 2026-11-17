@@ -1,0 +1,9 @@
+/* Peek: the workspace backdrop's tint (#0d1117 at 0.93) over the window's material. */
+html,body{margin:0;height:100%}
+body{display:grid;grid-template-rows:auto minmax(0,1fr);background:rgb(13 17 23/.93);color:#d8dee9;
+  font:13px/1.45 Inter,-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
+@media(prefers-reduced-transparency:reduce){body{background:rgb(13 17 23)}}
+.peek-bar{display:flex;align-items:baseline;gap:12px;padding:8px 12px 6px;min-width:0;-webkit-user-select:none;user-select:none}
+.peek-bar strong{font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.peek-bar span{color:#a1a4ae;font-size:12px;white-space:nowrap}
+#term{min-height:0;padding:4px 8px 8px}

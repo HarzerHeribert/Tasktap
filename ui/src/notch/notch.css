@@ -1,0 +1,67 @@
+/* What the new notch adds to the prototype's styles: a transparent page, the glance on the
+   collapsed tab, the one-line capture with its destination list, and the page-drawn rim. */
+html,body{background:transparent!important;min-height:0;overflow:hidden}
+/* The notch palette prototype/appearance.js derives for the default dark theme; it sets these at
+   run time there, and the themes are not part of this slice. */
+:root{--app-notch-bg:#090a0b;--app-notch-fg:#e4e6ed;--app-notch-surface:#0e1011;--app-notch-raised:#151617;--app-notch-sidebar:#111213;
+  --app-notch-overlay:#17181a;--app-notch-input:#111213;--app-notch-muted:#9c9da2;--app-notch-subtle:#8f9094;--app-notch-edge:#2a2b2d;
+  --app-notch-edge-strong:#4b4c4f;--app-notch-hover:#18191b;--app-notch-selected:#202123;--app-notch-accent:#a4bbef;
+  --app-notch-accent-ink:#111318;--app-notch-accent-soft:#1d2129;--app-notch-positive:#9bcba7;--app-notch-warning:#e9c387;
+  --app-notch-negative:#f18b93;--app-notch-shadow:#00000066}
+
+/* The glance: the tab widens into wings beside the camera. */
+.glance-wing{position:absolute;top:0;bottom:0;display:flex;align-items:center;gap:var(--s-icon);padding:0 var(--s-icon);
+  font:600 var(--t-small)/1 var(--font-ui);color:var(--panel-text);white-space:nowrap;pointer-events:none}
+.glance-left{left:0}
+.glance-right{right:0}
+.glance-count{display:inline-flex;align-items:center;gap:5px;font-variant-numeric:tabular-nums}
+.glance-count i{width:6px;height:6px;border-radius:var(--r-round);background:currentColor}
+.glance-count[data-status=working]{color:var(--panel-accent)}
+.glance-count[data-status=working] i{animation:notch-work-breathe 2.4s ease-in-out infinite}
+.glance-count[data-status=needs_you]{color:#e6c6a0}
+.glance-count[data-status=done]{color:var(--app-positive)}
+.glance-count[data-status=failed]{color:var(--app-negative)}
+@media(prefers-reduced-motion:reduce){.glance-count i{animation:none!important}}
+
+/* The decision rim of native/WorkspaceDecisionRim.swift, as the trial drew it. */
+#rim{position:fixed;top:0;left:0;z-index:6;pointer-events:none;overflow:visible}
+.rim-path{fill:none;stroke-linecap:round;stroke-linejoin:round}
+#bloom{stroke:rgb(230 163 94);stroke-width:5;opacity:.9}
+#halo,#halo-shadow{stroke:rgb(255 199 122/.16);stroke-width:1}
+#halo-shadow{opacity:.45}
+#edge{stroke:url(#metal);stroke-width:1;opacity:.1}
+@media(prefers-reduced-motion:no-preference){.rim-pulse #rim .pulse{animation:rim-pulse 600ms ease-in-out 4 alternate}}
+@keyframes rim-pulse{from{opacity:.62}to{opacity:.9}}
+
+/* One line, Enter sends. */
+#guide-input{min-height:0;height:var(--control-height);resize:none}
+#guide-input::placeholder{color:var(--panel-muted);opacity:1}
+#guide-input:focus{outline:none;border-color:var(--app-edge-strong)}
+#guide-compose .guide-session{justify-self:end;text-align:right}
+.dest-list{display:grid;gap:var(--s-tiny);padding:var(--s-tight);border:1px solid var(--notch-line);border-radius:var(--r-control);background:var(--notch-raised)}
+.dest-list .surface-button{display:flex;align-items:center;gap:var(--s-icon);min-height:32px;padding:var(--s-tight) var(--s-control);
+  border-radius:var(--r-xs);color:var(--panel-muted);text-align:left}
+.dest-list .surface-button:is(:hover,:focus-visible,[aria-selected=true]){color:var(--panel-text);background:#ffffff0d}
+.dest-list .surface-button:focus-visible{outline:2px solid var(--panel-accent);outline-offset:-2px}
+.notch-destination .text-btn{color:var(--panel-text);font-size:var(--t-label);padding:0 var(--s-tight)}
+.notch-first kbd{font:var(--t-meta)/1 var(--font-mono);color:var(--panel-muted);border:1px solid var(--notch-line);border-radius:var(--r-xs);padding:2px var(--s-tight)}
+
+/* Rows: the mark says the state; only working breathes. */
+.notch-work-row[data-status]:not([data-status=working]) .notch-work-mark{animation:none}
+.notch-work-row[data-status=needs_you] .notch-work-mark{color:#e6c6a0}
+.notch-work-row[data-status=done] .notch-work-mark{color:var(--app-positive)}
+.notch-work-row[data-status=failed] .notch-work-mark{color:var(--app-negative)}
+.notch-work-row[data-status=failed] small{white-space:normal}
+.notch-work-row:disabled{cursor:default;opacity:.85}
+.notch-work-row .row-open{flex:none;font-size:var(--t-small);color:var(--panel-muted)}
+.notch-keys{color:var(--panel-muted);font-size:var(--t-small)}
+.notch-error{color:var(--app-negative);font-size:var(--t-label)}
+
+/* The answer card folds like the home sheet. */
+@media(prefers-reduced-motion:no-preference){
+  #notch.retracting .dialog-body{opacity:0;transform:translateY(-6px);transition:opacity 95ms ease,transform 150ms ease}
+}
+#notch .decision-btn kbd{margin-left:auto}
+#notch .decision-btn kbd:first-of-type{margin-left:0}
+/* Opened with show(), not showModal(): above the black surface without the top layer's focus trap. */
+#notch{z-index:5}

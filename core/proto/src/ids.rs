@@ -134,6 +134,17 @@ pub struct StreamId(pub u32);
 #[cfg_attr(test, derive(ts_rs::TS), ts(type = "string"))]
 pub struct Secret(pub [u8; 32]);
 
+impl Secret {
+    /// 32 bytes from the system's random source: two version 4 UUIDs, so 244
+    /// random bits; the other 12 are their version and variant marks.
+    pub fn mint() -> Self {
+        let mut bytes = [0; 32];
+        bytes[..16].copy_from_slice(Uuid::new_v4().as_bytes());
+        bytes[16..].copy_from_slice(Uuid::new_v4().as_bytes());
+        Secret(bytes)
+    }
+}
+
 impl fmt::Debug for Secret {
     // Keeps secrets out of logs and panic messages.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

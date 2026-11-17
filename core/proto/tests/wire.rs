@@ -176,6 +176,15 @@ fn every_call_round_trips() {
     );
     round_trip::<call::ThoughtStop>(Ref { id: id(1) }, (), seen);
     round_trip::<call::ThoughtRetry>(Ref { id: id(1) }, (), seen);
+    round_trip::<call::ThoughtSettle>(
+        Settle {
+            id: id(1),
+            attempt: id(12),
+            keep: true,
+        },
+        (),
+        seen,
+    );
     for kind in [
         QuestionKind::Confirm,
         QuestionKind::Text,
@@ -237,6 +246,14 @@ fn every_call_round_trips() {
             error: Some("rate limited".into()),
         },
         Event::TurnInterrupted,
+        Event::Question {
+            question: Ask {
+                request: "call-7".into(),
+                kind: QuestionKind::Confirm,
+                prompt: "Allow rm?".into(),
+                detail: None,
+            },
+        },
     ] {
         round_trip::<call::SessionEvent>(
             SessionEvent {
@@ -284,10 +301,41 @@ fn every_call_round_trips() {
         credit: 0,
     };
     round_trip::<call::FixtureStream>(fixture, opened, seen);
+    let to = Place::Project(id(2));
+    for route in [
+        FixtureRoute::Clear {
+            to,
+            brief: "Fix it".into(),
+        },
+        FixtureRoute::Ambiguous {
+            prompt: "Where?".into(),
+            candidates: vec![FixtureCandidate {
+                label: "app".into(),
+                to: Place::Session(id(3)),
+            }],
+        },
+        FixtureRoute::Unknown,
+    ] {
+        let log = FixtureLog {
+            launched: vec![FixtureLaunch {
+                thought: id(1),
+                session: id(3),
+                prompt: "Fix it".into(),
+                token: Secret([9; 32]),
+            }],
+            ..FixtureLog::default()
+        };
+        let script = FixtureScript {
+            route,
+            refuse: Some("no".into()),
+        };
+        round_trip::<call::FixtureScript>(script, log, seen);
+    }
+    round_trip::<call::FixtureClock>(FixtureClock { now: time(5) }, (), seen);
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 22);
+    assert_eq!(Name::ALL.len(), 25);
 }
 
 #[test]
@@ -318,7 +366,7 @@ fn access_follows_the_authorization_table() {
             "session.event"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 16);
+    assert_eq!(by(Access::Device).len(), 19);
     for (access, allowed) in [
         (Access::Anyone, [true, true, true]),
         (Access::Device, [true, false, false]),

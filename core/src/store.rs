@@ -696,10 +696,13 @@ impl<'s> Tx<'s> {
         self.get(Table::Thoughts, &id)
     }
 
-    /// The session's thoughts that are captured, routed or working, oldest first.
+    /// The session's thoughts that are captured, routed or working, by the
+    /// revision they were last written at. A follow-up waiting for its turn
+    /// was last written when it was delivered, so they come in the order the
+    /// session was given them, whatever ids their clients chose.
     pub fn thoughts_in_flight(&self, session: SessionId) -> Result<Vec<Thought>> {
         let clause = "WHERE session_id = ?1 AND phase IN ('captured', 'routed', 'working') \
-                      ORDER BY id";
+                      ORDER BY rev";
         self.all(Table::Thoughts, clause, [key(&session)?])
     }
 

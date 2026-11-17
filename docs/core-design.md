@@ -198,7 +198,7 @@ Only `state::apply(event)` writes a thought's `phase` and a session's `state`, a
 | `thought.stop` before launch (Undo) | routed → captured | – |
 | launch fails | → failed | a new session ends; a follow-up's session is left as it is |
 | `ready` | – | starting → idle |
-| `turn_started` | working. Binds the waiting follow-up; a prompt typed by hand creates its thought here | → working |
+| `turn_started` | working. Binds the waiting follow-up delivered first, as the agent reads typed text in order; a prompt typed by hand creates its thought here | → working |
 | `activity` | – | – (memory-only text) |
 | a question opens | unchanged (status becomes needs you) | unchanged (shows asking) |
 | a question is answered or withdrawn | unchanged, except a router question's answer (second row) | unchanged |

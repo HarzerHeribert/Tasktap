@@ -393,6 +393,38 @@ fn a_follow_up_is_delivered_to_its_running_session() {
 }
 
 #[test]
+fn follow_ups_are_bound_in_the_order_they_were_delivered_whatever_their_ids() {
+    for reversed in [false, true] {
+        let mut s = Scene::new("qo");
+        let (_, session, mut agent) = s.launch("first");
+        agent.finish("Done.");
+        let mut ids = [ThoughtId::mint(), ThoughtId::mint()];
+        ids.sort();
+        if reversed {
+            ids.reverse();
+        }
+        let [b, c] = ids;
+        for id in [b, c] {
+            let follow = Capture {
+                session_id: Some(session),
+                ..typed(id, "and more")
+            };
+            s.w.ok::<call::ThoughtCapture>(&follow);
+            start(&mut s, id, AttemptId::mint()).unwrap();
+        }
+        assert_eq!(s.log().delivered, [b, c]);
+        for (id, answer) in [(b, "Tests added."), (c, "Docs written.")] {
+            agent.begin();
+            s.w.sync();
+            assert_eq!(s.w.model.session(session).thought_id, Some(id));
+            agent.finish(answer);
+            s.w.sync();
+            assert_eq!(s.w.model.results_of(id)[0].summary, answer);
+        }
+    }
+}
+
+#[test]
 fn settling_keeps_or_discards_pending_changes_through_the_launcher() {
     let mut s = Scene::new("qe");
     let pending = |s: &Scene, text: &str| Thought {

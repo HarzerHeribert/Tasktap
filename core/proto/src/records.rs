@@ -352,6 +352,15 @@ words! {
     pub enum PrefKey { Hold }
 }
 
+impl PrefKey {
+    /// The value of a preference while none is stored: deleting it restores this.
+    pub const fn default(self) -> PrefValue {
+        match self {
+            PrefKey::Hold => PrefValue::Hold(5),
+        }
+    }
+}
+
 impl PrefValue {
     pub fn key(&self) -> PrefKey {
         match self {

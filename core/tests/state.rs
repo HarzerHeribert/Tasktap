@@ -11,8 +11,8 @@ use std::time::Instant;
 
 use serde_json::Value;
 use tasktap_core::state::{
-    self, Candidate, DEFAULT_HOLD, Deliver, Destination, Effect, Error, Event, FixtureLauncher,
-    FixtureRouter, Ignored, Launch, Launcher, Report, Route, Router,
+    self, Candidate, Deliver, Destination, Effect, Error, Event, FixtureLauncher, FixtureRouter,
+    Ignored, Launch, Launcher, Report, Route, Router,
 };
 use tasktap_core::store::{AttemptKind, AttemptOutcome, Store, Tx};
 use tasktap_proto::{
@@ -21,6 +21,11 @@ use tasktap_proto::{
     Question, QuestionId, QuestionKind, QuestionSource, QuestionState, Reason, ReplyVia, Response,
     ResultKind, Rev, Secret, Session, SessionId, SessionState, Set, Source, Status, Terminal,
     TerminalId, TerminalKind, TerminalState, Thought, ThoughtId, Time, TurnResult, Workdir,
+};
+
+/// Seconds a thought is held while the preference is unset.
+const DEFAULT_HOLD: u32 = match PrefKey::Hold.default() {
+    PrefValue::Hold(seconds) => seconds,
 };
 
 /// A fresh folder under the system's temporary folder, removed afterwards.

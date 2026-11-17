@@ -26,18 +26,15 @@ use sha2::{Digest, Sha256};
 // agent said, P a thought's phase, S a session's state, Q a question's state.
 use tasktap_proto::{
     Answer, AttemptId, Capture, Changes, Code, DeviceId, Event as A, Mode, Offset, Outcome,
-    Phase as P, Pref, PrefKey, PrefValue, ProjectId, Question, QuestionId, QuestionKind,
-    QuestionSource, QuestionState as Q, Reason, ReplyVia, Response, ResultKind, Rev, Secret,
-    Session, SessionId, SessionState as S, Source, Status, Terminal, TerminalId, TerminalKind,
-    TerminalState, Thought, ThoughtId, Time, TurnResult,
+    Phase as P, PrefKey, PrefValue, ProjectId, Question, QuestionId, QuestionKind, QuestionSource,
+    QuestionState as Q, Reason, ReplyVia, Response, ResultKind, Rev, Secret, Session, SessionId,
+    SessionState as S, Source, Status, Terminal, TerminalId, TerminalKind, TerminalState, Thought,
+    ThoughtId, Time, TurnResult,
 };
 
 use crate::store::{self, Attempt, AttemptKind, AttemptOutcome, Hash, Tx};
 
 use Event as E;
-
-/// Seconds a routed thought waits for Undo while the `hold` preference is unset.
-pub const DEFAULT_HOLD: u32 = 5;
 
 /// Characters of an answer's first line kept as its result's summary.
 const SUMMARY: usize = 200;
@@ -739,13 +736,8 @@ impl Machine<'_, '_> {
 
     fn route(&mut self, mut t: Thought, to: Destination, brief: Option<String>) -> Result<()> {
         let (project, session) = self.target(to)?;
-        let hold = match self.tx.pref(PrefKey::Hold)? {
-            Some(Pref {
-                value: PrefValue::Hold(seconds),
-                ..
-            }) => seconds,
-            None => DEFAULT_HOLD,
-        };
+        let pref = self.tx.pref(PrefKey::Hold)?;
+        let PrefValue::Hold(hold) = pref.map_or(PrefKey::Hold.default(), |p| p.value);
         let until = Time::new(self.now.get() + u64::from(hold) * 1000).ok_or(Error::Invalid(
             "the hold would end beyond the clock's range",
         ))?;

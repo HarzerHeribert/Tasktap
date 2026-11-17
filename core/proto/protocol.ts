@@ -7,6 +7,8 @@ export const MAX_DATA = 65531;
 export const MAX_CREDIT = 4194304;
 export const MAX_PENDING_CALLS = 64;
 export const MAX_STREAMS = 64;
+/** The value of each preference while none is stored: deleting one restores it. */
+export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] } = {"hold":5};
 
 /**
  * Who may make a call (design §2): authorization is per call.

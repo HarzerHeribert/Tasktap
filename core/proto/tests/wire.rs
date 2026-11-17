@@ -484,6 +484,25 @@ fn bootstrap_frames_from_a_newer_peer_still_decode() {
 }
 
 #[test]
+fn every_preference_default_is_in_the_typescript() {
+    let ts = include_str!("../protocol.ts");
+    let line = ts
+        .lines()
+        .find(|l| l.starts_with("export const PREF_DEFAULTS"));
+    let (_, json) = line.unwrap().split_once(" = ").unwrap();
+    let defaults: serde_json::Value = serde_json::from_str(json.trim_end_matches(';')).unwrap();
+    assert_eq!(defaults.as_object().unwrap().len(), PrefKey::ALL.len());
+    for key in PrefKey::ALL {
+        let pref = serde_json::to_value(key.default()).unwrap();
+        assert_eq!(
+            defaults[pref["id"].as_str().unwrap()],
+            pref["value"],
+            "{key:?}"
+        );
+    }
+}
+
+#[test]
 fn status_follows_phase_and_prefs_name_their_key() {
     assert_eq!(Status::from(Phase::Routed), Status::Routed);
     assert_eq!(PrefValue::from(PrefPatch::Hold(3)), PrefValue::Hold(3));

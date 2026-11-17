@@ -49,11 +49,60 @@ pub struct Terminals {
     shims: std::cell::OnceCell<Option<PathBuf>>,
     /// The core is shutting down: nothing new starts.
     closing: bool,
+    kills: Kills,
+}
+
+/// The kills that stops armed, each due at its deadline: a stop's kill
+/// outlives its terminal, and shutdown carries out the ones still armed
+/// before the core exits, so that what ignored hang-up never outlives it.
+#[derive(Clone, Default)]
+struct Kills(Rc<RefCell<Armed>>);
+
+#[derive(Default)]
+struct Armed {
+    next: u64,
+    due: HashMap<u64, (tokio::time::Instant, process::Doomed)>,
+}
+
+impl Kills {
+    /// Kills what `doomed` names [`KILL`] from now: one timer, which fires once.
+    fn arm(&self, doomed: process::Doomed) {
+        let at = tokio::time::Instant::now() + KILL;
+        let id = {
+            let mut armed = self.0.borrow_mut();
+            armed.next += 1;
+            let id = armed.next;
+            armed.due.insert(id, (at, doomed));
+            id
+        };
+        let kills = self.clone();
+        tokio::task::spawn_local(async move {
+            tokio::time::sleep_until(at).await;
+            let due = kills.0.borrow_mut().due.remove(&id);
+            if let Some((_, doomed)) = due {
+                doomed.kill();
+            }
+        });
+    }
+
+    /// Carries out every kill still armed, each at its deadline, unless
+    /// what it names has ended by itself.
+    async fn finish(&self) {
+        let mut due: Vec<_> = self.0.borrow_mut().due.drain().map(|(_, d)| d).collect();
+        due.sort_by_key(|&(at, _)| at);
+        for (at, doomed) in due {
+            if doomed.alive() {
+                tokio::time::sleep_until(at).await;
+                doomed.kill();
+            }
+        }
+    }
 }
 
 struct Live {
     term: Rc<RefCell<Term>>,
     process: Process,
+    kills: Kills,
     project: Option<ProjectId>,
     stopping: bool,
     /// The child exited with this code.
@@ -73,6 +122,7 @@ impl Terminals {
             data: data.to_owned(),
             shims: Default::default(),
             closing: false,
+            kills: Kills::default(),
         }
     }
 
@@ -116,10 +166,7 @@ impl Live {
 
     fn hang_up(&mut self) {
         if let Some(doomed) = self.process.hang_up() {
-            tokio::task::spawn_local(async move {
-                tokio::time::sleep(KILL).await;
-                doomed.kill();
-            });
+            self.kills.arm(doomed);
         }
     }
 }
@@ -239,6 +286,7 @@ pub fn spawn(core: &mut Core, t: &Terminal, token: &Secret) -> std::io::Result<(
     let live = Live {
         term: Rc::new(RefCell::new(Term::new(size, input))),
         process,
+        kills: terminals.kills.clone(),
         project: t.project_id,
         stopping: false,
         exited: None,
@@ -499,7 +547,9 @@ pub fn forget(core: &Core, id: TerminalId) {
 
 /// Stops every terminal and waits until they have ended or the kill had its
 /// time (design §3). One that outlives even that keeps the history it has,
-/// and the next start finds it lost.
+/// and the next start finds it lost. A terminal can end before its kill is
+/// due, when its child ended on hang-up and what ignored it let go of the
+/// terminal: every kill still armed is carried out at its deadline first.
 pub async fn shutdown(core: &Rc<RefCell<Core>>) {
     let events = {
         let mut core = core.borrow_mut();
@@ -517,12 +567,16 @@ pub async fn shutdown(core: &Rc<RefCell<Core>>) {
             () = &mut deadline => break,
         }
     }
-    let mut core = core.borrow_mut();
-    let left: Vec<_> = core.terminals.live.drain().collect();
-    for (id, live) in left {
-        let _ = live.term.borrow().save(&core.terminals.history(id));
-        live.process.end();
-    }
+    let kills = {
+        let mut core = core.borrow_mut();
+        let left: Vec<_> = core.terminals.live.drain().collect();
+        for (id, live) in left {
+            let _ = live.term.borrow().save(&core.terminals.history(id));
+            live.process.end();
+        }
+        core.terminals.kills.clone()
+    };
+    kills.finish().await;
 }
 
 fn known(core: &mut Core, id: TerminalId) -> Result<(), Error> {

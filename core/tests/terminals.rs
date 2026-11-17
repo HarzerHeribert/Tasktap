@@ -681,6 +681,26 @@ fn stop_ends_descendants_in_process_groups_of_their_own() {
     released(&lock, stopped, Duration::from_secs(5), why);
 }
 
+/// Shutting down waits for the kill of every terminal it stopped, also of
+/// one that ended before its kill was due: its child ended on hang-up and
+/// what ignored hang-up let go of the terminal (design §9).
+#[test]
+fn shutdown_carries_out_the_kills_it_armed() {
+    let data = Folder::new("tt-shut");
+    let core = Core::start(&data);
+    let mut c = core.device();
+    let lock = data.0.join("child.lock");
+    let id = TerminalId::mint();
+    let child = format!("spawn ignore-hup;lock {};sleep 30000", lock.display());
+    let start = fixture(&[&child, "print 1", "sleep 30000"]);
+    let mut v = open(&mut c, &args(id, Some(start), None, 1 << 20), true);
+    until(&mut c, &mut v, "the first line", |v| shows(v.bytes(), 0));
+    taken(&lock);
+    core.stop();
+    let why = "the descendant outlived the core";
+    released(&lock, Instant::now(), Duration::from_secs(1), why);
+}
+
 /// What a terminal's child started and left running when it exited ends
 /// with the terminal, as a stop ends it, also when it ignores hang-up and
 /// holds the terminal (which then ends a second after the child, design

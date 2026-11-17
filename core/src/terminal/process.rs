@@ -93,10 +93,14 @@ impl Doomed {
         self.job.kill();
     }
 
-    /// Whether anything it would kill is left.
-    #[cfg(unix)]
-    fn alive(&self) -> bool {
-        self.groups().into_iter().any(sys::group_alive)
+    /// Whether anything it would kill is left. On Windows closing the job,
+    /// as the core does when it exits, ends what is left without waiting.
+    pub fn alive(&self) -> bool {
+        #[cfg(unix)]
+        let alive = self.groups().into_iter().any(sys::group_alive);
+        #[cfg(windows)]
+        let alive = false;
+        alive
     }
 
     #[cfg(unix)]

@@ -49,10 +49,12 @@ export function wake(el: HTMLElement, axis: 'x' | 'y', look: Look | null) {
       c.imageSmoothingQuality = 'high';
       c.drawImage(src, 0, 0, g.width, g.height);
       const off = ((band + 0.5 + 0.3 * Math.sin(band * 2.4 + 1)) / n) * across + (x ? el.offsetTop + rest.top : el.offsetLeft - el.offsetWidth / 2 + rest.left);
-      const behind = at - way * size * 0.9;
+      // Just behind the edge, and wholly on the surface it crosses from its first place to its last: never half a glyph.
+      const drift = way * (20 + 4 * (shed % 3)), room = size / 2 + 4, near = x ? rest.left + el.offsetLeft : rest.top + el.offsetTop;
+      const behind = Math.max(near + room + Math.max(0.4 * drift, -drift), Math.min(near + along - room - Math.max(drift, -0.4 * drift), at - way * size * 0.9));
       Object.assign(g.style, { width: `${size}px`, height: `${size}px`, left: `${(x ? behind : off) - size / 2}px`, top: `${(x ? off : behind) - size / 2 - top}px` });
       layer.append(g);
-      const drift = way * (20 + 4 * (shed % 3)), turn = (shed % 2 ? -1 : 1) * way, move = (d: number, r: number, s: number) =>
+      const turn = (shed % 2 ? -1 : 1) * way, move = (d: number, r: number, s: number) =>
         `translate${x ? 'X' : 'Y'}(${d}px) rotate(${r}deg) scale(${s})`;
       g.animate({ transform: [move(-drift * 0.4, -10 * turn, 0.86), move(drift, 12 * turn, 1)] }, { duration: LIFE, easing: EASE, fill: 'both' });
       // In quickly, held, then out quickly: a glyph is never left half there over what the person reads.

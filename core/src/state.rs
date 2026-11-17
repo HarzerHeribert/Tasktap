@@ -126,6 +126,8 @@ pub struct Report {
     pub turn: Option<u32>,
     /// Sent for one of the agent's sub-agents.
     pub subagent: bool,
+    /// The agent's handle for resuming, when the report carries one.
+    pub resume: Option<String>,
     pub event: A,
 }
 
@@ -415,6 +417,15 @@ impl Machine<'_, '_> {
             E::Report(r) => Some(r.event.clone()),
             _ => None,
         };
+        // The agent's handle for resuming, kept as its latest report gives it.
+        let mut session = session;
+        if let (E::Report(r), Some(s)) = (&event, session.as_mut())
+            && r.resume.is_some()
+            && r.resume != s.resume
+        {
+            s.resume = r.resume.clone();
+            self.tx.update_session(s)?;
+        }
         let phase = thought.as_ref().map(|t| t.phase);
         let state = session.as_ref().map(|s| s.state);
         let asked = question.as_ref().map(|q| q.state);
@@ -530,7 +541,9 @@ impl Machine<'_, '_> {
             (E::Withdraw { .. }, .., Some(Q::Open)) => self.withdraw(some(question)?),
             (E::Withdraw { .. }, .., Some(Q::Withdrawn)) => Err(Error::Ignored(Ignored::Repeat)),
             // continued: the turn's terminal-only questions close as answered in the terminal.
-            (_, Some(A::Continued), _, Some(S::Working), _) => self.continued(some(session)?),
+            (_, Some(A::Continued { request }), _, Some(S::Working), _) => {
+                self.continued(some(session)?, request)
+            }
             // turn_finished: → done with its result; turn_failed, turn_interrupted:
             // → failed. The turn's open questions are withdrawn; the session is idle.
             (_, Some(A::TurnFinished { answer }), _, Some(S::Working), _) => {
@@ -764,7 +777,7 @@ impl Machine<'_, '_> {
             session_id: None,
             brief: None,
             agent: Some(agent),
-            model: None,
+            model: c.model,
             workdir: None,
             hold_until: None,
             read: false,
@@ -800,7 +813,10 @@ impl Machine<'_, '_> {
     fn route(&mut self, mut t: Thought, to: Destination, brief: Option<String>) -> Result<()> {
         let (project, session) = self.target(to)?;
         let pref = self.tx.pref(PrefKey::Hold)?;
-        let PrefValue::Hold(hold) = pref.map_or(PrefKey::Hold.default(), |p| p.value);
+        let hold = match pref.map_or(PrefKey::Hold.default(), |p| p.value) {
+            PrefValue::Hold(hold) => hold,
+            _ => 0,
+        };
         let until = Time::new(self.now.get() + u64::from(hold) * 1000).ok_or(Error::Invalid(
             "the hold would end beyond the clock's range",
         ))?;
@@ -1210,16 +1226,29 @@ impl Machine<'_, '_> {
         self.refresh(q.thought_id)
     }
 
-    fn continued(&mut self, s: Session) -> Result<()> {
+    /// The agent went on: the turn's terminal-only questions were answered
+    /// in the terminal, and so was the waited question `request` names, if
+    /// it is still open; its waiter gets that answer.
+    fn continued(&mut self, s: Session, request: Option<String>) -> Result<()> {
         let (id, turn) = (s.id, s.turn);
+        let waited = match request {
+            Some(request) => self.tx.question_by_request(&ask_key(id, &request))?,
+            None => None,
+        };
+        let waited = waited.filter(|q| {
+            q.state == Q::Open && q.reply_via == ReplyVia::Core && q.turn == Some(turn)
+        });
+        let waited = waited.map(|q| q.id);
         self.close(
             |q| {
                 q.session_id == Some(id)
                     && q.turn == Some(turn)
-                    && q.reply_via == ReplyVia::Terminal
+                    && (q.reply_via == ReplyVia::Terminal || Some(q.id) == waited)
             },
             Q::Answered,
-        )
+        )?;
+        self.effects.extend(waited.map(Effect::Answer));
+        Ok(())
     }
 
     fn end_turn(&mut self, mut s: Session, thought: Option<Thought>, ending: Ending) -> Result<()> {
@@ -1518,6 +1547,12 @@ fn fits(q: &Question, response: &Response) -> Result<()> {
         }
         _ => Err(Error::Invalid("the answer does not fit the question")),
     }
+}
+
+/// The key of a question a session's agent asks through the core with
+/// `question.ask`: its `request`, kept per session (design §6).
+pub fn ask_key(session: SessionId, request: &str) -> String {
+    format!("ask {} {request}", session.uuid())
 }
 
 /// Whether an ask brings the question its key already names: the same asker

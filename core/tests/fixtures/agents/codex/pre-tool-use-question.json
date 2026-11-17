@@ -1,0 +1,30 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "turn_id": "00000000-0000-4000-8000-000000000002",
+  "transcript_path": "/Users/person/.codex/sessions/2026/11/17/rollout-2026-01-01T00-00-00-00000000-0000-4000-8000-000000000001.jsonl",
+  "cwd": "/tmp/project",
+  "hook_event_name": "PreToolUse",
+  "model": "gpt-6.1-sol",
+  "permission_mode": "default",
+  "tool_name": "request_user_input",
+  "tool_input": {
+    "questions": [
+      {
+        "header": "Color",
+        "id": "color",
+        "options": [
+          {
+            "label": "Red",
+            "description": "Choose red."
+          },
+          {
+            "label": "Blue",
+            "description": "Choose blue."
+          }
+        ],
+        "question": "Which color do you prefer?"
+      }
+    ]
+  },
+  "tool_use_id": "call_c31dda236bd54f5cb0c4dde986fe506b"
+}

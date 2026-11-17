@@ -1,0 +1,10 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "transcript_path": "/Users/person/.claude/projects/-tmp-project/00000000-0000-4000-8000-000000000001.jsonl",
+  "cwd": "/tmp/project",
+  "scratchpad_dir": "/tmp/scratch",
+  "prompt_id": "00000000-0000-4000-8000-000000000002",
+  "permission_mode": "default",
+  "hook_event_name": "UserPromptSubmit",
+  "prompt": "First use the AskUserQuestion tool to ask me which color I prefer, with the two options Red and Blue. Then use the Bash tool to run: echo trial > trial.txt. Then reply with only the color I chose."
+}

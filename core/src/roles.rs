@@ -84,6 +84,7 @@ pub fn exit(result: Result<(), Fail>) -> ExitCode {
 
 /// `tasktap event <kind> [TEXT] [--id ID] [--turn N] [--subagent]`, and for
 /// a question also `[--request KEY] [--detail TEXT] [--choice TEXT]... [--text]`.
+/// `continued`'s text is the key of the waited question it settles.
 pub fn event(args: Vec<OsString>) -> ExitCode {
     exit(described(args).and_then(|event| {
         let _bound = Bound::new(UNREACHABLE.into());
@@ -318,6 +319,7 @@ fn described(args: Vec<OsString>) -> Result<SessionEvent, Fail> {
         "turn_finished" => "answer",
         "turn_failed" => "error",
         "question" => "question",
+        "continued" => "request",
         "exited" => "code",
         _ => "",
     };

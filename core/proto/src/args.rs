@@ -78,12 +78,14 @@ pub enum PutTarget {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub enum PrefPatch {
     Hold(u32),
+    Agent(#[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")] Option<String>),
 }
 
 impl From<PrefPatch> for PrefValue {
     fn from(patch: PrefPatch) -> Self {
         match patch {
             PrefPatch::Hold(seconds) => PrefValue::Hold(seconds),
+            PrefPatch::Agent(agent) => PrefValue::Agent(agent),
         }
     }
 }
@@ -208,6 +210,14 @@ pub struct Capture {
     pub mode: Option<Mode>,
     pub project_id: Option<ProjectId>,
     pub session_id: Option<SessionId>,
+    /// The agent a new run of the thought uses, by its id (`claude`,
+    /// `codex`); without one, the `agent` preference, else the first agent
+    /// this core has. A follow-up uses its session's agent.
+    #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub agent: Option<String>,
+    /// The model a new run asks its agent for; without one, the agent's own default.
+    #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub model: Option<String>,
 }
 
 /// `thought.update`: assigns a note to a project.
@@ -267,6 +277,47 @@ pub struct Adopt {
     pub cwd: String,
 }
 
+/// `agent.detect`: whether each agent this core can run is installed on the
+/// PATH its terminals get and signed in, as the agent itself says. Without
+/// `agents`, every one. Each check runs the agent's own command, at most 4 s.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct DetectAgents {
+    #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub agents: Option<Vec<String>>,
+}
+
+/// The reply of `agent.detect`, in the order the core lists its agents.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Agents {
+    pub agents: Vec<AgentHealth>,
+}
+
+/// One agent as found on this computer, and what its runs can do.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct AgentHealth {
+    /// Its id, as a capture and `tasktap hook` name it.
+    pub id: String,
+    /// Its program is on the PATH the core's terminals get.
+    pub installed: bool,
+    /// As it reports its version.
+    pub version: Option<String>,
+    /// Whether it is signed in; none when it could not be told.
+    pub signed_in: Option<bool>,
+    /// Whom it is signed in as, or how, as it says.
+    pub identity: Option<String>,
+    /// Its runs report through hooks; one that does not reports by exiting.
+    pub events: bool,
+    /// A new run can continue an ended session's conversation.
+    pub resume: bool,
+    /// Where its permission requests are answered; none: none are heard.
+    pub permissions: Option<crate::records::ReplyVia>,
+    /// Where the questions it asks the person are answered; none: none are heard.
+    pub questions: Option<crate::records::ReplyVia>,
+}
+
 /// `shim.hold`, which the core calls on the shim of an adopted session before
 /// it types a follow-up into the shell's terminal (design §7). With `hold` the
 /// shim confirms its agent runs in the foreground and keeps the terminal
@@ -311,6 +362,14 @@ pub struct SessionEvent {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[cfg_attr(test, ts(as = "Option<bool>", optional))]
     pub subagent: bool,
+    /// The agent's own handle for continuing this conversation in a later
+    /// run, when its report carries one; the session keeps the latest.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::within::<MAX_LINE, _, _>"
+    )]
+    pub resume: Option<String>,
     #[serde(flatten)]
     pub event: Event,
 }
@@ -328,8 +387,19 @@ pub enum Event {
     Activity {
         text: String,
     },
-    /// The agent went on after a question answered in its terminal.
-    Continued,
+    /// The agent went on after a question answered in its terminal. With
+    /// `request`, the key of a question its hook asked through the core
+    /// (`question.ask`) and still waits on: the person answered it in the
+    /// terminal instead, so it is settled as answered there, and the hook
+    /// that waits gets that answer.
+    Continued {
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::within::<MAX_LINE, _, _>"
+        )]
+        request: Option<String>,
+    },
     TurnFinished {
         answer: Option<String>,
     },

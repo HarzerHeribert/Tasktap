@@ -17,9 +17,9 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use tasktap_proto::call::{self, Call, Code, Error, Name};
 use tasktap_proto::{
-    AddProject, CallId, Collection, Control, CoreStatus, DeviceId, Empty, Identity, Isolate,
-    MAX_LINE, NO_SHARED_VERSION, Outcome, Project, ProjectId, ProjectKind, Ref, Reply, Request,
-    Retire, Rev, Set, TerminalId, When, json_len,
+    AddProject, Agents, CallId, Collection, Control, CoreStatus, DetectAgents, DeviceId, Empty,
+    Identity, Isolate, MAX_LINE, NO_SHARED_VERSION, Outcome, PrefKey, PrefValue, Project,
+    ProjectId, ProjectKind, Ref, Reply, Request, Retire, Rev, Set, TerminalId, When, json_len,
 };
 
 /// Who made a call, as the handshake established it.
@@ -99,6 +99,7 @@ fn handler(name: Name) -> Option<Handler> {
             |cx, args| now::<call::SessionEvent>(cx, args, effects::session_event)
         }
         Name::SessionAdopt => |cx, args| now::<call::SessionAdopt>(cx, args, crate::shim::adopt),
+        Name::AgentDetect => |cx, args| later::<call::AgentDetect>(cx, args, detect),
         // The core makes this call; it never answers it.
         Name::ShimHold => return None,
         Name::QuestionAsk => questions::ask,
@@ -227,7 +228,7 @@ fn off_thread<C: Call, T: Send + 'static>(
     then: impl FnOnce(&mut Core, T) -> Result<C::Result, Error> + 'static,
 ) -> Option<Control> {
     if cx.core.checks == CHECKS {
-        let busy = Error::new(Code::Failed, "too many folder checks are running");
+        let busy = Error::new(Code::Failed, "too many checks are running");
         return Some(C::reply(cx.id, Err(busy)));
     }
     cx.core.checks += 1;
@@ -252,10 +253,36 @@ fn off_thread<C: Call, T: Send + 'static>(
     None
 }
 
-/// Runs a call that is one state-machine event (`effects::call`).
-/// `thought.capture`, naming the agent a new run of the thought would use.
+/// `thought.capture`, naming the agent a new run of the thought would use:
+/// the one the capture names, else the one `fixture.script` names in a
+/// fixtures build, else the `agent` preference, else the registry's first.
+/// A preference naming an agent this build lacks is passed over.
 fn capture(cx: &mut Cx, capture: tasktap_proto::Capture) -> Result<(), Error> {
-    let agent = cx.core.seams.agent();
+    let invalid = |why: String| Error::new(Code::Invalid, why);
+    if let Some(name) = &capture.agent {
+        crate::agents::find(name)
+            .ok_or_else(|| invalid(format!("this core has no agent {name}")))?;
+    }
+    if let Some(model) = &capture.model {
+        // As 1.2 checked a model: a word an agent takes as its value, never as a flag.
+        let fits = !model.is_empty() && model.len() <= 250 && !model.starts_with('-');
+        if !fits || model.chars().any(char::is_control) {
+            return Err(invalid(
+                "a model is 1 to 250 characters, none a control, not starting with -".into(),
+            ));
+        }
+    }
+    let pref = effects::read(cx.core, |tx| tx.pref(PrefKey::Agent))
+        .ok()
+        .flatten();
+    let preferred = match pref.map(|p| p.value) {
+        Some(PrefValue::Agent(Some(name))) if crate::agents::find(&name).is_some() => Some(name),
+        _ => None,
+    };
+    let agent = (capture.agent.clone())
+        .or_else(|| cx.core.seams.agent())
+        .or(preferred)
+        .unwrap_or_else(|| crate::agents::all()[0].id().into());
     effects::call(
         cx.core,
         "thought.capture",
@@ -397,6 +424,33 @@ fn reopen(tx: &mut crate::store::Tx, mut p: Project) -> Result<ProjectId, Error>
         tx.update_project(&p).map_err(stored)?;
     }
     Ok(p.id)
+}
+
+/// `agent.detect`: each agent asked for, or every one, as its own commands
+/// find it, each agent on a thread of its own.
+fn detect(cx: &mut Cx, args: DetectAgents) -> Option<Control> {
+    let all = crate::agents::all();
+    let asked: Vec<_> = match &args.agents {
+        None => all.to_vec(),
+        Some(names) => {
+            let found: Option<Vec<_>> = names.iter().map(|n| crate::agents::find(n)).collect();
+            let Some(found) = found else {
+                let e = Error::new(Code::Invalid, "agent.detect names an agent this core lacks");
+                return Some(call::AgentDetect::reply(cx.id, Err(e)));
+            };
+            found
+        }
+    };
+    let look = move || {
+        std::thread::scope(|scope| {
+            let checks: Vec<_> = (asked.iter())
+                .map(|agent| scope.spawn(|| crate::agents::checks::detect(*agent)))
+                .collect();
+            let found = checks.into_iter().filter_map(|c| c.join().ok());
+            found.collect::<Vec<_>>()
+        })
+    };
+    off_thread::<call::AgentDetect, _>(cx, look, |_, agents| Ok(Agents { agents }))
 }
 
 /// `project.scan`: whether each project's folder is still there, and still

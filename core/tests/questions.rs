@@ -584,15 +584,27 @@ fn without_its_fixtures_a_build_routes_nothing_and_runs_only_agents_it_has() {
     assert!(w.model.thoughts.is_empty());
 
     // A pick needs no router: with no hold it launches at once, for real.
-    // This build runs no agent yet, so the run fails and says why.
+    // The agent it names is not installed here, so the run fails and says
+    // why; an agent this build lacks is refused at capture.
     let target = PutTarget::Prefs(PrefPatch::Hold(0));
     w.ok::<call::Put>(&Put {
         target,
         if_rev: None,
     });
+    let unknown = Capture {
+        project_id: Some(project),
+        agent: Some("nobody".into()),
+        ..typed(ThoughtId::mint(), "fix it")
+    };
+    let e = w.call::<call::ThoughtCapture>(&unknown).unwrap_err();
+    assert_eq!(
+        (e.code, e.message.as_str()),
+        (Code::Invalid, "this core has no agent nobody")
+    );
     let picked = ThoughtId::mint();
     let capture = Capture {
         project_id: Some(project),
+        agent: Some("fixture".into()),
         ..typed(picked, "fix it")
     };
     w.ok::<call::ThoughtCapture>(&capture);
@@ -605,7 +617,10 @@ fn without_its_fixtures_a_build_routes_nothing_and_runs_only_agents_it_has() {
     assert_eq!(why.len(), 1);
     assert_eq!(
         (why[0].kind, why[0].summary.as_str()),
-        (ResultKind::Failure, "this build cannot run claude")
+        (
+            ResultKind::Failure,
+            "fixture-agent is not installed: no folder of the PATH has it"
+        )
     );
     assert!(w.model.terminals.is_empty());
 
@@ -1036,7 +1051,7 @@ fn a_question_asked_in_the_terminal_closes_on_continue_turn_end_or_session_end()
     assert_eq!(code(answer(&mut s, q, Response::Affirm)), Code::Invalid);
     assert_eq!(code(input(&mut s, q, Action::Deny)), Code::Invalid);
     // The agent goes on: it was answered in the terminal.
-    agent.say(Said::Continued);
+    agent.say(Said::Continued { request: None });
     s.w.sync();
     let row = s.w.model.question(q);
     assert_eq!(row.state, QuestionState::Answered);
@@ -1068,6 +1083,35 @@ fn a_question_asked_in_the_terminal_closes_on_continue_turn_end_or_session_end()
 }
 
 #[test]
+fn a_waited_question_the_agent_goes_on_from_was_answered_in_the_terminal() {
+    // Claude Code shows its own dialog while its hook waits on the core:
+    // the person may answer either, and the agent goes on.
+    let mut s = Scene::new("qc");
+    let (t, _, mut agent) = s.launch("go");
+    agent.ask("tool-1", "Allow rm -rf build?");
+    let q = s.shown();
+    assert_eq!(s.w.model.status(t), Status::NeedsYou);
+    // Going on from another question changes nothing here.
+    agent.say(Said::Continued {
+        request: Some("tool-2".into()),
+    });
+    s.w.sync();
+    assert_eq!(s.w.model.question(q).state, QuestionState::Open);
+    agent.say(Said::Continued {
+        request: Some("tool-1".into()),
+    });
+    let got = agent.reply("tool-1").unwrap();
+    assert_eq!(got.response, Response::Terminal);
+    s.w.sync();
+    let row = s.w.model.question(q);
+    assert_eq!(row.state, QuestionState::Answered);
+    assert_eq!(row.answer.as_ref().unwrap().response, Response::Terminal);
+    assert_eq!(s.w.model.status(t), Status::Working);
+    // A device's answer comes too late.
+    assert_eq!(code(answer(&mut s, q, Response::Affirm)), Code::Gone);
+}
+
+#[test]
 fn open_questions_are_bounded_per_session_and_in_all() {
     use tasktap_proto::{MAX_OPEN_QUESTIONS, MAX_SESSION_QUESTIONS};
     let mut s = Scene::new("qm");
@@ -1083,7 +1127,7 @@ fn open_questions_are_bounded_per_session_and_in_all() {
     assert_eq!(code(agent.ask_now(confirm("wait", "Go?"))), Code::Conflict);
     agent.say(hook(0));
     // Once they close there is room again.
-    agent.say(Said::Continued);
+    agent.say(Said::Continued { request: None });
     agent.ask("wait", "Go?");
     agent.sync();
     s.w.sync();

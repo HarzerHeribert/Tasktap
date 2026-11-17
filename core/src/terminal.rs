@@ -43,8 +43,8 @@ const LINGER: Duration = Duration::from_secs(1);
 pub struct Terminals {
     live: HashMap<TerminalId, Live>,
     data: PathBuf,
-    /// The shim folder a shell puts first on its PATH, installed when the
-    /// first shell starts.
+    /// The shim folder a shell puts first on its PATH and any other child
+    /// last, installed when the first terminal starts.
     shims: std::cell::OnceCell<Option<PathBuf>>,
     /// The core is shutting down: nothing new starts.
     closing: bool,
@@ -215,14 +215,18 @@ pub fn spawn(core: &mut Core, t: &Terminal, token: &Secret) -> std::io::Result<(
     }
     let shell = t.kind == TerminalKind::Shell;
     let size = Size(t.cols, t.rows);
+    // A shell finds the shims first, so that an agent typed there is
+    // adopted; any other child finds `tasktap` last, for its hooks and
+    // `tasktap ask`, and the real agents before the shims.
+    let shims = terminals.shims();
+    let path = match shell {
+        true => process::path(shims, None),
+        false => process::path(None, shims),
+    };
     let plan = Plan {
         argv: if shell { Vec::new() } else { t.argv.clone() },
         cwd: PathBuf::from(&t.cwd),
-        env: process::environment(
-            &terminals.data,
-            token,
-            shell.then(|| terminals.shims()).flatten(),
-        ),
+        env: process::environment(&terminals.data, token, path),
         size,
     };
     let (process, input, reports) = Process::start(plan)?;
@@ -331,9 +335,15 @@ fn left(core: &mut Core, id: TerminalId, exit: Option<u32>) {
 }
 
 /// Where a terminal's direct child finds `program`: on the PATH every
-/// terminal but a shell gets.
+/// terminal but a shell gets, before the shims.
 pub fn find(program: &str) -> Option<PathBuf> {
-    crate::roles::shim::find(program, &process::path(None), |_, _| true)
+    crate::roles::shim::find(program, &process::path(None, None), |_, _| true)
+}
+
+/// The environment of a check of an agent's own program: a terminal's,
+/// without how to reach the core.
+pub fn environment_of_checks() -> Vec<(String, std::ffi::OsString)> {
+    process::fixed(process::path(None, None))
 }
 
 /// Types `text` into a terminal as a bracketed paste and Enter, as the

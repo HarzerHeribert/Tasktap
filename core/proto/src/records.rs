@@ -347,17 +347,24 @@ pub struct Pref {
 pub enum PrefValue {
     /// Seconds a routed thought waits before it launches; 0 launches at once.
     Hold(u32),
+    /// The agent a new run uses when its capture names none; none: the
+    /// first agent the core has.
+    Agent(Option<String>),
 }
 
 words! {
-    pub enum PrefKey { Hold }
+    pub enum PrefKey { Hold, Agent }
 }
+
+/// Seconds a routed thought is held while the `hold` preference is unset.
+pub const DEFAULT_HOLD: u32 = 5;
 
 impl PrefKey {
     /// The value of a preference while none is stored: deleting it restores this.
     pub const fn default(self) -> PrefValue {
         match self {
-            PrefKey::Hold => PrefValue::Hold(5),
+            PrefKey::Hold => PrefValue::Hold(DEFAULT_HOLD),
+            PrefKey::Agent => PrefValue::Agent(None),
         }
     }
 }
@@ -366,6 +373,7 @@ impl PrefValue {
     pub fn key(&self) -> PrefKey {
         match self {
             PrefValue::Hold(_) => PrefKey::Hold,
+            PrefValue::Agent(_) => PrefKey::Agent,
         }
     }
 }

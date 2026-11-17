@@ -12,7 +12,7 @@ use tasktap_proto::{
     Offset, Rev, Secret, SessionState, Terminal, TerminalId, TerminalKind, TerminalState,
 };
 
-use crate::agents::{self, Run};
+use crate::agents::{self, Agent, Probe, Run};
 use crate::effects;
 use crate::serve::Core;
 use crate::state::{Deliver, Launch};
@@ -23,11 +23,19 @@ const UNHELD: &str = "no shim holds the agent's shell, so the follow-up was not 
 const INDIRECT: &str =
     "the agent is not its terminal's direct child, so the follow-up was not typed";
 
-/// Starts a run in a new terminal and returns that terminal, which the
-/// caller stores in the same step, before anything else runs (design §3).
-/// It takes the session's id, as the session takes the attempt's, so one
-/// attempt never starts two. A failure leaves nothing running.
-pub fn launch(core: &mut Core, l: &Launch, token: &Secret) -> Result<Terminal, String> {
+/// A run's command line, its program found, and the check it needs before
+/// it starts, if any.
+pub struct Prepared {
+    agent: &'static dyn Agent,
+    argv: Vec<String>,
+    pub probe: Option<Probe>,
+}
+
+/// The command line of a run, with its program found on the PATH its
+/// terminal will have; a program that is not there fails the launch before
+/// anything starts. A check the agent needs is left to the caller, which
+/// runs it off the core's thread and adds what it says (`start`).
+pub fn prepare(l: &Launch) -> Result<Prepared, String> {
     let agent =
         agents::find(&l.agent).ok_or_else(|| format!("this build cannot run {}", l.agent))?;
     let hook = crate::roles::program().map_err(|e| format!("the core cannot find itself: {e}"))?;
@@ -44,6 +52,26 @@ pub fn launch(core: &mut Core, l: &Launch, token: &Secret) -> Result<Terminal, S
     let program = terminal::find(&name)
         .ok_or_else(|| format!("{name} is not installed: no folder of the PATH has it"))?;
     argv[0] = program.to_string_lossy().into_owned();
+    let probe = agent.probe(&hook, Path::new(&l.cwd));
+    Ok(Prepared { agent, argv, probe })
+}
+
+/// Starts a prepared run in a new terminal and returns that terminal, which
+/// the caller stores in the same step, before anything else runs (design
+/// §3). `more` are the arguments its check added, which follow the
+/// program. It takes the session's id, as the session takes the attempt's,
+/// so one attempt never starts two. A failure leaves nothing running.
+pub fn start(
+    core: &mut Core,
+    l: &Launch,
+    prepared: Prepared,
+    more: Vec<String>,
+    token: &Secret,
+) -> Result<Terminal, String> {
+    let Prepared {
+        agent, mut argv, ..
+    } = prepared;
+    argv.splice(1..1, more);
     let id = TerminalId::try_from(l.session.uuid()).map_err(|e| e.to_string())?;
     let (known, project) = effects::read(core, |tx| Ok((tx.terminal(id)?, tx.project(l.project)?)))
         .map_err(|e| e.to_string())?;

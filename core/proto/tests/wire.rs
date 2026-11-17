@@ -160,6 +160,8 @@ fn every_call_round_trips() {
         mode: Some(Mode::Note),
         project_id: None,
         session_id: Some(id(3)),
+        agent: None,
+        model: Some("sonnet".into()),
     };
     round_trip::<call::ThoughtCapture>(capture, (), seen);
     round_trip::<call::ThoughtUpdate>(
@@ -245,7 +247,10 @@ fn every_call_round_trips() {
         Event::Activity {
             text: "Editing src/login.ts".into(),
         },
-        Event::Continued,
+        Event::Continued { request: None },
+        Event::Continued {
+            request: Some("PermissionRequest:1:2".into()),
+        },
         Event::TurnFinished { answer: None },
         Event::TurnFailed {
             error: Some("rate limited".into()),
@@ -267,6 +272,7 @@ fn every_call_round_trips() {
                 turn: Some(2),
                 subagent: true,
                 event,
+                resume: None,
             },
             (),
             seen,
@@ -277,6 +283,24 @@ fn every_call_round_trips() {
         cwd: "/Users/someone/tasktap".into(),
     };
     round_trip::<call::SessionAdopt>(adopt, id(3), seen);
+    let health = AgentHealth {
+        id: "codex".into(),
+        installed: true,
+        version: Some("0.169.0".into()),
+        signed_in: Some(true),
+        identity: Some("ChatGPT".into()),
+        events: true,
+        resume: true,
+        permissions: Some(ReplyVia::Core),
+        questions: Some(ReplyVia::Terminal),
+    };
+    let detect = DetectAgents {
+        agents: Some(vec!["codex".into()]),
+    };
+    let agents = Agents {
+        agents: vec![health],
+    };
+    round_trip::<call::AgentDetect>(detect, agents, seen);
     for (start, from) in [
         (None, None),
         (
@@ -401,7 +425,7 @@ fn every_call_round_trips() {
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 33);
+    assert_eq!(Name::ALL.len(), 34);
 }
 
 #[test]
@@ -433,7 +457,7 @@ fn access_follows_the_authorization_table() {
             "session.adopt"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 25);
+    assert_eq!(by(Access::Device).len(), 26);
     assert_eq!(by(Access::Ability), ["shim.hold"]);
     for (access, allowed) in [
         (Access::Anyone, [true, true, true]),

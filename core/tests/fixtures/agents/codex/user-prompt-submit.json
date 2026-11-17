@@ -1,0 +1,10 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "turn_id": "00000000-0000-4000-8000-000000000002",
+  "transcript_path": "/Users/person/.codex/sessions/2026/11/17/rollout-2026-01-01T00-00-00-00000000-0000-4000-8000-000000000001.jsonl",
+  "cwd": "/tmp/project",
+  "hook_event_name": "UserPromptSubmit",
+  "model": "gpt-6.1-sol",
+  "permission_mode": "default",
+  "prompt": "First use the request_user_input tool to ask me which color I prefer, with the two options Red and Blue. Then run the shell command: echo trial > trial.txt. Then reply with only the color I chose."
+}

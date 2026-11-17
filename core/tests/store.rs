@@ -1213,6 +1213,63 @@ fn a_request_key_reads_back_by_question() {
     assert_eq!(tx.request_key(QuestionId::mint()).unwrap(), None);
 }
 
+/// Records are stored as documents, so a field a newer build added reads here
+/// ignored, and a field added after a document was written reads as absent
+/// (`None`) without a migration.
+#[test]
+fn documents_read_across_builds_without_a_migration() {
+    let dir = Dir::new("documents");
+    let (mut store, _) = open(&dir.db());
+    let p = project("/work/documents");
+    let t = thought(Some(p.id), Phase::Captured);
+    let s = Session {
+        activity: vec!["memory only".into()],
+        ..session(p.id, None, None, SessionState::Idle)
+    };
+    let q = question(Some(t.id), None);
+    let answer = Answer {
+        response: Response::Choice { choice: 1 },
+        device_id: None,
+        created: at(3),
+        delivered: None,
+    };
+    let mut tx = store.begin().unwrap();
+    tx.insert_project(&p).unwrap();
+    tx.insert_thought(&t).unwrap();
+    tx.insert_session(&s).unwrap();
+    tx.insert_question(&q, "documents").unwrap();
+    tx.insert_answer(q.id, &answer).unwrap();
+    tx.commit().unwrap();
+    let tx = store.begin().unwrap();
+    let (t, q) = (
+        tx.thought(t.id).unwrap().unwrap(),
+        tx.question(q.id).unwrap().unwrap(),
+    );
+    assert_eq!(q.answer.as_ref(), Some(&answer));
+    let stored = tx.session(s.id).unwrap().unwrap();
+    assert!(stored.activity.is_empty(), "activity was stored");
+    drop(tx);
+    drop(store);
+
+    let db = rusqlite::Connection::open(dir.db()).unwrap();
+    let newer = "json_set(data, '$.routing', json('{\"via\": \"router\"}'))";
+    for table in ["thoughts", "questions", "answers"] {
+        let sql = format!("UPDATE {table} SET data = {newer}");
+        assert_eq!(db.execute(&sql, []).unwrap(), 1);
+    }
+    let older = "UPDATE thoughts SET data = json_remove(data, '$.brief')";
+    assert_eq!(db.execute(older, []).unwrap(), 1);
+    drop(db);
+
+    let (mut store, _) = open(&dir.db());
+    let tx = store.begin().unwrap();
+    assert_eq!(
+        tx.thought(t.id).unwrap().unwrap(),
+        Thought { brief: None, ..t }
+    );
+    assert_eq!(tx.question(q.id).unwrap().unwrap(), q);
+}
+
 const CHILD: &str = "TASKTAP_STORE_CHILD";
 
 /// Run by the next test as a child process: writes until it is killed.

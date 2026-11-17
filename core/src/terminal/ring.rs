@@ -15,6 +15,13 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::mpsc as plain;
 use tasktap_proto::{CloseWhy, MAX_SAFE, Mark, Offset, Size, Terminal, TerminalState};
+use tokio::sync::oneshot;
+
+/// Whether what the core typed was written: `Err` says why not.
+pub type Typed = Result<(), String>;
+
+/// Why typed text was not written, once the terminal took no more input.
+const UNWRITABLE: &str = "the terminal no longer takes input";
 
 /// Output kept per terminal (design §10: 2 MiB at full scrollback).
 pub const RING: usize = 2 << 20;
@@ -40,9 +47,10 @@ pub struct Term {
     exit: Option<Option<u32>>,
     readers: Vec<Handle>,
     input: Option<plain::Sender<Vec<u8>>>,
-    /// Input handed to the input thread and not yet written, in order: whom
-    /// to grant it back to once it is, none for what the core typed.
-    owed: VecDeque<(Option<Handle>, u32)>,
+    /// Input handed to the input thread and not yet written, in order.
+    owed: VecDeque<(Owner, u32)>,
+    /// Why the input thread stopped writing, once it did.
+    unwritable: Option<String>,
     /// What the program asks its terminal, which the core answers while no
     /// client is attached.
     queries: Queries,
@@ -58,6 +66,7 @@ impl Term {
             readers: Vec::new(),
             input: Some(input),
             owed: VecDeque::new(),
+            unwritable: None,
             queries: Queries::new(),
         }
     }
@@ -131,8 +140,25 @@ impl Term {
     pub fn ended(&mut self, exit: Option<u32>) {
         self.exit = Some(exit);
         self.input = None;
-        self.owed.clear();
+        self.unwritten("the terminal has ended");
         self.wake();
+    }
+
+    /// The input thread could not write and stopped: no more input. Nothing
+    /// it held is granted back, and what the core typed was not written.
+    pub fn unwritable(&mut self, why: String) {
+        self.input = None;
+        self.unwritten(&format!("{UNWRITABLE}: {why}"));
+        self.unwritable = Some(why);
+    }
+
+    /// Everything still owed was not written: whoever typed it learns so.
+    fn unwritten(&mut self, why: &str) {
+        for (owner, _) in self.owed.drain(..) {
+            if let Owner::Core(Some(typist)) = owner {
+                let _ = typist.send(Err(why.into()));
+            }
+        }
     }
 
     /// Input from an attached client, granted back to it once written.
@@ -140,21 +166,46 @@ impl Term {
         self.send(Some(from), bytes);
     }
 
-    /// Input for the process; what the core types itself, as the launcher
-    /// types a follow-up, has no client. False when the process takes no more.
+    /// Input for the process; what the core types itself, as the answers to
+    /// what the program asks, has no client. False when the process takes no more.
     pub fn send(&mut self, from: Option<&Handle>, bytes: &[u8]) -> bool {
+        let owner = match from {
+            Some(handle) => Owner::Client(handle.clone()),
+            None => Owner::Core(None),
+        };
+        self.hand(owner, bytes)
+    }
+
+    /// Text the core types, as the launcher types a follow-up, and how its
+    /// writing went once the input thread has written it or could not;
+    /// `Err` with why when the process takes no input any more.
+    pub fn type_text(&mut self, bytes: &[u8]) -> Result<oneshot::Receiver<Typed>, String> {
+        if let Some(why) = &self.unwritable {
+            return Err(format!("{UNWRITABLE}: {why}"));
+        }
+        let (typist, typed) = oneshot::channel();
+        match self.hand(Owner::Core(Some(typist)), bytes) {
+            true => Ok(typed),
+            false => Err("the terminal has ended".into()),
+        }
+    }
+
+    fn hand(&mut self, owner: Owner, bytes: &[u8]) -> bool {
         let input = self.input.as_ref();
         let sent = input.is_some_and(|input| input.send(bytes.to_vec()).is_ok());
         if sent {
-            self.owed.push_back((from.cloned(), bytes.len() as u32));
+            self.owed.push_back((owner, bytes.len() as u32));
         }
         sent
     }
 
-    /// The input thread wrote the oldest chunk.
+    /// The input thread wrote the oldest chunk: a client may send as much
+    /// again, and the core's typist learns it was written.
     pub fn wrote(&mut self) {
-        if let Some((Some(from), n)) = self.owed.pop_front() {
-            from.grant(n);
+        match self.owed.pop_front() {
+            Some((Owner::Client(from), n)) => from.grant(n),
+            Some((Owner::Core(Some(typist)), _)) => drop(typist.send(Ok(()))),
+            _ => {}
         }
     }
 
@@ -207,6 +258,14 @@ impl Term {
             n + room.put(second)
         }
     }
+}
+
+/// Who sent input on its way to the process.
+enum Owner {
+    /// A client, granted it back once it is written.
+    Client(Handle),
+    /// The core, which may wait to learn whether it was written.
+    Core(Option<oneshot::Sender<Typed>>),
 }
 
 /// The history of a terminal that is no longer running, read from disk as

@@ -447,24 +447,51 @@ fn deliver(core: &mut Core, deliver: Deliver) -> Option<Outcome> {
 }
 
 /// Has the launcher type a follow-up into its session's terminal, `held`
-/// when the shim of an adopted session holds it, and reports how that went.
+/// when the shim of an adopted session holds it, and reports how that went:
+/// typed once the terminal's input thread has written it, failed when it
+/// could not. The answer is the call's when it is known at once.
 pub fn typed(core: &mut Core, deliver: Deliver, held: bool) -> Outcome {
+    let attempt = deliver.attempt;
     let handed = match core.seams.launcher() {
         Some(launcher) => launcher.deliver(&deliver),
-        None => crate::launch::deliver(core, &deliver, held),
+        None => match crate::launch::deliver(core, &deliver, held) {
+            Ok(typing) => {
+                let me = core.me.clone();
+                tokio::task::spawn_local(async move {
+                    let written = typing.await;
+                    let Some(core) = me.upgrade() else { return };
+                    let mut core = core.borrow_mut();
+                    match written {
+                        Ok(Ok(())) => drop(written_by(&mut core, attempt)),
+                        Ok(Err(why)) => {
+                            drop(failed(&mut core, attempt, crate::launch::unwritten(why)))
+                        }
+                        Err(_) => drop(failed(
+                            &mut core,
+                            attempt,
+                            crate::launch::unwritten("the terminal has ended".into()),
+                        )),
+                    }
+                });
+                return Outcome::Ok(Value::Null);
+            }
+            Err(error) => Err(error),
+        },
     };
-    let attempt = deliver.attempt;
     match handed {
-        Ok(()) => {
-            let event = Event::Launched {
-                attempt,
-                terminal: None,
-            };
-            report(core, event, |_| Ok(()));
-            Outcome::Ok(Value::Null)
-        }
+        Ok(()) => written_by(core, attempt),
         Err(error) => failed(core, attempt, error),
     }
+}
+
+/// A follow-up was typed.
+fn written_by(core: &mut Core, attempt: AttemptId) -> Outcome {
+    let event = Event::Launched {
+        attempt,
+        terminal: None,
+    };
+    report(core, event, |_| Ok(()));
+    Outcome::Ok(Value::Null)
 }
 
 pub fn failed(core: &mut Core, attempt: AttemptId, error: String) -> Outcome {

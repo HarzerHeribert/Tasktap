@@ -24,6 +24,8 @@ mod tty {
         fn tcsetattr(fd: c_int, when: c_int, modes: *const u64) -> c_int;
         fn tcgetpgrp(fd: c_int) -> i32;
         fn getpgrp() -> i32;
+        #[cfg(feature = "fixtures")]
+        fn dup2(old: c_int, new: c_int) -> c_int;
     }
 
     // The same numbers on Mac and Linux.
@@ -82,6 +84,23 @@ mod tty {
         // SAFETY: ignoring a signal installs no code.
         unsafe { signal(SIGHUP, SIG_IGN) };
     }
+
+    /// Lets go of the terminal while this process goes on: its standard
+    /// input, output and error become the null device.
+    #[cfg(feature = "fixtures")]
+    pub fn let_go() {
+        use std::os::fd::AsRawFd;
+        let null = std::fs::File::options()
+            .read(true)
+            .write(true)
+            .open("/dev/null");
+        if let Ok(null) = null {
+            for fd in 0..3 {
+                // SAFETY: both are open descriptors; dup2 touches no memory.
+                unsafe { dup2(null.as_raw_fd(), fd) };
+            }
+        }
+    }
 }
 
 /// Windows has no terminal modes to restore from here, no foreground group
@@ -108,6 +127,9 @@ mod tty {
 
     #[cfg(feature = "fixtures")]
     pub fn ignore_hangup() {}
+
+    #[cfg(feature = "fixtures")]
+    pub fn let_go() {}
 }
 
 #[cfg(unix)]

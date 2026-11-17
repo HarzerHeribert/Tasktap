@@ -294,6 +294,47 @@ fn a_follow_ups_text_cannot_end_its_paste_or_reach_the_terminal_as_keys() {
     assert_eq!(agent.text().matches("prompt:").count(), 1, "one paste");
 }
 
+/// A program that lets go of its terminal and goes on running takes no
+/// input any more: the first write that fails ends the terminal's input.
+/// Nothing a client types after that is granted back as written, and a
+/// follow-up fails with the reason instead of being reported typed.
+#[cfg(unix)]
+#[test]
+fn input_the_terminal_cannot_write_is_never_reported_written() {
+    let mut s = Scene::real("lw", "fixture");
+    let (t, session, terminal) = started(&mut s, "fix the build");
+    let mut agent = screen(&s, terminal);
+    agent.line("event:ready");
+    agent.line("event:turn_started");
+    agent.line("event:turn_finished:Fixed.");
+    s.w.until("the first turn is done", |m| {
+        m.status(t) == Status::Done && m.session(session).state == SessionState::Idle
+    });
+    agent.line("detach:30000");
+    agent.until("detaching");
+    // Once the terminal is let go of, a byte typed is not written.
+    let wait = std::time::Duration::from_millis(300);
+    let start = std::time::Instant::now();
+    while agent.acknowledged(wait) {
+        let waited = start.elapsed();
+        assert!(
+            waited.as_secs() < 10,
+            "input still acknowledged after {waited:?}"
+        );
+    }
+    assert!(!agent.acknowledged(wait), "nor anything after it");
+    let f = follow_up(&mut s, session, "and the tests");
+    s.w.until("the follow-up fails", |m| m.status(f) == Status::Failed);
+    let why = &s.w.model.results_of(f)[0].summary;
+    assert!(
+        why.starts_with("the terminal no longer takes input")
+            && why.ends_with("so the follow-up was not typed"),
+        "{why}"
+    );
+    assert_eq!(s.w.model.session(session).state, SessionState::Idle);
+    s.w.ok::<call::TerminalStop>(&Ref { id: terminal });
+}
+
 #[test]
 fn a_follow_up_whose_agent_exits_before_it_is_typed_is_never_typed() {
     let mut s = Scene::real("le", "fixture");

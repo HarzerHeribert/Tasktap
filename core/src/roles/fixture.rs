@@ -18,6 +18,7 @@
 //! | `wait` | reads a line of standard input and prints `read:` and the line |
 //! | `sleep:MS` | sleeps |
 //! | `nohup` | ignores hang-up from then on |
+//! | `detach:MS` | prints `detaching`, lets go of its terminal (its standard input, output and error become the null device) and sleeps; Mac and Linux |
 //! | `query` | asks its terminal what it is, where the cursor is and its two colors, as a program that waits for the answers does, and prints `answered:` and the answers, escaped (Mac and Linux) |
 //! | `exit:CODE` | exits with the code; after the last step it exits with 0 |
 //!
@@ -46,8 +47,8 @@ pub const REAL: &str = "TASKTAP_FIXTURE_AGENT";
 /// Set by a test: a shim takes pipes for a terminal a person types in.
 pub const TTY: &str = "TASKTAP_FIXTURE_TTY";
 
-const STEPS: [&str; 8] = [
-    "print", "event", "ask", "wait", "sleep", "nohup", "query", "exit",
+const STEPS: [&str; 9] = [
+    "print", "event", "ask", "wait", "sleep", "nohup", "detach", "query", "exit",
 ];
 /// What `query` asks: primary and secondary device attributes, the cursor
 /// position, and the foreground and background colors, one ended with ST
@@ -125,6 +126,12 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
             }
             "sleep" => std::thread::sleep(Duration::from_millis(rest.parse().unwrap_or(0))),
             "nohup" => crate::sys::ignore_hangup(),
+            "detach" => {
+                println!("detaching");
+                let _ = io::stdout().flush();
+                crate::sys::let_go();
+                std::thread::sleep(Duration::from_millis(rest.parse().unwrap_or(0)));
+            }
             "query" => println!("answered:{}", query(&mut input).escape_ascii()),
             "exit" => return ExitCode::from(rest.parse::<u8>().unwrap_or(0)),
             "" if !scripted => {}

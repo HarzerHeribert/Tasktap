@@ -128,8 +128,9 @@ pub fn start(
 /// Enter (design §7), only where no shell can run it: the terminal's direct
 /// child is the agent this core launched and has not exited, or the shim of
 /// an agent adopted in a shell holds that shell (`held`). Otherwise nothing
-/// is typed and the reason is the thought's.
-pub fn deliver(core: &mut Core, d: &Deliver, held: bool) -> Result<(), String> {
+/// is typed and the reason is the thought's. What is typed is a follow-up
+/// once the input thread has written it.
+pub fn deliver(core: &mut Core, d: &Deliver, held: bool) -> Result<terminal::Typing, String> {
     let found = effects::read(core, |tx| {
         let s = tx.session(d.session)?;
         let t = s.as_ref().and_then(|s| s.terminal_id);
@@ -141,11 +142,18 @@ pub fn deliver(core: &mut Core, d: &Deliver, held: bool) -> Result<(), String> {
     match (s.adopted, held, t.kind) {
         (true, false, _) => Err(UNHELD.into()),
         (false, _, kind) if kind != TerminalKind::Agent => Err(INDIRECT.into()),
-        _ if s.state == SessionState::Ended || !terminal::paste(core, t.id, &d.text) => {
-            Err(EXITED.into())
-        }
-        _ => Ok(()),
+        _ if s.state == SessionState::Ended => Err(EXITED.into()),
+        _ => match terminal::paste(core, t.id, &d.text) {
+            None => Err(EXITED.into()),
+            Some(Err(why)) => Err(unwritten(why)),
+            Some(Ok(typing)) => Ok(typing),
+        },
     }
+}
+
+/// Why a follow-up handed to the input thread was not written.
+pub fn unwritten(why: String) -> String {
+    format!("{why}, so the follow-up was not typed")
 }
 
 /// Stops a run's terminal. The state machine never names an adopted

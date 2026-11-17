@@ -807,6 +807,27 @@ impl Screen {
             .unwrap();
     }
 
+    /// Types one byte and says whether the core granted it back, as it does
+    /// once the byte is written, within `wait`.
+    #[cfg(unix)]
+    pub fn acknowledged(&mut self, wait: std::time::Duration) -> bool {
+        let before = self.c.credit(self.s);
+        assert_eq!(self.c.send_some(self.s, b" ").unwrap(), 1, "no credit");
+        let patience = self.c.stream().read_timeout().unwrap();
+        self.c.stream().set_read_timeout(Some(wait)).unwrap();
+        let deadline = std::time::Instant::now() + wait;
+        while self.c.credit(self.s) < before && std::time::Instant::now() < deadline {
+            match self.c.recv() {
+                Ok(Frame::Data(Data { s, bytes })) if s == self.s => self.bytes.extend(bytes),
+                Ok(_) => {}
+                Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => break,
+                Err(e) => panic!("the core went away: {e}"),
+            }
+        }
+        self.c.stream().set_read_timeout(patience).unwrap();
+        self.c.credit(self.s) >= before
+    }
+
     /// Sends `bytes` as they are, as a terminal answers its program.
     pub fn write(&mut self, bytes: &[u8]) {
         self.c.write(self.s, bytes).unwrap();

@@ -36,9 +36,11 @@ pub enum Report {
     Output(Vec<u8>),
     /// The output ended: nothing holds the terminal's other side any more.
     Closed,
-    /// One chunk of input went to the process, or was dropped because it
-    /// no longer takes any.
+    /// One chunk of input went to the process.
     Wrote,
+    /// Input could not be written, and none will be: why. The input thread
+    /// has ended, so what was on its way is not written either.
+    Unwritable(String),
     /// The child exited: its code, none when a signal ended it.
     Exited(Option<u32>),
 }
@@ -341,20 +343,21 @@ fn folder(path: PathBuf) -> PathBuf {
 }
 
 /// The input thread: writes each chunk whole, in order, and says so, which
-/// is when the client that sent it may send more.
+/// is when the client that sent it may send more. The first write that
+/// fails ends it, and it says why instead: what it did not write is never
+/// reported written.
 fn write(
     mut writer: Box<dyn Write + Send>,
     inputs: plain::Receiver<Vec<u8>>,
     tx: mpsc::Sender<Report>,
 ) {
-    let mut taking = true;
     while let Ok(bytes) = inputs.recv() {
-        taking = taking
-            && writer
-                .write_all(&bytes)
-                .and_then(|()| writer.flush())
-                .is_ok();
-        if tx.blocking_send(Report::Wrote).is_err() {
+        let report = match writer.write_all(&bytes).and_then(|()| writer.flush()) {
+            Ok(()) => Report::Wrote,
+            Err(e) => Report::Unwritable(e.to_string()),
+        };
+        let failed = matches!(report, Report::Unwritable(_));
+        if tx.blocking_send(report).is_err() || failed {
             break;
         }
     }

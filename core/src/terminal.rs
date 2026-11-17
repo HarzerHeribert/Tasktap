@@ -329,6 +329,10 @@ async fn run(core: Weak<RefCell<Core>>, id: TerminalId, mut reports: mpsc::Recei
                 live.term.borrow_mut().wrote();
                 continue;
             }
+            Some(Report::Unwritable(why)) => {
+                live.term.borrow_mut().unwritable(why);
+                continue;
+            }
             Some(Report::Started(group)) => {
                 live.process.started(group);
                 if live.stopping {
@@ -437,19 +441,22 @@ pub fn environment_of_checks() -> Vec<(String, std::ffi::OsString)> {
 }
 
 /// Types `text` into a terminal as a bracketed paste and Enter, as the
-/// launcher types a follow-up (design §7). False, with nothing typed, when
-/// its child has exited or is being stopped.
-pub fn paste(core: &mut Core, id: TerminalId, text: &str) -> bool {
+/// launcher types a follow-up (design §7), and says once the input thread
+/// has written it, or why it did not. `None`, with nothing typed, when its
+/// child has exited or is being stopped; `Some(Err)` when the terminal
+/// takes no input.
+pub fn paste(core: &mut Core, id: TerminalId, text: &str) -> Option<Result<Typing, String>> {
     const PASTE: (&str, &str) = ("\x1b[200~", "\x1b[201~");
-    let Some(live) = core.terminals.live.get(&id) else {
-        return false;
-    };
+    let live = core.terminals.live.get(&id)?;
     if live.exited.is_some() || live.stopping {
-        return false;
+        return None;
     }
     let typed = [PASTE.0, &pasteable(text), PASTE.1, "\r"].concat();
-    live.term.borrow_mut().send(None, typed.as_bytes())
+    Some(live.term.borrow_mut().type_text(typed.as_bytes()))
 }
+
+/// What the core typed, until the input thread has written it or could not.
+pub type Typing = tokio::sync::oneshot::Receiver<ring::Typed>;
 
 /// The text a paste may carry: no control character but its own line
 /// breaks and tabs. Without ESC the text cannot end the paste early or

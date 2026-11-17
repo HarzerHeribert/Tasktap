@@ -3,14 +3,16 @@
 //! means and when one may go (`state.rs`); this module makes, reads, keeps
 //! and removes worktrees as `effects.rs` asks, on threads of their own.
 //!
-//! What it promises is the design's, in three tiers. The person's folder
-//! and branches are written by nothing but a Keep, and by that only as a
-//! fast-forward of the person's own would: every command that writes
-//! outside `<data>/worktrees` is listed there, and none of them restores,
-//! resets or deletes. Nothing is undone: what git did is reported as it
-//! is. A worktree of the core's goes on the person's Discard, after a Keep
-//! that brought all of it into its destination, or on the core's own
-//! account only by commands of git's that refuse when anything is in it.
+//! What it promises is the design's, in three tiers. Nothing outside
+//! `<data>/worktrees` and the `tasktap/` branches is deleted or rewritten.
+//! The person's folder and branches are written by nothing but a Keep, by
+//! the fast-forward the person would run and as safe as that: every
+//! command that writes outside `<data>/worktrees` is listed there. Nothing
+//! is undone, and that fast-forward is never ended part way: what git did
+//! is reported as it is. A worktree of the core's goes on the person's
+//! Discard, after a Keep that brought all of it into its destination, or
+//! on the core's own account only by commands of git's that refuse when
+//! anything is in it.
 //! And git runs as the person's own would, filters and merge drivers
 //! included, with hooks off, no prompt, and a deadline on every command,
 //! whose output goes to files of the core's so that one that outlives a
@@ -140,8 +142,10 @@ impl Drop for Turn {
     }
 }
 
-/// What a folder holds beside the commit its HEAD is at.
+/// What a worktree's folder holds beside the commit its HEAD is at.
 struct Status {
+    /// Git's record of the worktree, which holds its index and HEAD.
+    record: PathBuf,
     /// The branch its HEAD is on, as git names a branch for short.
     on: String,
     /// The commit its HEAD is at.
@@ -165,9 +169,24 @@ impl Git {
         let program = crate::terminal::find("git")
             .ok_or("git is not installed: no folder of the PATH has it")?;
         let root = data.join(FOLDER);
-        let root = std::fs::create_dir_all(&root)
-            .and_then(|()| std::fs::canonicalize(&root))
-            .map_err(|e| format!("the worktrees' folder cannot be made: {e}"))?;
+        let made = std::fs::create_dir_all(&root).and_then(|()| {
+            let real = root.symlink_metadata()?.is_dir();
+            Ok((
+                real,
+                std::fs::canonicalize(&root)?,
+                std::fs::canonicalize(data)?,
+            ))
+        });
+        let (real, root, data) =
+            made.map_err(|e| format!("the worktrees' folder cannot be made: {e}"))?;
+        // A real folder of the data folder's own, not a link to elsewhere:
+        // files are made and removed in it by name.
+        if !real || root != data.join(FOLDER) {
+            return Err(format!(
+                "{} is a link, or is not in Tasktap's data folder, so nothing is done there",
+                root.display()
+            ));
+        }
         Ok(Git {
             program,
             env: environment(&root),
@@ -245,7 +264,8 @@ impl Git {
             self.forget(repo, own);
             if let Some(base) = branched {
                 let at = format!("refs/heads/{}", own.branch);
-                let _ = self.run(repo, &["update-ref", "-d", &at, &base], LOOK, &[], 0);
+                let delete = ["update-ref", "--no-deref", "-d", &at, &base];
+                let _ = self.run(repo, &delete, LOOK, &[], 0);
             }
         }
         made
@@ -274,10 +294,13 @@ impl Git {
         // run starts from what is committed, and its record says so.
         let status = ["status", "--porcelain", "-z", "--untracked-files=normal"];
         let left_out = !self.ok(repo, &status, LOOK)?.is_empty();
-        // Made only where no branch of that name is: one of the person's is
-        // never taken over, nor removed when this attempt fails.
+        // Made only where no branch of that name is, nor a symbolic ref
+        // that names another: one of the person's is never taken over, nor
+        // removed when this attempt fails.
+        self.tip(repo, own)?;
         let at = format!("refs/heads/{}", own.branch);
-        let create = ["update-ref", "-m", "tasktap: new worktree", &at, &base, ""];
+        let note = "tasktap: new worktree";
+        let create = ["update-ref", "--no-deref", "-m", note, &at, &base, ""];
         self.ok(repo, &create, LOOK).map_err(|e| {
             format!("a branch {} exists already, and Tasktap does not take over a branch it did not make: {e}", own.branch)
         })?;
@@ -314,7 +337,7 @@ impl Git {
         }
         // What git still knows of the folder that is gone.
         self.forget(repo, &own);
-        if self.commit_of(repo, &own.branch)?.is_none() {
+        if self.tip(repo, &own)?.is_none() {
             return self.make(repo, &own);
         }
         std::fs::create_dir(&own.path).map_err(|e| e.to_string())?;
@@ -344,7 +367,7 @@ impl Git {
                 repo.display()
             ));
         }
-        let tip = self.commit_of(repo, &own.branch)?;
+        let tip = self.tip(repo, own)?;
         if !here && tip.is_none() {
             return Ok(Found {
                 gone: true,
@@ -366,8 +389,9 @@ impl Git {
 
     /// What a worktree's folder holds, when it is there and still the
     /// worktree git knows, on its branch: its `.git` names git's record of
-    /// it, which names it back, so a command run in it reads and writes
-    /// that record's index and HEAD and no other.
+    /// it, which names it back. That record is then named to every command
+    /// that reads or writes the worktree's index and HEAD ([`inside`]), so
+    /// a `.git` changed afterwards sends none of them anywhere else.
     fn on_branch(&self, own: &Own) -> Option<Status> {
         // Relative paths are git's too, from the folder of the file.
         let record = record(&own.path)?;
@@ -376,13 +400,14 @@ impl Git {
         if back != std::fs::canonicalize(own.path.join(".git")).ok()? {
             return None;
         }
-        let status = self.status(&own.path).ok()?;
+        let status = self.status(&own.path, folder(&record)).ok()?;
         (status.on == own.branch).then_some(status)
     }
 
-    /// What a folder holds beside its HEAD, and where that is: one command,
-    /// which the removal of a worktree nothing asked for reads again.
-    fn status(&self, dir: &Path) -> Result<Status, String> {
+    /// What the worktree at `dir`, whose record with git is `record`, holds
+    /// beside its HEAD, and where that is: one command, which the removal
+    /// of a worktree nothing asked for reads again.
+    fn status(&self, dir: &Path, record: PathBuf) -> Result<Status, String> {
         let args = [
             "status",
             "--porcelain=v2",
@@ -393,14 +418,18 @@ impl Git {
             "--no-renames",
             "--ignore-submodules=none",
         ];
-        let out = self.ok(dir, &args, LOOK)?;
+        let ran = self.run(dir, &args, LOOK, &inside(&record, &folder(dir)), OUTPUT)?;
+        if ran.code != Some(0) {
+            return Err(failed("status", &ran));
+        }
         let mut status = Status {
+            record,
             on: String::new(),
             at: String::new(),
             changed: false,
             ignored: false,
         };
-        for entry in out.split(|&b| b == 0).filter(|e| !e.is_empty()) {
+        for entry in ran.out.split(|&b| b == 0).filter(|e| !e.is_empty()) {
             let entry = String::from_utf8_lossy(entry);
             if let Some(on) = entry.strip_prefix("# branch.head ") {
                 status.on = on.to_owned();
@@ -444,7 +473,7 @@ impl Git {
             let revs = ["--cached", w.base.as_str()];
             return self.with_index(&own.path, |index| self.diffs(&own.path, &revs, diff, index));
         }
-        if !repo.is_dir() || self.commit_of(repo, &own.branch)?.is_none() {
+        if !repo.is_dir() || self.tip(repo, own)?.is_none() {
             return Ok(Listed::default());
         }
         let tip = format!("refs/heads/{}", own.branch);
@@ -526,10 +555,10 @@ impl Git {
     /// worktree and the branch. The destination moves by a fast-forward
     /// when it has not moved since, and otherwise by a merge commit made
     /// without a working tree, only when it merges cleanly; nothing is
-    /// rebased or forced. A refusal of git's leaves everything as it was.
-    /// Nothing is ever undone: where git did something else than was asked,
-    /// because the folder changed at that moment, the reply says what is
-    /// where, and the next Keep or Discard goes on from there.
+    /// rebased or forced. Nothing is ever undone: where git did something
+    /// else than was asked, because the folder changed at that moment, the
+    /// reply says what is where, and the next Keep or Discard goes on from
+    /// there.
     pub fn keep(&self, repo: &Path, w: &Workdir, title: &str) -> Result<(), String> {
         let own = self.own(w)?;
         if !repo.is_dir() {
@@ -547,7 +576,7 @@ impl Git {
                 "the project folder was on no branch (a detached HEAD) when this run started, so there is no branch to keep it into. {by_hand}"
             ));
         };
-        pause("commit");
+        self.tip(repo, &own)?;
         if own.path.symlink_metadata().is_ok() {
             let Some(status) = self.on_branch(&own) else {
                 return Err(format!(
@@ -556,11 +585,12 @@ impl Git {
                     own.branch
                 ));
             };
+            pause("commit");
             if status.changed {
-                self.commit_all(&own, title)?;
+                self.commit_all(&own, &status.record, title)?;
             }
         }
-        let Some(tip) = self.commit_of(repo, &own.branch)? else {
+        let Some(tip) = self.tip(repo, &own)? else {
             return Err(format!(
                 "the branch {} is gone, so nothing is left to keep",
                 own.branch
@@ -595,20 +625,25 @@ impl Git {
     }
 
     /// Commits everything uncommitted in the worktree on its branch, once
-    /// it is clear the worktree is in the middle of nothing.
-    fn commit_all(&self, own: &Own, title: &str) -> Result<(), String> {
-        let dir = PathBuf::from(self.line(&own.path, &["rev-parse", "--absolute-git-dir"])?);
-        if let Some(what) = midway(&dir) {
+    /// it is clear the worktree is in the middle of nothing. Both commands
+    /// are told the record of the worktree that was just proven its own.
+    fn commit_all(&self, own: &Own, record: &Path, title: &str) -> Result<(), String> {
+        if let Some(what) = midway(record) {
             return Err(format!(
                 "the worktree is in the middle of {what}; finish or abort it in {} first",
                 own.path.display()
             ));
         }
-        self.ok(&own.path, &["add", "--all"], WRITE)?;
+        let work = folder(&own.path);
+        let mut env = inside(record, &work).to_vec();
+        let added = self.run(&own.path, &["add", "--all"], WRITE, &env, ERRORS)?;
+        if added.code != Some(0) {
+            return Err(failed("add", &added));
+        }
         let message = format!("{title}\n\nCommitted by Tasktap when its changes were kept.\n");
-        let identity = self.identity(&own.path);
+        env.extend(self.identity(&own.path));
         let commit = ["commit", "--quiet", "--no-verify", "-m", &message];
-        let ran = self.run(&own.path, &commit, WRITE, &identity, ERRORS)?;
+        let ran = self.run(&own.path, &commit, WRITE, &env, ERRORS)?;
         match ran.code {
             Some(0) => Ok(()),
             _ => Err(format!(
@@ -675,10 +710,10 @@ impl Git {
     /// Moves the branch `to` from `head` to `target`, which descends from
     /// it. Checked out nowhere, only the branch moves, and only from where
     /// it was. Checked out in a folder, that folder follows by git's own
-    /// fast-forward, which refuses whole when it would touch an uncommitted
-    /// change or an untracked or ignored file; every option that decides
-    /// what it does is on the command. Afterwards `to` holds `target`, or
-    /// the reply says what happened instead.
+    /// fast-forward, which refuses before it writes when it would touch an
+    /// uncommitted change or an untracked or ignored file; every option
+    /// that decides what it does is on the command. Afterwards `to` holds
+    /// `target`, or the reply says what happened instead.
     fn advance(
         &self,
         repo: &Path,
@@ -728,17 +763,28 @@ impl Git {
             "--no-gpg-sign",
             "--no-verify-signatures",
             "--no-rerere-autoupdate",
+            "--strategy=ort",
             "--quiet",
             target,
         ];
-        let ran = self.run(&folder, &merge, WRITE, &[], ERRORS)?;
+        // A strategy the person prefers for this branch, or for every
+        // merge, would have git merge where it was asked to fast-forward,
+        // and not spare ignored files: the branch's options are emptied
+        // and the strategy named, which leaves it only the fast-forward.
+        let options = format!("branch.{to}.mergeOptions");
+        let plain = [
+            ("GIT_CONFIG_COUNT", OsStr::new("1")),
+            ("GIT_CONFIG_KEY_0", OsStr::new(&options)),
+            ("GIT_CONFIG_VALUE_0", OsStr::new("")),
+        ];
+        let ran = self.run(&folder, &merge, WRITE, &plain, ERRORS)?;
         if ran.code != Some(0) {
             let said: Vec<_> = (ran.err.lines().map(str::trim))
                 .filter(|l| !l.is_empty())
                 .take(12)
                 .collect();
             return Err(format!(
-                "git did not bring the changes into {} and left it as it was: {}. {by_hand}",
+                "git did not bring the changes into {}: {}. {by_hand}",
                 folder.display(),
                 said.join(" ")
             ));
@@ -762,7 +808,7 @@ impl Git {
     pub fn discard(&self, repo: &Path, w: &Workdir) -> Result<bool, String> {
         let own = self.own(w)?;
         let tip = match repo.is_dir() {
-            true => self.commit_of(repo, &own.branch)?,
+            true => self.tip(repo, &own)?,
             false => None,
         };
         let kept = match (&tip, &w.destination) {
@@ -824,6 +870,7 @@ impl Git {
     /// staged, changed, untracked or ignored in it, and then only by the
     /// commands of [`Git::remove`], which refuse what came since.
     fn spare(&self, repo: &Path, own: &Own, at: &str) -> Result<(), String> {
+        self.tip(repo, own)?;
         if own.path.symlink_metadata().is_ok() {
             let bare = |s: Status| s.at == at && !s.changed && !s.ignored;
             if !self.on_branch(own).is_some_and(bare) {
@@ -852,9 +899,10 @@ impl Git {
         }
         pause("branch");
         self.forget(repo, own);
-        if repo.is_dir() && self.commit_of(repo, &own.branch)?.is_some() {
+        if repo.is_dir() && self.tip(repo, own)?.is_some() {
             let branch = format!("refs/heads/{}", own.branch);
-            self.ok(repo, &["update-ref", "-d", &branch, at], LOOK)
+            let delete = ["update-ref", "--no-deref", "-d", &branch, at];
+            self.ok(repo, &delete, LOOK)
                 .map_err(|e| format!("the branch {} was left: {e}", own.branch))?;
         }
         pause("done");
@@ -866,6 +914,24 @@ impl Git {
         if repo.is_dir() && own.path.symlink_metadata().is_err() {
             let forget = os(&["worktree", "remove", "-f", "-f"], &own.path, &[]);
             let _ = self.run(repo, &forget, LOOK, &[], 0);
+        }
+    }
+
+    /// The commit a run's branch is at, if the branch exists. Refused where
+    /// its name was made a symbolic ref, another name for some other
+    /// branch: nothing is read, moved or deleted through one, and every
+    /// `update-ref` on a run's branch is told not to follow one either.
+    fn tip(&self, repo: &Path, own: &Own) -> Result<Option<String>, String> {
+        let name = format!("refs/heads/{}", own.branch);
+        let ran = self.run(repo, &["symbolic-ref", "-q", &name], LOOK, &[], ERRORS)?;
+        match ran.code {
+            Some(1) => self.commit_of(repo, &own.branch),
+            Some(0) => Err(format!(
+                "{} is a symbolic ref to {}, no branch of Tasktap's, and is left alone: remove it yourself",
+                own.branch,
+                text(&ran.out)
+            )),
+            _ => Err(failed("symbolic-ref", &ran)),
         }
     }
 
@@ -1028,6 +1094,13 @@ impl Git {
         });
         match ended.recv_timeout(limit) {
             Ok(status) => Ok(status.map_err(|e| e.to_string())?.code()),
+            // The fast-forward in the person's folder, this module's one
+            // `merge`, is never ended part way through writing their files:
+            // it goes on by itself, and the reply says so.
+            Err(_) if verb(args) == "merge" => Err(format!(
+                "git is still updating {}; nothing was stopped",
+                dir.display()
+            )),
             Err(_) => {
                 #[cfg(unix)]
                 crate::sys::signal_process(pid, true);
@@ -1106,7 +1179,7 @@ impl Git {
         let Ok(common) = self.line(&own.path, &common).map(PathBuf::from) else {
             return;
         };
-        if let Ok(Some(tip)) = self.commit_of(&common, &own.branch)
+        if let Ok(Some(tip)) = self.tip(&common, &own)
             && self.contains(&common, "HEAD", &tip).unwrap_or(false)
             && self.free(&own, false).is_ok()
         {
@@ -1117,7 +1190,8 @@ impl Git {
 
 /// The core's checks' environment, never asking anyone anything, never
 /// taking a lock a look does not need, never fetching what a partial clone
-/// left out, never looking for a repository above the worktrees' folder,
+/// left out, never reading a commit as the one a replacement ref puts in
+/// its place, never looking for a repository above the worktrees' folder,
 /// and with how a person keeps git from their configuration where they did.
 fn environment(root: &Path) -> Vec<(String, OsString)> {
     let mut env = crate::terminal::environment_of_checks();
@@ -1126,6 +1200,7 @@ fn environment(root: &Path) -> Vec<(String, OsString)> {
         ("GIT_OPTIONAL_LOCKS", "0"),
         ("GIT_LITERAL_PATHSPECS", "1"),
         ("GIT_NO_LAZY_FETCH", "1"),
+        ("GIT_NO_REPLACE_OBJECTS", "1"),
     ] {
         env.push((key.into(), value.into()));
     }
@@ -1136,6 +1211,16 @@ fn environment(root: &Path) -> Vec<(String, OsString)> {
         }
     }
     env
+}
+
+/// What tells a git command run in the worktree at `dir` which record is
+/// that worktree's, whatever its `.git` says by then. Both as git takes a
+/// path ([`folder`]).
+fn inside<'a>(record: &'a Path, dir: &'a Path) -> [(&'static str, &'a OsStr); 2] {
+    [
+        ("GIT_DIR", record.as_os_str()),
+        ("GIT_WORK_TREE", dir.as_os_str()),
+    ]
 }
 
 /// Git's record of the worktree at `path`: the folder its `.git` file names.

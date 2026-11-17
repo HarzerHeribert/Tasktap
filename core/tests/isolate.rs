@@ -2102,3 +2102,207 @@ fn review2_8_a_process_the_core_cannot_see_holds_a_worktree() {
     assert!(Path::new(&left.path).join("a.txt").exists());
     assert!(work.branch(&repo, &left.branch).is_some());
 }
+
+// The third review, of the promise about the person's own (design §7):
+// what could reach beyond Tasktap's folder and branches, each closed.
+
+#[test]
+fn review3_1_a_runs_branch_made_a_symbolic_ref_never_leads_to_the_branch_it_names() {
+    if !have_git() {
+        return;
+    }
+    let work = Work::new("t1");
+    let repo = work.repo("app");
+    let base = work.git(&repo, &["rev-parse", "HEAD"]);
+    work.git(&repo, &["branch", "mine"]);
+    let mut s = scene("t1", &work, &repo, SILENT);
+    isolate(&mut s, Isolate::Always);
+    let aliased = |w: &Workdir, to: &str| {
+        let run = format!("refs/heads/{}", w.branch);
+        work.git(&repo, &["symbolic-ref", &run, &format!("refs/heads/{to}")]);
+        run
+    };
+    // The run's branch becomes another name for a branch of the person's:
+    // neither Discard nor Keep reads, moves or deletes anything through it.
+    let t = pending(&mut s, "write:n.txt:n");
+    let w = workdir(&s, t);
+    let run = aliased(&w, "mine");
+    for keep in [false, true] {
+        let e = settle(&mut s, t, keep).unwrap_err();
+        assert!(e.message.contains("symbolic ref"), "{e}");
+        assert_eq!(work.branch(&repo, "mine"), Some(base.clone()), "{keep}");
+        assert_eq!(read(Path::new(&w.path).join("n.txt")), "n");
+    }
+    // The person removes that name: what is left is discarded.
+    work.git(&repo, &["symbolic-ref", "--delete", &run]);
+    settle(&mut s, t, false).unwrap();
+    assert!(!Path::new(&w.path).exists());
+    assert_eq!(work.branch(&repo, "mine"), Some(base.clone()));
+
+    // Nor does the core's own removal of a worktree with nothing in it,
+    // stopped here between removing the folder and deleting the branch,
+    // where no look stands between the new name and the deletion.
+    work.hold("branch");
+    let u = capture(&mut s, "print:nothing to change");
+    work.held("branch");
+    s.w.sync();
+    let w = workdir(&s, u);
+    let run = aliased(&w, "mine");
+    work.release("branch");
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(work.branch(&repo, "mine"), Some(base.clone()));
+    assert_eq!(work.git(&repo, &["symbolic-ref", &run]), "refs/heads/mine");
+
+    // And a launch does not make its branch through a symbolic ref that
+    // has its name: the branch that names is not made, and the launch fails.
+    let attempt = AttemptId::mint();
+    let hex = attempt.uuid().simple().to_string();
+    let taken = format!("refs/heads/tasktap/{}", &hex[hex.len() - 12..]);
+    work.git(&repo, &["symbolic-ref", &taken, "refs/heads/unborn"]);
+    let to = Place::Project(s.project);
+    s.script(
+        Route::Clear {
+            to,
+            brief: "write:a.txt:x".into(),
+        },
+        None,
+    );
+    let v = s.capture("write:a.txt:x");
+    s.w.ok::<call::ThoughtStart>(&Start { id: v, attempt });
+    s.w.until("it failed", |m| m.thoughts[&v].status == Status::Failed);
+    let why = &s.w.model.results_of(v)[0];
+    assert!(why.summary.contains("symbolic ref"), "{}", why.summary);
+    assert_eq!(work.branch(&repo, "unborn"), None);
+    assert_eq!(
+        work.git(&repo, &["symbolic-ref", &taken]),
+        "refs/heads/unborn"
+    );
+}
+
+#[test]
+fn review3_2_a_git_link_changed_after_keep_checked_it_sends_nothing_into_the_persons_repository() {
+    if !have_git() {
+        return;
+    }
+    let work = Work::new("t2");
+    let repo = work.repo("app");
+    // Something of the person's, staged in the project folder.
+    write(&repo.join("s.txt"), "staged\n");
+    work.git(&repo, &["add", "s.txt"]);
+    let mut s = scene("t2", &work, &repo, SILENT);
+    isolate(&mut s, Isolate::Always);
+    let t = pending(&mut s, "write:k.txt:kept");
+    let w = workdir(&s, t);
+    // Keep has checked the worktree and is stopped before it commits there;
+    // then the worktree's `.git` names the project's own git folder.
+    work.hold("commit");
+    let settle_args = Settle {
+        id: t,
+        attempt: AttemptId::mint(),
+        keep: true,
+    };
+    let call = s.w.send::<call::ThoughtSettle>(&settle_args);
+    work.held("commit");
+    let link = format!("gitdir: {}\n", plain(repo.join(".git")).display());
+    write(&Path::new(&w.path).join(".git"), &link);
+    work.release("commit");
+    // Git no longer takes the folder for its worktree, so it stays.
+    let e = s.w.reply::<call::ThoughtSettle>(call).unwrap_err();
+    assert!(e.message.contains("The changes are in main"), "{e}");
+    // The commit was made in the worktree's own record, and kept; what the
+    // person had staged is staged as it was.
+    assert_eq!(
+        work.git(&repo, &["diff", "--cached", "--name-only"]),
+        "s.txt"
+    );
+    assert_eq!(read(repo.join("k.txt")), "kept");
+    assert_eq!(
+        work.git(&repo, &["log", "-1", "--format=%s: %b"]),
+        "write:k.txt:kept: Committed by Tasktap when its changes were kept."
+    );
+}
+
+#[test]
+fn review3_3_a_replacement_ref_does_not_make_keep_drop_the_persons_commits() {
+    if !have_git() {
+        return;
+    }
+    let work = Work::new("t3");
+    let repo = work.repo("app");
+    let mut s = scene("t3", &work, &repo, SILENT);
+    isolate(&mut s, Isolate::Always);
+    let t = pending(&mut s, "write:n.txt:n");
+    let w = workdir(&s, t);
+    let wt = Path::new(&w.path);
+    work.git(wt, &["add", "-A"]);
+    work.git(wt, &["commit", "-q", "-m", "the agent's"]);
+    let tip = work.branch(&repo, &w.branch).unwrap();
+    let moved = work.commit(&repo, "a.txt", "person\n", "the person's");
+    // A replacement that shows the run's commit as made after the person's,
+    // which it was not.
+    work.git(&repo, &["replace", "--graft", &tip, &moved]);
+    settle(&mut s, t, true).unwrap();
+    // Main as it really is still holds the person's commit, and its file.
+    let real = ["--no-replace-objects", "merge-base", "--is-ancestor"];
+    let real = work.try_git(&repo, &[&real[..], &[&moved, "main"]].concat());
+    assert!(real.status.success(), "main lost the person's commit");
+    assert_eq!(read(repo.join("a.txt")), "person\n");
+    assert_eq!(read(repo.join("n.txt")), "n");
+}
+
+#[test]
+fn review3_4_a_strategy_the_person_prefers_does_not_replace_the_fast_forward() {
+    if !have_git() {
+        return;
+    }
+    let work = Work::new("t4");
+    let config = "[branch \"main\"]\n\tmergeOptions = -s subtree\n[pull]\n\ttwohead = subtree\n";
+    std::fs::write(work.core_config(), config).unwrap();
+    let repo = work.repo("app");
+    let head = work.git(&repo, &["rev-parse", "HEAD"]);
+    let mut s = scene("t4", &work, &repo, SILENT);
+    isolate(&mut s, Isolate::Always);
+    let t = pending(&mut s, "write:x.txt:x");
+    let wt = PathBuf::from(workdir(&s, t).path);
+    write(&wt.join("out.log"), "agent's log\n");
+    work.git(&wt, &["add", "-f", "out.log"]);
+    work.git(&wt, &["commit", "-q", "-m", "the agent's log"]);
+    // An ignored file of the person's where the keep brings a tracked one.
+    write(&repo.join("out.log"), "my log\n");
+    let e = settle(&mut s, t, true).unwrap_err();
+    assert!(e.message.contains("out.log"), "{e}");
+    assert_eq!(read(repo.join("out.log")), "my log\n");
+    assert_eq!(work.git(&repo, &["rev-parse", "HEAD"]), head);
+    // Out of the way, the keep is the fast-forward it was asked to be.
+    std::fs::remove_file(repo.join("out.log")).unwrap();
+    settle(&mut s, t, true).unwrap();
+    assert_eq!(work.git(&repo, &["rev-parse", "HEAD~2"]), head);
+    let merges = ["rev-list", "--merges", &format!("{head}..HEAD")];
+    assert_eq!(work.git(&repo, &merges), "");
+    assert_eq!(read(repo.join("out.log")), "agent's log\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn review3_5_a_worktrees_folder_that_is_a_link_elsewhere_is_never_worked_in() {
+    if !have_git() {
+        return;
+    }
+    let work = Work::new("t5");
+    let repo = work.repo("app");
+    let data = Folder::new("t5");
+    // The worktrees' folder leads into a folder of the person's, which
+    // holds a file with a name the core would give one of its own.
+    let theirs = work.path("theirs");
+    write(&theirs.join(".tmp-notes.txt"), "mine");
+    std::os::unix::fs::symlink(&theirs, data.0.join("worktrees")).unwrap();
+    let mut s = Scene::in_folder(start(&data, &work, &[]), data, &repo, SILENT);
+    isolate(&mut s, Isolate::Always);
+    let t = capture(&mut s, "write:a.txt:x");
+    s.w.until("it failed", |m| m.thoughts[&t].status == Status::Failed);
+    let why = &s.w.model.results_of(t)[0];
+    assert!(why.summary.contains("is a link"), "{}", why.summary);
+    assert_eq!(files_in(&theirs), [".tmp-notes.txt"]);
+    assert_eq!(read(theirs.join(".tmp-notes.txt")), "mine");
+    assert_eq!(work.ours(&repo), "");
+}

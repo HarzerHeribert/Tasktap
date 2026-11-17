@@ -150,8 +150,8 @@ if [ "$(js workspace "String(document.hidden)")" = true ]; then
   pass "the sidebar's glyphs: the window is covered, so nothing is drawn yet"
 else
   until_has workspace "eval String((g => g.length >= 2 && g.every(x => x.offsetWidth >= 56 && x.querySelector('.turn canvas')) && !document.querySelector('.spark .motion'))($glyphs))" 5 "true" \
-    && a="$(js workspace "$glyphs.map(x => x.querySelector('.turn').style.transform).join('|')")" && sleep 1.5 \
-    && [ "$(js workspace "$glyphs.map(x => x.querySelector('.turn').style.transform).join('|')")" = "$a" ] \
+    && a="$(js workspace "$glyphs.map(x => getComputedStyle(x.querySelector('.turn')).transform + getComputedStyle(x.querySelector('.turn')).translate).join('|')")" && sleep 1.5 \
+    && [ "$(js workspace "$glyphs.map(x => getComputedStyle(x.querySelector('.turn')).transform + getComputedStyle(x.querySelector('.turn')).translate).join('|')")" = "$a" ] \
     && pass "the sidebar's foot shows a few large chrome glyphs, each a picture drawn once, at rest while idle" || fail "the sidebar's glyphs" "$(js workspace "$glyphs.length")"
 fi
 # The ambient light is the core's preference: Off removes the light and the glyphs, and the page keeps nothing itself.

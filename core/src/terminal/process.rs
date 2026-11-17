@@ -282,11 +282,14 @@ fn group(child: &(dyn Child + Send + Sync)) -> Result<Group, String> {
 }
 
 fn command(plan: Plan) -> CommandBuilder {
-    let mut cmd = if plan.argv.is_empty() {
-        // Its login shell, as a terminal window starts it.
-        CommandBuilder::new_default_prog()
-    } else {
-        CommandBuilder::from_argv(plan.argv.into_iter().map(OsString::from).collect())
+    let mut cmd = match plan.argv.is_empty() {
+        // The person's shell as a Linux terminal starts it: interactive, not
+        // a login shell, whose profile may set PATH anew (Debian's does) and
+        // drop the shims (design §4).
+        true if cfg!(target_os = "linux") => CommandBuilder::new(shell()),
+        // Elsewhere its login shell, as a terminal window starts it.
+        true => CommandBuilder::new_default_prog(),
+        false => CommandBuilder::from_argv(plan.argv.into_iter().map(OsString::from).collect()),
     };
     cmd.env_clear();
     for (key, value) in plan.env {

@@ -532,6 +532,42 @@ fn input_reaches_the_process_and_comes_back() {
 
 const FNV: u64 = 0xcbf2_9ce4_8422_2325;
 
+/// Input a process does not read stays bounded: a client that sends what it
+/// was granted and closes its stream leaves that input waiting, and a
+/// client attaching after it is granted only what the terminal's budget
+/// leaves, not 64 KiB more each time. The process makes its terminal raw so
+/// that what it does not read stays unwritten (`stty`: Mac and Linux).
+#[cfg(unix)]
+#[test]
+fn input_a_process_does_not_read_stays_bounded_however_often_clients_reattach() {
+    let data = Folder::new("tt-bound");
+    let core = Core::start(&data);
+    let mut c = core.device();
+    let id = TerminalId::mint();
+    let start = StartTerminal {
+        project: None,
+        argv: vec![EXE.into(), "fixture-agent".into(), "stall:30000".into()],
+        title: None,
+    };
+    let mut v = open(&mut c, &args(id, Some(start), None, 1 << 20), true);
+    until(&mut c, &mut v, "the process stalls", |v| {
+        text(v.bytes()).contains("stalling")
+    });
+    let mut sent = 0;
+    for _ in 0..4 {
+        let credit = c.credit(v.s) as usize;
+        sent += c.send_some(v.s, &vec![b'x'; credit]).unwrap();
+        c.close(v.s).unwrap();
+        v = open(&mut c, &args(id, None, None, 1 << 20), true);
+    }
+    sent += c.credit(v.s) as usize;
+    // 64 KiB, and what the terminal itself took before it was full.
+    assert!(
+        sent <= (64 + 16) << 10,
+        "{sent} bytes accepted for a process that reads none"
+    );
+}
+
 #[test]
 fn a_resize_reaches_the_process_and_is_a_mark_where_it_happened() {
     let data = Folder::new("tt-size");

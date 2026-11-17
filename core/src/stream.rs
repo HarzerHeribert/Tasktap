@@ -144,6 +144,11 @@ impl Handle {
         !self.shared.closed.get()
     }
 
+    /// Whether both are the hold on one stream.
+    pub fn same(&self, other: &Handle) -> bool {
+        Rc::ptr_eq(&self.shared, &other.shared)
+    }
+
     fn poke(&self) {
         if let Some(link) = self.link.upgrade() {
             link.poke();

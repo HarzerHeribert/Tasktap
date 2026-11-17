@@ -35,7 +35,9 @@ pub const RING: usize = 2 << 20;
 /// which keeps it: doubling all the way left 0.6 to 1 MiB a terminal more
 /// than its 2 MiB (measured by `scripts/measure.sh`).
 const GROWN: usize = 64 << 10;
-/// Input one attached client may have on its way to the process.
+/// Input one attached client may have on its way to the process, and the
+/// most a terminal holds for its process before it grants any more: what
+/// a client sent and closed its stream on, and what the core typed, count.
 pub const INPUT: u32 = 64 << 10;
 /// Sizes remembered for the bytes in the ring. A client resizing faster
 /// than the terminal writes costs the oldest bytes, never more memory.
@@ -50,7 +52,9 @@ pub struct Term {
     sizes: Vec<(u64, Size)>,
     /// Once the terminal has ended: its exit code, none when it has none.
     exit: Option<Option<u32>>,
-    readers: Vec<Handle>,
+    readers: Vec<Reader>,
+    /// Bytes of input handed to the input thread and not yet written.
+    queued: u32,
     input: Option<plain::Sender<Input>>,
     /// Input handed to the input thread and not yet written, in order.
     owed: VecDeque<(Owner, u32)>,
@@ -69,6 +73,7 @@ impl Term {
             sizes: vec![(0, size)],
             exit: None,
             readers: Vec::new(),
+            queued: 0,
             input: Some(input),
             owed: VecDeque::new(),
             unwritable: None,
@@ -84,15 +89,28 @@ impl Term {
         self.sizes.last().map_or(Size(0, 0), |&(_, size)| size)
     }
 
-    pub fn attach(&mut self, reader: Handle) {
-        self.readers.push(reader);
+    /// What a client attaching now is granted: as much as one client may
+    /// have on its way, while the terminal holds less than that for its
+    /// process; never what input already waiting there takes.
+    pub fn grantable(&mut self) -> u32 {
+        self.readers.retain(|r| r.handle.is_open());
+        INPUT.saturating_sub(self.queued)
+    }
+
+    /// A client attached, `granted` what [`Term::grantable`] said.
+    pub fn attach(&mut self, handle: Handle, granted: u32) {
+        self.readers.push(Reader {
+            handle,
+            unused: granted,
+            sent: 0,
+        });
     }
 
     /// Appends output, dropping the oldest bytes beyond [`RING`], and
     /// answers what it asks the terminal while no client is attached to
     /// answer it (`queries`).
     pub fn push(&mut self, bytes: &[u8]) {
-        self.readers.retain(Handle::is_open);
+        self.readers.retain(|r| r.handle.is_open());
         let found = self.queries.scan(bytes, !self.readers.is_empty());
         let kept;
         let bytes = match found.hidden {
@@ -159,6 +177,7 @@ impl Term {
 
     /// Everything still owed was not written: whoever typed it learns so.
     fn unwritten(&mut self, why: &str) {
+        self.queued = 0;
         for (owner, _) in self.owed.drain(..) {
             if let Owner::Core(Some(typist)) = owner {
                 let _ = typist.send(Err(why.into()));
@@ -166,8 +185,13 @@ impl Term {
         }
     }
 
-    /// Input from an attached client, granted back to it once written.
+    /// Input from an attached client, within what it was granted.
     fn take(&mut self, from: &Handle, bytes: &[u8]) {
+        let n = bytes.len() as u32;
+        if let Some(r) = self.readers.iter_mut().find(|r| r.handle.same(from)) {
+            r.unused = r.unused.saturating_sub(n);
+            r.sent += n;
+        }
         self.send(Some(from), bytes);
     }
 
@@ -209,6 +233,7 @@ impl Term {
         let sent = input.is_some_and(|input| input.send(chunk()).is_ok());
         if sent {
             self.owed.push_back((owner, bytes.len() as u32));
+            self.queued = self.queued.saturating_add(bytes.len() as u32);
         }
         sent
     }
@@ -217,12 +242,37 @@ impl Term {
     /// core gave up on it: a client may send as much again, and the core's
     /// typist learns how it went.
     pub fn wrote(&mut self, whole: bool) {
-        match self.owed.pop_front() {
-            Some((Owner::Client(from), n)) => from.grant(n),
-            Some((Owner::Core(Some(typist)), _)) => {
+        let Some((owner, n)) = self.owed.pop_front() else {
+            return;
+        };
+        self.queued = self.queued.saturating_sub(n);
+        match owner {
+            Owner::Client(from) => {
+                if let Some(r) = self.readers.iter_mut().find(|r| r.handle.same(&from)) {
+                    r.sent = r.sent.saturating_sub(n);
+                }
+            }
+            Owner::Core(Some(typist)) => {
                 drop(typist.send(if whole { Ok(()) } else { Err(UNTAKEN.into()) }));
             }
-            _ => {}
+            Owner::Core(None) => {}
+        }
+        self.top_up();
+    }
+
+    /// Grants each attached client what it may have on its way again, out
+    /// of what the terminal does not hold for its process yet. A client
+    /// that closed its stream gave up what it was granted.
+    fn top_up(&mut self) {
+        self.readers.retain(|r| r.handle.is_open());
+        let mut room = INPUT.saturating_sub(self.queued);
+        for r in &mut self.readers {
+            let grant = INPUT.saturating_sub(r.unused + r.sent).min(room);
+            if grant > 0 {
+                r.handle.grant(grant);
+                r.unused += grant;
+                room -= grant;
+            }
         }
     }
 
@@ -253,9 +303,9 @@ impl Term {
     }
 
     fn wake(&mut self) {
-        self.readers.retain(Handle::is_open);
-        for reader in &self.readers {
-            reader.wake();
+        self.readers.retain(|r| r.handle.is_open());
+        for r in &self.readers {
+            r.handle.wake();
         }
     }
 
@@ -275,6 +325,15 @@ impl Term {
             n + room.put(second)
         }
     }
+}
+
+/// An attached client, and the input it may send.
+struct Reader {
+    handle: Handle,
+    /// Granted and not sent yet.
+    unused: u32,
+    /// Sent and not written yet.
+    sent: u32,
 }
 
 /// Who sent input on its way to the process.

@@ -21,7 +21,7 @@ use crate::state::{self, Error as Refused};
 use crate::store::AttemptKind;
 use crate::stream;
 use process::{Plan, Process, Report};
-use ring::{Attachment, Feed, INPUT, Saved, Term};
+use ring::{Attachment, Feed, Saved, Term};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -496,10 +496,12 @@ fn attach(cx: &mut Cx, t: &Terminal, from: Option<Offset>, credit: u32) -> Resul
         None => (start, false),
     };
     // Input only while there is a process to take it.
-    let grant = if live.is_some() { INPUT } else { 0 };
+    let grant = live
+        .as_ref()
+        .map_or(0, |term| term.borrow_mut().grantable());
     let opened = stream::open(cx.link, credit, grant, |handle| {
         if let Some(term) = &live {
-            term.borrow_mut().attach(handle.clone());
+            term.borrow_mut().attach(handle.clone(), grant);
         }
         Box::new(Attachment::new(feed, handle, pos, gap))
     })?;

@@ -712,12 +712,7 @@ fn a_shim_killed_ends_its_session_and_stopping_one_never_ends_the_shell() {
     // The agent it left reads the end of its input and goes.
     drop(child.stdin.take());
 
-    // How a shim ends its agent on Windows is not proven yet: in CI the
-    // agent was still there after the stop (design §14, Phase 7).
-    if cfg!(windows) {
-        return;
-    }
-    let child = sh.spawn(&["event:ready", "wait"]);
+    let mut child = sh.spawn(&["event:ready", "wait"]);
     let session = sh.adopted();
     sh.s.w.until("idle", |m| {
         m.session(session.id).state == SessionState::Idle
@@ -730,6 +725,12 @@ fn a_shim_killed_ends_its_session_and_stopping_one_never_ends_the_shell() {
     let log = sh.s.log();
     assert!(log.killed.is_empty(), "{:?}", log.killed);
     sh.ended(session.id);
+    // The session ends with the stop; the shim ends with its agent, which
+    // must go without its input closing, as it would never close there.
+    assert!(
+        soon(|| child.try_wait().unwrap().is_some()),
+        "the agent runs on"
+    );
     let out = child.wait_with_output().unwrap();
     assert!(!out.status.success(), "{out:?}");
     assert!(!text(&out.stdout).contains("read:"), "{out:?}");

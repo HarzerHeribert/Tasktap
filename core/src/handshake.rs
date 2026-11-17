@@ -23,7 +23,8 @@ pub fn hello(core: &mut Core, hello: Hello) -> Result<(Peer, Welcome), Option<Re
         // Without a shared version only the bootstrap calls work, and they
         // need nothing but the user check.
         _ if v == NO_SHARED_VERSION => Caller::Anonymous,
-        None => Caller::Anonymous,
+        // A newer app's way of proving itself is no identity here.
+        None | Some(Auth::Unknown(_)) => Caller::Anonymous,
         Some(Auth::Session { token }) => {
             Caller::Session(session(core, &hash(&token)).ok_or(RefuseWhy::Auth)?)
         }

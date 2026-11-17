@@ -6,6 +6,11 @@
 //! and the arguments and results of `core.status` and `core.retire`. The other
 //! `hello` and `welcome` fields may only gain additions, because an old core
 //! still has to decode a new app's `hello` to read `v` from it.
+//!
+//! So every closed set of words in these frames decodes a word it does not
+//! know as `Unknown` instead of failing: an old core still welcomes an app
+//! with a new role or a new way to prove itself, and an old app still reads
+//! a new core's welcome. `Unknown` is never sent and is not in protocol.ts.
 
 use crate::ids::{CoreId, DeviceId, Secret};
 use serde::{Deserialize, Serialize};
@@ -54,6 +59,10 @@ pub enum Role {
     Page,
     Host,
     Cli,
+    /// A role from a newer app.
+    #[serde(other)]
+    #[cfg_attr(test, ts(skip))]
+    Unknown,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,6 +79,10 @@ pub enum Auth {
     Session {
         token: Secret,
     },
+    /// A scheme from a newer app, or a known one that does not parse. The
+    /// core treats it as no identity, so the bootstrap calls still work.
+    #[cfg_attr(test, ts(skip))]
+    Unknown(serde_json::Value),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,6 +114,10 @@ pub enum Identity {
     /// A local peer with neither a device key nor a session token.
     #[serde(rename = "none")]
     Anonymous,
+    /// An identity from a newer core.
+    #[serde(other)]
+    #[cfg_attr(test, ts(skip))]
+    Unknown,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -115,6 +132,10 @@ pub struct Refuse {
 pub enum RefuseWhy {
     Auth,
     Revoked,
+    /// A reason from a newer core.
+    #[serde(other)]
+    #[cfg_attr(test, ts(skip))]
+    Unknown,
 }
 
 /// The result of `core.status`.

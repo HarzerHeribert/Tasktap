@@ -1,0 +1,24 @@
+/* The motion (motion.tsx): an element the engine fills with a canvas, and where the backdrop sits on each surface.
+   The canvas is light over the page: where it is black it is clear, and the words above it keep their contrast. Every
+   placement is a box, the surface's, and the part of it the motion fills. */
+.motion{display:block;position:relative;pointer-events:none}
+.motion-canvas{position:absolute;inset:0;display:block;width:100%;height:100%}
+.backdrop-box{position:absolute;display:block;pointer-events:none}
+.backdrop-box .backdrop{position:absolute;inset:0}
+
+/* The open notch's sheet: all of it, a band rising from its bottom edge, or a band along its top from the camera. */
+.backdrop-box[data-place=glass] .backdrop{opacity:.85}
+.backdrop-box[data-place=rise] .backdrop{top:auto;height:min(30%,92px);
+  -webkit-mask-image:linear-gradient(to top,#000 35%,transparent);mask-image:linear-gradient(to top,#000 35%,transparent)}
+.backdrop-box[data-place=crown] .backdrop{bottom:auto;height:min(30%,84px);
+  -webkit-mask-image:linear-gradient(to bottom,#000 35%,transparent);mask-image:linear-gradient(to bottom,#000 35%,transparent)}
+
+/* Home: across its header band where 1.2's artwork played, feathered as that was; low behind the lists; or a wash. */
+.backdrop-box[data-place=header] .backdrop{left:33%;
+  -webkit-mask-image:linear-gradient(to right,transparent,#000 12% 88%,transparent),linear-gradient(to bottom,transparent,#000 14% 86%,transparent);
+  -webkit-mask-composite:source-in;
+  mask-image:linear-gradient(to right,transparent,#000 12% 88%,transparent),linear-gradient(to bottom,transparent,#000 14% 86%,transparent);
+  mask-composite:intersect}
+.backdrop-box[data-place=low] .backdrop{top:50%;
+  -webkit-mask-image:linear-gradient(to top,#000 45%,transparent);mask-image:linear-gradient(to top,#000 45%,transparent)}
+.backdrop-box[data-place=wash] .backdrop{opacity:.7}

@@ -210,8 +210,8 @@ pub struct Capture {
     pub mode: Option<Mode>,
     pub project_id: Option<ProjectId>,
     pub session_id: Option<SessionId>,
-    /// The agent a new run of the thought uses, by its id (`claude`,
-    /// `codex`); without one, the `agent` preference, else the first agent
+    /// The agent a new run of the thought uses, by the id `agent.detect`
+    /// lists; without one, the `agent` preference, else the first agent
     /// this core has. A follow-up uses its session's agent.
     #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub agent: Option<String>,

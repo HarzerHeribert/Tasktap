@@ -153,8 +153,8 @@ export type CallId = number;
  */
 export type Capture = { id: ThoughtId, text: string, strokes: Array<Array<[number, number]>>, source: Source, mode?: Mode | null, project_id?: ProjectId | null, session_id?: SessionId | null,
 /**
- * The agent a new run of the thought uses, by its id (`claude`,
- * `codex`); without one, the `agent` preference, else the first agent
+ * The agent a new run of the thought uses, by the id `agent.detect`
+ * lists; without one, the `agent` preference, else the first agent
  * this core has. A follow-up uses its session's agent.
  */
 agent?: string | null,

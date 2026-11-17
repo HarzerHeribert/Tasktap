@@ -395,7 +395,7 @@ fn route(core: &mut Core, id: ThoughtId) {
 }
 
 /// Starts a run and answers with its outcome. A run whose agent needs a
-/// check before it starts (design §7: Codex's hook trust) starts once that
+/// check before it starts (design §7, an adapter's probe) starts once that
 /// check, on a thread of its own, has answered; its outcome then reaches
 /// its thought's record and attempt, not the call that started it, which
 /// answers at once.

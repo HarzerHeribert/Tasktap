@@ -1078,9 +1078,11 @@ fn a_core_that_stops_while_a_model_is_asked_asks_nobody_again_and_launches_nothi
         attempt,
     };
     a.w.ok::<call::ThoughtStart>(&start);
-    a.w.ok::<call::ThoughtStart>(&start);
     a.w.until("the run has its terminal", |m| {
         m.sessions.values().any(|s| s.terminal_id.is_some())
     });
+    // The same start again answers as the first did and starts nothing.
+    a.w.ok::<call::ThoughtStart>(&start);
+    a.w.sync();
     assert_eq!(a.w.model.sessions.len(), 1);
 }

@@ -716,7 +716,8 @@ fn delete_restores_a_default_and_removes_a_note() {
     let mut w = core.device();
     let p = project("a");
     let n = note("a note");
-    let t = thought(ThoughtId::mint(), Mode::Ask, Phase::Captured, "a task");
+    // Working: the state machine's, not plain data.
+    let t = thought(ThoughtId::mint(), Mode::Ask, Phase::Working, "a task");
     fixture(
         &mut w,
         vec![

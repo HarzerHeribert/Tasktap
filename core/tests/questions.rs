@@ -112,6 +112,47 @@ fn a_capture_is_routed_held_and_launched_when_the_hold_ends() {
     assert_eq!(s.w.model.session(session).state, SessionState::Idle);
 }
 
+/// A thought undone before it started is the person's again, as a note is:
+/// its text can be changed and it can be thrown away, so retyping it leaves
+/// nothing behind. One that ever ran stays the state machine's, also when
+/// it is undone after a retry.
+#[test]
+fn a_thought_undone_before_it_started_is_edited_and_deleted_as_a_note_is() {
+    let mut s = Scene::new("qd");
+    let t = s.capture("fix the login");
+    s.w.ok::<call::ThoughtStop>(&Ref { id: t });
+    assert_eq!(s.w.model.status(t), Status::Captured);
+    let text = |id, text: &str| PutTarget::Thoughts {
+        id,
+        patch: tasktap_proto::NotePatch {
+            text: Some(text.into()),
+            strokes: None,
+        },
+    };
+    s.w.ok::<call::Put>(&Put {
+        target: text(t, "fix the logout"),
+        if_rev: None,
+    });
+    assert_eq!(s.w.model.thought(t).text, "fix the logout");
+    s.w.ok::<call::Delete>(&tasktap_proto::Delete::Thoughts { id: t });
+    assert!(!s.w.model.thoughts.contains_key(&t));
+
+    let (ran, _, mut agent) = s.launch("tidy the tests");
+    agent.say(Said::TurnFailed { error: None });
+    s.w.sync();
+    s.w.ok::<call::ThoughtRetry>(&Ref { id: ran });
+    s.w.ok::<call::ThoughtStop>(&Ref { id: ran });
+    assert_eq!(s.w.model.status(ran), Status::Captured);
+    let put = Put {
+        target: text(ran, "something else"),
+        if_rev: None,
+    };
+    assert_eq!(s.w.refused::<call::Put>(&put).code, Code::Invalid);
+    let delete = tasktap_proto::Delete::Thoughts { id: ran };
+    assert_eq!(s.w.refused::<call::Delete>(&delete).code, Code::Invalid);
+    assert_eq!(s.w.model.thought(ran).text, "tidy the tests");
+}
+
 #[test]
 fn undo_cancels_the_hold_and_start_launches_at_once_and_only_once() {
     let mut s = Scene::new("qu");

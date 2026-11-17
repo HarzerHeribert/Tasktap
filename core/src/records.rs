@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use tasktap_proto::call::{Code, Error};
 use tasktap_proto::{
-    Change, Collection, Control, Delete, Glance, History, HistoryPage, Layout, Mode, NotePatch,
+    Change, Collection, Control, Delete, Glance, History, HistoryPage, Layout, NotePatch,
     PrefValue, ProjectPatch, Put, PutTarget, Rev, Revision, Rows, SessionId, Set, Subscribe,
     Thought, ThoughtId, encode_control, json_len,
 };
@@ -396,7 +396,7 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
             tx.update_project(&p)
         }
         PutTarget::Thoughts { id, patch } => {
-            let mut t = note(&tx, id)?;
+            let mut t = plain(&tx, id)?;
             check(Some(t.rev))?;
             let NotePatch { text, strokes } = patch;
             t.text = text.unwrap_or(t.text);
@@ -420,10 +420,10 @@ pub fn delete(cx: &mut Cx, args: Delete) -> Result<Revision, Error> {
         Delete::Prefs { id } => tx.delete_pref(id),
         Delete::Layouts { id } => tx.delete_layout(id),
         Delete::Thoughts { id } => {
-            note(&tx, id)?;
+            plain(&tx, id)?;
             match tx.delete_thought(id) {
                 Err(store::Error::Reference) => {
-                    let why = "a session works on this note";
+                    let why = "a session works on this thought";
                     return Err(Error::new(Code::Conflict, why));
                 }
                 deleted => deleted,
@@ -461,12 +461,13 @@ pub fn history(cx: &mut Cx, args: History) -> Result<HistoryPage, Error> {
         .map_err(fail)
 }
 
-/// A thought `put` and `delete` may touch: a note. Every other thought
-/// belongs to the state machine.
-fn note(tx: &Tx, id: ThoughtId) -> Result<Thought, Error> {
+/// A thought `put` and `delete` may touch: one the state machine says is
+/// plain data, captured and never launched. Every other thought is its.
+fn plain(tx: &Tx, id: ThoughtId) -> Result<Thought, Error> {
     let t = tx.thought(id).map_err(fail)?.ok_or_else(|| gone(id))?;
-    if t.mode != Mode::Note {
-        return Err(invalid("only a note is plain data".into()));
+    if !crate::state::plain(tx, &t).map_err(fail)? {
+        let why = "only a thought that is captured and never started is plain data";
+        return Err(invalid(why.into()));
     }
     Ok(t)
 }

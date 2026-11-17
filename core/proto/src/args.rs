@@ -65,7 +65,8 @@ pub enum PutTarget {
         id: ProjectId,
         patch: ProjectPatch,
     },
-    /// A note's text; the core refuses a thought that is not a note.
+    /// The text of a thought that is captured and never started: a note,
+    /// an idea, or one undone before its launch; the core refuses any other.
     Thoughts {
         id: ThoughtId,
         patch: NotePatch,

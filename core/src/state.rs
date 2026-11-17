@@ -1524,6 +1524,15 @@ impl Machine<'_, '_> {
 
 /// A new random id at `now`, the core's clock, for a record the core creates
 /// outside an event, so every id it mints carries the same clock.
+/// Whether `put` and `delete` may treat a thought as plain data, editing
+/// its text or removing it (design §1, §5): while it is captured and nothing
+/// of it was ever launched. A note, an idea the router found no place for,
+/// and a thought the person undid before it started are such; one that ever
+/// ran belongs to the state machine, with its sessions, results and attempts.
+pub fn plain(tx: &Tx, t: &Thought) -> store::Result<bool> {
+    Ok(t.phase == P::Captured && !tx.launched(t.id)?)
+}
+
 pub fn fresh<I: DeserializeOwned>(now: Time) -> store::Result<I> {
     uuid(now, &digest(&[&Secret::mint().0]))
 }

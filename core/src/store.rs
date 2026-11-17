@@ -1017,6 +1017,17 @@ impl<'s> Tx<'s> {
         self.delete(Table::Terminals, &id)
     }
 
+    /// Whether a run of the thought was ever launched or a follow-up typed:
+    /// a launch attempt was written for it (design §3).
+    pub fn launched(&self, thought: ThoughtId) -> Result<bool> {
+        Ok(self
+            .db
+            .prepare_cached(
+                "SELECT EXISTS (SELECT 1 FROM attempts WHERE kind = 'launch' AND target = ?1)",
+            )?
+            .query_row([key(&thought)?], |r| r.get(0))?)
+    }
+
     pub fn delete_thought(&mut self, id: ThoughtId) -> Result<bool> {
         let key = key(&id)?;
         let named: bool = self

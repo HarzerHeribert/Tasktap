@@ -2320,6 +2320,12 @@ fn check(tx: &Tx, known: &Known, effects: &[Effect], step: &Step) {
         if matches!(t.phase, Phase::Routed | Phase::Working) {
             assert_ne!(t.mode, Mode::Note, "a note left captured: {t:?}");
         }
+        // Plain data, which put and delete touch, was never run: no
+        // session names it, so deleting it takes nothing of a run with it.
+        if state::plain(tx, t).unwrap() {
+            assert_eq!(t.phase, Phase::Captured, "{t:?}");
+            assert!(!ss.iter().any(|s| s.thought_id == Some(t.id)), "{t:?}");
+        }
         if t.phase == Phase::Working {
             let s = session(t.session_id.expect("a working thought has a session"));
             assert_ne!(

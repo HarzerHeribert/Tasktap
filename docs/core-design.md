@@ -58,7 +58,7 @@ type Frame =                                   // kind 0: one JSON object
 
 **Live rows only.** Collections hold what is live. A thought is live until it is finished (done or failed, read, settled) and 200 newer finished thoughts exist; its sessions, questions and results are live with it. A row that stops being live is a `del` in the change that caused it. Older thoughts are fetched with `history {before?, after?, limit ≤ 100}`, which returns them with their questions and results in pages whose rows fit one chunk; a page cut among one thought's questions and results names in `after` where the next goes on. They are not subscribed. This bounds every snapshot. I found no case that needs more.
 
-**Plain data and effects.** `put {c, id, patch, if_rev?}` and `delete {c, id}` write the collections that are plain data (`prefs`, `layouts`, `previews`, the editable fields of `projects` and of notes). Everything with an effect is a named call. Fields the state machine owns are refused by `put`.
+**Plain data and effects.** `put {c, id, patch, if_rev?}` and `delete {c, id}` write the collections that are plain data (`prefs`, `layouts`, `previews`, the editable fields of `projects`, and the text of a thought that is captured and was never launched: a note, an idea, or one undone before it started, which `delete` also removes, so a person who undoes and retypes leaves nothing behind; `state::plain` decides). Everything with an effect is a named call. Fields the state machine owns are refused by `put`.
 
 Calls without a mark are built in Phase 1; (2), (3) and (6) name the phase that adds the rest. The protocol crate holds only what exists.
 
@@ -201,6 +201,7 @@ Only `state::apply(event)` writes a thought's `phase` and a session's `state`, a
 | route `unknown` | stays captured, mode becomes `note` (an idea) | – |
 | hold ends, or `thought.start` | routed → working, after the attempt is committed | new session: starting. Follow-up: delivered as §7 allows |
 | `thought.stop` before launch (Undo) | routed → captured | – |
+| `put` of its text, `delete` | a thought captured and never launched (no launch attempt: a note, an idea, one undone) is plain data: its text changes, or it is removed with its router question; any other is `invalid` | – |
 | launch fails | → failed; why the run did not start, or the follow-up was not typed, is its failure result | a new session ends; a follow-up's session is left as it is |
 | `session.adopt` (a shell's token) | – | new adopted session: starting, in the shell's terminal and project (the scratch when it has none). `conflict` while a session in that terminal is alive |
 | `ready` | – | starting → idle; what it showed in its terminal before (next row) closes as answered there, as it does when `turn_started` comes straight from starting |

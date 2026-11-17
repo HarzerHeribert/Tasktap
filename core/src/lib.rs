@@ -8,6 +8,7 @@
 pub mod agents;
 mod calls;
 pub mod client;
+mod command;
 mod conn;
 mod effects;
 mod handshake;
@@ -17,6 +18,7 @@ mod questions;
 mod records;
 pub mod roles;
 pub mod route;
+pub mod secrets;
 pub mod serve;
 mod shim;
 pub mod state;

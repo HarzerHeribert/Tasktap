@@ -294,7 +294,6 @@ function showSession(id){
   const retry=failedStart(s);
   if(retry)actions.push(button('Review & retry','review-retry',id,'primary'));
   if(latest)actions.push(button('View handoff','detailcapture',latest.id));
-  if(live && s.managed && !s.interactive && !s.planAccount && ['claude','codex'].includes(s.agent) && ['Failed','Complete'].includes(s.state))actions.push(button('Resume in Terminal','terminal',id),button('Copy resume command','copyresume',id));
   if(q)actions.push(button('Review decision','notch',q.id));
   if(!live && s.state==='Running' && !s.producerKey)actions.push(button('Simulate completion','complete',id));
   const turns=state.captures.filter(c=>c.session===id);
@@ -596,13 +595,11 @@ document.addEventListener('click',e=>{
     case 'agent-setup':if(live)aiConnections.setup();break;
     case 'worker-install':case 'worker-login':if(live && Object.hasOwn(providers,id))postLive(a,{agent:id});break;
     case 'preview-voice':speak('Tasktap is ready. What would you like to work on?');break;
-    case 'terminal':postLive('resume-terminal',{id});break;
     case 'check-updates':if(live)postLive('check-updates');break;
     case 'open-docs':{const section=({agents:'agents',capture:'capture',voice:'voice',appearance:'appearance',workspaces:'workspaces'})[id]||'install';if(live)postLive('open-docs',{section});else window.open('https://harzerheribert.github.io/Tasktap/docs/#'+section,'_blank','noopener');break}
     case 'focus-session':if(sess(id)?.host==='tasktap')workspaceDeck.open('terminal:'+id,sess(id).project);break;
     case 'reopen-session':postLive('reopen-session',{id});break;
     case 'review-retry':{const c=failedStart(sess(id));if(c)postLive('review-failed-handoff',{session:id,capture:c.id});break}
-    case 'copyresume':postLive('copy-resume',{id});break;
     case 'openresult':if(sess(id)?.host==='tasktap'){workspaceDeck.openResult(id);dismissCard();break}if(live){const s=sess(id);postLive('open-result',{id,viewer:s.viewer||'Finder',text:s.result||''});break}dialog('Result preview',sess(id).viewer||'Editor','<p>'+esc(sess(id).result)+'</p><p class="hint">Opening an external app is simulated here.</p>'+button('Back to session','session',id));break;
     case 'detailcapture':detailCapture(id);break;case 'note':showNote(id);break;case 'sample':startSample();break;
     case 'sketch':draft.sketch=!draft.sketch;editDraft();break;

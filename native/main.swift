@@ -975,23 +975,6 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
                 if let error {self?.deliver("live-error",error,reveal:false)}
                 else {self?.deliver("session-focused",id,reveal:false)}
             }
-        case "resume-terminal","copy-resume":
-            guard let id=data["id"] as? String else{return}
-            do {
-                let command=try runtime.resumeCommand(id)
-                if type=="copy-resume"{
-                    NSPasteboard.general.clearContents();NSPasteboard.general.setString(command,forType:.string)
-                    deliver("live-error","Resume command copied.",reveal:false)
-                } else {
-                    let file=runtime.data.appendingPathComponent(id).appendingPathComponent("Resume.command")
-                    try ("#!/bin/zsh\n"+command+"\n").write(to:file,atomically:true,encoding:.utf8)
-                    try FileManager.default.setAttributes([.posixPermissions:0o700],ofItemAtPath:file.path)
-                    guard let terminal=NSWorkspace.shared.urlForApplication(withBundleIdentifier:"com.apple.Terminal") else{throw LiveWorkspace.Failure.reason("Terminal is unavailable. Use Copy resume command.")}
-                    NSWorkspace.shared.open([file],withApplicationAt:terminal,configuration:.init()){[weak self] _,error in
-                        if let error{DispatchQueue.main.async{self?.deliver("live-error",error.localizedDescription,reveal:false)}}
-                    }
-                }
-            } catch {deliver("live-error",error.localizedDescription,reveal:false)}
         case "copy-report":
             guard !verifying,!liveTest,let text=data["text"] as? String,text.utf8.count<=1_000_000 else{return}
             NSPasteboard.general.clearContents();NSPasteboard.general.setString(text,forType:.string)

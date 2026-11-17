@@ -288,22 +288,5 @@ final class LiveWorkspace {
             changed(event)
         }
     }
-    func resumeCommand(_ id:String)throws -> String {
-        guard UUID(uuidString:id) != nil else {throw Failure.reason("Invalid session.")}
-        let folder=data.appendingPathComponent(id)
-        let jobs=try fm.contentsOfDirectory(at:folder,includingPropertiesForKeys:nil).filter{$0.pathExtension=="job"}.sorted{$0.lastPathComponent<$1.lastPathComponent}
-        guard let first=jobs.first,
-              jobs.allSatisfy({["Complete","Failed"].contains(readState($0.deletingPathExtension().appendingPathExtension("receipt")) ?? "")}),
-              let job=try JSONSerialization.jsonObject(with:Data(contentsOf:first)) as? [String:Any],
-              (job["planAccount"] as? String ?? "").isEmpty,let provider=job["agent"] as? String,["claude","codex"].contains(provider),
-              let cwd=job["folder"] as? String,
-              let conversation=try JSONSerialization.jsonObject(with:Data(contentsOf:folder.appendingPathComponent("conversation.json"))) as? [String:String],
-              let handle=conversation["id"],UUID(uuidString:handle) != nil else {
-            throw Failure.reason("Wait for the session to finish before opening it in Terminal.")
-        }
-        guard allowedJobFolder(cwd) else {throw Failure.reason("This workspace folder is unavailable. Open its current location before resuming the session.")}
-        let quoted=cwd.replacingOccurrences(of:"'",with:"'\"'\"'")
-        return "cd -- '"+quoted+"' && "+provider+(provider=="claude" ? " --resume ":" resume ")+handle
-    }
     func stop(){timer?.invalidate();scanTimer?.invalidate()}
 }

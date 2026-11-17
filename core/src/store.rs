@@ -27,6 +27,8 @@ use std::fmt;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::records::MAX_ROW;
+
 use rusqlite::types::{FromSql, Type};
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Params, Row, ToSql, TransactionBehavior, ffi, params,
@@ -63,6 +65,9 @@ pub enum Error {
     Reference,
     /// The row to change does not exist.
     NotFound,
+    /// A row written takes this many bytes of JSON, more than one snapshot
+    /// chunk carries (design §1); nothing was written.
+    TooLarge(usize),
     /// A stored value this build cannot read back.
     Corrupt(String),
     /// A file beside the database could not be handled: the backup, or the log.
@@ -90,6 +95,10 @@ impl fmt::Display for Error {
             Error::Duplicate(what) => write!(f, "already exists: {what}"),
             Error::Reference => f.write_str("a reference names a row that does not exist"),
             Error::NotFound => f.write_str("no such row"),
+            Error::TooLarge(len) => write!(
+                f,
+                "the row would take {len} bytes; a row is at most {MAX_ROW}"
+            ),
             Error::Corrupt(what) => write!(f, "unreadable stored value: {what}"),
             Error::Io(e) => write!(f, "{e}"),
             Error::Sqlite(e) => write!(f, "sqlite: {e}"),
@@ -480,7 +489,10 @@ impl<'s> Tx<'s> {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    fn emit<R: DeserializeOwned, I: DeserializeOwned>(
+    /// Adds a table's rows to the change, refusing the transaction when a
+    /// row it wrote, as a client would be sent it, is larger than a chunk:
+    /// the one place every write passes.
+    fn emit<R: DeserializeOwned + Serialize, I: DeserializeOwned>(
         &self,
         seen: &Seen,
         table: Table,
@@ -492,7 +504,14 @@ impl<'s> Tx<'s> {
             del: Vec::new(),
         };
         for ((_, id), &(before, wrote)) in seen.iter().filter(|((t, _), _)| *t == table) {
-            match self.select(table, "WHERE id = ?1", [id])?.pop() {
+            let found = self.select::<R>(table, "WHERE id = ?1", [id])?.pop();
+            if let Some((row, _)) = &found
+                && wrote
+                && json_len(row) > MAX_ROW
+            {
+                return Err(Error::TooLarge(json_len(row)));
+            }
+            match found {
                 Some((row, true)) => {
                     if wrote || !before {
                         rows.put.push(row);

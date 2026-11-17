@@ -28,8 +28,8 @@ pub const CHUNK: usize = 256 << 10;
 /// Room a chunk keeps for its envelope, and each set in it for `{"c":…,"put":[]}`.
 const ENVELOPE: usize = 64;
 const SET: usize = 32;
-/// Most bytes a row written by `put` may take, so that it fits one chunk
-/// and its change fits one frame.
+/// Most bytes a row may take, so that it fits one chunk and its change one
+/// frame. The store refuses a transaction that writes a larger one.
 pub const MAX_ROW: usize = CHUNK - ENVELOPE - SET;
 /// Activity lines a session keeps, and characters of each (design §5).
 const ACTIVITY: usize = 40;
@@ -382,7 +382,6 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
                 rev: Rev::ZERO,
                 tree,
             };
-            fits(&layout)?;
             tx.put_layout(&layout)
         }
         PutTarget::Projects { id, patch } => {
@@ -398,7 +397,6 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
             p.color = color.unwrap_or(p.color);
             p.aliases = aliases.unwrap_or(p.aliases);
             p.isolate = isolate.unwrap_or(p.isolate);
-            fits(&p)?;
             tx.update_project(&p)
         }
         PutTarget::Thoughts { id, patch } => {
@@ -408,7 +406,6 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
             t.text = text.unwrap_or(t.text);
             t.strokes = strokes.unwrap_or(t.strokes);
             t.updated = core.seams.now();
-            fits(&t)?;
             tx.update_thought(&t)
         }
     }
@@ -469,19 +466,11 @@ fn published(core: &mut Core, change: Option<Change>) -> Revision {
     Revision { rev }
 }
 
-fn fits(row: &impl Serialize) -> Result<(), Error> {
-    match json_len(row) {
-        len if len > MAX_ROW => Err(invalid(format!(
-            "the row would take {len} bytes; a row is at most {MAX_ROW}"
-        ))),
-        _ => Ok(()),
-    }
-}
-
 fn fail(e: store::Error) -> Error {
     let code = match e {
         // The row named, or the project a layout belongs to, is not there.
         store::Error::NotFound | store::Error::Reference => Code::Gone,
+        store::Error::TooLarge(_) => Code::Invalid,
         _ => Code::Failed,
     };
     Error::new(code, e.to_string())

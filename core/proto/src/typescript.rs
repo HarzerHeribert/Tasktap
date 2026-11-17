@@ -66,6 +66,7 @@ fn typescript() -> String {
         ("MAX_PENDING_CALLS", MAX_PENDING_CALLS),
         ("MAX_STREAMS", MAX_STREAMS),
         ("MAX_TERMINAL_SIZE", MAX_TERMINAL_SIZE.into()),
+        ("READ_HOLD", crate::READ_HOLD as usize),
     ] {
         writeln!(out, "export const {name} = {value};").unwrap();
     }

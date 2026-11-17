@@ -47,6 +47,7 @@ pub fn thought() -> Thought {
             insertions: 14,
             deletions: 3,
         }),
+        route: None,
         hold_until: None,
         read: false,
         created: time(0),

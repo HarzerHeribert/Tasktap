@@ -25,6 +25,28 @@ use tasktap_proto::{
 mod watchdog;
 pub use watchdog::Watchdog;
 
+/// What each test did and saw, by its thread's name, with the time: shown
+/// when its watchdog fires, so that a test that hangs says what it had
+/// done and what it never saw. Kept in memory, so noting a step takes no
+/// time and changes no race.
+static NOTES: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
+
+/// Notes a step of the test running on this thread.
+pub fn note(what: &str) {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    let (s, us) = (now.as_secs() % 100_000, now.subsec_micros());
+    let test = std::thread::current().name().unwrap_or("a test").to_owned();
+    let mut notes = NOTES.lock().unwrap_or_else(|e| e.into_inner());
+    notes.push((test, format!("{s:>5}.{us:06} {what}")));
+}
+
+/// The notes of `test`, one a line.
+pub fn notes(test: &str) -> String {
+    let notes = NOTES.lock().unwrap_or_else(|e| e.into_inner());
+    let own = notes.iter().filter(|(t, _)| t == test);
+    own.map(|(_, line)| format!("  {line}\n")).collect()
+}
+
 pub const EXE: &str = env!("CARGO_BIN_EXE_tasktap");
 /// Milliseconds a thought is held while the preference is unset.
 pub const HOLD_MS: u64 = tasktap_proto::DEFAULT_HOLD as u64 * 1000;
@@ -135,6 +157,7 @@ impl Core {
         serve.args(["--idle-ms", "600000"]).args(extra);
         serve.envs(env.iter().copied());
         let child = client::start(serve).unwrap();
+        note(&format!("core {} started", child.id()));
         Core {
             _watchdog: Watchdog::patient(&child, patience),
             child,
@@ -415,6 +438,19 @@ impl Watch {
         }
         self.model.apply(&change);
         for set in &change.sets {
+            match set {
+                Set::Sessions(rows) => {
+                    for s in &rows.put {
+                        note(&format!("session {} is {:?}", s.id.uuid(), s.state));
+                    }
+                }
+                Set::Terminals(rows) => {
+                    for t in &rows.put {
+                        note(&format!("terminal {} is {:?}", t.id.uuid(), t.state));
+                    }
+                }
+                _ => {}
+            }
             if let Set::Thoughts(rows) = set {
                 for t in &rows.put {
                     let seen = self.statuses.entry(t.id).or_default();
@@ -809,6 +845,7 @@ impl Screen {
         };
         let opened = c.opened::<call::TerminalOpen>(&open, 1 << 20, true);
         let opened = opened.unwrap().expect("the terminal opens");
+        note(&format!("a screen opened on terminal {}", id.uuid()));
         Screen {
             c,
             s: opened.s,
@@ -822,6 +859,7 @@ impl Screen {
         self.c
             .write(self.s, format!("{line}\r").as_bytes())
             .unwrap();
+        note(&format!("a screen typed {line:?}"));
     }
 
     /// Types one byte and says whether the core granted it back, as it does
@@ -898,6 +936,12 @@ impl Screen {
             Err(_) => return false,
         }
         true
+    }
+}
+
+impl Drop for Screen {
+    fn drop(&mut self) {
+        note("a screen closed");
     }
 }
 

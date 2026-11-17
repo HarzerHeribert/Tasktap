@@ -12,15 +12,16 @@ use std::time::Instant;
 use serde_json::Value;
 use tasktap_core::state::{
     self, Candidate, Deliver, Destination, Effect, Error, Event, FixtureLauncher, FixtureRouter,
-    Ignored, Launch, Launcher, Report, Route, Router,
+    Ignored, Launch, Launcher, Report, Route, Router, locally,
 };
 use tasktap_core::store::{AttemptKind, AttemptOutcome, Store, Tx};
 use tasktap_proto::{
     AttemptId, Capture, Change, Changes, Code, Collection, Device, DeviceId, Event as Said,
     Isolate, Mode, Offset, Outcome, Phase, PrefKey, PrefValue, Project, ProjectId, ProjectKind,
-    Question, QuestionId, QuestionKind, QuestionSource, QuestionState, Reason, ReplyVia, Response,
-    ResultKind, Rev, Secret, Session, SessionId, SessionState, Set, Source, Status, Terminal,
-    TerminalId, TerminalKind, TerminalState, Thought, ThoughtId, Time, TurnResult, Workdir,
+    Question, QuestionId, QuestionKind, QuestionSource, QuestionState, READ_HOLD, Reason, ReplyVia,
+    Response, ResultKind, Rev, RouteBy, Routing, Secret, Session, SessionId, SessionState, Set,
+    Source, Status, Terminal, TerminalId, TerminalKind, TerminalState, Thought, ThoughtId, Time,
+    TurnResult, Workdir,
 };
 
 /// Seconds a thought is held while the preference is unset.
@@ -306,7 +307,9 @@ impl World {
             self.ok(captured(capture(id, text))),
             [Effect::Route {
                 thought: id,
-                current: None
+                current: None,
+                by: None,
+                picked: None,
             }]
         );
         id
@@ -422,7 +425,9 @@ fn row_capture_makes_a_captured_thought_and_asks_the_router() {
         w.ok(captured(c.clone())),
         [Effect::Route {
             thought: id,
-            current: None
+            current: None,
+            by: None,
+            picked: None,
         }]
     );
     let t = w.thought(id);
@@ -466,7 +471,11 @@ fn row_route_clear_and_the_persons_pick_route_and_start_the_hold() {
         brief: "Fix the failing build".into(),
     };
     let until = time(w.now + 3000);
-    let effects = w.ok(Event::Routed { thought: t, route });
+    let effects = w.ok(Event::Routed {
+        thought: t,
+        route,
+        how: locally(None),
+    });
     assert_eq!(effects, [Effect::Hold { thought: t, until }]);
     let th = w.thought(t);
     assert_eq!(shape(&th), (Phase::Routed, Status::Routed, None));
@@ -482,6 +491,7 @@ fn row_route_clear_and_the_persons_pick_route_and_start_the_hold() {
     let late = Event::Routed {
         thought: t,
         route: Route::Unknown,
+        how: locally(None),
     };
     assert_eq!(w.ignored(late), Ignored::State);
 
@@ -535,8 +545,13 @@ fn row_route_ambiguous_asks_and_the_answer_routes() {
     let route = Route::Ambiguous {
         prompt: "Which project?".into(),
         candidates,
+        brief: None,
     };
-    let effects = w.ok(Event::Routed { thought: t, route });
+    let effects = w.ok(Event::Routed {
+        thought: t,
+        route,
+        how: locally(None),
+    });
     let &[Effect::Notify(q)] = effects.as_slice() else {
         panic!("{effects:?}")
     };
@@ -590,6 +605,7 @@ fn a_router_question_declined_or_bypassed_closes() {
             label: "app".into(),
             to: Destination::New(w.project),
         }],
+        brief: None,
     };
     let notified = |effects: Vec<Effect>| match effects.as_slice() {
         &[Effect::Notify(q)] => q,
@@ -599,7 +615,11 @@ fn a_router_question_declined_or_bypassed_closes() {
     // Declined: the thought stays captured, as an idea.
     let t = w.capture("maybe later");
     let route = ambiguous(&w);
-    let q = notified(w.ok(Event::Routed { thought: t, route }));
+    let q = notified(w.ok(Event::Routed {
+        thought: t,
+        route,
+        how: locally(None),
+    }));
     assert_eq!(w.answer(q, Response::Deny).unwrap(), NONE);
     let th = w.thought(t);
     assert_eq!(
@@ -611,7 +631,11 @@ fn a_router_question_declined_or_bypassed_closes() {
     // Bypassed: the person picks while the router asks; its question is withdrawn.
     let t = w.capture("ship it");
     let route = ambiguous(&w);
-    let q = notified(w.ok(Event::Routed { thought: t, route }));
+    let q = notified(w.ok(Event::Routed {
+        thought: t,
+        route,
+        how: locally(None),
+    }));
     let to = Destination::New(w.project);
     w.ok(Event::Pick { thought: t, to });
     assert_eq!(shape(&w.thought(t)), (Phase::Routed, Status::Routed, None));
@@ -622,8 +646,16 @@ fn a_router_question_declined_or_bypassed_closes() {
     let route = Route::Ambiguous {
         prompt: "Where?".into(),
         candidates: Vec::new(),
+        brief: None,
     };
-    assert_eq!(w.ok(Event::Routed { thought: t, route }), NONE);
+    assert_eq!(
+        w.ok(Event::Routed {
+            thought: t,
+            route,
+            how: locally(None),
+        }),
+        NONE
+    );
     assert_eq!(w.thought(t).mode, Mode::Note);
 }
 
@@ -632,7 +664,14 @@ fn row_route_unknown_keeps_an_idea_that_can_start_later() {
     let mut w = World::new("route-unknown");
     let t = w.capture("an idea");
     let route = Route::Unknown;
-    assert_eq!(w.ok(Event::Routed { thought: t, route }), NONE);
+    assert_eq!(
+        w.ok(Event::Routed {
+            thought: t,
+            route,
+            how: locally(None),
+        }),
+        NONE
+    );
     let th = w.thought(t);
     assert_eq!(
         (shape(&th), th.mode, th.hold_until),
@@ -680,6 +719,7 @@ fn row_hold_end_launches_once_the_attempt_is_written() {
         prompt: "fix the build".into(),
         resume: None,
         worktree: None,
+        words: None,
     };
     assert_eq!(effects, [Effect::Launch(launch)]);
     // The attempt is written before anything is spawned.
@@ -760,6 +800,7 @@ fn row_follow_up_is_delivered_and_bound_at_turn_start() {
         thought: f,
         session: s,
         text: "now run the tests".into(),
+        words: None,
     };
     assert_eq!(
         effects,
@@ -855,6 +896,7 @@ fn a_follow_up_to_an_ended_session_continues_it_in_a_new_one() {
         prompt: "one more thing".into(),
         resume: Some("conversation-1".into()),
         worktree: None,
+        words: None,
     };
     assert_eq!(effects, [Effect::Unhold(f), Effect::Launch(launch)]);
     assert_eq!(w.thought(f).session_id, Some(session));
@@ -1724,6 +1766,12 @@ fn a_repeated_event_id_is_applied_once() {
 fn an_event_that_does_not_fit_changes_nothing() {
     let mut w = World::new("misfit");
     let c = w.capture("captured");
+    // The router found no place for it: nothing is asked about it any more.
+    w.ok(Event::Routed {
+        thought: c,
+        route: Route::Unknown,
+        how: locally(None),
+    });
     let (t, s) = w.turn();
     let rev = w.store.rev();
     let misfits = [
@@ -1745,6 +1793,7 @@ fn an_event_that_does_not_fit_changes_nothing() {
         Event::Routed {
             thought: t,
             route: Route::Unknown,
+            how: locally(None),
         },
         Event::Settle {
             thought: t,
@@ -1963,8 +2012,13 @@ fn a_router_question_survives_a_restart_and_still_routes() {
             label: "app".into(),
             to: Destination::New(w.project),
         }],
+        brief: None,
     };
-    let effects = w.ok(Event::Routed { thought: t, route });
+    let effects = w.ok(Event::Routed {
+        thought: t,
+        route,
+        how: locally(None),
+    });
     let &[Effect::Notify(q)] = effects.as_slice() else {
         panic!("{effects:?}")
     };
@@ -1985,12 +2039,16 @@ fn the_hold_follows_the_preference_and_zero_launches_at_once() {
     w.set_hold(0);
     let t = w.capture("now");
     let to = Destination::New(w.project);
+    // Picked while the router is still asked: that is stopped.
     assert_eq!(
         w.ok(Event::Pick { thought: t, to }),
-        [Effect::Hold {
-            thought: t,
-            until: w.now()
-        }]
+        [
+            Effect::Unroute(t),
+            Effect::Hold {
+                thought: t,
+                until: w.now()
+            }
+        ]
     );
     // The timer is already due: the caller fires it at once.
     let attempt = AttemptId::mint();
@@ -2008,7 +2066,7 @@ fn the_hold_follows_the_preference_and_zero_launches_at_once() {
     let until = time(w.now + u64::from(DEFAULT_HOLD) * 1000);
     assert_eq!(
         w.ok(Event::Pick { thought: t, to }),
-        [Effect::Hold { thought: t, until }]
+        [Effect::Unroute(t), Effect::Hold { thought: t, until }]
     );
 }
 
@@ -2031,7 +2089,11 @@ fn a_thought_runs_captured_routed_working_needs_you_working_done() {
         brief: "Fix the failing build".into(),
     });
     let route = router.route(&tasktap_core::route::Request::default());
-    let effects = w.ok(Event::Routed { thought: t, route });
+    let effects = w.ok(Event::Routed {
+        thought: t,
+        route,
+        how: locally(None),
+    });
     seen(&mut w, t);
     let &[Effect::Hold { until, .. }] = effects.as_slice() else {
         panic!("{effects:?}")
@@ -2338,10 +2400,15 @@ impl Sweep {
                 Route::Ambiguous {
                     prompt: "Where?".into(),
                     candidates,
+                    brief: None,
                 },
                 Route::Unknown,
             ];
-            moves.extend(routes.map(|route| Event::Routed { thought: id, route }));
+            moves.extend(routes.map(|route| Event::Routed {
+                thought: id,
+                route,
+                how: locally(None),
+            }));
             moves.extend([
                 Event::Pick { thought: id, to: p },
                 Event::HoldEnded {
@@ -2935,4 +3002,602 @@ fn every_event_in_every_reachable_state_keeps_the_rules() {
     ];
     let missing: Vec<_> = every.iter().filter(|l| !applied.contains(**l)).collect();
     assert!(missing.is_empty(), "never applied: {missing:?}");
+}
+
+// Routing by a model (design §8): when it is asked, what waits for it, and
+// what the agent is told.
+
+/// A thought as it is spoken: too long to go on as it is.
+const SPOKEN: &str = "so, um, the build is broken again since this morning, I think it is the linker flags we \
+    changed, anyway please get it green again and do not touch the release profile, that one is fine as it is";
+const BRIEF: &str = "Get the build green again. Do not touch the release profile.";
+
+fn consent() -> RouteBy {
+    RouteBy {
+        agent: "claude".into(),
+        model: "haiku".into(),
+    }
+}
+
+/// How a model's answer came.
+fn by_model() -> Routing {
+    Routing {
+        by: "claude".into(),
+        model: Some("haiku".into()),
+        ms: Some(2300),
+        ..Routing::default()
+    }
+}
+
+impl World {
+    fn consents(&mut self) {
+        self.write(|tx| tx.put_pref(&PrefValue::RouteBy(Some(consent()))).unwrap());
+    }
+
+    /// A capture with no destination, which the router is asked about.
+    fn asked(&mut self, text: &str) -> ThoughtId {
+        let id = ThoughtId::mint();
+        let effects = self.ok(captured(capture(id, text)));
+        assert!(
+            matches!(effects.as_slice(), [Effect::Route { .. }]),
+            "{effects:?}"
+        );
+        id
+    }
+
+    fn answers(&mut self, thought: ThoughtId, route: Route) -> Result<Vec<Effect>, Error> {
+        self.apply(Event::Routed {
+            thought,
+            route,
+            how: by_model(),
+        })
+    }
+
+    fn clear(&self, brief: &str) -> Route {
+        Route::Clear {
+            to: Destination::New(self.project),
+            brief: brief.into(),
+        }
+    }
+}
+
+#[test]
+fn row_capture_asks_a_model_only_with_the_persons_consent() {
+    let mut w = World::new("consent");
+    // Without it the match on names is asked.
+    let t = w.capture("fix the build");
+    let route = w.thought(t).route.unwrap();
+    assert_eq!(
+        (route.by.as_str(), route.model, route.pending),
+        ("local", None, true)
+    );
+    // With it, the tool and the model it covers.
+    w.consents();
+    let id = ThoughtId::mint();
+    assert_eq!(
+        w.ok(captured(capture(id, "fix the build"))),
+        [Effect::Route {
+            thought: id,
+            current: None,
+            by: Some(consent()),
+            picked: None,
+        }]
+    );
+    let t = w.thought(id);
+    let route = t.route.unwrap();
+    assert_eq!(
+        (route.by.as_str(), route.model.as_deref(), route.pending),
+        ("claude", Some("haiku"), true)
+    );
+    assert_eq!(t.phase, Phase::Captured);
+    // While the router is asked the thought is not plain data to edit.
+    assert!(!w.read(|tx| state::plain(tx, &tx.thought(id).unwrap().unwrap()).unwrap()));
+    // Cleared, it is the match on names again; `capture` checks that.
+    w.write(|tx| {
+        tx.delete_pref(PrefKey::RouteBy).unwrap();
+    });
+    let t = w.capture("fix it");
+    assert_eq!(w.thought(t).route.unwrap().by, "local");
+}
+
+#[test]
+fn row_route_clear_holds_from_the_capture_and_records_how_it_was_routed() {
+    let mut w = World::new("since");
+    w.consents();
+    let id = w.asked(SPOKEN);
+    let captured_at = w.now;
+    // The model took 3 s of the 5 the hold lasts: 2 s are left.
+    w.tick(3000);
+    let until = time(captured_at + 5000);
+    let route = w.clear(BRIEF);
+    assert_eq!(
+        w.answers(id, route.clone()).unwrap(),
+        [Effect::Hold { thought: id, until }]
+    );
+    let t = w.thought(id);
+    assert_eq!(
+        (t.phase, t.brief.as_deref(), t.hold_until),
+        (Phase::Routed, Some(BRIEF), Some(until))
+    );
+    assert_eq!(t.route, Some(by_model()));
+    // An answer nobody waits for changes nothing.
+    assert!(matches!(
+        w.answers(id, route.clone()),
+        Err(Error::Ignored(Ignored::State))
+    ));
+    // One that left less of the hold than it takes to read the route, or
+    // took longer than the hold: the hold ends 2 s after it arrived.
+    for took in [3001, 4000, 7000] {
+        let late = w.asked(SPOKEN);
+        w.tick(took);
+        let until = time(w.now + 1000 * u64::from(READ_HOLD));
+        assert_eq!(
+            w.answers(late, route.clone()).unwrap(),
+            [Effect::Hold {
+                thought: late,
+                until
+            }],
+            "after {took} ms"
+        );
+        assert_eq!(w.thought(late).hold_until, Some(until));
+    }
+    // A shorter hold is itself the time to read; with none, there is none.
+    for hold in [1, 0] {
+        w.set_hold(hold);
+        let late = w.asked(SPOKEN);
+        w.tick(7000);
+        let until = time(w.now + 1000 * u64::from(hold));
+        assert_eq!(
+            w.answers(late, route.clone()).unwrap(),
+            [Effect::Hold {
+                thought: late,
+                until
+            }]
+        );
+    }
+}
+
+#[test]
+fn rows_start_and_undo_act_at_once_while_a_late_route_is_there_to_read() {
+    let mut w = World::new("read");
+    w.consents();
+    let route = w.clear(BRIEF);
+    // Start: it launches now, with its brief, and the timer is cancelled.
+    let id = w.asked(SPOKEN);
+    w.tick(9000);
+    w.answers(id, route.clone()).unwrap();
+    w.tick(500);
+    let effects = w.ok(Event::Start {
+        thought: id,
+        attempt: AttemptId::mint(),
+    });
+    assert!(
+        matches!(effects.as_slice(), [Effect::Unhold(held), Effect::Launch(l)]
+            if *held == id && l.prompt == BRIEF),
+        "{effects:?}"
+    );
+    // Undo: captured again, the timer cancelled, nothing launched; the
+    // timer that still fires finds no hold.
+    let id = w.asked(SPOKEN);
+    w.tick(9000);
+    w.answers(id, route.clone()).unwrap();
+    w.tick(500);
+    assert_eq!(w.ok(Event::Stop { thought: id }), [Effect::Unhold(id)]);
+    let t = w.thought(id);
+    assert_eq!((t.phase, t.hold_until), (Phase::Captured, None));
+    w.tick(1500);
+    let ended = Event::HoldEnded {
+        thought: id,
+        attempt: AttemptId::mint(),
+    };
+    assert_eq!(w.ignored(ended), Ignored::State);
+    // Before the time to read is over the hold has not ended.
+    let id = w.asked(SPOKEN);
+    w.tick(9000);
+    w.answers(id, route).unwrap();
+    w.tick(1999);
+    let early = Event::HoldEnded {
+        thought: id,
+        attempt: AttemptId::mint(),
+    };
+    assert_eq!(w.ignored(early), Ignored::State);
+    w.tick(1);
+    let effects = w.ok(Event::HoldEnded {
+        thought: id,
+        attempt: AttemptId::mint(),
+    });
+    assert!(
+        matches!(effects.as_slice(), [Effect::Launch(_)]),
+        "{effects:?}"
+    );
+}
+
+#[test]
+fn row_a_new_run_is_named_by_the_title_a_model_gave_the_work() {
+    let mut w = World::new("title");
+    let titled = Routing {
+        title: Some("Green build".into()),
+        ..by_model()
+    };
+    let start = |w: &mut World, id| {
+        let effects = w.ok(Event::Start {
+            thought: id,
+            attempt: AttemptId::mint(),
+        });
+        assert!(w.carry(&effects).is_empty());
+        w.thought(id).session_id.unwrap()
+    };
+    // A new run: its session has the title for a name.
+    let id = w.capture(SPOKEN);
+    let route = w.clear(BRIEF);
+    w.ok(Event::Routed {
+        thought: id,
+        route,
+        how: titled.clone(),
+    });
+    let s = start(&mut w, id);
+    let session = w.session(s);
+    assert_eq!(
+        (session.name.as_deref(), session.named_at),
+        (Some("Green build"), Some(w.now()))
+    );
+    // A follow-up leaves its session's name as it is.
+    w.say(s, Said::Ready).unwrap();
+    let f = w.capture("uh, and now, well, run the tests too");
+    let route = Route::Clear {
+        to: Destination::Session(s),
+        brief: "Run the tests too.".into(),
+    };
+    let follow = Routing {
+        title: Some("Run the tests".into()),
+        ..by_model()
+    };
+    w.ok(Event::Routed {
+        thought: f,
+        route,
+        how: follow,
+    });
+    assert_eq!(start(&mut w, f), s);
+    assert_eq!(w.session(s).name.as_deref(), Some("Green build"));
+    // A run nobody gave a title has no name.
+    let plain = w.routed("fix the build");
+    let s = start(&mut w, plain);
+    assert_eq!(w.session(s).name, None);
+}
+
+#[test]
+fn row_stop_while_the_router_is_asked_stops_it_and_its_answer_no_longer_counts() {
+    let mut w = World::new("unask");
+    w.consents();
+    let id = w.asked(SPOKEN);
+    assert_eq!(w.ok(Event::Stop { thought: id }), [Effect::Unroute(id)]);
+    let t = w.thought(id);
+    let route = t.route.clone().unwrap();
+    assert_eq!(
+        (t.phase, route.pending, route.fallback.as_deref()),
+        (Phase::Captured, false, Some("it was undone"))
+    );
+    let route = w.clear(BRIEF);
+    assert!(matches!(
+        w.answers(id, route),
+        Err(Error::Ignored(Ignored::State))
+    ));
+    assert_eq!(w.thought(id).phase, Phase::Captured);
+    // It is plain data again: the person may edit or delete it.
+    assert!(w.read(|tx| state::plain(tx, &t).unwrap()));
+}
+
+#[test]
+fn rows_a_picked_thought_is_briefed_by_the_model_and_launches_once_both_are_in() {
+    let mut w = World::new("picked");
+    let to = Destination::New(w.project);
+    let pick = |w: &World, id, text: &str| {
+        captured(Capture {
+            project_id: Some(w.project),
+            ..capture(id, text)
+        })
+    };
+    // Without consent nobody is asked, however long the thought.
+    let plain = ThoughtId::mint();
+    let effects = w.ok(pick(&w, plain, SPOKEN));
+    assert!(
+        matches!(effects.as_slice(), [Effect::Hold { .. }]),
+        "{effects:?}"
+    );
+    w.consents();
+    // Short enough to go on as it is: nobody is asked either.
+    let short = ThoughtId::mint();
+    let effects = w.ok(pick(&w, short, "fix the build"));
+    assert!(
+        matches!(effects.as_slice(), [Effect::Hold { .. }]),
+        "{effects:?}"
+    );
+    assert_eq!(w.thought(short).route, None);
+    // A spoken one: routed at once to where the person said, and the model
+    // asked for the brief alone.
+    let id = ThoughtId::mint();
+    let until = time(w.now + 5000);
+    assert_eq!(
+        w.ok(pick(&w, id, SPOKEN)),
+        [
+            Effect::Route {
+                thought: id,
+                current: None,
+                by: Some(consent()),
+                picked: Some(to),
+            },
+            Effect::Hold { thought: id, until }
+        ]
+    );
+    let t = w.thought(id);
+    assert_eq!(
+        (t.phase, t.project_id, t.brief),
+        (Phase::Routed, Some(w.project), None)
+    );
+    assert!(t.route.unwrap().pending);
+    // The hold ends first: nothing launches without the brief.
+    w.tick(5000);
+    let ended = Event::HoldEnded {
+        thought: id,
+        attempt: AttemptId::mint(),
+    };
+    assert_eq!(w.ignored(ended), Ignored::State);
+    // The brief arrives. The destination stays the person's, whatever the
+    // model named, and the hold, long over, goes on for the 2 s the brief
+    // is there to read.
+    w.tick(1000);
+    let elsewhere = Route::Clear {
+        to: Destination::New(ProjectId::mint()),
+        brief: BRIEF.into(),
+    };
+    let until = time(w.now + 1000 * u64::from(READ_HOLD));
+    assert_eq!(
+        w.answers(id, elsewhere).unwrap(),
+        [Effect::Hold { thought: id, until }]
+    );
+    let t = w.thought(id);
+    assert_eq!(
+        (t.phase, t.project_id, t.brief.as_deref(), t.hold_until),
+        (Phase::Routed, Some(w.project), Some(BRIEF), Some(until))
+    );
+    assert_eq!(t.route, Some(by_model()));
+    let early = Event::HoldEnded {
+        thought: id,
+        attempt: AttemptId::mint(),
+    };
+    assert_eq!(w.ignored(early), Ignored::State);
+    w.tick(2000);
+    let attempt = AttemptId::mint();
+    let effects = w.ok(Event::HoldEnded {
+        thought: id,
+        attempt,
+    });
+    let [Effect::Launch(l)] = effects.as_slice() else {
+        panic!("{effects:?}")
+    };
+    // The agent gets the brief, and the person's own words with it.
+    assert_eq!(
+        (l.prompt.as_str(), l.words.as_deref()),
+        (BRIEF, Some(SPOKEN))
+    );
+    // The same attempt again starts nothing more.
+    let again = w.ok(Event::HoldEnded {
+        thought: id,
+        attempt,
+    });
+    assert!(matches!(again.as_slice(), [Effect::Repeat(_)]), "{again:?}");
+    // A brief that arrives with more of the hold left than it takes to
+    // read leaves the hold as it is.
+    let id = ThoughtId::mint();
+    let until = time(w.now + 5000);
+    w.ok(pick(&w, id, SPOKEN));
+    w.tick(2500);
+    let route = w.clear(BRIEF);
+    assert_eq!(
+        w.answers(id, route).unwrap(),
+        [Effect::Hold { thought: id, until }]
+    );
+    assert_eq!(w.thought(id).hold_until, Some(until));
+}
+
+#[test]
+fn row_start_by_hand_does_not_wait_for_the_brief() {
+    let mut w = World::new("impatient");
+    w.consents();
+    let id = ThoughtId::mint();
+    w.ok(captured(Capture {
+        project_id: Some(w.project),
+        ..capture(id, SPOKEN)
+    }));
+    let effects = w.ok(Event::Start {
+        thought: id,
+        attempt: AttemptId::mint(),
+    });
+    assert!(
+        matches!(effects.as_slice(), [Effect::Unroute(stopped), Effect::Unhold(_), Effect::Launch(l)]
+            if *stopped == id && l.prompt == SPOKEN && l.words.is_none()),
+        "{effects:?}"
+    );
+    let route = w.thought(id).route.unwrap();
+    assert_eq!(
+        (route.pending, route.fallback.as_deref()),
+        (false, Some("it was started before its brief arrived"))
+    );
+    // The brief that arrives late changes nothing.
+    let route = w.clear(BRIEF);
+    assert!(matches!(
+        w.answers(id, route),
+        Err(Error::Ignored(Ignored::State))
+    ));
+}
+
+#[test]
+fn row_route_ambiguous_keeps_the_models_brief_for_where_the_person_sends_it() {
+    let mut w = World::new("ambiguous-brief");
+    w.consents();
+    let id = w.asked(SPOKEN);
+    let to = Destination::New(w.project);
+    let choice = |label: &str| Candidate {
+        label: label.into(),
+        to,
+    };
+    let route = Route::Ambiguous {
+        prompt: "Where should this go?".into(),
+        candidates: vec![choice("app"), choice("the other app")],
+        brief: Some(BRIEF.into()),
+    };
+    let effects = w.answers(id, route).unwrap();
+    let &[Effect::Notify(q)] = effects.as_slice() else {
+        panic!("{effects:?}")
+    };
+    // The brief is there to read while the question is open.
+    let t = w.thought(id);
+    assert_eq!(
+        (t.phase, t.status, t.brief.as_deref()),
+        (Phase::Captured, Status::NeedsYou, Some(BRIEF))
+    );
+    assert_eq!(t.route, Some(by_model()));
+    // The answer routes it, and nobody is asked for a brief again.
+    let effects = w.answer(q, Response::Choice { choice: 1 }).unwrap();
+    assert!(effects.iter().any(|e| matches!(e, Effect::Hold { .. })));
+    assert!(!effects.iter().any(|e| matches!(e, Effect::Route { .. })));
+    let t = w.thought(id);
+    assert_eq!((t.phase, t.brief.as_deref()), (Phase::Routed, Some(BRIEF)));
+    assert_eq!(t.route, Some(by_model()));
+}
+
+#[test]
+fn row_a_destination_that_went_while_the_router_was_asked_leaves_an_idea() {
+    let mut w = World::new("gone");
+    w.consents();
+    let id = w.asked(SPOKEN);
+    let gone = Route::Clear {
+        to: Destination::New(ProjectId::mint()),
+        brief: BRIEF.into(),
+    };
+    assert_eq!(w.answers(id, gone).unwrap(), NONE);
+    let t = w.thought(id);
+    assert_eq!((t.phase, t.mode), (Phase::Captured, Mode::Note));
+    let route = t.route.unwrap();
+    assert_eq!(
+        (route.pending, route.fallback.as_deref()),
+        (false, Some("the destination it found is gone"))
+    );
+}
+
+#[test]
+fn the_persons_words_go_with_a_brief_unless_it_says_the_same() {
+    let mut w = World::new("words");
+    let launched = |w: &mut World, text: &str, brief: &str| {
+        let id = w.capture(text);
+        let route = w.clear(brief);
+        w.answers(id, route).unwrap();
+        let effects = w.ok(Event::Start {
+            thought: id,
+            attempt: AttemptId::mint(),
+        });
+        let launch = effects.into_iter().find_map(|e| match e {
+            Effect::Launch(l) => Some((l.prompt, l.words)),
+            _ => None,
+        });
+        launch.expect("it launches")
+    };
+    // A brief in other words: both go, the brief first.
+    assert_eq!(
+        launched(&mut w, "um, fix the build", "Fix the build."),
+        ("Fix the build.".into(), Some("um, fix the build".into()))
+    );
+    // The same words, whatever the case and the punctuation: the person's
+    // own, once.
+    assert_eq!(
+        launched(&mut w, "fix the build", "Fix the build."),
+        ("fix the build".into(), None)
+    );
+    // A follow-up is typed the same way.
+    let (_, s) = w.turn();
+    let finished = Said::TurnFinished {
+        answer: Some("Built.".into()),
+    };
+    w.say(s, finished).unwrap();
+    let f = w.capture("uh, and now, well, run the tests too");
+    let route = Route::Clear {
+        to: Destination::Session(s),
+        brief: "Run the tests too.".into(),
+    };
+    w.answers(f, route).unwrap();
+    let effects = w.ok(Event::Start {
+        thought: f,
+        attempt: AttemptId::mint(),
+    });
+    let deliver = effects.into_iter().find_map(|e| match e {
+        Effect::Deliver(d) => Some((d.text, d.words)),
+        _ => None,
+    });
+    assert_eq!(
+        deliver,
+        Some((
+            "Run the tests too.".into(),
+            Some("uh, and now, well, run the tests too".into())
+        ))
+    );
+}
+
+#[test]
+fn a_restart_between_the_routers_answer_and_the_launch_runs_nothing_again() {
+    let mut w = World::new("route-crash");
+    w.consents();
+    let id = w.asked(SPOKEN);
+    let route = w.clear(BRIEF);
+    w.answers(id, route.clone()).unwrap();
+    w.tick(6000);
+    w.reopen();
+    // Routed, with its brief, and no hold: it waits for the person.
+    let t = w.thought(id);
+    assert_eq!(
+        (t.phase, t.hold_until, t.brief.as_deref()),
+        (Phase::Routed, None, Some(BRIEF))
+    );
+    // The timer went with the core; one that still fired finds no hold,
+    // and the router's answer is not taken a second time.
+    let ended = Event::HoldEnded {
+        thought: id,
+        attempt: AttemptId::mint(),
+    };
+    assert_eq!(w.ignored(ended), Ignored::State);
+    assert!(matches!(
+        w.answers(id, route.clone()),
+        Err(Error::Ignored(Ignored::State))
+    ));
+    // The person starts it, once.
+    let attempt = AttemptId::mint();
+    let start = Event::Start {
+        thought: id,
+        attempt,
+    };
+    let effects = w.ok(start.clone());
+    assert!(
+        matches!(effects.as_slice(), [Effect::Launch(_)]),
+        "{effects:?}"
+    );
+    let again = w.ok(start);
+    assert!(matches!(again.as_slice(), [Effect::Repeat(_)]), "{again:?}");
+
+    // A restart while the router was asked: nobody is asked again, and the
+    // answer that was under way does not count.
+    let asked = w.asked(SPOKEN);
+    w.reopen();
+    let t = w.thought(asked);
+    let how = t.route.unwrap();
+    assert_eq!(
+        (t.phase, how.pending, how.fallback.as_deref()),
+        (
+            Phase::Captured,
+            false,
+            Some("the core stopped while it was asked")
+        )
+    );
+    assert!(matches!(
+        w.answers(asked, route),
+        Err(Error::Ignored(Ignored::State))
+    ));
 }

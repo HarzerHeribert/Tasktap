@@ -532,6 +532,38 @@ fn input_reaches_the_process_and_comes_back() {
 
 const FNV: u64 = 0xcbf2_9ce4_8422_2325;
 
+/// What a client typed before it left reaches the process, even when the
+/// core learns that the client is gone from a write of the output still
+/// flowing to it, before it has read what the client sent last. Each
+/// client here types a line and leaves at once, while the core replays
+/// the terminal's output to it.
+#[test]
+fn what_a_client_typed_before_it_left_reaches_the_process() {
+    let data = Folder::new("tt-left");
+    let core = Core::start(&data);
+    let id = TerminalId::mint();
+    let mut start = Some(fixture(&["print 30000", "serve"]));
+    let mut hash = FNV;
+    for i in 0..8 {
+        let mut c = core.device();
+        let mut v = open(&mut c, &args(id, start.take(), None, 1 << 20), true);
+        until(&mut c, &mut v, "output under way", |v| {
+            !v.bytes().is_empty()
+        });
+        let typed = format!("left {i}");
+        c.write(v.s, format!("{typed}\r").as_bytes()).unwrap();
+        drop(c);
+        hash = fixture_fold(hash, &typed);
+    }
+    let mut c = core.device();
+    let mut v = open(&mut c, &args(id, None, None, 1 << 20), true);
+    c.write(v.s, b"sum\r").unwrap();
+    let tail = |v: &View| text(&v.bytes()[v.bytes().len().saturating_sub(1000)..]);
+    until(&mut c, &mut v, "the sum", |v| tail(v).contains("sum "));
+    let sum = format!("sum 8 {hash:016x}");
+    assert!(tail(&v).contains(&sum), "{sum}: {}", tail(&v));
+}
+
 /// Input a process does not read stays bounded: a client that sends what it
 /// was granted and closes its stream leaves that input waiting, and a
 /// client attaching after it is granted only what the terminal's budget

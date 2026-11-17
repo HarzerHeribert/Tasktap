@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use tasktap_proto::AgentHealth;
 
-use super::{Agent, Probe, fit};
+use super::{Agent, Headless, Probe, Schema, fit, line};
 
 /// Longest one detection command runs.
 pub const LIMIT: Duration = Duration::from_secs(4);
@@ -21,6 +21,30 @@ pub const LIMIT: Duration = Duration::from_secs(4);
 pub const PROBE_LIMIT: Duration = Duration::from_secs(12);
 /// Most bytes read from a check's output.
 const MAX_OUTPUT: u64 = 4 << 20;
+/// Most bytes of an answer to a headless question; more is no answer.
+const MAX_ANSWER: u64 = 64 << 10;
+
+/// Why a headless question got no answer.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Failed {
+    /// Its tool no longer offers the model it is asked for.
+    Gone,
+    Why(String),
+}
+
+impl From<String> for Failed {
+    fn from(why: String) -> Failed {
+        Failed::Why(why)
+    }
+}
+
+/// What ends the wait for a headless question's answer.
+pub enum Asked {
+    /// Everything it printed on standard output.
+    Printed(Vec<u8>),
+    /// Nobody wants the answer any more.
+    Stop,
+}
 
 /// Whether `agent` is installed and signed in, as its own commands say.
 pub fn detect(agent: &dyn Agent) -> AgentHealth {
@@ -123,6 +147,107 @@ pub fn probe(mut probe: Probe, cwd: &Path) -> Result<Vec<String>, String> {
     drop(input);
     end(&mut child);
     result
+}
+
+/// Asks `agent`'s tool one question (design §8): `question` on its standard
+/// input, in `folder`, which is made if it is not there and holds nothing
+/// but the schema's file, within the time its adapter gives it. The answer
+/// is the JSON text its adapter reads from what it printed. A `Stop` sent
+/// to `heard`, whose other end is `hear`, ends the tool at once.
+pub fn ask(
+    agent: &dyn Agent,
+    how: &Headless,
+    question: String,
+    schema: &str,
+    folder: &Path,
+    (hear, heard): (mpsc::Sender<Asked>, mpsc::Receiver<Asked>),
+) -> Result<String, Failed> {
+    let name = agent.program();
+    let program = crate::terminal::find(name)
+        .ok_or_else(|| format!("{name} is not installed: no folder of the PATH has it"))?;
+    let file = folder.join("schema.json");
+    // Written whole or not at all, since another question may read it now.
+    if std::fs::read_to_string(&file).ok().as_deref() != Some(schema) {
+        let new = folder.join(format!("schema.{}.json", std::process::id()));
+        std::fs::create_dir_all(folder)
+            .and_then(|()| std::fs::write(&new, schema))
+            .and_then(|()| std::fs::rename(&new, &file))
+            .map_err(|e| format!("its folder could not be written: {e}"))?;
+    }
+    let schema = Schema {
+        text: schema,
+        file: &file,
+    };
+    let mut child = command(&program, &(how.args)(&schema))
+        .current_dir(folder)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("{name} could not run: {e}"))?;
+    let (input, mut out, err) = (child.stdin.take(), child.stdout.take(), child.stderr.take());
+    // The question is written beside the reading, so a tool that prints
+    // before it has read everything never stops both.
+    std::thread::spawn(move || {
+        if let Some(mut input) = input {
+            let _ = input.write_all(question.as_bytes());
+        }
+    });
+    // The answer is taken as soon as it is whole: a tool may stay on long
+    // after it printed it (Claude Code was seen to, for 8 minutes).
+    let whole = how.answer;
+    std::thread::spawn(move || {
+        let (mut printed, mut chunk) = (Vec::new(), [0; 8192]);
+        while let Some(Ok(n @ 1..)) = out.as_mut().map(|out| out.read(&mut chunk)) {
+            printed.extend_from_slice(&chunk[..n]);
+            let large = printed.len() as u64 > MAX_ANSWER;
+            if large || whole(&String::from_utf8_lossy(&printed)).is_ok() {
+                break;
+            }
+        }
+        let _ = hear.send(Asked::Printed(printed));
+    });
+    // What it says beside its answer is read to its end, and only the end
+    // of it kept: the last line says why a tool gave no answer.
+    let said = std::thread::spawn(move || {
+        let mut tail = Vec::new();
+        if let Some(err) = err {
+            for line in BufReader::new(err.take(MAX_OUTPUT))
+                .lines()
+                .map_while(Result::ok)
+            {
+                if !line.trim().is_empty() {
+                    tail = line.into_bytes();
+                }
+            }
+        }
+        String::from_utf8_lossy(&tail).into_owned()
+    });
+    let printed = match heard.recv_timeout(how.limit) {
+        Ok(Asked::Printed(printed)) => Ok(printed),
+        Ok(Asked::Stop) | Err(RecvTimeoutError::Disconnected) => {
+            Err("it was not waited for".to_owned())
+        }
+        Err(RecvTimeoutError::Timeout) => Err(format!(
+            "it did not answer within {} s",
+            how.limit.as_secs()
+        )),
+    };
+    // It has printed everything or is no longer wanted: either way it ends.
+    end(&mut child);
+    let printed = printed?;
+    if printed.len() as u64 > MAX_ANSWER {
+        return Err("its answer is too large".to_owned().into());
+    }
+    let printed = String::from_utf8_lossy(&printed);
+    (how.answer)(&printed).map_err(|why| {
+        let said = said.join().unwrap_or_default();
+        match said.trim() {
+            _ if (how.gone)(&printed, &said) => Failed::Gone,
+            "" => Failed::Why(why),
+            last => Failed::Why(format!("{why} ({})", line(last, 200))),
+        }
+    })
 }
 
 /// `program` with `args` in the checks' environment.

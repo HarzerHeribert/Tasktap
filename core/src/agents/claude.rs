@@ -32,14 +32,15 @@
 
 use std::ffi::OsString;
 use std::path::Path;
+use std::time::Duration;
 
 use serde_json::{Value, json};
 use tasktap_proto::{Answer, Ask, Event, MAX_LINE, MAX_TEXT, QuestionKind, ReplyVia, Response};
 
 use super::rules::Rules;
 use super::{
-    Agent, Caps, Detect, Heard, Payload, Prompt, Run, activity, digest, fit, line, permission,
-    quoted, said,
+    Agent, Caps, Detect, Headless, Heard, Payload, Prompt, Run, WORDS, activity, digest, fit, line,
+    permission, quoted, said,
 };
 
 pub struct Claude;
@@ -69,6 +70,34 @@ const HOOKS: &[(&str, u32)] = &[
     ("Stop", 30),
     ("StopFailure", 30),
 ];
+
+/// The model a headless question asks: Claude Code's alias for its
+/// smallest, fastest one.
+const SMALL: &str = "haiku";
+
+/// The system prompt of a headless question, in place of Claude Code's
+/// own: one line, so that it is one argument on every system. The
+/// question itself, with its instructions, is on standard input.
+const SYSTEM: &str = "You follow the instructions in the message exactly \
+     and answer only with the JSON they ask for.";
+
+/// Reads what `claude -p --output-format json` printed: one JSON object,
+/// whose `structured_output` is the answer that fits the schema.
+fn answer(out: &str) -> Result<String, String> {
+    let said: Value =
+        serde_json::from_str(out.trim()).map_err(|_| "it printed no JSON result".to_owned())?;
+    let text = |key: &str| said.get(key).and_then(Value::as_str).unwrap_or_default();
+    match said.get("structured_output") {
+        Some(answer @ Value::Object(_)) if said.get("is_error") == Some(&Value::Bool(false)) => {
+            Ok(answer.to_string())
+        }
+        _ => Err(match (text("result"), text("subtype")) {
+            ("", "") => "its result holds no answer".into(),
+            ("", kind) => format!("it ended with {kind}"),
+            (why, _) => line(why, 200),
+        }),
+    }
+}
 
 /// The tool with which Claude Code asks the person.
 const QUESTION: &str = "AskUserQuestion";
@@ -191,12 +220,48 @@ impl Agent for Claude {
             None => argv.extend(["--session-id".into(), run.session.uuid().to_string()]),
         }
         argv.extend(RULES.default.iter().map(|a| (*a).to_owned()));
-        argv.extend(["--".into(), run.prompt.to_owned()]);
+        argv.extend(["--".into(), run.told(self)]);
         argv
     }
 
     fn attach(&self, exe: &Path) -> Vec<OsString> {
         vec!["--settings".into(), Self::settings(exe).into()]
+    }
+
+    /// `claude -p` (2.1): no tools, no MCP servers, no skills or commands,
+    /// nothing of the person's customisations or the folder's instructions
+    /// (`--safe-mode`), no session saved, a short system prompt instead of
+    /// Claude Code's own, and the answer held to the schema. `--bare` would
+    /// be less still, but it never reads the sign-in of a subscription. The
+    /// model thinks before it answers, about 500 tokens for a spoken
+    /// thought, which is most of the time it takes; neither `--effort low`,
+    /// `alwaysThinkingEnabled` nor `MAX_THINKING_TOKENS=0` turns that off.
+    fn headless(&self) -> Option<Headless> {
+        Some(Headless {
+            tool: "Claude Code",
+            model: SMALL,
+            limit: Duration::from_secs(12),
+            #[rustfmt::skip]
+            args: |schema| {
+                ["-p", "--model", SMALL, "--tools", "", "--strict-mcp-config",
+                 "--disable-slash-commands", "--safe-mode", "--no-session-persistence",
+                 "--output-format", "json", "--system-prompt", SYSTEM,
+                 "--json-schema", schema.text]
+                .map(Into::into)
+                .into()
+            },
+            answer,
+            // Its one JSON object says so: the provider knows no such model.
+            gone: |printed, _| {
+                let said = serde_json::from_str::<Value>(printed.trim()).unwrap_or_default();
+                said.get("api_error_type").and_then(Value::as_str) == Some("not_found_error")
+            },
+        })
+    }
+
+    /// The person's words in a tag, which Claude reads as a quoted document.
+    fn told(&self, brief: &str, words: &str) -> String {
+        format!("{brief}\n\n{WORDS}\n<persons_words>\n{words}\n</persons_words>")
     }
 
     /// Its sign-in when it is not in the keychain: an API key, the

@@ -13,8 +13,11 @@
 //! Every effect that spawns something (a launch, a follow-up, a settle) is
 //! preceded by its attempt, written in the same transaction with a hash of
 //! its arguments (design §3), so repeating the call never spawns twice. The
-//! launcher and the router are the seams later phases fill; each has a
-//! fixture here.
+//! launcher and the router are seams, each with a fixture here.
+//!
+//! A router is asked about a thought as it is captured and may take
+//! seconds (design §8): the thought's `route` says so while it does, and no
+//! thought launches before its router has answered or been stopped.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -29,9 +32,9 @@ use tasktap_proto::{
     Answer, AttemptId, Capture, Changes, Code, DeviceId, Event as A, Isolate, MAX_OPEN_QUESTIONS,
     MAX_SESSION_QUESTIONS, Mode, Offset, Outcome, Phase as P, PrefKey, PrefValue, Project,
     ProjectId, ProjectKind, Question, QuestionId, QuestionKind, QuestionSource, QuestionState as Q,
-    Reason, ReplyVia, Response, ResultKind, Rev, Secret, Session, SessionId, SessionState as S,
-    Source, Status, Terminal, TerminalId, TerminalKind, TerminalState, Thought, ThoughtId, Time,
-    TurnResult, Workdir,
+    READ_HOLD, Reason, ReplyVia, Response, ResultKind, Rev, RouteBy, Routing, Secret, Session,
+    SessionId, SessionState as S, Source, Status, Terminal, TerminalId, TerminalKind,
+    TerminalState, Thought, ThoughtId, Time, TurnResult, Workdir,
 };
 
 use crate::store::{self, Attempt, AttemptKind, AttemptOutcome, Hash, Tx};
@@ -54,8 +57,13 @@ pub enum Event {
     Capture { capture: Capture, agent: String },
     /// The person picks where a captured thought goes.
     Pick { thought: ThoughtId, to: Destination },
-    /// The router's answer for a captured thought.
-    Routed { thought: ThoughtId, route: Route },
+    /// The router's answer for a thought it was asked about, and `how` it
+    /// came by it: who answered, and why not the model that was asked.
+    Routed {
+        thought: ThoughtId,
+        route: Route,
+        how: Routing,
+    },
     /// The thought's hold timer fired. The core mints the attempt.
     HoldEnded {
         thought: ThoughtId,
@@ -175,10 +183,12 @@ pub enum Route {
         to: Destination,
         brief: String,
     },
-    /// The person chooses in a router question.
+    /// The person chooses in a router question. `brief` is the one a
+    /// model wrote already, which holds wherever the thought goes.
     Ambiguous {
         prompt: String,
         candidates: Vec<Candidate>,
+        brief: Option<String>,
     },
     /// Nowhere to send it, or a note: it stays captured as an idea.
     Unknown,
@@ -195,11 +205,18 @@ pub struct Candidate {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Effect {
     /// Ask the router; its answer comes back as [`Event::Routed`].
-    /// `current` is the session the capture was made in.
+    /// `current` is the session the capture was made in. `by` is the
+    /// person's consent to ask a model, without which the match on names
+    /// answers. With `picked`, the person chose the destination and only
+    /// the brief is asked for.
     Route {
         thought: ThoughtId,
         current: Option<SessionId>,
+        by: Option<RouteBy>,
+        picked: Option<Destination>,
     },
+    /// Stop asking the router about the thought: its answer is not wanted.
+    Unroute(ThoughtId),
     /// Arm the hold timer and apply [`Event::HoldEnded`] at `until`, which
     /// is now when the hold is zero.
     Hold { thought: ThoughtId, until: Time },
@@ -256,7 +273,11 @@ pub struct Launch {
     pub cwd: String,
     pub agent: String,
     pub model: Option<String>,
+    /// What the run is told: the thought's brief, or its text.
     pub prompt: String,
+    /// The person's own words, when `prompt` is a brief that says them
+    /// differently: the agent gets both (design §8).
+    pub words: Option<String>,
     /// The agent's handle of an ended session whose conversation this run continues.
     pub resume: Option<String>,
     /// The worktree the run works in, made or found before it starts; none
@@ -299,7 +320,10 @@ pub struct Deliver {
     pub attempt: AttemptId,
     pub thought: ThoughtId,
     pub session: SessionId,
+    /// What is typed: the thought's brief, or its text.
     pub text: String,
+    /// The person's own words, as in [`Launch::words`].
+    pub words: Option<String>,
 }
 
 /// Why an event changed nothing, or could not be applied. On `Err` the
@@ -384,9 +408,10 @@ pub trait Launcher {
     fn settle(&mut self, thought: ThoughtId, keep: bool) -> Result<(), String>;
 }
 
-/// The route-provider seam: the local router of design §8
-/// (`route::Local`), later a model behind it. It is asked with what the
-/// core's records offer, and its answer goes back in as [`Event::Routed`].
+/// The seam of the router that answers at once: the local router of
+/// design §8 (`route::Local`), or a fixture. It is asked with what the
+/// core's records offer, and its answer goes back in as [`Event::Routed`],
+/// as a model's does when the person consented to one (`effects.rs`).
 pub trait Router {
     fn route(&mut self, request: &crate::route::Request) -> Route;
 }
@@ -526,41 +551,75 @@ impl Machine<'_, '_> {
                 "the thought id was used for another capture",
             )),
             // route clear; a router question answered; the person picks:
-            // captured → routed, and the hold starts.
+            // captured → routed, and the hold starts. A router's answer
+            // counts only while it is waited for.
             (
                 E::Routed {
                     route: Route::Clear { to, brief },
+                    how,
                     ..
                 },
                 _,
                 Some(P::Captured),
                 ..,
-            ) => self.route(some(thought)?, to, Some(brief)),
+            ) if routing(&thought) => self.routed(some(thought)?, to, brief, how),
+            // the brief of a thought whose destination the person picked.
+            (
+                E::Routed {
+                    route: Route::Clear { brief, .. },
+                    how,
+                    ..
+                },
+                _,
+                Some(P::Routed),
+                ..,
+            ) if routing(&thought) => self.briefed(some(thought)?, brief, how),
             (E::Answer { response, by, .. }, _, Some(P::Captured), _, Some(Q::Open)) if router => {
                 self.answer_router(some(thought)?, some(question)?, response, by)
             }
-            (E::Pick { to, .. }, _, Some(P::Captured), ..) => self.route(some(thought)?, to, None),
+            (E::Pick { to, .. }, _, Some(P::Captured), ..) => {
+                let now = self.now;
+                self.route(some(thought)?, to, None, now)
+            }
             // route ambiguous: stays captured, a router question opens.
             (
                 E::Routed {
-                    route: Route::Ambiguous { prompt, candidates },
+                    route:
+                        Route::Ambiguous {
+                            prompt,
+                            candidates,
+                            brief,
+                        },
+                    how,
                     ..
                 },
                 _,
                 Some(P::Captured),
                 ..,
-            ) if !candidates.is_empty() => self.ask_router(some(thought)?, prompt, candidates),
+            ) if routing(&thought) && !candidates.is_empty() => {
+                self.ask_router(some(thought)?, prompt, candidates, brief, how)
+            }
             // route unknown, or ambiguous with nothing to choose: an idea.
-            (E::Routed { .. }, _, Some(P::Captured), ..) => self.keep_as_idea(some(thought)?),
-            // hold ends, or thought.start: routed → working once the attempt is written.
-            (E::HoldEnded { attempt, .. }, _, Some(P::Routed), ..) if due(&thought, self.now) => {
+            (E::Routed { how, .. }, _, Some(P::Captured), ..) if routing(&thought) => {
+                self.keep_as_idea(some(thought)?, Some(how))
+            }
+            // hold ends, or thought.start: routed → working once the attempt
+            // is written. A hold that ends while the router still writes the
+            // brief launches nothing: the brief's arrival does.
+            (E::HoldEnded { attempt, .. }, _, Some(P::Routed), ..)
+                if due(&thought, self.now) && !routing(&thought) =>
+            {
                 self.launch(some(thought)?, attempt, false)
             }
             (E::Start { attempt, .. }, _, Some(P::Routed), ..) => {
                 self.launch(some(thought)?, attempt, true)
             }
-            // thought.stop before launch (Undo): routed → captured.
+            // thought.stop before launch (Undo): routed → captured; a router
+            // still asked about it is stopped, also before it is routed.
             (E::Stop { .. }, _, Some(P::Routed), ..) => self.undo(some(thought)?),
+            (E::Stop { .. }, _, Some(P::Captured), ..) if routing(&thought) => {
+                self.undo(some(thought)?)
+            }
             // launch fails: → failed, its session ended, why kept as the
             // thought's failure. Both reports have already recorded the
             // attempt's outcome.
@@ -908,6 +967,7 @@ impl Machine<'_, '_> {
             project_id: c.project_id,
             session_id: None,
             brief: None,
+            route: None,
             agent: Some(agent),
             model: c.model,
             workdir: None,
@@ -919,16 +979,119 @@ impl Machine<'_, '_> {
         self.tx.insert_thought(&t)?;
         self.tx.insert_attempt(&record)?;
         match pick {
-            Some(to) => self.route(t, to, None),
+            Some(to) => {
+                let now = self.now;
+                self.route(t, to, None, now)
+            }
             None if mode == Mode::Note => Ok(()),
             None => {
-                self.effects.push(Effect::Route {
-                    thought: t.id,
-                    current: c.current,
-                });
-                Ok(())
+                let mut t = t;
+                let by = self.consent()?;
+                self.ask(&mut t, c.current, by, None);
+                self.save(t)
             }
         }
+    }
+
+    /// The person's consent to route by a model: the tool and the model it covers.
+    fn consent(&self) -> Result<Option<RouteBy>> {
+        Ok(match self.tx.pref(PrefKey::RouteBy)?.map(|p| p.value) {
+            Some(PrefValue::RouteBy(by)) => by,
+            _ => None,
+        })
+    }
+
+    /// Asks the router about a thought: a model with the person's consent
+    /// `by`, else the match on names. Until it answers the thought's
+    /// `route` is pending.
+    fn ask(
+        &mut self,
+        t: &mut Thought,
+        current: Option<SessionId>,
+        by: Option<RouteBy>,
+        picked: Option<Destination>,
+    ) {
+        t.route = Some(Routing {
+            by: by.as_ref().map_or(LOCAL.into(), |by| by.agent.clone()),
+            model: by.as_ref().map(|by| by.model.clone()),
+            pending: true,
+            ..Routing::default()
+        });
+        self.effects.push(Effect::Route {
+            thought: t.id,
+            current,
+            by,
+            picked,
+        });
+    }
+
+    /// The router's answer is no longer waited for: it is stopped.
+    fn unask(&mut self, t: &mut Thought, why: &str) {
+        if let Some(route) = t.route.as_mut().filter(|r| r.pending) {
+            route.pending = false;
+            route.fallback = Some(why.into());
+            self.effects.push(Effect::Unroute(t.id));
+        }
+    }
+
+    /// The router found one destination. The hold counts from the capture,
+    /// so the time the router took is not added to it. A destination that
+    /// went meanwhile leaves the thought an idea.
+    fn routed(
+        &mut self,
+        mut t: Thought,
+        to: Destination,
+        brief: String,
+        how: Routing,
+    ) -> Result<()> {
+        t.route = Some(how);
+        match self.target(to) {
+            Ok(_) => {
+                let since = t.created;
+                self.route(t, to, Some(brief), since)
+            }
+            Err(Error::Gone) => {
+                let route = t.route.as_mut().expect("set above");
+                route.fallback = Some("the destination it found is gone".into());
+                self.keep_as_idea(t, None)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// The brief of a thought the person picked the destination of
+    /// arrived. Its hold goes on for as long as the brief is to be read.
+    fn briefed(&mut self, mut t: Thought, brief: String, how: Routing) -> Result<()> {
+        t.brief = Some(brief);
+        t.route = Some(how);
+        if let Some(held) = t.hold_until {
+            let until = self.held(held)?;
+            t.hold_until = Some(until);
+            self.effects.push(Effect::Hold {
+                thought: t.id,
+                until,
+            });
+        }
+        self.save(t)
+    }
+
+    /// The seconds the person has a routed thought held: a preference.
+    fn hold(&self) -> Result<u64> {
+        let pref = self.tx.pref(PrefKey::Hold)?;
+        Ok(match pref.map_or(PrefKey::Hold.default(), |p| p.value) {
+            PrefValue::Hold(hold) => u64::from(hold),
+            _ => 0,
+        })
+    }
+
+    /// When a hold ends, for a route or a brief that arrives now (design
+    /// §5): at `planned`, the end the person's hold gives it, and no
+    /// earlier than [`READ_HOLD`] from now, so that what arrived is there
+    /// to read before the launch. Where the person's hold is shorter than
+    /// that, it is their hold from now; with no hold it ends at once.
+    fn held(&self, planned: Time) -> Result<Time> {
+        let read = self.hold()?.min(u64::from(READ_HOLD));
+        Ok(planned.max(after(self.now, read)?))
     }
 
     /// The project a destination is in, and its session for a follow-up.
@@ -945,16 +1108,27 @@ impl Machine<'_, '_> {
         }
     }
 
-    fn route(&mut self, mut t: Thought, to: Destination, brief: Option<String>) -> Result<()> {
+    /// Routes a thought to `to`; its hold counts from `since` and ends no
+    /// earlier than now. Without a brief, one the person picked the
+    /// destination of, the router is asked for the brief alone when the
+    /// person consented to a model, unless the thought is short enough to
+    /// go on as it is or a model was asked about it before and failed.
+    fn route(
+        &mut self,
+        mut t: Thought,
+        to: Destination,
+        brief: Option<String>,
+        since: Time,
+    ) -> Result<()> {
         let (project, session) = self.target(to)?;
-        let pref = self.tx.pref(PrefKey::Hold)?;
-        let hold = match pref.map_or(PrefKey::Hold.default(), |p| p.value) {
-            PrefValue::Hold(hold) => hold,
-            _ => 0,
-        };
-        let until = Time::new(self.now.get() + u64::from(hold) * 1000).ok_or(Error::Invalid(
-            "the hold would end beyond the clock's range",
-        ))?;
+        let until = self.held(after(since, self.hold()?)?)?;
+        // Picked while the router was still asked where it goes.
+        self.unask(&mut t, "the person picked where it goes");
+        let failed = t.route.as_ref().is_some_and(|r| r.fallback.is_some());
+        let wordy = brief.is_none() && t.brief.is_none() && !crate::route::short(&t.text);
+        if let (true, false, Some(by)) = (wordy, failed, self.consent()?) {
+            self.ask(&mut t, None, Some(by), Some(to));
+        }
         // Picked while the router's question was still open: that question is moot.
         let id = t.id;
         self.close(
@@ -980,7 +1154,16 @@ impl Machine<'_, '_> {
         self.save(t)
     }
 
-    fn ask_router(&mut self, t: Thought, prompt: String, candidates: Vec<Candidate>) -> Result<()> {
+    fn ask_router(
+        &mut self,
+        mut t: Thought,
+        prompt: String,
+        candidates: Vec<Candidate>,
+        brief: Option<String>,
+        how: Routing,
+    ) -> Result<()> {
+        t.route = Some(how);
+        t.brief = brief.or(t.brief);
         let id: QuestionId = self.mint(&[b"router", t.id.uuid().as_bytes()])?;
         let key = router_key(id, &candidates);
         let q = Question {
@@ -1026,13 +1209,17 @@ impl Machine<'_, '_> {
         };
         self.store_answer(q.id, response, device)?;
         match to {
-            Some(to) => self.route(t, to, None),
-            None => self.keep_as_idea(t),
+            Some(to) => {
+                let now = self.now;
+                self.route(t, to, None, now)
+            }
+            None => self.keep_as_idea(t, None),
         }
     }
 
-    fn keep_as_idea(&mut self, mut t: Thought) -> Result<()> {
+    fn keep_as_idea(&mut self, mut t: Thought, how: Option<Routing>) -> Result<()> {
         t.mode = Mode::Note;
+        t.route = how.or(t.route);
         self.save(t)
     }
 
@@ -1044,7 +1231,14 @@ impl Machine<'_, '_> {
             (Mode::Nudge, Some(id)) => self.tx.session(id)?,
             _ => None,
         };
-        let text = t.brief.clone().unwrap_or_else(|| t.text.clone());
+        // Started by hand while its brief was still being written: it goes without.
+        self.unask(&mut t, "it was started before its brief arrived");
+        // The brief, and with it the person's own words unless it says the same.
+        let brief = t.brief.clone();
+        let (text, words) = match brief.filter(|b| !crate::route::same(b, &t.text)) {
+            Some(brief) => (brief, Some(t.text.clone())),
+            None => (t.text.clone(), None),
+        };
         let running = target
             .as_ref()
             .filter(|s| s.state != S::Ended)
@@ -1055,6 +1249,7 @@ impl Machine<'_, '_> {
                 thought: t.id,
                 session,
                 text,
+                words,
             })
         } else {
             let project = t
@@ -1067,6 +1262,9 @@ impl Machine<'_, '_> {
                 .map(|s| s.agent.clone())
                 .or_else(|| t.agent.clone())
                 .ok_or(Error::Invalid("a thought starts with an agent"))?;
+            // A new run is named by the title a model gave the work.
+            let title = t.route.as_ref().and_then(|r| r.title.clone());
+            let title = title.filter(|_| target.is_none());
             let session = Session {
                 id: own_session(attempt)?,
                 rev: Rev::ZERO,
@@ -1078,8 +1276,8 @@ impl Machine<'_, '_> {
                 thought_id: Some(t.id),
                 turn: 0,
                 resume: None,
-                name: None,
-                named_at: None,
+                named_at: title.as_ref().map(|_| self.now),
+                name: title,
                 model: t.model.clone(),
                 cwd,
                 exit: None,
@@ -1097,6 +1295,7 @@ impl Machine<'_, '_> {
                 agent,
                 model: t.model.clone(),
                 prompt: text,
+                words,
                 resume: target.and_then(|s| s.resume),
                 worktree,
             })
@@ -1118,6 +1317,7 @@ impl Machine<'_, '_> {
     }
 
     fn undo(&mut self, mut t: Thought) -> Result<()> {
+        self.unask(&mut t, "it was undone");
         if t.hold_until.take().is_some() {
             self.effects.push(Effect::Unhold(t.id));
         }
@@ -1296,6 +1496,7 @@ impl Machine<'_, '_> {
             project_id: Some(s.project_id),
             session_id: Some(s.id),
             brief: None,
+            route: None,
             agent: Some(s.agent.clone()),
             model: s.model.clone(),
             workdir: None,
@@ -1816,7 +2017,8 @@ impl Machine<'_, '_> {
 /// and a thought the person undid before it started are such; one that ever
 /// ran belongs to the state machine, with its sessions, results and attempts.
 pub fn plain(tx: &Tx, t: &Thought) -> store::Result<bool> {
-    Ok(t.phase == P::Captured && !tx.launched(t.id)?)
+    let asked = t.route.as_ref().is_some_and(|r| r.pending);
+    Ok(t.phase == P::Captured && !asked && !tx.launched(t.id)?)
 }
 
 pub fn fresh<I: DeserializeOwned>(now: Time) -> store::Result<I> {
@@ -1881,6 +2083,32 @@ pub fn create(
             outcome: Some(AttemptOutcome::Reply(Outcome::Ok(Value::Null))),
         })),
     }
+}
+
+/// `seconds` after `from`.
+fn after(from: Time, seconds: u64) -> Result<Time> {
+    Time::new(from.get() + seconds * 1000).ok_or(Error::Invalid(
+        "the hold would end beyond the clock's range",
+    ))
+}
+
+/// Who routes without a model: the match on names (`Routing::by`).
+pub const LOCAL: &str = "local";
+
+/// The match on names answered, as a route's `how`; with `why`, in place
+/// of a model.
+pub fn locally(why: Option<String>) -> Routing {
+    Routing {
+        by: LOCAL.into(),
+        fallback: why,
+        ..Routing::default()
+    }
+}
+
+/// Whether the router is still asked about the thought.
+fn routing(thought: &Option<Thought>) -> bool {
+    let route = thought.as_ref().and_then(|t| t.route.as_ref());
+    route.is_some_and(|r| r.pending)
 }
 
 /// A timer that fires before the hold ends is stale: Undo and a new pick re-armed it.

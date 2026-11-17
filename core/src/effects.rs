@@ -8,29 +8,35 @@
 //!
 //! The launcher is `launch.rs`, which starts runs in real terminals, in
 //! the worktrees `isolate.rs` makes, keeps and removes on threads of their
-//! own; the router is `route.rs`'s local match, unless `fixture.script`
-//! has selected the fixture router in a core built with its test fixtures.
+//! own; the router is `route.rs`'s local match (the fixture router once
+//! `fixture.script` has selected it in a core built with its test
+//! fixtures), and with the person's consent the model behind their own
+//! agent, asked on a thread of its own with a time limit.
 //! The fixture launcher stands in for the real one only where a test
 //! scripts what the real one cannot do.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::mpsc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
-    AttemptId, CallId, Change, Offset, Outcome, QuestionId, Secret, SessionEvent, SessionId,
-    Settle, TerminalId, TerminalState, Thought, ThoughtId, Time, Workdir,
+    AttemptId, CallId, Change, Offset, Outcome, QuestionId, RouteBy, Routing, Secret, SessionEvent,
+    SessionId, Settle, TerminalId, TerminalState, Thought, ThoughtId, Time, Workdir,
 };
 use tokio::task::AbortHandle;
 
+use crate::agents::checks::{self, Asked, Failed};
 use crate::calls::{Caller, Cx};
 use crate::conn::Link;
 use crate::isolate::{Git, Owner};
 use crate::serve::Core;
-use crate::state::{self, Deliver, Effect, Event, Launch, Launcher, Report, Router, Worktree};
+use crate::state::{
+    self, Deliver, Destination, Effect, Event, Launch, Launcher, Report, Route, Router, Worktree,
+};
 use crate::store::{self, AttemptOutcome, Tx};
 use crate::{agents, questions};
 
@@ -117,6 +123,14 @@ pub struct Seams {
     git: usize,
     /// The `thought.settle` calls waiting for their attempt's git work.
     settling: HashMap<AttemptId, Vec<(Rc<Link>, CallId)>>,
+    /// The thoughts a model is being asked about, each with the number of
+    /// its question and what stops its tool (design §8).
+    routes: HashMap<ThoughtId, (u64, mpsc::Sender<Asked>)>,
+    /// Questions asked so far: a later one for the same thought is another.
+    asked: u64,
+    /// The agents whose tool said it no longer offers the model it is
+    /// asked for: none is asked again while this core runs.
+    gone: Vec<&'static str>,
 }
 
 struct Timer {
@@ -137,14 +151,19 @@ struct Fixture {
 }
 
 impl Seams {
-    /// Whether a hold timer is armed or git work runs, either of which
-    /// would be lost with the core.
+    /// Whether a hold timer is armed, git work runs or a model is asked
+    /// about a thought, each of which would be lost with the core.
     pub fn holding(&self) -> bool {
-        !self.timers.is_empty() || self.git > 0
+        !self.timers.is_empty() || self.git > 0 || !self.routes.is_empty()
     }
 
     pub fn now(&self) -> Time {
         self.manual().unwrap_or_else(wall)
+    }
+
+    /// Whether the agent's tool was found not to offer its model any more.
+    pub fn gone(&self, agent: &str) -> bool {
+        self.gone.contains(&agent)
     }
 
     /// The agent `fixture.script` has new captures name, in a fixtures build.
@@ -290,8 +309,17 @@ fn carry(core: &mut Core, effects: Vec<Effect>) -> Option<Outcome> {
     let mut outcome = None;
     for effect in effects {
         let reply = match effect {
-            Effect::Route { thought, current } => {
-                route(core, thought, current);
+            Effect::Route {
+                thought,
+                current,
+                by,
+                picked,
+            } => {
+                route(core, thought, current, by, picked);
+                None
+            }
+            Effect::Unroute(thought) => {
+                unroute(core, thought);
                 None
             }
             Effect::Hold { thought, until } => {
@@ -372,16 +400,126 @@ fn stop(why: impl std::fmt::Display) -> ! {
     std::process::exit(1)
 }
 
-fn route(core: &mut Core, id: ThoughtId, current: Option<SessionId>) {
-    let request = read(core, |tx| {
+/// Asks the router about a thought (design §8). The match on names
+/// answers at once. With the person's consent `by`, the model behind
+/// their agent is asked instead, off the core's thread, unless the match
+/// is sure of a short thought already: its answer is used as
+/// `route::accept` allows, and whenever it is not, the match's is, with
+/// why. With `picked` only the brief is open, and the fallback is the
+/// person's own words.
+fn route(
+    core: &mut Core,
+    id: ThoughtId,
+    current: Option<SessionId>,
+    by: Option<RouteBy>,
+    picked: Option<Destination>,
+) {
+    use crate::route::{accept, askable, consented, narrow, question, request, short};
+    let found = read(core, |tx| {
         let thought = tx.thought(id)?;
-        (thought.map(|t| crate::route::request(tx, &t.text, current))).transpose()
+        (thought.map(|t| request(tx, &t.text, current))).transpose()
     });
-    let Ok(Some(request)) = request else {
+    let Ok(Some(mut asked)) = found else {
         return;
     };
-    let route = core.seams.route(&request);
-    report(core, Event::Routed { thought: id, route }, |_| Ok(()));
+    asked.picked = picked;
+    let local = match picked {
+        Some(to) => Route::Clear {
+            to,
+            brief: asked.text.clone(),
+        },
+        None => core.seams.route(&asked),
+    };
+    let sure = matches!(local, Route::Clear { .. }) && short(&asked.text);
+    let tool = match by.filter(|_| !sure) {
+        Some(by) => consented(&by).and_then(|tool| askable(&asked.text).map(|()| tool)),
+        None => return routed(core, id, local, state::locally(None)),
+    };
+    let narrowed = read(core, |tx| narrow(tx, asked)).map_err(|e| e.message);
+    let (agent, how, asked) = match (tool, narrowed) {
+        (Ok((agent, how)), _) if core.seams.gone(agent.id()) => {
+            let why = crate::route::gone(how.tool);
+            return routed(core, id, local, state::locally(Some(why)));
+        }
+        (Ok((agent, how)), Ok(asked)) => (agent, how, asked),
+        (Err(why), _) | (_, Err(why)) => return routed(core, id, local, state::locally(Some(why))),
+    };
+    let folder = core.terminals.data().join("route");
+    let (hear, heard) = mpsc::channel();
+    core.seams.asked += 1;
+    let number = core.seams.asked;
+    core.seams.routes.insert(id, (number, hear.clone()));
+    let (began, model, tool) = (Instant::now(), how.model, how.tool);
+    let text = question(&asked);
+    let ask = move || {
+        checks::ask(
+            agent,
+            &how,
+            text,
+            crate::route::SCHEMA,
+            &folder,
+            (hear, heard),
+        )
+    };
+    crate::calls::aside(core, ask, move |core, answer| {
+        // Stopped, or asked anew since: nobody waits for this answer.
+        if core.seams.routes.get(&id).map(|(n, _)| *n) != Some(number) {
+            return;
+        }
+        core.seams.routes.remove(&id);
+        // The last question may have kept the core alive.
+        core.events.notify_one();
+        let ms = Some(u32::try_from(began.elapsed().as_millis()).unwrap_or(u32::MAX));
+        let lost = || Err(Failed::Why("it ended without an answer".into()));
+        let accepted = answer
+            .unwrap_or_else(lost)
+            .and_then(|answer| Ok(accept(&asked, &answer)?));
+        let (route, how) = match accepted {
+            Ok((route, found)) => {
+                let how = Routing {
+                    by: agent.id().into(),
+                    model: Some(model.into()),
+                    ms,
+                    ..found
+                };
+                (route, how)
+            }
+            Err(failed) => {
+                let why = match failed {
+                    Failed::Gone => {
+                        core.seams.gone.push(agent.id());
+                        crate::route::gone(tool)
+                    }
+                    Failed::Why(why) => format!("{}: {why}", agent.id()),
+                };
+                (
+                    local,
+                    Routing {
+                        ms,
+                        ..state::locally(Some(why))
+                    },
+                )
+            }
+        };
+        routed(core, id, route, how);
+    });
+}
+
+fn routed(core: &mut Core, thought: ThoughtId, route: Route, how: Routing) {
+    let routed = Event::Routed {
+        thought,
+        route,
+        how,
+    };
+    report(core, routed, |_| Ok(()));
+}
+
+/// Stops the tool that is asked about a thought; its answer is dropped.
+fn unroute(core: &mut Core, thought: ThoughtId) {
+    if let Some((_, hear)) = core.seams.routes.remove(&thought) {
+        let _ = hear.send(Asked::Stop);
+        core.events.notify_one();
+    }
 }
 
 /// Starts a run. Its program is looked up on the PATH, and the check its
@@ -952,6 +1090,9 @@ fn fire(core: &mut Core, thought: ThoughtId, until: Time) {
 /// restart leaves it (design §3), and nothing launches while the core goes.
 pub fn close(core: &mut Core) {
     core.seams.closing = true;
+    for (_, (_, hear)) in core.seams.routes.drain() {
+        let _ = hear.send(Asked::Stop);
+    }
     for (_, timer) in core.seams.timers.drain() {
         if let Some(task) = timer.task {
             task.abort();
@@ -967,7 +1108,7 @@ pub fn script(
     cx: &mut Cx,
     args: tasktap_proto::FixtureScript,
 ) -> Result<tasktap_proto::FixtureLog, Error> {
-    use state::{FixtureLauncher, FixtureRouter, Route};
+    use state::{FixtureLauncher, FixtureRouter};
     use tasktap_proto::{FixtureLaunch, FixtureLog};
     let route = crate::route::unwire(args.route);
     let f = cx.core.seams.fixture.get_or_insert_with(|| Fixture {

@@ -678,10 +678,20 @@ impl<'s> Tx<'s> {
             })?;
         }
         // Hold timers are not restored: a held thought waits for Start.
-        let held = "WHERE data ->> 'hold_until' IS NOT NULL";
+        // Nor is a router asked again: its thought waits for the person.
+        let held = "WHERE data ->> 'hold_until' IS NOT NULL OR data ->> '$.route.pending'";
         for t in self.all::<Thought>(Table::Thoughts, held, [])? {
+            let route = t.route.map(|route| match route.pending {
+                true => tasktap_proto::Routing {
+                    pending: false,
+                    fallback: Some("the core stopped while it was asked".into()),
+                    ..route
+                },
+                false => route,
+            });
             self.update_thought(&Thought {
                 hold_until: None,
+                route,
                 ..t
             })?;
         }
@@ -760,6 +770,29 @@ impl<'s> Tx<'s> {
         let clause = "WHERE session_id = ?1 AND phase IN ('captured', 'routed', 'working') \
                       ORDER BY rev";
         self.all(Table::Thoughts, clause, [key(&session)?])
+    }
+
+    /// The live thoughts that went to a session and are working or ended,
+    /// the last written first, each with the summary of its latest result:
+    /// the recent exchanges a router is given (design §8).
+    pub fn exchanges(&self, limit: usize) -> Result<Vec<(Thought, Option<String>)>> {
+        let clause = "WHERE live = 1 AND session_id IS NOT NULL \
+                      AND phase IN ('working', 'done', 'failed') ORDER BY rev DESC LIMIT ?1";
+        let thoughts: Vec<Thought> = self.all(Table::Thoughts, clause, [limit as i64])?;
+        let mut latest = self.db.prepare_cached(
+            "SELECT data ->> 'summary' FROM results WHERE thought_id = ?1 ORDER BY id DESC LIMIT 1",
+        )?;
+        let mut exchanges = Vec::new();
+        for t in thoughts {
+            let summary = latest.query_row([key(&t.id)?], |r| r.get(0));
+            let summary = match summary {
+                Ok(summary) => Some(summary),
+                Err(rusqlite::Error::QueryReturnedNoRows) => None,
+                Err(e) => return Err(e.into()),
+            };
+            exchanges.push((t, summary));
+        }
+        Ok(exchanges)
     }
 
     pub fn project(&self, id: ProjectId) -> Result<Option<Project>> {

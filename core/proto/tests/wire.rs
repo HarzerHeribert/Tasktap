@@ -319,6 +319,15 @@ fn every_call_round_trips() {
         brief: "fix the header in folio".into(),
     };
     round_trip::<call::RouteHint>(hint, route, seen);
+    let terms = RouteTerms {
+        instructions: "You are the router of Tasktap.".into(),
+        sends: vec!["the thought, as you said or typed it".into()],
+        tools: vec![RouteBy {
+            agent: "claude".into(),
+            model: "haiku".into(),
+        }],
+    };
+    round_trip::<call::RouteTerms>(Empty {}, terms, seen);
     let health = AgentHealth {
         id: "codex".into(),
         rev: rev(7),
@@ -463,7 +472,7 @@ fn every_call_round_trips() {
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 36);
+    assert_eq!(Name::ALL.len(), 37);
 }
 
 #[test]
@@ -498,7 +507,7 @@ fn access_follows_the_authorization_table() {
             "session.adopt"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 29);
+    assert_eq!(by(Access::Device).len(), 30);
     assert_eq!(by(Access::Ability), ["shim.hold"]);
     for (access, allowed) in [
         (Access::Anyone, [true, true, true]),
@@ -746,4 +755,77 @@ fn ambient_and_terminal_preferences_put_as_the_wire_says_within_their_bounds() {
     ] {
         assert!(serde_json::from_value::<PutTarget>(bad).is_err());
     }
+}
+
+#[test]
+fn the_consent_to_route_by_a_model_and_a_thoughts_route_are_as_the_wire_says() {
+    let by = RouteBy {
+        agent: "claude".into(),
+        model: "haiku".into(),
+    };
+    let wire =
+        json!({"c": "prefs", "id": "route_by", "patch": {"agent": "claude", "model": "haiku"}});
+    let target: PutTarget = serde_json::from_value(wire.clone()).unwrap();
+    assert_eq!(
+        target,
+        PutTarget::Prefs(PrefPatch::RouteBy(Some(by.clone())))
+    );
+    assert_eq!(serde_json::to_value(&target).unwrap(), wire);
+    // Taken back with none.
+    let none = json!({"c": "prefs", "id": "route_by", "patch": null});
+    let target: PutTarget = serde_json::from_value(none).unwrap();
+    assert_eq!(target, PutTarget::Prefs(PrefPatch::RouteBy(None)));
+    assert_eq!(PrefKey::RouteBy.default(), PrefValue::RouteBy(None));
+    let value = PrefValue::from(PrefPatch::RouteBy(Some(by)));
+    assert_eq!(value.key(), PrefKey::RouteBy);
+    let row = Pref { value, rev: rev(3) };
+    assert_eq!(
+        serde_json::to_value(&row).unwrap(),
+        json!({"id": "route_by", "value": {"agent": "claude", "model": "haiku"}, "rev": 3})
+    );
+    // A consent names a tool and a model and nothing else.
+    for patch in [
+        json!("claude"),
+        json!({"agent": "claude"}),
+        json!({"agent": "claude", "model": "haiku", "server": "example.com"}),
+    ] {
+        let bad = json!({"c": "prefs", "id": "route_by", "patch": patch});
+        assert!(serde_json::from_value::<PutTarget>(bad).is_err());
+    }
+
+    // How a thought was routed; one stored before there was such a record has none.
+    let route = Routing {
+        by: "claude".into(),
+        model: Some("haiku".into()),
+        pending: false,
+        fallback: None,
+        quote: Some("that thing from before".into()),
+        title: Some("Login redirect".into()),
+        ms: Some(2300),
+    };
+    let routed = Thought {
+        route: Some(route),
+        ..thought()
+    };
+    let mut wire = serde_json::to_value(&routed).unwrap();
+    assert_eq!(
+        wire["route"],
+        json!({"by": "claude", "model": "haiku", "pending": false, "fallback": null,
+               "quote": "that thing from before", "title": "Login redirect", "ms": 2300})
+    );
+    // A route stored before a model gave titles reads with none.
+    let mut untitled = wire["route"].clone();
+    untitled.as_object_mut().unwrap().remove("title");
+    let untitled: Routing = serde_json::from_value(untitled).unwrap();
+    assert_eq!(untitled.title, None);
+    assert_eq!(
+        serde_json::from_value::<Thought>(wire.clone()).unwrap(),
+        routed
+    );
+    wire.as_object_mut().unwrap().remove("route");
+    assert_eq!(serde_json::from_value::<Thought>(wire).unwrap(), thought());
+
+    // `route.terms` is a device's call with no arguments.
+    assert_eq!(call::RouteTerms::NAME.as_str(), "route.terms");
+    assert_eq!(call::RouteTerms::NAME.access(), Access::Device);
 }

@@ -29,6 +29,7 @@ impl Watchdog {
         std::thread::spawn(move || {
             if disarmed.recv_timeout(patience) == Err(RecvTimeoutError::Timeout) {
                 eprintln!("{test} still holds its core after {patience:?}: killing it");
+                eprintln!("what it did until then:\n{}", super::notes(&test));
                 #[cfg(unix)]
                 let kill = Command::new("kill").args(["-9", &pid]).status();
                 #[cfg(windows)]

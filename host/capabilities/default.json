@@ -1,0 +1,5 @@
+{
+  "identifier": "default",
+  "windows": ["notch", "peek"],
+  "permissions": ["core:default"]
+}

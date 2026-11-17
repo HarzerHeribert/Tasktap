@@ -390,7 +390,10 @@ fn claude_runs_with_its_hooks_its_id_and_auto_approval() {
     let hooks = settings["hooks"].as_object().unwrap();
     assert_eq!(hooks.len(), 8);
     let stop = &hooks["Stop"][0]["hooks"][0];
-    assert_eq!(stop["command"], "'/opt/tasktap/tasktap' hook claude");
+    assert_eq!(
+        stop["command"],
+        format!("{} hook claude", quoted("/opt/tasktap/tasktap"))
+    );
     assert_eq!(hooks["PermissionRequest"][0]["hooks"][0]["timeout"], 600);
     // A resumed run continues the conversation, with the model it had.
     let argv = claude.launch(&run("Go on", Some("sonnet"), Some("abc")));
@@ -408,6 +411,25 @@ fn claude_runs_with_its_hooks_its_id_and_auto_approval() {
         ]
     );
     assert!(claude.probe(Path::new("/x"), Path::new("/y")).is_none());
+}
+
+/// `exe` as the adapters quote it for the shell that runs a hook command.
+fn quoted(exe: &str) -> String {
+    if cfg!(windows) {
+        format!("\"{exe}\"")
+    } else {
+        format!("'{exe}'")
+    }
+}
+
+/// The app server's answer to `hooks/list`, recorded on a Mac with the
+/// hooks of `/tmp/tasktap`, its commands quoted as this system's adapter
+/// quotes them.
+fn recorded_hooks() -> String {
+    let list = String::from_utf8(payload("codex", "hooks-list")).unwrap();
+    let recorded = json!("'/tmp/tasktap' hook codex").to_string();
+    let here = json!(format!("{} hook codex", quoted("/tmp/tasktap"))).to_string();
+    list.trim().replace(&recorded, &here)
 }
 
 #[test]
@@ -434,7 +456,10 @@ fn codex_runs_trusted_with_its_hooks_after_a_probe() {
     assert_eq!(hooks.len(), 7);
     assert_eq!(
         hooks[4],
-        r#"hooks.PermissionRequest=[{hooks=[{type="command",command="'/opt/tasktap/tasktap' hook codex",timeout=600}]}]"#
+        format!(
+            "hooks.PermissionRequest=[{{hooks=[{{type=\"command\",command={},timeout=600}}]}}]",
+            json!(format!("{} hook codex", quoted("/opt/tasktap/tasktap")))
+        )
     );
     let argv = codex.launch(&run("Go on", Some("o3"), Some("t-1")));
     let rest: Vec<&str> = argv.iter().map(String::as_str).collect();
@@ -464,7 +489,7 @@ fn codex_runs_trusted_with_its_hooks_after_a_probe() {
     assert_eq!(asked[2]["params"]["cwds"], json!(["/tmp/project"]));
     let mut read = probe.read;
     assert!(read(r#"{"id":1,"result":{}}"#).is_none());
-    let list = String::from_utf8(payload("codex", "hooks-list")).unwrap();
+    let list = recorded_hooks();
     let more = read(list.trim()).unwrap().unwrap();
     assert_eq!(more[0], "-c");
     let state = &more[1];
@@ -495,8 +520,7 @@ fn codex_runs_trusted_with_its_hooks_after_a_probe() {
         "Codex listed 6 of the 7 hooks Tasktap attaches, so none was trusted"
     );
     let hooks = listed["result"]["data"][0]["hooks"].as_array_mut().unwrap();
-    let list: Value =
-        serde_json::from_str(&String::from_utf8(payload("codex", "hooks-list")).unwrap()).unwrap();
+    let list: Value = serde_json::from_str(&recorded_hooks()).unwrap();
     hooks.push(list["result"]["data"][0]["hooks"][6].clone());
     let probe = codex.probe(Path::new("/tmp/tasktap"), Path::new("/tmp/project"));
     let mut read = probe.unwrap().read;

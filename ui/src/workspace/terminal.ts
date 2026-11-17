@@ -9,14 +9,14 @@ import { SearchAddon } from '@xterm/addon-search';
 import { Terminal } from '@xterm/xterm';
 import type { Stream } from '../client.ts';
 import { call, client, records, redraw } from '../page.ts';
-import { type Look, neutral, terminalOptions } from './appearance.ts';
+import { type Look, look as ownLook, terminalOptions } from './appearance.ts';
 
 /** Bytes the core may send ahead of what xterm.js has parsed. */
 const WINDOW = 1 << 20;
 const encoder = new TextEncoder();
 const empty = new Uint8Array(0);
 const RELEASE = '\x1b[?9;1000;1002;1003;1004;1005;1006;1015;1016;2004;2026l\x1b[?1l\x1b>\x1b[<u\x1b[=0u\x1b[>4;0m\x1b[?47l\x1b[0m\x1b[?25h';
-let look: Look = neutral();
+let look: Look = ownLook();
 
 export class Engine {
   readonly id: string;

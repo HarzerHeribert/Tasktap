@@ -111,7 +111,6 @@ fn bridge_host(app: AppHandle, frame: String) -> String {
             Err(_) => json!(native::pick_folder()),
         }),
         "host.clipboard" => Ok(json!(native::clipboard(args["text"].as_str(), notch::NOTCH.lock().unwrap().passive))),
-        "host.appearance" => Ok(workspace::appearance(&app, args)),
         name => Err(format!("this host has no {name}")),
     };
     match outcome {
@@ -277,7 +276,7 @@ fn main() {
                 let inner = handle.clone();
                 let _ = handle.run_on_main_thread(move || glance(&inner, g.question));
             })?;
-            workspace::start(app.handle(), core.data.clone());
+            workspace::start(core.data.clone());
             app.set_menu(workspace::menu(app.handle())?)?;
             app.manage(Host { core, link, pages: Mutex::default(), question: Mutex::default() });
             app.global_shortcut().register(keys(Code::Space))?;

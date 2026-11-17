@@ -1,0 +1,7 @@
+/* The terminal's faces, shipped with the app: Hack 3.003 (MIT and Bitstream Vera licences) and the symbols of Nerd
+   Fonts 3.4.0 (MIT), whose licences are in licenses/. The interface's own monospace stays the system face. */
+@font-face{font-family:"Hack";src:url(../fonts/hack-regular.woff2) format("woff2");font-weight:400;font-style:normal}
+@font-face{font-family:"Hack";src:url(../fonts/hack-bold.woff2) format("woff2");font-weight:700;font-style:normal}
+@font-face{font-family:"Hack";src:url(../fonts/hack-italic.woff2) format("woff2");font-weight:400;font-style:italic}
+@font-face{font-family:"Hack";src:url(../fonts/hack-bolditalic.woff2) format("woff2");font-weight:700;font-style:italic}
+@font-face{font-family:"Symbols Nerd Font Mono";src:url(../fonts/symbols-nerd-font-mono.woff) format("woff");font-weight:400;font-style:normal}

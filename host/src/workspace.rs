@@ -1,17 +1,14 @@
 //! The workspace window and the application around it: a real titled window whose close,
 //! minimise and zoom buttons sit over the page's own top row (1.2's layout), its frame kept in
 //! `<data>/host.json` between launches; the application menu; the Dock icon that brings the
-//! window back; and the appearance the page asks for (Ghostty's resolved configuration, read as
-//! native/GhosttyAppearance.swift read it). Closing the window leaves the notch running.
+//! window back. Closing the window leaves the notch running.
 use crate::notch;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use std::io::Read;
+use serde_json::json;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use std::time::Duration;
+use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::utils::config::{BackgroundThrottlingPolicy, WindowEffectsConfig};
 use tauri::utils::{WindowEffect, WindowEffectState};
 use tauri::{
@@ -26,15 +23,11 @@ pub const LABEL: &str = "workspace";
 struct Settings {
     /// The window's frame in points: x, y, width, height.
     frame: Option<[f64; 4]>,
-    /// The palette follows Ghostty's colours (1.2's default), else Midnight.
-    ghostty: bool,
 }
 
 struct State {
     path: PathBuf,
     settings: Settings,
-    /// Ghostty's appearance lines: not read yet (None), absent (Some(None)), or read.
-    config: Option<Option<String>>,
     /// The page's first paint showed the window.
     shown: bool,
 }
@@ -51,98 +44,12 @@ fn save() {
     })
 }
 
-/// Reads the settings and starts reading Ghostty's configuration off the main thread.
-pub fn start(app: &AppHandle, data: PathBuf) {
+/// Reads the settings.
+pub fn start(data: PathBuf) {
     let path = data.join("host.json");
-    let settings = std::fs::read(&path)
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or(Settings { frame: None, ghostty: true });
-    *STATE.lock().unwrap() = Some(State { path, settings, config: None, shown: false });
-    let handle = app.clone();
-    std::thread::spawn(move || {
-        let config = ghostty();
-        with(|st| st.config = Some(config));
-        let _ = handle.emit_to(LABEL, "ui", json!({"do": "appearance"}));
-    });
-}
-
-/// The keys of Ghostty's configuration that are appearance: only these reach the page, never
-/// commands or key bindings.
-const APPEARANCE: [&str; 15] = [
-    "background",
-    "foreground",
-    "cursor-color",
-    "cursor-text",
-    "selection-background",
-    "selection-foreground",
-    "palette",
-    "font-family",
-    "font-size",
-    "background-opacity",
-    "theme",
-    "cursor-style",
-    "cursor-style-blink",
-    "window-padding-x",
-    "window-padding-y",
-];
-
-/// `ghostty +show-config`: Ghostty resolves its own includes and theme. At most 4 s, 512 KiB.
-fn ghostty() -> Option<String> {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let binary = [
-        "/Applications/Ghostty.app/Contents/MacOS/ghostty".to_owned(),
-        format!("{home}/Applications/Ghostty.app/Contents/MacOS/ghostty"),
-        "/opt/homebrew/bin/ghostty".to_owned(),
-        "/usr/local/bin/ghostty".to_owned(),
-    ]
-    .into_iter()
-    .find(|p| std::fs::metadata(p).is_ok())?;
-    let mut child = Command::new(binary)
-        .args(["+show-config", "--no-pager"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let out = child.stdout.take()?;
-    let reader = std::thread::spawn(move || {
-        let mut text = String::new();
-        let _ = out.take(512 << 10).read_to_string(&mut text);
-        text
-    });
-    let deadline = Instant::now() + Duration::from_secs(4);
-    let status = loop {
-        if let Some(status) = child.try_wait().ok()? {
-            break status;
-        }
-        if Instant::now() > deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return None;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    };
-    let text = reader.join().ok().filter(|_| status.success())?;
-    let kept = text
-        .lines()
-        .filter(|l| l.split_once('=').is_some_and(|(k, _)| APPEARANCE.contains(&k.trim())))
-        .collect::<Vec<_>>()
-        .join("\n");
-    Some(kept)
-}
-
-/// `host.appearance`: whether the palette follows Ghostty and its lines; `{ghostty}` sets the first.
-pub fn appearance(app: &AppHandle, args: &Value) -> Value {
-    if let Some(on) = args["ghostty"].as_bool() {
-        with(|st| st.settings.ghostty = on);
-        save();
-        if let Some(item) = app.menu().and_then(|m| m.get("ghostty")) {
-            let _ = item.as_check_menuitem().map(|c| c.set_checked(on));
-        }
-        let _ = app.emit_to(LABEL, "ui", json!({"do": "appearance"}));
-    }
-    with(|st| json!({"ghostty": st.settings.ghostty, "config": st.config.clone().flatten()}))
+    let settings =
+        std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Settings { frame: None });
+    *STATE.lock().unwrap() = Some(State { path, settings, shown: false });
 }
 
 /// Shows the workspace window, made the first time; with `at`, the page shows that session's or
@@ -254,12 +161,23 @@ fn on_screen(app: &AppHandle, f: &[f64; 4]) -> bool {
     })
 }
 
+/// The About panel's notices: the terminal's typefaces, whose licences ship in the app's pages (licenses/).
+fn about() -> AboutMetadata<'static> {
+    AboutMetadata {
+        credits: Some(
+            "Terminal text is set in Hack 3.003 (MIT and Bitstream Vera licences), with symbols from Nerd Fonts 3.4.0 (MIT). \
+             Their licences are in the app, under licenses/."
+                .to_owned(),
+        ),
+        ..Default::default()
+    }
+}
+
 /// The application menu: Quit, the Edit commands a web view needs for ⌘C and ⌘V, and the
 /// workspace's own commands, which go to its page (`command` in ui/src/workspace/main.tsx).
 pub fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let item = |id: &str, text: &str, keys: Option<&str>| MenuItem::with_id(app, id, text, true, keys);
     let sep = || PredefinedMenuItem::separator(app);
-    let ghostty = with(|st| st.settings.ghostty);
     Menu::with_items(
         app,
         &[
@@ -268,7 +186,7 @@ pub fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
                 "Tasktap",
                 true,
                 &[
-                    &PredefinedMenuItem::about(app, Some("About Tasktap"), None)?,
+                    &PredefinedMenuItem::about(app, Some("About Tasktap"), Some(about()))?,
                     &sep()?,
                     &PredefinedMenuItem::hide(app, None)?,
                     &PredefinedMenuItem::hide_others(app, None)?,
@@ -320,7 +238,6 @@ pub fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
                     &item("smaller", "Decrease Text Size", Some("CmdOrCtrl+-"))?,
                     &item("reset", "Reset Text Size", Some("CmdOrCtrl+0"))?,
                     &sep()?,
-                    &CheckMenuItem::with_id(app, "ghostty", "Follow Ghostty Colours", true, ghostty, None::<&str>)?,
                     &item("settings", "Settings…", Some("CmdOrCtrl+,"))?,
                 ],
             )?,
@@ -345,10 +262,6 @@ pub fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 pub fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "show" => drop(show(app, None)),
-        "ghostty" => {
-            let on = !with(|st| st.settings.ghostty);
-            appearance(app, &json!({"ghostty": on}));
-        }
         "new-task" | "new-terminal" | "open-workspace" | "settings" => {
             let _ = show(app, None);
             let _ = app.emit_to(LABEL, "ui", json!({"do": "menu", "id": id}));

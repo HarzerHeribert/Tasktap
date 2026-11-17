@@ -22,9 +22,6 @@ export type HostCalls = {
   'host.pick': { args: { folder: true }; result: string | null };
   /** Reads the clipboard's text, or with `text` writes it. */
   'host.clipboard': { args: { text?: string }; result: string | null };
-  /** Whether the palette follows Ghostty, and Ghostty's appearance lines (null until read or
-   *  when it is not installed); with `ghostty`, sets the first. */
-  'host.appearance': { args: { ghostty?: boolean }; result: { ghostty: boolean; config: string | null } };
   /** The workspace page has drawn: its window may show. */
   'host.ready': { args: Record<string, never>; result: null };
 };

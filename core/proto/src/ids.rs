@@ -75,7 +75,7 @@ pub const MAX_SAFE: u64 = (1 << 53) - 1;
 macro_rules! safe_ints {
     ($($(#[$doc:meta])* $name:ident),* $(,)?) => {$(
         $(#[$doc])*
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
         #[serde(try_from = "u64", into = "u64")]
         #[cfg_attr(test, derive(ts_rs::TS), ts(type = "number"))]
         pub struct $name(u64);

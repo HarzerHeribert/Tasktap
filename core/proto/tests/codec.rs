@@ -128,6 +128,18 @@ fn frames_at_the_limit_pass_and_one_byte_more_is_refused() {
     ));
     assert_eq!(out, [9], "a refused frame leaves the buffer as it was");
 
+    // Built in place: the same bytes, nothing for an empty frame, and the same limit.
+    let fill = |n: usize| move |out: &mut Vec<u8>| out.resize(out.len() + n, b'a');
+    let mut built = Vec::new();
+    encode_data_in(StreamId(1), &mut built, fill(MAX_DATA)).unwrap();
+    assert_eq!(built, encoded(&data(MAX_DATA)));
+    encode_data_in(StreamId(1), &mut out, fill(0)).unwrap();
+    assert!(matches!(
+        encode_data_in(StreamId(1), &mut out, fill(MAX_DATA + 1)),
+        Err(FrameError::TooLarge { kind: 1, .. })
+    ));
+    assert_eq!(out, [9]);
+
     // Each byte of the string adds one byte to the frame.
     let call = |n: usize| {
         Frame::Control(Control::Call(Request {

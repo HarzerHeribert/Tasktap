@@ -142,6 +142,39 @@ export type Empty = Record<string, never>;
 export type Error = { code: Code, message: string, };
 
 /**
+ * `fixture.stream`: a stream of known bytes with no terminal behind it, for
+ * tests and measurement (design §13). Only a core built with its test
+ * fixtures answers it. The reply is the stream.
+ *
+ * Both directions carry the fixture's bytes from offset 0: byte `i` is the
+ * top byte of the 32-bit product `(i mod 65521) × 0x9E3779B1`. The core
+ * closes the stream with `done` once it sent `send` bytes and took
+ * `receive` bytes, or with `denied` at the first byte taken that differs.
+ */
+export type FixtureStream = {
+/**
+ * What the caller grants the core on this stream at once.
+ */
+credit: number,
+/**
+ * Bytes the core sends.
+ */
+send: Offset,
+/**
+ * Bytes the core takes. It never grants more than are still to come.
+ */
+receive: Offset,
+/**
+ * Most bytes the core puts in one data frame, and the credit it keeps
+ * granted toward it; up to `MAX_CREDIT`.
+ */
+chunk: number,
+/**
+ * Offsets of the sent bytes where the core puts a plain mark, ascending.
+ */
+marks?: Array<Offset>, };
+
+/**
  * What a host shows with no page running. Memory only.
  */
 export type Glance = { rev: Rev, working: number, needs_you: number, done: number,
@@ -528,4 +561,5 @@ export type Calls = {
   "device.revoke": { args: Ref<DeviceId>; result: null; access: "device" };
   "core.status": { args: Empty; result: CoreStatus; access: "anyone" };
   "core.retire": { args: Retire; result: null; access: "anyone" };
+  "fixture.stream": { args: FixtureStream; result: Opened; access: "device" };
 };

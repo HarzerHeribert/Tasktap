@@ -65,6 +65,10 @@ fn handler(name: Name) -> Option<Handler> {
         Name::CoreStatus => |cx, args| now::<call::CoreStatus>(cx, args, status),
         Name::CoreRetire => |cx, args| now::<call::CoreRetire>(cx, args, retire),
         Name::DeviceRevoke => |cx, args| now::<call::DeviceRevoke>(cx, args, revoke),
+        #[cfg(feature = "fixtures")]
+        Name::FixtureStream => {
+            |cx, args| now::<call::FixtureStream>(cx, args, crate::stream::fixture)
+        }
         _ => return None,
     };
     Some(handler)

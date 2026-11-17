@@ -1,14 +1,16 @@
 //! The client the roles and the tests use (design §13): connect, or start the
-//! core and connect; say hello; make calls; receive frames. It blocks, so a
-//! short-lived role needs no runtime.
+//! core and connect; say hello; make calls; receive frames; open streams and
+//! read and write them within credit. It blocks, so a short-lived role needs
+//! no runtime.
 
 use crate::sys;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use tasktap_proto::{
-    Call, CallId, Control, Decoder, Error, Frame, Hello, Refuse, Welcome, encode_control,
+    Call, CallId, Close, Control, Credit, Data, Decoder, Error, Frame, Hello, MAX_DATA, Opened,
+    Refuse, StreamId, Welcome, encode_control, encode_data,
 };
 
 pub use crate::sys::ClientStream as Stream;
@@ -68,7 +70,21 @@ pub struct Client {
     /// Frames that arrived while a call waited for its reply.
     held: VecDeque<Frame>,
     next: u32,
+    /// Every stream the core opened for this client; `None` once closed,
+    /// so late frames for it are told from a core that broke the protocol.
+    streams: HashMap<StreamId, Option<Flow>>,
     pub welcome: Welcome,
+}
+
+/// One open stream as this client counts it.
+struct Flow {
+    /// Bytes the core may still send.
+    granted: u64,
+    /// Bytes this client may still send.
+    credit: u64,
+    /// With automatic credit: the grant to keep open, and what was handed
+    /// out since the last grant.
+    auto: Option<(u32, u32)>,
 }
 
 impl Client {
@@ -82,6 +98,7 @@ impl Client {
                 decoder,
                 held: VecDeque::new(),
                 next: 0,
+                streams: HashMap::new(),
                 welcome,
             })),
             Frame::Control(Control::Refuse(refuse)) => Ok(Err(refuse)),
@@ -98,11 +115,11 @@ impl Client {
         self.next = self.next.wrapping_add(1);
         self.send(&C::request(id, args))?;
         loop {
-            match read(&mut self.stream, &mut self.decoder)? {
+            match self.take()? {
                 Frame::Control(Control::Reply(reply)) if reply.id == id => {
                     return Ok(C::result(reply.outcome));
                 }
-                other => self.held.push_back(other),
+                other => self.hold(other),
             }
         }
     }
@@ -111,12 +128,144 @@ impl Client {
         write(&mut self.stream, frame)
     }
 
-    /// The next frame from the core.
+    /// The next frame from the core. Data for a stream with automatic credit
+    /// is granted back as it is handed out here. A `credit` frame read here
+    /// is handed out too, so a caller can send what it now allows; those
+    /// read while waiting in [`Client::call`] or [`Client::write`] only count.
     pub fn recv(&mut self) -> io::Result<Frame> {
-        match self.held.pop_front() {
-            Some(frame) => Ok(frame),
-            None => read(&mut self.stream, &mut self.decoder),
+        let frame = match self.held.pop_front() {
+            Some(frame) => frame,
+            None => self.take()?,
+        };
+        if let Frame::Data(Data { s, bytes }) = &frame
+            && let Some(Some(Flow {
+                auto: Some((window, owed)),
+                ..
+            })) = self.streams.get_mut(s)
+        {
+            *owed += bytes.len() as u32;
+            if *owed >= (*window / 2).max(1) {
+                let n = std::mem::take(owed);
+                self.grant(*s, n)?;
+            }
         }
+        Ok(frame)
+    }
+
+    /// Makes a call that opens a stream; `credit` is what its args grant the
+    /// core. With `auto`, [`Client::recv`] grants back what it hands out, so
+    /// the core can stay `credit` bytes ahead; without, see [`Client::grant`].
+    pub fn open<C: Call<Result = Opened>>(
+        &mut self,
+        args: &C::Args,
+        credit: u32,
+        auto: bool,
+    ) -> io::Result<Result<StreamId, Error>> {
+        let opened = match self.call::<C>(args)? {
+            Ok(opened) => opened,
+            Err(e) => return Ok(Err(e)),
+        };
+        let flow = Flow {
+            granted: credit.into(),
+            credit: opened.credit.into(),
+            auto: auto.then_some((credit, 0)),
+        };
+        self.streams.insert(opened.s, Some(flow));
+        Ok(Ok(opened.s))
+    }
+
+    /// Lets the core send `n` more bytes on `s`.
+    pub fn grant(&mut self, s: StreamId, n: u32) -> io::Result<()> {
+        if let Some(Some(flow)) = self.streams.get_mut(&s) {
+            flow.granted += u64::from(n);
+        }
+        self.send(&Control::Credit(Credit { s, n }))
+    }
+
+    /// Bytes this client may send on `s` now.
+    pub fn credit(&self, s: StreamId) -> u64 {
+        match self.streams.get(&s) {
+            Some(Some(flow)) => flow.credit,
+            _ => 0,
+        }
+    }
+
+    /// Sends as much of `bytes` as the credit allows, without waiting for
+    /// more; returns how many. A closed stream is `BrokenPipe`.
+    pub fn send_some(&mut self, s: StreamId, bytes: &[u8]) -> io::Result<usize> {
+        let Some(Some(flow)) = self.streams.get_mut(&s) else {
+            return Err(io::ErrorKind::BrokenPipe.into());
+        };
+        let n = bytes
+            .len()
+            .min(usize::try_from(flow.credit).unwrap_or(usize::MAX));
+        flow.credit -= n as u64;
+        let mut frames = Vec::with_capacity(n + n.div_ceil(MAX_DATA) * 9);
+        for chunk in bytes[..n].chunks(MAX_DATA) {
+            // Chunks are within the limit, so this cannot fail.
+            let _ = encode_data(s, chunk, &mut frames);
+        }
+        self.stream.write_all(&frames)?;
+        Ok(n)
+    }
+
+    /// Sends all of `bytes`, waiting for credit; frames that arrive
+    /// meanwhile wait for [`Client::recv`].
+    pub fn write(&mut self, s: StreamId, mut bytes: &[u8]) -> io::Result<()> {
+        while !bytes.is_empty() {
+            let n = self.send_some(s, bytes)?;
+            bytes = &bytes[n..];
+            if n == 0 {
+                let frame = self.take()?;
+                self.hold(frame);
+            }
+        }
+        Ok(())
+    }
+
+    /// Ends a stream; frames for it that are still on their way are handed
+    /// out as they come.
+    pub fn close(&mut self, s: StreamId) -> io::Result<()> {
+        if let Some(flow) = self.streams.get_mut(&s) {
+            *flow = None;
+        }
+        self.send(&Control::Close(Close { s, why: None }))
+    }
+
+    /// Keeps a frame for [`Client::recv`]; a credit frame has done its work.
+    fn hold(&mut self, frame: Frame) {
+        if !matches!(frame, Frame::Control(Control::Credit(_))) {
+            self.held.push_back(frame);
+        }
+    }
+
+    /// The next frame from the connection, counted against its stream: data
+    /// beyond what this client granted is an error, as it is in the core.
+    fn take(&mut self) -> io::Result<Frame> {
+        let frame = read(&mut self.stream, &mut self.decoder)?;
+        let broken = |why: &str| io::Error::new(io::ErrorKind::InvalidData, why);
+        match &frame {
+            Frame::Data(Data { s, bytes }) => match self.streams.get_mut(s) {
+                Some(Some(flow)) => {
+                    flow.granted = (flow.granted.checked_sub(bytes.len() as u64))
+                        .ok_or_else(|| broken("the core sent beyond its credit"))?;
+                }
+                Some(None) => {}
+                None => return Err(broken("data on a stream the core never opened")),
+            },
+            Frame::Control(Control::Credit(Credit { s, n })) => {
+                if let Some(Some(flow)) = self.streams.get_mut(s) {
+                    flow.credit += u64::from(*n);
+                }
+            }
+            Frame::Control(Control::Close(Close { s, .. })) => {
+                if let Some(flow) = self.streams.get_mut(s) {
+                    *flow = None;
+                }
+            }
+            _ => {}
+        }
+        Ok(frame)
     }
 
     /// The connection itself, for bytes the protocol would not produce.
@@ -133,7 +282,8 @@ fn write(stream: &mut Stream, frame: &Control) -> io::Result<()> {
 }
 
 fn read(stream: &mut Stream, decoder: &mut Decoder) -> io::Result<Frame> {
-    let mut buf = [0; 8 << 10];
+    // One read can bring a whole data frame.
+    let mut buf = [0; 64 << 10];
     loop {
         let next = decoder.next_frame();
         if let Some(frame) = next.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))? {

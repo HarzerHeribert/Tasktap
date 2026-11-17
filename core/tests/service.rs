@@ -2,17 +2,17 @@
 //! folder and speaks the protocol through `client.rs`.
 
 use serde_json::{Value, json};
-use std::io::{ErrorKind, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tasktap_core::client::{self, Client};
-use tasktap_proto::call::{self, Code};
+use tasktap_proto::call::{self, Call, Code};
 use tasktap_proto::{
-    Auth, CallId, Control, DeviceId, Empty, Frame, HEADER, Hello, Identity, KIND_CONTROL,
+    Auth, CallId, Control, Decoder, DeviceId, Empty, Frame, HEADER, Hello, Identity, KIND_CONTROL,
     MAX_FRAME, Outcome, Ref, Refuse, RefuseWhy, Register, Request, Retire, Role, Secret, VERSION,
-    Versions, When,
+    Versions, When, encode_control,
 };
 
 const EXE: &str = env!("CARGO_BIN_EXE_tasktap");
@@ -232,7 +232,8 @@ fn the_handshake_picks_the_highest_shared_version() {
                 "history",
                 "device.revoke",
                 "core.status",
-                "core.retire"
+                "core.retire",
+                "fixture.stream"
             ]
         );
     }
@@ -262,6 +263,53 @@ fn without_a_shared_version_only_the_bootstrap_calls_work() {
     let retire = Retire { when: When::Now };
     c.call::<call::CoreRetire>(&retire).unwrap().unwrap();
     assert!(core.exit().success());
+}
+
+/// The frozen contract, from an app newer than this core: a role, a way to
+/// prove itself and fields this core has never heard of still get a welcome.
+#[test]
+fn a_newer_apps_hello_is_still_welcomed() {
+    let data = Folder::new();
+    let core = Core::start(&data, &[]);
+    for (v, shared) in [(VERSION, VERSION), (VERSION + 1, 0)] {
+        let hello = json!({"t": "hello", "v": [v, VERSION + 9], "role": "watch",
+            "client": "Tasktap 9", "auth": {"pubkey": "ed25519:0f", "proof": "9a"},
+            "abilities": ["host.hologram"], "added": {"x": 1}});
+        let mut stream = client::connect(core.data).unwrap();
+        let mut decoder = Decoder::new();
+        let payload = serde_json::to_vec(&hello).unwrap();
+        let mut frame = (payload.len() as u32 + 1).to_le_bytes().to_vec();
+        frame.push(KIND_CONTROL);
+        frame.extend_from_slice(&payload);
+        stream.write_all(&frame).unwrap();
+        let Control::Welcome(welcome) = next_control(&mut stream, &mut decoder) else {
+            panic!("no welcome")
+        };
+        assert_eq!((welcome.v, welcome.identity), (shared, Identity::Anonymous));
+        let mut call = Vec::new();
+        encode_control(&call::CoreStatus::request(CallId(1), &Empty {}), &mut call).unwrap();
+        stream.write_all(&call).unwrap();
+        let Control::Reply(reply) = next_control(&mut stream, &mut decoder) else {
+            panic!("no reply")
+        };
+        let status = call::CoreStatus::result(reply.outcome).unwrap();
+        assert_eq!(status.v, CURRENT);
+    }
+}
+
+fn next_control(stream: &mut client::Stream, decoder: &mut Decoder) -> Control {
+    let mut buf = [0; 4096];
+    loop {
+        if let Some(frame) = decoder.next_frame().unwrap() {
+            let Frame::Control(control) = frame else {
+                panic!("{frame:?}")
+            };
+            return control;
+        }
+        let n = stream.read(&mut buf).unwrap();
+        assert!(n > 0, "the core closed the connection");
+        decoder.push(&buf[..n]);
+    }
 }
 
 #[test]

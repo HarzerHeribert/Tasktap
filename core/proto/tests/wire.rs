@@ -272,10 +272,22 @@ fn every_call_round_trips() {
     };
     round_trip::<call::CoreStatus>(Empty {}, status, seen);
     round_trip::<call::CoreRetire>(Retire { when: When::Now }, (), seen);
+    let fixture = FixtureStream {
+        credit: 7,
+        send: Offset::new(1 << 40).unwrap(),
+        receive: Offset::ZERO,
+        chunk: 1,
+        marks: vec![Offset::ZERO, Offset::new(9).unwrap()],
+    };
+    let opened = Opened {
+        s: StreamId(3),
+        credit: 0,
+    };
+    round_trip::<call::FixtureStream>(fixture, opened, seen);
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 21);
+    assert_eq!(Name::ALL.len(), 22);
 }
 
 #[test]
@@ -306,7 +318,7 @@ fn access_follows_the_authorization_table() {
             "session.event"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 15);
+    assert_eq!(by(Access::Device).len(), 16);
     for (access, allowed) in [
         (Access::Anyone, [true, true, true]),
         (Access::Device, [true, false, false]),
@@ -348,6 +360,11 @@ fn optional_arguments_may_be_left_out() {
     let put =
         call::Put::args(json!({"c": "projects", "id": id::<ProjectId>(2), "patch": {}})).unwrap();
     assert_eq!(put.if_rev, None);
+    let fixture = call::FixtureStream::args(json!({"credit": 1, "chunk": 1})).unwrap();
+    assert_eq!(
+        (fixture.send, fixture.receive, fixture.marks.len()),
+        (Offset::ZERO, Offset::ZERO, 0)
+    );
 }
 
 #[test]
@@ -368,6 +385,54 @@ fn the_shared_version_is_the_highest_in_both_ranges() {
     assert_eq!(Versions(1, 3).shared(Versions(2, 5)), 3);
     assert_eq!(Versions(1, 1).shared(Versions(1, 1)), 1);
     assert_eq!(Versions(1, 1).shared(Versions(2, 4)), NO_SHARED_VERSION);
+}
+
+/// An old core still reads a newer app's `hello`, and an old app a newer
+/// core's `welcome` and `refuse`, whatever words they added (design §2).
+#[test]
+fn bootstrap_frames_from_a_newer_peer_still_decode() {
+    let hello = |auth: serde_json::Value| {
+        let frame = json!({"t": "hello", "v": [1, 9], "role": "watch", "client": "Tasktap 9",
+            "auth": auth, "abilities": ["host.hologram"], "added": {"x": 1}});
+        match serde_json::from_value(frame).unwrap() {
+            Control::Hello(hello) => hello,
+            other => panic!("{other:?}"),
+        }
+    };
+    let future = json!({"pubkey": "ed25519:0f", "proof": "9a"});
+    let h = hello(future.clone());
+    assert_eq!((h.v, h.role), (Versions(1, 9), Role::Unknown));
+    assert_eq!(h.auth, Some(Auth::Unknown(future)));
+    // A known scheme that does not parse costs the identity, not the connection.
+    for unreadable in [
+        json!({"device": id::<DeviceId>(1), "key": "short"}),
+        json!({"token": 7}),
+        json!("bearer x"),
+    ] {
+        assert_eq!(
+            hello(unreadable.clone()).auth,
+            Some(Auth::Unknown(unreadable))
+        );
+    }
+    let token = Auth::Session {
+        token: Secret([0xab; 32]),
+    };
+    assert_eq!(hello(json!({"token": "ab".repeat(32)})).auth, Some(token));
+    assert_eq!(hello(json!(null)).auth, None);
+
+    let welcome = json!({"t": "welcome", "v": 0, "core": id::<CoreId>(0), "build": "9.0.0",
+        "as": "remote", "calls": ["core.status", "core.retire"], "added": 1});
+    match serde_json::from_value(welcome).unwrap() {
+        Control::Welcome(w) => assert_eq!((w.v, w.identity), (0, Identity::Unknown)),
+        other => panic!("{other:?}"),
+    }
+    let refuse: Control = serde_json::from_value(json!({"t": "refuse", "why": "paused"})).unwrap();
+    assert_eq!(
+        refuse,
+        Control::Refuse(Refuse {
+            why: RefuseWhy::Unknown
+        })
+    );
 }
 
 #[test]

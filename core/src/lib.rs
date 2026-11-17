@@ -13,4 +13,5 @@ mod records;
 pub mod serve;
 pub mod state;
 pub mod store;
+pub mod stream;
 mod sys;

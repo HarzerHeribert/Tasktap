@@ -50,7 +50,7 @@ pub fn notes(test: &str) -> String {
 pub const EXE: &str = env!("CARGO_BIN_EXE_tasktap");
 /// Milliseconds a thought is held while the preference is unset.
 pub const HOLD_MS: u64 = tasktap_proto::DEFAULT_HOLD as u64 * 1000;
-pub const ALL: [Collection; 11] = [
+pub const ALL: [Collection; 12] = [
     Collection::Thoughts,
     Collection::Projects,
     Collection::Sessions,
@@ -62,6 +62,7 @@ pub const ALL: [Collection; 11] = [
     Collection::Devices,
     Collection::Glance,
     Collection::Agents,
+    Collection::Dictations,
 ];
 
 pub fn wall_ms() -> u64 {
@@ -282,6 +283,9 @@ pub struct Model {
     pub results: BTreeMap<ResultId, TurnResult>,
     pub glance: Option<Glance>,
     pub agents: BTreeMap<String, tasktap_proto::AgentHealth>,
+    /// The preferences that are stored; one that is not has its default.
+    pub prefs: HashMap<tasktap_proto::PrefKey, tasktap_proto::PrefValue>,
+    pub dictations: BTreeMap<tasktap_proto::DictationId, tasktap_proto::Dictation>,
 }
 
 impl Model {
@@ -315,6 +319,15 @@ impl Model {
                         self.agents.insert(a.id.clone(), a.clone());
                     }
                 }
+                Set::Prefs(r) => {
+                    for p in &r.put {
+                        self.prefs.insert(p.value.key(), p.value.clone());
+                    }
+                    for key in &r.del {
+                        self.prefs.remove(key);
+                    }
+                }
+                Set::Dictations(r) => rows!(dictations, r),
                 _ => {}
             }
         }

@@ -167,7 +167,8 @@ function routeLabel(r: Route) {
 
 export function choose(open: boolean) {
   cap.choosing = open;
-  page.focus = open ? '.cap-list [aria-selected=true]' : '#capture-input';
+  // The destination chosen now, else the first.
+  page.focus = open ? '.cap-list [aria-selected=true], .cap-list:not(:has([aria-selected=true])) button' : '#capture-input';
   redraw();
 }
 
@@ -183,6 +184,7 @@ function arrows(e: KeyboardEvent) {
   const step = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 0;
   if (!step) return;
   e.preventDefault();
+  e.stopPropagation();
   const items = [...(e.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('button')];
   const at = items.indexOf(document.activeElement as HTMLElement);
   items[(at + step + items.length) % items.length]?.focus({ focusVisible: true });
@@ -271,7 +273,7 @@ export function Capture({ raised = false, ...hooks }: Hooks & { raised?: boolean
             <button type="button" class="cap-to" id="dest-chip" aria-haspopup="listbox" aria-expanded={false}
               title={!folders ? 'Kept as an idea until a folder is open' : idea ? 'Kept as an idea; nothing starts' : 'Where it goes. Click to change'}
               onClick={() => choose(true)}
-              onKeyDown={(e) => (e.key === 'ArrowDown' || e.key === 'ArrowUp') && (e.preventDefault(), choose(true))}>
+              onKeyDown={(e) => (e.key === 'ArrowDown' || e.key === 'ArrowUp') && (e.preventDefault(), e.stopPropagation(), choose(true))}>
               {idea ? <i class="st" data-s="idea" aria-hidden="true" /> : <I n={session ? 'term' : 'arrow'} />}
               <b>{route ? routeLabel(route) : idea ? 'Idea' : projectName(folder(to))}</b>
               {with_ && <span class={ready || route?.confidence === 'ambiguous' ? '' : 'off'}>{with_}</span>}

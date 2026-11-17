@@ -39,13 +39,15 @@ const tempo = () => (seconds ||= parseFloat(getComputedStyle(document.documentEl
 /** The share of the lab's pace the chrome moves at, at that tempo. */
 const pace = () => 3.6 / tempo();
 
-/** The ambient clock: one timer, a few times a second, moves everything that breathes or sways, so the window is
- *  composited that often and not at the display's rate. A step is under one percent of a pool's opacity and a fraction
- *  of a pixel of a glyph, below what the eye can tell at this tempo. The clock counts only while it runs, so what it
- *  moves goes on from where it stopped. */
-const STEPS = 8;
+/** The ambient clock: one timer, twice a second, steps the pools' opacity, so the window is composited that often
+ *  and not at the display's rate: a step is about one percent of a pool's opacity, in colours this deep below what the
+ *  eye can tell. Once a second it gives each glyph its next pose and the compositor carries it there, so a glyph moves
+ *  at the display's rate and costs the page one change a second. Measured in the app (host/scripts/measure.sh): the
+ *  pools are most of the cost, a step each; carrying the glyphs and fading their pictures in are the rest. The clock
+ *  counts only while it runs, so what it moves goes on from where it stopped. */
+const STEPS = 2;
 const moving = new Set<HTMLElement>();
-let clock = 0, beat = 0, began = 0, stepped = 0;
+let clock = 0, beat = 0, began = 0, stepped = 0, steps = 0;
 const reduce = matchMedia('(prefers-reduced-motion: reduce)');
 const OFFSET = [0, 0.4, 0.7], LENGTH = [1, 1.23, 1.47];
 /** Where glyph `i` stands in its sway at `beat` seconds: a drift of a few pixels, a tilt, and a rock about its upright
@@ -56,15 +58,14 @@ function pose(el: HTMLElement, i: number) {
   const x = 6 * Math.sin(w + f), y = 7 * Math.sin(w * 0.81 + f * 1.7), tilt = 8 * Math.sin(w * 0.62 + f * 0.9);
   el.style.transform = `translate(${x.toFixed(2)}px,${y.toFixed(2)}px) perspective(480px) rotateY(${(24 * rock(i)).toFixed(2)}deg) rotate(${tilt.toFixed(2)}deg)`;
 }
-/** How a glyph's picture is drawn again, its face leaning by `lean` more: by the clock (`soft` false), which then
- *  brings it in step by step, or for a change of state or look, when it comes in by its own transition. */
-const drawers = new WeakMap<HTMLElement, (lean: number, soft: boolean) => void>();
-/** The reflection follows the rock, slowly: six times a breath the glyph is drawn again as it will then face, over the
- *  picture it has, and comes in over the first half of that time. */
+/** How a glyph's picture is drawn again, its face leaning by `lean` more, and laid over the one it has, coming in
+ *  over `seconds`. */
+const drawers = new WeakMap<HTMLElement, (lean: number, seconds: number) => void>();
+/** The reflection follows the rock, slowly: three times a breath the glyph is drawn again as it will then face, and
+ *  comes in over a moment, as a glint. */
 function reflect(el: HTMLElement, i: number) {
-  const span = tempo() / 6, at = beat / span + i / 3, k = String(Math.floor(at)), top = el.lastElementChild as HTMLElement | null;
-  if (el.dataset.k !== k) return void ((el.dataset.k = k), drawers.get(el)?.(0.3 * rock(i, beat + span / 2), false));
-  if (top?.style.transition) top.style.opacity = Math.min(1, (at % 1) * 2).toFixed(2);
+  const span = tempo() / 3, k = String(Math.floor(beat / span + i / 3));
+  if (el.dataset.k !== k) (el.dataset.k = k), drawers.get(el)?.(0.3 * rock(i, beat + span / 2), 1.5);
 }
 function step() {
   const now = performance.now();
@@ -72,12 +73,13 @@ function step() {
   stepped = now;
   // A breath begins from the pools' resting level and grows to its full depth over its first seconds.
   const depth = Math.min(1, (now - began) / 4000);
+  steps++;
   for (const root of moving) {
     root.querySelectorAll<HTMLElement>(':scope > .pool').forEach((p, i) => {
       const x = 0.5 - 0.5 * Math.cos(2 * Math.PI * (beat / (2 * tempo() * (LENGTH[i] ?? 1)) + (OFFSET[i] ?? 0)));
       p.style.opacity = (0.88 + depth * (0.66 + 0.34 * x - 0.88)).toFixed(3);
     });
-    root.querySelectorAll<HTMLElement>('.turn').forEach((el, i) => (pose(el, i), reflect(el, i)));
+    if (steps % STEPS === 0) root.querySelectorAll<HTMLElement>('.turn').forEach((el, i) => (pose(el, i), reflect(el, i)));
   }
 }
 function useBreath(ref: RefObject<HTMLElement | null>, on: boolean) {
@@ -185,16 +187,16 @@ function Glyph({ i, here, look, state }: { i: number; here: boolean; look: Retur
   useLayoutEffect(() => {
     const el = turn.current;
     if (!el || !here) return;
-    const draw = (lean: number, soft: boolean) => {
+    const draw = (lean: number, seconds: number) => {
       const cv = still('glyph', look, state, Math.round(g.size * Math.max(2, devicePixelRatio || 1)), g.k, g.lean + lean);
       if (!cv) return;
-      if (!soft) cv.style.cssText = 'transition:none;opacity:0';
+      cv.style.transitionDuration = `${seconds}s`;
       // The picture before stays under the new one while it comes in.
       while (el.children.length > 1) el.firstElementChild!.remove();
       el.append(cv);
     };
     drawers.set(el, draw);
-    draw(0.3 * rock(i), true);
+    draw(0.3 * rock(i), 1.2);
     pose(el, i);
   }, [here, JSON.stringify(look), state]);
   return (

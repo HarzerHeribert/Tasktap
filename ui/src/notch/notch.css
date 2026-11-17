@@ -23,15 +23,47 @@ html,body{background:transparent!important;min-height:0;overflow:hidden}
 .glance-count[data-status=failed]{color:var(--app-negative)}
 @media(prefers-reduced-motion:reduce){.glance-count i{animation:none!important}}
 
-/* The decision rim of native/WorkspaceDecisionRim.swift, as the trial drew it. */
-#rim{position:fixed;top:0;left:0;z-index:6;pointer-events:none;overflow:visible}
-.rim-path{fill:none;stroke-linecap:round;stroke-linejoin:round}
-#bloom{stroke:rgb(230 163 94);stroke-width:5;opacity:.9}
-#halo,#halo-shadow{stroke:rgb(255 199 122/.16);stroke-width:1}
-#halo-shadow{opacity:.45}
-#edge{stroke:url(#metal);stroke-width:1;opacity:.1}
-@media(prefers-reduced-motion:no-preference){.rim-pulse #rim .pulse{animation:rim-pulse 600ms ease-in-out 4 alternate}}
-@keyframes rim-pulse{from{opacity:.62}to{opacity:.9}}
+/* The shape and the light behind it (art.tsx): one outline cuts the black and the light's source.
+   Every layer sits on the tab's centre line, so the window may grow or shrink around it. Nothing
+   is ever stroked: the prototype's tab, edge and focus outline give way to the shape. */
+#notch-art{position:fixed;inset:0;z-index:4;pointer-events:none}
+.glow-set{position:absolute;inset:0}
+.notch-fill,.glow{position:absolute;top:0;bottom:0;left:calc(50% + var(--camera-offset) - var(--art-half,0px));width:calc(2 * var(--art-half,0px))}
+.notch-fill{background:#000;transition:background-color 320ms ease}
+.notch-open .notch-fill{background:var(--notch-black)}
+.native-host .island button{background:transparent;border-radius:0}
+.native-host .island button::before,.native-host .island button::after{content:none}
+.native-host .island button:focus-visible{outline:none}
+.native-host.notch-open .island button:focus-visible::after{content:"";inset:auto auto -8px 50%;width:24px;height:3px;border:0;
+  border-radius:2px;opacity:1;filter:none;animation:none;background:var(--panel-muted);transform:translateX(-50%)}
+.native-host #notch:has(.decision-sheet){background:transparent}
+
+/* The light: a wide halo and a close core, each a blurred copy of the outline whose gradient
+   drifts sideways. Only opacity and that one transform move, so it costs the compositor alone. */
+.glow{filter:blur(var(--blur))}
+.glow i{position:absolute;inset:calc(-1 * var(--lift)) 0 0;opacity:var(--level)}
+.glow i::before{content:"";position:absolute;inset:0 auto 0 0;width:calc(100% + 360px);background:linear-gradient(90deg,var(--colors)) 0 0/360px 100% repeat-x;
+  will-change:transform}
+.glow-halo{--blur:var(--far,9px);--level:.85}
+.glow-core{--blur:var(--near,4px);--level:var(--near-level,.55)}
+#notch-art[data-glow=chromatic]{
+  --colors:#c46f3c,#dc9a52 16%,#dfe4ec 33%,#8fb2d8 50%,#5f7fc0 66%,#a7789a 83%,#c46f3c}
+#notch-art[data-glow=warm]{
+  --colors:#d98a43,#e8a65c 25%,#efc185 50%,#df9548 75%,#d98a43}
+#notch-art[data-glow=cool]{
+  --colors:#6f8db1,#93adca 25%,#b9c6d6 50%,#8199bb 75%,#6f8db1}
+#notch-art[data-glow=cool] .glow-set{opacity:.7}
+@media(prefers-reduced-motion:no-preference){
+  .glow-set{animation:glow-in 1.1s ease-out both}
+  .glow i::before{animation:glow-drift 36s linear infinite}
+  .glow-halo{animation:glow-breathe 3.4s ease-in-out infinite alternate}
+  .glow-core{animation:glow-breathe 3.4s ease-in-out -1.1s infinite alternate}
+}
+/* Reduce Motion: a steady, dimmer light. */
+@media(prefers-reduced-motion:reduce){.glow{opacity:.7}}
+@keyframes glow-in{from{opacity:0}}
+@keyframes glow-drift{to{transform:translateX(-360px)}}
+@keyframes glow-breathe{from{opacity:.55}}
 
 .notch-first kbd{font:var(--t-meta)/1 var(--font-mono);color:var(--panel-muted);border:1px solid var(--notch-line);border-radius:var(--r-xs);padding:2px var(--s-tight)}
 

@@ -15,6 +15,7 @@ import { listen } from '@tauri-apps/api/event';
 import { render } from 'preact';
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Answer } from './answer.tsx';
+import { Art, look, place } from './art.tsx';
 import { Home } from './home.tsx';
 import { cap } from '../capture.tsx';
 import { call, client, fail, onRedraw, openQuestions, page, records, redraw, settleFocus, ui } from './model.ts';
@@ -28,8 +29,8 @@ const host = {
     body.classList.toggle('notch-compact', m.compact === true);
     const vars: Record<string, unknown> = {
       '--native-tab-width': m.width, '--camera-height': m.height, '--camera-offset': m.offset,
-      '--native-surface-width': m.surfaceWidth, '--surface-offset': m.surfaceOffset, '--notch-shoulder': m.shoulder,
-      '--notch-pixel': m.pixel, '--cutout-corner': m.corner, '--rim-outset': m.rimOffset, '--available-panel-height': m.available,
+      '--native-surface-width': m.surfaceWidth, '--surface-offset': m.surfaceOffset, '--notch-pixel': m.pixel,
+      '--cutout-corner': m.corner, '--available-panel-height': m.available,
     };
     for (const [k, v] of Object.entries(vars)) if (typeof v === 'number') document.documentElement.style.setProperty(k, v + 'px');
     redraw();
@@ -67,7 +68,6 @@ records.onchange = () => {
   if (fresh && (ui.mode === 'closed' || ui.auto)) {
     reveal('pinned', 'answer');
     ui.auto = true;
-    pulse();
   } else if (!open.length && ui.view === 'answer' && ui.mode !== 'closed') {
     // One pending fold however many changes arrive meanwhile, so a new question can cancel it.
     if (ui.auto) {
@@ -78,12 +78,6 @@ records.onchange = () => {
   }
   redraw();
 };
-
-function pulse() {
-  body.classList.remove('rim-pulse');
-  void body.offsetWidth;
-  body.classList.add('rim-pulse');
-}
 
 /** The glance on the collapsed tab: working on the left, needs you and done on the right. */
 function Wings() {
@@ -121,29 +115,6 @@ function label() {
   return 'Tasktap: ' + (parts.filter(Boolean).join(', ') || 'nothing running');
 }
 
-/** The decision rim of native/WorkspaceDecisionRim.swift, drawn around the tab (from the trial). */
-function Rim() {
-  const m = ui.geometry;
-  if (!m || typeof m.tabLeft !== 'number') return null;
-  const [x0, x1, b, c] = [m.tabLeft, m.tabLeft + (m.width as number), m.height as number, m.corner as number];
-  const d = `M${x0} 0L${x0} ${b - c}A${c} ${c} 0 0 0 ${x0 + c} ${b}L${x1 - c} ${b}A${c} ${c} 0 0 0 ${x1} ${b - c}L${x1} 0`;
-  return (
-    <svg id="rim" aria-hidden="true" width={m.frameWidth as number} height={m.frameHeight as number}>
-      <defs>
-        <linearGradient id="metal" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2={m.frameWidth as number} y2="0">
-          <stop offset="0" stop-color="#9a8065" /><stop offset=".18" stop-color="#e6c6a0" /><stop offset=".42" stop-color="#fff1db" />
-          <stop offset=".65" stop-color="#b6a08b" /><stop offset=".85" stop-color="#e5caa6" /><stop offset="1" stop-color="#a88c70" />
-        </linearGradient>
-        <filter id="bloom-blur" x="-50%" y="-50%" width="200%" height="300%"><feGaussianBlur stdDeviation="6" /></filter>
-        <filter id="halo-blur" x="-50%" y="-50%" width="200%" height="300%"><feGaussianBlur stdDeviation="3" /></filter>
-      </defs>
-      <g class="pulse"><path class="rim-path" id="bloom" filter="url(#bloom-blur)" d={d} /></g>
-      <g class="pulse"><path class="rim-path" id="halo-shadow" filter="url(#halo-blur)" d={d} /><path class="rim-path" id="halo" d={d} /></g>
-      <path class="rim-path" id="edge" d={d} />
-    </svg>
-  );
-}
-
 function App() {
   const [, tick] = useState(0);
   onRedraw(() => tick((n) => n + 1));
@@ -154,31 +125,29 @@ function App() {
   const g = records.glance;
 
   useLayoutEffect(() => {
-    body.classList.toggle('needs-decision', !!g?.needs_you);
     // The sheet's bottom sizes the panel and the black silhouette that grows out of the housing.
     const sheet = document.querySelector<HTMLElement>(answering ? '#notch' : '#notch-home');
     if (open && sheet) {
       const bottom = Math.ceil(sheet.getBoundingClientRect().bottom);
-      document.getElementById('notch-shell')?.style.setProperty('--sheet-bottom', bottom + 'px');
       if (bottom !== ui.height) {
         ui.height = bottom;
         void call('host.notch', { height: bottom }).catch(fail);
       }
     }
+    place(open, ui.height);
     requestAnimationFrame(() => body.classList.toggle('notch-open', ui.mode !== 'closed'));
     settleFocus();
   });
 
   return (
     <div onPointerDown={() => ui.mode === 'hover' && (ui.mode = 'pinned')}>
-      <div id="notch-shell" aria-hidden="true"><div class="notch-surface" /></div>
+      <Art glowing={!!g?.needs_you} />
       <div class="island" id="island">
         <button id="islandToggle" type="button" aria-expanded={open} aria-label={label()}
           onClick={() => (open ? fold() : reveal('pinned', questions.length ? 'answer' : 'home'))}>
           {!open && <Wings />}
         </button>
       </div>
-      {!open && !!g?.needs_you && <Rim />}
       <section id="notch-home" aria-label="Tasktap notch" hidden={!shown || answering} class={ui.retracting ? 'retracting' : ''}
         inert={!open}>
         <div class="home-content">{shown && !answering && <Home />}</div>
@@ -207,7 +176,7 @@ void listen<{ do: keyof typeof host } & Record<string, number | boolean>>('ui', 
 });
 render(<App />, document.body);
 // For the debug channel's checks (host/scripts/smoke.sh), which read the records the page holds.
-Object.assign(window, { __records: records });
+Object.assign(window, { __records: records, __look: (l: Partial<typeof look>) => (Object.assign(look, l), redraw(), look) });
 void client
   .sub(['glance', 'thoughts', 'questions', 'results', 'sessions', 'projects', 'prefs', 'agents'], records)
   .then(() => call('host.notch', {}))

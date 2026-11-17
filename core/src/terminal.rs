@@ -161,8 +161,11 @@ impl Terminals {
         live.filter_map(|live| live.process.session()).collect()
     }
 
+    /// Running, or ended with its history still on its way to disk: its
+    /// record says running until then, and a delete before would leave the
+    /// history behind with no record to delete it by.
     pub fn running(&self, id: TerminalId) -> bool {
-        self.live.contains_key(&id)
+        self.live.contains_key(&id) || self.saving.contains_key(&id)
     }
 
     /// Where a terminal's history is kept once it is not running.

@@ -1271,6 +1271,9 @@ fn deleting_a_terminal_that_ended_removes_its_history() {
         &args(running, Some(fixture(&["serve"])), None, 1),
         false,
     );
+    // Its stream closes as it ends; its history is written off the core's
+    // thread, and the record says exited once it is on disk.
+    state(&mut w, ended, TerminalState::Exited);
     let history = data.0.join("scrollback").join(ended.uuid().to_string());
     assert!(history.exists());
     let busy = w.refused::<call::Delete>(&Delete::Terminals { id: running });
@@ -1286,6 +1289,33 @@ fn deleting_a_terminal_that_ended_removes_its_history() {
             "never started again"
         );
     }
+}
+
+/// A terminal that ended is deleted only once its history is on disk. Until
+/// then its record says running, though its clients saw it end: a delete in
+/// between would remove the record and then find the history written after
+/// it, left behind for good.
+#[test]
+fn a_terminal_whose_history_is_still_on_its_way_to_disk_is_not_deleted() {
+    let data = Folder::new("tt-late");
+    // Whatever runs off the core's thread waits this long first.
+    let core = Core::start_with(&data, &["--check-ms", "2000"]);
+    let mut w = core.watch();
+    let mut c = core.device();
+    let id = TerminalId::mint();
+    let start = fixture(&["print 3", "exit 0"]);
+    let mut v = open(&mut c, &args(id, Some(start), None, 1 << 20), true);
+    closed(&mut c, &mut v);
+    assert_eq!(v.exit(), Some(Some(0)));
+    let history = data.0.join("scrollback").join(id.uuid().to_string());
+    let early = w.refused::<call::Delete>(&Delete::Terminals { id });
+    assert_eq!(early.code, Code::Conflict);
+    assert_eq!(w.model.terminals[&id].state, TerminalState::Running);
+    state(&mut w, id, TerminalState::Exited);
+    assert!(history.exists(), "exited, so its history is on disk");
+    w.ok::<call::Delete>(&Delete::Terminals { id });
+    assert!(!history.exists());
+    assert!(!w.model.terminals.contains_key(&id));
 }
 
 /// Memory per terminal (design §10: at most 2.2 MiB at full scrollback),

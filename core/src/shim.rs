@@ -121,10 +121,13 @@ pub fn deliver(core: &mut Core, d: Deliver) -> Option<Deliver> {
 /// Types a follow-up while its shim holds the terminal, and lets the shim
 /// go once the text is written, or none of it is still to come.
 fn type_held(core: &mut Core, d: Deliver, link: Rc<Link>) {
-    let release: effects::Release = Box::new(move |_| {
-        link.call::<call::ShimHold>(&ShimHold { hold: false });
-    });
-    effects::typed(core, d, Some(release));
+    let held = effects::Held {
+        by: crate::launch::Holder(link.pid.get()),
+        release: Box::new(move |_| {
+            link.call::<call::ShimHold>(&ShimHold { hold: false });
+        }),
+    };
+    effects::typed(core, d, Some(held));
 }
 
 /// `fixture.script`'s `pause`: follow-ups wait untyped until a script

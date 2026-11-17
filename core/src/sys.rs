@@ -152,6 +152,24 @@ mod unix {
         data.join("core.sock")
     }
 
+    /// The process at the other end of a connection, as the kernel says.
+    pub fn peer_pid(stream: &Stream) -> Option<u32> {
+        let pid = stream.peer_cred().ok()?.pid()?;
+        u32::try_from(pid).ok()
+    }
+
+    /// The process group of process `pid`.
+    #[allow(unsafe_code)]
+    pub fn group_of(pid: u32) -> Option<u32> {
+        // SAFETY: getpgid(2) takes and returns a pid_t, a 32-bit integer on
+        // Linux and macOS, and touches no memory.
+        unsafe extern "C" {
+            safe fn getpgid(pid: i32) -> i32;
+        }
+        let group = getpgid(i32::try_from(pid).ok()?);
+        u32::try_from(group).ok().filter(|&g| g > 0)
+    }
+
     /// Sends hang-up, or with `kill` the kill signal, to every process in
     /// process group `group`. Never to the core's own group, nor to 0 or 1,
     /// which `kill` reads as "this group" and "every process".
@@ -583,6 +601,12 @@ mod windows {
     /// the pipe already holds and then the end, and its blocked write fails.
     /// (`disconnect` would also free it, but discards what the pipe holds and
     /// fails the client's reads instead of ending them.)
+    /// Not asked on Windows, where no program holds a console the way a
+    /// foreground group holds a terminal (design §14, "Verify when reached").
+    pub fn peer_pid(_: &Stream) -> Option<u32> {
+        None
+    }
+
     pub fn hang_up(pipe: &Stream) {
         // SAFETY: the handle is open for the call, and a null OVERLAPPED
         // cancels every I/O in flight on it; mio takes a cancelled

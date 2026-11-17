@@ -22,6 +22,12 @@ use crate::terminal;
 
 const EXITED: &str = "the agent has exited, so the follow-up was not typed";
 const UNHELD: &str = "no shim holds the agent's shell, so the follow-up was not typed";
+const BACKGROUND: &str =
+    "the shim that holds the shell does not have its terminal, so the follow-up was not typed";
+
+/// The shim that holds an adopted agent's shell for a follow-up: the
+/// process at the other end of its connection, as the system names it.
+pub struct Holder(pub Option<u32>);
 const INDIRECT: &str =
     "the agent is not its terminal's direct child, so the follow-up was not typed";
 
@@ -127,10 +133,15 @@ pub fn start(
 /// Types a follow-up into its session's terminal as a bracketed paste and
 /// Enter (design §7), only where no shell can run it: the terminal's direct
 /// child is the agent this core launched and has not exited, or the shim of
-/// an agent adopted in a shell holds that shell (`held`). Otherwise nothing
-/// is typed and the reason is the thought's. What is typed is a follow-up
-/// once the input thread has written it.
-pub fn deliver(core: &mut Core, d: &Deliver, held: bool) -> Result<terminal::Typing, String> {
+/// an agent adopted in a shell holds that shell (`held`) and the core sees
+/// that shim's group have the terminal's foreground, not the shell's own.
+/// Otherwise nothing is typed and the reason is the thought's. What is typed
+/// is a follow-up once the input thread has written it.
+pub fn deliver(
+    core: &mut Core,
+    d: &Deliver,
+    held: Option<&Holder>,
+) -> Result<terminal::Typing, String> {
     let found = effects::read(core, |tx| {
         let s = tx.session(d.session)?;
         let t = s.as_ref().and_then(|s| s.terminal_id);
@@ -140,7 +151,10 @@ pub fn deliver(core: &mut Core, d: &Deliver, held: bool) -> Result<terminal::Typ
         return Err(EXITED.into());
     };
     match (s.adopted, held, t.kind) {
-        (true, false, _) => Err(UNHELD.into()),
+        (true, None, _) => Err(UNHELD.into()),
+        (true, Some(Holder(pid)), _) if !terminal::foreground_is(core, t.id, *pid) => {
+            Err(BACKGROUND.into())
+        }
         (false, _, kind) if kind != TerminalKind::Agent => Err(INDIRECT.into()),
         _ if s.state == SessionState::Ended => Err(EXITED.into()),
         _ => match terminal::paste(core, t.id, &d.text) {

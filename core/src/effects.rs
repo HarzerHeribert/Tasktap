@@ -446,9 +446,12 @@ fn deliver(core: &mut Core, deliver: Deliver) -> Option<Outcome> {
     crate::shim::deliver(core, deliver).map(|deliver| typed(core, deliver, None))
 }
 
-/// What runs once a held follow-up is written, or will not be: the shim's
-/// release.
-pub type Release = Box<dyn FnOnce(&mut Core)>;
+/// The shim that holds the terminal for a follow-up, and what runs once the
+/// follow-up is written, or will not be: its release.
+pub struct Held {
+    pub by: crate::launch::Holder,
+    pub release: Box<dyn FnOnce(&mut Core)>,
+}
 
 /// How long a follow-up its shim holds the terminal for may take to be
 /// written. Past it the rest is not typed, and the hold ends once the piece
@@ -461,11 +464,11 @@ const TYPING: Duration = Duration::from_secs(5);
 /// reports how that went: typed once the terminal's input thread has written
 /// it, failed when it could not. The release runs only after that. The
 /// answer is the call's when it is known at once.
-pub fn typed(core: &mut Core, deliver: Deliver, held: Option<Release>) -> Outcome {
+pub fn typed(core: &mut Core, deliver: Deliver, held: Option<Held>) -> Outcome {
     let attempt = deliver.attempt;
     let handed = match core.seams.launcher() {
         Some(launcher) => launcher.deliver(&deliver),
-        None => match crate::launch::deliver(core, &deliver, held.is_some()) {
+        None => match crate::launch::deliver(core, &deliver, held.as_ref().map(|h| &h.by)) {
             Ok(typing) => {
                 let me = core.me.clone();
                 tokio::task::spawn_local(async move {
@@ -476,8 +479,8 @@ pub fn typed(core: &mut Core, deliver: Deliver, held: Option<Release>) -> Outcom
                         Ok(()) => drop(written_by(&mut core, attempt)),
                         Err(why) => drop(failed(&mut core, attempt, crate::launch::unwritten(why))),
                     }
-                    if let Some(release) = held {
-                        release(&mut core);
+                    if let Some(held) = held {
+                        (held.release)(&mut core);
                     }
                 });
                 return Outcome::Ok(Value::Null);
@@ -489,8 +492,8 @@ pub fn typed(core: &mut Core, deliver: Deliver, held: Option<Release>) -> Outcom
         Ok(()) => written_by(core, attempt),
         Err(error) => failed(core, attempt, error),
     };
-    if let Some(release) = held {
-        release(core);
+    if let Some(held) = held {
+        (held.release)(core);
     }
     outcome
 }

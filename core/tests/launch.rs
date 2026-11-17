@@ -68,6 +68,28 @@ fn follow_up(s: &mut Scene, session: SessionId, text: &str) -> ThoughtId {
     f
 }
 
+/// A core whose runs are the fixture agent, with a shell of it open in
+/// `/bin/sh`, where typing `fixture` starts the "real" fixture agent, a
+/// copy of the binary, through its shim.
+#[cfg(unix)]
+fn shell(prefix: &str) -> (Scene, TerminalId, Screen) {
+    let data = Folder::new(prefix);
+    let real = data.0.join("real");
+    std::fs::create_dir_all(&real).unwrap();
+    std::fs::copy(EXE, real.join("fixture")).unwrap();
+    let env = [("SHELL", "/bin/sh"), ("PATH", &path_with(&real))];
+    let core = Core::start_env(&data.0, &[], &env);
+    let s = Scene::on(core, data).running("fixture");
+    let shell = TerminalId::mint();
+    let start = tasktap_proto::StartTerminal {
+        project: None,
+        argv: Vec::new(),
+        title: None,
+    };
+    let screen = Screen::start(&s.core, shell, Some(start));
+    (s, shell, screen)
+}
+
 fn running(s: &mut Scene) -> u32 {
     s.w.ok::<call::CoreStatus>(&Empty {}).terminals
 }
@@ -429,20 +451,7 @@ fn a_follow_up_to_an_agent_adopted_in_a_shell_is_typed_while_its_shim_holds_it()
 #[cfg(unix)]
 #[test]
 fn a_follow_up_its_adopted_agent_never_read_never_reaches_the_shell() {
-    let data = Folder::new("lr");
-    let real = data.0.join("real");
-    std::fs::create_dir_all(&real).unwrap();
-    std::fs::copy(EXE, real.join("fixture")).unwrap();
-    let env = [("SHELL", "/bin/sh"), ("PATH", &path_with(&real))];
-    let core = Core::start_env(&data.0, &[], &env);
-    let mut s = Scene::on(core, data).running("fixture");
-    let shell = TerminalId::mint();
-    let start = tasktap_proto::StartTerminal {
-        project: None,
-        argv: Vec::new(),
-        title: None,
-    };
-    let mut screen = Screen::start(&s.core, shell, Some(start));
+    let (mut s, shell, mut screen) = shell("lr");
     screen.line("fixture");
     screen.until("fixture-agent --hook");
     s.w.until("an adopted session", |m| {
@@ -470,6 +479,77 @@ fn a_follow_up_its_adopted_agent_never_read_never_reaches_the_shell() {
     assert!(!screen.text().contains("LEAKED-42"), "{}", screen.text());
     assert_eq!(s.w.model.terminals[&shell].state, TerminalState::Running);
     screen.line("exit");
+}
+
+/// A process with the shell's token that adopts as a shim does and says
+/// yes to every hold, while the shell's own prompt has the terminal: the
+/// core sees that the holder's group does not have the terminal's
+/// foreground, and types nothing, so the shell never runs the follow-up.
+#[cfg(unix)]
+#[test]
+fn a_follow_up_is_never_typed_for_a_holder_that_does_not_have_the_terminal() {
+    use tasktap_core::client::{self, Client};
+    use tasktap_proto::call::Call;
+    use tasktap_proto::{
+        Adopt, Auth, Control, Event as Said, Frame, Hello, Role, Secret, SessionEvent, ShimHold,
+        VERSION, Versions,
+    };
+    let (mut s, _, mut screen) = shell("lb");
+    // The shell's token, as anything the shell runs has it.
+    screen.line("echo token=$TASKTAP_TOKEN.");
+    let token = loop {
+        let text = screen.text();
+        let found = text.match_indices("token=").find_map(|(at, _)| {
+            let hex = text.get(at + 6..at + 70)?;
+            let ended = text.get(at + 70..at + 71) == Some(".");
+            (ended && hex.bytes().all(|b| b.is_ascii_hexdigit())).then(|| hex.to_owned())
+        });
+        if let Some(hex) = found {
+            break serde_json::from_value::<Secret>(hex.into()).unwrap();
+        }
+        assert!(screen.pump(), "the core went away");
+    };
+    let hello = Hello {
+        v: Versions(VERSION, VERSION),
+        role: Role::Cli,
+        client: "not a shim".into(),
+        auth: Some(Auth::Session { token }),
+        abilities: vec!["shim.hold".into()],
+    };
+    let stream = client::connect(&s.data.0).unwrap();
+    let mut holder = Client::hello(stream, hello).unwrap().unwrap();
+    let adopt = Adopt {
+        agent: "fixture".into(),
+        cwd: "/".into(),
+    };
+    let session = holder.call::<call::SessionAdopt>(&adopt).unwrap().unwrap();
+    let ready = SessionEvent {
+        id: "ready".into(),
+        turn: None,
+        subagent: false,
+        event: Said::Ready,
+        resume: None,
+    };
+    holder.call::<call::SessionEvent>(&ready).unwrap().unwrap();
+    let f = follow_up(&mut s, session, "echo TYPED-$((6*7))");
+    let Frame::Control(Control::Call(request)) = holder.recv().unwrap() else {
+        panic!("expected shim.hold");
+    };
+    assert_eq!(
+        call::ShimHold::args(request.args).unwrap(),
+        ShimHold { hold: true }
+    );
+    holder
+        .send(&call::ShimHold::reply(request.id, Ok(())))
+        .unwrap();
+    s.w.until("the follow-up fails", |m| m.status(f) == Status::Failed);
+    assert_eq!(
+        s.w.model.results_of(f)[0].summary,
+        "the shim that holds the shell does not have its terminal, so the follow-up was not typed"
+    );
+    screen.line("echo back-$((1+1))");
+    screen.until("back-2");
+    assert!(!screen.text().contains("TYPED-42"), "{}", screen.text());
 }
 
 #[test]

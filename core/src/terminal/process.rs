@@ -176,6 +176,18 @@ impl Process {
         }
     }
 
+    /// The terminal's foreground process group, and the group of its own
+    /// child, once it runs; none on Windows.
+    pub fn foreground(&self) -> Option<(u32, u32)> {
+        #[cfg(unix)]
+        {
+            let fg = self.master.as_ref()?.process_group_leader()?;
+            Some((u32::try_from(fg).ok()?, **self.group.as_ref()?))
+        }
+        #[cfg(windows)]
+        None
+    }
+
     /// Hangs up on every process group of the child's session, the
     /// foreground group among them, or on Windows closes the console, which
     /// asks its processes to end. Returns what to kill if they have not

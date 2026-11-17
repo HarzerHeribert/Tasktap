@@ -440,6 +440,21 @@ pub fn environment_of_checks() -> Vec<(String, std::ffi::OsString)> {
     process::fixed(process::path(None, None))
 }
 
+/// Whether process `pid`'s group has the terminal's foreground, which its
+/// own child (the shell) does not: then what is typed goes to that group's
+/// program, not the shell. Never on Windows, which has no foreground group.
+pub fn foreground_is(core: &Core, id: TerminalId, pid: Option<u32>) -> bool {
+    let live = core.terminals.live.get(&id);
+    let Some((fg, own)) = live.and_then(|live| live.process.foreground()) else {
+        return false;
+    };
+    #[cfg(unix)]
+    let group = pid.and_then(crate::sys::group_of);
+    #[cfg(windows)]
+    let group: Option<u32> = pid.and(None);
+    fg != own && group == Some(fg)
+}
+
 /// Types `text` into a terminal as a bracketed paste and Enter, as the
 /// launcher types a follow-up (design §7), and says once the input thread
 /// has written it, or why it did not. `None`, with nothing typed, when its

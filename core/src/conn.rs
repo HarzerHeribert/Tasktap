@@ -71,6 +71,8 @@ pub struct Link {
     /// with the connection, which their waiters see as an error.
     calls: RefCell<HashMap<CallId, oneshot::Sender<Outcome>>>,
     next: Cell<u32>,
+    /// The process at the other end, where the system says.
+    pub pid: Cell<Option<u32>>,
 }
 
 impl Link {
@@ -214,6 +216,7 @@ pub fn spawn(core: &Rc<RefCell<Core>>, stream: sys::Stream, hello: Duration) {
         c.links.remove(silent).close(false);
     }
     let link = Rc::new(Link::default());
+    link.pid.set(sys::peer_pid(&stream));
     c.links.push(link.clone());
     tokio::task::spawn_local(run(core.clone(), link, stream, hello));
 }

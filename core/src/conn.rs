@@ -12,17 +12,19 @@ use crate::serve::{self, Core};
 use crate::stream::{self, Streams};
 use crate::sys;
 use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::task::Poll;
 use std::time::Duration;
-use tasktap_proto::{Control, Decoder, Frame, MAX_PENDING_CALLS, Refuse, encode_control};
+use tasktap_proto::{Change, Control, Decoder, Frame, MAX_PENDING_CALLS, Refuse, encode_control};
 use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::Notify;
 
 /// Connections at once.
 pub const MAX_CONNECTIONS: usize = 256;
-/// Control bytes queued for one connection, a snapshot included.
+/// Control bytes queued for one connection, apart from the snapshot it is
+/// being sent.
 pub const MAX_QUEUED: usize = 8 << 20;
 /// Bytes read from a connection at once.
 const READ: usize = 8 << 10;
@@ -48,6 +50,11 @@ pub struct Link {
     out: RefCell<Vec<u8>>,
     /// Bytes queued and not yet written, including those the task took.
     queued: Cell<usize>,
+    /// Frames that wait behind a snapshot going out: its chunks, then all
+    /// that was queued after them, in order; each with whether `held`
+    /// counts it, which all but the chunks of that snapshot are.
+    later: RefCell<VecDeque<(bool, Vec<u8>)>>,
+    held: Cell<usize>,
     /// Calls read whose reply has not been queued.
     pending: Cell<usize>,
     /// Set once the connection is ending: whether what is queued gets one last write.
@@ -96,17 +103,11 @@ impl Link {
         if let Control::Reply(_) = frame {
             self.pending.set(self.pending.get().saturating_sub(1));
         }
-        let mut out = self.out.borrow_mut();
-        let before = out.len();
-        // Only a frame over the size limit fails, and no peer could read it.
-        let encoded = encode_control(frame, &mut out).is_ok();
-        let queued = self.queued.get() + out.len() - before;
-        drop(out);
-        self.queued.set(queued);
-        if !encoded || queued > MAX_QUEUED {
-            self.close(false);
-        } else {
-            self.wake.notify_one();
+        let mut bytes = Vec::new();
+        match encode_control(frame, &mut bytes) {
+            Ok(()) => self.push(&bytes),
+            // Only a frame over the size limit fails, and no peer could read it.
+            Err(_) => self.close(false),
         }
     }
 
@@ -116,14 +117,57 @@ impl Link {
         if self.closing.get().is_some() {
             return;
         }
-        self.out.borrow_mut().extend_from_slice(frame);
-        let queued = self.queued.get() + frame.len();
-        self.queued.set(queued);
-        if queued > MAX_QUEUED {
+        let mut later = self.later.borrow_mut();
+        if later.is_empty() {
+            self.out.borrow_mut().extend_from_slice(frame);
+            self.queued.set(self.queued.get() + frame.len());
+        } else {
+            later.push_back((true, frame.to_vec()));
+            self.held.set(self.held.get() + frame.len());
+        }
+        drop(later);
+        if self.queued.get() + self.held.get() > MAX_QUEUED {
             self.close(false);
         } else {
             self.wake.notify_one();
         }
+    }
+
+    /// Queues a snapshot to go out as the connection drains, at the pace of
+    /// stream data, so that one larger than `MAX_QUEUED` reaches a client
+    /// that reads. All queued after it waits behind it, in order, and counts
+    /// toward the bound; so does a snapshot queued behind another, so a
+    /// client holds at most one uncounted.
+    pub fn snapshot(&self, chunks: Vec<Change>) {
+        let paced = self.later.borrow().is_empty();
+        for change in chunks {
+            let mut frame = Vec::new();
+            if self.is_closing() || encode_control(&Control::Change(change), &mut frame).is_err() {
+                return self.close(false);
+            }
+            if paced {
+                self.later.borrow_mut().push_back((false, frame));
+            } else {
+                self.push(&frame);
+            }
+        }
+        self.wake.notify_one();
+    }
+
+    /// Moves what waits behind a snapshot into the queue while fewer than
+    /// [`stream::WINDOW`] bytes wait to be written. True once nothing waits.
+    pub(crate) fn feed(&self) -> bool {
+        let mut later = self.later.borrow_mut();
+        while self.queued.get() < stream::WINDOW
+            && let Some((counted, frame)) = later.pop_front()
+        {
+            if counted {
+                self.held.set(self.held.get() - frame.len());
+            }
+            self.queued.set(self.queued.get() + frame.len());
+            self.out.borrow_mut().extend_from_slice(&frame);
+        }
+        later.is_empty()
     }
 
     /// Ends the connection. With `flush`, what is queued gets one write
@@ -176,6 +220,7 @@ async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: sys::Stream, hello
             Some(true) => {
                 let mut rest = out.split_off(at);
                 rest.extend_from_slice(&link.out.take());
+                rest.extend(link.later.take().into_iter().flat_map(|(_, frame)| frame));
                 write_once(&mut wr, &rest).await;
                 break true;
             }

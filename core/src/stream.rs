@@ -10,8 +10,9 @@
 //! independent positions by each having their own endpoint over it, which
 //! remembers its own offset.
 //!
-//! Control frames are queued the moment they exist; stream data is queued
-//! only while fewer than [`WINDOW`] bytes wait to be written. So a reply
+//! Control frames are queued the moment they exist, behind the rest of a
+//! snapshot going out; stream data is queued only while fewer than
+//! [`WINDOW`] bytes wait to be written and no snapshot is going out. So a reply
 //! waits behind at most `WINDOW` plus one data frame, and data waits only for
 //! the control frames queued before it, which the connection's 8 MiB bound
 //! limits. The streams of one connection take turns, one frame each.
@@ -278,9 +279,10 @@ impl Stream {
 
 /// Queues what a connection's streams have for the client: the grants and
 /// closes their endpoints asked for, then, while fewer than [`WINDOW`]
-/// bytes wait, a frame from each stream in turn.
+/// bytes wait, a frame from each stream in turn. While a snapshot goes out,
+/// its next chunks come first, and streams wait until it is out.
 pub(crate) fn pull(link: &Link) {
-    if link.is_closing() {
+    if link.is_closing() || !link.feed() {
         return;
     }
     let mut streams = link.streams.borrow_mut();

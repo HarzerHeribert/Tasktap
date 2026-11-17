@@ -1103,6 +1103,67 @@ fn a_change_larger_than_a_frame_arrives_in_parts_of_one_revision_the_last_unmark
 }
 
 #[test]
+fn a_snapshot_larger_than_the_queue_bound_reaches_a_slow_reader_with_every_change_after_it() {
+    let data = Folder::new();
+    let core = Core::start(&data);
+    let mut w = core.device();
+    // 160 finished thoughts of 200 KiB: 32 MiB live, four times what may be
+    // queued for one connection.
+    let big: Vec<Thought> = (0..160)
+        .map(|i| finished(ThoughtId::mint(), &format!("{}", i % 10).repeat(200 << 10)))
+        .collect();
+    for batch in big.chunks(4) {
+        fixture(&mut w, vec![thoughts(batch.to_vec())]);
+    }
+    let mut late = core.device();
+    let mut slow = core.device();
+    let id = CallId(u32::MAX);
+    let sub = Subscribe {
+        collections: ALL.to_vec(),
+    };
+    slow.send(&call::Sub::request(id, &sub)).unwrap();
+    let mut model = Model::default();
+    let Frame::Control(Control::Change(first)) = slow.recv().unwrap() else {
+        panic!("no snapshot")
+    };
+    model.apply(&first.sets);
+
+    // The snapshot is taken. While the reader reads nothing more, a writer goes on.
+    let written: Vec<Rev> = (0..50).map(|i| hold(&mut w, i)).collect();
+
+    // Then it gets the whole snapshot, its reply, and every change after
+    // it, once each and in order.
+    let mut chunks = 1;
+    loop {
+        match slow.recv().unwrap() {
+            Frame::Control(Control::Change(c)) => {
+                assert!(
+                    c.snap && c.rev == first.rev,
+                    "{:?} inside the snapshot",
+                    c.rev
+                );
+                model.apply(&c.sets);
+                chunks += 1;
+            }
+            Frame::Control(Control::Reply(reply)) if reply.id == id => {
+                assert_eq!(call::Sub::result(reply.outcome).unwrap().rev, first.rev);
+                break;
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    assert!(chunks >= 128, "{chunks} chunks");
+    assert_eq!(model.count("thoughts"), big.len());
+    let changes = until(&mut slow, *written.last().unwrap());
+    let revs: Vec<Rev> = changes.iter().map(|c| c.rev).collect();
+    assert_eq!(revs, written);
+    for c in &changes {
+        model.apply(&c.sets);
+    }
+    assert!(model == subscribe(&mut late, &ALL).model);
+}
+
+#[test]
 fn a_subscriber_that_stops_reading_is_dropped_and_the_others_get_everything() {
     const WRITES: usize = 80;
     let data = Folder::new();

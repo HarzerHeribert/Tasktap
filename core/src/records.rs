@@ -6,6 +6,8 @@
 //! queues it with its reply and marks the connection subscribed in one
 //! step, and every commit is published in the step that made it. A change
 //! is therefore either in the snapshot (at or below R) or sent after it.
+//! The snapshot goes out as the connection drains, and what is queued for
+//! the connection meanwhile waits behind it, in order (`Link::snapshot`).
 
 use crate::calls::Cx;
 use crate::conn::Link;
@@ -268,9 +270,7 @@ pub fn sub(cx: &mut Cx, args: Subscribe) -> Result<Revision, Error> {
     core.memory.overlay(&mut sets);
     cx.link.subs.set(subs);
     if !subs.is_empty() {
-        for change in chunks(rev, true, sets) {
-            cx.link.send(&Control::Change(change));
-        }
+        cx.link.snapshot(chunks(rev, true, sets));
     }
     Ok(Revision { rev })
 }

@@ -3,6 +3,7 @@
 import '../tokens.css';
 import '../parts.css';
 import './notch.css';
+import '../scroll.ts';
 import { listen } from '@tauri-apps/api/event';
 import { render } from 'preact';
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';

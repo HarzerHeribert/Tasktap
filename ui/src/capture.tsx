@@ -1,20 +1,20 @@
-// The capture field, the same in the notch, the capture sheet and on Home: the thought on lines of its own; under it,
-// inside the field, where it goes (the person's pick, else where the router says, else the default) with the agent, and
-// the button that says what Return does. The receipt offers Undo while the thought waits to start. With no folder open
-// yet, a thought is kept as an idea.
+// The Composer, the same in the notch, the capture sheet and on Home: the thought on lines of its own; under it, inside
+// the field, where it will go (the person's pick, else where the router says, else the default), the agents as rings
+// (the lit one runs it), and the key that says what Return does. The receipt offers Undo while the thought waits to
+// start. A thought with no folder to go to is saved for later: it waits on Home until it is sent to one.
 import type { Route, Thought } from '../../core/proto/protocol.ts';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useRef } from 'preact/hooks';
 import { uuid7 } from './client.ts';
-import { I, Wave } from './ui.tsx';
-import { agent, agentName, call, fail, focus, page, projectName, projects, records, redraw, title, why } from './page.ts';
+import { I, Mark, Ring, type RingState, Wave } from './ui.tsx';
+import { agent, agentName, call, fail, focus, openQuestions, page, projectName, projects, records, redraw, title, why } from './page.ts';
 
 /** What was just sent, for the receipt and Undo. */
-export type Sent = { id: string; text: string; to: string | 'idea' };
+export type Sent = { id: string; text: string; to: string | 'later' };
 
 export const cap = {
   draft: '',
-  /** The person's own pick of destination: a project id or 'idea'. */
+  /** The person's own pick of destination: a project id or 'later'. */
   dest: undefined as string | undefined,
   /** Where the router would send the text typed now (route.hint), for the chip. */
   hint: null as { text: string; route: Route } | null,
@@ -28,12 +28,12 @@ export const cap = {
 };
 
 const secondsLeft = (t: Thought | undefined) => (t?.hold_until ? Math.max(0, Math.ceil((t.hold_until - Date.now()) / 1000)) : 0);
-const folder = (dest: string | undefined) => (dest && dest !== 'idea' ? dest : undefined);
+const folder = (dest: string | undefined) => (dest && dest !== 'later' ? dest : undefined);
 /** Where the router would send it, when that is one project. */
 const routedProject = (r: Route | undefined) => (r?.confidence === 'clear' && 'project' in r.to ? r.to.project : undefined);
 
 /** The person's pick, while it can still be used. */
-export const picked = () => (cap.dest === 'idea' || (cap.dest && records.projects.get(cap.dest)?.open) ? cap.dest : undefined);
+export const picked = () => (cap.dest === 'later' || (cap.dest && records.projects.get(cap.dest)?.open) ? cap.dest : undefined);
 
 /** Where the router would send the text typed now, when it knows (route.hint): then Enter
  *  leaves the routing to it rather than picking for the person. */
@@ -55,10 +55,10 @@ export function destination(): string | undefined {
 
 /** Whether the receipt still offers Undo: the thought waits for its hold to end. */
 /** A capture sent from this page that the core has not shown back yet: it is on its way to be routed. */
-export const routing = () => !!cap.sent && cap.sent.to !== 'idea' && !records.thoughts.has(cap.sent.id);
+export const routing = () => !!cap.sent && cap.sent.to !== 'later' && !records.thoughts.has(cap.sent.id);
 export const holding = () => {
   const t = cap.sent && records.thoughts.get(cap.sent.id);
-  return !!cap.sent && cap.sent.to !== 'idea' && (!t || t.phase === 'routed');
+  return !!cap.sent && cap.sent.to !== 'later' && (!t || t.phase === 'routed');
 };
 
 type Hooks = {
@@ -66,6 +66,8 @@ type Hooks = {
   picked?: () => void;
   /** The sent thought started; the page may put the capture away. */
   started?: () => void;
+  /** An agent that cannot run was chosen: the page shows where it is signed in. */
+  agents?: () => void;
 };
 
 async function addProject(hooks: Hooks): Promise<string | undefined> {
@@ -89,11 +91,11 @@ async function send(e: Event, hooks: Hooks) {
   cap.sending = true;
   redraw();
   const route = hinted();
-  const to = route ? routedProject(route) : (destination() ?? 'idea');
+  const to = route ? routedProject(route) : (destination() ?? 'later');
   try {
     let id = uuid7();
     const undone = cap.undone;
-    if (undone && to && to !== 'idea') {
+    if (undone && to && to !== 'later') {
       // The thought Undo returned to the person goes out again, with what they changed, rather
       // than a copy of it that would stay behind.
       id = undone.id;
@@ -101,7 +103,7 @@ async function send(e: Event, hooks: Hooks) {
       await call('thought.update', { id, project_id: to });
     } else {
       if (undone) await call('delete', { c: 'thoughts', id: undone.id });
-      if (to === 'idea') await call('thought.capture', { id, text, strokes: [], source: 'typed', mode: 'note' });
+      if (to === 'later') await call('thought.capture', { id, text, strokes: [], source: 'typed', mode: 'note' });
       else
         await call('thought.capture', {
           id, text, strokes: [], source: 'typed', ...(route ? { current: cap.current } : { project_id: to }),
@@ -120,7 +122,7 @@ export async function undo() {
   const sent = cap.sent;
   if (!sent) return;
   try {
-    if (sent.to === 'idea') await call('delete', { c: 'thoughts', id: sent.id });
+    if (sent.to === 'later') await call('delete', { c: 'thoughts', id: sent.id });
     else {
       await call('thought.stop', { id: sent.id });
       cap.undone = sent;
@@ -208,28 +210,54 @@ function Receipt({ hooks }: { hooks: Hooks }) {
   if (!sent) return null;
   const undoButton = <button type="button" class="act" onClick={undo}><kbd>⌘Z</kbd><span>Undo</span></button>;
   const line = (words: ComponentChildren, undoable = false) => <p class="cap-said" role="status"><span>{words}</span>{undoable && undoButton}</p>;
-  if (sent.to === 'idea') return line(projects().some((p) => p.kind === 'folder') ? 'Kept as an idea' : 'Kept as an idea until a folder is open', true);
+  if (sent.to === 'later') return line(projects().some((p) => p.kind === 'folder') ? 'Saved for later' : 'Saved for later, until a folder is open', true);
   if (waiting) return line(<>Sent to <b>{projectName(t?.project_id ?? sent.to)}</b>{t ? `, starts in ${secondsLeft(t)} s` : ''}</>, true);
   if (t?.status === 'needs_you' && !t.project_id) return line('Where should it go? Its question is open.');
-  if (t?.phase === 'captured' && t.mode === 'note') return line('No folder matched; kept as an idea');
+  if (t?.phase === 'captured' && t.mode === 'note') return line('No folder matched; saved for later');
   if (t?.status === 'failed') return line(`${why(t)} in ${projectName(t.project_id)}.`);
   return line(<>Started in <b>{projectName(t?.project_id ?? sent.to)}</b></>);
 }
 
-/** The capture field. `raised` is Home's: a surface of its own, the thought at 20 px, up to six lines; elsewhere it sits
- *  on its sheet with the wave beside the thought, up to three lines. */
+/** The agents this Mac has, each its mark in a ring. The lit one runs the next thought, and a click on another picks
+ *  it; one that is not signed in is an open ring that says so and leads to where it is signed in. A ring turns while
+ *  its agent's sessions work, beside their count, and takes the attention colour when one of them asks. */
+function Rings({ hooks }: { hooks: Hooks }) {
+  const all = [...records.agents.values()].filter((a) => a.installed);
+  const chosen = agent()?.id;
+  const live = [...records.thoughts.values()].filter((t) => t.mode !== 'note' && (t.status === 'working' || t.status === 'needs_you'));
+  const asking = new Set(openQuestions().map((q) => records.sessions.get(q.session_id ?? '')?.agent ?? records.thoughts.get(q.thought_id ?? '')?.agent));
+  if (!all.length) return null;
+  return (
+    <span class="rings" role="radiogroup" aria-label="Agent">
+      {all.map((a) => {
+        const off = a.signed_in === false, on = a.id === chosen, n = live.filter((t) => t.agent === a.id).length;
+        const s: RingState = off ? 'off' : asking.has(a.id) ? 'asks' : n ? 'working' : '';
+        const words = [
+          `${agentName(a.id)}${a.version ? ` ${a.version}` : ''}`, off ? 'not signed in' : on ? 'runs the next thought' : 'click to use it',
+          n > 0 && `${n} working`, s === 'asks' && 'one needs you',
+        ].filter(Boolean).join(', ');
+        return (
+          <button type="button" class="ring" role="radio" aria-checked={on} data-s={s || undefined} data-agent={a.id} title={words} aria-label={words}
+            onClick={() => (off ? hooks.agents?.() : !on && void call('put', { c: 'prefs', id: 'agent', patch: a.id }).catch(fail))}>
+            {off && <span class="fix">Sign in</span>}
+            <Ring agent={a.id} s={s} />
+            {n > 0 && <b>{n}</b>}
+          </button>
+        );
+      })}
+    </span>
+  );
+}
+
+/** The Composer. `raised` is Home's: a surface of its own, the thought at 20 px, up to six lines; elsewhere it sits on
+ *  its sheet with the wave beside the thought, up to three lines. */
 export function Capture({ raised = false, ...hooks }: Hooks & { raised?: boolean }) {
   const route = hinted();
   const to = route ? undefined : destination();
-  const a = agent();
-  const folders = projects().some((p) => p.kind === 'folder');
-  const idea = !route && (!folders || to === 'idea' || !to);
+  const folders = projects().filter((p) => p.kind === 'folder');
+  const later = !route && (!folders.length || to === 'later' || !to);
   const session = route?.confidence === 'clear' && 'session' in route.to;
-  const ready = !!a && a.installed && a.signed_in !== false;
-  // Beside the destination: who will work on it, or what happens first.
-  const with_ = idea ? '' : route?.confidence === 'ambiguous' ? 'you will be asked which'
-    : !a ? '' : !a.installed ? `${agentName(a.id)} is not installed` : a.signed_in === false ? `${agentName(a.id)} is not signed in` : agentName(a.id);
-  const does = idea ? 'Keep as an idea' : session ? 'Send' : 'Start';
+  const does = later ? 'Save for later' : session ? 'Send' : 'Start';
   const area = useRef<HTMLTextAreaElement>(null);
   // The field grows with the thought, a line at a time.
   useLayoutEffect(() => {
@@ -242,7 +270,7 @@ export function Capture({ raised = false, ...hooks }: Hooks & { raised?: boolean
     <button type="button" role="option" aria-selected={on} onClick={() => pick(id)}>{mark}<span>{name}</span></button>
   );
   return (
-    <form class={`capture${raised ? ' raised' : ''}`} aria-busy={cap.sending} onSubmit={(e) => send(e, hooks)}>
+    <form class={`capture${raised ? ' raised' : ''}${cap.draft ? ' has' : ''}`} aria-busy={cap.sending} onSubmit={(e) => send(e, hooks)}>
       <div class="cap" onPointerDown={(e) => e.target === e.currentTarget && (e.preventDefault(), focus('#capture-input'))}>
         {!raised && <Wave n={13} live={!!cap.draft} />}
         <textarea id="capture-input" ref={area} rows={1} autocomplete="off" spellcheck={false} aria-label="New task" placeholder="Put a thought in"
@@ -260,28 +288,32 @@ export function Capture({ raised = false, ...hooks }: Hooks & { raised?: boolean
               void undo();
             }
           }} />
-        <div class="cap-row">
-          {cap.choosing ? (
-            // The choice opens in the field's own row, so it covers nothing the person is reading.
-            <div class="cap-list" role="listbox" aria-label="Destination" onKeyDown={arrows}
-              onFocusOut={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && cap.choosing && ((cap.choosing = false), redraw())}>
-              {projects().filter((p) => p.kind === 'folder').map((p) => option(p.id, p.id === (to ?? routedProject(route)), <I n="folder" />, p.name))}
-              {option('idea', idea, <i class="st" data-s="idea" aria-hidden="true" />, 'Idea')}
-              <button type="button" onClick={() => void addProject(hooks)}><I n="plus" /><span>Open a folder…</span></button>
-            </div>
-          ) : (
+        {cap.choosing ? (
+          // The choice has the field's row to itself, so it covers nothing the person is reading: the folders, a new
+          // one, and for later. Return then picks, so the key that sends is away until one is picked.
+          <div class="cap-row cap-list" role="listbox" aria-label="Where it goes" onKeyDown={arrows}
+            onFocusOut={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && cap.choosing && ((cap.choosing = false), redraw())}>
+            {folders.map((p) => option(p.id, p.id === (to ?? routedProject(route)), <I n="folder" />, p.name))}
+            <button type="button" onClick={() => void addProject(hooks)}><I n="plus" /><span>Open a folder…</span></button>
+            {option('later', later, <Mark s="later" label="" />, 'For later')}
+          </div>
+        ) : (
+          <div class="cap-row">
             <button type="button" class="cap-to" id="dest-chip" aria-haspopup="listbox" aria-expanded={false}
-              title={!folders ? 'Kept as an idea until a folder is open' : idea ? 'Kept as an idea; nothing starts' : 'Where it goes. Click to change'}
+              title={!folders.length ? 'No folder is open yet: a thought is saved for later until one is. Click to open one' : later ? 'Saved for later: nothing starts. Click to change' : 'Where it goes. Click to change'}
               onClick={() => choose(true)}
               onKeyDown={(e) => (e.key === 'ArrowDown' || e.key === 'ArrowUp') && (e.preventDefault(), e.stopPropagation(), choose(true))}>
-              {idea ? <i class="st" data-s="idea" aria-hidden="true" /> : <I n={session ? 'term' : 'arrow'} />}
-              <b>{route ? routeLabel(route) : idea ? 'Idea' : projectName(folder(to))}</b>
-              {with_ && <span class={ready || route?.confidence === 'ambiguous' ? '' : 'off'}>{with_}</span>}
+              {!later ? <I n={session ? 'term' : 'arrow'} /> : folders.length ? <Mark s="later" label="" /> : <I n="folder" />}
+              <b>{route ? routeLabel(route) : !later ? projectName(folder(to)) : folders.length ? 'For later' : 'No folder yet'}</b>
+              {route?.confidence === 'ambiguous' && <span>you will be asked which</span>}
               <I n="chev" />
             </button>
-          )}
-          <button type="submit" class="cap-go" disabled={!cap.draft.trim() || cap.sending}><kbd>↩</kbd><span>{does}</span></button>
-        </div>
+            <Rings hooks={hooks} />
+            <button type="submit" class={`key${raised ? ' lg' : ''}`} disabled={!cap.draft.trim()} aria-busy={cap.sending || undefined}>
+              {cap.sending ? <Mark s="working" label="" /> : <I n="ret" />}<span>{does}</span>
+            </button>
+          </div>
+        )}
       </div>
       <Receipt hooks={hooks} />
     </form>

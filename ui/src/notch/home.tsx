@@ -15,6 +15,8 @@ export const hooks = {
   picked: () => void call('host.notch', { open: true, key: true }),
   // Started: the notch has done its job unless the person is doing something else in it.
   started: () => ui.mode === 'pinned' && !ui.inside && !openQuestions().length && fold(),
+  // An agent is signed in from the workspace window, where the same ring leads to it.
+  agents: () => void call('host.show', { surface: 'workspace' }).then(fold, fail),
 };
 
 const stateOf = (t: Thought): State =>

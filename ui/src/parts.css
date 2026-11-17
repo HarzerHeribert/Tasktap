@@ -18,12 +18,22 @@ i{font-style:normal}
 :is(input,textarea):focus-visible{outline:0}
 :is(:disabled,.is-off){opacity:.38;pointer-events:none}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+/* Scrolling without bars (scroll.ts). No scroller shows one. Where there is more beyond an edge its content dissolves
+   at that edge, over --fade, and only there: the cue says which way one can go. What takes the keyboard is scrolled
+   clear of it. */
+*{scrollbar-width:none}
+::-webkit-scrollbar{display:none}
+[data-more]{scroll-padding:var(--fade)}
+[data-more=up]{-webkit-mask-image:linear-gradient(#0000,#000 var(--fade));mask-image:linear-gradient(#0000,#000 var(--fade))}
+[data-more=down]{-webkit-mask-image:linear-gradient(#000 calc(100% - var(--fade)),#0000);mask-image:linear-gradient(#000 calc(100% - var(--fade)),#0000)}
+[data-more="up down"]{-webkit-mask-image:linear-gradient(#0000,#000 var(--fade),#000 calc(100% - var(--fade)),#0000);mask-image:linear-gradient(#0000,#000 var(--fade),#000 calc(100% - var(--fade)),#0000)}
+[data-more=left]{-webkit-mask-image:linear-gradient(90deg,#0000,#000 var(--fade));mask-image:linear-gradient(90deg,#0000,#000 var(--fade))}
+[data-more=right]{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - var(--fade)),#0000);mask-image:linear-gradient(90deg,#000 calc(100% - var(--fade)),#0000)}
+[data-more="left right"]{-webkit-mask-image:linear-gradient(90deg,#0000,#000 var(--fade),#000 calc(100% - var(--fade)),#0000);mask-image:linear-gradient(90deg,#0000,#000 var(--fade),#000 calc(100% - var(--fade)),#0000)}
 
 /* icons: one owned set, 16 px grid, strokes */
 .i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:var(--i-w);stroke-linecap:var(--i-cap);stroke-linejoin:var(--i-join)}
 .ib{display:inline-grid;place-items:center;flex:none;width:28px;height:var(--ctl-h);border-radius:var(--r1);color:var(--fg3)}
-.ib:hover{background:var(--hover);color:var(--fg)}
-.ib:active{background:var(--sel)}
 
 /* the state mark: five bars of the wave in 14 × 14. The words are its tooltip and accessible name */
 .st{display:inline-flex;align-items:center;justify-content:center;gap:1px;flex:none;width:14px;height:14px;color:#e9ebee}
@@ -42,9 +52,7 @@ i{font-style:normal}
 .st[data-s=failed]{color:var(--fail)}.st[data-s=failed] b:nth-child(3){height:10px}
 .st.bgd{opacity:.45}
 .st[data-s=shell]{color:var(--fg3)}.st[data-s=shell] .i{width:14px;height:14px}
-.st[data-s=idea]::before{content:"";width:5px;height:5px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--fg2)}
-.st[data-s=dot]::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--fg)}
-.st[data-s=off]::before{content:"";width:5px;height:5px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--asks)}
+.st[data-s=later]::before{content:"";width:5px;height:5px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--fg2)}
 
 /* the wave: chrome bars, the brand mark at work */
 .wave{display:inline-flex;align-items:center;gap:var(--wg,2px);height:var(--wh,16px);flex:none}
@@ -54,25 +62,57 @@ i{font-style:normal}
 @keyframes wave{from{transform:translateY(var(--o,0)) scaleY(.5)}to{transform:translateY(var(--o,0)) scaleY(1)}}
 .wave.rest b{height:2px;transform:none}
 
-/* key caps, answers, buttons */
-kbd.key,.ans kbd,.btn kbd,.reply kbd,.act kbd{display:inline-block;flex:none;min-width:var(--key-h);height:var(--key-h);padding:0 4px;border-radius:var(--r1);background:var(--metal);
-  color:var(--ink);font:var(--f-key);text-align:center;box-shadow:var(--cap-edge)}
+/* ——— Materials (tokens.css; NOTES §5). Every control is one of these ———
+   Metal: the key and the caps that show a key. Two sizes of key: 24 px, and 34 px on Home's surface. Its face is flat;
+   under the pointer it brightens; pressed, it travels a pixel and its shadow goes; with nothing to do it is quiet;
+   while its work is on its way it shows the wave. */
+.key,:is(.ans,.act,.reply)>kbd{background:var(--lit) 0 100%/100% 1px no-repeat,var(--key);color:var(--ink);box-shadow:var(--key-edge)}
+:is(.ans,.act,.reply)>kbd{display:inline-grid;place-items:center;flex:none;min-width:var(--key-h);height:var(--key-h);padding:0 4px;border-radius:var(--r1);font:var(--f-key)}
+kbd .i{width:12px;height:12px;stroke-width:1.6px}
+.key{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;height:var(--ctl-h);padding:0 10px 0 var(--sp2);border-radius:var(--r1);font:var(--f-strong);font-size:12px;white-space:nowrap}
+.key .i{width:14px;height:14px;stroke-width:1.5px}
+.key kbd{font:var(--f-small);opacity:.62}
+.key .st{color:var(--ink)}
+.key:hover{filter:brightness(1.07)}
+.key:active,:is(.ans,.act):active>kbd{transform:translateY(1px);box-shadow:var(--key-down);filter:brightness(.93)}
+.key:disabled{opacity:1;background:var(--fill);color:var(--fg3);box-shadow:none}
+.key[aria-busy]{pointer-events:none}
+.lg:is(.key,.btn){height:var(--ctl-l);gap:var(--sp2);padding:0 14px 0 var(--sp3);border-radius:var(--r-in);font:var(--f-strong)}
+/* Quiet: every other control. Text, with a fill only under the pointer, deeper while pressed. An answer is a cap and
+   its label; a button among words has a hairline round it. */
+:is(.btn,.ans,.act,.reply,.ib,.ring,.cap-to,.cap-list button):hover{background:var(--hover);color:var(--fg)}
+:is(.btn,.ans,.act,.ib,.ring,.cap-to,.cap-list button):active{background:var(--sel)}
 .ans,.act{display:inline-flex;align-items:center;gap:var(--sp2);height:var(--row-h);padding:0 var(--sp2) 0 6px;border-radius:var(--r1);font:var(--f-body);color:var(--fg);white-space:nowrap;flex:none}
-.ans:hover,.act:hover{background:var(--fill)}
-.ans:active,.act:active{background:var(--line2)}
-:is(.ans,.act):active kbd{transform:translateY(1px);box-shadow:inset 0 0 0 .5px rgb(255 255 255/.75)}
 .ans.primary span,.act.primary span{font-weight:600}
 .act.danger span{color:var(--fail)}
-.btn{display:inline-flex;align-items:center;gap:var(--sp2);height:var(--ctl-h);padding:0 10px;border-radius:var(--r1);font:var(--f-small);color:var(--fg);background:var(--fill);white-space:nowrap;flex:none}
-.btn:hover{background:var(--fill-hover)}
-.btn:active{background:var(--line2)}
-.btn.primary{background:var(--metal);color:var(--ink);font-weight:600;box-shadow:inset 0 0 0 .5px rgb(255 255 255/.8),0 1px 0 #000}
-.btn.primary:hover{filter:brightness(1.08)}
-.btn.primary:active{filter:brightness(.82)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--sp2);height:var(--ctl-h);padding:0 10px;border-radius:var(--r1);font:var(--f-small);color:var(--fg);box-shadow:inset 0 0 0 1px var(--line2);white-space:nowrap;flex:none}
+.btn kbd{font:var(--f-small);color:var(--fg3)}
+/* A field is a line: a hairline at rest, the lit edge while it has the keyboard. */
 .reply{display:inline-flex;align-items:center;gap:var(--sp2);flex:1 1 180px;min-width:0;height:var(--row-h);padding:0 6px;border-radius:var(--r1);color:var(--fg)}
 .reply input{flex:1;min-width:0;width:0;font:var(--f-body)}
-.reply:hover{background:var(--fill)}
-.reply:focus-within{background:var(--fill);box-shadow:inset 0 -1px 0 var(--accent)}
+.reply:focus-within{background:var(--lit) 0 100%/100% 1px no-repeat,var(--hover)}
+
+/* An agent's ring (ui.tsx Ring): its mark in a fine circle. Whole when the agent can run; open, in the attention
+   colour, when it is not signed in, with the way to fix it beside it under the pointer or the keyboard; lit for the
+   one that runs the next thought; a short arc turns on it while its sessions work, their count beside it; the
+   attention colour when one of them asks. */
+.rings{display:flex;align-items:center;flex:none;margin-left:auto}
+.ring{display:inline-flex;align-items:center;gap:5px;flex:none;height:var(--row-h);padding:0 3px;border-radius:var(--r1);font:var(--f-num);color:var(--fg3);white-space:nowrap}
+.ring-o{width:22px;height:22px;flex:none;overflow:visible}
+.ring-o circle{fill:none;stroke:var(--ring,var(--line2));stroke-width:1.25px;stroke-dasharray:calc(var(--arc,1) * 100) 100;transform-origin:center;transform:rotate(-50deg)}
+.ring-o path,.ring-o text{fill:currentColor}
+.ring-o text{font:600 11px/1 var(--mono)}
+.ring[aria-checked=true]{--ring:url(#ring-lit);color:var(--fg)}
+.ring b{font-weight:400;color:var(--fg2)}
+.ring-o .turn{stroke:var(--fg);stroke-dasharray:14 100;animation:ring-turn 1.8s linear infinite}
+@keyframes ring-turn{from{transform:rotate(-50deg)}to{transform:rotate(310deg)}}
+.ring:not([aria-checked=true]) path{opacity:.62}
+.ring[data-s=asks],.ring[data-s=off],[data-s=off]>.ring-o{--ring:var(--asks)}
+[data-s=asks] .turn{stroke:#ffe6c8}
+[data-s=asks]>b,.ring[data-s=off]{color:var(--asks)}
+[data-s=off]{--arc:.72}
+.ring .fix{display:none;padding-left:3px;font:var(--f-small)}
+.ring:is(:hover,:focus-visible,[aria-checked=true]) .fix{display:inline}
 
 /* a diffstat: "3 files +14 −3" */
 .diff{font:var(--f-num);color:var(--fg3);white-space:nowrap}
@@ -87,30 +127,27 @@ kbd.key,.ans kbd,.btn kbd,.reply kbd,.act kbd{display:inline-block;flex:none;min
 .told li{padding:1px 0 1px var(--sp3)}
 .told .btn{display:flex;margin-top:var(--sp2);-webkit-user-select:none;user-select:none}
 
-/* the capture field (capture.tsx): the thought on lines of its own; under it, where it goes and the button that says
-   what Return does. On a sheet it sits bare, the wave beside the thought, over a rule that lights while it has the
-   keyboard; on Home it is a raised surface (window.css). Choosing a destination opens the choice in that same row */
+/* The Composer (capture.tsx): the thought on lines of its own; under it one row: where it goes, the agents' rings, and
+   the key that says what Return does. On a sheet it sits bare, the wave beside the thought, over a rule; on Home it is
+   the raised surface (window.css). The rule, or the surface's rim, is the lit edge while it has the keyboard or holds
+   a thought. Choosing where it goes turns the row into the choice: a list on a sheet, a line of options on Home. */
 .cap{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;column-gap:14px;min-width:0;cursor:text}
 .cap .wave{--wh:30px;--ww:3px;--wg:2.5px}
 .cap textarea{grid-column:2;min-width:0;max-height:92px;padding:10px 0;resize:none;overflow:auto;font:var(--f-question);letter-spacing:-.01em;caret-color:var(--accent)}
 .cap textarea:read-only{color:var(--fg2)}
-.cap-row{grid-column:1/-1;display:flex;align-items:flex-start;gap:var(--sp2);min-width:0;padding-top:var(--sp2);border-top:1px solid var(--line);cursor:default}
-.capture:focus-within .cap-row{border-image:var(--lit) 1}
+.cap-row{grid-column:1/-1;display:flex;align-items:center;gap:var(--sp2);min-width:0;padding-top:var(--sp2);border-top:1px solid var(--line);cursor:default}
+.capture:is(:focus-within,.has) .cap-row{border-image:var(--lit) 1}
 .cap-to,.cap-list button{display:inline-flex;align-items:center;gap:6px;height:var(--row-h);padding:0 var(--sp2) 0 6px;border-radius:var(--r1);font:var(--f-small);color:var(--fg2);white-space:nowrap}
 .cap-to{min-width:0;margin-left:-6px;padding-right:5px}
-:is(.cap-to,.cap-list button):hover{background:var(--fill);color:var(--fg)}
 .cap-to b{overflow:hidden;text-overflow:ellipsis;font-weight:400;color:var(--fg)}
 .cap-to span::before{content:"·";margin-right:6px;color:var(--fg3)}
-.cap-to span.off{color:var(--asks)}
 :is(.cap-to,.cap-list) .i{width:14px;height:14px;color:var(--fg3)}
 .cap-to .i:last-child{width:12px;height:12px;transform:rotate(90deg)}
-.cap-list{display:flex;flex-wrap:wrap;gap:2px;min-width:0;margin-left:-6px}
+.cap-list{display:grid;gap:0}
+.cap-list button{margin-left:-6px}
 .cap-list [aria-selected=true]{background:var(--sel);color:var(--fg)}
-.cap-go{display:inline-flex;align-items:center;gap:6px;flex:none;height:var(--row-h);margin-left:auto;padding:0 10px 0 var(--sp2);border-radius:var(--r1);background:var(--metal);color:var(--ink);font:var(--f-strong);font-size:12px;box-shadow:var(--cap-edge);white-space:nowrap}
-.cap-go kbd{font:600 12px/1 var(--mono);opacity:.7}
-.cap-go:hover{filter:brightness(1.08)}
-.cap-go:active{filter:brightness(.82)}
-.cap-go:disabled{opacity:1;background:var(--fill);color:var(--fg3);box-shadow:none}
+.cap-row .key{margin-left:auto}
+.rings+.key{margin-left:var(--sp1)}
 .cap-said{display:flex;align-items:center;gap:var(--sp2);min-height:var(--row-h);font:var(--f-small);color:var(--fg2)}
 .cap-said b{font-weight:400;color:var(--fg)}
 .cap-said .act{height:22px;margin-left:auto}

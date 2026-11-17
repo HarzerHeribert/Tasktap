@@ -15,6 +15,8 @@ use tasktap_proto::{
     Versions, When, encode_control,
 };
 
+mod common;
+
 const EXE: &str = env!("CARGO_BIN_EXE_tasktap");
 const CURRENT: Versions = Versions(VERSION, VERSION);
 
@@ -43,6 +45,7 @@ impl Drop for Folder {
 struct Core<'a> {
     child: Child,
     data: &'a Path,
+    _watchdog: common::Watchdog,
 }
 
 impl<'a> Core<'a> {
@@ -53,6 +56,7 @@ impl<'a> Core<'a> {
         serve.args(["--idle-ms", "600000"]).args(extra);
         let child = client::start(serve).unwrap();
         Core {
+            _watchdog: common::Watchdog::new(&child),
             child,
             data: &data.0,
         }

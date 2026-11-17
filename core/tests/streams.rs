@@ -17,6 +17,8 @@ use tasktap_proto::{
     encode_data,
 };
 
+mod common;
+
 const EXE: &str = env!("CARGO_BIN_EXE_tasktap");
 const MIB: u64 = 1 << 20;
 /// More than any stream sends here: the fixture keeps going until closed.
@@ -47,6 +49,7 @@ impl Drop for Folder {
 struct Core<'a> {
     child: Child,
     data: &'a Path,
+    _watchdog: common::Watchdog,
 }
 
 impl<'a> Core<'a> {
@@ -59,6 +62,7 @@ impl<'a> Core<'a> {
         serve.args(["--idle-ms", &ms.to_string()]);
         let child = client::start(serve).unwrap();
         Core {
+            _watchdog: common::Watchdog::new(&child),
             child,
             data: &data.0,
         }
@@ -88,8 +92,13 @@ impl<'a> Core<'a> {
         self.hello(true)
     }
 
-    /// The core's resident size in KiB.
+    /// The core's resident size in KiB. Windows has no `ps`: there the
+    /// size reads as zero, so the tests still drive the same path and only
+    /// the comparison says nothing.
     fn rss(&self) -> u64 {
+        if cfg!(windows) {
+            return 0;
+        }
         let pid = self.child.id().to_string();
         let ps = Command::new("ps")
             .args(["-o", "rss=", "-p", &pid])

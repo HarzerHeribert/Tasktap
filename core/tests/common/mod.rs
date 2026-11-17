@@ -20,6 +20,9 @@ use tasktap_proto::{
     Terminal, TerminalId, Thought, ThoughtId, Time, TurnResult, VERSION, Versions, When,
 };
 
+mod watchdog;
+pub use watchdog::Watchdog;
+
 pub const EXE: &str = env!("CARGO_BIN_EXE_tasktap");
 /// Seconds a thought is held when the preference is unset (`state::DEFAULT_HOLD`).
 pub const HOLD_MS: u64 = 5000;
@@ -72,6 +75,7 @@ impl Drop for Folder {
 pub struct Core {
     child: Child,
     pub data: PathBuf,
+    _watchdog: Watchdog,
 }
 
 impl Core {
@@ -84,6 +88,7 @@ impl Core {
         serve.args(["--idle-ms", "600000"]).args(extra);
         let child = client::start(serve).unwrap();
         Core {
+            _watchdog: Watchdog::new(&child),
             child,
             data: data.to_owned(),
         }

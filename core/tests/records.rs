@@ -19,6 +19,8 @@ use tasktap_proto::{
     encode_control,
 };
 
+mod common;
+
 const EXE: &str = env!("CARGO_BIN_EXE_tasktap");
 /// Most bytes of JSON in one snapshot chunk (design §1).
 const CHUNK: usize = 256 << 10;
@@ -60,6 +62,7 @@ impl Drop for Folder {
 struct Core {
     child: Child,
     data: PathBuf,
+    _watchdog: common::Watchdog,
 }
 
 impl Core {
@@ -68,6 +71,7 @@ impl Core {
         serve.args(["--idle-ms", "600000"]);
         let child = client::start(serve).unwrap();
         Core {
+            _watchdog: common::Watchdog::new(&child),
             child,
             data: data.0.clone(),
         }

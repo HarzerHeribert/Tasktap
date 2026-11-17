@@ -289,9 +289,12 @@ fn read(stream: &mut Stream, decoder: &mut Decoder) -> io::Result<Frame> {
         if let Some(frame) = next.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))? {
             return Ok(frame);
         }
-        match stream.read(&mut buf)? {
-            0 => return Err(io::ErrorKind::UnexpectedEof.into()),
-            n => decoder.push(&buf[..n]),
+        match stream.read(&mut buf) {
+            Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
+            Ok(n) => decoder.push(&buf[..n]),
+            // A signal arriving mid-read is not an error of the connection.
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
         }
     }
 }

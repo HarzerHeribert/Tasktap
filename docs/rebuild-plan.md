@@ -69,7 +69,7 @@ shell/           The host: windows, notch panel, local speech, screen context, u
 
 ### One host or two
 
-Open until a trial at the start of Phase 1 settles it.
+**Decided on 2026-11-17: one host.** Tauri on Mac and Windows. The trial reproduced the notch with about 60 lines of Mac-specific code using public interfaces only. With the screen unlocked, its focus behavior measured the same as 1.2 wherever a person can see it, and better in one place: after the notch closes, typing returns to the app in use, where 1.2 keeps the keyboard until that app is clicked. The owner judged the backdrop and the open notch fine. Local speech and screen context stay Swift, as small helpers. What follows is the reasoning as it stood before the trial.
 
 - **One host:** Tauri on Mac and Windows, with Swift kept only for the local speech helper and the few pieces that need it. Least code, one updater, Linux nearly free.
 - **Two hosts:** Swift on Mac, Tauri on Windows. More code, but no risk to the notch.
@@ -266,7 +266,7 @@ Aim for under 20 checks, each named after a promise to the user.
 
 The 1.2 numbers to compare against are still missing.
 
-**One-host trial:** built in `trials/tauri-notch/`. Every check that needs no visible screen passed: identical notch geometry, reveal without activating the app, and comparable speed. The cross-platform host needed about 55 lines of Mac-specific code for the notch, using public interfaces only. The look and real hover, click and typing still need the owner. The trial's own recommendation is one host if those pass.
+**One-host trial:** finished, and the decision is one host. Every automated check passes on an unlocked screen. Two focus checks first failed because they compared two different measures; measured the same way, 1.2 and the trial behave alike. Idle memory including the web view processes was 74 MB for the trial against 208 MB for 1.2, mostly because 1.2 loads its full page twice. Still to be checked by eye in Phase 4: other Spaces and full-screen apps, whether the tab blinks when the notch folds, and VoiceOver.
 
 **Carried into Phase 2:** the stricter macOS durability setting, to be decided against measured typing delay; a burst of connections can make clients start extra copies of the core; the Windows pipe relies on a peer check and not yet on an owner-only access list; agent sign-in moves into a Tasktap terminal that belongs to no project.
 

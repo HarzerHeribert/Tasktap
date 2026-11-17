@@ -324,7 +324,7 @@ fi
 read -r px py <<<"$(js 'p=json.loads(sys.argv[1]); print(p["x"],p["y"])' "$before_ptr")"; "$tool" warp "$px" "$py"
 [ "$ax" = 1 ] && focus_verdicts
 if [ -n "$te" ]; then "$tool" closedoc "$te" "$doc" >/dev/null; [ -n "$textedit_before" ] || kill "$te" 2>/dev/null; fi
-rm -f "$doc"
+sleep 1; rm -f "$doc"   # after TextEdit has saved and closed it
 echo; echo "Hands free again."
 
 if [ "$full" = 1 ]; then

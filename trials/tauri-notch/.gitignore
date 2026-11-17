@@ -1,5 +1,0 @@
-src-tauri/target/
-src-tauri/gen/
-build/
-captures/*.log
-captures/*.png

@@ -1,5 +1,0 @@
-{
-  "identifier": "default",
-  "windows": ["notch", "backdrop"],
-  "permissions": ["core:default"]
-}

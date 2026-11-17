@@ -121,7 +121,15 @@ fn open(c: &mut Client, args: &OpenTerminal, auto: bool) -> View {
 
 /// Takes one frame and applies it to `v`.
 fn pump(c: &mut Client, v: &mut View) {
-    match c.recv().unwrap() {
+    let frame = c.recv().unwrap_or_else(|e| {
+        let tail = &v.bytes()[v.bytes().len().saturating_sub(600)..];
+        panic!(
+            "{e} at offset {}, after {:?}",
+            v.pos(),
+            String::from_utf8_lossy(tail)
+        )
+    });
+    match frame {
         Frame::Data(Data { s, bytes }) if s == v.s => {
             v.at += bytes.len() as u64;
             v.runs.last_mut().unwrap().1.extend(bytes);
@@ -203,9 +211,10 @@ fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(&text).into_owned()
 }
 
-/// Whether `bytes` hold line `i` in their last few hundred bytes.
+/// Whether `bytes` hold line `i` in their last 8 KiB: on Windows, after
+/// the last line, the console may repaint its screen.
 fn shows(bytes: &[u8], i: u64) -> bool {
-    let tail = &bytes[bytes.len().saturating_sub(400)..];
+    let tail = &bytes[bytes.len().saturating_sub(8 << 10)..];
     text(tail).contains(&line(i))
 }
 
@@ -321,7 +330,9 @@ fn tens_of_megabytes_arrive_intact_through_a_slow_client_and_a_reconnect() {
             v = open(&mut c, &args(id, None, Some(from), 16 << 10), true);
             assert_eq!(v.start(), from, "the stream goes on where it was");
         }
-        until(&mut c, &mut v, "a batch", |v| shows(v.bytes(), last));
+        until(&mut c, &mut v, &format!("batch {b}"), |v| {
+            shows(v.bytes(), last)
+        });
     }
     all.extend_from_slice(v.bytes());
     assert!(v.marks.iter().all(|(_, m)| !m.gap), "no gap");
@@ -401,6 +412,15 @@ fn a_client_that_falls_behind_gets_a_gap_and_a_replay() {
     }
 }
 
+/// Both views hold the same bytes where they overlap. A Windows console may
+/// keep writing after one of them stopped reading, so they may end apart.
+fn same(a: &View, b: &View, why: &str) {
+    let (start, end) = (a.start().max(b.start()), a.pos().min(b.pos()));
+    assert!(start < end, "{why}: the views do not overlap");
+    let range = |v: &View| (start - v.start()) as usize..(end - v.start()) as usize;
+    assert!(a.bytes()[range(a)] == b.bytes()[range(b)], "{why}");
+}
+
 #[test]
 fn two_clients_at_different_positions_each_get_their_own_stream() {
     let data = Folder::new("tt-two");
@@ -419,19 +439,13 @@ fn two_clients_at_different_positions_each_get_their_own_stream() {
     assert_eq!(vb.start(), from);
     let caught_up = va.pos();
     until(&mut b, &mut vb, "B to catch up", |v| v.pos() >= caught_up);
-    assert!(
-        vb.bytes() == &va.bytes()[from as usize..],
-        "B has A's bytes from its offset on"
-    );
+    same(&va, &vb, "B has A's bytes from its offset on");
     // Both see what comes next.
     a.write(va.s, b"300\r").unwrap();
     until(&mut a, &mut va, "more", |v| shows(v.bytes(), 10_299));
     let end = va.pos();
     until(&mut b, &mut vb, "more", |v| v.pos() >= end);
-    assert!(
-        vb.bytes() == &va.bytes()[from as usize..],
-        "and the same bytes after"
-    );
+    same(&va, &vb, "and the same bytes after");
     assert_eq!(vb.lives().len(), 1);
     if cfg!(unix) {
         assert_eq!(

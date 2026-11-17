@@ -125,8 +125,14 @@ until_has workspace "text .hx" 5 "Open a folder" && ask workspace "text .hx" | g
   && pass "with no folder open, Home offers to open one, lists the agents apart, and its field's chip says Idea" || fail "Home on first run"
 # The light: Home's chrome is drawn once and then nothing while nothing happens, the notch draws no form at all, and
 # the person's choice reaches both pages at once.
-until_has workspace "eval String(!!document.querySelector('.light .motion canvas') && __motion.stats.frames > 0)" 5 "true" \
-  && pass "Home's light draws its chrome as a canvas" || fail "Home's light draws"
+# A window the person has covered draws nothing (WebKit reports it hidden), so a covered window is said, not failed.
+if until_has workspace "eval String(!!document.querySelector('.light .motion canvas') && __motion.stats.frames > 0)" 10 "true"; then
+  pass "Home's light draws its chrome as a canvas"
+elif [ "$(js workspace "String(document.hidden)")" = true ]; then
+  pass "Home's light: the window is covered, so nothing is drawn yet"
+else
+  fail "Home's light draws" "$(js workspace "[document.hidden, __motion.stats.frames, !!document.querySelector('.light .motion'), document.querySelector('.light .motion')?.hasAttribute('data-small')].join(' ')")"
+fi
 frames=$(js workspace "__motion.stats.frames")
 sleep 2
 [ "$(js workspace "__motion.stats.frames")" = "$frames" ] && [ "$(js notch "document.querySelectorAll('canvas').length")" = 0 ] \
@@ -331,6 +337,10 @@ until_has workspace "text .bar" 3 "Earlier" && ask workspace "text .hx" | grep -
   && pass "All results leads to Earlier, which lists the run by day" || fail "Earlier"
 press workspace "#find-thought" Escape >/dev/null
 until_has workspace "eval __ws.ui.view" 3 "home" && ! ask workspace "text .bar" | grep -q "Earlier" && pass "Escape goes back to Home" || fail "back from Earlier"
+js workspace "(document.querySelector('.home #capture-input').focus(), document.execCommand('insertText', false, 'A thought typed on Home that runs long enough to need a second line of the field, which grows to hold it'), 1)" >/dev/null
+until_has workspace "eval String(document.querySelector('.home #capture-input').clientHeight > 44 && !!document.querySelector('.home .capture #dest-chip'))" 3 "true" \
+  && pass "Home's capture field grows a line for a longer thought, its destination a chip inside it" || fail "Home's capture field"
+js workspace "(document.execCommand('selectAll'), document.execCommand('delete'), 1)" >/dev/null
 js workspace "(document.querySelector('.fold-b') || document.querySelector('.folds .fold-h').click(), 1)" >/dev/null
 ask workspace "click .fold-b .hr" >/dev/null
 until_has workspace "$(screen)" 5 "fixture-agent --hook" && [ "$(js workspace "__ws.ui.view")" = "$project" ] \

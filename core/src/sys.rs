@@ -226,6 +226,57 @@ mod unix {
         groups
     }
 
+    /// The working folder of every process this user may look at: a folder
+    /// about to be removed must be none of theirs, nor hold one. Empty where
+    /// the system does not say.
+    pub fn working_folders() -> Vec<std::path::PathBuf> {
+        let pids = processes().into_iter().filter(|&pid| pid > 0);
+        pids.filter_map(working_folder).collect()
+    }
+
+    #[cfg(target_os = "linux")]
+    fn working_folder(pid: i32) -> Option<PathBuf> {
+        fs::read_link(format!("/proc/{pid}/cwd")).ok()
+    }
+
+    #[cfg(target_os = "macos")]
+    #[allow(unsafe_code)]
+    fn working_folder(pid: i32) -> Option<PathBuf> {
+        use std::ffi::{CStr, OsStr, c_int, c_void};
+        use std::os::unix::ffi::OsStrExt;
+        // SAFETY: the signature of proc_pidinfo in libproc, part of the
+        // system library: it writes at most `size` bytes into `buffer`
+        // and returns how many it wrote.
+        unsafe extern "C" {
+            fn proc_pidinfo(
+                pid: c_int,
+                flavor: c_int,
+                arg: u64,
+                buffer: *mut c_void,
+                size: c_int,
+            ) -> c_int;
+        }
+        // PROC_PIDVNODEPATHINFO: a `proc_vnodepathinfo`, the working
+        // folder's `vnode_info_path` (a 152-byte `vnode_info`, then the
+        // path in MAXPATHLEN bytes ending in a NUL) and the root's.
+        const FLAVOR: c_int = 9;
+        const SIZE: usize = 2 * (152 + 1024);
+        let mut info = vec![0u8; SIZE];
+        // SAFETY: `info` holds SIZE bytes and lives through the call.
+        let got = unsafe { proc_pidinfo(pid, FLAVOR, 0, info.as_mut_ptr().cast(), SIZE as c_int) };
+        if usize::try_from(got).ok()? < SIZE {
+            return None;
+        }
+        let path = CStr::from_bytes_until_nul(&info[152..152 + 1024]).ok()?;
+        let path = path.to_bytes();
+        (!path.is_empty()).then(|| PathBuf::from(OsStr::from_bytes(path)))
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    fn working_folder(_: i32) -> Option<PathBuf> {
+        None
+    }
+
     /// Every process's id.
     #[cfg(target_os = "linux")]
     fn processes() -> Vec<i32> {
@@ -459,6 +510,27 @@ mod windows {
         let digest = Sha256::digest(folder.as_os_str().as_encoded_bytes());
         let hex: String = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
         Ok(format!(r"\\.\pipe\tasktap-{hex}"))
+    }
+
+    /// Windows does not say where another process works without reading
+    /// its memory; instead a folder a process works in cannot be renamed,
+    /// which is how one is found in use there (`isolate.rs`).
+    pub fn working_folders() -> Vec<std::path::PathBuf> {
+        Vec::new()
+    }
+
+    /// Ends process `pid` at once: a git command past its time.
+    pub fn end_process(pid: u32) {
+        use windows_sys::Win32::System::Threading::{PROCESS_TERMINATE, TerminateProcess};
+        // SAFETY: OpenProcess returns a handle or null; a handle is used
+        // once and closed once.
+        unsafe {
+            let process = OpenProcess(PROCESS_TERMINATE, 0, pid);
+            if !process.is_null() {
+                TerminateProcess(process, 1);
+                CloseHandle(process);
+            }
+        }
     }
 
     /// A job object holding a terminal's process and every process it

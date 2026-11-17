@@ -287,6 +287,11 @@ pub struct Found {
     pub merged: bool,
     /// Neither its folder nor its branch is there any more.
     pub gone: bool,
+    /// Removing it would lose nothing: its folder, where it is there, is
+    /// still the worktree git knows on its branch, with nothing staged,
+    /// changed, untracked or ignored beside the branch's files, and the
+    /// branch is at its base or in its destination.
+    pub spare: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1193,6 +1198,12 @@ impl Machine<'_, '_> {
                 "an agent is adopted only in a running shell",
             ));
         }
+        // Nothing starts to work in a worktree that is being kept or discarded.
+        if let Some(owner) = self.owner(&cwd)?
+            && self.settling(owner.id)?
+        {
+            return Err(Error::Conflict(SETTLING));
+        }
         let project_id = match shell.project_id {
             Some(project) => project,
             None => self.tx.scratch()?.ok_or(Error::Gone)?.id,
@@ -1622,6 +1633,9 @@ impl Machine<'_, '_> {
     /// another that holds something unsettled, and has the launch's session
     /// work in it. Found again unchanged, what was looked at still holds.
     fn prepared(&mut self, mut t: Thought, session: Option<Session>, w: Workdir) -> Result<()> {
+        if !made(&w) {
+            return Err(Error::Invalid("that is no worktree the core makes"));
+        }
         match &t.workdir {
             Some(old) if open(old) && old.branch != w.branch => {
                 return Err(Error::Ignored(Ignored::State));
@@ -1657,16 +1671,20 @@ impl Machine<'_, '_> {
         let Some(w) = t.workdir.as_mut().filter(|w| w.path == path && open(w)) else {
             return Err(Error::Ignored(Ignored::State));
         };
+        // None only where nothing would be lost: anything staged, untracked
+        // or ignored, or a worktree git no longer ties to its branch, waits
+        // for the person.
         w.changes = match () {
             () if keep && (found.merged || found.gone) => Changes::Kept,
             () if discard && found.gone => Changes::Discarded,
-            () if found.files > 0 => Changes::Pending,
-            () => Changes::Clean,
+            () if found.gone || found.spare => Changes::Clean,
+            () => Changes::Pending,
         };
         if matches!(w.changes, Changes::Pending | Changes::Clean) {
             (w.files, w.insertions, w.deletions) = (found.files, found.insertions, found.deletions);
         }
         let tidy = matches!(w.changes, Changes::Clean | Changes::Kept)
+            && found.spare
             && !found.gone
             && !self.tx.occupied(&path)?
             && !self.settling(t.id)?;
@@ -1950,6 +1968,30 @@ fn settle_hash(thought: ThoughtId, keep: bool) -> Hash {
 
 fn tidy_hash(thought: ThoughtId) -> Hash {
     digest(&[b"tidy", thought.uuid().as_bytes()])
+}
+
+/// Whether a worktree's record names one the core makes: `tasktap/<name>`
+/// in a folder `<name>` of a folder `worktrees`, `<name>` its twelve
+/// lowercase hex digits, the path reached through no `..`. `isolate.rs`
+/// proves the rest on disk before it touches one.
+fn made(w: &Workdir) -> bool {
+    use std::path::Component;
+    let path = Path::new(&w.path);
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
+    let parent = path
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str());
+    let plain = path
+        .components()
+        .all(|c| !matches!(c, Component::ParentDir | Component::CurDir));
+    crate::isolate::named(name)
+        && w.branch == format!("{}{name}", crate::isolate::PREFIX)
+        && parent == Some(crate::isolate::FOLDER)
+        && plain
 }
 
 /// A worktree not settled: its changes none or pending.

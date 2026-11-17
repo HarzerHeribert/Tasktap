@@ -2587,6 +2587,7 @@ fn made(name: &str) -> Workdir {
     }
 }
 
+/// What a look finds with `files` changed; with none, nothing would be lost.
 fn found(files: u32) -> state::Found {
     state::Found {
         files,
@@ -2594,6 +2595,7 @@ fn found(files: u32) -> state::Found {
         deletions: files,
         merged: false,
         gone: false,
+        spare: files == 0,
     }
 }
 
@@ -2634,7 +2636,7 @@ fn rows_a_worktree_is_recorded_looked_at_and_tidied_once_it_holds_nothing() {
     let l = w.start(t);
     let s = l.session;
     // Recorded on its owner before anything runs in it; the session works there.
-    let tree = made("abc");
+    let tree = made("abcabcabcabc");
     let prepared = Event::Prepared {
         attempt: l.attempt,
         owner: t,
@@ -2647,7 +2649,7 @@ fn rows_a_worktree_is_recorded_looked_at_and_tidied_once_it_holds_nothing() {
     let other = Event::Prepared {
         attempt: l.attempt,
         owner: t,
-        workdir: made("other"),
+        workdir: made("0123456789ab"),
     };
     assert_eq!(w.ignored(other), Ignored::State);
     assert!(w.carry(&[Effect::Launch(l)]).is_empty());
@@ -2738,6 +2740,17 @@ fn rows_a_worktree_is_recorded_looked_at_and_tidied_once_it_holds_nothing() {
         w.apply(settle(AttemptId::mint(), true)),
         Err(Error::Conflict(_))
     ));
+    // Nor does an agent started by hand in it while it settles get adopted.
+    let project = w.project;
+    let mut shell_terminal = None;
+    w.write(|tx| shell_terminal = Some(crate::shell(tx, project)));
+    let adopt = Event::Adopt {
+        session: SessionId::mint(),
+        terminal: shell_terminal.unwrap(),
+        agent: AGENT.into(),
+        cwd: format!("{}/src", tree.path),
+    };
+    assert!(matches!(w.apply(adopt), Err(Error::Conflict(_))));
     w.ok(Event::Settled {
         attempt: first,
         error: None,
@@ -2752,6 +2765,7 @@ fn row_surveyed_decides_a_settle_the_core_stopped_during_by_what_git_shows() {
             true,
             state::Found {
                 merged: true,
+                spare: true,
                 ..found(1)
             },
             Changes::Kept,

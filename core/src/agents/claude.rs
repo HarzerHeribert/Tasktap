@@ -238,6 +238,7 @@ impl Agent for Claude {
     /// `alwaysThinkingEnabled` nor `MAX_THINKING_TOKENS=0` turns that off.
     fn headless(&self) -> Option<Headless> {
         Some(Headless {
+            tool: "Claude Code",
             model: SMALL,
             limit: Duration::from_secs(12),
             #[rustfmt::skip]
@@ -250,6 +251,11 @@ impl Agent for Claude {
                 .into()
             },
             answer,
+            // Its one JSON object says so: the provider knows no such model.
+            gone: |printed, _| {
+                let said = serde_json::from_str::<Value>(printed.trim()).unwrap_or_default();
+                said.get("api_error_type").and_then(Value::as_str) == Some("not_found_error")
+            },
         })
     }
 

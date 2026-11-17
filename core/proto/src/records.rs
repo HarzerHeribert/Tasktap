@@ -95,6 +95,10 @@ pub struct Routing {
     pub fallback: Option<String>,
     /// The person's words that justify a follow-up to a session.
     pub quote: Option<String>,
+    /// A few words a model gave the work for a name: the name of the
+    /// session a new run of the thought starts.
+    #[serde(default)]
+    pub title: Option<String>,
     /// Milliseconds the answer took.
     pub ms: Option<u32>,
 }
@@ -454,6 +458,11 @@ words! {
 
 /// Seconds a routed thought is held while the `hold` preference is unset.
 pub const DEFAULT_HOLD: u32 = 5;
+
+/// Seconds a route or a brief is there to read before its thought launches:
+/// a hold ends no earlier than this after either arrived, or than the hold
+/// itself after it where the person set a shorter one.
+pub const READ_HOLD: u32 = 2;
 
 impl PrefKey {
     /// The value of a preference while none is stored: deleting it restores this.

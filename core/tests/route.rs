@@ -12,8 +12,8 @@ use tasktap_core::route::{Followed, Named, Request, accept, local, same, short};
 use tasktap_core::state::{Candidate, Destination, Route};
 use tasktap_proto::{
     AddProject, Capture, FixtureClock, Hint, Mode, PrefPatch, ProjectId, ProjectPatch, Put,
-    PutTarget, QuestionKind, QuestionSource, RouteBy, SessionId, SessionState, Status, Thought,
-    ThoughtId, call,
+    PutTarget, QuestionKind, QuestionSource, RouteBy, Routing, SessionId, SessionState, Status,
+    Thought, ThoughtId, call,
 };
 
 #[test]
@@ -291,7 +291,7 @@ const SPOKEN: &str = "um so the thing with the header, the one we did last week,
 /// A model's answer as its tool prints it.
 fn answer(confidence: &str, to: &str, brief: &str) -> Value {
     json!({ "quote": "", "confidence": confidence, "to": to, "candidates": [],
-            "constraints": [], "brief": brief })
+            "brief": brief, "title": "" })
 }
 
 #[test]
@@ -347,10 +347,16 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
 
     // A new run in a project that was offered, by its key.
     let taken = accept(&request, &answer("clear", "p2", brief).to_string());
-    assert_eq!(taken, Ok((clear(Destination::New(folio), brief), None)));
+    assert_eq!(
+        taken,
+        Ok((clear(Destination::New(folio), brief), Routing::default()))
+    );
     // The brief without the space around it.
     let taken = accept(&request, &with("brief", json!(format!("  {brief}\n"))));
-    assert_eq!(taken, Ok((clear(Destination::New(folio), brief), None)));
+    assert_eq!(
+        taken,
+        Ok((clear(Destination::New(folio), brief), Routing::default()))
+    );
 
     // A follow-up needs words of the capture that justify it: found word
     // for word, whatever the case and the punctuation, 3 characters at least.
@@ -362,7 +368,11 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
     for quote in ["the login fix from before", "The Login-Fix, from BEFORE"] {
         let taken = accept(&request, &follow(quote));
         let to = Destination::Session(login);
-        assert_eq!(taken, Ok((clear(to, brief), Some(quote.into()))));
+        let quoted = Routing {
+            quote: Some(quote.into()),
+            ..Routing::default()
+        };
+        assert_eq!(taken, Ok((clear(to, brief), quoted)));
     }
     for quote in ["", "it", "the login bug", "login from before"] {
         refused(&request, follow(quote), "not in the thought");
@@ -373,7 +383,13 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
         ..request.clone()
     };
     let taken = accept(&here, &answer("clear", "s2", brief).to_string());
-    assert_eq!(taken, Ok((clear(Destination::Session(quiet), brief), None)));
+    assert_eq!(
+        taken,
+        Ok((
+            clear(Destination::Session(quiet), brief),
+            Routing::default()
+        ))
+    );
     refused(&here, follow(""), "not in the thought");
 
     // Only what was offered is a destination.
@@ -404,7 +420,7 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
                 ],
                 brief: Some(brief.into()),
             },
-            None
+            Routing::default()
         ))
     );
     for keys in [json!([]), json!(["p1"]), json!(["p1", "p1"])] {
@@ -414,7 +430,10 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
 
     // Nowhere to send it: an idea, whatever else the answer says.
     let unknown = answer("unknown", "p9", "").to_string();
-    assert_eq!(accept(&request, &unknown), Ok((Route::Unknown, None)));
+    assert_eq!(
+        accept(&request, &unknown),
+        Ok((Route::Unknown, Routing::default()))
+    );
 
     // A brief is there, and no longer than the thought allows.
     refused(&request, with("brief", " \n".into()), "no brief");
@@ -423,25 +442,31 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
     assert!(accept(&request, &long(most)).is_ok());
     refused(&request, long(most + 1), "longer than the thought allows");
 
-    // A constraint the person gave, word for word, that the brief lost is
-    // appended; one the brief has, one the person never said and one of
-    // fewer than 3 characters are not.
-    let kept = "Look again at the login fix on Safari; don't touch the session cookie.";
-    let constraints = json!([
-        "don't touch the session cookie",
-        "use Playwright",
-        "ok",
-        "okay"
-    ]);
-    let lost = |brief: &str| {
-        let mut a = answer("clear", "p2", brief);
-        a["constraints"] = constraints.clone();
-        accept(&request, &a.to_string()).unwrap().0
+    // A title is one plain line of at most 60 characters. Another is no
+    // title, and the rest of the answer is taken all the same.
+    let titled = |title: &str| {
+        let (route, found) = accept(&request, &with("title", title.into())).unwrap();
+        assert_eq!(route, clear(Destination::New(folio), brief));
+        found.title
     };
-    let appended = format!("{brief}\n- don't touch the session cookie\n- okay");
-    assert_eq!(lost(brief), clear(Destination::New(folio), &appended));
-    let appended = format!("{kept}\n- okay");
-    assert_eq!(lost(kept), clear(Destination::New(folio), &appended));
+    assert_eq!(
+        titled("  Login fix on Safari\n"),
+        Some("Login fix on Safari".into())
+    );
+    assert_eq!(titled(&"ä".repeat(60)), Some("ä".repeat(60)));
+    for title in [
+        "",
+        "  ",
+        &"a".repeat(61),
+        "Login fix\non Safari",
+        "Login\tfix",
+    ] {
+        assert_eq!(titled(title), None, "{title:?}");
+    }
+    // Where it goes nowhere it has none.
+    let mut idea = answer("unknown", "", "");
+    idea["title"] = "Call the accountant".into();
+    assert_eq!(accept(&request, &idea.to_string()).unwrap().1.title, None);
 
     // Anything but the one object asked for is no answer.
     let mut more = answer("clear", "p2", brief);
@@ -458,6 +483,8 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
         with("confidence", "sure".into()),
         with("candidates", "p1".into()),
         with("brief", json!(null)),
+        with("title", json!(["Login fix"])),
+        with("constraints", json!([])),
     ] {
         refused(&request, malformed, "not the JSON it was asked for");
     }
@@ -467,15 +494,18 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
         "too large",
     );
 
-    // Where the person picked the destination only the brief is taken,
-    // with the constraints it lost.
+    // Where the person picked the destination only the brief and the
+    // title are taken.
     let picked = Request {
         picked: Some(Destination::New(app)),
         ..request.clone()
     };
     for confidence in ["clear", "ambiguous", "unknown"] {
         let taken = accept(&picked, &answer(confidence, "s1", brief).to_string());
-        assert_eq!(taken, Ok((clear(Destination::New(app), brief), None)));
+        assert_eq!(
+            taken,
+            Ok((clear(Destination::New(app), brief), Routing::default()))
+        );
     }
     refused(&picked, answer("clear", "p3", "").to_string(), "no brief");
 }
@@ -606,7 +636,7 @@ fn a_model_routes_a_thought_and_writes_its_brief() {
         "p1",
         "Keep the header on one line on small screens.",
     );
-    said["constraints"] = json!(["don't change the font size"]);
+    said["title"] = "Header on one line".into();
     a.answers(&said);
     let t = a.capture(SPOKEN, None);
     // Captured, and marked as asked about, until the answer is in.
@@ -626,11 +656,11 @@ fn a_model_routes_a_thought_and_writes_its_brief() {
         (th.status, th.project_id, th.mode),
         (Status::Routed, Some(a.folio), Mode::Ask)
     );
-    // The brief, with the constraint it had lost, to read during the hold,
-    // which counts from the capture.
+    // The brief, as the model wrote it, to read during the hold, which
+    // counts from the capture.
     assert_eq!(
         th.brief.as_deref(),
-        Some("Keep the header on one line on small screens.\n- don't change the font size")
+        Some("Keep the header on one line on small screens.")
     );
     assert_eq!(th.hold_until, Some(time(th.created.get() + 5000)));
     let route = th.route.unwrap();
@@ -644,6 +674,7 @@ fn a_model_routes_a_thought_and_writes_its_brief() {
         ("fixture", Some("fixture-small"), false, None)
     );
     assert!(route.ms.is_some());
+    assert_eq!(route.title.as_deref(), Some("Header on one line"));
     // What it was sent: the thought, and the projects under short keys.
     let sent = a.asked().unwrap();
     assert_eq!(sent["thought"], SPOKEN);
@@ -732,6 +763,37 @@ fn whatever_goes_wrong_with_the_model_the_match_on_names_routes_and_says_why() {
     let th = a.settled(t);
     assert_eq!((th.status, th.mode), (Status::Captured, Mode::Note));
     assert!(th.route.unwrap().fallback.is_some());
+}
+
+#[test]
+fn a_tool_that_no_longer_offers_its_model_says_so_and_is_not_asked_again() {
+    let mut a = Asking::new("gone");
+    a.consent("fixture");
+    a.script(&["print:error:no such model".into()]);
+    let text = format!("{SPOKEN}, that is in folio by the way");
+    let gone = "The fixture agent no longer offers the model Tasktap asks for routing; \
+                routing by name until Tasktap is updated";
+    let t = a.capture(&text, None);
+    let th = a.settled(t);
+    assert_eq!((th.status, th.project_id), (Status::Routed, Some(a.folio)));
+    let route = th.route.unwrap();
+    assert_eq!(
+        (route.by.as_str(), route.fallback.as_deref()),
+        ("local", Some(gone))
+    );
+    assert!(a.asked().is_some());
+    // It is not asked again while this core runs, whatever it would answer.
+    a.answers(&answer("clear", "p2", "Brief."));
+    let t = a.capture(&text, None);
+    let th = a.settled(t);
+    assert_eq!((th.status, th.project_id), (Status::Routed, Some(a.folio)));
+    assert_eq!(th.route.unwrap().fallback.as_deref(), Some(gone));
+    assert_eq!(a.asked(), None);
+    // Nor is it offered for consent; the other agents are.
+    let terms = a.w.ok::<call::RouteTerms>(&tasktap_proto::Empty {});
+    let offered: Vec<_> = terms.tools.iter().map(|t| t.agent.as_str()).collect();
+    assert!(!offered.contains(&"fixture"), "{offered:?}");
+    assert!(offered.contains(&"fixture-silent") && offered.contains(&"codex"));
 }
 
 #[test]

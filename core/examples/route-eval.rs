@@ -11,7 +11,8 @@
 //! does with a capture: the question `route::question` writes, the tool as
 //! its adapter runs it headless, the answer as `route::accept` takes it.
 //! Per thought it prints whether the destination is right, how many of the
-//! required facts the brief has, what it invented, and the time taken;
+//! required facts the brief has, what it invented, the title it gave the
+//! work (in brackets) and the time taken;
 //! with `--briefs`, the briefs too. `--question` prints the question a
 //! thought is asked with, and asks nobody.
 
@@ -22,7 +23,7 @@ use serde::Deserialize;
 use tasktap_core::agents::{self, checks};
 use tasktap_core::route::{self, Exchange, Followed, Named, Request};
 use tasktap_core::state::{Destination, Route};
-use tasktap_proto::{ProjectId, SessionId, SessionState, Status};
+use tasktap_proto::{ProjectId, Routing, SessionId, SessionState, Status};
 
 #[derive(Deserialize)]
 struct Fixture {
@@ -145,6 +146,10 @@ fn main() {
             let question = route::question(&request);
             let answer = checks::ask(agent, &how, question, route::SCHEMA, &folder, (hear, heard));
             let ms = began.elapsed().as_millis();
+            let answer = answer.map_err(|failed| match failed {
+                checks::Failed::Gone => route::gone(how.tool),
+                checks::Failed::Why(why) => why,
+            });
             let accepted = answer.and_then(|answer| route::accept(&request, &answer));
             let row = world.judge(t, &accepted);
             asked += 1;
@@ -283,9 +288,9 @@ impl World {
         }
     }
 
-    fn judge(&self, t: &Thought, got: &Result<(Route, Option<String>), String>) -> Row {
-        let (route, quote) = match got {
-            Ok((route, quote)) => (route, quote.clone()),
+    fn judge(&self, t: &Thought, got: &Result<(Route, Routing), String>) -> Row {
+        let (route, quote, title) = match got {
+            Ok((route, found)) => (route, found.quote.clone(), found.title.clone()),
             Err(why) => {
                 return Row {
                     right: false,
@@ -331,6 +336,11 @@ impl World {
             invented.push("changed".into());
         }
         let mut note = format!("→ {went}");
+        if let Some(title) = title {
+            note.push_str(&format!(" [{title}]"));
+        } else if briefed {
+            note.push_str(" [no title]");
+        }
         if let Some(quote) = quote {
             note.push_str(&format!(" (“{quote}”)"));
         }

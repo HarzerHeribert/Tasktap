@@ -18,9 +18,9 @@ use tasktap_core::store::{AttemptKind, AttemptOutcome, Store, Tx};
 use tasktap_proto::{
     AttemptId, Capture, Change, Changes, Code, Collection, Device, DeviceId, Event as Said,
     Isolate, Mode, Offset, Outcome, Phase, PrefKey, PrefValue, Project, ProjectId, ProjectKind,
-    Question, QuestionId, QuestionKind, QuestionSource, QuestionState, Reason, ReplyVia, Response,
-    ResultKind, Rev, RouteBy, Routing, Secret, Session, SessionId, SessionState, Set, Source,
-    Status, Terminal, TerminalId, TerminalKind, TerminalState, Thought, ThoughtId, Time,
+    Question, QuestionId, QuestionKind, QuestionSource, QuestionState, READ_HOLD, Reason, ReplyVia,
+    Response, ResultKind, Rev, RouteBy, Routing, Secret, Session, SessionId, SessionState, Set,
+    Source, Status, Terminal, TerminalId, TerminalKind, TerminalState, Thought, ThoughtId, Time,
     TurnResult, Workdir,
 };
 
@@ -3125,16 +3125,144 @@ fn row_route_clear_holds_from_the_capture_and_records_how_it_was_routed() {
         w.answers(id, route.clone()),
         Err(Error::Ignored(Ignored::State))
     ));
-    // One that took longer than the hold: the hold ends at once.
-    let late = w.asked(SPOKEN);
-    w.tick(7000);
-    assert_eq!(
-        w.answers(late, route).unwrap(),
-        [Effect::Hold {
-            thought: late,
-            until: w.now()
-        }]
+    // One that left less of the hold than it takes to read the route, or
+    // took longer than the hold: the hold ends 2 s after it arrived.
+    for took in [3001, 4000, 7000] {
+        let late = w.asked(SPOKEN);
+        w.tick(took);
+        let until = time(w.now + 1000 * u64::from(READ_HOLD));
+        assert_eq!(
+            w.answers(late, route.clone()).unwrap(),
+            [Effect::Hold {
+                thought: late,
+                until
+            }],
+            "after {took} ms"
+        );
+        assert_eq!(w.thought(late).hold_until, Some(until));
+    }
+    // A shorter hold is itself the time to read; with none, there is none.
+    for hold in [1, 0] {
+        w.set_hold(hold);
+        let late = w.asked(SPOKEN);
+        w.tick(7000);
+        let until = time(w.now + 1000 * u64::from(hold));
+        assert_eq!(
+            w.answers(late, route.clone()).unwrap(),
+            [Effect::Hold {
+                thought: late,
+                until
+            }]
+        );
+    }
+}
+
+#[test]
+fn rows_start_and_undo_act_at_once_while_a_late_route_is_there_to_read() {
+    let mut w = World::new("read");
+    w.consents();
+    let route = w.clear(BRIEF);
+    // Start: it launches now, with its brief, and the timer is cancelled.
+    let id = w.asked(SPOKEN);
+    w.tick(9000);
+    w.answers(id, route.clone()).unwrap();
+    w.tick(500);
+    let effects = w.ok(Event::Start {
+        thought: id,
+        attempt: AttemptId::mint(),
+    });
+    assert!(
+        matches!(effects.as_slice(), [Effect::Unhold(held), Effect::Launch(l)]
+            if *held == id && l.prompt == BRIEF),
+        "{effects:?}"
     );
+    // Undo: captured again, the timer cancelled, nothing launched; the
+    // timer that still fires finds no hold.
+    let id = w.asked(SPOKEN);
+    w.tick(9000);
+    w.answers(id, route.clone()).unwrap();
+    w.tick(500);
+    assert_eq!(w.ok(Event::Stop { thought: id }), [Effect::Unhold(id)]);
+    let t = w.thought(id);
+    assert_eq!((t.phase, t.hold_until), (Phase::Captured, None));
+    w.tick(1500);
+    let ended = Event::HoldEnded {
+        thought: id,
+        attempt: AttemptId::mint(),
+    };
+    assert_eq!(w.ignored(ended), Ignored::State);
+    // Before the time to read is over the hold has not ended.
+    let id = w.asked(SPOKEN);
+    w.tick(9000);
+    w.answers(id, route).unwrap();
+    w.tick(1999);
+    let early = Event::HoldEnded {
+        thought: id,
+        attempt: AttemptId::mint(),
+    };
+    assert_eq!(w.ignored(early), Ignored::State);
+    w.tick(1);
+    let effects = w.ok(Event::HoldEnded {
+        thought: id,
+        attempt: AttemptId::mint(),
+    });
+    assert!(
+        matches!(effects.as_slice(), [Effect::Launch(_)]),
+        "{effects:?}"
+    );
+}
+
+#[test]
+fn row_a_new_run_is_named_by_the_title_a_model_gave_the_work() {
+    let mut w = World::new("title");
+    let titled = Routing {
+        title: Some("Green build".into()),
+        ..by_model()
+    };
+    let start = |w: &mut World, id| {
+        let effects = w.ok(Event::Start {
+            thought: id,
+            attempt: AttemptId::mint(),
+        });
+        assert!(w.carry(&effects).is_empty());
+        w.thought(id).session_id.unwrap()
+    };
+    // A new run: its session has the title for a name.
+    let id = w.capture(SPOKEN);
+    let route = w.clear(BRIEF);
+    w.ok(Event::Routed {
+        thought: id,
+        route,
+        how: titled.clone(),
+    });
+    let s = start(&mut w, id);
+    let session = w.session(s);
+    assert_eq!(
+        (session.name.as_deref(), session.named_at),
+        (Some("Green build"), Some(w.now()))
+    );
+    // A follow-up leaves its session's name as it is.
+    w.say(s, Said::Ready).unwrap();
+    let f = w.capture("uh, and now, well, run the tests too");
+    let route = Route::Clear {
+        to: Destination::Session(s),
+        brief: "Run the tests too.".into(),
+    };
+    let follow = Routing {
+        title: Some("Run the tests".into()),
+        ..by_model()
+    };
+    w.ok(Event::Routed {
+        thought: f,
+        route,
+        how: follow,
+    });
+    assert_eq!(start(&mut w, f), s);
+    assert_eq!(w.session(s).name.as_deref(), Some("Green build"));
+    // A run nobody gave a title has no name.
+    let plain = w.routed("fix the build");
+    let s = start(&mut w, plain);
+    assert_eq!(w.session(s).name, None);
 }
 
 #[test]
@@ -3215,22 +3343,30 @@ fn rows_a_picked_thought_is_briefed_by_the_model_and_launches_once_both_are_in()
     };
     assert_eq!(w.ignored(ended), Ignored::State);
     // The brief arrives. The destination stays the person's, whatever the
-    // model named, and the hold, long over, ends now.
+    // model named, and the hold, long over, goes on for the 2 s the brief
+    // is there to read.
     w.tick(1000);
     let elsewhere = Route::Clear {
         to: Destination::New(ProjectId::mint()),
         brief: BRIEF.into(),
     };
+    let until = time(w.now + 1000 * u64::from(READ_HOLD));
     assert_eq!(
         w.answers(id, elsewhere).unwrap(),
         [Effect::Hold { thought: id, until }]
     );
     let t = w.thought(id);
     assert_eq!(
-        (t.phase, t.project_id, t.brief.as_deref()),
-        (Phase::Routed, Some(w.project), Some(BRIEF))
+        (t.phase, t.project_id, t.brief.as_deref(), t.hold_until),
+        (Phase::Routed, Some(w.project), Some(BRIEF), Some(until))
     );
     assert_eq!(t.route, Some(by_model()));
+    let early = Event::HoldEnded {
+        thought: id,
+        attempt: AttemptId::mint(),
+    };
+    assert_eq!(w.ignored(early), Ignored::State);
+    w.tick(2000);
     let attempt = AttemptId::mint();
     let effects = w.ok(Event::HoldEnded {
         thought: id,
@@ -3250,6 +3386,18 @@ fn rows_a_picked_thought_is_briefed_by_the_model_and_launches_once_both_are_in()
         attempt,
     });
     assert!(matches!(again.as_slice(), [Effect::Repeat(_)]), "{again:?}");
+    // A brief that arrives with more of the hold left than it takes to
+    // read leaves the hold as it is.
+    let id = ThoughtId::mint();
+    let until = time(w.now + 5000);
+    w.ok(pick(&w, id, SPOKEN));
+    w.tick(2500);
+    let route = w.clear(BRIEF);
+    assert_eq!(
+        w.answers(id, route).unwrap(),
+        [Effect::Hold { thought: id, until }]
+    );
+    assert_eq!(w.thought(id).hold_until, Some(until));
 }
 
 #[test]

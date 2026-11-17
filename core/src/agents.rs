@@ -117,6 +117,8 @@ pub struct Probe {
 /// the question on its standard input. It gets no tools, saves nothing and
 /// reads none of the person's instructions or settings.
 pub struct Headless {
+    /// The tool's name as the person knows it.
+    pub tool: &'static str,
     /// The model it asks, the smallest fast one its tool offers. The
     /// person's consent names it.
     pub model: &'static str,
@@ -128,6 +130,9 @@ pub struct Headless {
     /// It is asked each time more was printed, and the first answer ends
     /// the tool: it must find none in a part of one.
     pub answer: fn(&str) -> Result<String, String>,
+    /// Whether what it printed, and the last line it said beside that,
+    /// when it gave no answer, mean it no longer offers the model.
+    pub gone: fn(&str, &str) -> bool,
 }
 
 /// The JSON schema an answer must fit: as text, and as a file that holds it.
@@ -574,6 +579,7 @@ impl Agent for Fixture {
     /// that a test of the time limit is short.
     fn headless(&self) -> Option<Headless> {
         Some(Headless {
+            tool: "The fixture agent",
             model: "fixture-small",
             limit: Duration::from_secs(if self.events { 20 } else { 1 }),
             args: |_| vec!["keep:asked".into(), "script:ask".into()],
@@ -588,6 +594,7 @@ impl Agent for Fixture {
                     _ => Err("it printed no answer".into()),
                 }
             },
+            gone: |printed, _| printed.trim_end().ends_with("error:no such model"),
         })
     }
 

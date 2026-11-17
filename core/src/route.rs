@@ -40,13 +40,13 @@
 //! | a follow-up to a session other than the current one quotes at least 3 characters found word for word in the capture | rejected |
 //! | `ambiguous` names at least two different choices | rejected |
 //! | a brief is there, and no longer than twice the capture and 400 characters | rejected |
-//! | a constraint of 3 to 1000 characters found word for word in the capture but not in the brief | appended to the brief |
-//! | the person picked the destination | only the brief is taken |
+//! | a title is one line of at most 60 characters | it has none |
+//! | the person picked the destination | only the brief and the title are taken |
 
 use serde_json::{Value, json};
 use tasktap_proto::{
-    Collection, Error, Hint, Place, ProjectId, RouteBy, RouteTerms, SessionId, SessionState, Set,
-    Status, ThoughtId,
+    Collection, Error, Hint, Place, ProjectId, RouteBy, RouteTerms, Routing, SessionId,
+    SessionState, Set, Status, ThoughtId,
 };
 
 use crate::agents::{self, Agent, Headless};
@@ -66,11 +66,11 @@ pub const INSTRUCTIONS: &str = include_str!("route/instructions.md");
 /// brief last.
 pub const SCHEMA: &str = concat!(
     r#"{"type":"object","additionalProperties":false,"#,
-    r#""required":["quote","confidence","to","candidates","constraints","brief"],"#,
+    r#""required":["quote","confidence","to","candidates","brief","title"],"#,
     r#""properties":{"quote":{"type":"string"},"#,
     r#""confidence":{"type":"string","enum":["clear","ambiguous","unknown"]},"#,
     r#""to":{"type":"string"},"candidates":{"type":"array","items":{"type":"string"}},"#,
-    r#""constraints":{"type":"array","items":{"type":"string"}},"brief":{"type":"string"}}}"#,
+    r#""brief":{"type":"string"},"title":{"type":"string"}}}"#,
 );
 
 /// What routing by a model sends, as `route.terms` lists it.
@@ -84,6 +84,8 @@ const SENDS: &[&str] = &[
 /// Most projects, sessions and recent exchanges a model is given (design §8).
 const OFFERED: usize = 8;
 const RECENT: usize = 3;
+/// Most characters of a title a model gives the work.
+const MAX_TITLE: usize = 60;
 /// Most characters of a thought a model is asked about.
 const MAX_THOUGHT: usize = 8000;
 /// Most characters of a thought that goes to a destination the person
@@ -390,8 +392,8 @@ struct Answer {
     confidence: Confidence,
     to: String,
     candidates: Vec<String>,
-    constraints: Vec<String>,
     brief: String,
+    title: String,
 }
 
 enum Confidence {
@@ -414,23 +416,21 @@ impl Answer {
             _ => Err(wrong(&format!("{key} is no text"))),
         };
         let (quote, to, brief) = (text("quote")?, text("to")?, text("brief")?);
+        let title = text("title")?;
         let confidence = match text("confidence")?.as_str() {
             "clear" => Confidence::Clear,
             "ambiguous" => Confidence::Ambiguous,
             "unknown" => Confidence::Unknown,
             other => return Err(wrong(&format!("its confidence is {other:?}"))),
         };
-        let mut list = |key: &str| {
-            let Some(Value::Array(items)) = fields.remove(key) else {
-                return Err(wrong(&format!("{key} is no list")));
-            };
-            let texts = items.into_iter().map(|item| match item {
-                Value::String(text) => Ok(text),
-                _ => Err(wrong(&format!("{key} holds what is no text"))),
-            });
-            texts.collect::<Result<Vec<_>, _>>()
+        let Some(Value::Array(keys)) = fields.remove("candidates") else {
+            return Err(wrong("candidates is no list"));
         };
-        let (candidates, constraints) = (list("candidates")?, list("constraints")?);
+        let keys = keys.into_iter().map(|key| match key {
+            Value::String(key) => Ok(key),
+            _ => Err(wrong("candidates holds what is no text")),
+        });
+        let candidates = keys.collect::<Result<Vec<_>, _>>()?;
         match fields.keys().next() {
             Some(more) => Err(wrong(&format!("it has {more}, which was not asked for"))),
             None => Ok(Answer {
@@ -438,17 +438,18 @@ impl Answer {
                 confidence,
                 to,
                 candidates,
-                constraints,
                 brief,
+                title,
             }),
         }
     }
 }
 
 /// The acceptance rules of the module's second table: the route a model's
-/// `answer` to `r` gives, with the words it quoted for a follow-up, or why
-/// it is not used.
-pub fn accept(r: &Request, answer: &str) -> Result<(Route, Option<String>), String> {
+/// `answer` to `r` gives, and of how it came what the answer itself says
+/// (the words it quoted for a follow-up, the title it gave the work); or
+/// why it is not used.
+pub fn accept(r: &Request, answer: &str) -> Result<(Route, Routing), String> {
     if answer.len() > 64 << 10 {
         return Err("its answer is too large".into());
     }
@@ -462,15 +463,26 @@ pub fn accept(r: &Request, answer: &str) -> Result<(Route, Option<String>), Stri
         match brief.chars().count() {
             0 => Err("it wrote no brief".to_owned()),
             n if n > most => Err("its brief is longer than the thought allows".to_owned()),
-            _ => Ok(constrained(&r.text, brief, &a.constraints)),
+            _ => Ok(brief.to_owned()),
         }
+    };
+    // A title is plain: one line, short. Another is no title, and no
+    // reason to refuse the rest.
+    let title = a.title.trim();
+    let plain = !title.is_empty()
+        && title.chars().count() <= MAX_TITLE
+        && !title.chars().any(char::is_control);
+    let found = |quote: Option<&str>| Routing {
+        quote: quote.map(Into::into),
+        title: plain.then(|| title.to_owned()),
+        ..Routing::default()
     };
     if let Some(to) = r.picked {
         let brief = brief()?;
-        return Ok((Route::Clear { to, brief }, None));
+        return Ok((Route::Clear { to, brief }, found(None)));
     }
     match a.confidence {
-        Confidence::Unknown => Ok((Route::Unknown, None)),
+        Confidence::Unknown => Ok((Route::Unknown, Routing::default())),
         Confidence::Clear => {
             let to = offered(&a.to)?.to;
             let quote = a.quote.trim();
@@ -480,7 +492,7 @@ pub fn accept(r: &Request, answer: &str) -> Result<(Route, Option<String>), Stri
                 return Err("the words it quotes for a follow-up are not in the thought".into());
             }
             let brief = brief()?;
-            Ok((Route::Clear { to, brief }, quoted.then(|| quote.to_owned())))
+            Ok((Route::Clear { to, brief }, found(quoted.then_some(quote))))
         }
         Confidence::Ambiguous => {
             let mut candidates: Vec<Candidate> = Vec::new();
@@ -498,23 +510,18 @@ pub fn accept(r: &Request, answer: &str) -> Result<(Route, Option<String>), Stri
                 candidates,
                 brief: Some(brief()?),
             };
-            Ok((route, None))
+            Ok((route, found(None)))
         }
     }
 }
 
-/// The brief with every constraint the person gave that it lost: one of 3
-/// to 1000 characters that is in the capture word for word and not in the
-/// brief is appended, each on a line of its own.
-fn constrained(text: &str, brief: &str, constraints: &[String]) -> String {
-    let mut brief = brief.to_owned();
-    for c in constraints.iter().map(|c| c.trim()) {
-        let fits = (3..=1000).contains(&c.chars().count());
-        if fits && said(text, c) && !said(&brief, c) {
-            brief.push_str(&format!("\n- {c}"));
-        }
-    }
-    brief
+/// What a thought's `route` says when its tool no longer offers the model
+/// it is asked for: words for the person, as the interface shows them.
+pub fn gone(tool: &str) -> String {
+    format!(
+        "{tool} no longer offers the model Tasktap asks for routing; \
+         routing by name until Tasktap is updated"
+    )
 }
 
 /// The words of a text, lower-cased, with one space between them: what
@@ -571,9 +578,11 @@ pub fn consented(by: &RouteBy) -> Result<(&'static dyn Agent, Headless), String>
     }
 }
 
-/// `route.terms`: what routing by a model sends and to whom.
-pub fn terms(_: &mut Cx, _: tasktap_proto::Empty) -> Result<RouteTerms, Error> {
-    let tools = agents::all().iter().filter_map(|a| {
+/// `route.terms`: what routing by a model sends and to whom. A tool that
+/// was found not to offer its model any more is not among them.
+pub fn terms(cx: &mut Cx, _: tasktap_proto::Empty) -> Result<RouteTerms, Error> {
+    let offered = |a: &&&dyn Agent| !cx.core.seams.gone(a.id());
+    let tools = agents::all().iter().filter(offered).filter_map(|a| {
         Some(RouteBy {
             agent: a.id().into(),
             model: a.headless()?.model.into(),

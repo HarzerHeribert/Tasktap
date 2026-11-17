@@ -932,14 +932,18 @@ fn each_tools_answer_is_read_from_what_it_really_printed() {
         (Some("clear"), Some("p3"))
     );
     assert!(answer["brief"].as_str().unwrap().contains("paginate"));
-    // The core takes it as it is.
-    assert_eq!(answer.as_object().unwrap().len(), 6);
+    // It did not fail, so nothing says its model is gone.
+    assert!(!(claude.gone)(&all, ""));
     // A part of it is no answer: the tool is read until one is whole.
     assert!((claude.answer)(&all[..all.len() / 2]).is_err());
     assert!((claude.answer)("").is_err());
     // What it prints when it reached no model says why.
-    let why = (claude.answer)(&printed("claude/headless-error.json")).unwrap_err();
+    let failed = printed("claude/headless-error.json");
+    let why = (claude.answer)(&failed).unwrap_err();
     assert!(why.contains("issue with the selected model"), "{why}");
+    // That one was recorded with a model the provider does not have.
+    assert!((claude.gone)(&failed, ""));
+    assert!(!(claude.gone)("", "") && !(claude.gone)("not json", "error"));
 
     let codex = headless("codex");
     let all = printed("codex/headless-answer.json");
@@ -949,8 +953,19 @@ fn each_tools_answer_is_read_from_what_it_really_printed() {
         (Some("clear"), Some("s1"))
     );
     assert!((codex.answer)(&all[..all.len() / 2]).is_err());
-    // It prints nothing there when it fails; why is on its other output.
+    // It prints nothing there when it fails; why is the last line of its
+    // other output, as recorded with a model it does not offer.
     assert!((codex.answer)("\n").is_err());
+    let unoffered = "ERROR: The 'no-such-model' model is not supported when using Codex \
+                     with a ChatGPT account.";
+    assert!((codex.gone)("", unoffered));
+    for other in [
+        "",
+        "tokens used",
+        "ERROR: stream disconnected before completion",
+    ] {
+        assert!(!(codex.gone)("", other), "{other}");
+    }
 }
 
 #[test]

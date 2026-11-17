@@ -29,7 +29,7 @@ use tasktap_proto::{
 };
 use tokio::task::AbortHandle;
 
-use crate::agents::checks::{self, Asked};
+use crate::agents::checks::{self, Asked, Failed};
 use crate::calls::{Caller, Cx};
 use crate::conn::Link;
 use crate::isolate::{Git, Owner};
@@ -128,6 +128,9 @@ pub struct Seams {
     routes: HashMap<ThoughtId, (u64, mpsc::Sender<Asked>)>,
     /// Questions asked so far: a later one for the same thought is another.
     asked: u64,
+    /// The agents whose tool said it no longer offers the model it is
+    /// asked for: none is asked again while this core runs.
+    gone: Vec<&'static str>,
 }
 
 struct Timer {
@@ -156,6 +159,11 @@ impl Seams {
 
     pub fn now(&self) -> Time {
         self.manual().unwrap_or_else(wall)
+    }
+
+    /// Whether the agent's tool was found not to offer its model any more.
+    pub fn gone(&self, agent: &str) -> bool {
+        self.gone.contains(&agent)
     }
 
     /// The agent `fixture.script` has new captures name, in a fixtures build.
@@ -429,6 +437,10 @@ fn route(
     };
     let narrowed = read(core, |tx| narrow(tx, asked)).map_err(|e| e.message);
     let (agent, how, asked) = match (tool, narrowed) {
+        (Ok((agent, how)), _) if core.seams.gone(agent.id()) => {
+            let why = crate::route::gone(how.tool);
+            return routed(core, id, local, state::locally(Some(why)));
+        }
         (Ok((agent, how)), Ok(asked)) => (agent, how, asked),
         (Err(why), _) | (_, Err(why)) => return routed(core, id, local, state::locally(Some(why))),
     };
@@ -437,7 +449,8 @@ fn route(
     core.seams.asked += 1;
     let number = core.seams.asked;
     core.seams.routes.insert(id, (number, hear.clone()));
-    let (began, model, text) = (Instant::now(), how.model, question(&asked));
+    let (began, model, tool) = (Instant::now(), how.model, how.tool);
+    let text = question(&asked);
     let ask = move || {
         checks::ask(
             agent,
@@ -457,21 +470,35 @@ fn route(
         // The last question may have kept the core alive.
         core.events.notify_one();
         let ms = Some(u32::try_from(began.elapsed().as_millis()).unwrap_or(u32::MAX));
-        let answer = answer.unwrap_or_else(|| Err("it ended without an answer".into()));
-        let (route, how) = match answer.and_then(|answer| accept(&asked, &answer)) {
-            Ok((route, quote)) => {
+        let lost = || Err(Failed::Why("it ended without an answer".into()));
+        let accepted = answer
+            .unwrap_or_else(lost)
+            .and_then(|answer| Ok(accept(&asked, &answer)?));
+        let (route, how) = match accepted {
+            Ok((route, found)) => {
                 let how = Routing {
                     by: agent.id().into(),
                     model: Some(model.into()),
-                    quote,
                     ms,
-                    ..Routing::default()
+                    ..found
                 };
                 (route, how)
             }
-            Err(why) => {
-                let how = state::locally(Some(format!("{}: {why}", agent.id())));
-                (local, Routing { ms, ..how })
+            Err(failed) => {
+                let why = match failed {
+                    Failed::Gone => {
+                        core.seams.gone.push(agent.id());
+                        crate::route::gone(tool)
+                    }
+                    Failed::Why(why) => format!("{}: {why}", agent.id()),
+                };
+                (
+                    local,
+                    Routing {
+                        ms,
+                        ..state::locally(Some(why))
+                    },
+                )
             }
         };
         routed(core, id, route, how);

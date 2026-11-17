@@ -32,9 +32,9 @@ use tasktap_proto::{
     Answer, AttemptId, Capture, Changes, Code, DeviceId, Event as A, Isolate, MAX_OPEN_QUESTIONS,
     MAX_SESSION_QUESTIONS, Mode, Offset, Outcome, Phase as P, PrefKey, PrefValue, Project,
     ProjectId, ProjectKind, Question, QuestionId, QuestionKind, QuestionSource, QuestionState as Q,
-    Reason, ReplyVia, Response, ResultKind, Rev, RouteBy, Routing, Secret, Session, SessionId,
-    SessionState as S, Source, Status, Terminal, TerminalId, TerminalKind, TerminalState, Thought,
-    ThoughtId, Time, TurnResult, Workdir,
+    READ_HOLD, Reason, ReplyVia, Response, ResultKind, Rev, RouteBy, Routing, Secret, Session,
+    SessionId, SessionState as S, Source, Status, Terminal, TerminalId, TerminalKind,
+    TerminalState, Thought, ThoughtId, Time, TurnResult, Workdir,
 };
 
 use crate::store::{self, Attempt, AttemptKind, AttemptOutcome, Hash, Tx};
@@ -1060,17 +1060,38 @@ impl Machine<'_, '_> {
     }
 
     /// The brief of a thought the person picked the destination of
-    /// arrived. Its hold may have ended meanwhile: then it ends now.
+    /// arrived. Its hold goes on for as long as the brief is to be read.
     fn briefed(&mut self, mut t: Thought, brief: String, how: Routing) -> Result<()> {
         t.brief = Some(brief);
         t.route = Some(how);
-        if let Some(until) = t.hold_until.filter(|until| *until <= self.now) {
+        if let Some(held) = t.hold_until {
+            let until = self.held(held)?;
+            t.hold_until = Some(until);
             self.effects.push(Effect::Hold {
                 thought: t.id,
                 until,
             });
         }
         self.save(t)
+    }
+
+    /// The seconds the person has a routed thought held: a preference.
+    fn hold(&self) -> Result<u64> {
+        let pref = self.tx.pref(PrefKey::Hold)?;
+        Ok(match pref.map_or(PrefKey::Hold.default(), |p| p.value) {
+            PrefValue::Hold(hold) => u64::from(hold),
+            _ => 0,
+        })
+    }
+
+    /// When a hold ends, for a route or a brief that arrives now (design
+    /// §5): at `planned`, the end the person's hold gives it, and no
+    /// earlier than [`READ_HOLD`] from now, so that what arrived is there
+    /// to read before the launch. Where the person's hold is shorter than
+    /// that, it is their hold from now; with no hold it ends at once.
+    fn held(&self, planned: Time) -> Result<Time> {
+        let read = self.hold()?.min(u64::from(READ_HOLD));
+        Ok(planned.max(after(self.now, read)?))
     }
 
     /// The project a destination is in, and its session for a follow-up.
@@ -1100,16 +1121,7 @@ impl Machine<'_, '_> {
         since: Time,
     ) -> Result<()> {
         let (project, session) = self.target(to)?;
-        let pref = self.tx.pref(PrefKey::Hold)?;
-        let hold = match pref.map_or(PrefKey::Hold.default(), |p| p.value) {
-            PrefValue::Hold(hold) => hold,
-            _ => 0,
-        };
-        let until = Time::new(since.get() + u64::from(hold) * 1000)
-            .ok_or(Error::Invalid(
-                "the hold would end beyond the clock's range",
-            ))?
-            .max(self.now);
+        let until = self.held(after(since, self.hold()?)?)?;
         // Picked while the router was still asked where it goes.
         self.unask(&mut t, "the person picked where it goes");
         let failed = t.route.as_ref().is_some_and(|r| r.fallback.is_some());
@@ -1250,6 +1262,9 @@ impl Machine<'_, '_> {
                 .map(|s| s.agent.clone())
                 .or_else(|| t.agent.clone())
                 .ok_or(Error::Invalid("a thought starts with an agent"))?;
+            // A new run is named by the title a model gave the work.
+            let title = t.route.as_ref().and_then(|r| r.title.clone());
+            let title = title.filter(|_| target.is_none());
             let session = Session {
                 id: own_session(attempt)?,
                 rev: Rev::ZERO,
@@ -1261,8 +1276,8 @@ impl Machine<'_, '_> {
                 thought_id: Some(t.id),
                 turn: 0,
                 resume: None,
-                name: None,
-                named_at: None,
+                named_at: title.as_ref().map(|_| self.now),
+                name: title,
                 model: t.model.clone(),
                 cwd,
                 exit: None,
@@ -2068,6 +2083,13 @@ pub fn create(
             outcome: Some(AttemptOutcome::Reply(Outcome::Ok(Value::Null))),
         })),
     }
+}
+
+/// `seconds` after `from`.
+fn after(from: Time, seconds: u64) -> Result<Time> {
+    Time::new(from.get() + seconds * 1000).ok_or(Error::Invalid(
+        "the hold would end beyond the clock's range",
+    ))
 }
 
 /// Who routes without a model: the match on names (`Routing::by`).

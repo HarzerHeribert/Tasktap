@@ -8,6 +8,7 @@ export const MAX_CREDIT = 4194304;
 export const MAX_PENDING_CALLS = 64;
 export const MAX_STREAMS = 64;
 export const MAX_TERMINAL_SIZE = 1000;
+export const READ_HOLD = 2;
 // Bounds of what a call writes into a row; a call over one is `invalid`. MAX_TEXT: a thought's
 // text, a question's detail, a text answer. MAX_LINE: a question's prompt and its choices, a
 // router's brief, a session's error, a project's name, color, folder and aliases, a device's
@@ -799,6 +800,11 @@ fallback: string | null,
  * The person's words that justify a follow-up to a session.
  */
 quote: string | null,
+/**
+ * A few words a model gave the work for a name: the name of the
+ * session a new run of the thought starts.
+ */
+title: string | null,
 /**
  * Milliseconds the answer took.
  */

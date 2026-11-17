@@ -125,7 +125,7 @@ enum SessionHelpers {
         precondition(failure["state"]=="Failed")
         rejects("retry in unapproved folder"){_=try recovery.failedHandoff(session:session,capture:capture)}
         var reopenError:String?
-        recovery.focusSession(session,reopen:true){reopenError=$0}
+        recovery.reopenSession(session){reopenError=$0}
         precondition(reopenError?.contains("workspace folder is unavailable")==true && SessionHelpers.launches==calls)
         print("PASS: persisted roots and approvals, no startup root creation, root aliases, missing rows, safe creation, reviewed-folder identity, outside handoffs, terminal authorization, and recovery/retry scope.")
     }

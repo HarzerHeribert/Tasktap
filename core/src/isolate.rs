@@ -3,34 +3,20 @@
 //! means and when one may go (`state.rs`); this module makes, reads, keeps
 //! and removes worktrees as `effects.rs` asks, on threads of their own.
 //!
-//! Git runs as a command, never as a library, each command with a deadline
-//! of its own, no prompt for credentials, and its output in files of the
-//! core's, so a command whose core stopped can finish what it began. No
-//! program the person or the repository configured runs in these commands:
-//! hooks, filters, merge drivers, signing, the file system monitor, the
-//! pager, external diff and text conversion are all turned off, as are
-//! color, automatic upkeep, stashing around a merge, recursing into
-//! submodules and fetching large files. A filter does nothing and a merge
-//! driver fails, which makes its file a conflict. Everything else of the
-//! person's configuration applies, such as line endings and excludes; what
-//! would change what Keep does is set on its command. What Tasktap commits
-//! carries the identity the person configured, or Tasktap's where there is
-//! none.
-//!
-//! Only what this core made is ever removed, and only once proven: a
-//! folder whose name is one the core makes, exactly one level inside the
-//! canonical `<data>/worktrees`, reached through no link, and a branch
-//! named `tasktap/` and that name, deleted only from the commit it was seen
-//! at. A folder is removed only when no process works in it. Removed on its
-//! own, without the person asking, only when nothing would be lost: its
-//! git link still names it, its index and files are those of its branch
-//! with nothing untracked or ignored beside them, and the branch holds
-//! nothing that is not elsewhere.
-//!
-//! Every job that changes a worktree holds it for as long as it runs, and
-//! every git command of the job holds it too, as its standard input: a
-//! command that outlives a core that stopped keeps the worktree held, and
-//! nothing touches it, or decides what happened to it, until that ends.
+//! What it promises is the design's, in three tiers. Nothing outside
+//! `<data>/worktrees` and the `tasktap/` branches is deleted or rewritten.
+//! The person's folder and branches are written by nothing but a Keep, by
+//! the fast-forward the person would run and as safe as that: every
+//! command that writes outside `<data>/worktrees` is listed there. Nothing
+//! is undone, and that fast-forward is never ended part way: what git did
+//! is reported as it is. A worktree of the core's goes on the person's
+//! Discard, after a Keep that brought all of it into its destination, or
+//! on the core's own account only by commands of git's that refuse when
+//! anything is in it.
+//! And git runs as the person's own would, filters and merge drivers
+//! included, with hooks off, no prompt, and a deadline on every command,
+//! whose output goes to files of the core's so that one that outlives a
+//! core that stopped finishes what it began.
 
 use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
@@ -38,7 +24,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::mpsc;
+use std::sync::{Condvar, Mutex, PoisonError, mpsc};
 use std::time::Duration;
 
 use tasktap_proto::{ChangedFile, Changes, FileChange, MAX_DIFF, ThoughtId, Workdir};
@@ -61,54 +47,38 @@ pub const PREFIX: &str = "tasktap/";
 pub const FOLDER: &str = "worktrees";
 /// Hex digits of a worktree's name.
 pub const NAME: usize = 12;
-/// Longest a job waits for a worktree's lock file that another process
-/// has open.
-const HOLD: Duration = Duration::from_secs(2);
 /// Who Tasktap commits as where the person configured nobody.
 const AUTHOR: &str = "Tasktap";
 const EMAIL: &str = "tasktap@localhost";
 const NO_COMMITS: &str = "the repository has no commits yet, so the run cannot start from one \
      in a worktree of its own: commit once, or set the project to never isolate";
-const BUSY: &str = "an earlier git command for this worktree is still running, perhaps left \
-     by a Tasktap that stopped; try again once it has ended";
 
-/// Set on every command (see the module's notes). Hooks go to a folder
-/// that never exists, added in [`Git::command`].
-const SETTINGS: [&str; 17] = [
+/// Set on every command: no program that could wait on the person or run
+/// for long, the answers in the form this module reads, and untracked
+/// files seen wherever git itself decides whether a worktree is clean.
+/// Hooks go to a folder that never exists, added in [`Git::command`].
+const SETTINGS: [&str; 11] = [
     "core.fsmonitor=false",
     "core.safecrlf=false",
-    "core.pager=cat",
     "color.ui=false",
     "commit.gpgSign=false",
-    "tag.gpgSign=false",
     "gc.auto=0",
     "maintenance.auto=false",
-    "merge.autoStash=false",
-    "merge.renormalize=false",
-    "rebase.autoStash=false",
     "submodule.recurse=false",
+    "status.showUntrackedFiles=normal",
     "diff.noprefix=false",
     "diff.mnemonicPrefix=false",
     "diff.relative=false",
-    "status.renames=false",
-    "advice.detachedHead=false",
 ];
 
-/// Git as the core runs it, for one job on one repository.
+/// Git as the core runs it.
 pub struct Git {
     program: PathBuf,
     /// `<data>/worktrees`, canonical.
     root: PathBuf,
     env: Vec<(String, OsString)>,
-    /// Settings that come after [`SETTINGS`], given through the
-    /// environment, where a name may hold any character.
-    config: Vec<(String, String)>,
-    /// The filters the person configured, by name: none of them runs.
-    filters: Vec<String>,
-    /// The folders whose configuration was read for them.
-    quieted: Vec<PathBuf>,
-    /// The worktree this job holds.
-    hold: Option<Held>,
+    /// The sessions of the core's running terminals (`sys::in_use`).
+    sessions: Vec<u32>,
 }
 
 /// What a command did.
@@ -134,69 +104,52 @@ pub struct Owner {
     pub thought: ThoughtId,
     pub repo: PathBuf,
     pub workdir: Workdir,
-    /// The core stopped during its last settle or tidy, so a git command of
-    /// that core may still be working on it.
-    pub stopped: bool,
 }
 
-/// A worktree proven to be one this core made (see the module's notes).
+/// A worktree proven to be one this core made ([`Git::own`]), for the job
+/// whose turn on it this is.
 struct Own {
-    name: String,
     path: PathBuf,
     branch: String,
+    _turn: Turn,
 }
 
-/// A worktree a job of this core holds, by name, and the file that holds
-/// it from other processes.
-struct Held {
-    name: String,
-    file: Option<File>,
-}
+/// A job's turn on a worktree. The jobs of this core on one worktree take
+/// turns, a look and a removal too, so that no git command of the core's
+/// own is at work in a folder another job asks whether anything works in,
+/// or removes. A job ends, since each of its commands does.
+struct Turn(PathBuf);
 
-/// The worktrees jobs of this core hold, and the signal that one let go.
-static HELD: std::sync::Mutex<BTreeSet<String>> = std::sync::Mutex::new(BTreeSet::new());
-static FREED: std::sync::Condvar = std::sync::Condvar::new();
+static TURNS: Mutex<BTreeSet<PathBuf>> = Mutex::new(BTreeSet::new());
+static NEXT: Condvar = Condvar::new();
 
-impl Held {
-    /// The worktree `name` for this job, once no other job of this core has
-    /// it, waiting as long as a job may run.
-    fn take(name: &str) -> Result<Held, String> {
-        let deadline = std::time::Instant::now() + WRITE;
-        let mut held = HELD
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        while held.contains(name) {
-            let left = deadline.saturating_duration_since(std::time::Instant::now());
-            if left.is_zero() {
-                return Err("another job of this Tasktap still works on this worktree".into());
-            }
-            held = FREED
-                .wait_timeout(held, left)
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .0;
+impl Turn {
+    fn take(path: &Path) -> Turn {
+        let mut turns = TURNS.lock().unwrap_or_else(PoisonError::into_inner);
+        while turns.contains(path) {
+            turns = NEXT.wait(turns).unwrap_or_else(PoisonError::into_inner);
         }
-        held.insert(name.to_owned());
-        Ok(Held {
-            name: name.to_owned(),
-            file: None,
-        })
+        turns.insert(path.to_owned());
+        Turn(path.to_owned())
     }
 }
 
-impl Drop for Held {
+impl Drop for Turn {
     fn drop(&mut self) {
-        // The file first, so the next job finds it free.
-        drop(self.file.take());
-        let mut held = HELD
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        held.remove(&self.name);
-        FREED.notify_all();
+        let mut turns = TURNS.lock().unwrap_or_else(PoisonError::into_inner);
+        turns.remove(&self.0);
+        NEXT.notify_all();
     }
 }
 
-/// What a worktree's folder holds against its branch.
+/// What a worktree's folder holds beside the commit its HEAD is at.
 struct Status {
+    /// Git's record of the worktree, which holds its index and HEAD.
+    record: PathBuf,
+    /// The branch its HEAD is on, as git names a branch for short.
+    on: String,
+    /// The commit its HEAD is at.
+    at: String,
     /// Something staged, changed or untracked.
     changed: bool,
     /// Ignored files beside the tracked ones.
@@ -209,160 +162,44 @@ pub fn named(name: &str) -> bool {
 }
 
 impl Git {
-    /// Git found on the terminals' PATH, for the data folder `data` and a
-    /// job on the repository at `repo`, whose configured filters and merge
-    /// drivers it keeps from running.
-    pub fn new(data: &Path, repo: &Path) -> Result<Git, String> {
+    /// Git found on the terminals' PATH, for the data folder `data`.
+    /// `sessions` are those of the core's running terminals, a process of
+    /// which holds a worktree it may be working in.
+    pub fn new(data: &Path, sessions: Vec<u32>) -> Result<Git, String> {
         let program = crate::terminal::find("git")
             .ok_or("git is not installed: no folder of the PATH has it")?;
         let root = data.join(FOLDER);
-        let root = std::fs::create_dir_all(&root)
-            .and_then(|()| std::fs::canonicalize(&root))
-            .map_err(|e| format!("the worktrees' folder cannot be made: {e}"))?;
-        let mut git = Git {
+        let made = std::fs::create_dir_all(&root).and_then(|()| {
+            let real = root.symlink_metadata()?.is_dir();
+            Ok((
+                real,
+                std::fs::canonicalize(&root)?,
+                std::fs::canonicalize(data)?,
+            ))
+        });
+        let (real, root, data) =
+            made.map_err(|e| format!("the worktrees' folder cannot be made: {e}"))?;
+        // A real folder of the data folder's own, not a link to elsewhere:
+        // files are made and removed in it by name.
+        if !real || root != data.join(FOLDER) {
+            return Err(format!(
+                "{} is a link, or is not in Tasktap's data folder, so nothing is done there",
+                root.display()
+            ));
+        }
+        Ok(Git {
             program,
             env: environment(&root),
             root,
-            config: Vec::new(),
-            filters: Vec::new(),
-            quieted: Vec::new(),
-            hold: None,
-        };
-        if repo.is_dir() {
-            git.quiet(repo)?;
-        }
-        Ok(git)
+            sessions,
+        })
     }
 
-    /// Keeps every filter and merge driver configured for commands in `dir`
-    /// from running: a filter that does nothing, a driver that fails, which
-    /// makes its file a conflict. A worktree may have settings of its own,
-    /// so each folder git works in is read.
-    fn quiet(&mut self, dir: &Path) -> Result<(), String> {
-        if self.quieted.iter().any(|d| d == dir) {
-            return Ok(());
-        }
-        let repo = dir;
-        let list = [
-            "config",
-            "-z",
-            "--name-only",
-            "--get-regexp",
-            r"^(filter|merge)\.",
-        ];
-        let ran = self.run(repo, &list, LOOK, &[], OUTPUT)?;
-        // 1 is no such setting.
-        if !matches!(ran.code, Some(0 | 1)) {
-            return Err(failed("config", &ran));
-        }
-        for key in ran.out.split(|&b| b == 0) {
-            let key = String::from_utf8_lossy(key);
-            let (Some(first), Some(last)) = (key.find('.'), key.rfind('.')) else {
-                continue;
-            };
-            if first == last {
-                continue;
-            }
-            let (section, name, var) = (&key[..first], &key[first + 1..last], &key[last + 1..]);
-            if section == "filter" && !self.filters.iter().any(|f| f == name) {
-                self.filters.push(name.to_owned());
-                for (var, value) in [
-                    ("clean", ""),
-                    ("smudge", ""),
-                    ("process", ""),
-                    ("required", "false"),
-                ] {
-                    self.config
-                        .push((format!("filter.{name}.{var}"), value.into()));
-                }
-            } else if section == "merge" && var == "driver" {
-                let key = format!("merge.{name}.driver");
-                if !self.config.iter().any(|(k, _)| *k == key) {
-                    self.config.push((key, "false".into()));
-                }
-            }
-        }
-        self.quieted.push(dir.to_owned());
-        Ok(())
-    }
-
-    /// Holds a worktree for this job (see the module's notes). Jobs of this
-    /// core take turns, each waiting for the one before. Refused while a git
-    /// command left by a core that stopped holds it: on Unix through the
-    /// lock of its file, which lasts while any process has it open, and on
-    /// Windows because a file a process has open without leave to delete it
-    /// cannot be removed. A moment's wait covers what only looks at the
-    /// file, such as a virus scanner.
-    fn hold(&mut self, name: &str) -> Result<(), String> {
-        if self.hold.as_ref().is_some_and(|held| held.name == name) {
-            return Ok(());
-        }
-        self.hold = None;
-        let mut held = Held::take(name)?;
-        let deadline = std::time::Instant::now() + HOLD;
-        loop {
-            match self.lock_file(name) {
-                Ok(file) => {
-                    held.file = Some(file);
-                    self.hold = Some(held);
-                    return Ok(());
-                }
-                Err(e) if e == BUSY && std::time::Instant::now() < deadline => {
-                    std::thread::sleep(Duration::from_millis(50));
-                }
-                Err(e) => return Err(e),
-            }
-        }
-    }
-
-    fn lock_file(&self, name: &str) -> Result<File, String> {
-        let path = self.root.join(format!(".{name}.lock"));
-        #[cfg(unix)]
-        let file = {
-            let file = (std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true))
-            .truncate(false)
-            .open(&path)
-            .map_err(|e| format!("{} cannot be opened: {e}", path.display()))?;
-            match file.try_lock() {
-                Ok(()) => file,
-                Err(std::fs::TryLockError::WouldBlock) => return Err(BUSY.into()),
-                Err(std::fs::TryLockError::Error(e)) => return Err(e.to_string()),
-            }
-        };
-        #[cfg(windows)]
-        let file = {
-            use std::os::windows::fs::OpenOptionsExt;
-            match std::fs::remove_file(&path) {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(_) => return Err(BUSY.into()),
-            }
-            // Shared for reading and writing, never for removing.
-            let open = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create_new(true)
-                .share_mode(1 | 2)
-                .open(&path);
-            open.map_err(|_| BUSY.to_owned())?
-        };
-        Ok(file)
-    }
-
-    /// Holds the worktree a record names, for a look that may decide a
-    /// settle the core stopped during: refused while a git command of that
-    /// core still works on it.
-    pub fn hold_for(&mut self, w: &Workdir) -> Result<(), String> {
-        let own = self.own(w)?;
-        self.hold(&own.name)
-    }
-
-    /// The worktree a record names, proven to be one this core made, with
-    /// what is configured for it kept from running.
-    fn own(&mut self, w: &Workdir) -> Result<Own, String> {
+    /// The worktree a record names, proven to be one this core made: a
+    /// folder whose name is one the core gives, exactly one level inside
+    /// the canonical `<data>/worktrees`, reached through no link, and the
+    /// branch of that name. Anything else is refused before git runs.
+    fn own(&self, w: &Workdir) -> Result<Own, String> {
         let path = PathBuf::from(&w.path);
         let bad = || {
             format!(
@@ -374,23 +211,26 @@ impl Git {
             .file_name()
             .and_then(OsStr::to_str)
             .filter(|n| named(n));
-        let name = name.ok_or_else(bad)?.to_owned();
-        if path != self.root.join(&name) || w.branch != format!("{PREFIX}{name}") {
+        let name = name.ok_or_else(bad)?;
+        if path != self.root.join(name) || w.branch != format!("{PREFIX}{name}") {
             return Err(bad());
         }
         // The worktrees' folder is canonical: only the worktree could be a link.
         if path.symlink_metadata().is_ok_and(|m| !m.is_dir()) {
             return Err(bad());
         }
-        // Where its configuration cannot be read, no git command there can.
-        if path.join(".git").is_file() {
-            let _ = self.quiet(&path);
-        }
-        Ok(Own {
-            name,
+        Ok(self.mine(name))
+    }
+
+    /// The worktree of the name `name`, one the core gives, once it is this
+    /// job's turn on it.
+    fn mine(&self, name: &str) -> Own {
+        let path = self.root.join(name);
+        Own {
+            _turn: Turn::take(&path),
             path,
-            branch: w.branch.clone(),
-        })
+            branch: format!("{PREFIX}{name}"),
+        }
     }
 
     // Making and finding.
@@ -398,23 +238,15 @@ impl Git {
     /// Makes the worktree a run works in, or finds it again (design §7): a
     /// new one on a new branch from the project folder's HEAD, or the
     /// thought's own, made again where it is gone.
-    pub fn prepare(&mut self, repo: &Path, worktree: &Worktree) -> Result<Workdir, String> {
+    pub fn prepare(&self, repo: &Path, worktree: &Worktree) -> Result<Workdir, String> {
         match worktree {
-            Worktree::New { name } => self.make(repo, name),
+            Worktree::New { name } if named(name) => self.make(repo, &self.mine(name)),
+            Worktree::New { name } => Err(format!("{name} is no name Tasktap gives a worktree")),
             Worktree::Again { workdir, .. } => self.again(repo, workdir),
         }
     }
 
-    fn make(&mut self, repo: &Path, name: &str) -> Result<Workdir, String> {
-        if !named(name) {
-            return Err(format!("{name} is no name Tasktap gives a worktree"));
-        }
-        self.hold(name)?;
-        let own = Own {
-            name: name.into(),
-            path: self.root.join(name),
-            branch: format!("{PREFIX}{name}"),
-        };
+    fn make(&self, repo: &Path, own: &Own) -> Result<Workdir, String> {
         // Made here and now by this attempt alone: another that came to the
         // same name finds it there and stops, touching nothing.
         std::fs::create_dir(&own.path).map_err(|e| {
@@ -424,14 +256,16 @@ impl Git {
             )
         })?;
         let mut branched = None;
-        let made = self.fill(repo, &own, &mut branched);
+        let made = self.fill(repo, own, &mut branched);
         if made.is_err() {
-            // What this attempt made, and only that.
+            // What this attempt made a moment ago, and only that: nothing
+            // has run in it.
             let _ = std::fs::remove_dir_all(&own.path);
-            self.forget(repo, &own);
+            self.forget(repo, own);
             if let Some(base) = branched {
                 let at = format!("refs/heads/{}", own.branch);
-                let _ = self.run(repo, &["update-ref", "-d", &at, &base], LOOK, &[], 0);
+                let delete = ["update-ref", "--no-deref", "-d", &at, &base];
+                let _ = self.run(repo, &delete, LOOK, &[], 0);
             }
         }
         made
@@ -460,10 +294,13 @@ impl Git {
         // run starts from what is committed, and its record says so.
         let status = ["status", "--porcelain", "-z", "--untracked-files=normal"];
         let left_out = !self.ok(repo, &status, LOOK)?.is_empty();
-        // Made only where no branch of that name is: one of the person's is
-        // never taken over, nor removed when this attempt fails.
+        // Made only where no branch of that name is, nor a symbolic ref
+        // that names another: one of the person's is never taken over, nor
+        // removed when this attempt fails.
+        self.tip(repo, own)?;
         let at = format!("refs/heads/{}", own.branch);
-        let create = ["update-ref", "-m", "tasktap: new worktree", &at, &base, ""];
+        let note = "tasktap: new worktree";
+        let create = ["update-ref", "--no-deref", "-m", note, &at, &base, ""];
         self.ok(repo, &create, LOOK).map_err(|e| {
             format!("a branch {} exists already, and Tasktap does not take over a branch it did not make: {e}", own.branch)
         })?;
@@ -487,11 +324,10 @@ impl Git {
     /// The thought's own worktree: as it is, put back on its branch where
     /// its folder is gone, or begun anew at the same place where its branch
     /// is gone too, which leaves nothing of it to lose.
-    fn again(&mut self, repo: &Path, w: &Workdir) -> Result<Workdir, String> {
+    fn again(&self, repo: &Path, w: &Workdir) -> Result<Workdir, String> {
         let own = self.own(w)?;
-        self.hold(&own.name)?;
         if own.path.symlink_metadata().is_ok() {
-            if self.ties(&own) {
+            if self.on_branch(&own).is_some() {
                 return Ok(w.clone());
             }
             return Err(format!(
@@ -501,8 +337,8 @@ impl Git {
         }
         // What git still knows of the folder that is gone.
         self.forget(repo, &own);
-        if self.commit_of(repo, &own.branch)?.is_none() {
-            return self.make(repo, &own.name);
+        if self.tip(repo, &own)?.is_none() {
+            return self.make(repo, &own);
         }
         std::fs::create_dir(&own.path).map_err(|e| e.to_string())?;
         let add = os(&["worktree", "add", "--quiet"], &own.path, &[&own.branch]);
@@ -517,81 +353,95 @@ impl Git {
     // Looking.
 
     /// What a worktree holds against the commit it started from: its files
-    /// and lines; whether its branch has commits of its own, all in its
-    /// destination, with nothing uncommitted beside them (what a Keep
-    /// leaves before it tidies); whether removing it would lose nothing;
-    /// and whether the folder and the branch are both gone.
-    pub fn survey(&mut self, repo: &Path, w: &Workdir) -> Result<Found, String> {
-        let own = self.own(w)?;
+    /// and lines; whether removing it would lose nothing; and whether the
+    /// folder and the branch are both gone.
+    pub fn survey(&self, repo: &Path, w: &Workdir) -> Result<Found, String> {
+        self.look(repo, w, &self.own(w)?)
+    }
+
+    fn look(&self, repo: &Path, w: &Workdir, own: &Own) -> Result<Found, String> {
         let here = own.path.symlink_metadata().is_ok();
-        let ties = here && self.ties(&own);
         if !repo.is_dir() {
             return Err(format!(
                 "the project folder {} is not there",
                 repo.display()
             ));
         }
-        let tip = self.commit_of(repo, &own.branch)?;
+        let tip = self.tip(repo, own)?;
         if !here && tip.is_none() {
             return Ok(Found {
                 gone: true,
                 ..Found::default()
             });
         }
-        let listed = self.listed(repo, w, &own, ties, None)?;
-        let in_destination = match (&tip, &w.destination) {
-            (Some(tip), Some(to)) if *tip != w.base => {
-                self.contains(repo, &format!("refs/heads/{to}"), tip)?
-            }
-            _ => false,
-        };
-        let status = match ties {
-            true => Some(self.status(&own.path)?),
-            false => None,
-        };
-        let changed = status.as_ref().is_none_or(|s| s.changed) && here;
+        let status = self.on_branch(own);
+        let listed = self.listed(repo, w, own, status.is_some(), None)?;
         let bare = !here || status.is_some_and(|s| !s.changed && !s.ignored);
         let lines = |f: fn(&ChangedFile) -> Option<u32>| listed.files.iter().filter_map(f).sum();
         Ok(Found {
             files: listed.files.len() as u32,
             insertions: lines(|f| f.insertions),
             deletions: lines(|f| f.deletions),
-            merged: in_destination && !changed,
             gone: false,
-            spare: bare && (tip.as_deref() == Some(w.base.as_str()) || in_destination),
+            spare: bare && tip.as_deref() == Some(w.base.as_str()),
         })
     }
 
-    /// Whether a worktree's folder is still the worktree git knows by its
-    /// name, on its branch: its `.git` names git's record of it, which
-    /// names it back.
-    fn ties(&self, own: &Own) -> bool {
-        let Some(record) = record(&own.path) else {
-            return false;
-        };
+    /// What a worktree's folder holds, when it is there and still the
+    /// worktree git knows, on its branch: its `.git` names git's record of
+    /// it, which names it back. That record is then named to every command
+    /// that reads or writes the worktree's index and HEAD ([`inside`]), so
+    /// a `.git` changed afterwards sends none of them anywhere else.
+    fn on_branch(&self, own: &Own) -> Option<Status> {
         // Relative paths are git's too, from the folder of the file.
-        let back = std::fs::read_to_string(record.join("gitdir")).ok();
-        let back = back.and_then(|b| std::fs::canonicalize(folder(&record).join(b.trim())).ok());
-        let mine = std::fs::canonicalize(own.path.join(".git")).ok();
-        if back.is_none() || back != mine {
-            return false;
+        let record = record(&own.path)?;
+        let back = std::fs::read_to_string(record.join("gitdir")).ok()?;
+        let back = std::fs::canonicalize(folder(&record).join(back.trim())).ok()?;
+        if back != std::fs::canonicalize(own.path.join(".git")).ok()? {
+            return None;
         }
-        let head = self.line(&own.path, &["symbolic-ref", "-q", "HEAD"]).ok();
-        head.as_deref() == Some(format!("refs/heads/{}", own.branch).as_str())
+        let status = self.status(&own.path, folder(&record)).ok()?;
+        (status.on == own.branch).then_some(status)
     }
 
-    /// What a folder holds beside its HEAD: staged, changed, untracked and
-    /// ignored files.
-    fn status(&self, dir: &Path) -> Result<Status, String> {
-        let mut args = STATUS.to_vec();
-        args.push("--ignored=matching");
-        let out = self.ok(dir, &args, LOOK)?;
-        let entries = out.split(|&b| b == 0).filter(|e| e.len() > 3);
-        let (ignored, changed): (Vec<_>, Vec<_>) = entries.partition(|e| e.starts_with(b"!! "));
-        Ok(Status {
-            changed: !changed.is_empty(),
-            ignored: !ignored.is_empty(),
-        })
+    /// What the worktree at `dir`, whose record with git is `record`, holds
+    /// beside its HEAD, and where that is: one command, which the removal
+    /// of a worktree nothing asked for reads again.
+    fn status(&self, dir: &Path, record: PathBuf) -> Result<Status, String> {
+        let args = [
+            "status",
+            "--porcelain=v2",
+            "--branch",
+            "-z",
+            "--untracked-files=normal",
+            "--ignored",
+            "--no-renames",
+            "--ignore-submodules=none",
+        ];
+        let ran = self.run(dir, &args, LOOK, &inside(&record, &folder(dir)), OUTPUT)?;
+        if ran.code != Some(0) {
+            return Err(failed("status", &ran));
+        }
+        let mut status = Status {
+            record,
+            on: String::new(),
+            at: String::new(),
+            changed: false,
+            ignored: false,
+        };
+        for entry in ran.out.split(|&b| b == 0).filter(|e| !e.is_empty()) {
+            let entry = String::from_utf8_lossy(entry);
+            if let Some(on) = entry.strip_prefix("# branch.head ") {
+                status.on = on.to_owned();
+            } else if let Some(at) = entry.strip_prefix("# branch.oid ") {
+                status.at = at.to_owned();
+            } else if entry.starts_with("! ") {
+                status.ignored = true;
+            } else if !entry.starts_with("# ") {
+                status.changed = true;
+            }
+        }
+        Ok(status)
     }
 
     /// The worktree's changes against its base: the files, and with `diff`
@@ -600,13 +450,13 @@ impl Git {
     /// worktree's index, which its agent may be using, stays as it is.
     /// With the folder gone or no longer tied to it, what its branch holds.
     pub fn list(
-        &mut self,
+        &self,
         repo: &Path,
         w: &Workdir,
         diff: Option<Option<&str>>,
     ) -> Result<Listed, String> {
         let own = self.own(w)?;
-        let tied = own.path.symlink_metadata().is_ok() && self.ties(&own);
+        let tied = self.on_branch(&own).is_some();
         self.listed(repo, w, &own, tied, diff)
     }
 
@@ -623,7 +473,7 @@ impl Git {
             let revs = ["--cached", w.base.as_str()];
             return self.with_index(&own.path, |index| self.diffs(&own.path, &revs, diff, index));
         }
-        if !repo.is_dir() || self.commit_of(repo, &own.branch)?.is_none() {
+        if !repo.is_dir() || self.tip(repo, own)?.is_none() {
             return Ok(Listed::default());
         }
         let tip = format!("refs/heads/{}", own.branch);
@@ -701,20 +551,16 @@ impl Git {
     // Keeping and discarding.
 
     /// Keep (design §7): commits what is uncommitted in the worktree on its
-    /// branch, brings the branch into its destination when that touches
-    /// nothing of the person's, then removes the worktree and the branch.
-    /// The destination moves by a fast-forward when it has not moved since,
-    /// and otherwise by a merge commit made without a working tree, only
-    /// when it merges cleanly; nothing is rebased or forced. Where the
-    /// destination is checked out, that folder follows by a fast-forward
-    /// that git refuses whole when it would touch an uncommitted change or
-    /// an untracked or ignored file, every option of which is set on the
-    /// command, and which is checked afterwards to have done exactly that;
-    /// otherwise it is undone. A refusal leaves everything as it was and
-    /// says what the person can do.
-    pub fn keep(&mut self, repo: &Path, w: &Workdir, title: &str) -> Result<(), String> {
+    /// branch, brings the branch into its destination, then removes the
+    /// worktree and the branch. The destination moves by a fast-forward
+    /// when it has not moved since, and otherwise by a merge commit made
+    /// without a working tree, only when it merges cleanly; nothing is
+    /// rebased or forced. Nothing is ever undone: where git did something
+    /// else than was asked, because the folder changed at that moment, the
+    /// reply says what is where, and the next Keep or Discard goes on from
+    /// there.
+    pub fn keep(&self, repo: &Path, w: &Workdir, title: &str) -> Result<(), String> {
         let own = self.own(w)?;
-        self.hold(&own.name)?;
         if !repo.is_dir() {
             return Err(format!(
                 "the project folder {} is not there, so nothing can be kept into it",
@@ -730,17 +576,21 @@ impl Git {
                 "the project folder was on no branch (a detached HEAD) when this run started, so there is no branch to keep it into. {by_hand}"
             ));
         };
+        self.tip(repo, &own)?;
         if own.path.symlink_metadata().is_ok() {
-            if !self.ties(&own) {
+            let Some(status) = self.on_branch(&own) else {
                 return Err(format!(
                     "{} is no longer the worktree of {}: its link to git is gone or changed. Discard it, or take what is in it yourself",
                     own.path.display(),
                     own.branch
                 ));
+            };
+            pause("commit");
+            if status.changed {
+                self.commit_all(&own, &status.record, title)?;
             }
-            self.commit_all(&own, title)?;
         }
-        let Some(tip) = self.commit_of(repo, &own.branch)? else {
+        let Some(tip) = self.tip(repo, &own)? else {
             return Err(format!(
                 "the branch {} is gone, so nothing is left to keep",
                 own.branch
@@ -761,39 +611,39 @@ impl Git {
             })?
         };
         if target != head {
-            self.advance(repo, to, &head, &target)
-                .map_err(|why| format!("{why}. {by_hand}"))?;
+            self.advance(repo, to, &head, &target, &by_hand)?;
         }
-        // Kept: the worktree and its branch go, as Keep says they do; one a
-        // process works in waits, kept, for a later look.
-        let _ = self.remove(repo, &own, Some(&tip));
-        Ok(())
+        // Kept. The worktree goes only as git lets it: with something new
+        // in it, or a process working there, it stays and is said to.
+        let removed = self.free(&own, true);
+        let removed = removed.and_then(|()| self.remove(repo, &own, false, &tip));
+        removed.map_err(|why| {
+            format!(
+                "The changes are in {to}. The worktree stays, since {why}: Keep again tidies up once that is over, and Discard removes what is left"
+            )
+        })
     }
 
     /// Commits everything uncommitted in the worktree on its branch, once
-    /// it is clear the worktree is in the middle of nothing.
-    fn commit_all(&self, own: &Own, title: &str) -> Result<(), String> {
-        let dir = PathBuf::from(self.line(&own.path, &["rev-parse", "--absolute-git-dir"])?);
-        if let Some(what) = midway(&dir) {
+    /// it is clear the worktree is in the middle of nothing. Both commands
+    /// are told the record of the worktree that was just proven its own.
+    fn commit_all(&self, own: &Own, record: &Path, title: &str) -> Result<(), String> {
+        if let Some(what) = midway(record) {
             return Err(format!(
                 "the worktree is in the middle of {what}; finish or abort it in {} first",
                 own.path.display()
             ));
         }
-        let status = self.ok(&own.path, &STATUS, LOOK)?;
-        let paths: Vec<String> = (status.split(|&b| b == 0))
-            .filter(|e| e.len() > 3)
-            .map(|e| String::from_utf8_lossy(&e[3..]).into_owned())
-            .collect();
-        if paths.is_empty() {
-            return Ok(());
+        let work = folder(&own.path);
+        let mut env = inside(record, &work).to_vec();
+        let added = self.run(&own.path, &["add", "--all"], WRITE, &env, ERRORS)?;
+        if added.code != Some(0) {
+            return Err(failed("add", &added));
         }
-        self.unfiltered(&own.path, &paths)?;
-        self.ok(&own.path, &["add", "--all"], WRITE)?;
         let message = format!("{title}\n\nCommitted by Tasktap when its changes were kept.\n");
-        let identity = self.identity(&own.path);
+        env.extend(self.identity(&own.path));
         let commit = ["commit", "--quiet", "--no-verify", "-m", &message];
-        let ran = self.run(&own.path, &commit, WRITE, &identity, ERRORS)?;
+        let ran = self.run(&own.path, &commit, WRITE, &env, ERRORS)?;
         match ran.code {
             Some(0) => Ok(()),
             _ => Err(format!(
@@ -803,38 +653,8 @@ impl Git {
         }
     }
 
-    /// Refuses files a filter the person configured applies to: Tasktap
-    /// runs none, so it would commit or write them unfiltered.
-    fn unfiltered(&self, dir: &Path, paths: &[String]) -> Result<(), String> {
-        if self.filters.is_empty() {
-            return Ok(());
-        }
-        let mut filtered = Vec::new();
-        for chunk in paths.chunks(200) {
-            let mut args = vec!["check-attr", "-z", "filter", "--"];
-            args.extend(chunk.iter().map(String::as_str));
-            let out = self.ok(dir, &args, LOOK)?;
-            let mut parts = out.split(|&b| b == 0);
-            while let (Some(path), Some(_), Some(value)) =
-                (parts.next(), parts.next(), parts.next())
-            {
-                if self.filters.iter().any(|f| f.as_bytes() == value) {
-                    filtered.push(String::from_utf8_lossy(path).into_owned());
-                }
-            }
-        }
-        match filtered.is_empty() {
-            true => Ok(()),
-            false => Err(format!(
-                "{} go through a filter configured for this repository, which Tasktap does not run",
-                shown(&filtered)
-            )),
-        }
-    }
-
     /// A merge commit of `head` and `tip`, made without a working tree, or
-    /// the files that conflict. No merge driver runs: one the person
-    /// configured fails, and its file conflicts.
+    /// the files that conflict.
     fn merged(&self, repo: &Path, head: &str, tip: &str, message: &str) -> Result<String, String> {
         let check = [
             "merge-tree",
@@ -888,48 +708,46 @@ impl Git {
     }
 
     /// Moves the branch `to` from `head` to `target`, which descends from
-    /// it. Checked out nowhere, only the branch moves, from where it was.
-    /// Checked out in a folder, that folder follows (see [`Git::keep`]).
-    fn advance(&mut self, repo: &Path, to: &str, head: &str, target: &str) -> Result<(), String> {
+    /// it. Checked out nowhere, only the branch moves, and only from where
+    /// it was. Checked out in a folder, that folder follows by git's own
+    /// fast-forward, which refuses before it writes when it would touch an
+    /// uncommitted change or an untracked or ignored file; every option
+    /// that decides what it does is on the command. Afterwards `to` holds
+    /// `target`, or the reply says what happened instead.
+    fn advance(
+        &self,
+        repo: &Path,
+        to: &str,
+        head: &str,
+        target: &str,
+        by_hand: &str,
+    ) -> Result<(), String> {
         let branch = format!("refs/heads/{to}");
-        let out: Vec<_> = (self.worktrees(repo)?.into_iter())
-            .filter(|(_, on)| on.as_deref() == Some(branch.as_str()))
-            .map(|(path, _)| path)
-            .collect();
-        let folder = match &out[..] {
-            [] => return self.move_alone(repo, to, head, target),
-            [folder] => folder.clone(),
+        let folder = match &self.holding(repo, &branch)?[..] {
+            [] => None,
+            [folder] => Some(folder.clone()),
             _ => return Err(format!("{to} is checked out in more than one folder")),
         };
-        self.quiet(&folder)?;
-        let dir = PathBuf::from(self.line(&folder, &["rev-parse", "--absolute-git-dir"])?);
-        if let Some(what) = midway(&dir) {
-            return Err(format!(
-                "{} is in the middle of {what}, so {to} is not moved",
-                folder.display()
-            ));
-        }
-        let names = ["diff", "--name-status", "-z", "--no-renames", head, target];
-        let changed = self.ok(&folder, &names, LOOK)?;
-        let paths: Vec<String> = (changed.split(|&b| b == 0).skip(1).step_by(2))
-            .map(|p| String::from_utf8_lossy(p).into_owned())
-            .collect();
-        self.unfiltered(&folder, &paths)?;
-        let clashes = self.clashes(&folder, &changed)?;
-        if !clashes.is_empty() {
-            return Err(format!(
-                "{} has changes of its own to files this keep would change: {}. Commit them or put them aside there, then press Keep again",
-                folder.display(),
-                shown(&clashes)
-            ));
-        }
         pause("keep");
-        // Nothing of the person's preferences decides what this does, and
-        // the branch's log says where it was, should it need undoing.
-        self.config
-            .push((format!("branch.{to}.mergeOptions"), String::new()));
-        self.config
-            .push(("core.logAllRefUpdates".into(), "true".into()));
+        let Some(folder) = folder else {
+            let note = format!("tasktap: keep into {to}");
+            let update = ["update-ref", "-m", &note, &branch, target, head];
+            self.ok(repo, &update, LOOK).map_err(|e| {
+                format!("{to} moved at that moment and was left alone ({e}). Press Keep again")
+            })?;
+            // A folder that took the branch at that moment holds the files
+            // from before.
+            for folder in self.holding(repo, &branch)? {
+                let index = ["diff-index", "--cached", "--quiet", head, "--"];
+                if self.run(&folder, &index, LOOK, &[], 0)?.code == Some(0) {
+                    return Err(format!(
+                        "The changes are in {to}, but {} checked {to} out at that moment and still holds the files from before: `git read-tree -m -u {head} {target}` there brings them in and touches nothing you changed. Keep again tidies up",
+                        folder.display()
+                    ));
+                }
+            }
+            return Ok(());
+        };
         let merge = [
             "merge",
             "--ff-only",
@@ -945,225 +763,175 @@ impl Git {
             "--no-gpg-sign",
             "--no-verify-signatures",
             "--no-rerere-autoupdate",
+            "--strategy=ort",
             "--quiet",
             target,
         ];
-        let merged = self.ok(&folder, &merge, WRITE);
-        // Exactly what was asked, or nothing: `to` is now `target`, or what
-        // the merge did to whatever the folder was on instead is undone.
-        if merged.is_ok() && self.commit_of(&folder, to)?.as_deref() == Some(target) {
+        // A strategy the person prefers for this branch, or for every
+        // merge, would have git merge where it was asked to fast-forward,
+        // and not spare ignored files: the branch's options are emptied
+        // and the strategy named, which leaves it only the fast-forward.
+        let options = format!("branch.{to}.mergeOptions");
+        let plain = [
+            ("GIT_CONFIG_COUNT", OsStr::new("1")),
+            ("GIT_CONFIG_KEY_0", OsStr::new(&options)),
+            ("GIT_CONFIG_VALUE_0", OsStr::new("")),
+        ];
+        let ran = self.run(&folder, &merge, WRITE, &plain, ERRORS)?;
+        if ran.code != Some(0) {
+            let said: Vec<_> = (ran.err.lines().map(str::trim))
+                .filter(|l| !l.is_empty())
+                .take(12)
+                .collect();
+            return Err(format!(
+                "git did not bring the changes into {}: {}. {by_hand}",
+                folder.display(),
+                said.join(" ")
+            ));
+        }
+        if self.contains(repo, &branch, target)? {
             return Ok(());
         }
-        let undone = self.undo(&folder, target);
-        Err(match (merged, undone) {
-            (Err(e), _) => format!("{} could not follow {to}: {e}", folder.display()),
-            (Ok(_), Ok(())) => format!(
-                "{} changed while keeping, so nothing was kept and what the keep did there was undone",
-                folder.display()
-            ),
-            (Ok(_), Err(left)) => format!(
-                "{} changed while keeping, so nothing was kept; {left}",
-                folder.display()
-            ),
-        })
-    }
-
-    /// Undoes a fast-forward that did not do what Keep asked: the ref the
-    /// folder is on (a branch, or its detached HEAD), which this merge moved
-    /// to `target` as its log says, goes back to where it was, with the
-    /// files; files and index written for `target` without the ref moving go
-    /// back to that ref's commit. Anything else is not the merge's to undo.
-    fn undo(&self, folder: &Path, target: &str) -> Result<(), String> {
-        let on = self.line(folder, &["symbolic-ref", "-q", "HEAD"]);
-        let on = on.unwrap_or_else(|_| "HEAD".into());
-        let now = self.line(folder, &["rev-parse", "--verify", "-q", &on])?;
-        let back = if now == target {
-            let last = ["log", "-g", "-1", "--format=%gs", &on];
-            if !self
-                .line(folder, &last)?
-                .starts_with(&format!("merge {target}"))
-            {
-                return Ok(());
-            }
-            self.line(
-                folder,
-                &["rev-parse", "--verify", "-q", &format!("{on}@{{1}}")],
-            )?
-        } else {
-            let index = ["diff-index", "--cached", "--quiet", target, "--"];
-            if self.run(folder, &index, LOOK, &[], 0)?.code != Some(0) {
-                return Ok(());
-            }
-            now.clone()
-        };
-        if back == target {
-            return Ok(());
-        }
-        let left = |e: String| format!("put {on} back with `git reset --keep {back}` there ({e})");
-        self.ok(folder, &["read-tree", "-m", "-u", target, &back], WRITE)
-            .map_err(left)?;
-        if now == target {
-            let update = ["update-ref", "--no-deref", &on, &back, target];
-            self.ok(folder, &update, LOOK).map_err(left)?;
-        }
-        Ok(())
-    }
-
-    /// Moves `to`, checked out nowhere, from `head` to `target`, and only
-    /// from there. A folder that took it meanwhile, still holding `head`'s
-    /// files, would then hold files that are not its branch's: the branch
-    /// goes back, and nothing is kept.
-    fn move_alone(&self, repo: &Path, to: &str, head: &str, target: &str) -> Result<(), String> {
-        let branch = format!("refs/heads/{to}");
-        let note = format!("tasktap: keep into {to}");
-        pause("keep");
-        let update = ["update-ref", "-m", &note, &branch, target, head];
-        self.ok(repo, &update, LOOK)?;
-        let taken = (self.worktrees(repo)?.into_iter())
-            .filter(|(_, on)| on.as_deref() == Some(branch.as_str()))
-            .map(|(path, _)| path);
-        for folder in taken {
-            let index = ["diff-index", "--cached", "--quiet", head, "--"];
-            if self.run(&folder, &index, LOOK, &[], 0)?.code == Some(0) {
-                let back = ["update-ref", "-m", &note, &branch, head, target];
-                self.ok(repo, &back, LOOK)?;
-                return Err(format!(
-                    "{to} was checked out in {} while keeping, so nothing was kept",
-                    folder.display()
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    /// The files a fast-forward of `folder` would write, as `git diff
-    /// --name-status -z` lists them, that hold something of the person's:
-    /// an uncommitted change, a file that is not tracked (ignored ones
-    /// too), or a file where the keep needs a folder. Git refuses all of
-    /// these as it writes; this says which, before it begins.
-    fn clashes(&self, folder: &Path, changed: &[u8]) -> Result<Vec<String>, String> {
-        let status = self.ok(folder, &STATUS, LOOK)?;
-        let mine: BTreeSet<&[u8]> = (status.split(|&b| b == 0))
-            .filter(|e| e.len() > 3)
-            .map(|e| &e[3..])
-            .collect();
-        let mut parts = changed.split(|&b| b == 0);
-        let mut clashes = Vec::new();
-        while let (Some(how), Some(name)) = (parts.next(), parts.next()) {
-            let on_disk = |p: &Path| folder.join(p).symlink_metadata();
-            let file = bytes_path(name);
-            let blocked = (file.ancestors().skip(1))
-                .filter(|a| !a.as_os_str().is_empty())
-                .any(|a| on_disk(a).is_ok_and(|m| !m.is_dir()));
-            if mine.contains(name) || blocked || (how == b"A" && on_disk(&file).is_ok()) {
-                clashes.push(String::from_utf8_lossy(name).into_owned());
-            }
-        }
-        Ok(clashes)
+        // The folder went to another branch at that moment. Nothing is undone.
+        let on = self.line(&folder, &["rev-parse", "--abbrev-ref", "HEAD"]);
+        let on = on.unwrap_or_else(|_| "another branch".into());
+        Err(format!(
+            "{} was no longer on {to} when git merged there: it merged into {on}, which the folder had switched to, and {to} is as it was. Nothing was undone: `git reset --keep ORIG_HEAD` there takes the changes out of {on} again, if it gained them. {by_hand}",
+            folder.display()
+        ))
     }
 
     /// Discard (design §7): removes the worktree, its uncommitted changes
     /// and its branch, commits that are nowhere else too. The project
-    /// folder's files are never touched. Changes already in their
-    /// destination are a Keep's to finish.
-    pub fn discard(&mut self, repo: &Path, w: &Workdir) -> Result<(), String> {
+    /// folder's files are never touched. Returns whether all of it was in
+    /// its destination already, which is then a Keep that only tidied up.
+    pub fn discard(&self, repo: &Path, w: &Workdir) -> Result<bool, String> {
         let own = self.own(w)?;
-        self.hold(&own.name)?;
         let tip = match repo.is_dir() {
-            true => self.commit_of(repo, &own.branch)?,
+            true => self.tip(repo, &own)?,
             false => None,
         };
-        if tip.is_some() && self.survey(repo, w).is_ok_and(|f| f.merged) {
-            return Err(format!(
-                "these changes are in {} already, kept by a Keep Tasktap stopped during or merged by hand: press Keep to tidy up",
-                w.destination.as_deref().unwrap_or("their branch")
-            ));
-        }
-        self.remove(repo, &own, tip.as_deref())
+        let kept = match (&tip, &w.destination) {
+            (Some(tip), Some(to)) if *tip != w.base => {
+                let here = own.path.symlink_metadata().is_ok();
+                let whole = !here || self.on_branch(&own).is_some_and(|s| !s.changed);
+                let to = format!("refs/heads/{to}");
+                // A destination that is gone holds nothing.
+                whole && self.contains(repo, &to, tip).unwrap_or(false)
+            }
+            _ => false,
+        };
+        self.free(&own, true)?;
+        self.remove(repo, &own, true, tip.as_deref().unwrap_or(&w.base))?;
+        Ok(kept)
     }
 
-    /// Removes a worktree and its branch when nothing would be lost (see
-    /// the module's notes). Otherwise returns what it found and removes
-    /// nothing.
-    pub fn tidy(&mut self, repo: &Path, w: &Workdir) -> Result<Option<Found>, String> {
+    /// Removes a worktree and its branch on the core's own account, when
+    /// git itself agrees nothing is in it. Otherwise returns what is there
+    /// and removes nothing more.
+    pub fn tidy(&self, repo: &Path, w: &Workdir) -> Result<Option<Found>, String> {
         let own = self.own(w)?;
-        self.hold(&own.name)?;
-        let found = self.survey(repo, w)?;
-        if found.gone {
+        pause("tidy");
+        // In use: it stays as it is, for a later look.
+        self.free(&own, false)?;
+        if self.spare(repo, &own, &w.base).is_ok() {
             return Ok(None);
         }
-        if !found.spare {
-            return Ok(Some(found));
-        }
-        let tip = self.commit_of(repo, &own.branch)?;
-        self.remove(repo, &own, tip.as_deref()).map(|()| None)
+        // Something is in it, or git will not remove it: the person's to
+        // keep or discard.
+        let found = self.look(repo, w, &own)?;
+        Ok(Some(Found {
+            spare: false,
+            ..found
+        }))
     }
 
     // Parts.
 
-    /// Removes a worktree of this core's: never while a process works in
-    /// it; moved aside first, which on Windows a folder in use refuses and
-    /// after which nothing reaches it by its name; then git's record of it,
-    /// the folder, and its branch where that still points at `tip`.
-    fn remove(&mut self, repo: &Path, own: &Own, tip: Option<&str>) -> Result<(), String> {
+    /// Refuses while a process works in the worktree or below it. Where the
+    /// system does not say, a removal the person asked for goes on, and one
+    /// they did not ask for does not.
+    fn free(&self, own: &Own, asked: bool) -> Result<(), String> {
+        if own.path.symlink_metadata().is_err() {
+            return Ok(());
+        }
+        match crate::sys::in_use(&own.path, &self.sessions) {
+            Some(false) => Ok(()),
+            None if asked => Ok(()),
+            _ => Err(format!(
+                "{} is in use by a process working there",
+                own.path.display()
+            )),
+        }
+    }
+
+    /// Removes a worktree nothing asked to be removed, and its branch from
+    /// `at`: only one still on its branch at that commit with nothing
+    /// staged, changed, untracked or ignored in it, and then only by the
+    /// commands of [`Git::remove`], which refuse what came since.
+    fn spare(&self, repo: &Path, own: &Own, at: &str) -> Result<(), String> {
+        self.tip(repo, own)?;
         if own.path.symlink_metadata().is_ok() {
-            let in_use = || {
-                format!(
-                    "{} is in use by a process working there",
-                    own.path.display()
-                )
-            };
-            let used = |path: &Path| {
-                let mut cwds = crate::sys::working_folders().into_iter();
-                cwds.any(|cwd| cwd.starts_with(path))
-            };
-            if used(&own.path) {
-                return Err(in_use());
-            }
-            let aside = self.root.join(format!(".{}.removing", own.name));
-            if aside.symlink_metadata().is_ok_and(|m| m.is_dir()) {
-                std::fs::remove_dir_all(&aside).map_err(|e| e.to_string())?;
-            }
-            patiently(|| std::fs::rename(&own.path, &aside))
-                .map_err(|e| format!("{}: {e}", in_use()))?;
-            // One that went in between the look and the move is there now.
-            if used(&aside) {
-                let back = std::fs::rename(&aside, &own.path);
-                return Err(match back {
-                    Ok(()) => in_use(),
-                    Err(e) => format!("{}; it was left at {}: {e}", in_use(), aside.display()),
-                });
-            }
-            self.forget(repo, own);
-            patiently(|| std::fs::remove_dir_all(&aside))
-                .map_err(|e| format!("{} could not be removed: {e}", aside.display()))?;
-        } else {
-            self.forget(repo, own);
-        }
-        if let Some(tip) = tip.filter(|_| repo.is_dir()) {
-            let at = format!("refs/heads/{}", own.branch);
-            if self.commit_of(repo, &own.branch)?.is_some() {
-                self.ok(repo, &["update-ref", "-d", &at, tip], LOOK)
-                    .map_err(|e| format!("the branch {} was left: {e}", own.branch))?;
+            let bare = |s: Status| s.at == at && !s.changed && !s.ignored;
+            if !self.on_branch(own).is_some_and(bare) {
+                return Err(format!("{} holds something", own.path.display()));
             }
         }
-        // Nothing is left to hold. The file goes while no other job of this
-        // core can take it.
-        if self.hold.as_ref().is_some_and(|held| held.name == own.name)
-            && let Some(mut held) = self.hold.take()
-        {
-            drop(held.file.take());
-            let _ = std::fs::remove_file(self.root.join(format!(".{}.lock", own.name)));
-            drop(held);
+        self.remove(repo, own, false, at)
+    }
+
+    /// Removes a worktree of this core's, then its branch where that is
+    /// still at `at`: a commit made since stays on it (`git update-ref -d`
+    /// with the old value). With `force`, on the person's Discard, the
+    /// folder goes whatever is in it. Otherwise git removes it (`git
+    /// worktree remove`), which refuses a folder that is not its worktree
+    /// any more or that holds a change or an untracked file.
+    fn remove(&self, repo: &Path, own: &Own, force: bool, at: &str) -> Result<(), String> {
+        pause("remove");
+        if own.path.symlink_metadata().is_ok() {
+            if force {
+                patiently(|| std::fs::remove_dir_all(&own.path))
+                    .map_err(|e| format!("{} could not be removed: {e}", own.path.display()))?;
+            } else {
+                let remove = os(&["worktree", "remove"], &own.path, &[]);
+                self.ok(repo, &remove, WRITE)?;
+            }
         }
+        pause("branch");
+        self.forget(repo, own);
+        if repo.is_dir() && self.tip(repo, own)?.is_some() {
+            let branch = format!("refs/heads/{}", own.branch);
+            let delete = ["update-ref", "--no-deref", "-d", &branch, at];
+            self.ok(repo, &delete, LOOK)
+                .map_err(|e| format!("the branch {} was left: {e}", own.branch))?;
+        }
+        pause("done");
         Ok(())
     }
 
-    /// Drops git's record of a worktree whose folder is gone.
+    /// Drops git's record of a worktree whose folder is gone, a locked one too.
     fn forget(&self, repo: &Path, own: &Own) {
         if repo.is_dir() && own.path.symlink_metadata().is_err() {
-            let forget = os(&["worktree", "remove", "--force"], &own.path, &[]);
+            let forget = os(&["worktree", "remove", "-f", "-f"], &own.path, &[]);
             let _ = self.run(repo, &forget, LOOK, &[], 0);
+        }
+    }
+
+    /// The commit a run's branch is at, if the branch exists. Refused where
+    /// its name was made a symbolic ref, another name for some other
+    /// branch: nothing is read, moved or deleted through one, and every
+    /// `update-ref` on a run's branch is told not to follow one either.
+    fn tip(&self, repo: &Path, own: &Own) -> Result<Option<String>, String> {
+        let name = format!("refs/heads/{}", own.branch);
+        let ran = self.run(repo, &["symbolic-ref", "-q", &name], LOOK, &[], ERRORS)?;
+        match ran.code {
+            Some(1) => self.commit_of(repo, &own.branch),
+            Some(0) => Err(format!(
+                "{} is a symbolic ref to {}, no branch of Tasktap's, and is left alone: remove it yourself",
+                own.branch,
+                text(&ran.out)
+            )),
+            _ => Err(failed("symbolic-ref", &ran)),
         }
     }
 
@@ -1195,17 +963,15 @@ impl Git {
         }
     }
 
-    /// Every worktree of the repository, with the branch it is on.
-    fn worktrees(&self, repo: &Path) -> Result<Vec<(PathBuf, Option<String>)>, String> {
+    /// The folders of the repository that have `branch` checked out.
+    fn holding(&self, repo: &Path, branch: &str) -> Result<Vec<PathBuf>, String> {
         let out = self.ok(repo, &["worktree", "list", "--porcelain", "-z"], LOOK)?;
-        let mut all = Vec::new();
+        let (mut all, mut path) = (Vec::new(), None);
         for field in out.split(|&b| b == 0) {
-            if let Some(path) = field.strip_prefix(b"worktree ") {
-                all.push((bytes_path(path), None));
-            } else if let (Some(branch), Some(last)) =
-                (field.strip_prefix(b"branch "), all.last_mut())
-            {
-                last.1 = Some(String::from_utf8_lossy(branch).into_owned());
+            if let Some(folder) = field.strip_prefix(b"worktree ") {
+                path = Some(bytes_path(folder));
+            } else if field.strip_prefix(b"branch ") == Some(branch.as_bytes()) {
+                all.extend(path.take());
             }
         }
         Ok(all)
@@ -1274,18 +1040,13 @@ impl Git {
         command
             .env_clear()
             .envs(self.env.iter().map(|(k, v)| (k, v)));
-        command.env("GIT_CONFIG_COUNT", self.config.len().to_string());
-        for (n, (key, value)) in self.config.iter().enumerate() {
-            command.env(format!("GIT_CONFIG_KEY_{n}"), key);
-            command.env(format!("GIT_CONFIG_VALUE_{n}"), value);
-        }
         command
     }
 
     /// Runs git in `dir` within `limit`, which ends it when it is up, and
     /// keeps the first `keep` bytes of what it printed. Its output goes to
     /// files, so a command that outlives a core that stopped is never
-    /// ended by writing to nobody; its input is the worktree's hold.
+    /// ended by writing to nobody.
     fn run(
         &self,
         dir: &Path,
@@ -1317,15 +1078,11 @@ impl Git {
         err: &Path,
     ) -> Result<Option<i32>, String> {
         let file = |path: &Path| File::create(path).map_err(|e| e.to_string());
-        let input = match self.hold.as_ref().and_then(|held| held.file.as_ref()) {
-            Some(file) => Stdio::from(file.try_clone().map_err(|e| e.to_string())?),
-            None => Stdio::null(),
-        };
         let mut child = self
             .command(dir)
             .args(args)
             .envs(env.iter().copied())
-            .stdin(input)
+            .stdin(Stdio::null())
             .stdout(file(out)?)
             .stderr(file(err)?)
             .spawn()
@@ -1337,6 +1094,13 @@ impl Git {
         });
         match ended.recv_timeout(limit) {
             Ok(status) => Ok(status.map_err(|e| e.to_string())?.code()),
+            // The fast-forward in the person's folder, this module's one
+            // `merge`, is never ended part way through writing their files:
+            // it goes on by itself, and the reply says so.
+            Err(_) if verb(args) == "merge" => Err(format!(
+                "git is still updating {}; nothing was stopped",
+                dir.display()
+            )),
             Err(_) => {
                 #[cfg(unix)]
                 crate::sys::signal_process(pid, true);
@@ -1354,20 +1118,22 @@ impl Git {
 }
 
 /// At start (design §3), off the core's thread: looks at the worktree of
-/// every thought not settled and returns what it found; tidies what is left
-/// of settled ones, and the worktrees no thought records that a launch
-/// recorded in `launched` made and stopped before recording, when nothing
-/// would be lost; finishes removing what a removal stopped during; and
-/// removes the files of looks and commands that stopped. `there` is what
-/// the worktrees' folder held before any job of this run began. A worktree
-/// still held by a git command of a core that stopped is left until the
-/// next start, undecided. Anything it cannot tie to the core is left alone.
+/// every thought not settled and returns what it found, which decides a
+/// settle the core stopped during and what is tidied; removes a worktree
+/// no thought records that a launch recorded in `launched` made and
+/// stopped before recording, when git agrees nothing is in it; and removes
+/// the files of looks and commands that stopped. `there` is what the
+/// worktrees' folder held before any job of this run began. No folder is
+/// removed for its name.
 pub fn sweep(
     data: &Path,
     owners: &[Owner],
     there: &[PathBuf],
     launched: &BTreeSet<String>,
 ) -> Vec<(ThoughtId, String, Found)> {
+    let Ok(git) = Git::new(data, Vec::new()) else {
+        return Vec::new();
+    };
     let mut found = Vec::new();
     let mut known = BTreeSet::new();
     for o in owners {
@@ -1378,24 +1144,8 @@ pub fn sweep(
         if o.workdir.changes != Changes::Pending && path.symlink_metadata().is_err() {
             continue;
         }
-        let Ok(mut git) = Git::new(data, &o.repo) else {
-            continue;
-        };
-        let Ok(own) = git.own(&o.workdir) else {
-            continue;
-        };
-        // Nothing is decided while a git command of the core that stopped
-        // still works on it.
-        if o.stopped && git.hold(&own.name).is_err() {
-            continue;
-        }
-        match o.workdir.changes {
-            Changes::Clean | Changes::Pending => {
-                if let Ok(f) = git.survey(&o.repo, &o.workdir) {
-                    found.push((o.thought, o.workdir.path.clone(), f));
-                }
-            }
-            Changes::Kept | Changes::Discarded => drop(git.tidy(&o.repo, &o.workdir)),
+        if let Ok(f) = git.survey(&o.repo, &o.workdir) {
+            found.push((o.thought, o.workdir.path.clone(), f));
         }
     }
     for path in there {
@@ -1404,107 +1154,53 @@ pub fn sweep(
         };
         if name.starts_with(".tmp-") {
             let _ = std::fs::remove_file(path);
-        } else if let Some(name) = name
-            .strip_prefix('.')
-            .and_then(|n| n.strip_suffix(".removing"))
-        {
-            finish_removing(data, name);
+        } else if let Some(name) = name.strip_suffix(crate::sys::PROBE) {
+            // What looking whether a worktree is in use moved aside on
+            // Windows, when the core stopped at that moment, goes back.
+            let back = git.root.join(name);
+            if named(name) && back.symlink_metadata().is_err() {
+                let _ = std::fs::rename(path, back);
+            }
         } else if named(name) && !known.contains(name) && launched.contains(name) {
-            stray(data, name);
+            git.stray(name);
         }
     }
     found
 }
 
-/// Finishes removing a worktree a removal moved aside and stopped during.
-fn finish_removing(data: &Path, name: &str) {
-    let Ok(mut git) = Git::new(data, Path::new("")) else {
-        return;
-    };
-    let aside = git.root.join(format!(".{name}.removing"));
-    let used = || {
-        crate::sys::working_folders()
-            .iter()
-            .any(|cwd| cwd.starts_with(&aside))
-    };
-    if named(name)
-        && git.hold(name).is_ok()
-        && aside.symlink_metadata().is_ok_and(|m| m.is_dir())
-        && !used()
-    {
-        let _ = std::fs::remove_dir_all(&aside);
+impl Git {
+    /// A worktree no thought records, which a launch of this core made and
+    /// stopped before recording, so no run began in it: removed as a tidy
+    /// removes one, its branch from the commit it is at only when the
+    /// project folder's HEAD holds that commit too.
+    fn stray(&self, name: &str) {
+        let own = self.mine(name);
+        let common = ["rev-parse", "--path-format=absolute", "--git-common-dir"];
+        let Ok(common) = self.line(&own.path, &common).map(PathBuf::from) else {
+            return;
+        };
+        if let Ok(Some(tip)) = self.tip(&common, &own)
+            && self.contains(&common, "HEAD", &tip).unwrap_or(false)
+            && self.free(&own, false).is_ok()
+        {
+            let _ = self.spare(&common, &own, &tip);
+        }
     }
 }
-
-/// A worktree no thought records, which a launch of this core made and
-/// stopped before recording: removed with its branch only when git still
-/// ties it to that branch, nothing is in it beside the branch's files and
-/// the branch's commits are on another branch too.
-fn stray(data: &Path, name: &str) {
-    let Ok(probe) = Git::new(data, Path::new("")) else {
-        return;
-    };
-    let path = probe.root.join(name);
-    let common = probe.line(
-        &path,
-        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    );
-    let Ok(common) = common.map(PathBuf::from) else {
-        return;
-    };
-    let Ok(mut git) = Git::new(data, &common) else {
-        return;
-    };
-    let own = Own {
-        name: name.into(),
-        path,
-        branch: format!("{PREFIX}{name}"),
-    };
-    if git.hold(name).is_err() || !git.ties(&own) {
-        return;
-    }
-    let bare = git
-        .status(&own.path)
-        .is_ok_and(|s| !s.changed && !s.ignored);
-    let Ok(Some(tip)) = git.commit_of(&common, &own.branch) else {
-        return;
-    };
-    let refs = [
-        "for-each-ref",
-        "--format=%(refname)",
-        "--contains",
-        &tip,
-        "refs/heads",
-    ];
-    let mine = format!("refs/heads/{}", own.branch);
-    let elsewhere = git.ok(&common, &refs, LOOK).is_ok_and(|out| {
-        (out.split(|&c| c == b'\n')).any(|r| !r.is_empty() && r != mine.as_bytes())
-    });
-    if bare && elsewhere {
-        let _ = git.remove(&common, &own, Some(&tip));
-    }
-}
-
-/// The status of a folder as Keep reads it: every untracked file listed
-/// on its own.
-const STATUS: [&str; 5] = [
-    "status",
-    "--porcelain",
-    "-z",
-    "--untracked-files=all",
-    "--no-renames",
-];
 
 /// The core's checks' environment, never asking anyone anything, never
-/// looking for a repository above the worktrees' folder, and with how a
-/// person keeps git from their configuration where they did.
+/// taking a lock a look does not need, never fetching what a partial clone
+/// left out, never reading a commit as the one a replacement ref puts in
+/// its place, never looking for a repository above the worktrees' folder,
+/// and with how a person keeps git from their configuration where they did.
 fn environment(root: &Path) -> Vec<(String, OsString)> {
     let mut env = crate::terminal::environment_of_checks();
     for (key, value) in [
         ("GIT_TERMINAL_PROMPT", "0"),
         ("GIT_OPTIONAL_LOCKS", "0"),
         ("GIT_LITERAL_PATHSPECS", "1"),
-        ("GIT_LFS_SKIP_SMUDGE", "1"),
+        ("GIT_NO_LAZY_FETCH", "1"),
+        ("GIT_NO_REPLACE_OBJECTS", "1"),
     ] {
         env.push((key.into(), value.into()));
     }
@@ -1515,6 +1211,16 @@ fn environment(root: &Path) -> Vec<(String, OsString)> {
         }
     }
     env
+}
+
+/// What tells a git command run in the worktree at `dir` which record is
+/// that worktree's, whatever its `.git` says by then. Both as git takes a
+/// path ([`folder`]).
+fn inside<'a>(record: &'a Path, dir: &'a Path) -> [(&'static str, &'a OsStr); 2] {
+    [
+        ("GIT_DIR", record.as_os_str()),
+        ("GIT_WORK_TREE", dir.as_os_str()),
+    ]
 }
 
 /// Git's record of the worktree at `path`: the folder its `.git` file names.
@@ -1533,10 +1239,6 @@ fn midway(git_dir: &Path) -> Option<&'static str> {
         ("CHERRY_PICK_HEAD", "a cherry-pick"),
         ("REVERT_HEAD", "a revert"),
         ("BISECT_LOG", "a bisect"),
-        (
-            "index.lock",
-            "another git command, or one that stopped holding its index",
-        ),
     ];
     let found = marks
         .into_iter()
@@ -1567,7 +1269,7 @@ fn pause(_: &str) {}
 
 /// A change to a folder, tried again for a few seconds on Windows, where
 /// what only looks at a file for a moment, such as a virus scanner, refuses
-/// it meanwhile; a process that works there refuses it for good.
+/// it meanwhile.
 fn patiently(mut change: impl FnMut() -> std::io::Result<()>) -> std::io::Result<()> {
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     loop {

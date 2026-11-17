@@ -176,6 +176,16 @@ impl Process {
         }
     }
 
+    /// The session the child leads, once it runs: every process the terminal
+    /// started is in it, unless it left it itself. None on Windows.
+    pub fn session(&self) -> Option<u32> {
+        #[cfg(unix)]
+        let session = self.group.as_deref().copied();
+        #[cfg(windows)]
+        let session = None;
+        session
+    }
+
     /// The terminal's foreground process group, and the group of its own
     /// child, once it runs; none on Windows.
     pub fn foreground(&self) -> Option<(u32, u32)> {

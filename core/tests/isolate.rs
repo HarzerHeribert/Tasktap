@@ -1,13 +1,17 @@
 //! Isolated runs (design §7, "Isolation") through the real binary, with
 //! real git repositories in temporary folders. Each run is a fixture agent
 //! the real launcher starts, which changes files in its working folder
-//! with its `write` step. The tests try to break the promise that nothing of
-//! the person's is lost or altered except by a Keep that succeeded: their
+//! with its `write` step. The tests try to break the design's promise in
+//! its three tiers. Nothing of the person's is lost or altered except that
+//! a Keep adds commits as a fast-forward of their own would: their
 //! uncommitted work, their ignored files and their branches, across
-//! refusals, a crash in the middle of a keep, a worktree removed behind the
-//! core's back, hooks that fail or hang, and a configuration that would
-//! sign, stash, page or color. Git runs with no configuration of whoever runs
-//! the tests; where git is not installed every test says so and passes.
+//! refusals, a crash before every step of a keep and of a discard, a folder
+//! that switches branch at that moment, and a worktree removed behind the
+//! core's back. A worktree goes only on a Discard, after a Keep, or when git
+//! itself agrees nothing is in it, whatever came after the core looked. And
+//! git runs as the person's own, with hooks off and nothing that hangs. Git
+//! runs with no configuration of whoever runs the tests; where git is not
+//! installed every test says so and passes.
 
 mod common;
 
@@ -93,6 +97,9 @@ impl Work {
                 "commit.gpgSign=false",
             ])
             .args(["-c", "core.hooksPath=tasktap-tests-no-hooks"])
+            // No upkeep left running in a worktree after a commit there: for
+            // the moment it runs it is a process working in that worktree.
+            .args(["-c", "maintenance.auto=false", "-c", "gc.auto=0"])
             .args([
                 "-c",
                 "protocol.file.allow=always",
@@ -179,6 +186,12 @@ fn read(path: impl AsRef<Path>) -> String {
 /// A core whose runs are fixture agents and whose git reads the work's
 /// core configuration as the person's.
 fn start(data: &Folder, work: &Work, extra: &[&str]) -> Core {
+    start_blind(data, work, extra, "")
+}
+
+/// [`start`], on a system that does not show the core what `blind` names:
+/// `processes`, or their working `folders`.
+fn start_blind(data: &Folder, work: &Work, extra: &[&str], blind: &str) -> Core {
     let path = path_with(&agents(&data.0));
     let config = work.core_config();
     let pause = work.pause();
@@ -187,6 +200,7 @@ fn start(data: &Folder, work: &Work, extra: &[&str]) -> Core {
         ("GIT_CONFIG_GLOBAL", config.to_str().unwrap()),
         ("GIT_CONFIG_NOSYSTEM", "1"),
         ("TASKTAP_FIXTURE_PAUSE", pause.to_str().unwrap()),
+        ("TASKTAP_FIXTURE_BLIND", blind),
         ("SHELL", "/bin/sh"),
     ];
     // Git is slow on a busy Windows runner; a hook that hung would still
@@ -741,123 +755,158 @@ fn two_isolated_thoughts_in_one_project_are_kept_in_either_order() {
     assert_eq!(work.ours(&repo), "");
 }
 
-/// A keep the core crashed during, before it did anything; `then` leaves
-/// what the keep would have left where the crash came later. The core
-/// starts again on it.
-fn stopped_during(
-    prefix: &str,
-    keep: bool,
-    then: impl FnOnce(&Work, &Path, &Workdir),
-) -> (Scene, ThoughtId, Work, PathBuf, Workdir) {
+/// A settle the core crashed during, just before its step `step`, of a
+/// thought that wrote `k.txt`, in a project folder that holds a change, a
+/// new file and an ignored file of the person's; and the core started again,
+/// its sweep done.
+struct Crashed {
+    s: Scene,
+    t: ThoughtId,
+    work: Work,
+    repo: PathBuf,
+    w: Workdir,
+    head: String,
+}
+
+fn crashed_before(prefix: &str, keep: bool, step: &str) -> Crashed {
     let work = Work::new(prefix);
     let repo = work.repo("app");
+    write(&repo.join("b.txt"), "my change\n");
+    write(&repo.join("notes.txt"), "my notes\n");
+    write(&repo.join("mine.log"), "my log\n");
+    let head = work.git(&repo, &["rev-parse", "HEAD"]);
     let mut s = scene(prefix, &work, &repo, SILENT);
     isolate(&mut s, Isolate::Always);
     let t = pending(&mut s, "write:k.txt:kept");
     let w = workdir(&s, t);
-    // Again with every git job held back, and a crash while the settle waits.
-    let Scene {
-        core,
-        data,
-        w: watch,
-        ..
-    } = s;
-    drop((watch, core));
-    let held = core_held(&data, &work);
-    let mut c = held.watch();
+    work.hold(step);
     let settle = Settle {
         id: t,
         attempt: AttemptId::mint(),
         keep,
     };
-    // Its attempt is committed before the next call is answered.
-    c.send::<call::ThoughtSettle>(&settle);
-    c.sync();
-    drop((c, held));
-    then(&work, &repo, &w);
-    let s = Scene::in_folder(start(&data, &work, &[]), data, &repo, SILENT);
-    (s, t, work, repo, w)
+    s.w.send::<call::ThoughtSettle>(&settle);
+    work.held(step);
+    // The core that starts again stops nowhere.
+    std::fs::remove_file(work.pause().join(format!("{step}.wait"))).unwrap();
+    let swept = sentinel(&s.data);
+    let mut s = crashed(s, &work, &repo);
+    eventually("the start sweep ran", || !swept.exists());
+    s.w.sync();
+    Crashed {
+        s,
+        t,
+        work,
+        repo,
+        w,
+        head,
+    }
 }
 
-/// A core whose every job off its thread waits 2 s first.
-fn core_held(data: &Folder, work: &Work) -> Core {
-    start(data, work, &["--check-ms", "2000"])
+impl Crashed {
+    /// Nothing of the person's is lost or altered: what they had changed,
+    /// untracked and ignored is as it was, and `main` is where it was or
+    /// one fast-forward on, with the thought's file. Returns which.
+    fn kept(&self) -> bool {
+        assert_eq!(read(self.repo.join("b.txt")), "my change\n");
+        assert_eq!(read(self.repo.join("notes.txt")), "my notes\n");
+        assert_eq!(read(self.repo.join("mine.log")), "my log\n");
+        let on = self.work.git(&self.repo, &["symbolic-ref", "HEAD"]);
+        assert_eq!(on, "refs/heads/main");
+        if self.work.git(&self.repo, &["rev-parse", "main"]) == self.head {
+            assert!(!self.repo.join("k.txt").exists());
+            return false;
+        }
+        assert_eq!(
+            self.work.git(&self.repo, &["rev-parse", "main^"]),
+            self.head
+        );
+        assert_eq!(read(self.repo.join("k.txt")), "kept");
+        true
+    }
+
+    fn changes(&self) -> Changes {
+        changes(&self.s, self.t)
+    }
+
+    /// Nothing is left of the worktree, nor of its branch.
+    fn gone(&self) -> bool {
+        !Path::new(&self.w.path).exists() && self.work.ours(&self.repo).is_empty()
+    }
 }
 
 #[test]
-fn a_keep_the_core_stopped_during_is_decided_by_what_git_shows_at_the_next_start() {
+fn a_crash_before_any_step_of_a_keep_loses_nothing_and_the_next_keep_or_discard_decides_it() {
     if !have_git() {
         return;
     }
-    // Stopped before the merge, its changes committed: still pending, and a
-    // new keep finishes it.
-    {
-        let (mut s, t, work, repo, w) = stopped_during("ic1", true, |work, _, w| {
-            let wt = Path::new(&w.path);
-            work.git(wt, &["add", "-A"]);
-            work.git(wt, &["commit", "-q", "-m", "committed by the keep"]);
-        });
-        let head = work.git(&repo, &["rev-parse", "HEAD"]);
-        s.w.sync();
-        assert_eq!(changes(&s, t), Changes::Pending);
-        assert_eq!(work.git(&repo, &["rev-parse", "HEAD"]), head);
-        assert!(work.branch(&repo, &w.branch).is_some());
-        settle(&mut s, t, true).unwrap();
-        assert_eq!(read(repo.join("k.txt")), "kept");
-        let subject = work.git(&repo, &["log", "-1", "--format=%s"]);
-        assert_eq!(subject, "committed by the keep");
+    // Before it commits, before it moves the branch, before it removes the
+    // worktree, and before it deletes the worktree's branch.
+    for step in ["commit", "keep", "remove", "branch"] {
+        for again in [true, false] {
+            let mut c = crashed_before("ck", true, step);
+            let merged = c.kept();
+            assert_eq!(merged, matches!(step, "remove" | "branch"), "{step}");
+            assert_eq!(c.changes(), Changes::Pending, "{step}");
+            settle(&mut c.s, c.t, again).unwrap_or_else(|e| panic!("{step} {again}: {e}"));
+            // Kept by the Keep, or found kept by the Discard; discarded only
+            // where nothing had reached main.
+            let kept = again || merged;
+            let settled = if kept {
+                Changes::Kept
+            } else {
+                Changes::Discarded
+            };
+            assert_eq!(c.changes(), settled, "{step} {again}");
+            assert_eq!(c.kept(), kept, "{step} {again}");
+            assert!(c.gone(), "{step} {again}");
+        }
     }
-    // Stopped after the merge: kept, and what is left is tidied away.
-    {
-        let (mut s, t, work, repo, w) = stopped_during("ic2", true, |work, repo, w| {
-            let wt = Path::new(&w.path);
-            work.git(wt, &["add", "-A"]);
-            work.git(wt, &["commit", "-q", "-m", "committed by the keep"]);
-            work.git(repo, &["merge", "-q", "--ff-only", &w.branch]);
-        });
-        s.w.until("the start decided it", |m| {
-            m.thoughts[&t].workdir.as_ref().unwrap().changes == Changes::Kept
-        });
-        eventually("the worktree is tidied", || !Path::new(&w.path).exists());
-        eventually("the branch is deleted", || {
-            work.branch(&repo, &w.branch).is_none()
-        });
-        assert_eq!(read(repo.join("k.txt")), "kept");
-        assert_eq!(settle(&mut s, t, true).unwrap_err().code, Code::Conflict);
+    // After its last step, before the record: kept, as git shows.
+    let mut c = crashed_before("ck", true, "done");
+    let t = c.t;
+    c.s.w.until("the start decided it", |m| {
+        m.thoughts[&t].workdir.as_ref().unwrap().changes == Changes::Kept
+    });
+    assert!(c.kept() && c.gone());
+}
+
+#[test]
+fn a_crash_before_any_step_of_a_discard_loses_nothing_of_the_persons_and_leaves_it_decidable() {
+    if !have_git() {
+        return;
     }
-    // Stopped after it tidied up: kept.
-    {
-        let (mut s, t, _work, _repo, _) = stopped_during("ic3", true, |work, repo, w| {
-            let wt = Path::new(&w.path);
-            work.git(wt, &["add", "-A"]);
-            work.git(wt, &["commit", "-q", "-m", "committed by the keep"]);
-            work.git(repo, &["merge", "-q", "--ff-only", &w.branch]);
-            let wt = plain(&w.path);
-            let wt = wt.to_str().unwrap();
-            work.git(repo, &["worktree", "remove", "--force", wt]);
-            work.git(repo, &["branch", "-D", &w.branch]);
-        });
-        s.w.until("the start decided it", |m| {
-            m.thoughts[&t].workdir.as_ref().unwrap().changes == Changes::Kept
-        });
+    // Before it removed anything: still pending, all of it there.
+    for again in [true, false] {
+        let mut c = crashed_before("cd", false, "remove");
+        assert!(!c.kept());
+        assert_eq!(c.changes(), Changes::Pending);
+        assert_eq!(read(Path::new(&c.w.path).join("k.txt")), "kept");
+        settle(&mut c.s, c.t, again).unwrap();
+        let settled = if again {
+            Changes::Kept
+        } else {
+            Changes::Discarded
+        };
+        assert_eq!(c.changes(), settled);
+        assert_eq!(c.kept(), again);
+        assert!(c.gone());
     }
-    // A discard stopped after it removed everything: discarded.
-    {
-        let (mut s, t, _work, _repo, _) = stopped_during("ic4", false, |work, repo, w| {
-            let wt = plain(&w.path);
-            let wt = wt.to_str().unwrap();
-            work.git(repo, &["worktree", "remove", "--force", wt]);
-            work.git(repo, &["branch", "-D", &w.branch]);
-        });
-        s.w.until("the start decided it", |m| {
-            m.thoughts[&t].workdir.as_ref().unwrap().changes == Changes::Discarded
-        });
-    }
-    // One stopped before it did anything: still pending, nothing lost.
-    let (mut s, t, _work, _repo, w) = stopped_during("ic5", false, |_, _, _| {});
-    s.w.sync();
-    assert_eq!(changes(&s, t), Changes::Pending);
-    assert_eq!(read(Path::new(&w.path).join("k.txt")), "kept");
+    // Between the folder and its branch: what is left holds nothing, and goes.
+    let mut c = crashed_before("cd", false, "branch");
+    let t = c.t;
+    c.s.w.until("the start looked at it", |m| {
+        m.thoughts[&t].workdir.as_ref().unwrap().changes == Changes::Clean
+    });
+    eventually("the branch is deleted", || c.gone());
+    assert!(!c.kept());
+    // After its last step, before the record: discarded, as git shows.
+    let mut c = crashed_before("cd", false, "done");
+    let t = c.t;
+    c.s.w.until("the start decided it", |m| {
+        m.thoughts[&t].workdir.as_ref().unwrap().changes == Changes::Discarded
+    });
+    assert!(!c.kept() && c.gone());
 }
 
 #[test]
@@ -1240,7 +1289,8 @@ fn making_a_worktree_does_not_hold_up_the_core() {
     let work = Work::new("iy");
     let repo = work.repo("app");
     let data = Folder::new("iy");
-    let core = core_held(&data, &work);
+    // Every job off the core's thread waits 2 s first.
+    let core = start(&data, &work, &["--check-ms", "2000"]);
     let mut s = Scene::in_folder(core, data, &repo, SILENT);
     isolate(&mut s, Isolate::Always);
     let t = capture(&mut s, "write:a.txt:x");
@@ -1388,7 +1438,8 @@ fn the_start_sweep_removes_what_a_stopped_launch_left_and_keeps_anything_else() 
     drop(s);
 }
 
-// The independent review's findings, each first reproduced, then fixed.
+// The findings of two independent reviews, each first reproduced, then
+// closed: by a fix, or by removing what it was a finding of.
 
 /// A thought whose record says it ran in `workdir`, its changes pending,
 /// written straight into the store as a damaged or forged record would be.
@@ -1596,7 +1647,7 @@ fn review_3_two_starts_that_would_take_one_worktree_never_undo_each_other() {
 }
 
 #[test]
-fn review_4_a_git_command_a_crashed_core_left_running_holds_off_every_settle_until_it_ends() {
+fn review_4_a_git_command_that_outlives_a_crashed_core_finishes_and_keep_goes_on_from_there() {
     if !have_git() {
         return;
     }
@@ -1608,6 +1659,7 @@ fn review_4_a_git_command_a_crashed_core_left_running_holds_off_every_settle_unt
     )
     .unwrap();
     let repo = work.repo("app");
+    let head = work.git(&repo, &["rev-parse", "HEAD"]);
     let mut s = scene("r4", &work, &repo, SILENT);
     isolate(&mut s, Isolate::Always);
     let t = pending(&mut s, "write:k.txt:kept");
@@ -1628,88 +1680,46 @@ fn review_4_a_git_command_a_crashed_core_left_running_holds_off_every_settle_unt
     eventually("the merge waits on the lock", || {
         repo.join("k.txt").exists()
     });
-    // The core stops; its git goes on waiting.
+    // The core stops; its git goes on waiting. Nothing is decided for it:
+    // the changes are pending, as git shows them.
     let mut s = crashed(s, &work, &repo);
     s.w.sync();
     assert_eq!(changes(&s, t), Changes::Pending);
-    for keep in [false, true] {
-        let e = settle(&mut s, t, keep).unwrap_err();
-        assert!(e.message.contains("still running"), "{e}");
-    }
+    assert_eq!(work.git(&repo, &["rev-parse", "main"]), head);
     assert!(Path::new(&w.path).exists());
     // It ends: the keep it was part of happened, and Keep only tidies up.
     std::fs::remove_file(&lock).unwrap();
     eventually("the old merge finishes", || {
         work.git(&repo, &["log", "-1", "--format=%s"]) == "write:k.txt:kept"
     });
-    eventually("its git has gone", || settle(&mut s, t, true).is_ok());
+    settle(&mut s, t, true).unwrap();
     assert_eq!(changes(&s, t), Changes::Kept);
+    assert_eq!(work.git(&repo, &["rev-parse", "main^"]), head);
     assert!(!Path::new(&w.path).exists());
+    assert_eq!(work.ours(&repo), "");
 }
 
 #[test]
-fn review_5_drivers_and_filters_the_person_configured_never_run() {
+fn review_5_a_filter_runs_as_the_persons_git_runs_it_so_its_files_are_kept_as_theirs_are() {
     if !have_git() {
         return;
     }
     let work = Work::new("r5");
-    let marks = work.path("marks");
-    std::fs::create_dir_all(&marks).unwrap();
     let repo = work.repo("app");
-    write(&repo.join("personal.txt"), "mine\n");
-    // A merge driver that changes a file of the person's and fails, and a
-    // filter that leaves a mark.
-    let evil = work.path("evil.sh");
-    let script = format!(
-        "#!/bin/sh\necho ran >> '{}'\necho changed > '{}'\nexit 1\n",
-        marks.join("driver").display(),
-        repo.join("personal.txt").display()
-    );
-    write(&evil, &script);
-    let mark = work.path("mark.sh");
-    write(
-        &mark,
-        &format!(
-            "#!/bin/sh\necho ran >> '{}'\ncat\n",
-            marks.join("filter").display()
-        ),
-    );
-    #[cfg(unix)]
-    for script in [&evil, &mark] {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    let config = format!(
-        "[merge \"evil\"]\n\tdriver = {} %O %A %B\n[filter \"x\"]\n\tclean = {}\n\tsmudge = {}\n",
-        evil.display(),
-        mark.display(),
-        mark.display()
-    )
-    .replace('\\', "/");
+    // A filter as Git LFS is one: what is stored is not what the folder holds.
+    let config = "[filter \"x\"]\n\tclean = tr a-z A-Z\n\tsmudge = tr A-Z a-z\n";
     std::fs::write(work.core_config(), config).unwrap();
-    work.commit(
-        &repo,
-        ".gitattributes",
-        "*.m merge=evil\n*.dat filter=x\n",
-        "attributes",
-    );
-    work.commit(&repo, "c.m", "base\n", "c");
+    work.commit(&repo, ".gitattributes", "*.dat filter=x\n", "attributes");
     let mut s = scene("r5", &work, &repo, SILENT);
     isolate(&mut s, Isolate::Always);
-    // Changed on both sides: a conflict, the driver never asked.
-    let t = pending(&mut s, "write:c.m:agent");
-    let moved = work.commit(&repo, "c.m", "person\n", "the person's");
-    let e = settle(&mut s, t, true).unwrap_err();
-    assert!(e.message.contains("c.m"), "{e}");
-    assert_eq!(read(repo.join("personal.txt")), "mine\n");
-    assert_eq!(work.git(&repo, &["rev-parse", "HEAD"]), moved);
-    // A filtered file: looked at and listed with no filter run, and not kept.
-    let f = pending(&mut s, "write:d.dat:data");
-    let (listed, _) = diff(&s, f, None);
+    let t = pending(&mut s, "write:d.dat:data");
+    let (listed, _) = diff(&s, t, None);
     assert!(listed.files.iter().any(|f| f.path == "d.dat"));
-    let e = settle(&mut s, f, true).unwrap_err();
-    assert!(e.message.contains("d.dat"), "{e}");
-    assert!(files_in(&marks).is_empty(), "{:?}", files_in(&marks));
+    settle(&mut s, t, true).unwrap();
+    assert_eq!(changes(&s, t), Changes::Kept);
+    // Stored as the filter cleans it, and in the folder as it smudges it.
+    assert_eq!(work.git(&repo, &["show", "main:d.dat"]), "DATA");
+    assert_eq!(read(repo.join("d.dat")), "data");
 }
 
 #[test]
@@ -1797,7 +1807,7 @@ fn review_8_a_merge_preference_of_the_persons_does_not_change_what_keep_does() {
 }
 
 #[test]
-fn review_9_keep_never_moves_a_branch_the_folder_switched_to_meanwhile() {
+fn review_9_a_folder_that_switches_branch_during_a_keep_is_reported_as_it_is_and_nothing_undone() {
     if !have_git() {
         return;
     }
@@ -1809,49 +1819,78 @@ fn review_9_keep_never_moves_a_branch_the_folder_switched_to_meanwhile() {
     isolate(&mut s, Isolate::Always);
     let t = pending(&mut s, "write:n.txt:n");
     let w = workdir(&s, t);
+    // Stopped before git merges into the folder that has main, which then
+    // switches to another branch.
     work.hold("keep");
-    let settle_args = Settle {
-        id: t,
-        attempt: AttemptId::mint(),
-        keep: true,
+    let held = |s: &mut Scene, t| {
+        let settle = Settle {
+            id: t,
+            attempt: AttemptId::mint(),
+            keep: true,
+        };
+        let call = s.w.send::<call::ThoughtSettle>(&settle);
+        work.held("keep");
+        call
     };
-    let call = s.w.send::<call::ThoughtSettle>(&settle_args);
-    work.held("keep");
+    let call = held(&mut s, t);
     work.git(&repo, &["checkout", "-q", "other"]);
     work.release("keep");
-    assert!(s.w.reply::<call::ThoughtSettle>(call).is_err());
-    assert_eq!(work.git(&repo, &["rev-parse", "other"]), head);
+    let e = s.w.reply::<call::ThoughtSettle>(call).unwrap_err();
+    for part in ["merged into other", "ORIG_HEAD", w.branch.as_str()] {
+        assert!(e.message.contains(part), "{e}");
+    }
+    // What git did is left as it is, and said: the branch the folder went
+    // to has the commit, main is where it was, and the changes still wait.
+    let tip = work.branch(&repo, &w.branch).unwrap();
+    assert_eq!(work.git(&repo, &["rev-parse", "other"]), tip);
     assert_eq!(work.git(&repo, &["rev-parse", "main"]), head);
     assert_eq!(
         work.git(&repo, &["symbolic-ref", "HEAD"]),
         "refs/heads/other"
     );
+    assert_eq!(read(repo.join("n.txt")), "n");
     assert_eq!(work.git(&repo, &["status", "--porcelain"]), "");
-    assert!(!repo.join("n.txt").exists());
-    assert!(work.branch(&repo, &w.branch).is_some());
+    assert!(Path::new(&w.path).join("n.txt").exists());
     assert_eq!(changes(&s, t), Changes::Pending);
+    // The next Keep goes on from there: main, checked out nowhere now.
+    std::fs::remove_file(work.pause().join("keep.wait")).unwrap();
+    settle(&mut s, t, true).unwrap();
+    assert_eq!(work.git(&repo, &["rev-parse", "main"]), tip);
+    assert_eq!(changes(&s, t), Changes::Kept);
+
     // Checked out nowhere when the keep looked, and checked out before it
-    // moved the branch: the branch goes back.
+    // moved the branch: main has the commit, and the folder that took it is
+    // said to hold the files from before, with the command that brings
+    // them in.
+    work.git(&repo, &["checkout", "-q", "main"]);
+    let u = pending(&mut s, "write:m.txt:m");
+    let w = workdir(&s, u);
+    work.git(&repo, &["checkout", "-q", "other"]);
+    write(&repo.join("b.txt"), "my change\n");
     work.hold("keep");
-    let settle_args = Settle {
-        id: t,
-        attempt: AttemptId::mint(),
-        keep: true,
-    };
-    let call = s.w.send::<call::ThoughtSettle>(&settle_args);
-    work.held("keep");
+    let call = held(&mut s, u);
     work.git(&repo, &["checkout", "-q", "main"]);
     work.release("keep");
     let e = s.w.reply::<call::ThoughtSettle>(call).unwrap_err();
-    assert!(e.message.contains("checked out"), "{e}");
-    assert_eq!(work.git(&repo, &["rev-parse", "main"]), head);
-    assert_eq!(work.git(&repo, &["status", "--porcelain"]), "");
-    assert!(work.branch(&repo, &w.branch).is_some());
-    assert_eq!(changes(&s, t), Changes::Pending);
-    // Left alone, it keeps.
+    assert!(e.message.contains("The changes are in main"), "{e}");
+    let now = work.git(&repo, &["rev-parse", "main"]);
+    assert_eq!(work.git(&repo, &["rev-parse", "main^"]), tip);
+    assert!(!repo.join("m.txt").exists());
+    assert_eq!(read(repo.join("b.txt")), "my change\n");
+    assert_eq!(changes(&s, u), Changes::Pending);
+    let bring = format!("git read-tree -m -u {tip} {now}");
+    assert!(e.message.contains(&bring), "{e}");
+    work.git(&repo, &["read-tree", "-m", "-u", &tip, &now]);
+    assert_eq!(read(repo.join("m.txt")), "m");
+    assert_eq!(read(repo.join("b.txt")), "my change\n");
+    assert_eq!(work.git(&repo, &["status", "--porcelain"]), " M b.txt");
+    // Keep again only tidies up.
     std::fs::remove_file(work.pause().join("keep.wait")).unwrap();
-    settle(&mut s, t, true).unwrap();
-    assert_eq!(read(repo.join("n.txt")), "n");
+    settle(&mut s, u, true).unwrap();
+    assert_eq!(changes(&s, u), Changes::Kept);
+    assert_eq!(work.git(&repo, &["rev-parse", "main"]), now);
+    assert!(!Path::new(&w.path).exists());
+    assert_eq!(work.ours(&repo), "");
 }
 
 #[test]
@@ -1890,4 +1929,380 @@ fn review_10_a_shell_of_the_core_that_went_into_a_worktree_holds_it() {
     shell.until(shown);
     settle(&mut s, t, false).unwrap();
     assert!(!wt.exists());
+}
+
+// The second review's findings that the simpler contract answers with a
+// rule of its own.
+
+#[test]
+fn review2_6_what_comes_after_the_look_keeps_the_core_from_removing_a_worktree() {
+    if !have_git() {
+        return;
+    }
+    let work = Work::new("s6");
+    // A preference that would hide untracked files from git's own check.
+    std::fs::write(work.core_config(), "[status]\n\tshowUntrackedFiles = no\n").unwrap();
+    let repo = work.repo("app");
+    let mut s = scene("s6", &work, &repo, SILENT);
+    isolate(&mut s, Isolate::Always);
+    let wt_arg = |w: &Workdir| plain(&w.path).to_string_lossy().into_owned();
+    // Each run changes nothing, so the core goes to remove its worktree,
+    // and is stopped before it looks again (`tidy`), or after that and
+    // before git removes it (`remove`); then something arrives there.
+    type Arrives<'a> = &'a dyn Fn(&Workdir) -> Option<&'static str>;
+    let file: Arrives = &|w| {
+        write(&Path::new(&w.path).join("late.txt"), "late");
+        Some("late.txt")
+    };
+    let ignored: Arrives = &|w| {
+        write(&Path::new(&w.path).join("late.log"), "late");
+        Some("late.log")
+    };
+    let commit: Arrives = &|w| {
+        let commit = ["commit", "-q", "--allow-empty", "-m", "late"];
+        work.git(Path::new(&w.path), &commit);
+        None
+    };
+    let lock: Arrives = &|w| {
+        work.git(&repo, &["worktree", "lock", &wt_arg(w)]);
+        None
+    };
+    let cases = [
+        ("a file", "tidy", file),
+        ("an ignored file", "tidy", ignored),
+        ("a commit", "tidy", commit),
+        ("a lock of the person's, which git honours", "tidy", lock),
+        // Git's own check, whatever the person's preference hides.
+        ("a file", "remove", file),
+        // The folder holds nothing but the commit, so git removes it; the
+        // branch, which is not where it was, stays with the commit.
+        ("a commit", "remove", commit),
+    ];
+    for (what, step, arrives) in cases {
+        work.hold(step);
+        let t = capture(&mut s, "print:nothing to change");
+        work.held(step);
+        s.w.sync();
+        let w = workdir(&s, t);
+        assert_eq!(w.changes, Changes::Clean, "{what}");
+        let late = arrives(&w);
+        let tip = work.branch(&repo, &w.branch);
+        work.release(step);
+        // What arrived stays, and is the person's to keep or discard.
+        s.w.until("it is found to hold something", |m| {
+            m.thoughts[&t].workdir.as_ref().unwrap().changes == Changes::Pending
+        });
+        let stays = (what, step) != ("a commit", "remove");
+        assert_eq!(Path::new(&w.path).join("a.txt").exists(), stays, "{what}");
+        if let Some(late) = late {
+            assert_eq!(read(Path::new(&w.path).join(late)), "late", "{what}");
+        }
+        assert_eq!(work.branch(&repo, &w.branch), tip, "{what}");
+        settle(&mut s, t, false).unwrap();
+        assert!(!Path::new(&w.path).exists(), "{what}");
+        assert_eq!(work.branch(&repo, &w.branch), None, "{what}");
+    }
+}
+
+#[test]
+fn a_worktree_git_will_not_remove_stays_after_a_keep_and_a_discard_then_only_tidies_up() {
+    if !have_git() {
+        return;
+    }
+    let work = Work::new("il");
+    let repo = work.repo("app");
+    let mut s = scene("il", &work, &repo, SILENT);
+    isolate(&mut s, Isolate::Always);
+    let t = pending(&mut s, "write:n.txt:n");
+    let w = workdir(&s, t);
+    let at = plain(&w.path);
+    work.git(&repo, &["worktree", "lock", at.to_str().unwrap()]);
+    // Kept, and said so; the worktree is not removed against git's word.
+    for _ in 0..2 {
+        let e = settle(&mut s, t, true).unwrap_err();
+        assert!(e.message.contains("The changes are in main"), "{e}");
+        assert_eq!(read(repo.join("n.txt")), "n");
+        assert_eq!(changes(&s, t), Changes::Pending);
+        assert!(Path::new(&w.path).join("n.txt").exists());
+    }
+    // Discard removes what is left. Nothing was discarded: it is kept.
+    settle(&mut s, t, false).unwrap();
+    assert_eq!(changes(&s, t), Changes::Kept);
+    assert_eq!(read(repo.join("n.txt")), "n");
+    assert!(!Path::new(&w.path).exists());
+    assert_eq!(work.ours(&repo), "");
+}
+
+#[cfg(unix)]
+#[test]
+fn review2_8_a_process_the_core_cannot_see_holds_a_worktree() {
+    if !have_git() {
+        return;
+    }
+    // No process shows where it works: one in a terminal of the core counts
+    // as working in the worktree, and no other does.
+    let work = Work::new("s8");
+    let repo = work.repo("app");
+    let data = Folder::new("s8");
+    let core = start_blind(&data, &work, &[], "folders");
+    let mut s = Scene::in_folder(core, data, &repo, SILENT);
+    isolate(&mut s, Isolate::Always);
+    let t = pending(&mut s, "write:a.txt:x");
+    let wt = PathBuf::from(workdir(&s, t).path);
+    let start = StartTerminal {
+        project: Some(s.project),
+        argv: Vec::new(),
+        title: None,
+    };
+    let id = TerminalId::mint();
+    let mut shell = Screen::start(&s.core, id, Some(start));
+    shell.line("echo in''side");
+    shell.until("inside");
+    let e = settle(&mut s, t, false).unwrap_err();
+    assert!(e.message.contains("in use"), "{e}");
+    assert_eq!(read(wt.join("a.txt")), "x");
+    // A Keep keeps, and leaves the worktree where it is.
+    let e = settle(&mut s, t, true).unwrap_err();
+    assert!(
+        e.message.contains("The changes are in main") && e.message.contains("in use"),
+        "{e}"
+    );
+    assert_eq!(read(repo.join("a.txt")), "x");
+    assert!(wt.exists());
+    assert_eq!(changes(&s, t), Changes::Pending);
+    s.w.ok::<call::TerminalStop>(&Ref { id });
+    s.w.until("the shell ended", |m| {
+        m.terminals[&id].state != tasktap_proto::TerminalState::Running
+    });
+    eventually("its processes have gone", || {
+        settle(&mut s, t, true).is_ok()
+    });
+    assert_eq!(changes(&s, t), Changes::Kept);
+    assert!(!wt.exists());
+
+    // No process can be listed at all: the core removes nothing on its own
+    // account, and what the person asks for goes.
+    let work = Work::new("s8");
+    let repo = work.repo("app");
+    let data = Folder::new("s8");
+    let core = start_blind(&data, &work, &[], "processes");
+    let mut s = Scene::in_folder(core, data, &repo, SILENT);
+    isolate(&mut s, Isolate::Always);
+    let idle = capture(&mut s, "print:nothing to change");
+    s.w.until("it is done and looked at", |m| {
+        let th = &m.thoughts[&idle];
+        th.status == Status::Done && th.workdir.is_some()
+    });
+    let t = pending(&mut s, "write:a.txt:x");
+    let wt = PathBuf::from(workdir(&s, t).path);
+    settle(&mut s, t, false).unwrap();
+    assert!(!wt.exists());
+    let left = workdir(&s, idle);
+    assert_eq!(left.changes, Changes::Clean);
+    assert!(Path::new(&left.path).join("a.txt").exists());
+    assert!(work.branch(&repo, &left.branch).is_some());
+}
+
+// The third review, of the promise about the person's own (design §7):
+// what could reach beyond Tasktap's folder and branches, each closed.
+
+#[test]
+fn review3_1_a_runs_branch_made_a_symbolic_ref_never_leads_to_the_branch_it_names() {
+    if !have_git() {
+        return;
+    }
+    let work = Work::new("t1");
+    let repo = work.repo("app");
+    let base = work.git(&repo, &["rev-parse", "HEAD"]);
+    work.git(&repo, &["branch", "mine"]);
+    let mut s = scene("t1", &work, &repo, SILENT);
+    isolate(&mut s, Isolate::Always);
+    let aliased = |w: &Workdir, to: &str| {
+        let run = format!("refs/heads/{}", w.branch);
+        work.git(&repo, &["symbolic-ref", &run, &format!("refs/heads/{to}")]);
+        run
+    };
+    // The run's branch becomes another name for a branch of the person's:
+    // neither Discard nor Keep reads, moves or deletes anything through it.
+    let t = pending(&mut s, "write:n.txt:n");
+    let w = workdir(&s, t);
+    let run = aliased(&w, "mine");
+    for keep in [false, true] {
+        let e = settle(&mut s, t, keep).unwrap_err();
+        assert!(e.message.contains("symbolic ref"), "{e}");
+        assert_eq!(work.branch(&repo, "mine"), Some(base.clone()), "{keep}");
+        assert_eq!(read(Path::new(&w.path).join("n.txt")), "n");
+    }
+    // The person removes that name: what is left is discarded.
+    work.git(&repo, &["symbolic-ref", "--delete", &run]);
+    settle(&mut s, t, false).unwrap();
+    assert!(!Path::new(&w.path).exists());
+    assert_eq!(work.branch(&repo, "mine"), Some(base.clone()));
+
+    // Nor does the core's own removal of a worktree with nothing in it,
+    // stopped here between removing the folder and deleting the branch,
+    // where no look stands between the new name and the deletion.
+    work.hold("branch");
+    let u = capture(&mut s, "print:nothing to change");
+    work.held("branch");
+    s.w.sync();
+    let w = workdir(&s, u);
+    let run = aliased(&w, "mine");
+    work.release("branch");
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(work.branch(&repo, "mine"), Some(base.clone()));
+    assert_eq!(work.git(&repo, &["symbolic-ref", &run]), "refs/heads/mine");
+
+    // And a launch does not make its branch through a symbolic ref that
+    // has its name: the branch that names is not made, and the launch fails.
+    let attempt = AttemptId::mint();
+    let hex = attempt.uuid().simple().to_string();
+    let taken = format!("refs/heads/tasktap/{}", &hex[hex.len() - 12..]);
+    work.git(&repo, &["symbolic-ref", &taken, "refs/heads/unborn"]);
+    let to = Place::Project(s.project);
+    s.script(
+        Route::Clear {
+            to,
+            brief: "write:a.txt:x".into(),
+        },
+        None,
+    );
+    let v = s.capture("write:a.txt:x");
+    s.w.ok::<call::ThoughtStart>(&Start { id: v, attempt });
+    s.w.until("it failed", |m| m.thoughts[&v].status == Status::Failed);
+    let why = &s.w.model.results_of(v)[0];
+    assert!(why.summary.contains("symbolic ref"), "{}", why.summary);
+    assert_eq!(work.branch(&repo, "unborn"), None);
+    assert_eq!(
+        work.git(&repo, &["symbolic-ref", &taken]),
+        "refs/heads/unborn"
+    );
+}
+
+#[test]
+fn review3_2_a_git_link_changed_after_keep_checked_it_sends_nothing_into_the_persons_repository() {
+    if !have_git() {
+        return;
+    }
+    let work = Work::new("t2");
+    let repo = work.repo("app");
+    // Something of the person's, staged in the project folder.
+    write(&repo.join("s.txt"), "staged\n");
+    work.git(&repo, &["add", "s.txt"]);
+    let mut s = scene("t2", &work, &repo, SILENT);
+    isolate(&mut s, Isolate::Always);
+    let t = pending(&mut s, "write:k.txt:kept");
+    let w = workdir(&s, t);
+    // Keep has checked the worktree and is stopped before it commits there;
+    // then the worktree's `.git` names the project's own git folder.
+    work.hold("commit");
+    let settle_args = Settle {
+        id: t,
+        attempt: AttemptId::mint(),
+        keep: true,
+    };
+    let call = s.w.send::<call::ThoughtSettle>(&settle_args);
+    work.held("commit");
+    let link = format!("gitdir: {}\n", plain(repo.join(".git")).display());
+    write(&Path::new(&w.path).join(".git"), &link);
+    work.release("commit");
+    // Git no longer takes the folder for its worktree, so it stays.
+    let e = s.w.reply::<call::ThoughtSettle>(call).unwrap_err();
+    assert!(e.message.contains("The changes are in main"), "{e}");
+    // The commit was made in the worktree's own record, and kept; what the
+    // person had staged is staged as it was.
+    assert_eq!(
+        work.git(&repo, &["diff", "--cached", "--name-only"]),
+        "s.txt"
+    );
+    assert_eq!(read(repo.join("k.txt")), "kept");
+    assert_eq!(
+        work.git(&repo, &["log", "-1", "--format=%s: %b"]),
+        "write:k.txt:kept: Committed by Tasktap when its changes were kept."
+    );
+}
+
+#[test]
+fn review3_3_a_replacement_ref_does_not_make_keep_drop_the_persons_commits() {
+    if !have_git() {
+        return;
+    }
+    let work = Work::new("t3");
+    let repo = work.repo("app");
+    let mut s = scene("t3", &work, &repo, SILENT);
+    isolate(&mut s, Isolate::Always);
+    let t = pending(&mut s, "write:n.txt:n");
+    let w = workdir(&s, t);
+    let wt = Path::new(&w.path);
+    work.git(wt, &["add", "-A"]);
+    work.git(wt, &["commit", "-q", "-m", "the agent's"]);
+    let tip = work.branch(&repo, &w.branch).unwrap();
+    let moved = work.commit(&repo, "a.txt", "person\n", "the person's");
+    // A replacement that shows the run's commit as made after the person's,
+    // which it was not.
+    work.git(&repo, &["replace", "--graft", &tip, &moved]);
+    settle(&mut s, t, true).unwrap();
+    // Main as it really is still holds the person's commit, and its file.
+    let real = ["--no-replace-objects", "merge-base", "--is-ancestor"];
+    let real = work.try_git(&repo, &[&real[..], &[&moved, "main"]].concat());
+    assert!(real.status.success(), "main lost the person's commit");
+    assert_eq!(read(repo.join("a.txt")), "person\n");
+    assert_eq!(read(repo.join("n.txt")), "n");
+}
+
+#[test]
+fn review3_4_a_strategy_the_person_prefers_does_not_replace_the_fast_forward() {
+    if !have_git() {
+        return;
+    }
+    let work = Work::new("t4");
+    let config = "[branch \"main\"]\n\tmergeOptions = -s subtree\n[pull]\n\ttwohead = subtree\n";
+    std::fs::write(work.core_config(), config).unwrap();
+    let repo = work.repo("app");
+    let head = work.git(&repo, &["rev-parse", "HEAD"]);
+    let mut s = scene("t4", &work, &repo, SILENT);
+    isolate(&mut s, Isolate::Always);
+    let t = pending(&mut s, "write:x.txt:x");
+    let wt = PathBuf::from(workdir(&s, t).path);
+    write(&wt.join("out.log"), "agent's log\n");
+    work.git(&wt, &["add", "-f", "out.log"]);
+    work.git(&wt, &["commit", "-q", "-m", "the agent's log"]);
+    // An ignored file of the person's where the keep brings a tracked one.
+    write(&repo.join("out.log"), "my log\n");
+    let e = settle(&mut s, t, true).unwrap_err();
+    assert!(e.message.contains("out.log"), "{e}");
+    assert_eq!(read(repo.join("out.log")), "my log\n");
+    assert_eq!(work.git(&repo, &["rev-parse", "HEAD"]), head);
+    // Out of the way, the keep is the fast-forward it was asked to be.
+    std::fs::remove_file(repo.join("out.log")).unwrap();
+    settle(&mut s, t, true).unwrap();
+    assert_eq!(work.git(&repo, &["rev-parse", "HEAD~2"]), head);
+    let merges = ["rev-list", "--merges", &format!("{head}..HEAD")];
+    assert_eq!(work.git(&repo, &merges), "");
+    assert_eq!(read(repo.join("out.log")), "agent's log\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn review3_5_a_worktrees_folder_that_is_a_link_elsewhere_is_never_worked_in() {
+    if !have_git() {
+        return;
+    }
+    let work = Work::new("t5");
+    let repo = work.repo("app");
+    let data = Folder::new("t5");
+    // The worktrees' folder leads into a folder of the person's, which
+    // holds a file with a name the core would give one of its own.
+    let theirs = work.path("theirs");
+    write(&theirs.join(".tmp-notes.txt"), "mine");
+    std::os::unix::fs::symlink(&theirs, data.0.join("worktrees")).unwrap();
+    let mut s = Scene::in_folder(start(&data, &work, &[]), data, &repo, SILENT);
+    isolate(&mut s, Isolate::Always);
+    let t = capture(&mut s, "write:a.txt:x");
+    s.w.until("it failed", |m| m.thoughts[&t].status == Status::Failed);
+    let why = &s.w.model.results_of(t)[0];
+    assert!(why.summary.contains("is a link"), "{}", why.summary);
+    assert_eq!(files_in(&theirs), [".tmp-notes.txt"]);
+    assert_eq!(read(theirs.join(".tmp-notes.txt")), "mine");
+    assert_eq!(work.ours(&repo), "");
 }

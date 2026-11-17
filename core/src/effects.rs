@@ -412,7 +412,6 @@ fn launch(core: &mut Core, launch: Launch) -> Option<Outcome> {
     };
     git(
         core,
-        repo.clone(),
         move |git| git.prepare(&repo, &worktree),
         move |core, made| match made {
             Ok(workdir) => {
@@ -667,22 +666,20 @@ pub fn settle_call(cx: &mut Cx, args: Value) -> Option<tasktap_proto::Control> {
 /// thread; the fixture launcher's settle where it stands in, at once.
 fn settle(core: &mut Core, attempt: AttemptId, thought: ThoughtId, keep: bool) -> Option<Outcome> {
     if let Some(launcher) = core.seams.launcher() {
-        let error = launcher.settle(thought, keep).err();
-        return Some(settled(core, attempt, error));
+        let done = launcher.settle(thought, keep).map(|()| keep);
+        return Some(settled(core, attempt, done));
     }
     let Some((repo, workdir, title)) = worktree_of(core, thought) else {
         let gone = "the thought's worktree is gone".to_owned();
-        return Some(settled(core, attempt, Some(gone)));
+        return Some(settled(core, attempt, Err(gone)));
     };
-    let work = {
-        let repo = repo.clone();
-        move |git: &mut Git| match keep {
-            true => git.keep(&repo, &workdir, &title),
-            false => git.discard(&repo, &workdir),
-        }
+    // A discard that finds all of it kept already reports it kept.
+    let work = move |git: &Git| match keep {
+        true => git.keep(&repo, &workdir, &title).map(|()| true),
+        false => git.discard(&repo, &workdir),
     };
-    git(core, repo, work, move |core, done| {
-        let outcome = settled(core, attempt, done.err());
+    git(core, work, move |core, done| {
+        let outcome = settled(core, attempt, done);
         let reply = match outcome {
             Outcome::Ok(_) => Ok(()),
             Outcome::Err(e) => Err(e),
@@ -694,10 +691,13 @@ fn settle(core: &mut Core, attempt: AttemptId, thought: ThoughtId, keep: bool) -
     None
 }
 
-/// Records how a settle or a tidy went, and returns it as a call's outcome.
-fn settled(core: &mut Core, attempt: AttemptId, error: Option<String>) -> Outcome {
+/// Records how a settle or a tidy went (whether it kept, or why it did
+/// not happen), and returns it as a call's outcome.
+fn settled(core: &mut Core, attempt: AttemptId, done: Result<bool, String>) -> Outcome {
+    let error = done.as_ref().err().cloned();
     let event = Event::Settled {
         attempt,
+        kept: done.unwrap_or(false),
         error: error.clone(),
     };
     report(core, event, |_| Ok(()));
@@ -713,18 +713,9 @@ fn survey(core: &mut Core, thought: ThoughtId) {
         return;
     };
     let path = workdir.path.clone();
-    // A look that can decide a settle the core stopped during waits for
-    // that core's git to have ended.
-    let stopped = read(core, |tx| stopped(tx, thought)).unwrap_or_else(|e| stop(e));
     git(
         core,
-        repo.clone(),
-        move |git| {
-            if stopped {
-                git.hold_for(&workdir)?;
-            }
-            git.survey(&repo, &workdir)
-        },
+        move |git| git.survey(&repo, &workdir),
         move |core, found| {
             // A look that failed changes nothing: the next one may do better.
             if let Ok(found) = found {
@@ -746,25 +737,21 @@ fn survey(core: &mut Core, thought: ThoughtId) {
 /// lost, and otherwise records the changes it found there.
 fn tidy(core: &mut Core, attempt: AttemptId, thought: ThoughtId) {
     let Some((repo, workdir, _)) = worktree_of(core, thought) else {
-        drop(settled(
-            core,
-            attempt,
-            Some("the thought's worktree is gone".into()),
-        ));
+        let gone = "the thought's worktree is gone".to_owned();
+        drop(settled(core, attempt, Err(gone)));
         return;
     };
     let path = workdir.path.clone();
     git(
         core,
-        repo.clone(),
         move |git| git.tidy(&repo, &workdir),
         move |core, done| {
-            let (error, found) = match done {
-                Ok(None) => (None, None),
-                Ok(Some(found)) => (Some("it has changes, so it stays".into()), Some(found)),
-                Err(e) => (Some(e), None),
+            let (done, found) = match done {
+                Ok(None) => (Ok(false), None),
+                Ok(Some(found)) => (Err("it holds something, so it stays".into()), Some(found)),
+                Err(e) => (Err(e), None),
             };
-            drop(settled(core, attempt, error));
+            drop(settled(core, attempt, done));
             // Once the tidy has ended, what it found counts.
             if let Some(found) = found {
                 report(
@@ -779,13 +766,6 @@ fn tidy(core: &mut Core, attempt: AttemptId, thought: ThoughtId) {
             }
         },
     );
-}
-
-/// Whether the core stopped during the last settle or tidy of a thought's
-/// worktree.
-fn stopped(tx: &crate::store::Tx, thought: ThoughtId) -> crate::store::Result<bool> {
-    let last = tx.settles(thought)?.pop();
-    Ok(last.is_some_and(|a| a.outcome == Some(AttemptOutcome::Interrupted)))
 }
 
 /// A thought's worktree, its project's folder, and the title what Keep
@@ -815,12 +795,12 @@ fn title(t: &Thought) -> String {
 /// cut short by the core idling out.
 fn git<T: Send + 'static>(
     core: &mut Core,
-    repo: PathBuf,
-    work: impl FnOnce(&mut Git) -> Result<T, String> + Send + 'static,
+    work: impl FnOnce(&Git) -> Result<T, String> + Send + 'static,
     then: impl FnOnce(&mut Core, Result<T, String>) + 'static,
 ) {
     let data = core.terminals.data().to_owned();
-    let work = move || Git::new(&data, &repo).and_then(|mut git| work(&mut git));
+    let sessions = core.terminals.sessions();
+    let work = move || Git::new(&data, sessions).and_then(|git| work(&git));
     job(core, work, then);
 }
 
@@ -842,21 +822,20 @@ fn job<T: Send + 'static>(
 
 /// At start, off the core's thread (design §3): the worktrees of the
 /// thoughts not settled are looked at, which also decides a settle the core
-/// stopped during; worktrees with nothing to lose that no thought needs go.
-/// Only what was there before any launch of this run of the core is
-/// tidied, since none has started yet.
+/// stopped during and has what holds nothing tidied; a worktree a launch
+/// made and never recorded goes when git agrees nothing is in it. Only what
+/// was there before any launch of this run of the core is looked at, since
+/// none has started yet.
 pub fn sweep(core: &mut Core) {
     let owners = read(core, |tx| {
         let mut owners = Vec::new();
-        for t in tx.isolated()? {
+        for t in tx.worktrees()? {
             let project = t.project_id.map(|p| tx.project(p)).transpose()?.flatten();
-            let stopped = stopped(tx, t.id)?;
             if let (Some(p), Some(workdir)) = (project, t.workdir) {
                 owners.push(Owner {
                     thought: t.id,
                     repo: PathBuf::from(p.folder),
                     workdir,
-                    stopped,
                 });
             }
         }

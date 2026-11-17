@@ -67,12 +67,11 @@ fn run(mut c: Command, stdin: &str) -> Output {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = c.spawn().unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(stdin.as_bytes())
-        .unwrap();
+    let written = child.stdin.take().unwrap().write_all(stdin.as_bytes());
+    // A role that refuses its arguments may exit before it reads.
+    if let Err(e) = written {
+        assert_eq!(e.kind(), std::io::ErrorKind::BrokenPipe, "{e}");
+    }
     child.wait_with_output().unwrap()
 }
 

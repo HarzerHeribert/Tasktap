@@ -426,7 +426,17 @@ fn report(code: i32) {
             code: u32::try_from(code).ok(),
         },
     };
-    let sent = super::session("shim", Vec::new()).and_then(|mut c| super::report(&mut c, &exited));
+    let sent = super::session("shim", Vec::new()).and_then(|mut c| {
+        match c.call::<call::SessionEvent>(&exited) {
+            // Its session ended before, as when the person stopped it in Tasktap.
+            Ok(Ok(()))
+            | Ok(Err(Error {
+                code: Code::Gone, ..
+            })) => Ok(()),
+            Ok(Err(e)) => Err(Fail(FAILED, format!("the core refused it: {}", e.message))),
+            Err(e) => Err(super::ended(e)),
+        }
+    });
     if let Err(Fail(_, why)) = sent {
         let _ = writeln!(
             io::stderr(),

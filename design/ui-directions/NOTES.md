@@ -48,7 +48,7 @@ Grafts from the directions not chosen:
 
 1. **What needs you.** Questions, question first. The first one is open: its folder, agent and thought on one quiet line, the question in full at 17 px, its answers as key caps. Any further question is a single line (wave, folder, agent, thought, the question cut to fit) and opens when chosen; opening one closes the other. The section has the page's only lit rule, so it is the first thing the eye lands on. When nothing needs you the section is absent, not empty.
 2. **What is running.** One line each: the moving wave, the folder, the thought, the one fact that matters (the step it is on), the elapsed time. Sessions in the background are dimmed and sort last. No buttons: the row itself opens the terminal. At most four rows; more than that collapse into a last line, "3 more running", which opens in place (specified here, not drawn in the mock-up, which never has more than four).
-3. **The capture line.** Always the first line of the page, so it is always in the same place. As built (2026-11-17, after the owner found the drawn version read as a disabled heading over a table rule): the page's one raised field, `--field` on the light, its placeholder at 17 px, its destination and agent one chip inside it that opens the list, a caret in `--accent`, no rule under it and no hint beside it. Focused, its lower edge takes the `--accent` line. Two other variants were built for comparison: a line on the page, and a field in the title bar.
+3. **The capture field.** Always the first thing on the page, so it is always in the same place. As built (2026-11-17, after the owner rejected first a drawn line that read as a disabled heading, then a flat bordered box with a hint stranded at its far end): a soft raised surface with no border, lit from behind by the room's light gathered under it, 68 px high with 20 px corners, centred and 680 px wide (`--cap-w`) so a thought's words and its destination are never stranded at the two ends of the page's width. The placeholder is an invitation at 20 px in `--fg-field`; the thought grows a line at a time (Shift-Return for a new line, up to six); the caret is `--accent`. The destination is the one control inside it, a chip at its trailing edge ("→ folder · agent", or "Idea" with the reason as its tooltip before a folder is open) that opens the list beneath. With the keyboard, its surface brightens and a lit edge shows under it. No wave: there is no microphone in this build, and a mark that looks like one would promise it. Two variants were built for the owner: a composer (the thought on its own lines, the destination and a ↩ Start button on a row inside the field), and the bare field with its destination on a quiet line beneath it.
 
 Everything else is second layer and appears on the first only as one quiet line, or not at all:
 
@@ -77,7 +77,7 @@ Everything else is second layer and appears on the first only as one quiet line,
 | Busy day | Capture (quiet). Needs you 2: one open, one line. Running 4. Entry to results (1 new, 1 failed) and ideas (2) |
 | Normal | Capture (invitation). Running 1. Entry to results (1 new) and ideas (1) |
 | Quiet | Capture (invitation). The last two finished thoughts. Entry to the rest |
-| First run | Capture ("Kept as an idea until a folder is open"). To start: ⌘O Open a folder; Claude Code, signed in; Codex, not signed in, with Sign in. No entries, since there is nothing behind them |
+| First run | Capture, its chip "Idea". One action, said once: Open a folder… (⌘O) with the sentence that says what it does. Then Agents, a list of their own: Claude Code, signed in; Codex, not signed in, with Sign in. An action and a status are different things and are not one list |
 
 **Three layerings** (`X`, all twelve on `G`). The first layer is the same in all three; they differ in how finished and unplaced thoughts are reached.
 
@@ -175,7 +175,8 @@ Every interactive component has: rest, hover, pressed, keyboard focus (a 1.5 px 
 | **Key cap** | 18 px high, `--metal`, dark mono glyph | pressed (drops 1 px) |
 | **Button** | 24 px, `--fill`, 12 px text | default (`--metal`, dark text, 600) |
 | **Reply field** | Key cap `T`, placeholder, no box | hover (fill), focused (fill and a 1 px `--accent` underline) |
-| **Capture line** | Wave, field, destination, agent, hint, on a `--line2` rule | focused (the rule becomes `--lit`), invitation (20 px Expanded, larger wave), first run (no destination) |
+| **Capture field** | Home: a raised field lit from behind, the thought, the destination chip inside (section 3). Notch: wave, field, destination, agent, hint, on a `--line2` rule | focused (brighter surface, `--lit` edge), typing (grows by lines), choosing (the list under the chip), first run (chip "Idea") |
+| **List** | Rows of one kind in one set of columns. Leading marks in one fixed column, centred in it; labels on one left edge; secondary text on one left edge; a mark and its label on one centred line. Checked by `scripts/align-check.cjs` (in `host/scripts/smoke.sh`) on both pages | every list on Home, in folds and sheets, the sidebar, the notch |
 | **Sheet** | Hangs from the title bar: `--sheet`, `--lit` top edge, 10 px bottom corners, hairline outline, the window dimmed 50 % behind it | dialog (420 px; three rows of key cap and label: ↩ default, ⌘⌫ destructive in `--fail`, esc cancel), capture (460 px), list (640 px: Agents, Settings, and in the Sheets layering Results and Ideas) |
 | **Rail** | 26 px at the window's foot, mono | left: the glance in words. Right: agent names (signed out: copper, hollow dot), Settings |
 | **Home question** | See section 2 | open, collapsed (one 36 px line) |
@@ -210,7 +211,7 @@ Structure, top to bottom, in one centred column of at most 1040 px (two columns 
 2. Needs you (only if any): head with the copper wave and the count on a `--lit` rule; the first question open; the rest collapsed.
 3. Running (only if any): head with count; up to four rows; then "n more running".
 4. If neither 2 nor 3 and there is at least one workspace: the last two finished thoughts (in Folds this is the Results fold, opened to two).
-5. First run only (no workspace): "To start": Open a folder, then the agents with their sign-in state.
+5. First run only (no workspace): Open a folder…, a button with its sentence; then Agents, a list with their sign-in state.
 6. Folds: Results, then Ideas (each only if it has something).
 
 **Layers and how they open and close** (Folds, recommended):

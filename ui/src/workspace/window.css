@@ -27,8 +27,8 @@ button.row:active{background:var(--sel)}
 .side:hover .sec .ib,.sec.first .ib,.sec .ib:focus-visible{opacity:1}
 .ws{position:relative;padding-bottom:6px}
 .ws::before{content:"";position:absolute;left:21.5px;top:27px;bottom:9px;width:1px;background:var(--line)}
-.row.w{padding:0 var(--sp3) 0 6px;gap:0;color:var(--fg)}
-.row.w .fold{display:inline-grid;place-items:center;width:24px;height:var(--row-h);color:var(--fg3)}
+.row.w{padding:0 var(--sp3) 0 10px;gap:0;color:var(--fg)}
+.row.w .fold{display:inline-grid;place-items:center;width:24px;height:var(--row-h);margin-right:6px;color:var(--fg3)}
 .row.w .fold .i{width:14px;height:14px;transition:transform var(--t-fast)}
 .row.w .fold[aria-expanded=true] .i{transform:rotate(90deg)}
 .row.w .name{display:flex;align-items:center;flex:1;min-width:0;height:100%;font-weight:600}
@@ -156,33 +156,56 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .hx.two .folds{margin-top:26px}
 .col{min-width:0;container-type:inline-size}
 .hx :is(button.hq,.fold-h){width:100%}
-/* The capture line: the page's one inviting control. A raised field, its destination a chip inside it, lit from behind
-   by the light; no rule under it. Variants for comparison: `line`, on the page; `bar`, in the title bar. */
-.home .capture .cap{gap:var(--sp3);height:56px;padding:0 var(--sp2) 0 var(--sp4);border:0;border-radius:var(--r2);background:var(--field);
-  box-shadow:inset 0 0 0 1px var(--line),inset 0 1px 0 rgb(255 255 255/.04);cursor:text}
-.home .capture.invite .cap{height:64px}
-.home .capture .cap:focus-within{background:var(--field-on);box-shadow:inset 0 0 0 1px var(--line2),inset 0 -1px 0 var(--accent);border-image:none}
-.home .capture .cap input{font:var(--f-question);caret-color:var(--accent)}
-.home .capture .cap input::placeholder{color:var(--fg2)}
-.home .capture .wave{--wh:18px;--ww:2px;--wg:2px}
-.capture.chip .cap-to{gap:6px;height:30px;padding:0 var(--sp2) 0 10px;border-radius:var(--r1);background:var(--fill);color:var(--fg)}
-.capture.chip .cap-to:hover{background:var(--fill-hover)}
+/* The capture field: where a thought goes, the page's one inviting control. A soft raised surface lit from behind by
+   the room's light, no border; the thought at 20 px, growing a line at a time; the destination one control inside it.
+   Centred, as wide as a thought needs rather than as wide as the page. While it has the keyboard its surface brightens
+   and a lit edge shows under it. Three variants for the owner (ui.head): lit (the default), composer, beneath. */
+.home .capture{position:relative;width:min(100%,var(--cap-w));margin:6px auto 14px}
+/* The light gathered behind the field: full under it, gone a little beyond it, short of the nearest words. */
+.home .capture::before{content:"";position:absolute;z-index:-1;inset:-34px -90px;background:radial-gradient(closest-side,var(--glow,transparent) 50%,transparent);opacity:.75;transition:opacity var(--t-slow);pointer-events:none}
+.home .capture:focus-within::before{opacity:1}
+.home .capture .cap{position:relative;align-items:flex-end;gap:var(--sp3);min-height:68px;padding:14px 14px 14px 26px;border:0;border-radius:20px;cursor:text;
+  background:linear-gradient(180deg,rgb(255 255 255/.075),rgb(255 255 255/.04));
+  box-shadow:inset 0 1px 0 rgb(255 255 255/.09),0 1px 0 rgb(0 0 0/.5),0 30px 60px -28px rgb(0 0 0/.85);transition:background var(--t-fast)}
+.home .capture .cap::after{content:"";position:absolute;left:26px;right:26px;bottom:0;height:1px;background:var(--lit);opacity:0;transition:opacity var(--t-fast);pointer-events:none}
+.home .capture .cap:focus-within{background:linear-gradient(180deg,rgb(255 255 255/.095),rgb(255 255 255/.05));border-image:none}
+.home .capture .cap:focus-within::after{opacity:.6}
+.home .capture textarea{flex:1;min-width:0;max-height:180px;padding:6px 0;resize:none;overflow:auto;font:400 20px/28px var(--ui);letter-spacing:-.014em;color:var(--fg);caret-color:var(--accent)}
+.home .capture textarea::placeholder{color:var(--fg-field);opacity:1}
+.capture.chip .cap-to{gap:7px;height:40px;padding:0 12px 0 14px;border-radius:13px;background:rgb(255 255 255/.06);box-shadow:inset 0 1px 0 rgb(255 255 255/.05);color:var(--fg);font:var(--f-body)}
+.capture.chip .cap-to:hover,.capture.chip .cap-to[aria-expanded=true]{background:rgb(255 255 255/.1)}
 .capture.chip .cap-to:hover span{text-decoration:none}
-.capture.chip .cap-to .ag{color:var(--fg3)}
+.capture.chip .cap-to .i{width:14px;height:14px;color:var(--fg2)}
+.capture.chip .cap-to .ag{color:var(--fg-field)}
+.capture.chip .cap-to .ag::before{content:"·";margin-right:7px;color:var(--fg3)}
 .capture.chip .cap-to .ag.off{color:var(--asks)}
-.capture.chip .cap-to .i:last-child{width:12px;height:12px;transform:rotate(90deg)}
-.home .cap-list{margin-top:6px;border:0}
-.home .cap-said{margin-top:6px;padding:0 var(--sp4)}
-.home[data-head=line] .capture .cap{height:60px;padding:0;border-radius:0;background:none;box-shadow:inset 0 -1px 0 var(--line)}
-.home[data-head=line] .capture .cap:focus-within{background:none;box-shadow:none;border-image:var(--lit) 1;border-bottom:1px solid}
-.home[data-head=line] .capture .cap input{font:400 20px/26px var(--ui);letter-spacing:-.01em}
-.bar>.capture{flex:0 1 560px;margin:0 auto}
-.bar>.capture .cap{height:28px;padding:0 4px 0 10px;gap:var(--sp2);border:0;border-radius:var(--r2);background:var(--field);box-shadow:inset 0 0 0 1px var(--line);cursor:text}
-.bar>.capture .cap:focus-within{background:var(--field-on);box-shadow:inset 0 0 0 1px var(--line2),inset 0 -1px 0 var(--accent);border-image:none}
-.bar>.capture .cap input{font:var(--f-body)}
-.bar>.capture .wave{--wh:12px;--ww:1.5px;--wg:1.5px}
-.bar>.capture.chip .cap-to{height:22px}
-.bar>.capture :is(.cap-list,.cap-said){position:absolute;z-index:25;margin-top:4px;padding:var(--sp1);background:var(--sheet);border-radius:var(--r2);box-shadow:var(--sheet-shadow)}
+.capture.chip .cap-to .i:last-child{width:12px;height:12px;margin-left:1px;transform:rotate(90deg)}
+.cap-go{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px 0 10px;border-radius:12px;background:var(--metal);color:var(--ink);font:var(--f-strong);box-shadow:var(--cap-edge)}
+.cap-go kbd{font:var(--f-key);opacity:.7}
+.cap-go:disabled{background:rgb(255 255 255/.06);color:var(--fg3);box-shadow:none}
+.home .cap-list{position:absolute;z-index:3;right:14px;top:calc(100% + 6px);min-width:240px;padding:var(--sp1);border:0;border-radius:var(--r3);background:var(--sheet);box-shadow:var(--sheet-shadow)}
+.home .capture:has(.cap-said) .cap-list{top:auto}
+.home .cap-said{justify-content:center;margin-top:var(--sp2);padding:0 26px}
+/* Composer: the thought on lines of its own; under it, inside the field, the destination and the button that sends. */
+.home[data-head=composer] .capture{--cap-w:740px}
+.home[data-head=composer] .capture .cap{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px 0;min-height:120px;padding:14px 12px 12px 22px}
+.home[data-head=composer] .capture .cap::after{left:22px;right:22px}
+.home[data-head=composer] .capture textarea{grid-column:1/-1;align-self:start;min-height:52px;padding:6px 4px 0}
+.home[data-head=composer] .capture .cap-to{grid-row:2;grid-column:1;height:36px;margin-left:-6px;padding-left:10px;background:none;box-shadow:none}
+.home[data-head=composer] .capture .cap-to:hover,.home[data-head=composer] .capture .cap-to[aria-expanded=true]{background:rgb(255 255 255/.07)}
+.home[data-head=composer] .capture .cap-go{grid-row:2;grid-column:3}
+.home[data-head=composer] .cap-list{left:12px;right:auto}
+/* Beneath: the field holds only the thought; its destination is a quiet line under it, on the thought's own edge. */
+.home[data-head=beneath] .capture{--cap-w:640px}
+.home[data-head=beneath] .capture .cap{display:grid;grid-template-columns:minmax(0,1fr);gap:0;min-height:0;padding:0;background:none;box-shadow:none;border-radius:0}
+.home[data-head=beneath] .capture textarea{padding:18px 24px;border-radius:18px;
+  background:linear-gradient(180deg,rgb(255 255 255/.075),rgb(255 255 255/.04));
+  box-shadow:inset 0 1px 0 rgb(255 255 255/.09),0 1px 0 rgb(0 0 0/.5),0 30px 60px -28px rgb(0 0 0/.85)}
+.home[data-head=beneath] .capture textarea:focus{background:var(--lit) center bottom/calc(100% - 48px) 1px no-repeat,linear-gradient(180deg,rgb(255 255 255/.095),rgb(255 255 255/.05))}
+.home[data-head=beneath] .capture .cap::after{content:none}
+.home[data-head=beneath] .capture .cap-to{justify-self:start;height:28px;margin:10px 0 0 16px;padding:0 8px;background:none;box-shadow:none;border-radius:var(--r2);font:var(--f-small)}
+.home[data-head=beneath] .capture .cap-to:hover,.home[data-head=beneath] .capture .cap-to[aria-expanded=true]{background:rgb(255 255 255/.06)}
+.home[data-head=beneath] .cap-list{left:16px;right:auto}
 .home[data-head=bar] .hx{padding-top:6px}
 .hsec{margin-top:26px}
 .hsec h3{display:flex;align-items:center;gap:var(--sp2);padding-bottom:var(--sp2);border-bottom:1px solid var(--line);font:var(--f-head);color:var(--fg2)}
@@ -201,22 +224,26 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .ask-home .qa{margin-top:10px}
 .ask-home .q-detail{max-width:62ch}
 .ask-home:focus-visible{outline-offset:6px}
-button.hq{grid-template-columns:28px auto minmax(0,1fr) 48px;align-items:center;width:calc(100% - 2 * var(--home-gutter));height:var(--home-row);padding:0}
-button.hq .st{justify-self:start;margin-left:4px}
-.hq-q{min-width:0;margin-left:14px;overflow:hidden;text-overflow:ellipsis;font:var(--f-small);color:var(--fg);white-space:nowrap}
+button.hq{grid-template-columns:28px 96px minmax(0,1fr) minmax(0,1.3fr) 48px;align-items:center;width:calc(100% - 2 * var(--home-gutter));height:var(--home-row);padding:0;font:var(--f-small);color:var(--fg2)}
+button.hq .st{justify-self:center}
+button.hq :is(.hr-w,.hq-w,.hq-q){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hq-w{padding-right:20px}
+.hq-q{padding-right:14px;color:var(--fg)}
 button.hq:hover{background:var(--hover)}
 /* one row, one thought: state, folder, the thought, the one fact, the time */
 .hr{display:grid;grid-template-columns:28px 96px minmax(0,1.3fr) minmax(0,1fr) 48px;grid-template-rows:var(--home-row);align-items:center;border-bottom:1px solid var(--line);font:var(--f-small);color:var(--fg2)}
 .hr:hover{background:var(--hover)}
 .hr:active{background:var(--sel)}
-.hr>.st{justify-self:start;margin-left:4px}
+.hr>.st{justify-self:center}
 .hr :is(.hr-w,.hr-t,.hr-x){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hr-t{padding-right:20px;font:var(--f-lead);color:var(--fg)}
 .hr-x{padding-right:14px}
 .hr time{grid-column:-2;grid-row:1;font:var(--f-num);color:var(--fg3);text-align:right}
 .hr.bgd .hr-t{color:var(--fg2)}
-.hr.res{grid-template-columns:28px 96px minmax(0,1.3fr) minmax(0,1fr) auto 48px}
-.hr-d{display:flex;gap:var(--sp3);justify-content:flex-end;padding-right:var(--sp2);font:var(--f-num);white-space:nowrap}
+/* Changes to keep have a column of their own, as wide in every row of the list, there only when one row has some. */
+.hr.res{grid-template-columns:28px 96px minmax(0,1.3fr) minmax(0,1fr) 0 48px}
+:is(.hsec,.fold-b,.col):has(.hr-d>*)>.hr.res{grid-template-columns:28px 96px minmax(0,1.3fr) minmax(0,1fr) 136px 48px}
+.hr-d{display:flex;gap:var(--sp3);justify-content:flex-end;min-width:0;overflow:hidden;padding-right:var(--sp2);font:var(--f-num);white-space:nowrap}
 .hr.seen .hr-t{font-weight:400;color:var(--fg2)}
 .hr.seen .hr-x{color:var(--fg3)}
 .hr-a{grid-column:3/-1;display:flex;gap:6px;padding:0 0 10px}
@@ -225,15 +252,18 @@ button.hq:hover{background:var(--hover)}
 .hr.idea{grid-template-columns:28px minmax(0,1.3fr) minmax(0,1fr) auto 48px}
 .idea .hr-a{grid-area:1/4;padding:0 6px 0 0;visibility:hidden}
 .idea:is(:hover,:focus-within) .hr-a{visibility:visible}
-.step{display:flex;align-items:center;gap:14px;height:44px;padding-left:22px;border-bottom:1px solid var(--line)}
-.step .hr-x{font:var(--f-small);color:var(--fg2)}
+/* First run: one action, said once, then the agents as a list of their own. */
+.start{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp2) var(--sp4);margin-top:26px}
+.start .btn{height:32px;padding:0 var(--sp3) 0 14px;gap:10px;font:var(--f-strong)}
+.start .btn kbd{min-width:0;height:auto;padding:0;background:none;box-shadow:none;font:var(--f-num);color:var(--ink);opacity:.6}
+.start p{font:var(--f-small);color:var(--fg2)}
 .hsec .list .line{height:var(--home-row);padding:0}
 /* the second layer, in place: a single line that opens */
 .folds{margin-top:34px}
 .fold-h{display:grid;grid-template-columns:28px 96px auto minmax(0,1fr) 48px;align-items:center;width:calc(100% - 2 * var(--home-gutter));height:var(--home-row);
   border-top:1px solid var(--line);font:var(--f-small);color:var(--fg2);white-space:nowrap;text-align:left}
 .fold:last-child:not(.open) .fold-h{border-bottom:1px solid var(--line)}
-.fold-h .i{width:14px;height:14px;margin-left:3px;color:var(--fg3);transition:transform var(--t-fast)}
+.fold-h .i{justify-self:center;width:14px;height:14px;color:var(--fg3);transition:transform var(--t-fast)}
 .fold.open .fold-h .i{transform:rotate(90deg)}
 .fold-h b{font:var(--f-head);color:var(--fg2)}
 .fold-h:hover b,.fold.open .fold-h b{color:var(--fg)}
@@ -260,7 +290,9 @@ button.hq:hover{background:var(--hover)}
 @media(max-width:799px){.hx{padding-inline:18px}}
 @container (max-width:640px){
   button.hq,.fold-h{width:calc(100% - 36px)}
-  .hr:not(.idea){grid-template-columns:28px minmax(0,1fr) 48px}
+  .hr:not(.idea),:is(.hsec,.fold-b,.col):has(.hr-d>*)>.hr.res{grid-template-columns:28px minmax(0,1fr) 48px}
+  button.hq{grid-template-columns:28px minmax(0,1fr) 48px}
+  button.hq :is(.hr-w,.hq-w){display:none}
   .hr :is(.hr-w,.hr-x,.hr-d){display:none}
   .hr-a{grid-column:2/-1}
   .hr.idea{grid-template-columns:28px minmax(0,1fr) auto 48px}
@@ -270,7 +302,7 @@ button.hq:hover{background:var(--hover)}
   .fold-p{display:none}
   .more{padding-left:28px}
   .capture .cap-hint,.capture .cap-agent,.capture.chip .cap-to .ag{display:none}
-  .step .hr-x{display:none}
+  .home .capture .cap{padding-left:20px}
 }
 
 /* ——— sheets hang from the title bar, as the notch hangs from the screen ——— */
@@ -315,6 +347,7 @@ button.hq:hover{background:var(--hover)}
 .sheet:is(.list,.review) .acts{margin:0 10px;padding-top:6px}
 .sheet.list h3{margin-inline:18px}
 .list{display:grid}
+.line>.st{justify-self:center}
 .line{display:grid;grid-template-columns:28px 190px minmax(0,1fr) auto;align-items:center;height:var(--home-row);padding:0 18px;border-bottom:1px solid var(--line);font:var(--f-small);color:var(--fg2);text-align:left}
 .line .t{overflow:hidden;text-overflow:ellipsis;font:var(--f-lead);color:var(--fg);white-space:nowrap}
 .line .x{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

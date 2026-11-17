@@ -49,9 +49,10 @@ export const ui = {
   voice: false,
   /** Home's open fold, and how far Running is opened. */
   fold: '' as '' | 'results' | 'ideas' | 'shut' | 'shut-ideas',
-  /** How Home's capture line is drawn, of the three variants for the owner to choose from: a raised field (the
-   *  default), a line on the page, or a field in the title bar. */
-  head: 'field' as 'field' | 'line' | 'bar',
+  /** How Home's capture field is drawn, of the variants for the owner to choose from: one lit line with its destination
+   *  inside at its end (the default), a composer whose destination and send button sit on a row of their own, or a bare
+   *  field with its destination on a quiet line beneath. */
+  head: 'lit' as 'lit' | 'composer' | 'beneath',
   more: false,
   /** The window is narrower than the sidebar and a workspace need; the sidebar then comes over the content (`peek`). */
   narrow: false,

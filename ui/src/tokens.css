@@ -9,14 +9,13 @@
   --sel:#1a1a1d;       /* selected row, pressed row */
   --fill:#17171a;      /* quiet button, answer under the pointer */
   --fill-hover:#222226;
-  --field:rgb(255 255 255/.04);      /* the one raised field: Home's capture line, over the light */
-  --field-on:rgb(255 255 255/.06);
   --seam:#000;         /* the one-pixel divider between terminals */
   --scrim:rgb(0 0 0/.5);
   /* text */
   --fg:#f2f2f3;        /* 17.7 : 1 on --bg */
   --fg2:#a3a4aa;       /*  8.0 : 1 */
   --fg3:#7c7d84;       /*  4.8 : 1; times, hints, disabled */
+  --fg-field:#c4c5cb;  /* secondary words on a raised field, lit from behind: 4.5 : 1 at the strongest light */
   --ink:#0d0d0e;       /* text on metal */
   /* lines */
   --line:#1f2024; --line2:#33343a;
@@ -39,7 +38,7 @@
   /* type. Expanded is the system font's width axis; where the web view ignores it the names fall back to regular width */
   --ui:system-ui,-apple-system,"Segoe UI Variable","Segoe UI",sans-serif;
   --mono:ui-monospace,"SF Mono",Menlo,"Cascadia Mono",Consolas,monospace;
-  --f-display:600 expanded 20px/26px var(--ui);  /* the capture line as invitation */
+  --f-display:600 expanded 20px/26px var(--ui);  /* NOTES §4; the capture field is set at 20 px regular instead */
   --f-question:500 17px/24px var(--ui);          /* a question on Home */
   --f-question-n:500 16px/22px var(--ui);        /* in the notch */
   --f-question-p:500 15px/21px var(--ui);        /* under a terminal */
@@ -57,7 +56,7 @@
   /* measure: a 4 px grid */
   --sp1:4px; --sp2:8px; --sp3:12px; --sp4:16px; --sp5:24px; --sp6:32px;
   --side-w:224px; --bar-h:38px; --tab-h:30px; --row-h:28px; --rail-h:26px; --ctl-h:24px; --key-h:18px;
-  --home-w:1040px; --home-wide:1520px; --home-row:36px; --home-gutter:36px;
+  --home-w:1040px; --home-wide:1520px; --home-row:36px; --home-gutter:36px; --cap-w:680px;
   --notch-w:420px; --sheet-w:420px; --cap-sheet-w:460px; --list-sheet-w:640px;
   /* radii */
   --r1:3px;   /* controls, key caps */

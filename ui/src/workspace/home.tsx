@@ -10,7 +10,7 @@ import { Capture } from '../capture.tsx';
 import { pending, running, settle, Status } from '../changes.tsx';
 import { Ask } from '../question.tsx';
 import { Answer, I, Mark, type State, elapsed, plural, when } from '../ui.tsx';
-import { Light } from './light.tsx';
+import { Light, useLight } from './light.tsx';
 import { Agents } from './sheets.tsx';
 import {
   agentName, call, fail, focus, focusSession, layout, open, openQuestions, page, projectName, projects, records, redraw, resultOf, show,
@@ -48,10 +48,12 @@ function QuestionRow({ q, open: isOpen, choose }: { q: Question; open: boolean; 
     </span>
   );
   const time = <time>{elapsed(t?.updated ?? Date.now())}</time>;
+  // One line: the columns of every row on Home (mark, folder, who and what for, the question, the time).
   if (!isOpen)
     return (
       <button type="button" class="hq" data-nav onClick={choose} title={q.prompt}>
-        <Mark s="asks" />{meta}<span class="hq-q">{q.prompt}</span>{time}
+        <Mark s="asks" /><span class="hr-w">{projectName(t?.project_id ?? s?.project_id)}</span>
+        <span class="hq-w">{t ? `${who} · ${title(t)}` : who}</span><span class="hq-q">{q.prompt}</span>{time}
       </button>
     );
   return (
@@ -188,6 +190,9 @@ function nav(e: KeyboardEvent) {
     return e.preventDefault();
   }
   if ((e.key !== 'ArrowDown' && e.key !== 'ArrowUp') || e.metaKey || (typing && (e.target as HTMLElement).id !== 'capture-input')) return;
+  // A thought of several lines keeps ↑ and ↓ for its own lines until the caret is at its start or end.
+  const field = e.target as HTMLTextAreaElement;
+  if (field.id === 'capture-input' && field.clientHeight > 44 && field.selectionStart !== (e.key === 'ArrowDown' ? field.value.length : 0)) return;
   const items = [...document.querySelectorAll<HTMLElement>('.hx #capture-input, .hx [data-question], .hx [data-nav]')];
   const at = items.findIndex((x) => x === document.activeElement || x.contains(document.activeElement));
   const next = items[Math.max(0, Math.min(items.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))];
@@ -219,12 +224,13 @@ export function Home() {
     redraw();
   };
   const more = h.running.length > 4 && !ui.more;
+  const light = useLight();
   return (
-    <div class="room">
+    <div class="room" style={light.vars}>
     <Light load={asks ? 'asks' : h.running.length ? 'busy' : 'quiet'} />
     <div class={`home${asks ? ' asks' : h.running.length ? ' busy' : ' quiet'}`} id="main" tabIndex={-1} data-head={ui.head}>
       <div class={`hx${two ? ' two' : ''}`} onKeyDown={nav}>
-        {ui.head !== 'bar' && <Header invite={!asks} />}
+        <Header invite={!asks} />
         <div class="cols">
         <div class="col">
         {asks && (
@@ -247,14 +253,16 @@ export function Home() {
           </section>
         )}
         {first && (
-          <section class="hsec first">
-            <h3><span>To start</span></h3>
-            <div class="step">
-              <Answer k="⌘O" label="Open a folder" primary onClick={() => open({ kind: 'open-workspace' })} />
-              <span class="hr-x">It becomes a workspace. A thought goes to the folder it belongs to.</span>
+          <>
+            <div class="start">
+              <button type="button" class="btn primary" onClick={() => open({ kind: 'open-workspace' })}>Open a folder…<kbd>⌘O</kbd></button>
+              <p>It becomes a workspace. A thought goes to the folder it belongs to.</p>
             </div>
-            <Agents />
-          </section>
+            <section class="hsec first">
+              <h3><span>Agents</span></h3>
+              <Agents />
+            </section>
+          </>
         )}
         </div>
         <div class="col">
@@ -302,8 +310,9 @@ function useWide() {
 }
 
 /** The capture line as the page's one inviting control: a field with its destination inside it, lit from behind. */
-export function Header({ invite, bar = false }: { invite: boolean; bar?: boolean }) {
-  return <Capture invite={invite && !bar} chip />;
+/** Home's capture field, in the variant chosen (`ui.head`). */
+export function Header({ invite }: { invite: boolean }) {
+  return <Capture invite={invite} chip go={ui.head === 'composer'} />;
 }
 
 // ——— Earlier: every result by day, with ideas and a find field ———

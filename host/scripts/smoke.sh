@@ -22,6 +22,9 @@ echo "== Building the pages, the cores and the host"
 "$host/scripts/build-core.sh" >/dev/null && FIXTURES=1 "$host/scripts/build-core.sh" >/dev/null || { echo "FAIL  core build"; exit 1; }
 cargo build --quiet --manifest-path "$host/Cargo.toml" || { echo "FAIL  host build"; exit 1; }
 
+echo "== Lists keep their columns (headless, fixture records)"
+if out="$(node "$root/scripts/align-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "list alignment"; fi
+
 tmp="$(mktemp -d)"
 log="$tmp/log"
 mkdir -p "$tmp/agents" "$tmp/project"
@@ -117,8 +120,9 @@ js workspace "(__ws.menu.dry = true)" >/dev/null
 sleep 1
 shot collapsed-idle
 shot home workspace
-until_has workspace "text .hx" 5 "To start" && ask workspace "text .hx" | grep -q "Open a folder" \
-  && pass "with no folder open, Home offers to open one and lists the agents" || fail "Home on first run"
+until_has workspace "text .hx" 5 "Open a folder" && ask workspace "text .hx" | grep -q "Agents" \
+  && [ "$(js workspace "document.querySelector('#dest-chip')?.textContent")" = Idea ] \
+  && pass "with no folder open, Home offers to open one, lists the agents apart, and its field's chip says Idea" || fail "Home on first run"
 # The light: Home's chrome is drawn once and then nothing while nothing happens, the notch draws no form at all, and
 # the person's choice reaches both pages at once.
 until_has workspace "eval String(!!document.querySelector('.light .motion canvas') && __motion.stats.frames > 0)" 5 "true" \

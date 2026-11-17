@@ -29,7 +29,7 @@ function Row({ t }: { t: Thought }) {
       onClick={() => t.session_id && peek(t.session_id)}>
       <Mark s={stateOf(t)} />
       <span class="t">{title(t)}</span>
-      {fact && <span class="x">{fact}</span>}
+      <span class="x">{fact}</span>
       <time>{live ? elapsed(t.created) : when(t.updated)}</time>
     </button>
   );

@@ -16,7 +16,7 @@ import { ambient } from './ambient.ts';
 import { I, Mark, Wave, plural } from '../ui.tsx';
 import { apply, fontsReady, look } from './appearance.ts';
 import { Deck, startAgent } from './deck.tsx';
-import { Earlier, Header, Home, homeCounts } from './home.tsx';
+import { Earlier, Home, homeCounts } from './home.tsx';
 import { stats } from '../motion/engine.ts';
 import { debug } from '../motion/motion.tsx';
 import * as L from './layout.ts';
@@ -153,7 +153,7 @@ function Bar({ project }: { project: string | null }) {
           <button type="button" class="back" title="Back to Home  ⌘[" onClick={() => show('home')}><I n="chev" /><span>Home</span></button>
           <b class="sub">Earlier</b>
         </span>
-      ) : ui.head === 'bar' ? <Header invite={false} bar /> : null}
+      ) : null}
       {project && (
         <span class="bar-r">
           <button type="button" class="ib" title="Split right  ⌘D" aria-label="Split right" onClick={() => command('split-right')}><I n="splitr" /></button>

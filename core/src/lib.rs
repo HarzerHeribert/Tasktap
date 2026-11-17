@@ -13,6 +13,7 @@ mod handshake;
 mod questions;
 mod records;
 pub mod serve;
+mod shim;
 pub mod state;
 pub mod store;
 pub mod stream;

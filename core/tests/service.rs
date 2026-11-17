@@ -7,7 +7,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
 use tasktap_core::client::{self, Client};
-use tasktap_proto::call::{self, Call, Code, Name};
+use tasktap_proto::call::{self, Access, Call, Code, Name};
 use tasktap_proto::{
     AddProject, Auth, CallId, Control, Decoder, DeviceId, Empty, Frame, HEADER, Hello, Identity,
     KIND_CONTROL, MAX_FRAME, ProjectId, Ref, Refuse, RefuseWhy, Register, Request, Retire, Role,
@@ -97,8 +97,10 @@ fn the_handshake_picks_the_highest_shared_version() {
         let c = core.hello_with(v, None).unwrap();
         assert_eq!(c.welcome.v, VERSION);
         assert_eq!(c.welcome.identity, Identity::Anonymous);
-        // A core built with its test fixtures answers every call in the table.
-        let every: Vec<&str> = Name::ALL.iter().map(|n| n.as_str()).collect();
+        // A core built with its test fixtures answers every call in the
+        // table but those it makes itself.
+        let answered = Name::ALL.iter().filter(|n| n.access() != Access::Ability);
+        let every: Vec<&str> = answered.map(|n| n.as_str()).collect();
         assert_eq!(c.welcome.calls, every);
     }
 }

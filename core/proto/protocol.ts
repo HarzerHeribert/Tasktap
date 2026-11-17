@@ -21,7 +21,7 @@ export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] 
 /**
  * Who may make a call (design §2): authorization is per call.
  */
-export type Access = "anyone" | "device" | "session";
+export type Access = "anyone" | "device" | "session" | "ability";
 
 export type Action = "answer.affirm" | "answer.deny";
 
@@ -30,6 +30,22 @@ export type Action = "answer.affirm" | "answer.deny";
  * which is an older one when the folder was already added.
  */
 export type AddProject = { id: ProjectId, folder: string, name?: string | null, };
+
+/**
+ * `session.adopt`: an agent a person started by hand in a Tasktap shell
+ * becomes a session of that shell's terminal (design §4). The token names
+ * the terminal; the reply is the new session. The session belongs to the
+ * connection that adopted it and ends with it.
+ */
+export type Adopt = {
+/**
+ * The agent's name, as `tasktap hook <agent>` takes it.
+ */
+agent: string,
+/**
+ * The folder the person started it in.
+ */
+cwd: string, };
 
 /**
  * The receipt of an answer, stored before it is sent.
@@ -182,7 +198,12 @@ export type FixtureLog = { launched: Array<FixtureLaunch>,
 /**
  * The thoughts of the follow-ups handed to a running session.
  */
-delivered: Array<ThoughtId>, killed: Array<TerminalId>, settled: Array<ThoughtId>,
+delivered: Array<ThoughtId>,
+/**
+ * Follow-ups whose shim holds its terminal for them while `pause` keeps
+ * them untyped.
+ */
+held: Array<ThoughtId>, killed: Array<TerminalId>, settled: Array<ThoughtId>,
 /**
  * The questions the host would have been told about.
  */
@@ -219,7 +240,12 @@ refuse?: string | null,
  * The launcher starts each run in a terminal the store refuses (one of a
  * project that does not exist), so recording the launch fails.
  */
-unrecordable: boolean, };
+unrecordable: boolean,
+/**
+ * A follow-up to an adopted session waits, held by its shim, untyped
+ * until a script without `pause` arrives.
+ */
+pause: boolean, };
 
 /**
  * `fixture.stream`: a stream of known bytes with no terminal behind it, for
@@ -532,7 +558,7 @@ turn?: number | null,
 /**
  * Sent for one of the agent's sub-agents, whose events the core ignores.
  */
-subagent?: boolean, } & ({ "kind": "ready" } | { "kind": "turn_started", prompt?: string | null, } | { "kind": "activity", text: string, } | { "kind": "continued" } | { "kind": "turn_finished", answer?: string | null, } | { "kind": "turn_failed", error?: string | null, } | { "kind": "turn_interrupted" } | { "kind": "question", question: Ask, });
+subagent?: boolean, } & ({ "kind": "ready" } | { "kind": "turn_started", prompt?: string | null, } | { "kind": "activity", text: string, } | { "kind": "continued" } | { "kind": "turn_finished", answer?: string | null, } | { "kind": "turn_failed", error?: string | null, } | { "kind": "turn_interrupted" } | { "kind": "question", question: Ask, } | { "kind": "exited", code?: number | null, });
 
 /**
  * A UUID v7 in text, minted by whoever creates the record.
@@ -555,6 +581,15 @@ export type Set = { "c": "thoughts" } & Rows<Thought, ThoughtId> | { "c": "proje
  * once its session has ended. The attempt makes a repeat answer from its record.
  */
 export type Settle = { id: ThoughtId, attempt: AttemptId, keep: boolean, };
+
+/**
+ * `shim.hold`, which the core calls on the shim of an adopted session before
+ * it types a follow-up into the shell's terminal (design §7). With `hold` the
+ * shim confirms its agent runs in the foreground and keeps the terminal
+ * until a call without it, sent once the text is written; a shim whose agent
+ * has ended answers `gone`.
+ */
+export type ShimHold = { hold: boolean, };
 
 /**
  * A terminal size: `[cols, rows]`.
@@ -669,12 +704,14 @@ export type Calls = {
   "question.received": { args: AskKey; result: null; access: "session" };
   "question.focus": { args: Ref<QuestionId>; result: null; access: "device" };
   "session.event": { args: SessionEvent; result: null; access: "session" };
+  "session.adopt": { args: Adopt; result: SessionId; access: "session" };
   "project.add": { args: AddProject; result: ProjectId; access: "device" };
   "project.scan": { args: Empty; result: null; access: "device" };
   "input": { args: Input; result: null; access: "device" };
   "device.revoke": { args: Ref<DeviceId>; result: null; access: "device" };
   "core.status": { args: Empty; result: CoreStatus; access: "anyone" };
   "core.retire": { args: Retire; result: null; access: "anyone" };
+  "shim.hold": { args: ShimHold; result: null; access: "ability" };
   "fixture.stream": { args: FixtureStream; result: Opened; access: "device" };
   "fixture.script": { args: FixtureScript; result: FixtureLog; access: "device" };
   "fixture.clock": { args: FixtureClock; result: null; access: "device" };

@@ -44,7 +44,8 @@ pub fn hello(core: &mut Core, hello: Hello) -> Result<(Peer, Welcome), Option<Re
         identity: who.identity(),
         calls: calls::supported(v),
     };
-    Ok((Peer { who, v }, welcome))
+    let holds = (hello.abilities.iter()).any(|a| a == tasktap_proto::Name::ShimHold.as_str());
+    Ok((Peer { who, v, holds }, welcome))
 }
 
 /// Keys and tokens are stored as this digest only.
@@ -55,12 +56,6 @@ pub fn hash(secret: &Secret) -> Hash {
 /// The terminal a session token was minted for: the one place a token is
 /// looked up. A terminal row carries its token's hash; package 7 mints them.
 fn session(core: &mut Core, token: &Hash) -> Option<TerminalId> {
-    #[cfg(feature = "fixtures")]
-    if let Some((fixture, terminal)) = core.fixture_token
-        && fixture == *token
-    {
-        return Some(terminal);
-    }
     let tx = core.store.begin().ok()?;
     tx.terminal_by_token(token).ok()?.map(|t| t.id)
 }

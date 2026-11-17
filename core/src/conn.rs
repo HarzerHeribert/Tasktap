@@ -12,14 +12,17 @@ use crate::serve::{self, Core};
 use crate::stream::{self, Streams};
 use crate::sys;
 use std::cell::{Cell, RefCell};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
 use std::rc::Rc;
 use std::task::Poll;
 use std::time::Duration;
-use tasktap_proto::{Change, Control, Decoder, Frame, MAX_PENDING_CALLS, Refuse, encode_control};
+use tasktap_proto::{
+    Call, CallId, Change, Control, Decoder, Frame, MAX_PENDING_CALLS, Outcome, Refuse,
+    encode_control,
+};
 use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::sync::Notify;
+use tokio::sync::{Notify, oneshot};
 
 /// Connections at once.
 pub const MAX_CONNECTIONS: usize = 256;
@@ -39,6 +42,8 @@ pub struct Peer {
     pub who: Caller,
     /// The version both sides speak; 0 leaves only the bootstrap calls.
     pub v: u32,
+    /// The client offered `shim.hold` in its hello.
+    pub holds: bool,
 }
 
 /// The core's handle on one connection.
@@ -62,6 +67,10 @@ pub struct Link {
     wake: Notify,
     /// The collections this connection subscribed to.
     pub subs: Cell<Subs>,
+    /// Calls the core made on the client, waiting for their replies; dropped
+    /// with the connection, which their waiters see as an error.
+    calls: RefCell<HashMap<CallId, oneshot::Sender<Outcome>>>,
+    next: Cell<u32>,
 }
 
 impl Link {
@@ -170,6 +179,18 @@ impl Link {
         later.is_empty()
     }
 
+    /// Makes a call on the client (design §1: any side can call another).
+    pub fn call<C: Call>(&self, args: &C::Args) -> oneshot::Receiver<Outcome> {
+        let id = CallId(self.next.get());
+        self.next.set(id.0.wrapping_add(1));
+        let (reply, replied) = oneshot::channel();
+        if !self.is_closing() {
+            self.calls.borrow_mut().insert(id, reply);
+        }
+        self.send(&C::request(id, args));
+        replied
+    }
+
     /// Ends the connection. With `flush`, what is queued gets one write
     /// that never waits; without, it ends at once.
     pub fn close(&self, flush: bool) {
@@ -268,6 +289,7 @@ async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: sys::Stream, hello
         sys::hang_up(&rd.unsplit(wr));
     }
     stream::end(&link);
+    link.calls.take();
     core.borrow_mut().remove(&link);
 }
 
@@ -313,8 +335,13 @@ fn frames(core: &RefCell<Core>, link: &Rc<Link>, decoder: &mut Decoder) -> bool 
                     return false;
                 }
             }
-            // Replies answer calls the core makes, which arrive in Phases 2 and 4.
-            (Some(_), Frame::Control(Control::Reply(_))) => {}
+            // A reply to a call the core made; one nobody waits for any more is dropped.
+            (Some(_), Frame::Control(Control::Reply(reply))) => {
+                let waiter = link.calls.borrow_mut().remove(&reply.id);
+                if let Some(waiter) = waiter {
+                    let _ = waiter.send(reply.outcome);
+                }
+            }
             // A call before hello, a second hello, or a frame only the core sends.
             _ => return false,
         }

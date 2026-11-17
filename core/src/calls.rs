@@ -103,6 +103,9 @@ fn handler(name: Name) -> Option<Handler> {
         Name::SessionEvent => {
             |cx, args| now::<call::SessionEvent>(cx, args, effects::session_event)
         }
+        Name::SessionAdopt => |cx, args| now::<call::SessionAdopt>(cx, args, crate::shim::adopt),
+        // The core makes this call; it never answers it.
+        Name::ShimHold => return None,
         Name::QuestionAsk => questions::ask,
         Name::QuestionAnswer => |cx, args| now::<call::QuestionAnswer>(cx, args, questions::answer),
         Name::QuestionWithdraw => {

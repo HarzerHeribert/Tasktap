@@ -250,6 +250,7 @@ fn every_call_round_trips() {
             error: Some("rate limited".into()),
         },
         Event::TurnInterrupted,
+        Event::Exited { code: Some(130) },
         Event::Question {
             question: Ask {
                 request: "call-7".into(),
@@ -270,6 +271,11 @@ fn every_call_round_trips() {
             seen,
         );
     }
+    let adopt = Adopt {
+        agent: "claude".into(),
+        cwd: "/Users/someone/tasktap".into(),
+    };
+    round_trip::<call::SessionAdopt>(adopt, id(3), seen);
     let add = AddProject {
         id: id(2),
         folder: "/Users/someone/tasktap".into(),
@@ -295,6 +301,9 @@ fn every_call_round_trips() {
     };
     round_trip::<call::CoreStatus>(Empty {}, status, seen);
     round_trip::<call::CoreRetire>(Retire { when: When::Now }, (), seen);
+    for hold in [true, false] {
+        round_trip::<call::ShimHold>(ShimHold { hold }, (), seen);
+    }
     let fixture = FixtureStream {
         credit: 7,
         send: Offset::new(1 << 40).unwrap(),
@@ -335,6 +344,7 @@ fn every_call_round_trips() {
             route,
             refuse: Some("no".into()),
             unrecordable: true,
+            pause: true,
         };
         round_trip::<call::FixtureScript>(script, log, seen);
     }
@@ -347,7 +357,7 @@ fn every_call_round_trips() {
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 27);
+    assert_eq!(Name::ALL.len(), 29);
 }
 
 #[test]
@@ -375,14 +385,17 @@ fn access_follows_the_authorization_table() {
             "question.ask",
             "question.withdraw",
             "question.received",
-            "session.event"
+            "session.event",
+            "session.adopt"
         ]
     );
     assert_eq!(by(Access::Device).len(), 21);
+    assert_eq!(by(Access::Ability), ["shim.hold"]);
     for (access, allowed) in [
         (Access::Anyone, [true, true, true]),
         (Access::Device, [true, false, false]),
         (Access::Session, [false, true, false]),
+        (Access::Ability, [false, false, false]),
     ] {
         let who = [Identity::Device, Identity::Session, Identity::Anonymous];
         assert_eq!(who.map(|who| access.permits(who)), allowed, "{access:?}");

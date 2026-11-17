@@ -311,7 +311,7 @@ fn carry(core: &mut Core, effects: Vec<Effect>) -> Option<Outcome> {
                 None
             }
             Effect::Launch(launch) => Some(self::launch(core, launch)),
-            Effect::Deliver(deliver) => Some(self::deliver(core, deliver)),
+            Effect::Deliver(deliver) => self::deliver(core, deliver),
             Effect::Kill {
                 terminal: Some(terminal),
                 ..
@@ -400,7 +400,15 @@ fn launch(core: &mut Core, launch: Launch) -> Outcome {
     }
 }
 
-fn deliver(core: &mut Core, deliver: Deliver) -> Outcome {
+/// A follow-up for an adopted session waits for its shim to hold the
+/// terminal, and its outcome reaches the thought's records, not the call.
+fn deliver(core: &mut Core, deliver: Deliver) -> Option<Outcome> {
+    crate::shim::deliver(core, deliver).map(|deliver| typed(core, deliver))
+}
+
+/// Has the launcher type a follow-up into its session's terminal, and
+/// reports how that went.
+pub fn typed(core: &mut Core, deliver: Deliver) -> Outcome {
     let handed = match core.seams.launcher() {
         Some(launcher) => launcher.deliver(&deliver),
         None => Err(NO_LAUNCHER.into()),
@@ -419,7 +427,7 @@ fn deliver(core: &mut Core, deliver: Deliver) -> Outcome {
     }
 }
 
-fn failed(core: &mut Core, attempt: AttemptId, error: String) -> Outcome {
+pub fn failed(core: &mut Core, attempt: AttemptId, error: String) -> Outcome {
     let event = Event::LaunchFailed {
         attempt,
         error: error.clone(),
@@ -584,6 +592,9 @@ pub fn script(
     f.router = FixtureRouter(route);
     f.launcher.refuse = args.refuse;
     f.launcher.unrecordable = args.unrecordable;
+    crate::shim::pause(cx.core, args.pause);
+    let held = crate::shim::held(cx.core);
+    let f = (cx.core.seams.fixture.as_ref()).expect("selected above");
     let l = &f.launcher;
     let launched = l.launched.iter().zip(&l.tokens);
     Ok(FixtureLog {
@@ -596,6 +607,7 @@ pub fn script(
             })
             .collect(),
         delivered: l.delivered.iter().map(|d| d.thought).collect(),
+        held,
         killed: l.killed.clone(),
         settled: l.settled.iter().map(|&(thought, _)| thought).collect(),
         notified: f.notified.clone(),

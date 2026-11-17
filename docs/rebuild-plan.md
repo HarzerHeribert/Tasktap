@@ -240,6 +240,7 @@ Aim for under 20 checks, each named after a promise to the user.
 
 - Phase 0: built and checked on `rebuild-phase-0` (2026-11-17). 3,979 lines removed, 522 added. Waiting for the owner to try it, and for the baseline numbers, which need an unlocked screen.
 - Phase 1: in progress since 2026-11-17 on `rebuild-phase-1`. The design is in [core-design.md](core-design.md); the description of 1.2 it was built from is in [rebuild-inventory.md](rebuild-inventory.md).
+- One-host trial: built in `trials/tauri-notch/`. Every check that needs no visible screen passed: identical notch geometry, reveal without activating the app, and comparable speed. The cross-platform host needed about 55 lines of Mac-specific code for the notch, using public interfaces only. The look and real hover, click and typing still need the owner: run `trials/tauri-notch/check.sh` (about five minutes). The trial's own recommendation is one host if those pass.
 - Phases 2 to 7: not started.
 
 ## Changes made on 2026-11-17 while the owner was away

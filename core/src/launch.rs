@@ -98,6 +98,9 @@ pub fn start(
         offset: Offset::ZERO,
     };
     terminal::spawn(core, &t, token).map_err(|e| format!("cannot open a terminal: {e}"))?;
+    if let Some(watch) = agents::Watch::new(agent.prompts()) {
+        terminal::watch(core, id, watch);
+    }
     Ok(t)
 }
 

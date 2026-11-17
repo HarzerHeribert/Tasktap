@@ -234,6 +234,10 @@ pub fn session_event(cx: &mut Cx, args: SessionEvent) -> Result<(), Error> {
         ));
     };
     let session = questions::session(cx.core, terminal)?;
+    // Ready, the agent shows nothing more to wait on before it is.
+    if args.event == tasktap_proto::Event::Ready {
+        crate::terminal::unwatch(cx.core, terminal);
+    }
     let report = Report {
         session: session.id,
         terminal,
@@ -502,6 +506,23 @@ pub(crate) fn ended(core: &mut Core, terminal: TerminalId, code: Option<u32>, en
         Ok(())
     });
     written.unwrap_or_else(|e| stop(e));
+}
+
+/// A terminal shows what its agent waits on there before it is ready: the
+/// session running in it asks the person to answer there.
+pub(crate) fn shown(core: &mut Core, terminal: TerminalId, prompt: &str) {
+    let session = read(core, |tx| tx.terminal_session(terminal));
+    if let Some(s) = session.unwrap_or_else(|e| stop(e)) {
+        let prompt = prompt.to_owned();
+        report(
+            core,
+            Event::Shown {
+                session: s.id,
+                prompt,
+            },
+            |_| Ok(()),
+        );
+    }
 }
 
 /// The direct child of a terminal exited: the session still running in it

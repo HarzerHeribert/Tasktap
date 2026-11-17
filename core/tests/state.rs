@@ -910,6 +910,49 @@ fn row_ready_makes_a_starting_session_idle() {
 }
 
 #[test]
+fn row_shown_asks_in_the_terminal_until_the_agent_is_ready() {
+    let mut w = World::new("shown");
+    let (t, s) = w.running();
+    let shown = || Event::Shown {
+        session: s,
+        prompt: "Trust this folder?".into(),
+    };
+    let effects = w.ok(shown());
+    let [Effect::Notify(q)] = effects[..] else {
+        panic!("{effects:?}")
+    };
+    let asked = w.question(q);
+    assert_eq!(
+        (asked.reply_via, asked.source, asked.turn, asked.thought_id),
+        (ReplyVia::Terminal, QuestionSource::Agent, Some(0), Some(t))
+    );
+    assert_eq!(w.thought(t).status, Status::NeedsYou);
+    assert_eq!(w.session(s).state, SessionState::Starting);
+    // Drawn again: the same question.
+    assert_eq!(w.ignored(shown()), Ignored::Repeat);
+    // Ready: the person answered it there.
+    w.say(s, Said::Ready).unwrap();
+    let answered = w.question(q);
+    assert_eq!(answered.state, QuestionState::Answered);
+    assert_eq!(answered.answer.unwrap().response, Response::Terminal);
+    assert_eq!(w.thought(t).status, Status::Working);
+    // Once ready, nothing it shows asks.
+    assert_eq!(w.ignored(shown()), Ignored::State);
+    // An agent that sends no ready goes on by starting its turn.
+    let (t, s) = w.running();
+    let effects = w.ok(Event::Shown {
+        session: s,
+        prompt: "Trust this folder?".into(),
+    });
+    let [Effect::Notify(q)] = effects[..] else {
+        panic!("{effects:?}")
+    };
+    w.say(s, Said::TurnStarted { prompt: None }).unwrap();
+    assert_eq!(w.question(q).state, QuestionState::Answered);
+    assert_eq!(w.thought(t).status, Status::Working);
+}
+
+#[test]
 fn row_turn_started_binds_the_launched_thought() {
     let mut w = World::new("turn-started");
     let (t, s) = w.running();
@@ -2234,6 +2277,10 @@ impl Sweep {
             }
             moves.push(ask(question(s, ReplyVia::Core)));
             moves.push(ask(question(s, ReplyVia::Terminal)));
+            moves.push(Event::Shown {
+                session: s.id,
+                prompt: "Trust this folder?".into(),
+            });
         }
         let open = known.questions(tx).into_iter();
         if let Some(q) = open.rev().find(|q| q.state == QuestionState::Open) {
@@ -2442,6 +2489,7 @@ fn every_event_in_every_reachable_state_keeps_the_rules() {
         "TurnFailed",
         "TurnInterrupted",
         "Question",
+        "Shown",
         "Ask",
         "Answer",
         "Withdraw",

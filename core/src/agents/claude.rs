@@ -38,7 +38,8 @@ use tasktap_proto::{Answer, Ask, Event, MAX_LINE, MAX_TEXT, QuestionKind, ReplyV
 
 use super::rules::Rules;
 use super::{
-    Agent, Caps, Detect, Heard, Payload, Run, activity, digest, fit, line, permission, quoted, said,
+    Agent, Caps, Detect, Heard, Payload, Prompt, Run, activity, digest, fit, line, permission,
+    quoted, said,
 };
 
 pub struct Claude;
@@ -207,6 +208,16 @@ impl Agent for Claude {
             "CLAUDE_CODE_OAUTH_TOKEN",
             "CLAUDE_CONFIG_DIR",
         ]
+    }
+
+    /// Its folder-trust dialog, which it shows before anything else in a
+    /// folder it does not trust, and before any hook runs (design §7: it has
+    /// no way to trust a folder for one run).
+    fn prompts(&self) -> &'static [Prompt] {
+        &[Prompt {
+            shows: "Yes, I trust this folder",
+            asks: "Claude Code is asking whether to trust this folder",
+        }]
     }
 
     fn detect(&self) -> Detect {

@@ -60,6 +60,8 @@ struct Live {
     exited: Option<Option<u32>>,
     /// The output ended.
     closed: bool,
+    /// Reads the output for what its agent waits on before it is ready.
+    watch: Option<crate::agents::Watch>,
 }
 
 impl Terminals {
@@ -241,6 +243,7 @@ pub fn spawn(core: &mut Core, t: &Terminal, token: &Secret) -> std::io::Result<(
         stopping: false,
         exited: None,
         closed: false,
+        watch: None,
     };
     terminals.live.insert(t.id, live);
     tokio::task::spawn_local(run(core.me.clone(), t.id, reports));
@@ -264,6 +267,10 @@ async fn run(core: Weak<RefCell<Core>>, id: TerminalId, mut reports: mpsc::Recei
         let exit = match report {
             Some(Report::Output(bytes)) => {
                 live.term.borrow_mut().push(&bytes);
+                let shown = live.watch.as_mut().and_then(|w| w.read(&bytes));
+                if let Some(prompt) = shown {
+                    effects::shown(&mut core, id, prompt.asks);
+                }
                 continue;
             }
             Some(Report::Wrote) => {
@@ -335,6 +342,20 @@ fn end(core: &mut Core, id: TerminalId, exit: Option<u32>) {
 fn left(core: &mut Core, id: TerminalId, exit: Option<u32>) {
     if !core.terminals.closing {
         effects::exited(core, id, exit);
+    }
+}
+
+/// Reads a running terminal's output for what its agent waits on before it
+/// is ready (design §7), until it is.
+pub fn watch(core: &mut Core, id: TerminalId, watch: crate::agents::Watch) {
+    if let Some(live) = core.terminals.live.get_mut(&id) {
+        live.watch = Some(watch);
+    }
+}
+
+pub fn unwatch(core: &mut Core, id: TerminalId) {
+    if let Some(live) = core.terminals.live.get_mut(&id) {
+        live.watch = None;
     }
 }
 

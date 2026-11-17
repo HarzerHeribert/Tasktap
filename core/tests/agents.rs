@@ -633,6 +633,33 @@ fn a_claude_hook_waits_on_the_core_and_prints_the_decision() {
 }
 
 #[test]
+fn claudes_trust_dialog_is_read_from_its_terminal_once() {
+    // Claude Code 2.1.326 in a folder it does not trust shows this before
+    // anything else, and runs no hook until it is answered; it has no way
+    // to trust a folder for one run (design §7). Recorded with the folder
+    // replaced; each word is placed with a cursor move, not a space.
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/agents/claude/trust-dialog.bin");
+    let dialog = std::fs::read(path).unwrap();
+    let claude = agents::find("claude").unwrap();
+    let mut watch = agents::Watch::new(claude.prompts()).unwrap();
+    // In pieces, as the terminal delivers it.
+    let found: Vec<_> = dialog.chunks(7).filter_map(|c| watch.read(c)).collect();
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].asks,
+        "Claude Code is asking whether to trust this folder"
+    );
+    // Drawn again, it is the same question: nothing new.
+    assert!(watch.read(&dialog).is_none());
+    let mut other = agents::Watch::new(claude.prompts()).unwrap();
+    assert!(other.read(b"Yes, I trust that folder").is_none());
+    // Codex is trusted for each run (`-c projects=`): it shows nothing to wait on.
+    let codex = agents::find("codex").unwrap();
+    assert!(agents::Watch::new(codex.prompts()).is_none());
+}
+
+#[test]
 fn a_sub_agents_permission_request_opens_nothing_and_waits_for_nothing() {
     // The guards drop what a sub-agent reports; a hook that waited would ask
     // past them, as the main agent.

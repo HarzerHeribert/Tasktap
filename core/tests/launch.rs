@@ -10,8 +10,9 @@ use common::*;
 use std::path::Path;
 use tasktap_proto::call;
 use tasktap_proto::{
-    Capture, Empty, Place, Reason, Ref, ResultKind, Route, SessionId, SessionState, Status,
-    TerminalId, TerminalKind, TerminalState, ThoughtId,
+    Capture, Empty, Place, QuestionSource, QuestionState, Reason, Ref, ReplyVia, Response,
+    ResultKind, Route, SessionId, SessionState, Status, TerminalId, TerminalKind, TerminalState,
+    ThoughtId,
 };
 
 /// A thought launched once its hold passed, with its session and terminal.
@@ -115,6 +116,49 @@ fn an_agent_not_installed_fails_its_run_says_why_and_leaves_nothing_running() {
     );
     assert!(s.w.model.terminals.is_empty());
     assert_eq!(running(&mut s), 0);
+}
+
+#[test]
+fn what_an_agent_waits_on_in_its_terminal_before_it_is_ready_asks_to_be_answered_there() {
+    // As Claude Code's folder-trust dialog: shown before any hook runs, so
+    // the session stays starting and nothing else would say it waits.
+    let mut s = Scene::real("lt", "fixture");
+    let (t, session, terminal) = started(&mut s, "fix the build");
+    let mut agent = screen(&s, terminal);
+    agent.line("print:Do you trust the files in this folder?");
+    let q = s.shown();
+    let row = s.w.model.question(q).clone();
+    assert_eq!(
+        (row.prompt.as_str(), row.reply_via, row.source),
+        (
+            "The fixture agent is asking whether to trust this folder",
+            ReplyVia::Terminal,
+            QuestionSource::Agent
+        )
+    );
+    assert_eq!((row.thought_id, row.session_id), (Some(t), Some(session)));
+    assert_eq!(s.w.model.status(t), Status::NeedsYou);
+    assert_eq!(s.w.model.session(session).state, SessionState::Starting);
+    // Drawn again, it is the same question.
+    agent.line("print:Do you trust the files in this folder?");
+    // Answered in the terminal: the agent goes on and is ready.
+    agent.line("event:ready");
+    s.w.until("answered in the terminal", |m| {
+        m.question(q).state == QuestionState::Answered
+    });
+    let m = &s.w.model;
+    assert_eq!(m.questions.len(), 1, "one question");
+    let answer = m.question(q).answer.as_ref().unwrap();
+    assert_eq!(answer.response, Response::Terminal);
+    assert_eq!(m.status(t), Status::Working);
+    assert_eq!(m.session(session).state, SessionState::Idle);
+    // Once ready, the same words are only output.
+    agent.line("print:Do you trust the files in this folder?");
+    agent.line("event:turn_started:fix the build");
+    s.w.until("the turn started", |m| {
+        m.session(session).state == SessionState::Working
+    });
+    assert_eq!(s.w.model.questions.len(), 1);
 }
 
 #[test]

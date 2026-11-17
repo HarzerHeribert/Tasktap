@@ -92,6 +92,10 @@ pub enum Event {
     },
     /// What a session's agent says (`session.event`).
     Report(Report),
+    /// A session's terminal shows what its agent waits on there before it
+    /// is ready, which its adapter names (`Agent::prompts`): the prompt of
+    /// the question that opens for it.
+    Shown { session: SessionId, prompt: String },
     /// `session.adopt`: an agent a person started in a shell becomes a
     /// session of the shell's terminal, under an id the core minted.
     Adopt {
@@ -503,8 +507,14 @@ impl Machine<'_, '_> {
                 _,
             ) => self.adopt(id, terminal, agent, cwd),
             (E::Adopt { .. }, ..) => Err(Error::Conflict("an agent already runs in this terminal")),
-            // ready: starting → idle.
+            // ready: starting → idle; what it showed in its terminal before
+            // closes as answered there.
             (_, Some(A::Ready), _, Some(S::Starting), _) => self.ready(some(session)?),
+            // shown: what an agent waits on in its terminal before it is
+            // ready opens as a question answered there.
+            (E::Shown { prompt, .. }, _, _, Some(S::Starting), _) => {
+                self.shown(some(session)?, prompt)
+            }
             // turn_started: → working. Binds the waiting thought, or makes one
             // from a prompt typed by hand.
             (_, Some(A::TurnStarted { prompt }), _, Some(S::Starting | S::Idle), _) => {
@@ -687,7 +697,9 @@ impl Machine<'_, '_> {
                 s.thought = self.tx.thought(thought)?;
                 s.attempt = Some(a);
             }
-            Event::Exited { session, .. } => self.of_session(&mut s, *session)?,
+            Event::Exited { session, .. } | Event::Shown { session, .. } => {
+                self.of_session(&mut s, *session)?
+            }
             Event::Adopt { terminal, .. } => s.session = self.tx.terminal_session(*terminal)?,
             Event::Report(r) => {
                 let session = self.tx.session(r.session)?.ok_or(Error::Gone)?;
@@ -1101,11 +1113,29 @@ impl Machine<'_, '_> {
     }
 
     fn ready(&mut self, mut s: Session) -> Result<()> {
+        self.went_on(&s)?;
         s.state = S::Idle;
         Ok(self.tx.update_session(&s)?)
     }
 
+    /// The agent went on from what it showed in its terminal before it was
+    /// ready: the person answered there.
+    fn went_on(&mut self, s: &Session) -> Result<()> {
+        let (id, turn) = (s.id, s.turn);
+        self.close(
+            |q| {
+                q.session_id == Some(id)
+                    && q.turn == Some(turn)
+                    && q.reply_via == ReplyVia::Terminal
+            },
+            Q::Answered,
+        )
+    }
+
     fn start_turn(&mut self, mut s: Session, prompt: Option<String>) -> Result<()> {
+        if s.state == S::Starting {
+            self.went_on(&s)?;
+        }
         s.turn = s.turn.saturating_add(1);
         s.state = S::Working;
         let waiting = self
@@ -1170,9 +1200,31 @@ impl Machine<'_, '_> {
         self.refresh(q.thought_id)
     }
 
+    /// What its agent waits on in its terminal before it is ready, as a
+    /// question answered there; shown again it is the same question.
+    fn shown(&mut self, s: Session, prompt: String) -> Result<()> {
+        let ask = tasktap_proto::Ask {
+            request: format!("shown {prompt}"),
+            kind: QuestionKind::Confirm,
+            prompt,
+            detail: None,
+            source: None,
+        };
+        let (question, key) = self.in_terminal(&s, ask)?;
+        if self.tx.question_by_request(&key)?.is_some() {
+            return Err(Error::Ignored(Ignored::Repeat));
+        }
+        self.open(question, key)
+    }
+
     /// A terminal-only question (design §6), keyed by the session, its turn
     /// and the agent's own id for the call.
     fn hook(&mut self, s: Session, ask: tasktap_proto::Ask) -> Result<()> {
+        let (question, key) = self.in_terminal(&s, ask)?;
+        self.apply(E::Ask { question, key })
+    }
+
+    fn in_terminal(&mut self, s: &Session, ask: tasktap_proto::Ask) -> Result<(Question, String)> {
         let key = format!("hook {} {} {}", s.id.uuid(), s.turn, ask.request);
         let id = match self.tx.question_by_request(&key)? {
             Some(q) => q.id,
@@ -1192,7 +1244,7 @@ impl Machine<'_, '_> {
             state: Q::Open,
             answer: None,
         };
-        self.apply(E::Ask { question, key })
+        Ok((question, key))
     }
 
     fn reopen(&mut self, q: Question) -> Result<()> {

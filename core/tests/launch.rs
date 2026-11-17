@@ -388,6 +388,11 @@ fn a_follow_up_whose_agent_exits_before_it_is_typed_is_never_typed() {
     );
     agent.ended();
     assert!(!agent.text().contains("rm -rf"), "{}", agent.text());
+    // The row says exited once the history is on disk, which happens off
+    // the core's thread after the stream has ended.
+    s.w.until("the terminal's row says it exited", |m| {
+        m.terminals[&terminal].state == TerminalState::Exited
+    });
     assert!(s.w.model.terminals.len() == 1 && running(&mut s) == 0);
 }
 

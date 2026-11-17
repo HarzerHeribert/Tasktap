@@ -349,6 +349,7 @@ pub fn samples() -> Vec<(&'static str, Frame)> {
                 size: Some(Size(120, 40)),
                 live: true,
                 gap: true,
+                from: Some(Offset::new(2 << 20).unwrap()),
                 exit: Some(Some(0)),
             })),
         ),

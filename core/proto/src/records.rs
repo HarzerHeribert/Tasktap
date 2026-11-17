@@ -217,7 +217,8 @@ pub struct Terminal {
     pub rows: u16,
     pub state: TerminalState,
     pub exit: Option<u32>,
-    /// Bytes of output so far.
+    /// Bytes of output, as of the row's last write: at start, at each
+    /// resize, and at exit, when it is final. A stream counts the rest.
     pub offset: Offset,
 }
 

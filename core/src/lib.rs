@@ -17,3 +17,9 @@ pub mod state;
 pub mod store;
 pub mod stream;
 mod sys;
+mod terminal;
+
+/// The test role that stands in for a program in a terminal (design §13),
+/// and the lines it prints.
+#[cfg(feature = "fixtures")]
+pub use terminal::fixture::{fold as fixture_fold, line as fixture_line, run as fixture_terminal};

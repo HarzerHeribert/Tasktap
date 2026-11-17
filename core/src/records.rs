@@ -410,8 +410,9 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
     Ok(published(core, change))
 }
 
-/// `delete`: removes plain data. A preference or layout that is not stored
-/// is already at its default, so deleting it again changes nothing.
+/// `delete`: removes plain data, and a terminal that is not running with
+/// its history. A preference or layout that is not stored is already at its
+/// default, so deleting it again changes nothing.
 pub fn delete(cx: &mut Cx, args: Delete) -> Result<Revision, Error> {
     let core = &mut *cx.core;
     let mut tx = core.store.begin().map_err(fail)?;
@@ -428,9 +429,25 @@ pub fn delete(cx: &mut Cx, args: Delete) -> Result<Revision, Error> {
                 deleted => deleted,
             }
         }
+        Delete::Terminals { id } => {
+            if core.terminals.running(id) {
+                let why = "the terminal is running: stop it first";
+                return Err(Error::new(Code::Conflict, why));
+            }
+            match tx.delete_terminal(id) {
+                Err(store::Error::Reference) => {
+                    let why = "a session refers to this terminal";
+                    return Err(Error::new(Code::Conflict, why));
+                }
+                deleted => deleted,
+            }
+        }
     }
     .map_err(fail)?;
     let change = tx.commit().map_err(fail)?;
+    if let Delete::Terminals { id } = args {
+        crate::terminal::forget(core, id);
+    }
     Ok(published(core, change))
 }
 

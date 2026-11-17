@@ -4,7 +4,7 @@
 use crate::call::{self, Call, Visit};
 use crate::{
     Access, Control, MAX_CREDIT, MAX_DATA, MAX_DATA_FRAME, MAX_FRAME, MAX_LINE, MAX_PENDING_CALLS,
-    MAX_POINTS, MAX_STREAMS, MAX_TEXT, Opened, PrefKey, VERSION,
+    MAX_POINTS, MAX_STREAMS, MAX_TERMINAL_SIZE, MAX_TEXT, Opened, PrefKey, VERSION,
 };
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -65,6 +65,7 @@ fn typescript() -> String {
         ("MAX_CREDIT", MAX_CREDIT as usize),
         ("MAX_PENDING_CALLS", MAX_PENDING_CALLS),
         ("MAX_STREAMS", MAX_STREAMS),
+        ("MAX_TERMINAL_SIZE", MAX_TERMINAL_SIZE.into()),
     ] {
         writeln!(out, "export const {name} = {value};").unwrap();
     }

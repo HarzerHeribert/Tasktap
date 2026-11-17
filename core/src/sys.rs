@@ -1,7 +1,8 @@
-//! What differs between platforms, and nothing else (design §2): the data
+//! What differs between platforms, and nothing else (design §2, §9): the data
 //! folder, the listener and its peer check, the client's end, starting the
-//! service detached, and the signals that end it. Mac and Linux use the socket
-//! file `<data>/core.sock`; Windows uses a named pipe.
+//! service detached, the signals that end it, and ending a terminal's
+//! processes. Mac and Linux use the socket file `<data>/core.sock`; Windows
+//! uses a named pipe.
 
 #[cfg(unix)]
 pub use unix::*;
@@ -10,6 +11,7 @@ pub use windows::*;
 
 #[cfg(unix)]
 mod unix {
+    use std::ffi::OsString;
     use std::fs::{self, Permissions};
     use std::io::{self, ErrorKind};
     use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
@@ -26,6 +28,59 @@ mod unix {
 
     fn socket(data: &Path) -> PathBuf {
         data.join("core.sock")
+    }
+
+    /// What a client connects to, for a terminal's environment.
+    pub fn address(data: &Path) -> io::Result<OsString> {
+        Ok(socket(data).into_os_string())
+    }
+
+    /// Sends hang-up, or with `kill` the kill signal, to every process in
+    /// process group `group`. Never to the core's own group, nor to 0 or 1,
+    /// which `kill` reads as "this group" and "every process".
+    #[allow(unsafe_code)]
+    pub fn signal_group(group: u32, kill: bool) {
+        // SAFETY: the signature of kill(2) on Linux and macOS, where pid_t
+        // is a 32-bit integer. It takes two integers and touches no memory
+        // of this process, so calling it is safe.
+        unsafe extern "C" {
+            #[link_name = "kill"]
+            safe fn kill_group(pid: i32, sig: i32) -> i32;
+        }
+        // SIGHUP and SIGKILL have these numbers on every Unix.
+        let (hang_up, kill_signal) = (1, 9);
+        let Ok(id) = i32::try_from(group) else { return };
+        if id > 1 && group != std::process::id() {
+            kill_group(-id, if kill { kill_signal } else { hang_up });
+        }
+    }
+
+    /// The size of the terminal on standard output, `(cols, rows)`, for the
+    /// test role that reports it (design §13).
+    #[cfg(feature = "fixtures")]
+    #[allow(unsafe_code)]
+    pub fn window() -> Option<(u16, u16)> {
+        #[repr(C)]
+        #[derive(Default)]
+        struct Winsize {
+            rows: u16,
+            cols: u16,
+            width: u16,
+            height: u16,
+        }
+        #[cfg(target_os = "linux")]
+        const TIOCGWINSZ: std::ffi::c_ulong = 0x5413;
+        #[cfg(not(target_os = "linux"))]
+        const TIOCGWINSZ: std::ffi::c_ulong = 0x4008_7468;
+        // SAFETY: the signature of ioctl(2) on Linux and macOS.
+        unsafe extern "C" {
+            fn ioctl(fd: i32, request: std::ffi::c_ulong, ...) -> i32;
+        }
+        let mut size = Winsize::default();
+        // SAFETY: TIOCGWINSZ writes one `struct winsize`, which `Winsize`
+        // lays out, into `size`, which lives through the call.
+        let ok = unsafe { ioctl(1, TIOCGWINSZ, &mut size as *mut Winsize) } == 0;
+        ok.then_some((size.cols, size.rows))
     }
 
     /// This process's effective user id. std has no `geteuid`, but the kernel
@@ -132,11 +187,11 @@ mod unix {
 #[allow(unsafe_code)]
 mod windows {
     use sha2::{Digest, Sha256};
-    use std::ffi::OsStr;
+    use std::ffi::{OsStr, OsString};
     use std::fs::{self, OpenOptions};
     use std::io;
     use std::os::windows::ffi::OsStrExt;
-    use std::os::windows::io::AsRawHandle;
+    use std::os::windows::io::{AsRawHandle, RawHandle};
     use std::os::windows::process::CommandExt;
     use std::path::Path;
     use std::process::Command;
@@ -147,6 +202,11 @@ mod windows {
         GetLengthSid, GetTokenInformation, TOKEN_QUERY, TOKEN_USER, TokenUser,
     };
     use windows_sys::Win32::System::IO::CancelIoEx;
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, TerminateJobObject,
+    };
     use windows_sys::Win32::System::Pipes::{
         GetNamedPipeClientProcessId, GetNamedPipeServerProcessId, NMPWAIT_WAIT_FOREVER,
         WaitNamedPipeW,
@@ -169,6 +229,87 @@ mod windows {
         let digest = Sha256::digest(folder.as_os_str().as_encoded_bytes());
         let hex: String = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
         Ok(format!(r"\\.\pipe\tasktap-{hex}"))
+    }
+
+    /// What a client connects to, for a terminal's environment.
+    pub fn address(data: &Path) -> io::Result<OsString> {
+        pipe(data).map(OsString::from)
+    }
+
+    /// A job object holding a terminal's process and every process it
+    /// starts, so that ending the job ends the whole tree (design §9). Its
+    /// processes also end when the job's last handle closes: when the
+    /// terminal has ended, or with the core.
+    pub struct Job(HANDLE);
+
+    // SAFETY: a job handle may be used and closed from any thread.
+    unsafe impl Send for Job {}
+
+    impl Job {
+        /// Puts `process`, a process handle, in a new job.
+        pub fn new(process: RawHandle) -> io::Result<Job> {
+            // SAFETY: null attributes and name ask for an unnamed job with
+            // default security; the handle is checked before use.
+            let job = unsafe { CreateJobObjectW(null(), null()) };
+            if job.is_null() {
+                return Err(io::Error::last_os_error());
+            }
+            let job = Job(job);
+            // SAFETY: an all-zero JOBOBJECT_EXTENDED_LIMIT_INFORMATION is a
+            // valid value: no limits.
+            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            let size = std::mem::size_of_val(&info) as u32;
+            // SAFETY: `info` is the structure this class names, `size`
+            // its size, and it lives through the call.
+            let set = unsafe {
+                SetInformationJobObject(
+                    job.0,
+                    JobObjectExtendedLimitInformation,
+                    (&raw const info).cast(),
+                    size,
+                )
+            };
+            // SAFETY: both handles are open for the call.
+            if set == 0 || unsafe { AssignProcessToJobObject(job.0, process as HANDLE) } == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(job)
+        }
+
+        /// Ends every process in the job.
+        pub fn kill(&self) {
+            // SAFETY: the handle is open while `self` lives.
+            unsafe { TerminateJobObject(self.0, 1) };
+        }
+    }
+
+    impl Drop for Job {
+        fn drop(&mut self) {
+            // SAFETY: `Job` holds the handle it created and closes it once.
+            unsafe { CloseHandle(self.0) };
+        }
+    }
+
+    /// The size of the console on standard output, `(cols, rows)`, for the
+    /// test role that reports it (design §13).
+    #[cfg(feature = "fixtures")]
+    pub fn window() -> Option<(u16, u16)> {
+        use windows_sys::Win32::System::Console::{
+            CONSOLE_SCREEN_BUFFER_INFO, GetConsoleScreenBufferInfo, GetStdHandle, STD_OUTPUT_HANDLE,
+        };
+        // SAFETY: an all-zero CONSOLE_SCREEN_BUFFER_INFO is a valid value,
+        // the standard handle needs no closing, and the call writes only
+        // into `info`, which lives through it.
+        let ok = unsafe {
+            let mut info: CONSOLE_SCREEN_BUFFER_INFO = std::mem::zeroed();
+            let ok = GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &mut info) != 0;
+            ok.then_some(info.srWindow)
+        };
+        let window = ok?;
+        let cols = window.Right - window.Left + 1;
+        let rows = window.Bottom - window.Top + 1;
+        Some((u16::try_from(cols).ok()?, u16::try_from(rows).ok()?))
     }
 
     /// The folder lives in the user's profile, whose access list already

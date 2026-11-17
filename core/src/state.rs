@@ -1372,7 +1372,12 @@ pub fn create(
     let id = match kind {
         AttemptKind::Capture(t) => AttemptId::try_from(t.uuid()),
         AttemptKind::Project(p) => AttemptId::try_from(p.uuid()),
-        _ => return Err(Error::Invalid("only a capture or a project is a create")),
+        AttemptKind::Terminal(t) => AttemptId::try_from(t.uuid()),
+        _ => {
+            return Err(Error::Invalid(
+                "only a capture, project or terminal is a create",
+            ));
+        }
     };
     let id = id.map_err(|_| Error::Invalid("ids are UUID v7"))?;
     let args = serde_json::to_vec(args).map_err(|e| Error::Store(e.into()))?;

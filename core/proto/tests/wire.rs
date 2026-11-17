@@ -132,6 +132,7 @@ fn every_call_round_trips() {
         Delete::Prefs { id: PrefKey::Hold },
         Delete::Layouts { id: id(2) },
         Delete::Thoughts { id: id(1) },
+        Delete::Terminals { id: id(4) },
     ] {
         round_trip::<call::Delete>(target, at, seen);
     }
@@ -270,6 +271,39 @@ fn every_call_round_trips() {
             seen,
         );
     }
+    for (start, from) in [
+        (None, None),
+        (
+            Some(StartTerminal {
+                project: Some(id(2)),
+                argv: vec!["claude".into(), "--".into(), "Fix it".into()],
+                title: Some("Fix it".into()),
+            }),
+            Some(Offset::new(1 << 40).unwrap()),
+        ),
+    ] {
+        let open = OpenTerminal {
+            id: id(4),
+            start,
+            cols: 80,
+            rows: 24,
+            from,
+            credit: 1 << 20,
+        };
+        let opened = Opened {
+            s: StreamId(2),
+            credit: 4096,
+            from: Some(Offset::new(7).unwrap()),
+        };
+        round_trip::<call::TerminalOpen>(open, opened, seen);
+    }
+    let resize = ResizeTerminal {
+        id: id(4),
+        cols: 132,
+        rows: 50,
+    };
+    round_trip::<call::TerminalResize>(resize, (), seen);
+    round_trip::<call::TerminalStop>(Ref { id: id(4) }, (), seen);
     let add = AddProject {
         id: id(2),
         folder: "/Users/someone/tasktap".into(),
@@ -277,6 +311,14 @@ fn every_call_round_trips() {
     };
     round_trip::<call::ProjectAdd>(add, id(2), seen);
     round_trip::<call::ProjectScan>(Empty {}, (), seen);
+    round_trip::<call::ProjectClose>(
+        CloseProject {
+            id: id(2),
+            stop: true,
+        },
+        (),
+        seen,
+    );
     for action in [Action::Affirm, Action::Deny] {
         round_trip::<call::Input>(
             Input {
@@ -305,6 +347,7 @@ fn every_call_round_trips() {
     let opened = Opened {
         s: StreamId(3),
         credit: 0,
+        from: None,
     };
     round_trip::<call::FixtureStream>(fixture, opened, seen);
     let to = Place::Project(id(2));
@@ -347,7 +390,7 @@ fn every_call_round_trips() {
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 27);
+    assert_eq!(Name::ALL.len(), 31);
 }
 
 #[test]
@@ -355,7 +398,7 @@ fn names_parse_back_and_unknown_names_do_not() {
     for &name in Name::ALL {
         assert_eq!(Name::parse(name.as_str()), Some(name));
     }
-    assert_eq!(Name::parse("terminal.open"), None);
+    assert_eq!(Name::parse("session.resume"), None);
     assert_eq!(Name::parse(""), None);
 }
 
@@ -378,7 +421,7 @@ fn access_follows_the_authorization_table() {
             "session.event"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 21);
+    assert_eq!(by(Access::Device).len(), 25);
     for (access, allowed) in [
         (Access::Anyone, [true, true, true]),
         (Access::Device, [true, false, false]),

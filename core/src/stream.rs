@@ -190,7 +190,11 @@ pub fn open(
         parked: false,
         ended: false,
     });
-    Ok(Opened { s, credit: granted })
+    Ok(Opened {
+        s,
+        credit: granted,
+        from: None,
+    })
 }
 
 /// The streams of one connection.
@@ -458,6 +462,7 @@ mod fixture {
                 size: None,
                 live: false,
                 gap: false,
+                from: None,
                 exit: None,
             })
         }

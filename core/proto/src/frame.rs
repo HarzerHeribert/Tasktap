@@ -86,6 +86,12 @@ pub struct Opened {
     pub s: StreamId,
     /// Bytes the core lets the caller send on this stream.
     pub credit: u32,
+    /// For a source with offsets of its own, a terminal's output: the offset
+    /// in that source of the stream's first byte. Stream offsets (a mark's
+    /// `at`) count from 0 on every stream; source offsets are what a
+    /// reconnect names.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<Offset>,
 }
 
 /// Grants `n` more bytes on stream `s`.
@@ -107,9 +113,15 @@ pub struct Mark {
     /// Replay is over; bytes from here on are live.
     #[serde(default, skip_serializing_if = "is_false")]
     pub live: bool,
-    /// The reader fell out of the ring; a replay follows.
+    /// The reader fell out of the ring, or reconnected from an offset no
+    /// longer in it; a replay follows.
     #[serde(default, skip_serializing_if = "is_false")]
     pub gap: bool,
+    /// With `gap`: the source offset of the byte after this mark, where the
+    /// replay starts. From here on stream offset `at + k` is source offset
+    /// `from + k`, as `Opened.from` says for stream offset 0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<Offset>,
     /// Present once the process exited: its code, or null when it has none.
     #[serde(
         default,

@@ -18,8 +18,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 use tasktap_proto::call::{Code, Error};
 use tasktap_proto::{
-    AttemptId, Change, Outcome, QuestionId, Secret, SessionEvent, TerminalId, TerminalState,
-    ThoughtId, Time,
+    AttemptId, Change, Offset, Outcome, QuestionId, Secret, SessionEvent, TerminalId,
+    TerminalState, ThoughtId, Time,
 };
 use tokio::task::AbortHandle;
 
@@ -434,18 +434,25 @@ fn kill(core: &mut Core, terminal: TerminalId) {
         .launcher()
         .is_some_and(|launcher| launcher.kill(terminal))
     {
-        exited(core, terminal, None);
+        exited(core, terminal, None, None);
     }
 }
 
-/// The process of a terminal ended: the terminal records it, and the
-/// session still running in it ends.
-fn exited(core: &mut Core, terminal: TerminalId, code: Option<u32>) {
+/// The process of a terminal ended: the terminal records it, with the
+/// offset its output ended at when known, and the session still running in
+/// it ends.
+pub(crate) fn exited(
+    core: &mut Core,
+    terminal: TerminalId,
+    code: Option<u32>,
+    end: Option<Offset>,
+) {
     let session = write(core, |tx| {
         let session = tx.terminal_session(terminal).map_err(stored)?;
         if let Some(mut t) = tx.terminal(terminal).map_err(stored)? {
             t.state = TerminalState::Exited;
             t.exit = code;
+            t.offset = end.unwrap_or(t.offset);
             tx.update_terminal(&t).map_err(stored)?;
         }
         Ok(session)

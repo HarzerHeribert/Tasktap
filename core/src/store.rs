@@ -995,6 +995,19 @@ impl<'s> Tx<'s> {
 
     /// Removes a thought with its questions, their answers, and its results.
     /// A session whose current thought it is makes this `Reference`.
+    /// Deletes a terminal's row; one a session refers to is `Reference`.
+    pub fn delete_terminal(&mut self, id: TerminalId) -> Result<bool> {
+        let key = key(&id)?;
+        let named: bool = self
+            .db
+            .prepare_cached("SELECT EXISTS (SELECT 1 FROM sessions WHERE terminal_id = ?1)")?
+            .query_row([&key], |r| r.get(0))?;
+        if named {
+            return Err(Error::Reference);
+        }
+        self.delete(Table::Terminals, &id)
+    }
+
     pub fn delete_thought(&mut self, id: ThoughtId) -> Result<bool> {
         let key = key(&id)?;
         let named: bool = self

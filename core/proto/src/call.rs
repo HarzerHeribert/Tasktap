@@ -1,4 +1,4 @@
-//! The one table of calls built in Phase 1 (design §1, §2): 23 of the 44 core
+//! The one table of calls built so far (design §1, §2): 27 of the 44 core
 //! calls, and the test fixtures.
 //!
 //! Each call is a type here, named for the call (`thought.capture` is
@@ -7,12 +7,12 @@
 //! answers a call never writes the name as text.
 
 use crate::args::{
-    AddProject, AnswerQuestion, Ask, AskKey, Assign, Capture, Empty, FixtureLog, HistoryPage, Ref,
-    Revision, Settle, Start, Subscribe,
+    AddProject, AnswerQuestion, Ask, AskKey, Assign, Capture, CloseProject, Empty, FixtureLog,
+    HistoryPage, OpenTerminal, Ref, ResizeTerminal, Revision, Settle, Start, Subscribe,
 };
 use crate::bootstrap::{Identity, Retire};
 use crate::frame::{Control, Outcome, Reply, Request};
-use crate::ids::{CallId, DeviceId, ProjectId, QuestionId, ThoughtId};
+use crate::ids::{CallId, DeviceId, ProjectId, QuestionId, TerminalId, ThoughtId};
 use crate::records::Answer;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -82,9 +82,14 @@ table! {
     QuestionFocus "question.focus" Device (Ref<QuestionId>) -> ();
     // Sessions
     SessionEvent "session.event" Session (crate::args::SessionEvent) -> ();
+    // Terminals
+    TerminalOpen "terminal.open" Device (OpenTerminal) -> crate::frame::Opened;
+    TerminalResize "terminal.resize" Device (ResizeTerminal) -> ();
+    TerminalStop "terminal.stop" Device (Ref<TerminalId>) -> ();
     // Projects
     ProjectAdd "project.add" Device (AddProject) -> ProjectId;
     ProjectScan "project.scan" Device (Empty) -> ();
+    ProjectClose "project.close" Device (CloseProject) -> ();
     // Input
     Input "input" Device (crate::args::Input) -> ();
     // Devices and service; the last two are the frozen bootstrap calls.

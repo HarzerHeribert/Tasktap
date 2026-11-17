@@ -11,7 +11,7 @@ use crate::handshake::SUPPORTED;
 use crate::serve::{BUILD, Core};
 use crate::state::{self, Destination, Event};
 use crate::store::AttemptKind;
-use crate::{questions, records};
+use crate::{questions, records, terminal};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -115,6 +115,12 @@ fn handler(name: Name) -> Option<Handler> {
         Name::Input => |cx, args| now::<call::Input>(cx, args, questions::input),
         Name::ProjectAdd => |cx, args| later::<call::ProjectAdd>(cx, args, add_project),
         Name::ProjectScan => |cx, args| later::<call::ProjectScan>(cx, args, scan_projects),
+        Name::ProjectClose => {
+            |cx, args| now::<call::ProjectClose>(cx, args, terminal::close_project)
+        }
+        Name::TerminalOpen => |cx, args| now::<call::TerminalOpen>(cx, args, terminal::open),
+        Name::TerminalResize => |cx, args| now::<call::TerminalResize>(cx, args, terminal::resize),
+        Name::TerminalStop => |cx, args| now::<call::TerminalStop>(cx, args, terminal::stop_call),
         #[cfg(feature = "fixtures")]
         Name::FixtureStream => {
             |cx, args| now::<call::FixtureStream>(cx, args, crate::stream::fixture)
@@ -267,8 +273,8 @@ fn status(cx: &mut Cx, _: Empty) -> Result<CoreStatus, Error> {
     })
 }
 
-/// `now` exits once the reply is written; `idle` once no terminal is alive,
-/// whoever is connected (design §3), which in Phase 1 is at once too.
+/// `now` stops the terminals and exits once the reply is written; `idle`
+/// once no terminal is alive, whoever is connected (design §3).
 fn retire(cx: &mut Cx, args: Retire) -> Result<(), Error> {
     if cx.core.retire != Some(When::Now) {
         cx.core.retire = Some(args.when);
@@ -348,7 +354,7 @@ fn add_found(
         }
         // A project made otherwise, such as the scratch, keeps its folder.
         match tx.project(args.id).map_err(stored)? {
-            Some(p) if p.folder == folder => return Ok(p.id),
+            Some(p) if p.folder == folder => return reopen(tx, p),
             Some(_) => {
                 let why = "the project id was used for another folder";
                 return Err(Error::new(Code::Conflict, why));
@@ -356,7 +362,7 @@ fn add_found(
             None => {}
         }
         if let Some(p) = tx.project_by_folder(&folder).map_err(stored)? {
-            return Ok(p.id);
+            return reopen(tx, p);
         }
         let project = Project {
             id: args.id,
@@ -374,6 +380,15 @@ fn add_found(
         tx.insert_project(&project).map_err(stored)?;
         Ok(args.id)
     })
+}
+
+/// Adding a project closed with `project.close` opens it again.
+fn reopen(tx: &mut crate::store::Tx, mut p: Project) -> Result<ProjectId, Error> {
+    if !p.open {
+        p.open = true;
+        tx.update_project(&p).map_err(stored)?;
+    }
+    Ok(p.id)
 }
 
 /// `project.scan`: whether each project's folder is still there, and still

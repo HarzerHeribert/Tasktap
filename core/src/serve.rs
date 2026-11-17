@@ -58,6 +58,7 @@ pub struct Core {
     pub events: Rc<Notify>,
     /// Folder checks running on their own threads (`calls::off_thread`).
     pub checks: usize,
+    pub terminals: crate::terminal::Terminals,
     /// How long each folder check waits first, for tests (design §13).
     #[cfg(feature = "fixtures")]
     pub fixture_check: Duration,
@@ -66,9 +67,9 @@ pub struct Core {
 }
 
 impl Core {
-    /// Live terminals; Phase 2 counts them.
+    /// Live terminals.
     pub fn terminals(&self) -> u32 {
-        0
+        self.terminals.count()
     }
 
     /// The lifetime condition: a client connected, a terminal alive or a
@@ -123,6 +124,7 @@ async fn serve(opts: Options) -> io::Result<()> {
     }
     let db = opts.data.join("core.db");
     let (store, _) = Store::open(&db, crate::effects::wall()).map_err(io::Error::other)?;
+    let terminals = crate::terminal::Terminals::new(&opts.data)?;
     let mut listener = sys::Listener::bind(&opts.data)?;
     let terminated = sys::terminated()?;
     drop(starting);
@@ -140,6 +142,7 @@ async fn serve(opts: Options) -> io::Result<()> {
             me: me.clone(),
             events: events.clone(),
             checks: 0,
+            terminals,
             #[cfg(feature = "fixtures")]
             fixture_check: opts.check,
             #[cfg(feature = "fixtures")]
@@ -184,6 +187,8 @@ async fn serve(opts: Options) -> io::Result<()> {
             () = fire(&mut idle) => break,
         }
     }
+    // Terminals end first, so their clients see them end.
+    crate::terminal::shutdown(&core).await;
     // What is queued, such as the reply to `core.retire`, gets one write.
     for link in &core.borrow().links {
         link.close(true);

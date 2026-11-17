@@ -55,6 +55,8 @@ pub const MAX_SESSION_QUESTIONS: usize = 8;
 /// Questions all sessions together may have open at once; a router's question
 /// is one per captured thought and not counted.
 pub const MAX_OPEN_QUESTIONS: usize = 64;
+/// Most columns, and most rows, of a terminal; the least is 1.
+pub const MAX_TERMINAL_SIZE: u16 = 1000;
 
 // The bounds of what a call may write into a row. A bounded value is counted
 // in bytes of its JSON, quotes included: in a page, the length of

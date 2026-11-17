@@ -121,7 +121,9 @@ pub struct NotePatch {
     pub strokes: Option<Vec<Stroke>>,
 }
 
-/// `delete`: removes plain data. Deleting a preference restores its default.
+/// `delete`: removes plain data, and a terminal that is not running with its
+/// history, the only way history is removed; one a session refers to is
+/// `conflict`. Deleting a preference restores its default.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "c", rename_all = "snake_case")]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -129,6 +131,7 @@ pub enum Delete {
     Prefs { id: PrefKey },
     Layouts { id: ProjectId },
     Thoughts { id: ThoughtId },
+    Terminals { id: TerminalId },
 }
 
 /// `history`: finished thoughts older than `before`, newest first; with
@@ -480,4 +483,72 @@ pub struct AddProject {
     pub folder: String,
     #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub name: Option<String>,
+}
+
+/// `terminal.open`: attaches to terminal `id` and replies with a stream of
+/// its output, which also carries input to it. With `start`, a terminal no
+/// record has yet is started first; the same id with the same `start`
+/// attaches, with another is `conflict`. Without `start`, an id no record
+/// has is `gone`. A terminal is never started twice: one that exited or was
+/// lost is replayed from its history (design §3, §9).
+///
+/// The stream starts at `from` while that offset is still in the
+/// terminal's ring; otherwise with a `gap` mark and a replay from the ring's
+/// start, and at the ring's start when `from` is left out. The reply's
+/// `from` says where it started. Then come a size mark with the size in
+/// effect there, the bytes, a size mark at each later resize, a `live` mark
+/// where the ring ended at the time of opening, an `exit` mark after the
+/// last byte, and the close, `done`. `cols` and `rows` resize a running
+/// terminal: the last caller wins. Input is accepted while the process runs.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct OpenTerminal {
+    pub id: TerminalId,
+    #[serde(default)]
+    pub start: Option<StartTerminal>,
+    pub cols: u16,
+    pub rows: u16,
+    /// The terminal offset the caller has everything before.
+    #[serde(default)]
+    pub from: Option<Offset>,
+    /// What the caller grants the core on this stream at once.
+    pub credit: u32,
+}
+
+/// What a new terminal runs.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct StartTerminal {
+    /// The open project whose folder it runs in; without one it runs in the
+    /// person's home folder and belongs to no project.
+    #[serde(default)]
+    pub project: Option<ProjectId>,
+    /// The program and its arguments, started directly with no shell around
+    /// it; empty starts the person's login shell.
+    #[serde(default, deserialize_with = "crate::within::<MAX_TEXT, _, _>")]
+    pub argv: Vec<String>,
+    /// By default the program's name.
+    #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub title: Option<String>,
+}
+
+/// `terminal.resize`: one size per terminal, the last caller's. It reaches
+/// the process and becomes a size mark at the offset where it happened.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ResizeTerminal {
+    pub id: TerminalId,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+/// `project.close`: no terminal starts in the project until `project.add`
+/// names its folder again. With `stop`, its running terminals are stopped in
+/// the same step, as `terminal.stop` does; without, they keep running.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct CloseProject {
+    pub id: ProjectId,
+    #[serde(default)]
+    pub stop: bool,
 }

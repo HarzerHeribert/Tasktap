@@ -14,6 +14,8 @@ fn main() -> ExitCode {
     let _program = args.next();
     let result = match args.next().as_deref().and_then(|role| role.to_str()) {
         Some("serve") => serve(args),
+        #[cfg(feature = "fixtures")]
+        Some("fixture-terminal") => tasktap_core::fixture_terminal(args),
         _ => Err("usage: tasktap serve --data <folder>".to_owned()),
     };
     match result {

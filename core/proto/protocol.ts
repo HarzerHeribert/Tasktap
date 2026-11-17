@@ -7,6 +7,7 @@ export const MAX_DATA = 65531;
 export const MAX_CREDIT = 4194304;
 export const MAX_PENDING_CALLS = 64;
 export const MAX_STREAMS = 64;
+export const MAX_TERMINAL_SIZE = 1000;
 // Bounds of what a call writes into a row; a call over one is `invalid`. MAX_TEXT: a thought's
 // text, a question's detail, a text answer. MAX_LINE: a question's prompt and its choices, a
 // router's brief, a session's error, a project's name, color, folder and aliases, a device's
@@ -107,6 +108,13 @@ export type Changes = "none" | "pending" | "kept" | "discarded";
 
 export type Close = { s: StreamId, why?: CloseWhy | null, };
 
+/**
+ * `project.close`: no terminal starts in the project until `project.add`
+ * names its folder again. With `stop`, its running terminals are stopped in
+ * the same step, as `terminal.stop` does; without, they keep running.
+ */
+export type CloseProject = { id: ProjectId, stop: boolean, };
+
 export type CloseWhy = "done" | "overflow" | "gone" | "denied";
 
 export type Code = "unknown" | "invalid" | "denied" | "conflict" | "gone" | "failed";
@@ -140,9 +148,11 @@ terminals: number, };
 export type Credit = { s: StreamId, n: number, };
 
 /**
- * `delete`: removes plain data. Deleting a preference restores its default.
+ * `delete`: removes plain data, and a terminal that is not running with its
+ * history, the only way history is removed; one a session refers to is
+ * `conflict`. Deleting a preference restores its default.
  */
-export type Delete = { "c": "prefs", id: PrefKey, } | { "c": "layouts", id: ProjectId, } | { "c": "thoughts", id: ThoughtId, };
+export type Delete = { "c": "prefs", id: PrefKey, } | { "c": "layouts", id: ProjectId, } | { "c": "thoughts", id: ThoughtId, } | { "c": "terminals", id: TerminalId, };
 
 export type Device = { id: DeviceId, rev: Rev, name: string, last_seen: Time | null, revoked: boolean, };
 
@@ -339,9 +349,16 @@ export type Mark = { s: StreamId, at: Offset, size?: Size | null,
  */
 live?: boolean,
 /**
- * The reader fell out of the ring; a replay follows.
+ * The reader fell out of the ring, or reconnected from an offset no
+ * longer in it; a replay follows.
  */
 gap?: boolean,
+/**
+ * With `gap`: the source offset of the byte after this mark, where the
+ * replay starts. From here on stream offset `at + k` is source offset
+ * `from + k`, as `Opened.from` says for stream offset 0.
+ */
+from?: Offset | null,
 /**
  * Present once the process exited: its code, or null when it has none.
  */
@@ -360,6 +377,33 @@ export type NotePatch = { text?: string | null, strokes?: Array<Array<[number, n
 export type Offset = number;
 
 /**
+ * `terminal.open`: attaches to terminal `id` and replies with a stream of
+ * its output, which also carries input to it. With `start`, a terminal no
+ * record has yet is started first; the same id with the same `start`
+ * attaches, with another is `conflict`. Without `start`, an id no record
+ * has is `gone`. A terminal is never started twice: one that exited or was
+ * lost is replayed from its history (design §3, §9).
+ *
+ * The stream starts at `from` while that offset is still in the
+ * terminal's ring; otherwise with a `gap` mark and a replay from the ring's
+ * start, and at the ring's start when `from` is left out. The reply's
+ * `from` says where it started. Then come a size mark with the size in
+ * effect there, the bytes, a size mark at each later resize, a `live` mark
+ * where the ring ended at the time of opening, an `exit` mark after the
+ * last byte, and the close, `done`. `cols` and `rows` resize a running
+ * terminal: the last caller wins. Input is accepted while the process runs.
+ */
+export type OpenTerminal = { id: TerminalId, start?: StartTerminal | null, cols: number, rows: number,
+/**
+ * The terminal offset the caller has everything before.
+ */
+from?: Offset | null,
+/**
+ * What the caller grants the core on this stream at once.
+ */
+credit: number, };
+
+/**
  * The reply of a call that opens a stream; that call's args carry the
  * credit the caller grants toward it.
  */
@@ -367,7 +411,14 @@ export type Opened = { s: StreamId,
 /**
  * Bytes the core lets the caller send on this stream.
  */
-credit: number, };
+credit: number,
+/**
+ * For a source with offsets of its own, a terminal's output: the offset
+ * in that source of the stream's first byte. Stream offsets (a mark's
+ * `at`) count from 0 on every stream; source offsets are what a
+ * reconnect names.
+ */
+from?: Offset | null, };
 
 /**
  * Written only by the state machine.
@@ -462,6 +513,12 @@ export type ReplyVia = "core" | "terminal";
  * still gets a `reply` with `unknown` instead of ending the connection.
  */
 export type Request = { id: CallId, name: string, args: object, };
+
+/**
+ * `terminal.resize`: one size per terminal, the last caller's. It reaches
+ * the process and becomes a size mark at the offset where it happened.
+ */
+export type ResizeTerminal = { id: TerminalId, cols: number, rows: number, };
 
 /**
  * A UUID v7 in text, minted by whoever creates the record.
@@ -570,6 +627,25 @@ export type Source = "typed" | "voice" | "terminal" | "import";
 export type Start = { id: ThoughtId, attempt: AttemptId, };
 
 /**
+ * What a new terminal runs.
+ */
+export type StartTerminal = {
+/**
+ * The open project whose folder it runs in; without one it runs in the
+ * person's home folder and belongs to no project.
+ */
+project?: ProjectId | null,
+/**
+ * The program and its arguments, started directly with no shell around
+ * it; empty starts the person's login shell.
+ */
+argv: Array<string>,
+/**
+ * By default the program's name.
+ */
+title?: string | null, };
+
+/**
  * Derived in the same transaction as the phase: `needs_you` while the
  * thought has any open question, otherwise its phase.
  */
@@ -587,7 +663,8 @@ export type Subscribe = { collections: Array<Collection>, };
 
 export type Terminal = { id: TerminalId, rev: Rev, project_id: ProjectId | null, kind: TerminalKind, title: string, cwd: string, argv: Array<string>, cols: number, rows: number, state: TerminalState, exit: number | null,
 /**
- * Bytes of output so far.
+ * Bytes of output, as of the row's last write: at start, at each
+ * resize, and at exit, when it is final. A stream counts the rest.
  */
 offset: Offset, };
 
@@ -669,8 +746,12 @@ export type Calls = {
   "question.received": { args: AskKey; result: null; access: "session" };
   "question.focus": { args: Ref<QuestionId>; result: null; access: "device" };
   "session.event": { args: SessionEvent; result: null; access: "session" };
+  "terminal.open": { args: OpenTerminal; result: Opened; access: "device" };
+  "terminal.resize": { args: ResizeTerminal; result: null; access: "device" };
+  "terminal.stop": { args: Ref<TerminalId>; result: null; access: "device" };
   "project.add": { args: AddProject; result: ProjectId; access: "device" };
   "project.scan": { args: Empty; result: null; access: "device" };
+  "project.close": { args: CloseProject; result: null; access: "device" };
   "input": { args: Input; result: null; access: "device" };
   "device.revoke": { args: Ref<DeviceId>; result: null; access: "device" };
   "core.status": { args: Empty; result: CoreStatus; access: "anyone" };

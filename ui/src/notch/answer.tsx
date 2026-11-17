@@ -73,19 +73,19 @@ export function Answer({ questions }: { questions: Question[] }) {
         {terminal ? (
           <div class="decision-choices">
             <button type="button" class="decision-btn" onClick={() => choose(0)}>
-              <kbd>1</kbd> Answer in its terminal <Icon name="terminal" />
+              <kbd>1</kbd><span>Answer in its terminal</span><Icon name="terminal" />
             </button>
           </div>
         ) : q.kind === 'confirm' ? (
           <div class="binary-choices">
-            <button type="button" class="decision-btn answer-yes" onClick={() => choose(0)}><Icon name="check" /><kbd>1</kbd> Yes <kbd>⌃⌥Y</kbd></button>
-            <button type="button" class="decision-btn answer-no" onClick={() => choose(1)}><Icon name="x" /><kbd>2</kbd> No <kbd>⌃⌥N</kbd></button>
+            <button type="button" class="decision-btn answer-yes" onClick={() => choose(0)}><Icon name="check" /><kbd>1</kbd><span>Yes</span><kbd>⌃⌥Y</kbd></button>
+            <button type="button" class="decision-btn answer-no" onClick={() => choose(1)}><Icon name="x" /><kbd>2</kbd><span>No</span><kbd>⌃⌥N</kbd></button>
           </div>
         ) : (
           choices.length > 0 && (
             <div class="decision-choices">
               {choices.map((c, k) => (
-                <button type="button" class="decision-btn" onClick={() => choose(k)}>{k < 9 && <kbd>{k + 1}</kbd>} {c}</button>
+                <button type="button" class="decision-btn" onClick={() => choose(k)}>{k < 9 && <kbd>{k + 1}</kbd>}<span>{c}</span></button>
               ))}
             </div>
           )
@@ -117,8 +117,8 @@ export function Answer({ questions }: { questions: Question[] }) {
         ))}
         {n > 1 && (
           <div class="reply-actions">
-            <button type="button" class="text-btn" onClick={() => go(-1)}><Icon name="back" /> Previous</button>
-            <button type="button" class="text-btn" onClick={() => go(1)}>Next <Icon name="arrow" /></button>
+            <button type="button" class="text-btn" onClick={() => go(-1)}><Icon name="back" /><span>Previous</span></button>
+            <button type="button" class="text-btn" onClick={() => go(1)}><span>Next</span><Icon name="arrow" /></button>
           </div>
         )}
       </div>

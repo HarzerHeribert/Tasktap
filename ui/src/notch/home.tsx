@@ -83,7 +83,7 @@ export function Home() {
       <Capture {...hooks} />
       {n > 0 && (
         <button type="button" class="notch-action" onClick={() => reveal('pinned', 'answer', '#notch .decision-btn, #notch #comment')}>
-          Answer {n === 1 ? 'it' : `${n} questions`} <kbd>⌃⌥J</kbd><Icon name="arrow" />
+          <span>Answer {n === 1 ? 'it' : `${n} questions`}</span><kbd>⌃⌥J</kbd><Icon name="arrow" />
         </button>
       )}
       {working.length + finished.length > 0 && (

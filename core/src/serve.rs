@@ -34,6 +34,9 @@ pub struct Options {
     pub idle: Duration,
     /// How long a connection may take to say hello.
     pub hello: Duration,
+    /// The client that started this core holds `start.lock` for it until it
+    /// reads `ready` (`client::admit`).
+    pub locked: bool,
     /// A session token that names no terminal, for tests (design §13).
     #[cfg(feature = "fixtures")]
     pub token: Option<tasktap_proto::Secret>,
@@ -111,7 +114,10 @@ async fn serve(opts: Options) -> io::Result<()> {
     sys::prepare(&opts.data)?;
     // A second `serve` waits here until the first listens, then finds the
     // lock taken and exits: the client that started it can connect at once.
-    let starting = lock(&opts.data.join("start.lock"))?;
+    let starting = match opts.locked {
+        true => None,
+        false => Some(lock(&opts.data.join("start.lock"))?),
+    };
     let life = open(&opts.data.join("core.lock"))?;
     match life.try_lock() {
         Ok(()) => {}
@@ -181,7 +187,16 @@ async fn serve(opts: Options) -> io::Result<()> {
                 Err(_) => accepting = false,
             },
             () = events.notified() => accepting = true,
-            () = fire(&mut idle) => break,
+            () = fire(&mut idle) => match closing(&opts.data) {
+                Some(gate) => {
+                    // Held until the process is gone: a client that comes
+                    // now waits for that in the kernel and starts a new core.
+                    std::mem::forget(gate);
+                    break;
+                }
+                // A client is between connecting and its hello: stay for it.
+                None => idle = None,
+            },
         }
     }
     // What is queued, such as the reply to `core.retire`, gets one write.
@@ -216,6 +231,14 @@ fn open(path: &Path) -> io::Result<File> {
         .truncate(false)
         .write(true)
         .open(path)
+}
+
+/// `start.lock` taken alone, which no client connecting through
+/// `client::admit` holds: none of them can be left in the listen queue of a
+/// core that is about to exit.
+fn closing(data: &Path) -> Option<File> {
+    let gate = open(&data.join("start.lock")).ok()?;
+    gate.try_lock().ok().map(|()| gate)
 }
 
 fn lock(path: &Path) -> io::Result<File> {

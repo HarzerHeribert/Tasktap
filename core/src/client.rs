@@ -5,6 +5,7 @@
 
 use crate::sys;
 use std::collections::{HashMap, VecDeque};
+use std::fs::{File, TryLockError};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -55,12 +56,66 @@ pub fn connect(data: &Path) -> io::Result<Stream> {
 }
 
 /// Connects to the core serving `data`, starting `exe` as that core first
-/// when none answers.
+/// when none runs, as [`admit`] does.
 pub fn connect_or_start(exe: &Path, data: &Path) -> io::Result<Stream> {
-    connect(data).or_else(|_| {
-        start(serve_command(exe, data))?;
-        connect(data)
-    })
+    enter(serve_command(exe, data), data).map(|(stream, _)| stream)
+}
+
+/// Connects to the core serving `data` and says hello, starting `serve` (a
+/// [`serve_command`]) first when no core runs; a refusal is the inner `Err`.
+/// However many clients do this at once, one core starts and every client
+/// gets in, with no retry and no timer: they wait for each other on
+/// `start.lock` in the kernel.
+pub fn admit(serve: Command, data: &Path, hello: Hello) -> io::Result<Result<Client, Refuse>> {
+    // The lock is held through hello: the core has accepted this connection
+    // once it answers.
+    let (stream, _held) = enter(serve, data)?;
+    Client::hello(stream, hello)
+}
+
+/// Connects, with `start.lock` held until the caller lets it go. A client
+/// holds it shared while it connects, and a starting core holds it alone
+/// until it listens, so a client waits for a core that is starting. A client
+/// that finds no core, or one whose listen queue is full (it holds 128 on
+/// macOS, and a full one refuses at once), takes the lock alone. It gets it
+/// once every client connecting before it has been let in, so the queue
+/// has room again: only a core that refuses for some other reason fails it
+/// now. When no core holds `core.lock` it starts one with `--locked` and
+/// keeps the lock until it listens, so it alone starts one; the clients
+/// waiting behind it connect to that core.
+fn enter(mut serve: Command, data: &Path) -> io::Result<(Stream, File)> {
+    let gate = open(&data.join("start.lock"))?;
+    gate.lock_shared()?;
+    if let Ok(stream) = connect(data) {
+        return Ok((stream, gate));
+    }
+    gate.unlock()?;
+    gate.lock()?;
+    let stream = match connect(data) {
+        Ok(stream) => stream,
+        Err(e) if running(data)? => return Err(e),
+        Err(_) => {
+            serve.arg("--locked");
+            start(serve)?;
+            connect(data)?
+        }
+    };
+    Ok((stream, gate))
+}
+
+/// Whether a core holds `core.lock`, which it does for life. Asked only with
+/// `start.lock` held, when no core can be between taking one and the other.
+fn running(data: &Path) -> io::Result<bool> {
+    match open(&data.join("core.lock"))?.try_lock_shared() {
+        Ok(()) => Ok(false),
+        Err(TryLockError::WouldBlock) => Ok(true),
+        Err(TryLockError::Error(e)) => Err(e),
+    }
+}
+
+fn open(path: &Path) -> io::Result<File> {
+    let mut options = File::options();
+    options.create(true).truncate(false).write(true).open(path)
 }
 
 /// A connection the core welcomed.

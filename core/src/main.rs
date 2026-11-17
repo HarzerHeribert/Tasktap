@@ -31,6 +31,7 @@ fn main() -> ExitCode {
 /// first) and `--fixture-token <64 hex digits>`.
 fn serve(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
     let mut data = None;
+    let mut locked = false;
     #[cfg_attr(not(feature = "fixtures"), allow(unused_mut))]
     let mut idle = serve::IDLE;
     #[cfg_attr(not(feature = "fixtures"), allow(unused_mut))]
@@ -46,6 +47,8 @@ fn serve(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
         };
         match flag.to_str() {
             Some("--data") => data = Some(PathBuf::from(value()?)),
+            // Only `client::admit` passes it: it holds `start.lock` for this core.
+            Some("--locked") => locked = true,
             #[cfg(feature = "fixtures")]
             Some("--idle-ms") => idle = ms(value()?)?,
             #[cfg(feature = "fixtures")]
@@ -65,6 +68,7 @@ fn serve(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
         data,
         idle,
         hello,
+        locked,
         #[cfg(feature = "fixtures")]
         token,
         #[cfg(feature = "fixtures")]

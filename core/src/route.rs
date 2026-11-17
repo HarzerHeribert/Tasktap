@@ -43,8 +43,7 @@
 //! | a constraint of 3 to 1000 characters found word for word in the capture but not in the brief | appended to the brief |
 //! | the person picked the destination | only the brief is taken |
 
-use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
 use tasktap_proto::{
     Collection, Error, Hint, Place, ProjectId, RouteBy, RouteTerms, SessionId, SessionState, Set,
     Status, ThoughtId,
@@ -258,16 +257,24 @@ const WHERE: &str = "Where should this go?";
 /// its project, then the newest; each session with its last request, and
 /// the 3 latest exchanges with them.
 pub fn narrow(tx: &Tx, mut r: Request) -> store::Result<Request> {
-    let current = r.current;
-    // Newest first, then what the capture points at before the rest.
+    let (current, text) = (r.current, r.text.clone());
+    // Newest first, then what the capture points at before the rest. (No
+    // sort: one for each of the two kinds would be 24 KiB of the binary.)
     r.sessions.reverse();
-    r.sessions
-        .sort_by_key(|s| (!follows(&r.text, s), Some(s.id) != current));
+    r.sessions = first(r.sessions, |s| Some(s.id) == current);
+    r.sessions = first(r.sessions, |s| follows(&text, s));
     r.sessions.truncate(OFFERED);
-    let wanted = |p: &Named| r.sessions.iter().position(|s| s.project == p.id);
+    // The projects it names, then those of the sessions in their order.
     r.projects.reverse();
-    r.projects
-        .sort_by_key(|p| (!names(&r.text, p), wanted(p).unwrap_or(usize::MAX)));
+    let mut rest = first(r.projects, |p| names(&text, p));
+    let named = rest.iter().take_while(|p| names(&text, p)).count();
+    r.projects = rest.drain(..named).collect();
+    for s in &r.sessions {
+        if let Some(at) = rest.iter().position(|p| p.id == s.project) {
+            r.projects.push(rest.remove(at));
+        }
+    }
+    r.projects.extend(rest);
     r.projects.truncate(OFFERED);
     r.sessions
         .retain(|s| r.projects.iter().any(|p| p.id == s.project));
@@ -289,6 +296,13 @@ pub fn narrow(tx: &Tx, mut r: Request) -> store::Result<Request> {
         }
     }
     Ok(r)
+}
+
+/// `all` with those that are `first` before the others, each in their order.
+fn first<T>(all: Vec<T>, first: impl Fn(&T) -> bool) -> Vec<T> {
+    let (mut front, back): (Vec<T>, Vec<T>) = all.into_iter().partition(first);
+    front.extend(back);
+    front
 }
 
 /// The first `chars` characters of `text` on one line.
@@ -371,8 +385,6 @@ fn word(word: &impl serde::Serialize) -> String {
 }
 
 /// A model's answer, as [`SCHEMA`] says it.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct Answer {
     quote: String,
     confidence: Confidence,
@@ -382,12 +394,55 @@ struct Answer {
     brief: String,
 }
 
-#[derive(Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
 enum Confidence {
     Clear,
     Ambiguous,
     Unknown,
+}
+
+impl Answer {
+    /// Reads an answer strictly: the one object, each field there and of
+    /// its kind, and no other. (By hand: a derived reader is 9 KiB of the
+    /// binary for this one type.)
+    fn read(answer: &str) -> Result<Answer, String> {
+        let wrong = |what: &str| format!("its answer is not the JSON it was asked for: {what}");
+        let Ok(Value::Object(mut fields)) = serde_json::from_str(answer) else {
+            return Err(wrong("it is no JSON object"));
+        };
+        let mut text = |key: &str| match fields.remove(key) {
+            Some(Value::String(text)) => Ok(text),
+            _ => Err(wrong(&format!("{key} is no text"))),
+        };
+        let (quote, to, brief) = (text("quote")?, text("to")?, text("brief")?);
+        let confidence = match text("confidence")?.as_str() {
+            "clear" => Confidence::Clear,
+            "ambiguous" => Confidence::Ambiguous,
+            "unknown" => Confidence::Unknown,
+            other => return Err(wrong(&format!("its confidence is {other:?}"))),
+        };
+        let mut list = |key: &str| {
+            let Some(Value::Array(items)) = fields.remove(key) else {
+                return Err(wrong(&format!("{key} is no list")));
+            };
+            let texts = items.into_iter().map(|item| match item {
+                Value::String(text) => Ok(text),
+                _ => Err(wrong(&format!("{key} holds what is no text"))),
+            });
+            texts.collect::<Result<Vec<_>, _>>()
+        };
+        let (candidates, constraints) = (list("candidates")?, list("constraints")?);
+        match fields.keys().next() {
+            Some(more) => Err(wrong(&format!("it has {more}, which was not asked for"))),
+            None => Ok(Answer {
+                quote,
+                confidence,
+                to,
+                candidates,
+                constraints,
+                brief,
+            }),
+        }
+    }
 }
 
 /// The acceptance rules of the module's second table: the route a model's
@@ -397,8 +452,7 @@ pub fn accept(r: &Request, answer: &str) -> Result<(Route, Option<String>), Stri
     if answer.len() > 64 << 10 {
         return Err("its answer is too large".into());
     }
-    let a: Answer = serde_json::from_str(answer)
-        .map_err(|e| format!("its answer is not the JSON it was asked for: {e}"))?;
+    let a = Answer::read(answer)?;
     let offered = |key: &str| {
         place(r, key).ok_or_else(|| format!("it names {key:?}, which it was not offered"))
     };

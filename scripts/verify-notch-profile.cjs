@@ -23,6 +23,8 @@ const path=require('node:path');
   assert.equal(await tab.evaluate(el=>getComputedStyle(el,'::after').animationName),'none');
   if(process.env.TASKTAP_SCREENSHOTS)await page.screenshot({path:path.join(process.env.TASKTAP_SCREENSHOTS,'notch-compact-rest.png')});
   await page.evaluate(()=>{showHome(true);updateBounds(true)});
+  // Opening the notch from the host focuses the tab for keyboard follow-up, but no ring appears without keyboard navigation.
+  assert.deepEqual(await tab.evaluate(el=>[document.activeElement===el,el.matches(':focus-visible'),getComputedStyle(el).outlineStyle]),[true,false,'none']);
   assert.equal(await tab.evaluate(el=>getComputedStyle(el,'::after').visibility),'hidden');
   assert.ok(await page.locator('.notch-action').first().evaluate(el=>el.getBoundingClientRect().height>=44));
   assert.equal(await page.evaluate(()=>document.body.classList.contains('notch-compact')),true);

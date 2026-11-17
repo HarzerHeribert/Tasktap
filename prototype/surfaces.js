@@ -48,10 +48,11 @@ function showHome(open=true){
   clearTimeout(hoverTimer);
   closePanels();
   document.body.classList.add('notch-first');
-  if(!open){$('#islandToggle').focus({preventScroll:true});foldHome();return}
+  // Keep focus on the tab without a ring: WebKit treats script focus as keyboard focus unless told otherwise.
+  if(!open){$('#islandToggle').focus({preventScroll:true,focusVisible:false});foldHome();return}
   homeMode='pinned';
   drawHome();
-  $('#islandToggle').focus({preventScroll:true});
+  $('#islandToggle').focus({preventScroll:true,focusVisible:false});
   updateBounds(true);
 }
 // A confirmed handoff already has an open sheet. Briefly show its real receipt in

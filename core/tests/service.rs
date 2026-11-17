@@ -225,7 +225,12 @@ fn the_handshake_picks_the_highest_shared_version() {
         assert_eq!(c.welcome.identity, Identity::Anonymous);
         assert_eq!(
             c.welcome.calls,
-            ["device.revoke", "core.status", "core.retire"]
+            [
+                "device.revoke",
+                "core.status",
+                "core.retire",
+                "fixture.stream"
+            ]
         );
     }
 }

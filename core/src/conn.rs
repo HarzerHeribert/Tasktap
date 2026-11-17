@@ -8,6 +8,7 @@
 use crate::calls::{self, Caller};
 use crate::handshake;
 use crate::serve::Core;
+use crate::stream::{self, Streams};
 use std::cell::{Cell, RefCell};
 use std::pin::Pin;
 use std::rc::Rc;
@@ -35,6 +36,7 @@ pub struct Peer {
 #[derive(Default)]
 pub struct Link {
     peer: Cell<Option<Peer>>,
+    pub streams: RefCell<Streams>,
     /// Frames the task has not taken yet.
     out: RefCell<Vec<u8>>,
     /// Bytes queued and not yet written, including those the task took.
@@ -50,6 +52,30 @@ impl Link {
     /// `None` until the handshake succeeded.
     pub fn peer(&self) -> Option<Peer> {
         self.peer.get()
+    }
+
+    pub fn is_closing(&self) -> bool {
+        self.closing.get().is_some()
+    }
+
+    /// Bytes queued and not yet written.
+    pub fn queued(&self) -> usize {
+        self.queued.get()
+    }
+
+    /// Builds frames straight into the queue: stream data, which
+    /// `stream::pull` keeps within its window instead of this bound.
+    pub fn append<R>(&self, build: impl FnOnce(&mut Vec<u8>) -> R) -> R {
+        let mut out = self.out.borrow_mut();
+        let before = out.len();
+        let built = build(&mut out);
+        self.queued.set(self.queued.get() + out.len() - before);
+        built
+    }
+
+    /// Has the task look at its streams again.
+    pub fn poke(&self) {
+        self.wake.notify_one();
     }
 
     /// Queues a frame. A connection over its bound is dropped instead, so
@@ -104,6 +130,7 @@ async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: impl AsyncRead + A
     // Bytes taken from the link, written from `at` on.
     let (mut out, mut at) = (Vec::new(), 0);
     loop {
+        stream::pull(&link);
         if at == out.len() {
             // Gives back what a burst took before taking more.
             out.clear();
@@ -141,6 +168,7 @@ async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: impl AsyncRead + A
             () = link.wake.notified() => {}
         }
     }
+    stream::end(&link);
     core.borrow_mut().remove(&link);
 }
 
@@ -176,13 +204,16 @@ fn frames(core: &RefCell<Core>, link: &Rc<Link>, decoder: &mut Decoder) -> bool 
                 link.pending.set(link.pending.get() + 1);
                 calls::call(&mut core, link, peer, request);
             }
-            // Stream frames are package 6's; replies answer calls the core
-            // makes, which arrive in Phases 2 and 4.
             (
                 Some(_),
-                Frame::Data(_)
-                | Frame::Control(Control::Credit(_) | Control::Close(_) | Control::Reply(_)),
-            ) => {}
+                frame @ (Frame::Data(_) | Frame::Control(Control::Credit(_) | Control::Close(_))),
+            ) => {
+                if !stream::receive(link, frame) {
+                    return false;
+                }
+            }
+            // Replies answer calls the core makes, which arrive in Phases 2 and 4.
+            (Some(_), Frame::Control(Control::Reply(_))) => {}
             // A call before hello, a second hello, or a frame only the core sends.
             _ => return false,
         }

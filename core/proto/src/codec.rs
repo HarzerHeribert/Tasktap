@@ -101,6 +101,35 @@ pub fn encode_data(s: StreamId, bytes: &[u8], out: &mut Vec<u8>) -> Result<(), F
     Ok(())
 }
 
+/// Appends a data frame whose bytes `fill` appends straight to `out`, so a
+/// source the core sends from is copied once, into `out`. Nothing is
+/// appended when `fill` appends nothing; a frame over the limit is taken
+/// back and refused.
+pub fn encode_data_in<R>(
+    s: StreamId,
+    out: &mut Vec<u8>,
+    fill: impl FnOnce(&mut Vec<u8>) -> R,
+) -> Result<R, FrameError> {
+    let start = out.len();
+    out.extend_from_slice(&[0, 0, 0, 0, KIND_DATA]);
+    out.extend_from_slice(&s.0.to_le_bytes());
+    let filled = fill(out);
+    let len = out.len() - start - 4;
+    if len > MAX_DATA_FRAME {
+        out.truncate(start);
+        return Err(FrameError::TooLarge {
+            kind: KIND_DATA,
+            len,
+        });
+    }
+    if len == 1 + 4 {
+        out.truncate(start);
+    } else {
+        out[start..start + 4].copy_from_slice(&(len as u32).to_le_bytes());
+    }
+    Ok(filled)
+}
+
 /// Turns bytes, cut anywhere, back into frames.
 ///
 /// Push what arrived, then take frames until [`Decoder::next_frame`] says

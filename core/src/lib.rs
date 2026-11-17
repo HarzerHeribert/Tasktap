@@ -11,4 +11,5 @@ mod conn;
 mod handshake;
 pub mod serve;
 pub mod store;
+pub mod stream;
 mod sys;

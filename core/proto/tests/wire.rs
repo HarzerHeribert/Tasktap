@@ -472,7 +472,7 @@ fn access_follows_the_authorization_table() {
             "session.adopt"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 27);
+    assert_eq!(by(Access::Device).len(), 28);
     assert_eq!(by(Access::Ability), ["shim.hold"]);
     for (access, allowed) in [
         (Access::Anyone, [true, true, true]),

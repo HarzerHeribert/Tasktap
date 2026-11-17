@@ -142,90 +142,6 @@ void main(){ VIEW
 }`
   },
   {
-    id: 'ribbon', name: 'Ribbon',
-    line: 'One band of chrome. Its centre line is the voice; it twists to show a bronze back.',
-    voice: 'Speech enters at the left and runs along the band as a wave train: dark vowels make long waves, bright ones short. Consonants kick a twist that travels with it.',
-    strong: 'The most sculptural at hero size, and it thins to a bright wire that still reads at 28 px.',
-    weak: 'Least like the icon: it is the 1.2 phase field, not the bars.',
-    cost: 'Very light. Three curve samples per pixel.',
-    n: { hero: 1, icon: 1, box: 1, strip: 1 },
-    p: S([0, .25, .55, 0, 0, 0, 0, 0], [1, .6, .16, 0, 0, 0, 0, 0], [0, 1.6, .12, 1, 0, 0, 0, 0], [0, .9, .8, 0, 0, 0, 0, 0],
-      [0, .4, .2, 0, 1, 0, 0, 0], [0, 0, 0, 0, 0, 1, 0, 0], [0, 0, .2, 0, 0, 0, 1, 0]),
-    frag: `
-vec3 line(float x, float X){               // centre height, twist, taper
-  float xn=x/X, f=u_ph.x, g=u_p[0], E=0., K=0.;
-  for(float j=0.;j<4.;j++){                  // the voice enters at the left and runs along the band as soft swells
-    float w=bump(xn+.9-j*.6,.5); vec4 H=hist(j*.13); E+=w*H.w; K+=w*H.z;
-  }
-  float y=u_p[2]*(.3*sin(1.4*x-f)+.1*sin(2.9*x+f*.6));
-  y+=g*E*(.4*sin(2.4*x-u_ph.y*6.)+.14*u_v.w*sin(5.*x-u_ph.y*9.));     // vowels carry it; a bright voice adds the finer wave
-  y=mix(y,.5*bump(x,.5)*(.5+.5*beat()),u_p[4]);
-  y=mix(y,0.,u_p[5]);
-  y=mix(y,-.3*(1.-xn*xn)-.1,u_p[6]);
-  float th=.55*sin(.9*x-f*.8)+g*.9*K+u_p[3]*(2.4*x-f*2.)+2.*sweep(xn);
-  th=mix(th,-.3,u_p[5]); th=mix(th,1.36,u_p[6]);
-  return vec3(y*smoothstep(1.,.6,abs(xn)),th,smoothstep(1.,.84,abs(xn)));
-}
-void main(){ VIEW
-  float X=asp*.88;
-  vec3 L=line(q.x,X);
-  float sl=(line(q.x+.03,X).x-line(q.x-.03,X).x)/.06, ls=sqrt(1.+sl*sl);
-  float W=(asp>3.?.5:.34)*pow(L.z,.6), tt=min(.028,W), Lh=max(W-.028,0.);
-  float d=(q.y-L.x)/ls, c=cos(L.y), s=sin(L.y), sg=c<0.?-1.:1.;
-  // the cross-section is a stadium turned by the twist; find the part the eye meets first: a face, or a rolled edge
-  vec2 nf=vec2(-s*sg,abs(c)), n2=normalize(vec2(sign(d),.15));
-  float u=(d-tt*nf.x)/(abs(c)<1e-3?1e-3:c), zb=-1e3, face=0., soft=clamp(2.5*px/tt,.03,.45);
-  if(abs(u)<=Lh){ zb=u*s+tt*nf.y; n2=rot(-.5*u/max(Lh,1e-3)*sg)*nf; face=1.; soft=.03; }
-  for(float k=-1.;k<=1.;k+=2.){
-    float da=d-k*Lh*c, rad=tt*tt-da*da;
-    if(rad>0.){ float z=k*Lh*s+sqrt(rad); if(z>zb){ zb=z; n2=vec2(da,sqrt(rad))/tt; face=0.; soft=clamp(2.5*px/tt,.03,.45); } }
-  }
-  float a=clamp(.5+(Lh*abs(c)+tt-abs(d))/px,0.,1.)*step(.001,W);
-  vec3 n=vec3(-sl/ls*n2.x,n2.x/ls,n2.y);
-  vec3 tint=mix(SILVER,mix(SILVER,u_tb,.75),face*step(sg,0.));       // the back of the band is bronze
-  put(chrome(n,tint,soft),a,vec3(0));
-}`
-  },
-  {
-    id: 'drop', name: 'Drop',
-    line: 'A drop of liquid chrome: an orb at rest that the voice draws out into a waveform.',
-    voice: 'Speaking stretches the orb into a long body, and each vowel is a swell that runs along it; a bright voice adds a finer swell. Silence lets surface tension pull it round again. Consonants send ripples across the skin.',
-    strong: 'The agent-orb idea in the brand\'s own material. The return to a sphere is the nicest silence of the six.',
-    weak: 'At 28 px the profile is too subtle; it becomes a bright pill. Least tied to the icon when still.',
-    cost: 'Light. A handful of texture reads per pixel.',
-    n: { hero: 1, icon: 1, box: 1, strip: 1 },
-    p: S([0, .5, 0, 0, 0, 0, 0, 0], [1, .6, .1, 0, 0, 0, 0, 0], [0, 1.5, .3, 1, 0, 0, 0, 0], [0, 1, .62, 0, 0, 0, 0, 1],
-      [0, .5, 0, 0, 1, 0, 0, 0], [0, 0, .8, 0, 0, 1, 0, 0], [0, 0, .5, 0, 0, 0, 1, 0]),
-    frag: `
-float R0;
-vec2 prof(float x, float Xe, float S){     // centre height and vertical radius of the body at x
-  float xr=x/Xe, f=u_ph.x, g=u_p[0]*S*u_v.x;
-  float h=mix(R0,.2,S);
-  // the voice is a swell that runs along the body, and a finer one when the voice is bright: always smooth, as a liquid is
-  h+=g*(.36*(.5+.5*cos(xr*3.1-u_ph.y*5.))+.14*u_v.w*cos(xr*7.+u_ph.y*8.));
-  h*=1.+u_p[3]*.26*sin(7.*xr-f*3.)+u_p[4]*.14*beat()+.02*sin(f*1.3);
-  h+=u_p[7]*.16*bump(xr-(fract(f*.16)*3.4-1.7),.4);
-  h=mix(h,.2,u_p[5]); h=mix(h,.085+.02*sin(x*9.),u_p[6]);
-  return vec2(mix(g*.15*sin(xr*2.6-u_ph.y*4.),-.62,u_p[6]),h);
-}
-void main(){ VIEW
-  R0=asp>2.5?.74:.56;                                  // the orb fills more of a low, wide view
-  float S=clamp(u_p[2]+u_p[0]*u_w.w*.9,0.,1.), Xe=mix(R0,min(asp*.8,2.4),S)*(1.+u_p[6]*.3);
-  vec2 P=prof(q.x,Xe,S), Pa=prof(q.x-.04,Xe,S), Pb=prof(q.x+.04,Xe,S);
-  float yy=q.y-P.x, ta=(q.y-Pa.x)/Pa.y, tb=(q.y-Pb.x)/Pb.y;
-  float f=q.x*q.x/(Xe*Xe)+yy*yy/(P.y*P.y)-1.;
-  vec2 gr=vec2(2.*q.x/(Xe*Xe)+(tb*tb-ta*ta)/.08,2.*yy/(P.y*P.y));
-  float a=clamp(.5-f/max(length(gr),1e-3)/px,0.,1.), z=P.y*sqrt(max(-f,0.));
-  vec3 n=vec3(.5*P.y*P.y*gr,z+.02);
-  // capillary waves: every consonant sends ripples out from the middle
-  float xa=sqrt(q.x*q.x/(Xe*Xe)+.012);
-  n.x+=u_p[0]*hist3(xa*.36).z*.14*cos(20.*xa-u_ph.y*24.)*q.x/(Xe*xa)*z;
-  n.xz=rot(.16*sin(u_ph.x*.6)+1.2*sweep(q.x/Xe))*n.xz;
-  n=normalize(n);
-  put(chrome(n,vec3(.84,.86,.9),clamp(1.5*px/P.y/max(n.z,.15),.03,.45)),a,vec3(0));
-}`
-  },
-  {
     id: 'resonator', name: 'Resonator',
     line: 'The 1.2 resonator in real time: a stack of chrome rings whose sizes are the wave.',
     voice: 'Each ring takes its size from the loudness passing it and from its own band of the spectrum. Consonants roll the rings about the axis, so a twist runs down the stack.',
@@ -273,7 +189,7 @@ void main(){ VIEW
     id: 'glyphs', name: 'Glyphs',
     line: 'Chrome type on the waveform: plus, equals, slash and colon stack up where the voice is.',
     voice: 'Columns of type grow with the loudness travelling outward, as the 1.2 dictation strip did. Rising speech leans the glyphs, and a consonant spins them on their axis so the faces flash.',
-    strong: 'The most characterful, and the only one that says "this becomes text". Thinking, where the type reshuffles, is the best thinking of the six.',
+    strong: 'The most characterful, and the only one that says "this becomes text". Thinking, where the type reshuffles, is the best thinking of the lot.',
     weak: 'Busy at hero size, and at 28 px it is three rows of small marks: texture more than wave.',
     cost: 'Light. One glyph per pixel, six distance evaluations.',
     n: { hero: 15, icon: 7, box: 5, strip: 11 },

@@ -14,17 +14,13 @@ The voice is reduced to a handful of numbers (`voice.js`): loudness, a fast loud
 
 ## The concepts
 
-**1. Slats.** The app icon brought to life: 21 polished slats whose heights are the loudness travelling outward from the centre, drawn into the icon's S. Each slat stands slightly turned and twisted, and a consonant sends a turn through them, so the studio's strips flick across the faces. Strong at every size down to the 76 × 28 corner; the nearest of the six to a level meter, which the turning light and the S-shaped pose are there to prevent. Cost: very light, one slat per pixel and no loops.
+**1. Slats.** The app icon brought to life: 21 polished slats whose heights are the loudness travelling outward from the centre, drawn into the icon's S. Each slat stands slightly turned and twisted, and a consonant sends a turn through them, so the studio's strips flick across the faces. Strong at every size down to the 76 × 28 corner; the nearest of the four to a level meter, which the turning light and the S-shaped pose are there to prevent. Cost: very light, one slat per pixel and no loops.
 
-**2. Ribbon.** The 1.2 phase field as one band of chrome with a bronze back. Speech enters at the left and runs along it as soft swells; a bright voice adds a finer wave, a consonant kicks a twist. Thinking winds it into a turning helix, done lays it flat, failed lets it sag edge-on. The most sculptural when large and it thins to a clean wire in the notch, but it is the least like the icon. Cost: very light.
+**2. Resonator.** The 1.2 resonator in real time: a stack of rounded-square chrome rings whose sizes are the wave, seen at three-quarters; it is the icon turned in space. Loudness sizes the rings, consonants roll them so a twist runs down the stack, needs-you turns it towards you. The richest metal by a distance (rings seen through rings, with exact antialiasing because the rings are solved, not ray-marched), but it needs room: at notch sizes it is a ribbed tube, and very loud speech tangles it. Cost: the heaviest, still small.
 
-**3. Drop.** The agent-orb idea in chrome: a sphere at rest that speech draws out into a long liquid body with swells running along it, and that surface tension pulls round again in silence. Consonants ripple the skin. The return to a sphere is the nicest silence of the six and the reflections are the most liquid; it is the least tied to the brand, the orb reads a little like a glass ball, and at 28 px it is only a bright pill. Cost: light.
+**3. Glyphs.** Chrome type on the waveform, continuing the 1.2 dictation strip: plus, equals, slash and colon grow in columns where the voice is, lean with rising speech and spin on a consonant. Thinking, where each glyph turns edge-on and comes back as another character, is the best thinking state of the lot; done turns everything into equals signs; failed drops a row of slashes. The most characterful, and the only one that says "this becomes text", but busy when large and only texture at 28 px. Cost: light.
 
-**4. Resonator.** The 1.2 resonator in real time: a stack of rounded-square chrome rings whose sizes are the wave, seen at three-quarters; it is the icon turned in space. Loudness sizes the rings, consonants roll them so a twist runs down the stack, needs-you turns it towards you. The richest metal by a distance (rings seen through rings, with exact antialiasing because the rings are solved, not ray-marched), but it needs room: at notch sizes it is a ribbed tube, and very loud speech tangles it. Cost: the heaviest, still small.
-
-**5. Glyphs.** Chrome type on the waveform, continuing the 1.2 dictation strip: plus, equals, slash and colon grow in columns where the voice is, lean with rising speech and spin on a consonant. Thinking, where each glyph turns edge-on and comes back as another character, is the best thinking state of the six; done turns everything into equals signs; failed drops a row of slashes. The most characterful, and the only one that says "this becomes text", but busy when large and only texture at 28 px. Cost: light.
-
-**6. Lumen.** The icon never moves; the voice is light. Loudness becomes coloured light in the air behind the slats, leaving the centre as you speak, and a beam walks across the metal and jumps on consonants. It takes colour best because the colour is light and the chrome stays chrome, and it is the glow-behind-the-notch idea made whole. In silence it is nearly dark, and the form itself says nothing about the words. Cost: very light, and the geometry is constant, so the app could cache it.
+**4. Lumen.** The icon never moves; the voice is light. Loudness becomes coloured light in the air behind the slats, leaving the centre as you speak, and a beam walks across the metal and jumps on consonants. It takes colour best because the colour is light and the chrome stays chrome, and it is the glow-behind-the-notch idea made whole. In silence it is nearly dark, and the form itself says nothing about the words. Cost: very light, and the geometry is constant, so the app could cache it.
 
 ## Ranking
 
@@ -32,19 +28,11 @@ The voice is reduced to a handful of numbers (`voice.js`): loudness, a fast loud
 2. **Lumen.** Not as a rival but as Slats' other half: same geometry, and it answers "other colours" without painting the metal. Its light is what should spill from behind the collapsed notch.
 3. **Resonator.** The best-looking large object; keep it for Home and other big, calm surfaces, where 1.2 used the Blender loop.
 4. **Glyphs.** Worth keeping for one moment: the thinking shuffle while a spoken thought becomes text.
-5. **Ribbon.** Elegant and cheap, but a second identity next to the bars.
-6. **Drop.** The most generic, and the weakest small.
-
 Recommendation: Slats as the signature in the notch and the corner box, with Lumen's light as the glow behind the collapsed notch (one shader can do both: the same slats, with a control for how much the form moves and how much the light does). Resonator for Home.
 
-## Taking Slats into the app
+## What the owner chose, and where it went
 
-- Lift `HEAD` and the Slats shader into one small module with a single WebGL 2 canvas per surface (the 76 × 28 box and the collapsed strip are 152 × 56 and 400 × 64 device pixels). Keep the static icon as the fallback when WebGL 2 is missing.
-- Feed it from the core's existing microphone level stream, the one `prototype/voice-wave.js` sampled. Loudness alone already drives heights, and onsets can be taken from its rise; brightness and the spectrum are refinements that need a few band energies sent alongside the level.
-- Map the app's run states onto the seven here, and keep the transitions as parameter blends (about 0.3 s) so nothing cuts.
-- Keep the drawing policy: draw at 60 a second only while someone speaks or a state is changing, 30 while working, 20 or less when idle, nothing at all once done or failed has settled, when the notch is hidden, or under Reduce Motion (which holds a still pose and lets only brightness follow a slow level).
-- Give the native glow the same few numbers (level, the palette's two colours, the state's signal colour) rather than pixels, so the glow and the notch agree without sharing a surface.
-- Measure on battery on an older integrated GPU before committing; the numbers below are from an M4 Pro.
+Slats, Glyphs and Resonator went into the app, Slats by default, with the palette the person's choice (Chrome, Chromatic, Warm, Cool, or a free hue) and Lumen as a light that can be laid over any of the three. They sit behind content as a backdrop: in the open notch's sheet and behind the workspace's Home. The code is `ui/src/motion/`: this lab's head and shaders as they are here, Lumen's light as three functions of the head (`lumen`, `beam`, `sheen`) that change nothing while it is off, and the lab's states, blends and drawing policy, except that idle holds a still frame. The choices are the core's preferences `motion_style`, `motion_palette`, `motion_hue` and `motion_lumen`, set in the workspace's Appearance panel.
 
 ## Measured
 
@@ -53,8 +41,6 @@ Headless Chromium on a real GPU (ANGLE Metal, Apple M4 Pro), device scale 2, sim
 | | hero 2080 × 946 px | icon 224² | corner 152 × 56 | collapsed 400 × 64 |
 |---|---|---|---|---|
 | Slats | 1.5 ms | 0.3 | 0.2 | 0.2 |
-| Ribbon | 1.5 | 0.3 | 0.2 | 0.2 |
-| Drop | 1.5 | 0.3 | 0.2 | 0.2 |
 | Resonator | 2.5 | 0.4 | 0.3 | 0.3 |
 | Glyphs | 0.8 | 0.3 | 0.3 | 0.2 |
 | Lumen | 1.6 | 0.3 | 0.3 | 0.3 |

@@ -510,3 +510,66 @@ fn sigterm_and_sigint_end_the_core_cleanly() {
         status(&mut next.anonymous());
     }
 }
+
+/// The core ended a connection that never said hello.
+fn ended(stream: &mut client::Stream) {
+    match stream.read(&mut [0; 1]) {
+        Ok(0) => {}
+        Err(e) if matches!(e.kind(), ErrorKind::ConnectionReset | ErrorKind::BrokenPipe) => {}
+        other => panic!("expected the connection to end, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_connection_that_does_not_say_hello_in_time_is_closed() {
+    let data = Folder::new();
+    let core = Core::start(&data, &["--hello-ms", "300"]);
+    let mut c = core.anonymous();
+    let mut silent = client::connect(core.data).unwrap();
+    ended(&mut silent);
+    // The deadline of a connection that said hello went with it.
+    status(&mut c);
+}
+
+/// A connection, once the listen queue has room: a full one refuses at once.
+fn queued(data: &Path) -> client::Stream {
+    loop {
+        match client::connect(data) {
+            Err(e) if e.kind() == ErrorKind::ConnectionRefused => std::thread::yield_now(),
+            stream => return stream.unwrap(),
+        }
+    }
+}
+
+#[test]
+fn silent_connections_cannot_keep_a_client_out() {
+    let data = Folder::new();
+    let core = Core::start(&data, &["--hello-ms", "600000"]);
+    // As many as the core holds (design §2), none of which says hello.
+    let mut silent: Vec<_> = (0..256).map(|_| queued(core.data)).collect();
+    let hello = Hello {
+        v: CURRENT,
+        role: Role::Cli,
+        client: "after the silent ones".into(),
+        auth: None,
+        abilities: Vec::new(),
+    };
+    let mut c = Client::hello(queued(core.data), hello).unwrap().unwrap();
+    status(&mut c);
+    // The oldest made room.
+    ended(&mut silent[0]);
+}
+
+#[test]
+fn a_core_with_only_silent_connections_still_exits_when_idle() {
+    let data = Folder::new();
+    let mut core = Core::start(&data, &["--idle-ms", "300", "--hello-ms", "600000"]);
+    let mut c = core.anonymous();
+    let silent: Vec<_> = (0..3)
+        .map(|_| client::connect(core.data).unwrap())
+        .collect();
+    status(&mut c);
+    drop(c);
+    assert!(core.exit().success());
+    drop(silent);
+}

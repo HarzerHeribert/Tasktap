@@ -8,13 +8,14 @@
 use crate::calls::{self, Caller};
 use crate::handshake;
 use crate::records::Subs;
-use crate::serve::Core;
+use crate::serve::{self, Core};
 use crate::stream::{self, Streams};
 use crate::sys;
 use std::cell::{Cell, RefCell};
 use std::pin::Pin;
 use std::rc::Rc;
 use std::task::Poll;
+use std::time::Duration;
 use tasktap_proto::{Control, Decoder, Frame, MAX_PENDING_CALLS, Refuse, encode_control};
 use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::Notify;
@@ -135,19 +136,24 @@ impl Link {
     }
 }
 
-/// Starts the task of an accepted connection, or closes it when the core
-/// has as many as it may hold.
-pub fn spawn(core: &Rc<RefCell<Core>>, stream: sys::Stream) {
-    let link = Rc::new(Link::default());
+/// Starts the task of an accepted connection, which must say hello within
+/// `hello`. When the core holds as many as it may, the oldest that has not
+/// said hello yet makes room, so connections that stay silent cannot keep
+/// a client out; with none of those, the new one is closed.
+pub fn spawn(core: &Rc<RefCell<Core>>, stream: sys::Stream, hello: Duration) {
     let mut c = core.borrow_mut();
     if c.links.len() >= MAX_CONNECTIONS {
-        return;
+        let Some(silent) = c.links.iter().position(|l| l.peer().is_none()) else {
+            return;
+        };
+        c.links.remove(silent).close(false);
     }
+    let link = Rc::new(Link::default());
     c.links.push(link.clone());
-    tokio::task::spawn_local(run(core.clone(), link, stream));
+    tokio::task::spawn_local(run(core.clone(), link, stream, hello));
 }
 
-async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: sys::Stream) {
+async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: sys::Stream, hello: Duration) {
     let (mut rd, mut wr) = tokio::io::split(stream);
     let mut decoder = Decoder::new();
     let mut input = [0; READ];
@@ -155,6 +161,8 @@ async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: sys::Stream) {
     let (mut out, mut at) = (Vec::new(), 0);
     // Bytes written since incoming frames last had a turn.
     let mut since = 0;
+    // One timer, dropped at hello: a connection that said it costs no wakeup.
+    let mut deadline = Some(Box::pin(tokio::time::sleep(hello)));
     let flushed = loop {
         stream::pull(&link);
         if at == out.len() {
@@ -190,6 +198,9 @@ async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: sys::Stream) {
                     if !frames(&core, &link, &mut decoder) {
                         break false;
                     }
+                    if link.peer.get().is_some() {
+                        deadline = None;
+                    }
                 }
                 _ => break false,
             },
@@ -202,6 +213,7 @@ async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: sys::Stream) {
                 _ => break false,
             },
             () = link.wake.notified() => {}
+            () = serve::fire(&mut deadline) => break false,
         }
     };
     if !flushed {
@@ -231,6 +243,8 @@ fn frames(core: &RefCell<Core>, link: &Rc<Link>, decoder: &mut Decoder) -> bool 
                     Ok((peer, welcome)) => {
                         link.peer.set(Some(peer));
                         link.send(&Control::Welcome(welcome));
+                        // A client now: the core looks at its lifetime again.
+                        core.events.notify_one();
                     }
                     Err(Some(why)) => {
                         link.send(&Control::Refuse(Refuse { why }));

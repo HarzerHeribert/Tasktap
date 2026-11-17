@@ -103,7 +103,7 @@ The inventory's headings say 15 and 17 types for §1.5 and §1.6; its tables lis
 | Transport | Unix socket `<data>/core.sock` (mode 0600 in a 0700 folder) on Mac and Linux; an owner-only named pipe on Windows | The plan's private local channel. No loopback TCP: any local program or web page could reach it. |
 | Framing | `u32` length (little-endian, counts kind and payload), `u8` kind, payload. Kind 0 is one JSON object in UTF-8, kind 1 is a `u32` little-endian stream id and raw bytes. At most 1 MiB per frame, 64 KiB per data frame. Call ids are `u32`, unique among the caller's pending calls. Revisions and byte offsets are JSON integers below 2^53. | Terminal bytes travel raw: no base64, no escaping, one copy. Control stays JSON, so it is readable and the TypeScript types are generated. Rejected: WebSocket locally; a binary format for control. |
 | Streams | Only the core opens a stream, as the result of a call. The caller's args carry the credit it grants for bytes toward it; the reply carries the stream id and the credit the core grants the other way. `credit` adds to a grant, up to 4 MiB outstanding. Either side ends a stream with `close`; frames for a closed stream are dropped and its id is not reused on that connection. Bytes beyond the grant end the connection. | Real backpressure that also works over a slow link. Replaces the 15 s awaited-promise kill (hazard 11) and four different input caps (hazard 18). |
-| Bounds | Per connection: 8 MiB of queued control frames (a snapshot counts), 64 pending calls, 64 open streams. Per terminal: 8 queued chunks from its reader thread, which then waits. At most 256 connections. A client over a bound is disconnected; memory never grows to suit a client. | Every queue has a bound. |
+| Bounds | Per connection: 8 MiB of queued control frames (a snapshot counts), 64 pending calls, 64 open streams. Per terminal: 8 queued chunks from its reader thread, which then waits. At most 256 connections; one that has not said `hello` within 5 s is closed, and at capacity the oldest of those makes room for a new one. A client over a bound is disconnected; memory never grows to suit a client. | Every queue has a bound. |
 | Version | `hello` offers a range; `welcome` names the highest shared integer and lists the call names this core supports, so a newer app disables what an older core lacks. Additions do not bump the version. | A new app can drive an old core that still holds terminals (§3). |
 | Bootstrap contract | Frozen forever: the frame layout, `hello.v`, `welcome.v` and `build`, `refuse`, and the calls `core.status` (build, versions, live terminal count) and `core.retire`. With no shared version, `welcome` says `v: 0` and only those two calls work. They need the local user check and nothing else. | Any app can ask any core what it is and ask it to retire. |
 | Local peer check | On accept: the peer's user id must equal the core's. The data folder must be 0700 and owned by the user, as today. | Keeps today's protections. |
@@ -124,7 +124,7 @@ The inventory's headings say 15 and 17 types for §1.5 and §1.6; its tables lis
 
 | Topic | Decision |
 | --- | --- |
-| Lifetime | Runs while any client is connected, any terminal is alive or a hold timer is armed. When all become false it arms one 60 s timer and exits when it fires. |
+| Lifetime | Runs while any client (a connection that said `hello`) is connected, any terminal is alive or a hold timer is armed. When all become false it arms one 60 s timer and exits when it fires. |
 | Single instance | An exclusive file lock on `<data>/core.lock`, held for life. A second `serve` exits 0. The lock, not the socket file, is the truth. |
 | Start on demand | A client that finds no socket starts `tasktap serve --data <dir>` detached and waits on a pipe for the `ready` line the core writes once it listens. No retry loop. The data folder is always passed; there is no default path (hazard 7). |
 | Where it runs from | A copy at `<data>/bin/<build>/tasktap`. Windows cannot replace a running program, and hooks of running sessions keep pointing at the build that started them. Unreferenced builds are deleted at start. |
@@ -326,7 +326,7 @@ One thread owns all state and runs a single-threaded `tokio` runtime, so there a
 
 Not used: an argument parser, error or logging crates, an asynchronous HTTP stack, a file watcher, a git library, an MCP library, a terminal emulator.
 
-**Zero idle wakeups.** The core thread waits in the kernel for one of: bytes on a connection, a chunk or an exit from a terminal thread, a signal, or a timer that something armed. Every timer fires once: the hold before launch, the 2 s kill, the 60 s exit, a time limit on a web call or spawned command. Nothing repeats. Projects are scanned when a client asks, not watched. SQLite checkpoints on the write path.
+**Zero idle wakeups.** The core thread waits in the kernel for one of: bytes on a connection, a chunk or an exit from a terminal thread, a signal, or a timer that something armed. Every timer fires once: the hold before launch, the 2 s kill, the 60 s exit, a new connection's 5 s to say `hello`, a time limit on a web call or spawned command. Nothing repeats. Projects are scanned when a client asks, not watched. SQLite checkpoints on the write path.
 
 | Measure | Target | 1.2 |
 | --- | --- | --- |

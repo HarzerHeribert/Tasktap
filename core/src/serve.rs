@@ -18,6 +18,8 @@ use tokio::time::Sleep;
 
 /// How long the core stays with nobody connected and no terminal alive.
 pub const IDLE: Duration = Duration::from_secs(60);
+/// How long a connection may take to say hello before it is closed.
+pub const HELLO: Duration = Duration::from_secs(5);
 
 /// This build in `welcome` and `core.status`. A release stamps it at compile
 /// time with `TASKTAP_BUILD`.
@@ -30,6 +32,8 @@ pub struct Options {
     /// Always given: there is no default folder (hazard 7).
     pub data: PathBuf,
     pub idle: Duration,
+    /// How long a connection may take to say hello.
+    pub hello: Duration,
     /// A session token that names no terminal, for tests (design §13).
     #[cfg(feature = "fixtures")]
     pub token: Option<tasktap_proto::Secret>,
@@ -60,9 +64,12 @@ impl Core {
     }
 
     /// The lifetime condition: a client connected, a terminal alive or a
-    /// hold armed, which would be lost with the core.
+    /// hold armed, which would be lost with the core. A connection is a
+    /// client once it said hello.
     pub fn busy(&self) -> bool {
-        !self.links.is_empty() || self.terminals() > 0 || self.seams.holding()
+        self.links.iter().any(|l| l.peer().is_some())
+            || self.terminals() > 0
+            || self.seams.holding()
     }
 
     /// Every committed change passes here, in the step that committed it,
@@ -155,7 +162,7 @@ async fn serve(opts: Options) -> io::Result<()> {
             biased;
             () = &mut terminated => break,
             accepted = listener.accept(), if accepting => match accepted {
-                Ok(stream) => conn::spawn(&core, stream),
+                Ok(stream) => conn::spawn(&core, stream, opts.hello),
                 Err(e) if core.borrow().links.is_empty() => return Err(e),
                 // Out of descriptors, say: wait for a connection to end
                 // rather than spin on the error.
@@ -184,7 +191,7 @@ fn ready() {
 }
 
 /// Completes when the armed timer fires, never while none is armed.
-async fn fire(timer: &mut Option<Pin<Box<Sleep>>>) {
+pub(crate) async fn fire(timer: &mut Option<Pin<Box<Sleep>>>) {
     match timer {
         Some(timer) => timer.as_mut().await,
         None => std::future::pending().await,

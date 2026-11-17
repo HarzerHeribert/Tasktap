@@ -108,6 +108,9 @@ jobs:
       - name: Lint
         run: cargo clippy -- -D warnings
         working-directory: host
+      - name: Notch geometry
+        run: cargo test
+        working-directory: host
       - name: The app carries its core and its own identity, apart from an installed Tasktap
         run: |
           app="host/target/release/bundle/macos/Tasktap Next.app"

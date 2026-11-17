@@ -309,7 +309,7 @@ Three things are the same for every agent and therefore not in the adapter.
 | StopFailure | `turn_failed` with the error | – |
 | Interrupt | – | `turn_interrupted` |
 
-A payload with `agent_id` comes from a sub-agent. Neither tool numbers its turns (`prompt_id` and `turn_id` are ids), so no `turn` is sent; the event id, which names the turn, makes a repeat ignored. A payload with no event name, or one the core does not keep, maps to nothing and the hook exits 0; only one that is no JSON object is an error (65), which neither tool treats as blocking. The payloads are recorded in `core/tests/fixtures/agents/`, and `core/tests/agents.rs` tests the mapping against them.
+A payload with `agent_id` comes from a sub-agent, whose reports the guards drop; its permission request maps to nothing, so no hook waits on it (a hook that waited would ask past the guards, as the main agent) and the tool asks in its own terminal. Neither tool numbers its turns (`prompt_id` and `turn_id` are ids), so no `turn` is sent; the event id, which names the turn, makes a repeat ignored. A payload with no event name, or one the core does not keep, maps to nothing and the hook exits 0; only one that is no JSON object is an error (65), which neither tool treats as blocking. The payloads are recorded in `core/tests/fixtures/agents/`, and `core/tests/agents.rs` tests the mapping against them.
 
 **Answering from outside the terminal: the trial (package D).** A waiting hook can decide a permission request in both tools, and Claude Code's questions; a question Codex asks can only be shown. The evidence, from live runs of Claude Code 2.1.326 and Codex 0.169.0:
 

@@ -262,6 +262,10 @@ impl Agent for Claude {
                     Event::Continued { request },
                 )
             }
+            // A sub-agent's request is the sub-agent's, which the core does not
+            // follow (design §5, the guards): no hook waits for it, and
+            // Claude Code asks in its own terminal.
+            "PermissionRequest" if subagent => return Ok(None),
             "PermissionRequest" if tool == QUESTION => {
                 let request = Self::request(&turn, input);
                 match Self::asked(request.clone(), input) {

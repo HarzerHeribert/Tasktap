@@ -631,6 +631,60 @@ fn a_claude_hook_waits_on_the_core_and_prints_the_decision() {
 }
 
 #[test]
+fn a_sub_agents_permission_request_opens_nothing_and_waits_for_nothing() {
+    // The guards drop what a sub-agent reports; a hook that waited would ask
+    // past them, as the main agent.
+    for agent in ["claude", "codex"] {
+        let sub = changed(
+            agent,
+            "permission-request-bash",
+            json!({ "agent_id": "a1" }),
+        );
+        assert!(heard(agent, &sub).is_none(), "{agent}");
+    }
+    let mut s = Scene::new("as");
+    let (_, session, mut agent) = s.launch("tidy up");
+    let log = s.log();
+    let token = log
+        .launched
+        .iter()
+        .find(|l| l.session == session)
+        .unwrap()
+        .token
+        .clone();
+    let mut hook = Command::new(EXE);
+    hook.args(["hook", "claude"])
+        .env("TASKTAP_SOCKET", s.data.0.join("core.sock"))
+        .env(
+            "TASKTAP_TOKEN",
+            serde_json::to_value(&token).unwrap().as_str().unwrap(),
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped());
+    let mut child = hook.spawn().unwrap();
+    let sub = changed(
+        "claude",
+        "permission-request-bash",
+        json!({ "agent_id": "a1" }),
+    );
+    child.stdin.take().unwrap().write_all(&sub).unwrap();
+    let began = std::time::Instant::now();
+    while child.try_wait().unwrap().is_none() {
+        if began.elapsed() > std::time::Duration::from_secs(10) {
+            let _ = child.kill();
+            panic!("the hook of a sub-agent waits");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    assert!(out.stdout.is_empty(), "it leaves the decision to the agent");
+    agent.sync();
+    s.w.sync();
+    assert!(s.w.model.questions.is_empty(), "no question opened");
+}
+
+#[test]
 fn a_new_run_uses_the_captures_agent_else_the_preference_else_the_first() {
     let data = Folder::new("aa");
     let core = Core::start(&data.0);

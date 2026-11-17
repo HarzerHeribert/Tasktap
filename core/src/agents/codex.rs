@@ -290,6 +290,10 @@ impl Agent for Codex {
                 let event = Event::Continued { request: None };
                 said(format!("{name}:{call}"), subagent, resume, event)
             }
+            // A sub-agent's request is the sub-agent's, which the core does not
+            // follow (design §5, the guards): no hook waits for it, and Codex
+            // asks in its own terminal.
+            "PermissionRequest" if subagent => return Ok(None),
             "PermissionRequest" => {
                 let what = input.map(Value::to_string).unwrap_or_default();
                 let request = format!(

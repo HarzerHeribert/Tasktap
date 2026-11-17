@@ -848,4 +848,84 @@ mod windows {
             unsafe { CloseHandle(self.0) };
         }
     }
+
+    /// The person's Credential Manager (design §8, "Keys"): one generic
+    /// credential by name, kept on this machine for this user.
+    pub mod credential {
+        use std::io;
+        use std::ptr::null_mut;
+        use windows_sys::Win32::Foundation::ERROR_NOT_FOUND;
+        use windows_sys::Win32::Security::Credentials::{
+            CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC, CREDENTIALW, CredDeleteW, CredFree,
+            CredReadW, CredWriteW,
+        };
+
+        fn wide(text: &str) -> Vec<u16> {
+            text.encode_utf16().chain([0]).collect()
+        }
+
+        /// The last error, or nothing when it says there is no such credential.
+        fn unless_absent() -> io::Result<()> {
+            let e = io::Error::last_os_error();
+            match e.raw_os_error() == Some(ERROR_NOT_FOUND as i32) {
+                true => Ok(()),
+                false => Err(e),
+            }
+        }
+
+        /// Stores `secret` under `target`, in place of any before.
+        pub fn write(target: &str, secret: &[u8]) -> io::Result<()> {
+            let (mut name, mut user) = (wide(target), wide("Tasktap"));
+            let mut secret = secret.to_vec();
+            // SAFETY: a CREDENTIALW of zeros is a valid one with nothing set.
+            let mut credential: CREDENTIALW = unsafe { std::mem::zeroed() };
+            credential.Type = CRED_TYPE_GENERIC;
+            credential.TargetName = name.as_mut_ptr();
+            credential.UserName = user.as_mut_ptr();
+            credential.CredentialBlobSize = secret.len() as u32;
+            credential.CredentialBlob = secret.as_mut_ptr();
+            credential.Persist = CRED_PERSIST_LOCAL_MACHINE;
+            // SAFETY: every pointer in `credential` is to a buffer that
+            // outlives the call, the texts ending in a zero, the secret of
+            // the size given; the system copies what it keeps.
+            match unsafe { CredWriteW(&credential, 0) } {
+                0 => Err(io::Error::last_os_error()),
+                _ => Ok(()),
+            }
+        }
+
+        /// The secret under `target`, or none.
+        pub fn read(target: &str) -> io::Result<Option<Vec<u8>>> {
+            let name = wide(target);
+            let mut found: *mut CREDENTIALW = null_mut();
+            // SAFETY: `name` ends in a zero and `found` is a valid place for
+            // the one pointer written.
+            if unsafe { CredReadW(name.as_ptr(), CRED_TYPE_GENERIC, 0, &mut found) } == 0 {
+                return unless_absent().map(|()| None);
+            }
+            // SAFETY: on success `found` points to a credential the system
+            // keeps until CredFree, which is called once, after the copy;
+            // its blob is of the size it names, and is not read when empty.
+            let secret = unsafe {
+                let credential = &*found;
+                let secret = match credential.CredentialBlobSize as usize {
+                    0 => Vec::new(),
+                    size => std::slice::from_raw_parts(credential.CredentialBlob, size).to_vec(),
+                };
+                CredFree(found.cast());
+                secret
+            };
+            Ok(Some(secret))
+        }
+
+        /// Removes the credential under `target`; none there is no failure.
+        pub fn delete(target: &str) -> io::Result<()> {
+            let name = wide(target);
+            // SAFETY: `name` ends in a zero and is borrowed for the call.
+            match unsafe { CredDeleteW(name.as_ptr(), CRED_TYPE_GENERIC, 0) } {
+                0 => unless_absent(),
+                _ => Ok(()),
+            }
+        }
+    }
 }

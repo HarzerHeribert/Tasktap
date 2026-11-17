@@ -90,6 +90,8 @@ pub enum PrefPatch {
     TerminalFont(#[serde(deserialize_with = "crate::within::<MAX_FONT, _, _>")] String),
     TerminalSize(#[serde(deserialize_with = "ranged::<8, 32, _, _>")] u8),
     TerminalLineHeight(#[serde(deserialize_with = "ranged::<100, 200, _, _>")] u16),
+    SpeechBy(Option<crate::records::SpeechBy>),
+    SpeechLanguages(#[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")] Vec<String>),
 }
 
 /// A font family's name, as JSON, is at most this many bytes.
@@ -125,6 +127,8 @@ impl From<PrefPatch> for PrefValue {
             PrefPatch::TerminalFont(v) => PrefValue::TerminalFont(v),
             PrefPatch::TerminalSize(v) => PrefValue::TerminalSize(v),
             PrefPatch::TerminalLineHeight(v) => PrefValue::TerminalLineHeight(v),
+            PrefPatch::SpeechBy(v) => PrefValue::SpeechBy(v),
+            PrefPatch::SpeechLanguages(v) => PrefValue::SpeechLanguages(v),
         }
     }
 }
@@ -803,4 +807,81 @@ pub struct CloseProject {
     pub id: ProjectId,
     #[serde(default)]
     pub stop: bool,
+}
+
+/// `dictation.start` (design §8): the caller records, and is the only one
+/// that may finish the dictation.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct StartDictation {
+    pub id: crate::ids::DictationId,
+    pub target: crate::records::DictationTarget,
+    /// The caller can transcribe by itself when no speech service is set up.
+    pub local: bool,
+}
+
+/// The reply to `dictation.start`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Listening {
+    /// Where the samples go, 16 kHz, one channel, signed 16-bit
+    /// little-endian, when the core transcribes; none: the caller
+    /// transcribes and reports with `dictation.report`.
+    pub stream: Option<crate::frame::Opened>,
+    /// The longest a recording lasts.
+    pub seconds: u32,
+}
+
+/// `dictation.report`, from a recorder that transcribes: while recording,
+/// the transcript so far and the level; once finished, the transcript.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct ReportDictation {
+    pub id: crate::ids::DictationId,
+    #[serde(default, deserialize_with = "crate::within::<MAX_TEXT, _, _>")]
+    pub text: Option<String>,
+    /// 0 to 100.
+    #[serde(default)]
+    pub level: Option<u8>,
+}
+
+/// `key.set`: stores the key of a server in the system's credential
+/// store. No call returns a key.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SetKey {
+    #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub server: String,
+    #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub key: String,
+}
+
+impl std::fmt::Debug for SetKey {
+    /// Without the key, so that printing the arguments never shows it.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SetKey")
+            .field("server", &self.server)
+            .finish_non_exhaustive()
+    }
+}
+
+/// `key.remove`: the server whose key goes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Server {
+    #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub server: String,
+}
+
+/// `speech.terms`: what a speech service is sent (design §8), for the
+/// person to read before they consent with the `speech_by` preference.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SpeechTerms {
+    /// What is sent, one line for each thing.
+    pub sent: Vec<String>,
+    /// What is added to the server's address: where it is sent.
+    pub path: String,
+    /// The longest recording, which is the most that is sent at once.
+    pub seconds: u32,
 }

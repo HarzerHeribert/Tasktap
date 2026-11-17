@@ -2274,3 +2274,247 @@ fn summary(answer: &str) -> String {
         .unwrap_or("");
     line.chars().take(SUMMARY).collect()
 }
+
+// Dictations (design §8, "Speech"). They live in memory only, so their
+// rules take no transaction: one function over the rows, with no I/O and no
+// clock, as `apply` is for the stored records.
+
+use tasktap_proto::{Dictation, DictationId, DictationPhase, DictationTarget};
+
+/// Seconds a recording lasts at most; at 16 kHz, one channel and 16 bits
+/// that is the most audio the core holds for one dictation.
+pub const RECORDING: u32 = 300;
+/// Seconds after [`RECORDING`] at which a recording that has not ended fails.
+const GRACE: u32 = 10;
+/// Seconds a recorder that transcribes has for its transcript.
+const REPORT: u32 = 120;
+/// Dictations under way at once: one recording, the others being transcribed.
+pub const DICTATIONS: usize = 4;
+pub const NOTHING_HEARD: &str = "Nothing was heard";
+pub const INTERRUPTED: &str = "The recording was interrupted";
+
+/// A dictation as its rules see it: its row, and who transcribes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Dictating {
+    pub row: Dictation,
+    /// The core transcribes, from the stream it opened; otherwise the
+    /// recorder does and reports.
+    pub stream: bool,
+}
+
+/// What happens to a dictation.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Spoken {
+    /// `dictation.start`.
+    Start {
+        id: DictationId,
+        target: DictationTarget,
+        stream: bool,
+    },
+    /// How loud the audio on its stream is now.
+    Level {
+        id: DictationId,
+        level: u8,
+    },
+    /// `dictation.report`.
+    Report {
+        id: DictationId,
+        text: Option<String>,
+        level: Option<u8>,
+    },
+    /// `dictation.finish`; `heard` is whether its stream carried anything
+    /// to transcribe.
+    Finish {
+        id: DictationId,
+        heard: bool,
+    },
+    /// The speech service's answer, or why there is none.
+    Transcribed {
+        id: DictationId,
+        transcript: std::result::Result<String, String>,
+    },
+    /// The transcript was captured or given as the answer, or refused.
+    Delivered {
+        id: DictationId,
+        refused: Option<String>,
+    },
+    /// `dictation.cancel`.
+    Cancel {
+        id: DictationId,
+    },
+    /// The recorder's connection ended.
+    Left {
+        id: DictationId,
+    },
+    Deadline {
+        id: DictationId,
+    },
+}
+
+/// What the caller does once a dictation's event is applied, in order.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Heard {
+    /// The row changed, or is new.
+    Put(DictationId),
+    /// The row is gone.
+    Del(DictationId),
+    /// [`Spoken::Deadline`] comes back after this many seconds, once,
+    /// unless `End` comes first.
+    Deadline { id: DictationId, seconds: u32 },
+    /// Nothing of it goes on: no deadline, no stream, no web call.
+    End(DictationId),
+    /// The speech service is asked for the transcript of its audio.
+    Transcribe(DictationId),
+    /// The transcript goes where typing it would have gone; what came of
+    /// it returns as [`Spoken::Delivered`].
+    Deliver {
+        id: DictationId,
+        target: DictationTarget,
+        text: String,
+    },
+}
+
+/// Applies one event to the dictations (design §8, the table of "Speech").
+pub fn dictate(all: &mut Vec<Dictating>, event: Spoken) -> Result<Vec<Heard>> {
+    use DictationPhase::{Failed, Recording, Transcribing};
+    let at = |all: &[Dictating], id| all.iter().position(|d| d.row.id == id);
+    let fail = |d: &mut Dictating, why: &str| {
+        (d.row.phase, d.row.level, d.row.error) = (Failed, 0, Some(why.to_owned()));
+        vec![Heard::Put(d.row.id), Heard::End(d.row.id)]
+    };
+    Ok(match event {
+        Spoken::Start { id, target, stream } => {
+            let under_way = all.iter().filter(|d| d.row.phase != Failed).count();
+            if at(all, id).is_some() {
+                return Err(Error::Conflict("a dictation with this id exists"));
+            } else if all.iter().any(|d| d.row.phase == Recording) {
+                return Err(Error::Conflict("another dictation is recording"));
+            } else if under_way >= DICTATIONS {
+                return Err(Error::Conflict(
+                    "four dictations are still being transcribed",
+                ));
+            }
+            // The person moved on from what failed before.
+            let mut told: Vec<Heard> = (all.iter().filter(|d| d.row.phase == Failed))
+                .flat_map(|d| [Heard::Del(d.row.id), Heard::End(d.row.id)])
+                .collect();
+            all.retain(|d| d.row.phase != Failed);
+            let row = Dictation {
+                id,
+                rev: Rev::ZERO,
+                phase: Recording,
+                text: String::new(),
+                level: 0,
+                target,
+                error: None,
+            };
+            all.push(Dictating { row, stream });
+            let seconds = RECORDING + GRACE;
+            told.extend([Heard::Put(id), Heard::Deadline { id, seconds }]);
+            told
+        }
+        Spoken::Level { id, level } => match at(all, id).map(|i| &mut all[i]) {
+            Some(d) if d.stream && d.row.phase == Recording && d.row.level != level => {
+                d.row.level = level.min(100);
+                vec![Heard::Put(id)]
+            }
+            _ => Vec::new(),
+        },
+        Spoken::Report { id, text, level } => {
+            let i = at(all, id).ok_or(Error::Gone)?;
+            let d = &mut all[i];
+            match (d.row.phase, text) {
+                _ if d.stream => {
+                    return Err(Error::Conflict("the core transcribes this dictation"));
+                }
+                (Recording, text) => {
+                    let before = (d.row.text.clone(), d.row.level);
+                    d.row.text = text.unwrap_or(before.0.clone());
+                    d.row.level = level.unwrap_or(before.1).min(100);
+                    match (&d.row.text, d.row.level) != (&before.0, before.1) {
+                        true => vec![Heard::Put(id)],
+                        false => Vec::new(),
+                    }
+                }
+                (Transcribing, Some(text)) => {
+                    let transcript = Ok(text);
+                    return dictate(all, Spoken::Transcribed { id, transcript });
+                }
+                (Transcribing, None) => {
+                    return Err(Error::Invalid(
+                        "the report of a finished dictation carries its transcript",
+                    ));
+                }
+                (Failed, _) => return Err(Error::Ignored(Ignored::State)),
+            }
+        }
+        Spoken::Finish { id, heard } => {
+            let i = at(all, id).ok_or(Error::Gone)?;
+            let d = &mut all[i];
+            match d.row.phase {
+                Recording if d.stream && !heard => fail(d, NOTHING_HEARD),
+                Recording => {
+                    (d.row.phase, d.row.level) = (Transcribing, 0);
+                    match d.stream {
+                        true => vec![Heard::Put(id), Heard::End(id), Heard::Transcribe(id)],
+                        false => {
+                            let seconds = REPORT;
+                            vec![Heard::Put(id), Heard::Deadline { id, seconds }]
+                        }
+                    }
+                }
+                // Finished already: a repeat.
+                Transcribing => Vec::new(),
+                Failed => return Err(Error::Ignored(Ignored::State)),
+            }
+        }
+        Spoken::Transcribed { id, transcript } => {
+            // Cancelled meanwhile: nobody waits for it.
+            let Some(d) = at(all, id).map(|i| &mut all[i]) else {
+                return Ok(Vec::new());
+            };
+            match transcript.map(|text| text.trim().to_owned()) {
+                _ if d.row.phase != Transcribing => Vec::new(),
+                Err(why) => fail(d, &why),
+                Ok(text) if text.is_empty() => fail(d, NOTHING_HEARD),
+                Ok(text) => {
+                    d.row.text = text.clone();
+                    let target = d.row.target.clone();
+                    vec![Heard::Deliver { id, target, text }]
+                }
+            }
+        }
+        Spoken::Delivered { id, refused } => match (at(all, id), refused) {
+            (Some(i), None) => {
+                all.remove(i);
+                vec![Heard::Del(id), Heard::End(id)]
+            }
+            (Some(i), Some(why)) => fail(&mut all[i], &why),
+            (None, _) => Vec::new(),
+        },
+        Spoken::Cancel { id } => match at(all, id) {
+            Some(i) => {
+                all.remove(i);
+                vec![Heard::Del(id), Heard::End(id)]
+            }
+            // Nothing to cancel: as for a repeat.
+            None => Vec::new(),
+        },
+        Spoken::Left { id } => match at(all, id).map(|i| &mut all[i]) {
+            // What the core transcribes it has whole: its recorder may go.
+            Some(d) if d.row.phase == Recording || (d.row.phase == Transcribing && !d.stream) => {
+                fail(d, INTERRUPTED)
+            }
+            _ => Vec::new(),
+        },
+        Spoken::Deadline { id } => match at(all, id).map(|i| &mut all[i]) {
+            Some(d) if d.row.phase == Recording => {
+                fail(d, "The recording did not end within 5 minutes")
+            }
+            Some(d) if d.row.phase == Transcribing && !d.stream => {
+                fail(d, "The transcript did not arrive within 2 minutes")
+            }
+            _ => Vec::new(),
+        },
+    })
+}

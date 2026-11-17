@@ -32,8 +32,8 @@ portable-pty = "0.9.0"
 # The pipe's peer check: std and tokio cannot name the user behind a process,
 # nor end a pipe that has a write in flight. The same version tokio already uses.
 # Job objects end a terminal's whole process tree; the console size is for
-# the test role only.
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Console", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Threading"] }
+# the test role only. Credentials are the keys of web providers (design §8).
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Credentials", "Win32_System_Console", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Threading"] }
 
 [dev-dependencies]
 tasktap-core = { path = ".", features = ["fixtures"] }

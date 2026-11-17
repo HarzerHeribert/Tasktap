@@ -1,4 +1,4 @@
-//! The one table of calls (design §1, §2): the 31 of the 45 core calls built
+//! The one table of calls (design §1, §2): the 39 of the 47 core calls built
 //! so far, the shim's ability, and the test fixtures.
 //!
 //! Each call is a type here, named for the call (`thought.capture` is
@@ -99,6 +99,14 @@ table! {
     ProjectClose "project.close" Device (CloseProject) -> ();
     // Input
     Input "input" Device (crate::args::Input) -> ();
+    // Speech (design §8)
+    DictationStart "dictation.start" Device (crate::args::StartDictation) -> crate::args::Listening;
+    DictationReport "dictation.report" Device (crate::args::ReportDictation) -> ();
+    DictationFinish "dictation.finish" Device (Ref<crate::ids::DictationId>) -> ();
+    DictationCancel "dictation.cancel" Device (Ref<crate::ids::DictationId>) -> ();
+    SpeechTerms "speech.terms" Device (Empty) -> crate::args::SpeechTerms;
+    KeySet "key.set" Device (crate::args::SetKey) -> ();
+    KeyRemove "key.remove" Device (crate::args::Server) -> ();
     // Devices and service; the last two are the frozen bootstrap calls, which
     // with no shared version anyone the user check admits may make (bootstrap.rs).
     DeviceRevoke "device.revoke" Device (Ref<DeviceId>) -> ();

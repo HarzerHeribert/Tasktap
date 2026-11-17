@@ -18,9 +18,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use tasktap_proto::call::{Code, Error};
 use tasktap_proto::{
-    AgentHealth, Change, Collection, Control, Delete, Glance, History, HistoryPage, Layout,
-    NotePatch, PrefValue, ProjectPatch, Put, PutTarget, Rev, Revision, Rows, SessionId, Set,
-    Subscribe, Thought, ThoughtId, encode_control, json_len,
+    AgentHealth, Change, Collection, Control, Delete, Dictation, DictationId, Glance, History,
+    HistoryPage, Layout, NotePatch, PrefKey, PrefValue, ProjectPatch, Put, PutTarget, Rev,
+    Revision, Rows, SessionId, Set, Subscribe, Thought, ThoughtId, encode_control, json_len,
 };
 
 /// Most bytes of JSON in one snapshot chunk (design §1).
@@ -70,6 +70,7 @@ fn collection(set: &Set) -> Collection {
         Set::Devices(_) => Collection::Devices,
         Set::Glance { .. } => Collection::Glance,
         Set::Agents(_) => Collection::Agents,
+        Set::Dictations(_) => Collection::Dictations,
     }
 }
 
@@ -81,6 +82,8 @@ pub struct Memory {
     glance: Glance,
     /// Each agent as last detected, in the order the core lists its agents.
     agents: Vec<AgentHealth>,
+    /// The dictations under way or failed, as last published (design §8).
+    dictations: Vec<Dictation>,
     activity: HashMap<SessionId, Vec<String>>,
 }
 
@@ -97,6 +100,7 @@ impl Default for Memory {
                 retiring: false,
             },
             agents: Vec::new(),
+            dictations: Vec::new(),
             activity: HashMap::new(),
         }
     }
@@ -125,6 +129,10 @@ impl Memory {
             }),
             Collection::Agents => Some(Set::Agents(Rows {
                 put: self.agents.clone(),
+                del: Vec::new(),
+            })),
+            Collection::Dictations => Some(Set::Dictations(Rows {
+                put: self.dictations.clone(),
                 del: Vec::new(),
             })),
             _ => None,
@@ -194,6 +202,31 @@ impl Core {
             sets,
         }));
         Ok(found)
+    }
+
+    /// Puts a dictation's row in the `dictations` collection, stamped with
+    /// the change's revision, or with no row takes it out, and sends that
+    /// as one change.
+    pub fn set_dictation(&mut self, id: DictationId, row: Option<Dictation>) -> store::Result<()> {
+        let rev = self.store.take_rev()?;
+        let rows = &mut self.memory.dictations;
+        rows.retain(|d| d.id != id);
+        let (mut put, mut del) = (Vec::new(), Vec::new());
+        match row {
+            Some(row) => {
+                rows.push(Dictation { rev, ..row });
+                put.extend(rows.last().cloned());
+            }
+            None => del.push(id),
+        }
+        let sets = vec![Set::Dictations(Rows { put, del })];
+        self.publish(Some(Change {
+            rev,
+            snap: false,
+            more: false,
+            sets,
+        }));
+        Ok(())
     }
 
     /// Replaces the `glance` row; its `rev` is stamped here. Subscribers get
@@ -341,7 +374,7 @@ fn chunks(rev: Rev, snap: bool, sets: Vec<Set>) -> Vec<Change> {
     for set in sets {
         split!(
             set, Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs,
-            Devices, Agents
+            Devices, Agents, Dictations
         );
     }
     if !chunk.sets.is_empty() || chunk.done.is_empty() {
@@ -414,6 +447,13 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
             if let PrefValue::RouteBy(Some(by)) = &value {
                 crate::route::consented(by).map_err(|why| Error::new(Code::Invalid, why))?;
             }
+            // As is a consent to a speech service, and the languages spoken.
+            match &value {
+                PrefValue::SpeechBy(Some(by)) => crate::speech::consented(by),
+                PrefValue::SpeechLanguages(languages) => crate::speech::spoken(languages),
+                _ => Ok(()),
+            }
+            .map_err(invalid)?;
             check(tx.pref(value.key()).map_err(fail)?.map(|p| p.rev))?;
             tx.put_pref(&value)
         }
@@ -468,6 +508,10 @@ pub fn delete(cx: &mut Cx, args: Delete) -> Result<Revision, Error> {
     let core = &mut *cx.core;
     let mut tx = core.store.begin().map_err(fail)?;
     match args {
+        // The servers a key is stored for change with the keys alone.
+        Delete::Prefs { id: PrefKey::Keys } => {
+            return Err(invalid("key.set and key.remove change keys".into()));
+        }
         Delete::Prefs { id } => tx.delete_pref(id),
         Delete::Layouts { id } => tx.delete_layout(id),
         Delete::Thoughts { id } => {

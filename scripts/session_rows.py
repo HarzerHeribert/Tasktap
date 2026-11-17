@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import uuid
+from project_sessions import save_project_activity
 import visible_session as visible
 
 
@@ -57,4 +58,8 @@ def rows(runs):
             result.append(row)
         except (OSError, ValueError, KeyError, StopIteration):
             continue
+    try:
+        save_project_activity(runs, result)  # Session-scoped agents read active peers from here.
+    except OSError:
+        pass
     return result

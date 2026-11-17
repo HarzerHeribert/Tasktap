@@ -22,20 +22,25 @@ def verify(base):
     other.mkdir()
     scratch = base / "Scratch"
     scratch.mkdir()
-    discovery = []
 
-    def create(stack, checkout, state):
+    def create(stack, checkout, state=None):
         folder = runs / str(uuid.uuid4())
         folder.mkdir()
         lock = stack.enter_context((folder / "surface.lock").open("wb"))
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         save(folder / "surface.json", {"open": True})
         job = folder / "1-test.job"
-        save(job, dict(agent="claude", session=folder.name, folder=str(checkout), mode="ask", delivery="interactive"))
+        save(job, dict(agent="claude", session=folder.name, folder=str(checkout), mode="ask", delivery="interactive",
+                       task="design " * 24, observer=state is not None))
         save(job.with_suffix(".receipt"), {"state": "Opened"})
-        discovery.append(dict(owned="yes", available="yes", folder=str(checkout), id=folder.name, agent="claude",
-                              task="design " * 24, state=state, scratch="yes" if checkout == scratch else "no"))
+        if state:
+            save(folder / "observer.json", {"state": state})
         return folder, lock
+
+    def discover():
+        # The same scan the app runs for its session list.
+        runner = Path(__file__).resolve().with_name("run-agent")
+        subprocess.run([str(runner), "rows", str(runs)], check=True, capture_output=True)
 
     def start_server(stack, owner, checkout):
         bridge = Path(__file__).resolve().with_name("agent-tools")
@@ -57,17 +62,17 @@ def verify(base):
         return json.loads(result["content"][0]["text"])
 
     with ExitStack() as stack:
-        owner, _ = create(stack, project, "Running")
+        owner, _ = create(stack, project, "working")
         call = start_server(stack, owner, project)
         assert snapshot(call) == {"sessions":[], "total":0}
         alias = base / "alias"
         alias.symlink_to(project)
-        worker, lock = create(stack, alias, "Running")
-        create(stack, other, "Running")
-        create(stack, project, "Idle")
-        create(stack, project, "Connected")
-        scratch_owner, _ = create(stack, scratch, "Running")
-        save_project_activity(runs, discovery)
+        worker, lock = create(stack, alias, "working")
+        create(stack, other, "working")
+        create(stack, project, "ready")
+        create(stack, project)
+        scratch_owner, _ = create(stack, scratch, "working")
+        discover()
         peers = snapshot(call)
         assert peers["total"] == 1
         peer = peers["sessions"][0]
@@ -79,12 +84,12 @@ def verify(base):
         assert snapshot(call)["total"] == 0
         past = time.time() - 2
         os.utime(receipt, (past, past))
-        save_project_activity(runs, discovery)  # a fresh provider-observed manual turn
+        discover()  # a fresh provider-observed manual turn
         assert snapshot(call)["total"] == 1
         past = time.time() - 120
         os.utime(runs / CACHE_NAME, (past, past))
         assert snapshot(call)["total"] == 0
-        save_project_activity(runs, discovery)
+        discover()
         lock.close()  # stale surface.json after presenter death
         assert snapshot(call)["total"] == 0
         save_project_activity(runs, [])

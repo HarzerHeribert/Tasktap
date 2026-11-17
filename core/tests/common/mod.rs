@@ -283,6 +283,8 @@ pub struct Watch {
     pub model: Model,
     /// Each thought's statuses in the order its rows arrived, repeats folded.
     pub statuses: HashMap<ThoughtId, Vec<Status>>,
+    /// The frames of a change cut into several, until its last arrives.
+    part: Option<Change>,
     next: u32,
 }
 
@@ -297,11 +299,12 @@ impl Watch {
             c,
             model: Model::default(),
             statuses: HashMap::new(),
+            part: None,
             next: 10,
         };
         loop {
             match w.c.recv().unwrap() {
-                Frame::Control(Control::Change(change)) => w.apply(&change),
+                Frame::Control(Control::Change(change)) => w.apply(change),
                 Frame::Control(Control::Reply(reply)) if reply.id == id => {
                     call::Sub::result(reply.outcome).unwrap();
                     return w;
@@ -311,8 +314,25 @@ impl Watch {
         }
     }
 
-    fn apply(&mut self, change: &Change) {
-        self.model.apply(change);
+    /// Applies a change whole: one cut into several frames once its last,
+    /// the one not marked `more`, has arrived.
+    fn apply(&mut self, change: Change) {
+        let change = match self.part.take() {
+            Some(mut whole) => {
+                assert_eq!(whole.rev, change.rev, "a frame of another change");
+                whole.sets.extend(change.sets);
+                Change {
+                    more: change.more,
+                    ..whole
+                }
+            }
+            None => change,
+        };
+        if change.more {
+            self.part = Some(change);
+            return;
+        }
+        self.model.apply(&change);
         for set in &change.sets {
             if let Set::Thoughts(rows) = set {
                 for t in &rows.put {
@@ -329,7 +349,7 @@ impl Watch {
     fn step(&mut self) -> Option<(CallId, Outcome)> {
         match self.c.recv().unwrap() {
             Frame::Control(Control::Change(change)) => {
-                self.apply(&change);
+                self.apply(change);
                 None
             }
             Frame::Control(Control::Reply(reply)) => Some((reply.id, reply.outcome)),

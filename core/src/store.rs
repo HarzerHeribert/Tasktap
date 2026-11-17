@@ -428,6 +428,7 @@ impl<'s> Tx<'s> {
         Ok(Some(Change {
             rev: Rev::new(rev).unwrap_or(Rev::ZERO),
             snap: false,
+            more: false,
             sets,
         }))
     }

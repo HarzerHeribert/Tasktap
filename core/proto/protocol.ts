@@ -97,10 +97,11 @@ export type Capture = { id: ThoughtId, text: string, strokes: Array<Array<[numbe
  * at most 256 KiB of JSON each. A transaction too large for one frame is cut
  * the same way, without `snap`: several frames in a row with the same `rev`
  * and nothing between them, each holding whole rows, a set's rows before its
- * deletions (so a collection may appear in more than one set). Each frame
- * applies as it arrives; the transaction is whole once the last has.
+ * deletions (so a collection may appear in more than one set). Every frame
+ * of a snapshot or a transaction but the last is marked `more`, so a client
+ * applies a transaction whole once its last frame has arrived.
  */
-export type Change = { rev: Rev, snap?: boolean, sets: Array<Set>, };
+export type Change = { rev: Rev, snap?: boolean, more?: boolean, sets: Array<Set>, };
 
 export type Changes = "none" | "pending" | "kept" | "discarded";
 

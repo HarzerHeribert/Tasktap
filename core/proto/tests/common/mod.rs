@@ -145,6 +145,7 @@ pub fn change() -> Change {
     Change {
         rev: rev(9),
         snap: true,
+        more: false,
         sets: vec![
             Set::Thoughts(Rows {
                 put: vec![thought()],

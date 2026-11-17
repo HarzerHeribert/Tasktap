@@ -47,14 +47,14 @@ type Frame =                                   // kind 0: one JSON object
   | { t: "refuse"; why: "auth" | "revoked" }
   | { t: "call"; id: number; name: string; args: object }
   | { t: "reply"; id: number; ok?: unknown; err?: { code: "unknown" | "invalid" | "denied" | "conflict" | "gone" | "failed"; message: string } }
-  | { t: "change"; rev: number; snap?: true; sets: { c: Collection; put?: Row[]; del?: Id[] }[] }
+  | { t: "change"; rev: number; snap?: true; more?: true; sets: { c: Collection; put?: Row[]; del?: Id[] }[] }
   | { t: "credit"; s: number; n: number }      // grant n more bytes on stream s
   | { t: "mark"; s: number; at: number; size?: [cols: number, rows: number]; live?: true; gap?: true; exit?: number | null }
   | { t: "close"; s: number; why?: "done" | "overflow" | "gone" | "denied" }
 // kind 1: stream bytes = u32 stream id, then raw bytes
 ```
 
-**Subscriptions.** `sub {collections}` is the only form: no filters, no limits, one subscription per connection (a second `sub` replaces the first; an empty list ends it). The core answers in one step on its single thread: the snapshot as `change` frames marked `snap` (chunks of at most 256 KiB), then `reply {rev: R}`, then every change after R that touches a named collection. Nothing can fall between the snapshot and the first change. One `change` is one committed transaction, so a client never sees half of it; one too large for a frame is cut like a snapshot, into frames with the same `rev` in a row. Memory-only collections use the same counter. Revisions order changes within one run of the core; a client always starts from a snapshot.
+**Subscriptions.** `sub {collections}` is the only form: no filters, no limits, one subscription per connection (a second `sub` replaces the first; an empty list ends it). The core answers in one step on its single thread: the snapshot as `change` frames marked `snap` (chunks of at most 256 KiB), then `reply {rev: R}`, then every change after R that touches a named collection. Nothing can fall between the snapshot and the first change. One `change` is one committed transaction, so a client never sees half of it; one too large for a frame is cut like a snapshot, into frames with the same `rev` in a row. In both, every frame but the last is marked `more`, so a client applies a transaction whole when its last frame arrives. Memory-only collections use the same counter. Revisions order changes within one run of the core; a client always starts from a snapshot.
 
 **Live rows only.** Collections hold what is live. A thought is live until it is finished (done or failed, read, settled) and 200 newer finished thoughts exist; its sessions, questions and results are live with it. A row that stops being live is a `del` in the change that caused it. Older thoughts are fetched with `history {before?, limit ≤ 100}`, which returns them with their questions and results; they are not subscribed. This bounds every snapshot. I found no case that needs more.
 

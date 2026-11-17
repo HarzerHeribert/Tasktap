@@ -149,6 +149,7 @@ impl Core {
         self.publish(Some(Change {
             rev,
             snap: false,
+            more: false,
             sets,
         }));
         Ok(())
@@ -172,6 +173,7 @@ impl Core {
         self.publish(Some(Change {
             rev,
             snap: false,
+            more: false,
             sets,
         }));
         Ok(())
@@ -206,6 +208,7 @@ pub fn publish(links: &[Rc<Link>], change: Change) {
                 encode(Change {
                     rev,
                     snap: false,
+                    more: false,
                     sets,
                 }),
             )
@@ -273,9 +276,10 @@ pub fn sub(cx: &mut Cx, args: Subscribe) -> Result<Revision, Error> {
 }
 
 /// Cuts sets into changes at revision `rev` of at most [`CHUNK`] bytes of
-/// JSON each, in order: each set's rows, then its deletions. A row is never
-/// split; one larger than a chunk goes alone. There is always one change, so
-/// a client sees even an empty snapshot begin.
+/// JSON each, in order: each set's rows, then its deletions, every change
+/// but the last marked `more`. A row is never split; one larger than a
+/// chunk goes alone. There is always one change, so a client sees even an
+/// empty snapshot begin.
 fn chunks(rev: Rev, snap: bool, sets: Vec<Set>) -> Vec<Change> {
     let mut chunk = Chunk {
         rev,
@@ -336,9 +340,17 @@ impl Chunk {
     }
 
     fn cut(&mut self) {
+        if let Some(last) = self.done.last_mut() {
+            last.more = true;
+        }
         let sets = std::mem::take(&mut self.sets);
         let (rev, snap) = (self.rev, self.snap);
-        self.done.push(Change { rev, snap, sets });
+        self.done.push(Change {
+            rev,
+            snap,
+            more: false,
+            sets,
+        });
         self.size = ENVELOPE;
     }
 }

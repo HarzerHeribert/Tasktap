@@ -1029,6 +1029,8 @@ fn a_large_snapshot_arrives_in_chunks_and_whole() {
 
     let snap = subscribe(&mut core.device(), &ALL);
     assert!(snap.frames.len() >= 5, "{} chunks", snap.frames.len());
+    let (last, before) = snap.frames.split_last().unwrap();
+    assert!(before.iter().all(|f| f.more) && !last.more);
     for frame in &snap.frames {
         let mut bytes = Vec::new();
         encode_control(&Control::Change(frame.clone()), &mut bytes).unwrap();
@@ -1045,7 +1047,7 @@ fn a_large_snapshot_arrives_in_chunks_and_whole() {
 }
 
 #[test]
-fn a_change_larger_than_a_frame_arrives_whole_in_chunks_of_one_revision() {
+fn a_change_larger_than_a_frame_arrives_in_parts_of_one_revision_the_last_unmarked() {
     let data = Folder::new();
     let core = Core::start(&data);
     let mut w = core.device();
@@ -1061,29 +1063,43 @@ fn a_change_larger_than_a_frame_arrives_whole_in_chunks_of_one_revision() {
         .map(|i| finished(ThoughtId::mint(), &format!("new {i}")))
         .collect();
     fixture(&mut w, vec![thoughts(newer.clone())]);
+    let mut watch = common::Watch::new(core.device());
+    let mut late = core.device();
     let mut s = core.device();
     let mut model = subscribe(&mut s, &ALL).model;
     assert!(model.get("thoughts", big[0].id).is_none());
-    let mut late = core.device();
 
     // Unread, the newer ones are no longer finished, so one small write
     // brings the six back: a change of more than a frame.
     let unread = newer.into_iter().map(|t| Thought { read: false, ..t });
     let rev = fixture(&mut w, vec![thoughts(unread.collect())]);
-    let after = hold(&mut w, 1);
 
-    let changes = until(&mut s, after);
-    let chunks = changes.iter().filter(|c| c.rev == rev).count();
-    assert!(chunks >= 6, "{chunks} chunks");
-    for change in &changes {
+    // Its parts come in a row, each but the last marked `more`: no later
+    // write is needed to tell where it ends.
+    let mut parts: Vec<Change> = Vec::new();
+    while parts.last().is_none_or(|part| part.more) {
+        let part = change(&mut s);
+        assert_eq!(part.rev, rev);
         let mut bytes = Vec::new();
-        encode_control(&Control::Change(change.clone()), &mut bytes).unwrap();
+        encode_control(&Control::Change(part.clone()), &mut bytes).unwrap();
         let len = bytes.len() - HEADER;
-        assert!(len <= CHUNK, "a chunk of {len} bytes");
-        model.apply(&change.sets);
+        assert!(len <= CHUNK, "a part of {len} bytes");
+        model.apply(&part.sets);
+        parts.push(part);
     }
+    assert!(parts.len() >= 6, "{} parts", parts.len());
     assert!(big.iter().all(|t| model.get("thoughts", t.id).is_some()));
-    assert_eq!(model, subscribe(&mut late, &ALL).model);
+    // `glance` follows in a change of its own.
+    let fresh = subscribe(&mut late, &ALL);
+    for c in until(&mut s, fresh.rev) {
+        model.apply(&c.sets);
+    }
+    assert!(model == fresh.model);
+    // The shared model applies it whole, once its last part is in.
+    watch.until("the six are back", |m| {
+        big.iter().all(|t| m.thoughts.contains_key(&t.id))
+    });
+    assert_eq!(watch.model.rev, rev.get());
 }
 
 #[test]

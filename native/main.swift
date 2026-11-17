@@ -1062,7 +1062,7 @@ final class Assistant: NSObject, NSApplicationDelegate, NSWindowDelegate, WKScri
         let id=UUID().uuidString.lowercased()
         do {
             guard let root=ProcessInfo.processInfo.environment["TASKTAP_TERMINAL_ROOT"],root.contains("tasktap-workspace-test") else {
-                throw LiveWorkspace.Failure.reason("Run this check with an isolated TASKTAP_TERMINAL_ROOT.")
+                throw LiveWorkspace.Failure.reason("Set TASKTAP_TERMINAL_ROOT to a new folder whose path contains tasktap-workspace-test.")
             }
             let folder=runtime.root.appendingPathComponent("fixture")
             try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)

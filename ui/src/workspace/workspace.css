@@ -9,3 +9,30 @@ html{background:color-mix(in srgb,var(--deck-bg) calc(var(--window-opacity,.93) 
 .deck-question .deck-reply input{min-height:32px;font-size:var(--t-small);padding:var(--s-tight) var(--s-icon)}
 .deck-question :is(.btn,.primary){min-height:30px;font-size:var(--t-small)}
 .deck-question .icon{width:14px;height:14px}
+
+/* Home's motion (motion.tsx): the form as an object of its own in the free space at the foot of the view, at a fixed
+   size in whole pixels so it is never resampled; or, for comparison, a backdrop behind the whole view. */
+.work{position:relative}
+.work>:is(.toolbar,main){position:relative;z-index:1}
+.work>.home-backdrop[data-place=object]{right:32px;bottom:16px;width:760px;height:min(340px,calc(100% - var(--home-free,100%) - 16px))}
+@media (max-width:1100px){.work>.home-backdrop[data-place=object]{width:560px;height:min(250px,calc(100% - var(--home-free,100%) - 16px))}}
+.work>.home-backdrop[data-place=wash]{inset:0}
+
+/* The appearance panel (theme.tsx): plain controls and the motion as Home shows it. */
+#modal:has(.theme){width:min(640px,calc(100% - 24px))}
+.theme{display:grid;gap:var(--s-block);min-width:0}
+.theme-preview{height:240px;border-radius:var(--r-card);background:#08090a}
+.theme-choice{display:grid;grid-template-columns:96px minmax(0,1fr);gap:var(--s-tight) var(--s-panel);align-items:center}
+.theme-choice h3{margin:0;font-size:var(--t-label);font-weight:600}
+.theme-choice .hint{grid-column:2;margin:0}
+.theme-styles,.theme-palettes{display:flex;flex-wrap:wrap;gap:var(--s-icon)}
+.theme-styles button,.theme-palettes button{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:2px var(--s-row);border:1px solid var(--app-edge);border-radius:var(--r-control);background:transparent;color:var(--app-fg);font-size:var(--t-small)}
+.theme-palettes i{width:14px;height:14px;border-radius:50%}
+:is(.theme-styles,.theme-palettes) button[aria-checked=true]{border-color:var(--app-accent);box-shadow:0 0 0 1px var(--app-accent)}
+.theme-hue{display:flex;align-items:center;gap:var(--s-icon);margin-top:var(--s-icon);font-size:var(--t-small)}
+.theme-hue input{flex:1;accent-color:hsl(var(--hue) 90% 62%)}
+.theme-switch{position:relative;width:40px;height:22px;padding:0;border:1px solid var(--app-edge);border-radius:11px;background:var(--app-hover)}
+.theme-switch span{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--app-muted);transition:transform var(--motion)}
+.theme-switch[aria-checked=true]{background:var(--app-accent);border-color:var(--app-accent)}
+.theme-switch[aria-checked=true] span{transform:translateX(18px);background:var(--app-accent-ink)}
+@media(prefers-reduced-motion:reduce){.theme-switch span{transition:none}}

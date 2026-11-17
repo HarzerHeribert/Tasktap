@@ -14,4 +14,5 @@
 @import '../../../prototype/content-layout.css';
 @import '../../../prototype/decision.css';
 @import '../capture.css';
+@import '../motion/motion.css';
 @import './workspace.css';

@@ -372,10 +372,26 @@ pub enum PrefValue {
     /// The agent a new run uses when its capture names none; none: the
     /// first agent the core has.
     Agent(Option<String>),
+    /// The form the app's motion draws in the open notch and the workspace.
+    MotionStyle(MotionStyle),
+    /// The colour of the motion's lights; custom takes `motion_hue`.
+    MotionPalette(MotionPalette),
+    /// Degrees on the colour wheel for the custom palette; the pages read it modulo 360.
+    MotionHue(u16),
+    /// Lumen's light (coloured light behind the form and a beam across it) is on.
+    MotionLumen(bool),
 }
 
 words! {
-    pub enum PrefKey { Hold, Agent }
+    pub enum PrefKey { Hold, Agent, MotionStyle, MotionPalette, MotionHue, MotionLumen }
+}
+
+words! {
+    pub enum MotionStyle { Slats, Glyphs, Resonator }
+}
+
+words! {
+    pub enum MotionPalette { Chrome, Chromatic, Warm, Cool, Custom }
 }
 
 /// Seconds a routed thought is held while the `hold` preference is unset.
@@ -387,6 +403,10 @@ impl PrefKey {
         match self {
             PrefKey::Hold => PrefValue::Hold(DEFAULT_HOLD),
             PrefKey::Agent => PrefValue::Agent(None),
+            PrefKey::MotionStyle => PrefValue::MotionStyle(MotionStyle::Slats),
+            PrefKey::MotionPalette => PrefValue::MotionPalette(MotionPalette::Chromatic),
+            PrefKey::MotionHue => PrefValue::MotionHue(265),
+            PrefKey::MotionLumen => PrefValue::MotionLumen(false),
         }
     }
 }
@@ -396,6 +416,10 @@ impl PrefValue {
         match self {
             PrefValue::Hold(_) => PrefKey::Hold,
             PrefValue::Agent(_) => PrefKey::Agent,
+            PrefValue::MotionStyle(_) => PrefKey::MotionStyle,
+            PrefValue::MotionPalette(_) => PrefKey::MotionPalette,
+            PrefValue::MotionHue(_) => PrefKey::MotionHue,
+            PrefValue::MotionLumen(_) => PrefKey::MotionLumen,
         }
     }
 }

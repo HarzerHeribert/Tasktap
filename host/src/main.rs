@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 use tasktap_proto::{QuestionId, Role};
 use tauri::ipc::{Channel, InvokeBody, InvokeResponseBody};
+use tauri::webview::{PermissionKind, PermissionResponse};
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
@@ -248,6 +249,12 @@ fn main() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![bridge_open, bridge_send, bridge_host, debug_report])
+        // The pages may hear the microphone (the appearance panel's trial, which the person starts; macOS then asks
+        // them once, with Info.plist's reason), and nothing else a web view can ask for.
+        .on_permission_request(|_, kind| match kind {
+            PermissionKind::Microphone => PermissionResponse::Allow,
+            _ => PermissionResponse::Deny,
+        })
         .on_menu_event(|app, event| workspace::on_menu(app, event.id().as_ref()))
         .setup(|app| {
             let passive = std::env::var_os("TASKTAP_PASSIVE").is_some();

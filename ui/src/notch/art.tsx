@@ -81,10 +81,11 @@ function draw() {
 }
 
 /** The black shape, and while something needs the person the light behind it: a wide halo and
- *  a close core, each a blurred copy of the outline filled with a slowly drifting gradient. */
-export function Art({ glowing }: { glowing: boolean }) {
+ *  a close core, each a blurred copy of the outline filled with a slowly drifting gradient. With
+ *  Lumen on, the gradient is the motion's palette (`tint`), so the notch's light and Home's agree. */
+export function Art({ glowing, tint }: { glowing: boolean; tint?: string }) {
   return (
-    <div id="notch-art" aria-hidden="true" data-glow={look.glow}>
+    <div id="notch-art" aria-hidden="true" data-glow={tint ? 'motion' : look.glow} style={tint ? { '--colors': tint } : undefined}>
       {glowing && (
         <div class="glow-set">
           <div class="glow glow-halo"><i /></div>

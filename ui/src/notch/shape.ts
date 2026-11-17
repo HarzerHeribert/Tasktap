@@ -126,21 +126,19 @@ export function cubicBezier(x1: number, y1: number, x2: number, y2: number) {
 /**
  * The tab on a display without a camera cutout, in three temperaments: how far the sides lean
  * (run, as a share of the depth), the radius of the easing where they leave the top edge, and
- * the bottom corners'. Open, the sides stand upright and the lean stays only where the sheet
- * meets the top edge: `flare` out along the edge and `neck` down the side, nearly straight.
+ * the bottom corners'. Open, it is a plain rectangle hanging from the top edge: its lean and its
+ * easing go to nothing as it opens, so the sides stand upright all the way up.
  */
 export const temperaments = {
-  shallow: { run: 1.15, ease: 7, corner: 6, flare: 15, neck: 18 },
-  medium: { run: 0.72, ease: 5, corner: 4.5, flare: 11, neck: 18 },
-  steep: { run: 0.4, ease: 3, corner: 3, flare: 7, neck: 16 },
+  shallow: { run: 1.15, ease: 7, corner: 6 },
+  medium: { run: 0.72, ease: 5, corner: 4.5 },
+  steep: { run: 0.4, ease: 3, corner: 3 },
 };
 export type Temperament = keyof typeof temperaments;
 
 /** The easing where the camera housing's upright sides leave the top edge: out along the edge,
  *  down the side, and nearly straight between, like the sloped tab's. */
 export const HOUSING = { shoulder: 6, drop: 11, tension: 0.42 };
-/** An easing that is all slope with soft ends. */
-const NECK = 0.25;
 /** The open sheet's bottom corners: --r-island. */
 export const SHEET_CORNER = 18;
 
@@ -157,10 +155,11 @@ export function shapeFor(d: Display, temperament: Temperament, open: boolean, bo
     if (open) return { ...sheet, ...HOUSING };
     return { x: 0, half: d.width / 2, depth: d.height, run: 0, corner: d.corner, ...HOUSING };
   }
-  if (open) return { ...sheet, shoulder: t.flare, drop: t.neck, tension: NECK };
   // The tab's width is kept at half its depth, where the wings' counts sit.
   const run = t.run * d.height;
   const turn = Math.atan2(d.height, run);
   const ease = t.ease * Math.tan(turn / 2);
+  // Open, no lean and no easing at all; the tab's handles stay, so every step between eases alike.
+  if (open) return { ...sheet, shoulder: 0, drop: 0, tension: arc(turn) };
   return { x: 0, half: d.width / 2 - run / 2, depth: d.height, run, shoulder: ease, drop: ease, tension: arc(turn), corner: t.corner };
 }

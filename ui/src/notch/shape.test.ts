@@ -81,3 +81,25 @@ test('the collapsed tab keeps its width where the counts sit and the cutout its 
   assert.ok(pts.some(([x, y]) => Math.abs(x + 110) < 1e-9 && Math.abs(y - (38 - 9.5)) < 1e-9));
   assert.ok(pts.some(([x, y]) => Math.abs(x - (110 - 9.5)) < 1e-9 && Math.abs(y - 38) < 1e-9));
 });
+
+test('open on a display without a cutout, the sheet is a plain rectangle hanging from the top edge', () => {
+  const d: Display = { cutout: false, width: 120, height: 20, corner: 5, sheetWidth: 432, sheetOffset: -12 };
+  for (const t of Object.keys(temperaments) as Temperament[]) {
+    const open = shapeFor(d, t, true, 300);
+    assert.deepEqual([open.run, open.shoulder, open.drop], [0, 0, 0], t);
+    // Every point above the bottom corners lies on one of the two upright sides, from the top edge down.
+    const pts = polygon(outline(open), 8);
+    const sides = pts.filter(([, y]) => y <= 300 - 18 + 1e-9);
+    assert.ok(sides.length >= 4 && sides.every(([x]) => Math.abs(Math.abs(x + 12) - 216) < 1e-9), t);
+    assert.ok(sides.some(([, y]) => y === 0) && sides.some(([, y]) => Math.abs(y - (300 - 18)) < 1e-9), t);
+    // Its lean goes down as it opens, never back up.
+    const tab = shapeFor(d, t, false, 0);
+    let last = Infinity;
+    for (let i = 0; i <= 20; i++) {
+      const s = mix(tab, open, i / 20);
+      const lean = s.run + s.shoulder + s.drop;
+      assert.ok(lean <= last + 1e-9, `${t} at ${i}`);
+      last = lean;
+    }
+  }
+});

@@ -656,3 +656,41 @@ fn status_follows_phase_and_prefs_name_their_key() {
         json!(1_794_873_600_000u64)
     );
 }
+
+#[test]
+fn motion_preferences_put_as_the_wire_says() {
+    let cases = [
+        (
+            json!({"c": "prefs", "id": "motion_style", "patch": "glyphs"}),
+            PrefPatch::MotionStyle(MotionStyle::Glyphs),
+            PrefKey::MotionStyle,
+        ),
+        (
+            json!({"c": "prefs", "id": "motion_palette", "patch": "custom"}),
+            PrefPatch::MotionPalette(MotionPalette::Custom),
+            PrefKey::MotionPalette,
+        ),
+        (
+            json!({"c": "prefs", "id": "motion_hue", "patch": 120}),
+            PrefPatch::MotionHue(120),
+            PrefKey::MotionHue,
+        ),
+        (
+            json!({"c": "prefs", "id": "motion_lumen", "patch": true}),
+            PrefPatch::MotionLumen(true),
+            PrefKey::MotionLumen,
+        ),
+    ];
+    for (wire, patch, key) in cases {
+        let target: PutTarget = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(target, PutTarget::Prefs(patch.clone()));
+        assert_eq!(serde_json::to_value(&target).unwrap(), wire);
+        assert_eq!(PrefValue::from(patch).key(), key);
+    }
+    for bad in [
+        json!({"c": "prefs", "id": "motion_style", "patch": "drop"}),
+        json!({"c": "prefs", "id": "motion_hue", "patch": -1}),
+    ] {
+        assert!(serde_json::from_value::<PutTarget>(bad).is_err());
+    }
+}

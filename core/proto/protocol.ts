@@ -17,7 +17,7 @@ export const MAX_TEXT = 65536;
 export const MAX_LINE = 8192;
 export const MAX_POINTS = 2048;
 /** The value of each preference while none is stored: deleting one restores it. */
-export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] } = {"agent":null,"hold":5};
+export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] } = {"agent":null,"hold":5,"motion_hue":265,"motion_lumen":false,"motion_palette":"chromatic","motion_style":"slats"};
 
 /**
  * Who may make a call (design §2): authorization is per call.
@@ -534,6 +534,10 @@ exit?: number | null, };
 
 export type Mode = "ask" | "nudge" | "note";
 
+export type MotionPalette = "chrome" | "chromatic" | "warm" | "cool" | "custom";
+
+export type MotionStyle = "slats" | "glyphs" | "resonator";
+
 /**
  * The editable fields of a note; a missing one is left as it is.
  */
@@ -601,14 +605,14 @@ export type Place = { "project": ProjectId } | { "session": SessionId };
 /**
  * A preference row: `{id, value, rev}`, where the key fixes the value's type.
  */
-export type Pref = { rev: Rev, } & ({ "id": "hold", "value": number } | { "id": "agent", "value": string | null });
+export type Pref = { rev: Rev, } & ({ "id": "hold", "value": number } | { "id": "agent", "value": string | null } | { "id": "motion_style", "value": MotionStyle } | { "id": "motion_palette", "value": MotionPalette } | { "id": "motion_hue", "value": number } | { "id": "motion_lumen", "value": boolean });
 
-export type PrefKey = "hold" | "agent";
+export type PrefKey = "hold" | "agent" | "motion_style" | "motion_palette" | "motion_hue" | "motion_lumen";
 
 /**
  * A preference write: `{id, patch}`, where the key fixes the value's type.
  */
-export type PrefPatch = { "id": "hold", "patch": number } | { "id": "agent", "patch": string | null };
+export type PrefPatch = { "id": "hold", "patch": number } | { "id": "agent", "patch": string | null } | { "id": "motion_style", "patch": MotionStyle } | { "id": "motion_palette", "patch": MotionPalette } | { "id": "motion_hue", "patch": number } | { "id": "motion_lumen", "patch": boolean };
 
 export type Project = { id: ProjectId, rev: Rev, name: string,
 /**

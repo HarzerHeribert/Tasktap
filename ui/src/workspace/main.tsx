@@ -11,6 +11,8 @@ import { type Look, apply, ghostty, neutral } from './appearance.ts';
 import { Deck } from './deck.tsx';
 import { Dialogs } from './dialogs.tsx';
 import { Home } from './home.tsx';
+import { stats } from '../motion/engine.ts';
+import { debug, place } from '../motion/motion.tsx';
 import * as L from './layout.ts';
 import { burst, echo } from './measure.ts';
 import {
@@ -34,6 +36,8 @@ export function command(id: string) {
       return c ? void newTerminal(c.project, { into: pane }) : open({ kind: 'open-workspace' });
     case 'open-workspace':
       return open({ kind: 'open-workspace' });
+    case 'appearance':
+      return open({ kind: 'appearance' });
     case 'close-tab':
       return c?.id && closeTab(c.project, c.id);
     case 'find':
@@ -165,4 +169,5 @@ const text = (id = current()?.id) => {
 const type = (line: string) => (engines.get(current()?.id ?? '')?.term.input(line + '\r', true), !!current()?.id);
 Object.assign(window, {
   __ws: { ui, records, layout, command, engines, focusSession, show, newTerminal, call, echo, burst, text, type, current, LOOSE, L },
+  __motion: { place, debug, stats, redraw },
 });

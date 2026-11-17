@@ -50,6 +50,8 @@ export function destination(): string | undefined {
 }
 
 /** Whether the receipt still offers Undo: the thought waits for its hold to end. */
+/** A capture sent from this page that the core has not shown back yet: it is on its way to be routed. */
+export const routing = () => !!cap.sent && cap.sent.to !== 'idea' && !records.thoughts.has(cap.sent.id);
 export const holding = () => {
   const t = cap.sent && records.thoughts.get(cap.sent.id);
   return !!cap.sent && cap.sent.to !== 'idea' && (!t || t.phase === 'routed');

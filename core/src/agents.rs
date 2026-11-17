@@ -7,7 +7,9 @@
 //! An adapter is data and small pure functions: `event` and `reply` do no
 //! I/O. What must run a program, telling whether an agent is installed and
 //! signed in and the check some agents need before a run starts, is
-//! described by the adapter and run by [`checks`]. This module and its
+//! described by the adapter and run by [`checks`]; so is asking an agent's
+//! tool one question without a session, which is how a thought is routed
+//! and its brief written (design §8). This module and its
 //! children are the only place that names an agent; the list below is the
 //! registry, and its first entry is the default agent.
 
@@ -18,6 +20,7 @@ pub mod rules;
 
 use std::ffi::OsString;
 use std::path::Path;
+use std::time::Duration;
 
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -54,12 +57,27 @@ pub struct Run<'a> {
     pub session: SessionId,
     /// The folder it runs in.
     pub cwd: &'a Path,
+    /// What it is told: the thought's brief, or its text.
     pub prompt: &'a str,
+    /// The person's own words, when `prompt` is a brief that says them
+    /// differently (design §8).
+    pub words: Option<&'a str>,
     pub model: Option<&'a str>,
     /// The agent's handle of the conversation this run continues.
     pub resume: Option<&'a str>,
     /// This program, which the hooks run as `<hook> hook <id>`.
     pub hook: &'a Path,
+}
+
+impl Run<'_> {
+    /// The prompt as `agent` takes it: with the person's own words after
+    /// the brief, when there are both.
+    pub fn told(&self, agent: &dyn Agent) -> String {
+        match self.words {
+            Some(words) => agent.told(self.prompt, words),
+            None => self.prompt.to_owned(),
+        }
+    }
 }
 
 /// How to tell whether an agent is installed and signed in: two of its own
@@ -93,6 +111,34 @@ pub struct Probe {
     pub input: String,
     pub read: Reader,
 }
+
+/// How an agent's tool answers one question without a session (design §8,
+/// the command provider): [`checks::ask`] runs it in an empty folder with
+/// the question on its standard input. It gets no tools, saves nothing and
+/// reads none of the person's instructions or settings.
+pub struct Headless {
+    /// The model it asks, the smallest fast one its tool offers. The
+    /// person's consent names it.
+    pub model: &'static str,
+    /// Longest it may take to answer.
+    pub limit: Duration,
+    /// Its arguments for one question whose answer must fit `schema`.
+    pub args: fn(&Schema) -> Vec<String>,
+    /// The answer, a JSON text, in what it printed; or why it gave none.
+    /// It is asked each time more was printed, and the first answer ends
+    /// the tool: it must find none in a part of one.
+    pub answer: fn(&str) -> Result<String, String>,
+}
+
+/// The JSON schema an answer must fit: as text, and as a file that holds it.
+pub struct Schema<'a> {
+    pub text: &'a str,
+    pub file: &'a Path,
+}
+
+/// What every agent's own words frame says about the two texts.
+pub(crate) const WORDS: &str = "The text above is a brief written from what the person said. \
+     What they said follows, word for word; where the two differ, their words count.";
 
 /// Something an agent shows in its terminal and waits on there before it
 /// is ready.
@@ -208,6 +254,17 @@ pub trait Agent: Sync {
     }
 
     fn detect(&self) -> Detect;
+
+    /// How its tool answers one question without a session; none when it
+    /// cannot, and then it routes no thought.
+    fn headless(&self) -> Option<Headless> {
+        None
+    }
+
+    /// What a run is told when a brief was written from the person's
+    /// words (design §8): the brief, then their words as they said them,
+    /// marked as theirs, so the agent can check one against the other.
+    fn told(&self, brief: &str, words: &str) -> String;
 
     /// Variables of the core's own environment that its runs need, such as
     /// the key a person signs it in with (design §7, §9): the only ones a
@@ -468,7 +525,7 @@ impl Agent for Fixture {
         let hooks = hooks.into_iter().flatten();
         let mut argv = vec![self.program().to_owned()];
         argv.extend(hooks.map(|a| a.to_string_lossy().into_owned()));
-        argv.push(run.prompt.to_owned());
+        argv.push(run.told(self));
         argv
     }
 
@@ -509,6 +566,36 @@ impl Agent for Fixture {
                 )
             },
         }
+    }
+
+    /// Asked a question, it keeps what it was asked as `asked` in its
+    /// folder and runs the steps a test wrote there as `ask`; the last
+    /// line it prints is its answer. The silent one is given a second, so
+    /// that a test of the time limit is short.
+    fn headless(&self) -> Option<Headless> {
+        Some(Headless {
+            model: "fixture-small",
+            limit: Duration::from_secs(if self.events { 20 } else { 1 }),
+            args: |_| vec!["keep:asked".into(), "script:ask".into()],
+            answer: |out| {
+                let last = out.lines().last().unwrap_or_default().trim();
+                match (
+                    last.strip_prefix("error:"),
+                    serde_json::from_str::<Value>(last),
+                ) {
+                    (Some(why), _) => Err(why.into()),
+                    (None, Ok(Value::Object(_))) if out.ends_with('\n') => Ok(last.into()),
+                    _ => Err("it printed no answer".into()),
+                }
+            },
+        })
+    }
+
+    /// The brief alone: a test scripts the fixture agent with it, a step
+    /// to a line, so nothing may follow it. What the real agents are told
+    /// is proven on their adapters.
+    fn told(&self, brief: &str, _: &str) -> String {
+        brief.to_owned()
     }
 
     fn event(&self, _: &[String], payload: &[u8]) -> Result<Option<Heard>, String> {

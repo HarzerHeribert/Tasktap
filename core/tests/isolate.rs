@@ -1458,6 +1458,7 @@ fn forge(s: &mut Scene, workdir: Workdir) -> ThoughtId {
         project_id: Some(s.project),
         session_id: None,
         brief: None,
+        route: None,
         agent: Some(SILENT.into()),
         model: None,
         workdir: Some(workdir),

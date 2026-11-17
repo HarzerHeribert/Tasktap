@@ -87,6 +87,7 @@ table! {
     SessionAdopt "session.adopt" Session (Adopt) -> SessionId;
     // Routing and agents
     RouteHint "route.hint" Device (Hint) -> Route;
+    RouteTerms "route.terms" Device (Empty) -> crate::args::RouteTerms;
     AgentsDetect "agents.detect" Device (DetectAgents) -> Agents;
     // Terminals
     TerminalOpen "terminal.open" Device (OpenTerminal) -> crate::frame::Opened;

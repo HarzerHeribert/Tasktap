@@ -359,6 +359,7 @@ fn run<'a>(prompt: &'a str, model: Option<&'a str>, resume: Option<&'a str>) -> 
         session: SessionId::try_from(uuid(RUN)).unwrap(),
         cwd: Path::new("/tmp/project"),
         prompt,
+        words: None,
         model,
         resume,
         hook: Path::new("/opt/tasktap/tasktap"),
@@ -851,4 +852,131 @@ fn a_run_whose_agent_needs_a_check_starts_once_it_passed() {
     s.w.until("its hooks report", |m| {
         m.session(session).state == tasktap_proto::SessionState::Idle
     });
+}
+
+// Asked headless (design §8): the command line of each tool, its answer in
+// what it really printed, and what a run is told with a brief.
+
+/// What a tool printed for a routing question, as recorded from it.
+fn printed(name: &str) -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/agents")
+        .join(name);
+    std::fs::read_to_string(path).unwrap()
+}
+
+fn headless(agent: &str) -> agents::Headless {
+    agents::find(agent).unwrap().headless().unwrap()
+}
+
+#[test]
+fn each_tool_is_asked_with_no_tools_nothing_saved_and_its_smallest_model() {
+    let schema = agents::Schema {
+        text: r#"{"type":"object"}"#,
+        file: Path::new("/data/route/schema.json"),
+    };
+    let has = |args: &[String], flags: &[&str]| args.windows(flags.len()).any(|w| w == flags);
+
+    let claude = headless("claude");
+    let args = (claude.args)(&schema);
+    assert_eq!(claude.model, "haiku");
+    let flags: [&[&str]; 9] = [
+        &["-p"],
+        &["--model", "haiku"],
+        &["--tools", ""],
+        &["--strict-mcp-config"],
+        &["--disable-slash-commands"],
+        &["--safe-mode"],
+        &["--no-session-persistence"],
+        &["--output-format", "json"],
+        &["--json-schema", schema.text],
+    ];
+    for flag in flags {
+        assert!(has(&args, flag), "{flag:?} in {args:?}");
+    }
+    // Every argument is one line, so a shell wrapper around the tool takes it.
+    assert!(args.iter().all(|a| !a.contains('\n')), "{args:?}");
+
+    let codex = headless("codex");
+    let args = (codex.args)(&schema);
+    assert_eq!(codex.model, "gpt-6-luna");
+    assert_eq!(args[..3], ["--ask-for-approval", "never", "exec"]);
+    let flags: [&[&str]; 9] = [
+        &["--ignore-user-config"],
+        &["--ignore-rules"],
+        &["--ephemeral"],
+        &["--disable", "shell_tool"],
+        &["--disable", "unified_exec"],
+        &["-c", "project_doc_max_bytes=0"],
+        &["-c", "web_search=\"disabled\""],
+        &["--sandbox", "read-only"],
+        &["--model", "gpt-6-luna"],
+    ];
+    for flag in flags {
+        assert!(has(&args, flag), "{flag:?} in {args:?}");
+    }
+    // The schema as a file, and the question on standard input.
+    assert_eq!(
+        args[args.len() - 3..],
+        ["--output-schema", "/data/route/schema.json", "-"]
+    );
+}
+
+#[test]
+fn each_tools_answer_is_read_from_what_it_really_printed() {
+    let claude = headless("claude");
+    let all = printed("claude/headless-answer.json");
+    let answer: Value = serde_json::from_str(&(claude.answer)(&all).unwrap()).unwrap();
+    assert_eq!(
+        (answer["confidence"].as_str(), answer["to"].as_str()),
+        (Some("clear"), Some("p3"))
+    );
+    assert!(answer["brief"].as_str().unwrap().contains("paginate"));
+    // The core takes it as it is.
+    assert_eq!(answer.as_object().unwrap().len(), 6);
+    // A part of it is no answer: the tool is read until one is whole.
+    assert!((claude.answer)(&all[..all.len() / 2]).is_err());
+    assert!((claude.answer)("").is_err());
+    // What it prints when it reached no model says why.
+    let why = (claude.answer)(&printed("claude/headless-error.json")).unwrap_err();
+    assert!(why.contains("issue with the selected model"), "{why}");
+
+    let codex = headless("codex");
+    let all = printed("codex/headless-answer.json");
+    let answer: Value = serde_json::from_str(&(codex.answer)(&all).unwrap()).unwrap();
+    assert_eq!(
+        (answer["confidence"].as_str(), answer["to"].as_str()),
+        (Some("clear"), Some("s1"))
+    );
+    assert!((codex.answer)(&all[..all.len() / 2]).is_err());
+    // It prints nothing there when it fails; why is on its other output.
+    assert!((codex.answer)("\n").is_err());
+}
+
+#[test]
+fn the_persons_words_follow_the_brief_as_each_agent_takes_them() {
+    let (brief, words) = ("Fix the stutter.", "um, that thing, it stutters, fix it");
+    let frame = "The text above is a brief written from what the person said. \
+                 What they said follows, word for word; where the two differ, their words count.";
+    let claude = agents::find("claude").unwrap();
+    assert_eq!(
+        claude.told(brief, words),
+        format!("{brief}\n\n{frame}\n<persons_words>\n{words}\n</persons_words>")
+    );
+    let codex = agents::find("codex").unwrap();
+    assert_eq!(
+        codex.told(brief, words),
+        format!("{brief}\n\n---\n{frame}\n\n{words}")
+    );
+    // A run is told both, as its last argument; without a brief that
+    // differs, the words alone, once.
+    for agent in [claude, codex] {
+        let both = Run {
+            words: Some(words),
+            ..run(brief, None, None)
+        };
+        assert_eq!(agent.launch(&both).last(), Some(&agent.told(brief, words)));
+        let argv = agent.launch(&run(words, None, None));
+        assert_eq!(argv.last().map(String::as_str), Some(words));
+    }
 }

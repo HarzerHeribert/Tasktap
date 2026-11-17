@@ -65,6 +65,10 @@ pub struct Thought {
     pub project_id: Option<ProjectId>,
     pub session_id: Option<SessionId>,
     pub brief: Option<String>,
+    /// How it found its destination and its brief; none when no router was
+    /// asked: a note, or a pick whose words go on as they are.
+    #[serde(default)]
+    pub route: Option<Routing>,
     pub agent: Option<String>,
     pub model: Option<String>,
     pub workdir: Option<Workdir>,
@@ -72,6 +76,27 @@ pub struct Thought {
     pub read: bool,
     pub created: Time,
     pub updated: Time,
+}
+
+/// How a thought found its destination and its brief (design §8).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Routing {
+    /// Who was asked: an agent's id for the model behind its tool, or
+    /// `local` for the match on names.
+    pub by: String,
+    /// The model asked, when one was.
+    pub model: Option<String>,
+    /// Still being asked: the thought does not launch before the answer
+    /// or the end of its time limit.
+    pub pending: bool,
+    /// Why the model was not asked or its answer not used, and the match
+    /// on names, or the person's words as they are, were.
+    pub fallback: Option<String>,
+    /// The person's words that justify a follow-up to a session.
+    pub quote: Option<String>,
+    /// Milliseconds the answer took.
+    pub ms: Option<u32>,
 }
 
 /// One handwritten stroke: `[x, y]` points on a 600 × 176 canvas.
@@ -372,6 +397,11 @@ pub enum PrefValue {
     /// The agent a new run uses when its capture names none; none: the
     /// first agent the core has.
     Agent(Option<String>),
+    /// The person's consent to route by a model (design §8): the agent
+    /// whose tool is asked and the model it asks, which is all the consent
+    /// covers. None, or one that names another model than this core would
+    /// ask: thoughts are routed by the match on names alone.
+    RouteBy(Option<RouteBy>),
     /// The form the app's motion draws in the open notch and the workspace.
     MotionStyle(MotionStyle),
     /// The colour of the motion's lights; custom takes `motion_hue`.
@@ -390,9 +420,22 @@ pub enum PrefValue {
     TerminalLineHeight(u16),
 }
 
+/// What the `route_by` preference names: a tool and the model it asks.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct RouteBy {
+    /// The agent, by the id `agents.detect` lists.
+    #[serde(deserialize_with = "crate::within::<{ crate::MAX_LINE }, _, _>")]
+    pub agent: String,
+    /// The model its tool is asked for, as `route.terms` names it.
+    #[serde(deserialize_with = "crate::within::<{ crate::MAX_LINE }, _, _>")]
+    pub model: String,
+}
+
 words! {
     pub enum PrefKey {
-        Hold, Agent, MotionStyle, MotionPalette, MotionHue, MotionLumen, MotionAmbient,
+        Hold, Agent, RouteBy, MotionStyle, MotionPalette, MotionHue, MotionLumen, MotionAmbient,
         TerminalFont, TerminalSize, TerminalLineHeight
     }
 }
@@ -418,6 +461,7 @@ impl PrefKey {
         match self {
             PrefKey::Hold => PrefValue::Hold(DEFAULT_HOLD),
             PrefKey::Agent => PrefValue::Agent(None),
+            PrefKey::RouteBy => PrefValue::RouteBy(None),
             PrefKey::MotionStyle => PrefValue::MotionStyle(MotionStyle::Slats),
             PrefKey::MotionPalette => PrefValue::MotionPalette(MotionPalette::Chromatic),
             PrefKey::MotionHue => PrefValue::MotionHue(265),
@@ -435,6 +479,7 @@ impl PrefValue {
         match self {
             PrefValue::Hold(_) => PrefKey::Hold,
             PrefValue::Agent(_) => PrefKey::Agent,
+            PrefValue::RouteBy(_) => PrefKey::RouteBy,
             PrefValue::MotionStyle(_) => PrefKey::MotionStyle,
             PrefValue::MotionPalette(_) => PrefKey::MotionPalette,
             PrefValue::MotionHue(_) => PrefKey::MotionHue,

@@ -410,6 +410,10 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
     match target {
         PutTarget::Prefs(patch) => {
             let value = PrefValue::from(patch);
+            // A consent names what this core would really ask (design §8).
+            if let PrefValue::RouteBy(Some(by)) = &value {
+                crate::route::consented(by).map_err(|why| Error::new(Code::Invalid, why))?;
+            }
             check(tx.pref(value.key()).map_err(fail)?.map(|p| p.rev))?;
             tx.put_pref(&value)
         }
@@ -442,6 +446,10 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
             let mut t = plain(&tx, id)?;
             check(Some(t.rev))?;
             let NotePatch { text, strokes } = patch;
+            // A brief was written from the words it had: other words have none yet.
+            if text.as_ref().is_some_and(|text| *text != t.text) {
+                (t.brief, t.route) = (None, None);
+            }
             t.text = text.unwrap_or(t.text);
             t.strokes = strokes.unwrap_or(t.strokes);
             t.updated = core.seams.now();

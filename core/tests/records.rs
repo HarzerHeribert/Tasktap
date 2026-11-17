@@ -224,6 +224,7 @@ fn thought(id: ThoughtId, mode: Mode, phase: Phase, text: &str) -> Thought {
         project_id: None,
         session_id: None,
         brief: None,
+        route: None,
         agent: None,
         model: None,
         workdir: None,

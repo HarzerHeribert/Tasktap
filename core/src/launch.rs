@@ -49,6 +49,7 @@ pub fn prepare(l: &Launch) -> Result<Prepared, String> {
         session: l.session,
         cwd: Path::new(&l.cwd),
         prompt: &l.prompt,
+        words: l.words.as_deref(),
         model: l.model.as_deref(),
         resume: l.resume.as_deref(),
         hook: &hook,
@@ -157,11 +158,20 @@ pub fn deliver(
         }
         (false, _, kind) if kind != TerminalKind::Agent => Err(INDIRECT.into()),
         _ if s.state == SessionState::Ended => Err(EXITED.into()),
-        _ => match terminal::paste(core, t.id, &d.text) {
+        _ => match terminal::paste(core, t.id, &told(&s.agent, d)) {
             None => Err(EXITED.into()),
             Some(Err(why)) => Err(unwritten(why)),
             Some(Ok(typing)) => Ok(typing),
         },
+    }
+}
+
+/// What a follow-up types: its brief, with the person's own words as the
+/// session's agent takes them when the brief says them differently.
+fn told(agent: &str, d: &Deliver) -> String {
+    match (&d.words, agents::find(agent)) {
+        (Some(words), Some(agent)) => agent.told(&d.text, words),
+        _ => d.text.clone(),
     }
 }
 

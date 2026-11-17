@@ -240,10 +240,10 @@ Aim for under 20 checks, each named after a promise to the user.
 
 **Waiting for the owner**
 
-1. Run `trials/tauri-notch/check.sh` (about five minutes, needs an empty TextEdit document). It decides one host or two.
+1. Done: `trials/tauri-notch/check.sh` was run. Two focus checks failed and are being investigated against how 1.2 behaves; the look was judged fine apart from a focus outline.
 2. Leave the Mac unlocked for a few minutes so the 1.2 baseline can be measured.
-3. Try Phase 0: `TASKTAP_DEV=1 ./scripts/build-mac.sh`, then `open "build/Tasktap Dev.app"`.
-4. Answer the open decisions at the end of this plan, say whether the leftover 1.2 sessions may be stopped, and overrule anything in "Changes made while the owner was away".
+3. Done: Phase 0 was tried. Two defects were found, listed at the end of this plan.
+4. Overrule anything in "Changes made while the owner was away" that should not stand.
 
 **Phases**
 
@@ -279,7 +279,15 @@ Each can be overruled. Nothing built so far depends on the answer.
 - **Agent sign-in still opens Apple Terminal** until Phase 2. Moving it needs a terminal that belongs to no project.
 - **Defaults chosen for questions the design raised:** spoken text waits for Enter before it is sent; a clear thought shows "Sent to X" at once and launches when the Undo seconds have passed; a prompt typed by hand into an agent's terminal becomes a thought; sessions still running in 1.2 at the first start of 2.0 are imported as interrupted, with Resume.
 
-## Open decisions for the owner
+## Decisions by the owner on 2026-11-17
 
-1. **Isolated runs.** This reverses the earlier rule that Tasktap never creates a branch or worktree. Recommended: yes, as described above.
-2. **Agents.** Six are supported today (Claude Code, Codex, Antigravity, Cursor, Pi, OpenCode). Recommended: carry Claude Code and Codex into the core first and add the others back as they are actually used.
+1. **Isolated runs: yes.** The owner left this to the plan's author. A thought in a busy git project runs in its own worktree and comes back with Keep and Discard, as described above. Reason: starting work without review is only safe if two thoughts cannot overwrite each other.
+2. **Agents: Claude Code and Codex first.** They are the main focus. More agents must be easy to add later: every agent goes through the one adapter interface in the core, and no other part of the core knows an agent by name.
+3. **The leftover 1.2 sessions were stopped** with the owner's permission.
+
+## Found by the owner in the Phase 0 build
+
+- The window's close, minimise and zoom buttons are missing.
+- Clicking an element shows a focus outline around it, including around the notch.
+
+Both are being traced to the change that caused them and fixed on `rebuild-phase-0`.

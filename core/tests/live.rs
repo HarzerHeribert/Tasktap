@@ -37,6 +37,11 @@ fn project() -> PathBuf {
         || std::env::temp_dir().join("tasktap-live-agents/project"),
         PathBuf::from,
     );
+    repository(folder)
+}
+
+/// A new git repository at `folder`, made anew.
+fn repository(folder: PathBuf) -> PathBuf {
     let _ = std::fs::remove_dir_all(&folder);
     std::fs::create_dir_all(&folder).unwrap();
     let init = std::process::Command::new("git")
@@ -212,7 +217,11 @@ struct Live {
 
 impl Live {
     fn new(prefix: &str) -> Live {
-        let folder = project();
+        Self::in_folder(prefix, project())
+    }
+
+    /// The same with the project in `folder`.
+    fn in_folder(prefix: &str, folder: PathBuf) -> Live {
         let data = Folder::new(prefix);
         let core = Core::live(&data.0, PATIENCE);
         let mut w = core.watch();
@@ -485,6 +494,47 @@ fn codex_runs_follows_up_and_resumes() {
     assert_eq!(s.w.model.session(again).resume, handle, "the same thread");
     s.end(again, &tty);
     s.core.stop();
+}
+
+/// Claude Code in a folder it has not seen stops at its folder-trust dialog
+/// before any hook runs (design §7): the core sees the dialog in the
+/// terminal and asks the person to answer it there, so the thought does
+/// not sit silently working. The dialog is left unanswered and the run
+/// stopped, so no turn is used.
+#[test]
+#[ignore = "starts Claude Code in a folder it has not seen; uses no turn"]
+fn claude_in_a_new_folder_asks_to_be_trusted_there() {
+    let unique = format!("tasktap-live-trust/{}", ThoughtId::mint().uuid());
+    let folder = repository(std::env::temp_dir().join(unique));
+    let mut s = Live::in_folder("live-claude-trust", folder.clone());
+    let t = s.ask("claude", "Reply with the single word trusted.");
+    until(
+        &s.core,
+        &mut s.w,
+        None,
+        "a question opened",
+        Duration::from_secs(60),
+        |m| m.glance().question.is_some(),
+    );
+    let q =
+        s.w.model
+            .question(s.w.model.glance().question.unwrap())
+            .clone();
+    say(&format!(
+        "question: {:?}, reply via {:?}",
+        q.prompt, q.reply_via
+    ));
+    assert!(q.prompt.contains("trust"), "{q:?}");
+    assert_eq!(q.reply_via, ReplyVia::Terminal);
+    assert_eq!(s.w.model.status(t), Status::NeedsYou);
+    let session = s.w.model.thought(t).session_id.unwrap();
+    assert_eq!(s.w.model.session(session).state, SessionState::Starting);
+    let terminal = s.w.model.session(session).terminal_id.unwrap();
+    let tty = Tty::attach(&s.core, terminal);
+    s.end(session, &tty);
+    assert_eq!(s.w.model.question(q.id).state, QuestionState::Withdrawn);
+    s.core.stop();
+    let _ = std::fs::remove_dir_all(folder);
 }
 
 /// A Codex run that no window shows (design §9): the core answers what

@@ -510,6 +510,17 @@ impl Machine<'_, '_> {
             (_, Some(A::TurnStarted { prompt }), _, Some(S::Starting | S::Idle), _) => {
                 self.start_turn(some(session)?, prompt)
             }
+            // turn_started while a turn is open: the person interrupted it in
+            // the terminal and the agent did not say so (Claude Code has no
+            // interrupt hook). That turn ends as turn_interrupted would end
+            // it, then the new one starts.
+            (_, Some(A::TurnStarted { prompt }), _, Some(S::Working), _) => {
+                let s = some(session)?;
+                let id = s.id;
+                self.end_turn(s, thought, Ending::Failed(Reason::Interrupted, None))?;
+                let s = self.tx.session(id)?.ok_or(Error::Gone)?;
+                self.start_turn(s, prompt)
+            }
             // activity: memory-only text, nothing stored.
             (_, Some(A::Activity { text }), ..) if alive => self.activity(some(session)?, text),
             // a question asked in the agent's terminal opens as the agent's

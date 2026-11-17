@@ -924,9 +924,39 @@ fn row_turn_started_binds_the_launched_thought() {
         shape(&w.thought(t)),
         (Phase::Working, Status::Working, None)
     );
-    // A second start while the turn runs does not fit.
-    let again = w.report(s, Said::TurnStarted { prompt: None });
-    assert_eq!(w.ignored(Event::Report(again)), Ignored::State);
+}
+
+#[test]
+fn row_turn_started_in_an_open_turn_interrupts_it_first() {
+    let mut w = World::new("restarted");
+    let (t, s) = w.turn();
+    let q = w.ask(s, ReplyVia::Core);
+    // Interrupted in the terminal without a word, the agent takes the next
+    // prompt: the open turn ends as turn_interrupted ends it, then the new
+    // turn starts with a thought of its own.
+    let prompt = Some("do this instead".to_string());
+    assert_eq!(w.say(s, Said::TurnStarted { prompt }).unwrap(), NONE);
+    assert_eq!(
+        shape(&w.thought(t)),
+        (Phase::Failed, Status::Failed, Some(Reason::Interrupted))
+    );
+    assert_eq!(w.question(q).state, QuestionState::Withdrawn);
+    let session = w.session(s);
+    let typed = session.thought_id.unwrap();
+    assert_ne!(typed, t);
+    assert_eq!((session.state, session.turn), (SessionState::Working, 2));
+    assert_eq!(
+        (w.thought(typed).text.as_str(), w.thought(typed).phase),
+        ("do this instead", Phase::Working)
+    );
+    // The answer that ends the new turn is the new thought's, not the old one's.
+    let answer = Some("done instead".to_string());
+    w.say(s, Said::TurnFinished { answer }).unwrap();
+    assert_eq!(w.thought(typed).phase, Phase::Done);
+    assert_eq!(w.thought(t).phase, Phase::Failed);
+    let results = w.results();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].thought_id, typed);
 }
 
 #[test]
@@ -1548,10 +1578,9 @@ fn an_event_that_does_not_fit_changes_nothing() {
         let shown = format!("{event:?}");
         assert_eq!(w.ignored(event), Ignored::State, "{shown}");
     }
-    for said in [Said::Ready, Said::TurnStarted { prompt: None }] {
-        let report = w.report(s, said);
-        assert_eq!(w.ignored(Event::Report(report)), Ignored::State);
-    }
+    // Ready while a turn runs; a turn start there is a row of its own.
+    let report = w.report(s, Said::Ready);
+    assert_eq!(w.ignored(Event::Report(report)), Ignored::State);
     assert_eq!(w.store.rev(), rev);
     // Records that do not exist are gone.
     let missing = Event::Stop {
@@ -2307,6 +2336,16 @@ fn check(tx: &Tx, known: &Known, effects: &[Effect], step: &Step) {
     }
 }
 
+/// Whether `step` starts a turn in a session whose turn is still open.
+fn restarts(tx: &Tx, step: &Step) -> bool {
+    let Some(Event::Report(r)) = step.event() else {
+        return false;
+    };
+    let session = tx.session(r.session).unwrap();
+    matches!(r.event, Said::TurnStarted { .. })
+        && session.is_some_and(|s| s.state == SessionState::Working)
+}
+
 /// The kind of a step: its event's name, a route's or a report's.
 fn label(step: &Step) -> String {
     let text = match step.event() {
@@ -2343,6 +2382,7 @@ fn every_event_in_every_reachable_state_keeps_the_rules() {
         let now = at_step(path.len());
         for step in sweep.moves(&tx, &known, &path) {
             fed += 1;
+            let restart = restarts(&tx, &step);
             match run(&mut tx, now, &step) {
                 Err(Error::Store(e)) => panic!("{step:?} after {path:?}: {e}"),
                 // Refused: nothing changed, so the same transaction serves the next move.
@@ -2356,6 +2396,9 @@ fn every_event_in_every_reachable_state_keeps_the_rules() {
                     learned.learn(&tx, &step);
                     check(&tx, &learned, &effects, &step);
                     applied.insert(label(&step));
+                    if restart {
+                        applied.insert("TurnStarted in an open turn".into());
+                    }
                     let mut next = path.clone();
                     next.push(step);
                     let state = learned.signature(&tx, &next);
@@ -2391,6 +2434,7 @@ fn every_event_in_every_reachable_state_keeps_the_rules() {
         "Exited",
         "Ready",
         "TurnStarted",
+        "TurnStarted in an open turn",
         "Activity",
         "Continued",
         "TurnFinished",

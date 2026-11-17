@@ -205,6 +205,7 @@ Only `state::apply(event)` writes a thought's `phase` and a session's `state`, a
 | `session.adopt` (a shell's token) | – | new adopted session: starting, in the shell's terminal and project (the scratch when it has none). `conflict` while a session in that terminal is alive |
 | `ready` | – | starting → idle |
 | `turn_started` | working. Binds the waiting follow-up delivered first, as the agent reads typed text in order; a prompt typed by hand creates its thought here | → working |
+| `turn_started` while a turn is open | the open turn ends first as `turn_interrupted` ends it (its thought → failed, interrupted; its open questions withdrawn), then the row above: the person interrupted the agent in its terminal and the agent did not say so (Claude Code has no interrupt hook), so the next answer must not reach the old thought | working → working, the next turn |
 | `activity` | – | – (memory-only text) |
 | a question opens | unchanged (status becomes needs you) | unchanged (shows asking) |
 | a question is answered or withdrawn | unchanged, except a router question's answer (second row) | unchanged |

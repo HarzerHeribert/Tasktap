@@ -358,6 +358,41 @@ fn two_thoughts_launched_at_once_in_one_project_each_get_their_own_terminal() {
     }
 }
 
+/// An agent that the person interrupts in its terminal and that says
+/// nothing of it, as Claude Code, which has no interrupt hook, takes the
+/// next prompt: the open turn ends as interrupted first, and the answer of
+/// the next turn is the next thought's, not the interrupted one's.
+#[test]
+fn a_turn_started_while_one_is_open_ends_the_open_one_as_interrupted() {
+    let mut s = Scene::real("li", "fixture");
+    brief(&mut s, "steps follow");
+    let (t, session, terminal) = started(&mut s, "first");
+    let mut screen = screen(&s, terminal);
+    screen.line("event:ready");
+    screen.line("the first prompt");
+    s.w.until("the first turn runs", |m| {
+        m.session(session).state == SessionState::Working
+    });
+    assert_eq!(s.w.model.session(session).thought_id, Some(t));
+    screen.line("the second prompt");
+    s.w.until("the first thought ends", |m| m.status(t) == Status::Failed);
+    assert_eq!(s.w.model.thought(t).reason, Some(Reason::Interrupted));
+    let second = s.w.model.session(session).thought_id.unwrap();
+    assert_ne!(second, t);
+    assert_eq!(s.w.model.thought(second).text, "the second prompt");
+    screen.line("event:turn_finished:the second answer");
+    s.w.until("the second thought is done", |m| {
+        m.status(second) == Status::Done
+    });
+    let results = s.w.model.results_of(second);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].summary, "the second answer");
+    assert!(
+        s.w.model.results_of(t).is_empty(),
+        "no answer for the first"
+    );
+}
+
 /// What the core answers a program's questions with while no client is
 /// attached (`terminal/queries.rs`), as `fixture-agent query` prints it.
 #[cfg(unix)]

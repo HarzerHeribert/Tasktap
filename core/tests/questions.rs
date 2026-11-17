@@ -694,7 +694,8 @@ fn an_event_for_another_turn_or_from_a_sub_agent_changes_nothing() {
         (None, true, Said::TurnInterrupted),
         (Some(1), false, ask("late")),
         (None, true, ask("sub")),
-        (Some(3), false, Said::TurnStarted { prompt: None }),
+        // A turn start must name the next turn, 3; 4 is another.
+        (Some(4), false, Said::TurnStarted { prompt: None }),
     ] {
         agent.try_say_as(turn, subagent, said).unwrap();
     }

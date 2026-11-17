@@ -97,10 +97,11 @@ table! {
     ProjectClose "project.close" Device (CloseProject) -> ();
     // Input
     Input "input" Device (crate::args::Input) -> ();
-    // Devices and service; the last two are the frozen bootstrap calls.
+    // Devices and service; the last two are the frozen bootstrap calls, which
+    // with no shared version anyone the user check admits may make (bootstrap.rs).
     DeviceRevoke "device.revoke" Device (Ref<DeviceId>) -> ();
     CoreStatus "core.status" Anyone (Empty) -> crate::bootstrap::CoreStatus;
-    CoreRetire "core.retire" Anyone (Retire) -> ();
+    CoreRetire "core.retire" Device (Retire) -> ();
     // The shim's ability (design §7): the core calls it on a shim.
     ShimHold "shim.hold" Ability (crate::args::ShimHold) -> ();
     // Fixtures (design §13): only a core built with its test fixtures answers these.

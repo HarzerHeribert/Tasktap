@@ -144,6 +144,13 @@ fn offered(name: Name, v: u32) -> bool {
     v != NO_SHARED_VERSION || BOOTSTRAP.contains(&name)
 }
 
+/// Who may make a call: who its access names, except that with no shared
+/// version the bootstrap calls are anyone's (`bootstrap.rs`).
+fn permitted(name: Name, peer: &Peer) -> bool {
+    name.access().permits(peer.who.identity())
+        || (peer.v == NO_SHARED_VERSION && BOOTSTRAP.contains(&name))
+}
+
 /// What `welcome` lists: the calls this build answers at version `v`.
 pub fn supported(v: u32) -> Vec<String> {
     let names = Name::ALL.iter().copied();
@@ -159,7 +166,7 @@ pub fn call(core: &mut Core, link: &Rc<Link>, peer: Peer, request: Request) {
     let Request { id, name, args } = request;
     let reply = match Name::parse(&name).filter(|&n| offered(n, peer.v)) {
         None => Some(refuse(id, Code::Unknown, format!("no call {name}"))),
-        Some(n) if !n.access().permits(peer.who.identity()) => Some(refuse(
+        Some(n) if !permitted(n, &peer) => Some(refuse(
             id,
             Code::Denied,
             format!("{name} is not for this caller"),

@@ -458,7 +458,10 @@ fn access_follows_the_authorization_table() {
             .map(|name| name.as_str())
             .collect::<Vec<_>>()
     };
-    assert_eq!(by(Access::Anyone), ["core.status", "core.retire"]);
+    // With no shared version both bootstrap calls are anyone's (the core's
+    // calls.rs); with one, retiring the core is a device's.
+    assert_eq!(by(Access::Anyone), ["core.status"]);
+    assert!(by(Access::Device).contains(&"core.retire"));
     assert_eq!(
         by(Access::Session),
         [

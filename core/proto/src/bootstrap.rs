@@ -7,6 +7,13 @@
 //! `hello` and `welcome` fields may only gain additions, because an old core
 //! still has to decode a new app's `hello` to read `v` from it.
 //!
+//! Who may call them, also for ever: with no shared version, anyone the
+//! local user check admits, whatever it proves or not, since that is the only
+//! way an app too new or too old to speak with a core can ask it what it is
+//! and ask it to leave. With a shared version `core.status` is still
+//! anyone's and `core.retire` a device's alone, so a session token, which an
+//! agent holds, cannot end the core and every terminal in it.
+//!
 //! So every closed set of words in these frames decodes a word it does not
 //! know as `Unknown` instead of failing: an old core still welcomes an app
 //! with a new role or a new way to prove itself, and an old app still reads

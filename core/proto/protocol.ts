@@ -896,7 +896,7 @@ export type Calls = {
   "input": { args: Input; result: null; access: "device" };
   "device.revoke": { args: Ref<DeviceId>; result: null; access: "device" };
   "core.status": { args: Empty; result: CoreStatus; access: "anyone" };
-  "core.retire": { args: Retire; result: null; access: "anyone" };
+  "core.retire": { args: Retire; result: null; access: "device" };
   "shim.hold": { args: ShimHold; result: null; access: "ability" };
   "fixture.stream": { args: FixtureStream; result: Opened; access: "device" };
   "fixture.script": { args: FixtureScript; result: FixtureLog; access: "device" };

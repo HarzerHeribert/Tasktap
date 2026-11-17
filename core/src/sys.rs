@@ -105,6 +105,10 @@ mod unix {
         ClientStream::connect(socket(data))
     }
 
+    /// Nothing to do: a socket ends with its last descriptor, which the
+    /// caller drops next.
+    pub fn hang_up(_: &Stream) {}
+
     /// Keeps a terminal's Ctrl-C and hang-up away from a core a client started.
     pub fn detach(cmd: &mut Command) {
         cmd.process_group(0);
@@ -136,12 +140,13 @@ mod windows {
     use std::os::windows::process::CommandExt;
     use std::path::Path;
     use std::process::Command;
-    use std::ptr::null_mut;
+    use std::ptr::{null, null_mut};
     use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
     use windows_sys::Win32::Foundation::{CloseHandle, ERROR_PIPE_BUSY, HANDLE};
     use windows_sys::Win32::Security::{
         GetLengthSid, GetTokenInformation, TOKEN_QUERY, TOKEN_USER, TokenUser,
     };
+    use windows_sys::Win32::System::IO::CancelIoEx;
     use windows_sys::Win32::System::Pipes::{
         GetNamedPipeClientProcessId, GetNamedPipeServerProcessId, NMPWAIT_WAIT_FOREVER,
         WaitNamedPipeW,
@@ -237,6 +242,21 @@ mod windows {
             return Err(io::Error::new(io::ErrorKind::PermissionDenied, why));
         }
         Ok(pipe)
+    }
+
+    /// Lets the drop that follows close the pipe at once. Otherwise mio
+    /// keeps an unfinished write in flight, and with it the pipe open, until
+    /// the client reads; a client that stopped reading and blocks writing
+    /// to a core that no longer reads would wait forever. With the write
+    /// cancelled the pipe closes as a socket does: the client reads what
+    /// the pipe already holds and then the end, and its blocked write fails.
+    /// (`disconnect` would also free it, but discards what the pipe holds and
+    /// fails the client's reads instead of ending them.)
+    pub fn hang_up(pipe: &Stream) {
+        // SAFETY: the handle is open for the call, and a null OVERLAPPED
+        // cancels every I/O in flight on it; mio takes a cancelled
+        // operation back like any failed one.
+        unsafe { CancelIoEx(pipe.as_raw_handle() as HANDLE, null()) };
     }
 
     /// No console, so the client's Ctrl-C and closing its window leave it running.

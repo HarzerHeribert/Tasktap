@@ -10,12 +10,13 @@ use crate::handshake;
 use crate::records::Subs;
 use crate::serve::Core;
 use crate::stream::{self, Streams};
+use crate::sys;
 use std::cell::{Cell, RefCell};
 use std::pin::Pin;
 use std::rc::Rc;
 use std::task::Poll;
 use tasktap_proto::{Control, Decoder, Frame, MAX_PENDING_CALLS, Refuse, encode_control};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::Notify;
 
 /// Connections at once.
@@ -24,6 +25,10 @@ pub const MAX_CONNECTIONS: usize = 256;
 pub const MAX_QUEUED: usize = 8 << 20;
 /// Bytes read from a connection at once.
 const READ: usize = 8 << 10;
+/// Most bytes handed to one write. A Windows pipe takes a whole write into
+/// a buffer of its own and reports it written, so without this a client
+/// that stops reading would hold a second queue beside `MAX_QUEUED`.
+const WRITE: usize = 64 << 10;
 
 /// What the handshake established about a connection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -132,7 +137,7 @@ impl Link {
 
 /// Starts the task of an accepted connection, or closes it when the core
 /// has as many as it may hold.
-pub fn spawn(core: &Rc<RefCell<Core>>, stream: impl AsyncRead + AsyncWrite + 'static) {
+pub fn spawn(core: &Rc<RefCell<Core>>, stream: sys::Stream) {
     let link = Rc::new(Link::default());
     let mut c = core.borrow_mut();
     if c.links.len() >= MAX_CONNECTIONS {
@@ -142,7 +147,7 @@ pub fn spawn(core: &Rc<RefCell<Core>>, stream: impl AsyncRead + AsyncWrite + 'st
     tokio::task::spawn_local(run(core.clone(), link, stream));
 }
 
-async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: impl AsyncRead + AsyncWrite) {
+async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: sys::Stream) {
     let (mut rd, mut wr) = tokio::io::split(stream);
     let mut decoder = Decoder::new();
     let mut input = [0; READ];
@@ -150,7 +155,7 @@ async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: impl AsyncRead + A
     let (mut out, mut at) = (Vec::new(), 0);
     // Bytes written since incoming frames last had a turn.
     let mut since = 0;
-    loop {
+    let flushed = loop {
         stream::pull(&link);
         if at == out.len() {
             // Gives back what a burst took before taking more.
@@ -164,9 +169,9 @@ async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: impl AsyncRead + A
                 let mut rest = out.split_off(at);
                 rest.extend_from_slice(&link.out.take());
                 write_once(&mut wr, &rest).await;
-                break;
+                break true;
             }
-            Some(false) => break,
+            Some(false) => break false,
             None => {}
         }
         if since >= stream::TURN {
@@ -183,21 +188,27 @@ async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: impl AsyncRead + A
                 Ok(n) if n > 0 => {
                     decoder.push(&input[..n]);
                     if !frames(&core, &link, &mut decoder) {
-                        break;
+                        break false;
                     }
                 }
-                _ => break,
+                _ => break false,
             },
-            wrote = wr.write(&out[at..]), if at < out.len() => match wrote {
+            wrote = wr.write(&out[at..out.len().min(at + WRITE)]), if at < out.len() => match wrote {
                 Ok(n) if n > 0 => {
                     at += n;
                     since += n;
                     link.queued.set(link.queued.get() - n);
                 }
-                _ => break,
+                _ => break false,
             },
             () = link.wake.notified() => {}
         }
+    };
+    if !flushed {
+        // What is still queued goes with the connection, and the client
+        // must see it end now, even one blocked writing to a core that no
+        // longer reads.
+        sys::hang_up(&rd.unsplit(wr));
     }
     stream::end(&link);
     core.borrow_mut().remove(&link);

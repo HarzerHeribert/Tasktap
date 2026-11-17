@@ -212,7 +212,7 @@ Phase 7 notes: check which agent command line tools run natively on Windows at t
 | Work | Agent |
 | --- | --- |
 | Protocol, data model, thought flow, isolation rules, notch interaction, writing work packages, accepting a phase | Claude Code on the top model (Fable) |
-| Building the core in Rust, splitting the Swift shell, the Windows host, the workspace splits and terminals in Phase 5 | Claude Code on Opus |
+| Building the core in Rust, splitting the Swift shell, the Windows host, the workspace splits and terminals in Phase 5 | Claude Code on Fable (owner's choice from 2026-11-17; Opus before that) |
 | Cuts with caller tracing, the file-by-file UI port, rewriting checks, guide updates | Claude Code on Sonnet, several in parallel |
 | Independent review of every phase before the owner tries it | Codex on its top model, given the diff and the "done when" line, not the builder's reasoning |
 

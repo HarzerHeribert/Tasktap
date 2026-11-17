@@ -2,15 +2,14 @@
 // the same records the notch shows; a row opens its session's terminal. Below them, the agents
 // this computer has and a terminal to sign in to one that is not signed in.
 import type { Thought } from '../../../core/proto/protocol.ts';
-import { useEffect, useRef } from 'preact/hooks';
-import poster from '../../../prototype/assets/motion/glyph/stage.jpg';
-import film from '../../../prototype/assets/motion/glyph/stage.mp4';
+import { routing } from '../capture.tsx';
 import { Icon } from '../icons.tsx';
+import { Backdrop, lookOf, place } from '../motion/motion.tsx';
+import { motionState } from '../motion/state.ts';
 import {
   LOOSE, agentName, call, fail, focusSession, newTerminal, open, openQuestions, projectName, records, resultOf, title, ui, why,
 } from './model.ts';
 
-const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 /** How a person signs an agent in, typed into a shell that belongs to no project: its own
  *  command, which asks to sign in when it is not. */
 const signIn: Record<string, string> = { claude: 'claude', codex: 'codex login' };
@@ -102,16 +101,12 @@ function Agents() {
 }
 
 export function Home() {
-  const video = useRef<HTMLVideoElement>(null);
-  // Artwork plays only while it can be seen (interaction design: hidden artwork pauses).
-  useEffect(() => {
-    const v = video.current;
-    if (!v || reduceMotion.matches) return undefined;
-    const sync = () => (document.hidden ? v.pause() : void v.play().catch(() => {}));
-    sync();
-    document.addEventListener('visibilitychange', sync);
-    return () => document.removeEventListener('visibilitychange', sync);
-  }, []);
+  // The motion behind Home, in the person's look and the product's state; the engine draws it only while it is seen.
+  const backdrop = (
+    <Backdrop surface="home" look={lookOf(records.prefs)} clear=".work > .toolbar, #main" state={motionState({
+      thoughts: records.thoughts.values(), sessions: records.sessions.values(), questions: openQuestions().length, routing: routing(), voice: ui.voice,
+    })} />
+  );
   const thoughts = [...records.thoughts.values()].filter((t) => t.mode !== 'note');
   const by = (f: (t: Thought) => boolean, order: (a: Thought, b: Thought) => number) => thoughts.filter(f).sort(order);
   const attention = by((t) => t.status === 'needs_you', (a, b) => a.created - b.created);
@@ -119,21 +114,25 @@ export function Home() {
   const results = by((t) => t.status === 'done' || t.status === 'failed', (a, b) => b.updated - a.updated).slice(0, 5);
   const date = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
   return (
-    <main id="main" tabIndex={-1}>
-      <div class="resonator-stage">
-        <div class="page-heading"><div class="eyebrow">{date}</div><h1>Home</h1></div>
-        <span class="resonator-film" aria-hidden="true">
-          <video ref={video} muted playsInline loop preload="none" tabIndex={-1} disablePictureInPicture poster={poster} src={reduceMotion.matches ? undefined : film} />
-        </span>
-      </div>
-      <div class="overview-content">
-        <Section name="Needs your attention" kind="attention" rows={attention} />
-        <Section name="In progress" kind="progress" rows={progress} />
-        <Section name="Recent results" kind="results" rows={results} />
-        {!attention.length && !progress.length && !results.length && <p class="empty">No active sessions.</p>}
-        <Agents />
-      </div>
-    </main>
+    <>
+      {place.home !== 'header' && backdrop}
+      <main id="main" tabIndex={-1}>
+        <div class="resonator-stage">
+          <div class="page-heading"><div class="eyebrow">{date}</div><h1>Home</h1></div>
+          {place.home === 'header' && backdrop}
+          <button type="button" class="home-art-toggle" title="Appearance" aria-label="Appearance" onClick={() => open({ kind: 'appearance' })}>
+            <Icon name="settings" />
+          </button>
+        </div>
+        <div class="overview-content">
+          <Section name="Needs your attention" kind="attention" rows={attention} />
+          <Section name="In progress" kind="progress" rows={progress} />
+          <Section name="Recent results" kind="results" rows={results} />
+          {!attention.length && !progress.length && !results.length && <p class="empty">No active sessions.</p>}
+          <Agents />
+        </div>
+      </main>
+    </>
   );
 }
 

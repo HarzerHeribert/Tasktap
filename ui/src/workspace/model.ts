@@ -20,7 +20,8 @@ export type Dialog =
   | { kind: 'find'; id: string }
   | { kind: 'move'; project: string; id: string }
   | { kind: 'capture' }
-  | { kind: 'reply'; question: string };
+  | { kind: 'reply'; question: string }
+  | { kind: 'appearance' };
 
 export const ui = {
   /** 'home', a project id, or LOOSE. */
@@ -42,6 +43,8 @@ export const ui = {
   ready: false,
   /** The window is the key window: only then does what a pane shows count as seen. */
   active: false,
+  /** The appearance panel's microphone trial is open: the motion listens. */
+  voice: false,
 };
 
 let toastTimer = 0;

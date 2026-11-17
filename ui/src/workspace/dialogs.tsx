@@ -1,6 +1,6 @@
 // The workspace's one modal dialog (`#modal`), in 1.2's frame: closing a live tab, stopping a
-// session, closing a workspace, opening one, finding in a terminal, moving a tab, a new task, and
-// a routing question that belongs to no session.
+// session, closing a workspace, opening one, finding in a terminal, moving a tab, a new task, a
+// routing question that belongs to no session, and the appearance panel.
 import type { ComponentChildren } from 'preact';
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Capture, cap } from '../capture.tsx';
@@ -11,6 +11,7 @@ import {
   records, setLayout, stop, ui,
 } from './model.ts';
 import { engines } from './terminal.ts';
+import { Theme } from './theme.tsx';
 
 function Frame({ title, over, children }: { title: string; over?: string; children: ComponentChildren }) {
   return (
@@ -140,6 +141,8 @@ function Body() {
           <Capture started={dismiss} />
         </Frame>
       );
+    case 'appearance':
+      return <Frame title="Appearance"><Theme /></Frame>;
     case 'reply': {
       const q = records.questions.get(d.question);
       if (!q || q.state !== 'open') return <Frame title="Answered"><p>This question has been answered.</p></Frame>;

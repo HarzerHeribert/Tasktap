@@ -1,7 +1,9 @@
 // The notch's black shape and the light behind it, both cut from one outline (shape.ts) and moved
 // together on every frame of an opening, a fold or a change of wings. The light is a blurred,
 // coloured copy of the outline under the black, so only what leaks past the edge is seen; while
-// it breathes only its layers' opacity and a gradient's position change, on the compositor.
+// it breathes only its layers' opacity and a gradient's position change, on the compositor. The motion's backdrop
+// sits on the black, cut by the same outline.
+import type { ComponentChildren } from 'preact';
 import { call, fail, ui } from './model.ts';
 import { cubicBezier, type Display, mix, outline, path, polygon, type Shape, shapeFor, type Temperament } from './shape.ts';
 
@@ -76,15 +78,17 @@ function draw() {
   art.style.setProperty('--near-level', (0.55 - 0.25 * size).toFixed(3));
   const fill = `path('${path(outline(now), half, 0)}')`;
   const light = `path('${path(outline(now, LIFT), half, LIFT)}')`;
-  for (const el of art.querySelectorAll<HTMLElement>('.notch-fill')) el.style.clipPath = fill;
+  for (const el of art.querySelectorAll<HTMLElement>('.notch-fill, .notch-behind')) el.style.clipPath = fill;
   for (const el of art.querySelectorAll<HTMLElement>('.glow i')) el.style.clipPath = light;
 }
 
 /** The black shape, and while something needs the person the light behind it: a wide halo and
- *  a close core, each a blurred copy of the outline filled with a slowly drifting gradient. */
-export function Art({ glowing }: { glowing: boolean }) {
+ *  a close core, each a blurred copy of the outline filled with a slowly drifting gradient. With
+ *  Lumen on, the gradient is the motion's palette (`tint`), so the light and the backdrop agree.
+ *  On the black, `children`: the backdrop. */
+export function Art({ glowing, tint, children }: { glowing: boolean; tint?: string; children?: ComponentChildren }) {
   return (
-    <div id="notch-art" aria-hidden="true" data-glow={look.glow}>
+    <div id="notch-art" aria-hidden="true" data-glow={tint ? 'motion' : look.glow} style={tint ? { '--colors': tint } : undefined}>
       {glowing && (
         <div class="glow-set">
           <div class="glow glow-halo"><i /></div>
@@ -92,6 +96,7 @@ export function Art({ glowing }: { glowing: boolean }) {
         </div>
       )}
       <div class="notch-fill" />
+      <div class="notch-behind">{children}</div>
     </div>
   );
 }

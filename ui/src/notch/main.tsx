@@ -3,7 +3,7 @@
 import '../../../prototype/style.css';
 import '../../../prototype/appearance.css';
 import '../../../prototype/workspace-activity.css';
-import '../../../prototype/motion.css';
+import '../motion/motion.css';
 // The icon and label rows of the answer card's context (`.decision-context>span`), linked before
 // decision.css as 1.2 linked it.
 import '../../../prototype/content-layout.css';
@@ -17,7 +17,11 @@ import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Answer } from './answer.tsx';
 import { Art, look, place } from './art.tsx';
 import { Home } from './home.tsx';
-import { cap } from '../capture.tsx';
+import { cap, routing } from '../capture.tsx';
+import { stats } from '../motion/engine.ts';
+import { Backdrop, debug, lookOf, place as placement } from '../motion/motion.tsx';
+import { stops } from '../motion/palette.ts';
+import { motionState } from '../motion/state.ts';
 import { call, client, fail, onRedraw, openQuestions, page, records, redraw, settleFocus, ui } from './model.ts';
 import { fold, reveal } from './panel.ts';
 
@@ -132,6 +136,11 @@ function App() {
   // Whenever a question is open the notch shows it, never a line that only says one waits.
   const answering = shown && questions.length > 0;
   const g = records.glance;
+  const motion = lookOf(records.prefs);
+  const state = motionState({
+    thoughts: records.thoughts.values(), sessions: records.sessions.values(), questions: questions.length, voice: false,
+    routing: routing(),
+  });
 
   useLayoutEffect(() => {
     // The sheet's bottom sizes the panel and the black silhouette that grows out of the housing.
@@ -142,15 +151,19 @@ function App() {
         ui.height = bottom;
         void call('host.notch', { height: bottom }).catch(fail);
       }
+      document.documentElement.style.setProperty('--sheet-bottom', bottom + 'px');
     }
     place(open, ui.height);
+    body.dataset.backdrop = placement.notch;
     requestAnimationFrame(() => body.classList.toggle('notch-open', ui.mode !== 'closed'));
     settleFocus();
   });
 
   return (
     <div onPointerDown={() => ui.mode === 'hover' && (ui.mode = 'pinned')}>
-      <Art glowing={!!g?.needs_you} />
+      <Art glowing={!!g?.needs_you} tint={motion.lumen ? stops(motion.palette, motion.hue) : undefined}>
+        <Backdrop surface="notch" look={motion} state={state} active={open} clear="#notch-home:not([hidden]), #notch[open]" />
+      </Art>
       <div class="island" id="island">
         <button id="islandToggle" type="button" aria-expanded={open} aria-label={label()}
           onClick={() => (open ? fold() : reveal('pinned', questions.length ? 'answer' : 'home'))}>
@@ -186,7 +199,9 @@ void listen<{ do: keyof typeof host } & Record<string, number | boolean>>('ui', 
 });
 render(<App />, document.body);
 // For the debug channel's checks (host/scripts/smoke.sh), which read the records the page holds.
-Object.assign(window, { __records: records, __look: (l: Partial<typeof look>) => (Object.assign(look, l), redraw(), look) });
+Object.assign(window, {
+  __records: records, __look: (l: Partial<typeof look>) => (Object.assign(look, l), redraw(), look), __motion: { place: placement, debug, stats, redraw },
+});
 void client
   .sub(['glance', 'thoughts', 'questions', 'results', 'sessions', 'projects', 'prefs', 'agents'], records)
   .then(() => call('host.notch', {}))

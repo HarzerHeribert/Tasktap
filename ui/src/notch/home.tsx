@@ -2,14 +2,11 @@
 // thoughts that are working, waiting or finished.
 import type { Thought } from '../../../core/proto/protocol.ts';
 import { useEffect } from 'preact/hooks';
-import poster from '../../../prototype/assets/motion/glyph/miniature.jpg';
-import film from '../../../prototype/assets/motion/glyph/miniature.mp4';
 import { Capture, cap } from '../capture.tsx';
 import { Icon } from '../icons.tsx';
 import { agentName, call, fail, openQuestions, page, projectName, records, redraw, resultOf, ui, why } from './model.ts';
 import { fold, peek, reveal } from './panel.ts';
 
-const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const secondsLeft = (t: Thought | undefined) => (t?.hold_until ? Math.max(0, Math.ceil((t.hold_until - Date.now()) / 1000)) : 0);
 
 /** The notch's hooks into the shared capture line, here and under a question. */
@@ -91,13 +88,6 @@ export function Home() {
       {page.error && <p class="notch-error" role="alert">{page.error}</p>}
       <footer class="home-actions">
         <small class="notch-keys"><kbd>⌃⌥Space</kbd> capture · <kbd>Esc</kbd> close</small>
-        {!working.length && (
-          <span class="home-art" aria-hidden="true">
-            <span class="resonator-film">
-              <video muted playsInline loop autoplay={!reduceMotion.matches} poster={poster} src={film} tabIndex={-1} disablePictureInPicture />
-            </span>
-          </span>
-        )}
       </footer>
     </>
   );

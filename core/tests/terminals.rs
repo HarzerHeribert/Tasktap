@@ -609,18 +609,7 @@ fn stop_ends_a_process_that_ignores_hang_up_and_its_descendants() {
     let start = fixture(&["ignore-hup", &child, "print 1", "sleep 30000"]);
     let mut v = open(&mut c, &args(id, Some(start), None, 1 << 20), true);
     until(&mut c, &mut v, "the first line", |v| shows(v.bytes(), 0));
-    let held = || {
-        let file = std::fs::File::open(&lock);
-        file.is_ok_and(|f| f.try_lock().is_err())
-    };
-    let waited = Instant::now();
-    while !held() {
-        assert!(
-            waited.elapsed() < PATIENCE,
-            "the descendant never took its lock"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    taken(&lock);
     let stopped = Instant::now();
     w.ok::<call::TerminalStop>(&Ref { id });
     closed(&mut c, &mut v);
@@ -636,13 +625,8 @@ fn stop_ends_a_process_that_ignores_hang_up_and_its_descendants() {
         took < Duration::from_millis(4500),
         "ended by the deadline: {took:?}"
     );
-    while held() {
-        assert!(
-            stopped.elapsed() < Duration::from_secs(5),
-            "the descendant outlived the stop"
-        );
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    let why = "the descendant outlived the stop";
+    released(&lock, stopped, Duration::from_secs(5), why);
     state(&mut w, id, TerminalState::Exited);
     // Stopping what has stopped does nothing; what never was is gone.
     w.ok::<call::TerminalStop>(&Ref { id });
@@ -650,6 +634,74 @@ fn stop_ends_a_process_that_ignores_hang_up_and_its_descendants() {
         id: TerminalId::mint(),
     };
     assert_eq!(w.refused::<call::TerminalStop>(&never).code, Code::Gone);
+}
+
+/// Waits until a process holds the lock on `file`.
+fn taken(file: &Path) {
+    let waited = Instant::now();
+    while !locked(file) {
+        assert!(waited.elapsed() < PATIENCE, "nothing ever took {file:?}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Waits until nothing holds the lock on `file`, `limit` after `since` at most.
+fn released(file: &Path, since: Instant, limit: Duration, why: &str) {
+    while locked(file) {
+        assert!(since.elapsed() < limit, "{why}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn locked(file: &Path) -> bool {
+    std::fs::File::open(file).is_ok_and(|f| f.try_lock().is_err())
+}
+
+/// A stop ends every process the terminal started, also one a program put
+/// in a process group of its own that ignores hang-up and lets go of the
+/// terminal (design §9): what is in the child's session.
+#[cfg(unix)]
+#[test]
+fn stop_ends_descendants_in_process_groups_of_their_own() {
+    let data = Folder::new("tt-groups");
+    let core = Core::start(&data);
+    let mut w = core.watch();
+    let mut c = core.device();
+    let lock = data.0.join("child.lock");
+    let id = TerminalId::mint();
+    let child = format!("spawn-group ignore-hup;lock {};sleep 30000", lock.display());
+    let start = fixture(&[&child, "print 1", "sleep 30000"]);
+    let mut v = open(&mut c, &args(id, Some(start), None, 1 << 20), true);
+    until(&mut c, &mut v, "the first line", |v| shows(v.bytes(), 0));
+    taken(&lock);
+    let stopped = Instant::now();
+    w.ok::<call::TerminalStop>(&Ref { id });
+    closed(&mut c, &mut v);
+    let why = "the descendant in a group of its own outlived the stop";
+    released(&lock, stopped, Duration::from_secs(5), why);
+}
+
+/// What a terminal's child started and left running when it exited ends
+/// with the terminal, as a stop ends it, also when it ignores hang-up and
+/// holds the terminal (which then ends a second after the child, design
+/// §9): it would otherwise run on with nothing to show or stop it.
+#[cfg(unix)]
+#[test]
+fn what_a_terminal_left_running_ends_with_it() {
+    let data = Folder::new("tt-held");
+    let core = Core::start(&data);
+    let mut c = core.device();
+    let lock = data.0.join("child.lock");
+    let id = TerminalId::mint();
+    let child = format!("spawn-held ignore-hup;lock {};sleep 30000", lock.display());
+    let start = fixture(&[&child, "print 1", "sleep 3000", "exit 0"]);
+    let mut v = open(&mut c, &args(id, Some(start), None, 1 << 20), true);
+    until(&mut c, &mut v, "the first line", |v| shows(v.bytes(), 0));
+    taken(&lock);
+    closed(&mut c, &mut v);
+    assert_eq!(v.exit(), Some(Some(0)));
+    let why = "what held the terminal outlived it";
+    released(&lock, Instant::now(), Duration::from_secs(4), why);
 }
 
 #[test]

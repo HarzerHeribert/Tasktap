@@ -70,7 +70,13 @@ pub struct Process {
 pub type Started = (Process, plain::Sender<Vec<u8>>, mpsc::Receiver<Report>);
 
 /// What [`Process::hang_up`] asked to end, for the timer that kills it.
+/// On Mac and Linux that is every process group in the child's session,
+/// which it leads: what the terminal started, in whatever group, unless a
+/// process left the session itself. On Windows it is the job.
 pub struct Doomed {
+    #[cfg(unix)]
+    session: u32,
+    /// The groups hang-up was sent to, in case the processes cannot be listed.
     #[cfg(unix)]
     groups: Vec<u32>,
     #[cfg(windows)]
@@ -80,11 +86,26 @@ pub struct Doomed {
 impl Doomed {
     pub fn kill(self) {
         #[cfg(unix)]
-        for group in self.groups {
+        for group in self.groups() {
             sys::signal_group(group, true);
         }
         #[cfg(windows)]
         self.job.kill();
+    }
+
+    /// Whether anything it would kill is left.
+    #[cfg(unix)]
+    fn alive(&self) -> bool {
+        self.groups().into_iter().any(sys::group_alive)
+    }
+
+    #[cfg(unix)]
+    fn groups(&self) -> Vec<u32> {
+        let mut groups = sys::session_groups(self.session);
+        groups.extend(&self.groups);
+        groups.sort_unstable();
+        groups.dedup();
+        groups
     }
 }
 
@@ -135,25 +156,29 @@ impl Process {
         }
     }
 
-    /// Hangs up on the process group and the foreground group, or on
-    /// Windows closes the console, which asks its processes to end. Returns
-    /// what to kill if they have not ended by the deadline; nothing before
-    /// the child has started.
+    /// Hangs up on every process group of the child's session, the
+    /// foreground group among them, or on Windows closes the console, which
+    /// asks its processes to end. Returns what to kill if they have not
+    /// ended by the deadline; nothing before the child has started, nor on
+    /// Mac and Linux when nothing is left.
     pub fn hang_up(&mut self) -> Option<Doomed> {
         let group = self.group.clone()?;
         #[cfg(unix)]
         {
             let mut groups = vec![*group];
             let foreground = self.master.as_ref().and_then(|m| m.process_group_leader());
-            if let Some(fg) = foreground.and_then(|fg| u32::try_from(fg).ok())
-                && fg != *group
-            {
-                groups.push(fg);
+            groups.extend(foreground.and_then(|fg| u32::try_from(fg).ok()));
+            let doomed = Doomed {
+                session: *group,
+                groups,
+            };
+            if !doomed.alive() {
+                return None;
             }
-            for &group in &groups {
+            for group in doomed.groups() {
                 sys::signal_group(group, false);
             }
-            Some(Doomed { groups })
+            Some(doomed)
         }
         #[cfg(windows)]
         {

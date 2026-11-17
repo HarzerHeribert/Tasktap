@@ -11,7 +11,10 @@
 //! where its PATH finds the program, and as `last:<folder>|` the PATH's
 //! last folder; `sleep <ms>`; `ignore-hup`; `spawn <steps>`
 //! starts this role again with the steps given, separated by `;`, in the
-//! same process group and away from the terminal; `lock <file>` holds an
+//! same process group and away from the terminal; `spawn-group <steps>`
+//! does so in a process group of its own (on Windows as `spawn`), and
+//! `spawn-held <steps>` in the same group with the terminal as its input
+//! and output, so that it holds the terminal; `lock <file>` holds an
 //! exclusive lock on the file until the process ends; `mark <file>` adds a
 //! line to the file; `exit <code>`.
 
@@ -62,15 +65,21 @@ pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
             }
             "sleep" => std::thread::sleep(Duration::from_millis(number()?)),
             "ignore-hup" => ignore_hang_up()?,
-            "spawn" => {
+            "spawn" | "spawn-group" | "spawn-held" => {
                 let mut child = Command::new(std::env::current_exe().map_err(text)?);
                 child.arg("fixture-terminal").args(arg.split(';'));
-                child
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null());
+                if name != "spawn-held" {
+                    child
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null());
+                }
+                #[cfg(unix)]
+                if name == "spawn-group" {
+                    std::os::unix::process::CommandExt::process_group(&mut child, 0);
+                }
                 #[cfg(windows)]
-                {
+                if name != "spawn-held" {
                     // Without a console, closing the terminal's leaves it
                     // running: only its job can end it.
                     use std::os::windows::process::CommandExt;

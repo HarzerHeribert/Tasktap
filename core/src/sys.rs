@@ -150,6 +150,82 @@ mod unix {
         }
     }
 
+    /// Whether process group `group` still has a process.
+    #[allow(unsafe_code)]
+    pub fn group_alive(group: u32) -> bool {
+        // SAFETY: as in `signal_group`; signal 0 only checks.
+        unsafe extern "C" {
+            #[link_name = "kill"]
+            safe fn probe(pid: i32, sig: i32) -> i32;
+        }
+        i32::try_from(group).is_ok_and(|id| id > 1 && probe(-id, 0) == 0)
+    }
+
+    /// The process groups that have a process in session `session`, the
+    /// id of the process that leads it or led it: every process a
+    /// terminal's child started, unless it left the session itself (with
+    /// `setsid`, as a daemon does). Empty where the processes cannot be
+    /// listed.
+    #[allow(unsafe_code)]
+    pub fn session_groups(session: u32) -> Vec<u32> {
+        // SAFETY: the signatures of getsid(2) and getpgid(2) on Linux and
+        // macOS: an integer in, an integer out, no memory touched.
+        unsafe extern "C" {
+            safe fn getsid(pid: i32) -> i32;
+            safe fn getpgid(pid: i32) -> i32;
+        }
+        let Ok(sid) = i32::try_from(session) else {
+            return Vec::new();
+        };
+        let mut groups: Vec<u32> = (processes().into_iter())
+            .filter(|&pid| pid > 1 && getsid(pid) == sid)
+            .filter_map(|pid| u32::try_from(getpgid(pid)).ok())
+            .collect();
+        groups.sort_unstable();
+        groups.dedup();
+        groups
+    }
+
+    /// Every process's id.
+    #[cfg(target_os = "linux")]
+    fn processes() -> Vec<i32> {
+        let entries = fs::read_dir("/proc").into_iter().flatten().flatten();
+        entries
+            .filter_map(|e| e.file_name().to_str()?.parse().ok())
+            .collect()
+    }
+
+    /// Every process's id.
+    #[cfg(target_os = "macos")]
+    #[allow(unsafe_code)]
+    fn processes() -> Vec<i32> {
+        use std::ffi::{c_int, c_void};
+        // SAFETY: the signature of proc_listallpids in libproc, part of
+        // the system library: it writes at most `size` bytes of process
+        // ids into `buffer` and returns how many it wrote; with no buffer
+        // it returns how many there are.
+        unsafe extern "C" {
+            fn proc_listallpids(buffer: *mut c_void, size: c_int) -> c_int;
+        }
+        // SAFETY: no buffer: nothing is written.
+        let n = unsafe { proc_listallpids(std::ptr::null_mut(), 0) };
+        let Ok(n) = usize::try_from(n) else {
+            return Vec::new();
+        };
+        // Room for processes started since.
+        let mut pids = vec![0i32; n + 64];
+        let size = c_int::try_from(pids.len() * size_of::<i32>()).unwrap_or(c_int::MAX);
+        // SAFETY: `pids` holds `size` bytes and lives through the call.
+        let got = unsafe { proc_listallpids(pids.as_mut_ptr().cast(), size) };
+        pids.truncate(usize::try_from(got).unwrap_or(0).min(pids.len()));
+        pids
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    fn processes() -> Vec<i32> {
+        Vec::new()
+    }
+
     /// The size of the terminal on standard output, `(cols, rows)`, for the
     /// test role that reports it (design §13).
     #[cfg(feature = "fixtures")]

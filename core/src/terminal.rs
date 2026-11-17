@@ -319,11 +319,14 @@ async fn run(core: Weak<RefCell<Core>>, id: TerminalId, mut reports: mpsc::Recei
 }
 
 /// The terminal has ended: its clients get the rest and an `exit` mark, its
-/// history goes to disk, and its row and session learn of it.
+/// history goes to disk, and its row and session learn of it. What it
+/// started and left running ends with it, as a stop ends it: it would
+/// otherwise run on with no terminal to show it and nothing to stop it.
 fn end(core: &mut Core, id: TerminalId, exit: Option<u32>) {
-    let Some(live) = core.terminals.live.remove(&id) else {
+    let Some(mut live) = core.terminals.live.remove(&id) else {
         return;
     };
+    live.stop();
     let mut term = live.term.borrow_mut();
     term.ended(exit);
     // A history that cannot be written is lost; the terminal still ends.

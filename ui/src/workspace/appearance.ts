@@ -26,11 +26,13 @@ export const DEFAULT: TerminalTheme = {
 export const DEFAULT_FONT = '"Hack", "Symbols Nerd Font Mono", ui-monospace, Menlo, monospace';
 
 /** The look the terminals take now, from the core's preferences: a family the person names comes first, with the
- *  symbols behind it; the size; the line height, kept in hundredths of the font's own. */
+ *  symbols behind it; the size; the line height, kept in hundredths of the font's own. In rows taller than the font,
+ *  blocks and box lines come from the face stretched to that height (fonts.css), so they still fill the row. */
 export function look(): Look {
-  const font = pref('terminal_font').trim();
-  const family = font ? `${JSON.stringify(font)}, "Symbols Nerd Font Mono", ${DEFAULT_FONT}` : DEFAULT_FONT;
-  return { fontFamily: family, fontSize: pref('terminal_size'), lineHeight: pref('terminal_line_height') / 100, cursorStyle: 'bar', cursorBlink: false, padding: '12px 14px', theme: { ...DEFAULT } };
+  const font = pref('terminal_font').trim(), height = pref('terminal_line_height');
+  const blocks = height > 100 ? `"Blocks ${Math.min(130, Math.round(height / 10) * 10)}", ` : '';
+  const family = blocks + (font ? `${JSON.stringify(font)}, "Symbols Nerd Font Mono", ${DEFAULT_FONT}` : DEFAULT_FONT);
+  return { fontFamily: family, fontSize: pref('terminal_size'), lineHeight: height / 100, cursorStyle: 'bar', cursorBlink: false, padding: '12px 14px', theme: { ...DEFAULT } };
 }
 
 /** Puts a look on the terminals' surroundings: their background, text colour and padding. */

@@ -11,6 +11,7 @@
 #[cfg(feature = "fixtures")]
 pub mod fixture;
 mod process;
+mod queries;
 mod ring;
 
 use crate::calls::Cx;

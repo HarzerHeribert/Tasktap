@@ -796,8 +796,21 @@ impl Screen {
             .unwrap();
     }
 
+    /// Sends `bytes` as they are, as a terminal answers its program.
+    pub fn write(&mut self, bytes: &[u8]) {
+        self.c.write(self.s, bytes).unwrap();
+    }
+
     pub fn text(&self) -> String {
         plain(&self.bytes)
+    }
+
+    /// Reads until the bytes received hold `what`, escapes and all.
+    pub fn until_bytes(&mut self, what: &[u8]) {
+        while !self.bytes.windows(what.len()).any(|w| w == what) {
+            let gone = self.closed || !self.pump();
+            assert!(!gone, "it ended before {what:?}: {:?}", self.text());
+        }
     }
 
     /// Reads until it shows `what`.

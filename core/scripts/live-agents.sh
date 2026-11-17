@@ -9,9 +9,10 @@
 #   claude  a new run whose question is answered from the core, a follow-up
 #           whose question is answered in the terminal, a resume (3 turns)
 #   codex   a new run, a follow-up, a resume (3 turns)
+#   alone   a Codex run with no client attached to its terminal (1 turn)
 #   loop    the loop check with Claude Code as its agent (1 turn)
 #
-# Usage: core/scripts/live-agents.sh [claude] [codex] [loop]   (none: all three)
+# Usage: core/scripts/live-agents.sh [claude] [codex] [alone] [loop]   (none: all four)
 #
 # Tasktap writes nothing to ~/.claude or ~/.codex: hooks and settings go on
 # each run's command line. The project is a throwaway git repository at
@@ -27,14 +28,15 @@ run_of() {
   case "$1" in
     claude) echo "claude_runs_asks_follows_up_and_resumes claude 3" ;;
     codex) echo "codex_runs_follows_up_and_resumes codex 3" ;;
+    alone) echo "codex_runs_with_no_window codex 1" ;;
     loop) echo "the_loop_on_claude claude 1" ;;
     *) return 1 ;;
   esac
 }
 
-[ $# -eq 0 ] && set -- claude codex loop
+[ $# -eq 0 ] && set -- claude codex alone loop
 for name in "$@"; do
-  run_of "$name" >/dev/null || { echo "live-agents: no run called $name (claude, codex, loop)" >&2; exit 64; }
+  run_of "$name" >/dev/null || { echo "live-agents: no run called $name (claude, codex, alone, loop)" >&2; exit 64; }
 done
 
 echo "live-agents: the agents on this computer"

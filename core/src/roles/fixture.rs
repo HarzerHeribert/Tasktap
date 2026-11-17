@@ -18,6 +18,7 @@
 //! | `wait` | reads a line of standard input and prints `read:` and the line |
 //! | `sleep:MS` | sleeps |
 //! | `nohup` | ignores hang-up from then on |
+//! | `query` | asks its terminal what it is, where the cursor is and its two colors, as a program that waits for the answers does, and prints `answered:` and the answers, escaped (Mac and Linux) |
 //! | `exit:CODE` | exits with the code; after the last step it exits with 0 |
 //!
 //! A line of standard input that is no step, or that was pasted as a
@@ -28,7 +29,7 @@
 //! Without a hook, as when it runs unobserved, `event` and `ask` do nothing.
 
 use std::ffi::{OsStr, OsString};
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::time::Duration;
@@ -45,7 +46,13 @@ pub const REAL: &str = "TASKTAP_FIXTURE_AGENT";
 /// Set by a test: a shim takes pipes for a terminal a person types in.
 pub const TTY: &str = "TASKTAP_FIXTURE_TTY";
 
-const STEPS: [&str; 7] = ["print", "event", "ask", "wait", "sleep", "nohup", "exit"];
+const STEPS: [&str; 8] = [
+    "print", "event", "ask", "wait", "sleep", "nohup", "query", "exit",
+];
+/// What `query` asks: primary and secondary device attributes, the cursor
+/// position, and the foreground and background colors, one ended with ST
+/// and one with BEL.
+const QUERIES: &str = "\x1b[c\x1b[>c\x1b[6n\x1b]10;?\x1b\\\x1b]11;?\x07";
 const PASTED: (&str, &str) = ("\x1b[200~", "\x1b[201~");
 
 /// Whether this program runs as [`PROGRAM`].
@@ -68,14 +75,14 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
             _ => {}
         }
     }
-    let mut lines = io::stdin().lock().lines();
+    let mut input = io::stdin().lock();
     let scripted = !steps.is_empty();
     let mut steps = steps.into_iter();
     let mut asked = 0;
     loop {
         let step = match scripted {
             true => steps.next(),
-            false => lines.next().and_then(Result::ok),
+            false => line(&mut input),
         };
         let Some(step) = step else {
             return ExitCode::SUCCESS;
@@ -113,11 +120,12 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
                 }
             }
             "wait" => {
-                let line = lines.next().and_then(Result::ok).unwrap_or_default();
+                let line = line(&mut input).unwrap_or_default();
                 println!("read:{}", pasted(&line).unwrap_or(&line));
             }
             "sleep" => std::thread::sleep(Duration::from_millis(rest.parse().unwrap_or(0))),
             "nohup" => crate::sys::ignore_hangup(),
+            "query" => println!("answered:{}", query(&mut input).escape_ascii()),
             "exit" => return ExitCode::from(rest.parse::<u8>().unwrap_or(0)),
             "" if !scripted => {}
             _ => {
@@ -127,6 +135,43 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         }
         let _ = io::stdout().flush();
     }
+}
+
+/// The next line of standard input, without its line break, as `lines` reads it.
+fn line(input: &mut io::StdinLock) -> Option<String> {
+    let mut line = String::new();
+    input.read_line(&mut line).ok().filter(|&n| n > 0)?;
+    let line = line.strip_suffix('\n').unwrap_or(&line);
+    Some(line.strip_suffix('\r').unwrap_or(line).to_owned())
+}
+
+/// Asks the terminal [`QUERIES`] with its input raw, as a program that
+/// draws its own screen does, and waits for an answer to each.
+fn query(input: &mut io::StdinLock) -> Vec<u8> {
+    let modes = crate::sys::modes();
+    let raw = Command::new("stty").args(["raw", "-echo"]).status();
+    if !raw.is_ok_and(|s| s.success()) {
+        return b"no raw terminal".to_vec();
+    }
+    print!("{QUERIES}");
+    let _ = io::stdout().flush();
+    // Each answer is a CSI sequence or an OSC one, ended with BEL or ST.
+    let (mut got, mut answers, mut byte) = (Vec::new(), 0, [0]);
+    while answers < 5 && input.read(&mut byte).is_ok_and(|n| n == 1) {
+        got.push(byte[0]);
+        let csi = got.iter().rposition(|&b| b == 0x1b).is_some_and(|at| {
+            let seq = &got[at..];
+            seq.len() > 2 && seq[1] == b'[' && (0x40..=0x7e).contains(&byte[0])
+        });
+        let osc = byte[0] == 0x07 || got.ends_with(b"\x1b\\");
+        if csi || osc {
+            answers += 1;
+        }
+    }
+    if let Some(modes) = modes {
+        crate::sys::restore(&modes, false);
+    }
+    got
 }
 
 /// The text of a line pasted as a terminal pastes, without its brackets.

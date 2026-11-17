@@ -357,3 +357,44 @@ fn two_thoughts_launched_at_once_in_one_project_each_get_their_own_terminal() {
         }
     }
 }
+
+/// What the core answers a program's questions with while no client is
+/// attached (`terminal/queries.rs`), as `fixture-agent query` prints it.
+#[cfg(unix)]
+const ANSWERED: &str = r"answered:\x1b[?62;22c\x1b[>0;276;0c\x1b[1;1R\x1b]10;rgb:e4e4/e6e6/eded\x1b\\\x1b]11;rgb:1111/1313/1818\x07";
+
+/// A run that no window shows asks its terminal what it is, where its
+/// cursor is and which colors it has, and waits for the answers before it
+/// goes on, as Codex does when it starts: the core answers as a terminal
+/// does (design §9). The fixture needs `stty` for a raw terminal, which
+/// Windows has not.
+#[cfg(unix)]
+#[test]
+fn the_core_answers_what_a_run_asks_its_terminal_while_no_client_is_attached() {
+    let mut s = Scene::real("lq", "fixture");
+    brief(&mut s, "query");
+    let (_, session, terminal) = started(&mut s, "ask the terminal");
+    s.w.until("the agent has its answers and exits", |m| {
+        m.session(session).state == SessionState::Ended
+    });
+    let mut screen = Screen::open(&s.core, terminal);
+    screen.until(ANSWERED);
+}
+
+/// Once a client is attached, the questions after its `live` mark are its
+/// to answer: the core says nothing, so the program gets one answer to each
+/// question, the client's.
+#[cfg(unix)]
+#[test]
+fn a_client_attached_answers_what_a_run_asks_and_the_core_does_not() {
+    let mut s = Scene::real("la", "fixture");
+    brief(&mut s, "steps follow");
+    let (_, _, terminal) = started(&mut s, "ask the terminal later");
+    let mut screen = screen(&s, terminal);
+    screen.line("query");
+    screen.until_bytes(b"\x1b]11;?\x07");
+    let answers = b"\x1b[?1;2c\x1b[>1;10;0c\x1b[5;9R\x1b]10;rgb:0/0/0\x1b\\\x1b]11;rgb:f/f/f\x07";
+    screen.write(answers);
+    screen.until(&format!("answered:{}", answers.escape_ascii()));
+    assert!(!screen.text().contains(ANSWERED));
+}

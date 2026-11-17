@@ -6,6 +6,7 @@
 //! wrote. A stream counts its own bytes from 0, so it says once where it
 //! starts (`Opened.from`) and again after each gap (`Mark.from`).
 
+use super::queries::Queries;
 use crate::stream::{Endpoint, Handle, Next, Room};
 use std::collections::VecDeque;
 use std::fs::{self, File};
@@ -37,6 +38,9 @@ pub struct Term {
     /// Input handed to the input thread and not yet written, in order: whom
     /// to grant it back to once it is, none for what the core typed.
     owed: VecDeque<(Option<Handle>, u32)>,
+    /// What the program asks its terminal, which the core answers while no
+    /// client is attached.
+    queries: Queries,
 }
 
 impl Term {
@@ -49,6 +53,7 @@ impl Term {
             readers: Vec::new(),
             input: Some(input),
             owed: VecDeque::new(),
+            queries: Queries::new(),
         }
     }
 
@@ -64,8 +69,23 @@ impl Term {
         self.readers.push(reader);
     }
 
-    /// Appends output, dropping the oldest bytes beyond [`RING`].
+    /// Appends output, dropping the oldest bytes beyond [`RING`], and
+    /// answers what it asks the terminal while no client is attached to
+    /// answer it (`queries`).
     pub fn push(&mut self, bytes: &[u8]) {
+        self.readers.retain(Handle::is_open);
+        let found = self.queries.scan(bytes, !self.readers.is_empty());
+        let kept;
+        let bytes = match found.hidden {
+            Some(hidden) => {
+                kept = [&bytes[..hidden.start], &bytes[hidden.end..]].concat();
+                &kept[..]
+            }
+            None => bytes,
+        };
+        if !found.answers.is_empty() {
+            self.send(None, &found.answers);
+        }
         let over = (self.ring.len() + bytes.len()).saturating_sub(RING);
         self.discard(self.start + over as u64);
         let need = self.ring.len() + bytes.len();

@@ -217,8 +217,6 @@ fn read(
         }
     };
     let mut buf = vec![0; READ];
-    #[cfg(windows)]
-    let mut seen = 0;
     loop {
         let n = match reader.read(&mut buf) {
             Ok(0) => break,
@@ -228,8 +226,6 @@ fn read(
         };
         if listening {
             let chunk = buf[..n].to_vec();
-            #[cfg(windows)]
-            let chunk = unask(chunk, &mut seen);
             listening = tx.blocking_send(Report::Output(chunk)).is_ok();
         }
     }
@@ -322,11 +318,6 @@ fn write(
     inputs: plain::Receiver<Vec<u8>>,
     tx: mpsc::Sender<Report>,
 ) {
-    // conhost asks where the cursor is before it shows anything, because
-    // portable-pty asks it to inherit the cursor, and waits for the answer.
-    // The core gives it, so no client sees the question (`unask`).
-    #[cfg(windows)]
-    let _ = writer.write_all(b"\x1b[1;1R");
     let mut taking = true;
     while let Ok(bytes) = inputs.recv() {
         taking = taking
@@ -338,25 +329,6 @@ fn write(
             break;
         }
     }
-}
-
-/// Takes conhost's first cursor question, which the input thread answered,
-/// out of the output.
-#[cfg(windows)]
-fn unask(mut chunk: Vec<u8>, seen: &mut usize) -> Vec<u8> {
-    const QUESTION: &[u8] = b"\x1b[6n";
-    const WITHIN: usize = 64;
-    if *seen < WITHIN {
-        let found = chunk.windows(QUESTION.len()).position(|w| w == QUESTION);
-        match found.filter(|&at| *seen + at < WITHIN) {
-            Some(at) => {
-                chunk.drain(at..at + QUESTION.len());
-                *seen = WITHIN;
-            }
-            None => *seen += chunk.len(),
-        }
-    }
-    chunk
 }
 
 /// The environment of every child, built from a fixed list and never

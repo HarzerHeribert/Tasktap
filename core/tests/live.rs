@@ -487,6 +487,40 @@ fn codex_runs_follows_up_and_resumes() {
     s.core.stop();
 }
 
+/// A Codex run that no window shows (design §9): the core answers what
+/// Codex asks its terminal when it starts, so it starts, takes its prompt
+/// and finishes, all before any client attaches.
+#[test]
+#[ignore = "runs Codex for one turn on this computer's subscription"]
+fn codex_runs_with_no_window() {
+    let mut s = Live::new("live-codex-alone");
+    let t = s.ask(
+        "codex",
+        "Reply with the single word alone. Do not use any tools.",
+    );
+    until(
+        &s.core,
+        &mut s.w,
+        None,
+        "the thought is done, with no client attached",
+        Duration::from_secs(150),
+        |m| matches!(m.status(t), Status::Done | Status::Failed),
+    );
+    let results = s.w.model.results_of(t);
+    assert_eq!(s.w.model.status(t), Status::Done, "{results:?}");
+    let summary = results[0].summary.clone();
+    say(&format!(
+        "result: {summary:?}; statuses {:?}",
+        s.w.statuses[&t]
+    ));
+    assert!(summary.to_lowercase().contains("alone"), "{summary}");
+    let session = s.w.model.thought(t).session_id.unwrap();
+    let terminal = s.w.model.session(session).terminal_id.unwrap();
+    let tty = Tty::attach(&s.core, terminal);
+    s.end(session, &tty);
+    s.core.stop();
+}
+
 /// The loop check (design §13, `tests/loop.rs`) with Claude Code as its
 /// agent: a device captures a thought, the fixture router sends it on, the
 /// hold passes, Claude Code runs in the terminal the real launcher started,

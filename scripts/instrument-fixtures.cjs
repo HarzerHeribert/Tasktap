@@ -1,7 +1,7 @@
 // Fixture records for rendering the Instrument pages without the host (motion-pages.cjs serves them): the four
 // states of Home (busy, normal, quiet, first run), and a workspace with two splits, several tabs, real-looking terminal
 // text, a long question with three choices, a question only its terminal can answer, and a result with changes
-// waiting. Invented projects and people only. `scene(name, {now, theme})` returns the records for one page.
+// waiting. Invented projects and people only. `scene(name, {now, changes})` returns the records for one page.
 const MIN = 60000;
 let serial = 0;
 /** A UUID v7 made `ago` milliseconds before `now`. */
@@ -158,19 +158,7 @@ const diff = {
   ].join('\n'),
 };
 
-const midnight = null;
-const solarized = [
-  'background = fdf6e3', 'foreground = 586e75', 'cursor-color = 586e75', 'selection-background = eee8d5', 'font-size = 13', 'window-padding-x = 14', 'window-padding-y = 10',
-  'palette = 0=073642', 'palette = 1=dc322f', 'palette = 2=859900', 'palette = 3=b58900', 'palette = 4=268bd2', 'palette = 5=d33682', 'palette = 6=2aa198', 'palette = 7=eee8d5',
-  'palette = 8=93a1a1', 'palette = 9=cb4b16', 'palette = 10=586e75', 'palette = 11=657b83', 'palette = 12=839496', 'palette = 13=6c71c4', 'palette = 14=93a1a1', 'palette = 15=fdf6e3',
-].join('\n');
-const tokyo = [
-  'background = 1a1b26', 'foreground = c0caf5', 'cursor-color = c0caf5', 'selection-background = 33467c', 'font-size = 13', 'window-padding-x = 14', 'window-padding-y = 10',
-  'palette = 0=15161e', 'palette = 1=f7768e', 'palette = 2=9ece6a', 'palette = 3=e0af68', 'palette = 4=7aa2f7', 'palette = 5=bb9af7', 'palette = 6=7dcfff', 'palette = 7=a9b1d6',
-  'palette = 8=414868', 'palette = 9=f7768e', 'palette = 10=9ece6a', 'palette = 11=e0af68', 'palette = 12=7aa2f7', 'palette = 13=bb9af7', 'palette = 14=7dcfff', 'palette = 15=c0caf5',
-].join('\n');
-
-function scene(name, { now = Date.now(), theme = 'tokyo', changes = false } = {}) {
+function scene(name, { now = Date.now(), changes = false } = {}) {
   serial = 0;
   const P = { cuegrid: uid(now, 90 * 864e5), fieldnotes: uid(now, 80 * 864e5), ledger: uid(now, 70 * 864e5), scratch: uid(now, 99 * 864e5) };
   const first = name === 'first';
@@ -272,11 +260,10 @@ function scene(name, { now = Date.now(), theme = 'tokyo', changes = false } = {}
     }
   }
   const needs = questions.length, working = thoughts.filter((t) => t.status === 'working').length;
-  const appearance = theme === 'midnight' ? midnight : theme === 'solarized' ? solarized : tokyo;
   return {
     thoughts, projects, sessions, terminals, questions, results, layouts, prefs: [], devices: [], agents,
     glance: { rev: 44, working, needs_you: needs, done: thoughts.filter((t) => t.status === 'done' && !t.read).length, failed: thoughts.filter((t) => t.status === 'failed' && !t.read).length, question: questions[0]?.id ?? null, retiring: false },
-    screens: scr, diffs: T.pdf ? { [T.pdf.t.id]: diff } : {}, appearance, ids: { projects: P, ...Object.fromEntries(Object.entries(T).map(([k, v]) => [k, { thought: v.t?.id, session: v.sid, terminal: v.tid }])) },
+    screens: scr, diffs: T.pdf ? { [T.pdf.t.id]: diff } : {}, ids: { projects: P, ...Object.fromEntries(Object.entries(T).map(([k, v]) => [k, { thought: v.t?.id, session: v.sid, terminal: v.tid }])) },
   };
 }
 

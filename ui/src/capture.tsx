@@ -208,7 +208,7 @@ function Receipt({ hooks }: { hooks: Hooks }) {
 }
 
 /** The capture line. `stack` puts the destination under the field (the notch); `line` keeps it all on one row. */
-export function Capture({ stack = false, invite = false, hint, ...hooks }: Hooks & { stack?: boolean; invite?: boolean; hint?: ComponentChildren }) {
+export function Capture({ stack = false, invite = false, chip = false, hint, ...hooks }: Hooks & { stack?: boolean; invite?: boolean; chip?: boolean; hint?: ComponentChildren }) {
   const route = hinted();
   const to = route ? undefined : destination();
   const a = agent();
@@ -221,6 +221,8 @@ export function Capture({ stack = false, invite = false, hint, ...hooks }: Hooks
       onKeyDown={(e) => (e.key === 'ArrowDown' || e.key === 'ArrowUp') && (e.preventDefault(), choose(true))}>
       <I n={session ? 'term' : 'arrow'} />
       <span>{route ? routeLabel(route) : to === 'idea' || !to ? 'Idea' : projectName(folder(to))}</span>
+      {chip && state && to !== 'idea' && route?.confidence !== 'ambiguous' && <span class={`ag${a && a.signed_in !== false && a.installed ? '' : ' off'}`}>{state}</span>}
+      {chip && <I n="chev" />}
     </button>
   );
   const agentLine = !folders && !route ? <span class="cap-agent">Kept as an idea until a folder is open</span>
@@ -254,7 +256,7 @@ export function Capture({ stack = false, invite = false, hint, ...hooks }: Hooks
     </div>
   );
   return (
-    <form class={`capture${stack ? ' stack' : ''}${invite ? ' invite' : ''}`} onSubmit={(e) => send(e, hooks)}>
+    <form class={`capture${stack ? ' stack' : ''}${invite ? ' invite' : ''}${chip ? ' chip' : ''}`} onSubmit={(e) => send(e, hooks)}>
       {stack ? (
         <>
           <div class="cap">
@@ -263,8 +265,8 @@ export function Capture({ stack = false, invite = false, hint, ...hooks }: Hooks
           <div class="cap-dest">{where}{agentLine}{hint && <span class="cap-hint">{hint}</span>}</div>
         </>
       ) : (
-        <div class="cap">
-          <Wave n={9} />{field}{where}{agentLine}{hint && <span class="cap-hint">{hint}</span>}
+        <div class="cap" onPointerDown={(e) => e.target === e.currentTarget && (e.preventDefault(), document.getElementById('capture-input')?.focus())}>
+          <Wave n={chip ? 7 : 9} />{field}{where}{chip ? where ? null : agentLine : agentLine}{hint && <span class="cap-hint">{hint}</span>}
         </div>
       )}
       {list}

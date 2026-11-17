@@ -2,7 +2,7 @@
 // appearance: the motion's form and colour, Lumen, the ambient light, and a trial of the motion with the microphone.
 // Every choice the core keeps is a preference (`prefs`), written at once, so the notch and the workspace both follow.
 import type { ComponentChildren } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect } from 'preact/hooks';
 import type { MotionPalette, MotionStyle, PrefPatch } from '../../../core/proto/protocol.ts';
 import { routing } from '../capture.tsx';
 import { setVoice } from '../motion/engine.ts';
@@ -11,12 +11,18 @@ import { stops } from '../motion/palette.ts';
 import { motionState } from '../motion/state.ts';
 import { Voice } from '../motion/voice.ts';
 import { type Ambient, ambient, setAmbient } from './ambient.ts';
+import { own, setOwn } from './appearance.ts';
+import { loadLook } from './main.tsx';
 import { call, fail, openQuestions, records, redraw, ui } from './model.ts';
 
 const styles: [MotionStyle, string][] = [['slats', 'Slats'], ['glyphs', 'Glyphs'], ['resonator', 'Resonator']];
 const palettes: [MotionPalette, string][] = [['chrome', 'Chrome'], ['chromatic', 'Chromatic'], ['warm', 'Warm'], ['cool', 'Cool'], ['custom', 'Custom']];
 const lights: [Ambient, string][] = [['off', 'Off'], ['still', 'Still'], ['breathing', 'Breathing']];
 const holds: [number, string][] = [[0, 'At once'], [3, '3 s'], [5, '5 s'], [10, '10 s']];
+const sizes: [number, string][] = [12, 13, 14, 15, 16].map((n) => [n, String(n)]);
+const heights: [number, string][] = [[1, '1.0'], [1.1, '1.1'], [1.2, '1.2'], [1.3, '1.3']];
+const FONTS = ['Hack Nerd Font Mono', 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Menlo'];
+const setTerminal = (patch: Partial<ReturnType<typeof own>>) => (setOwn({ ...own(), ...patch }), loadLook());
 
 // One write in flight per preference; the latest value waits for it (a hue slider moves faster than the core needs).
 const pending = new Map<string, PrefPatch | null>();
@@ -87,8 +93,7 @@ const Switch = ({ on, name, set }: { on: boolean; name: string; set: (on: boolea
 export function Settings() {
   const look = lookOf(records.prefs);
   const hold = records.prefs.get('hold');
-  const [ghostty, setGhostty] = useState<boolean | null>(null);
-  useEffect(() => void call('host.appearance', {}).then((a) => setGhostty(a.ghostty), () => {}), []);
+  const t = own();
   const state = motionState({
     thoughts: records.thoughts.values(), sessions: records.sessions.values(), questions: openQuestions().length, routing: routing(), voice: ui.voice,
   });
@@ -96,14 +101,18 @@ export function Settings() {
   useEffect(() => () => void (trial && stopTrial()), []);
   return (
     <div class="settings">
-      <Row name="Terminal colours" hint="Ghostty's font, colours and padding, else Midnight.">
-        {ghostty !== null && <Switch on={ghostty} name="Follow Ghostty" set={(on) => void call('host.appearance', { ghostty: on }).then((a) => setGhostty(a.ghostty), fail)} />}
-        <span class="v">{ghostty ? 'Follow Ghostty' : 'Midnight'}</span>
-      </Row>
       <Row name="A sent thought starts" hint="Undo stays possible until then.">
         <Choice name="A sent thought starts" value={hold?.id === 'hold' ? hold.value : 5} all={holds} set={(v) => setPref({ id: 'hold', patch: v })} />
       </Row>
       <Row name="Capture shortcut"><span class="v mono">⌃⌥Space</span></Row>
+      <h3>Terminal</h3>
+      <Row name="Font" hint="Any installed monospace family. Prompt symbols come from the Nerd Fonts symbols either way.">
+        <input class="text" list="fonts" placeholder="Default (Hack)" aria-label="Font" spellcheck={false} defaultValue={t.font}
+          onChange={(e) => setTerminal({ font: e.currentTarget.value })} />
+        <datalist id="fonts">{FONTS.map((f) => <option value={f} />)}</datalist>
+      </Row>
+      <Row name="Size"><Choice name="Size" value={t.size} all={sizes} set={(size) => setTerminal({ size })} /></Row>
+      <Row name="Line height"><Choice name="Line height" value={t.lineHeight} all={heights} set={(lineHeight) => setTerminal({ lineHeight })} /></Row>
       <h3>Appearance</h3>
       {/* As Home shows it: drawn at full size, never as a small thumbnail, where the metal stops reading as metal. */}
       <Motion class="preview" look={look} state={state} pace="calm" />

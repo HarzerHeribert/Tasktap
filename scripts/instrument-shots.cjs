@@ -1,6 +1,5 @@
 // Renders the Instrument pages from ui/dist in headless Chromium on fixture records (instrument-fixtures.cjs), no host:
-// the four states of Home and its layers, the workspace with splits, its sheets, the narrow window, light and dark
-// terminal themes, and the notch. usage: node scripts/instrument-shots.cjs <outdir> [dpr...] [--only name,name]
+// the four states of Home and its layers, the workspace with splits, its sheets, the narrow window, and the notch. usage: node scripts/instrument-shots.cjs <outdir> [dpr...] [--only name,name]
 const fs = require('node:fs');
 const path = require('node:path');
 const { serve, open } = require('./motion-pages.cjs');
@@ -28,8 +27,6 @@ function shots() {
     'home-busy-narrow': { ...ws(S('busy')), viewport: { width: 720, height: 540 } },
     'home-quiet-narrow': { ...ws(S('quiet')), viewport: { width: 720, height: 540 } },
     'ws': ws(S('workspace'), show('cuegrid')),
-    'ws-solarized': ws(S('workspace', { theme: 'solarized' }), show('cuegrid')),
-    'ws-midnight': ws(S('workspace', { theme: 'midnight' }), show('cuegrid')),
     'ws-dialog': ws(S('workspace'), both(show('cuegrid'), sheet((r) => ({ kind: 'close-tab', project: r.ids.projects.cuegrid, id: r.ids.export.terminal })))),
     'ws-capture': ws(S('workspace'), both(show('cuegrid'), sheet({ kind: 'capture' }))),
     'ws-review': ws(S('workspace'), both(show('cuegrid'), sheet((r) => ({ kind: 'review', thought: r.ids.pdf.thought })))),

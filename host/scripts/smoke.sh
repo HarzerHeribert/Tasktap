@@ -108,7 +108,7 @@ echo "== Driving the app on $tmp/data"
 launch
 for _ in $(seq 1 100); do grep -q '"event":"ready"' "$log" && break; sleep 0.1; done
 grep -q '"event":"ready"' "$log" && pass "the app starts and reaches its own core" || { fail "the app starts" "$(tail -3 "$log")"; exit 1; }
-until_has workspace "text .bar" 10 "Home" && grep -q '"event":"window"' "$log" \
+until_has workspace "eval __ws.ui.view + ' ' + !!document.querySelector('.home .capture')" 10 "home true" && grep -q '"event":"window"' "$log" \
   && pass "the workspace window opens at launch, on Home, once its page has drawn" || fail "the workspace window opens"
 # A core built with its fixtures detects its agents when asked, as a normal one does at start.
 send 'call put {"c":"prefs","id":"agent","patch":"fixture"}' 'call put {"c":"prefs","id":"hold","patch":2}' 'call agents.detect {}'
@@ -326,7 +326,7 @@ ask workspace "click .fold-b .more" >/dev/null
 until_has workspace "text .bar" 3 "Earlier" && ask workspace "text .hx" | grep -q "Hello from the smoke" \
   && pass "All results leads to Earlier, which lists the run by day" || fail "Earlier"
 press workspace "#find-thought" Escape >/dev/null
-until_has workspace "text .bar" 3 "Home" && ! ask workspace "text .bar" | grep -q "Earlier" && pass "Escape goes back to Home" || fail "back from Earlier"
+until_has workspace "eval __ws.ui.view" 3 "home" && ! ask workspace "text .bar" | grep -q "Earlier" && pass "Escape goes back to Home" || fail "back from Earlier"
 js workspace "(document.querySelector('.fold-b') || document.querySelector('.folds .fold-h').click(), 1)" >/dev/null
 ask workspace "click .fold-b .hr" >/dev/null
 until_has workspace "$(screen)" 5 "fixture-agent --hook" && [ "$(js workspace "__ws.ui.view")" = "$project" ] \
@@ -433,6 +433,7 @@ quit && pass "the app quits on request" || fail "the app quits on request"
 echo "== Relaunched"
 launch
 until_has workspace "eval __ws.ui.ready" 10 "True" || fail "the relaunched page reaches the core"
+js workspace "(__ws.menu.dry = true)" >/dev/null
 js workspace "(__ws.show('$project'), 1)" >/dev/null
 [ "$(ask workspace "eval JSON.stringify(__ws.layout('$project'))")" = "$layout" ] \
   && pass "after quit and relaunch the workspace's layout is restored as it was" || fail "the layout is restored"

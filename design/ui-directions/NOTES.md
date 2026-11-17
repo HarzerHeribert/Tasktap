@@ -48,7 +48,7 @@ Grafts from the directions not chosen:
 
 1. **What needs you.** Questions, question first. The first one is open: its folder, agent and thought on one quiet line, the question in full at 17 px, its answers as key caps. Any further question is a single line (wave, folder, agent, thought, the question cut to fit) and opens when chosen; opening one closes the other. The section has the page's only lit rule, so it is the first thing the eye lands on. When nothing needs you the section is absent, not empty.
 2. **What is running.** One line each: the moving wave, the folder, the thought, the one fact that matters (the step it is on), the elapsed time. Sessions in the background are dimmed and sort last. No buttons: the row itself opens the terminal. At most four rows; more than that collapse into a last line, "3 more running", which opens in place (specified here, not drawn in the mock-up, which never has more than four).
-3. **The capture line.** Always the first line of the page, so it is always in the same place. When something needs you it is quiet (17 px, grey). When nothing does it is the invitation: 20 px Expanded, a larger wave, the hint to hold ⌥Space.
+3. **The capture line.** Always the first line of the page, so it is always in the same place. As built (2026-11-17, after the owner found the drawn version read as a disabled heading over a table rule): the page's one raised field, `--field` on the light, its placeholder at 17 px, its destination and agent one chip inside it that opens the list, a caret in `--accent`, no rule under it and no hint beside it. Focused, its lower edge takes the `--accent` line. Two other variants were built for comparison: a line on the page, and a field in the title bar.
 
 Everything else is second layer and appears on the first only as one quiet line, or not at all:
 
@@ -64,10 +64,11 @@ Everything else is second layer and appears on the first only as one quiet line,
 
 **Never a flood.** On the busiest day shown (two questions, four running, five results, two ideas) the first layer is the capture line, one open question, one more as a line, four running lines and the entry to the rest. Nothing on it has a button except the question that is open.
 
-**The backdrop.** Home is built so the chrome motion can sit behind it: the content is a column 824 px wide at the left; the right side and everything below the last row are free. The mock-up's backdrop is a stand-in (the icon's wave, large, with a slow sweep of light); the real one comes from the motion lab. Rules for whoever builds it:
-- It is strongest where there is no text. Under the text column it passes through a 95 % black scrim, which holds it below `#121212`; the dimmest text (`--fg3`) then keeps 4.5 : 1.
-- Its presence falls as the load rises: full when quiet or on first run, 75 % with something running, 40 % when something needs you, 30 % on Earlier.
-- It stops under Reduce Motion and is absent in the narrow window.
+**The light** (as built, replacing the backdrop after the owner rejected a chrome object in leftover space). Home's content is one column, centred, at most 1040 px of rows (`--home-w`) with 36 px gutters, so the rows use the window's width without over-long lines; where Home is 1480 px wide or more and both sides have something, it becomes two columns: what needs you, changes waiting and what is running at the left, Results and Ideas (open) at the right. Behind it, one integrated layer of light (`ui/src/workspace/light.tsx`):
+- Three large, soft pools of the person's motion palette, deep enough that the dimmest text (`--fg3`) keeps 4.5 : 1 over their brightest point (measured by `scripts/light-sheet.cjs`), dithered against banding, strongest by the capture line; and one low band of chrome across the window, the motion's form far larger than the band, drawn at half size, softened once and kept out from under every word, as if a large chrome form were out of focus behind the page.
+- The same state function as the motion and the notch's glow. Needs you tints it toward `--asks` and makes it a little stronger; failed adds a dim red; done lifts it briefly; idle is quietest. The chrome dims as the page fills: full when quiet, 75 % with something running, 45 % when something needs you, 30 % on Earlier.
+- One slow tempo for everything ambient (the chrome, the sidebar's glyphs, the breathing): at a glance it is still. It breathes, by opacity and transform only, while something happens and for a moment after a change; it is still when idle, when the window is not in use, under Reduce Motion, and with Ambient light set to Still. Off removes it.
+- The sidebar's foot carries the same light with three chrome glyphs, each about two thirds of the one before, the smaller dimmer; it takes only the room the rows leave.
 
 **The four states** (`Z`):
 
@@ -143,7 +144,7 @@ Ready to become the app's one design-token file. Nothing else in the app should 
   /* measure: a 4 px grid */
   --sp1:4px; --sp2:8px; --sp3:12px; --sp4:16px; --sp5:24px; --sp6:32px;
   --side-w:224px; --bar-h:38px; --tab-h:30px; --row-h:28px; --rail-h:26px;
-  --home-w:824px; --home-row:36px; --home-gutter:36px;
+  --home-w:1040px; --home-wide:1520px; --home-row:36px; --home-gutter:36px;
   --notch-w:420px; --sheet-w:420px; --list-sheet-w:640px;
   /* radii */
   --r1:3px;   /* controls, key caps */
@@ -193,7 +194,7 @@ A grid: sidebar (224 px) and main, over a full-width rail (26 px). The window is
 
 **Title bar.** 38 px, hairline below. In a workspace: its name (Expanded), its path (mono, dim), then at the right Split right (⌘D), Split down (⇧⌘D), and New task (⌘N). On Home: "Home" and nothing else (in the Sheets layering, Results and Ideas with counts; on Earlier, a way back and the name).
 
-**Deck.** Nested splits of panes. A pane is a 30 px tab bar on `--bg` and, below it, the terminal in the person's theme, padded 10 × 14. Tabs: mark, title, cross on hover at the left; ＋ at the end. There is no per-pane toolbar, no status strip, no outline round a pane. Copy, paste and text size are menu commands with their standard shortcuts. Panes are separated by a 1 px seam; a pane below another needs none, its tab bar is the separation. The unfocused panes' terminals draw at 84 %.
+**Deck.** Nested splits of panes. A pane is a 30 px tab bar on `--bg` and, below it, the terminal, padded 12 × 14. As built: one terminal look, Default, on Instrument's black, in Hack 14 with the Nerd Fonts symbols (both shipped with the app); its palette is the owner's own terminal's. Settings › Terminal sets another family, the size and the line height. Following Ghostty was removed. Tabs: mark, title, cross on hover at the left; ＋ at the end. There is no per-pane toolbar, no status strip, no outline round a pane. Copy, paste and text size are menu commands with their standard shortcuts. Panes are separated by a 1 px seam; a pane below another needs none, its tab bar is the separation. The unfocused panes' terminals draw at 84 %.
 
 **A question in its pane.** A strip under the terminal (the terminal shrinks; nothing floats): "Codex asks" and the time, the question in full, then the answers in a row and the reply field. One key per answer (1 to 9), `T` for a free reply. A result is the same strip: "Result", time, diffstat, the summary, then Keep (↩), Discard, Review changes. The tab and the sidebar row carry the mark; nothing else announces it.
 
@@ -203,7 +204,7 @@ A grid: sidebar (224 px) and main, over a full-width rail (26 px). The window is
 
 ### Home
 
-Structure, top to bottom, in a column 824 px wide with 36 px gutters, over the backdrop:
+Structure, top to bottom, in one centred column of at most 1040 px (two columns from 1480 px, see section 2), over the light:
 
 1. Capture line.
 2. Needs you (only if any): head with the copper wave and the count on a `--lit` rule; the first question open; the rest collapsed.

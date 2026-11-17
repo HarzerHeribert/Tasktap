@@ -126,4 +126,3 @@ export function Home() {
   );
 }
 
-export { redraw };

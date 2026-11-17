@@ -147,20 +147,43 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .rail button.off::before{background:none;box-shadow:inset 0 0 0 1px var(--asks)}
 .narrow .rail-r button:not(.plain):not(.off){display:none}
 
-/* ——— Home: a column at the left, the second layer in place ——— */
+/* ——— Home: one column, centred, as wide as its rows read well; two where the window is wide (home.tsx) ——— */
 .room{position:relative;min-height:0;display:grid;background:var(--bg);overflow:hidden}
 .home{position:relative;z-index:1;min-height:0;overflow:auto;container-type:inline-size}
-.hx{position:relative;z-index:1;max-width:var(--home-w);padding:14px 0 44px}
-.hx>:is(.capture,.find),.hx :is(.hsec h3,.hq,.hr,.fold-h,.more,.step,.none),.hsec .list .line{margin-inline:var(--home-gutter)}
-.home .cap{height:52px}
-.home .capture.invite .cap{height:84px;padding-top:var(--sp2)}
-.home .capture.invite .cap input{font:var(--f-display)}
-.home .capture.invite .cap input::placeholder{color:var(--fg2)}
-.home .capture.invite .cap .wave{--wh:26px;--ww:3px;--wg:2.5px}
-.home .cap-agent{margin-left:-4px}
-.home .cap-hint{margin-left:var(--sp2)}
-.home .cap-list{margin-top:6px}
-.home .cap-said{margin-top:6px}
+.hx{position:relative;z-index:1;max-width:calc(var(--home-w) + 2 * var(--home-gutter));margin:0 auto;padding:22px var(--home-gutter) 44px}
+.hx.two{max-width:calc(var(--home-wide) + 2 * var(--home-gutter))}
+.hx.two .cols{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:0 var(--sp6);align-items:start}
+.hx.two .folds{margin-top:26px}
+.col{min-width:0;container-type:inline-size}
+.hx :is(button.hq,.fold-h){width:100%}
+/* The capture line: the page's one inviting control. A raised field, its destination a chip inside it, lit from behind
+   by the light; no rule under it. Variants for comparison: `line`, on the page; `bar`, in the title bar. */
+.home .capture .cap{gap:var(--sp3);height:56px;padding:0 var(--sp2) 0 var(--sp4);border:0;border-radius:var(--r2);background:var(--field);
+  box-shadow:inset 0 0 0 1px var(--line),inset 0 1px 0 rgb(255 255 255/.04);cursor:text}
+.home .capture.invite .cap{height:64px}
+.home .capture .cap:focus-within{background:var(--field-on);box-shadow:inset 0 0 0 1px var(--line2),inset 0 -1px 0 var(--accent);border-image:none}
+.home .capture .cap input{font:var(--f-question);caret-color:var(--accent)}
+.home .capture .cap input::placeholder{color:var(--fg2)}
+.home .capture .wave{--wh:18px;--ww:2px;--wg:2px}
+.capture.chip .cap-to{gap:6px;height:30px;padding:0 var(--sp2) 0 10px;border-radius:var(--r1);background:var(--fill);color:var(--fg)}
+.capture.chip .cap-to:hover{background:var(--fill-hover)}
+.capture.chip .cap-to:hover span{text-decoration:none}
+.capture.chip .cap-to .ag{color:var(--fg3)}
+.capture.chip .cap-to .ag.off{color:var(--asks)}
+.capture.chip .cap-to .i:last-child{width:12px;height:12px;transform:rotate(90deg)}
+.home .cap-list{margin-top:6px;border:0}
+.home .cap-said{margin-top:6px;padding:0 var(--sp4)}
+.home[data-head=line] .capture .cap{height:60px;padding:0;border-radius:0;background:none;box-shadow:inset 0 -1px 0 var(--line)}
+.home[data-head=line] .capture .cap:focus-within{background:none;box-shadow:none;border-image:var(--lit) 1;border-bottom:1px solid}
+.home[data-head=line] .capture .cap input{font:400 20px/26px var(--ui);letter-spacing:-.01em}
+.bar>.capture{flex:0 1 560px;margin:0 auto}
+.bar>.capture .cap{height:28px;padding:0 4px 0 10px;gap:var(--sp2);border:0;border-radius:var(--r2);background:var(--field);box-shadow:inset 0 0 0 1px var(--line);cursor:text}
+.bar>.capture .cap:focus-within{background:var(--field-on);box-shadow:inset 0 0 0 1px var(--line2),inset 0 -1px 0 var(--accent);border-image:none}
+.bar>.capture .cap input{font:var(--f-body)}
+.bar>.capture .wave{--wh:12px;--ww:1.5px;--wg:1.5px}
+.bar>.capture.chip .cap-to{height:22px}
+.bar>.capture :is(.cap-list,.cap-said){position:absolute;z-index:25;margin-top:4px;padding:var(--sp1);background:var(--sheet);border-radius:var(--r2);box-shadow:var(--sheet-shadow)}
+.home[data-head=bar] .hx{padding-top:6px}
 .hsec{margin-top:26px}
 .hsec h3{display:flex;align-items:center;gap:var(--sp2);padding-bottom:var(--sp2);border-bottom:1px solid var(--line);font:var(--f-head);color:var(--fg2)}
 .hsec h3 i{font:var(--f-num);color:var(--fg3)}
@@ -234,8 +257,8 @@ button.hq:hover{background:var(--hover)}
 .find:focus-within{border-image:var(--lit) 1}
 .none{margin-top:26px;font:var(--f-small);color:var(--fg2)}
 /* A narrow column: the rows keep their mark, thought and time. */
+@media(max-width:799px){.hx{padding-inline:18px}}
 @container (max-width:640px){
-  .hx>:is(.capture,.find),.hx :is(.hsec h3,.hq,.hr,.fold-h,.more,.step,.none),.hsec .list .line{margin-inline:18px}
   button.hq,.fold-h{width:calc(100% - 36px)}
   .hr:not(.idea){grid-template-columns:28px minmax(0,1fr) 48px}
   .hr :is(.hr-w,.hr-x,.hr-d){display:none}
@@ -246,7 +269,7 @@ button.hq:hover{background:var(--hover)}
   .fold-h{grid-template-columns:28px 80px minmax(0,1fr) 48px}
   .fold-p{display:none}
   .more{padding-left:28px}
-  .home .cap-hint,.home .cap-agent{display:none}
+  .capture .cap-hint,.capture .cap-agent,.capture.chip .cap-to .ag{display:none}
   .step .hr-x{display:none}
 }
 
@@ -317,6 +340,9 @@ button.line:hover{background:var(--hover)}
 .switch[aria-checked=true]{background:var(--metal)}
 .switch[aria-checked=true] span{transform:translateX(12px);background:var(--ink)}
 .hue{width:100%;accent-color:hsl(var(--hue) 90% 62%)}
+.set .text{width:240px;height:var(--ctl-h);padding:0 var(--sp2);border-radius:var(--r1);background:var(--fill);font:var(--f-small);color:var(--fg)}
+.set .text:focus{box-shadow:inset 0 -1px 0 var(--accent)}
+.settings h3{margin:18px 18px 6px}
 .settings .preview{display:block;height:200px;margin:4px 18px 6px}
 /* a review: the files, then the diff, each line marked by its sign as well as its shade */
 .sheet.review{width:min(940px,calc(100% - var(--side-w) - 32px));display:flex;flex-direction:column;overflow:hidden;max-height:calc(100% - var(--bar-h) - 24px)}
@@ -354,10 +380,10 @@ button.line:hover{background:var(--hover)}
 .pool.b{right:-26%;bottom:-42%;width:82%;height:118%;background:var(--noise,none),var(--c2)}
 .pool.c{left:-30%;bottom:-56%;width:64%;height:86%;background:var(--noise,none),var(--c3)}
 [data-lift] .pool{opacity:1}
-[data-breathe=true] .pool.a{animation:breathe 9s ease-in-out infinite alternate}
-[data-breathe=true] .pool.b{animation:breathe 11s ease-in-out -4s infinite alternate}
-[data-breathe=true] .pool.c{animation:breathe 13s ease-in-out -7s infinite alternate}
-@keyframes breathe{from{opacity:.62;transform:scale(.96)}to{opacity:1;transform:scale(1.04)}}
+[data-breathe=true] .pool.a{animation:breathe var(--breath,24s) ease-in-out infinite alternate}
+[data-breathe=true] .pool.b{animation:breathe calc(var(--breath,24s) * 1.23) ease-in-out calc(var(--breath,24s) * -.4) infinite alternate}
+[data-breathe=true] .pool.c{animation:breathe calc(var(--breath,24s) * 1.47) ease-in-out calc(var(--breath,24s) * -.7) infinite alternate}
+@keyframes breathe{from{opacity:.7;transform:scale(.975)}to{opacity:1;transform:scale(1.025)}}
 .band{position:absolute;left:0;right:0;bottom:0;height:min(52%,420px);opacity:var(--chrome);
   -webkit-mask-image:linear-gradient(90deg,transparent 8%,#000 42%,#000 86%,transparent),linear-gradient(0deg,transparent 4%,#000 34%,#000 52%,transparent);-webkit-mask-composite:source-in;
   mask-image:linear-gradient(90deg,transparent 8%,#000 42%,#000 86%,transparent),linear-gradient(0deg,transparent 4%,#000 34%,#000 52%,transparent);mask-composite:intersect}
@@ -367,7 +393,7 @@ button.line:hover{background:var(--hover)}
 .light[data-load=asks] .band{opacity:calc(var(--chrome) * .45)}
 .light[data-load=paged] .band{opacity:calc(var(--chrome) * .3)}
 .spark{position:relative;flex:1 1 0;min-height:0;overflow:hidden;pointer-events:none}
-.spark .motion{opacity:var(--spark,1);transition:opacity 1.2s ease}
+.spark .glyph{position:absolute;opacity:calc(var(--spark,1) * var(--depth,1));transition:opacity 1.2s ease}
+.spark .glyph .motion{width:100%;height:100%}
 .spark .pool.s{left:-40%;bottom:-70%;width:180%;height:130%;background:var(--noise,none),var(--c2)}
-.spark .motion{position:absolute;left:0;right:0;bottom:4px;height:min(120px,100%)}
-.spark[data-breathe=true] .pool.s{animation:breathe 10s ease-in-out infinite alternate}
+.spark[data-breathe=true] .pool.s{animation:breathe var(--breath,24s) ease-in-out infinite alternate}

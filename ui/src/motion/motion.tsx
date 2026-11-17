@@ -34,4 +34,6 @@ export const debug = {
   strength: null as 'faint' | 'default' | 'strong' | null,
   /** The light breathing, or not, whatever the window and the state (measure.sh). */
   breathe: null as boolean | null,
+  /** The ambient tempo, for comparing (`slow`, `slower`, `slowest`); `slower` by default. */
+  tempo: null as 'slow' | 'slower' | 'slowest' | null,
 };

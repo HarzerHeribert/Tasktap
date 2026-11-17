@@ -203,21 +203,30 @@ export function Home() {
   const idle = !asks && !h.running.length;
   const shownQ = h.questions.find((q) => q.id === openQ) ?? h.questions[0];
   const fold = ui.fold;
+  const wide = useWide();
   useMinutes(h.running.length > 0);
+  // Two columns where the window is wide and both have something: what is now at the left, Results and Ideas at the
+  // right, open, since there is room. Otherwise one column, Results and Ideas as lines under what is now.
+  const now = asks || h.waiting.length > 0 || h.running.length > 0 || first;
+  const later = (h.results.length > 0 || h.ideas.length > 0) && !first;
+  const two = wide && now && later;
   // Quiet: Results opens itself to its last two, so the proof of work and the way to the rest are one object.
-  const resultsOpen = fold === 'results' || (idle && fold === '');
-  const results = h.results.slice(0, fold === 'results' ? 5 : 2);
+  const resultsOpen = fold === 'results' || ((idle || two) && fold !== 'shut' && fold !== 'ideas') || (two && fold === 'ideas');
+  const ideasOpen = fold === 'ideas' || (two && fold !== 'shut-ideas');
+  const results = h.results.slice(0, fold === 'results' || two ? 5 : 2);
   const toggle = (name: 'results' | 'ideas') => () => {
-    ui.fold = name === 'results' ? (resultsOpen ? 'shut' : 'results') : fold === 'ideas' ? '' : 'ideas';
+    ui.fold = name === 'results' ? (resultsOpen ? 'shut' : 'results') : ideasOpen ? (two ? 'shut-ideas' : '') : 'ideas';
     redraw();
   };
   const more = h.running.length > 4 && !ui.more;
   return (
     <div class="room">
     <Light load={asks ? 'asks' : h.running.length ? 'busy' : 'quiet'} />
-    <div class={`home${asks ? ' asks' : h.running.length ? ' busy' : ' quiet'}`} id="main" tabIndex={-1}>
-      <div class="hx" onKeyDown={nav}>
-        <Capture invite={!asks} hint={!asks && <>or <kbd>⌃⌥Space</kbd> from any app</>} />
+    <div class={`home${asks ? ' asks' : h.running.length ? ' busy' : ' quiet'}`} id="main" tabIndex={-1} data-head={ui.head}>
+      <div class={`hx${two ? ' two' : ''}`} onKeyDown={nav}>
+        {ui.head !== 'bar' && <Header invite={!asks} />}
+        <div class="cols">
+        <div class="col">
         {asks && (
           <section class="hsec needs">
             <h3><Mark s="asks" label="" /><span>Needs you</span><i>{h.questions.length}</i></h3>
@@ -247,7 +256,9 @@ export function Home() {
             <Agents />
           </section>
         )}
-        {(h.results.length > 0 || h.ideas.length > 0) && !first && (
+        </div>
+        <div class="col">
+        {later && (
           <section class="folds">
             {h.results.length > 0 && (
               <Fold name="Results" open={resultsOpen} rows={h.results} toggle={toggle('results')}>
@@ -256,7 +267,7 @@ export function Home() {
               </Fold>
             )}
             {h.ideas.length > 0 && (
-              <Fold name="Ideas" open={fold === 'ideas'} rows={h.ideas} toggle={toggle('ideas')}>
+              <Fold name="Ideas" open={ideasOpen} rows={h.ideas} toggle={toggle('ideas')}>
                 {h.ideas.slice(0, 5).map((t) => <IdeaRow key={t.id} t={t} />)}
               </Fold>
             )}
@@ -268,10 +279,31 @@ export function Home() {
             {h.ideas.map((t) => <IdeaRow key={t.id} t={t} />)}
           </section>
         )}
+        </div>
+        </div>
       </div>
     </div>
     </div>
   );
+}
+
+/** Whether Home is wide enough for two columns of rows that keep all their parts. */
+const WIDE = 1480;
+function useWide() {
+  const [wide, setWide] = useState(false);
+  useLayoutEffect(() => {
+    const el = document.querySelector<HTMLElement>('.room');
+    if (!el) return undefined;
+    const watch = new ResizeObserver(([e]) => setWide((e?.contentRect.width ?? 0) >= WIDE));
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, []);
+  return wide;
+}
+
+/** The capture line as the page's one inviting control: a field with its destination inside it, lit from behind. */
+export function Header({ invite, bar = false }: { invite: boolean; bar?: boolean }) {
+  return <Capture invite={invite && !bar} chip />;
 }
 
 // ——— Earlier: every result by day, with ideas and a find field ———
@@ -353,4 +385,3 @@ export const homeCounts = () => {
   const h = home();
   return { needs: h.questions.length, working: h.running.length, fresh: h.results.filter((t) => !t.read).length + h.waiting.length, waiting: h.waiting.length };
 };
-export { plural };

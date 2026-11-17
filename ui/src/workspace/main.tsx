@@ -4,6 +4,7 @@ import '../tokens.css';
 import '../parts.css';
 import '@xterm/xterm/css/xterm.css';
 import '../motion/motion.css';
+import './fonts.css';
 import './window.css';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -13,9 +14,9 @@ import { cap } from '../capture.tsx';
 import { trail } from '../trail.ts';
 import { ambient } from './ambient.ts';
 import { I, Mark, Wave, plural } from '../ui.tsx';
-import { type Look, apply, ghostty, neutral } from './appearance.ts';
+import { apply, fontsReady, look } from './appearance.ts';
 import { Deck, startAgent } from './deck.tsx';
-import { Earlier, Home, homeCounts } from './home.tsx';
+import { Earlier, Header, Home, homeCounts } from './home.tsx';
 import { stats } from '../motion/engine.ts';
 import { debug } from '../motion/motion.tsx';
 import * as L from './layout.ts';
@@ -127,12 +128,11 @@ document.addEventListener('keydown', (e) => {
   command(name);
 }, true);
 
-let look: Look = neutral();
-async function loadLook() {
-  const a = await call('host.appearance', {}).catch(() => null);
-  look = a?.ghostty && a.config ? ghostty(a.config) : neutral();
-  apply(look);
-  setLook(look, textSize);
+/** The terminals take the person's look at once, and again whenever they change it (Settings). */
+export function loadLook() {
+  const l = look();
+  apply(l);
+  setLook(l, textSize);
   redraw();
 }
 
@@ -153,7 +153,7 @@ function Bar({ project }: { project: string | null }) {
           <button type="button" class="back" title="Back to Home  ⌘[" onClick={() => show('home')}><I n="chev" /><span>Home</span></button>
           <b class="sub">Earlier</b>
         </span>
-      ) : <span class="crumb" data-tauri-drag-region><b>Home</b></span>}
+      ) : ui.head === 'bar' ? <Header invite={false} bar /> : null}
       {project && (
         <span class="bar-r">
           <button type="button" class="ib" title="Split right  ⌘D" aria-label="Split right" onClick={() => command('split-right')}><I n="splitr" /></button>
@@ -221,7 +221,6 @@ records.onchange = () => {
 void listen<{ do: string; at?: string; id?: string }>('ui', ({ payload }) => {
   if (payload.do === 'focus' && payload.at) focusSession(payload.at);
   else if (payload.do === 'menu' && payload.id) command(payload.id);
-  else if (payload.do === 'appearance') void loadLook();
 });
 const narrow = () => {
   const n = innerWidth < NARROW;
@@ -229,13 +228,16 @@ const narrow = () => {
 };
 addEventListener('resize', narrow);
 narrow();
+// The terminal's faces are loaded before the first terminal measures its cells.
+await fontsReady();
 render(<App />, document.body);
 // Whether the window is the one in use, from the host's own account of it.
 const win = getCurrentWindow();
 void win.isFocused().then((f) => ((ui.active = f), redraw()), () => {});
 void win.onFocusChanged(({ payload }) => ((ui.active = payload), document.documentElement.classList.toggle('inactive', !payload), redraw()));
 // The window shows once the page has laid out its first frame (a hidden window draws nothing).
-void loadLook().then(() => setTimeout(() => void call('host.ready', {}).catch(() => {})));
+loadLook();
+setTimeout(() => void call('host.ready', {}).catch(() => {}));
 void client
   .sub(['thoughts', 'projects', 'sessions', 'terminals', 'questions', 'results', 'layouts', 'prefs', 'agents'], records)
   .then(() => {

@@ -48,7 +48,10 @@ export const ui = {
   /** The appearance part of Settings has its microphone trial on: the motion listens. */
   voice: false,
   /** Home's open fold, and how far Running is opened. */
-  fold: '' as '' | 'results' | 'ideas' | 'shut',
+  fold: '' as '' | 'results' | 'ideas' | 'shut' | 'shut-ideas',
+  /** How Home's capture line is drawn, of the three variants for the owner to choose from: a raised field (the
+   *  default), a line on the page, or a field in the title bar. */
+  head: 'field' as 'field' | 'line' | 'bar',
   more: false,
   /** The window is narrower than the sidebar and a workspace need; the sidebar then comes over the content (`peek`). */
   narrow: false,
@@ -371,4 +374,3 @@ export function readSoon(t: Thought | undefined) {
     window.setTimeout(() => records.thoughts.get(t.id)?.read === false && void call('thought.read', { id: t.id }).catch(() => {}), 1200);
 }
 
-export { page };

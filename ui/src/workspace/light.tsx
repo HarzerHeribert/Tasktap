@@ -32,6 +32,10 @@ const LIVE = new Set<MotionState>(['listening', 'thinking', 'working', 'needs'])
 /** How long the light keeps breathing after a change of state, as a moment of its own. */
 const AFTER = 6000;
 const STRENGTH = { faint: 0.6, default: 1, strong: 1.6 };
+/** The ambient light's one tempo, for the chrome, the glyphs and the breathing alike: the share of the lab's pace its
+ *  forms move at, and the seconds a breath takes. At a glance it is still; only a longer look shows it moving. */
+export const TEMPO = { slow: { pace: 0.3, breath: 14 }, slower: { pace: 0.15, breath: 24 }, slowest: { pace: 0.07, breath: 38 } };
+export const tempo = () => TEMPO[debug.tempo ?? 'slower'];
 
 let last: { state: MotionState; at: number } = { state: 'idle', at: 0 };
 let settle = 0;
@@ -61,7 +65,7 @@ export function useLight() {
     state, look, mode, breathe, lift: state === 'done' && now - last.at < 2500,
     vars: {
       '--c1': deep(c1, 0.0068 * level), '--c2': deep(c2, 0.011 * level, 0.7), '--c3': deep(c3, (state === 'failed' ? 0.008 : 0.005) * level),
-      '--chrome': String(Math.min(1, 0.5 * k)), '--spark': String(LIVE.has(state) ? 1 : 0.6),
+      '--chrome': String(Math.min(1, 0.5 * k)), '--spark': String(LIVE.has(state) ? 1 : 0.6), '--breath': `${tempo().breath}s`,
     },
   };
 }
@@ -96,21 +100,34 @@ export function Light({ load }: { load: 'quiet' | 'busy' | 'asks' | 'paged' }) {
     <div class="light" data-state={l.state} data-breathe={String(l.breathe)} data-lift={l.lift || undefined} data-load={load} style={l.vars} aria-hidden="true">
       <i class="pool a" /><i class="pool b" /><i class="pool c" />
       <span class="band">
-        <Motion look={l.look} state={l.state} pace={debug.pace ?? 'calm'} clear=".hx" pad={10} feather={30} soften={7} />
+        <Motion look={l.look} state={l.state} pace={debug.pace ?? 'calm'} tempo={tempo().pace} clear=".hx" pad={10} feather={30} soften={7} />
       </span>
     </div>
   );
 }
+
+/** The glyphs at the sidebar's foot: one each, a size two thirds of the one before, the smaller dimmer and further
+ *  back, placed as a group. A glyph smaller than the last of these does not read as metal at 1x and is not drawn. */
+const GLYPHS = [
+  { size: 88, x: 0.6, y: 14, seed: 1 },
+  { size: 60, x: 0.27, y: 66, seed: 2 },
+  { size: 42, x: 0.82, y: 104, seed: 3 },
+] as const;
 
 /** The sidebar's foot: the same light rising from the bottom, and a few chrome glyphs that turn while agents work.
  *  It takes only the room the rows leave; rows always win. */
 export function Spark() {
   const l = useLight();
   if (l.mode === 'off') return <div class="spark" />;
+  const pace = debug.pace ?? (l.mode === 'breathing' && (ui.active || debug.breathe) ? 'breathe' : 'calm');
   return (
     <div class="spark" data-state={l.state} data-breathe={String(l.breathe)} style={l.vars} aria-hidden="true">
       <i class="pool s" />
-      <Motion look={{ ...l.look, style: 'glyphs' }} state={l.state} pace={debug.pace ?? (l.mode === 'breathing' && (ui.active || debug.breathe) ? 'breathe' : 'calm')} min={[150, 80]} count={3} />
+      {GLYPHS.map((g, i) => (
+        <span class="glyph" style={{ width: `${g.size}px`, height: `${g.size}px`, left: `calc(${g.x * 100}% - ${g.size / 2}px)`, bottom: `${g.y}px`, '--depth': String(1 - i * 0.28) }}>
+          <Motion look={{ ...l.look, style: 'glyphs' }} state={l.state} pace={pace} tempo={tempo().pace} min={[24, 24]} count={1} seed={g.seed} />
+        </span>
+      ))}
     </div>
   );
 }

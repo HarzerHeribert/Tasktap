@@ -39,6 +39,10 @@ export type Options = {
   /** Light behind the page rather than an object: a copied frame is softened by this many CSS pixels of blur, once, as
    *  it is copied, so the compositor never blurs it again. */
   soften?: number;
+  /** The view's own motion at this share of the lab's pace (the ambient light's one tempo); 1 by default. */
+  tempo?: number;
+  /** Where its own clock starts, so views of one style side by side are not in step. */
+  seed?: number;
 };
 
 // The lab's: the signal light of each state (amber, pale green, dull red), the studio's level, draws a second.
@@ -194,7 +198,11 @@ export class View {
   set(o: Options) {
     const was = this.o;
     this.o = o;
-    if (this.fresh) (this.fresh = false), this.settle();
+    if (this.fresh) {
+      this.fresh = false;
+      this.settle();
+      if (o.seed) (this.aux = o.seed * 7.3), (this.ph[0] = o.seed * 11.1);
+    }
     else if (o.state !== was.state) this.stT = 0;
     if (JSON.stringify(o) !== JSON.stringify(was)) {
       this.dirty = this.stale = true;
@@ -282,6 +290,7 @@ export class View {
 
   /** The lab's uniforms for this view, its phases moved on by `adv` seconds. */
   uniforms(adv: number, n: number): Uniforms {
+    adv *= this.o.tempo ?? 1;
     const C = STYLES[this.o.look.style], P = lights(this.o.look.palette, this.o.look.hue), p = this.p, w = this.stW, r = reduced.matches;
     const V = voice ?? SILENT;
     let lp = 0, amb = 0;

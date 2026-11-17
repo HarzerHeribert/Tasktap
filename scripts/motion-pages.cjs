@@ -97,8 +97,11 @@ function fakeRuntime({ label, records: records0, welcome }) {
       at += 4 + len;
     }
   };
-  const hostValue = (name) => name === 'host.appearance' ? { ghostty: !!records.appearance, config: records.appearance || null } : null;
+  const hostValue = () => null;
+  // The host's part of the notch: the geometry it last described, widened by the wings the page asks for.
+  let geo = null, tab = 0;
   const emit = (payload, event = 'ui') => {
+    if (payload.do === 'geometry') (geo = { ...payload }), (tab = payload.width);
     for (const l of listeners.get(event) || []) callbacks.get(l.handler)?.({ event, id: l.id, payload });
   };
   window.__fake = { emit, push, records };
@@ -116,7 +119,9 @@ function fakeRuntime({ label, records: records0, welcome }) {
       }
       if (cmd === 'bridge_send') { frames(args instanceof Uint8Array ? args : new Uint8Array(args)); return null; }
       if (cmd === 'bridge_host') {
-        const { id, name } = JSON.parse(args.frame);
+        const { id, name, args: a } = JSON.parse(args.frame);
+        if (name === 'host.notch' && geo && typeof a.wing === 'number' && geo.width !== tab + 2 * a.wing)
+          setTimeout(() => emit({ ...geo, width: tab + 2 * a.wing }) || (tab = geo.width - 2 * a.wing), 0);
         return JSON.stringify({ t: 'reply', id, ok: hostValue(name) });
       }
       if (cmd === 'plugin:event|listen') {

@@ -241,10 +241,11 @@ impl Git {
             return Ok(gone());
         }
         let listed = self.list(repo, w, None)?;
-        let uncommitted = here && !self.ok(path, &STATUS, LOOK)?.is_empty();
+        // Only a branch with commits of its own can be in its destination.
         let merged = match (&tip, &w.destination) {
-            (Some(tip), Some(to)) if *tip != w.base && !uncommitted => {
-                self.contains(dir, &format!("refs/heads/{to}"), tip)?
+            (Some(tip), Some(to)) if *tip != w.base => {
+                let uncommitted = here && !self.ok(path, &STATUS, LOOK)?.is_empty();
+                !uncommitted && self.contains(dir, &format!("refs/heads/{to}"), tip)?
             }
             _ => false,
         };

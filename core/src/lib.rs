@@ -5,14 +5,18 @@
 // call the system; nothing else may.
 #![deny(unsafe_code)]
 
+pub mod agents;
 mod calls;
 pub mod client;
 mod conn;
 mod effects;
 mod handshake;
+mod launch;
 mod questions;
 mod records;
+pub mod roles;
 pub mod serve;
+mod shim;
 pub mod state;
 pub mod store;
 pub mod stream;

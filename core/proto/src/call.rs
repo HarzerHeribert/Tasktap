@@ -1,5 +1,5 @@
-//! The one table of calls built so far (design §1, §2): 27 of the 44 core
-//! calls, and the test fixtures.
+//! The one table of calls (design §1, §2): the 28 of the 44 core calls built
+//! so far, the shim's ability, and the test fixtures.
 //!
 //! Each call is a type here, named for the call (`thought.capture` is
 //! `call::ThoughtCapture`), that ties its name to its
@@ -7,12 +7,12 @@
 //! answers a call never writes the name as text.
 
 use crate::args::{
-    AddProject, AnswerQuestion, Ask, AskKey, Assign, Capture, CloseProject, Empty, FixtureLog,
-    HistoryPage, OpenTerminal, Ref, ResizeTerminal, Revision, Settle, Start, Subscribe,
+    AddProject, Adopt, AnswerQuestion, Ask, AskKey, Assign, Capture, CloseProject, Empty,
+    FixtureLog, HistoryPage, OpenTerminal, Ref, ResizeTerminal, Revision, Settle, Start, Subscribe,
 };
 use crate::bootstrap::{Identity, Retire};
 use crate::frame::{Control, Outcome, Reply, Request};
-use crate::ids::{CallId, DeviceId, ProjectId, QuestionId, TerminalId, ThoughtId};
+use crate::ids::{CallId, DeviceId, ProjectId, QuestionId, SessionId, TerminalId, ThoughtId};
 use crate::records::Answer;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -82,6 +82,7 @@ table! {
     QuestionFocus "question.focus" Device (Ref<QuestionId>) -> ();
     // Sessions
     SessionEvent "session.event" Session (crate::args::SessionEvent) -> ();
+    SessionAdopt "session.adopt" Session (Adopt) -> SessionId;
     // Terminals
     TerminalOpen "terminal.open" Device (OpenTerminal) -> crate::frame::Opened;
     TerminalResize "terminal.resize" Device (ResizeTerminal) -> ();
@@ -96,6 +97,8 @@ table! {
     DeviceRevoke "device.revoke" Device (Ref<DeviceId>) -> ();
     CoreStatus "core.status" Anyone (Empty) -> crate::bootstrap::CoreStatus;
     CoreRetire "core.retire" Anyone (Retire) -> ();
+    // The shim's ability (design §7): the core calls it on a shim.
+    ShimHold "shim.hold" Ability (crate::args::ShimHold) -> ();
     // Fixtures (design §13): only a core built with its test fixtures answers these.
     FixtureStream "fixture.stream" Device (crate::args::FixtureStream) -> crate::frame::Opened;
     FixtureScript "fixture.script" Device (crate::args::FixtureScript) -> FixtureLog;
@@ -113,6 +116,9 @@ pub enum Access {
     Device,
     /// A session token, acting only for its own session.
     Session,
+    /// A call the core makes on a client that offered it in `hello`; no
+    /// client may make it.
+    Ability,
 }
 
 impl Access {
@@ -121,6 +127,7 @@ impl Access {
             Access::Anyone => true,
             Access::Device => who == Identity::Device,
             Access::Session => who == Identity::Session,
+            Access::Ability => false,
         }
     }
 }

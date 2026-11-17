@@ -771,6 +771,11 @@ impl<'s> Tx<'s> {
         self.get(Table::Sessions, &id)
     }
 
+    /// The built-in scratch project.
+    pub fn scratch(&self) -> Result<Option<Project>> {
+        self.one(Table::Projects, "WHERE data ->> 'kind' = 'scratch'", [])
+    }
+
     /// The newest session in a terminal that has not ended.
     pub fn terminal_session(&self, terminal: TerminalId) -> Result<Option<Session>> {
         let clause = "WHERE terminal_id = ?1 AND state <> 'ended' ORDER BY id DESC LIMIT 1";

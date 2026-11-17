@@ -15,8 +15,9 @@ use tasktap_proto::{
     Action, AddProject, AnswerQuestion, Ask, Assign, AttemptId, CallId, Capture, Changes, Control,
     Event as Said, FixtureCandidate, FixtureClock, FixtureRoute, Frame, History, Input, Limit,
     Mode, Outcome, Phase, Place, PrefPatch, ProjectId, Put, PutTarget, QuestionId, QuestionKind,
-    QuestionSource, QuestionState, Reason, Ref, ReplyVia, Response, Retire, Rev, Secret,
-    SessionState, Settle, Source, Start, Status, TerminalState, Thought, ThoughtId, When, Workdir,
+    QuestionSource, QuestionState, Reason, Ref, ReplyVia, Response, ResultKind, Retire, Rev,
+    Secret, SessionState, Settle, Source, Start, Status, TerminalState, Thought, ThoughtId, When,
+    Workdir,
 };
 
 fn code<T: Debug>(result: Result<T, Error>) -> Code {
@@ -210,6 +211,8 @@ fn a_hold_that_ends_with_nobody_connected_lets_the_core_go() {
         route,
         refuse: None,
         unrecordable: false,
+        pause: false,
+        agent: None,
     });
     let target = PutTarget::Prefs(PrefPatch::Hold(1));
     w.ok::<call::Put>(&Put {
@@ -555,7 +558,7 @@ fn reading_an_ended_thought_clears_done_and_lets_it_leave_for_history() {
 }
 
 #[test]
-fn without_its_fixtures_a_build_neither_routes_nor_launches() {
+fn without_its_fixtures_a_build_routes_nothing_and_runs_only_agents_it_has() {
     let data = Folder::new("qn");
     let core = Core::start(&data.0);
     let mut w = core.watch();
@@ -577,18 +580,34 @@ fn without_its_fixtures_a_build_neither_routes_nor_launches() {
         (e.code, e.message.as_str()),
         (Code::Failed, "this build has no router yet")
     );
-    // A pick needs the launcher, since a hold ends only in a launch.
-    let picked = Capture {
-        project_id: Some(project),
-        ..typed(ThoughtId::mint(), "fix it")
-    };
-    let e = w.call::<call::ThoughtCapture>(&picked).unwrap_err();
-    assert_eq!(
-        (e.code, e.message.as_str()),
-        (Code::Failed, "this build has no launcher yet")
-    );
     w.sync();
     assert!(w.model.thoughts.is_empty());
+
+    // A pick needs no router: with no hold it launches at once, for real.
+    // This build runs no agent yet, so the run fails and says why.
+    let target = PutTarget::Prefs(PrefPatch::Hold(0));
+    w.ok::<call::Put>(&Put {
+        target,
+        if_rev: None,
+    });
+    let picked = ThoughtId::mint();
+    let capture = Capture {
+        project_id: Some(project),
+        ..typed(picked, "fix it")
+    };
+    w.ok::<call::ThoughtCapture>(&capture);
+    let th = w.model.thought(picked);
+    assert_eq!(
+        (th.status, th.reason),
+        (Status::Failed, Some(Reason::Launch))
+    );
+    let why = w.model.results_of(picked);
+    assert_eq!(why.len(), 1);
+    assert_eq!(
+        (why[0].kind, why[0].summary.as_str()),
+        (ResultKind::Failure, "this build cannot run claude")
+    );
+    assert!(w.model.terminals.is_empty());
 
     // A note needs neither.
     let n = ThoughtId::mint();
@@ -597,13 +616,7 @@ fn without_its_fixtures_a_build_neither_routes_nor_launches() {
         ..typed(n, "an idea")
     };
     w.ok::<call::ThoughtCapture>(&note);
-    let pick = Assign {
-        id: n,
-        project_id: project,
-    };
-    assert_eq!(code(w.call::<call::ThoughtUpdate>(&pick)), Code::Failed);
-    let th = w.model.thought(n);
-    assert_eq!((th.status, th.mode), (Status::Captured, Mode::Note));
+    assert_eq!(w.model.thought(n).status, Status::Captured);
 }
 
 // Sessions.

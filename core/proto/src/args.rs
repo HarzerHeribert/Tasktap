@@ -252,6 +252,32 @@ pub struct Ask {
     pub detail: Option<String>,
 }
 
+/// `session.adopt`: an agent a person started by hand in a Tasktap shell
+/// becomes a session of that shell's terminal (design §4). The token names
+/// the terminal; the reply is the new session. The session belongs to the
+/// connection that adopted it and ends with it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Adopt {
+    /// The agent's name, as `tasktap hook <agent>` takes it.
+    #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub agent: String,
+    /// The folder the person started it in.
+    #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub cwd: String,
+}
+
+/// `shim.hold`, which the core calls on the shim of an adopted session before
+/// it types a follow-up into the shell's terminal (design §7). With `hold` the
+/// shim confirms its agent runs in the foreground and keeps the terminal
+/// until a call without it, sent once the text is written; a shim whose agent
+/// has ended answers `gone`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ShimHold {
+    pub hold: bool,
+}
+
 /// `question.withdraw` and `question.received`: the asker names its question
 /// by its own key, the only name it holds while it waits. The key reaches
 /// only its own session's questions.
@@ -318,6 +344,11 @@ pub enum Event {
     /// the call.
     Question {
         question: Ask,
+    },
+    /// The agent a shim adopted has exited (design §4). Only the shim of an
+    /// adopted session sends it: the core sees a launched agent exit itself.
+    Exited {
+        code: Option<u32>,
     },
 }
 
@@ -393,6 +424,15 @@ pub struct FixtureScript {
     /// project that does not exist), so recording the launch fails.
     #[serde(default)]
     pub unrecordable: bool,
+    /// A follow-up waits untyped, one to an adopted session held by its
+    /// shim, until a script without `pause` arrives.
+    #[serde(default)]
+    pub pause: bool,
+    /// Runs start for real: new captures name this agent, and the core's
+    /// launcher starts them in terminals. Without it the fixture launcher
+    /// only records what it is asked, as `refuse` and `unrecordable` say.
+    #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub agent: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -436,6 +476,10 @@ pub struct FixtureLog {
     pub launched: Vec<FixtureLaunch>,
     /// The thoughts of the follow-ups handed to a running session.
     pub delivered: Vec<ThoughtId>,
+    /// Follow-ups that `pause` keeps untyped, one to an adopted session while
+    /// its shim holds the terminal for it.
+    #[serde(default)]
+    pub held: Vec<ThoughtId>,
     pub killed: Vec<TerminalId>,
     pub settled: Vec<ThoughtId>,
     /// The questions the host would have been told about.

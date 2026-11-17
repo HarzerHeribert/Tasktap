@@ -66,12 +66,7 @@ fn handler(name: Name) -> Option<Handler> {
         Name::CoreStatus => |cx, args| now::<call::CoreStatus>(cx, args, status),
         Name::CoreRetire => |cx, args| now::<call::CoreRetire>(cx, args, retire),
         Name::DeviceRevoke => |cx, args| now::<call::DeviceRevoke>(cx, args, revoke),
-        Name::ThoughtCapture => |cx, args| {
-            event::<call::ThoughtCapture>(cx, args, |capture| Event::Capture {
-                capture,
-                agent: effects::AGENT.into(),
-            })
-        },
+        Name::ThoughtCapture => |cx, args| now::<call::ThoughtCapture>(cx, args, capture),
         Name::ThoughtUpdate => |cx, args| {
             event::<call::ThoughtUpdate>(cx, args, |a| Event::Pick {
                 thought: a.id,
@@ -103,6 +98,9 @@ fn handler(name: Name) -> Option<Handler> {
         Name::SessionEvent => {
             |cx, args| now::<call::SessionEvent>(cx, args, effects::session_event)
         }
+        Name::SessionAdopt => |cx, args| now::<call::SessionAdopt>(cx, args, crate::shim::adopt),
+        // The core makes this call; it never answers it.
+        Name::ShimHold => return None,
         Name::QuestionAsk => questions::ask,
         Name::QuestionAnswer => |cx, args| now::<call::QuestionAnswer>(cx, args, questions::answer),
         Name::QuestionWithdraw => {
@@ -255,6 +253,16 @@ fn off_thread<C: Call, T: Send + 'static>(
 }
 
 /// Runs a call that is one state-machine event (`effects::call`).
+/// `thought.capture`, naming the agent a new run of the thought would use.
+fn capture(cx: &mut Cx, capture: tasktap_proto::Capture) -> Result<(), Error> {
+    let agent = cx.core.seams.agent();
+    effects::call(
+        cx.core,
+        "thought.capture",
+        Event::Capture { capture, agent },
+    )
+}
+
 fn event<C: Call<Result = ()>>(
     cx: &mut Cx,
     args: Value,

@@ -2,16 +2,116 @@
 //! folder, the listener and its peer check, the client's end, starting the
 //! service detached, the signals that end it, and ending a terminal's
 //! processes. Mac and Linux use the socket file `<data>/core.sock`; Windows
-//! uses a named pipe.
+//! uses a named pipe. Also what a shim does to the terminal it shares with its
+//! agent (design §4).
 
+pub use tty::*;
 #[cfg(unix)]
 pub use unix::*;
 #[cfg(windows)]
 pub use windows::*;
 
+/// The terminal a shim shares with its agent, through the C library: std
+/// has no terminal modes, process groups or signal dispositions.
+#[cfg(unix)]
+#[allow(unsafe_code)]
+mod tty {
+    use std::ffi::c_int;
+
+    unsafe extern "C" {
+        fn signal(signal: c_int, handler: usize) -> usize;
+        fn tcgetattr(fd: c_int, modes: *mut u64) -> c_int;
+        fn tcsetattr(fd: c_int, when: c_int, modes: *const u64) -> c_int;
+        fn tcgetpgrp(fd: c_int) -> i32;
+        fn getpgrp() -> i32;
+    }
+
+    // The same numbers on Mac and Linux.
+    #[cfg(feature = "fixtures")]
+    const SIGHUP: c_int = 1;
+    const SIGINT: c_int = 2;
+    const SIG_IGN: usize = 1;
+    const TCSANOW: c_int = 0;
+    const TCSAFLUSH: c_int = 2;
+
+    /// The modes of the terminal on standard input. `struct termios` stays
+    /// opaque bytes, more than any system's, since only the system reads it.
+    pub struct Modes([u64; 32]);
+
+    /// `None` when standard input is no terminal.
+    pub fn modes() -> Option<Modes> {
+        let mut modes = Modes([0; 32]);
+        // SAFETY: the buffer is larger than any `struct termios` and outlives the call.
+        (unsafe { tcgetattr(0, modes.0.as_mut_ptr()) } == 0).then_some(modes)
+    }
+
+    /// Puts the modes back; with `discard`, input not read yet is dropped too.
+    pub fn restore(modes: &Modes, discard: bool) {
+        let when = if discard { TCSAFLUSH } else { TCSANOW };
+        // SAFETY: `modes` holds what `tcgetattr` wrote.
+        unsafe { tcsetattr(0, when, modes.0.as_ptr()) };
+    }
+
+    /// Whether this process's group, which its children share, owns the
+    /// terminal's foreground: its agent is neither stopped nor sent to the
+    /// background, and nothing it started took the terminal.
+    pub fn foreground() -> bool {
+        // SAFETY: plain calls on standard input and this process.
+        unsafe { tcgetpgrp(0) == getpgrp() }
+    }
+
+    /// Ignores Ctrl-C until dropped, as a shell does while its job runs: the
+    /// agent, started before, keeps the default and gets it alone.
+    pub struct Interrupts(usize);
+
+    pub fn ignore_interrupts() -> Interrupts {
+        // SAFETY: ignoring a signal installs no code.
+        Interrupts(unsafe { signal(SIGINT, SIG_IGN) })
+    }
+
+    impl Drop for Interrupts {
+        fn drop(&mut self) {
+            // SAFETY: puts back the disposition `signal` returned.
+            unsafe { signal(SIGINT, self.0) };
+        }
+    }
+
+    /// Keeps this process running when its terminal hangs up.
+    #[cfg(feature = "fixtures")]
+    pub fn ignore_hangup() {
+        // SAFETY: ignoring a signal installs no code.
+        unsafe { signal(SIGHUP, SIG_IGN) };
+    }
+}
+
+/// Windows has no terminal modes to restore from here, no foreground group
+/// and no hang-up; what a shim needs instead waits for the Windows phase.
+#[cfg(windows)]
+mod tty {
+    pub struct Modes;
+
+    pub fn modes() -> Option<Modes> {
+        None
+    }
+
+    pub fn restore(_: &Modes, _: bool) {}
+
+    pub fn foreground() -> bool {
+        true
+    }
+
+    pub struct Interrupts;
+
+    pub fn ignore_interrupts() -> Interrupts {
+        Interrupts
+    }
+
+    #[cfg(feature = "fixtures")]
+    pub fn ignore_hangup() {}
+}
+
 #[cfg(unix)]
 mod unix {
-    use std::ffi::OsString;
     use std::fs::{self, Permissions};
     use std::io::{self, ErrorKind};
     use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
@@ -28,11 +128,6 @@ mod unix {
 
     fn socket(data: &Path) -> PathBuf {
         data.join("core.sock")
-    }
-
-    /// What a client connects to, for a terminal's environment.
-    pub fn address(data: &Path) -> io::Result<OsString> {
-        Ok(socket(data).into_os_string())
     }
 
     /// Sends hang-up, or with `kill` the kill signal, to every process in
@@ -187,7 +282,7 @@ mod unix {
 #[allow(unsafe_code)]
 mod windows {
     use sha2::{Digest, Sha256};
-    use std::ffi::{OsStr, OsString};
+    use std::ffi::OsStr;
     use std::fs::{self, OpenOptions};
     use std::io;
     use std::os::windows::ffi::OsStrExt;
@@ -197,7 +292,9 @@ mod windows {
     use std::process::Command;
     use std::ptr::{null, null_mut};
     use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
-    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_PIPE_BUSY, HANDLE};
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, ERROR_PIPE_BUSY, HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation,
+    };
     use windows_sys::Win32::Security::{
         GetLengthSid, GetTokenInformation, TOKEN_QUERY, TOKEN_USER, TokenUser,
     };
@@ -229,11 +326,6 @@ mod windows {
         let digest = Sha256::digest(folder.as_os_str().as_encoded_bytes());
         let hex: String = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
         Ok(format!(r"\\.\pipe\tasktap-{hex}"))
-    }
-
-    /// What a client connects to, for a terminal's environment.
-    pub fn address(data: &Path) -> io::Result<OsString> {
-        pipe(data).map(OsString::from)
     }
 
     /// A job object holding a terminal's process and every process it
@@ -400,9 +492,24 @@ mod windows {
         unsafe { CancelIoEx(pipe.as_raw_handle() as HANDLE, null()) };
     }
 
-    /// No console, so the client's Ctrl-C and closing its window leave it running.
+    /// No console, so the client's Ctrl-C and closing its window leave it
+    /// running. Windows hands a child every handle that may be inherited, and
+    /// this process's standard handles may, having been inherited themselves:
+    /// a core a hook started would keep that hook's output open, and its agent
+    /// would wait for the end of it as long as the core lives. A child of this
+    /// process still gets them, as std passes standard handles as copies.
     pub fn detach(cmd: &mut Command) {
         cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+        let std = [
+            io::stdin().as_raw_handle(),
+            io::stdout().as_raw_handle(),
+            io::stderr().as_raw_handle(),
+        ];
+        for handle in std {
+            // SAFETY: changes one flag of a handle this process holds; one it
+            // has not is refused, which changes nothing.
+            unsafe { SetHandleInformation(handle as HANDLE, HANDLE_FLAG_INHERIT, 0) };
+        }
     }
 
     /// Completes on Ctrl-C, Ctrl-Break, closing the console, or shutdown.

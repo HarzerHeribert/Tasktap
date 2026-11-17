@@ -6,11 +6,13 @@
 //! The rules stay in `state.rs`; this module only moves things between it
 //! and the world.
 //!
-//! In Phase 1 the router and the launcher are the state machine's fixtures,
-//! which only a core built with its test fixtures has, once `fixture.script`
-//! selects them. Without them an event whose effects need one is refused
-//! with `failed` before anything is committed: the core never pretends to
-//! route or launch.
+//! The launcher is `launch.rs`, which starts runs in real terminals. The
+//! router, and the worktrees a settle needs, are still the state machine's
+//! fixtures, which only a core built with its test fixtures has, once
+//! `fixture.script` selects them; the fixture launcher stands in for the
+//! real one only where a test scripts what the real one cannot do. Without
+//! them an event whose effects need one is refused with `failed` before
+//! anything is committed: the core never pretends to route or settle.
 
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -24,22 +26,22 @@ use tasktap_proto::{
 use tokio::task::AbortHandle;
 
 use crate::calls::{Caller, Cx};
-use crate::questions;
 use crate::serve::Core;
 use crate::state::{self, Deliver, Effect, Event, Launch, Launcher, Report, Router};
 use crate::store::{self, AttemptOutcome, Tx};
+use crate::{agents, questions};
 
-/// The agent a new run uses until Phase 2 detects the installed ones.
+/// The agent a new run uses until package D detects the installed ones.
 pub const AGENT: &str = "claude";
 
 const NO_ROUTER: &str = "this build has no router yet";
-const NO_LAUNCHER: &str = "this build has no launcher yet";
+const NO_ISOLATION: &str = "this build has no worktrees to settle yet";
 
 /// Why an event was not applied.
 #[derive(Debug)]
 pub enum Refusal {
     State(state::Error),
-    /// This build has no router or no launcher yet.
+    /// This build has no router or no worktrees yet.
     Unbuilt(&'static str),
 }
 
@@ -66,7 +68,7 @@ impl From<store::Error> for Refusal {
 /// | the record named does not exist, or the question is settled | `gone` |
 /// | an id or request key reused with other content; something must happen first | `conflict` |
 /// | a value the transition refuses; an answer that does not fit its question | `invalid` |
-/// | this build has no router or no launcher yet | `failed` |
+/// | this build has no router or no worktrees yet | `failed` |
 /// | the store failed | `failed`; `gone` for a missing row, `conflict` for a duplicate |
 ///
 /// What the launcher reports as a failure, and an attempt the core stopped
@@ -126,6 +128,8 @@ struct Timer {
 struct Fixture {
     router: state::FixtureRouter,
     launcher: state::FixtureLauncher,
+    /// Runs start for real, and new captures name this agent.
+    agent: Option<String>,
     notified: Vec<QuestionId>,
 }
 
@@ -139,21 +143,22 @@ impl Seams {
         self.manual().unwrap_or_else(wall)
     }
 
-    /// Why this build cannot carry out the effects, when it cannot. A hold
-    /// needs the launcher too: it ends only in a launch.
+    /// Why this build cannot carry out the effects, when it cannot.
     fn unbuilt(&self, effects: &[Effect]) -> Option<&'static str> {
-        if self.selected() {
-            return None;
-        }
         effects.iter().find_map(|effect| match effect {
-            Effect::Route(_) => Some(NO_ROUTER),
-            Effect::Hold { .. }
-            | Effect::Launch(_)
-            | Effect::Deliver(_)
-            | Effect::Kill { .. }
-            | Effect::Settle { .. } => Some(NO_LAUNCHER),
+            Effect::Route(_) if !self.selected() => Some(NO_ROUTER),
+            Effect::Settle { .. } if !self.stands_in() => Some(NO_ISOLATION),
             _ => None,
         })
+    }
+
+    /// The agent a new capture names.
+    pub fn agent(&self) -> String {
+        #[cfg(feature = "fixtures")]
+        if let Some(agent) = self.fixture.as_ref().and_then(|f| f.agent.clone()) {
+            return agent;
+        }
+        AGENT.into()
     }
 
     #[cfg(feature = "fixtures")]
@@ -176,6 +181,17 @@ impl Seams {
         false
     }
 
+    /// The fixture launcher stands in for the real one.
+    #[cfg(feature = "fixtures")]
+    fn stands_in(&self) -> bool {
+        self.fixture.as_ref().is_some_and(|f| f.agent.is_none())
+    }
+
+    #[cfg(not(feature = "fixtures"))]
+    fn stands_in(&self) -> bool {
+        false
+    }
+
     #[cfg(feature = "fixtures")]
     fn router(&mut self) -> Option<&mut dyn Router> {
         let f = self.fixture.as_mut()?;
@@ -187,9 +203,10 @@ impl Seams {
         None
     }
 
+    /// The fixture launcher, where it stands in for the real one.
     #[cfg(feature = "fixtures")]
     fn launcher(&mut self) -> Option<&mut dyn Launcher> {
-        let f = self.fixture.as_mut()?;
+        let f = self.fixture.as_mut().filter(|f| f.agent.is_none())?;
         Some(&mut f.launcher)
     }
 
@@ -311,7 +328,7 @@ fn carry(core: &mut Core, effects: Vec<Effect>) -> Option<Outcome> {
                 None
             }
             Effect::Launch(launch) => Some(self::launch(core, launch)),
-            Effect::Deliver(deliver) => Some(self::deliver(core, deliver)),
+            Effect::Deliver(deliver) => self::deliver(core, deliver),
             Effect::Kill {
                 terminal: Some(terminal),
                 ..
@@ -383,7 +400,7 @@ fn launch(core: &mut Core, launch: Launch) -> Outcome {
     let token = Secret::mint();
     let started = match core.seams.launcher() {
         Some(launcher) => launcher.launch(&launch, &token),
-        None => Err(NO_LAUNCHER.into()),
+        None => crate::launch::launch(core, &launch, &token),
     };
     let attempt = launch.attempt;
     match started {
@@ -400,10 +417,18 @@ fn launch(core: &mut Core, launch: Launch) -> Outcome {
     }
 }
 
-fn deliver(core: &mut Core, deliver: Deliver) -> Outcome {
+/// A follow-up for an adopted session waits for its shim to hold the
+/// terminal, and its outcome reaches the thought's records, not the call.
+fn deliver(core: &mut Core, deliver: Deliver) -> Option<Outcome> {
+    crate::shim::deliver(core, deliver).map(|deliver| typed(core, deliver, false))
+}
+
+/// Has the launcher type a follow-up into its session's terminal, `held`
+/// when the shim of an adopted session holds it, and reports how that went.
+pub fn typed(core: &mut Core, deliver: Deliver, held: bool) -> Outcome {
     let handed = match core.seams.launcher() {
         Some(launcher) => launcher.deliver(&deliver),
-        None => Err(NO_LAUNCHER.into()),
+        None => crate::launch::deliver(core, &deliver, held),
     };
     let attempt = deliver.attempt;
     match handed {
@@ -419,7 +444,7 @@ fn deliver(core: &mut Core, deliver: Deliver) -> Outcome {
     }
 }
 
-fn failed(core: &mut Core, attempt: AttemptId, error: String) -> Outcome {
+pub fn failed(core: &mut Core, attempt: AttemptId, error: String) -> Outcome {
     let event = Event::LaunchFailed {
         attempt,
         error: error.clone(),
@@ -429,39 +454,42 @@ fn failed(core: &mut Core, attempt: AttemptId, error: String) -> Outcome {
 }
 
 fn kill(core: &mut Core, terminal: TerminalId) {
-    if core
-        .seams
-        .launcher()
-        .is_some_and(|launcher| launcher.kill(terminal))
-    {
-        exited(core, terminal, None, None);
+    let gone = match core.seams.launcher() {
+        Some(launcher) => launcher.kill(terminal),
+        None => crate::launch::kill(core, terminal),
+    };
+    if gone {
+        ended(core, terminal, None, None);
+        exited(core, terminal, None);
     }
 }
 
-/// The process of a terminal ended: the terminal records it, with the
-/// offset its output ended at when known, and the session still running in
-/// it ends.
-pub(crate) fn exited(
-    core: &mut Core,
-    terminal: TerminalId,
-    code: Option<u32>,
-    end: Option<Offset>,
-) {
-    let session = write(core, |tx| {
-        let session = tx.terminal_session(terminal).map_err(stored)?;
+/// A terminal ended: its row records it, with the offset its output ended
+/// at when known.
+pub(crate) fn ended(core: &mut Core, terminal: TerminalId, code: Option<u32>, end: Option<Offset>) {
+    let written = write(core, |tx| {
         if let Some(mut t) = tx.terminal(terminal).map_err(stored)? {
             t.state = TerminalState::Exited;
             t.exit = code;
             t.offset = end.unwrap_or(t.offset);
             tx.update_terminal(&t).map_err(stored)?;
         }
-        Ok(session)
+        Ok(())
     });
-    if let Some(session) = session.unwrap_or_else(|e| stop(e)) {
+    written.unwrap_or_else(|e| stop(e));
+}
+
+/// The direct child of a terminal exited: the session still running in it
+/// ends, silent when its agent reports only by exiting (design §5).
+pub(crate) fn exited(core: &mut Core, terminal: TerminalId, code: Option<u32>) {
+    let session = read(core, |tx| tx.terminal_session(terminal));
+    if let Some(s) = session.unwrap_or_else(|e| stop(e)) {
+        let quiet = agents::find(&s.agent).is_some_and(|agent| !agent.caps().events);
         let event = Event::Exited {
-            session: session.id,
+            session: s.id,
             code,
-            silent: false,
+            // An adopted agent's exit is its shim's report; the shell's is not it.
+            silent: quiet && !s.adopted,
         };
         report(core, event, |_| Ok(()));
     }
@@ -470,7 +498,7 @@ pub(crate) fn exited(
 fn settle(core: &mut Core, attempt: AttemptId, thought: ThoughtId, keep: bool) -> Outcome {
     let settled = match core.seams.launcher() {
         Some(launcher) => launcher.settle(thought, keep),
-        None => Err(NO_LAUNCHER.into()),
+        None => Err(NO_ISOLATION.into()),
     };
     let error = settled.err();
     let event = Event::Settled {
@@ -554,8 +582,9 @@ fn fire(core: &mut Core, thought: ThoughtId, until: Time) {
     report(core, Event::HoldEnded { thought, attempt }, |_| Ok(()));
 }
 
-/// `fixture.script`: selects the fixture router and launcher and scripts
-/// them; the reply is everything they were asked since.
+/// `fixture.script`: selects the fixture router, and the fixture launcher
+/// or with `agent` the real one, and scripts them; the reply is everything
+/// they were asked since.
 #[cfg(feature = "fixtures")]
 pub fn script(
     cx: &mut Cx,
@@ -586,11 +615,16 @@ pub fn script(
     let f = cx.core.seams.fixture.get_or_insert_with(|| Fixture {
         router: FixtureRouter(Route::Unknown),
         launcher: FixtureLauncher::default(),
+        agent: None,
         notified: Vec::new(),
     });
     f.router = FixtureRouter(route);
+    f.agent = args.agent;
     f.launcher.refuse = args.refuse;
     f.launcher.unrecordable = args.unrecordable;
+    crate::shim::pause(cx.core, args.pause);
+    let held = crate::shim::held(cx.core);
+    let f = (cx.core.seams.fixture.as_ref()).expect("selected above");
     let l = &f.launcher;
     let launched = l.launched.iter().zip(&l.tokens);
     Ok(FixtureLog {
@@ -603,6 +637,7 @@ pub fn script(
             })
             .collect(),
         delivered: l.delivered.iter().map(|d| d.thought).collect(),
+        held,
         killed: l.killed.clone(),
         settled: l.settled.iter().map(|&(thought, _)| thought).collect(),
         notified: f.notified.clone(),

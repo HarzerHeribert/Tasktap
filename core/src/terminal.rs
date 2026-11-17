@@ -23,7 +23,6 @@ use process::{Plan, Process, Report};
 use ring::{Attachment, Feed, INPUT, Saved, Term};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 use std::time::Duration;
@@ -44,8 +43,9 @@ const LINGER: Duration = Duration::from_secs(1);
 pub struct Terminals {
     live: HashMap<TerminalId, Live>,
     data: PathBuf,
-    /// What a terminal's processes connect to (`TASKTAP_SOCKET`).
-    socket: OsString,
+    /// The shim folder a shell puts first on its PATH, installed when the
+    /// first shell starts.
+    shims: std::cell::OnceCell<Option<PathBuf>>,
     /// The core is shutting down: nothing new starts.
     closing: bool,
 }
@@ -62,13 +62,26 @@ struct Live {
 }
 
 impl Terminals {
-    pub fn new(data: &Path) -> std::io::Result<Terminals> {
-        Ok(Terminals {
+    pub fn new(data: &Path) -> Terminals {
+        Terminals {
             live: HashMap::new(),
             data: data.to_owned(),
-            socket: crate::sys::address(data)?,
+            shims: Default::default(),
             closing: false,
-        })
+        }
+    }
+
+    /// The shim folder, filled from this program. Where it cannot be, as on
+    /// Windows while one of the shims runs, the folder an earlier core
+    /// filled serves.
+    fn shims(&self) -> Option<&Path> {
+        let shims = self.shims.get_or_init(|| {
+            let exe = std::env::current_exe();
+            let installed = exe.and_then(|exe| crate::roles::shim::install(&self.data, &exe));
+            let folder = self.data.join(crate::roles::shim::SHIMS);
+            installed.ok().or_else(|| folder.is_dir().then_some(folder))
+        });
+        shims.as_deref()
     }
 
     /// Live terminals, which keep the core running (design §3).
@@ -180,7 +193,7 @@ fn start_once(
         Ok((row, true))
     })?;
     if new && let Err(e) = spawn(core, &row, &token) {
-        effects::exited(core, id, None, Some(Offset::ZERO));
+        effects::ended(core, id, None, Some(Offset::ZERO));
         return Err(Error::new(
             Code::Failed,
             format!("cannot open a terminal: {e}"),
@@ -197,15 +210,19 @@ fn start_once(
 /// the terminal at once, with the reason as its output.
 pub fn spawn(core: &mut Core, t: &Terminal, token: &Secret) -> std::io::Result<()> {
     let terminals = &mut core.terminals;
+    if terminals.closing {
+        return Err(std::io::Error::other("the core is shutting down"));
+    }
+    let shell = t.kind == TerminalKind::Shell;
     let size = Size(t.cols, t.rows);
     let plan = Plan {
-        argv: if t.kind == TerminalKind::Shell {
-            Vec::new()
-        } else {
-            t.argv.clone()
-        },
+        argv: if shell { Vec::new() } else { t.argv.clone() },
         cwd: PathBuf::from(&t.cwd),
-        env: process::environment(&terminals.data, &terminals.socket, token),
+        env: process::environment(
+            &terminals.data,
+            token,
+            shell.then(|| terminals.shims()).flatten(),
+        ),
         size,
     };
     let (process, input, reports) = Process::start(plan)?;
@@ -260,7 +277,12 @@ async fn run(core: Weak<RefCell<Core>>, id: TerminalId, mut reports: mpsc::Recei
             Some(Report::Exited(code)) => {
                 live.exited = Some(code);
                 live.process.exited();
-                if !live.closed {
+                let closed = live.closed;
+                // The direct child is the session's agent, or the shell an
+                // adopted agent ran in: the session ends with it, not with
+                // what it left holding the terminal.
+                left(&mut core, id, code);
+                if !closed {
                     linger = Some(Box::pin(tokio::time::sleep(LINGER)));
                     continue;
                 }
@@ -294,8 +316,41 @@ fn end(core: &mut Core, id: TerminalId, exit: Option<u32>) {
     let offset = Offset::new(term.end());
     drop(term);
     live.process.end();
-    effects::exited(core, id, exit, offset);
+    effects::ended(core, id, exit, offset);
+    left(core, id, exit);
     core.events.notify_one();
+}
+
+/// The session running in a terminal whose child has exited ends. Not while
+/// the core shuts down: the core ended it, not its agent, and the next
+/// start finds the session interrupted (design §3).
+fn left(core: &mut Core, id: TerminalId, exit: Option<u32>) {
+    if !core.terminals.closing {
+        effects::exited(core, id, exit);
+    }
+}
+
+/// Where a terminal's direct child finds `program`: on the PATH every
+/// terminal but a shell gets.
+pub fn find(program: &str) -> Option<PathBuf> {
+    crate::roles::shim::find(program, &process::path(None), |_, _| true)
+}
+
+/// Types `text` into a terminal as a bracketed paste and Enter, as the
+/// launcher types a follow-up (design §7). False, with nothing typed, when
+/// its child has exited or is being stopped.
+pub fn paste(core: &mut Core, id: TerminalId, text: &str) -> bool {
+    const PASTE: (&str, &str) = ("\x1b[200~", "\x1b[201~");
+    let Some(live) = core.terminals.live.get(&id) else {
+        return false;
+    };
+    if live.exited.is_some() || live.stopping {
+        return false;
+    }
+    // The text cannot end the paste early.
+    let text = text.replace(PASTE.1, "");
+    let typed = [PASTE.0, &text, PASTE.1, "\r"].concat();
+    live.term.borrow_mut().send(None, typed.as_bytes())
 }
 
 fn attach(cx: &mut Cx, t: &Terminal, from: Option<Offset>, credit: u32) -> Result<Opened, Error> {

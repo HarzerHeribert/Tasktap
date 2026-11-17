@@ -3,7 +3,7 @@
 import type { AnswerQuestion, Question } from '../../../core/proto/protocol.ts';
 import { useEffect } from 'preact/hooks';
 import { Icon } from '../icons.tsx';
-import { agentName, call, fail, projectName, records, redraw, title, ui } from './model.ts';
+import { agentName, call, fail, page, projectName, records, redraw, title, ui } from './model.ts';
 import { fold, peek } from './panel.ts';
 
 type Response = AnswerQuestion extends infer A ? (A extends { id: string } ? Omit<A, 'id'> : never) : never;
@@ -22,11 +22,13 @@ export function Answer({ questions }: { questions: Question[] }) {
   const answer = (response: Response) => void call('question.answer', { id: q.id, ...response } as AnswerQuestion).catch(fail);
   const go = (step: number) => {
     ui.question = questions[(i + step + n) % n]!.id;
-    Object.assign(ui, { replying: false, focus: '#notch .decision-btn, #notch #comment' });
+    ui.replying = false;
+    page.focus = '#notch .decision-btn, #notch #comment';
     redraw();
   };
   const reply = () => {
-    Object.assign(ui, { replying: true, focus: '#comment' });
+    ui.replying = true;
+    page.focus = '#comment';
     redraw();
   };
   const terminal = q.reply_via === 'terminal';

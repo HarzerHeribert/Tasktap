@@ -33,17 +33,6 @@ html,body{background:transparent!important;min-height:0;overflow:hidden}
 @media(prefers-reduced-motion:no-preference){.rim-pulse #rim .pulse{animation:rim-pulse 600ms ease-in-out 4 alternate}}
 @keyframes rim-pulse{from{opacity:.62}to{opacity:.9}}
 
-/* One line, Enter sends. */
-#guide-input{min-height:0;height:var(--control-height);resize:none}
-#guide-input::placeholder{color:var(--panel-muted);opacity:1}
-#guide-input:focus{outline:none;border-color:var(--app-edge-strong)}
-#guide-compose .guide-session{justify-self:end;text-align:right}
-.dest-list{display:grid;gap:var(--s-tiny);padding:var(--s-tight);border:1px solid var(--notch-line);border-radius:var(--r-control);background:var(--notch-raised)}
-.dest-list .surface-button{display:flex;align-items:center;gap:var(--s-icon);min-height:32px;padding:var(--s-tight) var(--s-control);
-  border-radius:var(--r-xs);color:var(--panel-muted);text-align:left}
-.dest-list .surface-button:is(:hover,:focus-visible,[aria-selected=true]){color:var(--panel-text);background:#ffffff0d}
-.dest-list .surface-button:focus-visible{outline:2px solid var(--panel-accent);outline-offset:-2px}
-.notch-destination .text-btn{color:var(--panel-text);font-size:var(--t-label);padding:0 var(--s-tight)}
 .notch-first kbd{font:var(--t-meta)/1 var(--font-mono);color:var(--panel-muted);border:1px solid var(--notch-line);border-radius:var(--r-xs);padding:2px var(--s-tight)}
 
 /* Rows: the mark says the state; only working breathes. */

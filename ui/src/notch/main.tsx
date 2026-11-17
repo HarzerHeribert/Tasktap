@@ -9,13 +9,16 @@ import '../../../prototype/motion.css';
 import '../../../prototype/content-layout.css';
 import '../../../prototype/decision.css';
 import './notch.css';
+// The capture line it shares with the workspace, after the styles it refines.
+import '../capture.css';
 import { listen } from '@tauri-apps/api/event';
 import { render } from 'preact';
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Answer } from './answer.tsx';
 import { Home } from './home.tsx';
-import { call, client, fail, onRedraw, openQuestions, records, redraw, ui } from './model.ts';
-import { fold, focus, reveal } from './panel.ts';
+import { cap } from '../capture.tsx';
+import { call, client, fail, onRedraw, openQuestions, page, records, redraw, settleFocus, ui } from './model.ts';
+import { fold, reveal } from './panel.ts';
 
 const body = document.body;
 
@@ -163,7 +166,7 @@ function App() {
       }
     }
     requestAnimationFrame(() => body.classList.toggle('notch-open', ui.mode !== 'closed'));
-    if (ui.focus && focus(ui.focus)) ui.focus = '';
+    settleFocus();
   });
 
   return (
@@ -192,9 +195,9 @@ function App() {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || ui.mode === 'closed') return;
   e.preventDefault();
-  if (ui.choosing || ui.replying) {
-    ui.choosing = ui.replying = false;
-    ui.focus = ui.view === 'answer' ? '#notch .decision-btn, #notch #comment' : '#guide-input';
+  if (cap.choosing || ui.replying) {
+    cap.choosing = ui.replying = false;
+    page.focus = ui.view === 'answer' ? '#notch .decision-btn, #notch #comment' : '#guide-input';
     redraw();
   } else fold();
 });

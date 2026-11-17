@@ -30,8 +30,8 @@ Needs Rust (stable), Node 22 and macOS 13 or later.
     host/scripts/build.sh
     open "host/target/release/bundle/macos/Tasktap Next.app"      # or: host/scripts/build.sh --open
 
-    # The host: format and lint (after a build, which makes what it embeds)
-    (cd host && cargo fmt --check && cargo clippy -- -D warnings)
+    # The host: format, lint and the notch geometry tests (after a build, which makes what it embeds)
+    (cd host && cargo fmt --check && cargo clippy -- -D warnings && cargo test)
 
     # The headless browser the page checks use (once)
     npm ci && npx playwright install chromium
@@ -42,7 +42,7 @@ Needs Rust (stable), Node 22 and macOS 13 or later.
     # The real app on a fixture agent, in a temporary data folder: PASS or FAIL per promise
     host/scripts/smoke.sh
 
-Quit an installed Tasktap 1.2 before opening the app: its notch sits in the same place and uses the same shortcuts. `smoke.sh` runs the app passive (no window takes the keyboard, nothing shows in the Dock), so it is safe to run while you work; it needs a signed-in desktop session. CI runs all of the above on every push except `open`.
+Quit an installed Tasktap 1.2 before opening the app: its notch sits in the same place and uses the same shortcuts. `smoke.sh` runs the app passive (no window takes the keyboard, nothing shows in the Dock), so it is safe to run while you work. It needs a desktop session and expects your shell to be zsh, the Mac's default. CI runs all of the above on every push except `open`.
 
 More, each described at the top of its file: `host/scripts/measure.sh` (idle cost, launch, typing delay), `core/scripts/measure.sh`, `core/scripts/live-agents.sh` and `core/scripts/route-eval.sh` (the real Claude Code and Codex, on your own accounts; never part of CI), and under `scripts/` the page renderers `motion-pages.cjs`, `instrument-shots.cjs`, `light-sheet.cjs` and `motion-fidelity.cjs`.
 

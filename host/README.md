@@ -41,7 +41,7 @@ Document and web previews, Preferences, Notebook, Session history and Activity, 
 ## Checks
 
     cd ui && npm run check
-    cd host && cargo clippy -- -D warnings && cargo fmt --check
+    cd host && cargo clippy -- -D warnings && cargo fmt --check && cargo test
     host/scripts/smoke.sh        # the notch and the workspace with the core's fixture agent; PASS or FAIL lines
     host/scripts/measure.sh      # idle cost with the workspace on one idle terminal, launch, typing delay, a burst; after build.sh
     MOTION=1 host/scripts/measure.sh   # the whole app idle on Home, then the light still and breathing with the glyphs swaying, on Home and beside a terminal

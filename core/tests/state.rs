@@ -372,6 +372,14 @@ impl World {
     }
 }
 
+/// What a turn's start does besides its records: its first activity line.
+fn started(session: SessionId) -> [Effect; 1] {
+    [Effect::Activity {
+        session,
+        text: state::TURN_STARTED.into(),
+    }]
+}
+
 fn shape(t: &Thought) -> (Phase, Status, Option<Reason>) {
     (t.phase, t.status, t.reason)
 }
@@ -957,7 +965,10 @@ fn row_turn_started_binds_the_launched_thought() {
     let mut w = World::new("turn-started");
     let (t, s) = w.running();
     // An agent that sends no ready starts its turn straight from starting.
-    assert_eq!(w.say(s, Said::TurnStarted { prompt: None }).unwrap(), NONE);
+    assert_eq!(
+        w.say(s, Said::TurnStarted { prompt: None }).unwrap(),
+        started(s)
+    );
     let session = w.session(s);
     assert_eq!(
         (session.state, session.turn, session.thought_id),
@@ -978,7 +989,7 @@ fn row_turn_started_in_an_open_turn_interrupts_it_first() {
     // prompt: the open turn ends as turn_interrupted ends it, then the new
     // turn starts with a thought of its own.
     let prompt = Some("do this instead".to_string());
-    assert_eq!(w.say(s, Said::TurnStarted { prompt }).unwrap(), NONE);
+    assert_eq!(w.say(s, Said::TurnStarted { prompt }).unwrap(), started(s));
     assert_eq!(
         shape(&w.thought(t)),
         (Phase::Failed, Status::Failed, Some(Reason::Interrupted))

@@ -132,7 +132,7 @@ fn event_reports_to_the_session_of_its_terminal() {
     assert_eq!(s.w.model.session(session).thought_id, Some(t));
     event(&["activity", "Editing", "src/login.ts"]);
     s.w.until("the activity", |m| {
-        m.session(session).activity == ["Editing src/login.ts"]
+        m.session(session).activity == [tasktap_core::state::TURN_STARTED, "Editing src/login.ts"]
     });
     event(&["turn_finished", "Fixed.\nThe login works again."]);
     s.w.until("the result", |m| m.status(t) == Status::Done);
@@ -297,7 +297,10 @@ fn a_hook_reports_or_waits_and_prints_its_adapters_reply() {
     let activity = r#"{"id": "a1", "kind": "activity", "text": "Reading notes.md"}"#;
     assert!(run(hook(), activity).status.success());
     s.w.until("the activity", |m| {
-        m.session(session).activity == ["Reading notes.md"]
+        m.session(session)
+            .activity
+            .last()
+            .is_some_and(|l| l == "Reading notes.md")
     });
 
     let mut waiter = hook();

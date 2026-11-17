@@ -38,6 +38,8 @@ use Event as E;
 
 /// Characters of an answer's first line kept as its result's summary.
 const SUMMARY: usize = 200;
+/// The activity line a turn starts with.
+pub const TURN_STARTED: &str = "Started on the prompt";
 
 /// Everything that can move a thought, a session or a question.
 #[derive(Clone, Debug, PartialEq)]
@@ -1148,6 +1150,12 @@ impl Machine<'_, '_> {
             (None, Some(text)) => Some(self.typed(&s, text)?),
             (None, None) => None,
         };
+        // The turn's first activity line: an answer that uses no tool
+        // reports no other, and a working thought should show it is under way.
+        self.effects.push(Effect::Activity {
+            session: s.id,
+            text: TURN_STARTED.into(),
+        });
         Ok(self.tx.update_session(&s)?)
     }
 

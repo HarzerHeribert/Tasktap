@@ -435,7 +435,10 @@ fn the_largest_row_of_every_collection_goes_out_in_a_snapshot_and_a_change() {
     }
     let s_row = m.session(session);
     assert_eq!(s_row.activity.len(), 40);
-    assert!(s_row.activity.iter().all(|l| l.chars().count() == 200));
+    // The second turn's start is its last line.
+    let (started, lines) = s_row.activity.split_last().unwrap();
+    assert_eq!(started, tasktap_core::state::TURN_STARTED);
+    assert!(lines.iter().all(|l| l.chars().count() == 200));
     assert_eq!(s_row.error.as_deref(), Some(escaped(MAX_LINE).as_str()));
     assert_eq!(m.results_of(a)[0].summary, "\u{1}".repeat(200));
     assert_eq!(

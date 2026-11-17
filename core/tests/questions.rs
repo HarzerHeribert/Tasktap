@@ -741,20 +741,26 @@ fn session_events_come_from_the_token_and_drive_its_session() {
         (SessionState::Working, 1, Some(t))
     );
     // Activity is kept in memory, sent with the session, and stays on it.
+    // The turn's start is its first line, so a turn that uses no tool
+    // still shows it is under way.
+    let started = tasktap_core::state::TURN_STARTED;
+    assert_eq!(s.w.model.session(session).activity, [started]);
     let line = "Editing src/lib.rs";
     agent.say(Said::Activity { text: line.into() });
-    s.w.until("the activity", |m| m.session(session).activity == [line]);
+    s.w.until("the activity", |m| {
+        m.session(session).activity == [started, line]
+    });
     agent.finish("Fixed.\nThe login works again.");
     s.w.sync();
     let sess = s.w.model.session(session);
     assert_eq!(
         (sess.state, sess.activity.clone()),
-        (SessionState::Idle, vec![line.into()])
+        (SessionState::Idle, vec![started.into(), line.into()])
     );
     assert_eq!(s.w.model.status(t), Status::Done);
     assert_eq!(s.w.model.results_of(t)[0].summary, "Fixed.");
     let fresh = s.core.watch();
-    assert_eq!(fresh.model.session(session).activity, [line]);
+    assert_eq!(fresh.model.session(session).activity, [started, line]);
 
     // The same event id again is applied once.
     agent.repeat(Said::TurnStarted { prompt: None });

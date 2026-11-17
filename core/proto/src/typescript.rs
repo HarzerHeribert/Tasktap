@@ -3,8 +3,8 @@
 
 use crate::call::{self, Call, Visit};
 use crate::{
-    Access, Control, MAX_CREDIT, MAX_DATA, MAX_DATA_FRAME, MAX_FRAME, MAX_PENDING_CALLS,
-    MAX_STREAMS, Opened, PrefKey, VERSION,
+    Access, Control, MAX_CREDIT, MAX_DATA, MAX_DATA_FRAME, MAX_FRAME, MAX_LINE, MAX_PENDING_CALLS,
+    MAX_POINTS, MAX_STREAMS, MAX_TEXT, Opened, PrefKey, VERSION,
 };
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -66,6 +66,21 @@ fn typescript() -> String {
         ("MAX_PENDING_CALLS", MAX_PENDING_CALLS),
         ("MAX_STREAMS", MAX_STREAMS),
     ] {
+        writeln!(out, "export const {name} = {value};").unwrap();
+    }
+    out.push_str(concat!(
+        "// Bounds of what a call writes into a row; a call over one is `invalid`. MAX_TEXT: a thought's\n",
+        "// text, a question's detail, a text answer. MAX_LINE: a question's prompt and its choices, a\n",
+        "// router's brief, a session's error, a project's name, color, folder and aliases, a device's\n",
+        "// name. Both count bytes of JSON: `new TextEncoder().encode(JSON.stringify(value)).length`.\n",
+        "// MAX_POINTS: the points of a thought's strokes, an empty stroke counting as one.\n",
+    ));
+    let bounds = [
+        ("MAX_TEXT", MAX_TEXT),
+        ("MAX_LINE", MAX_LINE),
+        ("MAX_POINTS", MAX_POINTS),
+    ];
+    for (name, value) in bounds {
         writeln!(out, "export const {name} = {value};").unwrap();
     }
     let defaults: Map<String, Value> = (PrefKey::ALL.iter())

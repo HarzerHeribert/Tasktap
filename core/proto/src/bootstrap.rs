@@ -12,6 +12,7 @@
 //! with a new role or a new way to prove itself, and an old app still reads
 //! a new core's welcome. `Unknown` is never sent and is not in protocol.ts.
 
+use crate::MAX_LINE;
 use crate::ids::{CoreId, DeviceId, Secret};
 use serde::{Deserialize, Serialize};
 
@@ -88,6 +89,8 @@ pub enum Auth {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Register {
+    // A name over `MAX_LINE` does not parse, which leaves the peer no identity.
+    #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub name: String,
 }
 

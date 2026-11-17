@@ -17,8 +17,8 @@ use std::rc::Rc;
 use tasktap_proto::call::{self, Call, Code, Error, Name};
 use tasktap_proto::{
     AddProject, CallId, Collection, Control, CoreStatus, DeviceId, Empty, Identity, Isolate,
-    NO_SHARED_VERSION, Outcome, Project, ProjectId, ProjectKind, Ref, Reply, Request, Retire, Rev,
-    Set, TerminalId, When,
+    MAX_LINE, NO_SHARED_VERSION, Outcome, Project, ProjectId, ProjectKind, Ref, Reply, Request,
+    Retire, Rev, Set, TerminalId, When, json_len,
 };
 
 /// Who made a call, as the handshake established it.
@@ -261,6 +261,12 @@ fn add_project(cx: &mut Cx, args: AddProject) -> Result<ProjectId, Error> {
     let folder = (path.to_str())
         .ok_or_else(|| invalid("the folder's path is not text".into()))?
         .to_owned();
+    // Its canonical form may be longer than what was given.
+    if json_len(&folder) > MAX_LINE {
+        return Err(invalid(format!(
+            "{folder} is a longer path than a project takes"
+        )));
+    }
     let name = (args.name)
         .or_else(|| Some(path.file_name()?.to_string_lossy().into_owned()))
         .unwrap_or_else(|| folder.clone());

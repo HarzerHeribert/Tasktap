@@ -13,14 +13,13 @@ use crate::serve::Core;
 use crate::store::{self, Tx};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::io;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tasktap_proto::call::{Code, Error};
 use tasktap_proto::{
     Change, Collection, Control, Delete, Glance, History, HistoryPage, Layout, Mode, NotePatch,
     PrefValue, ProjectPatch, Put, PutTarget, Rev, Revision, Rows, SessionId, Set, Subscribe,
-    Thought, ThoughtId, Time, encode_control,
+    Thought, ThoughtId, Time, encode_control, json_len,
 };
 
 /// Most bytes of JSON in one snapshot chunk (design §1).
@@ -322,7 +321,7 @@ impl Chunk {
     fn rows<R: Serialize>(&mut self, rows: Vec<R>, wrap: fn(Vec<R>) -> Set) {
         let mut part = Vec::new();
         for row in rows {
-            let len = measure(&row) + 1;
+            let len = json_len(&row) + 1;
             if self.size + len + SET > CHUNK && self.size > ENVELOPE {
                 if !part.is_empty() {
                     self.sets.push(wrap(std::mem::take(&mut part)));
@@ -443,9 +442,9 @@ pub fn history(cx: &mut Cx, args: History) -> Result<HistoryPage, Error> {
     for t in &page.thoughts {
         let questions = page.questions.iter().filter(|q| q.thought_id == Some(t.id));
         let results = page.results.iter().filter(|r| r.thought_id == t.id);
-        let len = measure(t)
-            + questions.map(measure).sum::<usize>()
-            + results.map(measure).sum::<usize>();
+        let len = json_len(t)
+            + questions.map(json_len).sum::<usize>()
+            + results.map(json_len).sum::<usize>();
         if keep > 0 && size + len > CHUNK {
             break;
         }
@@ -479,30 +478,12 @@ fn published(core: &mut Core, change: Option<Change>) -> Revision {
 }
 
 fn fits(row: &impl Serialize) -> Result<(), Error> {
-    match measure(row) {
+    match json_len(row) {
         len if len > MAX_ROW => Err(invalid(format!(
             "the row would take {len} bytes; a row is at most {MAX_ROW}"
         ))),
         _ => Ok(()),
     }
-}
-
-/// The length of a value's JSON, without keeping the JSON.
-fn measure(value: &impl Serialize) -> usize {
-    struct Count(usize);
-    impl io::Write for Count {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            self.0 += bytes.len();
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-    let mut count = Count(0);
-    // Protocol types always serialize; see `call::to_value`.
-    let _ = serde_json::to_writer(&mut count, value);
-    count.0
 }
 
 fn fail(e: store::Error) -> Error {

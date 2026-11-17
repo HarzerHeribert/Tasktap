@@ -10,6 +10,7 @@ use crate::records::{
     Collection, Isolate, Mode, PrefKey, PrefValue, Question, QuestionKind, Response, Set, Source,
     Stroke, Thought, TurnResult,
 };
+use crate::{MAX_LINE, MAX_TEXT};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -99,8 +100,11 @@ pub struct LayoutPatch {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct ProjectPatch {
+    #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub name: Option<String>,
+    #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub color: Option<String>,
+    #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub aliases: Option<Vec<String>>,
     pub isolate: Option<Isolate>,
 }
@@ -110,7 +114,9 @@ pub struct ProjectPatch {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct NotePatch {
+    #[serde(default, deserialize_with = "crate::within::<MAX_TEXT, _, _>")]
     pub text: Option<String>,
+    #[serde(default, deserialize_with = "crate::drawn")]
     pub strokes: Option<Vec<Stroke>>,
 }
 
@@ -178,8 +184,9 @@ pub struct HistoryPage {
 #[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct Capture {
     pub id: ThoughtId,
+    #[serde(deserialize_with = "crate::within::<MAX_TEXT, _, _>")]
     pub text: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::drawn")]
     pub strokes: Vec<Stroke>,
     pub source: Source,
     pub mode: Option<Mode>,
@@ -221,9 +228,11 @@ pub struct Ask {
     /// The asker's key, kept per session: asking again with it reaches the
     /// same question, and the same key from another session is another one.
     pub request: String,
-    #[serde(flatten)]
+    #[serde(flatten, deserialize_with = "crate::asked")]
     pub kind: QuestionKind,
+    #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub prompt: String,
+    #[serde(default, deserialize_with = "crate::within::<MAX_TEXT, _, _>")]
     pub detail: Option<String>,
 }
 
@@ -241,7 +250,7 @@ pub struct AskKey {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct AnswerQuestion {
     pub id: QuestionId,
-    #[serde(flatten)]
+    #[serde(flatten, deserialize_with = "crate::answered")]
     pub response: Response,
 }
 
@@ -262,6 +271,7 @@ pub enum Event {
     Ready,
     /// `prompt` is set for a turn the person typed by hand; it becomes a thought.
     TurnStarted {
+        #[serde(default, deserialize_with = "crate::within::<MAX_TEXT, _, _>")]
         prompt: Option<String>,
     },
     Activity {
@@ -273,6 +283,7 @@ pub enum Event {
         answer: Option<String>,
     },
     TurnFailed {
+        #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
         error: Option<String>,
     },
     TurnInterrupted,
@@ -351,6 +362,7 @@ pub struct FixtureScript {
     /// What the router answers for every thought from now on.
     pub route: FixtureRoute,
     /// The launcher refuses every launch, delivery and settle with this.
+    #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub refuse: Option<String>,
 }
 
@@ -360,10 +372,13 @@ pub struct FixtureScript {
 pub enum FixtureRoute {
     Clear {
         to: Place,
+        #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
         brief: String,
     },
     Ambiguous {
+        #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
         prompt: String,
+        #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
         candidates: Vec<FixtureCandidate>,
     },
     Unknown,
@@ -434,6 +449,8 @@ pub struct FixtureRecords {
 #[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct AddProject {
     pub id: ProjectId,
+    #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub folder: String,
+    #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub name: Option<String>,
 }

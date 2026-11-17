@@ -303,3 +303,42 @@ Each can be overruled. Nothing built so far depends on the answer.
 - Clicking an element shows a focus outline around it, including around the notch.
 
 Neither came from the cuts; both exist in 1.2. The buttons are hidden because the window's background is set while its content view is being installed, which on this macOS leaves the title bar under the page; it is not fixed, since the new host replaces that window. The outline is a keyboard-focus ring: the page moves focus to the notch tab by script whenever the notch opens or folds, and the browser treats that as keyboard focus. The cuts removed a row that used to cover most of it. Fixed for the notch tab on `rebuild-phase-0`. Rule for the new interface: a focus move made by script, not by the keyboard, must not show the ring.
+
+## State on 2026-11-17, evening
+
+**Order changed.** The tryable app was pulled forward: the new host, the notch and the workspace were built before Phase 3, so the owner can use and judge the product while the remaining core work continues.
+
+**Done and merged on `rebuild-phase-2`:**
+
+- Phase 2: terminals, roles, the launcher, the Claude Code and Codex adapters, the local router.
+- "Tasktap Next": the Tauri host, the notch and the workspace (terminals, tabs and nested splits, sidebar, Home, keep-in-background, a real window with its buttons, menu and Dock icon). Build with `host/scripts/build.sh`, open `host/target/release/bundle/macos/Tasktap Next.app`. It uses its own data folder and never touches 1.2.
+- The notch's new shape and glow, and the question-first view.
+
+**Measured against 1.2**, workspace open on one idle shell:
+
+| Measure | 1.2 | New |
+| --- | --- | --- |
+| Processor use while idle | 1.1–1.3% | 0.0% |
+| Idle wakeups over 60 s | 77–120 | 0–9 |
+| Memory | 281 MB | 114–116 MB |
+| Launch to window | 553 ms | 321–417 ms |
+| Printing 1.3 MB at once | connection lost | 141 ms, every line |
+
+**In progress:** isolated runs with Keep and Discard (core); the chrome motion as a backdrop with its preferences; the layered Home design.
+
+**Still to come:** building the Instrument look into the app; model-backed routing and cloud speech; previews, Preferences, session details, terminal links; cutover and import from 1.2 with deletion of `native/`, `prototype/` and the Python service; Windows; one independent review per phase.
+
+**Known open items:** keyboard shortcuts in the workspace were never pressed with real keys; Claude Code's folder-trust prompt starts on "No, exit"; Codex questions can only be answered in the terminal; a hook guard in one of the owner's Claude plugins cuts waiting permission hooks short and must be switched off for notch answers; Stop also ends `nohup` jobs (owner to confirm that is wanted).
+
+## Design decisions by the owner on 2026-11-17
+
+These replace "Keep the look" for the interface. The chrome identity and motion stay.
+
+1. **The look is Instrument.** The notch grown to window size: one black, hairlines, small radii, a five-bar wave from the icon for state, a chromatic lit edge on the focused tab, metal key caps, sheets hanging from the title bar. Dark only. Mock-ups, tokens and the build brief are in `design/ui-directions/`. 1.2's stylesheets are deleted when it is built.
+2. **Home is a layered dashboard.** First layer: what needs the person, what is running, the capture line. Everything else is one step away. It must neither flood nor look empty. The Notebook, Session history and Activity views stay gone.
+3. **The notch never says something needs you without showing what.** With a question waiting, the open notch shows the question in full with its answers. No text the person needs in order to act is cut with an ellipsis.
+4. **Notch shape.** No outline anywhere. On a display without a camera cutout the collapsed tab has sloped sides (the medium lean); the open sheet is a plain rectangle with straight sides. Attention is a glow from behind the shape, chromatic by default, growing with it.
+5. **Motion is live, not video.** Three generated chrome styles: Slats (default), Glyphs, Resonator. The light effect (Lumen) is a switch. Colour is the person's choice, including a free hue. Drop and Ribbon were rejected. The lab is in `design/motion-lab/`.
+6. **Motion sits behind the content as a backdrop**, in the open notch and in the workspace, never in a box in a corner, never behind terminal text. Idle is a still frame.
+7. **Appearance choices are preferences stored in the core**, so every window follows them. Themes are sets of design values, not a general template engine.
+8. **Standing rules:** an icon and its label form one centred row; a focus ring shows for keyboard focus only.

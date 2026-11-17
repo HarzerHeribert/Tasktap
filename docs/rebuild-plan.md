@@ -74,7 +74,7 @@ Open until a trial at the start of Phase 1 settles it.
 - **One host:** Tauri on Mac and Windows, with Swift kept only for the local speech helper and the few pieces that need it. Least code, one updater, Linux nearly free.
 - **Two hosts:** Swift on Mac, Tauri on Windows. More code, but no risk to the notch.
 
-The trial builds the notch panel in Tauri on the Mac: reveal without taking focus, camera-aware placement, the metallic glow, the translucent backdrop. If it matches the 1.2 references, one host wins. Phases 6 and 7 are then rewritten to match.
+The trial builds the notch panel in Tauri on the Mac: reveal without taking focus, camera-aware placement, the metallic glow, the translucent backdrop. If it matches the 1.2 references, one host wins. Phase 4 builds whichever host the trial chooses.
 
 ### Input actions
 
@@ -184,7 +184,8 @@ The owner wants the current design and its animations kept. The rebuild changes 
 Rules for every phase:
 
 - All work lives on the `rebuild` branch until 2.0. Each phase is built on its own branch and merged into `rebuild` when the owner accepts it. `main` stays 1.2 plus fixes.
-- The app launches and the capture to result loop works at the end of each phase.
+- The 1.2 app is left untouched and working until Phase 6 replaces it.
+- From Phase 1 on, one check drives the real core through capture, route, run, question, answer and result. It must pass at the end of every phase.
 - No features outside this plan.
 - The user guide changes in the same change as the behavior.
 - No public release until Phase 6 is done, apart from fixes to 1.2. The rebuild ships as 2.0.
@@ -192,12 +193,12 @@ Rules for every phase:
 | Phase | Work | Done when |
 | --- | --- | --- |
 | 0. Cut and prepare | Give development builds their own app name and data folder. Record the 1.2 baseline numbers. Apply the cut list to the current app. | A development build cannot read or change the installed app's data or sessions. The baseline is recorded in this plan. The app builds, remaining checks pass, and the cut features are gone from the UI, preferences and guide. |
-| 1. Core and data | Rust service, SQLite store, protocol, event stream. One-time import from browser storage and the JSON files. Both web views read and write through the core. | The notch works when the workspace window was never opened. Data survives clearing web view storage. |
-| 2. Terminals and agents | Terminal processes, session lifecycle, the question inbox and agent launchers move into the core. Python is removed. | Python 3 is no longer required. Sessions survive quitting the app. Nothing reruns after a reboot. |
-| 3. Thoughts and flow | Thought record, routing in the core, start without review, undo, ideas in Notebook, isolated runs with Keep and Discard. | A clear thought starts with no review step. Two thoughts in one git project cannot overwrite each other. |
-| 4. Notch | New notch page in TypeScript, global shortcut, glance, capture, answer, input actions. This sets up the UI toolchain. | The notch page shares no code with the workspace page. A question can be answered with one key from any app. |
-| 5. Workspace UI | Move the workspace to TypeScript components. Rename `prototype/` to `ui/`. Demo data becomes a separate mode. | The type check passes in strict mode. No page is built from joined strings. Screens and animations match the 1.2 references. |
-| 6. Mac shell | Split `main.swift`. The shell keeps only windows, notch panel, local speech, screen context, updater, menus. | No Swift file over 400 lines. The shell handles host abilities and the pass-through, nothing else. |
+| 1. Core foundation | The Rust service on its own: protocol, store, records, the state machine and questions. The one-host trial. | The loop check passes against the real service. The idle core shows zero wakeups and memory within target, with the numbers recorded here. |
+| 2. Terminals and agents | Terminal processes, sessions, agent launchers and the question flow in the core, proven with a fixture agent and with Claude Code and Codex. A trial of answering agents from outside their terminal. | The loop check runs a real agent in a real terminal. Sessions survive a client disconnecting. Nothing reruns after a restart. |
+| 3. Thoughts and flow | Routing, start without review, the Undo hold, ideas, isolated runs with Keep and Discard, cloud speech. | A clear thought starts with no review step. Two thoughts in one git project cannot overwrite each other. |
+| 4. Host and notch | The host the trial chose, and the new notch page as the first real client of the core: glance, capture, answer, global shortcut, input actions. | The first build the owner can try. The notch works with no workspace window. A question can be answered with one key from any app. |
+| 5. Workspace UI | The workspace in TypeScript components on the core, with the 1.2 look. | The type check passes in strict mode. No page is built from joined strings. Screens and animations match the 1.2 references. |
+| 6. Cutover | One-time import from 1.2. Delete the old native code, the old pages and every Python helper. Release 2.0. | Python 3 is no longer required. Imported data matches the source. The old code is gone. |
 | 7. Windows | Tauri host, named pipe, Windows terminals, a top-edge pill or tray flyout in place of the notch, cloud dictation, typing first. | The capture to result loop works on Windows 11 with at least one agent. |
 
 Phase 0 notes: `TASKTAP_DEV=1 ./scripts/build-mac.sh` builds `build/Tasktap Dev.app` (bundle id `io.github.harzerheribert.tasktap.dev`); launch it with `open "build/Tasktap Dev.app"`. It keeps its data, terminal service socket and logs in `~/Library/Application Support/Tasktap Dev`, its settings, web storage, keychain items and notifications under its own bundle id, and has no update feed. A plain `./scripts/build-mac.sh` still builds the release identity, which shares the installed app's data, so do not launch that build during the rebuild.
@@ -237,8 +238,18 @@ Aim for under 20 checks, each named after a promise to the user.
 
 ## Status
 
-- Phase 0: in progress since 2026-11-17.
-- Phases 1 to 7: not started.
+- Phase 0: built and checked on `rebuild-phase-0` (2026-11-17). 3,979 lines removed, 522 added. Waiting for the owner to try it, and for the baseline numbers, which need an unlocked screen.
+- Phase 1: in progress since 2026-11-17 on `rebuild-phase-1`. The design is in [core-design.md](core-design.md); the description of 1.2 it was built from is in [rebuild-inventory.md](rebuild-inventory.md).
+- Phases 2 to 7: not started.
+
+## Changes made on 2026-11-17 while the owner was away
+
+Each can be overruled. Nothing built so far depends on the answer.
+
+- **The core is built on its own first.** The earlier plan wired the old app into the new core step by step. That needed two temporary layers inside code that is replaced anyway, and all of it would be thrown away if the one-host trial succeeds. Now Phases 1 to 3 build and prove the core through its own protocol, and Phase 4 is the first build the owner can try. This sets aside "each phase ends with something the owner can feel" for Phases 1 to 3.
+- **Two more removals in Phase 0**, both found by review: the "Copy & open Claude Code" way of preparing a request, which drove Apple Terminal, and "Resume in Terminal" with "Copy resume command", which could never succeed because nothing wrote the file they read.
+- **Agent sign-in still opens Apple Terminal** until Phase 2. Moving it needs a terminal that belongs to no project.
+- **Defaults chosen for questions the design raised:** spoken text waits for Enter before it is sent; a clear thought shows "Sent to X" at once and launches when the Undo seconds have passed; a prompt typed by hand into an agent's terminal becomes a thought; sessions still running in 1.2 at the first start of 2.0 are imported as interrupted, with Resume.
 
 ## Open decisions for the owner
 

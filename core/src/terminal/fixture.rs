@@ -8,7 +8,8 @@
 //! <code>` exits, `sum` the count and [`fold`] of the other lines so far,
 //! which come back as `<text>`); `env` lists, as `env:<name>|`, the
 //! names of its environment; `find <program>` prints, as `found:<path>|`,
-//! where its PATH finds the program; `sleep <ms>`; `ignore-hup`; `spawn <steps>`
+//! where its PATH finds the program, and as `last:<folder>|` the PATH's
+//! last folder; `sleep <ms>`; `ignore-hup`; `spawn <steps>`
 //! starts this role again with the steps given, separated by `;`, in the
 //! same process group and away from the terminal; `lock <file>` holds an
 //! exclusive lock on the file until the process ends; `mark <file>` adds a
@@ -56,7 +57,8 @@ pub fn run(args: impl Iterator<Item = OsString>) -> Result<(), String> {
                 let path = std::env::var_os("PATH").unwrap_or_default();
                 let found = crate::roles::shim::find(arg, &path, |_, _| true);
                 let found = found.map(|f| f.display().to_string()).unwrap_or_default();
-                writeln!(out, "found:{found}|").map_err(text)?;
+                let last = std::env::split_paths(&path).last().unwrap_or_default();
+                writeln!(out, "found:{found}|last:{}|", last.display()).map_err(text)?;
             }
             "sleep" => std::thread::sleep(Duration::from_millis(number()?)),
             "ignore-hup" => ignore_hang_up()?,

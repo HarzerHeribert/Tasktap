@@ -928,15 +928,17 @@ fn a_terminal_other_than_a_shell_finds_tasktap_in_the_shim_folder() {
     );
     closed(&mut c, &mut v);
     let shown = text(v.bytes());
-    let found = (shown.split('|'))
-        .find_map(|l| {
-            l.rsplit_once("found:")
-                .map(|(_, path)| path.trim().to_owned())
-        })
-        .expect("it looked");
-    let folder = Path::new(&found).parent().map(std::fs::canonicalize);
+    let said = |what: &str| {
+        (shown.split('|'))
+            .find_map(|l| l.rsplit_once(what).map(|(_, path)| path.trim().to_owned()))
+            .expect("it looked")
+    };
+    // Found: here, or where the core's own PATH has this program already, as
+    // cargo puts it there on Windows.
+    assert!(!said("found:").is_empty(), "{shown}");
+    let last = std::fs::canonicalize(said("last:")).ok();
     let shims = std::fs::canonicalize(data.0.join("shims")).unwrap();
-    assert_eq!(folder.and_then(Result::ok), Some(shims), "{shown}");
+    assert_eq!(last, Some(shims), "{shown}");
 }
 
 #[test]

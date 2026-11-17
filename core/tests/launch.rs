@@ -254,6 +254,46 @@ fn a_follow_up_is_typed_into_its_live_agent_which_takes_it_as_its_prompt() {
     assert_eq!(agent.text().matches("prompt:").count(), 1, "typed once");
 }
 
+/// A follow-up's text is pasted with no control character in it but its
+/// line breaks and tabs: whatever it holds, it cannot end the paste early,
+/// start another sequence, or make the terminal interrupt, suspend or end
+/// the agent's input. Each part below defeats a sanitizer that removes the
+/// end of the paste once, or one that removes only escapes.
+#[test]
+fn a_follow_ups_text_cannot_end_its_paste_or_reach_the_terminal_as_keys() {
+    let mut s = Scene::real("lx", "fixture");
+    let (t, session, terminal) = started(&mut s, "fix the build");
+    let mut agent = screen(&s, terminal);
+    agent.line("event:ready");
+    agent.line("event:turn_started");
+    agent.line("event:turn_finished:Fixed.");
+    s.w.until("the first turn is done", |m| {
+        m.status(t) == Status::Done && m.session(session).state == SessionState::Idle
+    });
+    let parts = [
+        // The end of the paste, rebuilt by removing it once.
+        ("a\x1b[20\x1b[201~1~b", "a[20[201~1~b"),
+        // Nested twice.
+        ("\x1b[2\x1b[20\x1b[201~01~1~c", "[2[20[201~01~1~c"),
+        // What the line discipline acts on: interrupt, suspend, quit, end of input, erase.
+        ("stop\x03here\x1aand\x1cnow\x04end\x7f", "stophereandnowend"),
+        // C1 controls, one of them CSI.
+        ("\u{9b}31m\u{85}d", "31md"),
+        // A title sequence ended with BEL.
+        ("\x1b]0;t\x07e", "]0;te"),
+    ];
+    let text: Vec<&str> = parts.iter().map(|(sent, _)| *sent).collect();
+    let typed: Vec<&str> = parts.iter().map(|(_, kept)| *kept).collect();
+    let f = follow_up(&mut s, session, &text.join(" "));
+    agent.until(&format!("prompt:{}", typed.join(" ")));
+    s.w.until("the follow-up runs", |m| {
+        m.session(session).thought_id == Some(f)
+    });
+    agent.line("event:turn_finished:Done.");
+    s.w.until("the follow-up is done", |m| m.status(f) == Status::Done);
+    assert_eq!(agent.text().matches("prompt:").count(), 1, "one paste");
+}
+
 #[test]
 fn a_follow_up_whose_agent_exits_before_it_is_typed_is_never_typed() {
     let mut s = Scene::real("le", "fixture");

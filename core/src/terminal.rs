@@ -447,10 +447,21 @@ pub fn paste(core: &mut Core, id: TerminalId, text: &str) -> bool {
     if live.exited.is_some() || live.stopping {
         return false;
     }
-    // The text cannot end the paste early.
-    let text = text.replace(PASTE.1, "");
-    let typed = [PASTE.0, &text, PASTE.1, "\r"].concat();
+    let typed = [PASTE.0, &pasteable(text), PASTE.1, "\r"].concat();
     live.term.borrow_mut().send(None, typed.as_bytes())
+}
+
+/// The text a paste may carry: no control character but its own line
+/// breaks and tabs. Without ESC the text cannot end the paste early or
+/// start any other sequence, whatever it holds, and without the others the
+/// terminal's line discipline acts on none of it (interrupt, suspend, end
+/// of input, erase). A line break is part of the text a raw agent reads
+/// inside a paste; a carriage return, alone or before a line feed, is one.
+fn pasteable(text: &str) -> String {
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    text.chars()
+        .filter(|&c| c == '\n' || c == '\t' || !c.is_control())
+        .collect()
 }
 
 fn attach(cx: &mut Cx, t: &Terminal, from: Option<Offset>, credit: u32) -> Result<Opened, Error> {

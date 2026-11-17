@@ -34,7 +34,7 @@ ln "$host/binaries/fixtures/tasktap" "$tmp/agents/fixture"
 # The project is a git repository with one commit, so a run can work in a copy of it (Keep and Discard).
 printf '[user]\n\tname = Smoke\n\temail = smoke@example.com\n[init]\n\tdefaultBranch = main\n' > "$tmp/gitconfig"
 export GIT_CONFIG_GLOBAL="$tmp/gitconfig" GIT_CONFIG_NOSYSTEM=1
-git -C "$tmp/project" init -q && echo "smoke" > "$tmp/project/README" && git -C "$tmp/project" add README && git -C "$tmp/project" commit -qm "Start" \
+git -C "$tmp/project" init -q && echo "smoke" > "$tmp/project/README" && echo "*.log" > "$tmp/project/.gitignore" && git -C "$tmp/project" add README .gitignore && git -C "$tmp/project" commit -qm "Start" \
   || { echo "FAIL  the project's repository"; exit 1; }
 app=0
 cleanup() {
@@ -457,6 +457,49 @@ until_has workspace "text .waiting" 5 "Keep" || fail "the third run waits"
 ask workspace "click .waiting .btn.primary" >/dev/null
 until_has workspace "text .waiting .told" 30 "Not kept" && ask workspace "text .waiting .told" | grep -q "conflict with this thought's in kept.txt" && ask workspace "text .waiting .told" | grep -q "tasktap/" \
   && pass "a refused Keep says the branch is as it was and shows the core's reason in full: the file in conflict and the branch to merge by hand" || fail "Keep refused" "$(ask workspace "text .waiting")"
+# What the core says when it stops short is shown as what it is. A file of the person's in the way: git's own words
+# name it, in full; once it is moved away, Keep goes through.
+run() { send "call thought.capture {\"id\":\"$(python3 -c 'import uuid,time;t=int(time.time()*1000);b=t.to_bytes(6,"big")+uuid.uuid4().bytes[6:];b=bytearray(b);b[6]=0x70|(b[6]&15);b[8]=0x80|(b[8]&63);print(uuid.UUID(bytes=bytes(b)))')\",\"text\":\"$1\",\"strokes\":[],\"source\":\"typed\",\"project_id\":\"$project\"}"; }
+row() { echo ".waiting [data-thought='$(js workspace "[...__ws.records.thoughts.values()].find(t=>t.text==='$1')?.id")']"; }
+run "write:way.txt:agent"
+until_has workspace "$(thought 'write:way.txt:agent' 'workdir?.changes')" 30 "pending" || fail "a fourth run's changes come back pending"
+echo "mine" > "$tmp/project/way.txt"
+way="$(row 'write:way.txt:agent')"
+ask workspace "click $way .btn.primary" >/dev/null
+until_has workspace "text $way .told" 30 "Not kept" && ask workspace "text $way .told" | grep -q "way.txt" && [ "$(cat "$tmp/project/way.txt")" = mine ] \
+  && pass "a Keep that git refuses, a file of the person's being in the way, names the file in git's own words and touches nothing" || fail "Keep refused by git" "$(ask workspace "text $way")"
+rm "$tmp/project/way.txt"
+ask workspace "click $way .btn.primary" >/dev/null
+until_has workspace "$(thought 'write:way.txt:agent' 'workdir?.changes')" 30 "kept" && [ "$(cat "$tmp/project/way.txt")" = agent ] \
+  && pass "with the file moved away, Keep again brings the changes in" || fail "Keep after a refusal"
+# The changes are in, but git will not remove the copy: said as kept with one thing left, with Tidy up as the action;
+# Discard then removes what is left and the result reads as kept, not discarded.
+run "write:locked.txt:n"
+until_has workspace "$(thought 'write:locked.txt:n' 'workdir?.changes')" 30 "pending" || fail "a fifth run's changes come back pending"
+git -C "$tmp/project" worktree lock "$(js workspace "[...__ws.records.thoughts.values()].find(t=>t.text==='write:locked.txt:n').workdir.path")"
+locked="$(row 'write:locked.txt:n')"
+ask workspace "click $locked .btn.primary" >/dev/null
+until_has workspace "text $locked .told" 30 "Kept, with one thing left" && [ "$(cat "$tmp/project/locked.txt")" = n ] \
+  && [ "$(js workspace "document.querySelector(\"$locked .btn.primary\").textContent + ' ' + document.querySelector(\"$locked .told\").getAttribute('role')")" = "Tidy up status" ] \
+  && pass "a Keep whose changes are in while its copy stays says so as a success with one thing left, and offers Tidy up" || fail "Keep with the copy left" "$(ask workspace "text $locked")"
+ask workspace "click $locked .btn:nth-of-type(2)" >/dev/null
+until_has workspace "text .sheet" 3 "The changes stay in main" || fail "the discard sheet after a Keep"
+press workspace ".sheet" Backspace true >/dev/null
+until_has workspace "$(thought 'write:locked.txt:n' 'workdir?.changes')" 30 "kept" && [ "$(cat "$tmp/project/locked.txt")" = n ] \
+  && js workspace "(__ws.ui.fold = 'results', __motion.redraw(), 1)" >/dev/null \
+  && until_has workspace "text [data-thought='$(js workspace "[...__ws.records.thoughts.values()].find(t=>t.text==='write:locked.txt:n').id")']" 3 "Kept in main" \
+  && pass "Discard then removes what is left, and the result reads Kept in main, not discarded" || fail "Discard after a Keep"
+# A run that left only an ignored file: its copy cannot be removed by itself and waits, with nothing in it to keep.
+run "write:out.log:built"
+until_has workspace "$(thought 'write:out.log:built' 'workdir?.changes')" 30 "pending" || fail "a sixth run's copy is left over"
+left="$(row 'write:out.log:built')"
+until_has workspace "text $left" 5 "Copy left over" && ask workspace "text $left" | grep -q "A copy of the project is left over" \
+  && [ "$(js workspace "[...document.querySelectorAll(\"$left .btn\")].map(b => b.textContent).join('|')")" = "Remove the copy" ] && ! ask workspace "text $left" | grep -q "0 files" \
+  && pass "a copy left over with nothing in it to keep says so, with Remove the copy as its one action" || fail "a leftover copy" "$(ask workspace "text $left")"
+ask workspace "click $left .btn.primary" >/dev/null
+until_has workspace "text .sheet" 3 "Remove the copy left by" || fail "the sheet for a leftover copy"
+press workspace ".sheet" Backspace true >/dev/null
+until_has workspace "$(thought 'write:out.log:built' 'workdir?.changes')" 30 "discarded" && pass "⌘⌫ removes the leftover copy" || fail "removing a leftover copy"
 send "call put {\"c\":\"projects\",\"id\":\"$project\",\"patch\":{\"isolate\":\"busy\"}}"
 js workspace "(__ws.show('$project'), 1)" >/dev/null
 terminals=$(ask workspace "eval __ws.records.terminals.size")

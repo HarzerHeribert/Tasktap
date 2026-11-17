@@ -72,6 +72,8 @@ function fakeRuntime({ label, records: records0, welcome }) {
       return;
     }
     if (name === 'history') return reply(id, { thoughts: [], questions: [], results: [] });
+    // `hold`: a capture is never answered, so the field stays as it is while a thought is on its way.
+    if (name === 'thought.capture' && records.hold) return;
     // Keep or Discard: what `settles` holds for the thought is the core's refusal in its own words; else it settles,
     // as `kept` where `settles` says a discard found everything already in its branch.
     if (name === 'thought.settle') {

@@ -185,6 +185,9 @@ export function still(style: StyleId, look: Look, state: MotionState, size: numb
 }
 
 // ---- views ----
+/** Whether a node is where words can be: nothing kept from assistive technology (the light, its glyphs) holds any. */
+const worded = (at: EventTarget | null) => !(at instanceof Element ? at : at instanceof Node ? at.parentElement : null)?.closest('[aria-hidden=true]');
+
 export class View {
   readonly el: HTMLElement;
   o: Options = { look: { style: 'slats', palette: 'chromatic', hue: 265, lumen: false }, state: 'idle' };
@@ -212,7 +215,9 @@ export class View {
   private words: MutationObserver;
   private watching = false;
   private fresh = true;
-  private moved = () => this.o.clear && ((this.stale = this.dirty = true), wake());
+  /** Something changed where words can be: they are found again. The light's own elements hold none. */
+  private moved = (at: EventTarget | null) => this.o.clear && worded(at) && ((this.stale = this.dirty = true), wake());
+  private event = (e: Event) => this.moved(e.target);
 
   constructor(el: HTMLElement) {
     this.el = el;
@@ -232,7 +237,7 @@ export class View {
       wake();
     });
     // While it is shown, the words it keeps clear are followed as the page changes or scrolls.
-    this.words = new MutationObserver(this.moved);
+    this.words = new MutationObserver((all) => all.some((r) => this.moved(r.target)));
     resize.observe(el);
     seen.observe(el);
     this.observers = [resize, seen];
@@ -263,10 +268,10 @@ export class View {
     const events = ['scroll', 'transitionend', 'animationend'];
     if (on) {
       this.words.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class', 'hidden', 'open'] });
-      for (const e of events) document.addEventListener(e, this.moved, true);
+      for (const e of events) document.addEventListener(e, this.event, true);
     } else {
       this.words.disconnect();
-      for (const e of events) document.removeEventListener(e, this.moved, true);
+      for (const e of events) document.removeEventListener(e, this.event, true);
     }
   }
 

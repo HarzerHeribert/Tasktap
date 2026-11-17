@@ -202,7 +202,7 @@ Only `state::apply(event)` writes a thought's `phase` and a session's `state`, a
 | hold ends, or `thought.start` | routed → working, after the attempt is committed | new session: starting. Follow-up: delivered as §7 allows |
 | `thought.stop` before launch (Undo) | routed → captured | – |
 | `put` of its text, `delete` | a thought captured and never launched (no launch attempt: a note, an idea, one undone) is plain data: its text changes, or it is removed with its router question; any other is `invalid` | – |
-| launch fails | → failed; why the run did not start, or the follow-up was not typed, is its failure result | a new session ends; a follow-up's session is left as it is |
+| launch fails | → failed; why the run did not start, or the follow-up was not typed, is its failure result; a follow-up its agent already began (its `turn_started` came first) is left to its turn | a new session ends; a follow-up's session is left as it is |
 | `session.adopt` (a shell's token) | – | new adopted session: starting, in the shell's terminal and project (the scratch when it has none). `conflict` while a session in that terminal is alive |
 | `ready` | – | starting → idle; what it showed in its terminal before (next row) closes as answered there, as it does when `turn_started` comes straight from starting |
 | `shown`: the session's terminal shows what its agent waits on there before it is ready, in words its adapter names (§7) | unchanged (status becomes needs you) | starting: a question answered in the terminal opens; shown again it is the same question; ignored once the session is not starting |

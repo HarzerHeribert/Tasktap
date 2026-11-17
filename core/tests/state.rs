@@ -760,6 +760,36 @@ fn row_follow_up_is_delivered_and_bound_at_turn_start() {
     assert_eq!(w.thought(t).phase, Phase::Done);
 }
 
+/// A follow-up whose delivery is reported failed after its agent's
+/// turn_started bound it was typed after all: its turn decides how it ends.
+#[test]
+fn a_follow_up_its_agent_began_is_left_to_its_turn_when_its_delivery_is_reported_failed() {
+    let mut w = World::new("follow-up-late");
+    let (_, s) = w.turn();
+    w.say(s, Said::TurnFinished { answer: None }).unwrap();
+    let f = ThoughtId::mint();
+    let follow = Capture {
+        session_id: Some(s),
+        ..capture(f, "now run the tests")
+    };
+    w.ok(captured(follow));
+    let attempt = AttemptId::mint();
+    w.ok(Event::Start {
+        thought: f,
+        attempt,
+    });
+    let prompt = Some("now run the tests".into());
+    w.say(s, Said::TurnStarted { prompt }).unwrap();
+    assert_eq!(w.session(s).thought_id, Some(f));
+    let error = "late".to_string();
+    assert_eq!(w.ok(Event::LaunchFailed { attempt, error }), []);
+    assert_eq!(w.thought(f).phase, Phase::Working);
+    assert!(w.outcome(attempt).is_some(), "the attempt has its outcome");
+    let answer = Some("Tested.".into());
+    w.say(s, Said::TurnFinished { answer }).unwrap();
+    assert_eq!(w.thought(f).phase, Phase::Done);
+}
+
 #[test]
 fn a_follow_up_to_an_ended_session_continues_it_in_a_new_one() {
     let mut w = World::new("follow-up-ended");

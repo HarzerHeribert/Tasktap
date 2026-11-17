@@ -1052,8 +1052,20 @@ impl Machine<'_, '_> {
         if let Some(s) = session.filter(|s| s.state != S::Ended) {
             self.end(s, None, Some(error.clone()))?;
         }
+        // A follow-up its agent began already (its turn_started came first)
+        // was typed after all: its turn decides how it ends.
+        let begun = match (&thought, own) {
+            (Some(t), None) => match t.session_id {
+                Some(id) => (self.tx.session(id)?)
+                    .is_some_and(|s| s.state == S::Working && s.thought_id == Some(t.id)),
+                None => false,
+            },
+            _ => false,
+        };
         match thought {
-            Some(mut t) if t.phase == P::Working && (own.is_none() || t.session_id == own) => {
+            Some(mut t)
+                if t.phase == P::Working && !begun && (own.is_none() || t.session_id == own) =>
+            {
                 t.phase = P::Failed;
                 t.reason = Some(Reason::Launch);
                 // Why the run did not start, or the follow-up was not typed.

@@ -1,0 +1,3 @@
+# Compared byte for byte by the tests, so no checkout may convert line endings.
+proto/protocol.ts -text
+proto/samples/** -text

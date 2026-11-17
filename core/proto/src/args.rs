@@ -1,0 +1,287 @@
+//! Arguments and results of the Phase 1 calls that are not records themselves.
+//!
+//! An optional argument may be left out or sent as `null`.
+
+use crate::ids::{AttemptId, Invalid, ProjectId, QuestionId, Rev, SessionId, ThoughtId};
+use crate::records::{
+    Collection, Isolate, Mode, PrefKey, PrefValue, Question, QuestionKind, Response, Source,
+    Stroke, Thought, TurnResult,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+/// Arguments of a call that takes none: `{}`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Empty {}
+
+/// Arguments that name one record.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Ref<I> {
+    pub id: I,
+}
+
+/// `sub`: a second one replaces the first; an empty list ends it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Subscribe {
+    pub collections: Vec<Collection>,
+}
+
+/// The revision a snapshot was taken at, or a write committed at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Revision {
+    pub rev: Rev,
+}
+
+/// `put`: writes plain data. Fields the state machine owns cannot be named here.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct Put {
+    #[serde(flatten)]
+    pub target: PutTarget,
+    /// Refused with `conflict` unless the row is still at this revision.
+    pub if_rev: Option<Rev>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "c", rename_all = "snake_case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub enum PutTarget {
+    Prefs(PrefPatch),
+    Layouts {
+        id: ProjectId,
+        patch: LayoutPatch,
+    },
+    Projects {
+        id: ProjectId,
+        patch: ProjectPatch,
+    },
+    /// A note's text; the core refuses a thought that is not a note.
+    Thoughts {
+        id: ThoughtId,
+        patch: NotePatch,
+    },
+}
+
+/// A preference write: `{id, patch}`, where the key fixes the value's type.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "id", content = "patch", rename_all = "snake_case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub enum PrefPatch {
+    Hold(u32),
+}
+
+impl From<PrefPatch> for PrefValue {
+    fn from(patch: PrefPatch) -> Self {
+        match patch {
+            PrefPatch::Hold(seconds) => PrefValue::Hold(seconds),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct LayoutPatch {
+    #[cfg_attr(test, ts(type = "unknown"))]
+    pub tree: Value,
+}
+
+/// The editable fields of a project; a missing one is left as it is.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct ProjectPatch {
+    pub name: Option<String>,
+    pub color: Option<String>,
+    pub aliases: Option<Vec<String>>,
+    pub isolate: Option<Isolate>,
+}
+
+/// The editable fields of a note; a missing one is left as it is.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct NotePatch {
+    pub text: Option<String>,
+    pub strokes: Option<Vec<Stroke>>,
+}
+
+/// `delete`: removes plain data. Deleting a preference restores its default.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "c", rename_all = "snake_case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub enum Delete {
+    Prefs { id: PrefKey },
+    Layouts { id: ProjectId },
+    Thoughts { id: ThoughtId },
+}
+
+/// `history`: finished thoughts older than `before`, newest first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct History {
+    pub before: Option<ThoughtId>,
+    pub limit: Limit,
+}
+
+/// A page size from 1 to 100, which bounds every history reply.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "u32", into = "u32")]
+#[cfg_attr(test, derive(ts_rs::TS), ts(type = "number"))]
+pub struct Limit(u8);
+
+impl Limit {
+    pub const MAX: Limit = Limit(100);
+
+    pub fn new(n: u32) -> Option<Self> {
+        (1..=100).contains(&n).then_some(Self(n as u8))
+    }
+
+    pub const fn get(self) -> u32 {
+        self.0 as u32
+    }
+}
+
+impl TryFrom<u32> for Limit {
+    type Error = Invalid;
+    fn try_from(n: u32) -> Result<Self, Invalid> {
+        Self::new(n).ok_or(Invalid("a history limit is 1 to 100"))
+    }
+}
+
+impl From<Limit> for u32 {
+    fn from(limit: Limit) -> u32 {
+        limit.get()
+    }
+}
+
+/// Thoughts that left the live set, with their questions and results.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct HistoryPage {
+    pub thoughts: Vec<Thought>,
+    pub questions: Vec<Question>,
+    pub results: Vec<TurnResult>,
+}
+
+/// `thought.capture`. A project or session given here is the person's own
+/// pick, which routes the thought without asking the router.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct Capture {
+    pub id: ThoughtId,
+    pub text: String,
+    #[serde(default)]
+    pub strokes: Vec<Stroke>,
+    pub source: Source,
+    pub mode: Option<Mode>,
+    pub project_id: Option<ProjectId>,
+    pub session_id: Option<SessionId>,
+}
+
+/// `thought.update`: assigns a note to a project.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Assign {
+    pub id: ThoughtId,
+    pub project_id: ProjectId,
+}
+
+/// `thought.start`. The attempt is committed before anything is spawned, so
+/// repeating this call never launches twice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Start {
+    pub id: ThoughtId,
+    pub attempt: AttemptId,
+}
+
+/// `question.ask`: the reply is the answer, once there is one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct Ask {
+    /// The asker's key: asking again with it reaches the same question.
+    pub request: String,
+    #[serde(flatten)]
+    pub kind: QuestionKind,
+    pub prompt: String,
+    pub detail: Option<String>,
+}
+
+/// `question.withdraw` and `question.received`: the asker names its question
+/// by its own key, the only name it holds while it waits.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct AskKey {
+    pub request: String,
+}
+
+/// `question.answer`. Settles only the question it names.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct AnswerQuestion {
+    pub id: QuestionId,
+    #[serde(flatten)]
+    pub response: Response,
+}
+
+/// `session.event`: what the session's agent reports, in the core's one vocabulary.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct SessionEvent {
+    /// The sender's own id for this event; the core ignores a repeat.
+    pub id: String,
+    #[serde(flatten)]
+    pub event: Event,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub enum Event {
+    Ready,
+    /// `prompt` is set for a turn the person typed by hand; it becomes a thought.
+    TurnStarted {
+        prompt: Option<String>,
+    },
+    Activity {
+        text: String,
+    },
+    /// The agent went on after a question answered in its terminal.
+    Continued,
+    TurnFinished {
+        answer: Option<String>,
+    },
+    TurnFailed {
+        error: Option<String>,
+    },
+    TurnInterrupted,
+}
+
+/// `input`: a key press from any device, bound to the question it was shown for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Input {
+    pub action: Action,
+    pub question: QuestionId,
+}
+
+words! {
+    pub enum Action {
+        #[serde(rename = "answer.affirm")]
+        Affirm,
+        #[serde(rename = "answer.deny")]
+        Deny,
+    }
+}
+
+/// `project.add`. The reply is the id of the project that holds the folder,
+/// which is an older one when the folder was already added.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct AddProject {
+    pub id: ProjectId,
+    pub folder: String,
+    pub name: Option<String>,
+}

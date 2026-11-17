@@ -1,0 +1,531 @@
+// Generated from core/proto. Do not edit: run `BLESS=1 cargo test -p tasktap-proto`.
+
+export const VERSION = 1;
+export const MAX_FRAME = 1048576;
+export const MAX_DATA_FRAME = 65536;
+export const MAX_DATA = 65531;
+export const MAX_CREDIT = 4194304;
+export const MAX_PENDING_CALLS = 64;
+export const MAX_STREAMS = 64;
+
+/**
+ * Who may make a call (design §2): authorization is per call.
+ */
+export type Access = "anyone" | "device" | "session";
+
+export type Action = "answer.affirm" | "answer.deny";
+
+/**
+ * `project.add`. The reply is the id of the project that holds the folder,
+ * which is an older one when the folder was already added.
+ */
+export type AddProject = { id: ProjectId, folder: string, name?: string | null, };
+
+/**
+ * The receipt of an answer, stored before it is sent.
+ */
+export type Answer = { device_id: DeviceId | null, created: Time,
+/**
+ * When the waiter confirmed it with `question.received`.
+ */
+delivered: Time | null, } & ({ "kind": "affirm" } | { "kind": "deny" } | { "kind": "choice", choice: number, } | { "kind": "text", text: string, } | { "kind": "terminal" });
+
+/**
+ * `question.answer`. Settles only the question it names.
+ */
+export type AnswerQuestion = { id: QuestionId, } & ({ "kind": "affirm" } | { "kind": "deny" } | { "kind": "choice", choice: number, } | { "kind": "text", text: string, } | { "kind": "terminal" });
+
+/**
+ * `question.ask`: the reply is the answer, once there is one.
+ */
+export type Ask = {
+/**
+ * The asker's key: asking again with it reaches the same question.
+ */
+request: string, prompt: string, detail?: string | null, } & ({ "kind": "confirm" } | { "kind": "choice", choices: Array<string>, } | { "kind": "text" });
+
+/**
+ * `question.withdraw` and `question.received`: the asker names its question
+ * by its own key, the only name it holds while it waits.
+ */
+export type AskKey = { request: string, };
+
+/**
+ * `thought.update`: assigns a note to a project.
+ */
+export type Assign = { id: ThoughtId, project_id: ProjectId, };
+
+/**
+ * A UUID v7 in text, minted by whoever creates the record.
+ * Names one attempt to start a process, so a repeated call never starts it twice.
+ */
+export type AttemptId = string;
+
+export type Auth = { device: DeviceId, key: Secret,
+/**
+ * Present when a local peer registers this device on first contact.
+ */
+register?: Register | null, } | { token: Secret, };
+
+/**
+ * A call id, unique among the caller's pending calls.
+ */
+export type CallId = number;
+
+/**
+ * `thought.capture`. A project or session given here is the person's own
+ * pick, which routes the thought without asking the router.
+ */
+export type Capture = { id: ThoughtId, text: string, strokes: Array<Array<[number, number]>>, source: Source, mode?: Mode | null, project_id?: ProjectId | null, session_id?: SessionId | null, };
+
+/**
+ * One committed transaction, or one chunk of a snapshot.
+ */
+export type Change = { rev: Rev, snap?: boolean, sets: Array<Set>, };
+
+export type Changes = "none" | "pending" | "kept" | "discarded";
+
+export type Close = { s: StreamId, why?: CloseWhy | null, };
+
+export type CloseWhy = "done" | "overflow" | "gone" | "denied";
+
+export type Code = "unknown" | "invalid" | "denied" | "conflict" | "gone" | "failed";
+
+export type Collection = "thoughts" | "projects" | "sessions" | "terminals" | "questions" | "results" | "layouts" | "prefs" | "devices" | "glance";
+
+/**
+ * A kind 0 frame. Unknown fields are ignored, so a newer peer may add fields
+ * without bumping the version.
+ */
+export type Control = { "t": "hello" } & Hello | { "t": "welcome" } & Welcome | { "t": "refuse" } & Refuse | { "t": "call" } & Request | { "t": "reply" } & Reply | { "t": "change" } & Change | { "t": "credit" } & Credit | { "t": "mark" } & Mark | { "t": "close" } & Close;
+
+/**
+ * A UUID v7 in text, minted by whoever creates the record.
+ * The core itself, named in `welcome` so a client can hold records from several cores.
+ */
+export type CoreId = string;
+
+/**
+ * The result of `core.status`.
+ */
+export type CoreStatus = { build: string, v: Versions,
+/**
+ * Live terminals, which retiring now would end.
+ */
+terminals: number, };
+
+/**
+ * Grants `n` more bytes on stream `s`.
+ */
+export type Credit = { s: StreamId, n: number, };
+
+/**
+ * `delete`: removes plain data. Deleting a preference restores its default.
+ */
+export type Delete = { "c": "prefs", id: PrefKey, } | { "c": "layouts", id: ProjectId, } | { "c": "thoughts", id: ThoughtId, };
+
+export type Device = { id: DeviceId, rev: Rev, name: string, last_seen: Time | null, revoked: boolean, };
+
+/**
+ * A UUID v7 in text, minted by whoever creates the record.
+ */
+export type DeviceId = string;
+
+/**
+ * Arguments of a call that takes none: `{}`.
+ */
+export type Empty = Record<string, never>;
+
+/**
+ * The one error shape of every failed call.
+ */
+export type Error = { code: Code, message: string, };
+
+/**
+ * What a host shows with no page running. Memory only.
+ */
+export type Glance = { rev: Rev, working: number, needs_you: number, done: number,
+/**
+ * The question affirm and deny act on: the oldest open one unless
+ * `question.focus` chose another.
+ */
+question: QuestionId | null,
+/**
+ * `core.retire {when: idle}` was called: the core exits when its last terminal ends.
+ */
+retiring: boolean, };
+
+export type Hello = { v: Versions, role: Role,
+/**
+ * Free text naming the program, for logs.
+ */
+client: string, auth?: Auth | null,
+/**
+ * The `host.*` calls a host answers.
+ */
+abilities?: Array<string>, };
+
+/**
+ * `history`: finished thoughts older than `before`, newest first.
+ */
+export type History = { before?: ThoughtId | null, limit: Limit, };
+
+/**
+ * Thoughts that left the live set, with their questions and results.
+ */
+export type HistoryPage = { thoughts: Array<Thought>, questions: Array<Question>, results: Array<TurnResult>, };
+
+/**
+ * Who the core took the connection to be.
+ */
+export type Identity = "device" | "session" | "none";
+
+/**
+ * `input`: a key press from any device, bound to the question it was shown for.
+ */
+export type Input = { action: Action, question: QuestionId, };
+
+/**
+ * When a thought gets its own worktree; `busy` means when the project has
+ * a session that is not idle or ended.
+ */
+export type Isolate = "busy" | "always" | "never";
+
+/**
+ * A project's workspace layout; the tree is the UI's and opaque to the core.
+ */
+export type Layout = {
+/**
+ * The project's id.
+ */
+id: ProjectId, rev: Rev, tree: unknown, };
+
+export type LayoutPatch = { tree: unknown, };
+
+/**
+ * A page size from 1 to 100, which bounds every history reply.
+ */
+export type Limit = number;
+
+/**
+ * Something that happened at byte offset `at` of stream `s`.
+ */
+export type Mark = { s: StreamId, at: Offset, size?: Size | null,
+/**
+ * Replay is over; bytes from here on are live.
+ */
+live?: boolean,
+/**
+ * The reader fell out of the ring; a replay follows.
+ */
+gap?: boolean,
+/**
+ * Present once the process exited: its code, or null when it has none.
+ */
+exit?: number | null, };
+
+export type Mode = "ask" | "nudge" | "note";
+
+/**
+ * The editable fields of a note; a missing one is left as it is.
+ */
+export type NotePatch = { text?: string | null, strokes?: Array<Array<[number, number]>> | null, };
+
+/**
+ * A byte position in a stream since it opened.
+ */
+export type Offset = number;
+
+/**
+ * The reply of a call that opens a stream; that call's args carry the
+ * credit the caller grants toward it.
+ */
+export type Opened = { s: StreamId,
+/**
+ * Bytes the core lets the caller send on this stream.
+ */
+credit: number, };
+
+/**
+ * Written only by the state machine.
+ */
+export type Phase = "captured" | "routed" | "working" | "done" | "failed";
+
+/**
+ * A preference row: `{id, value, rev}`, where the key fixes the value's type.
+ */
+export type Pref = { rev: Rev, } & ({ "id": "hold", "value": number });
+
+export type PrefKey = "hold";
+
+/**
+ * A preference write: `{id, patch}`, where the key fixes the value's type.
+ */
+export type PrefPatch = { "id": "hold", "patch": number };
+
+export type Project = { id: ProjectId, rev: Rev, name: string,
+/**
+ * Canonical and unique among projects.
+ */
+folder: string, kind: ProjectKind, color: string, aliases: Array<string>, git: boolean, isolate: Isolate, open: boolean, available: boolean, };
+
+/**
+ * A UUID v7 in text, minted by whoever creates the record.
+ */
+export type ProjectId = string;
+
+export type ProjectKind = "folder" | "scratch";
+
+/**
+ * The editable fields of a project; a missing one is left as it is.
+ */
+export type ProjectPatch = { name?: string | null, color?: string | null, aliases?: Array<string> | null, isolate?: Isolate | null, };
+
+/**
+ * `put`: writes plain data. Fields the state machine owns cannot be named here.
+ */
+export type Put = {
+/**
+ * Refused with `conflict` unless the row is still at this revision.
+ */
+if_rev?: Rev | null, } & ({ "c": "prefs" } & PrefPatch | { "c": "layouts", id: ProjectId, patch: LayoutPatch, } | { "c": "projects", id: ProjectId, patch: ProjectPatch, } | { "c": "thoughts", id: ThoughtId, patch: NotePatch, });
+
+/**
+ * Everything except `state` and `answer` is written once.
+ */
+export type Question = { id: QuestionId, rev: Rev, thought_id: ThoughtId | null, session_id: SessionId | null, turn: number | null, source: QuestionSource, prompt: string, detail: string | null, reply_via: ReplyVia, state: QuestionState, answer: Answer | null, } & ({ "kind": "confirm" } | { "kind": "choice", choices: Array<string>, } | { "kind": "text" });
+
+/**
+ * A UUID v7 in text, minted by whoever creates the record.
+ */
+export type QuestionId = string;
+
+export type QuestionSource = "agent" | "permission" | "router";
+
+export type QuestionState = "open" | "answered" | "withdrawn";
+
+/**
+ * Why a thought failed.
+ */
+export type Reason = "launch" | "turn_failed" | "interrupted" | "exited" | "stopped";
+
+/**
+ * Arguments that name one record.
+ */
+export type Ref<I> = { id: I, };
+
+export type Refuse = { why: RefuseWhy, };
+
+export type RefuseWhy = "auth" | "revoked";
+
+export type Register = { name: string, };
+
+export type Reply = { id: CallId, } & ({ "ok": unknown } | { "err": Error });
+
+/**
+ * `core`: a waiting caller receives the answer. `terminal`: the person
+ * answers in the agent's terminal.
+ */
+export type ReplyVia = "core" | "terminal";
+
+/**
+ * A `call` frame. The name stays text so that a name this side does not know
+ * still gets a `reply` with `unknown` instead of ending the connection.
+ */
+export type Request = { id: CallId, name: string, args: object, };
+
+/**
+ * A UUID v7 in text, minted by whoever creates the record.
+ */
+export type ResultId = string;
+
+export type ResultKind = "answer" | "failure" | "changes";
+
+/**
+ * The arguments of `core.retire`.
+ */
+export type Retire = { when: When, };
+
+/**
+ * Orders committed changes within one run of the core.
+ */
+export type Rev = number;
+
+/**
+ * The revision a snapshot was taken at, or a write committed at.
+ */
+export type Revision = { rev: Rev, };
+
+export type Role = "page" | "host" | "cli";
+
+/**
+ * Rows put whole, and ids of rows that stopped being live.
+ */
+export type Rows<R, I> = { put?: Array<R>, del?: Array<I>, };
+
+/**
+ * 32 random bytes as 64 hex digits: a device key or a session token.
+ */
+export type Secret = string;
+
+export type Session = { id: SessionId, rev: Rev, project_id: ProjectId, agent: string, terminal_id: TerminalId | null,
+/**
+ * Started by hand in a shell rather than launched by the core.
+ */
+adopted: boolean, state: SessionState,
+/**
+ * The thought of the current turn.
+ */
+thought_id: ThoughtId | null, turn: number,
+/**
+ * The agent's own handle for resuming.
+ */
+resume: string | null, name: string | null, named_at: Time | null, model: string | null, cwd: string, exit: number | null, error: string | null,
+/**
+ * The last 40 activity lines, oldest first; kept in memory only.
+ */
+activity: Array<string>, };
+
+/**
+ * `session.event`: what the session's agent reports, in the core's one vocabulary.
+ */
+export type SessionEvent = {
+/**
+ * The sender's own id for this event; the core ignores a repeat.
+ */
+id: string, } & ({ "kind": "ready" } | { "kind": "turn_started", prompt?: string | null, } | { "kind": "activity", text: string, } | { "kind": "continued" } | { "kind": "turn_finished", answer?: string | null, } | { "kind": "turn_failed", error?: string | null, } | { "kind": "turn_interrupted" });
+
+/**
+ * A UUID v7 in text, minted by whoever creates the record.
+ */
+export type SessionId = string;
+
+/**
+ * Written only by the state machine. A session with an open question
+ * shows asking; that is read from its questions, not stored here.
+ */
+export type SessionState = "starting" | "idle" | "working" | "ended";
+
+/**
+ * The rows of one collection that one change touches.
+ */
+export type Set = { "c": "thoughts" } & Rows<Thought, ThoughtId> | { "c": "projects" } & Rows<Project, ProjectId> | { "c": "sessions" } & Rows<Session, SessionId> | { "c": "terminals" } & Rows<Terminal, TerminalId> | { "c": "questions" } & Rows<Question, QuestionId> | { "c": "results" } & Rows<TurnResult, ResultId> | { "c": "layouts" } & Rows<Layout, ProjectId> | { "c": "prefs" } & Rows<Pref, PrefKey> | { "c": "devices" } & Rows<Device, DeviceId> | { "c": "glance", put: Array<Glance>, };
+
+/**
+ * A terminal size: `[cols, rows]`.
+ */
+export type Size = [number, number];
+
+export type Source = "typed" | "voice" | "terminal" | "import";
+
+/**
+ * `thought.start`. The attempt is committed before anything is spawned, so
+ * repeating this call never launches twice.
+ */
+export type Start = { id: ThoughtId, attempt: AttemptId, };
+
+/**
+ * Derived in the same transaction as the phase: `needs_you` while the
+ * thought has any open question, otherwise its phase.
+ */
+export type Status = "needs_you" | "captured" | "routed" | "working" | "done" | "failed";
+
+/**
+ * A stream id, never reused on its connection.
+ */
+export type StreamId = number;
+
+/**
+ * `sub`: a second one replaces the first; an empty list ends it.
+ */
+export type Subscribe = { collections: Array<Collection>, };
+
+export type Terminal = { id: TerminalId, rev: Rev, project_id: ProjectId | null, kind: TerminalKind, title: string, cwd: string, argv: Array<string>, cols: number, rows: number, state: TerminalState, exit: number | null,
+/**
+ * Bytes of output so far.
+ */
+offset: Offset, };
+
+/**
+ * A UUID v7 in text, minted by whoever creates the record.
+ */
+export type TerminalId = string;
+
+export type TerminalKind = "shell" | "agent" | "task";
+
+export type TerminalState = "running" | "exited" | "lost";
+
+/**
+ * The primary record. A note is a thought with mode `note`.
+ */
+export type Thought = { id: ThoughtId, rev: Rev, text: string, strokes: Array<Array<[number, number]>>, source: Source, mode: Mode, phase: Phase, status: Status, reason: Reason | null, live: boolean, project_id: ProjectId | null, session_id: SessionId | null, brief: string | null, agent: string | null, model: string | null, workdir: Workdir | null, hold_until: Time | null, read: boolean, created: Time, updated: Time, };
+
+/**
+ * A UUID v7 in text, minted by whoever creates the record.
+ */
+export type ThoughtId = string;
+
+/**
+ * Milliseconds since the Unix epoch.
+ */
+export type Time = number;
+
+/**
+ * A result of a turn.
+ */
+export type TurnResult = { id: ResultId, rev: Rev, thought_id: ThoughtId, session_id: SessionId | null, turn: number | null, kind: ResultKind, summary: string, };
+
+/**
+ * `[min, max]`, both inclusive.
+ */
+export type Versions = [number, number];
+
+export type Welcome = {
+/**
+ * The highest shared version, or 0 when none is shared.
+ */
+v: number, core: CoreId, build: string, as: Identity,
+/**
+ * Names rather than typed calls: a newer core lists calls this crate does not know.
+ */
+calls: Array<string>, };
+
+export type When = "now" | "idle";
+
+/**
+ * The worktree a thought runs in when its project isolates.
+ */
+export type Workdir = { path: string, branch: string,
+/**
+ * The branch Keep merges into, recorded at creation.
+ */
+destination: string,
+/**
+ * The commit the worktree started from.
+ */
+base: string, changes: Changes, };
+
+/** Every call: its arguments, its result, and who may make it. */
+export type Calls = {
+  "sub": { args: Subscribe; result: Revision; access: "device" };
+  "put": { args: Put; result: Revision; access: "device" };
+  "delete": { args: Delete; result: Revision; access: "device" };
+  "history": { args: History; result: HistoryPage; access: "device" };
+  "thought.capture": { args: Capture; result: null; access: "device" };
+  "thought.update": { args: Assign; result: null; access: "device" };
+  "thought.start": { args: Start; result: null; access: "device" };
+  "thought.stop": { args: Ref<ThoughtId>; result: null; access: "device" };
+  "thought.retry": { args: Ref<ThoughtId>; result: null; access: "device" };
+  "question.ask": { args: Ask; result: Answer; access: "session" };
+  "question.answer": { args: AnswerQuestion; result: null; access: "device" };
+  "question.withdraw": { args: AskKey; result: null; access: "session" };
+  "question.received": { args: AskKey; result: null; access: "session" };
+  "question.focus": { args: Ref<QuestionId>; result: null; access: "device" };
+  "session.event": { args: SessionEvent; result: null; access: "session" };
+  "project.add": { args: AddProject; result: ProjectId; access: "device" };
+  "project.scan": { args: Empty; result: null; access: "device" };
+  "input": { args: Input; result: null; access: "device" };
+  "device.revoke": { args: Ref<DeviceId>; result: null; access: "device" };
+  "core.status": { args: Empty; result: CoreStatus; access: "anyone" };
+  "core.retire": { args: Retire; result: null; access: "anyone" };
+};

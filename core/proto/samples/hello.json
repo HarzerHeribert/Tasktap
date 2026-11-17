@@ -1,0 +1,1 @@
+{"t":"hello","v":[1,1],"role":"host","client":"Tasktap 2.0.0 (mac)","auth":{"device":"01930000-0000-7000-8000-000000000009","key":"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f","register":{"name":"Mac host"}},"abilities":["host.show","host.notify"]}

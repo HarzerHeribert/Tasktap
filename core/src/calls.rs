@@ -489,7 +489,7 @@ fn changes(cx: &mut Cx, args: tasktap_proto::ReadChanges) -> Option<Control> {
     let (link, path, credit) = (cx.link.clone(), args.path, args.credit);
     let only = path.clone();
     let look = move || {
-        let mut git = crate::isolate::Git::new(&data, &repo)?;
+        let git = crate::isolate::Git::new(&data, Vec::new())?;
         git.list(&repo, &workdir, Some(only.as_deref()))
     };
     off_thread::<call::ThoughtChanges, _>(cx, look, move |core, listed| {

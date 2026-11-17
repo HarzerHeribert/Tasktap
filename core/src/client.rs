@@ -231,13 +231,19 @@ impl Client {
             Ok(opened) => opened,
             Err(e) => return Ok(Err(e)),
         };
+        self.track(&opened, credit, auto);
+        Ok(Ok(opened))
+    }
+
+    /// Follows a stream that a call's reply names among other things, as
+    /// [`Client::opened`] follows one that is the whole reply.
+    pub fn track(&mut self, opened: &Opened, credit: u32, auto: bool) {
         let flow = Flow {
             granted: credit.into(),
             credit: opened.credit.into(),
             auto: auto.then_some((credit, 0)),
         };
         self.streams.insert(opened.s, Some(flow));
-        Ok(Ok(opened))
     }
 
     /// Lets the core send `n` more bytes on `s`.

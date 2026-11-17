@@ -12,6 +12,8 @@
 pub mod fixture;
 mod process;
 mod queries;
+
+pub(crate) use process::folder;
 mod ring;
 
 use crate::calls::Cx;
@@ -117,6 +119,11 @@ struct Live {
 }
 
 impl Terminals {
+    /// The core's data folder.
+    pub fn data(&self) -> &Path {
+        &self.data
+    }
+
     pub fn new(data: &Path) -> Terminals {
         // Taken at start, from the environment the core was started with.
         process::declared();

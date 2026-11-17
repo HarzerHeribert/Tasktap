@@ -279,9 +279,13 @@ fn reopening_keeps_every_row_and_the_revision() {
     t.workdir = Some(tasktap_proto::Workdir {
         path: "/data/worktrees/a".into(),
         branch: "tasktap/a".into(),
-        destination: "main".into(),
+        destination: Some("main".into()),
         base: "abc123".into(),
+        left_out: true,
         changes: tasktap_proto::Changes::Clean,
+        files: 0,
+        insertions: 0,
+        deletions: 0,
     });
     let device = Device {
         id: DeviceId::mint(),

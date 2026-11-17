@@ -1,4 +1,4 @@
-//! The one table of calls (design §1, §2): the 30 of the 44 core calls built
+//! The one table of calls (design §1, §2): the 31 of the 45 core calls built
 //! so far, the shim's ability, and the test fixtures.
 //!
 //! Each call is a type here, named for the call (`thought.capture` is
@@ -8,8 +8,8 @@
 
 use crate::args::{
     AddProject, Adopt, Agents, AnswerQuestion, Ask, AskKey, Assign, Capture, CloseProject,
-    DetectAgents, Empty, FixtureLog, Hint, HistoryPage, OpenTerminal, Ref, ResizeTerminal,
-    Revision, Route, Settle, Start, Subscribe,
+    DetectAgents, Diff, Empty, FixtureLog, Hint, HistoryPage, OpenTerminal, ReadChanges, Ref,
+    ResizeTerminal, Revision, Route, Settle, Start, Subscribe,
 };
 use crate::bootstrap::{Identity, Retire};
 use crate::frame::{Control, Outcome, Reply, Request};
@@ -75,6 +75,7 @@ table! {
     ThoughtRetry "thought.retry" Device (Ref<ThoughtId>) -> ();
     ThoughtSettle "thought.settle" Device (Settle) -> ();
     ThoughtRead "thought.read" Device (Ref<ThoughtId>) -> ();
+    ThoughtChanges "thought.changes" Device (ReadChanges) -> Diff;
     // Questions
     QuestionAsk "question.ask" Session (Ask) -> Answer;
     QuestionAnswer "question.answer" Device (AnswerQuestion) -> ();

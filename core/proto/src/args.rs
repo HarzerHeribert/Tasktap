@@ -692,6 +692,55 @@ pub struct ResizeTerminal {
     pub rows: u16,
 }
 
+/// `thought.changes`: the changes of a thought's worktree against the
+/// commit it started from, committed on its branch or not. The reply lists
+/// the files; the stream carries the diff, the whole or one file's.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct ReadChanges {
+    pub id: ThoughtId,
+    /// What the caller grants the core on the stream at once.
+    pub credit: u32,
+    /// One file's diff instead of the whole: a path the list names.
+    #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub path: Option<String>,
+}
+
+/// The reply of `thought.changes`: the files, and the stream of the diff
+/// as `git diff` prints it, which ends once all of it is sent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Diff {
+    pub stream: crate::frame::Opened,
+    /// The files changed, by path, as many as fit a reply.
+    pub files: Vec<ChangedFile>,
+    /// Files changed that `files` leaves out.
+    pub more: u32,
+    /// Bytes of the diff. The stream carries at most [`MAX_DIFF`] of them.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub size: u64,
+    /// The stream ends before the diff does.
+    pub cut: bool,
+}
+
+/// Most bytes of a diff `thought.changes` streams.
+pub const MAX_DIFF: usize = 4 << 20;
+
+/// One file of a worktree's changes. A binary file counts no lines.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct ChangedFile {
+    pub path: String,
+    pub change: FileChange,
+    pub insertions: Option<u32>,
+    pub deletions: Option<u32>,
+}
+
+words! {
+    /// `type`: a file became a link, or the reverse.
+    pub enum FileChange { Added, Modified, Deleted, Type }
+}
+
 /// `project.close`: no terminal starts in the project until `project.add`
 /// names its folder again. With `stop`, its running terminals are stopped in
 /// the same step, as `terminal.stop` does; without, they keep running.

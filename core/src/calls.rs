@@ -85,13 +85,8 @@ fn handler(name: Name) -> Option<Handler> {
         Name::ThoughtRetry => {
             |cx, args| event::<call::ThoughtRetry>(cx, args, |r| Event::Retry { thought: r.id })
         }
-        Name::ThoughtSettle => |cx, args| {
-            event::<call::ThoughtSettle>(cx, args, |s| Event::Settle {
-                thought: s.id,
-                attempt: s.attempt,
-                keep: s.keep,
-            })
-        },
+        Name::ThoughtSettle => effects::settle_call,
+        Name::ThoughtChanges => |cx, args| later::<call::ThoughtChanges>(cx, args, changes),
         Name::ThoughtRead => {
             |cx, args| event::<call::ThoughtRead>(cx, args, |r| Event::Read { thought: r.id })
         }
@@ -448,6 +443,76 @@ fn reopen(tx: &mut crate::store::Tx, mut p: Project) -> Result<ProjectId, Error>
         tx.update_project(&p).map_err(stored)?;
     }
     Ok(p.id)
+}
+
+/// Diffs held by open `thought.changes` streams at once, each at most
+/// `MAX_DIFF` bytes: what they may hold together is bounded.
+const DIFFS: usize = 4;
+
+/// `thought.changes`: the changes of a thought's worktree not settled yet,
+/// read off the core's thread as a folder check is: the files in the reply,
+/// as many as fit it, and the diff as a stream.
+fn changes(cx: &mut Cx, args: tasktap_proto::ReadChanges) -> Option<Control> {
+    let found = effects::read(cx.core, |tx| {
+        let Some(t) = tx.thought(args.id)? else {
+            return Ok(None);
+        };
+        let open = |w: &tasktap_proto::Workdir| {
+            matches!(
+                w.changes,
+                tasktap_proto::Changes::Clean | tasktap_proto::Changes::Pending
+            )
+        };
+        let project = t.project_id.map(|p| tx.project(p)).transpose()?.flatten();
+        Ok(project.zip(t.workdir.filter(open)))
+    });
+    let (project, workdir) = match found {
+        Ok(Some(found)) => found,
+        Ok(None) => {
+            let gone = "the thought has no worktree, or its changes were kept or discarded";
+            return Some(call::ThoughtChanges::reply(
+                cx.id,
+                Err(Error::new(Code::Gone, gone)),
+            ));
+        }
+        Err(e) => return Some(call::ThoughtChanges::reply(cx.id, Err(e))),
+    };
+    if cx.core.diffs.get() >= DIFFS {
+        let busy = Error::new(
+            Code::Failed,
+            "too many diffs are being sent; try again soon",
+        );
+        return Some(call::ThoughtChanges::reply(cx.id, Err(busy)));
+    }
+    let data = cx.core.terminals.data().to_owned();
+    let repo = PathBuf::from(project.folder);
+    let (link, path, credit) = (cx.link.clone(), args.path, args.credit);
+    let only = path.clone();
+    let look = move || {
+        let git = crate::isolate::Git::new(&data)?;
+        git.list(&repo, &workdir, Some(only.as_deref()))
+    };
+    off_thread::<call::ThoughtChanges, _>(cx, look, move |core, listed| {
+        let listed = listed.map_err(|e| Error::new(Code::Failed, e))?;
+        let cut = listed.size > listed.diff.len() as u64;
+        let mut files = listed.files;
+        let mut room = MAX_LINE * 32;
+        let fit = files.iter().take_while(|f| {
+            room = room.saturating_sub(json_len(f));
+            room > 0
+        });
+        let fit = fit.count();
+        let more = (files.len() - fit) as u32;
+        files.truncate(fit);
+        let stream = crate::stream::bytes(&link, credit, listed.diff, &core.diffs)?;
+        Ok(tasktap_proto::Diff {
+            stream,
+            files,
+            more,
+            size: listed.size,
+            cut,
+        })
+    })
 }
 
 /// `agents.detect`: each agent asked for, or every one, as its own commands

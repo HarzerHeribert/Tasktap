@@ -126,9 +126,13 @@ fn workdir(changes: Changes) -> Workdir {
     Workdir {
         path: "/work/app-tasktap".into(),
         branch: "tasktap/fix".into(),
-        destination: "main".into(),
+        destination: Some("main".into()),
         base: "0123abc".into(),
+        left_out: false,
         changes,
+        files: 1,
+        insertions: 1,
+        deletions: 0,
     }
 }
 
@@ -360,6 +364,29 @@ impl World {
         let id = q.id;
         assert_eq!(self.ok(ask(q)), [Effect::Notify(id)]);
         id
+    }
+
+    /// Sets the project's isolation and whether it is a git repository.
+    fn isolate(&mut self, isolate: Isolate, git: bool) {
+        let id = self.project;
+        self.write(|tx| {
+            let mut p = tx.project(id).unwrap().unwrap();
+            (p.isolate, p.git) = (isolate, git);
+            tx.update_project(&p).unwrap();
+        });
+    }
+
+    /// Starts a routed thought by hand and returns its launch.
+    fn start(&mut self, t: ThoughtId) -> Launch {
+        let attempt = AttemptId::mint();
+        let effects = self.ok(Event::Start {
+            thought: t,
+            attempt,
+        });
+        match &effects[..] {
+            [Effect::Unhold(_), Effect::Launch(l)] | [Effect::Launch(l)] => l.clone(),
+            other => panic!("no launch: {other:?}"),
+        }
     }
 
     fn answer(&mut self, question: QuestionId, response: Response) -> Result<Vec<Effect>, Error> {
@@ -652,6 +679,7 @@ fn row_hold_end_launches_once_the_attempt_is_written() {
         model: None,
         prompt: "fix the build".into(),
         resume: None,
+        worktree: None,
     };
     assert_eq!(effects, [Effect::Launch(launch)]);
     // The attempt is written before anything is spawned.
@@ -826,6 +854,7 @@ fn a_follow_up_to_an_ended_session_continues_it_in_a_new_one() {
         model: None,
         prompt: "one more thing".into(),
         resume: Some("conversation-1".into()),
+        worktree: None,
     };
     assert_eq!(effects, [Effect::Unhold(f), Effect::Launch(launch)]);
     assert_eq!(w.thought(f).session_id, Some(session));
@@ -2512,7 +2541,8 @@ fn check(tx: &Tx, known: &Known, effects: &[Effect], step: &Step) {
             }
             Effect::Settle {
                 attempt, thought, ..
-            } => (*attempt, AttemptKind::Settle(*thought)),
+            }
+            | Effect::Tidy { attempt, thought } => (*attempt, AttemptKind::Settle(*thought)),
             _ => continue,
         };
         let written = tx.attempt(attempt).unwrap();
@@ -2543,6 +2573,248 @@ fn label(step: &Step) -> String {
         None => format!("{step:?}"),
     };
     text.split([' ', '(', '{']).next().unwrap().into()
+}
+
+/// A worktree as the launcher reports it made.
+fn made(name: &str) -> Workdir {
+    Workdir {
+        path: format!("/data/worktrees/{name}"),
+        branch: format!("tasktap/{name}"),
+        changes: Changes::Clean,
+        files: 0,
+        insertions: 0,
+        ..workdir(Changes::Clean)
+    }
+}
+
+fn found(files: u32) -> state::Found {
+    state::Found {
+        files,
+        insertions: files * 2,
+        deletions: files,
+        merged: false,
+        gone: false,
+    }
+}
+
+#[test]
+fn row_launch_places_a_run_as_the_project_and_its_busyness_say() {
+    let mut w = World::new("place");
+    w.isolate(Isolate::Busy, true);
+    // Nothing runs: in place. Its session then starts, which makes the project busy.
+    let first = w.routed("one");
+    let l = w.start(first);
+    assert_eq!((l.cwd.as_str(), l.worktree), (FOLDER, None));
+    let second = w.routed("two");
+    let l = w.start(second);
+    let hex = l.attempt.uuid().simple().to_string();
+    let name = hex[hex.len() - 12..].to_owned();
+    assert_eq!(l.worktree, Some(state::Worktree::New { name }));
+    // Never, or no repository: in place, busy or not.
+    w.isolate(Isolate::Never, true);
+    let t = w.routed("three");
+    assert_eq!(w.start(t).worktree, None);
+    w.isolate(Isolate::Always, false);
+    let t = w.routed("four");
+    assert_eq!(w.start(t).worktree, None);
+    // Always: a worktree, busy or not.
+    w.isolate(Isolate::Always, true);
+    let t = w.routed("five");
+    assert!(matches!(
+        w.start(t).worktree,
+        Some(state::Worktree::New { .. })
+    ));
+}
+
+#[test]
+fn rows_a_worktree_is_recorded_looked_at_and_tidied_once_it_holds_nothing() {
+    let mut w = World::new("worktree");
+    w.isolate(Isolate::Always, true);
+    let t = w.routed("fix the build");
+    let l = w.start(t);
+    let s = l.session;
+    // Recorded on its owner before anything runs in it; the session works there.
+    let tree = made("abc");
+    let prepared = Event::Prepared {
+        attempt: l.attempt,
+        owner: t,
+        workdir: tree.clone(),
+    };
+    assert_eq!(w.ok(prepared), NONE);
+    assert_eq!(w.thought(t).workdir, Some(tree.clone()));
+    assert_eq!(w.session(s).cwd, tree.path);
+    // Never another in place of one not settled.
+    let other = Event::Prepared {
+        attempt: l.attempt,
+        owner: t,
+        workdir: made("other"),
+    };
+    assert_eq!(w.ignored(other), Ignored::State);
+    assert!(w.carry(&[Effect::Launch(l)]).is_empty());
+    w.say(s, Said::Ready).unwrap();
+    w.say(s, Said::TurnStarted { prompt: None }).unwrap();
+
+    // A turn's end has the worktree looked at; what the look found is recorded.
+    let effects = w.say(s, Said::TurnFinished { answer: None }).unwrap();
+    assert!(effects.contains(&Effect::Survey(t)), "{effects:?}");
+    let surveyed = |files, path: &str| Event::Surveyed {
+        thought: t,
+        path: path.into(),
+        found: found(files),
+    };
+    assert_eq!(w.ok(surveyed(2, &tree.path)), NONE);
+    let wd = w.thought(t).workdir.unwrap();
+    assert_eq!(
+        (wd.changes, wd.files, wd.insertions, wd.deletions),
+        (Changes::Pending, 2, 4, 2)
+    );
+    // A look at another worktree's path changes nothing.
+    assert_eq!(
+        w.ignored(surveyed(0, "/data/worktrees/zzz")),
+        Ignored::State
+    );
+    // Its session idle there: neither settled nor tidied.
+    let settle = |attempt, keep| Event::Settle {
+        thought: t,
+        attempt,
+        keep,
+    };
+    assert!(matches!(
+        w.apply(settle(AttemptId::mint(), true)),
+        Err(Error::Conflict(_))
+    ));
+    assert_eq!(w.ok(surveyed(0, &tree.path)), NONE);
+    assert_eq!(w.thought(t).workdir.unwrap().changes, Changes::Clean);
+
+    // Its session ends: looked at again, and with nothing in it, tidied.
+    let effects = w.ok(Event::Exited {
+        session: s,
+        code: Some(0),
+        silent: false,
+    });
+    assert!(effects.contains(&Effect::Survey(t)), "{effects:?}");
+    let effects = w.ok(surveyed(0, &tree.path));
+    let [Effect::Tidy { attempt, thought }] = effects[..] else {
+        panic!("no tidy: {effects:?}");
+    };
+    assert_eq!(thought, t);
+    let a = w.read(|tx| tx.attempt(attempt).unwrap().unwrap());
+    assert_eq!((a.kind, a.outcome), (AttemptKind::Settle(t), None));
+    // While it runs, a look counts for nothing.
+    assert_eq!(w.ignored(surveyed(3, &tree.path)), Ignored::State);
+    // It found changes after all: they wait to be kept or discarded.
+    let refused = Event::Settled {
+        attempt,
+        error: Some("it has changes".into()),
+    };
+    assert_eq!(w.ok(refused), NONE);
+    assert_eq!(w.ok(surveyed(1, &tree.path)), NONE);
+    assert_eq!(w.thought(t).workdir.unwrap().changes, Changes::Pending);
+    // A terminal of the core in the worktree holds a settle off too.
+    let shell = w.read(|tx| {
+        tx.terminal(TerminalId::try_from(s.uuid()).unwrap())
+            .unwrap()
+    });
+    let mut running = shell.unwrap();
+    running.id = TerminalId::mint();
+    running.cwd = format!("{}/src", tree.path);
+    running.state = TerminalState::Running;
+    w.write(|tx| tx.insert_terminal(&running, None).unwrap());
+    assert!(matches!(
+        w.apply(settle(AttemptId::mint(), false)),
+        Err(Error::Conflict(_))
+    ));
+    w.write(|tx| {
+        running.state = TerminalState::Exited;
+        tx.update_terminal(&running).unwrap();
+    });
+    // One settle at a time.
+    let first = AttemptId::mint();
+    assert!(matches!(
+        &w.ok(settle(first, false))[..],
+        [Effect::Settle { .. }]
+    ));
+    assert!(matches!(
+        w.apply(settle(AttemptId::mint(), true)),
+        Err(Error::Conflict(_))
+    ));
+    w.ok(Event::Settled {
+        attempt: first,
+        error: None,
+    });
+    assert_eq!(w.thought(t).workdir.unwrap().changes, Changes::Discarded);
+}
+
+#[test]
+fn row_surveyed_decides_a_settle_the_core_stopped_during_by_what_git_shows() {
+    for (keep, found, after) in [
+        (
+            true,
+            state::Found {
+                merged: true,
+                ..found(1)
+            },
+            Changes::Kept,
+        ),
+        (
+            true,
+            state::Found {
+                gone: true,
+                ..found(0)
+            },
+            Changes::Kept,
+        ),
+        (true, found(1), Changes::Pending),
+        (
+            false,
+            state::Found {
+                gone: true,
+                ..found(0)
+            },
+            Changes::Discarded,
+        ),
+        (false, found(1), Changes::Pending),
+    ] {
+        let mut w = World::new("stopped");
+        let (t, s) = w.turn();
+        w.say(s, Said::TurnFinished { answer: None }).unwrap();
+        w.write(|tx| {
+            let mut th = tx.thought(t).unwrap().unwrap();
+            th.workdir = Some(workdir(Changes::Pending));
+            tx.update_thought(&th).unwrap();
+        });
+        w.ok(Event::Exited {
+            session: s,
+            code: Some(0),
+            silent: false,
+        });
+        let attempt = AttemptId::mint();
+        w.ok(Event::Settle {
+            thought: t,
+            attempt,
+            keep,
+        });
+        // The core stops before the settle reports.
+        w.reopen();
+        assert_eq!(w.outcome(attempt), Some(AttemptOutcome::Interrupted));
+        let effects = w.ok(Event::Surveyed {
+            thought: t,
+            path: workdir(Changes::Pending).path,
+            found,
+        });
+        assert_eq!(
+            w.thought(t).workdir.unwrap().changes,
+            after,
+            "{keep} {found:?}"
+        );
+        // Kept with something left of it: that is tidied.
+        let tidied = after == Changes::Kept && !found.gone;
+        assert_eq!(
+            matches!(&effects[..], [Effect::Tidy { .. }]),
+            tidied,
+            "{effects:?}"
+        );
+    }
 }
 
 #[test]

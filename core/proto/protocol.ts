@@ -202,6 +202,11 @@ current?: SessionId | null, };
  */
 export type Change = { rev: Rev, snap?: boolean, more?: boolean, sets: Array<Set>, };
 
+/**
+ * One file of a worktree's changes. A binary file counts no lines.
+ */
+export type ChangedFile = { path: string, change: FileChange, insertions: number | null, deletions: number | null, };
+
 export type Changes = "none" | "pending" | "kept" | "discarded";
 
 export type Close = { s: StreamId, why?: CloseWhy | null, };
@@ -267,6 +272,28 @@ export type Device = { id: DeviceId, rev: Rev, name: string, last_seen: Time | n
 export type DeviceId = string;
 
 /**
+ * The reply of `thought.changes`: the files, and the stream of the diff
+ * as `git diff` prints it, which ends once all of it is sent.
+ */
+export type Diff = { stream: Opened,
+/**
+ * The files changed, by path, as many as fit a reply.
+ */
+files: Array<ChangedFile>,
+/**
+ * Files changed that `files` leaves out.
+ */
+more: number,
+/**
+ * Bytes of the diff. The stream carries at most [`MAX_DIFF`] of them.
+ */
+size: number,
+/**
+ * The stream ends before the diff does.
+ */
+cut: boolean, };
+
+/**
  * Arguments of a call that takes none: `{}`.
  */
 export type Empty = Record<string, never>;
@@ -275,6 +302,11 @@ export type Empty = Record<string, never>;
  * The one error shape of every failed call.
  */
 export type Error = { code: Code, message: string, };
+
+/**
+ * `type`: a file became a link, or the reverse.
+ */
+export type FileChange = "added" | "modified" | "deleted" | "type";
 
 /**
  * `fixture.clock`: from now on the core's clock reads `now` and moves only
@@ -621,6 +653,21 @@ export type QuestionSource = "agent" | "permission" | "router";
 export type QuestionState = "open" | "answered" | "withdrawn";
 
 /**
+ * `thought.changes`: the changes of a thought's worktree against the
+ * commit it started from, committed on its branch or not. The reply lists
+ * the files; the stream carries the diff, the whole or one file's.
+ */
+export type ReadChanges = { id: ThoughtId,
+/**
+ * What the caller grants the core on the stream at once.
+ */
+credit: number,
+/**
+ * One file's diff instead of the whole: a path the list names.
+ */
+path?: string | null, };
+
+/**
  * Why a thought failed.
  */
 export type Reason = "launch" | "turn_failed" | "interrupted" | "exited" | "stopped";
@@ -872,17 +919,40 @@ calls: Array<string>, };
 export type When = "now" | "idle";
 
 /**
- * The worktree a thought runs in when its project isolates.
+ * The worktree a thought runs in when its project isolates (design §7,
+ * "Isolation"). It belongs to this thought alone; follow-ups to its
+ * sessions work in it too.
  */
-export type Workdir = { path: string, branch: string,
+export type Workdir = {
 /**
- * The branch Keep merges into, recorded at creation.
+ * `<data>/worktrees/<name>`, canonical.
  */
-destination: string,
+path: string,
 /**
- * The commit the worktree started from.
+ * `tasktap/<name>`, made for this worktree from `base`.
  */
-base: string, changes: Changes, };
+branch: string,
+/**
+ * The branch Keep brings the changes into, recorded at creation: the
+ * one the project folder was on. None when it was on no branch (a
+ * detached HEAD); Keep then refuses and the branch is the person's to merge.
+ */
+destination: string | null,
+/**
+ * The commit the worktree started from: the project folder's HEAD then.
+ */
+base: string,
+/**
+ * The project folder had uncommitted changes of its own when the
+ * worktree was made. The run started from `base` without them, and
+ * they stay where they are.
+ */
+left_out: boolean, changes: Changes,
+/**
+ * The changes against `base`, committed on the branch or not, as the
+ * last look found them: files changed, lines added, lines removed.
+ */
+files: number, insertions: number, deletions: number, };
 
 /** Every call: its arguments, its result, and who may make it. */
 export type Calls = {
@@ -897,6 +967,7 @@ export type Calls = {
   "thought.retry": { args: Ref<ThoughtId>; result: null; access: "device" };
   "thought.settle": { args: Settle; result: null; access: "device" };
   "thought.read": { args: Ref<ThoughtId>; result: null; access: "device" };
+  "thought.changes": { args: ReadChanges; result: Diff; access: "device" };
   "question.ask": { args: Ask; result: Answer; access: "session" };
   "question.answer": { args: AnswerQuestion; result: null; access: "device" };
   "question.withdraw": { args: AskKey; result: null; access: "session" };

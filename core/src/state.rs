@@ -18,6 +18,7 @@
 
 use std::collections::BTreeSet;
 use std::fmt;
+use std::path::Path;
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -25,11 +26,12 @@ use sha2::{Digest, Sha256};
 // Short names keep each row of the table on one line: E an event, A what an
 // agent said, P a thought's phase, S a session's state, Q a question's state.
 use tasktap_proto::{
-    Answer, AttemptId, Capture, Changes, Code, DeviceId, Event as A, MAX_OPEN_QUESTIONS,
-    MAX_SESSION_QUESTIONS, Mode, Offset, Outcome, Phase as P, PrefKey, PrefValue, ProjectId,
-    Question, QuestionId, QuestionKind, QuestionSource, QuestionState as Q, Reason, ReplyVia,
-    Response, ResultKind, Rev, Secret, Session, SessionId, SessionState as S, Source, Status,
-    Terminal, TerminalId, TerminalKind, TerminalState, Thought, ThoughtId, Time, TurnResult,
+    Answer, AttemptId, Capture, Changes, Code, DeviceId, Event as A, Isolate, MAX_OPEN_QUESTIONS,
+    MAX_SESSION_QUESTIONS, Mode, Offset, Outcome, Phase as P, PrefKey, PrefValue, Project,
+    ProjectId, ProjectKind, Question, QuestionId, QuestionKind, QuestionSource, QuestionState as Q,
+    Reason, ReplyVia, Response, ResultKind, Rev, Secret, Session, SessionId, SessionState as S,
+    Source, Status, Terminal, TerminalId, TerminalKind, TerminalState, Thought, ThoughtId, Time,
+    TurnResult, Workdir,
 };
 
 use crate::store::{self, Attempt, AttemptKind, AttemptOutcome, Hash, Tx};
@@ -38,6 +40,10 @@ use Event as E;
 
 /// Characters of an answer's first line kept as its result's summary.
 const SUMMARY: usize = 200;
+/// Hex digits of a launch attempt's id, from its random end, that name a
+/// new worktree and its branch.
+const NAME: usize = 12;
+const SETTLING: &str = "its changes are being kept or discarded; try again once that is done";
 /// The activity line a turn starts with.
 pub const TURN_STARTED: &str = "Started on the prompt";
 
@@ -80,10 +86,23 @@ pub enum Event {
     },
     /// The launcher could not do it.
     LaunchFailed { attempt: AttemptId, error: String },
-    /// The `Settle` effect finished, or refused with the reason.
+    /// The `Settle` or `Tidy` effect finished, or refused with the reason.
     Settled {
         attempt: AttemptId,
         error: Option<String>,
+    },
+    /// A launch's worktree was made, or found again, before its run
+    /// starts: `owner`'s record, which the run's session works in.
+    Prepared {
+        attempt: AttemptId,
+        owner: ThoughtId,
+        workdir: Workdir,
+    },
+    /// What a look at the thought's worktree at `path` found.
+    Surveyed {
+        thought: ThoughtId,
+        path: String,
+        found: Found,
     },
     /// A session's process ended. `silent` when its agent sends no events,
     /// so the exit is its only report.
@@ -202,6 +221,16 @@ pub enum Effect {
         thought: ThoughtId,
         keep: bool,
     },
+    /// Look at the changes of the thought's worktree; report with
+    /// [`Event::Surveyed`].
+    Survey(ThoughtId),
+    /// Remove the thought's worktree and branch if nothing would be lost:
+    /// no changes, or all in its destination. Report what it found instead
+    /// with [`Event::Surveyed`], then the end with [`Event::Settled`].
+    Tidy {
+        attempt: AttemptId,
+        thought: ThoughtId,
+    },
     /// A question opened: tell the person.
     Notify(QuestionId),
     /// A waited question was answered: its stored answer is the waiter's reply.
@@ -227,6 +256,37 @@ pub struct Launch {
     pub prompt: String,
     /// The agent's handle of an ended session whose conversation this run continues.
     pub resume: Option<String>,
+    /// The worktree the run works in, made or found before it starts; none
+    /// runs it in `cwd`, the project folder.
+    pub worktree: Option<Worktree>,
+}
+
+/// The worktree a launch runs in (design §7, "Isolation").
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Worktree {
+    /// A new one, `tasktap/<name>` in `<data>/worktrees/<name>`, from the
+    /// project folder's HEAD, which the launch's thought owns.
+    New { name: String },
+    /// `owner`'s, made again where it is gone.
+    Again {
+        owner: ThoughtId,
+        workdir: Box<Workdir>,
+    },
+}
+
+/// What a look at a worktree found (`isolate.rs`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Found {
+    /// Files changed against the worktree's base, committed or not, and
+    /// their lines added and removed.
+    pub files: u32,
+    pub insertions: u32,
+    pub deletions: u32,
+    /// Its branch has commits of its own, all of them in its destination,
+    /// and nothing is left uncommitted: what a Keep leaves before it tidies.
+    pub merged: bool,
+    /// Neither its folder nor its branch is there any more.
+    pub gone: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -444,6 +504,12 @@ impl Machine<'_, '_> {
         let state = session.as_ref().map(|s| s.state);
         let asked = question.as_ref().map(|q| q.state);
         let alive = matches!(state, Some(S::Starting | S::Idle | S::Working));
+        // A worktree settles only once nothing works in it and no other
+        // settle of it is under way.
+        let (occupied, settling) = match (&event, &thought) {
+            (E::Settle { .. }, Some(t)) => (alive || self.occupied(t)?, self.settling(t.id)?),
+            _ => (false, false),
+        };
         let adopted = session.as_ref().is_some_and(|s| s.adopted);
         let router = question.as_ref().map(|q| q.source) == Some(QuestionSource::Router);
         match (event, said, phase, state, asked) {
@@ -497,6 +563,12 @@ impl Machine<'_, '_> {
                 self.launch_failed(thought, session, attempt, error)
             }
             (E::Launched { terminal, .. }, ..) => self.launched(session, terminal),
+            // A launch's worktree was made: its owner records it, and the
+            // run's session works in it.
+            (E::Prepared { workdir, .. }, ..) => self.prepared(some(thought)?, session, workdir),
+            // A look at a worktree: its changes pending or none, a settle the
+            // core stopped during decided, and one with nothing to lose tidied.
+            (E::Surveyed { path, found, .. }, ..) => self.surveyed(some(thought)?, path, found),
             // session.adopt: a new adopted session, starting, in a shell where
             // no session is alive.
             (
@@ -608,20 +680,26 @@ impl Machine<'_, '_> {
             (E::Retry { .. }, _, Some(P::Failed), ..) => self.retry(some(thought)?),
             // thought.read: a done or failed thought is read; settled too, it is finished.
             (E::Read { .. }, _, Some(P::Done | P::Failed), ..) => self.read(some(thought)?),
-            // thought.settle: changes pending → kept or discarded, once the session has ended.
-            (E::Settle { .. }, _, Some(P::Done | P::Failed), ..) if alive && pending(&thought) => {
+            // thought.settle: changes pending → kept or discarded, once no
+            // session and no terminal works in the worktree.
+            (E::Settle { .. }, _, Some(P::Done | P::Failed), ..)
+                if occupied && pending(&thought) =>
+            {
                 Err(Error::Conflict(
                     "a thought settles once its session has ended",
                 ))
+            }
+            (E::Settle { .. }, _, Some(P::Done | P::Failed), ..)
+                if settling && pending(&thought) =>
+            {
+                Err(Error::Conflict(SETTLING))
             }
             (E::Settle { attempt, keep, .. }, _, Some(P::Done | P::Failed), ..)
                 if pending(&thought) =>
             {
                 self.settle(some(thought)?, attempt, keep)
             }
-            (E::Settled { error: None, .. }, _, Some(P::Done | P::Failed), ..)
-                if pending(&thought) =>
-            {
+            (E::Settled { error: None, .. }, ..) if pending(&thought) => {
                 self.settled(some(thought)?, attempt)
             }
             // A refused settle leaves the changes pending; the outcome is recorded.
@@ -702,6 +780,15 @@ impl Machine<'_, '_> {
                 s.thought = self.tx.thought(thought)?;
                 s.attempt = Some(a);
             }
+            Event::Prepared { attempt, owner, .. } => {
+                let a = self.tx.attempt(*attempt)?.ok_or(Error::Gone)?;
+                if a.outcome.is_some() || !matches!(a.kind, AttemptKind::Launch(_)) {
+                    return Err(Error::Ignored(Ignored::Repeat));
+                }
+                s.session = self.tx.session(own_session(a.id)?)?;
+                s.thought = self.tx.thought(*owner)?;
+            }
+            Event::Surveyed { thought, .. } => self.of_thought(&mut s, *thought)?,
             Event::Exited { session, .. } | Event::Shown { session, .. } => {
                 self.of_session(&mut s, *session)?
             }
@@ -965,7 +1052,8 @@ impl Machine<'_, '_> {
             let project = t
                 .project_id
                 .ok_or(Error::Invalid("a thought starts in a project"))?;
-            let folder = self.tx.project(project)?.ok_or(Error::Gone)?.folder;
+            let p = self.tx.project(project)?.ok_or(Error::Gone)?;
+            let (cwd, worktree) = self.place(&t, &p, target.as_ref(), attempt)?;
             let agent = target
                 .as_ref()
                 .map(|s| s.agent.clone())
@@ -985,7 +1073,7 @@ impl Machine<'_, '_> {
                 name: None,
                 named_at: None,
                 model: t.model.clone(),
-                cwd: t.workdir.as_ref().map_or(folder, |w| w.path.clone()),
+                cwd,
                 exit: None,
                 error: None,
                 activity: Vec::new(),
@@ -1002,6 +1090,7 @@ impl Machine<'_, '_> {
                 model: t.model.clone(),
                 prompt: text,
                 resume: target.and_then(|s| s.resume),
+                worktree,
             })
         };
         self.tx.insert_attempt(&Attempt {
@@ -1053,6 +1142,7 @@ impl Machine<'_, '_> {
         // A launch ends the session it made; a failed follow-up leaves its session alone.
         let own = session.as_ref().map(|s| s.id);
         if let Some(s) = session.filter(|s| s.state != S::Ended) {
+            self.look(&s)?;
             self.end(s, None, Some(error.clone()))?;
         }
         // A follow-up its agent began already (its turn_started came first)
@@ -1388,11 +1478,13 @@ impl Machine<'_, '_> {
             }
         }
         self.tx.update_session(&s)?;
+        self.look(&s)?;
         t.map_or(Ok(()), |t| self.save(t))
     }
 
     fn exited(&mut self, s: Session, code: Option<u32>, silent: bool) -> Result<()> {
         let id = s.id;
+        self.look(&s)?;
         self.end(s, code, None)?;
         // An agent that sends no events reports its work only by exiting.
         let done = silent && code == Some(0);
@@ -1421,6 +1513,7 @@ impl Machine<'_, '_> {
                     terminal: s.terminal_id,
                 },
             });
+            self.look(&s)?;
             self.end(s, None, None)?;
             // Follow-ups waiting in the same process are stopped with it.
             for mut other in self.tx.thoughts_in_flight(id)? {
@@ -1468,16 +1561,164 @@ impl Machine<'_, '_> {
     }
 
     fn settled(&mut self, mut t: Thought, attempt: Option<Attempt>) -> Result<()> {
-        // The attempt's hash says which of the two it was.
-        let keep = attempt.is_some_and(|a| a.args_hash == settle_hash(t.id, true));
+        // The attempt's hash says which it was; a tidy changes no record.
+        let hash = attempt.map(|a| a.args_hash);
+        let changes = if hash == Some(settle_hash(t.id, true)) {
+            Changes::Kept
+        } else if hash == Some(settle_hash(t.id, false)) {
+            Changes::Discarded
+        } else {
+            return Ok(());
+        };
         if let Some(w) = &mut t.workdir {
-            w.changes = if keep {
-                Changes::Kept
-            } else {
-                Changes::Discarded
-            };
+            w.changes = changes;
         }
         self.save(t)
+    }
+
+    /// Where a new run of `t` works (design §7, "Isolation"): the thought's
+    /// own worktree while it holds anything unsettled; the worktree whose
+    /// changes wait for the conversation it continues; otherwise a new
+    /// worktree when the project is a git repository whose setting says so
+    /// (`always`, or `busy` while one of its sessions starts or works or
+    /// another thought's changes wait there); otherwise the project folder.
+    fn place(
+        &self,
+        t: &Thought,
+        p: &Project,
+        resumed: Option<&Session>,
+        attempt: AttemptId,
+    ) -> Result<(String, Option<Worktree>)> {
+        let again = |owner: ThoughtId, w: &Workdir| {
+            let workdir = Box::new(w.clone());
+            (w.path.clone(), Some(Worktree::Again { owner, workdir }))
+        };
+        if let Some(w) = t.workdir.as_ref().filter(|w| open(w)) {
+            if self.settling(t.id)? {
+                return Err(Error::Conflict(SETTLING));
+            }
+            return Ok(again(t.id, w));
+        }
+        if let Some(owner) = resumed.map(|s| self.owner(&s.cwd)).transpose()?.flatten()
+            && pending(&Some(owner.clone()))
+            && !self.settling(owner.id)?
+            && let Some(w) = &owner.workdir
+        {
+            return Ok(again(owner.id, w));
+        }
+        let isolated = p.git
+            && p.kind == ProjectKind::Folder
+            && match p.isolate {
+                Isolate::Never => false,
+                Isolate::Always => true,
+                Isolate::Busy => self.tx.busy(p.id)?,
+            };
+        let hex = attempt.uuid().simple().to_string();
+        let name = hex[hex.len() - NAME..].to_owned();
+        Ok((p.folder.clone(), isolated.then_some(Worktree::New { name })))
+    }
+
+    /// Records the worktree a launch made on its owner, never in place of
+    /// another that holds something unsettled, and has the launch's session
+    /// work in it. Found again unchanged, what was looked at still holds.
+    fn prepared(&mut self, mut t: Thought, session: Option<Session>, w: Workdir) -> Result<()> {
+        match &t.workdir {
+            Some(old) if open(old) && old.branch != w.branch => {
+                return Err(Error::Ignored(Ignored::State));
+            }
+            Some(old) if old.branch == w.branch && old.base == w.base => {}
+            _ => {
+                t.workdir = Some(w.clone());
+                self.save(t)?;
+            }
+        }
+        if let Some(mut s) = session {
+            s.cwd = w.path;
+            self.tx.update_session(&s)?;
+        }
+        Ok(())
+    }
+
+    /// What a look found: the changes pending or none, with their size. A
+    /// settle the core stopped during happened when what it does is done: a
+    /// keep whose branch is in its destination or gone with its folder, a
+    /// discard that left neither. A worktree with nothing to lose, its
+    /// changes none or kept, is tidied once nothing works in it. While a
+    /// settle or tidy runs, a look counts for nothing.
+    fn surveyed(&mut self, mut t: Thought, path: String, found: Found) -> Result<()> {
+        // A look from before a settle under way would undo what it records.
+        if self.settling(t.id)? {
+            return Err(Error::Ignored(Ignored::State));
+        }
+        let stopped = self.tx.settles(t.id)?.pop();
+        let stopped = stopped.filter(|a| a.outcome == Some(AttemptOutcome::Interrupted));
+        let was = |keep| stopped.as_ref().map(|a| a.args_hash) == Some(settle_hash(t.id, keep));
+        let (keep, discard) = (was(true), was(false));
+        let Some(w) = t.workdir.as_mut().filter(|w| w.path == path && open(w)) else {
+            return Err(Error::Ignored(Ignored::State));
+        };
+        w.changes = match () {
+            () if keep && (found.merged || found.gone) => Changes::Kept,
+            () if discard && found.gone => Changes::Discarded,
+            () if found.files > 0 => Changes::Pending,
+            () => Changes::Clean,
+        };
+        if matches!(w.changes, Changes::Pending | Changes::Clean) {
+            (w.files, w.insertions, w.deletions) = (found.files, found.insertions, found.deletions);
+        }
+        let tidy = matches!(w.changes, Changes::Clean | Changes::Kept)
+            && !found.gone
+            && !self.tx.occupied(&path)?
+            && !self.settling(t.id)?;
+        if tidy {
+            let n = self.tx.settles(t.id)?.len() as u64;
+            let attempt = self.mint(&[b"tidy", t.id.uuid().as_bytes(), &n.to_be_bytes()])?;
+            self.tx.insert_attempt(&Attempt {
+                id: attempt,
+                kind: AttemptKind::Settle(t.id),
+                args_hash: tidy_hash(t.id),
+                started: self.now,
+                outcome: None,
+            })?;
+            self.effects.push(Effect::Tidy {
+                attempt,
+                thought: t.id,
+            });
+        }
+        self.save(t)
+    }
+
+    /// A run in a worktree paused or ended: its changes are looked at again.
+    fn look(&mut self, s: &Session) -> Result<()> {
+        if let Some(owner) = self.owner(&s.cwd)? {
+            self.effects.push(Effect::Survey(owner.id));
+        }
+        Ok(())
+    }
+
+    /// The thought whose unsettled worktree holds `cwd`.
+    fn owner(&self, cwd: &str) -> Result<Option<Thought>> {
+        let inside = |t: &Thought| {
+            (t.workdir.as_ref()).is_some_and(|w| open(w) && Path::new(cwd).starts_with(&w.path))
+        };
+        Ok(self.tx.worktrees()?.into_iter().find(inside))
+    }
+
+    /// Whether a session or a terminal works in the thought's worktree.
+    fn occupied(&self, t: &Thought) -> Result<bool> {
+        match &t.workdir {
+            Some(w) => Ok(self.tx.occupied(&w.path)?),
+            None => Ok(false),
+        }
+    }
+
+    /// Whether a settle or tidy of the thought's worktree is under way.
+    fn settling(&self, thought: ThoughtId) -> Result<bool> {
+        Ok(self
+            .tx
+            .settles(thought)?
+            .iter()
+            .any(|a| a.outcome.is_none()))
     }
 
     fn end(&mut self, mut s: Session, exit: Option<u32>, error: Option<String>) -> Result<()> {
@@ -1705,6 +1946,15 @@ fn launch_hash(thought: ThoughtId) -> Hash {
 
 fn settle_hash(thought: ThoughtId, keep: bool) -> Hash {
     digest(&[b"settle", thought.uuid().as_bytes(), &[u8::from(keep)]])
+}
+
+fn tidy_hash(thought: ThoughtId) -> Hash {
+    digest(&[b"tidy", thought.uuid().as_bytes()])
+}
+
+/// A worktree not settled: its changes none or pending.
+fn open(w: &Workdir) -> bool {
+    matches!(w.changes, Changes::Clean | Changes::Pending)
 }
 
 /// SHA-256 over the parts, each prefixed with its length so no two lists collide.

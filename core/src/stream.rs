@@ -202,6 +202,48 @@ pub fn open(
     })
 }
 
+/// Opens a stream that sends `bytes` and ends, a diff for one, for a call
+/// that replies with the returned [`Opened`]. `held` counts such streams
+/// open, while their bytes are held.
+pub fn bytes(
+    link: &Rc<Link>,
+    credit: u32,
+    bytes: Vec<u8>,
+    held: &Rc<Cell<usize>>,
+) -> Result<Opened, Error> {
+    let held = held.clone();
+    open(link, credit, 0, |_| {
+        held.set(held.get() + 1);
+        Box::new(Bytes {
+            bytes,
+            sent: 0,
+            held,
+        })
+    })
+}
+
+struct Bytes {
+    bytes: Vec<u8>,
+    sent: usize,
+    held: Rc<Cell<usize>>,
+}
+
+impl Endpoint for Bytes {
+    fn next(&mut self, room: &mut Room<'_>) -> Next {
+        self.sent += room.put(&self.bytes[self.sent..]);
+        match self.sent < self.bytes.len() {
+            true => Next::More,
+            false => Next::End(CloseWhy::Done),
+        }
+    }
+}
+
+impl Drop for Bytes {
+    fn drop(&mut self) {
+        self.held.set(self.held.get() - 1);
+    }
+}
+
 /// The streams of one connection.
 #[derive(Default)]
 pub struct Streams {

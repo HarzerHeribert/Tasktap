@@ -124,17 +124,36 @@ words! {
     }
 }
 
-/// The worktree a thought runs in when its project isolates.
+/// The worktree a thought runs in when its project isolates (design §7,
+/// "Isolation"). It belongs to this thought alone; follow-ups to its
+/// sessions work in it too.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Workdir {
+    /// `<data>/worktrees/<name>`, canonical.
     pub path: String,
+    /// `tasktap/<name>`, made for this worktree from `base`.
     pub branch: String,
-    /// The branch Keep merges into, recorded at creation.
-    pub destination: String,
-    /// The commit the worktree started from.
+    /// The branch Keep brings the changes into, recorded at creation: the
+    /// one the project folder was on. None when it was on no branch (a
+    /// detached HEAD); Keep then refuses and the branch is the person's to merge.
+    pub destination: Option<String>,
+    /// The commit the worktree started from: the project folder's HEAD then.
     pub base: String,
+    /// The project folder had uncommitted changes of its own when the
+    /// worktree was made. The run started from `base` without them, and
+    /// they stay where they are.
+    #[serde(default)]
+    pub left_out: bool,
     pub changes: Changes,
+    /// The changes against `base`, committed on the branch or not, as the
+    /// last look found them: files changed, lines added, lines removed.
+    #[serde(default)]
+    pub files: u32,
+    #[serde(default)]
+    pub insertions: u32,
+    #[serde(default)]
+    pub deletions: u32,
 }
 
 words! {

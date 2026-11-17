@@ -69,6 +69,8 @@ pub struct Core {
     pub terminals: crate::terminal::Terminals,
     /// The agents adopted by shims, each with the connection it belongs to.
     pub shims: crate::shim::Shims,
+    /// The diffs `thought.changes` streams hold, counted to bound them.
+    pub diffs: Rc<std::cell::Cell<usize>>,
     /// How long each folder check waits first, for tests (design §13).
     #[cfg(feature = "fixtures")]
     pub fixture_check: Duration,
@@ -171,11 +173,14 @@ async fn serve(opts: Options) -> io::Result<()> {
             checks: 0,
             terminals,
             shims: Default::default(),
+            diffs: Default::default(),
             #[cfg(feature = "fixtures")]
             fixture_check: opts.check,
         })
     });
     crate::questions::start(&mut core.borrow_mut()).map_err(io::Error::other)?;
+    // Before the first connection is taken, so no launch of this run is in it.
+    crate::effects::sweep(&mut core.borrow_mut());
     if opts.detect {
         crate::calls::detect_at_start(&core.borrow());
     }

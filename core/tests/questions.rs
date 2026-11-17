@@ -292,6 +292,19 @@ fn a_capture_repeats_by_id_and_calls_that_do_not_fit_are_refused() {
         code(s.w.call::<call::ThoughtCapture>(&other)),
         Code::Conflict
     );
+    // Every argument counts: the same text for a project, or as a note, is another capture.
+    let elsewhere = Capture {
+        project_id: Some(s.project),
+        ..typed(id, "fix the build")
+    };
+    let note = Capture {
+        mode: Some(Mode::Note),
+        ..typed(id, "fix the build")
+    };
+    for other in [elsewhere, note] {
+        let refused = s.w.call::<call::ThoughtCapture>(&other);
+        assert_eq!(code(refused), Code::Conflict);
+    }
 
     let missing = Ref {
         id: ThoughtId::mint(),
@@ -1242,6 +1255,18 @@ fn projects_are_added_once_per_folder_and_scanned_when_asked() {
     );
     let missing = add(ProjectId::mint(), &data.0.join("nowhere"), None);
     assert_eq!(code(w.call::<call::ProjectAdd>(&missing)), Code::Invalid);
+    // The id is checked before the folder, over every argument; the same call
+    // again is answered as the first time.
+    let other = ProjectId::mint();
+    assert_eq!(
+        w.ok::<call::ProjectAdd>(&add(other, &elsewhere, None)),
+        other
+    );
+    for reused in [add(id, &elsewhere, None), add(id, &folder, Some("site 2"))] {
+        assert_eq!(code(w.call::<call::ProjectAdd>(&reused)), Code::Conflict);
+    }
+    assert_eq!(w.ok::<call::ProjectAdd>(&add(id, &folder, None)), id);
+    assert_eq!(w.ok::<call::ProjectAdd>(&again), id);
 
     // Scanning finds the folder gone, then back without git.
     std::fs::remove_dir_all(&folder).unwrap();

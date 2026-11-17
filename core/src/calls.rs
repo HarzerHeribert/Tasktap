@@ -9,7 +9,8 @@ use crate::conn::{Link, Peer};
 use crate::effects::{self, stored};
 use crate::handshake::SUPPORTED;
 use crate::serve::{BUILD, Core};
-use crate::state::{Destination, Event};
+use crate::state::{self, Destination, Event};
+use crate::store::AttemptKind;
 use crate::{questions, records};
 use serde_json::Value;
 use std::path::Path;
@@ -267,11 +268,21 @@ fn add_project(cx: &mut Cx, args: AddProject) -> Result<ProjectId, Error> {
             "{folder} is a longer path than a project takes"
         )));
     }
-    let name = (args.name)
+    let name = (args.name.clone())
         .or_else(|| Some(path.file_name()?.to_string_lossy().into_owned()))
         .unwrap_or_else(|| folder.clone());
     let git = path.join(".git").exists();
+    let now = cx.core.seams.now();
     effects::write(cx.core, |tx| {
+        // The id first: the same id with other arguments is a conflict even
+        // when another project holds the folder.
+        let kind = AttemptKind::Project(args.id);
+        match state::create(tx, now, kind, &args) {
+            Ok(None) => {}
+            Ok(Some(record)) => tx.insert_attempt(&record).map_err(stored)?,
+            Err(state::Error::Store(e)) => return Err(stored(e)),
+            Err(e) => return Err(Error::new(Code::Conflict, e.to_string())),
+        }
         if let Some(p) = tx.project_by_folder(&folder).map_err(stored)? {
             return Ok(p.id);
         }

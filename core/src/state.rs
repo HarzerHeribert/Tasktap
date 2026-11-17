@@ -413,8 +413,12 @@ impl Machine<'_, '_> {
         let router = question.as_ref().map(|q| q.source) == Some(QuestionSource::Router);
         match (event, said, phase, state, asked) {
             // thought.capture: → captured.
-            (E::Capture { capture, agent }, _, None, ..) => self.capture(capture, agent),
-            (E::Capture { capture, .. }, _, Some(_), ..) => same_capture(some(thought)?, capture),
+            (E::Capture { capture, agent }, _, None, ..) => {
+                self.capture(capture, agent, some(attempt)?)
+            }
+            (E::Capture { .. }, _, Some(_), ..) => Err(Error::Conflict(
+                "the thought id was used for another capture",
+            )),
             // route clear; a router question answered; the person picks:
             // captured → routed, and the hold starts.
             (
@@ -552,7 +556,14 @@ impl Machine<'_, '_> {
     fn subject(&mut self, event: &Event) -> Result<Option<Subject>> {
         let mut s = Subject::default();
         match event {
-            Event::Capture { capture, .. } => s.thought = self.tx.thought(capture.id)?,
+            Event::Capture { capture, .. } => {
+                let kind = AttemptKind::Capture(capture.id);
+                s.attempt = create(self.tx, self.now, kind, capture)?;
+                if s.attempt.is_none() {
+                    return Err(Error::Ignored(Ignored::Repeat));
+                }
+                s.thought = self.tx.thought(capture.id)?;
+            }
             Event::Pick { thought, .. }
             | Event::Routed { thought, .. }
             | Event::Stop { thought }
@@ -693,7 +704,7 @@ impl Machine<'_, '_> {
         }
     }
 
-    fn capture(&mut self, c: Capture, agent: String) -> Result<()> {
+    fn capture(&mut self, c: Capture, agent: String, record: Attempt) -> Result<()> {
         let mode = c.mode.unwrap_or(Mode::Ask);
         // A destination given at capture is the person's own pick.
         let pick = match (mode, c.session_id, c.project_id) {
@@ -727,6 +738,7 @@ impl Machine<'_, '_> {
             updated: self.now,
         };
         self.tx.insert_thought(&t)?;
+        self.tx.insert_attempt(&record)?;
         match pick {
             Some(to) => self.route(t, to, None),
             None if mode == Mode::Note => Ok(()),
@@ -1336,13 +1348,35 @@ fn some<T>(record: Option<T>) -> Result<T> {
     record.ok_or(Error::Gone)
 }
 
-fn same_capture(t: Thought, c: Capture) -> Result<()> {
-    if (t.text, t.strokes, t.source) == (c.text, c.strokes, c.source) {
-        Err(Error::Ignored(Ignored::Repeat))
-    } else {
-        Err(Error::Conflict(
-            "the thought id was used for another capture",
-        ))
+/// Creates are idempotent on the client's id like attempts (design §3): a
+/// create is recorded as an attempt under the record's id with a hash of all
+/// its arguments. Returns that record, for the caller to store with what it
+/// creates, when the id is new; `None` when it came with the same arguments
+/// before; `Conflict` when with others.
+pub fn create(
+    tx: &Tx,
+    now: Time,
+    kind: AttemptKind,
+    args: &impl serde::Serialize,
+) -> Result<Option<Attempt>> {
+    let id = match kind {
+        AttemptKind::Capture(t) => AttemptId::try_from(t.uuid()),
+        AttemptKind::Project(p) => AttemptId::try_from(p.uuid()),
+        _ => return Err(Error::Invalid("only a capture or a project is a create")),
+    };
+    let id = id.map_err(|_| Error::Invalid("ids are UUID v7"))?;
+    let args = serde_json::to_vec(args).map_err(|e| Error::Store(e.into()))?;
+    let args_hash = digest(&[&args]);
+    match tx.attempt(id)? {
+        Some(a) if (a.kind, a.args_hash) == (kind, args_hash) => Ok(None),
+        Some(_) => Err(Error::Conflict("the id was used with other arguments")),
+        None => Ok(Some(Attempt {
+            id,
+            kind,
+            args_hash,
+            started: now,
+            outcome: Some(AttemptOutcome::Reply(Outcome::Ok(Value::Null))),
+        })),
     }
 }
 

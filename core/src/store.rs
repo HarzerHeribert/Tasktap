@@ -150,6 +150,9 @@ pub enum AttemptKind {
     Resume(SessionId),
     Terminal(TerminalId),
     Settle(ThoughtId),
+    /// A create, recorded under the record's id so a repeat is known (design §3).
+    Capture(ThoughtId),
+    Project(ProjectId),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -811,6 +814,8 @@ impl<'s> Tx<'s> {
             "resume" => AttemptKind::Resume(parse(&target)?),
             "terminal" => AttemptKind::Terminal(parse(&target)?),
             "settle" => AttemptKind::Settle(parse(&target)?),
+            "capture" => AttemptKind::Capture(parse(&target)?),
+            "project" => AttemptKind::Project(parse(&target)?),
             other => return Err(Error::Corrupt(format!("attempt kind {other}"))),
         };
         let outcome = match outcome {
@@ -1040,6 +1045,8 @@ impl<'s> Tx<'s> {
             AttemptKind::Resume(s) => ("resume", key(&s)?),
             AttemptKind::Terminal(t) => ("terminal", key(&t)?),
             AttemptKind::Settle(t) => ("settle", key(&t)?),
+            AttemptKind::Capture(t) => ("capture", key(&t)?),
+            AttemptKind::Project(p) => ("project", key(&p)?),
         };
         self.db
             .prepare_cached(

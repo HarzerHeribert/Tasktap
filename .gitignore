@@ -1,7 +1,7 @@
+# The assembled public site (scripts/build-site.py). Each part ignores its own build output:
+# core/.gitignore, host/.gitignore, ui/.gitignore.
 /build/
+node_modules/
 .DS_Store
-__pycache__/
-*.pyc
 .env
 .env.*
-node_modules/

@@ -538,7 +538,7 @@ impl Git {
                 ..Found::default()
             });
         }
-        let listed = self.list(repo, w, None)?;
+        let listed = self.listed(repo, w, &own, ties, None)?;
         let in_destination = match (&tip, &w.destination) {
             (Some(tip), Some(to)) if *tip != w.base => {
                 self.contains(repo, &format!("refs/heads/{to}"), tip)?
@@ -566,18 +566,18 @@ impl Git {
     /// name, on its branch: its `.git` names git's record of it, which
     /// names it back.
     fn ties(&self, own: &Own) -> bool {
-        if !own.path.join(".git").is_file() {
-            return false;
-        }
-        let Ok(dir) = self.line(&own.path, &["rev-parse", "--absolute-git-dir"]) else {
+        let Some(record) = record(&own.path) else {
             return false;
         };
-        let back = std::fs::read_to_string(Path::new(&dir).join("gitdir")).ok();
-        let back = back.and_then(|b| std::fs::canonicalize(b.trim()).ok());
+        // Relative paths are git's too, from the folder of the file.
+        let back = std::fs::read_to_string(record.join("gitdir")).ok();
+        let back = back.and_then(|b| std::fs::canonicalize(folder(&record).join(b.trim())).ok());
         let mine = std::fs::canonicalize(own.path.join(".git")).ok();
+        if back.is_none() || back != mine {
+            return false;
+        }
         let head = self.line(&own.path, &["symbolic-ref", "-q", "HEAD"]).ok();
-        let on = format!("refs/heads/{}", own.branch);
-        back.is_some() && back == mine && head.as_deref() == Some(on.as_str())
+        head.as_deref() == Some(format!("refs/heads/{}", own.branch).as_str())
     }
 
     /// What a folder holds beside its HEAD: staged, changed, untracked and
@@ -606,7 +606,20 @@ impl Git {
         diff: Option<Option<&str>>,
     ) -> Result<Listed, String> {
         let own = self.own(w)?;
-        if own.path.symlink_metadata().is_ok() && self.ties(&own) {
+        let tied = own.path.symlink_metadata().is_ok() && self.ties(&own);
+        self.listed(repo, w, &own, tied, diff)
+    }
+
+    /// [`Git::list`], for a worktree known to be tied to its folder or not.
+    fn listed(
+        &self,
+        repo: &Path,
+        w: &Workdir,
+        own: &Own,
+        tied: bool,
+        diff: Option<Option<&str>>,
+    ) -> Result<Listed, String> {
+        if tied {
             let revs = ["--cached", w.base.as_str()];
             return self.with_index(&own.path, |index| self.diffs(&own.path, &revs, diff, index));
         }
@@ -669,13 +682,11 @@ impl Git {
         path: &Path,
         f: impl FnOnce(Option<&Path>) -> Result<T, String>,
     ) -> Result<T, String> {
-        let own = self.line(
-            path,
-            &["rev-parse", "--path-format=absolute", "--git-path", "index"],
-        )?;
         let index = folder(&self.temporary("index"));
         // Without the copy, adding reads every file instead of what changed.
-        let _ = std::fs::copy(&own, &index);
+        if let Some(record) = record(path) {
+            let _ = std::fs::copy(record.join("index"), &index);
+        }
         let env = [("GIT_INDEX_FILE", index.as_os_str())];
         let added = self.run(path, &["add", "--all"], WRITE, &env, ERRORS);
         let result = match added {
@@ -1504,6 +1515,13 @@ fn environment(root: &Path) -> Vec<(String, OsString)> {
         }
     }
     env
+}
+
+/// Git's record of the worktree at `path`: the folder its `.git` file names.
+fn record(path: &Path) -> Option<PathBuf> {
+    let link = std::fs::read_to_string(path.join(".git")).ok()?;
+    let dir = link.strip_prefix("gitdir:")?.trim();
+    std::fs::canonicalize(folder(path).join(dir)).ok()
 }
 
 /// What a git folder is in the middle of, if anything.

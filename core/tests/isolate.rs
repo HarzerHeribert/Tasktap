@@ -285,8 +285,11 @@ fn settle(s: &mut Scene, t: ThoughtId, keep: bool) -> Result<(), Error> {
 }
 
 /// Waits for something the core does on its own off its thread.
+/// A busy Windows runner starts each git command slowly, and a look or a
+/// tidy runs a dozen of them.
 fn eventually(what: &str, mut done: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(20);
+    let patience = if cfg!(windows) { 120 } else { 20 };
+    let deadline = Instant::now() + Duration::from_secs(patience);
     while !done() {
         assert!(Instant::now() < deadline, "{what} never happened");
         std::thread::sleep(Duration::from_millis(20));
@@ -1026,7 +1029,8 @@ fn hooks_signing_and_the_persons_configuration_neither_break_nor_hold_up_git() {
          [merge]\n\tff = false\n\tautoStash = true\n[rebase]\n\tautoStash = true\n\
          [status]\n\tshowUntrackedFiles = no\n\trenames = copies\n\
          [diff]\n\texternal = {fail}\n\tnoprefix = true\n\trelative = true\n\trenames = copies\n\
-         [submodule]\n\trecurse = true\n[user]\n\tuseConfigOnly = true\n"
+         [submodule]\n\trecurse = true\n[user]\n\tuseConfigOnly = true\n\
+         [worktree]\n\tuseRelativePaths = true\n"
     )
     .replace('\\', "/");
     std::fs::write(work.core_config(), config).unwrap();

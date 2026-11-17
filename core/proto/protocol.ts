@@ -17,7 +17,7 @@ export const MAX_TEXT = 65536;
 export const MAX_LINE = 8192;
 export const MAX_POINTS = 2048;
 /** The value of each preference while none is stored: deleting one restores it. */
-export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] } = {"agent":null,"hold":5,"motion_hue":265,"motion_lumen":false,"motion_palette":"chromatic","motion_style":"slats"};
+export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] } = {"agent":null,"hold":5,"motion_hue":265,"motion_lumen":false,"motion_palette":"chromatic","motion_style":"slats","route_by":null};
 
 /**
  * Who may make a call (design §2): authorization is per call.
@@ -605,14 +605,14 @@ export type Place = { "project": ProjectId } | { "session": SessionId };
 /**
  * A preference row: `{id, value, rev}`, where the key fixes the value's type.
  */
-export type Pref = { rev: Rev, } & ({ "id": "hold", "value": number } | { "id": "agent", "value": string | null } | { "id": "motion_style", "value": MotionStyle } | { "id": "motion_palette", "value": MotionPalette } | { "id": "motion_hue", "value": number } | { "id": "motion_lumen", "value": boolean });
+export type Pref = { rev: Rev, } & ({ "id": "hold", "value": number } | { "id": "agent", "value": string | null } | { "id": "route_by", "value": RouteBy | null } | { "id": "motion_style", "value": MotionStyle } | { "id": "motion_palette", "value": MotionPalette } | { "id": "motion_hue", "value": number } | { "id": "motion_lumen", "value": boolean });
 
-export type PrefKey = "hold" | "agent" | "motion_style" | "motion_palette" | "motion_hue" | "motion_lumen";
+export type PrefKey = "hold" | "agent" | "route_by" | "motion_style" | "motion_palette" | "motion_hue" | "motion_lumen";
 
 /**
  * A preference write: `{id, patch}`, where the key fixes the value's type.
  */
-export type PrefPatch = { "id": "hold", "patch": number } | { "id": "agent", "patch": string | null } | { "id": "motion_style", "patch": MotionStyle } | { "id": "motion_palette", "patch": MotionPalette } | { "id": "motion_hue", "patch": number } | { "id": "motion_lumen", "patch": boolean };
+export type PrefPatch = { "id": "hold", "patch": number } | { "id": "agent", "patch": string | null } | { "id": "route_by", "patch": RouteBy | null } | { "id": "motion_style", "patch": MotionStyle } | { "id": "motion_palette", "patch": MotionPalette } | { "id": "motion_hue", "patch": number } | { "id": "motion_lumen", "patch": boolean };
 
 export type Project = { id: ProjectId, rev: Rev, name: string,
 /**
@@ -736,6 +736,71 @@ export type Role = "page" | "host" | "cli";
  * and what `fixture.script` has the fixture router answer.
  */
 export type Route = { "confidence": "clear", to: Place, brief: string, } | { "confidence": "ambiguous", prompt: string, candidates: Array<Candidate>, } | { "confidence": "unknown" };
+
+/**
+ * What the `route_by` preference names: a tool and the model it asks.
+ */
+export type RouteBy = {
+/**
+ * The agent, by the id `agents.detect` lists.
+ */
+agent: string,
+/**
+ * The model its tool is asked for, as `route.terms` names it.
+ */
+model: string, };
+
+/**
+ * `route.terms`: what routing by a model sends and to whom (design §8),
+ * for the person to read before they consent with the `route_by`
+ * preference.
+ */
+export type RouteTerms = {
+/**
+ * The instructions the model gets with every thought, in full.
+ */
+instructions: string,
+/**
+ * What is sent with them, one line for each kind of field.
+ */
+sends: Array<string>,
+/**
+ * The agents whose tool can be asked, each with the model it asks,
+ * in the order the core lists its agents.
+ */
+tools: Array<RouteBy>, };
+
+/**
+ * How a thought found its destination and its brief (design §8).
+ */
+export type Routing = {
+/**
+ * Who was asked: an agent's id for the model behind its tool, or
+ * `local` for the match on names.
+ */
+by: string,
+/**
+ * The model asked, when one was.
+ */
+model: string | null,
+/**
+ * Still being asked: the thought does not launch before the answer
+ * or the end of its time limit.
+ */
+pending: boolean,
+/**
+ * Why the model was not asked or its answer not used, and the match
+ * on names, or the person's words as they are, were.
+ */
+fallback: string | null,
+/**
+ * The person's words that justify a follow-up to a session.
+ */
+quote: string | null,
+/**
+ * Milliseconds the answer took.
+ */
+ms: number | null, };
 
 /**
  * Rows put whole, and ids of rows that stopped being live.
@@ -888,7 +953,12 @@ export type TerminalState = "running" | "exited" | "lost";
 /**
  * The primary record. A note is a thought with mode `note`.
  */
-export type Thought = { id: ThoughtId, rev: Rev, text: string, strokes: Array<Array<[number, number]>>, source: Source, mode: Mode, phase: Phase, status: Status, reason: Reason | null, live: boolean, project_id: ProjectId | null, session_id: SessionId | null, brief: string | null, agent: string | null, model: string | null, workdir: Workdir | null, hold_until: Time | null, read: boolean, created: Time, updated: Time, };
+export type Thought = { id: ThoughtId, rev: Rev, text: string, strokes: Array<Array<[number, number]>>, source: Source, mode: Mode, phase: Phase, status: Status, reason: Reason | null, live: boolean, project_id: ProjectId | null, session_id: SessionId | null, brief: string | null,
+/**
+ * How it found its destination and its brief; none when no router was
+ * asked: a note, or a pick whose words go on as they are.
+ */
+route: Routing | null, agent: string | null, model: string | null, workdir: Workdir | null, hold_until: Time | null, read: boolean, created: Time, updated: Time, };
 
 /**
  * A UUID v7 in text, minted by whoever creates the record.
@@ -980,6 +1050,7 @@ export type Calls = {
   "session.event": { args: SessionEvent; result: null; access: "session" };
   "session.adopt": { args: Adopt; result: SessionId; access: "session" };
   "route.hint": { args: Hint; result: Route; access: "device" };
+  "route.terms": { args: Empty; result: RouteTerms; access: "device" };
   "agents.detect": { args: DetectAgents; result: Agents; access: "device" };
   "terminal.open": { args: OpenTerminal; result: Opened; access: "device" };
   "terminal.resize": { args: ResizeTerminal; result: null; access: "device" };

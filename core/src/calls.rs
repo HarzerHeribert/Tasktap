@@ -95,6 +95,7 @@ fn handler(name: Name) -> Option<Handler> {
         }
         Name::SessionAdopt => |cx, args| now::<call::SessionAdopt>(cx, args, crate::shim::adopt),
         Name::RouteHint => |cx, args| now::<call::RouteHint>(cx, args, crate::route::hint),
+        Name::RouteTerms => |cx, args| now::<call::RouteTerms>(cx, args, crate::route::terms),
         Name::AgentsDetect => |cx, args| later::<call::AgentsDetect>(cx, args, detect),
         // The core makes this call; it never answers it.
         Name::ShimHold => return None,

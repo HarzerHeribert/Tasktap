@@ -13,9 +13,9 @@ use tasktap_core::store::{
 use tasktap_proto::{
     Answer, AttemptId, Change, Collection, Device, DeviceId, Isolate, Layout, Limit, Mode, Outcome,
     Phase, PrefKey, PrefValue, Project, ProjectId, ProjectKind, Question, QuestionId, QuestionKind,
-    QuestionSource, QuestionState, Reason, ReplyVia, Response, ResultId, ResultKind, Rev, Rows,
-    Session, SessionId, SessionState, Set, Source, Status, Terminal, TerminalId, TerminalKind,
-    TerminalState, Thought, ThoughtId, Time, TurnResult,
+    QuestionSource, QuestionState, Reason, ReplyVia, Response, ResultId, ResultKind, Rev, Routing,
+    Rows, Session, SessionId, SessionState, Set, Source, Status, Terminal, TerminalId,
+    TerminalKind, TerminalState, Thought, ThoughtId, Time, TurnResult,
 };
 
 /// A fresh folder under the system's temporary folder, removed afterwards.
@@ -96,6 +96,7 @@ fn thought(project: Option<ProjectId>, phase: Phase) -> Thought {
         project_id: project,
         session_id: None,
         brief: Some("brief".into()),
+        route: None,
         agent: Some("claude".into()),
         model: None,
         workdir: None,
@@ -1294,7 +1295,11 @@ fn documents_read_across_builds_without_a_migration() {
     let tx = store.begin().unwrap();
     assert_eq!(
         tx.thought(t.id).unwrap().unwrap(),
-        Thought { brief: None, ..t }
+        Thought {
+            brief: None,
+            route: None,
+            ..t
+        }
     );
     assert_eq!(tx.question(q.id).unwrap().unwrap(), q);
 }
@@ -1451,4 +1456,168 @@ fn hot_path_timings() {
         )
         .unwrap();
     });
+}
+
+// Routing (design §8): what a restart leaves of a router that was asked,
+// and what a model is given of the records.
+
+#[test]
+fn recovery_stops_waiting_for_a_router_that_went_with_the_core() {
+    let dir = Dir::new("asked");
+    let (mut store, _) = open(&dir.db());
+    let p = project("/work/asked");
+    let asked = |phase| Thought {
+        route: Some(Routing {
+            by: "claude".into(),
+            model: Some("haiku".into()),
+            pending: true,
+            ..Routing::default()
+        }),
+        hold_until: (phase == Phase::Routed).then(|| at(9)),
+        ..thought(Some(p.id), phase)
+    };
+    let (captured, routed) = (asked(Phase::Captured), asked(Phase::Routed));
+    let answered = Thought {
+        route: Some(Routing {
+            by: "claude".into(),
+            quote: Some("that thing".into()),
+            ..Routing::default()
+        }),
+        ..thought(Some(p.id), Phase::Captured)
+    };
+    let mut tx = store.begin().unwrap();
+    tx.insert_project(&p).unwrap();
+    for t in [&captured, &routed, &answered] {
+        tx.insert_thought(t).unwrap();
+    }
+    tx.commit().unwrap();
+    drop(store);
+
+    let (mut store, _) = open(&dir.db());
+    let tx = store.begin().unwrap();
+    for t in [&captured, &routed] {
+        let after = tx.thought(t.id).unwrap().unwrap();
+        let route = after.route.unwrap();
+        assert_eq!(
+            (after.phase, after.hold_until, route.pending),
+            (t.phase, None, false)
+        );
+        assert_eq!(
+            (route.by.as_str(), route.fallback.as_deref()),
+            ("claude", Some("the core stopped while it was asked"))
+        );
+    }
+    // One whose router had answered is as it was.
+    let after = tx.thought(answered.id).unwrap().unwrap();
+    assert_eq!(after.route, answered.route);
+}
+
+#[test]
+fn a_model_is_given_at_most_8_projects_8_sessions_and_3_exchanges() {
+    use tasktap_core::route::{narrow, question, request};
+    let dir = Dir::new("offer");
+    let (mut store, _) = open(&dir.db());
+    let mut projects = Vec::new();
+    let mut tx = store.begin().unwrap();
+    for i in 0..10 {
+        let p = Project {
+            name: format!("project{i}"),
+            aliases: Vec::new(),
+            ..project(&format!("/work/offer{i}"))
+        };
+        tx.insert_project(&p).unwrap();
+        projects.push(p);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    tx.commit().unwrap();
+    // Twelve sessions in the oldest project, each with the request it last
+    // got and how that ended, written one after the other.
+    let home = projects[0].id;
+    let mut sessions = Vec::new();
+    for i in 0..12 {
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let mut s = Session {
+            name: Some(format!("session{i}")),
+            ..session(home, None, None, SessionState::Idle)
+        };
+        let t = Thought {
+            text: format!("request {i}"),
+            session_id: Some(s.id),
+            status: Status::Done,
+            ..thought(Some(home), Phase::Done)
+        };
+        let r = TurnResult {
+            summary: format!("result {i}"),
+            ..result(t.id)
+        };
+        let mut tx = store.begin().unwrap();
+        tx.insert_session(&s).unwrap();
+        tx.insert_thought(&t).unwrap();
+        s.thought_id = Some(t.id);
+        tx.update_session(&s).unwrap();
+        tx.insert_result(&r, "the whole answer").unwrap();
+        tx.commit().unwrap();
+        sessions.push(s);
+    }
+
+    let text = "in project7, go on with session3 please";
+    let tx = store.begin().unwrap();
+    let all = request(&tx, text, Some(sessions[5].id)).unwrap();
+    assert!(all.projects.len() >= 10 && all.sessions.len() == 12);
+    let r = narrow(&tx, all).unwrap();
+    assert_eq!(
+        (r.projects.len(), r.sessions.len(), r.recent.len()),
+        (8, 8, 3)
+    );
+    // What the capture names comes first, then where it was made, then the
+    // newest; a project that holds an offered session stays.
+    assert_eq!(r.projects[0].name, "project7");
+    assert_eq!(r.projects[1].id, home);
+    let names: Vec<_> = r.sessions.iter().map(|s| s.name.clone().unwrap()).collect();
+    assert_eq!(
+        names[..4],
+        ["session3", "session5", "session11", "session10"]
+    );
+    assert_eq!(r.sessions[0].task, "request 3");
+    let recent: Vec<_> = (r.recent.iter())
+        .map(|e| (e.request.as_str(), e.result.as_str(), e.status))
+        .collect();
+    assert_eq!(
+        recent,
+        [
+            ("request 11", "result 11", Status::Done),
+            ("request 10", "result 10", Status::Done),
+            ("request 9", "result 9", Status::Done)
+        ]
+    );
+
+    // The question holds the instructions and the request, with short keys
+    // in place of the core's ids.
+    let asked = question(&r);
+    assert!(asked.starts_with(tasktap_core::route::INSTRUCTIONS));
+    let sent = asked.split("<request>\n").nth(1).unwrap();
+    let sent: serde_json::Value =
+        serde_json::from_str(sent.trim_end().trim_end_matches("</request>")).unwrap();
+    assert_eq!(sent["thought"], text);
+    assert_eq!(sent["projects"].as_array().unwrap().len(), 8);
+    assert_eq!(
+        sent["projects"][0],
+        json!({ "id": "p1", "name": "project7", "aliases": [] })
+    );
+    assert_eq!(
+        sent["sessions"][0],
+        json!({ "id": "s1", "name": "session3", "task": "request 3", "project": "p2",
+                "agent": "claude", "state": "idle" })
+    );
+    assert_eq!(
+        (&sent["current"], &sent["picked"]),
+        (&json!("s2"), &json!(null))
+    );
+    assert_eq!(
+        sent["recent"][0],
+        json!({ "session": "s3", "request": "request 11", "status": "done", "result": "result 11" })
+    );
+    for id in [home.uuid(), sessions[3].id.uuid()] {
+        assert!(!asked.contains(&id.to_string()));
+    }
 }

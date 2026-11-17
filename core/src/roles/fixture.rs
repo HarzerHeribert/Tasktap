@@ -13,6 +13,8 @@
 //! | Step | Does |
 //! | --- | --- |
 //! | `print:TEXT` | prints the text |
+//! | `keep:PATH` | writes everything on its standard input to the file at `PATH` in its working folder, and prints `kept:` and the path |
+//! | `script:PATH` | runs the steps the file at `PATH` in its working folder holds, one per line, before any that follow; without the file it prints `error:` and why, and exits with 1 |
 //! | `write:PATH:TEXT` | writes the text, `\n` in it a line break, to the file at `PATH` in its working folder, making its folders; prints `wrote:` and the path |
 //! | `event:KIND[:TEXT]` | reports the event, the text in the field its kind has; `\n` in it is a line break |
 //! | `ask:PROMPT` | asks through a hook that waits, and prints `answer:` and what it printed |
@@ -49,8 +51,9 @@ pub const REAL: &str = "TASKTAP_FIXTURE_AGENT";
 /// Set by a test: a shim takes pipes for a terminal a person types in.
 pub const TTY: &str = "TASKTAP_FIXTURE_TTY";
 
-const STEPS: [&str; 11] = [
+const STEPS: [&str; 13] = [
     "print", "event", "ask", "wait", "sleep", "nohup", "detach", "stall", "query", "write", "exit",
+    "keep", "script",
 ];
 /// What `query` asks: primary and secondary device attributes, the cursor
 /// position, and the foreground and background colors, one ended with ST
@@ -80,11 +83,11 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
     }
     let mut input = io::stdin().lock();
     let scripted = !steps.is_empty();
-    let mut steps = steps.into_iter();
+    let mut steps = std::collections::VecDeque::from(steps);
     let mut asked = 0;
     loop {
         let step = match scripted {
-            true => steps.next(),
+            true => steps.pop_front(),
             false => line(&mut input),
         };
         let Some(step) = step else {
@@ -132,6 +135,24 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
                     }
                 }
             }
+            "keep" => {
+                let mut all = Vec::new();
+                let _ = io::Read::read_to_end(&mut input, &mut all);
+                match std::fs::write(rest, all) {
+                    Ok(()) => println!("kept:{rest}"),
+                    Err(e) => println!("not kept:{e}"),
+                }
+            }
+            "script" => match std::fs::read_to_string(rest) {
+                Ok(script) => script
+                    .lines()
+                    .rev()
+                    .for_each(|step| steps.push_front(step.to_owned())),
+                Err(e) => {
+                    println!("error:no steps in {rest}: {e}");
+                    return ExitCode::FAILURE;
+                }
+            },
             "wait" => {
                 let line = line(&mut input).unwrap_or_default();
                 println!("read:{}", pasted(&line).unwrap_or(&line));

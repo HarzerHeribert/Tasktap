@@ -8,7 +8,7 @@ use crate::ids::{
 };
 use crate::records::{
     Collection, Isolate, Mode, MotionPalette, MotionStyle, PrefKey, PrefValue, Question,
-    QuestionKind, QuestionSource, Response, Set, Source, Stroke, Thought, TurnResult,
+    QuestionKind, QuestionSource, Response, RouteBy, Set, Source, Stroke, Thought, TurnResult,
 };
 use crate::{MAX_LINE, MAX_TEXT};
 use serde::{Deserialize, Serialize};
@@ -80,6 +80,7 @@ pub enum PutTarget {
 pub enum PrefPatch {
     Hold(u32),
     Agent(#[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")] Option<String>),
+    RouteBy(Option<RouteBy>),
     MotionStyle(MotionStyle),
     MotionPalette(MotionPalette),
     MotionHue(u16),
@@ -91,6 +92,7 @@ impl From<PrefPatch> for PrefValue {
         match patch {
             PrefPatch::Hold(seconds) => PrefValue::Hold(seconds),
             PrefPatch::Agent(agent) => PrefValue::Agent(agent),
+            PrefPatch::RouteBy(by) => PrefValue::RouteBy(by),
             PrefPatch::MotionStyle(v) => PrefValue::MotionStyle(v),
             PrefPatch::MotionPalette(v) => PrefValue::MotionPalette(v),
             PrefPatch::MotionHue(v) => PrefValue::MotionHue(v),
@@ -542,6 +544,21 @@ pub struct FixtureScript {
     /// only records what it is asked, as `refuse` and `unrecordable` say.
     #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub agent: Option<String>,
+}
+
+/// `route.terms`: what routing by a model sends and to whom (design §8),
+/// for the person to read before they consent with the `route_by`
+/// preference.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct RouteTerms {
+    /// The instructions the model gets with every thought, in full.
+    pub instructions: String,
+    /// What is sent with them, one line for each kind of field.
+    pub sends: Vec<String>,
+    /// The agents whose tool can be asked, each with the model it asks,
+    /// in the order the core lists its agents.
+    pub tools: Vec<RouteBy>,
 }
 
 /// Where a router sends a thought (design §8): the answer of `route.hint`,

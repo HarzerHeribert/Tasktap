@@ -38,14 +38,15 @@
 
 use std::ffi::OsString;
 use std::path::Path;
+use std::time::Duration;
 
 use serde_json::{Value, json};
 use tasktap_proto::{Answer, Ask, Event, MAX_TEXT, QuestionKind, ReplyVia, Response};
 
 use super::rules::Rules;
 use super::{
-    Agent, Caps, Detect, Heard, Payload, Probe, Run, activity, digest, fit, permission, quoted,
-    said,
+    Agent, Caps, Detect, Headless, Heard, Payload, Probe, Run, WORDS, activity, digest, fit,
+    permission, quoted, said,
 };
 
 pub struct Codex;
@@ -79,6 +80,27 @@ const HOOKS: &[(&str, u32)] = &[
     ("PermissionRequest", WAIT),
     ("Stop", 30),
     ("Interrupt", 3),
+];
+
+/// The model a headless question asks: the smallest, fastest one Codex
+/// lists (`codex debug models`), which has no alias that follows it.
+const SMALL: &str = "gpt-6-luna";
+
+/// What gives a Codex model tools, each turned off for a headless question.
+const TOOLS: &[&str] = &[
+    "shell_tool",
+    "unified_exec",
+    "plugins",
+    "hooks",
+    "apps",
+    "browser_use",
+    "computer_use",
+    "in_app_browser",
+    "skill_search",
+    "tool_suggest",
+    "sleep_tool",
+    "goals",
+    "incremental_tools",
 ];
 
 /// The tool with which Codex asks the person.
@@ -176,7 +198,7 @@ impl Agent for Codex {
         if let Some(handle) = run.resume {
             argv.extend(["resume".into(), handle.into()]);
         }
-        argv.extend(["--".into(), run.prompt.to_owned()]);
+        argv.extend(["--".into(), run.told(self)]);
         argv
     }
 
@@ -190,6 +212,47 @@ impl Agent for Codex {
                 ["-c".into(), hook.into()]
             })
             .collect()
+    }
+
+    /// `codex exec` (0.169) with the question on standard input: none of
+    /// the person's settings, rules or project instructions, nothing that
+    /// gives the model a tool, no web search, a read-only sandbox, no
+    /// session saved (`--ephemeral`), the least reasoning the model does,
+    /// and the answer held to the schema. It prints the answer alone on
+    /// standard output. Turning the tools off is also what makes it fast:
+    /// 4.4 s against 6.6 s with them on.
+    fn headless(&self) -> Option<Headless> {
+        Some(Headless {
+            model: SMALL,
+            limit: Duration::from_secs(15),
+            args: |schema| {
+                let mut args: Vec<String> = ["--ask-for-approval", "never", "exec"]
+                    .map(Into::into)
+                    .into();
+                args.extend(
+                    ["--ignore-user-config", "--ignore-rules", "--ephemeral"].map(Into::into),
+                );
+                args.extend(TOOLS.iter().flat_map(|t| ["--disable".into(), (*t).into()]));
+                #[rustfmt::skip]
+                args.extend([
+                    "-c", "project_doc_max_bytes=0", "-c", "web_search=\"disabled\"",
+                    "-c", "model_reasoning_effort=\"low\"", "--sandbox", "read-only",
+                    "--skip-git-repo-check", "--color", "never", "--model", SMALL,
+                    "--output-schema",
+                ].map(Into::into));
+                args.extend([schema.file.to_string_lossy().into_owned(), "-".into()]);
+                args
+            },
+            answer: |out| match serde_json::from_str::<Value>(out.trim()) {
+                Ok(Value::Object(_)) => Ok(out.trim().into()),
+                _ => Err("it printed no answer".into()),
+            },
+        })
+    }
+
+    /// The person's words under a rule and a plain label.
+    fn told(&self, brief: &str, words: &str) -> String {
+        format!("{brief}\n\n---\n{WORDS}\n\n{words}")
     }
 
     /// Its sign-in with an API key, and the folder it keeps its sign-in and

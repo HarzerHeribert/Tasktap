@@ -2,6 +2,7 @@
 // the same records the notch shows; a row opens its session's terminal. Below them, the agents
 // this computer has and a terminal to sign in to one that is not signed in.
 import type { Thought } from '../../../core/proto/protocol.ts';
+import { useLayoutEffect } from 'preact/hooks';
 import { routing } from '../capture.tsx';
 import { Icon } from '../icons.tsx';
 import { Backdrop, lookOf } from '../motion/motion.tsx';
@@ -100,8 +101,27 @@ function Agents() {
   );
 }
 
+/** Keeps `--home-free` on the work area at the top of the space Home's content leaves free below its last row, in
+ *  whole pixels: the motion sits there and nowhere else. */
+function useFreeSpace() {
+  useLayoutEffect(() => {
+    const main = document.getElementById('main'), work = main?.parentElement;
+    if (!main || !work) return undefined;
+    const measure = () => {
+      const rows = main.querySelectorAll(':scope > *:not(.overview-content), .overview-content > *');
+      const bottom = Math.max(0, ...[...rows].map((r) => r.getBoundingClientRect().bottom));
+      work.style.setProperty('--home-free', Math.ceil(bottom - work.getBoundingClientRect().top + 16) + 'px');
+    };
+    const watch = new ResizeObserver(measure);
+    watch.observe(main);
+    watch.observe(work);
+    return () => watch.disconnect();
+  }, []);
+}
+
 export function Home() {
-  // The motion behind Home, in the person's look and the product's state; the engine draws it only while it is seen.
+  useFreeSpace();
+  // The motion on Home, in the person's look and the product's state; the engine draws it only while it is seen.
   const backdrop = (
     <Backdrop look={lookOf(records.prefs)} clear=".work > .toolbar, #main" state={motionState({
       thoughts: records.thoughts.values(), sessions: records.sessions.values(), questions: openQuestions().length, routing: routing(), voice: ui.voice,

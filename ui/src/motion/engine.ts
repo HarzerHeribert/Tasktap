@@ -45,6 +45,8 @@ const UNI = { res: 2, org: 2, n: 1, irid: 1, dim: 1, light: 1, hoff: 1, aux: 1, 
   sig: '3fv', ta: '3fv', tb: '3fv', bg: '3fv', lm: '4fv', holes: '4fv', hole: 2 } as const;
 type Uniforms = { -readonly [K in keyof typeof UNI]: number | ArrayLike<number> };
 const HOLES = 24;
+/** The smallest view, in CSS pixels, that draws (View.shown). */
+const MIN = [400, 200];
 /** No voice: silence, as the shaders read it. */
 const SILENT = { level: 0, fast: 0, slow: 0, onset: 0, onsets: 0, bright: 0.4, vowel: 0, sib: 0, pitch: 0.4, activity: 0, quiet: 9, hoff: 0 };
 
@@ -161,6 +163,7 @@ export class View {
     const resize = new ResizeObserver(([e]) => {
       const b = e!.contentRect;
       this.css = [b.width, b.height];
+      el.toggleAttribute('data-small', b.width < MIN[0]! || b.height < MIN[1]!);
       this.dirty = this.stale = true;
       this.watch();
       wake();
@@ -225,7 +228,7 @@ export class View {
   /** Below about 400 by 200 CSS pixels an element of the form is narrower than 8 device pixels on a 1x display, where
    *  the full shader stops reading as metal; such a view draws nothing at all. */
   shown() {
-    return this.seen && this.o.active !== false && this.css[0]! >= 400 && this.css[1]! >= 200 && !document.hidden;
+    return this.seen && this.o.active !== false && this.css[0]! >= MIN[0]! && this.css[1]! >= MIN[1]! && !document.hidden;
   }
 
   /** Its size in drawn pixels. */

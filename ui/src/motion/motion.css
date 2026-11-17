@@ -2,5 +2,7 @@
    over the page: where it is black it is clear, and the words above it keep their contrast. */
 .motion{display:block;position:relative;pointer-events:none}
 .motion-canvas{position:absolute;inset:0;display:block;width:100%;height:100%}
+/* Too small for the metal to read: nothing, not even the last frame. */
+.motion[data-small]{visibility:hidden}
 .backdrop-box{position:absolute;display:block;pointer-events:none}
 .backdrop-box .backdrop{position:absolute;inset:0}

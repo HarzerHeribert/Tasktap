@@ -14,8 +14,8 @@ html{background:color-mix(in srgb,var(--deck-bg) calc(var(--window-opacity,.93) 
    size in whole pixels so it is never resampled; or, for comparison, a backdrop behind the whole view. */
 .work{position:relative}
 .work>:is(.toolbar,main){position:relative;z-index:1}
-.work>.home-backdrop[data-place=object]{right:32px;bottom:24px;width:760px;height:340px}
-@media (max-width:1100px){.work>.home-backdrop[data-place=object]{width:560px;height:250px}}
+.work>.home-backdrop[data-place=object]{right:32px;bottom:16px;width:760px;height:min(340px,calc(100% - var(--home-free,100%) - 16px))}
+@media (max-width:1100px){.work>.home-backdrop[data-place=object]{width:560px;height:min(250px,calc(100% - var(--home-free,100%) - 16px))}}
 .work>.home-backdrop[data-place=wash]{inset:0}
 
 /* The appearance panel (theme.tsx): plain controls and the motion as Home shows it. */

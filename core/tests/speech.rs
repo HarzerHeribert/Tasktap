@@ -688,6 +688,76 @@ fn nothing_leaves_the_machine_without_consent_or_when_nothing_was_heard() {
     assert_eq!(s.w.model.dictations.len(), 1, "only the one that failed");
 }
 
+/// `ms` of what an empty room gives a microphone: even noise, its samples
+/// within `loud`, the same for the same `seed`.
+fn room(ms: usize, loud: i32, seed: u32) -> Vec<i16> {
+    let mut state = seed;
+    let noise = |_| {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        ((state >> 8) as i32 % (2 * loud + 1) - loud) as i16
+    };
+    (0..ms * 16).map(noise).collect()
+}
+
+/// A sound added to a recording from `at_ms` on for `ms`: a 200 Hz square
+/// wave of this loudness.
+fn sound(recording: &mut [i16], at_ms: usize, ms: usize, loud: i16) {
+    for (i, sample) in recording[at_ms * 16..][..ms * 16].iter_mut().enumerate() {
+        *sample += if (i / 40) % 2 == 0 { loud } else { -loud };
+    }
+}
+
+fn samples(recording: &[i16]) -> Vec<u8> {
+    recording.iter().flat_map(|s| s.to_le_bytes()).collect()
+}
+
+#[test]
+fn an_even_room_is_not_sent_and_a_word_barely_above_its_noise_is() {
+    let (mut s, service) = stage("speech-room", &[]);
+    consent(&mut s.w, &service.url(), "ok");
+    // The noise of this room is at -45 dBFS, well above the floor below
+    // which a microphone counts as muted.
+    let quiet = |ms| room(ms, 300, 7);
+    let mut word = quiet(3000);
+    // A short word 1 dB above the room's own noise, not on a window's edge.
+    sound(&mut word, 1275, 200, 200);
+    let mut click = quiet(3000);
+    sound(&mut click, 1000, 10, 6000);
+    let mut pause = quiet(3000);
+    pause[16_000..24_000].fill(0);
+    let said = [
+        ("a word barely above the noise", word),
+        // Not told from a word, and so sent: the side to err on.
+        ("a click", click),
+        ("a gap in the noise", pause),
+        ("too short to tell", quiet(400)),
+        ("a place that is loud throughout", room(3000, 3000, 7)),
+    ];
+    for (what, recording) in said {
+        let mut r = recorded(&s, DictationTarget::Text, &samples(&recording));
+        let id = r.id;
+        r.finish().unwrap();
+        let heard =
+            |m: &Model| (m.dictations.get(&id)).is_some_and(|d| d.phase == DictationPhase::Heard);
+        s.w.until(what, heard);
+    }
+    assert_eq!(service.seen().len(), 5);
+    // Nothing but the room, for three seconds and for a minute; and, the
+    // known limit, a steady hum quieter than -30 dBFS.
+    let even = [
+        ("an empty room", samples(&quiet(3000))),
+        ("an empty room, for a minute", samples(&quiet(60_000))),
+        ("a steady hum", tone(3000, 300)),
+    ];
+    for (what, recording) in even {
+        let mut r = recorded(&s, DictationTarget::Text, &recording);
+        r.finish().unwrap();
+        let row = failed(&mut s.w, r.id);
+        assert_eq!(row.error.as_deref(), Some("Nothing was heard"), "{what}");
+    }
+    assert_eq!(service.seen().len(), 5, "nothing more was sent");
+}
+
 #[test]
 fn a_consent_names_a_server_and_a_model_and_the_terms_say_what_is_sent() {
     let (mut s, _) = stage("speech-terms", &[]);

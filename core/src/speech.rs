@@ -45,6 +45,11 @@ const BYTES_A_SECOND: usize = RATE as usize * 2;
 pub const CAP: usize = RECORDING as usize * BYTES_A_SECOND;
 /// The audio a level is taken from: 100 ms. Less than this is no recording.
 const WINDOW: usize = BYTES_A_SECOND / 10;
+/// Whole windows a recording needs before a room can be told from a word.
+const TELLING: u32 = 5;
+/// The sum of the squares of a window's samples at -30 dBFS: no quiet
+/// room is that strong, so a window that is counts as said.
+const STRONG: u64 = 1_717_986_918;
 /// A level of 0 is this many dBFS, and 100 is `FLOOR + SPAN` (as in 1.2).
 const FLOOR: f32 = -55.0;
 const SPAN: f32 = 49.0;
@@ -103,6 +108,13 @@ struct Audio {
     /// The loudest sample of that window, and of every window before.
     window: u16,
     peak: u16,
+    /// The sum of the squares of that window's samples, and the largest and
+    /// the smallest such sum of the whole windows before it.
+    energy: u64,
+    strongest: u64,
+    weakest: u64,
+    /// Whole windows heard.
+    windows: u32,
     level: u8,
     /// A change of the level waits to be published.
     told: bool,
@@ -132,22 +144,37 @@ impl Audio {
             for sample in self.pcm[self.scanned..end].as_chunks::<2>().0 {
                 let loud = i16::from_le_bytes(*sample).unsigned_abs();
                 self.window = self.window.max(loud);
+                self.energy += u64::from(loud) * u64::from(loud);
             }
             self.heard += end - self.scanned;
             self.scanned = end;
             if self.heard == WINDOW {
                 self.level = level(self.window);
                 self.peak = self.peak.max(self.window);
-                (self.window, self.heard) = (0, 0);
+                self.strongest = self.strongest.max(self.energy);
+                self.weakest = match self.windows {
+                    0 => self.energy,
+                    _ => self.weakest.min(self.energy),
+                };
+                self.windows += 1;
+                (self.window, self.heard, self.energy) = (0, 0, 0);
             }
         }
     }
 
-    /// Whether there is anything to transcribe: at least one window of
-    /// audio, some of it above the floor. A microphone that is muted or
-    /// refused gives zeros.
+    /// Whether there is anything to transcribe (design §8, "Nothing was
+    /// said"). Not when there is less than one window of audio, or none of
+    /// it above the floor: a microphone that is muted or refused gives
+    /// zeros. And not when a recording long enough to tell is as even as an
+    /// empty room is: no window twice as strong (3 dB) as its weakest, and
+    /// none strong in itself. Anything else is sent: a word no louder
+    /// than the room's own noise still stands out of its weakest window.
     fn heard(&self) -> bool {
-        self.pcm.len() >= WINDOW && level(self.peak.max(self.window)) > 0
+        if self.pcm.len() < WINDOW || level(self.peak.max(self.window)) == 0 {
+            return false;
+        }
+        let even = self.strongest < self.weakest.saturating_mul(2);
+        self.windows < TELLING || !even || self.strongest >= STRONG
     }
 }
 

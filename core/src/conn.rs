@@ -1,0 +1,201 @@
+//! One connection: its task, its queue and its bounds (design §2).
+//!
+//! Each accepted connection is one task on the core's thread. It reads
+//! frames and answers them, and writes what is queued for it. Everything
+//! sent to a connection, by its own calls or from elsewhere in the core, is
+//! queued through its [`Link`], which enforces the bounds.
+
+use crate::calls::{self, Caller};
+use crate::handshake;
+use crate::serve::Core;
+use std::cell::{Cell, RefCell};
+use std::pin::Pin;
+use std::rc::Rc;
+use std::task::Poll;
+use tasktap_proto::{Control, Decoder, Frame, MAX_PENDING_CALLS, Refuse, encode_control};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::sync::Notify;
+
+/// Connections at once.
+pub const MAX_CONNECTIONS: usize = 256;
+/// Control bytes queued for one connection, a snapshot included.
+pub const MAX_QUEUED: usize = 8 << 20;
+/// Bytes read from a connection at once.
+const READ: usize = 8 << 10;
+
+/// What the handshake established about a connection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Peer {
+    pub who: Caller,
+    /// The version both sides speak; 0 leaves only the bootstrap calls.
+    pub v: u32,
+}
+
+/// The core's handle on one connection.
+#[derive(Default)]
+pub struct Link {
+    peer: Cell<Option<Peer>>,
+    /// Frames the task has not taken yet.
+    out: RefCell<Vec<u8>>,
+    /// Bytes queued and not yet written, including those the task took.
+    queued: Cell<usize>,
+    /// Calls read whose reply has not been queued.
+    pending: Cell<usize>,
+    /// Set once the connection is ending: whether what is queued gets one last write.
+    closing: Cell<Option<bool>>,
+    wake: Notify,
+}
+
+impl Link {
+    /// `None` until the handshake succeeded.
+    pub fn peer(&self) -> Option<Peer> {
+        self.peer.get()
+    }
+
+    /// Queues a frame. A connection over its bound is dropped instead, so
+    /// the core's memory never grows to suit a client that does not read.
+    pub fn send(&self, frame: &Control) {
+        if self.closing.get().is_some() {
+            return;
+        }
+        if let Control::Reply(_) = frame {
+            self.pending.set(self.pending.get().saturating_sub(1));
+        }
+        let mut out = self.out.borrow_mut();
+        let before = out.len();
+        // Only a frame over the size limit fails, and no peer could read it.
+        let encoded = encode_control(frame, &mut out).is_ok();
+        let queued = self.queued.get() + out.len() - before;
+        drop(out);
+        self.queued.set(queued);
+        if !encoded || queued > MAX_QUEUED {
+            self.close(false);
+        } else {
+            self.wake.notify_one();
+        }
+    }
+
+    /// Ends the connection. With `flush`, what is queued gets one write
+    /// that never waits; without, it ends at once.
+    pub fn close(&self, flush: bool) {
+        if self.closing.get().is_none() {
+            self.closing.set(Some(flush));
+        }
+        self.wake.notify_one();
+    }
+}
+
+/// Starts the task of an accepted connection, or closes it when the core
+/// has as many as it may hold.
+pub fn spawn(core: &Rc<RefCell<Core>>, stream: impl AsyncRead + AsyncWrite + 'static) {
+    let link = Rc::new(Link::default());
+    let mut c = core.borrow_mut();
+    if c.links.len() >= MAX_CONNECTIONS {
+        return;
+    }
+    c.links.push(link.clone());
+    tokio::task::spawn_local(run(core.clone(), link, stream));
+}
+
+async fn run(core: Rc<RefCell<Core>>, link: Rc<Link>, stream: impl AsyncRead + AsyncWrite) {
+    let (mut rd, mut wr) = tokio::io::split(stream);
+    let mut decoder = Decoder::new();
+    let mut input = [0; READ];
+    // Bytes taken from the link, written from `at` on.
+    let (mut out, mut at) = (Vec::new(), 0);
+    loop {
+        if at == out.len() {
+            // Gives back what a burst took before taking more.
+            out.clear();
+            out.shrink_to(READ);
+            at = 0;
+            std::mem::swap(&mut out, &mut *link.out.borrow_mut());
+        }
+        match link.closing.get() {
+            Some(true) => {
+                let mut rest = out.split_off(at);
+                rest.extend_from_slice(&link.out.take());
+                write_once(&mut wr, &rest).await;
+                break;
+            }
+            Some(false) => break,
+            None => {}
+        }
+        tokio::select! {
+            read = rd.read(&mut input) => match read {
+                Ok(n) if n > 0 => {
+                    decoder.push(&input[..n]);
+                    if !frames(&core, &link, &mut decoder) {
+                        break;
+                    }
+                }
+                _ => break,
+            },
+            wrote = wr.write(&out[at..]), if at < out.len() => match wrote {
+                Ok(n) if n > 0 => {
+                    at += n;
+                    link.queued.set(link.queued.get() - n);
+                }
+                _ => break,
+            },
+            () = link.wake.notified() => {}
+        }
+    }
+    core.borrow_mut().remove(&link);
+}
+
+/// Handles every whole frame read so far; `false` ends the connection.
+fn frames(core: &RefCell<Core>, link: &Rc<Link>, decoder: &mut Decoder) -> bool {
+    while link.closing.get().is_none() {
+        // After a bad frame the bytes no longer line up with frames.
+        let Ok(next) = decoder.next_frame() else {
+            return false;
+        };
+        let Some(frame) = next else {
+            return true;
+        };
+        let mut core = core.borrow_mut();
+        match (link.peer.get(), frame) {
+            (None, Frame::Control(Control::Hello(hello))) => {
+                match handshake::hello(&mut core, hello) {
+                    Ok((peer, welcome)) => {
+                        link.peer.set(Some(peer));
+                        link.send(&Control::Welcome(welcome));
+                    }
+                    Err(Some(why)) => {
+                        link.send(&Control::Refuse(Refuse { why }));
+                        link.close(true);
+                    }
+                    Err(None) => return false,
+                }
+            }
+            (Some(peer), Frame::Control(Control::Call(request))) => {
+                if link.pending.get() >= MAX_PENDING_CALLS {
+                    return false;
+                }
+                link.pending.set(link.pending.get() + 1);
+                calls::call(&mut core, link, peer, request);
+            }
+            // Stream frames are package 6's; replies answer calls the core
+            // makes, which arrive in Phases 2 and 4.
+            (
+                Some(_),
+                Frame::Data(_)
+                | Frame::Control(Control::Credit(_) | Control::Close(_) | Control::Reply(_)),
+            ) => {}
+            // A call before hello, a second hello, or a frame only the core sends.
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// Writes what the connection takes at once, without waiting for it to
+/// read, so a client that stopped reading cannot hold up the core's exit.
+async fn write_once(wr: &mut (impl AsyncWrite + Unpin), bytes: &[u8]) {
+    std::future::poll_fn(|cx| {
+        let _ = Pin::new(&mut *wr).poll_write(cx, bytes);
+        Poll::Ready(())
+    })
+    .await;
+}

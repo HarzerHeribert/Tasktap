@@ -1,0 +1,185 @@
+//! The service (design §3): one core per data folder, started on demand,
+//! alive while anyone is connected, gone a minute after the last one left.
+
+use crate::conn::{self, Link};
+use crate::store::Store;
+use crate::sys;
+use std::cell::RefCell;
+use std::fs::{File, TryLockError};
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::rc::Rc;
+use std::time::Duration;
+use tasktap_proto::{Change, When};
+use tokio::sync::Notify;
+use tokio::time::Sleep;
+
+/// How long the core stays with nobody connected and no terminal alive.
+pub const IDLE: Duration = Duration::from_secs(60);
+
+/// This build in `welcome` and `core.status`. A release stamps it at compile
+/// time with `TASKTAP_BUILD`.
+pub const BUILD: &str = match option_env!("TASKTAP_BUILD") {
+    Some(build) => build,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
+pub struct Options {
+    /// Always given: there is no default folder (hazard 7).
+    pub data: PathBuf,
+    pub idle: Duration,
+    /// A session token that names no terminal, for tests (design §13).
+    #[cfg(feature = "fixtures")]
+    pub token: Option<tasktap_proto::Secret>,
+}
+
+/// Everything the core's thread owns. Tasks borrow it between awaits, never across one.
+pub struct Core {
+    pub store: Store,
+    pub links: Vec<Rc<Link>>,
+    pub retire: Option<When>,
+    /// Wakes the main loop to look at the lifetime again.
+    pub events: Rc<Notify>,
+    #[cfg(feature = "fixtures")]
+    pub fixture_token: Option<(crate::store::Hash, tasktap_proto::TerminalId)>,
+}
+
+impl Core {
+    /// Live terminals; Phase 2 counts them.
+    pub fn terminals(&self) -> u32 {
+        0
+    }
+
+    /// The lifetime condition: a client connected or a terminal alive.
+    pub fn busy(&self) -> bool {
+        !self.links.is_empty() || self.terminals() > 0
+    }
+
+    /// Every committed change passes here. Package 5 sends it to the links
+    /// subscribed to its collections.
+    pub fn publish(&mut self, change: Option<Change>) {
+        let _ = change;
+    }
+
+    pub fn remove(&mut self, link: &Rc<Link>) {
+        self.links.retain(|l| !Rc::ptr_eq(l, link));
+        self.events.notify_one();
+    }
+}
+
+/// Runs `tasktap serve` until it retires, idles out or is stopped. Returns
+/// at once, successfully, when another core holds the folder.
+pub fn run(opts: Options) -> io::Result<()> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()?;
+    tokio::task::LocalSet::new().block_on(&rt, serve(opts))
+}
+
+async fn serve(opts: Options) -> io::Result<()> {
+    sys::prepare(&opts.data)?;
+    // A second `serve` waits here until the first listens, then finds the
+    // lock taken and exits: the client that started it can connect at once.
+    let starting = lock(&opts.data.join("start.lock"))?;
+    let life = open(&opts.data.join("core.lock"))?;
+    match life.try_lock() {
+        Ok(()) => {}
+        Err(TryLockError::WouldBlock) => {
+            ready();
+            return Ok(());
+        }
+        Err(TryLockError::Error(e)) => return Err(e),
+    }
+    let (store, _) = Store::open(&opts.data.join("core.db")).map_err(io::Error::other)?;
+    let mut listener = sys::Listener::bind(&opts.data)?;
+    let terminated = sys::terminated()?;
+    drop(starting);
+    ready();
+
+    let events = Rc::new(Notify::new());
+    let core = Rc::new(RefCell::new(Core {
+        store,
+        links: Vec::new(),
+        retire: None,
+        events: events.clone(),
+        #[cfg(feature = "fixtures")]
+        fixture_token: opts.token.map(|t| {
+            (
+                crate::handshake::hash(&t),
+                tasktap_proto::TerminalId::mint(),
+            )
+        }),
+    }));
+    tokio::pin!(terminated);
+    let mut idle = None;
+    let mut accepting = true;
+    loop {
+        {
+            let c = core.borrow();
+            match c.retire {
+                Some(When::Now) => break,
+                Some(When::Idle) if c.terminals() == 0 => break,
+                _ => {}
+            }
+            if c.busy() {
+                // Dropping the timer takes it out of the runtime: no wakeup.
+                idle = None;
+            } else if idle.is_none() {
+                idle = Some(Box::pin(tokio::time::sleep(opts.idle)));
+            }
+        }
+        tokio::select! {
+            biased;
+            () = &mut terminated => break,
+            accepted = listener.accept(), if accepting => match accepted {
+                Ok(stream) => conn::spawn(&core, stream),
+                Err(e) if core.borrow().links.is_empty() => return Err(e),
+                // Out of descriptors, say: wait for a connection to end
+                // rather than spin on the error.
+                Err(_) => accepting = false,
+            },
+            () = events.notified() => accepting = true,
+            () = fire(&mut idle) => break,
+        }
+    }
+    // What is queued, such as the reply to `core.retire`, gets one write.
+    for link in &core.borrow().links {
+        link.close(true);
+    }
+    while !core.borrow().links.is_empty() {
+        events.notified().await;
+    }
+    Ok(())
+}
+
+/// Tells the client that started this `serve` that a core listens on the
+/// folder (`client::start`). Every outcome writes one line, so that client
+/// never waits for the pipe to end, which a write end inherited by some
+/// other process could delay.
+fn ready() {
+    let _ = writeln!(io::stdout(), "ready");
+}
+
+/// Completes when the armed timer fires, never while none is armed.
+async fn fire(timer: &mut Option<Pin<Box<Sleep>>>) {
+    match timer {
+        Some(timer) => timer.as_mut().await,
+        None => std::future::pending().await,
+    }
+}
+
+fn open(path: &Path) -> io::Result<File> {
+    File::options()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path)
+}
+
+fn lock(path: &Path) -> io::Result<File> {
+    let file = open(path)?;
+    file.lock()?;
+    Ok(file)
+}

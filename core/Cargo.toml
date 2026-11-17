@@ -8,8 +8,28 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
+[[bin]]
+name = "tasktap"
+path = "src/main.rs"
+
+[features]
+# Test hooks compiled into the binary (design §13). Only the tests turn it on,
+# through the dev-dependency on this crate below; a release build never has it.
+fixtures = []
+
 [dependencies]
 tasktap-proto = { path = "proto" }
 rusqlite = { version = "0.43", features = ["bundled"] }
 serde = "1"
 serde_json = "1"
+sha2 = "0.11"
+# `macros` is for `select!` only; it adds nothing at run time.
+tokio = { version = "1.54", default-features = false, features = ["rt", "net", "io-util", "time", "signal", "sync", "macros"] }
+
+[target.'cfg(windows)'.dependencies]
+# The pipe's peer check: std and tokio cannot name the user behind a process.
+# The same version tokio already uses.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Pipes", "Win32_System_Threading"] }
+
+[dev-dependencies]
+tasktap-core = { path = ".", features = ["fixtures"] }

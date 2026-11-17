@@ -5,123 +5,24 @@
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
-use std::process::Child;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use tasktap_core::client::{self, Client};
+use std::sync::atomic::{AtomicBool, Ordering};
+use tasktap_core::client::Client;
 use tasktap_proto::call::{self, Call, Code};
 use tasktap_proto::{
-    Answer, Auth, CallId, Change, Collection, Control, Delete, DeviceId, FixtureClock,
-    FixtureRecords, Frame, Glance, HEADER, Hello, History, Isolate, LayoutPatch, Limit, Mode,
-    NotePatch, Outcome, Phase, Pref, PrefKey, PrefPatch, PrefValue, Project, ProjectId,
-    ProjectKind, ProjectPatch, Put, PutTarget, Question, QuestionId, QuestionKind, QuestionSource,
-    QuestionState, Register, ReplyVia, Request, Response, ResultId, ResultKind, Retire, Rev, Role,
-    Rows, Secret, SessionId, Set, Source, Status, Subscribe, Thought, ThoughtId, Time, TurnResult,
-    VERSION, Versions, When, encode_control,
+    Answer, CallId, Change, Collection, Control, Delete, DeviceId, FixtureClock, FixtureRecords,
+    Frame, Glance, HEADER, History, Isolate, LayoutPatch, Limit, Mode, NotePatch, Phase, Pref,
+    PrefKey, PrefPatch, PrefValue, Project, ProjectId, ProjectKind, ProjectPatch, Put, PutTarget,
+    Question, QuestionId, QuestionKind, QuestionSource, QuestionState, ReplyVia, Response,
+    ResultId, ResultKind, Rev, Rows, SessionId, Set, Source, Status, Subscribe, Thought, ThoughtId,
+    Time, TurnResult, encode_control,
 };
 
 mod common;
 
-const EXE: &str = env!("CARGO_BIN_EXE_tasktap");
+use common::*;
+
 /// Most bytes of JSON in one snapshot chunk (design §1).
 const CHUNK: usize = 256 << 10;
-const ALL: [Collection; 10] = [
-    Collection::Thoughts,
-    Collection::Projects,
-    Collection::Sessions,
-    Collection::Terminals,
-    Collection::Questions,
-    Collection::Results,
-    Collection::Layouts,
-    Collection::Prefs,
-    Collection::Devices,
-    Collection::Glance,
-];
-
-/// A fresh data folder, removed afterwards.
-struct Folder(PathBuf);
-
-impl Folder {
-    fn new() -> Folder {
-        static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let n = NEXT.fetch_add(1, Ordering::Relaxed);
-        // Short: a socket path has a length limit.
-        let path = std::env::temp_dir().join(format!("tr-{}-{n}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&path);
-        std::fs::create_dir_all(&path).unwrap();
-        Folder(path)
-    }
-}
-
-impl Drop for Folder {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
-/// A core this test started; killed if the test ends with it still running.
-struct Core {
-    child: Child,
-    data: PathBuf,
-    _watchdog: common::Watchdog,
-}
-
-impl Core {
-    fn start(data: &Folder) -> Core {
-        let mut serve = client::serve_command(Path::new(EXE), &data.0);
-        serve.args(["--idle-ms", "600000"]);
-        let child = client::start(serve).unwrap();
-        Core {
-            _watchdog: common::Watchdog::new(&child),
-            child,
-            data: data.0.clone(),
-        }
-    }
-
-    /// A new connection, as a newly registered device. A frame that never
-    /// comes fails the test instead of hanging it.
-    fn device(&self) -> Client {
-        self.connect(DeviceId::mint(), Some("test"))
-    }
-
-    /// A new connection as the device `id`, registering it under `name` if given.
-    fn connect(&self, id: DeviceId, name: Option<&str>) -> Client {
-        let stream = client::connect(&self.data).unwrap();
-        #[cfg(unix)]
-        stream
-            .set_read_timeout(Some(std::time::Duration::from_secs(20)))
-            .unwrap();
-        let hello = Hello {
-            v: Versions(VERSION, VERSION),
-            role: Role::Page,
-            client: "records test".into(),
-            auth: Some(Auth::Device {
-                device: id,
-                key: Secret([1; 32]),
-                register: name.map(|name| Register { name: name.into() }),
-            }),
-            abilities: Vec::new(),
-        };
-        Client::hello(stream, hello).unwrap().unwrap()
-    }
-
-    /// Retires the core and waits until it has exited.
-    fn stop(mut self) {
-        let retire = Retire { when: When::Now };
-        let mut c = self.device();
-        c.call::<call::CoreRetire>(&retire).unwrap().unwrap();
-        assert!(self.child.wait().unwrap().success());
-    }
-}
-
-impl Drop for Core {
-    fn drop(&mut self) {
-        if self.child.try_wait().unwrap().is_none() {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-        }
-    }
-}
 
 /// What a client holds after applying a snapshot and changes: every row, by
 /// collection and id (`glance`, which has none, under "").
@@ -276,27 +177,6 @@ fn history(c: &mut Client, before: Option<ThoughtId>, limit: u32) -> Vec<Thought
     page.unwrap().unwrap().thoughts
 }
 
-/// A call by name, on a connection with no subscription: other frames are dropped.
-fn raw(c: &mut Client, name: &str, args: Value) -> Outcome {
-    let id = CallId(9000);
-    let name = name.to_owned();
-    c.send(&Control::Call(Request { id, name, args })).unwrap();
-    loop {
-        if let Frame::Control(Control::Reply(reply)) = c.recv().unwrap()
-            && reply.id == id
-        {
-            return reply.outcome;
-        }
-    }
-}
-
-fn refused(outcome: Outcome) -> Code {
-    match outcome {
-        Outcome::Err(e) => e.code,
-        Outcome::Ok(v) => panic!("expected an error, got {v}"),
-    }
-}
-
 /// Writes rows only the state machine writes otherwise; returns the revision after.
 fn fixture(c: &mut Client, sets: Vec<Set>) -> Rev {
     let written = c.call::<call::FixtureRecords>(&FixtureRecords { sets });
@@ -377,18 +257,13 @@ fn glance(working: u32) -> Glance {
     }
 }
 
-fn wall() -> u64 {
-    let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
-    since.unwrap().as_millis() as u64
-}
-
 fn row(value: &impl serde::Serialize) -> Value {
     serde_json::to_value(value).unwrap()
 }
 
 #[test]
 fn two_subscribers_see_the_same_changes_in_order_with_no_gap() {
-    let data = Folder::new();
+    let data = Folder::new("tr");
     let core = Core::start(&data);
     let (mut a, mut b) = (core.device(), core.device());
     let (sa, sb) = (subscribe(&mut a, &ALL), subscribe(&mut b, &ALL));
@@ -422,7 +297,7 @@ fn two_subscribers_see_the_same_changes_in_order_with_no_gap() {
 #[test]
 fn a_subscriber_that_joins_during_writes_misses_and_doubles_nothing() {
     const ROUNDS: usize = 100;
-    let data = Folder::new();
+    let data = Folder::new("tr");
     let core = Core::start(&data);
     let mut w = core.device();
     let stop = AtomicBool::new(false);
@@ -474,7 +349,7 @@ fn a_subscriber_that_joins_during_writes_misses_and_doubles_nothing() {
 
 #[test]
 fn a_subscriber_sees_only_the_collections_it_named() {
-    let data = Folder::new();
+    let data = Folder::new("tr");
     let core = Core::start(&data);
     let mut w = core.device();
     let p = project("a");
@@ -533,29 +408,29 @@ fn a_subscriber_sees_only_the_collections_it_named() {
 
 #[test]
 fn a_device_that_connects_again_writes_and_sends_nothing() {
-    let data = Folder::new();
+    let data = Folder::new("tr");
     let core = Core::start(&data);
     let id = DeviceId::mint();
-    drop(core.connect(id, Some("laptop")));
+    drop(core.device_as(id, 1, Some("laptop")).unwrap());
     let mut s = core.device();
     let before = subscribe(&mut s, &ALL);
 
-    drop(core.connect(id, None));
-    drop(core.connect(id, None));
+    drop(core.device_as(id, 1, None).unwrap());
+    drop(core.device_as(id, 1, None).unwrap());
     let after = subscribe(&mut s, &ALL);
     assert!(after.before.is_empty(), "{:?}", after.before);
     assert_eq!((after.rev, after.model), (before.rev, before.model));
 
     // A day later the next connect records it once.
     let day = 24 * 60 * 60 * 1000;
-    let now = Time::new(wall() + day + 1000).unwrap();
+    let now = Time::new(wall_ms() + day + 1000).unwrap();
     let clock = call::FixtureClock::request(CallId(7), &FixtureClock { now });
     s.send(&clock).unwrap();
     assert!(matches!(
         s.recv().unwrap(),
         Frame::Control(Control::Reply(_))
     ));
-    drop(core.connect(id, None));
+    drop(core.device_as(id, 1, None).unwrap());
     let Set::Devices(rows) = one(&mut s, Rev::new(after.rev.get() + 1).unwrap()) else {
         panic!("expected the device");
     };
@@ -564,7 +439,7 @@ fn a_device_that_connects_again_writes_and_sends_nothing() {
 
 #[test]
 fn put_writes_each_plain_collection_and_the_writer_sees_its_own_change() {
-    let data = Folder::new();
+    let data = Folder::new("tr");
     let core = Core::start(&data);
     let mut w = core.device();
     let p = project("tasktap");
@@ -683,7 +558,7 @@ fn put_writes_each_plain_collection_and_the_writer_sees_its_own_change() {
 
 #[test]
 fn put_refuses_what_is_not_plain_data_and_writes_nothing() {
-    let data = Folder::new();
+    let data = Folder::new("tr");
     let core = Core::start(&data);
     let mut w = core.device();
     let p = project("a");
@@ -761,12 +636,8 @@ fn put_refuses_what_is_not_plain_data_and_writes_nothing() {
             Code::Gone,
         ),
     ];
-    for (args, code) in puts {
-        assert_eq!(
-            refused(raw(&mut w, "put", args.clone())),
-            code,
-            "put {args}"
-        );
+    for (args, want) in puts {
+        assert_eq!(code(raw(&mut w, "put", args.clone())), want, "put {args}");
     }
     let deletes = [
         (json!({"c": "thoughts", "id": tid}), Code::Invalid),
@@ -776,10 +647,10 @@ fn put_refuses_what_is_not_plain_data_and_writes_nothing() {
             Code::Gone,
         ),
     ];
-    for (args, code) in deletes {
+    for (args, want) in deletes {
         assert_eq!(
-            refused(raw(&mut w, "delete", args.clone())),
-            code,
+            code(raw(&mut w, "delete", args.clone())),
+            want,
             "delete {args}"
         );
     }
@@ -791,7 +662,7 @@ fn put_refuses_what_is_not_plain_data_and_writes_nothing() {
 
 #[test]
 fn if_rev_writes_only_over_the_revision_the_caller_saw() {
-    let data = Folder::new();
+    let data = Folder::new("tr");
     let core = Core::start(&data);
     let mut w = core.device();
     let p = project("a");
@@ -840,7 +711,7 @@ fn if_rev_writes_only_over_the_revision_the_caller_saw() {
 
 #[test]
 fn delete_restores_a_default_and_removes_a_note() {
-    let data = Folder::new();
+    let data = Folder::new("tr");
     let core = Core::start(&data);
     let mut w = core.device();
     let p = project("a");
@@ -904,11 +775,11 @@ fn delete_restores_a_default_and_removes_a_note() {
 
 #[test]
 fn a_note_edit_is_stamped_with_the_cores_clock() {
-    let mut s = common::Scene::new("note-clock");
+    let mut s = Scene::new("note-clock");
     let id = ThoughtId::mint();
     let note = tasktap_proto::Capture {
         mode: Some(Mode::Note),
-        ..common::typed(id, "milk")
+        ..typed(id, "milk")
     };
     s.w.ok::<call::ThoughtCapture>(&note);
     // A minute ahead of the wall clock.
@@ -918,12 +789,12 @@ fn a_note_edit_is_stamped_with_the_cores_clock() {
         if_rev: None,
     };
     s.w.ok::<call::Put>(&put);
-    assert_eq!(s.w.model.thought(id).updated, common::time(s.now));
+    assert_eq!(s.w.model.thought(id).updated, time(s.now));
 }
 
 #[test]
 fn a_thought_leaving_the_live_set_is_a_delete_and_then_history() {
-    let data = Folder::new();
+    let data = Folder::new("tr");
     let core = Core::start(&data);
     let mut w = core.device();
     let mut ids: Vec<ThoughtId> = (0..201).map(|_| ThoughtId::mint()).collect();
@@ -982,7 +853,7 @@ fn a_thought_leaving_the_live_set_is_a_delete_and_then_history() {
 
 #[test]
 fn history_pages_newest_first_with_no_duplicates_or_holes() {
-    let data = Folder::new();
+    let data = Folder::new("tr");
     let core = Core::start(&data);
     let mut w = core.device();
     let mut ids: Vec<ThoughtId> = (0..330).map(|_| ThoughtId::mint()).collect();
@@ -1016,13 +887,13 @@ fn history_pages_newest_first_with_no_duplicates_or_holes() {
     }
     for limit in [0, 101] {
         let args = json!({ "limit": limit });
-        assert_eq!(refused(raw(&mut w, "history", args)), Code::Invalid);
+        assert_eq!(code(raw(&mut w, "history", args)), Code::Invalid);
     }
 }
 
 #[test]
 fn history_pages_the_questions_and_results_of_a_thought_that_do_not_fit_one_reply() {
-    let data = Folder::new();
+    let data = Folder::new("tr");
     let core = Core::start(&data);
     let mut w = core.device();
     let (older, many) = (ThoughtId::mint(), ThoughtId::mint());
@@ -1117,7 +988,7 @@ fn history_pages_the_questions_and_results_of_a_thought_that_do_not_fit_one_repl
 
 #[test]
 fn a_large_snapshot_arrives_in_chunks_and_whole() {
-    let data = Folder::new();
+    let data = Folder::new("tr");
     let core = Core::start(&data);
     let mut w = core.device();
     let ps: Vec<Project> = (0..12).map(|i| project(&format!("p{i}"))).collect();
@@ -1150,7 +1021,7 @@ fn a_large_snapshot_arrives_in_chunks_and_whole() {
 
 #[test]
 fn a_change_larger_than_a_frame_arrives_in_parts_of_one_revision_the_last_unmarked() {
-    let data = Folder::new();
+    let data = Folder::new("tr");
     let core = Core::start(&data);
     let mut w = core.device();
     // Six finished thoughts of 200 KiB each, out of the live set behind 200
@@ -1165,7 +1036,7 @@ fn a_change_larger_than_a_frame_arrives_in_parts_of_one_revision_the_last_unmark
         .map(|i| finished(ThoughtId::mint(), &format!("new {i}")))
         .collect();
     fixture(&mut w, vec![thoughts(newer.clone())]);
-    let mut watch = common::Watch::new(core.device());
+    let mut watch = Watch::new(core.device());
     let mut late = core.device();
     let mut s = core.device();
     let mut model = subscribe(&mut s, &ALL).model;
@@ -1206,7 +1077,7 @@ fn a_change_larger_than_a_frame_arrives_in_parts_of_one_revision_the_last_unmark
 
 #[test]
 fn a_snapshot_larger_than_the_queue_bound_reaches_a_slow_reader_with_every_change_after_it() {
-    let data = Folder::new();
+    let data = Folder::new("tr");
     let core = Core::start(&data);
     let mut w = core.device();
     // 160 finished thoughts of 200 KiB: 32 MiB live, four times what may be
@@ -1268,7 +1139,7 @@ fn a_snapshot_larger_than_the_queue_bound_reaches_a_slow_reader_with_every_chang
 #[test]
 fn a_subscriber_that_stops_reading_is_dropped_and_the_others_get_everything() {
     const WRITES: usize = 80;
-    let data = Folder::new();
+    let data = Folder::new("tr");
     let core = Core::start(&data);
     let mut w = core.device();
     let p = project("a");
@@ -1322,7 +1193,7 @@ fn a_subscriber_that_stops_reading_is_dropped_and_the_others_get_everything() {
 
 #[test]
 fn a_client_that_reconnects_gets_a_correct_fresh_snapshot() {
-    let data = Folder::new();
+    let data = Folder::new("tr");
     let core = Core::start(&data);
     let mut w = core.device();
     let p = project("a");
@@ -1361,7 +1232,7 @@ fn a_client_that_reconnects_gets_a_correct_fresh_snapshot() {
 
 #[test]
 fn memory_rows_start_over_on_restart_while_stored_rows_and_the_revision_go_on() {
-    let data = Folder::new();
+    let data = Folder::new("tr");
     let core = Core::start(&data);
     let mut w = core.device();
     let mut s = core.device();

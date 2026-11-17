@@ -124,10 +124,6 @@ impl Memory {
 }
 
 impl Core {
-    pub fn glance(&self) -> &Glance {
-        &self.memory.glance
-    }
-
     /// Adds a line to a session's memory-only activity, and sends the
     /// session with it in a change at the next revision. The row keeps the
     /// revision of its last stored write, which is what `rev` names.

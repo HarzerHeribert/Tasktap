@@ -8,14 +8,13 @@ mod common;
 use common::*;
 use serde_json::Value;
 use std::collections::BTreeMap;
-use tasktap_core::client::{self, Client};
+use tasktap_core::client::Client;
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
-    AnswerQuestion, Ask, Auth, Capture, Change, Control, DeviceId, Empty, Event as Said,
-    FixtureRecords, FixtureRoute, Frame, HEADER, Hello, Identity, Layout, LayoutPatch, MAX_FRAME,
-    MAX_LINE, MAX_POINTS, MAX_TEXT, Place, Project, ProjectId, ProjectKind, ProjectPatch, Put,
-    PutTarget, QuestionKind, Register, Response, ResultId, Role, Rows, Secret, Set, Stroke,
-    Subscribe, Thought, ThoughtId, VERSION, Versions, encode_control, json_len,
+    AnswerQuestion, Ask, Capture, Change, Control, DeviceId, Empty, Event as Said, FixtureRecords,
+    FixtureRoute, Frame, HEADER, Identity, Layout, LayoutPatch, MAX_FRAME, MAX_LINE, MAX_POINTS,
+    MAX_TEXT, Place, Project, ProjectId, ProjectKind, ProjectPatch, Put, PutTarget, QuestionKind,
+    Response, ResultId, Rows, Set, Stroke, Subscribe, Thought, ThoughtId, encode_control, json_len,
 };
 
 /// Most bytes of JSON in one snapshot chunk (design §1).
@@ -325,22 +324,8 @@ fn the_largest_row_of_every_collection_goes_out_in_a_snapshot_and_a_change() {
     let mut seen = subscribe(&mut first);
 
     // A device with the longest name.
-    let stream = client::connect(&s.core.data).unwrap();
     let d = DeviceId::mint();
-    let hello = Hello {
-        v: Versions(VERSION, VERSION),
-        role: Role::Cli,
-        client: "limits test".into(),
-        auth: Some(Auth::Device {
-            device: d,
-            key: Secret([2; 32]),
-            register: Some(Register {
-                name: escaped(MAX_LINE),
-            }),
-        }),
-        abilities: Vec::new(),
-    };
-    let device = Client::hello(stream, hello).unwrap().unwrap();
+    let device = s.core.device_as(d, 2, Some(&escaped(MAX_LINE))).unwrap();
     assert_eq!(device.welcome.identity, Identity::Device);
 
     // The largest thought: the longest text, the most strokes and the

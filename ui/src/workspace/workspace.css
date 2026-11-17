@@ -16,8 +16,9 @@ html{background:color-mix(in srgb,var(--deck-bg) calc(var(--window-opacity,.93) 
 .work>:is(.toolbar,main){position:relative;z-index:1}
 
 /* The appearance panel (theme.tsx): plain controls, a preview of the backdrop on each surface in miniature. */
-.theme{display:grid;gap:var(--s-block);width:min(560px,80vw)}
-.theme-previews{display:grid;grid-template-columns:1fr 1fr;gap:var(--s-panel)}
+#modal:has(.theme){width:min(640px,calc(100% - 24px))}
+.theme{display:grid;gap:var(--s-block);min-width:0}
+.theme-previews{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s-panel)}
 .theme-previews figure{display:grid;gap:var(--s-tight);margin:0}
 .theme-previews figcaption{color:var(--app-muted);font-size:var(--t-small)}
 .mini{position:relative;overflow:hidden;aspect-ratio:16/10;border:1px solid var(--app-edge);border-radius:var(--r-card);background:var(--app-bg)}

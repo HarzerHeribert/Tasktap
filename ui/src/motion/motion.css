@@ -19,6 +19,6 @@
   -webkit-mask-composite:source-in;
   mask-image:linear-gradient(to right,transparent,#000 12% 88%,transparent),linear-gradient(to bottom,transparent,#000 14% 86%,transparent);
   mask-composite:intersect}
-.backdrop-box[data-place=low] .backdrop{top:50%;
+.backdrop-box[data-place=low] .backdrop{top:50%;opacity:.6;
   -webkit-mask-image:linear-gradient(to top,#000 45%,transparent);mask-image:linear-gradient(to top,#000 45%,transparent)}
 .backdrop-box[data-place=wash] .backdrop{opacity:.7}

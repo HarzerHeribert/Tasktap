@@ -36,7 +36,7 @@ export const PLACES = {
   },
   home: {
     header: { name: 'Header light: across the top, where 1.2 played its artwork', scale: 0.5, form: [0.75, 1] },
-    low: { name: 'Low form: large and low in the view, behind the lists', scale: 0.5, form: [0.7, 0.9] },
+    low: { name: 'Low form: large and low in the view, behind the lists', scale: 0.5, form: [0.6, 0.8] },
     wash: { name: 'Wash: the whole view, mostly its light', scale: 0.25, form: [0.3, 0.5] },
   },
 } satisfies Record<string, Record<string, Place>>;

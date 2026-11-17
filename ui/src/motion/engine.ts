@@ -158,6 +158,7 @@ export class View {
       const b = e!.contentRect;
       this.css = [b.width, b.height];
       this.dirty = this.stale = true;
+      this.watch();
       wake();
     });
     const seen = new IntersectionObserver(([e]) => {
@@ -190,12 +191,14 @@ export class View {
     const on = !!this.o.clear && this.shown();
     if (on === this.watching) return;
     this.watching = on;
+    // Words move without the page changing too: as it scrolls, and as content slides into place when a sheet opens.
+    const events = ['scroll', 'transitionend', 'animationend'];
     if (on) {
       this.words.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['class', 'hidden', 'open'] });
-      document.addEventListener('scroll', this.moved, true);
+      for (const e of events) document.addEventListener(e, this.moved, true);
     } else {
       this.words.disconnect();
-      document.removeEventListener('scroll', this.moved, true);
+      for (const e of events) document.removeEventListener(e, this.moved, true);
     }
   }
 

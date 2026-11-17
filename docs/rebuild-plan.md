@@ -343,3 +343,24 @@ These replace "Keep the look" for the interface. The chrome identity and motion 
 7. **Appearance choices are preferences stored in the core**, so every window follows them. Themes are sets of design values, not a general template engine.
 8. **Standing rules:** an icon and its label form one centred row; a focus ring shows for keyboard focus only.
 9. **Ambient light.** Soft pools of coloured light breathe slowly behind Home, in the colours of the chosen palette, tinted by state. It is light, not a picture: no edges, never behind terminal text, still when idle. The sharp chrome form sits in it as an object. A rendered chrome form behind text was tried and rejected.
+
+## The brief: requirements for the routing phase
+
+Every thought keeps the person's words exactly as said, and a **brief**, which is what the agent receives. Spoken thoughts ramble; the gain for large agents is less in deleting filler than in resolving what the rambling leaves unclear.
+
+1. **Clean-up at the speech stage.** Fillers, restarts and self-corrections are removed when speech becomes text.
+2. **One fast model call does routing and the brief together**, inside the hold, so it adds no waiting. The brief states the goal, the constraints the person gave, references resolved against the project and the recent session, and what counts as done.
+3. **The person's words always travel with the brief**, so the agent can check one against the other.
+4. **The brief adds nothing the person did not say.** It may resolve and structure; it may not invent requirements.
+5. **An ambiguous thought becomes a question to the person**, not a guess.
+6. **The brief is visible during the hold**, so a wrong reading is caught before anything starts.
+7. **A short, clear thought passes through unchanged.**
+8. **Proof before default.** A set of real rambling thoughts is run raw and briefed through the same agent and the results compared. If the brief does not clearly win, it stays off by default.
+
+## What isolated runs guarantee
+
+Two independent reviews of Keep and Discard kept finding new edge cases in guards added for earlier ones. The feature is therefore being simplified to a guarantee that can be checked, in three tiers:
+
+1. **Absolute:** the person's project folder and the commits on their branches are never lost, rewritten or overwritten. The only effect on them is that a Keep adds the agent's commits. There is no undo that touches their folder; if something unexpected happens, Tasktap stops and reports the real state.
+2. **As strong as git makes it:** Tasktap's own copies are removed only by Discard, by a successful Keep, or when git itself agrees they are empty at the moment of removal.
+3. **Not a goal:** protecting against programs the person configured in their own git settings. Hooks are off and every command is bounded; Tasktap is not a sandbox.

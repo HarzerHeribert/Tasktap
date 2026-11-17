@@ -25,17 +25,21 @@ const COUNT = () => {
     P[`delete${k}`] = function (...a) { if (a[0]) c.gl[k]--; return drop.apply(this, a); };
   }
 };
-/** What the page holds now, and how its frames came over two seconds. */
+/** What the page holds now, and how its frames came over two seconds; and how evenly a glyph moved from frame to frame
+ *  (the largest step it took, in the steps it usually takes: a motion that stops and starts takes a jump after a stall). */
 const SAMPLE = () => new Promise((done) => {
-  const c = window.__soak, at = [], from = performance.now(), drawn = window.__motion.stats.frames;
+  const c = window.__soak, at = [], from = performance.now(), drawn = window.__motion.stats.frames, glyph = document.querySelector('.spark .glyph.in .turn'), where = [];
   const tick = (t) => {
     at.push(t);
+    if (glyph) where.push(new DOMMatrix(getComputedStyle(glyph).transform).m13 * 100 + parseFloat(getComputedStyle(glyph).translate) || 0);
     if (performance.now() - from < 2000) return c.raf(tick);
     const gaps = at.slice(1).map((x, i) => x - at[i]).sort((a, b) => a - b);
+    const steps = where.slice(1).map((x, i) => Math.abs(x - where[i])), usual = [...steps].sort((a, b) => a - b)[steps.length >> 1] ?? 0;
     done({
       elements: document.querySelectorAll('*').length, canvases: document.querySelectorAll('canvas').length, animations: document.getAnimations().length,
       timers: c.timers.size, callbacks: c.frames.size, webgl: Object.values(c.gl).reduce((a, b) => a + b, 0), heap: Math.round((performance.memory?.usedJSHeapSize ?? 0) / 1e5) / 10,
       frame: Math.round((gaps[gaps.length >> 1] ?? 0) * 10) / 10, worst: Math.round((gaps[gaps.length - 1] ?? 0) * 10) / 10, drawn: (window.__motion.stats.frames - drawn) / 2,
+      jump: usual ? Math.round((Math.max(...steps) / usual) * 10) / 10 : 0,
     });
   };
   c.raf(tick);
@@ -68,6 +72,7 @@ async function main(seconds) {
     for (const [k, room] of [['elements', 2], ['canvases', 1], ['animations', 4], ['timers', 2], ['callbacks', 2], ['webgl', 0]])
       if (last[k] > first[k] + room) failures.push(`${k} grew from ${first[k]} to ${last[k]}`);
     if (last.frame > first.frame * 1.25 + 2) failures.push(`a frame takes ${last.frame} ms where it took ${first.frame} ms`);
+    if (!(first.jump > 0) || Math.max(first.jump, last.jump) > 5) failures.push(`a glyph does not move evenly: its largest step in a frame is ${Math.max(first.jump, last.jump)} of its usual ones`);
     for (const e of page.errors) failures.push(e);
     await page.context().close();
   } finally {
@@ -75,7 +80,7 @@ async function main(seconds) {
     await server.close();
   }
   for (const f of failures) console.log('FAIL  ' + f);
-  console.log(failures.length ? 'FAIL  the ambient layer does not hold steady' : `PASS  after ${seconds} s moving, the ambient layer holds what it held at the start: elements, canvases, animations, timers, WebGL objects and the time a frame takes`);
+  console.log(failures.length ? 'FAIL  the ambient layer does not hold steady' : `PASS  after ${seconds} s moving, the ambient layer holds what it held at the start: elements, canvases, animations, timers, WebGL objects and the time a frame takes, and its glyphs move evenly from frame to frame`);
   process.exitCode = failures.length ? 1 : 0;
 }
 if (require.main === module) main(Number(process.argv[2]) || 150).catch((e) => (console.error(e), process.exit(1)));

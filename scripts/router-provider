@@ -14,7 +14,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import uuid
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 
@@ -223,49 +222,11 @@ def open_terminal_command(command):
         raise ValueError('Couldn’t open Terminal. Check Tasktap’s Automation access in System Settings.')
 
 
-def prepare_open(data):
-    session = str(uuid.UUID(data['id']))
-    exe = shutil.which('claude')
-    if not exe:
-        raise ValueError('Install Claude Code to draft a brief in Terminal.')
-    directory = Path(os.environ.get('TASKTAP_DATA') or Path.home()/'Library/Application Support/Tasktap')/'Preparation'
-    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-    # The human submits their own request in the unmodified interactive CLI.
-    # No capture, project path or account credential goes into the command.
-    args = [exe, '--session-id', session, '--name', 'Tasktap · Draft a brief',
-            '--tools', '', '--strict-mcp-config', '--safe-mode']
-    open_terminal_command('cd '+shlex.quote(str(directory))+' && exec '+shlex.join(args))
-    return {}
-
-
-def prepare_reply(data):
-    from session_lifecycle import conversation_path, recent_events
-    session = str(uuid.UUID(data['id']))
-    path = conversation_path(None, {'agent':'claude', 'session':session})
-    if path:
-        for event in recent_events(path):
-            if event.get('sessionId') != session or event.get('isSidechain'):
-                continue
-            if event.get('type') == 'user' and not event.get('isMeta'):
-                break
-            if event.get('type') != 'assistant':
-                continue
-            message = event.get('message', {})
-            if message.get('stop_reason') == 'end_turn':
-                brief = '\n\n'.join(part['text'] for part in message.get('content', [])
-                                    if part.get('type') == 'text' and isinstance(part.get('text'), str)).strip()
-                if 0 < len(brief) <= 16000:
-                    return {'brief':brief}
-            break
-    raise ValueError('No finished brief yet. Try again after Claude replies, or paste the brief.')
-
-
 if __name__ == '__main__':
     try:
         command = sys.argv[1]
         data = json.load(sys.stdin)
-        value = {'login': browser_login, 'route': cli_route, 'prepare-open': prepare_open, 'prepare-reply': prepare_reply,
-                 'status': lambda _: worker_status(), 'usage': worker_usage, 'codex-identity': codex_identity, 'worker-login': worker_login}[command](data)
+        value = {'login': browser_login, 'route': cli_route, 'status': lambda _: worker_status(), 'usage': worker_usage, 'codex-identity': codex_identity, 'worker-login': worker_login}[command](data)
         print(json.dumps({'value': value}))
     except ValueError as exc:
         # Parser errors can contain snippets of provider data. Only expose our own messages.

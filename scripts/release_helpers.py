@@ -7,7 +7,7 @@ import shutil
 
 HELPERS = (
     'workspace_terminal.py', 'terminal_replay.py', 'session_observer.py', 'tasktap_shell.py', 'observers',
-    'project_sessions.py', 'visible_session.py', 'session_lifecycle.py', 'session_rows.py',
+    'project_sessions.py', 'visible_session.py', 'session_rows.py',
     'router-provider', 'worker_usage.py', 'ask-user', 'agent-tools', 'run-agent', 'kokoro-voice',
     'session_models.py',
 )

@@ -51,7 +51,6 @@ function routingEvidence(d) {
   const source={
     'local-match':'Tasktap matched the explicit destination correction on this Mac. The original request is preserved.',
     apple:d.routeFallback?'Apple’s on-device model prepared the task. Destination preparation did not finish; choose the conversation.':'Apple’s on-device model prepared the task and checked the supplied destination context on this Mac.',
-    'claude-session':'You reviewed the brief from Claude Code. Tasktap matched the project on this Mac.',
     estimate:'Apple’s on-device model estimated the scope of your selected task.',
     unavailable:'Apple’s on-device model is unavailable. Tasktap used local matching.',
     fallback:'The model couldn’t finish this handoff. Tasktap used local matching.',

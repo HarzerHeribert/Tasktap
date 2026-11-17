@@ -36,7 +36,7 @@
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Transcribe captured speech locally.</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Read a referenced page or file, and open a Terminal window for drafting with Claude Code, when you use Tasktap.</string>
+	<string>Read a referenced page or file, and open a Terminal window to sign in to a coding agent, when you use Tasktap.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>SUFeedURL</key>

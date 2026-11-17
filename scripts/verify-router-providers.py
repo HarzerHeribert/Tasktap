@@ -17,35 +17,6 @@ spec = importlib.util.spec_from_loader(module.name, module)
 provider = importlib.util.module_from_spec(spec)
 module.exec_module(provider)
 
-session = '11111111-1111-4111-a111-111111111111'
-with tempfile.TemporaryDirectory() as temp, patch.object(Path,'home',return_value=Path(temp)), \
-        patch.object(provider.shutil,'which',return_value='/opt/Claude Code/claude'), patch.object(provider,'open_terminal_command') as terminal:
-    provider.prepare_open({'id':session,'prompt':'private capture'})
-    command = terminal.call_args.args[0]
-    assert '--session-id '+session in command and 'private capture' not in command
-    assert ' -p ' not in command and '--bare' not in command and '--tools ' in command
-    try:
-        provider.cli_route({'route':'claude-session'})
-        raise AssertionError('Manual route reached inference')
-    except ValueError:
-        pass
-    folder=Path(temp)/'projects/test'
-    folder.mkdir(parents=True)
-    path=folder/(session+'.jsonl')
-    def event(kind, **data):
-        return json.dumps(dict(sessionId=session,type=kind,**data))+'\n'
-    completed=event('assistant',message=dict(stop_reason='end_turn',content=[
-        {'type':'thinking','thinking':'private reasoning'}, {'type':'text','text':'Reviewed brief.'}]))
-    with patch.dict(os.environ,{'CLAUDE_CONFIG_DIR':temp}):
-        path.write_text(completed+event('assistant',isSidechain=True,message={}))
-        assert provider.prepare_reply({'id':session})=={'brief':'Reviewed brief.'}
-        path.write_text(completed+event('user',message={'content':'New request'}))
-        try:
-            provider.prepare_reply({'id':session})
-            raise AssertionError('Read stale response')
-        except ValueError:
-            pass
-
 assert provider.cloud_provider({'CLAUDE_CODE_USE_BEDROCK':'true'}) == 'Amazon Bedrock'
 assert not provider.cloud_provider({'CLAUDE_CODE_USE_BEDROCK':'1','CLAUDE_CODE_USE_VERTEX':'true'})
 

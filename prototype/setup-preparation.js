@@ -1,16 +1,16 @@
 // The wizard owns its unsaved form. The native bridge owns accounts, keys and the active route.
 const setupPreparation=(()=>{
   const servers=['ollama','vllm','litellm','custom'];
-  const routes={local:'On this Mac','claude-session':'Claude Code',codex:'My Codex login',ollama:'Ollama',vllm:'vLLM',litellm:'LiteLLM',custom:'Other model server',
+  const routes={local:'On this Mac',codex:'My Codex login',ollama:'Ollama',vllm:'vLLM',litellm:'LiteLLM',custom:'Other model server',
     chatgpt:'ChatGPT plan',openai:'OpenAI API key',anthropic:'Anthropic API key',cloud:'Claude Code with cloud billing'};
   const config=aiConnections.snapshot;
   const current=()=>config().choice==='server'?(config().serverKind||'ollama'):config().choice;
   const nativeRoute=id=>servers.includes(id)?'server':id;
-  const common=['local','claude-session','codex','ollama'];
+  const common=['local','codex','ollama'];
   function routeOptions(p){
     const ids=p.more || !common.includes(p.id)?Object.keys(routes):common;
-    const descriptions={local:'Private request matching and short briefs on this Mac.',ollama:'Run downloaded models locally; cloud models send requests upstream.', 'claude-session':'Draft together in Claude Code using its signed-in account.',codex:'Use your Codex account to prepare a brief.',chatgpt:'Use a connected ChatGPT plan.',openai:'Paid OpenAI API usage.',anthropic:'Paid Anthropic API usage.',cloud:'Claude Code through a cloud provider.',vllm:'Connect to a model server you manage.',litellm:'Connect to a gateway that may forward to cloud providers.',custom:'Connect to another compatible model server.'};
-    return [['Local on this Mac',['local']],['Cloud accounts',['claude-session','codex','chatgpt','openai','anthropic','cloud']],['Local or remote servers',servers]].map(([label,group])=>'<optgroup label="'+label+'">'+group.filter(id=>ids.includes(id)).map(id=>option(id,routes[id],p.id).replace('<option ','<option data-detail="'+attr(descriptions[id])+'" ')).join('')+'</optgroup>').join('')+(ids===common?option('more','More connections…',p.id):'');
+    const descriptions={local:'Private request matching and short briefs on this Mac.',ollama:'Run downloaded models locally; cloud models send requests upstream.',codex:'Use your Codex account to prepare a brief.',chatgpt:'Use a connected ChatGPT plan.',openai:'Paid OpenAI API usage.',anthropic:'Paid Anthropic API usage.',cloud:'Claude Code through a cloud provider.',vllm:'Connect to a model server you manage.',litellm:'Connect to a gateway that may forward to cloud providers.',custom:'Connect to another compatible model server.'};
+    return [['Local on this Mac',['local']],['Cloud accounts',['codex','chatgpt','openai','anthropic','cloud']],['Local or remote servers',servers]].map(([label,group])=>'<optgroup label="'+label+'">'+group.filter(id=>ids.includes(id)).map(id=>option(id,routes[id],p.id).replace('<option ','<option data-detail="'+attr(descriptions[id])+'" ')).join('')+'</optgroup>').join('')+(ids===common?option('more','More connections…',p.id):'');
   }
   const create=()=>({id:null,form:null,server:null,touched:false,account:'',identityId:'',email:'',login:''});
   const active=()=>setupWizard.preparation();
@@ -44,7 +44,6 @@ const setupPreparation=(()=>{
   }
   function billing(p,id){
     if(id==='local')return 'No account or cloud usage. When Apple’s on-device model is available, it can suggest short briefs; otherwise Tasktap uses local matching. This prepares requests, not project code. Review names, intent and destination before starting an agent.';
-    if(id==='claude-session')return aiConnections.payer(id)==='Claude plan login'?'Draft in Terminal using your Claude subscription.':'Draft in Terminal using the account in Claude Code. '+aiConnections.payer(id)+'.';
     if(id==='codex')return codexAccount(p);
     if(id==='chatgpt')return account(p)?account(p).label+' / ChatGPT plan':'Choose a ChatGPT account with plan access.';
     if(id==='openai')return 'The OpenAI project that owns this key pays for preparation.';
@@ -94,7 +93,7 @@ const setupPreparation=(()=>{
     if(servers.includes(id)){
       const profile={...c,serverKind:id};inner.innerHTML=serverSetup.markup(profile,id);
       p.server=serverSetup.mount(profile);
-    }else if(id==='codex' || id==='cloud' || id==='claude-session'){
+    }else if(id==='codex' || id==='cloud'){
       inner.innerHTML=aiConnections.setupField(id==='codex'?'codex':'claude')+'<button type="button" class="text-btn" id="setup-recheck">Check again</button>';
       $('#setup-recheck').onclick=()=>{p.identityId='';p.email='';aiConnections.refresh()};
       if(live)aiConnections.refresh();
@@ -131,7 +130,7 @@ const setupPreparation=(()=>{
     if(p.id==='codex' || $('#setup-agent')?.value==='codex')identify(p);
     if(p.form){
       p.form.querySelector('#setup-billing').textContent=billing(p,p.id);
-      p.form.querySelector('#setup-consent-hint').hidden=['local','claude-session'].includes(p.id);
+      p.form.querySelector('#setup-consent-hint').hidden=p.id==='local';
       if(p.id==='chatgpt')plan(p);
       const check=p.form.querySelector('#setup-recheck');
       if(check)check.hidden=!['checking','unknown','missing','signedOut'].includes(aiConnections.health(p.id==='codex'?'codex':'claude'));
@@ -151,7 +150,6 @@ const setupPreparation=(()=>{
     const id=p.id;
     let msg='';
     if(id==='codex' && ['signedOut','missing','checking'].includes(aiConnections.health('codex')))msg=codexAccount(p);
-    if(id==='claude-session' && aiConnections.health('claude')==='missing')msg='Install Claude Code or choose another option.';
     if(id==='cloud' && (!config().cloud || aiConnections.health('claude')==='missing'))msg='Set up Claude Code with a cloud provider, or choose another option.';
     if(id==='chatgpt' && (p.login || account(p)?.status!=='enabled'))msg='Connect an account and allow plan usage, or choose another option.';
     if(servers.includes(id) && p.form.querySelector('#server-setup').dataset.phase!=='model')msg='Find models or enter the model ID to continue.';

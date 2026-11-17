@@ -26,7 +26,7 @@ with tempfile.TemporaryDirectory(prefix='tasktap-release-helpers-') as directory
     assert Path('observers/opencode/index.mjs') in files
     assert Path('observers/opencode/package.json') in files
     # Missing top-level and nested resources must fail, even when every remaining file matches.
-    for relative in ('session_observer.py', 'session_lifecycle.py', 'observers/emit.mjs', 'observers/opencode/package.json'):
+    for relative in ('session_observer.py', 'session_rows.py', 'observers/emit.mjs', 'observers/opencode/package.json'):
         packaged = resources/relative
         original = packaged.read_bytes()
         packaged.unlink()
@@ -47,7 +47,7 @@ with tempfile.TemporaryDirectory(prefix='tasktap-release-helpers-') as directory
     assert not (resources/'__pycache__').exists()
     verify_helpers(root, resources)
     # Build-time checks also reject manifest omissions that break helper imports.
-    for missing in ('session_lifecycle.py', 'session_observer.py', 'observers/emit.mjs'):
+    for missing in ('session_rows.py', 'session_observer.py', 'observers/emit.mjs'):
         incomplete = {p: source for p, source in files.items() if p != Path(missing)}
         rejects(lambda: verify_dependencies(root, incomplete), 'Unbundled ')
     executable = resources/'run-agent'

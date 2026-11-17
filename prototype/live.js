@@ -194,11 +194,6 @@ function prepareHandoff(providerOverride){
   const d=draft;
   cancelRouting();
   const provider=providerOverride || aiConnections.choice();
-  if(provider==='claude-session'){
-    if(d.text.trim())claudeBrief.show(d);
-    else routingPrompt();
-    return;
-  }
   if(!d.text.trim()){routingPrompt();return}
   const id=uid();
   const context=capturePreparation.context(d),input=context.input;

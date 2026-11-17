@@ -2,7 +2,6 @@
 const aiConnections = (() => {
   const routes = {
     local: ['On this Mac', 'Prepares your request privately on this Mac.'],
-    'claude-session': ['Claude Code', 'Draft your brief in Terminal using Claude Code’s own sign-in.'],
     server: ['Model server', 'Connect Ollama, vLLM, LiteLLM or another compatible server.'],
     chatgpt: ['ChatGPT plan', 'Eligible plan allowance, with your consent through OpenAI.'],
     codex: ['Installed Codex', 'Uses the account you signed in to Codex with.'],
@@ -12,7 +11,7 @@ const aiConnections = (() => {
   };
   let config = {choice:'local', workers:{}, models:{}, keys:{}, accounts:[], account:'', cloud:''};
   let loaded = false, busy = false, checking = false, editing = '', notice = '';
-  const routeAgent=route=>({codex:'codex',cloud:'claude','claude-session':'claude'})[route];
+  const routeAgent=route=>({codex:'codex',cloud:'claude'})[route];
   const health=id=>config.workerHealth?.[id] || 'checking';
   const needsSetup=id=>['missing','signedOut'].includes(health(id));
   const issue=id=>health(id)==='missing'?providers[id]+' wasn’t found on this Mac.':'Sign in to '+providers[id]+'.';
@@ -81,7 +80,6 @@ const aiConnections = (() => {
   const account = () => config.accounts.find(a=>a.id===config.account);
   const payer = route => ({
     server:[serverTarget().url,serverTarget().model].filter(Boolean).join(' / '),
-    'claude-session':config.workers.claude || 'Check the account in Claude Code',
     chatgpt:account()?.label || 'ChatGPT plan', openai:'OpenAI project / saved API key',
     anthropic:'Anthropic Console / saved API key', cloud:config.cloud || 'Configured cloud account',
     codex:config.workers.codex || 'Codex CLI / billing source unverified', local:'No cloud usage'
@@ -132,8 +130,7 @@ const aiConnections = (() => {
       fields.push(settingsField('ai-key',config.keys[chosen]?'Replace saved API key':'API key','<input id="ai-key" type="password" autocomplete="off" spellcheck="false" placeholder="'+(config.keys[chosen]?'Saved in Mac Keychain':'Stored in Mac Keychain')+'">'));
       if (config.keys[chosen]) fields.push(button('Remove saved key','ai-remove',chosen,'text-btn'));
     }
-    if (chosen==='claude-session') fields.push(setupField('claude'),'<p class="prep-account">'+esc(payer(chosen))+'</p>');
-    if (!['local','server','claude-session'].includes(chosen)) {
+    if (!['local','server'].includes(chosen)) {
       const model=settingsField('ai-model','Preparation model','<input id="ai-model" autocomplete="off" spellcheck="false" value="'+attr(config.models[chosen] || ({openai:'gpt-5.4-mini',anthropic:'claude-haiku-5-5'}[chosen] ?? ''))+'" '+(isKey?'required placeholder="Model available to your account"':'placeholder="Provider default"')+'>');
       fields.push(isKey?model:'<details class="route-evidence"><summary>Model override</summary>'+model+'</details>');
       if (routeAgent(chosen)) fields.unshift(setupField(routeAgent(chosen)));
@@ -176,7 +173,7 @@ const aiConnections = (() => {
   function accountSummary(d) {
     const agent=d.mode==='nudge'?sess(d.session)?.agent:d.agent;
     const sources=(d.remoteAttempts||[]).map(a=>a.label+' / '+a.account);
-    const prep=d.directPreparation?('Claude Code / '+d.directPreparation.account+(d.routingSource==='claude-session'?' / reviewed brief':' / original wording used')):sources.length?('Requested '+sources.join(' / ')+(['local','skipped'].includes(d.routingSource)?' / finished on this Mac':'')):'On this Mac / no cloud usage';
+    const prep=sources.length?('Requested '+sources.join(' / ')+(['local','skipped'].includes(d.routingSource)?' / finished on this Mac':'')):'On this Mac / no cloud usage';
     const next=d.mode==='ask' && d.noPick?'Choose an agent':d.mode==='note'?'Local note / no worker':(providers[agent]||'Worker')+' / Tasktap / '+worker(agent,d.mode==='nudge');
     return {prep,next};
   }

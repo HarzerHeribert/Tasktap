@@ -24,9 +24,7 @@ use tasktap_proto::{
 };
 
 /// Seconds a thought is held while the preference is unset.
-const DEFAULT_HOLD: u32 = match PrefKey::Hold.default() {
-    PrefValue::Hold(seconds) => seconds,
-};
+const DEFAULT_HOLD: u32 = tasktap_proto::DEFAULT_HOLD;
 
 /// A fresh folder under the system's temporary folder, removed afterwards.
 struct Dir(PathBuf);
@@ -86,6 +84,8 @@ fn capture(id: ThoughtId, text: &str) -> Capture {
         mode: None,
         project_id: None,
         session_id: None,
+        agent: None,
+        model: None,
     }
 }
 
@@ -338,6 +338,7 @@ impl World {
             id: format!("event-{}", self.events),
             turn: None,
             subagent: false,
+            resume: None,
             event,
         }
     }
@@ -1113,7 +1114,7 @@ fn row_continued_answers_the_turns_terminal_questions() {
     let (t, s) = w.turn();
     let waited = w.ask(s, ReplyVia::Core);
     let in_terminal = w.ask(s, ReplyVia::Terminal);
-    assert_eq!(w.say(s, Said::Continued).unwrap(), NONE);
+    assert_eq!(w.say(s, Said::Continued { request: None }).unwrap(), NONE);
     let closed = w.question(in_terminal);
     assert_eq!(closed.state, QuestionState::Answered);
     let answer = closed.answer.unwrap();
@@ -2063,6 +2064,7 @@ impl Sweep {
             id: format!("event-{}", self.events),
             turn: None,
             subagent: false,
+            resume: None,
             event,
         }
     }
@@ -2144,7 +2146,7 @@ impl Sweep {
                 Said::Activity {
                     text: "reading".into(),
                 },
-                Said::Continued,
+                Said::Continued { request: None },
                 Said::TurnFinished {
                     answer: Some("Done.\nAll green.".into()),
                 },

@@ -789,6 +789,7 @@ fn fake_shim(sh: &Shell, holds: bool) -> (Client, SessionId) {
         turn: None,
         subagent: false,
         event: Said::Ready,
+        resume: None,
     };
     c.call::<call::SessionEvent>(&ready).unwrap().unwrap();
     (c, session)

@@ -363,9 +363,19 @@ fn unask(mut chunk: Vec<u8>, seen: &mut usize) -> Vec<u8> {
 /// inherited whole from whoever started the core (design §7, hazard 14):
 /// the person's home, user, language and shell, the PATH computed from the
 /// usual tool folders, the terminal variables, and how to reach the core.
-/// `shims`, a shell's, comes first on the PATH, so that an agent a person
-/// types there is adopted (design §4).
-pub fn environment(data: &Path, token: &Secret, shims: Option<&Path>) -> Vec<(String, OsString)> {
+/// `path` is the child's PATH (`path`).
+pub fn environment(data: &Path, token: &Secret, path: OsString) -> Vec<(String, OsString)> {
+    let mut env = fixed(path);
+    env.push(("TASKTAP_DATA".into(), data.into()));
+    for (key, value) in crate::roles::environment(data, token) {
+        env.push((key.into(), value));
+    }
+    env
+}
+
+/// The same list without how to reach the core: what the checks of an
+/// agent's own program get (`agents::checks`).
+pub fn fixed(path: OsString) -> Vec<(String, OsString)> {
     let var = |key: &str| std::env::var_os(key).filter(|v| !v.is_empty());
     let mut env = Vec::new();
     let mut put = |key: &str, value: OsString| env.push((key.to_owned(), value));
@@ -383,7 +393,7 @@ pub fn environment(data: &Path, token: &Secret, shims: Option<&Path>) -> Vec<(St
         put("SHELL", var("SHELL").unwrap_or_else(|| "/bin/sh".into()));
         put("LANG", var("LANG").unwrap_or_else(|| "en_US.UTF-8".into()));
     }
-    put("PATH", path(shims));
+    put("PATH", path);
     // What Windows programs need to find the system, the person's folders
     // and their tools. The PATH is the person's: Windows keeps it in the
     // registry, and the core received it from there.
@@ -420,20 +430,17 @@ pub fn environment(data: &Path, token: &Secret, shims: Option<&Path>) -> Vec<(St
     put("TERM", "xterm-256color".into());
     put("COLORTERM", "truecolor".into());
     put("TERM_PROGRAM", "Tasktap".into());
-    put("TASKTAP_DATA", data.into());
-    for (key, value) in crate::roles::environment(data, token) {
-        put(key, value);
-    }
     env
 }
 
-/// A child's PATH: the shims when given, then on Mac and Linux the folders
+/// A child's PATH: `first` when given, then on Mac and Linux the folders
 /// where people's tools live, the core's own PATH and the system's, each
 /// once (as 1.2 computed it), since a core started by the app has the
-/// system's short PATH, which finds none of them. Windows keeps the
-/// person's PATH in the registry, and the core received it from there.
-pub fn path(shims: Option<&Path>) -> OsString {
-    let mut dirs: Vec<PathBuf> = shims.map(Path::to_owned).into_iter().collect();
+/// system's short PATH, which finds none of them, and `last` at the end.
+/// Windows keeps the person's PATH in the registry, and the core received
+/// it from there.
+pub fn path(first: Option<&Path>, last: Option<&Path>) -> OsString {
+    let mut dirs: Vec<PathBuf> = first.map(Path::to_owned).into_iter().collect();
     #[cfg(unix)]
     if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
         dirs.push(Path::new(&home).join(".local/bin"));
@@ -445,6 +452,7 @@ pub fn path(shims: Option<&Path>) -> OsString {
     dirs.extend(std::env::split_paths(&inherited));
     #[cfg(unix)]
     dirs.extend(["/usr/bin", "/bin", "/usr/sbin", "/sbin"].map(PathBuf::from));
+    dirs.extend(last.map(Path::to_owned));
     let mut seen = std::collections::HashSet::new();
     dirs.retain(|dir| !dir.as_os_str().is_empty() && seen.insert(dir.clone()));
     std::env::join_paths(dirs).unwrap_or_default()

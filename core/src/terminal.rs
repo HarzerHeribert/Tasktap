@@ -215,14 +215,19 @@ pub fn spawn(core: &mut Core, t: &Terminal, token: &Secret) -> std::io::Result<(
     }
     let shell = t.kind == TerminalKind::Shell;
     let size = Size(t.cols, t.rows);
+    // A shell finds the shims first, so that an agent typed there is
+    // adopted; any other child finds `tasktap`, for `tasktap ask`, in the
+    // core's own folder, last, with no shim on its PATH at all.
+    let own = crate::roles::program().ok();
+    let own = own.as_deref().and_then(Path::parent);
+    let path = match shell {
+        true => process::path(terminals.shims(), None),
+        false => process::path(None, own),
+    };
     let plan = Plan {
         argv: if shell { Vec::new() } else { t.argv.clone() },
         cwd: PathBuf::from(&t.cwd),
-        env: process::environment(
-            &terminals.data,
-            token,
-            shell.then(|| terminals.shims()).flatten(),
-        ),
+        env: process::environment(&terminals.data, token, path),
         size,
     };
     let (process, input, reports) = Process::start(plan)?;
@@ -331,9 +336,15 @@ fn left(core: &mut Core, id: TerminalId, exit: Option<u32>) {
 }
 
 /// Where a terminal's direct child finds `program`: on the PATH every
-/// terminal but a shell gets.
+/// terminal but a shell gets, before the shims.
 pub fn find(program: &str) -> Option<PathBuf> {
-    crate::roles::shim::find(program, &process::path(None), |_, _| true)
+    crate::roles::shim::find(program, &process::path(None, None), |_, _| true)
+}
+
+/// The environment of a check of an agent's own program: a terminal's,
+/// without how to reach the core.
+pub fn environment_of_checks() -> Vec<(String, std::ffi::OsString)> {
+    process::fixed(process::path(None, None))
 }
 
 /// Types `text` into a terminal as a bracketed paste and Enter, as the

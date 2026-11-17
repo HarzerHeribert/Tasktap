@@ -7,7 +7,8 @@
 //! parent of the shell only. Until the agent exits it answers `shim.hold`.
 //!
 //! The rules of when to step aside and which approval policy to add are
-//! those of `scripts/tasktap_shell.py`, carried over as they were.
+//! those of `scripts/tasktap_shell.py`, carried over as they were; they
+//! live with the agents (`agents::rules`).
 
 use std::ffi::{OsStr, OsString};
 use std::io::{self, IsTerminal, Write};
@@ -20,129 +21,13 @@ use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{Adopt, Control, Event, Frame, Outcome, Reply, SessionEvent, Uuid};
 
 use super::{Bound, FAILED, Fail, SOCKET, TOKEN, WAIT};
+pub use crate::agents::rules::{Rules, named};
 use crate::agents::{self, Agent};
 use crate::client::Client;
 use crate::sys;
 
 /// The shim folder of a data folder: `<data>/shims`.
 pub const SHIMS: &str = "shims";
-
-/// What `scripts/tasktap_shell.py` knew about one agent.
-pub struct Rules {
-    pub agent: &'static str,
-    /// Subcommands that run without a session.
-    passthrough: &'static [&'static str],
-    /// Flags, besides [`NONINTERACTIVE`], that mean no one types to it; one
-    /// ending in `=` is a prefix.
-    noninteractive: &'static [&'static str],
-    /// Flags and settings that state the person's own approval policy.
-    policy: &'static [&'static str],
-    /// The policy added when the person stated none.
-    default: &'static [&'static str],
-}
-
-#[rustfmt::skip]
-const RULES: &[Rules] = &[
-    Rules {
-        agent: "codex",
-        passthrough: &["agents", "exec", "e", "review", "login", "logout", "mcp", "plugin",
-            "app-server", "remote-control", "app", "completion", "update", "doctor", "sandbox",
-            "debug", "apply", "queue", "archive", "delete", "migrate-rollouts", "migrate-nfs-db",
-            "unarchive", "cloud", "exec-server", "features", "help"],
-        noninteractive: &[],
-        // Settings given with `-c` are the last three, prefixes of any argument.
-        policy: &["--approve-for-me", "--ask-for-approval", "-a",
-            "--dangerously-bypass-approvals-and-sandbox", "--sandbox", "-s",
-            "approval_policy=", "approvals_reviewer=", "sandbox_mode="],
-        default: &["--approve-for-me"],
-    },
-    Rules {
-        agent: "claude",
-        passthrough: &["auth", "doctor", "install", "mcp", "plugin", "plugins", "setup-token",
-            "update", "upgrade", "help"],
-        noninteractive: &["-p"],
-        policy: &["--permission-mode", "--dangerously-skip-permissions", "--permission-prompt-tool"],
-        default: &["--permission-mode", "auto"],
-    },
-    Rules {
-        agent: "opencode",
-        passthrough: &["acp", "auth", "bench", "completion", "db", "debug", "export", "import",
-            "mcp", "models", "pr", "run", "serve", "session", "stats", "uninstall", "upgrade",
-            "web", "help"],
-        noninteractive: &[],
-        policy: &["--auto"],
-        default: &["--auto"],
-    },
-    Rules {
-        agent: "pi",
-        passthrough: &["install", "remove", "update", "list", "config"],
-        noninteractive: &["-p", "--mode", "--mode="],
-        policy: &["--approve", "-a", "--no-approve", "-na"],
-        default: &["--approve"],
-    },
-    #[cfg(feature = "fixtures")]
-    Rules {
-        agent: super::fixture::AGENT,
-        passthrough: &["help"],
-        noninteractive: &[],
-        policy: &["--approve", "--no-approve"],
-        default: &["--approve"],
-    },
-];
-
-/// Flags after which no one types to any agent.
-#[rustfmt::skip]
-const NONINTERACTIVE: &[&str] = &[
-    "-h", "--help", "-V", "--version", "--print", "--remote", "--remote=", "--json", "--rpc",
-];
-
-/// Options whose value is the next argument, of any agent.
-#[rustfmt::skip]
-const VALUE_OPTIONS: &[&str] = &[
-    "-c", "--config", "-m", "--model", "-p", "--profile", "-s", "--sandbox", "-C", "--cd",
-    "--add-dir", "-a", "--ask-for-approval", "--provider", "--api-key", "--permission-mode",
-    "--settings", "--session-id", "--resume", "--agent", "--format", "--output-format",
-    "--input-format", "-e", "--extension", "--thinking", "--remote", "--remote-auth-token-env",
-];
-
-impl Rules {
-    /// Whether a person will type to this run; the terminal is checked apart.
-    fn interactive(&self, args: &[String]) -> bool {
-        let flagged = |flags: &[&str], arg: &str| {
-            (flags.iter()).any(|f| arg == *f || (f.ends_with('=') && arg.starts_with(f)))
-        };
-        if (args.iter()).any(|a| flagged(NONINTERACTIVE, a) || flagged(self.noninteractive, a)) {
-            return false;
-        }
-        let mut args = args.iter();
-        while let Some(arg) = args.next() {
-            if arg == "--" {
-                return true;
-            }
-            if VALUE_OPTIONS.contains(&arg.as_str()) {
-                args.next();
-            } else if !arg.starts_with('-') {
-                return !self.passthrough.contains(&arg.as_str());
-            }
-        }
-        true
-    }
-
-    /// The default approval policy, unless the person stated one.
-    fn approval(&self, args: &[String]) -> &'static [&'static str] {
-        let own = args.iter().any(|arg| {
-            let name = arg.split_once('=').map_or(arg.as_str(), |(name, _)| name);
-            (self.policy.iter()).any(|p| *p == name || (p.ends_with('=') && arg.starts_with(p)))
-        });
-        if own { &[] } else { self.default }
-    }
-}
-
-/// The shim this program is, when it is named after an agent.
-pub fn named(program: &OsStr) -> Option<&'static Rules> {
-    let name = Path::new(program).file_stem()?.to_str()?;
-    RULES.iter().find(|rules| rules.agent == name)
-}
 
 /// Makes `<data>/shims` hold this program under each agent's name and as
 /// `tasktap`, which hooks and `tasktap ask` run; a link where the system
@@ -154,7 +39,7 @@ pub fn install(data: &Path, exe: &Path) -> io::Result<PathBuf> {
         return Ok(folder);
     }
     std::fs::create_dir_all(&folder)?;
-    for name in RULES.iter().map(|rules| rules.agent).chain(["tasktap"]) {
+    for name in agents::rules::shimmed().chain(["tasktap"]) {
         let shim = folder
             .join(name)
             .with_extension(std::env::consts::EXE_EXTENSION);
@@ -354,9 +239,29 @@ fn observe(
 ) -> ExitCode {
     let exe = super::program().unwrap_or_else(|_| "tasktap".into());
     let mut run = Command::new(real);
-    run.args(agent.attach(&exe))
-        .args(rules.approval(words))
-        .args(args);
+    run.args(agent.attach(&exe));
+    // The check its hooks need, with the agent the shim found. One that
+    // fails leaves the agent to run untouched, its session ended with this
+    // connection.
+    let cwd = std::env::current_dir().unwrap_or_default();
+    if let Some(mut probe) = agent.probe(&exe, &cwd) {
+        probe.argv[0] = real.to_string_lossy().into_owned();
+        match agents::checks::probe(probe, &cwd) {
+            Ok(more) => {
+                run.args(more);
+            }
+            Err(why) => {
+                let _ = writeln!(
+                    io::stderr(),
+                    "tasktap: {} runs unobserved: {why}",
+                    rules.agent
+                );
+                drop(link);
+                return pass(real, args);
+            }
+        }
+    }
+    run.args(rules.approval(words)).args(args);
     #[cfg(feature = "fixtures")]
     run.env(super::fixture::REAL, "1");
     let modes = sys::modes();
@@ -422,6 +327,7 @@ fn report(code: i32) {
         id: format!("exited {}", Uuid::now_v7()),
         turn: None,
         subagent: false,
+        resume: None,
         event: Event::Exited {
             code: u32::try_from(code).ok(),
         },
@@ -531,73 +437,6 @@ fn answer(mut link: Client, hold: &Hold, tty: bool) {
         };
         if link.send(&reply).is_err() {
             return hold.gone();
-        }
-    }
-}
-
-/// The cases of `scripts/tasktap_shell.py`'s rules, which need an agent's
-/// adapter before a shim acts on them through the binary.
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn rules(agent: &str) -> &'static Rules {
-        named(OsStr::new(agent)).unwrap()
-    }
-
-    fn words(args: &[&str]) -> Vec<String> {
-        args.iter().map(|a| a.to_string()).collect()
-    }
-
-    #[test]
-    fn who_types_follows_the_old_shell() {
-        for (agent, args, typed) in [
-            ("claude", &[][..], true),
-            ("claude", &["fix", "the", "bug"], true),
-            ("claude", &["-p", "hi"], false),
-            ("claude", &["--print"], false),
-            ("claude", &["--model", "opus", "mcp"], false),
-            ("claude", &["--model", "mcp"], true),
-            ("claude", &["--", "mcp"], true),
-            ("claude", &["--resume", "abc"], true),
-            ("claude", &["--remote=x"], false),
-            ("codex", &["exec", "x"], false),
-            ("codex", &["-c", "model=o3", "resume"], true),
-            ("codex", &["-p", "work"], true),
-            ("codex", &["--json"], false),
-            ("pi", &["-p", "x"], false),
-            ("pi", &["--mode=rpc"], false),
-            ("pi", &["--mode", "rpc"], false),
-            ("pi", &["install"], false),
-            ("opencode", &["run", "x"], false),
-            ("opencode", &["-V"], false),
-        ] {
-            assert_eq!(
-                rules(agent).interactive(&words(args)),
-                typed,
-                "{agent} {args:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn the_default_policy_is_added_only_without_ones_own() {
-        for (agent, args, added) in [
-            ("claude", &[][..], &["--permission-mode", "auto"][..]),
-            ("claude", &["--permission-mode=plan"], &[]),
-            ("claude", &["--dangerously-skip-permissions"], &[]),
-            ("codex", &[], &["--approve-for-me"]),
-            ("codex", &["-c", "approval_policy=never"], &[]),
-            ("codex", &["--sandbox=read-only"], &[]),
-            ("pi", &["-na"], &[]),
-            ("pi", &["x"], &["--approve"]),
-            ("opencode", &[], &["--auto"]),
-        ] {
-            assert_eq!(
-                rules(agent).approval(&words(args)),
-                added,
-                "{agent} {args:?}"
-            );
         }
     }
 }

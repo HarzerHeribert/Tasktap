@@ -18,12 +18,17 @@ pub struct Watchdog {
 
 impl Watchdog {
     pub fn new(core: &Child) -> Watchdog {
+        Self::patient(core, PATIENCE)
+    }
+
+    /// The same, after `patience`: a live agent's turn takes minutes.
+    pub fn patient(core: &Child, patience: Duration) -> Watchdog {
         let (armed, disarmed) = mpsc::channel();
         let pid = core.id().to_string();
         let test = std::thread::current().name().unwrap_or("a test").to_owned();
         std::thread::spawn(move || {
-            if disarmed.recv_timeout(PATIENCE) == Err(RecvTimeoutError::Timeout) {
-                eprintln!("{test} still holds its core after {PATIENCE:?}: killing it");
+            if disarmed.recv_timeout(patience) == Err(RecvTimeoutError::Timeout) {
+                eprintln!("{test} still holds its core after {patience:?}: killing it");
                 #[cfg(unix)]
                 let kill = Command::new("kill").args(["-9", &pid]).status();
                 #[cfg(windows)]

@@ -1,0 +1,14 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "turn_id": "00000000-0000-4000-8000-000000000002",
+  "transcript_path": "/Users/person/.codex/sessions/2026/11/17/rollout-2026-01-01T00-00-00-00000000-0000-4000-8000-000000000001.jsonl",
+  "cwd": "/tmp/project",
+  "hook_event_name": "PermissionRequest",
+  "model": "gpt-6.1-sol",
+  "permission_mode": "default",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "echo trial > trial.txt",
+    "description": "May I create trial.txt with the requested text?"
+  }
+}

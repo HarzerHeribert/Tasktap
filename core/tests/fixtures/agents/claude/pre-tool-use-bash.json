@@ -1,0 +1,18 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "transcript_path": "/Users/person/.claude/projects/-tmp-project/00000000-0000-4000-8000-000000000001.jsonl",
+  "cwd": "/tmp/project",
+  "scratchpad_dir": "/tmp/scratch",
+  "prompt_id": "00000000-0000-4000-8000-000000000002",
+  "permission_mode": "default",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "echo trial > trial.txt",
+    "description": "Write trial text to trial.txt"
+  },
+  "tool_use_id": "toolu_01DwdMX4sDU8nGx1wUfMBYtA"
+}

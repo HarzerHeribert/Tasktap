@@ -31,9 +31,6 @@ use crate::state::{self, Deliver, Effect, Event, Launch, Launcher, Report, Route
 use crate::store::{self, AttemptOutcome, Tx};
 use crate::{agents, questions};
 
-/// The agent a new run uses until package D detects the installed ones.
-pub const AGENT: &str = "claude";
-
 const NO_ROUTER: &str = "this build has no router yet";
 const NO_ISOLATION: &str = "this build has no worktrees to settle yet";
 
@@ -152,13 +149,13 @@ impl Seams {
         })
     }
 
-    /// The agent a new capture names.
-    pub fn agent(&self) -> String {
+    /// The agent `fixture.script` has new captures name, in a fixtures build.
+    pub fn agent(&self) -> Option<String> {
         #[cfg(feature = "fixtures")]
         if let Some(agent) = self.fixture.as_ref().and_then(|f| f.agent.clone()) {
-            return agent;
+            return Some(agent);
         }
-        AGENT.into()
+        None
     }
 
     #[cfg(feature = "fixtures")]
@@ -255,6 +252,7 @@ pub fn session_event(cx: &mut Cx, args: SessionEvent) -> Result<(), Error> {
         id: args.id,
         turn: args.turn,
         subagent: args.subagent,
+        resume: args.resume,
         event: args.event,
     };
     match run(cx.core, Event::Report(report)) {
@@ -327,7 +325,7 @@ fn carry(core: &mut Core, effects: Vec<Effect>) -> Option<Outcome> {
                 cancel(core, thought);
                 None
             }
-            Effect::Launch(launch) => Some(self::launch(core, launch)),
+            Effect::Launch(launch) => self::launch(core, launch),
             Effect::Deliver(deliver) => self::deliver(core, deliver),
             Effect::Kill {
                 terminal: Some(terminal),
@@ -396,16 +394,54 @@ fn route(core: &mut Core, id: ThoughtId) {
     report(core, Event::Routed { thought: id, route }, |_| Ok(()));
 }
 
-fn launch(core: &mut Core, launch: Launch) -> Outcome {
+/// Starts a run and answers with its outcome. A run whose agent needs a
+/// check before it starts (design §7, an adapter's probe) starts once that
+/// check, on a thread of its own, has answered; its outcome then reaches
+/// its thought's record and attempt, not the call that started it, which
+/// answers at once.
+fn launch(core: &mut Core, launch: Launch) -> Option<Outcome> {
     let token = Secret::mint();
-    let started = match core.seams.launcher() {
-        Some(launcher) => launcher.launch(&launch, &token),
-        None => crate::launch::launch(core, &launch, &token),
-    };
     let attempt = launch.attempt;
+    if let Some(launcher) = core.seams.launcher() {
+        let started = launcher.launch(&launch, &token);
+        return Some(launched(core, attempt, started, &token));
+    }
+    let mut prepared = match crate::launch::prepare(&launch) {
+        Ok(prepared) => prepared,
+        Err(error) => return Some(failed(core, attempt, error)),
+    };
+    let Some(probe) = prepared.probe.take() else {
+        let started = crate::launch::start(core, &launch, prepared, Vec::new(), &token);
+        return Some(launched(core, attempt, started, &token));
+    };
+    let (said, heard) = tokio::sync::oneshot::channel();
+    let cwd = std::path::PathBuf::from(&launch.cwd);
+    std::thread::spawn(move || {
+        let _ = said.send(agents::checks::probe(probe, &cwd));
+    });
+    let me = core.me.clone();
+    tokio::task::spawn_local(async move {
+        let lost = |_| Err("the check before the start ended without an answer".to_owned());
+        let more = heard.await.unwrap_or_else(lost);
+        let Some(core) = me.upgrade() else { return };
+        let mut core = core.borrow_mut();
+        let started =
+            more.and_then(|more| crate::launch::start(&mut core, &launch, prepared, more, &token));
+        launched(&mut core, attempt, started, &token);
+    });
+    None
+}
+
+/// Records a started run's terminal, or why it did not start.
+fn launched(
+    core: &mut Core,
+    attempt: AttemptId,
+    started: Result<tasktap_proto::Terminal, String>,
+    token: &Secret,
+) -> Outcome {
     match started {
         Ok(terminal) => {
-            let hash = crate::handshake::hash(&token);
+            let hash = crate::handshake::hash(token);
             let event = Event::Launched {
                 attempt,
                 terminal: Some(terminal.id),
@@ -520,7 +556,7 @@ fn repeated(first: Option<AttemptOutcome>) -> Outcome {
             Code::Failed,
             "the core stopped during this attempt; nothing was started again",
         )),
-        // In Phase 1 every launch and settle reports before its call returns.
+        // A launch whose check still runs; every other reports before its call returns.
         None => Outcome::Err(Error::new(
             Code::Conflict,
             "the attempt has not finished yet",

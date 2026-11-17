@@ -27,9 +27,7 @@ pub use watchdog::Watchdog;
 
 pub const EXE: &str = env!("CARGO_BIN_EXE_tasktap");
 /// Milliseconds a thought is held while the preference is unset.
-pub const HOLD_MS: u64 = match tasktap_proto::PrefKey::Hold.default() {
-    tasktap_proto::PrefValue::Hold(seconds) => seconds as u64 * 1000,
-};
+pub const HOLD_MS: u64 = tasktap_proto::DEFAULT_HOLD as u64 * 1000;
 pub const ALL: [Collection; 10] = [
     Collection::Thoughts,
     Collection::Projects,
@@ -103,6 +101,20 @@ impl Core {
     pub fn with_agents(data: impl AsRef<Path>) -> Core {
         let data = data.as_ref();
         Self::start_env(data, &[], &[("PATH", &path_with(&agents(data)))])
+    }
+
+    /// A core for a live agent's runs (`tests/live.rs`): its watchdog
+    /// waits `patience`.
+    pub fn live(data: impl AsRef<Path>, patience: std::time::Duration) -> Core {
+        let data = data.as_ref();
+        let mut serve = client::serve_command(Path::new(EXE), data);
+        serve.args(["--idle-ms", "600000"]);
+        let child = client::start(serve).unwrap();
+        Core {
+            _watchdog: Watchdog::patient(&child, patience),
+            child,
+            data: data.to_owned(),
+        }
     }
 
     /// The same with these variables added to the core's environment.
@@ -511,6 +523,7 @@ impl Agent {
             turn,
             subagent,
             event,
+            resume: None,
         };
         self.c.call::<call::SessionEvent>(&event).unwrap()
     }
@@ -529,6 +542,7 @@ impl Agent {
             turn: None,
             subagent: false,
             event,
+            resume: None,
         };
         self.c.call::<call::SessionEvent>(&call).unwrap().unwrap();
     }
@@ -674,6 +688,8 @@ pub fn typed(id: ThoughtId, text: &str) -> Capture {
         mode: None,
         project_id: None,
         session_id: None,
+        agent: None,
+        model: None,
     }
 }
 
@@ -862,9 +878,19 @@ impl Scene {
         Self::build(core, data, true)
     }
 
+    /// The scene on `core` with its project in `folder`, its runs started
+    /// for real with `agent`.
+    pub fn in_folder(core: Core, data: Folder, folder: &Path, agent: &str) -> Scene {
+        Self::built(core, data, folder.to_owned(), true).running(agent)
+    }
+
     fn build(core: Core, data: Folder, manual: bool) -> Scene {
-        let mut w = core.watch();
         let folder = data.0.join("app");
+        Self::built(core, data, folder, manual)
+    }
+
+    fn built(core: Core, data: Folder, folder: PathBuf, manual: bool) -> Scene {
+        let mut w = core.watch();
         std::fs::create_dir_all(&folder).unwrap();
         let add = tasktap_proto::AddProject {
             id: ProjectId::mint(),

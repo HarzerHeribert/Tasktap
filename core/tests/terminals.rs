@@ -910,6 +910,43 @@ fn the_environment_holds_exactly_the_fixed_list() {
 }
 
 #[test]
+fn a_terminal_other_than_a_shell_finds_tasktap_in_the_cores_folder() {
+    // An agent's hooks run the core's program by its path; `tasktap ask` by
+    // its name, found in the core's folder, last on the PATH of every
+    // terminal but a shell, where no shim is.
+    let data = Folder::new("tt-path");
+    let core = Core::start(&data);
+    let mut c = core.device();
+    let mut v = open(
+        &mut c,
+        &args(
+            TerminalId::mint(),
+            Some(fixture(&["find tasktap", "exit 0"])),
+            None,
+            1 << 20,
+        ),
+        true,
+    );
+    closed(&mut c, &mut v);
+    let shown = text(v.bytes());
+    let said = |what: &str| {
+        (shown.split('|'))
+            .find_map(|l| l.rsplit_once(what).map(|(_, path)| path.trim().to_owned()))
+            .expect("it looked")
+    };
+    let found = said("found:");
+    let folder = Path::new(&found).parent().map(std::fs::canonicalize);
+    let own = std::fs::canonicalize(Path::new(EXE).parent().unwrap()).unwrap();
+    assert_eq!(folder.and_then(Result::ok), Some(own.clone()), "{shown}");
+    // Last, unless the core's own PATH has it already, as cargo's on Windows.
+    if cfg!(unix) {
+        let last = std::fs::canonicalize(said("last:")).ok();
+        assert_eq!(last, Some(own), "{shown}");
+    }
+    assert!(!data.0.join("shims").exists(), "no shim was needed");
+}
+
+#[test]
 fn the_core_stays_while_a_terminal_lives_and_retires_after_it() {
     let data = Folder::new("tt-life");
     let mut core = Core::start_with(&data, &["--idle-ms", "200"]);

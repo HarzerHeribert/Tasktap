@@ -231,7 +231,7 @@ fn own(cx: &mut Cx, args: &AskKey) -> Result<Question, Error> {
 }
 
 fn key(session: &Session, request: &str) -> String {
-    format!("ask {} {request}", session.id.uuid())
+    state::ask_key(session.id, request)
 }
 
 fn token(who: Caller) -> Result<TerminalId, Error> {

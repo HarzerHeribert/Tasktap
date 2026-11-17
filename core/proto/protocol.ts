@@ -17,7 +17,7 @@ export const MAX_TEXT = 65536;
 export const MAX_LINE = 8192;
 export const MAX_POINTS = 2048;
 /** The value of each preference while none is stored: deleting one restores it. */
-export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] } = {"hold":5};
+export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] } = {"agent":null,"hold":5};
 
 /**
  * Who may make a call (design §2): authorization is per call.
@@ -47,6 +47,52 @@ agent: string,
  * The folder the person started it in.
  */
 cwd: string, };
+
+/**
+ * One agent as found on this computer, and what its runs can do.
+ */
+export type AgentHealth = {
+/**
+ * Its id, as a capture and `tasktap hook` name it.
+ */
+id: string,
+/**
+ * Its program is on the PATH the core's terminals get.
+ */
+installed: boolean,
+/**
+ * As it reports its version.
+ */
+version: string | null,
+/**
+ * Whether it is signed in; none when it could not be told.
+ */
+signed_in: boolean | null,
+/**
+ * Whom it is signed in as, or how, as it says.
+ */
+identity: string | null,
+/**
+ * Its runs report through hooks; one that does not reports by exiting.
+ */
+events: boolean,
+/**
+ * A new run can continue an ended session's conversation.
+ */
+resume: boolean,
+/**
+ * Where its permission requests are answered; none: none are heard.
+ */
+permissions: ReplyVia | null,
+/**
+ * Where the questions it asks the person are answered; none: none are heard.
+ */
+questions: ReplyVia | null, };
+
+/**
+ * The reply of `agents.detect`, in the order the core lists its agents.
+ */
+export type Agents = { agents: Array<AgentHealth>, };
 
 /**
  * The receipt of an answer, stored before it is sent.
@@ -105,7 +151,17 @@ export type CallId = number;
  * `thought.capture`. A project or session given here is the person's own
  * pick, which routes the thought without asking the router.
  */
-export type Capture = { id: ThoughtId, text: string, strokes: Array<Array<[number, number]>>, source: Source, mode?: Mode | null, project_id?: ProjectId | null, session_id?: SessionId | null, };
+export type Capture = { id: ThoughtId, text: string, strokes: Array<Array<[number, number]>>, source: Source, mode?: Mode | null, project_id?: ProjectId | null, session_id?: SessionId | null,
+/**
+ * The agent a new run of the thought uses, by the id `agents.detect`
+ * lists; without one, the `agent` preference, else the first agent
+ * this core has. A follow-up uses its session's agent.
+ */
+agent?: string | null,
+/**
+ * The model a new run asks its agent for; without one, the agent's own default.
+ */
+model?: string | null, };
 
 /**
  * One committed transaction, or one chunk of a snapshot.
@@ -169,6 +225,13 @@ export type Credit = { s: StreamId, n: number, };
  * `conflict`. Deleting a preference restores its default.
  */
 export type Delete = { "c": "prefs", id: PrefKey, } | { "c": "layouts", id: ProjectId, } | { "c": "thoughts", id: ThoughtId, } | { "c": "terminals", id: TerminalId, };
+
+/**
+ * `agents.detect`: whether each agent this core can run is installed on the
+ * PATH its terminals get and signed in, as the agent itself says. Without
+ * `agents`, every one. Each check runs the agent's own command, at most 4 s.
+ */
+export type DetectAgents = { agents?: Array<string> | null, };
 
 export type Device = { id: DeviceId, rev: Rev, name: string, last_seen: Time | null, revoked: boolean, };
 
@@ -465,14 +528,14 @@ export type Place = { "project": ProjectId } | { "session": SessionId };
 /**
  * A preference row: `{id, value, rev}`, where the key fixes the value's type.
  */
-export type Pref = { rev: Rev, } & ({ "id": "hold", "value": number });
+export type Pref = { rev: Rev, } & ({ "id": "hold", "value": number } | { "id": "agent", "value": string | null });
 
-export type PrefKey = "hold";
+export type PrefKey = "hold" | "agent";
 
 /**
  * A preference write: `{id, patch}`, where the key fixes the value's type.
  */
-export type PrefPatch = { "id": "hold", "patch": number };
+export type PrefPatch = { "id": "hold", "patch": number } | { "id": "agent", "patch": string | null };
 
 export type Project = { id: ProjectId, rev: Rev, name: string,
 /**
@@ -621,7 +684,12 @@ turn?: number | null,
 /**
  * Sent for one of the agent's sub-agents, whose events the core ignores.
  */
-subagent?: boolean, } & ({ "kind": "ready" } | { "kind": "turn_started", prompt?: string | null, } | { "kind": "activity", text: string, } | { "kind": "continued" } | { "kind": "turn_finished", answer?: string | null, } | { "kind": "turn_failed", error?: string | null, } | { "kind": "turn_interrupted" } | { "kind": "question", question: Ask, } | { "kind": "exited", code?: number | null, });
+subagent?: boolean,
+/**
+ * The agent's own handle for continuing this conversation in a later
+ * run, when its report carries one; the session keeps the latest.
+ */
+resume?: string | null, } & ({ "kind": "ready" } | { "kind": "turn_started", prompt?: string | null, } | { "kind": "activity", text: string, } | { "kind": "continued", request?: string | null, } | { "kind": "turn_finished", answer?: string | null, } | { "kind": "turn_failed", error?: string | null, } | { "kind": "turn_interrupted" } | { "kind": "question", question: Ask, } | { "kind": "exited", code?: number | null, });
 
 /**
  * A UUID v7 in text, minted by whoever creates the record.
@@ -788,6 +856,7 @@ export type Calls = {
   "question.focus": { args: Ref<QuestionId>; result: null; access: "device" };
   "session.event": { args: SessionEvent; result: null; access: "session" };
   "session.adopt": { args: Adopt; result: SessionId; access: "session" };
+  "agents.detect": { args: DetectAgents; result: Agents; access: "device" };
   "terminal.open": { args: OpenTerminal; result: Opened; access: "device" };
   "terminal.resize": { args: ResizeTerminal; result: null; access: "device" };
   "terminal.stop": { args: Ref<TerminalId>; result: null; access: "device" };

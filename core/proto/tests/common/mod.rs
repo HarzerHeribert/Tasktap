@@ -268,6 +268,8 @@ pub fn samples() -> Vec<(&'static str, Frame)> {
                     mode: None,
                     project_id: Some(id(2)),
                     session_id: None,
+                    agent: Some("claude".into()),
+                    model: None,
                 },
             )),
         ),
@@ -320,6 +322,7 @@ pub fn samples() -> Vec<(&'static str, Frame)> {
                     event: Event::TurnFinished {
                         answer: Some("Done: the redirect is kept in a cookie.".into()),
                     },
+                    resume: None,
                 },
             )),
         ),

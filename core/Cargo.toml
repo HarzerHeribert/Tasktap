@@ -43,5 +43,8 @@ tasktap-core = { path = ".", features = ["fixtures"] }
 [profile.dev]
 panic = "abort"
 
+# Without its symbol table the binary is 1.3 MB smaller (design §10). A
+# panic still names its file and line, which is all the core ever printed.
 [profile.release]
 panic = "abort"
+strip = true

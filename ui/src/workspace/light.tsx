@@ -1,11 +1,13 @@
 // The window's light: on Home, a few large, soft pools of the person's colour in the window's black, strongest by the
 // capture line and around one low band of chrome, as if a large chrome form were just out of focus behind the page;
 // at the sidebar's foot, a small zone of the same light with a few chrome glyphs that turn while agents work. The
-// pools are plain gradients the system composites, dithered against banding, and they breathe only by opacity and
-// transform, so breathing costs the page nothing. The chrome is the motion engine's, drawn on a change of state and
+// pools are plain gradients the system composites, dithered against banding, and they breathe only by opacity, set four
+// times a second, so a breath costs the page and the window server next to nothing. The chrome is the motion engine's,
+// drawn on a change of state and
 // then held, softened once as it is copied, and kept out from under every word. One setting, Ambient light: Off,
 // Still or Breathing. The same state function as the motion and the notch's glow (motion/state.ts).
-import { useEffect } from 'preact/hooks';
+import { type RefObject } from 'preact';
+import { useEffect, useRef } from 'preact/hooks';
 import { routing } from '../capture.tsx';
 import { Motion, debug, lookOf } from '../motion/motion.tsx';
 import { type RGB, lights } from '../motion/palette.ts';
@@ -37,6 +39,35 @@ const STRENGTH = { faint: 0.6, default: 1, strong: 1.6 };
 export const TEMPO = { slow: { pace: 0.3, breath: 14 }, slower: { pace: 0.15, breath: 24 }, slowest: { pace: 0.07, breath: 38 } };
 export const tempo = () => TEMPO[debug.tempo ?? 'slower'];
 
+/** Breathing: one timer sets the pools' opacity four times a second, so the window is composited that often and not at
+ *  the display's rate. A step is under one percent of a pool's opacity, below what the eye can tell at this tempo. */
+const breathing = new Set<HTMLElement>();
+let breathTimer = 0;
+const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+const OFFSET = [0, 0.4, 0.7], LENGTH = [1, 1.23, 1.47];
+function breath() {
+  const t = performance.now() / 1000, T = 2 * tempo().breath;
+  for (const root of breathing)
+    root.querySelectorAll<HTMLElement>(':scope > .pool').forEach((p, i) => {
+      const x = 0.5 - 0.5 * Math.cos(2 * Math.PI * (t / (T * (LENGTH[i] ?? 1)) + (OFFSET[i] ?? 0)));
+      p.style.opacity = (0.66 + 0.34 * x).toFixed(3);
+    });
+}
+function useBreath(ref: RefObject<HTMLElement | null>, on: boolean) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !on || reduce.matches) return;
+    breathing.add(el);
+    breathTimer ||= window.setInterval(breath, 250);
+    breath();
+    return () => {
+      breathing.delete(el);
+      el.querySelectorAll<HTMLElement>(':scope > .pool').forEach((p) => (p.style.opacity = ''));
+      if (!breathing.size) (clearInterval(breathTimer), (breathTimer = 0));
+    };
+  }, [on, ref.current]);
+}
+
 let last: { state: MotionState; at: number } = { state: 'idle', at: 0 };
 let settle = 0;
 
@@ -64,8 +95,9 @@ export function useLight() {
   return {
     state, look, mode, breathe, lift: state === 'done' && now - last.at < 2500,
     vars: {
-      '--c1': deep(c1, 0.0068 * level), '--c2': deep(c2, 0.011 * level, 0.7), '--c3': deep(c3, (state === 'failed' ? 0.008 : 0.005) * level),
-      '--chrome': String(Math.min(1, 0.5 * k)), '--spark': String(LIVE.has(state) ? 1 : 0.6), '--breath': `${tempo().breath}s`,
+      // The pool at the lower right lies under the most rows' times, the dimmest words: it stays at its default.
+      '--c1': deep(c1, 0.0068 * level), '--glow': deep(c1, 0.02 * level), '--c2': deep(c2, 0.0056 * Math.min(level, 1.05), 0.7), '--c3': deep(c3, (state === 'failed' ? 0.008 : 0.005) * level),
+      '--chrome': String(Math.min(1, 0.5 * k)), '--spark': String(LIVE.has(state) ? 1 : 0.6),
     },
   };
 }
@@ -94,13 +126,15 @@ function noise() {
 /** Home's light: three pools and the chrome band, behind the column. `load` dims the chrome as the page fills. */
 export function Light({ load }: { load: 'quiet' | 'busy' | 'asks' | 'paged' }) {
   const l = useLight();
+  const ref = useRef<HTMLDivElement>(null);
   useEffect(() => void document.documentElement.style.setProperty('--noise', noise()), []);
+  useBreath(ref, l.breathe && l.mode === 'breathing');
   if (l.mode === 'off') return null;
   return (
-    <div class="light" data-state={l.state} data-breathe={String(l.breathe)} data-lift={l.lift || undefined} data-load={load} style={l.vars} aria-hidden="true">
+    <div class="light" ref={ref} data-state={l.state} data-breathe={String(l.breathe)} data-lift={l.lift || undefined} data-load={load} style={l.vars} aria-hidden="true">
       <i class="pool a" /><i class="pool b" /><i class="pool c" />
       <span class="band">
-        <Motion look={l.look} state={l.state} pace={debug.pace ?? 'calm'} tempo={tempo().pace} clear=".hx" pad={10} feather={30} soften={7} />
+        <Motion look={l.look} state={l.state} pace="calm" tempo={tempo().pace} fps={12} clear=".hx" pad={10} feather={30} soften={7} />
       </span>
     </div>
   );
@@ -118,14 +152,16 @@ const GLYPHS = [
  *  It takes only the room the rows leave; rows always win. */
 export function Spark() {
   const l = useLight();
+  const ref = useRef<HTMLDivElement>(null);
+  useBreath(ref, l.breathe && l.mode === 'breathing');
   if (l.mode === 'off') return <div class="spark" />;
   const pace = debug.pace ?? (l.mode === 'breathing' && (ui.active || debug.breathe) ? 'breathe' : 'calm');
   return (
-    <div class="spark" data-state={l.state} data-breathe={String(l.breathe)} style={l.vars} aria-hidden="true">
+    <div class="spark" ref={ref} data-state={l.state} data-breathe={String(l.breathe)} style={l.vars} aria-hidden="true">
       <i class="pool s" />
       {GLYPHS.map((g, i) => (
         <span class="glyph" style={{ width: `${g.size}px`, height: `${g.size}px`, left: `calc(${g.x * 100}% - ${g.size / 2}px)`, bottom: `${g.y}px`, '--depth': String(1 - i * 0.28) }}>
-          <Motion look={{ ...l.look, style: 'glyphs' }} state={l.state} pace={pace} tempo={tempo().pace} min={[24, 24]} count={1} seed={g.seed} />
+          <Motion look={{ ...l.look, style: 'glyphs' }} state={l.state} pace={pace} tempo={tempo().pace} fps={4} min={[24, 24]} count={1} seed={g.seed} />
         </span>
       ))}
     </div>

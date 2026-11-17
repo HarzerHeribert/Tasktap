@@ -64,7 +64,6 @@ export const terminalOptions = (l: Look, fontSize: number) => ({
   theme: { ...l.theme, background: l.theme.background + '00' },
 });
 
-/** The faces Default needs, loaded before the first terminal measures its cells. */
-export const fontsReady = () =>
-  Promise.all(['14px Hack', 'bold 14px Hack', 'italic 14px Hack', 'italic bold 14px Hack', '14px "Symbols Nerd Font Mono"']
-    .map((f) => document.fonts.load(f, f.includes('Symbols') ? '' : 'a'))).catch(() => []);
+/** The face the terminals measure their cells with, loaded before the first one opens. Bold, italic and the symbols
+ *  are read when text first needs them: their widths are the cell's. */
+export const fontsReady = () => document.fonts.load('14px Hack').catch(() => []);

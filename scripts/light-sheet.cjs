@@ -23,7 +23,13 @@ async function contrast(page) {
       if (!n.textContent.trim() || n.parentElement.closest('kbd,.btn')) continue;
       const color = getComputedStyle(n.parentElement).color;
       range.selectNodeContents(n);
-      for (const r of range.getClientRects()) if (r.width > 1 && r.height > 1) out.push({ x: r.left, y: r.top, w: r.width, h: r.height, color, text: n.textContent.trim().slice(0, 40) });
+      // The glyphs' own band: a line box's top and bottom pixels can touch a neighbouring hairline, which no letter sits on.
+      // A text cut with an ellipsis reports its whole run: only what its element shows counts.
+      const box = n.parentElement.getBoundingClientRect();
+      for (const r of range.getClientRects()) {
+        const x = Math.max(r.left, box.left) + 1, w = Math.min(r.right, box.right) - x - 1;
+        if (w > 1 && r.height > 4) out.push({ x, y: r.top + 2, w, h: r.height - 4, color, text: n.textContent.trim().slice(0, 40) });
+      }
     }
     for (const i of document.querySelectorAll('.hx input')) {
       const r = i.getBoundingClientRect(), s = getComputedStyle(i, '::placeholder');
@@ -95,6 +101,7 @@ async function main(out, quick) {
               const bare = `home-${state}-${palette}-${strength}-pools@${dpr}x.png`;
               await page.screenshot({ path: path.join(out, bare) });
               manifest.stills.push({ name: bare, state, palette, strength, dpr, chrome: false });
+              if (dpr === 1) manifest.contrast.push({ state, palette, strength: `${strength}, pools only`, ...(await contrast(page)) });
               await page.addStyleTag({ content: '.light{visibility:hidden!important}' });
               await settle(page, 200);
               const none = `home-${state}-none@${dpr}x.png`;

@@ -43,6 +43,8 @@ export type Options = {
   tempo?: number;
   /** Where its own clock starts, so views of one style side by side are not in step. */
   seed?: number;
+  /** At most this many frames a second, once its blend is over (ambient views, whose motion is slow). */
+  fps?: number;
 };
 
 // The lab's: the signal light of each state (amber, pale green, dull red), the studio's level, draws a second.
@@ -251,8 +253,8 @@ export class View {
 
   /** Its size in drawn pixels. */
   size() {
-    // Every device pixel: the metal's edges and reflections are the point.
-    const k = Math.min(window.devicePixelRatio || 1, 2);
+    // Every device pixel: the metal's edges and reflections are the point. Softened into light, one per CSS pixel.
+    const k = this.o.soften ? 1 : Math.min(window.devicePixelRatio || 1, 2);
     return [Math.max(2, Math.round(this.css[0]! * k)), Math.max(2, Math.round(this.css[1]! * k))];
   }
 
@@ -278,8 +280,8 @@ export class View {
     if (this.moving) return 60;
     if (s === 0 || (s >= 5 && this.stT > 3)) return 0;
     if (s === 1) return v.quiet > 1.5 ? 20 : 60;
-    if (pace !== 'live' && this.stT >= MOMENT[s]!) return this.breathing() ? 10 : 0;
-    return RATE[s]!;
+    if (pace !== 'live' && this.stT >= MOMENT[s]!) return this.breathing() ? Math.min(10, this.o.fps ?? 10) : 0;
+    return Math.min(RATE[s]!, this.o.fps ?? RATE[s]!);
   }
 
   /** A breathing view after its moment, thinking or working: its own motion runs at a fifth of its pace. */
@@ -440,7 +442,14 @@ function frame(now: number) {
     zeroed = true;
   }
   let rate = 0;
-  for (const v of shown) v.tick(dt), (rate = Math.max(rate, v.rate()));
+  const due: View[] = [];
+  for (const v of shown) {
+    v.tick(dt);
+    const r = v.rate();
+    rate = Math.max(rate, r);
+    // A view still and unchanged keeps the frame it has: the sidebar's glyphs turning do not redraw Home's chrome.
+    if (r || v.dirty) due.push(v);
+  }
   // The largest primary view is the canvas's own; the others are copies of frames drawn before it.
   const host = shown.filter((v) => v.o.primary).sort((a, b) => b.size()[0]! * b.size()[1]! - a.size()[0]! * a.size()[1]!)[0];
   const sizes = shown.map((v) => v.size());
@@ -448,9 +457,10 @@ function frame(now: number) {
   if (canvas!.width !== W || canvas!.height !== H) [canvas!.width, canvas!.height] = [W!, H!];
   if (!host && canvas!.parentElement) canvas!.remove();
   try {
-    for (const v of shown) if (v !== host) v.draw(adv, false, W!, H!);
-    host?.draw(adv, true, W!, H!);
-    stats.frames++;
+    for (const v of due) if (v !== host) v.draw(adv, false, W!, H!);
+    // The canvas is the host's own picture: drawn again whenever another view used it.
+    if (host && due.length) host.draw(adv, true, W!, H!);
+    if (due.length) stats.frames++;
   } catch (e) {
     console.error(e);
     broken = true;

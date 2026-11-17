@@ -342,3 +342,4 @@ These replace "Keep the look" for the interface. The chrome identity and motion 
 6. **Motion sits behind the content as a backdrop**, in the open notch and in the workspace, never in a box in a corner, never behind terminal text. Idle is a still frame.
 7. **Appearance choices are preferences stored in the core**, so every window follows them. Themes are sets of design values, not a general template engine.
 8. **Standing rules:** an icon and its label form one centred row; a focus ring shows for keyboard focus only.
+9. **Ambient light.** Soft pools of coloured light breathe slowly behind Home, in the colours of the chosen palette, tinted by state. It is light, not a picture: no edges, never behind terminal text, still when idle. The sharp chrome form sits in it as an object. A rendered chrome form behind text was tried and rejected.

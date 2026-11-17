@@ -934,10 +934,15 @@ fn a_terminal_other_than_a_shell_finds_tasktap_in_the_cores_folder() {
             .find_map(|l| l.rsplit_once(what).map(|(_, path)| path.trim().to_owned()))
             .expect("it looked")
     };
-    assert!(!said("found:").is_empty(), "{shown}");
-    let last = std::fs::canonicalize(said("last:")).ok();
+    let found = said("found:");
+    let folder = Path::new(&found).parent().map(std::fs::canonicalize);
     let own = std::fs::canonicalize(Path::new(EXE).parent().unwrap()).unwrap();
-    assert_eq!(last, Some(own), "{shown}");
+    assert_eq!(folder.and_then(Result::ok), Some(own.clone()), "{shown}");
+    // Last, unless the core's own PATH has it already, as cargo's on Windows.
+    if cfg!(unix) {
+        let last = std::fs::canonicalize(said("last:")).ok();
+        assert_eq!(last, Some(own), "{shown}");
+    }
     assert!(!data.0.join("shims").exists(), "no shim was needed");
 }
 

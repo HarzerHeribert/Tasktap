@@ -588,6 +588,8 @@ impl<'s> Tx<'s> {
             "UPDATE attempts SET outcome = '\"interrupted\"' WHERE outcome IS NULL",
             [],
         )?;
+        // Every session of an earlier boot has just ended, so no event of one can count.
+        self.db.execute("DELETE FROM seen_events", [])?;
         Ok(())
     }
 
@@ -656,6 +658,16 @@ impl<'s> Tx<'s> {
     pub fn question_by_request(&self, request_key: &str) -> Result<Option<Question>> {
         let sql = concat!(question_select!(), " WHERE q.request_key = ?1");
         Ok(one(&self.db, sql, request_key, question_row)?.map(|r| r.0))
+    }
+
+    /// The key a question was asked under, which only the core reads.
+    pub fn request_key(&self, question: QuestionId) -> Result<Option<String>> {
+        let sql = "SELECT request_key FROM questions WHERE id = ?1";
+        Ok(self
+            .db
+            .prepare_cached(sql)?
+            .query_row([W(&question)], |r| r.get(0))
+            .optional()?)
     }
 
     /// Every open question, oldest first.
@@ -1239,6 +1251,18 @@ impl<'s> Tx<'s> {
         Ok(())
     }
 
+    /// Remembers that a session's event was applied; false when it already was.
+    /// Not a record, so it takes no revision.
+    pub fn see_event(&mut self, session: SessionId, event: &str) -> Result<bool> {
+        let n = self
+            .db
+            .prepare_cached(
+                "INSERT INTO seen_events (session_id, event) VALUES (?1, ?2) ON CONFLICT DO NOTHING",
+            )?
+            .execute(params![W(&session), event])?;
+        Ok(n == 1)
+    }
+
     /// Records the outcome of an attempt that has none; `NotFound` otherwise,
     /// since the first outcome is the one every repeat gets.
     pub fn set_outcome(&mut self, id: AttemptId, outcome: &AttemptOutcome) -> Result<()> {
@@ -1714,6 +1738,14 @@ CREATE TABLE sessions (
 ) STRICT;
 CREATE INDEX sessions_thought ON sessions (thought_id);
 CREATE INDEX sessions_terminal ON sessions (terminal_id);
+
+-- The ids of session events already applied (design §5: event ids are
+-- deduplicated). Cleared at start, when every session of the boot before has ended.
+CREATE TABLE seen_events (
+    session_id TEXT NOT NULL REFERENCES sessions (id),
+    event TEXT NOT NULL,
+    PRIMARY KEY (session_id, event)
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE thoughts (
     id TEXT PRIMARY KEY,

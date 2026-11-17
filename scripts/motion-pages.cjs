@@ -45,8 +45,34 @@ function fakeRuntime({ label, records: records0, welcome }) {
     toCore(change);
   };
   const reply = (id, ok) => toCore({ t: 'reply', id, ok: ok === undefined ? null : ok });
+  // A stream's bytes: kind 1, the stream id, the data.
+  let nextStream = 1;
+  const toStream = (s, text) => {
+    const p = enc.encode(text), out = new Uint8Array(9 + p.length);
+    new DataView(out.buffer).setUint32(0, p.length + 5, true);
+    out[4] = 1;
+    new DataView(out.buffer).setUint32(5, s, true);
+    out.set(p, 9);
+    callbacks.get(channel)({ index: index++, message: out.buffer });
+  };
   const answer = (call) => {
     const { id, name, args } = call;
+    // A terminal's screen from `screens`, a diff from `diffs`; the page's own history call gets an empty page.
+    if (name === 'terminal.open') {
+      const s = nextStream++;
+      reply(id, { s, credit: 1 << 20, from: 0 });
+      const text = (records.screens || {})[args.id];
+      if (text) setTimeout(() => toStream(s, text.replace(/\n/g, '\r\n')), 0);
+      return;
+    }
+    if (name === 'thought.changes') {
+      const s = nextStream++, d = (records.diffs || {})[args.id] || { files: [], text: '' };
+      reply(id, { stream: { s, credit: 0 }, files: d.files, more: 0, size: d.text.length, cut: false });
+      setTimeout(() => (toStream(s, d.text), toCore({ t: 'close', s, why: 'done' })), 0);
+      return;
+    }
+    if (name === 'history') return reply(id, { thoughts: [], questions: [], results: [] });
+    if (name === 'put' && args.c !== 'prefs') return reply(id, { rev: ++rev });
     if (name === 'sub') {
       const sets = (args.collections || []).map((c) => c === 'glance' ? { c, put: records.glance ? [records.glance] : [] } : { c, put: records[c] || [] });
       push({ t: 'change', rev, snap: true, sets });
@@ -71,8 +97,11 @@ function fakeRuntime({ label, records: records0, welcome }) {
       at += 4 + len;
     }
   };
-  const hostValue = (name) => name === 'host.appearance' ? { ghostty: false, config: null } : null;
+  const hostValue = () => null;
+  // The host's part of the notch: the geometry it last described, widened by the wings the page asks for.
+  let geo = null, tab = 0;
   const emit = (payload, event = 'ui') => {
+    if (payload.do === 'geometry') (geo = { ...payload }), (tab = payload.width);
     for (const l of listeners.get(event) || []) callbacks.get(l.handler)?.({ event, id: l.id, payload });
   };
   window.__fake = { emit, push, records };
@@ -90,7 +119,9 @@ function fakeRuntime({ label, records: records0, welcome }) {
       }
       if (cmd === 'bridge_send') { frames(args instanceof Uint8Array ? args : new Uint8Array(args)); return null; }
       if (cmd === 'bridge_host') {
-        const { id, name } = JSON.parse(args.frame);
+        const { id, name, args: a } = JSON.parse(args.frame);
+        if (name === 'host.notch' && geo && typeof a.wing === 'number' && geo.width !== tab + 2 * a.wing)
+          setTimeout(() => emit({ ...geo, width: tab + 2 * a.wing }) || (tab = geo.width - 2 * a.wing), 0);
         return JSON.stringify({ t: 'reply', id, ok: hostValue(name) });
       }
       if (cmd === 'plugin:event|listen') {
@@ -104,13 +135,13 @@ function fakeRuntime({ label, records: records0, welcome }) {
         if (l) listeners.set(args.event, l.filter((x) => x.id !== args.eventId));
         return null;
       }
-      if (cmd === 'plugin:window|is_focused') return false;
+      if (cmd === 'plugin:window|is_focused') return true;
       return null;
     },
   };
 }
 
-const CALLS = ['sub', 'put', 'capture', 'thought.stop', 'question.answer'];
+const CALLS = ['sub', 'put', 'capture', 'thought.stop', 'question.answer', 'terminal.open', 'thought.changes', 'history'];
 
 // A page with the fake runtime, loaded, with `sub` answered from `records`.
 // `video`: Playwright's recordVideo for the context; `clock`: the page's clock held until the caller runs it.
@@ -220,7 +251,7 @@ async function main(out) {
   if (errors) process.exitCode = 1;
 }
 
-module.exports = { serve, open, fixtures };
+module.exports = { serve, open, fixtures, scene: (...a) => require('./instrument-fixtures.cjs').scene(...a) };
 if (require.main === module) {
   if (!process.argv[2]) { console.error('usage: node scripts/motion-pages.cjs <outdir>'); process.exit(2); }
   main(path.resolve(process.argv[2])).catch((e) => { console.error(e); process.exit(1); });

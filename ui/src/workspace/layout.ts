@@ -22,6 +22,8 @@ export type Edge = 'left' | 'right' | 'top' | 'bottom';
 export type Rect = { x: number; y: number; w: number; h: number };
 
 export const MIN_RATIO = 10;
+/** The seam between the parts of a split. */
+export const SEAM = 1;
 export const MAX_RATIO = 90;
 export const isPane = (n: Node): n is Pane => 'tabs' in n;
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -245,8 +247,8 @@ export function reconcile(l: Layout, running: string[], known: Set<string>, id =
   return out;
 }
 
-/** Where each pane and divider goes in an area `w` by `h`, as 1.2 placed them: 6 px between the
- *  parts of a split, and a 14 px divider target over that gap. In focus mode only the selected
+/** Where each pane and divider goes in an area `w` by `h`: a 1 px seam between the
+ *  parts of a split, and a 7 px divider target over it. In focus mode only the selected
  *  pane shows, filling the area. */
 export function geometry(l: Layout, w: number, h: number) {
   const out = { panes: new Map<string, Rect>(), dividers: [] as { id: string; axis: 'x' | 'y'; ratio: number; rect: Rect; area: Rect }[] };
@@ -258,10 +260,10 @@ export function geometry(l: Layout, w: number, h: number) {
   const walk = (n: Node, x: number, y: number, w: number, h: number) => {
     if (isPane(n)) return void out.panes.set(n.id, { x, y, w: Math.max(0, w), h: Math.max(0, h) });
     const across = n.axis === 'x' ? w : h;
-    const gap = Math.min(6, across);
+    const gap = Math.min(SEAM, across);
     const room = Math.max(0, across - gap);
     const first = (room * n.ratio) / 100;
-    const hit = Math.min(14, across);
+    const hit = Math.min(7, across);
     const over = (hit - gap) / 2;
     const area = { x, y, w, h };
     if (n.axis === 'x') {
@@ -281,7 +283,7 @@ export function geometry(l: Layout, w: number, h: number) {
 /** The ratio a divider dragged to `at` (a pointer position inside the layout area) gives its split. */
 export function ratioAt(d: { axis: 'x' | 'y'; area: Rect }, at: { x: number; y: number }) {
   const across = d.axis === 'x' ? d.area.w : d.area.h;
-  const gap = Math.min(6, across);
+  const gap = Math.min(SEAM, across);
   const pos = d.axis === 'x' ? at.x - d.area.x : at.y - d.area.y;
   return ((pos - gap / 2) / Math.max(1, across - gap)) * 100;
 }

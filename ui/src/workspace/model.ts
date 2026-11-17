@@ -4,6 +4,7 @@
 import type { Session, StartTerminal, Thought } from '../../../core/proto/protocol.ts';
 import { uuid7 } from '../client.ts';
 import { agentName, call, fail, focus, openQuestions, page, records, redraw, title, why } from '../page.ts';
+import type { State } from '../ui.tsx';
 import * as L from './layout.ts';
 import { currentLook, engine, engines } from './terminal.ts';
 
@@ -12,7 +13,7 @@ export * from '../page.ts';
 /** The workspace of terminals that belong to no project (agent sign-in). Never stored. */
 export const LOOSE = 'loose';
 
-export type Dialog =
+export type Sheet =
   | { kind: 'close-tab'; project: string; id: string }
   | { kind: 'stop'; project: string; id: string }
   | { kind: 'close-workspace'; project: string; count: number }
@@ -21,41 +22,45 @@ export type Dialog =
   | { kind: 'move'; project: string; id: string }
   | { kind: 'capture' }
   | { kind: 'reply'; question: string }
-  | { kind: 'appearance' };
+  | { kind: 'settings' }
+  | { kind: 'agents' }
+  | { kind: 'review'; thought: string }
+  | { kind: 'settle'; thought: string; keep: boolean }
+  | { kind: 'send'; thought: string };
 
 export const ui = {
-  /** 'home', a project id, or LOOSE. */
+  /** 'home', 'earlier', a project id, or LOOSE. */
   view: 'home',
   sidebar: true,
-  dialog: null as Dialog | null,
-  toast: '',
+  sheet: null as Sheet | null,
   /** Terminals this page asked the core to start, until their stream opens. */
   starting: new Map<string, StartTerminal>(),
   /** What to type into a new shell once it is live: the agent the person chose. */
   typing: new Map<string, string>(),
   /** Terminals being stopped, which must not get a tab back while they end. */
   stopping: new Set<string>(),
-  /** Workspaces whose background sessions are folded away in the sidebar. */
+  /** Workspaces whose sessions are folded away in the sidebar. */
   folded: new Set<string>(),
-  /** The question whose reply is being typed in its pane. */
-  replying: '',
   /** The first snapshot arrived: until then nothing is reconciled. */
   ready: false,
   /** The window is the key window: only then does what a pane shows count as seen. */
   active: false,
-  /** The appearance panel's microphone trial is open: the motion listens. */
+  /** The appearance part of Settings has its microphone trial on: the motion listens. */
   voice: false,
+  /** Home's open fold, and how far Running is opened. */
+  fold: '' as '' | 'results' | 'ideas' | 'shut' | 'shut-ideas',
+  /** How Home's capture field is drawn, of the variants for the owner to choose from: one lit line with its destination
+   *  inside at its end (the default), a composer whose destination and send button sit on a row of their own, or a bare
+   *  field with its destination on a quiet line beneath. */
+  head: 'lit' as 'lit' | 'composer' | 'beneath',
+  more: false,
+  /** The window is narrower than the sidebar and a workspace need; the sidebar then comes over the content (`peek`). */
+  narrow: false,
+  peek: false,
 };
 
-let toastTimer = 0;
-export function toast(text: string) {
-  ui.toast = text;
-  clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => ((ui.toast = ''), redraw()), 3000);
-  redraw();
-}
-export const open = (d: Dialog) => ((ui.dialog = d), redraw());
-export const dismiss = () => ((ui.dialog = null), redraw());
+export const open = (d: Sheet) => ((ui.sheet = d), redraw());
+export const dismiss = () => ((ui.sheet = null), redraw());
 
 // ——— Layouts, written through to the core ———
 
@@ -137,7 +142,8 @@ export function reconcile() {
 
 // ——— What a terminal is doing ———
 
-export type Cue = { kind: string; label: string; symbol: string; activity?: string };
+/** What a terminal's mark says: its session's state, in the mark's terms and in words. */
+export type Cue = { s: State; words: string; activity?: string };
 
 /** The session in a terminal: its newest. */
 export function sessionOf(terminal: string): Session | undefined {
@@ -148,29 +154,25 @@ export function sessionOf(terminal: string): Session | undefined {
 export const thoughtOf = (s: Session | undefined): Thought | undefined => (s?.thought_id ? records.thoughts.get(s.thought_id) : undefined);
 export const questionOf = (s: Session | undefined) => (s ? openQuestions().find((q) => q.session_id === s.id) : undefined);
 
-/** The state a tab, a pane and a background row show, as 1.2's sessionCue named them. */
+/** The state a tab, a sidebar row and the rail show for a terminal. */
 export function cue(id: string): Cue {
   const t = records.terminals.get(id);
   const s = sessionOf(id);
   const q = questionOf(s);
-  if (q) return q.source === 'permission'
-    ? { kind: 'permission', label: 'Needs permission', symbol: '?', activity: q.prompt }
-    : { kind: 'input', label: 'Needs input', symbol: '?', activity: q.prompt };
+  if (q) return { s: 'asks', words: q.reply_via === 'terminal' ? 'Asks in its terminal' : q.source === 'permission' ? 'Asks permission' : 'Needs your answer', activity: q.prompt };
   const th = thoughtOf(s);
-  if (th && !th.read && th.status === 'failed') return { kind: 'failure', label: 'Failed', symbol: '!', activity: why(th) };
-  if (th && !th.read && th.status === 'done') return { kind: 'complete', label: 'Answer ready', symbol: '✓' };
-  if (ui.starting.has(id) || (!t && !ui.stopping.has(id))) return { kind: 'working', label: 'Opening', symbol: '◌' };
-  if (!t || t.state !== 'running') {
-    const label = t?.state === 'lost' ? 'Not running' : ui.stopping.has(id) || t?.exit === null ? 'Stopped' : t?.exit === 0 ? 'Exited' : `Exited (${t?.exit})`;
-    return { kind: 'ended', label, symbol: '○' };
+  if (th && !th.read && th.status === 'failed') return { s: 'failed', words: 'Failed', activity: why(th) };
+  if (th && th.status === 'done' && (!th.read || th.workdir?.changes === 'pending')) return { s: 'ready', words: th.workdir?.changes === 'pending' ? 'Result ready, changes to keep' : 'Result ready' };
+  if (ui.starting.has(id) || (!t && !ui.stopping.has(id))) return { s: 'working', words: 'Opening' };
+  if (!t || t.state !== 'running' || ui.stopping.has(id)) {
+    const words = ui.stopping.has(id) ? 'Stopping' : t?.state === 'lost' ? 'Not running' : t?.exit === null ? 'Stopped' : t?.exit === 0 ? 'Exited' : `Exited (${t?.exit})`;
+    return { s: 'ended', words };
   }
-  if (ui.stopping.has(id)) return { kind: 'ended', label: 'Stopping', symbol: '○' };
   const activity = s?.activity.at(-1);
-  if (s?.state === 'working') return { kind: 'working', label: 'Working', symbol: '◌', activity };
-  if (s?.state === 'starting') return { kind: 'working', label: 'Starting', symbol: '◌', activity };
-  if (s?.state === 'idle') return { kind: 'ready', label: 'Ready', symbol: '○' };
-  if (t.kind === 'shell') return { kind: 'connected', label: 'Terminal', symbol: '○' };
-  return { kind: 'working', label: 'Running', symbol: '◌' };
+  if (s?.state === 'working' || s?.state === 'starting') return { s: 'working', words: s.state === 'starting' ? 'Starting' : 'Working', activity };
+  if (s?.state === 'idle') return { s: 'ended', words: 'Waiting for a prompt' };
+  if (t.kind === 'shell' && !s) return { s: 'shell', words: 'Shell' };
+  return { s: 'working', words: 'Running', activity };
 }
 
 /** A tab's name: its session's thought or name, else the terminal's title. */
@@ -187,14 +189,17 @@ export const textSize = (id: string) => layout(projectOf(id)).sizes[id] ?? curre
 /** The pane the toolbar and the keyboard act on in the workspace shown, and its terminal. */
 export function current() {
   const project = ui.view;
-  if (project === 'home') return undefined;
+  if (project === 'home' || project === 'earlier') return undefined;
   const pane = L.selectedPane(layout(project));
   return { project, pane: pane?.id, id: pane?.active ?? undefined };
 }
 
 export function show(view: string) {
+  ui.peek = false;
+  // Arriving on Home: the open question has the keyboard if something asks, else the capture line.
+  if (view === 'home') page.focus = openQuestions().length ? '.hx .hq.open [data-question]' : '#capture-input';
   ui.view = view;
-  if (view !== 'home') {
+  if (view !== 'home' && view !== 'earlier') {
     const pane = L.selectedPane(layout(view));
     if (pane?.active) focusTerminal(pane.active);
   }
@@ -244,7 +249,7 @@ export async function attach(id: string) {
     if (!start) return;
     ui.starting.delete(id);
     setLayout(projectOf(id), L.close(layout(projectOf(id)), id));
-    toast(err instanceof Error ? err.message : String(err));
+    fail(err);
   } finally {
     attaching.delete(id);
   }
@@ -265,7 +270,6 @@ export function keepInBackground(project: string, id: string) {
   setLayout(project, L.background(layout(project), id));
   engines.get(id)?.detach();
   dismiss();
-  toast(`Session running in background. Find it under ${project === LOOSE ? 'Sign-in terminals' : records.projects.get(project)?.name}.`);
 }
 
 /** Ends a terminal's process; its record and history stay. A run's own stop names its thought. */
@@ -324,7 +328,6 @@ export async function finishClose(project: string, stopAll: boolean) {
     engines.delete(id);
   }
   if (ui.view === project) show(workspaces().find((p) => p.id !== project)?.id ?? 'home');
-  toast(stopAll ? 'Workspace closed. Its sessions have been stopped.' : 'Workspace closed.');
 }
 
 /** Opens a folder as a workspace, or a closed one again with its layout; a workspace with no
@@ -357,14 +360,12 @@ export function textSizeBy(id: string, change: 1 | -1 | 0) {
 
 export async function copy(id: string) {
   const text = engines.get(id)?.term.getSelection();
-  if (!text) return toast('Select terminal text to copy.');
-  await call('host.clipboard', { text }).catch(fail);
-  toast('Copied terminal selection.');
+  if (text) await call('host.clipboard', { text }).catch(fail);
 }
 
 export async function paste(id: string) {
   const text = await call('host.clipboard', {}).catch(fail);
-  if (!text) return toast('The clipboard has no text to paste.');
+  if (!text) return;
   engines.get(id)?.paste(text);
   focusTerminal(id);
 }
@@ -374,4 +375,3 @@ export function readSoon(t: Thought | undefined) {
     window.setTimeout(() => records.thoughts.get(t.id)?.read === false && void call('thought.read', { id: t.id }).catch(() => {}), 1200);
 }
 
-export { page };

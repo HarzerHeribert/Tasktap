@@ -9,18 +9,18 @@ import { SearchAddon } from '@xterm/addon-search';
 import { Terminal } from '@xterm/xterm';
 import type { Stream } from '../client.ts';
 import { call, client, records, redraw } from '../page.ts';
-import { type Look, neutral, terminalOptions } from './appearance.ts';
+import { type Look, look as ownLook, terminalOptions } from './appearance.ts';
 
 /** Bytes the core may send ahead of what xterm.js has parsed. */
 const WINDOW = 1 << 20;
 const encoder = new TextEncoder();
 const empty = new Uint8Array(0);
 const RELEASE = '\x1b[?9;1000;1002;1003;1004;1005;1006;1015;1016;2004;2026l\x1b[?1l\x1b>\x1b[<u\x1b[=0u\x1b[>4;0m\x1b[?47l\x1b[0m\x1b[?25h';
-let look: Look = neutral();
+let look: Look = ownLook();
 
 export class Engine {
   readonly id: string;
-  /** `.deck-terminal`, moved between panes' surfaces as its tab moves. */
+  /** `.term`, moved between panes' surfaces as its tab moves. */
   readonly element = document.createElement('div');
   readonly term: Terminal;
   readonly fit = new FitAddon();
@@ -47,10 +47,10 @@ export class Engine {
 
   constructor(id: string) {
     this.id = id;
-    this.element.className = 'deck-terminal';
+    this.element.className = 'term';
     // FitAddon measures its parent: give it the content box inside the padding.
     const viewport = document.createElement('div');
-    viewport.className = 'deck-terminal-viewport';
+    viewport.className = 'term-view';
     this.element.append(viewport);
     this.term = new Terminal({ ...terminalOptions(look, look.fontSize), scrollback: 10000, allowTransparency: true });
     this.term.loadAddon(this.fit);
@@ -64,9 +64,9 @@ export class Engine {
     // ⌘ shortcuts are the application menu's and the page's, never input.
     this.term.attachCustomKeyEventHandler((e) => !e.metaKey);
     this.term.onScroll(() => {
-      this.element.classList.add('is-scrolling');
+      this.element.classList.add('scrolling');
       clearTimeout(this.scrollTimer);
-      this.scrollTimer = window.setTimeout(() => this.element.classList.remove('is-scrolling'), 900);
+      this.scrollTimer = window.setTimeout(() => this.element.classList.remove('scrolling'), 900);
     });
     new ResizeObserver(() => queueFit(this)).observe(viewport);
   }

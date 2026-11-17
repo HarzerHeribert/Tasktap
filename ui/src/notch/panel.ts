@@ -24,7 +24,7 @@ export function fold() {
   // the pointer's, so an action taken as the notch folds never leaves it opening again.
   if (ui.mode === 'closed') return void clearTimeout(ui.timer);
   clearTimeout(ui.timer);
-  Object.assign(ui, { mode: 'closed', retracting: true, replying: false, capturing: false, auto: false });
+  Object.assign(ui, { mode: 'closed', retracting: true, capturing: false, auto: false });
   cap.choosing = false;
   page.error = '';
   // A receipt whose hold is over is done; one still holding keeps its Undo for the next open.

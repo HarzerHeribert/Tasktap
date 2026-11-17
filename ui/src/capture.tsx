@@ -1,10 +1,11 @@
-// The capture line both the notch and the workspace show: one line, Enter sends; the chip under
-// it is the destination (the person's pick, else where the router says, else the default); the
-// receipt offers Undo while the thought waits to start.
+// The capture line both the notch and the workspace show: one line, Enter sends; beside it the destination (the
+// person's pick, else where the router says, else the default) and the agent; the receipt offers Undo while the
+// thought waits to start. With no folder open yet, a thought is kept as an idea.
 import type { Route, Thought } from '../../core/proto/protocol.ts';
-import { useEffect } from 'preact/hooks';
+import type { ComponentChildren } from 'preact';
+import { useEffect, useLayoutEffect, useRef } from 'preact/hooks';
 import { uuid7 } from './client.ts';
-import { Icon } from './icons.tsx';
+import { I, Wave } from './ui.tsx';
 import { agent, agentName, call, fail, page, projectName, projects, records, redraw, title, why } from './page.ts';
 
 /** What was just sent, for the receipt and Undo. */
@@ -72,7 +73,7 @@ async function addProject(hooks: Hooks): Promise<string | undefined> {
   } catch (e) {
     fail(e);
   }
-  page.focus = '#guide-input';
+  page.focus = '#capture-input';
   hooks.picked?.();
   redraw();
   return folder(cap.dest);
@@ -83,8 +84,7 @@ async function send(e: Event, hooks: Hooks) {
   const text = cap.draft.trim();
   if (!text) return;
   const route = hinted();
-  const to = route ? routedProject(route) : (destination() ?? (await addProject(hooks)));
-  if (!route && !to) return;
+  const to = route ? routedProject(route) : (destination() ?? 'idea');
   try {
     let id = uuid7();
     const undone = cap.undone;
@@ -120,7 +120,7 @@ export async function undo() {
       cap.undone = sent;
     }
     Object.assign(cap, { sent: null, draft: sent.text, dest: sent.to || cap.dest });
-    page.focus = '#guide-input';
+    page.focus = '#capture-input';
   } catch (e) {
     fail(e);
   }
@@ -136,7 +136,7 @@ function drop() {
 
 let hintTimer = 0;
 /** Asks the core where the text typed so far would go, a moment after typing stops. */
-function hint() {
+function askRoute() {
   clearTimeout(hintTimer);
   const text = cap.draft.trim();
   if (!text) {
@@ -161,13 +161,13 @@ function routeLabel(r: Route) {
 
 export function choose(open: boolean) {
   cap.choosing = open;
-  page.focus = open ? '.dest-list [aria-selected=true], .dest-list button' : '#guide-input';
+  page.focus = open ? '.cap-list [aria-selected=true], .cap-list button' : '#capture-input';
   redraw();
 }
 
 function pick(dest: string) {
   Object.assign(cap, { dest, choosing: false });
-  page.focus = '#guide-input';
+  page.focus = '#capture-input';
   redraw();
 }
 
@@ -197,69 +197,96 @@ function Receipt({ hooks }: { hooks: Hooks }) {
     return undefined;
   });
   if (!sent) return null;
-  const undoButton = (
-    <button type="button" class="text-btn" onClick={undo}>Undo <kbd>⌘Z</kbd></button>
-  );
-  if (sent.to === 'idea') return <p class="notch-destination" role="status">Saved as an idea. {undoButton}</p>;
-  if (waiting)
-    return (
-      <p class="notch-destination" role="status">
-        Sent to <span>{projectName(t?.project_id ?? sent.to)}</span>{t ? ` · starts in ${secondsLeft(t)} s ` : ' '}{undoButton}
-      </p>
-    );
-  if (t?.status === 'needs_you' && !t.project_id) return <p class="notch-destination" role="status">Where should it go? Answer its question.</p>;
-  if (t?.status === 'failed') return <p class="notch-destination" role="status">{why(t)} in {projectName(t.project_id)}.</p>;
-  return <p class="notch-destination" role="status">Started in <span>{projectName(t?.project_id ?? sent.to)}</span></p>;
+  const undoButton = <button type="button" class="act" onClick={undo}><kbd>⌘Z</kbd><span>Undo</span></button>;
+  const line = (words: ComponentChildren, undoable = false) => <p class="cap-said" role="status"><span>{words}</span>{undoable && undoButton}</p>;
+  if (sent.to === 'idea') return line(projects().some((p) => p.kind === 'folder') ? 'Kept as an idea' : 'Kept as an idea until a folder is open', true);
+  if (waiting) return line(<>Sent to <b>{projectName(t?.project_id ?? sent.to)}</b>{t ? `, starts in ${secondsLeft(t)} s` : ''}</>, true);
+  if (t?.status === 'needs_you' && !t.project_id) return line('Where should it go? Its question is open.');
+  if (t?.phase === 'captured' && t.mode === 'note') return line('No folder matched; kept as an idea');
+  if (t?.status === 'failed') return line(`${why(t)} in ${projectName(t.project_id)}.`);
+  return line(<>Started in <b>{projectName(t?.project_id ?? sent.to)}</b></>);
 }
 
-export function Capture(hooks: Hooks) {
+/** The capture line. `stack` puts the destination under the field (the notch); `chip` makes the destination one control
+ *  inside the field (Home); `go` adds the button that sends it, saying what Return does. */
+export function Capture({ stack = false, invite = false, chip = false, go = false, hint, ...hooks }: Hooks & { stack?: boolean; invite?: boolean; chip?: boolean; go?: boolean; hint?: ComponentChildren }) {
   const route = hinted();
   const to = route ? undefined : destination();
   const a = agent();
-  const ready = !a ? '' : !a.installed ? `${agentName(a.id)} is not installed` : a.signed_in === false ? `${agentName(a.id)} is not signed in` : agentName(a.id);
+  const folders = projects().some((p) => p.kind === 'folder');
+  const state = !a ? '' : !a.installed ? `${agentName(a.id)} is not installed` : a.signed_in === false ? `${agentName(a.id)} is not signed in` : agentName(a.id);
   const session = route?.confidence === 'clear' && 'session' in route.to;
-  return (
-    <form id="guide-compose" onSubmit={(e) => send(e, hooks)}>
-      <div class="guide-editor">
-        <input id="guide-input" autocomplete="off" spellcheck={false} aria-label="Thought" placeholder="Put a thought in"
-          value={cap.draft} onInput={(e) => {
-            cap.draft = e.currentTarget.value;
-            if (cap.undone && !cap.draft.trim()) drop();
-            hint();
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.isComposing) void send(e, hooks);
-            else if (e.key === 'z' && e.metaKey && !cap.draft && cap.sent) {
-              e.preventDefault();
-              void undo();
-            }
-          }} />
-      </div>
-      <div class="guide-project-row">
-        <button type="button" class="guide-project-button" id="dest-chip" aria-haspopup="listbox" aria-expanded={cap.choosing}
-          onClick={() => choose(!cap.choosing)}
-          onKeyDown={(e) => (e.key === 'ArrowDown' || e.key === 'ArrowUp') && (e.preventDefault(), choose(true))}>
-          <Icon name={session ? 'terminal' : to === 'idea' ? 'note' : to || route ? 'folder' : 'plus'} />
-          <span>{route ? routeLabel(route) : to ? projectName(folder(to)) : 'Add a project'}</span>
-          <Icon name="down" />
+  const where = !folders && !route && !chip ? null : (
+    <button type="button" class="cap-to" id="dest-chip" aria-haspopup="listbox" aria-expanded={cap.choosing}
+      title={!folders ? 'Kept as an idea until a folder is open' : to === 'idea' ? 'Kept as an idea; nothing starts' : 'Where it goes. Click to change'}
+      onClick={() => choose(!cap.choosing)}
+      onKeyDown={(e) => (e.key === 'ArrowDown' || e.key === 'ArrowUp') && (e.preventDefault(), choose(true))}>
+      <I n={session ? 'term' : 'arrow'} />
+      <span>{route ? routeLabel(route) : to === 'idea' || !to ? 'Idea' : projectName(folder(to))}</span>
+      {chip && state && folders && to !== 'idea' && route?.confidence !== 'ambiguous' && <span class={`ag${a && a.signed_in !== false && a.installed ? '' : ' off'}`}>{state}</span>}
+      {chip && <I n="chev" />}
+    </button>
+  );
+  const agentLine = !folders && !route ? <span class="cap-agent">Kept as an idea until a folder is open</span>
+    : to === 'idea' ? <span class="cap-agent">Kept as an idea; nothing starts</span>
+    : route?.confidence === 'ambiguous' ? <span class="cap-agent">You will be asked which</span>
+    : state && <span class={`cap-agent${a && a.signed_in !== false && a.installed ? '' : ' off'}`}>{state}</span>;
+  const area = useRef<HTMLTextAreaElement>(null);
+  // Home's field grows with the thought, a line at a time, up to six; the notch's stays one line.
+  useLayoutEffect(() => {
+    const el = area.current;
+    if (!el) return;
+    el.style.height = '0';
+    el.style.height = `${el.scrollHeight}px`;
+  });
+  const props = {
+    id: 'capture-input', autocomplete: 'off', spellcheck: false, 'aria-label': 'New task', placeholder: 'Put a thought in', value: cap.draft,
+    onInput: (e: Event) => {
+      cap.draft = (e.currentTarget as HTMLInputElement | HTMLTextAreaElement).value;
+      if (cap.undone && !cap.draft.trim()) drop();
+      askRoute();
+    },
+    onKeyDown: (e: KeyboardEvent) => {
+      // Return sends; Shift-Return starts a new line in Home's field.
+      if (e.key === 'Enter' && !e.isComposing && !e.shiftKey) void send(e, hooks);
+      else if (e.key === 'z' && e.metaKey && !cap.draft && cap.sent) {
+        e.preventDefault();
+        void undo();
+      }
+    },
+  };
+  const field = chip ? <textarea {...props} ref={area} rows={1} /> : <input {...props} />;
+  const list = cap.choosing && (
+    <div class="cap-list" role="listbox" aria-label="Destination" onKeyDown={arrows}>
+      {projects().filter((p) => p.kind === 'folder').map((p) => (
+        <button type="button" role="option" aria-selected={p.id === (to ?? routedProject(route))} onClick={() => pick(p.id)}>
+          <I n="folder" /><span>{p.name}</span>
         </button>
-        <small class="guide-session">
-          {to === 'idea' ? 'Kept as an idea; nothing starts' : route?.confidence === 'ambiguous' ? 'You will be asked which' : ready}
-        </small>
-      </div>
-      {cap.choosing && (
-        <div class="dest-list" role="listbox" aria-label="Destination" onKeyDown={arrows}>
-          {projects().map((p) => (
-            <button type="button" role="option" aria-selected={p.id === (to ?? routedProject(route))} class="surface-button" onClick={() => pick(p.id)}>
-              <Icon name="folder" /><span>{p.name}</span>
+      ))}
+      <button type="button" role="option" aria-selected={to === 'idea'} onClick={() => pick('idea')}><i class="st" data-s="idea" aria-hidden="true" /><span>Idea</span></button>
+      <button type="button" onClick={() => void addProject(hooks)}><I n="plus" /><span>Open a folder…</span></button>
+    </div>
+  );
+  return (
+    <form class={`capture${stack ? ' stack' : ''}${invite ? ' invite' : ''}${chip ? ' chip' : ''}`} onSubmit={(e) => send(e, hooks)}>
+      {stack ? (
+        <>
+          <div class="cap">
+            <Wave n={13} live={!!cap.draft} />{field}
+          </div>
+          <div class="cap-dest">{where}{agentLine}{hint && <span class="cap-hint">{hint}</span>}</div>
+        </>
+      ) : (
+        <div class="cap" onPointerDown={(e) => e.target === e.currentTarget && (e.preventDefault(), document.getElementById('capture-input')?.focus())}>
+          {!chip && <Wave n={9} />}{field}{where}{!chip && agentLine}{hint && <span class="cap-hint">{hint}</span>}
+          {go && (
+            <button type="submit" class="cap-go" disabled={!cap.draft.trim()} aria-label={!folders || to === 'idea' ? 'Keep as an idea' : 'Start'}>
+              <kbd>↩</kbd><span>{!folders || to === 'idea' ? 'Keep' : session ? 'Send' : 'Start'}</span>
             </button>
-          ))}
-          <button type="button" role="option" aria-selected={to === 'idea'} class="surface-button" onClick={() => pick('idea')}>
-            <Icon name="note" /><span>Idea</span>
-          </button>
-          <button type="button" class="surface-button" onClick={() => void addProject(hooks)}><Icon name="plus" /><span>Add project…</span></button>
+          )}
         </div>
       )}
+      {list}
       <Receipt hooks={hooks} />
     </form>
   );

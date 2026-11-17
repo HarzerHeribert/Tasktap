@@ -1,0 +1,72 @@
+/* Instrument: the app's one design-token file (design/ui-directions/NOTES.md §4). Nothing else names a colour, a size,
+   a radius or a duration, unless it is truly local to one component. Dark only: the material is the notch's. */
+:root{
+  /* surfaces */
+  --bg:#0a0a0b;        /* window, sidebar, tab bar, rail: one black, the notch's */
+  --raised:#111113;    /* nothing floats in the window; kept for host-drawn panels */
+  --sheet:#000;        /* sheets and the notch */
+  --hover:#141416;     /* a row or control under the pointer */
+  --sel:#1a1a1d;       /* selected row, pressed row */
+  --fill:#17171a;      /* quiet button, answer under the pointer */
+  --fill-hover:#222226;
+  --seam:#000;         /* the one-pixel divider between terminals */
+  --scrim:rgb(0 0 0/.5);
+  /* text */
+  --fg:#f2f2f3;        /* 17.7 : 1 on --bg */
+  --fg2:#a3a4aa;       /*  8.0 : 1 */
+  --fg3:#7c7d84;       /*  4.8 : 1; times, hints, disabled */
+  --fg-field:#c4c5cb;  /* secondary words on a raised field, lit from behind: 4.5 : 1 at the strongest light */
+  --ink:#0d0d0e;       /* text on metal */
+  /* lines */
+  --line:#1f2024; --line2:#33343a;
+  /* meaning */
+  --accent:#dfe4ec;    /* keyboard focus ring only */
+  --asks:#eab676;      /* needs you */
+  --fail:#f0716e;      /* failed */
+  --plus:var(--fg2); --minus:var(--fg3);              /* a diffstat's counts */
+  --add:rgb(155 203 167/.09); --del:rgb(240 113 110/.09);  /* a diff's lines, under the sign that marks them */
+  /* chrome: key caps, the default button, lit edges, the wave, the bloom. Never text, never a border round content */
+  --metal:linear-gradient(180deg,#fbfbfc,#c9cdd3 40%,#8f949c 54%,#c6cad1 68%,#eef0f2);
+  --lit:linear-gradient(90deg,#b98a5e,#edcda6 18%,#f7f8fa 40%,#a9c0df 62%,#7b92c4 82%,#a58aa6);
+  --lit-v:linear-gradient(180deg,#f7f8fa,#a9c0df 55%,#b98a5e);
+  --bloom:#c46f3c,#dc9a52 16%,#dfe4ec 33%,#8fb2d8 50%,#5f7fc0 66%,#a7789a 83%,#c46f3c;
+  --bar-silver:linear-gradient(90deg,#4a4d53,#eef0f3 38%,#fff 47%,#a2a7af 68%,#3c3f44);
+  --bar-copper:linear-gradient(90deg,#5a3a22,#e9b683 40%,#ffe6c8 48%,#b07a4c 70%,#4a2f1c);
+  --bar-graphite:linear-gradient(90deg,#26282c,#7b7f87 42%,#9a9ea6 48%,#4a4d53 70%,#1c1d20);
+  --cap-edge:inset 0 0 0 .5px rgb(255 255 255/.75),0 1px 0 #000,0 1.5px 0 rgb(255 255 255/.08);
+  --sheet-shadow:0 0 0 1px var(--line),0 30px 70px rgb(0 0 0/.7);
+  /* type. Expanded is the system font's width axis; where the web view ignores it the names fall back to regular width */
+  --ui:system-ui,-apple-system,"Segoe UI Variable","Segoe UI",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,"Cascadia Mono",Consolas,monospace;
+  --f-display:600 expanded 20px/26px var(--ui);  /* NOTES §4; the capture field is set at 20 px regular instead */
+  --f-question:500 17px/24px var(--ui);          /* a question on Home */
+  --f-question-n:500 16px/22px var(--ui);        /* in the notch */
+  --f-question-p:500 15px/21px var(--ui);        /* under a terminal */
+  --f-title:600 expanded 13px/18px var(--ui);    /* workspace name, sheet title */
+  --f-head:600 expanded 11px/14px var(--ui);     /* section names on Home */
+  --f-strong:600 13px/18px var(--ui);
+  --f-lead:500 13px/18px var(--ui);              /* a thought in a row */
+  --f-body:400 13px/18px var(--ui);
+  --f-small:400 12px/16px var(--ui);             /* sidebar rows, tabs, secondary */
+  --f-cap:400 11px/14px var(--ui);
+  --f-num:400 11px/14px var(--mono);             /* times, counts, versions, diffstat, key caps */
+  --f-key:600 11px/18px var(--mono);
+  --f-shell:400 11.5px/16px var(--mono);         /* a shell's name */
+  --f-term:400 13px/18px var(--mono);            /* default; the person's terminal settings win */
+  /* measure: a 4 px grid */
+  --sp1:4px; --sp2:8px; --sp3:12px; --sp4:16px; --sp5:24px; --sp6:32px;
+  --side-w:224px; --bar-h:38px; --tab-h:30px; --row-h:28px; --rail-h:26px; --ctl-h:24px; --key-h:18px;
+  --home-w:1040px; --home-wide:1520px; --home-row:36px; --home-gutter:36px; --cap-w:680px;
+  --notch-w:420px; --sheet-w:420px; --cap-sheet-w:460px; --list-sheet-w:640px;
+  /* radii */
+  --r1:3px;   /* controls, key caps */
+  --r2:6px;   /* host-drawn panels */
+  --r3:10px;  /* bottom corners of sheets and of the notch */
+  /* icons: one owned set on a 16 px grid */
+  --i-w:1.2px; --i-cap:butt; --i-join:miter;
+  /* time */
+  --t-fast:120ms; --t-sheet:220ms; --t-notch-open:510ms; --t-notch-fold:320ms; --t-wave:900ms; --t-bloom:12s;
+  --ease:cubic-bezier(.19,.76,.19,1);
+  --ease-fold:cubic-bezier(.45,0,.5,1);
+  color-scheme:dark;
+}

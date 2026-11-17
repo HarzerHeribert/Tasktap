@@ -31,6 +31,20 @@ export type Options = {
    *  drives it live. `breathe`: calm, but while thinking or working it drifts at a fifth of its pace, 10 frames a
    *  second. */
   pace?: 'live' | 'calm' | 'breathe';
+  /** The smallest size, in CSS pixels, at which this view draws, where it asks for fewer elements than its size would
+   *  (`count`), so each is still large enough for the metal to read. Otherwise MIN. */
+  min?: [number, number];
+  /** How many elements it draws, instead of what its kind of size asks for. */
+  count?: number;
+  /** Light behind the page rather than an object: a copied frame is softened by this many CSS pixels of blur, once, as
+   *  it is copied, so the compositor never blurs it again. */
+  soften?: number;
+  /** The view's own motion at this share of the lab's pace (the ambient light's one tempo); 1 by default. */
+  tempo?: number;
+  /** Where its own clock starts, so views of one style side by side are not in step. */
+  seed?: number;
+  /** At most this many frames a second, once its blend is over (ambient views, whose motion is slow). */
+  fps?: number;
 };
 
 // The lab's: the signal light of each state (amber, pale green, dull red), the studio's level, draws a second.
@@ -46,7 +60,7 @@ const UNI = { res: 2, org: 2, n: 1, irid: 1, dim: 1, light: 1, hoff: 1, aux: 1, 
 type Uniforms = { -readonly [K in keyof typeof UNI]: number | ArrayLike<number> };
 const HOLES = 24;
 /** The smallest view, in CSS pixels, that draws (View.shown). */
-const MIN = [400, 200];
+const MIN: [number, number] = [400, 200];
 /** No voice: silence, as the shaders read it. */
 const SILENT = { level: 0, fast: 0, slow: 0, onset: 0, onsets: 0, bright: 0.4, vowel: 0, sib: 0, pitch: 0.4, activity: 0, quiet: 9, hoff: 0 };
 
@@ -163,7 +177,8 @@ export class View {
     const resize = new ResizeObserver(([e]) => {
       const b = e!.contentRect;
       this.css = [b.width, b.height];
-      el.toggleAttribute('data-small', b.width < MIN[0]! || b.height < MIN[1]!);
+      const [mw, mh] = this.o.min ?? MIN;
+      el.toggleAttribute('data-small', b.width < mw || b.height < mh);
       this.dirty = this.stale = true;
       this.watch();
       wake();
@@ -185,7 +200,11 @@ export class View {
   set(o: Options) {
     const was = this.o;
     this.o = o;
-    if (this.fresh) (this.fresh = false), this.settle();
+    if (this.fresh) {
+      this.fresh = false;
+      this.settle();
+      if (o.seed) (this.aux = o.seed * 7.3), (this.ph[0] = o.seed * 11.1);
+    }
     else if (o.state !== was.state) this.stT = 0;
     if (JSON.stringify(o) !== JSON.stringify(was)) {
       this.dirty = this.stale = true;
@@ -228,13 +247,14 @@ export class View {
   /** Below about 400 by 200 CSS pixels an element of the form is narrower than 8 device pixels on a 1x display, where
    *  the full shader stops reading as metal; such a view draws nothing at all. */
   shown() {
-    return this.seen && this.o.active !== false && this.css[0]! >= MIN[0]! && this.css[1]! >= MIN[1]! && !document.hidden;
+    const [mw, mh] = this.o.min ?? MIN;
+    return this.seen && this.o.active !== false && this.css[0]! >= mw && this.css[1]! >= mh && !document.hidden;
   }
 
   /** Its size in drawn pixels. */
   size() {
-    // Every device pixel: the metal's edges and reflections are the point.
-    const k = Math.min(window.devicePixelRatio || 1, 2);
+    // Every device pixel: the metal's edges and reflections are the point. Softened into light, one per CSS pixel.
+    const k = this.o.soften ? 1 : Math.min(window.devicePixelRatio || 1, 2);
     return [Math.max(2, Math.round(this.css[0]! * k)), Math.max(2, Math.round(this.css[1]! * k))];
   }
 
@@ -260,8 +280,8 @@ export class View {
     if (this.moving) return 60;
     if (s === 0 || (s >= 5 && this.stT > 3)) return 0;
     if (s === 1) return v.quiet > 1.5 ? 20 : 60;
-    if (pace !== 'live' && this.stT >= MOMENT[s]!) return this.breathing() ? 10 : 0;
-    return RATE[s]!;
+    if (pace !== 'live' && this.stT >= MOMENT[s]!) return this.breathing() ? Math.min(10, this.o.fps ?? 10) : 0;
+    return Math.min(RATE[s]!, this.o.fps ?? RATE[s]!);
   }
 
   /** A breathing view after its moment, thinking or working: its own motion runs at a fifth of its pace. */
@@ -272,6 +292,7 @@ export class View {
 
   /** The lab's uniforms for this view, its phases moved on by `adv` seconds. */
   uniforms(adv: number, n: number): Uniforms {
+    adv *= this.o.tempo ?? 1;
     const C = STYLES[this.o.look.style], P = lights(this.o.look.palette, this.o.look.hue), p = this.p, w = this.stW, r = reduced.matches;
     const V = voice ?? SILENT;
     let lp = 0, amb = 0;
@@ -312,6 +333,7 @@ export class View {
 
   /** How many elements its style draws at its size, by the lab's kinds of size. */
   count() {
+    if (this.o.count) return this.o.count;
     const [w, h] = this.css as [number, number], kind: Size = h < 48 ? (w / h > 4 ? 'strip' : 'box') : w < 200 ? 'icon' : 'hero';
     return STYLES[this.o.look.style].n[kind];
   }
@@ -351,6 +373,7 @@ export class View {
     if (this.cv.width !== bw || this.cv.height !== bh) [this.cv.width, this.cv.height] = [bw, bh];
     const g = this.cv.getContext('2d')!;
     g.clearRect(0, 0, bw, bh);
+    g.filter = this.o.soften ? `blur(${(this.o.soften * bw) / Math.max(1, this.css[0]!)}px)` : 'none';
     g.drawImage(canvas!, 0, H - rh, rw, rh, 0, 0, bw, bh);
   }
 }
@@ -419,7 +442,14 @@ function frame(now: number) {
     zeroed = true;
   }
   let rate = 0;
-  for (const v of shown) v.tick(dt), (rate = Math.max(rate, v.rate()));
+  const due: View[] = [];
+  for (const v of shown) {
+    v.tick(dt);
+    const r = v.rate();
+    rate = Math.max(rate, r);
+    // A view still and unchanged keeps the frame it has: the sidebar's glyphs turning do not redraw Home's chrome.
+    if (r || v.dirty) due.push(v);
+  }
   // The largest primary view is the canvas's own; the others are copies of frames drawn before it.
   const host = shown.filter((v) => v.o.primary).sort((a, b) => b.size()[0]! * b.size()[1]! - a.size()[0]! * a.size()[1]!)[0];
   const sizes = shown.map((v) => v.size());
@@ -427,9 +457,10 @@ function frame(now: number) {
   if (canvas!.width !== W || canvas!.height !== H) [canvas!.width, canvas!.height] = [W!, H!];
   if (!host && canvas!.parentElement) canvas!.remove();
   try {
-    for (const v of shown) if (v !== host) v.draw(adv, false, W!, H!);
-    host?.draw(adv, true, W!, H!);
-    stats.frames++;
+    for (const v of due) if (v !== host) v.draw(adv, false, W!, H!);
+    // The canvas is the host's own picture: drawn again whenever another view used it.
+    if (host && due.length) host.draw(adv, true, W!, H!);
+    if (due.length) stats.frames++;
   } catch (e) {
     console.error(e);
     broken = true;

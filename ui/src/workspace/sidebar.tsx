@@ -1,109 +1,97 @@
-// The sidebar of prototype/workspace-navigation.js: Home, then one heading per open workspace
-// with the sessions sent to the background beneath it. A row only shows what runs; it never
-// starts or resumes anything.
-import { Icon } from '../icons.tsx';
+// The sidebar: Home, then each open workspace with its sessions under it, most urgent first. A row shows what runs;
+// it never starts or resumes anything. Its menus are the system's.
+import { startAgent } from './deck.tsx';
 import * as L from './layout.ts';
+import { Spark } from './light.tsx';
+import { command } from './main.tsx';
+import { type Item, popup } from './menu.ts';
 import {
-  LOOSE, closeWorkspace, cue, label, layout, open, openQuestions, records, redraw, restore, show, ui, workspaces,
+  LOOSE, agentName, closeTab, closeWorkspace, cue, focusSession, keepInBackground, label, layout, newTerminal, open, openQuestions, questionOf,
+  records, redraw, sessionOf, show, thoughtOf, ui, workspaces,
 } from './model.ts';
+import { I, Mark, elapsed, madeAt, when } from '../ui.tsx';
 
-/** What a workspace heading says about its sessions, most urgent first (1.2's attention). */
-function attention(project: string) {
-  const thoughts = [...records.thoughts.values()].filter((t) => t.project_id === project && t.mode !== 'note');
-  const sessions = [...records.sessions.values()].filter((s) => s.project_id === project);
-  const ids = new Set(sessions.map((s) => s.id));
-  const questions = openQuestions().filter((q) => q.session_id && ids.has(q.session_id));
-  const working = sessions.filter((s) => s.state === 'working' || s.state === 'starting');
-  if (questions.some((q) => q.source === 'permission')) return { kind: 'permission', label: 'Needs permission', symbol: 'shield', working };
-  if (questions.length) return { kind: 'input', label: 'Needs your input', symbol: 'attention', working };
-  if (thoughts.some((t) => t.status === 'failed' && !t.read)) return { kind: 'failure', label: 'Needs attention', symbol: 'attention', working };
-  if (thoughts.some((t) => t.status === 'done' && !t.read)) return { kind: 'complete', label: 'Result ready', symbol: 'check', working };
-  if (working.length) return { kind: 'working', label: 'Working', symbol: 'sessions', working };
-  return { kind: '', label: '', symbol: '', working };
+const ORDER = { asks: 0, working: 1, ready: 2, failed: 3, ended: 4, shell: 5 } as Record<string, number>;
+
+function Session({ project, id, bg }: { project: string; id: string; bg: boolean }) {
+  const c = cue(id);
+  const s = sessionOf(id);
+  const t = thoughtOf(s);
+  const term = records.terminals.get(id);
+  const shell = c.s === 'shell';
+  const name = label(id);
+  const selected = ui.view === project && L.selectedPane(layout(project))?.active === id;
+  const q = questionOf(s);
+  const time = shell ? '' : q ? elapsed(madeAt(q.id)) : c.s === 'working' ? elapsed(t?.created ?? Date.now()) : when(t?.updated ?? Date.now());
+  const menu: Item[] = [
+    { text: 'Show', do: () => focusSession(id) },
+    ...(term?.state === 'running' && !bg ? [{ text: 'Keep Running in Background', do: () => keepInBackground(project, id) }] : []),
+    ...(term?.state === 'running' ? [{ text: 'Stop Session…', do: () => open({ kind: 'stop', project, id }) }] : []),
+    ...(!bg ? ['-' as const, { text: 'Close Tab', do: () => closeTab(project, id) }] : []),
+  ];
+  return (
+    <button type="button" class={`row s${selected ? ' sel' : ''}${bg ? ' bg' : ''}${shell ? ' shl' : ''}`} data-s={c.s} data-id={id}
+      title={`${name}\n${c.words}${bg ? ', in background' : ''}${c.activity ? `\n${c.activity}` : ''}`} onClick={() => focusSession(id)}
+      onContextMenu={(e) => popup(e, menu)}>
+      <Mark s={c.s} bg={bg} label={`${c.words}${bg ? ', in background' : ''}`} />
+      <span class="lbl">{name}</span>
+      {bg && <span class="bgi" title="Running in background"><I n="bg" /></span>}
+      {time && <span class="meta">{time}</span>}
+    </button>
+  );
 }
 
 function Workspace({ id, name, folder }: { id: string; name: string; folder?: string }) {
   const l = layout(id);
-  const status = id === LOOSE ? null : attention(id);
-  const current = ui.view === id;
   const folded = ui.folded.has(id);
-  const detail = status?.label ?? '';
+  const rows = [...L.tabs(l).map((t) => ({ t, bg: false })), ...l.background.map((t) => ({ t, bg: true }))]
+    .sort((a, b) => (ORDER[cue(a.t).s] ?? 9) - (ORDER[cue(b.t).s] ?? 9) || Number(a.bg) - Number(b.bg));
+  const agents = [...records.agents.values()].filter((a) => a.installed);
+  const menu: Item[] = [
+    { text: 'New Terminal', do: () => newTerminal(id) },
+    ...(id === LOOSE ? [] : agents.map((a) => ({ text: `New ${agentName(a.id)} Session`, do: () => void startAgent(id, a.id) }))),
+    ...(id === LOOSE ? [] : ['-' as const, { text: 'Close Workspace…', do: () => closeWorkspace(id) }]),
+  ];
   return (
-    <section class={`nav-workspace${current ? ' is-current' : ''}`} data-workspace={id} data-working={!!status?.working.length}
-      data-status={status?.kind || undefined}>
-      <div class="nav-workspace-heading">
-        {l.background.length > 0 && (
-          <button type="button" class="nav-workspace-disclosure" aria-expanded={!folded} aria-controls={`background-${id}`}
-            aria-label={`${folded ? 'Expand' : 'Collapse'} background sessions for ${name}`}
-            onClick={() => (folded ? ui.folded.delete(id) : ui.folded.add(id), redraw())}>
-            <Icon name="right" />
-          </button>
-        )}
-        <button type="button" class="nav-workspace-name" title={[folder, detail].filter(Boolean).join(' / ')}
-          aria-label={[name, detail].filter(Boolean).join(', ')} aria-current={current ? 'page' : undefined} onClick={() => show(id)}>
-          <Icon name={id === LOOSE ? 'terminal' : 'folder'} /><span>{name}</span>
+    <section class="ws" data-workspace={id}>
+      <div class={`row w${ui.view === id ? ' on' : ''}`} onContextMenu={(e) => popup(e, menu)}>
+        <button type="button" class="fold" aria-expanded={!folded} aria-label={`${folded ? 'Show' : 'Hide'} the sessions of ${name}`}
+          onClick={() => (folded ? ui.folded.delete(id) : ui.folded.add(id), redraw())}>
+          <I n="chev" />
         </button>
-        {status?.kind && (
-          <span class="nav-workspace-status" role="img" aria-label={status.label} title={status.label}><Icon name={status.symbol} /></span>
-        )}
-        {id !== LOOSE && (
-          <button type="button" class="nav-workspace-close" aria-label={`Close ${name} workspace`} title="Close workspace and stop its sessions."
-            onClick={() => closeWorkspace(id)}>
-            <Icon name="x" />
-          </button>
-        )}
+        <button type="button" class="name" title={folder} aria-current={ui.view === id ? 'page' : undefined} onClick={() => show(id)}>
+          <span class="lbl">{name}</span><span class="cnt">{rows.length || ''}</span>
+        </button>
       </div>
-      {l.background.length > 0 && (
-        <div class="nav-background" id={`background-${id}`} hidden={folded}>
-          {l.background.map((t) => {
-            const c = cue(t);
-            const name = label(t);
-            return (
-              <div class="nav-background-row" key={t}>
-                <button type="button" class="nav-background-session" data-status={c.kind} title={`${name} / ${c.label}`} onClick={() => restore(id, t)}>
-                  <span class="nav-background-symbol" aria-hidden="true">{c.symbol}</span>
-                  <span class="nav-background-copy"><strong>{name}</strong><small>{c.label}</small></span>
-                </button>
-                {records.terminals.get(t)?.state === 'running' && (
-                  <button type="button" class="nav-background-stop" aria-label={`Stop ${name}`} title="Stop session"
-                    onClick={() => open({ kind: 'stop', project: id, id: t })}>
-                    <Icon name="stop" />
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {!folded && rows.map(({ t, bg }) => <Session key={t} project={id} id={t} bg={bg} />)}
     </section>
   );
 }
 
 export function Sidebar() {
-  const open_ = workspaces();
+  const open_ = workspaces().filter((p) => p.kind === 'folder' || L.tabs(layout(p.id)).length + layout(p.id).background.length > 0);
   const loose = L.tabs(layout(LOOSE)).length + layout(LOOSE).background.length > 0;
+  const need = openQuestions().length;
+  const first = !open_.length && !loose;
   return (
-    <aside id="sidebar">
-      <div class="brand" data-tauri-drag-region><div><strong>Tasktap</strong></div></div>
-      <nav aria-label="Main navigation" id="nav">
-        <div class="nav-group nav-primary">
-          <button type="button" class={`nav-link${ui.view === 'home' ? ' active' : ''}`} aria-current={ui.view === 'home' ? 'page' : undefined}
-            onClick={() => show('home')}>
-            <Icon name="grid" /><span class="label">Home</span>
-          </button>
+    <aside class="side" id="sidebar" aria-label="Sidebar">
+      <div class="side-top" data-tauri-drag-region>
+        <button type="button" class="ib" title="Hide sidebar  ⌃⌘S" aria-label="Hide sidebar" onClick={() => command('sidebar')}><I n="sidebar" /></button>
+      </div>
+      <nav class="tree" aria-label="Home and workspaces">
+        <button type="button" class={`row home${ui.view === 'home' || ui.view === 'earlier' ? ' sel' : ''}`} aria-current={ui.view === 'home' ? 'page' : undefined}
+          onClick={() => show('home')}>
+          <I n="home" /><span class="lbl">Home</span>
+          {need > 0 && <span class="cnt" title={need === 1 ? '1 needs you' : `${need} need you`}>{need}</span>}
+        </button>
+        <div class={`sec${first ? ' first' : ''}`}>
+          <span>Workspaces</span>
+          <button type="button" class="ib" title="Open a folder  ⌘O" aria-label="Open a folder" onClick={() => open({ kind: 'open-workspace' })}><I n="plus" /></button>
         </div>
-        <div class="nav-group nav-workspaces">
-          <div class="nav-workspaces-heading">
-            <span class="nav-kicker">Workspaces</span>
-            <button type="button" class="nav-workspace-add" title="Open workspace" aria-label="Open workspace" onClick={() => open({ kind: 'open-workspace' })}>
-              <Icon name="plus" />
-            </button>
-          </div>
-          {open_.map((p) => <Workspace key={p.id} id={p.id} name={p.name} folder={p.folder} />)}
-          {loose && <Workspace id={LOOSE} name="Sign-in terminals" />}
-          {!open_.length && !loose && <span class="nav-workspace-empty">No open workspaces</span>}
-        </div>
+        {open_.map((p) => <Workspace key={p.id} id={p.id} name={p.name} folder={p.folder} />)}
+        {loose && <Workspace id={LOOSE} name="Sign-in terminals" />}
       </nav>
+      <Spark />
     </aside>
   );
 }

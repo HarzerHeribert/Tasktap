@@ -1,64 +1,24 @@
-/* What the new notch adds to the prototype's styles: a transparent page, the glance on the
-   collapsed tab, the one-line capture with its destination list, and the page-drawn rim. */
-html,body{background:transparent!important;min-height:0;overflow:hidden}
-/* The notch palette prototype/appearance.js derives for the default dark theme; it sets these at
-   run time there, and the themes are not part of this slice. */
-:root{--app-notch-bg:#090a0b;--app-notch-fg:#e4e6ed;--app-notch-surface:#0e1011;--app-notch-raised:#151617;--app-notch-sidebar:#111213;
-  --app-notch-overlay:#17181a;--app-notch-input:#111213;--app-notch-muted:#9c9da2;--app-notch-subtle:#8f9094;--app-notch-edge:#2a2b2d;
-  --app-notch-edge-strong:#4b4c4f;--app-notch-hover:#18191b;--app-notch-selected:#202123;--app-notch-accent:#a4bbef;
-  --app-notch-accent-ink:#111318;--app-notch-accent-soft:#1d2129;--app-notch-positive:#9bcba7;--app-notch-warning:#e9c387;
-  --app-notch-negative:#f18b93;--app-notch-shadow:#00000066}
+/* The notch: one black shape on a transparent page, the glance on its collapsed tab, and the sheet it opens into.
+   The host sets --tab-w, --tab-h, --tab-x (the tab, widened by the wings, from the window's centre), --sheet-w,
+   --sheet-x and --avail (the open sheet). Nothing is stroked; attention is the light behind the shape. */
+html,body{background:transparent!important}
 
-/* The glance: the tab widens into wings beside the camera. */
-.glance-wing{position:absolute;top:0;bottom:0;display:flex;align-items:center;gap:var(--s-icon);padding:0 var(--s-icon);
-  font:600 var(--t-small)/1 var(--font-ui);color:var(--panel-text);white-space:nowrap;pointer-events:none}
-.glance-left{left:0}
-.glance-right{right:0}
-.glance-count{display:inline-flex;align-items:center;gap:5px;font-variant-numeric:tabular-nums}
-.glance-count i{width:6px;height:6px;border-radius:var(--r-round);background:currentColor}
-.glance-count[data-status=working]{color:var(--panel-accent)}
-.glance-count[data-status=working] i{animation:notch-work-breathe 2.4s ease-in-out infinite}
-.glance-count[data-status=needs_you]{color:#e6c6a0}
-.glance-count[data-status=done]{color:var(--app-positive)}
-.glance-count[data-status=failed]{color:var(--app-negative)}
-@media(prefers-reduced-motion:reduce){.glance-count i{animation:none!important}}
-/* A count that arrives waits for the shape to widen under it. */
-@media(prefers-reduced-motion:no-preference){
-  .glance-count{transition:opacity 180ms ease-out 150ms}
-  @starting-style{.glance-count{opacity:0}}
-}
-
-/* The shape and the light behind it (art.tsx): one outline cuts the black and the light's source.
-   Every layer sits on the tab's centre line, so the window may grow or shrink around it. Nothing
-   is ever stroked: the prototype's tab, edge and focus outline give way to the shape. */
+/* The shape and the light behind it (art.tsx): one outline cuts the black and the light's source. Every layer sits on
+   the tab's centre line, so the window may grow or shrink around it. */
 #notch-art{position:fixed;inset:0;z-index:4;pointer-events:none}
 .glow-set{position:absolute;inset:0}
-.notch-fill,.glow{position:absolute;top:0;bottom:0;left:calc(50% + var(--camera-offset) - var(--art-half,0px));width:calc(2 * var(--art-half,0px))}
-.notch-fill{background:#000;transition:background-color 320ms ease}
-.notch-open .notch-fill{background:var(--notch-black)}
-.native-host .island button{background:transparent;border-radius:0}
-.native-host .island button::before,.native-host .island button::after{content:none}
-.native-host .island button:focus-visible{outline:none}
-.native-host.notch-open .island button:focus-visible::after{content:"";inset:auto auto -8px 50%;width:24px;height:3px;border:0;
-  border-radius:2px;opacity:1;filter:none;animation:none;background:var(--panel-muted);transform:translateX(-50%)}
-.native-host #notch:has(.decision-sheet){background:transparent}
-/* The card arrives as the home sheet does, once the shape has grown under it, not at 60% at once. */
-.native-host #notch[open] .notch-content{animation:none}
-
-/* The light: a wide halo and a close core, each a blurred copy of the outline whose gradient
-   drifts sideways. Only opacity and that one transform move, so it costs the compositor alone. */
+.notch-fill,.glow{position:absolute;top:0;bottom:0;left:calc(50% + var(--tab-x,0px) - var(--art-half,0px));width:calc(2 * var(--art-half,0px))}
+.notch-fill{background:var(--sheet)}
+/* The light: a wide halo and a close core, each a blurred copy of the outline whose gradient drifts sideways. Only
+   opacity and that one transform move, so it costs the compositor alone. */
 .glow{filter:blur(var(--blur))}
 .glow i{position:absolute;inset:calc(-1 * var(--lift)) 0 0;opacity:var(--level)}
-.glow i::before{content:"";position:absolute;inset:0 auto 0 0;width:calc(100% + 360px);background:linear-gradient(90deg,var(--colors)) 0 0/360px 100% repeat-x;
-  will-change:transform}
+.glow i::before{content:"";position:absolute;inset:0 auto 0 0;width:calc(100% + 360px);background:linear-gradient(90deg,var(--colors)) 0 0/360px 100% repeat-x;will-change:transform}
 .glow-halo{--blur:var(--far,9px);--level:.85}
 .glow-core{--blur:var(--near,4px);--level:var(--near-level,.55)}
-#notch-art[data-glow=chromatic]{
-  --colors:#c46f3c,#dc9a52 16%,#dfe4ec 33%,#8fb2d8 50%,#5f7fc0 66%,#a7789a 83%,#c46f3c}
-#notch-art[data-glow=warm]{
-  --colors:#d98a43,#e8a65c 25%,#efc185 50%,#df9548 75%,#d98a43}
-#notch-art[data-glow=cool]{
-  --colors:#6f8db1,#93adca 25%,#b9c6d6 50%,#8199bb 75%,#6f8db1}
+#notch-art[data-glow=chromatic]{--colors:var(--bloom)}
+#notch-art[data-glow=warm]{--colors:#d98a43,#e8a65c 25%,#efc185 50%,#df9548 75%,#d98a43}
+#notch-art[data-glow=cool]{--colors:#6f8db1,#93adca 25%,#b9c6d6 50%,#8199bb 75%,#6f8db1}
 #notch-art[data-glow=cool] .glow-set{opacity:.7}
 @media(prefers-reduced-motion:no-preference){
   .glow-set{animation:glow-in 1.1s ease-out both}
@@ -66,45 +26,84 @@ html,body{background:transparent!important;min-height:0;overflow:hidden}
   .glow-halo{animation:glow-breathe 3.4s ease-in-out infinite alternate}
   .glow-core{animation:glow-breathe 3.4s ease-in-out -1.1s infinite alternate}
 }
-/* Reduce Motion: a steady, dimmer light. */
 @media(prefers-reduced-motion:reduce){.glow{opacity:.7}}
 @keyframes glow-in{from{opacity:0}}
 @keyframes glow-drift{to{transform:translateX(-360px)}}
 @keyframes glow-breathe{from{opacity:.55}}
 
-.notch-first kbd{font:var(--t-meta)/1 var(--font-mono);color:var(--panel-muted);border:1px solid var(--notch-line);border-radius:var(--r-xs);padding:2px var(--s-tight)}
-
-/* Rows: the mark says the state; only working breathes. A row says all of what matters about it:
-   its title and line wrap to two lines, a question or a failure in full, and a waiting state is
-   a label of its own rather than a prefix that eats the line. */
-.native-host .notch-work-row :is(strong,small){display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;white-space:normal;overflow-wrap:anywhere}
-.native-host .notch-work-row:is([data-status=needs_you],[data-status=failed]) small{display:block}
-.notch-work-row .row-state{justify-self:start;padding:1px var(--s-small);border-radius:var(--r-xs);background:#e6c6a01a;color:#e6c6a0;
-  font:600 var(--t-small)/1.35 var(--font-ui);font-style:normal}
-.notch-work-row[data-status]:not([data-status=working]) .notch-work-mark{animation:none}
-.notch-work-row[data-status=needs_you] .notch-work-mark{color:#e6c6a0}
-.notch-work-row[data-status=done] .notch-work-mark{color:var(--app-positive)}
-.notch-work-row[data-status=failed] .notch-work-mark{color:var(--app-negative)}
-.notch-work-row[data-status=failed] small{white-space:normal}
-.notch-work-row:disabled{cursor:default;opacity:.85}
-.notch-work-row .row-open{flex:none;font-size:var(--t-small);color:var(--panel-muted)}
-.notch-keys{color:var(--panel-muted);font-size:var(--t-small)}
-.notch-error{color:var(--app-negative);font-size:var(--t-label)}
-
-/* The answer card folds like the home sheet. */
+/* The collapsed tab: the glance in its wings, and with a cutout the line under the camera that says who asks. */
+.tab{position:fixed;z-index:5;top:0;left:calc(50% + var(--tab-x,0px));transform:translateX(-50%);width:var(--tab-w,190px);height:var(--tab-h,32px);
+  display:flex;align-items:center;gap:var(--sp2);padding:0 14px;font:var(--f-num);color:var(--fg);white-space:nowrap}
+.cutout .tab{align-items:flex-start;flex-wrap:wrap;height:auto}
+.cutout .tab .wing{height:var(--tab-h,32px)}
+.open .tab:focus-visible{outline:0}
+.wing{display:inline-flex;align-items:center;gap:6px;flex:none}
+.wing.r{margin-left:auto}
+.wing b,.wing .n b{font-weight:500}
+.wing .n{display:inline-flex;align-items:center;gap:5px}
+.wing .n+.n{margin-left:var(--sp2)}
+.wing .asks b{color:var(--asks)}.wing .fail b{color:var(--fail)}
+.tab .wave{--wh:12px;--ww:1.5px;--wg:1.5px;margin:0 auto}
+.peek{min-width:0;overflow:hidden;text-overflow:ellipsis;font:var(--f-cap);color:var(--fg2)}
+.peek b{margin-right:3px;font-weight:600;color:var(--asks)}
+.tab>.peek{flex:1;text-align:center}
+.line{flex:1 0 100%;display:flex;justify-content:center;height:24px;padding:0 4px 5px;min-width:0}
 @media(prefers-reduced-motion:no-preference){
-  #notch.retracting .dialog-body{opacity:0;transform:translateY(-6px);transition:opacity 95ms ease,transform 150ms ease}
+  .wing,.line{transition:opacity 180ms ease-out 150ms}
+  @starting-style{.wing,.line{opacity:0}}
 }
-/* The question in full: the thought it is about and its prompt wrap, never cut. */
-#notch .decision-sheet :is(.dialog-title h2,h3){overflow-wrap:anywhere}
-#notch .decision-where{margin:0 0 var(--s-small);color:var(--decision-ink);opacity:.72;font-size:var(--t-label);line-height:1.5}
-/* The capture line under the question, one key away. */
-#notch .decision-capture{display:grid;margin-top:calc(-1 * var(--s-row))}
-#notch .decision-capture>.text-btn{display:inline-flex;align-items:center;gap:var(--s-icon);justify-self:start;color:var(--panel-muted)}
-#notch .decision-capture>.text-btn .icon{width:14px;height:14px}
-/* Room at the field's left for the input-source bubble macOS shows under the caret. */
-.native-host .guide-editor{--edit-inset-x:18px}
-#notch .decision-btn kbd{margin-left:auto}
-#notch .decision-btn kbd:first-of-type{margin-left:0}
-/* Opened with show(), not showModal(): above the black surface without the top layer's focus trap. */
-#notch{z-index:5}
+
+/* The open sheet: the band beside the camera, then the view. */
+.sheet{position:fixed;z-index:5;top:0;left:calc(50% + var(--sheet-x,0px));transform:translateX(-50%);width:var(--sheet-w,var(--notch-w));
+  max-height:var(--avail,700px);overflow:auto;overscroll-behavior:contain;color:var(--fg)}
+.sheet.retracting{pointer-events:none}
+.band{display:flex;justify-content:space-between;align-items:center;gap:var(--sp3);height:30px;padding:2px 18px 0;font:var(--f-cap);color:var(--fg2);white-space:nowrap}
+.cutout .band{height:var(--tab-h,32px);padding-top:0}
+.band b{margin-right:6px;font-weight:600;color:var(--fg)}
+.band time,.band .of{font:var(--f-num);color:var(--fg2)}
+.band .of:hover{color:var(--fg)}
+.pad{padding:8px 18px 16px}
+.ctx{font:var(--f-cap);color:var(--fg2)}
+.ask-notch .qp,.result .qp{margin-top:2px;font:var(--f-question-n);letter-spacing:-.005em}
+.ask-notch .qa{display:grid;gap:0;margin:12px -8px 0;border-top:1px solid var(--line)}
+.ask-notch .ans{height:36px;padding:0 8px;gap:12px;border-radius:0;border-bottom:1px solid var(--line)}
+.ask-notch .reply{height:36px;padding:0 8px;gap:12px;border-radius:0;flex:none}
+.ask-notch .q-detail{color:var(--fg2)}
+.act.quiet{margin:6px -6px -6px;color:var(--fg3);font:var(--f-small)}
+.act.quiet:hover{color:var(--fg)}
+.under{margin-top:12px}
+.result .sum{margin-top:6px;font:var(--f-body);color:var(--fg2);text-wrap:pretty;overflow-wrap:anywhere}
+.result .status{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:8px}
+.result>.qa{margin-top:14px}
+.confirm{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);font:var(--f-small);color:var(--fg2)}
+.confirm .qa{margin-top:8px}
+.said{font:var(--f-small);color:var(--fg2)}
+.said.refused{color:var(--fg)}
+.said code{font:var(--f-num);color:var(--fg);-webkit-user-select:text;user-select:text}
+.rows{display:grid;margin-top:12px;border-top:1px solid var(--line)}
+/* One set of columns for every row: mark, thought, its one fact, the time. */
+.rows .row{display:grid;grid-template-columns:22px minmax(0,1.6fr) minmax(0,1fr) 40px;align-items:center;gap:0 8px;height:32px;padding:0 4px 0 2px;border-bottom:1px solid var(--line);
+  font:var(--f-small);color:var(--fg2);white-space:nowrap;text-align:left}
+.rows .row:hover{background:var(--hover);color:var(--fg)}
+.rows .row:disabled{opacity:1}
+.rows .t{overflow:hidden;text-overflow:ellipsis;font:var(--f-lead);color:var(--fg)}
+.rows .x{overflow:hidden;text-overflow:ellipsis;color:var(--fg3)}
+.rows time{font:var(--f-num);color:var(--fg3);text-align:right}
+.rows .row>.st{justify-self:center}
+.result+.rows{margin-top:16px}
+.capture-block{margin-top:4px}
+.rows+.capture-block{margin-top:14px}
+.capture.stack .cap{min-height:44px;border-bottom:0}
+.capture.stack .wave{--wh:30px;--ww:3px;--wg:2.5px}
+.capture.stack .cap input{font:var(--f-question)}
+.cap-dest{display:flex;align-items:center;gap:10px;margin-top:8px;padding-top:10px;border-top:1px solid var(--line);font:var(--f-cap);color:var(--fg2);white-space:nowrap}
+.cap-dest .cap-hint{margin-left:auto}
+.capture:focus-within .cap-dest{border-image:var(--lit) 1}
+.error{margin:0 18px 14px;font:var(--f-small);color:var(--fail)}
+
+/* The content arrives once the shape has grown under it, over the last quarter of the opening; it leaves first. */
+@media(prefers-reduced-motion:no-preference){
+  .sheet .view{transition:opacity 130ms ease-out 380ms}
+  @starting-style{.sheet .view{opacity:0}}
+  .sheet.retracting .view{opacity:0;transition:opacity 95ms ease}
+}

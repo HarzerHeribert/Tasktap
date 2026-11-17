@@ -380,10 +380,21 @@ pub enum PrefValue {
     MotionHue(u16),
     /// Lumen's light (coloured light behind the form and a beam across it) is on.
     MotionLumen(bool),
+    /// The light in the window's black: none, held still, or breathing while something happens.
+    MotionAmbient(MotionAmbient),
+    /// The terminals' font family; empty: the look's own.
+    TerminalFont(String),
+    /// The terminals' text size in CSS pixels.
+    TerminalSize(u8),
+    /// The terminals' line height in hundredths of the font's own: 100 is the font's.
+    TerminalLineHeight(u16),
 }
 
 words! {
-    pub enum PrefKey { Hold, Agent, MotionStyle, MotionPalette, MotionHue, MotionLumen }
+    pub enum PrefKey {
+        Hold, Agent, MotionStyle, MotionPalette, MotionHue, MotionLumen, MotionAmbient,
+        TerminalFont, TerminalSize, TerminalLineHeight
+    }
 }
 
 words! {
@@ -392,6 +403,10 @@ words! {
 
 words! {
     pub enum MotionPalette { Chrome, Chromatic, Warm, Cool, Custom }
+}
+
+words! {
+    pub enum MotionAmbient { Off, Still, Breathing }
 }
 
 /// Seconds a routed thought is held while the `hold` preference is unset.
@@ -407,6 +422,10 @@ impl PrefKey {
             PrefKey::MotionPalette => PrefValue::MotionPalette(MotionPalette::Chromatic),
             PrefKey::MotionHue => PrefValue::MotionHue(265),
             PrefKey::MotionLumen => PrefValue::MotionLumen(false),
+            PrefKey::MotionAmbient => PrefValue::MotionAmbient(MotionAmbient::Breathing),
+            PrefKey::TerminalFont => PrefValue::TerminalFont(String::new()),
+            PrefKey::TerminalSize => PrefValue::TerminalSize(14),
+            PrefKey::TerminalLineHeight => PrefValue::TerminalLineHeight(100),
         }
     }
 }
@@ -420,6 +439,10 @@ impl PrefValue {
             PrefValue::MotionPalette(_) => PrefKey::MotionPalette,
             PrefValue::MotionHue(_) => PrefKey::MotionHue,
             PrefValue::MotionLumen(_) => PrefKey::MotionLumen,
+            PrefValue::MotionAmbient(_) => PrefKey::MotionAmbient,
+            PrefValue::TerminalFont(_) => PrefKey::TerminalFont,
+            PrefValue::TerminalSize(_) => PrefKey::TerminalSize,
+            PrefValue::TerminalLineHeight(_) => PrefKey::TerminalLineHeight,
         }
     }
 }

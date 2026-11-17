@@ -1,20 +1,33 @@
-//! `tasktap`: one binary, several roles (design §4). The first argument names
-//! the role.
+//! `tasktap`: one binary, several roles (design §4). The program's name
+//! names a shim; otherwise the first argument names the role.
 
 use std::ffi::OsString;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
+use tasktap_core::roles::{self, shim};
 use tasktap_core::serve::{self, Options};
+
+const USAGE: &str = "usage: tasktap serve --data <folder> | event <kind> [TEXT] | \
+                     hook <agent> | ask [PROMPT...]";
 
 fn main() -> ExitCode {
     let mut args = std::env::args_os();
-    // Phase 2: a shim is this file named `claude`, `codex`, …, and takes its
-    // role from the program name, read here before any argument.
-    let _program = args.next();
+    // A shim is this file named `claude`, `codex`, …
+    if let Some(rules) = args.next().as_deref().and_then(shim::named) {
+        return shim::run(rules, args.collect());
+    }
     let result = match args.next().as_deref().and_then(|role| role.to_str()) {
         Some("serve") => serve(args),
-        _ => Err("usage: tasktap serve --data <folder>".to_owned()),
+        Some("event") => return roles::event(args.collect()),
+        Some("hook") => return roles::hook(args.collect()),
+        Some("ask") => return roles::ask(args.collect()),
+        #[cfg(feature = "fixtures")]
+        Some("fixture-agent") => return roles::fixture::run(args.collect()),
+        _ => {
+            let _ = writeln!(io::stderr(), "tasktap: {USAGE}");
+            return ExitCode::from(roles::USAGE);
+        }
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

@@ -74,7 +74,13 @@ html,body{background:transparent!important;min-height:0;overflow:hidden}
 
 .notch-first kbd{font:var(--t-meta)/1 var(--font-mono);color:var(--panel-muted);border:1px solid var(--notch-line);border-radius:var(--r-xs);padding:2px var(--s-tight)}
 
-/* Rows: the mark says the state; only working breathes. */
+/* Rows: the mark says the state; only working breathes. A row says all of what matters about it:
+   its title and line wrap to two lines, a question or a failure in full, and a waiting state is
+   a label of its own rather than a prefix that eats the line. */
+.native-host .notch-work-row :is(strong,small){display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;white-space:normal;overflow-wrap:anywhere}
+.native-host .notch-work-row:is([data-status=needs_you],[data-status=failed]) small{display:block}
+.notch-work-row .row-state{justify-self:start;padding:1px var(--s-small);border-radius:var(--r-xs);background:#e6c6a01a;color:#e6c6a0;
+  font:600 var(--t-small)/1.35 var(--font-ui);font-style:normal}
 .notch-work-row[data-status]:not([data-status=working]) .notch-work-mark{animation:none}
 .notch-work-row[data-status=needs_you] .notch-work-mark{color:#e6c6a0}
 .notch-work-row[data-status=done] .notch-work-mark{color:var(--app-positive)}
@@ -89,6 +95,13 @@ html,body{background:transparent!important;min-height:0;overflow:hidden}
 @media(prefers-reduced-motion:no-preference){
   #notch.retracting .dialog-body{opacity:0;transform:translateY(-6px);transition:opacity 95ms ease,transform 150ms ease}
 }
+/* The question in full: the thought it is about and its prompt wrap, never cut. */
+#notch .decision-sheet :is(.dialog-title h2,h3){overflow-wrap:anywhere}
+#notch .decision-where{margin:0 0 var(--s-small);color:var(--decision-ink);opacity:.72;font-size:var(--t-label);line-height:1.5}
+/* The capture line under the question, one key away. */
+#notch .decision-capture{display:grid;margin-top:calc(-1 * var(--s-row))}
+#notch .decision-capture>.text-btn{display:inline-flex;align-items:center;gap:var(--s-icon);justify-self:start;color:var(--panel-muted)}
+#notch .decision-capture>.text-btn .icon{width:14px;height:14px}
 #notch .decision-btn kbd{margin-left:auto}
 #notch .decision-btn kbd:first-of-type{margin-left:0}
 /* Opened with show(), not showModal(): above the black surface without the top layer's focus trap. */

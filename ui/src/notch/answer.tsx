@@ -1,9 +1,12 @@
 // The answer card: one card for every question, choices on 1, 2, 3, affirm and deny from any
-// app, a reply in the person's own words, and "1 of N" with previous and next.
+// app, a reply in the person's own words, and "1 of N" with previous and next. Whenever a
+// question is open it is what the open notch shows, the capture line one key (C) under it.
 import type { AnswerQuestion, Question } from '../../../core/proto/protocol.ts';
 import { useEffect } from 'preact/hooks';
+import { Capture } from '../capture.tsx';
 import { Icon } from '../icons.tsx';
-import { agentName, call, fail, page, projectName, records, redraw, title, ui } from './model.ts';
+import { hooks } from './home.tsx';
+import { agentName, call, fail, page, projectName, records, redraw, ui } from './model.ts';
 import { fold, peek } from './panel.ts';
 
 type Response = AnswerQuestion extends infer A ? (A extends { id: string } ? Omit<A, 'id'> : never) : never;
@@ -31,6 +34,14 @@ export function Answer({ questions }: { questions: Question[] }) {
     page.focus = '#comment';
     redraw();
   };
+  const capture = () => {
+    ui.capturing = true;
+    page.focus = '#guide-input';
+    redraw();
+  };
+  // The thought it is about, its whole first line; a session's name when no thought is known.
+  const about = t?.text.trim().split('\n')[0] || s?.name || '';
+  const who = agentName(s?.agent ?? t?.agent);
   const terminal = q.reply_via === 'terminal';
   const choices = terminal ? [] : q.kind === 'choice' ? q.choices : q.kind === 'confirm' ? ['Yes', 'No'] : [];
   const choose = (k: number) =>
@@ -44,6 +55,7 @@ export function Answer({ questions }: { questions: Question[] }) {
     if (digit >= 0 && digit < Math.max(choices.length, terminal ? 1 : 0)) choose(digit);
     else if (q.kind === 'confirm' && !terminal && (k === 'y' || k === 'n')) choose(k === 'y' ? 0 : 1);
     else if (k === 't' && !terminal) reply();
+    else if (k === 'c') capture();
     else if ((k === 'arrowright' || k === 'arrowleft') && n > 1) go(k === 'arrowright' ? 1 : -1);
     else if (k === 'arrowdown' || k === 'arrowup') {
       const items = [...document.querySelectorAll<HTMLElement>('#notch .decision-btn, #notch #comment')];
@@ -59,10 +71,10 @@ export function Answer({ questions }: { questions: Question[] }) {
         <div>
           <div class="decision-context">
             <span><Icon name="folder" /><span>{projectName(t?.project_id ?? s?.project_id)}</span></span>
-            <span><Icon name={s?.agent ?? t?.agent ?? 'terminal'} /><span>{agentName(s?.agent ?? t?.agent)}</span></span>
+            <span><Icon name={s?.agent ?? t?.agent ?? 'terminal'} /><span>{who}</span></span>
             {n > 1 && <span>{i + 1} of {n}</span>}
           </div>
-          <h2>{title(t) || s?.name || 'A question'}</h2>
+          {about && <h2>{about}</h2>}
         </div>
         <button type="button" class="icon-btn" aria-label="Close" onClick={fold}><Icon name="x" /></button>
       </div>
@@ -70,10 +82,11 @@ export function Answer({ questions }: { questions: Question[] }) {
         {n > 1 && <p class="decision-count">Question {i + 1} of {n}</p>}
         <h3>{q.prompt}</h3>
         {q.detail && <p class="hint">{q.detail}</p>}
+        {terminal && <p class="decision-where">{who} asks this in its terminal, so it is answered there.</p>}
         {terminal ? (
           <div class="decision-choices">
             <button type="button" class="decision-btn" onClick={() => choose(0)}>
-              <kbd>1</kbd><span>Answer in its terminal</span><Icon name="terminal" />
+              <kbd>1</kbd><span>Open its terminal</span><Icon name="terminal" />
             </button>
           </div>
         ) : q.kind === 'confirm' ? (
@@ -120,6 +133,11 @@ export function Answer({ questions }: { questions: Question[] }) {
             <button type="button" class="text-btn" onClick={() => go(-1)}><Icon name="back" /><span>Previous</span></button>
             <button type="button" class="text-btn" onClick={() => go(1)}><span>Next</span><Icon name="arrow" /></button>
           </div>
+        )}
+      </div>
+      <div class="decision-capture">
+        {ui.capturing ? <Capture {...hooks} /> : (
+          <button type="button" class="text-btn" onClick={capture}><Icon name="plus" /><span>Capture a thought</span><kbd>C</kbd></button>
         )}
       </div>
     </div>

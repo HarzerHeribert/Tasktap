@@ -6,14 +6,14 @@ import poster from '../../../prototype/assets/motion/glyph/miniature.jpg';
 import film from '../../../prototype/assets/motion/glyph/miniature.mp4';
 import { Capture, cap } from '../capture.tsx';
 import { Icon } from '../icons.tsx';
-import { agentName, call, fail, openQuestions, page, projectName, records, redraw, resultOf, title, ui, why } from './model.ts';
+import { agentName, call, fail, openQuestions, page, projectName, records, redraw, resultOf, ui, why } from './model.ts';
 import { fold, peek, reveal } from './panel.ts';
 
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const secondsLeft = (t: Thought | undefined) => (t?.hold_until ? Math.max(0, Math.ceil((t.hold_until - Date.now()) / 1000)) : 0);
 
-/** The notch's hooks into the shared capture line. */
-const hooks = {
+/** The notch's hooks into the shared capture line, here and under a question. */
+export const hooks = {
   // After the folder panel the notch takes the keyboard back.
   picked: () => void call('host.notch', { open: true, key: true }),
   // Started: the notch has done its job unless the person is doing something else in it.
@@ -31,10 +31,12 @@ function Row({ t }: { t: Thought }) {
     captured: ['note', where],
     routed: ['arrow', `${projectName(t.project_id)} · starts in ${secondsLeft(t)} s`],
     working: [t.agent ?? 'terminal', session?.activity.at(-1) ?? where],
-    needs_you: ['attention', terminal ? `Waiting in its terminal: ${question.prompt}` : `Needs you · ${where}`],
+    needs_you: ['attention', question?.prompt ?? where],
     done: ['check', result?.summary || 'Done'],
     failed: ['x', `${why(t)}${result?.kind === 'failure' && result.summary ? ': ' + result.summary : session?.error ? ': ' + session.error : ''}`],
   } satisfies Record<Thought['status'], [string, string]>)[t.status];
+  // The state is a label of its own, so the line keeps all of what it says.
+  const state = t.status === 'needs_you' ? (terminal ? 'Waiting in its terminal' : 'Needs you') : '';
   const open = () => {
     if (terminal && t.session_id) peek(t.session_id);
     else if (question) {
@@ -46,7 +48,7 @@ function Row({ t }: { t: Thought }) {
     <button type="button" class="notch-work-row" data-status={t.status} title={`${t.text}\n${detail}`} onClick={open}
       disabled={!question && !t.session_id}>
       <span class="notch-work-mark" aria-hidden="true"><Icon name={mark} /></span>
-      <span><strong>{title(t)}</strong><small>{detail}</small></span>
+      <span><strong>{t.text.trim().split('\n')[0]}</strong>{state && <em class="row-state">{state}</em>}<small>{detail}</small></span>
       {question && !terminal ? <span class="row-open">Answer</span> : t.session_id && <span class="row-open">Open</span>}
     </button>
   );
@@ -72,8 +74,8 @@ export function Home() {
     }, 1200);
     return () => clearTimeout(timer);
   });
-  const n = questions.length;
-  const heading = n ? `${n === 1 ? 'A question needs' : `${n} questions need`} you` : working.length ? 'Working now' : finished.length ? 'Done' : 'Ready to capture';
+  // An open question is never announced here: the notch shows the question itself (answer.tsx).
+  const heading = working.length ? 'Working now' : finished.length ? 'Done' : 'Ready to capture';
   return (
     <>
       <header class="home-heading">
@@ -81,11 +83,6 @@ export function Home() {
         <button type="button" class="surface-button collapse-button" aria-label="Collapse notch" onClick={fold}><Icon name="down" /></button>
       </header>
       <Capture {...hooks} />
-      {n > 0 && (
-        <button type="button" class="notch-action" onClick={() => reveal('pinned', 'answer', '#notch .decision-btn, #notch #comment')}>
-          <span>Answer {n === 1 ? 'it' : `${n} questions`}</span><kbd>⌃⌥J</kbd><Icon name="arrow" />
-        </button>
-      )}
       {working.length + finished.length > 0 && (
         <section class="notch-work" aria-label="Thoughts">
           {[...working, ...finished].map((t) => <Row key={t.id} t={t} />)}

@@ -133,8 +133,9 @@ ask notch "click .notch-work-row" >/dev/null
 until_has workspace "$(screen)" 10 "fixture-agent" && pass "Open shows the agent's terminal in the workspace" || fail "Open shows the terminal"
 # The fixture agent, like Claude Code in a folder it does not trust yet, asks in its terminal first.
 term_line "print:Do you trust the files in this folder?"
-until_has notch "text #notch" 10 "trust this folder" && ask notch "text #notch" | grep -q "Answer in its terminal" \
-  && pass "a folder-trust prompt in a starting agent's terminal opens the notch with the action that opens its terminal" \
+until_has notch "text #notch" 10 "trust this folder" && ask notch "text #notch" | grep -q "Open its terminal" \
+  && ask notch "text #notch" | grep -q "asks this in its terminal" \
+  && pass "a folder-trust prompt in a starting agent's terminal opens the notch on the prompt, with the reason and the action that opens its terminal" \
   || fail "the trust prompt shows in the notch"
 shot trust
 until_has workspace "text .deck-question" 5 "Respond in this terminal" \
@@ -147,6 +148,16 @@ term_line "ask:Deploy to staging?"
 until_has notch "text #notch" 10 "Deploy to staging?" && pass "a question opens the notch by itself on its answer card" \
   || fail "the notch opens itself with the question"
 ask notch "text #notch" | grep -q "Hello from the smoke" && pass "the card names the thought and project it belongs to" || fail "the card's context"
+# With a question open the notch shows it, never a line that only says one waits; the capture
+# shortcut goes to the field under it, and Escape leaves the field with the question still there.
+send capture
+until_has notch "eval document.activeElement?.id" 5 "guide-input" && ask notch "text #notch" | grep -q "Deploy to staging?" \
+  && ! ask notch "eval document.body.innerText" | grep -qi "question needs you\|questions need you" \
+  && pass "with a question open, the capture shortcut opens the field under the question, which stays first" \
+  || fail "capture with a question open"
+send "key notch Escape"
+until_has notch "eval document.activeElement?.className" 3 "decision-btn" && ask notch "eval String(document.querySelector('#notch').open)" | grep -q true \
+  && pass "Escape leaves the capture line and keeps the question open" || fail "Escape from capture under a question"
 shot answer
 until_has workspace "text .deck-question" 5 "Deploy to staging?" && ask workspace "text .deck-question" | grep -q "Yes" \
   && pass "the same question shows in its pane with the notch's answers" || fail "the question shows in its pane"

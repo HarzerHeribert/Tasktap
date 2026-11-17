@@ -18,5 +18,7 @@ export const ui = {
   question: null as string | null,
   seen: new Set<string>(),
   replying: false,
+  /** The capture line is open under the question card. */
+  capturing: false,
   geometry: null as Record<string, number | boolean> | null,
 };

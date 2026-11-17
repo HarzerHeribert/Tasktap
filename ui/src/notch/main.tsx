@@ -48,7 +48,9 @@ const host = {
     ui.timer = window.setTimeout(() => !ui.inside && ui.mode === 'hover' && fold(), 320);
   },
   capture() {
-    reveal('pinned', 'home', '#guide-input');
+    // Straight to the field; with a question open, under it.
+    ui.capturing = openQuestions().length > 0;
+    reveal('pinned', ui.capturing ? 'answer' : 'home', '#guide-input');
   },
   answer() {
     if (openQuestions().length) reveal('pinned', 'answer', '#notch .decision-btn, #notch #comment');
@@ -68,6 +70,12 @@ records.onchange = () => {
   if (fresh && (ui.mode === 'closed' || ui.auto)) {
     reveal('pinned', 'answer');
     ui.auto = true;
+  } else if (fresh && ui.view === 'home') {
+    // Open on the capture line: the question comes first and the line moves under it, the
+    // person's typing and its focus with it.
+    ui.view = 'answer';
+    ui.capturing = true;
+    if (document.activeElement?.id === 'guide-input') page.focus = '#guide-input';
   } else if (!open.length && ui.view === 'answer' && ui.mode !== 'closed') {
     // One pending fold however many changes arrive meanwhile, so a new question can cancel it.
     if (ui.auto) {
@@ -121,7 +129,8 @@ function App() {
   const open = ui.mode !== 'closed';
   const shown = open || ui.retracting;
   const questions = openQuestions();
-  const answering = shown && ui.view === 'answer' && questions.length > 0;
+  // Whenever a question is open the notch shows it, never a line that only says one waits.
+  const answering = shown && questions.length > 0;
   const g = records.glance;
 
   useLayoutEffect(() => {
@@ -164,9 +173,10 @@ function App() {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || ui.mode === 'closed') return;
   e.preventDefault();
-  if (cap.choosing || ui.replying) {
+  if (cap.choosing || ui.replying || (ui.capturing && openQuestions().length)) {
+    if (!cap.choosing) ui.capturing = false;
     cap.choosing = ui.replying = false;
-    page.focus = ui.view === 'answer' ? '#notch .decision-btn, #notch #comment' : '#guide-input';
+    page.focus = openQuestions().length ? '#notch .decision-btn, #notch #comment' : '#guide-input';
     redraw();
   } else fold();
 });

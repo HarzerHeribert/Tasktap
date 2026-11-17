@@ -347,6 +347,9 @@ button.line:hover{background:var(--hover)}
 .line[data-s=off] .x{color:var(--asks)}
 /* Settings. The owner froze how this sheet looks (2026-11-17): its switch and its button keep the look they had, and
    nothing here follows a later change to the materials. */
+/* Where it scrolled, a scrollbar stood in a gutter 17 px wide; the bar is gone and its gutter stays, so no row in the
+   sheet is a pixel wider than it was and nothing in it reflows. */
+.sheet:has(>.settings){padding-right:17px}
 .settings .btn{background:var(--fill);box-shadow:none}
 .settings .btn:hover{background:var(--fill-hover)}
 .settings .btn:active{background:var(--line2)}

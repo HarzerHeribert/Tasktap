@@ -121,6 +121,13 @@ pub trait Agent: Sync {
 
     fn detect(&self) -> Detect;
 
+    /// Variables of the core's own environment that its runs need, such as
+    /// the key a person signs it in with (design §7, §9): the only ones a
+    /// terminal gets beyond the fixed list. None for most agents.
+    fn variables(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     /// What a hook says, from the arguments after `hook <id>` and the
     /// payload on standard input: `None` when nothing the core keeps, `Err`
     /// only when it is no payload at all, which the hook reports and exits.
@@ -139,6 +146,14 @@ pub fn find(id: &str) -> Option<&'static dyn Agent> {
 /// Every agent this build has, the default first.
 pub fn all() -> &'static [&'static dyn Agent] {
     AGENTS
+}
+
+/// The variables every agent declares it needs, each once.
+pub fn variables() -> Vec<&'static str> {
+    let mut all: Vec<&'static str> = AGENTS.iter().flat_map(|a| a.variables()).copied().collect();
+    all.sort_unstable();
+    all.dedup();
+    all
 }
 
 /// The registry: the one list that names agents outside their adapters.
@@ -353,6 +368,10 @@ impl Agent for Fixture {
 
     fn attach(&self, exe: &Path) -> Vec<OsString> {
         vec!["--hook".into(), exe.into()]
+    }
+
+    fn variables(&self) -> &'static [&'static str] {
+        &["FIXTURE_AGENT_KEY"]
     }
 
     fn probe(&self, _: &Path, _: &Path) -> Option<Probe> {

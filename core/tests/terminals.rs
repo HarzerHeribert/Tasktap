@@ -830,10 +830,15 @@ fn a_terminal_may_belong_to_no_project_and_a_closed_project_starts_none() {
 #[test]
 fn the_environment_holds_exactly_the_fixed_list() {
     let data = Folder::new("tt-env");
+    // The fixture agent declares FIXTURE_AGENT_KEY, as an adapter declares
+    // the key a person signs in with; nothing else of the core's own
+    // environment passes.
     let leak = [
         ("TASKTAP_LEAK", "1"),
         ("USER", "someone"),
         ("LANG", "de_DE.UTF-8"),
+        ("FIXTURE_AGENT_KEY", "not-a-real-key"),
+        ("OTHER_API_KEY", "not-declared"),
     ];
     let core = Core::start_env(&data, &[], &leak);
     let mut c = core.device();
@@ -868,10 +873,19 @@ fn the_environment_holds_exactly_the_fixed_list() {
         "TASKTAP_DATA",
         "TASKTAP_SOCKET",
         "TASKTAP_TOKEN",
+        "FIXTURE_AGENT_KEY",
     ]
     .into_iter()
     .map(fold)
     .collect();
+    // What the real adapters declare passes too, when whoever runs the
+    // tests has it.
+    let declared = tasktap_core::agents::variables().into_iter();
+    want.extend(
+        declared
+            .filter(|k| std::env::var_os(k).is_some_and(|v| !v.is_empty()))
+            .map(fold),
+    );
     if cfg!(windows) {
         let fixed = [
             "SystemRoot",

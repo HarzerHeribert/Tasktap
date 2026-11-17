@@ -334,7 +334,8 @@ fn write(
 /// The environment of every child, built from a fixed list and never
 /// inherited whole from whoever started the core (design §7, hazard 14):
 /// the person's home, user, language and shell, the PATH computed from the
-/// usual tool folders, the terminal variables, and how to reach the core.
+/// usual tool folders, the terminal variables, the variables the agents
+/// declare they need ([`declared`]), and how to reach the core.
 /// `path` is the child's PATH (`path`).
 pub fn environment(data: &Path, token: &Secret, path: OsString) -> Vec<(String, OsString)> {
     let mut env = fixed(path);
@@ -402,7 +403,24 @@ pub fn fixed(path: OsString) -> Vec<(String, OsString)> {
     put("TERM", "xterm-256color".into());
     put("COLORTERM", "truecolor".into());
     put("TERM_PROGRAM", "Tasktap".into());
+    for (key, value) in declared() {
+        put(key, value.clone());
+    }
     env
+}
+
+/// The variables the agents declare they need (`Agent::variables`), as the
+/// core's own environment had them when it started, and nothing else. Their
+/// values, a person's keys among them, go to children only, never to a
+/// record or a log.
+pub fn declared() -> &'static [(&'static str, OsString)] {
+    static DECLARED: std::sync::OnceLock<Vec<(&'static str, OsString)>> =
+        std::sync::OnceLock::new();
+    DECLARED.get_or_init(|| {
+        let set = crate::agents::variables().into_iter();
+        set.filter_map(|key| Some((key, std::env::var_os(key).filter(|v| !v.is_empty())?)))
+            .collect()
+    })
 }
 
 /// A child's PATH: `first` when given, then on Mac and Linux the folders

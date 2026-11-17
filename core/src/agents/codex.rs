@@ -188,6 +188,12 @@ impl Agent for Codex {
             .collect()
     }
 
+    /// Its sign-in with an API key, and the folder it keeps its sign-in and
+    /// settings in when moved.
+    fn variables(&self) -> &'static [&'static str] {
+        &["OPENAI_API_KEY", "CODEX_HOME"]
+    }
+
     fn probe(&self, exe: &Path, cwd: &Path) -> Option<Probe> {
         let mut argv = vec![self.program().to_owned()];
         argv.extend(

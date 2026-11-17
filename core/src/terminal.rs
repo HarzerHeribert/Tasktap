@@ -64,6 +64,8 @@ struct Live {
 
 impl Terminals {
     pub fn new(data: &Path) -> Terminals {
+        // Taken at start, from the environment the core was started with.
+        process::declared();
         Terminals {
             live: HashMap::new(),
             data: data.to_owned(),

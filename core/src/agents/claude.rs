@@ -198,6 +198,17 @@ impl Agent for Claude {
         vec!["--settings".into(), Self::settings(exe).into()]
     }
 
+    /// Its sign-in when it is not in the keychain: an API key, the
+    /// long-lived token `claude setup-token` makes for a subscription, and
+    /// the folder it keeps its sign-in and settings in when moved.
+    fn variables(&self) -> &'static [&'static str] {
+        &[
+            "ANTHROPIC_API_KEY",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "CLAUDE_CONFIG_DIR",
+        ]
+    }
+
     fn detect(&self) -> Detect {
         Detect {
             // "2.1.326 (Claude Code)"

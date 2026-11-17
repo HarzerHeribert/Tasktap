@@ -747,9 +747,10 @@ export type Settle = { id: ThoughtId, attempt: AttemptId, keep: boolean, };
  * it types a follow-up into the shell's terminal (design §7). With `hold` the
  * shim confirms its agent runs in the foreground and keeps the terminal
  * until a call without it, sent once the text is written; a shim whose agent
- * has ended answers `gone`.
+ * has ended answers `gone`. With `stop` the shim ends its agent, as
+ * `thought.stop` stops a run, and never the shell it runs in.
  */
-export type ShimHold = { hold: boolean, };
+export type ShimHold = { hold: boolean, stop: boolean, };
 
 /**
  * A terminal size: `[cols, rows]`.

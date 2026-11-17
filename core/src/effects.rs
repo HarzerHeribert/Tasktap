@@ -330,6 +330,10 @@ fn carry(core: &mut Core, effects: Vec<Effect>) -> Option<Outcome> {
             }
             // The launch's report asks again once it names the terminal.
             Effect::Kill { terminal: None, .. } => None,
+            Effect::StopAdopted(session) => {
+                crate::shim::stop(core, session);
+                None
+            }
             Effect::Settle {
                 attempt,
                 thought,

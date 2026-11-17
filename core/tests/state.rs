@@ -1373,6 +1373,65 @@ fn row_exited_fails_a_working_thought_or_finishes_a_silent_one() {
     assert_eq!(w.session(s).state, SessionState::Ended);
 }
 
+/// A shell terminal of the project, running, as an agent is adopted in.
+fn shell(tx: &mut Tx, project: ProjectId) -> TerminalId {
+    let t = Terminal {
+        id: TerminalId::mint(),
+        rev: Rev::ZERO,
+        project_id: Some(project),
+        kind: TerminalKind::Shell,
+        title: "sh".into(),
+        cwd: FOLDER.into(),
+        argv: Vec::new(),
+        cols: 80,
+        rows: 24,
+        state: TerminalState::Running,
+        exit: None,
+        offset: Offset::ZERO,
+    };
+    tx.insert_terminal(&t, None).unwrap();
+    t.id
+}
+
+#[test]
+fn row_stop_of_an_adopted_agent_has_its_shim_end_it_and_never_the_shell() {
+    let mut w = World::new("stop-adopted");
+    let project = w.project;
+    let mut terminal = None;
+    w.write(|tx| terminal = Some(shell(tx, project)));
+    let terminal = terminal.unwrap();
+    let s = SessionId::mint();
+    let adopt = Event::Adopt {
+        session: s,
+        terminal,
+        agent: "fixture".into(),
+        cwd: FOLDER.into(),
+    };
+    assert_eq!(w.ok(adopt), []);
+    let f = ThoughtId::mint();
+    let follow = Capture {
+        session_id: Some(s),
+        ..capture(f, "and the docs")
+    };
+    w.ok(captured(follow));
+    let attempt = AttemptId::mint();
+    let started = w.ok(Event::Start {
+        thought: f,
+        attempt,
+    });
+    assert!(w.carry(&started).is_empty());
+    assert_eq!(w.thought(f).phase, Phase::Working);
+    assert_eq!(w.ok(Event::Stop { thought: f }), [Effect::StopAdopted(s)]);
+    assert_eq!(
+        shape(&w.thought(f)),
+        (Phase::Failed, Status::Failed, Some(Reason::Stopped))
+    );
+    assert_eq!(w.session(s).state, SessionState::Ended);
+    // The shim's report of the agent's exit changes nothing more.
+    let exited = w.report(s, Said::Exited { code: Some(129) });
+    assert_eq!(w.ignored(Event::Report(exited)), Ignored::State);
+}
+
 #[test]
 fn row_stop_after_launch_stops_the_process() {
     let mut w = World::new("stop");
@@ -2076,6 +2135,9 @@ impl Known {
             {
                 self.sessions.insert(own(*attempt));
             }
+            Some(Event::Adopt { session, .. }) => {
+                self.sessions.insert(*session);
+            }
             _ => {}
         }
         self.questions
@@ -2176,6 +2238,9 @@ struct Sweep {
     project: ProjectId,
     first: ThoughtId,
     second: ThoughtId,
+    /// A shell terminal, and the session an agent adopted in it gets.
+    shell: TerminalId,
+    adopted: SessionId,
     events: u64,
 }
 
@@ -2198,8 +2263,23 @@ impl Sweep {
     /// Every event the state can be fed, with fresh ids where an event brings one.
     fn moves(&mut self, tx: &Tx, known: &Known, path: &[Step]) -> Vec<Step> {
         let p = Destination::New(self.project);
-        let mut moves = vec![captured(capture(self.first, "fix the build"))];
-        if let Some(s) = tx.thought(self.first).unwrap().and_then(|t| t.session_id) {
+        // Either the first thought runs and the second follows it up, or an
+        // agent adopted in a shell, from the start, takes the second.
+        let launched = tx.thought(self.first).unwrap().and_then(|t| t.session_id);
+        let adopted = tx.session(self.adopted).unwrap().map(|s| s.id);
+        let mut moves = Vec::new();
+        if adopted.is_none() {
+            moves.push(captured(capture(self.first, "fix the build")));
+        }
+        if path.is_empty() {
+            moves.push(Event::Adopt {
+                session: self.adopted,
+                terminal: self.shell,
+                agent: "fixture".into(),
+                cwd: FOLDER.into(),
+            });
+        }
+        if let Some(s) = adopted.or(launched) {
             moves.push(captured(Capture {
                 session_id: Some(s),
                 ..capture(self.second, "and the docs")
@@ -2385,7 +2465,7 @@ fn check(tx: &Tx, known: &Known, effects: &[Effect], step: &Step) {
             assert_eq!(
                 (t.phase, t.session_id),
                 (Phase::Working, Some(s.id)),
-                "{s:?}"
+                "{s:?} after {step:?}"
             );
         }
     }
@@ -2405,6 +2485,19 @@ fn check(tx: &Tx, known: &Known, effects: &[Effect], step: &Step) {
     }
     for effect in effects {
         let (attempt, kind) = match effect {
+            // An adopted agent is ended by its shim, never its shell's terminal.
+            Effect::Kill {
+                session: s,
+                terminal: Some(_),
+            } => {
+                assert!(!session(*s).adopted, "{effect:?} would end a shell");
+                continue;
+            }
+            Effect::StopAdopted(s) => {
+                let s = session(*s);
+                assert_eq!((s.adopted, s.state), (true, SessionState::Ended));
+                continue;
+            }
             Effect::Launch(l) => {
                 let s = session(l.session);
                 assert_eq!(
@@ -2459,11 +2552,14 @@ fn every_event_in_every_reachable_state_keeps_the_rules() {
     let p = project(FOLDER);
     let mut tx = store.begin().unwrap();
     tx.insert_project(&p).unwrap();
+    let terminal = shell(&mut tx, p.id);
     tx.commit().unwrap();
     let mut sweep = Sweep {
         project: p.id,
         first: ThoughtId::mint(),
         second: ThoughtId::mint(),
+        shell: terminal,
+        adopted: SessionId::mint(),
         events: 0,
     };
     let began = Instant::now();
@@ -2497,7 +2593,15 @@ fn every_event_in_every_reachable_state_keeps_the_rules() {
                     let mut next = path.clone();
                     next.push(step);
                     let state = learned.signature(&tx, &next);
-                    if next.len() < SWEEP_DEPTH && states.insert(state) {
+                    // An adopted agent takes reports from the first step on,
+                    // so its paths are cut shorter; the rest is the same.
+                    let adopted = matches!(next[0].event(), Some(Event::Adopt { .. }));
+                    let depth = if adopted {
+                        SWEEP_DEPTH - 2
+                    } else {
+                        SWEEP_DEPTH
+                    };
+                    if next.len() < depth && states.insert(state) {
                         queue.push_back((next, learned));
                     }
                     drop(tx);
@@ -2513,6 +2617,7 @@ fn every_event_in_every_reachable_state_keeps_the_rules() {
     );
     let every = [
         "Capture",
+        "Adopt",
         "Pick",
         "Clear",
         "Ambiguous",

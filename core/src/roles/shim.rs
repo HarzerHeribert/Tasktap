@@ -296,9 +296,10 @@ fn observe(
     };
     let hold = Arc::new(Hold::default());
     let tty = io::stdin().is_terminal();
+    let agent = child.id();
     std::thread::spawn({
         let hold = hold.clone();
-        move || answer(link, &hold, tty)
+        move || answer(link, &hold, tty, agent)
     });
     let status = {
         let _interrupts = sys::ignore_interrupts();
@@ -455,8 +456,37 @@ fn drain() {
         .spawn(reads);
 }
 
+/// Ends the agent, as the core asks once its run was stopped: hang-up, and
+/// the kill after 2 s if it has not exited by then; on Windows the agent's
+/// process tree at once. Only the agent: this shim and the shell it runs
+/// in go on, and once the agent has gone the shim reports its exit.
+fn end(hold: &Arc<Hold>, agent: u32) {
+    #[cfg(unix)]
+    {
+        sys::signal_process(agent, false);
+        let hold = hold.clone();
+        let _ = std::thread::Builder::new()
+            .name("kill".into())
+            .spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                if !hold.state().ended {
+                    sys::signal_process(agent, true);
+                }
+            });
+    }
+    #[cfg(windows)]
+    {
+        let _ = hold;
+        let pid = agent.to_string();
+        let kill = Command::new("taskkill")
+            .args(["/PID", &pid, "/T", "/F"])
+            .output();
+        drop(kill);
+    }
+}
+
 /// Answers the core's calls on the adopting connection until it ends.
-fn answer(mut link: Client, hold: &Hold, tty: bool) {
+fn answer(mut link: Client, hold: &Arc<Hold>, tty: bool, agent: u32) {
     loop {
         let request = match link.recv() {
             Ok(Frame::Control(Control::Call(request))) => request,
@@ -464,7 +494,13 @@ fn answer(mut link: Client, hold: &Hold, tty: bool) {
             Err(_) => return hold.gone(),
         };
         let reply = if request.name == call::ShimHold::NAME.as_str() {
-            let held = call::ShimHold::args(request.args).and_then(|h| hold.set(h.hold, tty));
+            let held = call::ShimHold::args(request.args).and_then(|h| match h.stop {
+                true => {
+                    end(hold, agent);
+                    Ok(())
+                }
+                false => hold.set(h.hold, tty),
+            });
             call::ShimHold::reply(request.id, held)
         } else {
             let why = format!("a shim answers no {}", request.name);

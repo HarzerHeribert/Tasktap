@@ -266,6 +266,23 @@ mod unix {
         Vec::new()
     }
 
+    /// Sends hang-up, or with `kill` the kill signal, to process `pid` alone.
+    /// Never to this process, nor to 0 or 1.
+    #[allow(unsafe_code)]
+    pub fn signal_process(pid: u32, kill: bool) {
+        // SAFETY: as for `signal_group`: kill(2) takes two integers and
+        // touches no memory of this process.
+        unsafe extern "C" {
+            #[link_name = "kill"]
+            safe fn kill_process(pid: i32, sig: i32) -> i32;
+        }
+        let (hang_up, kill_signal) = (1, 9);
+        let Ok(id) = i32::try_from(pid) else { return };
+        if id > 1 && pid != std::process::id() {
+            kill_process(id, if kill { kill_signal } else { hang_up });
+        }
+    }
+
     /// The size of the terminal on standard output, `(cols, rows)`, for the
     /// test role that reports it (design §13).
     #[cfg(feature = "fixtures")]

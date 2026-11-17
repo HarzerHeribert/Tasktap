@@ -428,7 +428,9 @@ fn a_follow_up_to_an_agent_adopted_in_a_shell_is_typed_while_its_shim_holds_it()
     screen.line("event:turn_finished:Tests added.");
     s.w.until("the follow-up is done", |m| m.status(f) == Status::Done);
 
-    // Stopping a run of it ends the session and never the person's shell.
+    // Stopping a run of it has its shim end the agent, and never the
+    // person's shell, which reads the next line: were the agent still
+    // there, it would take the line as its prompt.
     let g = follow_up(&mut s, session, "and the docs");
     screen.until("prompt:and the docs");
     s.w.until("the next follow-up runs", |m| {
@@ -436,12 +438,14 @@ fn a_follow_up_to_an_agent_adopted_in_a_shell_is_typed_while_its_shim_holds_it()
     });
     s.w.ok::<call::ThoughtStop>(&Ref { id: g });
     assert_eq!(s.w.model.session(session).state, SessionState::Ended);
-    // Nothing was sent to the terminal: the agent, unobserved now, goes on.
-    screen.line("wait");
-    screen.line("still here");
-    screen.until("read:still here");
+    // The shim lets go of the terminal once its agent has gone, and the
+    // shell's prompt follows.
+    screen.until_after(b"\x1b[0m\x1b[?25h");
+    screen.line("echo shell-$((2+3))");
+    screen.until("shell-5");
+    assert!(!screen.text().contains("prompt:echo shell"));
     assert_eq!(s.w.model.terminals[&shell].state, TerminalState::Running);
-    screen.line("exit:0");
+    screen.line("exit");
 }
 
 /// An agent adopted in a shell that stops reading its input, with a
@@ -537,7 +541,10 @@ fn a_follow_up_is_never_typed_for_a_holder_that_does_not_have_the_terminal() {
     };
     assert_eq!(
         call::ShimHold::args(request.args).unwrap(),
-        ShimHold { hold: true }
+        ShimHold {
+            hold: true,
+            stop: false
+        }
     );
     holder
         .send(&call::ShimHold::reply(request.id, Ok(())))

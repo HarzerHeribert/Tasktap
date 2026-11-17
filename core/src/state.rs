@@ -193,6 +193,9 @@ pub enum Effect {
         session: SessionId,
         terminal: Option<TerminalId>,
     },
+    /// End the agent of an adopted session through the shim that adopted
+    /// it, which ends its own child and never the person's shell.
+    StopAdopted(SessionId),
     /// Keep or discard the thought's worktree; report with [`Event::Settled`].
     Settle {
         attempt: AttemptId,
@@ -1409,11 +1412,14 @@ impl Machine<'_, '_> {
     fn stop(&mut self, mut t: Thought, session: Option<Session>) -> Result<()> {
         if let Some(s) = session.filter(|s| s.state != S::Ended) {
             let id = s.id;
-            self.effects.push(Effect::Kill {
-                session: id,
-                // An adopted agent's terminal runs the person's shell, which
-                // stopping the agent must not end.
-                terminal: s.terminal_id.filter(|_| !s.adopted),
+            // An adopted agent's terminal runs the person's shell, which
+            // stopping the agent must not end: its shim ends the agent.
+            self.effects.push(match s.adopted {
+                true => Effect::StopAdopted(id),
+                false => Effect::Kill {
+                    session: id,
+                    terminal: s.terminal_id,
+                },
             });
             self.end(s, None, None)?;
             // Follow-ups waiting in the same process are stopped with it.

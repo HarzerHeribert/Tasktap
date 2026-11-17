@@ -837,6 +837,18 @@ impl Screen {
         plain(&self.bytes)
     }
 
+    /// Reads until the bytes received hold `what` and something after it.
+    pub fn until_after(&mut self, what: &[u8]) {
+        let after = |bytes: &[u8]| {
+            let at = bytes.windows(what.len()).position(|w| w == what);
+            at.is_some_and(|at| bytes.len() > at + what.len())
+        };
+        while !after(&self.bytes) {
+            let gone = self.closed || !self.pump();
+            assert!(!gone, "it ended before {what:?}: {:?}", self.text());
+        }
+    }
+
     /// Reads until the bytes received hold `what`, escapes and all.
     pub fn until_bytes(&mut self, what: &[u8]) {
         while !self.bytes.windows(what.len()).any(|w| w == what) {

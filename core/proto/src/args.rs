@@ -345,11 +345,14 @@ pub struct AgentHealth {
 /// it types a follow-up into the shell's terminal (design §7). With `hold` the
 /// shim confirms its agent runs in the foreground and keeps the terminal
 /// until a call without it, sent once the text is written; a shim whose agent
-/// has ended answers `gone`.
+/// has ended answers `gone`. With `stop` the shim ends its agent, as
+/// `thought.stop` stops a run, and never the shell it runs in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct ShimHold {
     pub hold: bool,
+    #[serde(default)]
+    pub stop: bool,
 }
 
 /// `question.withdraw` and `question.received`: the asker names its question

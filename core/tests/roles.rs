@@ -720,11 +720,14 @@ fn a_shim_killed_ends_its_session_and_stopping_one_never_ends_the_shell() {
     let f = sh.follow_up(session.id, "and the docs");
     assert!(soon(|| sh.s.log().delivered.contains(&f)));
     sh.s.w.ok::<call::ThoughtStop>(&Ref { id: f });
+    // No terminal is stopped: the shim ends its agent, which waited to read
+    // a line, and then itself, with the agent's end.
     let log = sh.s.log();
     assert!(log.killed.is_empty(), "{:?}", log.killed);
     sh.ended(session.id);
-    child.stdin.as_ref().unwrap().write_all(b"bye\n").unwrap();
-    assert!(child.wait_with_output().unwrap().status.success());
+    let out = child.wait_with_output().unwrap();
+    assert!(!out.status.success(), "{out:?}");
+    assert!(!text(&out.stdout).contains("read:"), "{out:?}");
 }
 
 #[test]
@@ -822,7 +825,10 @@ fn a_follow_up_the_shim_cannot_hold_for_fails_and_is_never_typed() {
     assert_eq!(request.name, "shim.hold");
     assert_eq!(
         call::ShimHold::args(request.args).unwrap(),
-        ShimHold { hold: true }
+        ShimHold {
+            hold: true,
+            stop: false
+        }
     );
     let gone = tasktap_proto::Error::new(Code::Gone, "the agent has exited");
     shim.send(&call::ShimHold::reply(request.id, Err(gone)))

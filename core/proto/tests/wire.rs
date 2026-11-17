@@ -379,8 +379,8 @@ fn every_call_round_trips() {
     };
     round_trip::<call::CoreStatus>(Empty {}, status, seen);
     round_trip::<call::CoreRetire>(Retire { when: When::Now }, (), seen);
-    for hold in [true, false] {
-        round_trip::<call::ShimHold>(ShimHold { hold }, (), seen);
+    for (hold, stop) in [(true, false), (false, false), (false, true)] {
+        round_trip::<call::ShimHold>(ShimHold { hold, stop }, (), seen);
     }
     let fixture = FixtureStream {
         credit: 7,

@@ -6,8 +6,9 @@
 import { getVersion } from '@tauri-apps/api/app';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import type { MotionAmbient, MotionPalette, MotionStyle } from '../../../core/proto/protocol.ts';
+import type { MotionAmbient, MotionPalette, MotionStyle, Shortcut, TextSize } from '../../../core/proto/protocol.ts';
 import { routing } from '../capture.tsx';
+import { recorder, talkKey } from '../keys.ts';
 import { setVoice } from '../motion/engine.ts';
 import { Motion, lookOf } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
@@ -17,8 +18,8 @@ import { Voice } from '../motion/voice.ts';
 import { I, Key, Ring } from '../ui.tsx';
 import { placing } from '../way.ts';
 import { Speech, Thoughts, serviceName } from './consent.tsx';
-import { Choice, Row, Switch, setPref } from './form.tsx';
-import { LOOSE, agent, agentName, dismiss, focus, loadTerms, newTerminal, openQuestions, placers, pref, records, redraw, ui } from './model.ts';
+import { Choice, Recorder, Row, Switch, setPref } from './form.tsx';
+import { LOOSE, agent, agentName, call, dismiss, focus, loadTerms, newTerminal, openQuestions, placers, pref, records, redraw, ui } from './model.ts';
 
 export const SECTIONS = [['thoughts', 'Thoughts'], ['voice', 'Voice'], ['agents', 'Agents'], ['appearance', 'Appearance'], ['terminal', 'Terminal'], ['about', 'About']] as const;
 export type Section = (typeof SECTIONS)[number][0];
@@ -39,6 +40,16 @@ const holds: [number, string][] = [[0, 'At once'], [3, 'After 3 s'], [5, 'After 
 const sizes: [number, string][] = [12, 14, 15, 16, 18].map((n) => [n, String(n)]);
 const heights: [number, string][] = [[100, '1.0'], [110, '1.1'], [120, '1.2'], [130, '1.3']];
 const FONTS = ['Hack Nerd Font Mono', 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Menlo'];
+const returns: [boolean, string][] = [[true, 'Sends it'], [false, 'Starts a new line']];
+const keeps: [number, string][] = [[0, 'For ever'], [30, '30 days'], [90, '90 days'], [365, 'A year']];
+const texts: [TextSize, string][] = [['small', 'Small'], ['default', 'Default'], ['large', 'Large']];
+
+/** The capture key as the host has it: the one the system registered, which is not the stored one when the system
+ *  refused that at start. Asked for when the section is shown, and told by every change made here. */
+let capture: Shortcut | null | undefined;
+const askCapture = () => call('host.capture_key', {}).then((r) => ((capture = r.key), redraw()), () => {});
+const setCapture = (key: Shortcut | null) => call('host.capture_key', { key }).then((r) => ((capture = r.key), redraw()));
+const same = (a: Shortcut | null, b: Shortcut | null) => JSON.stringify(a && [a.control, a.alt, a.shift, a.meta, a.code]) === JSON.stringify(b && [b.control, b.alt, b.shift, b.meta, b.code]);
 
 // The microphone, only between the person's two clicks and only while Appearance is shown. Nothing is recorded.
 let trial: Voice | null = null;
@@ -78,13 +89,40 @@ async function toggleTrial() {
 /** What happens to a thought once it is sent: when it starts, and how it finds its folder. */
 function ThoughtsPane() {
   const hold = records.prefs.get('hold');
+  const sends = pref('return_sends'), days = pref('keep_days'), stored = pref('capture_key');
+  useEffect(() => void askCapture(), []);
+  // The stored key is not the one in use: the system refused it when the app started.
+  const lost = capture !== undefined && stored && !same(stored, capture);
   return (
     <>
       <Row name="A sent thought starts" hint="Until it starts, Undo takes it back.">
         <Choice name="A sent thought starts" value={hold?.id === 'hold' ? hold.value : 5} all={holds} set={(v) => setPref({ id: 'hold', patch: v })} />
       </Row>
       <Thoughts />
-      <Row name="From any app" hint="Opens the notch for a thought, whatever is in front."><Key k="⌃⌥Space" cap /></Row>
+      <Row name="Return in a thought" hint={sends ? 'Shift-Return starts a new line.' : 'Command-Return sends it.'}>
+        <Choice name="Return in a thought" value={sends} all={returns} set={(v) => setPref({ id: 'return_sends', patch: v })} />
+      </Row>
+      <Row name="From any app" hint={lost ? `The key you chose is taken by the system or another app${capture ? ', so the one shown is in use' : ', so no key is in use'}. Choose another, or use the default.`
+        : 'Opens the notch for a thought, whatever is in front.'}>
+        {capture !== undefined && <Recorder name="From any app" value={capture} own={!!stored} set={setCapture} />}
+      </Row>
+      <Row name="Finished thoughts are kept" hint={days ? 'Applies from the next start, or within a day. Nothing that waits for you is ever removed.' : undefined}>
+        <Choice name="Finished thoughts are kept" value={days} all={keeps.some(([n]) => n === days) ? keeps : [...keeps, [days, `${days} days`]]} set={(v) => setPref({ id: 'keep_days', patch: v })} />
+      </Row>
+    </>
+  );
+}
+
+/** How voice becomes text (consent.tsx), and the key held to talk: stored as the preference it is, which the core
+ *  holds to the rule of a shortcut. */
+function VoicePane() {
+  const setTalk = (key: Shortcut | null) => (key ? call('put', { c: 'prefs', id: 'talk_key', patch: key }) : call('delete', { c: 'prefs', id: 'talk_key' }));
+  return (
+    <>
+      <Speech />
+      <Row name="Hold to talk" hint="Held in a thought or a reply. Letting go ends it.">
+        <Recorder name="Hold to talk" value={talkKey()} own={!!pref('talk_key')} set={setTalk} />
+      </Row>
     </>
   );
 }
@@ -134,6 +172,9 @@ function AppearancePane() {
   useEffect(() => () => void (trial && stopTrial()), []);
   return (
     <>
+      <Row name="Text size" hint="Of everything but a terminal, which has its own.">
+        <Choice name="Text size" value={pref('text_size')} all={texts} set={(v) => setPref({ id: 'text_size', patch: v })} />
+      </Row>
       {/* As Home shows it: drawn at full size, never as a small thumbnail, where the metal stops reading as metal. */}
       <Motion class="preview" look={look} state={state} pace="calm" />
       <Row name="Form"><Choice name="Form" value={look.style} all={styles} set={(v) => setPref({ id: 'motion_style', patch: v })} /></Row>
@@ -177,6 +218,12 @@ function TerminalPane() {
       </Row>
       <Row name="Size"><Choice name="Size" value={pref('terminal_size')} all={sizes} set={(v) => setPref({ id: 'terminal_size', patch: v })} /></Row>
       <Row name="Line height"><Choice name="Line height" value={pref('terminal_line_height')} all={heights} set={(v) => setPref({ id: 'terminal_line_height', patch: v })} /></Row>
+      <Row name="Bold text in bright colours" hint="As most terminals draw it. Off, bold text keeps the colour its program gave it.">
+        <Switch on={pref('terminal_bold_bright')} name="Bold text in bright colours" set={(on) => setPref({ id: 'terminal_bold_bright', patch: on })} />
+      </Row>
+      <Row name="Keep text readable" hint="A colour too close to what is behind it is lifted until it reads. Off, every colour is exactly what its program asked for.">
+        <Switch on={pref('terminal_contrast')} name="Keep text readable" set={(on) => setPref({ id: 'terminal_contrast', patch: on })} />
+      </Row>
     </>
   );
 }
@@ -232,7 +279,7 @@ function AboutPane() {
 }
 
 const PANES: Record<Section, () => ComponentChildren> = {
-  thoughts: () => <ThoughtsPane />, voice: () => <Speech />, agents: () => <AgentsPane />, appearance: () => <AppearancePane />, terminal: () => <TerminalPane />, about: () => <AboutPane />,
+  thoughts: () => <ThoughtsPane />, voice: () => <VoicePane />, agents: () => <AgentsPane />, appearance: () => <AppearancePane />, terminal: () => <TerminalPane />, about: () => <AboutPane />,
 };
 
 export function Settings({ at }: { at: Section }) {
@@ -241,7 +288,8 @@ export function Settings({ at }: { at: Section }) {
   // A section by its key, ⌘1 to ⌘6, from anywhere in the sheet.
   useEffect(() => {
     const keys = (e: KeyboardEvent) => {
-      const to = e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey ? SECTIONS[Number(e.key) - 1] : undefined;
+      // While a key is recorded every combination is the recorder's.
+      const to = !recorder.on && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey ? SECTIONS[Number(e.key) - 1] : undefined;
       if (to) (e.preventDefault(), go(to[0]));
     };
     document.addEventListener('keydown', keys, true);

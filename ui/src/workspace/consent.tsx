@@ -9,6 +9,7 @@
 // it. Which of the two is in use is the `speech_by` preference alone: with it the service, without it this Mac.
 import { useEffect, useState } from 'preact/hooks';
 import { cap } from '../capture.tsx';
+import { keyName, talkKey } from '../keys.ts';
 import { type Local, local, model, watch } from '../speech/local.ts';
 import { I, Ring } from '../ui.tsx';
 import { placing } from '../way.ts';
@@ -181,8 +182,9 @@ export function Speech() {
     else if (where === 'local' && by && fetched) useLocal();
     else redraw();
   };
-  const hint = !here ? 'Hold ⌥Space in a thought or a reply, or hold the microphone. A recording is sent when you let go.'
-    : fetched ? 'Hold ⌥Space in a thought or a reply, or hold the microphone. What you say is turned into text on this Mac and sent nowhere.'
+  const hold = `Hold ${keyName(talkKey())} in a thought or a reply, or hold the microphone.`;
+  const hint = !here ? `${hold} A recording is sent when you let go.`
+    : fetched ? `${hold} What you say is turned into text on this Mac and sent nowhere.`
       : l?.supported ? `Downloaded once from huggingface.co and kept in Tasktap’s data folder. After that, what you say is turned into text on this Mac and sent nowhere.${by ? ` Until it is here, ${serviceName(by.server)} stays in use.` : ''}` : undefined;
   const names = languages.map((code) => LANGUAGES.find(([c]) => c === code)?.[1] ?? code);
   return (

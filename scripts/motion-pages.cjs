@@ -57,6 +57,10 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     callbacks.get(channel)({ index: index++, message: out.buffer });
   };
   const calls = [];
+  // The rule of a shortcut (core/proto Shortcut::refused), in small: what a scene needs of it.
+  const refused = (k) => (!/^(Key[A-Z]|Digit\d|F\d+|Space|Enter|Tab|Escape|Backspace|Delete|Arrow\w+|Minus|Equal|Comma|Period|Slash)$/.test(k.code) ? 'That is not a key a shortcut can end in'
+    : !(k.control || k.alt || k.meta) ? 'A shortcut needs Control, Option (Alt) or Command (the Windows key) held with its key'
+      : k.meta && !k.control && !k.alt && ['Space', 'Tab', 'KeyQ', 'KeyW', 'KeyL'].includes(k.code) ? 'The system keeps that combination for itself' : null);
   // What a dictation was heard as: it failed, its words are for a field, or it is its thought.
   const heardAs = (d, said) => {
     const row = (x, del) => push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', ...(del ? { del: [x.id] } : { put: [{ ...x, rev }] }) }] });
@@ -160,6 +164,8 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       push({ t: 'change', rev, snap: true, sets });
       return reply(id, { rev });
     }
+    // A key the rule of a shortcut refuses is refused in the core's sentence, and nothing is stored.
+    if (name === 'put' && args.c === 'prefs' && args.id === 'talk_key' && args.patch && refused(args.patch)) return toCore({ t: 'reply', id, err: { code: 'invalid', message: refused(args.patch) } });
     if (name === 'put' && args.c === 'prefs') {
       rev++;
       const row = { id: args.id, value: args.patch, rev };
@@ -194,7 +200,21 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
   };
   // The host's rule for `host.open`, in small: a web address, or a path `files` says exists; what was opened is kept.
   const opened = [];
+  // The capture key: the one registered (`capture`, the system's own unless the scene says another, or none), which a
+  // call changes unless the rule refuses the key or the scene says another app holds it (`taken`, by its code).
+  const usual = { control: true, alt: true, shift: false, meta: false, code: 'Space' };
+  let capture = records.capture === undefined ? ((records.prefs || []).find((p) => p.id === 'capture_key') || { value: usual }).value : records.capture;
   const hostValue = (name, a) => {
+    if (name === 'host.capture_key') {
+      if (a.key === undefined) return { key: capture };
+      const key = a.key || usual, why = refused(key) || ((records.taken || []).includes(key.code) && 'That key is taken by the system or another app');
+      if (why) throw why;
+      capture = key;
+      rev++;
+      records.prefs = (records.prefs || []).filter((p) => p.id !== 'capture_key').concat(a.key ? [{ id: 'capture_key', value: key, rev }] : []);
+      push({ t: 'change', rev, sets: [{ c: 'prefs', ...(a.key ? { put: [{ id: 'capture_key', value: key, rev }] } : { del: ['capture_key'] }) }] });
+      return { key };
+    }
     if (name !== 'host.open') return null;
     const real = /^https?:\/\/[^/\s]/i.test(a.target) ? a.target : (records.files || {})[a.target] || null;
     if (real && !a.probe) opened.push({ ...a, real });
@@ -233,7 +253,11 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
           wing = a.wing;
           if (geo) setTimeout(() => emit({ ...geo, width: tab }), 0);
         }
-        return JSON.stringify({ t: 'reply', id, ok: hostValue(name, a) });
+        try {
+          return JSON.stringify({ t: 'reply', id, ok: hostValue(name, a) });
+        } catch (message) {
+          return JSON.stringify({ t: 'reply', id, err: { code: 'unknown', message } });
+        }
       }
       if (cmd === 'plugin:event|listen') {
         const id = nextEvent++;
@@ -293,10 +317,19 @@ const TERMS = {
   },
 };
 
+/** The text size a check is run at (TEXT=small or large; the core's `text_size`), its scale from the token file, and
+ *  a role's size or line height at it, in whole pixels as the page rounds them. */
+const TEXT = process.env.TEXT || 'default';
+const SCALE = Number((new RegExp(`data-text=${TEXT}\\]\\{--ts:([\\d.]+)`).exec(fs.readFileSync(path.join(root, 'ui/src/tokens.css'), 'utf8')) || [0, 1])[1]);
+const scaled = (px) => Math.round(px * SCALE);
+
 // A page with the fake runtime, loaded, with `sub` answered from `records`.
 // `video`: Playwright's recordVideo for the context; `clock`: the page's clock held until the caller runs it.
+// TEXT gives every page that text size unless its records choose one; WIDTH, a workspace window that wide where the
+// caller names no size.
 async function open(browser, { label, records = {}, viewport, dpr = 2, url, video, clock, permissions }) {
-  const size = viewport || (label === 'notch' ? { width: 560, height: 520 } : { width: 1180, height: 760 });
+  const size = viewport || (label === 'notch' ? { width: 560, height: 520 } : { width: Number(process.env.WIDTH) || 1180, height: 760 });
+  if (TEXT !== 'default' && !(records.prefs || []).some((p) => p.id === 'text_size')) records = { ...records, prefs: [...(records.prefs || []), { id: 'text_size', value: TEXT, rev: 1 }] };
   const context = await browser.newContext({ viewport: size, deviceScaleFactor: dpr, ...(video ? { recordVideo: video } : {}), ...(permissions ? { permissions } : {}) });
   const page = await context.newPage();
   if (clock) await page.clock.install();
@@ -404,7 +437,7 @@ async function main(out) {
 /** Headless Chromium on the graphics card: the motion's checks time what the page does, and a software renderer's
  *  own time (a quarter of a second to build a program, milliseconds a frame) would be measured with it. */
 const GPU = ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'];
-module.exports = { serve, open, fixtures, GPU, scene: (...a) => require('./instrument-fixtures.cjs').scene(...a) };
+module.exports = { serve, open, fixtures, GPU, TEXT, scaled, scene: (...a) => require('./instrument-fixtures.cjs').scene(...a) };
 if (require.main === module) {
   if (!process.argv[2]) { console.error('usage: node scripts/motion-pages.cjs <outdir>'); process.exit(2); }
   main(path.resolve(process.argv[2])).catch((e) => { console.error(e); process.exit(1); });

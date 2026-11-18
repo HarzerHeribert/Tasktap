@@ -16,7 +16,7 @@ import { live, talk } from '../speech/record.ts';
 import { lookOf } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
 import { Mark, Wave } from '../ui.tsx';
-import { agentName, call, client, fail, onRedraw, openQuestions, page, records, redraw, settleFocus, title, ui } from './model.ts';
+import { agentName, call, client, fail, onRedraw, openQuestions, page, pref, records, redraw, settleFocus, title, ui } from './model.ts';
 import { fold, reveal } from './panel.ts';
 
 const body = document.body;
@@ -148,6 +148,7 @@ function App() {
   const motion = lookOf(records.prefs);
 
   useLayoutEffect(() => {
+    document.documentElement.dataset.text = pref('text_size');
     // The sheet's bottom sizes the panel and the black shape that grows out of the housing.
     const sheet = document.getElementById('sheet');
     if (open && sheet) {

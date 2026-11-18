@@ -12,6 +12,7 @@ import type { Capture as CaptureArgs, Dictation, DictationTarget, Route, Thought
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'preact/hooks';
 import { uuid7 } from './client.ts';
+import { keyName, talkKey } from './keys.ts';
 import { cancel, control, end, follow, mine, needs, place, setAim, talk, voiced } from './speech/record.ts';
 import { I, Key, Level, Mark, Ring, Wave, madeAt } from './ui.tsx';
 import { agent, agentName, call, fail, focus, openQuestions, page, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
@@ -491,7 +492,7 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
     <form class={`capture${raised ? ' raised' : ''}${cap.draft ? ' has' : ''}`} aria-busy={cap.sending > 0} onSubmit={(e) => send(e, hooks)}>
       <div class="cap" onPointerDown={(e) => e.target === e.currentTarget && (e.preventDefault(), focus('#capture-input'))}>
         {!raised && (hearing && d?.phase === 'recording' ? <Level n={13} l={d.level / 100} /> : <Wave n={13} live={!!cap.draft} />)}
-        <textarea id="capture-input" ref={area} rows={1} autocomplete="off" spellcheck={false} aria-label="New task" placeholder={said ? hears(d) : service && !raised ? 'Type, or hold ⌥Space and talk' : 'Put a thought in'}
+        <textarea id="capture-input" ref={area} rows={1} autocomplete="off" spellcheck={false} aria-label="New task" placeholder={said ? hears(d) : service && !raised ? `Type, or hold ${keyName(talkKey())} and talk` : 'Put a thought in'}
           value={cap.draft}
           onInput={(e) => {
             const first = !cap.draft.trim();
@@ -504,8 +505,9 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
             if (first) redraw();
           }}
           onKeyDown={(e) => {
-            // Return sends, once however long it is held; Shift-Return starts a new line.
-            if (e.key === 'Enter' && !e.isComposing && !e.shiftKey) e.repeat ? e.preventDefault() : void send(e, hooks);
+            // Return sends, once however long it is held, and Shift-Return starts a new line; or, as the person set it
+            // (`return_sends`), Return starts a new line and Command-Return sends (Control-Return off the Mac).
+            if (e.key === 'Enter' && !e.isComposing && (pref('return_sends') ? !e.shiftKey : e.metaKey || e.ctrlKey)) e.repeat ? e.preventDefault() : void send(e, hooks);
             else if (e.key === 'z' && e.metaKey && !cap.draft && (cap.sending || going().length || cap.sent?.to === 'later')) {
               e.preventDefault();
               void undo();
@@ -535,12 +537,12 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
             </button>
             <Rings hooks={hooks} session={session} />
             <button type="button" class="mic" data-off={!service || undefined} aria-label="Talk"
-              title={service ? 'Hold to talk, or hold ⌥Space. A click keeps it on until the next' : 'Voice needs setting up first'}
+              title={service ? `Hold to talk, or hold ${keyName(talkKey())}. A click keeps it on until the next` : 'Voice needs setting up first'}
               onPointerDown={(e) => control.down(e, area.current)} onClick={(e) => control.key(e, area.current)}>
-              <span><I n="mic" /></span><Key k="⌥Space" />
+              <span><I n="mic" /></span><Key k={keyName(talkKey())} />
             </button>
             <button type="submit" class={`key${raised ? ' lg' : ''}`} disabled={!has && !now && !busy} aria-busy={busy || undefined} title={now ? 'Start it now' : undefined}>
-              {busy ? <Mark s="working" label="" /> : <I n="ret" />}<span>{does}</span>
+              {busy ? <Mark s="working" label="" /> : <i class="sends">{!pref('return_sends') && '⌘'}<I n="ret" /></i>}<span>{does}</span>
             </button>
           </div>
         )}

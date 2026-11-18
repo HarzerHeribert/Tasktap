@@ -15,7 +15,7 @@
 // head row keeps equal insets and one centre line.
 // usage: node scripts/align-check.cjs   (exit status 1 on a failure; ui/dist must be built)
 const path = require('node:path');
-const { serve, open } = require('./motion-pages.cjs');
+const { serve, open, scaled } = require('./motion-pages.cjs');
 const { scene, flow } = require('./instrument-fixtures.cjs');
 
 // Lists: the rows that are siblings, and the parts of a row whose edges must agree.
@@ -70,18 +70,19 @@ function audit([LISTS, KEY]) {
       }
     }
   // An icon and its label, a key cap and its word, a wave and what it says: each pair on one centred line.
-  for (const [within, a, b] of [
+  // (A sheet's foot may wrap where it has no room for one line: its answer then stands a whole line under the rest.)
+  for (const [within, a, b, wraps] of [
     ['.mic', '.i', 'kbd'], ['.ring[aria-checked=true]', '.ring-o', '.nm'], ['.way-h', ':scope > .i, :scope > .st', ':scope > b'], ['.way-h', '.act kbd', '.act span'],
     ['.way-h', ':scope > b', ':scope > .btn span'], ['.cap-row.hear', '.lvl, .st', 'b'], ['.cap-row.hear', 'b', '.act span'], ['.ans', '.i', 'span'], ['.disc', '.i', 'span'],
     ['.cap-said', ':scope > span', '.btn'], ['.reply', '.lvl', 'input'], ['.line.tool', '.ring-o', '.t'],
-    ['.sh-f .act', 'kbd', 'span'], ['.sh-f .key', '.i', 'span'], ['.sh-f', '.act span', '.key span'], ['.newt', 'span', 'kbd'], ['.attach .lg', 'span', 'kbd'], ['.set', 'kbd.keycap', '.t'],
+    ['.sh-f .act', 'kbd', 'span'], ['.sh-f .key', '.i', 'span'], ['.sh-f', '.act span', '.key span', true], ['.newt', 'span', 'kbd'], ['.attach .lg', 'span', 'kbd'], ['.set', 'kbd.keycap', '.t'],
   ])
     for (const el of document.querySelectorAll(within)) {
       const [m, t] = [el.querySelector(a), el.querySelector(b)];
       if (!m || !t || !m.offsetParent || !t.offsetParent || box(t).height > 30) continue;
       seen.add(`${within} pairs`);
       const d = Math.abs(box(m).top + box(m).height / 2 - (box(t).top + box(t).height / 2));
-      if (d > 1.5) bad.push(`${within}: ${a} and ${b} are ${d.toFixed(1)} px off one line`);
+      if (d > 1.5 && !(wraps && box(t).top >= box(m).bottom)) bad.push(`${within}: ${a} and ${b} are ${d.toFixed(1)} px off one line`);
     }
   // What the person reads before a thought starts, and what a failure says, is whole: nothing in it is cut short.
   for (const el of document.querySelectorAll('.way-b, .way-w, .way-n, .way-h > b, .q-detail, .terms li, .terms p, .cap-said > span, #dest-chip b')) {
@@ -293,8 +294,8 @@ async function main() {
     ['normal', (w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'thoughts' }), 'plain'], ['normal', (w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'voice' }), 'plain'],
   ];
   // The key role, from the token file: no key is set smaller or lighter.
-  const [, weight, size] = /--f-key:(\d+) ([\d.]+)px\/[\d.]+px var\(--ui\)/.exec(require('node:fs').readFileSync(path.resolve(__dirname, '../ui/src/tokens.css'), 'utf8'));
-  const KEY = { size: Number(size), weight: Number(weight) };
+  const [, weight, size] = /--f-key:(\d+) round\(([\d.]+)px/.exec(require('node:fs').readFileSync(path.resolve(__dirname, '../ui/src/tokens.css'), 'utf8'));
+  const KEY = { size: scaled(Number(size)), weight: Number(weight) };
   // In the page: this page's dictation is the fixture's; and a thought typed into the Composer.
   const helpers = `const mine = (w, kind = 'thought', latched = false, field = '') => Object.assign(w.__speech.talk, { id: w.__fake.records.dictations[0].id, kind, latched, field: field ? w.document.querySelector(field) : null });
     const typeIn = (w, text) => (w.document.querySelector('#capture-input').focus(), w.document.execCommand('insertText', false, text));`;

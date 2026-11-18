@@ -4,7 +4,7 @@
 import type {
   AgentHealth, Calls, Change, Close, CloseWhy, Code, Collection, Control, Credit, Device, Dictation, Diff, Glance, Layout, Listening, Mark, Opened,
   Pref, Preview,
-  Project, Question, Session, SessionId, Set as RowSet, Terminal, Thought, TurnResult, Welcome,
+  Project, Question, Session, SessionId, Set as RowSet, Shortcut, Terminal, Thought, TurnResult, Welcome,
 } from '../../core/proto/protocol.ts';
 import { MAX_DATA, VERSION } from '../../core/proto/protocol.ts';
 
@@ -31,6 +31,11 @@ export type HostCalls = {
   'host.open': { args: { target: string; cwd?: string; reveal?: boolean; probe?: boolean }; result: string | null };
   /** Whether the Mac is in Low Power Mode; the host says when that changes (the `ui` event `power`). */
   'host.power': { args: Record<string, never>; result: boolean };
+  /** The capture key. With `key`, a shortcut or null for the system's own: the host asks the system for it and only
+   *  then stores the preference; refused, by the rule of a shortcut or because another app holds it, the error says
+   *  so and the old key goes on working. The reply, and the reply to a call with no `key`, is the key registered
+   *  now, or null when none is. */
+  'host.capture_key': { args: { key?: Shortcut | null }; result: { key: Shortcut | null } };
 };
 type AllCalls = { [K in keyof Calls]: { args: Calls[K]['args']; result: Calls[K]['result'] } } & HostCalls;
 export type Name = keyof AllCalls;

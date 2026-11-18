@@ -47,25 +47,28 @@
   --sheet-shadow:0 0 0 1px var(--line),0 30px 70px rgb(0 0 0/.7);
   /* type. One family at its normal width for everything said in words; the monospace face for figures, keys, counts
      and code only. Hierarchy is size, weight and colour. Each role is one size, weight, line height and letter
-     spacing, and nothing in either page sets a font outside these (scripts/type-check.cjs holds both pages to it). */
+     spacing, and nothing in either page sets a font outside these (scripts/type-check.cjs holds both pages to it).
+     --ts is the person's text size (the core's `text_size`: small, default, large): every role's size and line
+     height is its own times it, in whole pixels, and so is every measure that holds one line of text. */
+  --ts:1;
   --ui:system-ui,-apple-system,"Segoe UI Variable","Segoe UI",sans-serif;
   --mono:ui-monospace,"SF Mono",Menlo,"Cascadia Mono",Consolas,monospace;
-  --f-thought:400 20px/28px var(--ui);   /* the Composer's thought on Home */
-  --f-question:500 16px/22px var(--ui);  /* a question, wherever it is asked; the thought in the notch and the capture sheet; a find field */
-  --f-title:600 13px/18px var(--ui);     /* where you are: the window's and a sheet's title; and the word on a key and on the default answer */
-  --f-label:500 13px/18px var(--ui);     /* a row's label: a thought, a workspace, a setting */
-  --f-text:400 13px/18px var(--ui);      /* running text: a brief, an answer, a summary */
-  --f-small:400 12px/16px var(--ui);     /* secondary text: a session, a tab, a fact, a quiet button */
-  --f-section:600 11px/14px var(--ui);   /* a section's label: Workspaces, Running, Results, For later, Terminal */
-  --f-cap:400 11px/14px var(--ui);       /* fine print: a hint, the word over a brief */
-  --f-num:400 11px/14px var(--mono);     /* figures: times, counts, key hints, paths, a diffstat */
-  --f-key:500 12px/18px var(--ui);       /* a key, on a cap or as a hint beside a label: never smaller (ui.tsx Key) */
-  --f-code:400 12px/18px var(--mono);    /* code, and a shell's name */
+  --f-thought:400 round(20px*var(--ts),1px)/round(28px*var(--ts),1px) var(--ui);   /* the Composer's thought on Home */
+  --f-question:500 round(16px*var(--ts),1px)/round(22px*var(--ts),1px) var(--ui);  /* a question, wherever it is asked; the thought in the notch and the capture sheet; a find field */
+  --f-title:600 round(13px*var(--ts),1px)/round(18px*var(--ts),1px) var(--ui);     /* where you are: the window's and a sheet's title; and the word on a key and on the default answer */
+  --f-label:500 round(13px*var(--ts),1px)/round(18px*var(--ts),1px) var(--ui);     /* a row's label: a thought, a workspace, a setting */
+  --f-text:400 round(13px*var(--ts),1px)/round(18px*var(--ts),1px) var(--ui);      /* running text: a brief, an answer, a summary */
+  --f-small:400 round(12px*var(--ts),1px)/round(16px*var(--ts),1px) var(--ui);     /* secondary text: a session, a tab, a fact, a quiet button */
+  --f-section:600 round(11px*var(--ts),1px)/round(14px*var(--ts),1px) var(--ui);   /* a section's label: Workspaces, Running, Results, For later, Terminal */
+  --f-cap:400 round(11px*var(--ts),1px)/round(14px*var(--ts),1px) var(--ui);       /* fine print: a hint, the word over a brief */
+  --f-num:400 round(11px*var(--ts),1px)/round(14px*var(--ts),1px) var(--mono);     /* figures: times, counts, key hints, paths, a diffstat */
+  --f-key:500 round(12px*var(--ts),1px)/round(18px*var(--ts),1px) var(--ui);       /* a key, on a cap or as a hint beside a label: never smaller (ui.tsx Key) */
+  --f-code:400 round(12px*var(--ts),1px)/round(18px*var(--ts),1px) var(--mono);    /* code, and a shell's name */
   --f-term:400 13px/18px var(--mono);    /* a terminal's default; the person's terminal settings win */
   --ls-thought:-.014em; --ls-question:-.008em;  /* the two large roles are set a hair tighter; every other role at 0 */
   /* measure: a 4 px grid */
   --sp1:4px; --sp2:8px; --sp3:12px; --sp4:16px; --sp5:24px; --sp6:32px;
-  --side-w:224px; --bar-h:38px; --tab-h:30px; --row-h:28px; --rail-h:26px; --ctl-h:24px; --ctl-l:34px; --key-h:18px;
+  --side-w:224px; --bar-h:38px; --tab-h:30px; --row-h:28px; --rail-h:26px; --ctl-h:24px; --ctl-l:34px; --key-h:round(18px*var(--ts),1px);
   --fade:24px;         /* how far content dissolves at an edge it scrolls beyond */
   --home-w:1040px; --home-wide:1520px; --home-row:36px; --home-gutter:36px; --cap-w:720px;
   --notch-w:420px;
@@ -87,3 +90,5 @@
   --ease-slide:cubic-bezier(.4,0,.2,1);  /* the sidebar: it gathers way, then settles, so its whole travel is seen */
   color-scheme:dark;
 }
+:root[data-text=small]{--ts:.92}
+:root[data-text=large]{--ts:1.15}

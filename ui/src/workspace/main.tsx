@@ -225,10 +225,11 @@ function App() {
   useLayoutEffect(() => {
     document.documentElement.classList.toggle('narrow', ui.narrow);
     document.documentElement.dataset.effects = effects();
+    document.documentElement.dataset.text = pref('text_size');
     settleFocus();
   });
   // The terminals follow their preferences at once and as they change, from this window or another.
-  useLayoutEffect(loadLook, [pref('terminal_font'), pref('terminal_size'), pref('terminal_line_height')]);
+  useLayoutEffect(loadLook, [pref('terminal_font'), pref('terminal_size'), pref('terminal_line_height'), pref('terminal_bold_bright'), pref('terminal_contrast')]);
   // As it slides the sidebar's edge sheds its wake along its foot, where no row is. Opening, the wake lies on the
   // sidebar's own foot; closing, it lies where the sidebar was, which is the main panel's by then: behind Home's
   // rows, in its light, and not at all over a terminal, which is text from edge to edge.

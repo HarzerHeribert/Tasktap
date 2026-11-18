@@ -10,6 +10,9 @@ export type Look = {
   lineHeight: number;
   cursorStyle: 'block' | 'bar' | 'underline';
   cursorBlink: boolean;
+  /** Bold text in the bright colours; a colour lifted until it reads on what is behind it (the two preferences). */
+  boldBright: boolean;
+  contrast: boolean;
   padding: string;
   theme: TerminalTheme;
 };
@@ -32,7 +35,7 @@ export function look(): Look {
   const font = pref('terminal_font').trim(), height = pref('terminal_line_height');
   const blocks = height > 100 ? `"Blocks ${Math.min(130, Math.round(height / 10) * 10)}", ` : '';
   const family = blocks + (font ? `${JSON.stringify(font)}, "Symbols Nerd Font Mono", ${DEFAULT_FONT}` : DEFAULT_FONT);
-  return { fontFamily: family, fontSize: pref('terminal_size'), lineHeight: height / 100, cursorStyle: 'bar', cursorBlink: false, padding: '12px 14px', theme: { ...DEFAULT } };
+  return { fontFamily: family, fontSize: pref('terminal_size'), lineHeight: height / 100, cursorStyle: 'bar', cursorBlink: false, boldBright: pref('terminal_bold_bright'), contrast: pref('terminal_contrast'), padding: '12px 14px', theme: { ...DEFAULT } };
 }
 
 /** Puts a look on the terminals' surroundings: their background, text colour and padding. */
@@ -55,11 +58,11 @@ export function snap(family: string, size: number) {
 }
 
 /** What xterm.js takes from a look: its face at a size that fills whole pixels; the theme over a clear background, so
- *  the pane's own shows; and every colour a program asks for kept legible on whatever it is drawn over, as the
- *  system's own terminals and editors do (black text on a green badge stays readable). */
+ *  the pane's own shows; and, unless the person turned it off, every colour a program asks for kept legible on whatever
+ *  it is drawn over, as the system's own terminals and editors do (black text on a green badge stays readable). */
 export const terminalOptions = (l: Look, fontSize: number) => ({
   fontFamily: l.fontFamily, fontSize: snap(l.fontFamily, fontSize), lineHeight: l.lineHeight, cursorStyle: l.cursorStyle, cursorBlink: l.cursorBlink,
-  minimumContrastRatio: 4.5, theme: { ...l.theme, background: l.theme.background + '00' },
+  drawBoldTextInBrightColors: l.boldBright, minimumContrastRatio: l.contrast ? 4.5 : 1, theme: { ...l.theme, background: l.theme.background + '00' },
 });
 
 /** The face the terminals measure their cells with, loaded before the first one opens. Bold, italic and the symbols

@@ -1,5 +1,5 @@
 // Voice, recorded by the page so it is the same on every system (design §8, "What the recorder does"). The person holds
-// ⌥Space in the Composer or a reply field, or presses and holds the microphone control; a short click on the control
+// the talk key (⌥Space, or the `talk_key` preference) in the Composer or a reply field, or presses and holds the microphone control; a short click on the control
 // keeps it on until the next click or Return. The microphone is asked for then and never before, heard through an
 // audio worklet, turned into 16 kHz mono 16-bit samples (pcm.ts) and sent on the stream `dictation.start` opens, within
 // its credit. It is stopped at once on release, when the stream is closed by the core, on any error and when the page
@@ -16,6 +16,7 @@
 // in the field with nothing captured (`dictation.finish` with `as: "text"`).
 import type { DictationTarget } from '../../../core/proto/protocol.ts';
 import { type Stream, uuid7 } from '../client.ts';
+import { holds, isModifier, recorder, talkKey } from '../keys.ts';
 import { call, client, focus, pref, records, redraw } from '../page.ts';
 import { into } from '../way.ts';
 import { type Heard, feed, hear, local, model, ready, stop } from './local.ts';
@@ -331,7 +332,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'Enter' && ear && talk.latched) end();
   // E while a new thought records: its words go to the field instead. By the key's place, since ⌥ is held with it.
   else if (e.code === 'KeyE' && ear && talk.kind === 'thought' && !e.metaKey && !e.ctrlKey && !e.repeat && fieldNow()) end(true);
-  else if (e.code === 'Space' && e.altKey && !e.metaKey && !e.ctrlKey && fieldNow()) {
+  else if (!recorder.on && holds(e, talkKey()) && fieldNow()) {
     if (!e.repeat && !wait && !held && !busy) {
       const field = fieldNow();
       wait = window.setTimeout(() => {
@@ -345,8 +346,9 @@ document.addEventListener('keydown', (e) => {
   e.preventDefault();
   e.stopImmediatePropagation();
 }, true);
+// Letting go of the key or of any modifier held with it ends it: with Command held, a Mac never says the key came up.
 document.addEventListener('keyup', (e) => {
-  if (e.code !== 'Space' && e.key !== 'Alt') return;
+  if (e.code !== talkKey().code && !isModifier(e)) return;
   clearTimeout(wait);
   wait = 0;
   if (held) (held = false), end();

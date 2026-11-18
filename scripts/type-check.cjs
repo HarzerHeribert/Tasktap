@@ -7,15 +7,19 @@
 // usage: node scripts/type-check.cjs   (exit status 1 on a failure; ui/dist must be built)
 const fs = require('node:fs');
 const path = require('node:path');
-const { serve, open } = require('./motion-pages.cjs');
+const { serve, open, TEXT, scaled } = require('./motion-pages.cjs');
 const { scene, flow } = require('./instrument-fixtures.cjs');
 
-/** The roles, from the token file: name, face, size, weight and the letter spacing its role has, in pixels. */
+/** The roles, from the token file: name, face, size, weight and the letter spacing its role has, in pixels, at the
+ *  text size the check is run at (TEXT=small or large; WIDTH=one window width instead of 1180 and 720). */
 function roles() {
   const css = fs.readFileSync(path.resolve(__dirname, '../ui/src/tokens.css'), 'utf8');
   const spacing = Object.fromEntries([...css.matchAll(/--ls-([a-z]+):(-?[\d.]+)em/g)].map((m) => [m[1], Number(m[2])]));
-  return [...css.matchAll(/--f-([a-z]+):(\d+) ([\d.]+)px\/[\d.]+px var\(--(ui|mono)\);\s*\/\* ([^*]+)\*\//g)]
-    .map(([, name, weight, size, face, what]) => ({ name, face, size: Number(size), weight, spacing: Math.round((spacing[name] ?? 0) * Number(size) * 1000) / 1000, what: what.trim() }));
+  return [...css.matchAll(/--f-([a-z]+):(\d+) (round\()?([\d.]+)px[^/]*\/\S+ var\(--(ui|mono)\);\s*\/\* ([^*]+)\*\//g)]
+    .map(([, name, weight, scales, px, face, what]) => {
+      const size = scales ? scaled(Number(px)) : Number(px);
+      return { name, face, size, weight, spacing: Math.round((spacing[name] ?? 0) * size * 1000) / 1000, what: what.trim() };
+    });
 }
 
 // In the page: every element that shows text of its own, by what its font computes to.
@@ -74,7 +78,7 @@ async function main() {
   };
   try {
     for (const [state, act, kind, opts] of VIEWS)
-      for (const width of [1180, 720]) {
+      for (const width of process.env.WIDTH ? [Number(process.env.WIDTH)] : [1180, 720]) {
         const base = scene(state === 'first-folder' ? 'normal' : state);
         if (state === 'first-folder') Object.assign(base, { thoughts: [], sessions: [], terminals: [], questions: [], results: [], layouts: [] });
         const page = await open(browser, { label: 'workspace', records: kind ? flow(base, kind, opts) : base, url: server.url, dpr: 1, viewport: { width, height: 900 } });

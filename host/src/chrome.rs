@@ -11,7 +11,7 @@
 //!
 //! - **The caption buttons.** The page draws them, but a web view is a window of its own and
 //!   Windows never asks the frame what lies under the pointer there, so hovering the page's
-//!   Maximize would never open the Snap layouts. A child window with nothing to draw lies over
+//!   Maximize would never open the Snap layouts. A child window that draws nothing lies over
 //!   the three buttons and answers for them (`HTMINBUTTON`, `HTMAXBUTTON`, `HTCLOSE`), as
 //!   Windows Terminal's does over its own; what the pointer does there is told to the page,
 //!   which lights the button, and a click is carried out here.
@@ -33,18 +33,18 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{TrackMouseEvent, TME_LEAVE
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, GetClientRect, GetParent, GetWindowLongPtrW, GetWindowRect, IsZoomed,
-    PostMessageW, RegisterClassExW, SetLayeredWindowAttributes, SetWindowLongPtrW, SetWindowPos, CREATESTRUCTW,
-    GWLP_USERDATA, HTCLOSE, HTMAXBUTTON, HTMINBUTTON, HTTRANSPARENT, HWND_TOP, LWA_ALPHA, SC_CLOSE, SC_MAXIMIZE,
-    SC_MINIMIZE, SC_RESTORE, SM_CXPADDEDBORDER, SM_CYFRAME, SWP_NOACTIVATE, WM_CREATE, WM_NCDESTROY, WM_NCHITTEST,
-    WM_NCLBUTTONDBLCLK, WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE, WM_SIZE, WM_SYSCOMMAND,
-    WNDCLASSEXW, WS_CHILD, WS_EX_LAYERED, WS_EX_NOREDIRECTIONBITMAP, WS_VISIBLE,
+    PostMessageW, RegisterClassExW, SetWindowLongPtrW, SetWindowPos, CREATESTRUCTW, GWLP_USERDATA, HTCLOSE,
+    HTMAXBUTTON, HTMINBUTTON, HTTRANSPARENT, HWND_TOP, SC_CLOSE, SC_MAXIMIZE, SC_MINIMIZE, SC_RESTORE,
+    SM_CXPADDEDBORDER, SM_CYFRAME, SWP_NOACTIVATE, WM_CREATE, WM_NCDESTROY, WM_NCHITTEST, WM_NCLBUTTONDBLCLK,
+    WM_NCLBUTTONDOWN, WM_NCLBUTTONUP, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE, WM_SIZE, WM_SYSCOMMAND, WNDCLASSEXW, WS_CHILD,
+    WS_CLIPSIBLINGS, WS_VISIBLE,
 };
 
 /// The page's colours (ui/src/tokens.css `--bg`, `--line`, `--fg2`) as Windows writes one: blue, green, red.
 const GROUND: u32 = 0x000b_0a0a;
 const LINE: u32 = 0x0024_201f;
 const TEXT: u32 = 0x00aa_a4a3;
-/// A caption button as the page draws it (window.css `.caps`), in the page's own pixels: as wide as Windows 11's,
+/// A caption button as the page draws it (window.css `.wbs`), in the page's own pixels: as wide as Windows 11's,
 /// as high as the top row.
 const WIDE: i32 = 46;
 const HIGH: i32 = 38;
@@ -155,12 +155,13 @@ fn buttons(app: &AppHandle, frame: HWND) {
         class.lpszClassName = name.as_ptr();
         RegisterClassExW(&class);
         let data = Box::into_raw(Box::new(Buttons { app: app.clone(), over: 0, down: 0, tracked: false }));
-        // No surface of its own and nothing drawn: the page's buttons show through, and the pointer still meets it.
+        // It draws nothing, and the web view under it is drawn over whatever its siblings are: the page's buttons
+        // show, and the pointer meets this window first. (Tauri's resize border along the top edge is such a window.)
         let child = CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_NOREDIRECTIONBITMAP,
+            0,
             name.as_ptr(),
             name.as_ptr(),
-            WS_CHILD | WS_VISIBLE,
+            WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
             0,
             0,
             0,
@@ -177,7 +178,6 @@ fn buttons(app: &AppHandle, frame: HWND) {
             );
             return;
         }
-        SetLayeredWindowAttributes(child, 0, 255, LWA_ALPHA);
         place(frame, child);
         SetWindowSubclass(frame, Some(frame_proc), 1, child as usize);
         crate::log(json!({"event": "chrome", "buttons": true}));

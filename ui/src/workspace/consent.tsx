@@ -17,6 +17,7 @@ import { placing } from '../way.ts';
 import { agent, agentName, call, dismiss, fail, focus, loadTerms, open, placers, pref, records, redraw, terms } from './model.ts';
 import { Row } from './form.tsx';
 import { type Act, Frame } from './sheets.tsx';
+import { HERE, mac } from '../system.ts';
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -82,7 +83,7 @@ export function PlacingSheet({ back }: { back?: boolean }) {
             </div>
             <h3>What it is sent with each thought</h3>
             <ul class="sends">{t.sends.map((s) => <li>{s}</li>)}</ul>
-            <p>A short thought that names its folder is placed on this Mac and sent nowhere.</p>
+            <p>A short thought that names its folder is placed on {HERE} and sent nowhere.</p>
             <button type="button" class="disc" aria-expanded={reads} onClick={() => setReads(!reads)}><I n="chev" /><span>The instructions it follows</span></button>
             {reads && <pre class="instr" tabIndex={0}>{t.instructions}</pre>}
           </>
@@ -109,7 +110,7 @@ function Key({ server, value, onInput }: { server: string; value?: string; onInp
     return <><span class="v">A key is stored</span><button type="button" class="btn" onClick={() => void call('key.remove', { server }).catch(fail)}>Remove</button></>;
   return (
     <>
-      <input class="text" type="password" aria-label="Key" autocomplete="off" spellcheck={false} maxLength={512} placeholder={onInput ? 'Paste a key, if the service wants one' : 'Paste a key, then Return'}
+      <input class="text" type="password" aria-label="Key" autocomplete="off" spellcheck={false} maxLength={512} placeholder={onInput ? 'Paste a key, if the service wants one' : `Paste a key, then ${mac ? 'Return' : 'Enter'}`}
         value={value} onInput={(e) => (say(''), onInput?.(e.currentTarget.value))}
         onKeyDown={(e) => {
           if (e.key !== 'Enter' || onInput || !e.currentTarget.value.trim()) return;
@@ -138,7 +139,7 @@ function OnThisMac({ l, used }: { l: Local | null; used: boolean }) {
   const part = l.have > 0 && l.have < l.of;
   return (
     <>
-      {l.model === 'ready' && <><span class="v">{used ? 'Ready' : 'Ready, not in use'} · {MODEL} · {mb(l.of)} on this Mac</span><button type="button" class="btn" onClick={() => act('remove')}>Remove</button></>}
+      {l.model === 'ready' && <><span class="v">{used ? 'Ready' : 'Ready, not in use'} · {MODEL} · {mb(l.of)} on {HERE}</span><button type="button" class="btn" onClick={() => act('remove')}>Remove</button></>}
       {l.model === 'fetching' && (
         <>
           <span class="v" role="status">Downloading · {Math.floor((100 * l.have) / l.of)} % of {mb(l.of)}</span>
@@ -185,14 +186,14 @@ export function Speech() {
   };
   const hold = `Hold ${keyName(talkKey())} in a thought or a reply, or hold the microphone.`;
   const hint = !here ? `${hold} A recording is sent when you let go.`
-    : fetched ? `${hold} What you say is turned into text on this Mac and sent nowhere.`
-      : l?.supported ? `Downloaded once from huggingface.co and kept in Tasktap’s data folder. After that, what you say is turned into text on this Mac and sent nowhere.${by ? ` Until it is here, ${serviceName(by.server)} stays in use.` : ''}` : undefined;
+    : fetched ? `${hold} What you say is turned into text on ${HERE} and sent nowhere.`
+      : l?.supported ? `Downloaded once from huggingface.co and kept in Tasktap’s data folder. After that, what you say is turned into text on ${HERE} and sent nowhere.${by ? ` Until it is here, ${serviceName(by.server)} stays in use.` : ''}` : undefined;
   const names = languages.map((code) => LANGUAGES.find(([c]) => c === code)?.[1] ?? code);
   return (
     <>
       <Row name="Turned into text" hint={hint}>
         <div class="seg" role="radiogroup" aria-label="Turned into text">
-          <button type="button" role="radio" aria-checked={here} onClick={() => choose('local')}>On this Mac</button>
+          <button type="button" role="radio" aria-checked={here} onClick={() => choose('local')}>On {HERE}</button>
           <button type="button" role="radio" aria-checked={!here} onClick={() => choose('service')}>A speech service</button>
         </div>
         {here ? <OnThisMac l={l} used={!by} /> : <><span class="v">By {serviceName(by.server)} · {by.model}</span><button type="button" class="btn" onClick={() => open({ kind: 'speech' })}>Change…</button></>}

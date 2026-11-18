@@ -10,7 +10,7 @@ import type { MotionAmbient, MotionPalette, MotionStyle, Shortcut, TextSize } fr
 import { routing } from '../capture.tsx';
 import { hit, recorder } from '../keys.ts';
 import { talkKey } from '../page.ts';
-import { mac } from '../system.ts';
+import { HERE, mac } from '../system.ts';
 import { setVoice } from '../motion/engine.ts';
 import { Motion, lookOf } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
@@ -194,7 +194,7 @@ function AppearancePane() {
             onInput={(e) => setPref({ id: 'motion_hue', patch: Number(e.currentTarget.value) })} />
         )}
       </Row>
-      <Row name="Lumen" hint="Coloured light behind the form and a beam across it. The light behind the notch takes the same colours.">
+      <Row name="Lumen" hint={`Coloured light behind the form and a beam across it.${mac ? ' The light behind the notch takes the same colours.' : ''}`}>
         <Switch on={look.lumen} name="Lumen" set={(on) => setPref({ id: 'motion_lumen', patch: on })} />
       </Row>
       <Row name="Effects" hint="The light, the chrome and everything that moves by itself. Still keeps the picture and stops the motion; Off draws none of it, which takes the least power and memory. While Reduce Motion or Low Power Mode is on in System Settings, Full behaves as Still.">
@@ -257,24 +257,24 @@ function AboutPane() {
   return (
     <>
       <Row name="Tasktap Next"><span class="v">{version ? `Version ${version}` : 'This build has no version number'}</span></Row>
-      <h3>What leaves this Mac</h3>
-      <Row name="Your thoughts" hint={`Each goes to the agent that runs it${usual ? `, ${agentName(usual.id)} unless you pick another` : ''}, in a terminal on this Mac, under that agent's own sign-in.`}>
+      <h3>What leaves {HERE}</h3>
+      <Row name="Your thoughts" hint={`Each goes to the agent that runs it${usual ? `, ${agentName(usual.id)} unless you pick another` : ''}, in a terminal on ${HERE}, under that agent's own sign-in.`}>
         <span class="v">To the agent</span><To at="agents">Agents</To>
       </Row>
-      <Row name="Placing" hint={places ? `Each thought that names no folder, with the names of your folders and sessions, is read by ${agentName(by!.agent)}'s ${by!.model}.` : 'Thoughts are placed by name, on this Mac.'}>
+      <Row name="Placing" hint={places ? `Each thought that names no folder, with the names of your folders and sessions, is read by ${agentName(by!.agent)}'s ${by!.model}.` : `Thoughts are placed by name, on ${HERE}.`}>
         <span class="v">{places ? `To ${agentName(by!.agent)}` : 'Nothing'}</span><To at="thoughts">Thoughts</To>
       </Row>
-      <Row name="Voice" hint={speech ? 'Each recording, when you let go. Tasktap keeps none.' : hearsHere() ? 'What you say is turned into text on this Mac. Its model was downloaded once, from huggingface.co.' : 'Voice is not set up.'}>
+      <Row name="Voice" hint={speech ? 'Each recording, when you let go. Tasktap keeps none.' : hearsHere() ? `What you say is turned into text on ${HERE}. Its model was downloaded once, from huggingface.co.` : 'Voice is not set up.'}>
         <span class="v">{speech ? `To ${serviceName(speech.server)}` : 'Nothing'}</span><To at="voice">Voice</To>
       </Row>
       <Row name="Anything else" hint="Tasktap has no account and reports nothing about what you do."><span class="v">Nothing</span></Row>
-      <h3>Kept on this Mac</h3>
+      <h3>Kept on {HERE}</h3>
       <Row name="Thoughts and history" hint="With these settings, in Tasktap's own folder in your Library."><span class="v">In a file</span></Row>
       <Row name="A service's key" hint="Written once and never shown again."><span class="v">In the keychain</span></Row>
       <h3>Licences</h3>
       <Licence name="Hack" what="The terminal's font · MIT and Bitstream Vera" file="Hack-3.003-LICENSE.md" />
       <Licence name="Nerd Fonts symbols" what="Prompt symbols · MIT" file="NerdFonts-3.4.0-LICENSE.txt" />
-      <Licence name="Whisper" what="The model for speech on this Mac · MIT" file="Whisper-model-LICENSE.txt" />
+      <Licence name="Whisper" what={`The model for speech on ${HERE} · MIT`} file="Whisper-model-LICENSE.txt" />
       <Licence name="whisper.cpp" what="What runs that model · MIT" file="whisper.cpp-1.9.5-LICENSE.txt" />
       <Row name="Libraries" hint="Open source, under the MIT and Apache 2.0 licences; SQLite is in the public domain."><span class="v">xterm.js, Preact, Tauri, Tokio, SQLite</span></Row>
     </>

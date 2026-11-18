@@ -66,12 +66,12 @@ export function MenuButton({ run }: { run: Run }) {
 /** The caption buttons, as Windows 11 draws its own: hairline glyphs ten pixels across, Close red under the pointer. */
 export function Caps() {
   const cap = (what: Does, label: string, glyph: preact.JSX.Element) => (
-    <button type="button" class={`cap ${what}${caption.over === what ? ' over' : ''}${caption.down === what ? ' down' : ''}`} aria-label={label} onClick={() => windowDoes(what)}>
+    <button type="button" class={`wb ${what}${caption.over === what ? ' over' : ''}${caption.down === what ? ' down' : ''}`} aria-label={label} onClick={() => windowDoes(what)}>
       <svg viewBox="0 0 10 10" aria-hidden="true">{glyph}</svg>
     </button>
   );
   return (
-    <span class="caps" role="group" aria-label="Window">
+    <span class="wbs" role="group" aria-label="Window">
       {cap('minimize', 'Minimize', <path d="M0 5.5h10" />)}
       {cap('maximize', caption.max ? 'Restore' : 'Maximize', caption.max
         ? <><path d="M2.5 2.5V1.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1" /><rect x=".5" y="2.5" width="7" height="7" rx="1" /></>

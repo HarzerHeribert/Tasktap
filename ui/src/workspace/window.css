@@ -88,16 +88,16 @@ button.row:active{background:var(--sel)}
 :root.titled :is(.bar,.side-top) :is(button,input,a){app-region:no-drag}
 :root.windows .side-top{justify-content:space-between}
 :root.windows .bar .lead{justify-content:flex-start;gap:2px;width:auto;margin-left:calc(var(--sp2) - 14px);overflow:visible}
-.caps{display:flex;flex:none;align-self:stretch;margin:0 calc(-1*var(--sp2)) 0 auto}
-.bar-r~.caps{margin-left:var(--sp2)}
-.cap{display:grid;place-items:center;width:46px;color:var(--fg2);border-radius:0}
-.cap svg{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:1;overflow:visible}
-.cap:is(:hover,.over){background:rgb(255 255 255/.07);color:var(--fg)}
-.cap.down{background:rgb(255 255 255/.045)}
-.cap.close:is(:hover,.over){background:#c42b1c;color:#fff}
-.cap.close.down{background:#b3271b;color:rgb(255 255 255/.8)}
-.cap:focus-visible{outline-offset:-3px}
-:root.inactive .cap:not(:hover,.over){color:var(--fg3)}
+.wbs{display:flex;flex:none;align-self:stretch;margin:0 calc(-1*var(--sp2)) 0 auto}
+.bar-r~.wbs{margin-left:var(--sp2)}
+.wb{display:grid;place-items:center;width:46px;color:var(--fg2);border-radius:0}
+.wb svg{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:1;overflow:visible}
+.wb:is(:hover,.over){background:rgb(255 255 255/.07);color:var(--fg)}
+.wb.down{background:rgb(255 255 255/.045)}
+.wb.close:is(:hover,.over){background:#c42b1c;color:#fff}
+.wb.close.down{background:#b3271b;color:rgb(255 255 255/.8)}
+.wb:focus-visible{outline-offset:-3px}
+:root.inactive .wb:not(:hover,.over){color:var(--fg3)}
 
 /* ——— panes ——— */
 .deck{position:relative;min-width:0;min-height:0}

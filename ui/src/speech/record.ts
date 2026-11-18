@@ -23,6 +23,7 @@ import { into } from '../way.ts';
 import { type Heard, feed, hear, local, model, ready, stop } from './local.ts';
 import { Loud } from './loud.ts';
 import { BYTES, Pcm } from './pcm.ts';
+import { HERE } from '../system.ts';
 
 export type Field = HTMLTextAreaElement | HTMLInputElement;
 const FIELDS = '#capture-input, .reply input';
@@ -57,11 +58,11 @@ export const talk = {
 export const voiced = () => !!pref('speech_by') || ready();
 /** Why not, in words. */
 export const needs = () =>
-  local.now?.model === 'fetching' ? `Speech on this Mac is still downloading (${Math.floor((100 * local.now.have) / local.now.of)} %).` : 'Voice needs setting up first: on this Mac, or with a speech service.';
+  local.now?.model === 'fetching' ? `Speech on ${HERE} is still downloading (${Math.floor((100 * local.now.have) / local.now.of)} %).` : `Voice needs setting up first: on ${HERE}, or with a speech service.`;
 /** What the host says when its helper cannot write a dictation down. */
 const WHY: Record<string, string> = {
-  model: 'The speech model on this Mac is missing or damaged. Download it again in Settings, Speech.',
-  engine: 'Speech on this Mac could not start. Try again; if it keeps failing, choose a speech service in Settings, Speech.',
+  model: `The speech model on ${HERE} is missing or damaged. Download it again in Settings, Speech.`,
+  engine: `Speech on ${HERE} could not start. Try again; if it keeps failing, choose a speech service in Settings, Speech.`,
   busy: 'Another window is recording. Finish there first.',
 };
 

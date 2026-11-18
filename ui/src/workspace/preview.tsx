@@ -20,7 +20,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
 import { CallError, type Stream } from '../client.ts';
 import { I, Key } from '../ui.tsx';
-import { FILES, shownPath } from '../system.ts';
+import { FILES, HERE, shownPath } from '../system.ts';
 import * as L from './layout.ts';
 import { type Block, type Inline, parse } from './markdown.ts';
 import { type Item } from './menu.ts';
@@ -320,7 +320,7 @@ export function Preview({ p, project, select }: { p: Row; project: string; selec
       {stopped && framed && (
         <div class="strip" role="status">
           <p class="meta"><b>Stopped</b></p>
-          <p class="said">What is shown here asked for <b>{stopped}</b>, which is not on this Mac. A preview goes nowhere else.</p>
+          <p class="said">What is shown here asked for <b>{stopped}</b>, which is not on {HERE}. A preview goes nowhere else.</p>
           <div class="qa">{act('Open in Browser', () => (void call('host.open', { target: stopped }).catch(fail), stop('')))}{act('Dismiss', () => stop(''))}</div>
         </div>
       )}

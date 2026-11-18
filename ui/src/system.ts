@@ -17,3 +17,6 @@ export const titled = !mac && !(typeof location !== 'undefined' && new URLSearch
 
 /** Where the system shows a file among its neighbours. */
 export const FILES = mac ? 'Finder' : 'File Explorer';
+
+/** What a person calls the machine in front of them. */
+export const HERE = mac ? 'this Mac' : 'this PC';

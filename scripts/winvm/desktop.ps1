@@ -3,7 +3,7 @@
 # desktop.sh builds the app, starts this there and fetches what it wrote:
 #   <Out>\results.txt   one line per check
 #   <Out>\*.png         the app's own window (never the screen), where a picture is the evidence
-#   <Out>\*.txt         what the smoke script, the credential test and the app printed
+#   <Out>\*.txt         what the smoke script, the credential test and the app printed (rows4-12-app.txt, row13-app.txt)
 # -DryRun starts nothing and shows no window: it says what each row would do and checks that
 # what the round needs is there.
 param(
@@ -132,8 +132,8 @@ function Picture([IntPtr]$window) {
     $script:drawn = [Tasktap.Desk]::PrintWindow($window, $dc, 2)
     $graphics.ReleaseHdc($dc)
     $graphics.Dispose()
-    $seen = [Drawing.Rectangle]::FromLTRB([Math]::Max(0, $frame.Left - $rect.Left), [Math]::Max(0, $frame.Top - $rect.Top), [Math]::Min($whole.Width, $frame.Right - $rect.Left), [Math]::Min($whole.Height, $frame.Bottom - $rect.Top))
-    $bitmap = $whole.Clone($seen, $whole.PixelFormat)
+    $inner = [Drawing.Rectangle]::FromLTRB([Math]::Max(0, $frame.Left - $rect.Left), [Math]::Max(0, $frame.Top - $rect.Top), [Math]::Min($whole.Width, $frame.Right - $rect.Left), [Math]::Min($whole.Height, $frame.Bottom - $rect.Top))
+    $bitmap = $whole.Clone($inner, $whole.PixelFormat)
     $whole.Dispose()
     $bitmap
 }
@@ -388,7 +388,7 @@ $rows['10'] = 'In the same app, with its window in front and the pointer used on
     Check 10 'the window has no menu bar of the system''s' (-not [Tasktap.Desk]::Menu($workspace))
     Start-Sleep -Milliseconds 500
     Say 'LOOK' 10 'the window restored: one dark surface to its edges, round corners, no light caption, frame or border' (Capture $workspace 'row10-restored' -Screen)
-    # Where the page draws the three buttons (window.css .caps: 46 wide each, in a top row 38 high), and the middle of
+    # Where the page draws the three buttons (window.css .wbs: 46 wide each, in a top row 38 high), and the middle of
     # the top row, where nothing is pressed.
     $buttons = { $f = [Tasktap.Desk]::Frame($workspace); foreach ($i in 2, 1, 0) { , @(($f.Right - [int]((23 + 46 * $i) * $scale)), ($f.Top + [int](21 * $scale))) } }
     $bar = { $f = [Tasktap.Desk]::Frame($workspace); @([int]($f.Left + ($f.Right - $f.Left) * 0.55), ($f.Top + [int](21 * $scale))) }
@@ -410,7 +410,7 @@ $rows['10'] = 'In the same app, with its window in front and the pointer used on
         Start-Sleep -Milliseconds 150
         [Tasktap.Desk]::Point_($max[0], $max[1])
         Start-Sleep -Milliseconds 1600
-        $lit = Js "document.querySelector('.cap.maximize')?.className ?? 'no button'"
+        $lit = Js "document.querySelector('.wb.maximize')?.className ?? 'no button'"
         Check 10 'the page lights Maximize under the pointer' ("$lit" -match 'over') "the button's classes: $lit"
         $new = @([Tasktap.Desk]::Windows() | Where-Object { $_.Handle -notin $before })
         Check 10 'hovering Maximize opens the Snap layouts' ($new.Count -gt 0) "windows that appeared: $(($new | ForEach-Object { "$($_.Class) '$($_.Title)'" }) -join '; ')"
@@ -455,9 +455,10 @@ $rows['10'] = 'In the same app, with its window in front and the pointer used on
             [Tasktap.Desk]::Chord([byte[]]($key[1]))
             Start-Sleep -Milliseconds 900
             $opened = & $menus
+            & $escape
+            & $escape
+            # (Asked once the menu is closed: the page answers nothing while a menu of the system's is open.)
             $items = Js "__ws.menu.items.map(i => i === '-' ? '-' : 'items' in i ? i.text + ' (' + i.items.filter(x => x !== '-').map(x => x.text + (x.key ? ' ' + x.key : '')).join(', ') + ')' : i.text).join('; ')"
-            & $escape
-            & $escape
             Check 10 "$($key[0]) opens the app's menu, and Escape closes it" ($opened -gt 0 -and "$items" -match 'File' -and (& $menus) -eq 0) "menus open: $opened; its items: $items"
         }
         $min = (& $buttons)[0]
@@ -488,28 +489,28 @@ $rows['11'] = 'In the same app: reads every key hint and tooltip in the workspac
     $mac = '[\u2318\u2325\u2303\u21E7\u238B\u232B]'
     $hints = "[...new Set([...document.querySelectorAll('kbd')].map(e => e.textContent).concat([...document.querySelectorAll('[title]')].map(e => e.getAttribute('title')).filter(t => /  /.test(t)).map(t => t.split('  ').pop())))].join(' | ')"
     $project = Js "[...__ws.records.projects.values()].find(p => p.kind === 'folder')?.id ?? ''"
-    $seen = [ordered]@{}
+    $read = [ordered]@{}
     $null = Js "(__ws.show('$project'), 1)"
     Start-Sleep -Milliseconds 600
-    $seen['a workspace'] = Js $hints
+    $read['a workspace'] = Js $hints
     $path = Js "document.querySelector('.crumb .path')?.textContent ?? ''"
     Check 11 'the folder in the header is a path a person knows' ("$path" -match '^[A-Z]:\\' -and "$path" -notmatch '\?') $path
     $null = Js "(__ws.show('home'), 1)"
     Start-Sleep -Milliseconds 600
-    $seen['Home'] = Js $hints
+    $read['Home'] = Js $hints
     $null = Js "(__ws.command('new-task'), 1)"
     Start-Sleep -Milliseconds 700
-    $seen['New Task'] = Js $hints
+    $read['New Task'] = Js $hints
     $null = Js "(__ws.dismiss(), 1)"
     foreach ($section in 'thoughts', 'voice', 'agents', 'appearance', 'terminal', 'about') {
         $null = Js "(__ws.open({ kind: 'settings', at: '$section' }), 1)"
         Start-Sleep -Milliseconds 900
-        $seen["Settings, $section"] = Js $hints
+        $read["Settings, $section"] = Js $hints
         Say 'LOOK' 11 "Settings, $section" (Capture $workspace "row11-settings-$section")
     }
     $null = Js "(__ws.dismiss(), 1)"
-    $wrong = @($seen.Keys | Where-Object { "$($seen[$_])" -match $mac })
-    Check 11 'every key is named as Windows names it: none of the Mac''s signs anywhere' (-not $wrong -and $seen['a workspace']) (($seen.Keys | ForEach-Object { "${_}: $($seen[$_])" }) -join ' ;; ')
+    $wrong = @($read.Keys | Where-Object { "$($read[$_])" -match $mac })
+    Check 11 'every key is named as Windows names it: none of the Mac''s signs anywhere' (-not $wrong -and $read['a workspace']) (($read.Keys | ForEach-Object { "${_}: $($read[$_])" }) -join ' ;; ')
 }
 
 $rows['12'] = 'In the same app: makes the window larger with the terminal in front and expects the terminal, the core and the console to agree on the larger size, then makes it as it was; lets the backdrop through the page for one picture of the screen inside the window''s edges, to say what Mica is behind it.', {
@@ -552,6 +553,7 @@ $rows['+'] = 'Beyond the checklist: asks taskkill''s and tasklist''s service (Wi
 }
 
 $rows['13'] = 'Starts the app once more with the system''s own title bar in the page''s colours (TASKTAP_CHROME=native), for one picture to set beside the app''s own top row as the title bar; then tells it to quit.', {
+    if ($seen) { $seen | Set-Content "$Out\rows4-12-app.txt" }
     Start-App $exe @{ TASKTAP_DATA = "$tmp\data"; TASKTAP_PICK = "$tmp\project"; TASKTAP_CHROME = 'native' } 120
     $null = Until '"event":"ready"' 45
     $null = Soon 'typeof __ws' 'object'
@@ -641,7 +643,7 @@ try {
 } finally {
     if ($proc -and -not $proc.HasExited) { $proc.Kill($true) }
     Under $tmp | Stop-Process -Force -ErrorAction SilentlyContinue
-    if ($seen) { $seen | Set-Content "$Out\rows4-8-app.txt" }
+    if ($seen) { $seen | Set-Content "$Out\row13-app.txt" }
     Start-Sleep -Milliseconds 500
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     $lock.Dispose()

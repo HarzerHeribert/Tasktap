@@ -3,7 +3,7 @@
 // cost and each level's memory and picture, and the sub-pixel check inside the app's own web view. Each part is a
 // script of its own (cadence-check, flow-check, cost-check, subpixel-check) run with --app; its output is shown and
 // kept, with its recording, in the folder given. A part that finds its window covered says so and the run goes on.
-// usage: node scripts/measure-all.cjs <folder> [--front] [--exe file] [--only cadence,flow,cost,subpixel]
+// usage: node scripts/measure-all.cjs <folder> [--front] [--exe file] [--only cadence,flow,cost,subpixel] [--minutes 5]
 //   --front: each part puts the app's window in front of the other apps' for as long as it runs (nothing is typed,
 //   clicked or moved, and the keyboard stays where it is); without it the window opens behind the app in use, and a
 //   part whose window is covered measures nothing.
@@ -33,7 +33,8 @@ for (const hz of rates) {
   if (only.includes('cadence')) run(`cadence ${hz} Hz`, 'cadence-check.cjs', ['--app', ...exe, '--display', hz, '--keep', 36, '--json', path.join(out, `cadence-${hz}.json`)]);
   if (only.includes('flow')) run(`flow ${hz} Hz`, 'flow-check.cjs', ['--app', ...exe, '--display', hz, '--json', path.join(out, `flow-${hz}.json`)]);
 }
-if (only.includes('cost')) run('cost', 'cost-check.cjs', [...exe, '--json', path.join(out, 'cost.json'), '--shots', out]);
+// Each loop for five minutes, as the compositor carries it and as the page would draw it, and with keyframes further apart.
+if (only.includes('cost')) run('cost', 'cost-check.cjs', [...exe, '--minutes', arg('--minutes', '5'), '--steps', '0.8,1.2', '--json', path.join(out, 'cost.json'), '--shots', out]);
 if (only.includes('subpixel')) run('subpixel', 'subpixel-check.cjs', ['--app', ...exe, '--json', path.join(out, 'subpixel.json')]);
 console.log(`\n${failed ? `${failed} parts failed or could not be measured` : 'Every part passed'}; what each said, and its recording, is in ${out}`);
 process.exit(failed ? 1 : 0);

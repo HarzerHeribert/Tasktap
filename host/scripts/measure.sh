@@ -1,7 +1,7 @@
 #!/bin/bash
 # host/scripts/measure.sh [runs]: the cost of Tasktap Next, measured as the rebuild plan measured
 # 1.2's baseline: the workspace open on one idle shell terminal, the notch collapsed. Per run:
-# launch to the window on screen; top over 60 s (processor use, idle wakeups, context switches)
+# launch to the window on screen; top over 60 s (processor use, context switches; wakeups a second)
 # and physical footprint for the host, its WebKit processes and its core. In the first run, after
 # the idle measure: typing delay (30 keys) and a 1.3 MB burst in that terminal. Launches the built
 # app on a temporary data folder, passive (it never takes the keyboard) and driven by its debug
@@ -59,13 +59,17 @@ for run in $(seq 1 "${1:-3}"); do
   core=$(pgrep -f "$tmp/data/bin/" | head -1)
   pages=$(comm -13 <(echo "$before") <(webkit) | tr '\n' ' ')
   pids="$app $core $pages"
+  # Wakeups from the system's own count for each process, read at both ends (top's own column reads 0 between two samples).
+  swift "$root/scripts/usage.swift" $pids > "$tmp/used0" 2>/dev/null
   top -c d -l 2 -s 60 -stats pid,cpu,idlew,csw $(for p in $pids; do printf -- '-pid %s ' "$p"; done) > "$tmp/top" 2>/dev/null
+  swift "$root/scripts/usage.swift" $pids > "$tmp/used1" 2>/dev/null
   echo "== run $run: launch to window $window ms"
   printf '%-34s %8s %8s %8s %10s\n' process cpu% idlew csw footprint
   total=0 cpus=0 wakes=0
   for p in $pids; do
     name=$(basename "$(ps -o comm= -p "$p")")
     read -r cpu idlew csw < <(awk -v p="$p" '$1 == p { r = $2 " " $3 " " $4 } END { print r }' "$tmp/top")
+    idlew=$(python3 -c 'import json,sys; a,b=(json.load(open(f)) for f in sys.argv[1:3]); p=sys.argv[3]; print(round((b.get(p,{}).get("wakeups",0)-a.get(p,{}).get("wakeups",0))/60))' "$tmp/used0" "$tmp/used1" "$p" 2>/dev/null)
     fp=$(footprint "$p" 2>/dev/null | awk '/phys_footprint:/ { print ($3 == "KB" ? $2 / 1024 : $3 == "GB" ? $2 * 1024 : $2); exit }')
     total=$(echo "$total + ${fp:-0}" | bc)
     cpus=$(echo "$cpus + ${cpu:-0}" | bc)

@@ -145,22 +145,48 @@ async function launch({ exe = RELEASE, fixture = false, env = {}, display = 0, p
     try { core = execFileSync('pgrep', ['-f', `${tmp}/data/bin/`], { encoding: 'utf8' }).split('\n').filter(Boolean); } catch {}
     return [String(child.pid), ...core.slice(0, 1), ...webkit().filter((p) => !before.includes(p))];
   };
-  /** Processor use (percent of one core) and idle wakeups a second of the app's processes together over `seconds`,
-   *  and the window compositor's processor use beside them (it draws the rest of the screen too). */
-  const cost = async (seconds) => {
-    const own = pids();
+  /** What each of the app's processes is: the host, its core, and its web views' processes by WebKit's names (the
+   *  pages are WebContent; GPU; Networking). */
+  const named = () => {
+    const out = {}, [hostPid, ...rest] = pids();
+    out[hostPid] = 'host';
+    for (const p of rest) {
+      let name = '';
+      try { name = execFileSync('ps', ['-o', 'comm=', '-p', p], { encoding: 'utf8' }).trim().split('/').pop().replace('com.apple.WebKit.', ''); } catch {}
+      out[p] = /tasktap$/.test(name) ? 'core' : name || 'gone';
+    }
+    return out;
+  };
+  /** What processes have used so far, as the system counts it (usage.swift). */
+  const used = (ids) => {
+    try { return JSON.parse(execFileSync('swift', [path.join(__dirname, 'usage.swift'), ...ids], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })); } catch { return {}; }
+  };
+  /** What the app's processes cost over `seconds`, together and each: processor time (percent of one core), the
+   *  share of it on the performance cores, instructions (millions a second: the work done, whichever cores did it
+   *  and however fast they ran), wakeups from idle a second, and power in mW; with `every`, the processor time of each
+   *  such stretch in turn, which shows a cost that grows; and the window compositor's processor time beside them (it
+   *  draws the rest of the screen too). The counts are the system's own for each process, read at both ends. */
+  const cost = async (seconds, every = 0) => {
+    const names = named(), own = Object.keys(names), read = () => ({ at: process.hrtime.bigint(), of: used(own) });
     let server = '';
     try { server = execFileSync('pgrep', ['-x', 'WindowServer'], { encoding: 'utf8' }).split('\n')[0]; } catch {}
-    const out = await new Promise((ok) => {
+    const beside = new Promise((ok) => {
+      if (!server) return ok(0);
       let text = '';
-      const top = spawn('top', ['-c', 'd', '-l', '2', '-s', String(seconds), '-stats', 'pid,cpu,idlew', ...[...own, server].filter(Boolean).flatMap((p) => ['-pid', p])]);
+      const top = spawn('top', ['-c', 'd', '-l', '2', '-s', String(seconds), '-stats', 'pid,cpu', '-pid', server]);
       top.stdout.on('data', (d) => (text += d));
-      top.on('close', () => ok(text));
+      top.on('close', () => ok(parseFloat((text.split('\n').filter((l) => /^\d+\s/.test(l)).pop() ?? '').trim().split(/\s+/)[1]) || 0));
     });
-    // The second sample is the interval's.
-    const rows = out.split('\n').filter((l) => /^\d+\s/.test(l)).map((l) => l.trim().split(/\s+/)), last = rows.slice(rows.length / 2);
-    const sum = (i, of) => last.filter((r) => of.includes(r[0])).reduce((a, r) => a + parseFloat(r[i].replace(/[^0-9.]/g, '') || 0), 0);
-    return { cpu: Math.round(sum(1, own) * 10) / 10, wakeups: Math.round(sum(2, own)), compositor: Math.round(sum(1, [server]) * 10) / 10 };
+    const samples = [read()];
+    for (let left = seconds; left > 0; left -= every || seconds) (await sleep(Math.min(every || seconds, left) * 1000), samples.push(read()));
+    const r1 = (x) => Math.round(x * 10) / 10;
+    const between = (a, b, ids) => {
+      const s = Number(b.at - a.at) / 1e9, d = (k) => ids.reduce((sum, p) => sum + Math.max(0, (b.of[p]?.[k] ?? 0) - (a.of[p]?.[k] ?? 0)), 0);
+      return { cpu: r1(d('cpu') / 1e7 / s), fast: Math.round((100 * d('fast')) / Math.max(1, d('cpu'))), instructions: Math.round(d('instructions') / 1e6 / s), wakeups: Math.round(d('wakeups') / s), mw: Math.round(d('energy') / 1e6 / s) };
+    };
+    const first = samples[0], last = samples[samples.length - 1], by = {};
+    for (const name of new Set(Object.values(names))) by[name] = between(first, last, own.filter((p) => names[p] === name));
+    return { ...between(first, last, own), by, series: samples.slice(1).map((x, i) => between(samples[i], x, own).cpu), compositor: r1(await beside) };
   };
   /** The app's memory: the physical footprint of its processes together, in MB. */
   const memory = () => Math.round(pids().reduce((a, p) => {

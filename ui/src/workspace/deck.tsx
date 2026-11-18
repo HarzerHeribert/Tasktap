@@ -11,7 +11,7 @@ import { placed } from '../way.ts';
 import * as L from './layout.ts';
 import { type Item, popup } from './menu.ts';
 import {
-  LOOSE, agentName, attach, closeTab, copy, cue, focusTerminal, keepInBackground, label, layout, newTerminal, open, paste, questionOf,
+  LOOSE, agentName, attach, closeTab, copy, cue, details, focusTerminal, keepInBackground, label, layout, newTerminal, open, paste, questionOf,
   readSoon, records, resultOf, sessionOf, setLayout, store, textSize, textSizeBy, thoughtOf, ui,
 } from './model.ts';
 import { engine, engines, flushFits, queueFit } from './terminal.ts';
@@ -33,6 +33,7 @@ function tabMenu(project: string, id: string): Item[] {
   const t = records.terminals.get(id);
   const several = L.panes(layout(project)).length > 1;
   return [
+    ...(sessionOf(id) ? [{ text: 'Session Details…', key: 'CmdOrCtrl+I', do: () => void details(id) }, '-' as const] : []),
     { text: 'Find…', key: 'CmdOrCtrl+F', do: () => open({ kind: 'find', id }) },
     { text: 'Copy', key: 'CmdOrCtrl+C', do: () => void copy(id), off: !engines.get(id)?.term.hasSelection() },
     { text: 'Paste', key: 'CmdOrCtrl+V', do: () => void paste(id) },

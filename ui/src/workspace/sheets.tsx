@@ -15,6 +15,7 @@ import {
 } from './model.ts';
 import { PlacingSheet, SpeechSheet } from './consent.tsx';
 import { wakeLook } from './light.tsx';
+import { SessionSheet } from './session.tsx';
 import { Settings } from './settings.tsx';
 
 /** A sheet replaced by another (Review, then Discard) is not dropped again. */
@@ -24,8 +25,9 @@ import { wake } from './wake.ts';
 
 export type Act = { k: string; label: string; do: () => void; kind?: 'primary' | 'danger' };
 
-/** The sheet's frame: title, words, and its choices as rows of key cap and label. */
-export function Frame({ title: name, children, acts = [], wide }: { title: ComponentChildren; children?: ComponentChildren; acts?: Act[]; wide?: 'list' | 'capture' | 'review' }) {
+/** The sheet's frame: title, words, and its choices as rows of key cap and label. `bare`: the choices have their keys,
+ *  and the sheet shows them itself. */
+export function Frame({ title: name, children, acts = [], wide, bare }: { title: ComponentChildren; children?: ComponentChildren; acts?: Act[]; wide?: 'list' | 'capture' | 'review'; bare?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const keys = (e: KeyboardEvent) => {
     const typing = (e.target as HTMLElement).matches('input, textarea');
@@ -40,7 +42,7 @@ export function Frame({ title: name, children, acts = [], wide }: { title: Compo
     <div class={`sheet${wide ? ' ' + wide : ''}`} role="dialog" aria-modal="true" aria-labelledby="sheet-title" ref={ref} tabIndex={-1} onKeyDown={keys}>
       <header><h2 id="sheet-title">{name}</h2>{wide && wide !== 'capture' && <kbd class="esc">esc</kbd>}</header>
       {children}
-      {acts.length > 0 && (
+      {acts.length > 0 && !bare && (
         <div class="acts">
           {acts.map((a) => <Answer cls="act" k={a.k} label={a.label} primary={a.kind === 'primary'} danger={a.kind === 'danger'} onClick={a.do} />)}
         </div>
@@ -246,6 +248,8 @@ function Body() {
     }
     case 'review':
       return <ReviewSheet id={d.thought} />;
+    case 'session':
+      return <SessionSheet id={d.id} />;
     case 'settle': {
       const t = records.thoughts.get(d.thought);
       if (!pending(t)) return <Frame title="Settled" acts={[{ k: 'esc', label: 'Close', do: dismiss }]}><p>{t?.workdir?.changes === 'kept' ? `Its changes are in ${t.workdir.destination ?? 'their branch'}.` : 'Its changes were discarded.'}</p></Frame>;

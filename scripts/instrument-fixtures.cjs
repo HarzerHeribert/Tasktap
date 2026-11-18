@@ -345,6 +345,28 @@ function flow(records, kind, { lang = 'en', long = false, voice = true, now = Da
     failed: () => dictation({ phase: 'failed', ago: 9000, error: 'The speech service did not answer within 90 s', text: '' }),
     'failed-heard': () => dictation({ phase: 'failed', ago: 9000, error: 'This project is closed', text }),
     'no-service': () => (records.prefs = records.prefs.filter((p) => !p.id.startsWith('speech') && p.id !== 'keys')),
+    // A session with a history: three turns in the session of the PDF export. The first has left the live set and is
+    // read from `history`: spoken, briefed and placed by a model. The second followed it up and was asked a question.
+    // The third is the scene's own, with changes waiting in its copy.
+    session: () => {
+      const { thought: last, session } = records.ids.pdf, s = records.sessions.find((x) => x.id === session), newest = records.thoughts.find((t) => t.id === last);
+      const HOUR = 3600000, turn = (ago, o) => ({ ...newest, id: uid(now, ago), rev: 30, workdir: null, read: true, status: 'done', phase: 'done', created: now - ago, updated: now - ago + 9 * 60000, ...o });
+      const first = turn(26 * HOUR, { source: 'voice', placed: 'model', route: { ...model, title: 'Export the cue sheet as PDF' },
+        text: 'so the stage manager wants the cue sheet on paper, um, as a PDF, from the File menu I guess, and a shortcut would be good, and it should not cut a cue in half at the bottom of a page',
+        brief: 'Export the cue sheet as a PDF from the File menu, with a keyboard shortcut. Never split a cue across two pages.' });
+      const second = turn(3 * HOUR, { text: 'Paginate the cues by scene instead of a fixed count, and keep the scene title with its first cue', brief: null, placed: 'follow_up', route: null });
+      Object.assign(newest, { text: 'Add the show name and the date to the footer of every page', brief: 'Add the show name and the date to the footer of every page', placed: 'picked' });
+      Object.assign(s, { turn: 3, name: 'Export the cue sheet as PDF', model: 'sonnet', cwd: newest.workdir ? newest.workdir.path : '/Users/example/projects/cuegrid' });
+      records.thoughts.push(second);
+      const q = { id: uid(now, 3 * HOUR - 4 * 60000), rev: 31, thought_id: second.id, session_id: session, turn: 2, source: 'agent', prompt: 'A scene with more than 28 cues does not fit one page. Split it across pages with the title repeated, or shrink the type for that scene?',
+        detail: null, places: null, reply_via: 'core', state: 'answered', kind: 'choice', choices: ['Split it and repeat the title', 'Shrink the type for that scene'],
+        answer: { device_id: null, created: now - 3 * HOUR + 6 * 60000, kind: 'choice', choice: 0, delivered: now - 3 * HOUR + 6 * 60000 } };
+      records.questions.push(q);
+      records.results.push({ id: uid(now, 3 * HOUR - 9 * 60000), rev: 32, thought_id: second.id, session_id: session, turn: 2, kind: 'answer', summary: 'Cues now paginate by scene. A long scene splits across pages and repeats its title with “continued”.' });
+      const result = records.results.find((r) => r.thought_id === last);
+      if (result) Object.assign(result, { summary: 'The footer of every page has the show name at the left and the date at the right. 4 files changed; the tests pass.' });
+      records.history = { thoughts: [first], questions: [], results: [{ id: uid(now, 26 * HOUR - 9 * 60000), rev: 29, thought_id: first.id, session_id: session, turn: 1, kind: 'answer', summary: 'Exports from the File menu and with ⌘E, 28 cues to a page.' }] };
+    },
   };
   kinds[kind]();
   return records;

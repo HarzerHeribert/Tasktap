@@ -30,7 +30,8 @@ export type Sheet =
   | { kind: 'agents' }
   | { kind: 'review'; thought: string }
   | { kind: 'settle'; thought: string; keep: boolean }
-  | { kind: 'send'; thought: string };
+  | { kind: 'send'; thought: string }
+  | { kind: 'session'; id: string };
 
 export const ui = {
   /** 'home', 'earlier', a project id, or LOOSE. */
@@ -319,6 +320,13 @@ export function focusSession(at: string) {
   show(project);
   focusTerminal(id);
   return true;
+}
+
+/** A session's details, from the session or its terminal. A terminal with no session, a plain shell, has none. */
+export function details(at: string | undefined) {
+  const s = records.sessions.get(at ?? '') ?? sessionOf(at ?? '');
+  if (s) open({ kind: 'session', id: s.id });
+  return !!s;
 }
 
 export function closeWorkspace(project: string) {

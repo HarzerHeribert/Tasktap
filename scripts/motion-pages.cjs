@@ -74,7 +74,8 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       setTimeout(() => (toStream(s, d.text), toCore({ t: 'close', s, why: 'done' })), 0);
       return;
     }
-    if (name === 'history') return reply(id, { thoughts: [], questions: [], results: [] });
+    // The history the scene has (`history`), as one page; then, or with none, the empty page that is its end.
+    if (name === 'history') return reply(id, (!args.before && records.history) || { thoughts: [], questions: [], results: [] });
     // What a model that places thoughts and a speech service are sent, as the core says it.
     if (name === 'route.terms') return reply(id, { ...terms.route, tools: records.tools || terms.route.tools });
     if (name === 'speech.terms') return reply(id, terms.speech);

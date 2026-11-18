@@ -28,7 +28,7 @@ const COUNT = () => {
 /** What the page holds now, and how its frames came over two seconds; and how evenly a glyph moved from frame to frame
  *  (the largest step it took, in the steps it usually takes: a motion that stops and starts takes a jump after a stall). */
 const SAMPLE = () => new Promise((done) => {
-  const c = window.__soak, at = [], from = performance.now(), drawn = window.__motion.stats.frames, glyph = document.querySelector('.spark .glyph.in .turn'), where = [];
+  const c = window.__soak, at = [], from = performance.now(), drawn = window.__motion.stats.frames + window.__motion.stats.keys, glyph = document.querySelector('.spark .glyph.in .turn'), where = [];
   const tick = (t) => {
     at.push(t);
     if (glyph) where.push(new DOMMatrix(getComputedStyle(glyph).transform).m13 * 100 + parseFloat(getComputedStyle(glyph).translate) || 0);
@@ -38,7 +38,7 @@ const SAMPLE = () => new Promise((done) => {
     done({
       elements: document.querySelectorAll('*').length, canvases: document.querySelectorAll('canvas').length, animations: document.getAnimations().length,
       timers: c.timers.size, callbacks: c.frames.size, webgl: Object.values(c.gl).reduce((a, b) => a + b, 0), heap: Math.round((performance.memory?.usedJSHeapSize ?? 0) / 1e5) / 10,
-      frame: Math.round((gaps[gaps.length >> 1] ?? 0) * 10) / 10, worst: Math.round((gaps[gaps.length - 1] ?? 0) * 10) / 10, drawn: (window.__motion.stats.frames - drawn) / 2,
+      frame: Math.round((gaps[gaps.length >> 1] ?? 0) * 10) / 10, worst: Math.round((gaps[gaps.length - 1] ?? 0) * 10) / 10, drawn: (window.__motion.stats.frames + window.__motion.stats.keys - drawn) / 2,
       jump: usual ? Math.round((Math.max(...steps) / usual) * 10) / 10 : 0,
     });
   };
@@ -69,8 +69,8 @@ async function main(seconds) {
       last = await page.evaluate(SAMPLE);
       console.log(`after ${String(Math.min(seconds, t + 45)).padEnd(4)} s  ${JSON.stringify(last)}`);
     }
-    const frames = await page.evaluate(() => window.__motion.stats.frames);
-    if (!first.animations || frames < seconds / 4) failures.push(`the ambient layer was not moving (${first.animations} animations, ${frames} frames of the band), so nothing was soaked`);
+    const frames = await page.evaluate(() => window.__motion.stats.frames + window.__motion.stats.keys);
+    if (!first.animations || frames < seconds / 4) failures.push(`the ambient layer was not moving (${first.animations} animations, ${frames} frames and keyframes of the band), so nothing was soaked`);
     for (const [k, room] of [['elements', 2], ['canvases', 1], ['animations', 4], ['timers', 2], ['callbacks', 2], ['webgl', 0]])
       if (last[k] > first[k] + room) failures.push(`${k} grew from ${first[k]} to ${last[k]}`);
     if (last.frame > first.frame * 1.25 + 2) failures.push(`a frame takes ${last.frame} ms where it took ${first.frame} ms`);

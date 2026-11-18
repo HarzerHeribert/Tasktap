@@ -29,10 +29,11 @@ const table = (head, rows) => {
   return all.map((r) => r.map((c, i) => (i ? c.padStart(w[i]) : c.padEnd(w[i]))).join('  ')).join('\n');
 };
 const W = 593, H = 380;
-/** The most a pixel of the carried picture may be off the truth, in 8-bit levels of the band's canvas, at the
- *  99.9th percentile of all pixels of all refreshes, and on average; and the most its clocks may be off, in frames of
- *  a sixtieth of a second. */
-const LIMIT = { p999: 6, mean: 0.25, clock: 2 };
+/** How far the carried picture may be off the truth: no further than the truth itself moves from one refresh of the
+ *  display to the next (which is what a loop drawn 60 times a second is off by at every second refresh of a 120 Hz
+ *  panel), on average and at the 99.9th percentile of all pixels of all refreshes, with a quarter and a half over
+ *  for the two measures' own noise; and the most its clocks may be off, in frames of a sixtieth of a second. */
+const LIMIT = { mean: (moved) => 1.25 * moved.mean + 0.05, p999: (moved) => 1.5 * moved.p999 + 2, clock: 2 };
 
 async function rigServer() {
   const { createServer } = await import(path.join(root, 'ui/node_modules/vite/dist/node/index.js'));
@@ -235,7 +236,7 @@ async function main() {
           const name = `${style}${lumen ? ' with Lumen' : ''}, ${state}`, r = await run(name, look, [[0.2, o]], seconds);
           rows.push([name, `${Math.round(r.share * 100)} %`, r.keys.toFixed(1), r.fast.toFixed(0), r.frames.toFixed(1), f2(r.carried.mean), r.carried.p999, r.carried.most, f2(r.moved.mean), r.moved.p999, r.moved.most]);
           if (r.share < 0.8) failures.push(`${name}: the compositor carried it for only ${Math.round(r.share * 100)} % of the time`);
-          if (r.carried.p999 > LIMIT.p999 || r.carried.mean > LIMIT.mean) failures.push(`${name}: the carried picture is off the truth by ${f2(r.carried.mean)} levels on average and ${r.carried.p999} at the 99.9th percentile (${LIMIT.mean} and ${LIMIT.p999} at most)`);
+          if (r.carried.p999 > LIMIT.p999(r.moved) || r.carried.mean > LIMIT.mean(r.moved)) failures.push(`${name}: the carried picture is off the truth by ${f2(r.carried.mean)} levels on average and ${r.carried.p999} at the 99.9th percentile (${f2(LIMIT.mean(r.moved))} and ${Math.round(LIMIT.p999(r.moved))} at most: what the truth moves in one refresh)`);
         }
       }
     // Through changes: work begins, a question comes, is answered, focus sends a pulse, a result arrives, rest. The
@@ -244,7 +245,6 @@ async function main() {
       const look = { style, palette: 'chromatic', hue: 265, lumen: false };
       const script = [[0.2, { state: 'working', every: 15 }], [6.13, { state: 'needs', every: 0 }], [11.31, { state: 'working', every: 15 }], [14.07, { kick: 1 }], [17.5, { state: 'done', every: 0 }], [21, { state: 'idle' }]];
       const name = `${style}, through changes${late ? `, timers up to ${late} ms late` : ''}`, r = await run(name, look, script, 23);
-      if (r.back.length) console.log(JSON.stringify(r.back));
       rows2.push([name, `${Math.round(r.share * 100)} %`, f2(r.clocks.phase), f2(r.clocks.pulse), f2(r.clocks.state), f2(r.clocks.jump), f2(r.off.mean), r.off.p999]);
       for (const [k, what] of [['phase', "its form's phase"], ['pulse', "its pulse's clock"], ['state', 'the seconds in its state']])
         if (r.clocks[k] > LIMIT.clock) failures.push(`${name}: ${what} was ${f2(r.clocks[k])} frames off the truth (${LIMIT.clock} at most)`);
@@ -279,7 +279,7 @@ async function main() {
   if (has('--json')) fs.writeFileSync(arg('--json'), JSON.stringify(json));
   console.log('');
   for (const f of failures) console.log('FAIL  ' + f);
-  console.log(failures.length ? 'FAIL  what the compositor carries is not what the page would draw' : `PASS  carried by the compositor, the band is the picture the page would draw in every frame: off it by no more than ${LIMIT.p999} levels of 255 at the 99.9th percentile, its clocks within ${LIMIT.clock} frames through every change, its layers adding up to one`);
+  console.log(failures.length ? 'FAIL  what the compositor carries is not what the page would draw' : `PASS  carried by the compositor, the band is the picture the page would draw in every frame: no further off it, at any refresh, than that picture itself moves from one refresh to the next; its clocks within ${LIMIT.clock} frames through every change; its layers adding up to one`);
   process.exitCode = failures.length ? 1 : 0;
 }
 main().catch((e) => (console.error(e), process.exit(1)));

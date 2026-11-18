@@ -74,7 +74,8 @@ function equivalence({ styles, states, sizes }) {
       const l = gl.getUniformLocation(prog, 'u_' + k);
       if (!l) continue;
       if (typeof v === 'number') gl.uniform1f(l, v);
-      else if (k === 'res' || k === 'org' || k === 'hole') gl.uniform2f(l, v[0], v[1]);
+      else if (k === 'hole') gl.uniform4f(l, v[0], v[1], 0, 1);
+      else if (k === 'res' || k === 'org') gl.uniform2f(l, v[0], v[1]);
       else if (k === 'p' || k === 'st') gl.uniform1fv(l, v);
       else if (v.length === 3) gl.uniform3fv(l, v);
       else gl.uniform4fv(l, v);
@@ -146,7 +147,7 @@ function timing({ styles, sizes }) {
     set('n', '1f', STYLES[id].n.hero); set('irid', '1f', 1); set('dim', '1f', .92); set('p', '1fv', STYLES[id].p[3]); set('st', '1fv', st);
     set('ta', '3fv', [.8, .9, 1]); set('tb', '3fv', [1, .82, .7]); set('lm', '4fv', [1, 2, .28, 0]); set('form', '1f', .8);
     set('holes', '4fv', new Float32Array(96).map((_, i) => (i % 4 === 0 ? 40 + 30 * (i >> 2) : i % 4 === 1 ? 60 : i % 4 === 2 ? 80 : 8)));
-    set('hole', '2f', 12, 24);
+    set('hole', '4f', 12, 24, 0, 1);
     for (const [name, w, h] of sizes) {
       gl.viewport(0, 0, w, h);
       set('res', '2f', w, h);

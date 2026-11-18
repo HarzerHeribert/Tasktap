@@ -22,49 +22,14 @@ $failed = 0
 function Pass($what) { Write-Host "PASS $what" }
 function Fail($what) { Write-Host "FAIL $what"; $script:failed++ }
 
-$start = [Diagnostics.ProcessStartInfo]::new((Join-Path $App 'Tasktap Next.exe'))
-$start.UseShellExecute = $false
-$start.RedirectStandardInput = $true
-$start.RedirectStandardOutput = $true
-$start.RedirectStandardError = $true
-$start.Environment['TASKTAP_DEBUG'] = '1'
-$start.Environment['TASKTAP_PASSIVE'] = '1'
-$start.Environment['TASKTAP_DATA'] = "$tmp\data"
-$start.Environment['TASKTAP_PICK'] = "$tmp\project"
-$start.Environment['TASKTAP_CORE_EXE'] = $Core
-$start.Environment['TASKTAP_CORE_BUILD'] = (Get-Content (Join-Path (Split-Path $Core -Parent) 'build.txt') -Raw).Trim()
-$lines = [Collections.Concurrent.ConcurrentQueue[string]]::new()
-$proc = [Diagnostics.Process]::new()
-$proc.StartInfo = $start
-$seen = [Collections.Generic.List[string]]::new()
-$null = Register-ObjectEvent $proc OutputDataReceived -MessageData $lines -Action { if ($EventArgs.Data) { $Event.MessageData.Enqueue($EventArgs.Data) } }
-$null = Register-ObjectEvent $proc ErrorDataReceived -MessageData $lines -Action { if ($EventArgs.Data) { $Event.MessageData.Enqueue("stderr: $($EventArgs.Data)") } }
-$null = $proc.Start()
-$proc.BeginOutputReadLine()
-$proc.BeginErrorReadLine()
-$deadline = (Get-Date).AddSeconds($Seconds)
-
-# The next line the app prints that matches, within the run's time; every line is kept.
-function Until($pattern, $seconds = 10) {
-    $until = (Get-Date).AddSeconds($seconds)
-    if ($until -gt $deadline) { $until = $deadline }
-    while ($true) {
-        $line = $null
-        while ($lines.TryDequeue([ref]$line)) {
-            $seen.Add($line)
-            if ($line -match $pattern) { return $line }
-        }
-        if ((Get-Date) -ge $until -or $proc.HasExited) { return $null }
-        Start-Sleep -Milliseconds 50
-    }
-}
-function Send($line) { $proc.StandardInput.WriteLine($line); $proc.StandardInput.Flush() }
-# The value of an expression in the workspace page, as text; $null when the page does not answer.
-function Js($expr, $seconds = 5) {
-    Send "eval workspace $expr"
-    $line = Until '"event":"report"' $seconds
-    if ($line) { (ConvertFrom-Json $line).data } else { $null }
-}
+. (Join-Path $PSScriptRoot 'app.ps1')
+Start-App (Join-Path $App 'Tasktap Next.exe') @{
+    TASKTAP_PASSIVE = '1'
+    TASKTAP_DATA = "$tmp\data"
+    TASKTAP_PICK = "$tmp\project"
+    TASKTAP_CORE_EXE = $Core
+    TASKTAP_CORE_BUILD = (Get-Content (Join-Path (Split-Path $Core -Parent) 'build.txt') -Raw).Trim()
+} $Seconds
 
 try {
     # The first start of the web view on a machine takes its time.

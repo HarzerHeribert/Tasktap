@@ -4,8 +4,9 @@
 //! - a web address, `http` or `https`: in the default browser;
 //! - something that exists inside a folder the person opened in Tasktap, or inside a copy of one
 //!   that Tasktap made for a run, after every link on the way to it is followed: a file of text
-//!   in the default text editor; anything else, any folder, and anything with `reveal`, shown in
-//!   Finder.
+//!   in the default text editor (on Windows in Notepad, which every Windows has and which runs
+//!   nothing); anything else, any folder, and anything with `reveal`, shown in Finder (on Windows
+//!   in File Explorer, selected).
 //!
 //! Everything else is refused in a sentence. Nothing is ever run: a file is opened as text or
 //! shown, never handed to the application that would launch it.
@@ -59,7 +60,7 @@ fn text(file: &Path) -> bool {
 /// reply is what was opened, and a refusal is the error. `quiet`: a check runs the app, so
 /// without an opener of the check's own (`TASKTAP_OPEN`) nothing leaves it.
 pub fn open(args: &Value, roots: &[PathBuf], quiet: bool) -> Result<Value, String> {
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
     let (probe, reveal) = (args["probe"].as_bool() == Some(true), args["reveal"].as_bool() == Some(true));
     let found =
         target(args["target"].as_str().unwrap_or_default(), args["cwd"].as_str(), reveal, roots, home.as_deref());
@@ -74,13 +75,56 @@ pub fn open(args: &Value, roots: &[PathBuf], quiet: bool) -> Result<Value, Strin
     };
     let opener = std::env::var_os("TASKTAP_OPEN");
     if !probe && (opener.is_some() || !quiet) {
-        let mut child = std::process::Command::new(opener.unwrap_or_else(|| "/usr/bin/open".into()))
-            .args([flag, &what])
-            .spawn()
-            .map_err(|e| format!("The system could not open it: {e}"))?;
+        let mut command = match opener {
+            Some(opener) => {
+                let mut command = std::process::Command::new(opener);
+                command.args([flag, &what]);
+                command
+            }
+            None => system(&found),
+        };
+        let mut child = command.spawn().map_err(|e| format!("The system could not open it: {e}"))?;
         std::thread::spawn(move || drop(child.wait()));
     }
     Ok(json!(what))
+}
+
+/// The system's own way to open each: `open` on a Mac.
+#[cfg(not(windows))]
+fn system(found: &Target) -> std::process::Command {
+    let mut command = std::process::Command::new("/usr/bin/open");
+    match found {
+        Target::Web(address) => command.args(["-u", address]),
+        Target::Text(path) => command.arg("-t").arg(path),
+        Target::Show(path) => command.arg("-R").arg(path),
+    };
+    command
+}
+
+/// On Windows, each by a program of the system's own that is given the target and runs nothing of it: a web
+/// address by the handler of web addresses, which is the default browser; a file of text by Notepad; anything
+/// shown by File Explorer, with it selected. Never the shell's "open", which would run a script or a program.
+#[cfg(windows)]
+fn system(found: &Target) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    match found {
+        Target::Web(address) => {
+            let mut command = std::process::Command::new("rundll32.exe");
+            command.args(["url.dll,FileProtocolHandler", address]);
+            command
+        }
+        Target::Text(path) => {
+            let mut command = std::process::Command::new("notepad.exe");
+            command.arg(path);
+            command
+        }
+        Target::Show(path) => {
+            let mut command = std::process::Command::new("explorer.exe");
+            // Explorer reads its own line: the path in quotes after the comma. A path of Windows holds no quote.
+            command.raw_arg(format!("/select,\"{}\"", path.display()));
+            command
+        }
+    }
 }
 
 #[cfg(test)]

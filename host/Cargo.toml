@@ -18,11 +18,20 @@ tauri-plugin-global-shortcut = "2"
 tasktap-proto = { path = "../core/proto" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# The notch panel, the folder panel and the pasteboard are AppKit's (src/native.rs).
+[target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = "0.3"
 objc2-app-kit = "0.3"
 # The mouse-moved monitors take a block; already in the tree through objc2-app-kit.
 block2 = "0.6"
+
+# The core's named pipe, read and written from two threads, its name and whose it is; the
+# clipboard and the power state (src/windows.rs). Both are in the tree already through Tauri.
+[target.'cfg(windows)'.dependencies]
+sha2 = "0.11"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_DataExchange", "Win32_System_IO", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_Power", "Win32_System_Threading"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

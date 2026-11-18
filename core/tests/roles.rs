@@ -448,10 +448,14 @@ impl Shell {
         let shims = shim::install(&data.0, Path::new(EXE)).unwrap();
         let real = data.0.join("real");
         std::fs::create_dir_all(&real).unwrap();
-        let agent = real
-            .join("fixture")
-            .with_extension(std::env::consts::EXE_EXTENSION);
-        std::fs::copy(EXE, agent).unwrap();
+        if as_batch_files() {
+            batch_file(&real, "fixture");
+        } else {
+            let agent = real
+                .join("fixture")
+                .with_extension(std::env::consts::EXE_EXTENSION);
+            std::fs::copy(EXE, agent).unwrap();
+        }
         let s = Scene::on(core, data);
         Shell { s, shims, real }
     }

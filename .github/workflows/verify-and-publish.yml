@@ -34,6 +34,14 @@ jobs:
         run: cargo fmt --check
       - name: Lint
         run: cargo clippy --all-targets -- -D warnings
+      # The core's terminals run in Microsoft's console when it lies beside the core, as in the
+      # app; the test of a line typed as output ends has nothing to test without it.
+      - name: Put Microsoft's console beside the core
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo build --quiet
+          ./scripts/conpty.ps1 -Target x86_64 -Into target/debug
       - name: Test
         run: cargo test --workspace
 

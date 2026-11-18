@@ -25,6 +25,14 @@ try {
     Write-Host "Testing $($Job.commit) on $env:CARGO_BUILD_TARGET"
     cargo fmt --check
     cargo clippy --all-targets -- -D warnings
+    # The core's terminals run in Microsoft's console when it lies beside the core (design §9).
+    # The build folder is shared with the runs of other commits, so it is taken away again below.
+    $beside = "$env:CARGO_TARGET_DIR\$env:CARGO_BUILD_TARGET\debug"
+    if (Test-Path scripts\conpty.ps1) {
+        cargo build --quiet
+        & .\scripts\conpty.ps1 -Target $Job.target -Into $beside -Cache "$checkout\core\target\conpty"
+    }
+    if ($Job.batch) { $env:TASKTAP_TEST_BATCH_AGENTS = '1' }
     $cargoArgs = @('test', '--workspace') + @($Job.args)
     if (-not $Job.repeat) {
         $PSNativeCommandUseErrorActionPreference = $false
@@ -51,5 +59,6 @@ try {
     Write-Host "$failures of $($Job.repeat) failed"
     exit [int]($failures -gt 0)
 } finally {
+    if ($beside) { Remove-Item "$beside\conpty.dll", "$beside\OpenConsole.exe" -ErrorAction SilentlyContinue }
     $lock.Dispose()
 }

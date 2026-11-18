@@ -45,6 +45,12 @@ const GROWN: usize = 64 << 10;
 /// for it: every grant is made while less than this is held, and no
 /// client ever has more than this granted and unwritten.
 pub const INPUT: u32 = 64 << 10;
+/// Answers to what the program asked its terminal that the core may have
+/// typed and the input thread not yet written (design §9, "Questions to
+/// the terminal"). A program asks five things as it starts, 77 bytes of
+/// answers, so this is a dozen such bursts; one that keeps asking and
+/// reads nothing is left unanswered beyond it, and holds no more memory.
+const ANSWERS: u32 = 1 << 10;
 /// Sizes remembered for the bytes in the ring. A client resizing faster
 /// than the terminal writes costs the oldest bytes, never more memory.
 const SIZES: usize = 1024;
@@ -61,6 +67,8 @@ pub struct Term {
     readers: Vec<Reader>,
     /// Bytes of input handed to the input thread and not yet written.
     queued: u32,
+    /// How many of them are the core's answers to what the program asked.
+    answering: u32,
     input: Option<plain::Sender<Input>>,
     /// Input handed to the input thread and not yet written, in order.
     owed: VecDeque<(Owner, u32)>,
@@ -80,6 +88,7 @@ impl Term {
             exit: None,
             readers: Vec::new(),
             queued: 0,
+            answering: 0,
             input: Some(input),
             owed: VecDeque::new(),
             unwritable: None,
@@ -115,10 +124,11 @@ impl Term {
 
     /// Appends output, dropping the oldest bytes beyond [`RING`], and
     /// answers what it asks the terminal while no client is attached to
-    /// answer it (`queries`).
+    /// answer it (`queries`), within [`ANSWERS`] not yet written.
     pub fn push(&mut self, bytes: &[u8]) {
         self.readers.retain(|r| r.handle.is_open());
-        let found = self.queries.scan(bytes, !self.readers.is_empty());
+        let room = ANSWERS.saturating_sub(self.answering) as usize;
+        let found = self.queries.scan(bytes, !self.readers.is_empty(), room);
         let kept;
         let bytes = match found.hidden {
             Some(hidden) => {
@@ -127,8 +137,8 @@ impl Term {
             }
             None => bytes,
         };
-        if !found.answers.is_empty() {
-            self.send(None, &found.answers);
+        if !found.answers.is_empty() && self.hand(Owner::Answer, &found.answers, None) {
+            self.answering = self.answering.saturating_add(found.answers.len() as u32);
         }
         let over = (self.ring.len() + bytes.len()).saturating_sub(RING);
         self.discard(self.start + over as u64);
@@ -185,8 +195,9 @@ impl Term {
     /// Everything still owed was not written: whoever typed it learns so.
     fn unwritten(&mut self, why: &str) {
         self.queued = 0;
+        self.answering = 0;
         for (owner, _) in self.owed.drain(..) {
-            if let Owner::Core(Some(typist)) = owner {
+            if let Owner::Core(typist) = owner {
                 let _ = typist.send(Err(why.into()));
             }
         }
@@ -199,17 +210,7 @@ impl Term {
             r.unused = r.unused.saturating_sub(n);
             r.sent += n;
         }
-        self.send(Some(from), bytes);
-    }
-
-    /// Input for the process; what the core types itself, as the answers to
-    /// what the program asks, has no client. False when the process takes no more.
-    pub fn send(&mut self, from: Option<&Handle>, bytes: &[u8]) -> bool {
-        let owner = match from {
-            Some(handle) => Owner::Client(handle.clone()),
-            None => Owner::Core(None),
-        };
-        self.hand(owner, bytes, None)
+        self.hand(Owner::Client(from.clone()), bytes, None);
     }
 
     /// Text the core types, as the launcher types a follow-up, and how its
@@ -225,12 +226,14 @@ impl Term {
             return Err(format!("{UNWRITABLE}: {why}"));
         }
         let (typist, typed) = oneshot::channel();
-        match self.hand(Owner::Core(Some(typist)), bytes, Some(cancel)) {
+        match self.hand(Owner::Core(typist), bytes, Some(cancel)) {
             true => Ok(typed),
             false => Err("the terminal has ended".into()),
         }
     }
 
+    /// Input for the process, on its way to the input thread. False when
+    /// the process takes no more.
     fn hand(&mut self, owner: Owner, bytes: &[u8], cancel: Option<Arc<AtomicBool>>) -> bool {
         let input = self.input.as_ref();
         let chunk = || Input {
@@ -259,10 +262,10 @@ impl Term {
                     r.sent = r.sent.saturating_sub(n);
                 }
             }
-            Owner::Core(Some(typist)) => {
+            Owner::Core(typist) => {
                 drop(typist.send(if whole { Ok(()) } else { Err(UNTAKEN.into()) }));
             }
-            Owner::Core(None) => {}
+            Owner::Answer => self.answering = self.answering.saturating_sub(n),
         }
         self.top_up();
     }
@@ -347,8 +350,10 @@ struct Reader {
 enum Owner {
     /// A client, granted it back once it is written.
     Client(Handle),
-    /// The core, which may wait to learn whether it was written.
-    Core(Option<oneshot::Sender<Typed>>),
+    /// The core, whose typist waits to learn whether it was written.
+    Core(oneshot::Sender<Typed>),
+    /// The core, answering what the program asked its terminal.
+    Answer,
 }
 
 /// The history of a terminal that is no longer running, read from disk as
@@ -595,5 +600,80 @@ impl Endpoint for Attachment {
         if let Feed::Live(term) = &self.feed {
             term.borrow_mut().take(&self.handle, bytes);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What a program asks as it starts: what its terminal is, twice, where
+    /// the cursor is, and its two colors.
+    const ASKS: &[u8] = b"\x1b[c\x1b[>c\x1b[6n\x1b]10;?\x07\x1b]11;?\x1b\\";
+    const ANSWERED: &[u8] = b"\x1b[?62;22c\x1b[>0;276;0c\x1b[1;1R\
+        \x1b]10;rgb:e4e4/e6e6/eded\x07\x1b]11;rgb:1111/1313/1818\x1b\\";
+
+    /// A terminal nobody is attached to, and what its input thread would
+    /// take. Its output is past where the Windows console asks its own
+    /// question, so every question is the program's.
+    fn term() -> (Term, plain::Receiver<Input>) {
+        let (input, inputs) = plain::channel();
+        let mut term = Term::new(Size(80, 24), input);
+        term.push(&[b' '; 64]);
+        (term, inputs)
+    }
+
+    /// The chunks handed to the input thread since the last look.
+    fn handed(inputs: &plain::Receiver<Input>) -> Vec<Vec<u8>> {
+        inputs.try_iter().map(|input| input.bytes).collect()
+    }
+
+    #[test]
+    fn answers_to_a_program_that_never_reads_stay_bounded() {
+        let (mut term, inputs) = term();
+        // Asked one write at a time, then in chunks as large as a read.
+        for _ in 0..5000 {
+            term.push(ASKS);
+        }
+        for _ in 0..100 {
+            term.push(&ASKS.repeat(500));
+        }
+        // The input thread wrote nothing: this is all the core holds.
+        let pending = handed(&inputs);
+        let bytes: usize = pending.iter().map(Vec::len).sum();
+        assert!(bytes <= ANSWERS as usize, "{bytes} bytes of answers");
+        assert!(bytes >= ANSWERED.len() * 12, "{bytes} bytes of answers");
+        assert_eq!(term.queued as usize, bytes);
+        // Unanswered until what is pending has been written, then again.
+        for _ in &pending {
+            term.wrote(true);
+        }
+        assert_eq!((term.queued, term.answering), (0, 0));
+        term.push(ASKS);
+        assert_eq!(handed(&inputs), [ANSWERED]);
+    }
+
+    #[test]
+    fn a_program_that_reads_gets_every_answer() {
+        let (mut term, inputs) = term();
+        // A burst of forty questions before it reads any answer.
+        term.push(&ASKS.repeat(8));
+        assert_eq!(handed(&inputs), [ANSWERED.repeat(8)]);
+        term.wrote(true);
+        // And as often as it likes while it reads.
+        for _ in 0..5000 {
+            term.push(ASKS);
+            assert_eq!(handed(&inputs), [ANSWERED]);
+            term.wrote(true);
+        }
+    }
+
+    #[test]
+    fn a_terminal_that_ended_owes_no_answers() {
+        let (mut term, inputs) = term();
+        term.push(&ASKS.repeat(8));
+        term.unwritable("gone".into());
+        assert_eq!((term.queued, term.answering), (0, 0));
+        assert_eq!(handed(&inputs).len(), 1);
     }
 }

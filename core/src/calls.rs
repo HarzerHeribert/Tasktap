@@ -497,7 +497,7 @@ fn changes(cx: &mut Cx, args: tasktap_proto::ReadChanges) -> Option<Control> {
     let (project, workdir) = match found {
         Ok(Some(found)) => found,
         Ok(None) => {
-            let gone = "the thought has no worktree, or its changes were kept or discarded";
+            let gone = "the thought has no copy, or its changes were kept or discarded";
             return Some(call::ThoughtChanges::reply(
                 cx.id,
                 Err(Error::new(Code::Gone, gone)),

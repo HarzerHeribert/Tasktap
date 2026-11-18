@@ -3322,10 +3322,12 @@ dependencies = [
  "objc2-foundation",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "tasktap-proto",
  "tauri",
  "tauri-build",
  "tauri-plugin-global-shortcut",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

@@ -15,6 +15,8 @@ param(
     [string]$Only = '',
     # The checkout whose build is tried; this script's own unless it is run from somewhere else.
     [string]$Checkout = '',
+    # The job that built the app starts the round and holds the checkout for it (host.ps1).
+    [switch]$Locked,
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
@@ -1282,8 +1284,15 @@ if ($desktop -eq [IntPtr]::Zero) { throw 'The desktop is locked. Unlock it first
 $null = [Tasktap.Desk]::CloseDesktop($desktop)
 $null = [Tasktap.Desk]::SetProcessDPIAware()
 New-Item -ItemType Directory -Force $Out, "$tmp\data", "$tmp\project" | Out-Null
-# No test run may change the checkout meanwhile.
-$lock = [IO.File]::Open('C:\tasktap\checkout.lock', 'OpenOrCreate', 'ReadWrite', 'None')
+# No test run may change the checkout meanwhile: it is held here, unless the job that built the app holds it for
+# this round. Another job's end is waited for, five minutes at most.
+$lock = $null
+for ($tries = 0; -not $lock -and -not $Locked; $tries++) {
+    try { $lock = [IO.File]::Open('C:\tasktap\checkout.lock', 'OpenOrCreate', 'ReadWrite', 'None') } catch {
+        if ($tries -ge 60) { throw 'Another job has held the checkout for five minutes.' }
+        Start-Sleep -Seconds 5
+    }
+}
 $workspace = [IntPtr]::Zero
 $chosen = @($Only -split '[ ,]+' | Where-Object { $_ })
 try {
@@ -1331,7 +1340,7 @@ try {
     Start-Sleep -Milliseconds 500
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
     Say 'INFO' '' "the account's sounds are as they were: $(Sounds-On) put back"
-    $lock.Dispose()
+    if ($lock) { $lock.Dispose() }
 }
 $said = @(Get-Content "$Out\results.txt")
 Write-Host "$(@($said -match '^PASS').Count) passed, $(@($said -match '^FAIL').Count) failed, $(@($said -match '^LOOK').Count) pictures to look at; all of it is in $Out"

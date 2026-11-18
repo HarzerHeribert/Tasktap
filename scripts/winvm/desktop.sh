@@ -31,9 +31,11 @@ status=0
 if ((dry)); then
   # The checkout's copy, as the round would run it: of the commit last built or tested there.
   ssh -T -o BatchMode=yes tasktap-tower "$run -DryRun" || status=$?
+elif ((build)); then
+  # One job builds and then runs the round, holding the checkout throughout: other worktrees send jobs there too.
+  "$here/host.sh" ${ref:+"$ref"} --tower --desktop "$stamp" ${rows:+--rows "$rows"} || status=$?
 else
-  ((build)) && "$here/host.sh" ${ref:+"$ref"} --tower
-  ssh -T -o BatchMode=yes tasktap-tower "C:\\tasktap\\desk.ps1 -TimeoutSeconds 1500 -CommandLine '$run'" || status=$?
+  ssh -T -o BatchMode=yes tasktap-tower "C:\\tasktap\\desk.ps1 -TimeoutSeconds 2400 -CommandLine '$run'" || status=$?
 fi
 mkdir -p "$out"
 scp -q -r "tasktap-tower:C:/tasktap/desktop-rounds/$stamp" "$out/" || echo "Nothing to fetch from the tower's desktop-rounds\\$stamp" >&2

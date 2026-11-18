@@ -5,7 +5,7 @@
 // deleted, the heap) and times its frames, early and at the end, and fails if any of them grew.
 // usage: node scripts/soak-check.cjs [seconds, 150 by default]   (exit status 1 on a failure; ui/dist must be built)
 const path = require('node:path');
-const { serve, open } = require('./motion-pages.cjs');
+const { serve, open, GPU } = require('./motion-pages.cjs');
 const { scene } = require('./instrument-fixtures.cjs');
 
 /** Counts what the page asks for from here on: timers and frame callbacks pending, WebGL objects alive. */
@@ -49,7 +49,7 @@ module.exports = { COUNT, SAMPLE };
 async function main(seconds) {
   const { chromium } = require('playwright');
   const server = await serve(path.resolve(__dirname, '../ui/dist'));
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ headless: true, args: GPU });
   const failures = [];
   try {
     const page = await open(browser, { label: 'workspace', records: scene('quiet'), url: server.url, dpr: 1 });

@@ -5,8 +5,11 @@
 // caret. First the same typing with nothing changing, for comparison; and each at every level of the effects
 // (the core's `motion_ambient`: full, still, off), so the light's part in a hitch can be told from the page's.
 // It fails when, during the flow, the 95th percentile of the frame intervals is over 1.2 of the frames the page is
-// given (20 ms where it is given 60 a second, less where it is given more) or one is over 50 ms, when the 95th
-// percentile of the key delays is over 1.8 frames (30 ms) or one is over 100 ms, or when a key is lost. In
+// given (20 ms where it is given 60 a second, less where it is given more) or one is over 50 ms (in the app: over
+// 33 ms, so that none is missed outright), when the 95th percentile of the key delays is over 1.8 frames (30 ms) or
+// one is over 100 ms (in the app 67), or when a key is lost. A frame that came late while the page's own thread was
+// free is the machine's (another program had the processor): it is counted and said, and not held against the page,
+// so the check says the same on a busy machine as on a quiet one. Headless it runs on the graphics card. In
 // the app at Full it also watches the band through the flow, as cadence-check.cjs does: it fails when the band
 // waits more than two of its intervals between drawings while it moves, or one of its clocks jumps.
 // usage: node scripts/flow-check.cjs [--app [--debug]] [--levels full,still,off] [--short] [--trace] [--json file]
@@ -27,11 +30,16 @@ const KEY = 90, QUIET = has('--short') ? 3 : 5, RUN = 11;
 
 const pct = (xs, p) => [...xs].sort((a, b) => a - b)[Math.min(xs.length - 1, Math.floor(xs.length * p))] ?? 0;
 const r1 = (x) => (Math.round(x * 10) / 10).toFixed(1);
+/** Whether a frame or a key that took `ms` was held up by the page: its own thread was busy for half of that or
+ *  more (`held`: motion-probe.cjs). Otherwise the machine was: another program had the processor, and the page, free
+ *  all the while, was given its frame late. Those are counted apart, and not held against the page. */
+const own = (ms, held) => held === undefined || held >= ms / 2;
 function stats(rec) {
-  const gaps = rec.frames.slice(1).map((f) => f[1]), keys = rec.keys.map((k) => k[1]), frame = pct(gaps, 0.5);
+  const all = rec.frames.slice(1), gaps = all.map((f) => f[1]), keys = rec.keys.map((k) => k[1]), frame = pct(gaps, 0.5);
   return {
-    frames: gaps.length, median: frame, p95: pct(gaps, 0.95), worst: Math.max(0, ...gaps), late: gaps.filter((g) => g > frame * 1.2).length, missed: gaps.filter((g) => g > frame * 2).length,
-    keys: keys.length, kmedian: pct(keys, 0.5), kp95: pct(keys, 0.95), kworst: Math.max(0, ...keys), refused: rec.refused, lost: rec.lost + rec.caret,
+    frames: gaps.length, median: frame, p95: pct(gaps, 0.95), worst: Math.max(0, ...all.filter((f) => own(f[1], f[6])).map((f) => f[1])), late: gaps.filter((g) => g > frame * 1.2).length, missed: gaps.filter((g) => g > frame * 2).length,
+    keys: keys.length, kmedian: pct(keys, 0.5), kp95: pct(keys, 0.95), kworst: Math.max(0, ...rec.keys.filter((k) => own(k[1], k[3])).map((k) => k[1])), refused: rec.refused, lost: rec.lost + rec.caret,
+    away: all.filter((f) => f[1] > Math.max(frame, 1000 / 60) * 2 && !own(f[1], f[6])).map((f) => f[1]),
   };
 }
 const row = (name, s) => [name, s.frames, r1(s.median), r1(s.p95), r1(s.worst), s.late, s.missed, s.keys, r1(s.kmedian), r1(s.kp95), r1(s.kworst), s.refused, s.lost];
@@ -52,6 +60,8 @@ function print(name, level, quiet, flow) {
   const page = pct(quiet.frames.slice(1).map((f) => f[1]), 0.5);
   console.log(`\n== ${name}, effects ${level}: the page is given a frame every ${r1(page)} ms (${Math.round(1000 / page)} a second); times in ms; late: over 1.2 frames; missed: over 2`);
   console.log(table(HEAD, [row('typing, nothing changing', stats(quiet)), row('typing through the flow', stats(flow))]));
+  const away = [...stats(quiet).away, ...stats(flow).away];
+  if (away.length) console.log(`(not the page's: ${away.length} frames came late while its thread was free, the longest after ${r1(Math.max(...away))} ms: the machine was busy)`);
   const d = detail(flow);
   if (d.marks.length) console.log('\nwithin 1.5 s of each change of what Home shows:\n' + table(['at', 'light | receipt | rows', 'frames', 'median', 'p95', 'worst', 'late', 'missed'], d.marks));
   if (d.long.length) console.log('\nlate frames:\n' + table(['at', 'interval', 'frame work', 'core changes', 'changes', 'band drawn', 'Home then shows'], d.long.slice(0, 40)));
@@ -61,14 +71,15 @@ function print(name, level, quiet, flow) {
  *  100 ms for a key. */
 function judge(level, quiet, flow, failures) {
   // The worst frame and the worst key are held to what a person would see as a hitch, however fast the frames come.
-  const s = stats(flow), frame = stats(quiet).median, hitch = Math.max(frame, 1000 / 60);
+  // In the app no frame may be missed outright (two frames, 33 ms); headless three, as before.
+  const s = stats(flow), frame = stats(quiet).median, hitch = Math.max(frame, 1000 / 60), most = has('--app') ? 2 : 3, key = has('--app') ? 4 : 6;
   if (flow.hidden) failures.push(`${level}: the window was covered, so nothing was measured`);
   if (s.keys < 40) failures.push(`${level}: only ${s.keys} keys reached the Composer`);
   if (!flow.marks.some((m) => /working|done|Started in/.test(m[1]))) failures.push(`${level}: the thought never came to work, so the flow was not measured`);
   if (s.p95 > frame * 1.2) failures.push(`${level}: the 95th percentile of the frame intervals during the flow is ${r1(s.p95)} ms (${r1(frame * 1.2)} at most, at a frame of ${r1(frame)} ms)`);
-  if (s.worst > hitch * 3) failures.push(`${level}: a frame took ${r1(s.worst)} ms during the flow (${r1(hitch * 3)} at most)`);
+  if (s.worst > hitch * most) failures.push(`${level}: a frame took ${r1(s.worst)} ms during the flow (${r1(hitch * most)} at most)`);
   if (s.kp95 > frame * 1.8) failures.push(`${level}: the 95th percentile of the delay from a key to its frame is ${r1(s.kp95)} ms (${r1(frame * 1.8)} at most)`);
-  if (s.kworst > hitch * 6) failures.push(`${level}: a key took ${r1(s.kworst)} ms to show (${r1(hitch * 6)} at most)`);
+  if (s.kworst > hitch * key) failures.push(`${level}: a key took ${r1(s.kworst)} ms to show (${r1(hitch * key)} at most)`);
   if (s.lost) failures.push(`${level}: ${flow.lost} keys were lost and ${flow.caret} moved the caret from the end`);
 }
 
@@ -84,7 +95,7 @@ async function app(levels) {
       a.send(`call put {"c":"prefs","id":"motion_ambient","patch":"${LEVELS[level]}"}`);
       // The light as it is in a window in use, which a passive window never is (`breathe` held it so before the
       // rule that it rests while nothing happens).
-      await ws(`(__motion.debug.active = true, __motion.debug.breathe = ${level === 'full' ? 'true' : 'null'}, __motion.redraw(), 1)`);
+      await ws(`(__motion.debug.active = true, __motion.redraw(), 1)`);
       await sleep(1500);
       const quiet = await ws(FLOW, { seconds: QUIET, every: KEY });
       await ws(`(document.querySelector('.home #capture-input').focus(), document.execCommand('selectAll'), document.execCommand('delete'), 1)`);
@@ -106,16 +117,16 @@ async function app(levels) {
 // ---- headless: the pages from ui/dist, the core's changes pushed by a stand-in ----
 async function headless(levels) {
   const { chromium } = require('playwright');
-  const { serve, open } = require('./motion-pages.cjs');
+  const { serve, open, GPU } = require('./motion-pages.cjs');
   const { scene } = require('./instrument-fixtures.cjs');
-  const server = await serve(path.resolve(arg('--dist', path.join(root, 'ui/dist')))), browser = await chromium.launch({ headless: true });
+  const server = await serve(path.resolve(arg('--dist', path.join(root, 'ui/dist')))), browser = await chromium.launch({ headless: true, args: GPU });
   const out = {};
   try {
     for (const level of levels) {
       const records = scene('quiet');
       records.prefs = [{ id: 'motion_ambient', value: LEVELS[level], rev: 1 }];
       const page = await open(browser, { label: 'workspace', records, url: server.url, dpr: 1 });
-      await page.evaluate((full) => (Object.assign(window.__motion.debug, { active: true, breathe: full ? true : null }), window.__motion.redraw()), level === 'full');
+      await page.evaluate(() => (Object.assign(window.__motion.debug, { active: true }), window.__motion.redraw()));
       await page.waitForTimeout(1500);
       const quiet = await page.evaluate(FLOW, { seconds: QUIET, every: KEY });
       await page.evaluate(() => (document.querySelector('.home #capture-input').focus(), document.execCommand('selectAll'), document.execCommand('delete')));

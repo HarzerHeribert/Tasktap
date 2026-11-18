@@ -351,7 +351,10 @@ async function main(out) {
   if (errors) process.exitCode = 1;
 }
 
-module.exports = { serve, open, fixtures, scene: (...a) => require('./instrument-fixtures.cjs').scene(...a) };
+/** Headless Chromium on the graphics card: the motion's checks time what the page does, and a software renderer's
+ *  own time (a quarter of a second to build a program, milliseconds a frame) would be measured with it. */
+const GPU = ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'];
+module.exports = { serve, open, fixtures, GPU, scene: (...a) => require('./instrument-fixtures.cjs').scene(...a) };
 if (require.main === module) {
   if (!process.argv[2]) { console.error('usage: node scripts/motion-pages.cjs <outdir>'); process.exit(2); }
   main(path.resolve(process.argv[2])).catch((e) => { console.error(e); process.exit(1); });

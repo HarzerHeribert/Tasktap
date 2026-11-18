@@ -25,6 +25,12 @@ function report(rec) {
     const all = rec.frames.filter((f) => f[0] >= m.from - 0.05 && f[0] <= m.to + 0.05), t0 = all[0]?.[0] ?? 0;
     // A drawing in which the places kept clear of words changed is the page's change, not a step of the motion.
     const every = all.filter((f) => f[2]), drawn = every.slice(1).filter((f, i) => f.length < 11 || f[10] === every[i][10]), usual = median(drawn.filter((f) => f[4] > 0).map((f) => f[4]));
+    // What the compositor fades on moves at the display's own rate between the page's frames, however far apart
+    // those come: its wait is what is over the page's own interval, and its clocks may move by all the time passed.
+    every.forEach((f, i) => {
+      if (f[11]) f[3] = Math.max(Math.min(f[3], frame), f[3] - f[1] + frame);
+      if (f[11] || every[i - 1]?.[11]) (f.passed = Math.max(50, f[1] + 2)), (f.over = f[1]);
+    });
     const rows = [];
     for (let s = 0; s * 250 <= (all[all.length - 1]?.[0] ?? 0) - t0; s++) {
       const part = all.filter((f) => f[0] - t0 >= s * 250 && f[0] - t0 < (s + 1) * 250), d = part.filter((f) => f[2] && f !== all[0]);
@@ -36,12 +42,12 @@ function report(rec) {
     // How far each of its clocks moved from one drawing to the next: the pulse's, in its units, while one passes; the form's own phase.
     drawn.forEach((f, i) => {
       const was = i ? drawn[i - 1] : all.find((x) => x[2]);
-      if (f.length > 7 && was.length > 7) (f.pulse = f[7] < 3.6 && f[7] > was[7] ? f[7] - was[7] : 0), (f.own = Math.abs(f[8] - was[8]));
+      if (f.length > 7 && was.length > 7) (f.pulse = ((f[7] < 3.6 && f[7] > was[7] ? f[7] - was[7] : 0) * 50) / (f.passed ?? 50)), (f.own = (Math.abs(f[8] - was[8]) * 50) / (f.passed ?? 50));
     });
     out.push({
       seconds: (m.to - m.from) / 1000, frames: all.length, drawn: drawn.length + 1, gap: Math.max(0, ...drawn.map((f) => f[3])), same: drawn.filter((f) => f[4] === 0).length,
       // How fast each drawing changed the picture (a level a millisecond), against the fastest of the three before it.
-      usual, jump: Math.max(0, ...drawn.map((f, i) => (i > 2 && f[4] > 0.3 ? f[4] / Math.max(f[3], 1) / Math.max(0.01, ...drawn.slice(i - 3, i).map((p) => p[4] / Math.max(p[3], 1))) : 0))), pulse: Math.max(0, ...drawn.map((f) => f.pulse ?? 0)), own: Math.max(0, ...drawn.map((f) => f.own ?? 0)), clocks: drawn[0]?.length > 7, rows,
+      usual, jump: Math.max(0, ...drawn.map((f, i) => (i > 2 && f[4] > 0.3 ? f[4] / Math.max(f.over ?? f[3], 1) / Math.max(0.01, ...drawn.slice(i - 3, i).map((p) => p[4] / Math.max(p.over ?? p[3], 1))) : 0))), pulse: Math.max(0, ...drawn.map((f) => f.pulse ?? 0)), own: Math.max(0, ...drawn.map((f) => f.own ?? 0)), clocks: drawn[0]?.length > 7, rows,
     });
     // The rows were made before the clocks' steps were known.
     for (const r of rows) if (r.length > 8) {
@@ -106,9 +112,9 @@ async function main() {
     }
   } else {
     const { chromium } = require('playwright');
-    const { serve, open } = require('./motion-pages.cjs');
+    const { serve, open, GPU } = require('./motion-pages.cjs');
     const { scene } = require('./instrument-fixtures.cjs');
-    const server = await serve(path.resolve(arg('--dist', path.join(root, 'ui/dist')))), browser = await chromium.launch({ headless: true });
+    const server = await serve(path.resolve(arg('--dist', path.join(root, 'ui/dist')))), browser = await chromium.launch({ headless: true, args: GPU });
     try {
       const page = await open(browser, { label: 'workspace', records: scene('quiet'), url: server.url, dpr: 1 });
       await page.evaluate(use(null));

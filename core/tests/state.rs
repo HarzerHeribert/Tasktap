@@ -150,7 +150,6 @@ fn failed_reply(message: &str) -> Option<AttemptOutcome> {
 /// A store with one project and one device, the time, and the caller's part
 /// of every effect: the fixture launcher.
 struct World {
-    dir: Dir,
     store: Store,
     now: u64,
     project: ProjectId,
@@ -159,6 +158,9 @@ struct World {
     events: u32,
     /// What the last applied event committed.
     change: Option<Change>,
+    /// Last, so that it is dropped last: fields go in this order, and Windows
+    /// removes no folder while the store still has its database open in it.
+    dir: Dir,
 }
 
 impl World {

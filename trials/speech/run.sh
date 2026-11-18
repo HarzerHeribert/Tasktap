@@ -1,6 +1,8 @@
 #!/bin/bash
-# The whole trial: builds both tools, makes the recordings, fetches Whisper's model (627 MB, once) and scores every
-# engine on every recording. Everything it makes goes into the folder given, none of it into the repository.
+# The whole trial: builds the tools, makes the recordings, fetches Whisper's model in both forms (627 MB and 574 MB,
+# once) and scores every engine on every recording, the last as the app runs it: the app's own helper, fed as the
+# host feeds it. Everything it makes goes into the folder given, none of it into the repository. (whisper.cpp's own
+# command-line tool, whose numbers the design gives as "whole", is scored by whispercpp.py once it is built.)
 #   trials/speech/run.sh <folder>
 # Apple's German and English models must be installed by the system first: `<folder>/apple install speech de-DE`.
 set -euo pipefail
@@ -24,3 +26,7 @@ score apple-dictation-en "$english" "$to/apple" dictation en-US {wav} fast
 score whisper-auto "" "$whisper" "$model/model" "$model/tokenizer" auto {wav}
 score whisper-de "$german" "$whisper" "$model/model" "$model/tokenizer" de {wav}
 score whisper-en "$english" "$whisper" "$model/model" "$model/tokenizer" en {wav}
+"$here/../../host/scripts/build-speech.sh" >/dev/null 2>&1
+python3 "$here/fetch.py" whispercpp "$to/models/wcpp" >/dev/null
+helper="$(ls "$here"/../../host/binaries/tasktap-speech-* | head -1)"
+score helper-de-en "" python3 "$here/helper.py" "$helper" "$to/models/wcpp/ggml-large-v3-turbo-q5_0.bin" de,en {wav} fast

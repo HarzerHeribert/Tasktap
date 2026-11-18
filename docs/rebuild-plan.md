@@ -86,7 +86,7 @@ The core accepts three actions from any source: `capture.hold` (push to talk), `
 
 Speech sits behind one interface with two directions, dictation (speech to text) and narration (text to speech).
 
-- Local dictation (WhisperKit) and local voices stay in the Mac shell.
+- Local dictation and local voices stay in the Mac shell. The engine was decided by trial on 2026-11-18 (design §8, "On this device"): Whisper large-v3 turbo through whisper.cpp, not WhisperKit and not the system's own recognition, in a helper that lives for one dictation. It is C++ against a C interface, so it is no Swift, and it can be built for Windows later.
 - Cloud speech moves into the core. It then works on Windows unchanged, where it will be the main dictation path.
 
 ### Door left open: cores on other machines

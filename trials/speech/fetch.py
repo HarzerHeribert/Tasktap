@@ -4,6 +4,7 @@ each file from Hugging Face at a pinned revision, continued where an earlier run
 checksum the repository records for it (SHA-256 for the large files, the blob's SHA-1 for the small ones).
 
     fetch.py whisperkit <folder>     # WhisperKit's Core ML build of Whisper large-v3 turbo, 627 MB, and its tokenizer, 4 MB
+    fetch.py whispercpp <folder>     # the same model in whisper.cpp's format at 5 bits, 574 MB: the one the app uses
     fetch.py --list <repo> <revision> <prefix>   # prints a manifest of that folder of a repository
 
 Nothing is sent but the requests for the files: no token is read from this machine and none is sent.
@@ -12,10 +13,11 @@ import hashlib, json, os, subprocess, sys, urllib.request
 
 MODELS = {
     "whisperkit": [
-        # (repository, revision, the folder of it, where it goes)
-        ("argmaxinc/whisperkit-coreml", "0f63a7800b00dd0226abd051b906c246e1907482", "openai_whisper-large-v3-v20240930_626MB", "model"),
-        ("openai/whisper-large-v3", None, "", "tokenizer"),
+        # (repository, revision, the folder of it, where it goes, the files wanted or all)
+        ("argmaxinc/whisperkit-coreml", "0f63a7800b00dd0226abd051b906c246e1907482", "openai_whisper-large-v3-v20240930_626MB", "model", None),
+        ("openai/whisper-large-v3", None, "", "tokenizer", "tokenizer"),
     ],
+    "whispercpp": [("ggerganov/whisper.cpp", "5359861c739e955e79d9a303bcbc70fb988958b1", "", "", {"ggml-large-v3-turbo-q5_0.bin"})],
 }
 TOKENIZER = {"tokenizer.json", "tokenizer_config.json", "config.json", "special_tokens_map.json", "added_tokens.json", "vocab.json", "merges.txt", "normalizer.json", "generation_config.json", "preprocessor_config.json"}
 
@@ -38,12 +40,13 @@ def checked(path: str, f: dict) -> bool:
 
 
 def fetch(name: str, folder: str):
-    for repo, revision, prefix, to in MODELS[name]:
+    for repo, revision, prefix, to, only in MODELS[name]:
+        only = TOKENIZER if only == "tokenizer" else only
         revision, files = listing(repo, revision, prefix)
         print(f"{repo} at {revision}")
         for f in files:
             rel = f["path"][len(prefix):].lstrip("/")
-            if "analytics" in rel or rel.startswith(".") or (to == "tokenizer" and rel not in TOKENIZER):
+            if "analytics" in rel or rel.startswith(".") or (only and rel not in only):
                 continue
             path = os.path.join(folder, to, rel)
             os.makedirs(os.path.dirname(path), exist_ok=True)

@@ -24,17 +24,19 @@ Tasktap Next is in the Dock and has a menu. Closing the workspace window leaves 
   - Home, in layers: the capture line, what needs you (the first question open in full), changes waiting to be kept, what is running; Results and Ideas as lines that open in place; All results leads to Earlier. The rail at the window's foot says the same in words and opens Agents and Settings.
   - The arrangement is the project's `layouts` record; a terminal it does not mention (a run the core started) gets a place in the selected pane.
 - **The light.** Home's light is a few soft pools of the person's motion colour and one low band of the motion's chrome, drawn by `ui/src/motion/`; the sidebar's foot has the same light with a few large chrome glyphs, each a picture drawn once, there only where the rows leave room. At rest all of it is still and costs nothing. While something goes on in the window in use (agents thinking or working, a question waiting) it is a loop for as long as that lasts: the band drifts and pulses (the page draws keyframes of it and the compositor carries it between them, so the page is given no frames while the loop lasts), the pools breathe and the glyphs sway, slowly, on one clock (`--t-ambient`); a change of state blends into the next, a result or a region taking focus is a moment over it. The sidebar's edge and a dropping sheet shed a short wake of the same glyphs. Settings › Appearance chooses the form, the colour or a hue, Lumen, and Effects (Off, Still, Full: the one control over everything that moves by itself; Reduce Motion and Low Power Mode hold Full at Still), all the core's preferences, as are the terminal's font, size and line height; it can try the motion with the microphone while the sheet is open: macOS asks once, with the reason in `Info.plist`. The notch's sheet carries no form; its glow takes Lumen's colours.
+- **Speech on this Mac.** Settings › Speech › On this Mac downloads a model once (Whisper large-v3 turbo, 574 MB, from huggingface.co, checked against its checksum, kept in the data folder's `models/`, removable there). After that, with no speech service chosen, what you say while you hold ⌥Space or the microphone is turned into text on this Mac and sent nowhere: the words appear a sentence or two behind while you speak, and the rest well under a second after you let go. Nothing of it runs while you are not speaking. See design §8, "On this device".
 - **Keyboard.** A focus move by script never shows a focus ring.
 
 ## Deliberately missing
 
-Document and web previews, Preferences, Notebook, Session history and Activity, speech, screen context, the updater, notifications, routing by a model, Windows, and terminal themes other than Default.
+Document and web previews, Preferences, Notebook, Session history and Activity, local voices, screen context, the updater, notifications, routing by a model, Windows, and terminal themes other than Default.
 
 ## How it fits together
 
 - `src/core.rs`: the data folder, the copy of the core, the device key, start on demand with `start.lock` as `core/src/client.rs` does it, and the host's own connection (it watches `glance` and sends `input`).
 - `src/main.rs`: the bridge of design §12. Each page gets its own core connection, said hello to by the host with its device key; after that the bytes pass through untouched both ways (`bridge_open`, `bridge_send`) and `host.*` calls are answered here (`bridge_host`): `host.notch`, `host.show`, `host.ready`, `host.pick` and `host.clipboard`. Also the global shortcuts and the debug channel.
 - `src/workspace.rs`: the workspace window, its frame, the application menu with the About panel's notices, and Dock reopening.
+- `src/speech.rs`, `speech/engine.cpp`: speech on this Mac. The page records as it does for a speech service and hands the samples to the host, which starts `tasktap-speech` (whisper.cpp, built by `scripts/build-speech.sh`; needs cmake, or python3 to fetch one) for that one dictation and passes its lines back; and the model's download, check and removal.
 - `src/notch.rs`, `src/native.rs`, `src/geometry.rs`: the notch panel from `trials/tauri-notch`, with pointer events in place of the 80 ms poll; the folder panel and the clipboard.
 - `../ui/`: the pages (`npm run check` type-checks them and tests the shared client and the layout model).
 
@@ -43,6 +45,8 @@ Document and web previews, Preferences, Notebook, Session history and Activity, 
     cd ui && npm run check
     cd host && cargo clippy -- -D warnings && cargo fmt --check && cargo test
     host/scripts/smoke.sh        # the notch and the workspace with the core's fixture agent; PASS or FAIL lines
+    SPEECH_MODEL=<ggml-large-v3-turbo-q5_0.bin> host/scripts/smoke.sh   # the same, and speech on this Mac with the real model, from a file you fetched
+    node scripts/speech-check.cjs && node scripts/speech-app-check.cjs   # speech on this Mac alone: the page (headless), then the app
     host/scripts/measure.sh      # idle cost with the workspace on one idle terminal, launch, typing delay, a burst; after build.sh
     MOTION=1 host/scripts/measure.sh   # what the effects cost, per process: at rest behind and in front, agents working and a question waiting on Home (carried, and drawn by the page), beside a terminal, each level's memory
     FLOW=1 host/scripts/measure.sh     # the capture flow, timed: frames and keys while a thought is typed, sent, placed, worked on and answered, at each level

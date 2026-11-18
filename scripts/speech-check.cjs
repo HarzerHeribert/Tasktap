@@ -18,6 +18,8 @@ const { serve, open } = require('./motion-pages.cjs');
 const { scene, flow } = require('./instrument-fixtures.cjs');
 
 const HZ = 440, OF = 574041195;
+/** The row of Settings that says where speech is turned into text. */
+const ROW = '.settings .set:has(.seg[aria-label="Turned into text"])';
 function tone(file) {
   const rate = 48000, n = rate * 3, wav = Buffer.alloc(44 + 2 * n);
   wav.write('RIFF', 0); wav.writeUInt32LE(36 + 2 * n, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
@@ -66,7 +68,12 @@ async function main() {
   };
   const state = (page) => page.evaluate(() => ({ hears: window.__hears(), live: window.__speech.live(), rows: window.__fake.records.dictations?.length ?? 0, asked: window.__mics.length,
     said: window.__speech.talk.said, ended: window.__fake.speech.ended, calls: window.__fake.calls.filter((c) => c.startsWith('dictation.')) }));
-  const shot = async (page, name, sel) => shots && page.locator(sel).first().screenshot({ path: path.join(shots, `${name}.png`) });
+  // A picture of one part of the page, with whatever scrolls around it at its start, so no bar lies over it.
+  const shot = async (page, name, sel) => {
+    if (!shots) return;
+    await page.evaluate((q) => { for (let e = document.querySelector(q); e; e = e.parentElement) e.scrollTop = 0; }, sel);
+    await page.locator(sel).first().screenshot({ path: path.join(shots, `${name}.png`) });
+  };
   try {
     // ——— Settings › Speech, state by state ———
     let page = await start({ supported: true, model: 'none', have: 0, of: OF, error: null }, 'off');
@@ -78,29 +85,29 @@ async function main() {
     await page.waitForTimeout(300);
     // A service is in use: its row shows; this Mac is one click away and says what it needs, with nothing fetched.
     await hold(row().then((t) => /By OpenAI · gpt-transcribe/.test(t)), `with a service chosen the row does not name it: ${await row()}`);
-    await shot(page, 'settings-service', '.sheet');
+    await shot(page, 'settings-service', ROW);
     await press('On this Mac');
     await page.waitForTimeout(150);
     await hold(row().then((t) => /Needs a model first: Whisper large-v3 turbo, 574 MB/.test(t) && /Download/.test(t) && /huggingface\.co/.test(t) && /Until it is here, OpenAI stays in use/.test(t)), `not set up, the row does not say what it needs: ${await row()}`);
     await hold(page.evaluate(() => !window.__fake.speech.acts.includes('install') && window.__fake.records.prefs.some((p) => p.id === 'speech_by')), 'something was fetched, or the service let go, before the person asked');
-    await shot(page, 'settings-needs', '.sheet');
+    await shot(page, 'settings-needs', ROW);
     await press('Download');
     await tell({ model: 'fetching', have: Math.round(OF * 0.41) });
     await page.waitForTimeout(150);
     await hold(row().then((t) => /Downloading · 41 % of 574 MB/.test(t) && /Stop/.test(t)), `while it downloads the row does not say how far: ${await row()}`);
     await hold(page.evaluate(() => { const p = document.querySelector('.settings progress.got'); return !!p && Math.abs(p.value / p.max - 0.41) < 0.01 && window.__fake.speech.acts.includes('install'); }), 'the download shows no progress, or was not asked for');
-    await shot(page, 'settings-downloading', '.sheet');
+    await shot(page, 'settings-downloading', ROW);
     await tell({ model: 'failed', error: 'No network: the model could not be fetched. What arrived is kept; try again when you are online.' });
     await page.waitForTimeout(150);
     await hold(row().then((t) => /No network: the model could not be fetched/.test(t) && /Try again/.test(t) && /Remove/.test(t)), `a failed download is not said with its way on: ${await row()}`);
-    await shot(page, 'settings-failed', '.sheet');
+    await shot(page, 'settings-failed', ROW);
     await press('Try again');
     await tell({ model: 'fetching', have: Math.round(OF * 0.9) });
     await tell({ model: 'ready', have: OF });
     await page.waitForTimeout(300);
     await hold(row().then((t) => /Ready · Whisper large-v3 turbo · 574 MB on this Mac/.test(t) && /Remove/.test(t) && /sent nowhere/.test(t)), `ready, the row does not say so: ${await row()}`);
     await hold(page.evaluate(() => !window.__fake.records.prefs.some((p) => p.id === 'speech_by') && window.__fake.records.prefs.some((p) => p.id === 'keys')), 'once the model is here the service is still in use (or its key was touched)');
-    await shot(page, 'settings-ready', '.sheet');
+    await shot(page, 'settings-ready', ROW);
     await press('Remove');
     await page.waitForTimeout(150);
     await hold(row().then((t) => /Needs a model first/.test(t)).then(async (ok) => ok && (await page.evaluate(() => window.__fake.speech.acts.includes('remove')))), `Remove does not remove the model: ${await row()}`);

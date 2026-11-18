@@ -166,6 +166,7 @@ fn about() -> AboutMetadata<'static> {
     AboutMetadata {
         credits: Some(
             "Terminal text is set in Hack 3.003 (MIT and Bitstream Vera licences), with symbols from Nerd Fonts 3.4.0 (MIT). \
+             Speech on this Mac is written down by whisper.cpp 1.9.5 (MIT) with OpenAI's Whisper model (MIT). \
              Their licences are in the app, under licenses/."
                 .to_owned(),
         ),

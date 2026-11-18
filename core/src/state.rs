@@ -1062,12 +1062,11 @@ impl Machine<'_, '_> {
         how: Routing,
         current: Option<SessionId>,
     ) -> Result<()> {
-        let (placed, kept) = match (to, how.by == LOCAL) {
-            (Destination::Session(s), _) if current == Some(s) => {
-                (Placed::FollowUp, unplaced(&how))
-            }
-            (_, true) => (Placed::Name, Placed::KeptName),
-            (_, false) => (Placed::Model, Placed::KeptModel),
+        let kept = unplaced(&how);
+        let placed = match to {
+            Destination::Session(s) if current == Some(s) => Placed::FollowUp,
+            _ if how.by == LOCAL => Placed::Name,
+            _ => Placed::Model,
         };
         t.route = Some(how);
         match self.target(to) {

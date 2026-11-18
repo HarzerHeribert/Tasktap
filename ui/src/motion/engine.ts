@@ -534,14 +534,16 @@ function wake() {
 }
 
 /** The frames a page is given come at whatever pace the display and the web view choose, and not evenly: 60, 120,
- *  144 or 240 a second, or a pace that varies from one frame to the next. Nothing here asks what that pace is. A
- *  frame of the motion is drawn when at least four fifths of a sixtieth of a second have passed since the last
- *  (`stats.rate` a second at most, about; no faster cadence can be seen, and each costs), and everything moves by
- *  the time that passed, never by a count of frames. Never paced by a timer: a web view slows chains of timers down
- *  the longer they run. A timer only ends a rest. */
+ *  144 or 240 a second, or a pace that varies from one frame to the next (the built-in panel hands this web view
+ *  frames 13 to 19 ms apart). Nothing here asks what that pace is. A frame of the motion is drawn in every frame
+ *  given, except one that comes within three fifths of a sixtieth of a second (10 ms) of the last drawn: so about
+ *  `stats.rate` a second on a stream of that pace however uneven, every second frame of 120 or 144 a second,
+ *  every third of 240; no faster cadence can be seen, and each costs. Everything moves by the time that passed,
+ *  never by a count of frames. Never paced by a timer: a web view slows chains of timers down the longer they
+ *  run. A timer only ends a rest. */
 function frame(at: number) {
   raf = 0;
-  if (drew && at - drew < 800 / stats.rate) return void (raf = requestAnimationFrame(frame));
+  if (drew && at - drew < 600 / stats.rate) return void (raf = requestAnimationFrame(frame));
   const shown = [...views].filter((v) => v.shown());
   if (!shown.length || !context()) return void (drew = 0);
   const began = performance.now(), ms = drew ? Math.min(50, at - drew) : 1000 / 60, step = ms / 1000, dt = step, adv = reduced.matches ? 0 : step;

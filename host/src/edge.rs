@@ -474,7 +474,7 @@ unsafe extern "system" fn helper_proc(window: HWND, message: u32, w: WPARAM, l: 
         WM_TIMER if w == WATCH => {
             let (x, y, down) = pointer();
             let now = [x as i32, y as i32, i32::from(down)];
-            if SEEN.iter().zip(now).any(|(seen, now)| seen.swap(now, Relaxed) != now) {
+            if SEEN.iter().zip(now).fold(false, |moved, (seen, now)| (seen.swap(now, Relaxed) != now) | moved) {
                 notch::moved(app);
             }
             0

@@ -65,7 +65,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     row(d, true);
     const now = Date.now();
     push({ t: 'change', rev: ++rev, sets: [{ c: 'thoughts', put: [{ id: d.target.id, rev, text: said.text, strokes: [], source: 'voice', mode: 'ask', phase: 'routed', status: 'routed', reason: null, live: false,
-      project_id: d.target.project_id || ((records.projects || [])[0] || {}).id || null, session_id: null, brief: said.brief || said.text, route: said.route || null, agent: 'claude', model: null, workdir: null,
+      project_id: d.target.project_id || ((records.projects || [])[0] || {}).id || null, session_id: null, brief: said.brief || said.text, route: said.route || null, placed: said.placed || (d.target.project_id ? 'picked' : 'name'), agent: d.target.agent || 'claude', model: null, workdir: null,
       hold_until: now + 5000, read: false, created: now, updated: now }] }] });
   };
   const answer = (call) => {
@@ -85,7 +85,8 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       setTimeout(() => (toStream(s, d.text), toCore({ t: 'close', s, why: 'done' })), 0);
       return;
     }
-    if (name === 'history') return reply(id, { thoughts: [], questions: [], results: [] });
+    // The history the scene has (`history`), as one page; then, or with none, the empty page that is its end.
+    if (name === 'history') return reply(id, (!args.before && records.history) || { thoughts: [], questions: [], results: [] });
     // What a model that places thoughts and a speech service are sent, as the core says it.
     if (name === 'route.terms') return reply(id, { ...terms.route, tools: records.tools || terms.route.tools });
     if (name === 'speech.terms') return reply(id, terms.speech);
@@ -122,7 +123,9 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       return reply(id, { stream: { s, credit: 9600000 }, seconds: 300 });
     }
     if (name === 'dictation.finish') {
-      const d = dictation(args.id), said = records.hears || { text: 'Make the header stay on one line' };
+      const was = dictation(args.id), said = records.hears || { text: 'Make the header stay on one line' };
+      // `as: "text"`: what was started for a thought is only heard.
+      const d = args.as === 'text' ? { ...was, target: { kind: 'text' } } : was;
       const local = !Object.values(heard).some((h) => h.id === args.id);
       row({ ...d, phase: 'transcribing', level: 0, local });
       // The recorder's own transcript is waited for; a service's comes by itself.
@@ -140,7 +143,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     if (name === 'thought.capture' && args.mode === 'note') {
       rev++;
       push({ t: 'change', rev, sets: [{ c: 'thoughts', put: [{ id: args.id, rev, text: args.text, strokes: [], source: 'typed', mode: 'note', phase: 'captured', status: 'captured',
-        reason: null, live: false, project_id: null, session_id: null, brief: args.text, agent: null, model: null, workdir: null, hold_until: null, read: false, created: Date.now(), updated: Date.now() }] }] });
+        reason: null, live: false, project_id: null, session_id: null, brief: args.text, route: null, placed: 'kept', agent: null, model: null, workdir: null, hold_until: null, read: false, created: Date.now(), updated: Date.now() }] }] });
       return reply(id, null);
     }
     // Keep or Discard: what `settles` holds for the thought is the core's refusal in its own words; else it settles,
@@ -189,7 +192,14 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       at += 4 + len;
     }
   };
-  const hostValue = () => null;
+  // The host's rule for `host.open`, in small: a web address, or a path `files` says exists; what was opened is kept.
+  const opened = [];
+  const hostValue = (name, a) => {
+    if (name !== 'host.open') return null;
+    const real = /^https?:\/\/[^/\s]/i.test(a.target) ? a.target : (records.files || {})[a.target] || null;
+    if (real && !a.probe) opened.push({ ...a, real });
+    return real;
+  };
   // The host's part of the notch: the geometry it last described, widened by the wings the page asks for.
   let geo = null, tab = 0, wing = 0;
   const emit = (payload, event = 'ui') => {
@@ -202,7 +212,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     if (d) push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', del: [d.id] }] });
     toCore({ t: 'close', s: Number(s), why: 'gone' });
   };
-  window.__fake = { emit, push, records, heard, calls, close };
+  window.__fake = { emit, push, records, heard, calls, close, opened };
   window.__fake.speech = { acts: [], ended: [], fed: [], said(line) { callbacks.get(this.channel)?.({ index: this.n++, message: line }); } };
   window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
   window.__TAURI_INTERNALS__ = {
@@ -223,7 +233,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
           wing = a.wing;
           if (geo) setTimeout(() => emit({ ...geo, width: tab }), 0);
         }
-        return JSON.stringify({ t: 'reply', id, ok: hostValue(name) });
+        return JSON.stringify({ t: 'reply', id, ok: hostValue(name, a) });
       }
       if (cmd === 'plugin:event|listen') {
         const id = nextEvent++;
@@ -304,7 +314,7 @@ const P1 = 'p-tasktap', P2 = 'p-scratch';
 const id = (n) => `019a8b6c-7d10-7000-8000-${String(n).padStart(12, '0')}`;
 const THOUGHT = (n, status, text, o = {}) => ({
   id: id(n), rev: n, text, strokes: [], source: 'typed', mode: 'ask', phase: status === 'needs_you' ? 'working' : status, status,
-  reason: null, live: status === 'working' || status === 'needs_you', project_id: P1, session_id: id(200 + n), brief: text,
+  reason: null, live: status === 'working' || status === 'needs_you', project_id: P1, session_id: id(200 + n), brief: text, route: null, placed: 'picked',
   agent: 'claude', model: null, workdir: null, hold_until: null, read: false, created: NOW - 3600 + n * 60, updated: NOW - 600 + n * 30, ...o,
 });
 const SESSION = (n, state, activity, o = {}) => ({

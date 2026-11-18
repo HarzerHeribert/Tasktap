@@ -3,11 +3,13 @@
 //! host's own connection, which watches `glance` and makes the calls the shortcuts stand for.
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::fs::{self, DirBuilder, File, TryLockError};
+use std::fs::{self, File, TryLockError};
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
-use std::os::unix::net::UnixStream;
-use std::os::unix::process::CommandExt;
+#[cfg(unix)]
+use std::os::unix::{
+    fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
+    process::CommandExt,
+};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -15,6 +17,19 @@ use tasktap_proto::{
     encode_control, Auth, CallId, Control, Decoder, DeviceId, Frame, Glance, Hello, Outcome, Register, Request, Role,
     Secret, Set, Versions, Welcome, VERSION,
 };
+
+/// A connection to the core: its socket in the data folder, or on Windows its named pipe.
+#[cfg(unix)]
+pub type Stream = std::os::unix::net::UnixStream;
+#[cfg(windows)]
+pub type Stream = crate::native::Pipe;
+
+fn dial(data: &Path) -> io::Result<Stream> {
+    #[cfg(unix)]
+    return Stream::connect(data.join("core.sock"));
+    #[cfg(windows)]
+    return Stream::connect(data);
+}
 
 pub struct Core {
     pub data: PathBuf,
@@ -35,14 +50,30 @@ impl Core {
     /// from so a later app can replace its own copy while this one runs, and loads or mints the
     /// device key.
     pub fn prepare(data: PathBuf, bundled: &Path, build: String) -> io::Result<Core> {
-        DirBuilder::new().recursive(true).mode(0o700).create(&data)?;
-        fs::set_permissions(&data, fs::Permissions::from_mode(0o700))?;
-        let exe = data.join("bin").join(&build).join("tasktap");
+        #[cfg(unix)]
+        {
+            fs::DirBuilder::new().recursive(true).mode(0o700).create(&data)?;
+            fs::set_permissions(&data, fs::Permissions::from_mode(0o700))?;
+        }
+        // On Windows the folder is in the person's profile, whose access list keeps others out.
+        #[cfg(windows)]
+        fs::create_dir_all(&data)?;
+        let exe = data.join("bin").join(&build).join(format!("tasktap{}", std::env::consts::EXE_SUFFIX));
         if !exe.exists() {
             fs::create_dir_all(exe.parent().unwrap())?;
             let partial = exe.with_extension("partial");
             fs::copy(bundled, &partial)?;
+            #[cfg(unix)]
             fs::set_permissions(&partial, fs::Permissions::from_mode(0o755))?;
+            // Microsoft's console travels with the core, which loads it from its own folder
+            // (design §9, "Input"); there before the core is, so no core runs without it.
+            #[cfg(windows)]
+            for beside in ["conpty.dll", "OpenConsole.exe"] {
+                let from = bundled.with_file_name(beside);
+                if from.exists() {
+                    fs::copy(&from, exe.with_file_name(beside))?;
+                }
+            }
             fs::rename(&partial, &exe)?;
         }
         let path = data.join("host-device.json");
@@ -50,7 +81,11 @@ impl Core {
             Ok(bytes) => serde_json::from_slice(&bytes).map_err(io::Error::other)?,
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 let minted = DeviceFile { device: DeviceId::mint(), key: Secret::mint() };
-                let mut file = File::options().write(true).create_new(true).mode(0o600).open(&path)?;
+                let mut options = File::options();
+                options.write(true).create_new(true);
+                #[cfg(unix)]
+                options.mode(0o600);
+                let mut file = options.open(&path)?;
                 file.write_all(&serde_json::to_vec(&minted)?)?;
                 minted
             }
@@ -61,15 +96,15 @@ impl Core {
 
     /// Connects, with `start.lock` held until the caller lets it go (design §3, as
     /// core/src/client.rs does it): shared while connecting, alone to start a core.
-    fn enter(&self) -> io::Result<(UnixStream, File)> {
+    fn enter(&self) -> io::Result<(Stream, File)> {
         let gate = File::options().create(true).truncate(false).write(true).open(self.data.join("start.lock"))?;
         gate.lock_shared()?;
-        if let Ok(stream) = UnixStream::connect(self.data.join("core.sock")) {
+        if let Ok(stream) = dial(&self.data) {
             return Ok((stream, gate));
         }
         gate.unlock()?;
         gate.lock()?;
-        if let Ok(stream) = UnixStream::connect(self.data.join("core.sock")) {
+        if let Ok(stream) = dial(&self.data) {
             return Ok((stream, gate));
         }
         let held = File::options().create(true).truncate(false).write(true).open(self.data.join("core.lock"))?;
@@ -81,7 +116,7 @@ impl Core {
             Err(TryLockError::Error(e)) => return Err(e),
         }
         self.start()?;
-        Ok((UnixStream::connect(self.data.join("core.sock"))?, gate))
+        Ok((dial(&self.data)?, gate))
     }
 
     /// Starts `tasktap serve` detached and waits for the one line it writes once it listens.
@@ -89,11 +124,19 @@ impl Core {
         let (reader, writer) = io::pipe()?;
         let mut serve = Command::new(&self.exe);
         serve.arg("serve").arg("--data").arg(&self.data).arg("--locked");
-        serve.stdin(Stdio::null()).stdout(writer.try_clone()?).stderr(writer).process_group(0);
+        serve.stdin(Stdio::null()).stdout(writer.try_clone()?).stderr(writer);
+        #[cfg(unix)]
+        serve.process_group(0);
+        #[cfg(windows)]
+        crate::native::detach(&mut serve);
         let mut child = serve.spawn()?;
         drop(serve);
         let mut said = String::new();
-        BufReader::new(reader).read_line(&mut said)?;
+        // On Windows a pipe whose other end closed is an error, not an end.
+        match BufReader::new(reader).read_line(&mut said) {
+            Err(e) if e.kind() != io::ErrorKind::BrokenPipe => return Err(e),
+            _ => {}
+        }
         // Reaped here when it exits, so it never lingers as a zombie of the host.
         std::thread::spawn(move || child.wait());
         match said.trim_end() {
@@ -105,7 +148,7 @@ impl Core {
 
     /// A connection that said hello as this device; the bytes read so far hold the core's
     /// answer, `welcome` or `refuse`, whole, and possibly more.
-    pub fn connect(&self, role: Role, client: &str) -> io::Result<(UnixStream, Vec<u8>)> {
+    pub fn connect(&self, role: Role, client: &str) -> io::Result<(Stream, Vec<u8>)> {
         let (mut stream, gate) = self.enter()?;
         let hello = Hello {
             v: Versions(VERSION, VERSION),
@@ -137,9 +180,11 @@ impl Core {
 
 type Waiter = Box<dyn FnOnce(Outcome) + Send>;
 
-/// The host's own connection: `glance` and calls.
+/// The host's own connection: `glance`, the folders the person opened, and calls.
 pub struct Link {
-    writer: Mutex<Option<UnixStream>>,
+    /// Every project's folder, as the core has them: what `host.open` may open is inside one.
+    pub folders: Mutex<Vec<(tasktap_proto::ProjectId, PathBuf)>>,
+    writer: Mutex<Option<Stream>>,
     waiting: Mutex<HashMap<u32, Waiter>>,
     next: Mutex<u32>,
 }
@@ -149,7 +194,12 @@ impl Link {
     /// core starts instead, and from then on hands every `glance` to `glance`. The connection
     /// is made again whenever it ends.
     pub fn start(core: Arc<Core>, glance: impl Fn(Glance) + Send + 'static) -> io::Result<Arc<Link>> {
-        let link = Arc::new(Link { writer: Mutex::new(None), waiting: Mutex::default(), next: Mutex::new(1) });
+        let link = Arc::new(Link {
+            folders: Mutex::default(),
+            writer: Mutex::new(None),
+            waiting: Mutex::default(),
+            next: Mutex::new(1),
+        });
         let mut decoder = Decoder::new();
         let mut stream = Self::open(&core, &link, &mut decoder)?;
         let me = link.clone();
@@ -169,7 +219,7 @@ impl Link {
         Ok(link)
     }
 
-    fn open(core: &Core, link: &Arc<Link>, decoder: &mut Decoder) -> io::Result<UnixStream> {
+    fn open(core: &Core, link: &Arc<Link>, decoder: &mut Decoder) -> io::Result<Stream> {
         let mut retired = false;
         loop {
             // A retired core may still accept a connection while it exits; it ends that one
@@ -192,14 +242,14 @@ impl Link {
             };
             *link.writer.lock().unwrap() = Some(stream.try_clone()?);
             if welcome.build == core.build || retired {
-                link.call("sub", json!({"collections": ["glance"]}), |_| {});
+                link.call("sub", json!({"collections": ["glance", "projects"]}), |_| {});
                 return Ok(stream);
             }
             // Design §3: an older core with no terminals retires; one with terminals stays in use.
             let mut reader = stream.try_clone()?;
             let status = link.wait(&mut reader, decoder, "core.status", json!({}))?;
             if status.get("terminals").and_then(Value::as_u64) != Some(0) {
-                link.call("sub", json!({"collections": ["glance"]}), |_| {});
+                link.call("sub", json!({"collections": ["glance", "projects"]}), |_| {});
                 return Ok(stream);
             }
             let _ = link.wait(&mut reader, decoder, "core.retire", json!({"when": "now"}));
@@ -211,7 +261,7 @@ impl Link {
     }
 
     /// A call answered on this thread, before the reader runs.
-    fn wait(&self, stream: &mut UnixStream, decoder: &mut Decoder, name: &str, args: Value) -> io::Result<Value> {
+    fn wait(&self, stream: &mut Stream, decoder: &mut Decoder, name: &str, args: Value) -> io::Result<Value> {
         let (tx, rx) = std::sync::mpsc::channel();
         self.call(name, args, move |o| {
             let _ = tx.send(o);
@@ -238,7 +288,7 @@ impl Link {
         }
     }
 
-    fn read(&self, stream: &mut UnixStream, decoder: &mut Decoder, glance: &impl Fn(Glance)) {
+    fn read(&self, stream: &mut Stream, decoder: &mut Decoder, glance: &impl Fn(Glance)) {
         let mut buf = vec![0u8; 64 << 10];
         loop {
             loop {
@@ -250,8 +300,16 @@ impl Link {
                     }
                     Ok(Some(Frame::Control(Control::Change(c)))) => {
                         for set in c.sets {
-                            if let Set::Glance { put } = set {
-                                put.into_iter().for_each(glance)
+                            match set {
+                                Set::Glance { put } => put.into_iter().for_each(glance),
+                                Set::Projects(rows) => {
+                                    let mut folders = self.folders.lock().unwrap();
+                                    folders.retain(|(id, _)| {
+                                        !rows.del.contains(id) && rows.put.iter().all(|p| p.id != *id)
+                                    });
+                                    folders.extend(rows.put.into_iter().map(|p| (p.id, p.folder.into())));
+                                }
+                                _ => {}
                             }
                         }
                     }

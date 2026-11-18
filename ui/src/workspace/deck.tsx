@@ -11,7 +11,7 @@ import { placed } from '../way.ts';
 import * as L from './layout.ts';
 import { type Item, popup } from './menu.ts';
 import {
-  LOOSE, agentName, attach, closeTab, copy, cue, focusTerminal, keepInBackground, label, layout, newTerminal, open, paste, questionOf,
+  LOOSE, agentName, attach, closeTab, copy, cue, details, focusTerminal, keepInBackground, label, layout, newTerminal, open, paste, questionOf,
   readSoon, records, resultOf, sessionOf, setLayout, store, textSize, textSizeBy, thoughtOf, ui,
 } from './model.ts';
 import { engine, engines, flushFits, queueFit } from './terminal.ts';
@@ -33,6 +33,7 @@ function tabMenu(project: string, id: string): Item[] {
   const t = records.terminals.get(id);
   const several = L.panes(layout(project)).length > 1;
   return [
+    ...(sessionOf(id) ? [{ text: 'Session Details…', key: 'CmdOrCtrl+I', do: () => void details(id) }, '-' as const] : []),
     { text: 'Find…', key: 'CmdOrCtrl+F', do: () => open({ kind: 'find', id }) },
     { text: 'Copy', key: 'CmdOrCtrl+C', do: () => void copy(id), off: !engines.get(id)?.term.hasSelection() },
     { text: 'Paste', key: 'CmdOrCtrl+V', do: () => void paste(id) },
@@ -104,6 +105,7 @@ function Pane({ project, pane, index, rect, focused }: { project: string; pane: 
   useEffect(() => void (focused && readSoon(th)), [focused, th?.id, th?.read, th?.status, ui.active]);
   const style = rect ? { left: rect.x + 'px', top: rect.y + 'px', width: rect.w + 'px', height: rect.h + 'px' } : undefined;
   const q = questionOf(s);
+  const full = id ? ui.full.get(id) : undefined;
   return (
     <section class={`pane${focused ? ' focus' : ''}`} hidden={!rect} style={style} data-pane={pane.id} aria-label={`Pane ${index + 1}`}
       onPointerDownCapture={select} onFocusIn={select}>
@@ -115,7 +117,14 @@ function Pane({ project, pane, index, rect, focused }: { project: string; pane: 
         </button>
       </div>
       <div class="surface" ref={surface} role="tabpanel" />
-      {q ? <QuestionStrip q={q} terminal={id} /> : pending(th) ? <ResultStrip t={th} /> : null}
+      {full && id ? (
+        // One more view than the core allows of a terminal: said where it would have opened.
+        <div class="strip" role="status" data-full={id}>
+          <p class="meta"><b>Not shown here</b></p>
+          <p class="qp">{full} Close it in one of them, then try again.</p>
+          <div class="qa"><button type="button" class="btn" onClick={() => void attach(id, true)}>Try again</button></div>
+        </div>
+      ) : q ? <QuestionStrip q={q} terminal={id} /> : pending(th) ? <ResultStrip t={th} /> : null}
     </section>
   );
 }

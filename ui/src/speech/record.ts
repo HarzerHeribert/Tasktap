@@ -11,7 +11,9 @@
 // let go, the whole transcript: the core does with it exactly what it does with a service's answer.
 //
 // A dictation is one of two things (the core's targets): a new thought, captured as typing and Return would have, or
-// words for a field, which arrive in the dictation's row and are put at the field's caret for the person to send.
+// words for a field, which arrive in the dictation's row and are put at the field's caret for the person to send. A
+// new thought can still end as words: E while it records ("Edit first") ends it there and then, and its words arrive
+// in the field with nothing captured (`dictation.finish` with `as: "text"`).
 import type { DictationTarget } from '../../../core/proto/protocol.ts';
 import { type Stream, uuid7 } from '../client.ts';
 import { call, client, focus, pref, records, redraw } from '../page.ts';
@@ -37,6 +39,8 @@ export const talk = {
   asking: false,
   /** Kept on by a click, until the next click or Return; else it ends with the hold. */
   latched: false,
+  /** A spoken new thought was ended with E: its words go to the field, to be edited before they are sent. */
+  edit: false,
   /** Why voice could not start: `service` for nothing set up to write it down, else the words to show. */
   said: '',
   /** It is written down on this machine, not by a speech service. */
@@ -95,6 +99,7 @@ async function open(): Promise<Ear> {
       heard = level;
       deaf = () => (tone.stop(), swell.stop());
     } else if (talk.source === 'clip') {
+      if (!talk.clip) throw new Error('The recording that stands in for the microphone is missing.');
       // The recording plays into the worklet at the pace it was spoken, and ends as letting go does.
       const bytes = Uint8Array.from(atob(talk.clip), (c) => c.charCodeAt(0)), samples = new Int16Array(bytes.buffer, 0, bytes.length >> 1);
       const clip = ctx.createBuffer(1, Math.max(1, samples.length), 16000), play = ctx.createBufferSource();
@@ -104,6 +109,9 @@ async function open(): Promise<Ear> {
       play.start();
       heard = play;
       deaf = () => ((play.onended = null), play.stop());
+    } else if (talk.source !== 'microphone') {
+      // A check named a stand-in this page does not know: an error, never the microphone.
+      throw new Error(`No stand-in for the microphone is called ${String(talk.source)}.`);
     } else {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error('This window offers no microphone.');
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
@@ -134,7 +142,7 @@ function shut() {
   ending = 0;
 }
 function reset() {
-  Object.assign(talk, { id: '', kind: '', field: null, asking: false, latched: false, local: false });
+  Object.assign(talk, { id: '', kind: '', field: null, asking: false, latched: false, edit: false, local: false });
 }
 
 /** A line from the host's helper for the dictation `id`: the transcript as it grows goes into the dictation's row
@@ -243,7 +251,7 @@ function finish() {
   const id = talk.id;
   // The helper's input ends with the last samples: it writes down what is left and is gone.
   if (talk.local) stop(id, false);
-  void call('dictation.finish', { id }).catch((e) => {
+  void call('dictation.finish', { id, ...(talk.edit && { as: 'text' as const }) }).catch((e) => {
     if (talk.id !== id) return;
     reset();
     talk.said = e instanceof Error ? e.message : String(e);
@@ -252,10 +260,12 @@ function finish() {
   redraw();
 }
 
-/** Letting go: the microphone stops now, what the worklet still holds is handed over, and the core takes it from there. */
-export function end() {
+/** Letting go: the microphone stops now, what the worklet still holds is handed over, and the core takes it from there.
+ *  `edit`: a new thought ends as its words, in the field. */
+export function end(edit = false) {
   if (talk.asking) return cancel();
   if (!ear || ending) return;
+  talk.edit = edit && talk.kind === 'thought';
   ear.deaf();
   ear.node.port.postMessage(0);
   ending = window.setTimeout(finish, 200);
@@ -319,6 +329,8 @@ document.addEventListener('keydown', (e) => {
   // Escape cancels at any point; Return ends a recording that a click keeps on.
   if (e.key === 'Escape' && (busy || talk.said)) cancel();
   else if (e.key === 'Enter' && ear && talk.latched) end();
+  // E while a new thought records: its words go to the field instead. By the key's place, since ⌥ is held with it.
+  else if (e.code === 'KeyE' && ear && talk.kind === 'thought' && !e.metaKey && !e.ctrlKey && !e.repeat && fieldNow()) end(true);
   else if (e.code === 'Space' && e.altKey && !e.metaKey && !e.ctrlKey && fieldNow()) {
     if (!e.repeat && !wait && !held && !busy) {
       const field = fieldNow();

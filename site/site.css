@@ -1,0 +1,261 @@
+/* The site is the app's look on a page that scrolls: Instrument (design/ui-directions/NOTES.md). Every colour, size,
+   radius and duration comes from the app's own token file, copied beside this one as app/tokens.css; the parts drawn
+   here (the key, a key cap, the quiet button, the wave, the tab, the light) are the app's (ui/src/parts.css,
+   ui/src/workspace/window.css), restated because the app's stylesheets are written for a window that never scrolls.
+   The page adds what a window has no use for: three larger type roles and a measure. */
+:root{
+  --f-display:600 clamp(42px,5.4vw,68px)/1.03 var(--ui); --ls-display:-.03em;   /* the page's one headline */
+  --f-head:600 clamp(26px,2.9vw,34px)/1.14 var(--ui); --ls-head:-.022em;        /* a section's headline */
+  --f-sub:600 20px/28px var(--ui);                                             /* a second headline; a guide's chapter */
+  --f-prose:400 16px/25px var(--ui);                                           /* running text read as a page */
+  --site-w:1040px;                 /* Home's column, tokens.css --home-w */
+  --gut:clamp(20px,5vw,48px);
+  --gap:clamp(88px,11vw,152px);    /* between sections */
+}
+*,::before,::after{box-sizing:border-box}
+html{background:var(--bg);-webkit-text-size-adjust:100%;text-size-adjust:100%;scroll-padding-top:var(--sp5)}
+body{margin:0;font:var(--f-prose);color:var(--fg2);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;overflow-x:clip}
+:where(h1,h2,h3,p,ol,ul,dl,dd,dt,figure,table,pre){margin:0;padding:0;font:inherit}
+:where(button){font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;border-radius:0;cursor:default}
+:where(b,strong,th){font-weight:inherit}
+a{color:inherit;text-decoration:none}
+img,picture{display:block}
+[hidden]{display:none!important}
+/* A ring for keyboard focus only, as in the app. */
+:focus{outline:0}
+:focus-visible{outline:1.5px solid var(--accent);outline-offset:2px;border-radius:var(--r1)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.skip{position:absolute;z-index:20;left:var(--gut);top:-48px;height:var(--ctl-h);padding:0 10px;display:inline-flex;align-items:center;border-radius:var(--r1);background:var(--fill);color:var(--fg);font:var(--f-small);box-shadow:inset 0 0 0 1px var(--line2)}
+.skip:focus{top:10px}
+.wrap{width:100%;max-width:calc(var(--site-w) + 2 * var(--gut));margin-inline:auto;padding-inline:var(--gut)}
+.i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:var(--i-w);stroke-linecap:var(--i-cap);stroke-linejoin:var(--i-join)}
+
+/* ——— the app's parts ——— */
+/* Metal: the key, the one primary action in view; and the caps that show a key. */
+.key,kbd{background:var(--lit) 0 100%/100% 1px no-repeat,var(--key);color:var(--ink);box-shadow:var(--key-edge)}
+.key{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;height:var(--ctl-h);padding:0 10px 0 var(--sp2);border-radius:var(--r1);font:var(--f-title);white-space:nowrap}
+.key .i{width:14px;height:14px;stroke-width:1.5px}
+.key:hover{filter:brightness(1.07)}
+.key:active{transform:translateY(1px);box-shadow:var(--key-down);filter:brightness(.93)}
+kbd{display:inline-grid;place-items:center;min-width:var(--key-h);height:var(--key-h);padding:0 4px;margin:0 1px;border-radius:var(--r1);font:var(--f-key);vertical-align:2px}
+/* Quiet: every other control. Text, a hairline round a button, a fill only under the pointer. */
+.btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:var(--sp2);flex:none;height:var(--ctl-h);padding:0 10px;border-radius:var(--r1);font:var(--f-small);color:var(--fg);box-shadow:inset 0 0 0 1px var(--line2);white-space:nowrap}
+.btn:hover{background:var(--hover)}
+.btn:active{background:var(--sel)}
+.lg:is(.key,.btn){height:var(--ctl-l);gap:var(--sp2);padding:0 14px 0 var(--sp3);border-radius:var(--r-in);font:var(--f-title)}
+.btn.lg{padding:0 14px;font:var(--f-label)}
+/* A finger needs more than a pointer does: the same key, a larger place to land. */
+:is(.key,.btn).lg::after{content:"";position:absolute;inset:-6px -2px}
+/* The wave: chrome bars, the brand mark; at work while something is shown working. */
+.wave{display:inline-flex;align-items:center;gap:var(--wg,2px);height:var(--wh,16px);flex:none}
+.wave b{display:block;width:var(--ww,2px);height:var(--h,100%);border-radius:1px;background:var(--bar-silver)}
+.wave b.cu{background:var(--bar-copper)}.wave b.gr{background:var(--bar-graphite)}
+.wave b:nth-child(1),.wave b:nth-child(13){--h:34%}.wave b:nth-child(2),.wave b:nth-child(12){--h:51%}.wave b:nth-child(3),.wave b:nth-child(11){--h:67%}
+.wave b:nth-child(4),.wave b:nth-child(10){--h:81%}.wave b:nth-child(5),.wave b:nth-child(9){--h:91%}.wave b:nth-child(6),.wave b:nth-child(8){--h:98%}
+.wave b:nth-child(2){--d:70ms}.wave b:nth-child(3){--d:140ms}.wave b:nth-child(4){--d:210ms}.wave b:nth-child(5){--d:280ms}.wave b:nth-child(6){--d:350ms}.wave b:nth-child(7){--d:420ms}
+.wave b:nth-child(8){--d:490ms}.wave b:nth-child(9){--d:560ms}.wave b:nth-child(10){--d:630ms}.wave b:nth-child(11){--d:700ms}.wave b:nth-child(12){--d:770ms}.wave b:nth-child(13){--d:840ms}
+@keyframes wave{from{transform:scaleY(.5)}to{transform:scaleY(1)}}
+
+/* ——— the bar: the name at the left, as a menu bar has it; the notch hangs from the same edge ——— */
+.bar{position:absolute;z-index:1;top:0;left:0;right:0;display:flex;align-items:center;gap:var(--sp5);height:52px;padding-inline:var(--gut);max-width:calc(var(--site-w) + 2 * var(--gut));margin-inline:auto}
+.brand{display:inline-flex;align-items:center;gap:10px;height:var(--row-h);font:var(--f-title);color:var(--fg)}
+.brand .wave{--wh:20px;--ww:2px;--wg:1.5px}
+.bar-nav{display:flex;align-items:center;gap:var(--sp1)}
+.bar-nav a,.foot nav a{display:inline-flex;align-items:center;height:var(--row-h);padding:0 var(--sp2);border-radius:var(--r1);font:var(--f-small);color:var(--fg2)}
+:is(.bar-nav,.foot nav) a:hover{background:var(--hover);color:var(--fg)}
+.bar-nav [aria-current]{color:var(--fg)}
+:is(.bar-nav,.foot nav) a:active{background:var(--sel)}
+
+/* ——— the top: the words, and the notch at work on the page's own edge, in the room's light ——— */
+/* One stack with the bar: the light under it, the notch over it, as the notch hangs over a menu bar. */
+.top{position:relative;overflow-x:clip}
+.top-in{position:relative;z-index:2;pointer-events:none;display:grid;grid-template-columns:minmax(0,1fr) 480px;column-gap:var(--sp6);min-height:clamp(660px,100svh,860px)}
+.words,.steps{pointer-events:auto}
+.words{align-self:center;padding:96px 0 72px;max-width:520px}
+h1{font:var(--f-display);letter-spacing:var(--ls-display);color:var(--fg);text-wrap:balance}
+.lead{margin-top:var(--sp5);font:var(--f-thought);letter-spacing:var(--ls-thought);color:var(--fg2);max-width:23em;text-wrap:pretty}
+.acts{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp3);margin-top:var(--sp6)}
+.fine{font:var(--f-small);color:var(--fg2)}
+.words .fine{margin-top:var(--sp4)}
+/* The stage: the app's notch page, live, hanging from the top of the page as it hangs from the top of the screen. */
+.stage{position:relative;display:flex;flex-direction:column;justify-content:flex-end;min-width:0;padding-bottom:var(--sp6)}
+.notch{position:absolute;top:0;left:50%;width:480px;height:480px;translate:-50% 0;pointer-events:none}
+.notch>*{position:absolute;top:0;left:50%;translate:-50% 0}
+.notch iframe{left:0;translate:none;width:100%;height:100%;border:0;background:none;color-scheme:dark;opacity:0;transition:opacity var(--t-sheet)}
+.notch-still{transition:opacity var(--t-sheet)}
+.stage.live iframe{opacity:1}
+.stage.live .notch-still{opacity:0}
+/* Its steps are tabs, as the app's are: flat text, a hairline between, the lit edge on the one that is on. */
+.steps{display:flex;align-items:stretch;height:var(--tab-h);border-top:1px solid var(--line)}
+.steps button{position:relative;flex:1 1 auto;display:inline-flex;align-items:center;justify-content:center;min-width:0;padding:0 var(--sp2);border-right:1px solid var(--line);font:var(--f-small);color:var(--fg2);white-space:nowrap}
+.steps button:hover{background:var(--hover);color:var(--fg)}
+.steps button:active{background:var(--sel)}
+.steps button:focus-visible{outline-offset:-2px}
+.steps [aria-current]{color:var(--fg)}
+.steps [aria-current]::before{content:"";position:absolute;left:0;right:0;top:-1px;height:2px;background:var(--lit)}
+.steps .hold{flex:none;width:var(--tab-h);border-right:0;color:var(--fg3)}
+.hold .off,.hold[aria-pressed=true] .on{display:none}
+.hold[aria-pressed=true] .off{display:inline}
+.js .still-says,.stage:not(.live) .steps,html:not(.js) .notch-still{display:none}
+.still-says{display:block;text-align:center}
+
+/* The light (window.css): pools of the palette's two colours, deep enough that the black stays black; one band of
+   chrome standing in the icon's S, an object in that light. Still at rest; it breathes while something goes on. */
+.light{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none;-webkit-mask-image:linear-gradient(#000 calc(100% - 220px),#0000);mask-image:linear-gradient(#000 calc(100% - 220px),#0000);--c1:rgb(12 17 29);--c2:rgb(24 12 6);--c3:rgb(17 13 14)}
+.light[data-state=thinking],.light[data-state=working],.light[data-state=done]{--c1:rgb(13 20 32);--c2:rgb(27 14 7);--c3:rgb(19 14 16)}
+.light[data-state=needs]{--c1:rgb(25 22 20);--c2:rgb(25 16 8);--c3:rgb(21 17 18);--ambient:.5}
+.pool{position:absolute;border-radius:50%;opacity:.88;transition:background-color 1.2s ease;
+  -webkit-mask-image:radial-gradient(closest-side,#000,rgb(0 0 0/.8) 18%,rgb(0 0 0/.5) 42%,rgb(0 0 0/.2) 68%,rgb(0 0 0/.05) 88%,transparent);
+  mask-image:radial-gradient(closest-side,#000,rgb(0 0 0/.8) 18%,rgb(0 0 0/.5) 42%,rgb(0 0 0/.2) 68%,rgb(0 0 0/.05) 88%,transparent)}
+.pool.a{left:-14%;top:-46%;width:100%;height:100%;background:var(--noise,none),var(--c1)}
+.pool.b{right:-26%;bottom:-42%;width:82%;height:118%;background:var(--noise,none),var(--c2)}
+.pool.c{left:-30%;bottom:-56%;width:64%;height:86%;background:var(--noise,none),var(--c3)}
+@keyframes breath{from{opacity:calc(.88 - .1 * var(--ambient))}to{opacity:calc(.88 + .1 * var(--ambient))}}
+/* The chrome stands under the notch, in the stage's own column, and never behind the words. */
+.band{position:absolute;left:50%;bottom:74px;width:860px;height:380px;translate:-50% 0;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 22%,#000 78%,transparent);mask-image:linear-gradient(90deg,transparent,#000 22%,#000 78%,transparent)}
+/* A sheet hanging in front of it takes the eye: the chrome steps back, as Home's does while something asks. */
+.band{transition:opacity .6s ease}
+.stage[data-open=true] .band{opacity:var(--band-open,1)}
+.motion{display:block;position:relative;width:100%;height:100%;pointer-events:none;isolation:isolate}
+.motion-canvas{position:absolute;inset:0;display:block;width:100%;height:100%}
+.motion-layer{position:absolute;inset:0;mix-blend-mode:plus-lighter}
+.motion picture,.motion img{position:absolute;inset:0;width:100%;height:100%}
+.motion.drawn picture{visibility:hidden}
+
+/* ——— a section: a hairline and its label, as Home's sections have; then words beside what they are about ——— */
+.sec{margin-top:var(--gap)}
+.sec-label{padding-top:var(--sp3);border-top:1px solid var(--line);font:var(--f-section);color:var(--fg2)}
+.split{display:grid;grid-template-columns:minmax(0,360px) minmax(0,600px);justify-content:space-between;gap:var(--sp6) var(--sp6);margin-top:var(--sp6)}
+.pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--sp5) clamp(32px,8vw,104px);margin-top:var(--sp6)}
+h2,h3{color:var(--fg);text-wrap:balance}
+h2{font:var(--f-head);letter-spacing:var(--ls-head)}
+h3{font:var(--f-sub);letter-spacing:var(--ls-thought);padding-top:6px}
+.text{max-width:34em}
+.text>*+p{margin-top:var(--sp4)}
+.text p{text-wrap:pretty}
+.text .note{font:var(--f-text);color:var(--fg2);padding-left:var(--sp3);border-left:1px solid var(--line2)}
+.text .acts{margin-top:var(--sp5)}
+/* A picture of the app is the app's own page at the size shown here, never scaled. Where the screen is narrower than
+   the picture it is panned, without a bar, and dissolves at the edge that has more (the app's rule for a scroller). */
+.shot{min-width:0}
+.shot img{max-width:none}
+.pan{overflow-x:auto;overflow-y:hidden;scrollbar-width:none;overscroll-behavior-x:contain}
+.pan::-webkit-scrollbar{display:none}
+.pan[data-more=right]{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - var(--fade) * 2),#0000);mask-image:linear-gradient(90deg,#000 calc(100% - var(--fade) * 2),#0000)}
+.pan[data-more=left]{-webkit-mask-image:linear-gradient(90deg,#0000,#000 calc(var(--fade) * 2));mask-image:linear-gradient(90deg,#0000,#000 calc(var(--fade) * 2))}
+.pan[data-more="left right"]{-webkit-mask-image:linear-gradient(90deg,#0000,#000 calc(var(--fade) * 2),#000 calc(100% - var(--fade) * 2),#0000);mask-image:linear-gradient(90deg,#0000,#000 calc(var(--fade) * 2),#000 calc(100% - var(--fade) * 2),#0000)}
+/* The Composer's picture carries 20 px of nothing each side, for its edge's shadow: it stands on the column's edge. */
+.shot.held{margin:-10px -20px 0}
+.split>.shot{align-self:start}
+.pair+.shot{margin-top:var(--sp6)}
+.shot.window{margin-top:clamp(32px,5vw,56px)}
+.shot.window img{border-radius:var(--r3);box-shadow:0 0 0 1px var(--line)}
+.shot.window{padding:1px}
+
+/* figures: the monospace face, in one set of columns */
+.figures table{width:100%;border-collapse:collapse}
+.figures :is(th,td){height:var(--home-row);padding:0 var(--sp4) 0 0;border-top:1px solid var(--line);text-align:left;white-space:nowrap}
+.figures thead :is(th,td){height:var(--row-h);border-top:0;font:var(--f-section);color:var(--fg2)}
+.figures tbody th{font:var(--f-label);color:var(--fg);white-space:normal}
+.figures td{font:var(--f-term);color:var(--fg)}
+.figures td:last-child{color:var(--fg2);padding-right:0}
+.figures tbody tr:last-child :is(th,td){border-bottom:1px solid var(--line)}
+.figures .fine{margin-top:var(--sp3);max-width:44em}
+
+/* details: a label and what is true of it, as a setting and its value */
+.rows{margin-top:var(--sp5)}
+.rows>div{display:grid;grid-template-columns:minmax(0,360px) minmax(0,600px);justify-content:space-between;column-gap:var(--sp6);padding:var(--sp4) 0;border-top:1px solid var(--line)}
+.rows>div:first-child{border-top:0;padding-top:var(--sp2)}
+.rows dt{font:var(--f-label);color:var(--fg);padding-top:4px}
+.rows dd{text-wrap:pretty}
+
+/* get it */
+.build pre{padding:var(--sp3) var(--sp4);border-radius:var(--r2);box-shadow:inset 0 0 0 1px var(--line);font:var(--f-term);color:var(--fg);line-height:22px;-webkit-user-select:all;user-select:all}
+.build .fine{margin-top:var(--sp3)}
+
+.foot{display:grid;grid-template-columns:minmax(0,600px) auto;justify-content:space-between;align-items:start;gap:var(--sp5) var(--sp6);margin-top:var(--gap);padding-top:var(--sp4);padding-bottom:var(--sp6)}
+.foot::before{content:"";grid-column:1/-1;height:1px;background:var(--line);margin-bottom:var(--sp1)}
+.foot .license{font:var(--f-small);color:var(--fg2);text-wrap:pretty}
+.foot nav{display:flex;gap:var(--sp1);margin:-6px calc(-1 * var(--sp2)) 0 0}
+:is(.license,.doc article) a:not(.key,.btn){color:var(--fg);text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:3px;text-decoration-thickness:1px}
+:is(.license,.doc article) a:not(.key,.btn):hover{text-decoration-color:var(--fg2)}
+
+/* ——— the guide: its chapters in the column the product page's pictures stand in, their list beside them ——— */
+.doc{padding-top:clamp(104px,15vw,168px)}
+.doc-head{max-width:600px}
+.doc-in{display:grid;grid-template-columns:minmax(0,200px) minmax(0,600px);justify-content:space-between;column-gap:var(--sp6);margin-top:clamp(48px,7vw,88px)}
+.contents{position:sticky;top:var(--sp5);align-self:start;display:grid;padding-top:var(--sp3);border-top:1px solid var(--line)}
+.contents a{display:flex;align-items:center;height:var(--row-h);margin-left:calc(-1 * var(--sp2));padding:0 var(--sp2);border-radius:var(--r1);font:var(--f-small);color:var(--fg2)}
+.contents a:hover{background:var(--hover);color:var(--fg)}
+.contents a:active{background:var(--sel)}
+.doc article>section{padding:var(--sp4) 0 clamp(40px,6vw,64px);border-top:1px solid var(--line)}
+.doc article>section:last-child{padding-bottom:0}
+.doc article h2{font:var(--f-sub);letter-spacing:var(--ls-thought)}
+.doc article :is(p,ul,dl){margin-top:var(--sp3);text-wrap:pretty}
+.doc article h2+*{margin-top:var(--sp4)}
+.doc ul{list-style:none}
+.doc li{position:relative;padding-left:var(--sp4)}
+.doc li+li{margin-top:var(--sp2)}
+.doc li::before{content:"";position:absolute;left:0;top:12px;width:6px;height:1px;background:var(--fg3)}
+.keys{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:var(--sp6);border-bottom:1px solid var(--line)}
+.keys>div{display:flex;align-items:center;gap:var(--sp3);height:var(--home-row);border-top:1px solid var(--line)}
+.keys dt{flex:none;width:76px}
+.keys dd{font:var(--f-text);color:var(--fg)}
+.keys kbd{vertical-align:0}
+.doc .rows{border-bottom:1px solid var(--line)}
+.doc .rows>div{grid-template-columns:120px minmax(0,1fr);column-gap:var(--sp4);padding:var(--sp3) 0}
+.doc .rows>div:first-child{border-top:1px solid var(--line);padding-top:var(--sp3)}
+.doc .rows dt{padding-top:3px}
+
+/* ——— narrower than the two columns: one column, the notch first, as it is first on the screen ——— */
+@media(max-width:999px){
+  .top-in{grid-template-columns:minmax(0,1fr);min-height:0}
+  .stage{order:-1;height:412px;padding-bottom:0}
+  .words{padding:var(--sp6) 0 0;max-width:none}
+  .band{bottom:auto;top:44px;--band-open:.08}
+  .split,.pair,.rows>div{grid-template-columns:minmax(0,1fr)}
+  .rows>div{row-gap:var(--sp1)}
+  .split>.shot,.figures,.build{margin-top:var(--sp2)}
+  .foot{grid-template-columns:minmax(0,1fr)}
+  .doc-in{grid-template-columns:minmax(0,1fr)}
+  .contents{position:static;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));column-gap:var(--sp5);padding-bottom:var(--sp5)}
+  .foot nav{margin:0 0 0 calc(-1 * var(--sp2))}
+}
+@media(min-width:1000px) and (max-width:1135px){
+  .band{bottom:96px;width:460px;height:240px}
+}
+@media(max-width:699px){
+  .band{top:132px;width:460px;height:240px}
+}
+@media(max-width:1135px){
+  .shot.pan{margin-inline:calc(-1 * var(--gut));padding-inline:var(--gut);scroll-padding-inline:var(--gut)}
+  .shot.held.pan{padding-inline:calc(var(--gut) - 20px)}
+}
+@media(max-width:520px){
+  .bar{height:44px}
+  .brand-name,.bar-nav .guide{display:none}
+  .bar-nav{margin-left:auto}
+  .notch{width:100vw}
+  .steps{margin-inline:calc(-1 * var(--gut))}
+  .steps button{padding:0 2px}
+  .keys{grid-template-columns:minmax(0,1fr)}
+  .figures :is(th,td){height:auto;padding:9px var(--sp3) 9px 0;white-space:normal;vertical-align:top}
+  .figures td{font:var(--f-code);line-height:18px}
+  .doc .rows>div{grid-template-columns:minmax(0,1fr)}
+}
+@media(min-width:521px){
+  .bar-nav{margin-left:var(--sp2)}
+}
+@media(hover:none){
+  :is(.bar-nav,.foot nav) a{height:36px}
+}
+@media(prefers-reduced-motion:no-preference){
+  html{scroll-behavior:smooth}
+  .wave.live b{animation:wave 1.3s ease-in-out var(--d,0ms) infinite alternate}
+  .pool{animation:breath var(--t-ambient) ease-in-out calc(-.5 * var(--t-ambient)) infinite alternate paused}
+  .pool.b{animation-duration:calc(1.23 * var(--t-ambient));animation-delay:calc(-.615 * var(--t-ambient))}
+  .pool.c{animation-duration:calc(1.47 * var(--t-ambient));animation-delay:calc(-.735 * var(--t-ambient))}
+  [data-moves=true] .pool{animation-play-state:running}
+}
+@media(prefers-reduced-motion:reduce){*,::before,::after{animation:none!important;transition:none!important}}

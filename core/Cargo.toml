@@ -25,7 +25,12 @@ serde_json = "1"
 sha2 = "0.11"
 # `macros` is for `select!` only; it adds nothing at run time.
 tokio = { version = "1.54", default-features = false, features = ["rt", "net", "io-util", "time", "signal", "sync", "macros"] }
-# Terminals (design §9): one code path for Mac, Linux and Windows (ConPTY).
+
+# Terminals on Mac and Linux (design §9). On Windows the core makes the
+# pseudo-console and its child itself (`sys.rs`), so that the child is in its
+# job from the start and a batch file's arguments are written for the command
+# prompt.
+[target.'cfg(unix)'.dependencies]
 portable-pty = "0.9.0"
 
 [target.'cfg(windows)'.dependencies]
@@ -33,7 +38,7 @@ portable-pty = "0.9.0"
 # nor end a pipe that has a write in flight. The same version tokio already uses.
 # Job objects end a terminal's whole process tree; the console size is for
 # the test role only. Credentials are the keys of web providers (design §8).
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Credentials", "Win32_System_Console", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Credentials", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_LibraryLoader", "Win32_System_Pipes", "Win32_System_Threading"] }
 
 [dev-dependencies]
 tasktap-core = { path = ".", features = ["fixtures"] }

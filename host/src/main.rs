@@ -1,32 +1,44 @@
-//! Tasktap Next: the Mac host. It starts the core, gives each page one pass-through to it
+// A window's program on Windows: started from the Start menu it opens no console.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+//! Tasktap Next: the host, on the Mac and (without the notch's counterpart yet) on Windows. It starts the core, gives each page one pass-through to it
 //! (design §12), answers the page's `host.*` calls, places the notch panel and binds the global
 //! shortcuts. Everything else is the core's or the page's.
 mod core;
+// Windows has no window for the tab yet: what it will stand on is compiled and tested there,
+// and not yet called.
+#[cfg_attr(windows, allow(dead_code))]
 mod geometry;
+#[cfg_attr(windows, path = "windows.rs")]
 mod native;
+#[cfg_attr(windows, allow(dead_code))]
 mod notch;
+mod open;
 mod speech;
+#[cfg(any(windows, test))]
+#[cfg_attr(windows, allow(dead_code))]
+mod tab;
 mod workspace;
 
-use crate::core::{Core, Link};
+use crate::core::{Core, Link, Stream};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, Read, Write};
 use std::net::Shutdown;
-use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 use tasktap_proto::{QuestionId, Role};
 use tauri::ipc::{Channel, InvokeBody, InvokeResponseBody};
 use tauri::webview::{PermissionKind, PermissionResponse};
-use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, RunEvent};
+#[cfg(target_os = "macos")]
+use tauri::{WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 struct Host {
     core: Arc<Core>,
     link: Arc<Link>,
     /// Each page's connection to the core, by window label.
-    pages: Mutex<HashMap<String, UnixStream>>,
+    pages: Mutex<HashMap<String, Stream>>,
     /// The question `glance` names, which affirm and deny act on.
     question: Mutex<Option<QuestionId>>,
 }
@@ -108,12 +120,25 @@ fn bridge_host(app: AppHandle, frame: String) -> String {
             workspace::ready(&app);
             Ok(Value::Null)
         }
+        // What the Windows host does not do yet, said so that the page can say it.
+        #[cfg(windows)]
+        "host.pick" if std::env::var_os("TASKTAP_PICK").is_none() => {
+            Err(format!("choosing a folder is {}", native::NOT_YET))
+        }
         "host.pick" => Ok(match std::env::var("TASKTAP_PICK") {
             Ok(folder) => json!(folder),
             Err(_) => json!(native::pick_folder()),
         }),
         "host.clipboard" => Ok(json!(native::clipboard(args["text"].as_str(), notch::NOTCH.lock().unwrap().passive))),
         "host.power" => Ok(json!(native::low_power())),
+        // A web address, or what is inside a folder the person opened or a copy Tasktap made of one (open.rs).
+        "host.open" => {
+            let host = app.state::<Host>();
+            let mut roots: Vec<_> =
+                host.link.folders.lock().unwrap().iter().map(|(_, folder)| folder.clone()).collect();
+            roots.push(host.core.data.join("worktrees"));
+            open::open(args, &roots, notch::NOTCH.lock().unwrap().passive)
+        }
         name => Err(format!("this host has no {name}")),
     };
     match outcome {
@@ -156,6 +181,10 @@ fn glance(app: &AppHandle, question: Option<QuestionId>) {
 
 fn shortcut(app: &AppHandle, shortcut: &Shortcut) {
     match shortcut.key {
+        // Windows has no tab yet (plan, "The notch on Windows"): until it has, the capture
+        // shortcut opens the workspace's New Task and the answer shortcut the workspace.
+        Code::Space if cfg!(windows) => workspace::on_menu(app, "new-task"),
+        Code::KeyJ if cfg!(windows) => drop(workspace::show(app, None)),
         Code::Space => notch::capture(app),
         Code::KeyJ => notch::answer(app),
         Code::KeyY => input(app, "answer.affirm"),
@@ -186,6 +215,7 @@ fn command(app: &AppHandle, line: &str) {
         "show" => drop(workspace::show(app, (!rest.is_empty()).then_some(rest))),
         // `front`: the workspace window in front of every other, with the keyboard left where it is: a measurement
         // needs the window seen, and a passive one opens behind the app in use.
+        #[cfg(target_os = "macos")]
         "front" => {
             if let Some(window) = app.get_webview_window(workspace::LABEL).and_then(|w| w.ns_window().ok()) {
                 native::order_front(window as usize)
@@ -198,13 +228,20 @@ fn command(app: &AppHandle, line: &str) {
             }
         }
         "state" => {
-            let workspace = app.get_webview_window(workspace::LABEL).and_then(|w| w.ns_window().ok());
+            let workspace = app.get_webview_window(workspace::LABEL);
+            #[cfg(target_os = "macos")]
+            let workspace = workspace.and_then(|w| w.ns_window().ok()).map(|w| native::ns_window_number(w as usize));
+            #[cfg(windows)]
+            let workspace = workspace.and_then(|w| w.hwnd().ok()).map(|w| w.0 as isize);
             log(
                 json!({"event": "state", "notch": notch::state(), "question": *app.state::<Host>().question.lock().unwrap(),
-                "workspace": workspace.map(|w| native::ns_window_number(w as usize))}),
+                "workspace": workspace}),
             )
         }
         // `snapshot <page> <file>`: the page as it is drawn, as PNG.
+        #[cfg(windows)]
+        "snapshot" => log(json!({"event": "snapshot", "file": arg, "ok": false, "why": native::NOT_YET})),
+        #[cfg(target_os = "macos")]
         "snapshot" => {
             let path = std::path::PathBuf::from(arg);
             if let Some(window) = app.get_webview_window(label) {
@@ -251,9 +288,20 @@ fn command(app: &AppHandle, line: &str) {
 fn data_folder() -> std::path::PathBuf {
     match std::env::var_os("TASKTAP_DATA") {
         Some(dir) => dir.into(),
+        #[cfg(target_os = "macos")]
         None => std::path::Path::new(&std::env::var_os("HOME").unwrap_or_default())
             .join("Library/Application Support/Tasktap Next"),
+        // The person's own, never roaming: the core's database and its pipe belong to this machine.
+        #[cfg(windows)]
+        None => std::path::Path::new(&std::env::var_os("LOCALAPPDATA").unwrap_or_default()).join("Tasktap Next"),
     }
+}
+
+/// Whether a page is given what its web view asks the system for. The microphone, and nothing else a web view can
+/// ask for; and in a passive run (the checks: `TASKTAP_PASSIVE`) not the microphone either, whatever a check does:
+/// one that forgot its stand-in for the microphone is refused and hears nothing.
+fn granted(passive: bool, kind: PermissionKind) -> bool {
+    !passive && kind == PermissionKind::Microphone
 }
 
 fn main() {
@@ -264,7 +312,10 @@ fn main() {
         // The core this app bundles, next to its own program; a check may name another.
         let (exe, build) = match (std::env::var_os("TASKTAP_CORE_EXE"), std::env::var("TASKTAP_CORE_BUILD")) {
             (Some(exe), Ok(build)) => (exe.into(), build),
-            _ => (std::env::current_exe()?.with_file_name("tasktap"), env!("TASKTAP_CORE_BUILD").to_owned()),
+            _ => (
+                std::env::current_exe()?.with_file_name(format!("tasktap{}", std::env::consts::EXE_SUFFIX)),
+                env!("TASKTAP_CORE_BUILD").to_owned(),
+            ),
         };
         let core = Arc::new(Core::prepare(data_folder(), &exe, build)?);
         let link = Link::start(core.clone(), |g| {
@@ -273,8 +324,10 @@ fn main() {
         })?;
         Ok((core, link))
     });
-    let app = tauri::Builder::default()
-        .activate_ignoring_other_apps(false)
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder.activate_ignoring_other_apps(false);
+    let app = builder
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, s, event| {
@@ -297,27 +350,37 @@ fn main() {
         // The pages may hear the microphone (hold to talk, which the page records itself so it is the same on every
         // system, and the appearance panel's trial; the person starts both, and macOS then asks them once, with
         // Info.plist's reason), and nothing else a web view can ask for.
-        // A passive run (the checks) is never given it: a check that forgot its stand-in hears nothing.
-        .on_permission_request(|_, kind| match kind {
-            PermissionKind::Microphone if std::env::var_os("TASKTAP_PASSIVE").is_none() => PermissionResponse::Allow,
-            _ => PermissionResponse::Deny,
+        .on_permission_request(|_, kind| match granted(std::env::var_os("TASKTAP_PASSIVE").is_some(), kind) {
+            true => PermissionResponse::Allow,
+            false => PermissionResponse::Deny,
         })
         .on_menu_event(|app, event| workspace::on_menu(app, event.id().as_ref()))
         .setup(move |app| {
             let passive = std::env::var_os("TASKTAP_PASSIVE").is_some();
             notch::NOTCH.lock().unwrap().passive = passive;
             // In the Dock with a menu, as 1.2 was; a passive run (the checks) stays out of both.
+            #[cfg(target_os = "macos")]
             app.set_activation_policy(if passive {
                 tauri::ActivationPolicy::Accessory
             } else {
                 tauri::ActivationPolicy::Regular
             });
             workspace::start(data_folder());
+            // On Windows the menu belongs to the workspace window (workspace::show), and a
+            // shortcut another program holds already is not this app's to take.
+            #[cfg(target_os = "macos")]
             app.set_menu(workspace::menu(app.handle())?)?;
-            app.global_shortcut().register(keys(Code::Space))?;
+            let capture = app.global_shortcut().register(keys(Code::Space));
+            if cfg!(windows) {
+                log(json!({"event": "capture-key", "ok": capture.is_ok()}));
+            } else {
+                capture?;
+            }
 
             // Tauri's own window stays hidden; its web view moves into a real non-activating panel,
-            // shown once the page asks: tao makes every window visible at launch key.
+            // shown once the page asks: tao makes every window visible at launch key. Windows has no
+            // counterpart yet, and so no notch page either: there the workspace window is the app.
+            #[cfg(target_os = "macos")]
             let window = WebviewWindowBuilder::new(app, "notch", WebviewUrl::App("notch.html".into()))
                 .decorations(false)
                 .transparent(true)
@@ -329,7 +392,9 @@ fn main() {
                 .visible_on_all_workspaces(true)
                 .inner_size(246.0, 54.0)
                 .build()?;
+            #[cfg(target_os = "macos")]
             let handle = app.handle().clone();
+            #[cfg(target_os = "macos")]
             window.with_webview(move |webview| {
                 let mut st = notch::NOTCH.lock().unwrap();
                 st.panel = native::make_panel(webview.inner() as usize);
@@ -337,6 +402,7 @@ fn main() {
             })?;
             // A passive run (the checks) is driven by its debug channel alone: the person's own
             // pointer passing the notch must not open or hold it while a check reads it.
+            #[cfg(target_os = "macos")]
             if !notch::NOTCH.lock().unwrap().passive {
                 let handle = app.handle().clone();
                 native::watch_pointer(move || notch::moved(&handle));
@@ -368,9 +434,31 @@ fn main() {
         .expect("Tasktap Next failed to start");
     // Closing the workspace never quits: the notch's own (hidden) Tauri window stays open. The
     // Dock icon brings the workspace back; Quit in the menu ends the app.
+    #[cfg_attr(windows, allow(unused_variables))]
     app.run(|app, event| match event {
+        #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => drop(workspace::show(app, None)),
-        RunEvent::ExitRequested { .. } => workspace::quit(),
+        RunEvent::ExitRequested { .. } => {
+            workspace::quit();
+            log(json!({"event": "quitting"}))
+        }
+        RunEvent::Exit => log(json!({"event": "quit"})),
         _ => {}
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_passive_run_is_never_given_the_microphone_and_no_run_anything_else() {
+        assert!(granted(false, PermissionKind::Microphone), "the person's own run may hear, once they hold to talk");
+        for kind in [PermissionKind::Microphone, PermissionKind::Camera, PermissionKind::Geolocation] {
+            assert!(!granted(true, kind), "{kind:?} in a passive run");
+        }
+        for kind in [PermissionKind::Camera, PermissionKind::Geolocation] {
+            assert!(!granted(false, kind), "{kind:?}");
+        }
+    }
 }

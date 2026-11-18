@@ -10,9 +10,18 @@
 .ring[aria-checked=true] .ring-o circle:not(.turn){stroke-width:1.75px}
 .ring:not([aria-checked=true],[data-s=off]):hover{background:var(--hover);color:var(--fg)}
 .ring .nm{padding-right:5px;font:var(--f-small);color:var(--fg)}
-.cap-row{container:row/inline-size}
-@container row (max-width:520px){.ring .nm{display:none}}
-@container row (max-width:520px){.mic kbd{display:none}}
+/* Where the Composer is narrow (the notch, the capture sheet, Home in a narrow window) its row is two lines, so that
+   nothing in it is squeezed, cut or left unsaid: where the thought goes and the key that sends it; under them who runs
+   it, by name, and the microphone with its key. */
+.cap{container:cap/inline-size}
+@container cap (max-width:540px){
+  .cap-row:not(.hear,.cap-list){flex-wrap:wrap;row-gap:0}
+  .cap-row:not(.hear,.cap-list)::after{content:"";order:3;flex-basis:100%}
+  .cap-row>.cap-to{order:1}
+  .cap .cap-row>.cap-to~.key{order:2;margin-left:auto}
+  .cap-row>.rings{order:4;margin:2px 0 0 -3px}
+  .cap .cap-row>.cap-to~.mic{order:5;margin:2px -6px 0 auto}
+}
 @media(prefers-reduced-motion:no-preference){
   .ring[aria-checked=true]{animation:ring-seat 420ms var(--ease)}
   .ring[aria-checked=true] .ring-o{animation:ring-take 420ms var(--ease)}
@@ -90,3 +99,5 @@
 /* A question about where a thought should go shows the thought and its brief so far, as the thought on its way does. */
 [data-question] .way-w{margin-top:var(--sp2)}
 .ans>.i{width:14px;height:14px;color:var(--fg2)}
+/* What a choice is, said quietly after its name: a session's agent and folder. */
+.ans>i:not(.st){font:var(--f-small);font-style:normal;color:var(--fg3)}

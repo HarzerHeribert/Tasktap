@@ -34,12 +34,20 @@ jobs:
         run: cargo fmt --check
       - name: Lint
         run: cargo clippy --all-targets -- -D warnings
+      # The core's terminals run in Microsoft's console when it lies beside the core, as in the
+      # app; the test of a line typed as output ends has nothing to test without it.
+      - name: Put Microsoft's console beside the core
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo build --quiet
+          ./scripts/conpty.ps1 -Target x86_64 -Into target/debug
       - name: Test
         run: cargo test --workspace
 
   interface:
     name: Interface (types, tests, build, pages)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # held: the page checks' browser does not install on the newer image yet
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
@@ -139,11 +147,13 @@ jobs:
           path: ${{ runner.temp }}/smoke
           if-no-files-found: ignore
 
-  # The public site still describes the released 1.2. It is built and checked on every run and
+  # The public site describes this app. What it takes from the app (site/app) is made on a Mac by
+  # scripts/render-site.cjs and committed; here it is assembled and checked on every run, and
   # published from main only.
   site:
     name: Public site
-    runs-on: ubuntu-latest
+    # Not ubuntu-latest: that is Ubuntu 26.04 now, for which Playwright 1.60 has no browser.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
@@ -154,7 +164,7 @@ jobs:
           node-version: '22'
           cache: npm
       - name: The site's scripts parse
-        run: for file in site/*.js site/docs/*.js; do node --check "$file"; done
+        run: for file in site/*.js site/src/*.js site/app/stage.js; do node --check "$file"; done
       - name: Build the site
         run: python3 scripts/build-site.py
       - run: npm ci --ignore-scripts --no-audit --no-fund
@@ -175,21 +185,9 @@ jobs:
         with:
           path: build/pages
 
-  installer:
-    name: Published 1.2 installer keeps a backup
-    runs-on: macos-26
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      # site/install.sh is served from the site. This runs its replace-and-back-up step on a
-      # temporary folder; it never touches an installed app.
-      - run: bash scripts/verify-installer.sh
-
   deploy:
     name: Publish GitHub Pages
-    needs: [site, installer]
+    needs: [site]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

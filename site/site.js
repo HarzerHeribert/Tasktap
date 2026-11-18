@@ -1,142 +1,114 @@
-// Progressive enhancement: every chapter and the installer work without JS.
+// The page's own part. It adds nothing the page needs in order to be read: without it the words and the pictures
+// stand as they are. With it, after the first paint: the app's notch page plays one thought from start to result at
+// the top (app/notch.html, the app's own code), the chrome is drawn live by the app's motion engine (app/chrome.js)
+// and follows what the notch shows, and a picture wider than the screen says which way it goes on.
+// The rule on movement is the app's: still at rest; a loop only while something is shown working; nothing while the
+// top is out of sight or the tab is hidden; and under Reduce Motion nothing moves by itself.
 (() => {
-  const motion=matchMedia('(prefers-reduced-motion: reduce)'),narrow=matchMedia('(max-width: 680px)');
-  const film=document.querySelector('.wave-field video'),toggle=document.querySelector('.wave-toggle');
-  const stage=document.querySelector('.story-stage');
-  let visible=false,paused=!!navigator.connection?.saveData;
-  function syncFilm(){
-    toggle.hidden=motion.matches;
-    toggle.setAttribute('aria-label',paused?'Play artwork':'Pause artwork');
-    toggle.classList.toggle('is-paused',paused);
-    if(motion.matches||!visible||document.hidden||paused){
-      film.pause();
-      if(motion.matches&&film.hasAttribute('src')){film.removeAttribute('src');film.load()}
-      return;
-    }
-    const source=narrow.matches?film.dataset.source.replace('.mp4','-mobile.mp4'):film.dataset.source;
-    if(film.getAttribute('src')!==source)film.src=source;
-    film.playbackRate=1;film.play().catch(()=>{});
-  }
-  toggle.addEventListener('click',()=>{paused=!paused;syncFilm()});
-  new IntersectionObserver(([entry])=>{visible=entry.isIntersecting;syncFilm()}).observe(film);
-  narrow.addEventListener('change',syncFilm);
+  'use strict';
+  const $ = (s, el = document) => el.querySelector(s);
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)');
 
-  const panels=[...document.querySelectorAll('.story-panel')],tabs=[...document.querySelectorAll('[data-step]')],count=panels.length,last=count-1;
-  const play=document.querySelector('#story-play'),next=document.querySelector('#story-next'),position=document.querySelector('#story-position');
-  let current=0,playing=false,timer,finishMorph=()=>{};
-  function stop(){clearTimeout(timer);playing=false;play.textContent=current===last?'Replay walkthrough ↻':'Play walkthrough ▷';play.setAttribute('aria-label',current===last?'Replay the walkthrough':'Play the walkthrough')}
-  // Capture coordinates come from the same DOM that produced the Retina images.
-  // Pair semantic regions (request, reference, actions) across layouts. The shell
-  // and each region move independently; no unrelated artwork covers the change.
-  function snapshot(panel){
-    const frame=panel.querySelector('.notch-frame,.workspace-image,.preparation-map'),img=frame.querySelector('img');
-    const box=frame.getBoundingClientRect(),imageBox=img?img.getBoundingClientRect():box,stageBox=stage.getBoundingClientRect();
-    const name=img?.currentSrc.split('/').pop()?.replace('.png','');
-    let regions=window.tasktapCaptureRegions?.[name];const nodes={};
-    // The preparation explanation stays live HTML for sharp, accessible text.
-    // Measure its real layout just like the captured interface regions.
-    if(!img){
-      regions={parts:{}};
-      frame.querySelectorAll('[data-morph-part]').forEach(node=>{
-        const r=node.getBoundingClientRect(),key=node.dataset.morphPart;
-        regions.parts[key]={x:(r.left-box.left)/box.width,y:(r.top-box.top)/box.height,w:r.width/box.width,h:r.height/box.height};nodes[key]=node;
-      });
-    }
-    return {frame,img,src:img?.currentSrc,regions,nodes,box:{left:box.left-stageBox.left,top:box.top-stageBox.top,width:box.width,height:box.height},image:{left:imageBox.left-box.left,top:imageBox.top-box.top,width:imageBox.width,height:imageBox.height},radius:getComputedStyle(frame).borderRadius};
-  }
-  function morph(from,to,panel,direction,oldHeight){
-    if(!from.regions||!to.regions||(from.img&&!from.img.complete)||(to.img&&!to.img.complete))return;
-    const shell=document.createElement('div');shell.className='morph-shell';shell.setAttribute('aria-hidden','true');
-    stage.append(shell);stage.classList.add('is-transitioning');
-    const animations=[],duration=820,easing='cubic-bezier(.22,.72,.18,1)';
-    const animate=(node,frames,options={})=>{const a=node.animate(frames,{duration,easing,fill:'both',...options});animations.push(a);return a};
-    const px=box=>Object.fromEntries(Object.entries(box).map(([key,value])=>[key,value+'px']));
-    Object.assign(shell.style,px(to.box),{borderRadius:to.radius});
-    const shellMotion=animate(shell,[{...px(from.box),borderRadius:from.radius},{...px(to.box),borderRadius:to.radius}]);
-    animate(stage,[{height:oldHeight+'px'},{height:stage.getBoundingClientRect().height+'px'}]);
-    const base=(snapshot,incoming)=>{
-      const clone=snapshot.frame.cloneNode(true);clone.classList.add('morph-base');clone.removeAttribute('href');clone.removeAttribute('aria-label');
-      clone.querySelectorAll('[id]').forEach(el=>el.removeAttribute('id'));shell.append(clone);
-      animate(clone,incoming?[{opacity:0,offset:0},{opacity:0,offset:.9},{opacity:1,offset:1}]:[{opacity:1,offset:0},{opacity:0,offset:.12},{opacity:0,offset:1}],{easing:'linear'});
+  // A picture wider than its place is panned; it dissolves at the edge beyond which there is more, and only there.
+  for (const el of document.querySelectorAll('.pan')) {
+    const mark = () => {
+      const more = [el.scrollLeft > 1 && 'left', el.scrollLeft + el.clientWidth < el.scrollWidth - 1 && 'right'].filter(Boolean);
+      more.length ? (el.dataset.more = more.join(' ')) : delete el.dataset.more;
+      if (el.tagName !== 'PRE') el.tabIndex = el.scrollWidth > el.clientWidth + 1 ? 0 : -1;
     };
-    base(from,false);base(to,true);
-    const local=(snapshot,region)=>({left:snapshot.image.left+region.x*snapshot.image.width,top:snapshot.image.top+region.y*snapshot.image.height,width:region.w*snapshot.image.width,height:region.h*snapshot.image.height});
-    const keys=new Set([...Object.keys(from.regions.parts),...Object.keys(to.regions.parts)]);
-    let order=0;
-    for(const key of keys){
-      const before=from.regions.parts[key],after=to.regions.parts[key];
-      const old=local(from,before||from.regions.parts.request),end=after?local(to,after):{...old,left:old.left+direction*40};
-      const piece=document.createElement('div');piece.className='morph-piece';piece.dataset.part=key;shell.append(piece);
-      Object.assign(piece.style,px(end));
-      // A small horizontal lead makes the change read left-to-right while
-      // the request and controls move into their next positions.
-      const middle=Object.fromEntries(Object.keys(old).map(k=>[k,(old[k]+end[k])/2]));middle.left+=direction*18;
-      animate(piece,[{...px(old),opacity:before?1:0},{...px(middle),opacity:1,offset:.48},{...px(end),opacity:after?1:0}],{delay:order++*14,duration:duration-90});
-      const ink=(snapshot,region,incoming)=>{
-        if(!region)return;
-        const image=document.createElement('div');image.className='morph-ink';
-        Object.assign(image.style,{width:region.w*snapshot.image.width+'px',height:region.h*snapshot.image.height+'px'});
-        if(snapshot.img)Object.assign(image.style,{backgroundImage:'url("'+snapshot.src+'")',backgroundSize:snapshot.image.width+'px '+snapshot.image.height+'px',backgroundPosition:(-region.x*snapshot.image.width)+'px '+(-region.y*snapshot.image.height)+'px'});
-        else{image.classList.add('preparation-map','morph-dom');image.append(snapshot.nodes[key].cloneNode(true))}
-        piece.append(image);
-        animate(image,incoming?[{opacity:0,offset:0},{opacity:0,offset:.42},{opacity:1,offset:.56},{opacity:1,offset:.9},{opacity:0,offset:1}]:[{opacity:1,offset:0},{opacity:1,offset:after ? .34 : .12},{opacity:0,offset:after ? .46 : .28},{opacity:0,offset:1}],{easing:'linear'});
-      };
-      ink(from,before,false);ink(to,after,true);
-    }
-    const figure=panel.querySelector('.scene-figure');figure.style.visibility='hidden';
-    animate(panel.querySelector('.scene-copy'),[{opacity:0,transform:'translateX('+(-24*direction)+'px)'},{opacity:1,transform:'translateX(0)'}],{duration:560,delay:100});
-    let done=false;
-    const cleanup=()=>{if(done)return;done=true;animations.forEach(a=>a.cancel());shell.remove();figure.style.visibility='';stage.classList.remove('is-transitioning');finishMorph=()=>{}};
-    finishMorph=cleanup;shellMotion.finished.then(cleanup,()=>{});
+    el.addEventListener('scroll', mark, { passive: true });
+    new ResizeObserver(mark).observe(el);
   }
-  function show(index,{animate=true,hash=false}={}){
-    finishMorph();
-    const previous=current,changed=previous!==index;
-    const from=changed?snapshot(panels[previous]):null,oldHeight=stage.getBoundingClientRect().height;
-    current=index;
-    panels.forEach((panel,i)=>{panel.hidden=i!==index;tabs[i].setAttribute('aria-selected',String(i===index));tabs[i].tabIndex=i===index?0:-1});
-    stage.dataset.scene=String(index);
-    if(animate&&changed&&!motion.matches&&!document.hidden)morph(from,snapshot(panels[index]),panels[index],index>previous?1:-1,oldHeight);
-    position.textContent=String(index+1).padStart(2,'0')+' / '+String(count).padStart(2,'0');
-    next.innerHTML=index===last?'Start again <span aria-hidden="true">↻</span>':'Next <span aria-hidden="true">→</span>';
-    next.setAttribute('aria-label',index===last?'Return to first step':'Next step');
-    if(!playing)stop();
-    if(hash)history.replaceState(null,'','#'+panels[index].id);
-  }
-  document.querySelector('.workflow').classList.add('has-story');
-  document.querySelector('.story-nav').setAttribute('role','tablist');
-  panels.forEach((panel,i)=>{
-    panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',tabs[i].id);panel.tabIndex=0;
-    tabs[i].setAttribute('role','tab');tabs[i].setAttribute('aria-controls',panel.id);
-    panel.querySelectorAll('img').forEach(img=>{img.loading='eager'});
-  });
-  function fromHash(){const index=panels.findIndex(p=>'#'+p.id===location.hash);if(index>=0){stop();show(index,{animate:false})}}
-  tabs.forEach((tab,i)=>{
-    tab.addEventListener('click',event=>{event.preventDefault();stop();show(i,{hash:true})});
-    tab.addEventListener('keydown',event=>{
-      let index;if(event.key==='ArrowRight')index=(i+1)%count;else if(event.key==='ArrowLeft')index=(i+last)%count;else if(event.key==='Home')index=0;else if(event.key==='End')index=last;else return;
-      event.preventDefault();stop();show(index,{hash:true});tabs[index].focus();
-    });
-  });
-  next.addEventListener('click',()=>{stop();show((current+1)%count,{hash:true})});
-  function schedule(){timer=setTimeout(()=>{if(!playing)return;if(current===last){stop();return}show(current+1);schedule()},6500)}
-  play.addEventListener('click',()=>{
-    if(playing){stop();return}if(motion.matches)return;if(current===last)show(0);
-    playing=true;play.textContent='Pause walkthrough Ⅱ';play.setAttribute('aria-label','Pause the walkthrough');schedule();
-  });
-  document.querySelector('.story-controls').hidden=false;
-  stage.addEventListener('focusin',stop);
-  new IntersectionObserver(([entry])=>{if(!entry.isIntersecting){stop();finishMorph()}}).observe(stage);
-  window.addEventListener('hashchange',fromHash);window.addEventListener('resize',()=>finishMorph());
-  show(0,{animate:false});fromHash();
-  function syncMotion(){syncFilm();play.hidden=motion.matches;if(motion.matches){stop();finishMorph()}}
-  motion.addEventListener('change',syncMotion);syncMotion();
-  document.addEventListener('visibilitychange',()=>{syncFilm();if(document.hidden){stop();finishMorph()}});
 
-  const copy=document.querySelector('#copy-install'),status=document.querySelector('#install-status');copy.hidden=false;
-  copy.addEventListener('click',async()=>{
-    const command=document.querySelector('#install-command');
-    try{await navigator.clipboard.writeText(command.textContent);copy.textContent='Copied';status.textContent='Command copied. Paste it into Terminal and press Return.'}
-    catch{const selection=getSelection(),range=document.createRange();range.selectNodeContents(command);selection.removeAllRanges();selection.addRange(range);status.textContent='Command selected. Press Command-C to copy it, then paste it into Terminal.'}
+  const top = $('.top'), stage = $('#stage');
+  if (!top || !stage) return;
+  const light = $('.light'), steps = $('.steps'), hold = $('.hold'), wave = $('.brand .wave'), bandEl = $('#band'), slot = $('.notch');
+  const ONGOING = ['thinking', 'working', 'needs'];
+  let frame = null, ready = false, wanted = true, seen = true, shown = false, motion = 'idle', band = null;
+
+  const post = (m) => frame && frame.contentWindow && frame.contentWindow.postMessage({ tasktap: 'page', ...m }, location.origin);
+  /** What the chrome is told: the app's default look, the state the notch shows, calm, and at rest while unseen. */
+  const chrome = (on) => ({
+    look: { style: 'slats', palette: 'chromatic', hue: 265, lumen: false }, state: motion, pace: reduce.matches ? 'still' : 'calm', rest: !on, primary: true, pose: 1,
+    pulse: reduce.matches ? 0 : 1, every: on && (motion === 'thinking' || motion === 'working') ? 15 : 0, tempo: 0.3, min: [320, 160],
   });
+  function sync() {
+    const on = seen && !document.hidden && wanted;
+    if (ready && reduce.matches) {
+      // Nothing plays by itself: one telling picture, and the steps to choose another.
+      if (!shown) post({ do: 'show', step: 'ask' });
+      shown = true;
+    } else if (ready) post({ do: on ? 'play' : 'hold' });
+    const moves = on && !reduce.matches && ONGOING.includes(motion);
+    light.dataset.state = motion;
+    light.dataset.moves = String(moves);
+    wave.classList.toggle('live', moves && motion !== 'needs');
+    hold.hidden = reduce.matches;
+    if (band) band.set(chrome(on));
+  }
+
+  addEventListener('message', (e) => {
+    const m = e.data;
+    if (e.origin !== location.origin || !frame || e.source !== frame.contentWindow || !m || m.tasktap !== 'stage') return;
+    if (m.ready) {
+      ready = true;
+      stage.classList.add('live');
+      steps.hidden = false;
+    } else {
+      if ('open' in m) return void (stage.dataset.open = String(m.open));
+      motion = m.motion || 'idle';
+      for (const b of steps.querySelectorAll('[data-step]')) b.dataset.step === m.step ? b.setAttribute('aria-current', 'step') : b.removeAttribute('aria-current');
+    }
+    sync();
+  });
+  steps.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b === hold) wanted = !wanted;
+    else (wanted = true), post({ do: 'from', step: b.dataset.step });
+    hold.setAttribute('aria-pressed', String(!wanted));
+    hold.setAttribute('aria-label', wanted ? 'Pause' : 'Play');
+    sync();
+  });
+  new IntersectionObserver(([e]) => ((seen = e.isIntersecting), sync()), { threshold: 0.15 }).observe(top);
+  document.addEventListener('visibilitychange', sync);
+  reduce.addEventListener('change', () => ((shown = false), sync()));
+
+  /** After the first paint, and not at all where data is being saved: the live notch, then the live chrome. */
+  function begin() {
+    const saving = !!(navigator.connection && navigator.connection.saveData);
+    if (saving) return;
+    frame = document.createElement('iframe');
+    frame.src = 'app/notch.html';
+    frame.tabIndex = -1;
+    frame.title = 'Tasktap’s notch, playing';
+    frame.setAttribute('aria-hidden', 'true');
+    slot.append(frame);
+    // A tile of fine noise over the light, made once, as the app makes it: on near-black a gradient bands.
+    try {
+      const c = document.createElement('canvas');
+      c.width = c.height = 96;
+      const g = c.getContext('2d'), img = g.createImageData(96, 96);
+      for (let i = 0; i < 96 * 96; i++) {
+        const v = Math.random() * 64;
+        img.data.set([v, v, v, 22], i * 4);
+      }
+      g.putImageData(img, 0, 0);
+      document.documentElement.style.setProperty('--noise', `url(${c.toDataURL()})`);
+    } catch {}
+    // The chrome only where it runs well; elsewhere its picture stays.
+    if (!window.WebGL2RenderingContext || navigator.deviceMemory < 4 || navigator.hardwareConcurrency < 4) return;
+    import('./app/chrome.js').then(({ View }) => {
+      // Its picture gives way once the engine has put its own canvas there and drawn into it.
+      new MutationObserver((_, o) => {
+        if (!$('canvas', bandEl)) return;
+        o.disconnect();
+        requestAnimationFrame(() => requestAnimationFrame(() => bandEl.classList.add('drawn')));
+      }).observe(bandEl, { childList: true, subtree: true });
+      band = new View(bandEl);
+      sync();
+    }, () => {});
+  }
+  if (document.readyState === 'complete') setTimeout(begin, 0);
+  else addEventListener('load', () => setTimeout(begin, 0), { once: true });
 })();

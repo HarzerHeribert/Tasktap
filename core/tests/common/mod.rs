@@ -773,6 +773,10 @@ pub fn clear(project: ProjectId) -> Route {
 pub fn agents(data: &Path) -> PathBuf {
     let folder = data.join("agents");
     std::fs::create_dir_all(&folder).unwrap();
+    if as_batch_files() {
+        batch_file(&folder, "fixture-agent");
+        return folder;
+    }
     let program = folder
         .join("fixture-agent")
         .with_extension(std::env::consts::EXE_EXTENSION);
@@ -791,6 +795,43 @@ fn link(to: &Path) -> std::io::Result<()> {
     return std::os::unix::fs::symlink(EXE, to);
     #[cfg(not(target_os = "macos"))]
     return std::fs::hard_link(EXE, to);
+}
+
+/// Whether the tests install their agents as npm installs a tool on Windows
+/// (`TASKTAP_TEST_BATCH_AGENTS`): a batch file that runs the program, which
+/// the command prompt runs. The suite passes either way.
+pub fn as_batch_files() -> bool {
+    cfg!(windows) && std::env::var_os("TASKTAP_TEST_BATCH_AGENTS").is_some()
+}
+
+/// What npm's cmd-shim writes for a tool, with `RUN` where the program and
+/// its script are named.
+pub const NPM_SHIM: &str = "@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\n\r\nIF EXIST \"%dp0%\\node.exe\" (\r\n  SET \"_prog=%dp0%\\node.exe\"\r\n) ELSE (\r\n  SET \"_prog=node\"\r\n  SET PATHEXT=%PATHEXT:;.JS;=;%\r\n)\r\n\r\nendLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & RUN %*\r\n";
+
+/// Installs this binary in `folder` under `name` as a batch file around a
+/// copy of it (a link would be the binary itself, which the core runs too),
+/// and returns the copy.
+pub fn batch_file(folder: &Path, name: &str) -> PathBuf {
+    let module = folder.join("node_modules").join(name);
+    std::fs::create_dir_all(&module).unwrap();
+    let program = module.join(name).with_extension("exe");
+    if !program.exists() {
+        std::fs::copy(EXE, &program).unwrap();
+        let run = format!(r#""%dp0%\node_modules\{name}\{name}.exe""#);
+        let shim = NPM_SHIM.replace("RUN", &run);
+        std::fs::write(folder.join(name).with_extension("cmd"), shim).unwrap();
+    }
+    program
+}
+
+/// Whether a process runs `program`, a file of its own: Windows lets
+/// nobody write to a program that runs.
+#[cfg(windows)]
+pub fn runs(program: &Path) -> bool {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(program)
+        .is_err()
 }
 
 /// This process's PATH with `first` before it.

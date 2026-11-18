@@ -21,7 +21,8 @@ const LISTS = [
   { list: '.hsec, .fold-b', row: ':scope > .hr.later', parts: { mark: '.st', label: '.hr-t', time: 'time' } },
   { list: '.hsec.needs', row: ':scope > button.hq', parts: { mark: '.st', label: '.hq-m', question: '.hq-q', time: 'time' } },
   { list: '.folds', row: ':scope > .fold > .fold-h', parts: { mark: '.i', name: 'b', count: '.fold-c', time: 'time' } },
-  { list: '.list', row: ':scope > .line', parts: { mark: '.ring-o', label: '.t', fact: '.x' } },
+  { list: '.list', row: ':scope > .line', parts: { mark: '.ring-o, :scope > .i', label: '.t', fact: '.x' } },
+  { list: '.sx', row: ':scope > .tn', parts: { time: 'time', label: '.tn-t' } },
   { list: '.ws', row: ':scope > .row.s', parts: { mark: '.st', label: '.lbl' } },
   { list: '.tree', row: ':scope > .row.home, :scope > .ws > .row.w', parts: { label: '.lbl' } },
   { list: '.acts', row: ':scope > .act', parts: { key: 'kbd', label: 'span' } },
@@ -207,6 +208,8 @@ async function main() {
     ['busy', (w) => w.__ws.show('earlier')], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'agents' })], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'close-tab', project: '', id: '' })],
     ['busy', (w) => (w.__ws.ui.sheet = { kind: 'settings' })], ['busy', (w) => w.document.querySelector('#dest-chip').click()],
     ['workspace', (w) => (w.__ws.ui.sheet = { kind: 'review', thought: [...w.__ws.records.thoughts.values()].find((t) => t.workdir?.changes === 'pending').id })],
+    // A session's details: its two lines of facts and its turns, one of them read from the core's history.
+    ['busy', (w) => (w.__ws.ui.sheet = { kind: 'session', id: [...w.__ws.records.sessions.values()].find((s) => s.turn > 1).id }), 'session'],
     // The routing and speech flows: a thought on its way (also two, a long German one, one typed under while it waits),
     // asked about, saved for later with the core's reason, a recording, its failure, the two sheets and Settings.
     ['normal', null, 'held'], ['normal', null, 'two'], ['normal', null, 'held', { lang: 'de', long: true }], ['normal', (w) => typeIn(w, 'The next thought, typed while that one waits'), 'held'],

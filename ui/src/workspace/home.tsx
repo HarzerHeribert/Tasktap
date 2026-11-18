@@ -13,8 +13,10 @@ import { Ask } from '../question.tsx';
 import { Answer, I, Mark, type State, elapsed, plural, when } from '../ui.tsx';
 import { laterWhy, placed } from '../way.ts';
 import { Light, useLight } from './light.tsx';
+import { popup } from './menu.ts';
+import { older, past } from './past.ts';
 import {
-  agentName, call, fail, focus, focusSession, layout, open, openQuestions, page, projectName, projects, records, redraw, resultOf, show,
+  agentName, call, details, fail, focus, focusSession, layout, open, openQuestions, page, projectName, projects, records, redraw, resultOf, show,
   title, ui, why, workspaces,
 } from './model.ts';
 
@@ -93,10 +95,12 @@ function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean })
     <div class={`hr ${kind}${bg ? ' bgd' : ''}${kind === 'res' && t.read && !changes ? ' seen' : ''}`} data-nav tabIndex={0} data-thought={t.id}
       title={[t.text, fact, placed(t, agentName)].filter(Boolean).join('\n')}
       onClick={(e) => !(e.target as HTMLElement).closest('.hr-a') && go()}
+      onContextMenu={(e) => t.session_id && popup(e, [{ text: 'Open Terminal', do: go }, { text: 'Session Details…', do: () => void details(t.session_id ?? undefined) }])}
       onKeyDown={(e) => {
         if ((e.target as HTMLElement) !== e.currentTarget || e.metaKey || e.ctrlKey) return;
         const key = e.key.toLowerCase();
         if (key === 'enter') go();
+        else if (key === 'i') details(t.session_id ?? undefined);
         else if (changes && key === 'k') main(changes);
         else if (changes && key === 'd') open({ kind: 'settle', thought: t.id, keep: false });
         else if (changes && key === 'r') open({ kind: 'review', thought: t.id });
@@ -134,12 +138,11 @@ export function ChangeActs({ t }: { t: Changed }) {
 /** A thought saved for later: where it waits, and the way on. The one just saved shows its actions without being asked. */
 function LaterRow({ t }: { t: Thought }) {
   const send = () => open({ kind: 'send', thought: t.id });
-  const kept = [...records.questions.values()].some((q) => q.thought_id === t.id && q.source === 'router' && q.answer?.kind === 'deny');
   return (
     <div class={`hr later${t.id === cap.sent?.id ? ' new' : ''}`} data-nav tabIndex={0} title={[t.text, t.route?.fallback].filter(Boolean).join('\n')} onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && (e.preventDefault(), send())}>
       <Mark s="later" />
       <span class="hr-t">{title(t)}</span>
-      <span class="hr-x">{laterWhy(t, agentName, kept)}</span>
+      <span class="hr-x">{laterWhy(t, agentName)}</span>
       <div class="hr-a">
         <button type="button" class="btn" onClick={send}>Send to a folder…</button>
         <button type="button" class="btn" onClick={() => void call('delete', { c: 'thoughts', id: t.id }).catch(fail)}>Drop</button>
@@ -320,25 +323,8 @@ function useWide() {
 
 // ——— Earlier: every result by day, with ideas and a find field ———
 
-const earlier = { pages: [] as Thought[], more: true, loading: false, query: '' };
-async function older() {
-  if (earlier.loading || !earlier.more) return;
-  earlier.loading = true;
-  redraw();
-  try {
-    const live = home().results;
-    const before = [...live, ...earlier.pages].sort((a, b) => (a.id < b.id ? -1 : 1))[0]?.id ?? null;
-    const p = await call('history', { before, limit: 100 });
-    earlier.pages.push(...p.thoughts.filter((t) => t.mode !== 'note'));
-    for (const r of p.results) records.results.set(r.id, r);
-    earlier.more = p.thoughts.length > 0;
-  } catch (e) {
-    fail(e);
-  } finally {
-    earlier.loading = false;
-    redraw();
-  }
-}
+// What left the live set is read from the core's history a page at a time (past.ts).
+const earlier = { query: '' };
 
 function day(ms: number) {
   const d = new Date(ms), now = new Date();
@@ -351,7 +337,8 @@ export function Earlier() {
   const words = earlier.query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
   const match = (t: Thought) => words.every((w) => `${t.text} ${projectName(t.project_id)} ${resultOf(t)?.summary ?? ''}`.toLocaleLowerCase().includes(w));
   const seen = new Set<string>();
-  const rows = [...h.waiting, ...h.results, ...earlier.pages].filter((t) => !seen.has(t.id) && (seen.add(t.id), true) && match(t)).sort((a, b) => b.updated - a.updated);
+  const pages = past.thoughts.filter((t) => t.mode !== 'note');
+  const rows = [...h.waiting, ...h.results, ...pages].filter((t) => !seen.has(t.id) && (seen.add(t.id), true) && match(t)).sort((a, b) => b.updated - a.updated);
   const later = h.later.filter(match);
   const groups = new Map<string, Thought[]>();
   for (const t of rows) {
@@ -384,8 +371,8 @@ export function Earlier() {
           </section>
         ))}
         {!rows.length && !later.length && words.length > 0 && <p class="none">Nothing matches “{earlier.query.trim()}”.</p>}
-        {earlier.more && h.results.length + earlier.pages.length >= 200 && (
-          <button type="button" class="more" data-nav onClick={() => void older()}>{earlier.loading ? 'Reading…' : 'Earlier results'}<I n="chev" /></button>
+        {past.more && h.results.length + pages.length >= 200 && (
+          <button type="button" class="more" data-nav onClick={() => void older()}>{past.loading ? 'Reading…' : 'Earlier results'}<I n="chev" /></button>
         )}
       </div>
     </div>

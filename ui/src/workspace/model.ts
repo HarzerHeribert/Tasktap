@@ -3,8 +3,8 @@
 // copy that changes at once and is written back a moment later, never as the page's own data.
 import type { Session, StartTerminal, Thought } from '../../../core/proto/protocol.ts';
 import { cap } from '../capture.tsx';
-import { uuid7 } from '../client.ts';
-import { agentName, call, fail, focus, openQuestions, page, records, redraw, title, why } from '../page.ts';
+import { CallError, uuid7 } from '../client.ts';
+import { agentName, call, fail, focus, openQuestions, page, records, redraw, sentence, title, why } from '../page.ts';
 import type { State } from '../ui.tsx';
 import { snap } from './appearance.ts';
 import * as L from './layout.ts';
@@ -30,7 +30,8 @@ export type Sheet =
   | { kind: 'agents' }
   | { kind: 'review'; thought: string }
   | { kind: 'settle'; thought: string; keep: boolean }
-  | { kind: 'send'; thought: string };
+  | { kind: 'send'; thought: string }
+  | { kind: 'session'; id: string };
 
 export const ui = {
   /** 'home', 'earlier', a project id, or LOOSE. */
@@ -47,6 +48,8 @@ export const ui = {
   typing: new Map<string, string>(),
   /** Terminals being stopped, which must not get a tab back while they end. */
   stopping: new Set<string>(),
+  /** Terminals the core would not show here, each with its reason: one is open in as many places as it allows. */
+  full: new Map<string, string>(),
   /** Workspaces whose sessions are folded away in the sidebar. */
   folded: new Set<string>(),
   /** The first snapshot arrived: until then nothing is reconciled. */
@@ -142,6 +145,7 @@ export function reconcile() {
     if (records.terminals.has(id) || ui.starting.has(id)) continue;
     e.dispose();
     engines.delete(id);
+    ui.full.delete(id);
   }
 }
 
@@ -236,14 +240,16 @@ export function newTerminal(project: string, opts: { into?: string; axis?: 'x' |
 }
 
 const attaching = new Set<string>();
-/** Opens a tab's stream: a terminal this page starts is started by the same call. */
-export async function attach(id: string) {
+/** Opens a tab's stream: a terminal this page starts is started by the same call. One the core will not show in one
+ *  more place (`conflict`) says so in its pane, in the core's words, and is not asked for again until the person does. */
+export async function attach(id: string, again = false) {
   const e = engine(id);
-  if (e.attached || attaching.has(id)) return;
+  if (e.attached || attaching.has(id) || (ui.full.has(id) && !again)) return;
   attaching.add(id);
   const start = ui.starting.get(id);
   try {
     await e.attach(start);
+    ui.full.delete(id);
     ui.starting.delete(id);
     const typed = ui.typing.get(id);
     if (typed) {
@@ -251,6 +257,7 @@ export async function attach(id: string) {
       e.type(typed + '\r');
     }
   } catch (err) {
+    if (!start && err instanceof CallError && err.code === 'conflict') (ui.full.set(id, sentence(err.message)), redraw());
     if (!start) return;
     ui.starting.delete(id);
     setLayout(projectOf(id), L.close(layout(projectOf(id)), id));
@@ -313,6 +320,13 @@ export function focusSession(at: string) {
   show(project);
   focusTerminal(id);
   return true;
+}
+
+/** A session's details, from the session or its terminal. A terminal with no session, a plain shell, has none. */
+export function details(at: string | undefined) {
+  const s = records.sessions.get(at ?? '') ?? sessionOf(at ?? '');
+  if (s) open({ kind: 'session', id: s.id });
+  return !!s;
 }
 
 export function closeWorkspace(project: string) {

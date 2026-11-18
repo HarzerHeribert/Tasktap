@@ -6,10 +6,11 @@
 import type { Mark, StartTerminal } from '../../../core/proto/protocol.ts';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
-import { Terminal } from '@xterm/xterm';
+import { type ILink, Terminal } from '@xterm/xterm';
 import type { Stream } from '../client.ts';
-import { call, client, records, redraw } from '../page.ts';
+import { call, client, fail, records, redraw } from '../page.ts';
 import { type Look, look as ownLook, terminalOptions } from './appearance.ts';
+import { type Found, find, lineAt, pointsAt, range } from './links.ts';
 
 /** Bytes the core may send ahead of what xterm.js has parsed. */
 const WINDOW = 1 << 20;
@@ -17,6 +18,24 @@ const encoder = new TextEncoder();
 const empty = new Uint8Array(0);
 const RELEASE = '\x1b[?9;1000;1002;1003;1004;1005;1006;1015;1016;2004;2026l\x1b[?1l\x1b>\x1b[<u\x1b[=0u\x1b[>4;0m\x1b[?47l\x1b[0m\x1b[?25h';
 let look: Look = ownLook();
+
+// Links. An address or a path a terminal prints is a link only while ⌘ is held, as in Mac terminals: then it is
+// underlined under the pointer, ⌘-click opens it and ⇧⌘-click shows a file in Finder. A plain click is never a link's:
+// it belongs to the program in the terminal. Whether ⌘ is held is said on the page's root, which the styles follow.
+const held = (on: boolean) => document.documentElement.toggleAttribute('data-cmd', on);
+addEventListener('keydown', (e) => e.key === 'Meta' && held(true), true);
+addEventListener('keyup', (e) => e.key === 'Meta' && held(false), true);
+addEventListener('blur', () => held(false));
+/** What the host says a path is, asked once for a few seconds: null when it does not exist or may not be opened. */
+const probes = new Map<string, { at: number; found: Promise<string | null> }>();
+function probe(target: string, cwd: string) {
+  const key = `${cwd}\n${target}`, had = probes.get(key);
+  if (had && Date.now() - had.at < 5000) return had.found;
+  if (probes.size > 400) probes.clear();
+  const found = call('host.open', { target, cwd, probe: true }).catch(() => null);
+  probes.set(key, { at: Date.now(), found });
+  return found;
+}
 
 export class Engine {
   readonly id: string;
@@ -42,6 +61,10 @@ export class Engine {
   private below = 0;
   /** Typed once the stream is live. */
   private queued = '';
+  /** The folder its shell says it is in (OSC 7), when it says. */
+  private cwd = '';
+  /** What the link under the pointer opens, where that is not what its text says: shown at the terminal's foot. */
+  private readonly tip = document.createElement('div');
   size: number | null = null;
   /** Times the core restarted this stream because it fell behind (measured, never expected). */
   gaps = 0;
@@ -87,6 +110,64 @@ export class Engine {
       this.scrollTimer = window.setTimeout(() => this.element.classList.remove('scrolling'), 500);
     });
     new ResizeObserver(() => queueFit(this)).observe(viewport);
+    this.tip.className = 'term-link';
+    this.tip.hidden = true;
+    this.element.append(this.tip);
+    this.term.registerLinkProvider({ provideLinks: (y, done) => void this.links(y).then((l) => done(l.length ? l : undefined)) });
+    // A hyperlink the program printed itself (OSC 8), under the same rules; its target is shown where its text is not it.
+    this.term.options.linkHandler = {
+      allowNonHttpProtocols: true,
+      activate: (e, uri) => this.follow(e, pointsAt(uri)),
+      hover: (_e, uri, r) => this.point(pointsAt(uri), this.term.buffer.active.getLine(r.start.y - 1)?.translateToString(true, r.start.x - 1, r.end.x) ?? ''),
+      leave: () => this.point(null),
+    };
+    this.term.parser.registerOscHandler(7, (data) => {
+      const at = pointsAt(data);
+      if (at?.kind === 'path') this.cwd = at.target;
+      return true;
+    });
+  }
+
+  /** The folder a path this terminal prints is taken from: where its shell says it is, else where its session runs
+   *  (a copy of the project, for a run in one), else where the terminal started. */
+  private folder() {
+    const runs = [...records.sessions.values()].filter((s) => s.terminal_id === this.id && s.cwd).sort((a, b) => (a.id < b.id ? 1 : -1))[0];
+    return this.cwd || runs?.cwd || records.terminals.get(this.id)?.cwd || '';
+  }
+
+  /** The links in the line that screen row `y` (from 1) is part of: every web address, and every path the host says
+   *  exists where it may be opened. */
+  async links(y: number): Promise<ILink[]> {
+    const { text, cells } = lineAt(this.term.buffer.active, y - 1, this.term.cols), cwd = this.folder();
+    const all = await Promise.all(find(text).map(async (f): Promise<ILink | null> => {
+      const real = f.kind === 'web' ? f.target : await probe(f.target, cwd);
+      return real === null ? null : {
+        range: range(cells, f.start, f.end), text: text.slice(f.start, f.end),
+        activate: (e) => this.follow(e, f), hover: () => this.point(f, f.target, real), leave: () => this.point(null),
+      };
+    }));
+    return all.filter((l) => l !== null);
+  }
+
+  /** ⌘-click: the host opens it, or says why not. With ⇧ a file is shown in Finder. */
+  private follow(e: Pick<MouseEvent, 'metaKey' | 'shiftKey'>, to: Pick<Found, 'kind' | 'target'> | null) {
+    if (e.metaKey && to) void call('host.open', { target: to.target, cwd: this.folder(), reveal: e.shiftKey }).catch(fail);
+  }
+
+  /** Says what the link under the pointer opens, where its text does not: the whole path of a file, with the way to
+   *  show it in Finder; the address behind a program's hyperlink. */
+  private point(to: Pick<Found, 'kind' | 'target'> | null, shown = '', real?: string | null) {
+    const at = (this.tip.dataset.at = to ? to.target : '');
+    this.tip.hidden = true;
+    if (!to) return;
+    void (real !== undefined ? Promise.resolve(real) : to.kind === 'web' ? Promise.resolve(to.target) : probe(to.target, this.folder())).then((real) => {
+      if (this.tip.dataset.at !== at || !real || real === shown.trim()) return;
+      const path = document.createElement('b'), how = document.createElement('i');
+      path.textContent = to.kind === 'web' ? real : real.replace(/^\/Users\/[^/]+/, '~');
+      how.textContent = to.kind === 'web' ? '' : '⇧ shows it in Finder';
+      this.tip.replaceChildren(path, how);
+      this.tip.hidden = false;
+    });
   }
 
   /** Replies xterm.js makes to queries in history are dropped (prototype/terminal-protocol.js):

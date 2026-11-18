@@ -25,6 +25,9 @@ export const fail = (e: unknown) => {
   redraw();
 };
 
+/** The core's words, shown as they are, as a sentence: begun with a capital and ended with a stop. */
+export const sentence = (s: string) => s.replace(/^./, (c) => c.toUpperCase()).replace(/([^.!?…])$/, '$1.');
+
 /** A focus move made by script never shows the keyboard ring (rebuild plan, Phase 0 findings). */
 export function focus(target: string | HTMLElement | null | undefined) {
   const el = typeof target === 'string' ? document.querySelector<HTMLElement>(target) : target;
@@ -76,6 +79,12 @@ export const projects = () =>
   [...records.projects.values()]
     .filter((p) => p.open)
     .sort((a, b) => Number(a.kind === 'scratch') - Number(b.kind === 'scratch') || a.name.localeCompare(b.name));
+
+/** What a session is called: its name, else the thought of its turn. */
+export const sessionName = (id: string | null | undefined) => {
+  const s = id ? records.sessions.get(id) : undefined;
+  return s?.name || title(records.thoughts.get(s?.thought_id ?? '')) || 'its session';
+};
 
 const reasons: Record<string, string> = {
   launch: 'It could not start',

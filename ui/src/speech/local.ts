@@ -29,7 +29,8 @@ function took(now: Local | null) {
 
 /** Asks the host where the model stands, or to fetch it, stop fetching it, or remove it. */
 export const model = (act?: 'install' | 'stop' | 'remove') => invoke<Local>('speech_model', { act }).then((now) => (took(now), now));
-void model().catch(() => {});
+// A host without these calls has no speech of its own: said as not available, never left asking.
+void model().catch(() => took({ supported: false, model: 'none', have: 0, of: 0, error: null }));
 // While the model is fetched the host says how far it is.
 void listen<Local>('speech', (e) => took(e.payload)).catch(() => {});
 

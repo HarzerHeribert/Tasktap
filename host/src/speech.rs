@@ -94,6 +94,12 @@ impl Speech {
         (fs::metadata(&file).ok()?.len() == self.source.bytes).then_some(file)
     }
 
+    /// Whether this system has the helper. It is built for the Mac only, so elsewhere local speech is said to be not
+    /// available, whatever lies beside the program.
+    fn supported(&self) -> bool {
+        cfg!(target_os = "macos") && self.exe.is_file()
+    }
+
     /// What Settings shows: whether this system has the helper, and where the model stands.
     pub fn status(&self) -> Value {
         let now = self.now.lock().unwrap();
@@ -112,7 +118,7 @@ impl Speech {
             "fetching" => now.have,
             _ => fs::metadata(self.part()).map_or(0, |m| m.len()),
         };
-        json!({"supported": self.exe.is_file(), "model": model, "have": have, "of": self.source.bytes, "error": now.failed})
+        json!({"supported": self.supported(), "model": model, "have": have, "of": self.source.bytes, "error": now.failed})
     }
 
     /// Fetches the model, from where an earlier attempt stopped; `notify` gets the status as it changes, at most
@@ -250,6 +256,9 @@ impl Speech {
         languages: &[String],
         on: impl Fn(Value) + Send + 'static,
     ) -> Result<(), String> {
+        if !self.supported() {
+            return Err("engine".into());
+        }
         let model = self.model().ok_or("model")?;
         // Another window's recording is left alone, unless it is older than any recording lasts (the core ends one
         // after 310 s). The same window's earlier one, never ended because its page was loaded again, is replaced.
@@ -392,7 +401,8 @@ pub fn speech_end(id: String, cancel: bool) {
     speech().end(&id, cancel)
 }
 
-#[cfg(test)]
+// The helper and its stand-ins in these tests are the Mac's (a shell script, `shasum`, `cksum`).
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
     use std::net::{TcpListener, TcpStream};

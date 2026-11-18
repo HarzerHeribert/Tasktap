@@ -194,6 +194,39 @@ async function main() {
     await page.evaluate(() => delete window.__fake.records.speech.refuses);
     await page.keyboard.press('Escape');
 
+    // ——— The listening row with everything in it: the time, the words so far, E Edit first, Cancel and Done ———
+    await again();
+    await page.evaluate(() => window.__fake.speech.said({ partial: 'Make the header stay on one line in the settings sheet, keep its close key at the right and do not let the title wrap' }));
+    await page.waitForTimeout(250);
+    // Each part that shows is inside the row and beside its neighbours, never over them; the words so far take what
+    // is left and are the part that yields.
+    const laid = () => page.evaluate(() => {
+      const box = (e) => { const r = e.getBoundingClientRect(); return { l: r.left, r: r.right, w: r.width }; };
+      const hear = document.querySelector('.home .hear'), all = [...hear.children].filter((e) => e.getBoundingClientRect().width > 0 && getComputedStyle(e).display !== 'none');
+      const parts = all.map((e) => ({ what: e.className || e.tagName, ...box(e) })).sort((x, y) => x.l - y.l), edge = box(hear);
+      return { inside: parts.every((x) => x.l >= edge.l - 1 && x.r <= edge.r + 1), apart: parts.every((x, i) => !i || parts[i - 1].r <= x.l + 1),
+        has: (q) => !!hear.querySelector(q), words: hear.querySelector('.hear-t')?.getBoundingClientRect().width ?? 0, keys: [...hear.querySelectorAll('.act, .key')].map((e) => e.textContent), parts };
+    });
+    let r = await laid();
+    if (!(r.inside && r.apart && r.words > 200 && r.keys.join('|') === 'EEdit first|escCancel|Done')) failures.push(`the listening row does not hold its words so far, E Edit first, Cancel and Done side by side: ${JSON.stringify(r)}`);
+    await shot(page, 'voice-listening-full', '.capture');
+    await page.setViewportSize({ width: 640, height: 760 });
+    await page.waitForTimeout(250);
+    r = await laid();
+    if (!(r.inside && r.apart && r.keys.join('|') === 'EEdit first|escCancel|Done')) failures.push(`in a narrow window the listening row's keys are not all legible: ${JSON.stringify(r)}`);
+    await shot(page, 'voice-listening-narrow', '.capture');
+    await page.setViewportSize({ width: 1180, height: 760 });
+    // E while it records: the spoken thought ends as its words in the field, to be edited, and nothing is sent.
+    await page.keyboard.press('e');
+    await page.waitForTimeout(500);
+    await hold(state(page).then((s) => !s.hears && !s.live && s.ended.some((e) => !e.cancel) && s.calls.includes('dictation.finish')), 'E does not end the recording');
+    await page.evaluate(() => window.__fake.speech.said({ final: 'Make the header stay on one line' }));
+    await page.waitForTimeout(400);
+    await hold(page.evaluate(() => document.querySelector('.home #capture-input').value === 'Make the header stay on one line' && !window.__fake.records.thoughts.some((t) => t.source === 'voice') && !window.__fake.calls.includes('thought.capture')),
+      'a thought spoken on this Mac and ended with E does not arrive in the field as words, or something was sent');
+    await hold(state(page).then((s) => !s.hears && !s.live && s.rows === 0), 'a microphone or a row is left after E');
+    await page.evaluate(() => { const f = document.querySelector('.home #capture-input'); f.focus(); document.execCommand('selectAll'); document.execCommand('delete'); });
+
     // ——— Nothing said: whatever the model makes of silence, the core is told nothing was heard ———
     await page.evaluate(() => { const t = window.__speech.talk; t.source = 'clip'; t.clip = btoa(String.fromCharCode(...new Uint8Array(32000))); });
     await page.mouse.click(...(await centre(page, '.home .mic')));
@@ -232,7 +265,7 @@ async function main() {
   }
   for (const f of failures) console.log('FAIL  ' + f);
   console.log(failures.length ? `FAIL  speech on this Mac: ${failures.length} things wrong`
-    : 'PASS  Settings says what speech on this Mac needs, how far its download is, that it is ready, why it failed and where it is not available, and lets the service go once the model is here; with no service a dictation is fed to the helper as 16 kHz mono 16-bit with the tone in it, its level and words so far show while it records, and its transcript becomes a thought or words in a field; the microphone has ended the moment the person lets go, cancels or the helper fails; nothing set up, a missing model, a failing helper and silence are each said in words');
+    : 'PASS  Settings says what speech on this Mac needs, how far its download is, that it is ready, why it failed and where it is not available, and lets the service go once the model is here; with no service a dictation is fed to the helper as 16 kHz mono 16-bit with the tone in it, its level and words so far show while it records, and its transcript becomes a thought, words in a field, or with E the words of the thought to edit; the listening row keeps its keys legible beside the words so far, also in a narrow window; the microphone has ended the moment the person lets go, cancels or the helper fails; nothing set up, a missing model, a failing helper and silence are each said in words');
   process.exitCode = failures.length ? 1 : 0;
 }
 /** The bytes of what was fed, from its seconds. */

@@ -67,6 +67,8 @@ const screens = {
     `  ${E('1;32', 'VITE')} ${green('v7.0.4')}  ready in ${bold('412')} ms`,
     '',
     `  ${green('➜')}  ${bold('Local')}:   ${cyan('http://localhost:5173/')}`,
+    // A hyperlink the program prints itself (OSC 8): its words are not its address.
+    `  ${green('➜')}  ${bold('Preview')}: \x1b]8;;https://preview.cuegrid.example/rehearsal-05\x07the shared preview\x1b]8;;\x07`,
     `  ${dim('➜  Network: use --host to expose')}`,
     `  ${dim('➜  press h + enter to show help')}`,
     '',
@@ -179,7 +181,7 @@ function scene(name, { now = Date.now(), changes = false } = {}) {
     const t = {
       id, rev: 10, text: o.text, strokes: [], source: 'typed', mode: 'ask', phase: status === 'needs_you' ? 'working' : status, status,
       reason: status === 'failed' ? 'turn_failed' : null, live: status === 'working' || status === 'needs_you', project_id: P[o.p], session_id: sid,
-      brief: o.text, agent: o.agent ?? 'claude', model: null, workdir: o.workdir ?? null, hold_until: null, read: o.read ?? false, created, updated,
+      brief: o.text, route: null, placed: 'picked', agent: o.agent ?? 'claude', model: null, workdir: o.workdir ?? null, hold_until: null, read: o.read ?? false, created, updated,
     };
     const ended = o.ended ?? (status === 'done' || status === 'failed');
     sessions.push({
@@ -203,7 +205,7 @@ function scene(name, { now = Date.now(), changes = false } = {}) {
     return tid;
   };
   const idea = (text, age) => thoughts.push({ id: uid(now - age * MIN), rev: 4, text, strokes: [], source: 'typed', mode: 'note', phase: 'captured', status: 'captured',
-    reason: null, live: false, project_id: null, session_id: null, brief: null, agent: 'claude', model: null, workdir: null, hold_until: null, read: false, created: now - age * MIN, updated: now - age * MIN });
+    reason: null, live: false, project_id: null, session_id: null, brief: null, route: null, placed: 'kept', agent: 'claude', model: null, workdir: null, hold_until: null, read: false, created: now - age * MIN, updated: now - age * MIN });
   const workdir = (files, insertions, deletions) => ({ path: '/Users/example/Library/Application Support/Tasktap Next/worktrees/cuegrid-export-pdf', branch: 'tasktap/cuegrid-export-pdf',
     destination: 'main', base: '4f2a91c', left_out: false, changes: 'pending', files, insertions, deletions });
 
@@ -263,6 +265,8 @@ function scene(name, { now = Date.now(), changes = false } = {}) {
   return {
     thoughts, projects, sessions, terminals, questions, results, layouts, prefs: [], devices: [], agents,
     glance: { rev: 44, working, needs_you: needs, done: thoughts.filter((t) => t.status === 'done' && !t.read).length, failed: thoughts.filter((t) => t.status === 'failed' && !t.read).length, question: questions[0]?.id ?? null, retiring: false },
+    // The paths its terminals print that exist, as the host would say: what each really is.
+    files: Object.fromEntries(['src/rehearsal/Timer.tsx', 'src/rehearsal/timer.css', 'notes/rehearsal-05.md', 'src/export/pdf.ts', 'src/menu.ts'].map((p) => [p, `/Users/example/projects/cuegrid/${p}`])),
     screens: scr, diffs: T.pdf ? { [T.pdf.t.id]: diff } : {}, ids: { projects: P, ...Object.fromEntries(Object.entries(T).map(([k, v]) => [k, { thought: v.t?.id, session: v.sid, terminal: v.tid }])) },
   };
 }
@@ -288,7 +292,8 @@ const BRIEF_MORE = {
 };
 
 /** Adds one state of the flows to a scene's records and returns them: a thought being placed, held with its brief,
- *  briefed after a pick, sent on as a follow-up, placed by name after a model failed, asked about, or saved for later;
+ *  briefed after a pick, sent on as a follow-up, placed by name after a model failed, asked about, or saved for later,
+ *  each with the core's word for how it came by its place (`placed`), and the question with what its choices are;
  *  or a dictation that records, is written down, or failed. `lang` en or de, `long` for a long thought and brief,
  *  `voice` for a spoken thought. */
 function flow(records, kind, { lang = 'en', long = false, voice = true, now = Date.now() } = {}) {
@@ -299,8 +304,9 @@ function flow(records, kind, { lang = 'en', long = false, voice = true, now = Da
   const speech = () => (pref('speech_by', { server: 'https://api.openai.com', model: 'gpt-transcribe' }), pref('keys', ['https://api.openai.com']), pref('speech_languages', ['de', 'en']));
   const id = uid(now, 1600);
   const thought = (o) => records.thoughts.push({ id, rev: 60, text, strokes: [], source: voice ? 'voice' : 'typed', mode: 'ask', phase: 'captured', status: 'captured', reason: null, live: false, project_id: null,
-    session_id: null, brief: null, route: null, agent: 'claude', model: null, workdir: null, hold_until: null, read: false, created: now - 1600, updated: now, ...o });
-  const routed = (o) => thought({ phase: 'routed', status: 'routed', project_id: P.cuegrid, brief, hold_until: now + 3400, ...o });
+    session_id: null, brief: null, route: null, placed: null, agent: 'claude', model: null, workdir: null, hold_until: null, read: false, created: now - 1600, updated: now, ...o });
+  const routed = (o) => thought({ phase: 'routed', status: 'routed', project_id: P.cuegrid, brief, hold_until: now + 3400, placed: 'model', ...o });
+  const GONE = 'Codex no longer offers the model Tasktap asks for placing; placing by name until Tasktap is updated';
   const dictation = (o) => (speech(), (records.dictations = [{ id: uid(now, o.ago ?? 0), rev: 61, phase: 'recording', text: '', level: 0, target: { kind: 'thought' }, error: null, ...o }]));
   if (kind !== 'off') pref('route_by', by);
   if (voice) speech();
@@ -311,28 +317,56 @@ function flow(records, kind, { lang = 'en', long = false, voice = true, now = Da
     // Two on their way at once: the newest in full, the one before it as its first line.
     two: () => {
       records.thoughts.push({ id: uid(now, 4000), rev: 59, text: 'Fix the flaky export test in cuegrid', strokes: [], source: 'typed', mode: 'ask', phase: 'routed', status: 'routed', reason: null, live: false,
-        project_id: P.cuegrid, session_id: null, brief: 'Fix the flaky export test in cuegrid', route: local, agent: 'claude', model: null, workdir: null, hold_until: now + 1000, read: false, created: now - 4000, updated: now });
+        project_id: P.cuegrid, session_id: null, brief: 'Fix the flaky export test in cuegrid', route: local, placed: 'name', agent: 'claude', model: null, workdir: null, hold_until: now + 1000, read: false, created: now - 4000, updated: now });
       routed({ project_id: P.fieldnotes, route: model });
     },
-    plain: () => thought({ phase: 'routed', status: 'routed', project_id: P.cuegrid, text: 'Fix the flaky export test in cuegrid', brief: 'Fix the flaky export test in cuegrid', source: 'typed', hold_until: now + 3400, route: local }),
-    briefing: () => routed({ brief: text, hold_until: now + 400, route: { ...model, pending: true, title: null, ms: null } }),
-    followup: () => routed({ session_id: records.ids.timer.session, route: { ...model, title: null, quote: lang === 'de' ? 'der Probentimer' : 'the rehearsal timer' } }),
-    fallback: () => routed({ brief: text, route: { ...local, fallback: 'claude: it did not answer within 12 s' } }),
-    gone: () => routed({ brief: text, route: { ...local, fallback: 'Codex no longer offers the model Tasktap asks for routing; routing by name until Tasktap is updated' } }),
+    plain: () => thought({ phase: 'routed', status: 'routed', project_id: P.cuegrid, text: 'Fix the flaky export test in cuegrid', brief: 'Fix the flaky export test in cuegrid', source: 'typed', hold_until: now + 3400, route: local, placed: 'name' }),
+    briefing: () => routed({ brief: text, hold_until: now + 400, placed: 'picked', route: { ...model, pending: true, title: null, ms: null } }),
+    // A pick the model wrote the brief for; a follow-up to the session the person was in; one a model sent to another session.
+    picked: () => routed({ placed: 'picked', route: model }),
+    followup: () => routed({ session_id: records.ids.timer.session, placed: 'follow_up', route: { ...model, title: null } }),
+    'followup-model': () => routed({ session_id: records.ids.timer.session, route: { ...model, title: null, quote: lang === 'de' ? 'der Probentimer' : 'the rehearsal timer' } }),
+    fallback: () => routed({ brief: text, placed: 'name', route: { ...local, fallback: 'claude: it did not answer within 12 s' } }),
+    gone: () => routed({ brief: text, placed: 'name', route: { ...local, fallback: GONE } }),
     asked: () => {
       thought({ status: 'needs_you', brief, route: model });
       records.questions.unshift({ id: uid(now, 900), rev: 62, thought_id: id, session_id: null, turn: null, source: 'router', prompt: 'Where should this go?', detail: null, reply_via: 'core', state: 'open', answer: null,
-        kind: 'choice', choices: ['cuegrid', 'fieldnotes', 'The codex session in fieldnotes'] });
+        kind: 'choice', choices: ['cuegrid', 'fieldnotes', 'The codex session in fieldnotes'],
+        places: [{ project: P.cuegrid }, { project: P.fieldnotes }, { session: records.ids.search?.session ?? records.ids.sync.session }] });
       records.glance = { ...records.glance, needs_you: records.glance.needs_you + 1, question: records.questions[0].id };
     },
-    later: () => thought({ mode: 'note', text: lang === 'de' ? 'Mal schauen, ob der Export auch als CSV geht' : 'See whether the export could also do CSV', route: local }),
-    'later-gone': () => thought({ mode: 'note', route: { ...local, fallback: 'Codex no longer offers the model Tasktap asks for routing; routing by name until Tasktap is updated' } }),
+    later: () => thought({ mode: 'note', text: lang === 'de' ? 'Mal schauen, ob der Export auch als CSV geht' : 'See whether the export could also do CSV', route: local, placed: 'kept_name' }),
+    'later-model': () => thought({ mode: 'note', route: model, placed: 'kept_model' }),
+    'later-answer': () => thought({ mode: 'note', route: model, placed: 'kept_answer' }),
+    'later-gone': () => thought({ mode: 'note', placed: 'kept_name', route: { ...local, fallback: GONE } }),
     recording: () => dictation({ level: 64, ago: 7000 }),
     'recording-long': () => dictation({ level: 38, ago: 283000 }),
     writing: () => dictation({ phase: 'transcribing', ago: 9000 }),
     failed: () => dictation({ phase: 'failed', ago: 9000, error: 'The speech service did not answer within 90 s', text: '' }),
     'failed-heard': () => dictation({ phase: 'failed', ago: 9000, error: 'This project is closed', text }),
     'no-service': () => (records.prefs = records.prefs.filter((p) => !p.id.startsWith('speech') && p.id !== 'keys')),
+    // A session with a history: three turns in the session of the PDF export. The first has left the live set and is
+    // read from `history`: spoken, briefed and placed by a model. The second followed it up and was asked a question.
+    // The third is the scene's own, with changes waiting in its copy.
+    session: () => {
+      const { thought: last, session } = records.ids.pdf, s = records.sessions.find((x) => x.id === session), newest = records.thoughts.find((t) => t.id === last);
+      const HOUR = 3600000, turn = (ago, o) => ({ ...newest, id: uid(now, ago), rev: 30, workdir: null, read: true, status: 'done', phase: 'done', created: now - ago, updated: now - ago + 9 * 60000, ...o });
+      const first = turn(26 * HOUR, { source: 'voice', placed: 'model', route: { ...model, title: 'Export the cue sheet as PDF' },
+        text: 'so the stage manager wants the cue sheet on paper, um, as a PDF, from the File menu I guess, and a shortcut would be good, and it should not cut a cue in half at the bottom of a page',
+        brief: 'Export the cue sheet as a PDF from the File menu, with a keyboard shortcut. Never split a cue across two pages.' });
+      const second = turn(3 * HOUR, { text: 'Paginate the cues by scene instead of a fixed count, and keep the scene title with its first cue', brief: null, placed: 'follow_up', route: null });
+      Object.assign(newest, { text: 'Add the show name and the date to the footer of every page', brief: 'Add the show name and the date to the footer of every page', placed: 'picked' });
+      Object.assign(s, { turn: 3, name: 'Export the cue sheet as PDF', model: 'sonnet', cwd: newest.workdir ? newest.workdir.path : '/Users/example/projects/cuegrid' });
+      records.thoughts.push(second);
+      const q = { id: uid(now, 3 * HOUR - 4 * 60000), rev: 31, thought_id: second.id, session_id: session, turn: 2, source: 'agent', prompt: 'A scene with more than 28 cues does not fit one page. Split it across pages with the title repeated, or shrink the type for that scene?',
+        detail: null, places: null, reply_via: 'core', state: 'answered', kind: 'choice', choices: ['Split it and repeat the title', 'Shrink the type for that scene'],
+        answer: { device_id: null, created: now - 3 * HOUR + 6 * 60000, kind: 'choice', choice: 0, delivered: now - 3 * HOUR + 6 * 60000 } };
+      records.questions.push(q);
+      records.results.push({ id: uid(now, 3 * HOUR - 9 * 60000), rev: 32, thought_id: second.id, session_id: session, turn: 2, kind: 'answer', summary: 'Cues now paginate by scene. A long scene splits across pages and repeats its title with “continued”.' });
+      const result = records.results.find((r) => r.thought_id === last);
+      if (result) Object.assign(result, { summary: 'The footer of every page has the show name at the left and the date at the right. 4 files changed; the tests pass.' });
+      records.history = { thoughts: [first], questions: [], results: [{ id: uid(now, 26 * HOUR - 9 * 60000), rev: 29, thought_id: first.id, session_id: session, turn: 1, kind: 'answer', summary: 'Exports from the File menu and with ⌘E, 28 cues to a page.' }] };
+    },
   };
   kinds[kind]();
   return records;

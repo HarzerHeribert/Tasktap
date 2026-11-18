@@ -85,6 +85,29 @@ async function withFixture(shots) {
       && fs.readdirSync(path.dirname(file)).length === 1, 'Download fetches the model into the data folder, checked, and Settings says it is ready', await p.row());
     if (shots) await app.snapshot('workspace', path.join(shots, 'app-settings-ready.png'));
     await p.home();
+    // A passive run is never given the microphone. This asks for it and records nothing: a refusal is the pass. Were
+    // it ever granted, the track is stopped in the same breath and the check ends here, loudly.
+    const asked = await p.ask(`navigator.mediaDevices.getUserMedia({ audio: true }).then((s) => (s.getTracks().forEach((t) => t.stop()), 'GRANTED'), (e) => 'refused: ' + e.name)`);
+    if (asked !== 'refused: NotAllowedError') {
+      fail('A PASSIVE RUN WAS GIVEN THE MICROPHONE (or refused it in another way); its track was stopped at once and the check ends here', String(asked));
+      return;
+    }
+    // And the recorder, with no stand-in named, says the refusal in words and hears nothing.
+    await p.ask(`(__speech.talk.source = 'microphone')`);
+    await p.type('');
+    await p.ask(`(document.querySelector('.home .mic').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 1 })), document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true })), 1)`);
+    const refused = await app.until('workspace', `document.querySelector('.home .ways')?.innerText ?? ''`, 'The microphone was not allowed. Tasktap can be allowed in System Settings, Privacy & Security, Microphone.', 5);
+    check(refused && (await p.quiet()) && running(helper).length === 0, 'a passive run is refused the microphone: asking for it fails in the page, the recorder says so in words, and nothing listens');
+    // A stand-in that is named and not there is an error, never the microphone.
+    await p.ask(`(__speech.talk.source = 'clip', __speech.talk.clip = '', 1)`);
+    await p.down(), await p.up();
+    const missing = await app.until('workspace', `__speech.talk.said`, 'The recording that stands in for the microphone is missing.', 5);
+    await p.ask(`(__speech.talk.source = 'recording', 1)`);
+    await p.ask(`(document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })), 1)`);
+    await p.down(), await p.up();
+    const unknown = await app.until('workspace', `__speech.talk.said`, 'No stand-in for the microphone is called recording.', 5);
+    check(missing && unknown && (await p.quiet()), 'a stand-in for the microphone that is missing or unknown is an error in words, never the microphone');
+    await p.ask(`(document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })), __speech.talk.source = 'tone')`);
     // A thought spoken (a tone made in the page): through the page, the host and the helper, and it is a thought.
     await p.type('');
     await p.down();
@@ -189,6 +212,19 @@ async function withModel(model, shots) {
     await said('en-5.daniel', 'Refactor the recorder so the microphone stops the moment I let go of the key.');
     await said('mixs-1.anna', 'Mach bitte einen Rebase auf Main und erstelle danach einen Pull Request.');
     await said('de-8.anna', 'Lösch den alten Ordner erst, wenn die Sicherung vollständig ist.', 'Und dann:');
+    // E while it records: the thought ends as its words in the field, to be edited, and nothing is sent.
+    {
+      await p.type('');
+      const samples = clip('de-5.anna'), before = (await p.spoken()).length;
+      await p.ask((b64) => { const t = window.__speech.talk; t.source = 'clip'; t.clip = b64; return 1; }, samples.toString('base64'));
+      await p.down(), await p.up();
+      await app.until('workspace', `String(__speech.live())`, 'true', 5);
+      await sleep(3600);
+      await p.ask(`(document.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', key: 'e', bubbles: true, cancelable: true })), 1)`);
+      const words = await app.until('workspace', `document.querySelector('.home #capture-input').value`, 'Das Mikrofon darf nur laufen', 15);
+      check(words && (await p.quiet()) && (await p.spoken()).length === before && running(helper).length === 0, 'a thought spoken on this Mac and ended with E arrives in the field as its words, nothing is sent, and the helper is gone', await p.field());
+      await p.type('');
+    }
     await p.settings();
     await p.press('Remove');
     check(await app.until('workspace', `[...document.querySelectorAll('.settings .set .v')].map((v) => v.textContent).join('|')`, 'Needs a model first', 5) && !fs.existsSync(helper), 'Remove removes the real model');

@@ -6,7 +6,7 @@ import { Spark } from './light.tsx';
 import { command } from './main.tsx';
 import { type Item, popup } from './menu.ts';
 import {
-  LOOSE, agentName, closeTab, closeWorkspace, cue, focusSession, keepInBackground, label, layout, newTerminal, open, openQuestions, questionOf,
+  LOOSE, agentName, closeTab, closeWorkspace, cue, details, focusSession, keepInBackground, label, layout, newTerminal, open, openQuestions, questionOf,
   records, redraw, sessionOf, show, thoughtOf, ui, workspaces,
 } from './model.ts';
 import { I, Mark, elapsed, madeAt, when } from '../ui.tsx';
@@ -25,6 +25,7 @@ function Session({ project, id, bg }: { project: string; id: string; bg: boolean
   const time = shell ? '' : q ? elapsed(madeAt(q.id)) : c.s === 'working' ? elapsed(t?.created ?? Date.now()) : when(t?.updated ?? Date.now());
   const menu: Item[] = [
     { text: 'Show', do: () => focusSession(id) },
+    ...(s ? [{ text: 'Session Details…', do: () => void details(id) }] : []),
     ...(term?.state === 'running' && !bg ? [{ text: 'Keep Running in Background', do: () => keepInBackground(project, id) }] : []),
     ...(term?.state === 'running' ? [{ text: 'Stop Session…', do: () => open({ kind: 'stop', project, id }) }] : []),
     ...(!bg ? ['-' as const, { text: 'Close Tab', do: () => closeTab(project, id) }] : []),
@@ -32,7 +33,7 @@ function Session({ project, id, bg }: { project: string; id: string; bg: boolean
   return (
     <button type="button" class={`row s${selected ? ' sel' : ''}${bg ? ' bg' : ''}${shell ? ' shl' : ''}`} data-s={c.s} data-id={id}
       title={`${name}\n${c.words}${bg ? ', in background' : ''}${c.activity ? `\n${c.activity}` : ''}`} onClick={() => focusSession(id)}
-      onContextMenu={(e) => popup(e, menu)}>
+      onContextMenu={(e) => popup(e, menu)} onKeyDown={(e) => e.key.toLowerCase() === 'i' && !e.metaKey && !e.ctrlKey && details(id) && e.preventDefault()}>
       <Mark s={c.s} bg={bg} label={`${c.words}${bg ? ', in background' : ''}`} />
       <span class="lbl">{name}</span>
       {bg && <span class="bgi" title="Running in background"><I n="bg" /></span>}

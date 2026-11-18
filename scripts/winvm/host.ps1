@@ -1,28 +1,9 @@
-param($Job)
-$ErrorActionPreference = 'Stop'
-$root = 'C:\tasktap'
-$gitDir = "$root\repo.git"
-$checkout = "$root\checkout"
-# Windows releases this handle if the SSH session or build terminates.
-$lock = [IO.File]::Open("$root\checkout.lock", 'OpenOrCreate', 'ReadWrite', 'None')
+# The host's build and checks; checkout.ps1 runs in front of this and leaves $Job, $checkout,
+# $triple and $lock.
 try {
-    $PSNativeCommandUseErrorActionPreference = $true
-    if (-not (Test-Path "$checkout\.git")) {
-        git "--git-dir=$gitDir" worktree add --detach $checkout $Job.commit
-    }
-    Set-Location $checkout
-    if (git status --porcelain) { throw 'Checkout contains local edits. Save them in shell.sh first.' }
-    git switch --detach $Job.commit
-    $triple = "$($Job.target)-pc-windows-msvc"
-    $arch = if ($Job.target -eq 'aarch64') { 'arm64' } else { 'amd64' }
-    $finder = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-    $vs = & $finder -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath
-    if (-not $vs) { throw 'C++ Build Tools missing' }
-    Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
-    Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments "-arch=$arch -host_arch=arm64"
     Write-Host "Building the host at $($Job.commit) for $triple"
     Set-Location host
-    # The VM keeps one build folder for the core's checks; the host's is its own, in the checkout.
+    # The machine keeps one build folder for the core's checks; the host's is its own, in the checkout.
     $env:CARGO_TARGET_DIR = "$checkout\host\target"
     cargo fmt --check
     # The pages, the core and the release build; Clippy and the tests need the first two too.

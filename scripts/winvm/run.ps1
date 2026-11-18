@@ -1,39 +1,24 @@
-param($Job)
-$ErrorActionPreference = 'Stop'
-$root = 'C:\tasktap'
-$gitDir = "$root\repo.git"
-$checkout = "$root\checkout"
-# Windows releases this handle if the SSH session or build terminates.
-$lock = [IO.File]::Open("$root\checkout.lock", 'OpenOrCreate', 'ReadWrite', 'None')
+# The core's checks; checkout.ps1 runs in front of this and leaves $Job, $root, $checkout,
+# $triple and $lock.
 try {
-    $PSNativeCommandUseErrorActionPreference = $true
-    if (-not (Test-Path "$checkout\.git")) {
-        git "--git-dir=$gitDir" worktree add --detach $checkout $Job.commit
-    }
-    Set-Location $checkout
-    if (git status --porcelain) { throw 'Checkout contains local edits. Save them in shell.sh first.' }
-    git switch --detach $Job.commit
     Set-Location core
     $env:CARGO_TARGET_DIR = "$root\target"
-    $env:CARGO_BUILD_TARGET = "$($Job.target)-pc-windows-msvc"
-    $arch = if ($Job.target -eq 'aarch64') { 'arm64' } else { 'amd64' }
-    $finder = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-    $vs = & $finder -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.ARM64 -property installationPath
-    if (-not $vs) { throw 'C++ Build Tools missing' }
-    Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
-    Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments "-arch=$arch -host_arch=arm64"
-    Write-Host "Testing $($Job.commit) on $env:CARGO_BUILD_TARGET"
+    $env:CARGO_BUILD_TARGET = $triple
+    Write-Host "Testing $($Job.commit) on $triple"
     cargo fmt --check
     cargo clippy --all-targets -- -D warnings
     # The core's terminals run in Microsoft's console when it lies beside the core (design §9).
     # The build folder is shared with the runs of other commits, so it is taken away again below.
-    $beside = "$env:CARGO_TARGET_DIR\$env:CARGO_BUILD_TARGET\debug"
-    if (Test-Path scripts\conpty.ps1) {
+    $beside = "$env:CARGO_TARGET_DIR\$triple\debug"
+    $console = "$beside\conpty.dll", "$beside\OpenConsole.exe"
+    Remove-Item $console -ErrorAction SilentlyContinue
+    if ($Job.console -and (Test-Path scripts\conpty.ps1)) {
         cargo build --quiet
         & .\scripts\conpty.ps1 -Target $Job.target -Into $beside -Cache "$checkout\core\target\conpty"
     }
     if ($Job.batch) { $env:TASKTAP_TEST_BATCH_AGENTS = '1' }
-    $cargoArgs = @('test', '--workspace') + @($Job.args)
+    # One failing suite must not keep the ones after it from running.
+    $cargoArgs = @('test', '--workspace', '--no-fail-fast') + @($Job.args)
     if (-not $Job.repeat) {
         $PSNativeCommandUseErrorActionPreference = $false
         cargo @cargoArgs
@@ -59,6 +44,6 @@ try {
     Write-Host "$failures of $($Job.repeat) failed"
     exit [int]($failures -gt 0)
 } finally {
-    if ($beside) { Remove-Item "$beside\conpty.dll", "$beside\OpenConsole.exe" -ErrorAction SilentlyContinue }
+    if ($console) { Remove-Item $console -ErrorAction SilentlyContinue }
     $lock.Dispose()
 }

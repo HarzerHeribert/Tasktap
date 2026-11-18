@@ -375,6 +375,9 @@ fn every_call_round_trips() {
     round_trip::<call::RouteTerms>(Empty {}, terms, seen);
     let health = AgentHealth {
         id: "codex".into(),
+        name: "Codex".into(),
+        supported: true,
+        stale: false,
         rev: rev(7),
         checked: time(42),
         installed: true,

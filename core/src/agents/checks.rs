@@ -48,9 +48,34 @@ pub enum Asked {
 
 /// Whether `agent` is installed and signed in, as its own commands say.
 pub fn detect(agent: &dyn Agent) -> AgentHealth {
+    let mut health = found(agent);
+    let program = crate::terminal::find(agent.program()).filter(|_| health.supported);
+    let Some(program) = program else {
+        return health;
+    };
+    let checks = agent.detect();
+    if let Ok((_, out)) = output(&program, checks.version) {
+        health.version = (checks.version_of)(&out).map(|v| fit(&v, 200));
+    }
+    if let Ok((code, out)) = output(&program, checks.account) {
+        let (signed_in, identity) = (checks.account_of)(code, &out);
+        health.signed_in = signed_in;
+        health.identity = identity.map(|i| fit(&i, 200));
+    }
+    health
+}
+
+/// What is known of `agent` before any command of its own has run: its
+/// name, what its runs can do, and whether its program is on the PATH. A
+/// core puts this first as it starts, so a page names its agents and shows
+/// their rings at once; whether each is signed in follows as it answers.
+pub fn found(agent: &dyn Agent) -> AgentHealth {
     let caps = agent.caps();
     let mut health = AgentHealth {
         id: agent.id().into(),
+        name: agent.name().into(),
+        supported: agent.supported(),
+        stale: false,
         // Stamped once the collection takes the row.
         rev: tasktap_proto::Rev::ZERO,
         checked: tasktap_proto::Time::ZERO,
@@ -63,19 +88,7 @@ pub fn detect(agent: &dyn Agent) -> AgentHealth {
         permissions: caps.permissions,
         questions: caps.questions,
     };
-    let Some(program) = crate::terminal::find(agent.program()) else {
-        return health;
-    };
-    health.installed = true;
-    let checks = agent.detect();
-    if let Ok((_, out)) = output(&program, checks.version) {
-        health.version = (checks.version_of)(&out).map(|v| fit(&v, 200));
-    }
-    if let Ok((code, out)) = output(&program, checks.account) {
-        let (signed_in, identity) = (checks.account_of)(code, &out);
-        health.signed_in = signed_in;
-        health.identity = identity.map(|i| fit(&i, 200));
-    }
+    health.installed = crate::terminal::find(agent.program()).is_some();
     health
 }
 

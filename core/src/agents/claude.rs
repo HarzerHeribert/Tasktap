@@ -194,6 +194,10 @@ impl Agent for Claude {
         "claude"
     }
 
+    fn name(&self) -> &'static str {
+        "Claude Code"
+    }
+
     fn program(&self) -> &'static str {
         "claude"
     }
@@ -238,7 +242,6 @@ impl Agent for Claude {
     /// `alwaysThinkingEnabled` nor `MAX_THINKING_TOKENS=0` turns that off.
     fn headless(&self) -> Option<Headless> {
         Some(Headless {
-            tool: "Claude Code",
             model: SMALL,
             limit: Duration::from_secs(12),
             #[rustfmt::skip]
@@ -370,7 +373,7 @@ impl Agent for Claude {
                 let what = input.map(Value::to_string).unwrap_or_default();
                 let what = digest(&[tool.as_bytes(), what.as_bytes()]);
                 let request = format!("{name}:{turn}:{what}");
-                Heard::Wait(permission("Claude Code", request, tool, input))
+                Heard::Wait(permission(self.name(), request, tool, input))
             }
             "Notification" if p.str("notification_type") == Some("elicitation_dialog") => {
                 let message = p.str("message").unwrap_or("An MCP server asks for input");

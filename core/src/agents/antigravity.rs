@@ -235,6 +235,17 @@ impl Agent for Antigravity {
         "agy"
     }
 
+    fn name(&self) -> &'static str {
+        "Antigravity"
+    }
+
+    /// Its title script is a command it runs through `sh -c`. What it runs
+    /// it through on Windows is not known and could not be tried there, so
+    /// there it is listed and says that it does not run yet.
+    fn supported(&self) -> bool {
+        !cfg!(windows)
+    }
+
     fn program(&self) -> &'static str {
         "agy"
     }
@@ -277,7 +288,6 @@ impl Agent for Antigravity {
     /// question is a conversation in the person's history.
     fn headless(&self) -> Option<Headless> {
         Some(Headless {
-            tool: "Antigravity",
             model: SMALL,
             limit: Duration::from_secs(15),
             #[rustfmt::skip]
@@ -314,10 +324,18 @@ impl Agent for Antigravity {
     /// does not trust. A run the core starts is told its folder is trusted,
     /// so only an agent typed by hand shows it.
     fn prompts(&self) -> &'static [Prompt] {
-        &[Prompt {
-            shows: "Do you trust the contents of this project?",
-            asks: "Antigravity is asking whether to trust this folder",
-        }]
+        &[
+            Prompt {
+                shows: "Do you trust the contents of this project?",
+                asks: "Antigravity is asking whether to trust this folder",
+            },
+            // Signed out, it stops here before anything else and no state
+            // follows: a run started while detection could not tell.
+            Prompt {
+                shows: "Select login method:",
+                asks: "Antigravity is asking you to sign in",
+            },
+        ]
     }
 
     fn detect(&self) -> Detect {
@@ -363,6 +381,12 @@ impl Agent for Antigravity {
         let heard = match (state, resume) {
             ("idle", None) => said("ready".into(), false, None, Event::Ready),
             (_, None) => return Ok(None),
+            // Idle with nothing said in the whole conversation: it could not
+            // work at all, as with no network, and its terminal says why.
+            ("idle", _) if spoken == 0 => {
+                let error = Some("It went idle without an answer; its terminal says why".into());
+                said(id("idle"), false, resume, Event::TurnFailed { error })
+            }
             ("idle", _) => read(said(
                 id("idle"),
                 false,

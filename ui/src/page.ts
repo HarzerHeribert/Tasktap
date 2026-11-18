@@ -50,8 +50,10 @@ export function agent(): AgentHealth | undefined {
   return all.find((a) => a.id === id) ?? (id ? undefined : all[0]);
 }
 
-const agents: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', agy: 'Antigravity', fixture: 'Fixture agent' };
-export const agentName = (id: string | null | undefined) => (id ? (agents[id] ?? id) : 'Agent');
+/** An agent's name, as the core says it: its row of the agents carries it, so no page keeps a list of its own. */
+export const agentName = (id: string | null | undefined) => (id ? (records.agents.get(id)?.name ?? id) : 'Agent');
+/** Whether an agent can be picked to run something: its program is here, and it runs on this system. */
+export const runs = (a: AgentHealth | undefined) => !!a?.installed && a.supported;
 export const projectName = (id: string | null | undefined) => (id && records.projects.get(id)?.name) || 'For later';
 export const title = (t: Thought | undefined) => {
   const line = t?.text.trim().split('\n')[0] ?? '';
@@ -67,7 +69,7 @@ export const loadTerms = () =>
 export const placers = () =>
   (terms.route?.tools ?? []).filter((t) => {
     const a = records.agents.get(t.agent);
-    return !!a?.installed && a.signed_in !== false;
+    return runs(a) && a!.signed_in !== false;
   });
 
 /** Open questions, oldest first: their ids are time ordered. */

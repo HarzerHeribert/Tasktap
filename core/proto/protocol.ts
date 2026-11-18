@@ -60,6 +60,14 @@ export type AgentHealth = {
  */
 id: string,
 /**
+ * Its name, as every sentence about it says it.
+ */
+name: string,
+/**
+ * It runs on this system. One that does not yet is listed, and runs nothing.
+ */
+supported: boolean,
+/**
  * The revision of the change that last put the row.
  */
 rev: Rev,
@@ -83,6 +91,11 @@ signed_in: boolean | null,
  * Whom it is signed in as, or how, as it says.
  */
 identity: string | null,
+/**
+ * Its commands could not say this time whether it is signed in: what
+ * they last said stands, as of `checked`.
+ */
+stale: boolean,
 /**
  * Its runs report through hooks; one that does not reports by exiting.
  */

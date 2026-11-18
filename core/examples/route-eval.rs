@@ -147,7 +147,7 @@ fn main() {
             let answer = checks::ask(agent, &how, question, route::SCHEMA, &folder, (hear, heard));
             let ms = began.elapsed().as_millis();
             let answer = answer.map_err(|failed| match failed {
-                checks::Failed::Gone => route::gone(how.tool),
+                checks::Failed::Gone => route::gone(agent.name()),
                 checks::Failed::Why(why) => why,
             });
             let accepted = answer.and_then(|answer| route::accept(&request, &answer));

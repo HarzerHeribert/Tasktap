@@ -123,7 +123,7 @@ test('the agents collection is held like any other, in the order the core lists 
   const records = new Records();
   void client.sub(['agents'], records);
   await settle();
-  const agent = (id: string, rev: number, signed_in: boolean | null) => ({ id, rev, checked: 1, installed: true, version: '1', signed_in,
+  const agent = (id: string, rev: number, signed_in: boolean | null) => ({ id, name: id, supported: true, stale: false, rev, checked: 1, installed: true, version: '1', signed_in,
     identity: null, events: true, resume: true, permissions: 'core', questions: 'terminal' }) as never;
   push({ t: 'change', rev: 2, snap: true, sets: [{ c: 'agents', put: [agent('claude', 2, null), agent('codex', 2, true)] }] });
   push({ t: 'change', rev: 3, sets: [{ c: 'agents', put: [agent('claude', 3, true)] }] });

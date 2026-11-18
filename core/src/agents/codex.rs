@@ -165,6 +165,10 @@ impl Agent for Codex {
         "codex"
     }
 
+    fn name(&self) -> &'static str {
+        "Codex"
+    }
+
     fn program(&self) -> &'static str {
         "codex"
     }
@@ -223,7 +227,6 @@ impl Agent for Codex {
     /// 4.4 s against 6.6 s with them on.
     fn headless(&self) -> Option<Headless> {
         Some(Headless {
-            tool: "Codex",
             model: SMALL,
             limit: Duration::from_secs(15),
             args: |schema| {
@@ -382,7 +385,7 @@ impl Agent for Codex {
                     "{name}:{turn}:{}",
                     digest(&[tool.as_bytes(), what.as_bytes()])
                 );
-                Heard::Wait(permission("Codex", request, tool, input))
+                Heard::Wait(permission(self.name(), request, tool, input))
             }
             "Stop" => {
                 let answer = p.str("last_assistant_message").map(|a| fit(a, 512 << 10));

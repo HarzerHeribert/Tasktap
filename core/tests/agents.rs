@@ -688,6 +688,13 @@ fn antigravitys_states_map_to_the_one_vocabulary() {
         Event::TurnFinished { answer: None }
     );
 
+    // Idle with nothing said in the whole conversation, recorded with no
+    // network: it could not work, and that is no result.
+    let unanswered = event("agy", "state-idle-unanswered");
+    assert_eq!(unanswered.id, format!("idle:{TALK}:0"));
+    let error = Some("It went idle without an answer; its terminal says why".to_owned());
+    assert_eq!(unanswered.event, Event::TurnFailed { error });
+
     // Not recorded live: waiting for a review of a plan, and an error.
     let reviewing = changed(
         "agy",
@@ -883,7 +890,7 @@ fn antigravitys_trust_dialog_is_read_from_its_terminal_once() {
     // folder replaced.
     let path =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/agents/agy/trust-dialog.bin");
-    let dialog = std::fs::read(path).unwrap();
+    let dialog = std::fs::read(&path).unwrap();
     let agy = agents::find("agy").unwrap();
     let mut watch = agents::Watch::new(agy.prompts()).unwrap();
     let found: Vec<_> = dialog.chunks(7).filter_map(|c| watch.read(c)).collect();
@@ -893,6 +900,90 @@ fn antigravitys_trust_dialog_is_read_from_its_terminal_once() {
         "Antigravity is asking whether to trust this folder"
     );
     assert!(watch.read(&dialog).is_none());
+    // Signed out, it stops at its choice of a sign-in before anything else
+    // (recorded in an empty home): a run started while detection could not
+    // tell says so in the notch, where it would otherwise sit starting.
+    let path = path.with_file_name("sign-in.bin");
+    let screen = std::fs::read(path).unwrap();
+    let mut watch = agents::Watch::new(agy.prompts()).unwrap();
+    let found: Vec<_> = screen.chunks(7).filter_map(|c| watch.read(c)).collect();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].asks, "Antigravity is asking you to sign in");
+}
+
+#[test]
+fn every_sentence_names_an_agent_as_people_know_it() {
+    let name = |id: &str| agents::find(id).unwrap().name();
+    assert_eq!(
+        ["claude", "codex", "agy", "fixture"].map(name),
+        ["Claude Code", "Codex", "Antigravity", "Fixture agent"]
+    );
+    // What a run can be refused for is said of the agent, not of its program.
+    let agy = agents::find("agy").unwrap();
+    let row = |installed, signed_in| tasktap_proto::AgentHealth {
+        installed,
+        signed_in,
+        ..agents::checks::found(agy)
+    };
+    let said = |row| agents::usable(agy, Some(&row)).unwrap_err();
+    if agy.supported() {
+        assert_eq!(
+            said(row(false, None)),
+            "Antigravity is not installed on this computer"
+        );
+        assert_eq!(said(row(true, Some(false))), "Antigravity is not signed in");
+        assert_eq!(agents::usable(agy, Some(&row(true, None))), Ok(()));
+    } else {
+        // Its title script is run through a shell Windows has not got.
+        assert_eq!(
+            said(row(true, Some(true))),
+            "Antigravity does not run on this system yet"
+        );
+    }
+    assert_eq!(cfg!(windows), !agy.supported());
+}
+
+#[test]
+fn a_look_that_could_not_tell_keeps_what_the_last_one_said() {
+    use tasktap_proto::Time;
+    let agy = agents::find("agy").unwrap();
+    let seen = |signed_in: Option<bool>| tasktap_proto::AgentHealth {
+        installed: true,
+        supported: true,
+        signed_in,
+        ..agents::checks::found(agy)
+    };
+    let (then, now) = (
+        Time::try_from(1_000).unwrap(),
+        Time::try_from(9_000).unwrap(),
+    );
+    // The first look: whatever it says, as of now.
+    let first = agents::merged(None, seen(Some(true)), then);
+    assert_eq!(
+        (first.signed_in, first.checked, first.stale),
+        (Some(true), then, false)
+    );
+    // With no network its listing times out: what it last said stands,
+    // with the time it said it, and says that it is old.
+    let offline = agents::merged(Some(&first), seen(None), now);
+    assert_eq!(
+        (offline.signed_in, offline.checked, offline.stale),
+        (Some(true), then, true)
+    );
+    // An answer replaces it, either way.
+    let out = agents::merged(Some(&offline), seen(Some(false)), now);
+    assert_eq!(
+        (out.signed_in, out.checked, out.stale),
+        (Some(false), now, false)
+    );
+    // Never known, it stays unknown, as of now.
+    let never = agents::merged(None, seen(None), now);
+    assert_eq!(
+        (never.signed_in, never.checked, never.stale),
+        (None, now, false)
+    );
+    let again = agents::merged(Some(&never), seen(None), now);
+    assert_eq!((again.signed_in, again.stale), (None, false));
 }
 
 #[test]
@@ -1152,6 +1243,9 @@ fn a_capture_is_refused_for_an_agent_found_missing_or_signed_out_and_never_run_b
     // The rule, on what detection found.
     let found = |installed, signed_in| AgentHealth {
         id: "codex".into(),
+        name: "Codex".into(),
+        supported: true,
+        stale: false,
         rev: Rev::ZERO,
         checked: Time::ZERO,
         installed,
@@ -1163,14 +1257,15 @@ fn a_capture_is_refused_for_an_agent_found_missing_or_signed_out_and_never_run_b
         permissions: None,
         questions: None,
     };
-    let usable = |health: Option<AgentHealth>| agents::usable("codex", health.as_ref());
+    let codex = agents::find("codex").unwrap();
+    let usable = |health: Option<AgentHealth>| agents::usable(codex, health.as_ref());
     assert_eq!(
         usable(Some(found(false, None))).unwrap_err(),
-        "codex is not installed on this computer"
+        "Codex is not installed on this computer"
     );
     assert_eq!(
         usable(Some(found(true, Some(false)))).unwrap_err(),
-        "codex is not signed in"
+        "Codex is not signed in"
     );
     // Signed in, or it would not say: it may run. So it may while nothing
     // was detected yet; a run that cannot start then fails and says why.
@@ -1208,7 +1303,10 @@ fn a_capture_is_refused_for_an_agent_found_missing_or_signed_out_and_never_run_b
         let e = s.w.call::<call::ThoughtCapture>(&capture).unwrap_err();
         assert_eq!(
             (e.code, e.message.as_str()),
-            (Code::Failed, "fixture is not installed on this computer")
+            (
+                Code::Failed,
+                "Fixture agent is not installed on this computer"
+            )
         );
     }
     s.w.sync();
@@ -1269,8 +1367,21 @@ fn the_agents_are_detected_as_the_core_starts_and_again_when_asked() {
     let path = path_with(&agents(&data.0));
     let core = Core::start_env(&data.0, &["--detect"], &[("PATH", &path)]);
     let mut w = core.watch();
-    // Detected off the core's thread as it starts: the rows come as a change.
-    w.until("the agents are detected", |m| m.agents.len() == 3);
+    // Found off the core's thread as it starts: first what needs no command
+    // of theirs, their names and whether their program is there, with the
+    // time zero, so a page names them and shows their rings at once.
+    w.until("the agents are found", |m| m.agents.len() == 3);
+    let first = w.model.agents["fixture"].clone();
+    assert_eq!(
+        (first.name.as_str(), first.installed),
+        ("Fixture agent", true)
+    );
+    // Then each as its own commands answer, none waiting for another.
+    w.until("the agents are detected", |m| {
+        m.agents
+            .values()
+            .all(|a| a.checked > tasktap_proto::Time::ZERO)
+    });
     // A build with the test fixtures detects only the fixture agents, so no
     // test runs a real agent's commands.
     let ids: Vec<&str> = w.model.agents.keys().map(String::as_str).collect();

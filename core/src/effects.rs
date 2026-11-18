@@ -443,8 +443,8 @@ fn route(
     };
     let narrowed = read(core, |tx| narrow(tx, asked)).map_err(|e| e.message);
     let (agent, how, asked) = match (tool, narrowed) {
-        (Ok((agent, how)), _) if core.seams.gone(agent.id()) => {
-            let why = crate::route::gone(how.tool);
+        (Ok((agent, _)), _) if core.seams.gone(agent.id()) => {
+            let why = crate::route::gone(agent.name());
             return routed(core, id, local, state::locally(Some(why)), current);
         }
         (Ok((agent, how)), Ok(asked)) => (agent, how, asked),
@@ -457,7 +457,7 @@ fn route(
     core.seams.asked += 1;
     let number = core.seams.asked;
     core.seams.routes.insert(id, (number, hear.clone()));
-    let (began, model, tool) = (Instant::now(), how.model, how.tool);
+    let (began, model, tool) = (Instant::now(), how.model, agent.name());
     let text = question(&asked);
     let ask = move || {
         checks::ask(

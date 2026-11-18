@@ -94,12 +94,18 @@ impl Rules {
 /// The rules of the shim this program is, when it is named after an agent.
 pub fn named(program: &OsStr) -> Option<&'static Rules> {
     let name = Path::new(program).file_stem()?.to_str()?;
-    RULES.iter().copied().find(|rules| rules.agent == name)
+    supported().find(|rules| rules.agent == name)
+}
+
+/// The rules of the agents that run on this system.
+fn supported() -> impl Iterator<Item = &'static Rules> {
+    let runs = |rules: &&Rules| super::find(rules.agent).is_some_and(|a| a.supported());
+    RULES.iter().copied().filter(runs)
 }
 
 /// The agents a shim is named after.
 pub fn shimmed() -> impl Iterator<Item = &'static str> {
-    RULES.iter().map(|rules| rules.agent)
+    supported().map(|rules| rules.agent)
 }
 
 #[cfg(test)]

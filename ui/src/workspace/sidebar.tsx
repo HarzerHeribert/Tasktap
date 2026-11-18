@@ -7,7 +7,7 @@ import { command } from './main.tsx';
 import { type Item, popup } from './menu.ts';
 import {
   LOOSE, agentName, closeTab, closeWorkspace, cue, details, focusSession, keepInBackground, label, layout, newTerminal, open, openQuestions, questionOf,
-  records, redraw, sessionOf, show, thoughtOf, ui, workspaces,
+  records, redraw, runs, sessionOf, show, thoughtOf, ui, workspaces,
 } from './model.ts';
 import { I, Mark, elapsed, madeAt, when } from '../ui.tsx';
 import { tip } from '../keys.ts';
@@ -50,7 +50,7 @@ function Workspace({ id, name, folder }: { id: string; name: string; folder?: st
   const folded = ui.folded.has(id);
   const rows = [...L.tabs(l).filter((t) => !records.previews.has(t)).map((t) => ({ t, bg: false })), ...l.background.map((t) => ({ t, bg: true }))]
     .sort((a, b) => (ORDER[cue(a.t).s] ?? 9) - (ORDER[cue(b.t).s] ?? 9) || Number(a.bg) - Number(b.bg));
-  const agents = [...records.agents.values()].filter((a) => a.installed);
+  const agents = [...records.agents.values()].filter(runs);
   const menu: Item[] = [
     { text: 'New Terminal', do: () => newTerminal(id) },
     ...(id === LOOSE ? [] : agents.map((a) => ({ text: `New ${agentName(a.id)} Session`, do: () => void startAgent(id, a.id) }))),

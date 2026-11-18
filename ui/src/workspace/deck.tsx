@@ -14,7 +14,7 @@ import * as L from './layout.ts';
 import { type Item, popup } from './menu.ts';
 import {
   LOOSE, agentName, attach, call, closeTab, copy, cue, details, fail, focusTerminal, keepInBackground, label, layout, newTerminal, open, paste, questionOf,
-  readSoon, records, redraw, resultOf, sessionOf, setLayout, store, textSize, textSizeBy, thoughtOf, ui,
+  readSoon, records, redraw, resultOf, runs, sessionOf, setLayout, store, textSize, textSizeBy, thoughtOf, ui,
 } from './model.ts';
 import { Preview, focusPreview, openedBy, previewMenu } from './preview.tsx';
 import { engine, engines, flushFits, queueFit } from './terminal.ts';
@@ -27,7 +27,7 @@ export const startAgent = (project: string, agent: string, into?: string) =>
 /** New terminal and the installed agents, as a menu's items. */
 const starts = (project: string, into?: string): Item[] => [
   { text: 'New Terminal', key: '⌘T', do: () => newTerminal(project, { into }) },
-  ...(project === LOOSE ? [] : [...records.agents.values()].filter((a) => a.installed)
+  ...(project === LOOSE ? [] : [...records.agents.values()].filter(runs)
     .map((a) => ({ text: `New ${agentName(a.id)} Session`, do: () => void startAgent(project, a.id, into) }))),
 ];
 

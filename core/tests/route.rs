@@ -783,7 +783,7 @@ fn a_tool_that_no_longer_offers_its_model_says_so_and_is_not_asked_again() {
     a.consent("fixture");
     a.script(&["print:error:no such model".into()]);
     let text = format!("{SPOKEN}, that is in folio by the way");
-    let gone = "The fixture agent no longer offers the model Tasktap asks for placing; \
+    let gone = "Fixture agent no longer offers the model Tasktap asks for placing; \
                 placing by name until Tasktap is updated";
     let t = a.capture(&text, None);
     let th = a.settled(t);

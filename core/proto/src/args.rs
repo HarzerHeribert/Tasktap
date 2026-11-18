@@ -412,6 +412,10 @@ pub struct Agents {
 pub struct AgentHealth {
     /// Its id, as a capture and `tasktap hook` name it.
     pub id: String,
+    /// Its name, as every sentence about it says it.
+    pub name: String,
+    /// It runs on this system. One that does not yet is listed, and runs nothing.
+    pub supported: bool,
     /// The revision of the change that last put the row.
     pub rev: crate::ids::Rev,
     /// When its commands last said what follows.
@@ -424,6 +428,9 @@ pub struct AgentHealth {
     pub signed_in: Option<bool>,
     /// Whom it is signed in as, or how, as it says.
     pub identity: Option<String>,
+    /// Its commands could not say this time whether it is signed in: what
+    /// they last said stands, as of `checked`.
+    pub stale: bool,
     /// Its runs report through hooks; one that does not reports by exiting.
     pub events: bool,
     /// A new run can continue an ended session's conversation.

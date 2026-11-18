@@ -320,10 +320,11 @@ pub fn capture(core: &mut Core, capture: tasktap_proto::Capture) -> Result<(), E
 pub fn check(core: &Core, capture: &tasktap_proto::Capture) -> Result<(), Error> {
     let invalid = |why: String| Error::new(Code::Invalid, why);
     if let Some(name) = &capture.agent {
-        crate::agents::find(name).ok_or_else(|| invalid(format!("Tasktap has no agent {name}")))?;
+        let agent = crate::agents::find(name)
+            .ok_or_else(|| invalid(format!("Tasktap has no agent {name}")))?;
         // A follow-up keeps its session's agent, whatever the capture names.
         if capture.session_id.is_none() {
-            crate::agents::usable(name, core.detected(name))
+            crate::agents::usable(agent, core.detected(name))
                 .map_err(|why| Error::new(Code::Failed, why))?;
         }
     }
@@ -716,11 +717,25 @@ pub fn detect_at_start(core: &Core) {
     if agents.is_empty() {
         return;
     }
-    let look = move || crate::agents::checks::detect_all(&agents);
+    // First what needs no command of theirs, so a page names them and
+    // shows their rings at once; then each as its own commands answer, none
+    // waiting for the slowest. Memory only: a revision not taken leaves the
+    // collection as it was.
+    let all = agents.clone();
+    let look = move || -> Vec<_> {
+        all.iter()
+            .map(|a| crate::agents::checks::found(*a))
+            .collect()
+    };
     aside(core, look, |core, found| {
-        // Memory only: a revision not taken leaves the collection as it was.
-        let _ = core.set_agents(found.unwrap_or_default());
+        let _ = core.put_agents(found.unwrap_or_default(), false);
     });
+    for agent in agents {
+        let look = move || crate::agents::checks::detect(agent);
+        aside(core, look, |core, found| {
+            let _ = core.set_agents(found.into_iter().collect());
+        });
+    }
 }
 
 /// `project.scan`: whether each project's folder is still there, and still

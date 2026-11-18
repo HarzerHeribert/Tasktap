@@ -129,8 +129,6 @@ pub struct Probe {
 /// the question on its standard input. It gets no tools, saves nothing and
 /// reads none of the person's instructions or settings.
 pub struct Headless {
-    /// The tool's name as the person knows it.
-    pub tool: &'static str,
     /// The model it asks, the smallest fast one its tool offers. The
     /// person's consent names it.
     pub model: &'static str,
@@ -251,6 +249,15 @@ pub trait Agent: Sync {
     /// Its name: the shim's program name and the `<agent>` of `tasktap hook`.
     fn id(&self) -> &'static str;
 
+    /// Its name as a person knows it: what every sentence about it says.
+    fn name(&self) -> &'static str;
+
+    /// Whether it runs on this system. One that does not yet is listed and
+    /// says so, runs nothing and has no shim.
+    fn supported(&self) -> bool {
+        true
+    }
+
     /// Its program, found on the PATH of the terminals.
     fn program(&self) -> &'static str;
 
@@ -320,11 +327,39 @@ pub fn find(id: &str) -> Option<&'static dyn Agent> {
 /// thought in its place. While nothing is known, because no detection
 /// has finished or the agent would not say whether it is signed in, it
 /// may: a run that cannot start fails and says why.
-pub fn usable(id: &str, health: Option<&AgentHealth>) -> Result<(), String> {
+pub fn usable(agent: &dyn Agent, health: Option<&AgentHealth>) -> Result<(), String> {
+    let name = agent.name();
     match health {
-        Some(h) if !h.installed => Err(format!("{id} is not installed on this computer")),
-        Some(h) if h.signed_in == Some(false) => Err(format!("{id} is not signed in")),
+        _ if !agent.supported() => Err(format!("{name} does not run on this system yet")),
+        Some(h) if !h.installed => Err(format!("{name} is not installed on this computer")),
+        Some(h) if h.signed_in == Some(false) => Err(format!("{name} is not signed in")),
         _ => Ok(()),
+    }
+}
+
+/// What a new look at an agent leaves of the last one. When its commands
+/// could not say this time whether it is signed in, as with no network,
+/// what they last said stands, marked as such (`stale`), with the time they
+/// said it; otherwise the new look, as of `now`.
+pub fn merged(
+    last: Option<&AgentHealth>,
+    found: AgentHealth,
+    now: tasktap_proto::Time,
+) -> AgentHealth {
+    match last.filter(|last| last.signed_in.is_some()) {
+        Some(last) if found.installed && found.supported && found.signed_in.is_none() => {
+            AgentHealth {
+                checked: last.checked,
+                signed_in: last.signed_in,
+                identity: last.identity.clone(),
+                stale: true,
+                ..found
+            }
+        }
+        _ => AgentHealth {
+            checked: now,
+            ..found
+        },
     }
 }
 
@@ -541,6 +576,13 @@ impl Agent for Fixture {
         }
     }
 
+    fn name(&self) -> &'static str {
+        match self.id() {
+            "fixture" => "Fixture agent",
+            other => other,
+        }
+    }
+
     fn program(&self) -> &'static str {
         crate::roles::fixture::PROGRAM
     }
@@ -608,7 +650,6 @@ impl Agent for Fixture {
     /// that a test of the time limit is short.
     fn headless(&self) -> Option<Headless> {
         Some(Headless {
-            tool: "The fixture agent",
             model: "fixture-small",
             limit: Duration::from_secs(if self.events { 20 } else { 1 }),
             args: |_| vec!["keep:asked".into(), "script:ask".into()],

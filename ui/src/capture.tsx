@@ -16,7 +16,7 @@ import { hit, keyName, spell } from './keys.ts';
 import { talkKey } from './page.ts';
 import { cancel, control, end, follow, mine, needs, place, setAim, talk, voiced } from './speech/record.ts';
 import { I, Key, Level, Mark, Ring, Wave, madeAt } from './ui.tsx';
-import { agent, agentName, call, fail, focus, openQuestions, page, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
+import { agent, agentName, call, fail, focus, openQuestions, page, placers, pref, projectName, projects, records, redraw, runs, sentence, sessionName, why } from './page.ts';
 import { back, briefOf, clock, hold, laterWhy, leave, onWay, placed, ring, step } from './way.ts';
 
 /** What was just sent, for what is said of it once it is no longer on its way. `pick`: the place the person chose for
@@ -424,7 +424,7 @@ function Way({ hooks, raised, offer }: { hooks: Hooks; raised: boolean; offer: b
  *  that says so and leads to where it is signed in. A ring turns while its agent works, beside the count of what it
  *  works on, and takes the attention colour when one of its sessions asks. */
 function Rings({ hooks, session }: { hooks: Hooks; session?: string }) {
-  const installed = [...records.agents.values()].filter((a) => a.installed);
+  const installed = [...records.agents.values()].filter(runs);
   const usual = agent()?.id, fixed = session ? records.sessions.get(session)?.agent : undefined;
   const all = fixed ? installed.filter((a) => a.id === fixed) : installed;
   const chosen = fixed ?? (all.some((a) => a.id === cap.agent) ? cap.agent : usual);

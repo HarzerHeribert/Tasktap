@@ -164,6 +164,9 @@ until_has workspace "eval __ws.ui.view + ' ' + !!document.querySelector('.home .
   && pass "the workspace window opens at launch, on Home, once its page has drawn" || fail "the workspace window opens"
 # A core built with its fixtures detects its agents when asked, as a normal one does at start.
 send 'call put {"c":"prefs","id":"agent","patch":"fixture"}' 'call put {"c":"prefs","id":"hold","patch":2}' 'call agents.detect {}'
+# Every agent on this Mac answers in its own time, and one asks its servers first: what follows waits for them all,
+# since their rows redraw the pages, which is no rest.
+for _ in $(seq 1 100); do grep -q '"name":"agents.detect"' "$log" && break; sleep 0.1; done
 # A context menu is the system's: the check never lets one open on the screen, and runs its items itself.
 js workspace "(__ws.menu.dry = true)" >/dev/null
 sleep 1

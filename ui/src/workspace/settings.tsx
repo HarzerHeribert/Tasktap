@@ -17,11 +17,11 @@ import { stops } from '../motion/palette.ts';
 import { ready as hearsHere } from '../speech/local.ts';
 import { motionState } from '../motion/state.ts';
 import { Voice } from '../motion/voice.ts';
-import { I, Key, Ring } from '../ui.tsx';
+import { I, Key, Ring, ago } from '../ui.tsx';
 import { placing } from '../way.ts';
 import { Speech, Thoughts, serviceName } from './consent.tsx';
 import { Choice, Recorder, Row, Switch, setPref } from './form.tsx';
-import { LOOSE, agent, agentName, call, dismiss, focus, loadTerms, newTerminal, openQuestions, placers, pref, records, redraw, ui } from './model.ts';
+import { LOOSE, agent, agentName, call, dismiss, focus, loadTerms, newTerminal, openQuestions, placers, pref, records, redraw, runs, ui } from './model.ts';
 
 export const SECTIONS = [['thoughts', 'Thoughts'], ['voice', 'Voice'], ['agents', 'Agents'], ['appearance', 'Appearance'], ['terminal', 'Terminal'], ['about', 'About']] as const;
 export type Section = (typeof SECTIONS)[number][0];
@@ -146,17 +146,20 @@ function AgentsPane() {
     <>
       <div class="list">
         {agents.map((a) => {
-          const off = a.installed && a.signed_in === false;
-          const state = !a.installed ? 'not installed' : a.signed_in === false ? 'not signed in' : a.signed_in ? 'signed in' : 'installed';
+          // What its own commands said, and when they could not say: nothing is shown as known that was not checked.
+          const off = runs(a) && a.signed_in === false;
+          const state = !a.supported ? 'does not run on this system yet' : !a.installed ? 'not installed' : !a.checked ? 'checking…'
+            : a.signed_in === false ? 'not signed in' : a.signed_in === null ? 'could not check whether it is signed in'
+            : a.stale ? `signed in when last checked, ${ago(a.checked)}` : 'signed in';
           return (
-            <div class="line ag" data-s={off || !a.installed ? 'off' : undefined}>
-              <Ring agent={a.id} s={off || !a.installed ? 'off' : ''} />
+            <div class="line ag" data-s={off || !runs(a) ? 'off' : undefined}>
+              <Ring agent={a.id} s={off || !runs(a) ? 'off' : ''} />
               <span class="t">{agentName(a.id)}</span>
               <span class="x">{[a.version, state, a.identity, ...about(a)].filter(Boolean).join(' · ')}</span>
               {off && signIn[a.id] && (
                 <button type="button" class="btn" onClick={() => (dismiss(), newTerminal(LOOSE, { title: `Sign in to ${agentName(a.id)}`, type: signIn[a.id] }))}>Sign in</button>
               )}
-              {a.id === usual ? <span class="x def">Default</span> : a.installed && !off && (
+              {a.id === usual ? <span class="x def">Default</span> : runs(a) && !off && (
                 <button type="button" class="btn" onClick={() => setPref({ id: 'agent', patch: a.id })}>Make default</button>
               )}
             </div>

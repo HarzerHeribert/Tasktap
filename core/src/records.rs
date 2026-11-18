@@ -180,13 +180,33 @@ impl Core {
     /// stamped with the change's revision and the time, and sends them as
     /// one change. Returns the rows as put.
     pub fn set_agents(&mut self, found: Vec<AgentHealth>) -> store::Result<Vec<AgentHealth>> {
+        self.put_agents(found, true)
+    }
+
+    /// The same for rows whose agents' commands have answered (`checked`),
+    /// or have not run yet: those keep the time zero, which says so, and
+    /// never replace a row that was checked.
+    pub fn put_agents(
+        &mut self,
+        mut found: Vec<AgentHealth>,
+        checked: bool,
+    ) -> store::Result<Vec<AgentHealth>> {
+        let known = |id: &str| self.memory.agents.iter().any(|row| row.id == id);
+        found.retain(|a| checked || !known(&a.id));
         if found.is_empty() {
             return Ok(found);
         }
         let rev = self.store.take_rev()?;
-        let checked = self.seams.now();
+        let checked = match checked {
+            true => self.seams.now(),
+            false => tasktap_proto::Time::ZERO,
+        };
+        let last = |id: &str| self.memory.agents.iter().find(|row| row.id == id).cloned();
         let found: Vec<AgentHealth> = (found.into_iter())
-            .map(|a| AgentHealth { rev, checked, ..a })
+            .map(|a| {
+                let merged = crate::agents::merged(last(&a.id).as_ref(), a, checked);
+                AgentHealth { rev, ..merged }
+            })
             .collect();
         let agents = &mut self.memory.agents;
         for a in &found {

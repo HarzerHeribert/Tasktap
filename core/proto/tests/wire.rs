@@ -820,6 +820,195 @@ fn motion_preferences_put_as_the_wire_says() {
     }
 }
 
+/// The settings the redesigned Settings sheet lacked a preference for.
+#[test]
+fn the_keys_the_history_and_the_text_preferences_put_as_the_wire_says() {
+    let key = |control, alt, shift, meta, code: &str| Shortcut {
+        control,
+        alt,
+        shift,
+        meta,
+        code: code.into(),
+    };
+    let wire_key =
+        json!({"control": false, "alt": true, "shift": true, "meta": false, "code": "KeyK"});
+    let cases = [
+        (
+            json!({"c": "prefs", "id": "return_sends", "patch": false}),
+            PrefPatch::ReturnSends(false),
+            PrefKey::ReturnSends,
+        ),
+        (
+            json!({"c": "prefs", "id": "capture_key", "patch": wire_key}),
+            PrefPatch::CaptureKey(Some(key(false, true, true, false, "KeyK"))),
+            PrefKey::CaptureKey,
+        ),
+        (
+            json!({"c": "prefs", "id": "capture_key", "patch": null}),
+            PrefPatch::CaptureKey(None),
+            PrefKey::CaptureKey,
+        ),
+        (
+            json!({"c": "prefs", "id": "talk_key", "patch": wire_key}),
+            PrefPatch::TalkKey(Some(key(false, true, true, false, "KeyK"))),
+            PrefKey::TalkKey,
+        ),
+        (
+            json!({"c": "prefs", "id": "keep_days", "patch": 30}),
+            PrefPatch::KeepDays(30),
+            PrefKey::KeepDays,
+        ),
+        (
+            json!({"c": "prefs", "id": "terminal_bold_bright", "patch": false}),
+            PrefPatch::TerminalBoldBright(false),
+            PrefKey::TerminalBoldBright,
+        ),
+        (
+            json!({"c": "prefs", "id": "terminal_contrast", "patch": false}),
+            PrefPatch::TerminalContrast(false),
+            PrefKey::TerminalContrast,
+        ),
+        (
+            json!({"c": "prefs", "id": "text_size", "patch": "large"}),
+            PrefPatch::TextSize(TextSize::Large),
+            PrefKey::TextSize,
+        ),
+    ];
+    for (wire, patch, key) in cases {
+        let target: PutTarget = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(target, PutTarget::Prefs(patch.clone()));
+        assert_eq!(serde_json::to_value(&target).unwrap(), wire);
+        assert_eq!(PrefValue::from(patch).key(), key);
+    }
+    // Each default keeps what the app did before the preference existed.
+    for (key, default) in [
+        (PrefKey::ReturnSends, json!(true)),
+        (PrefKey::CaptureKey, json!(null)),
+        (PrefKey::TalkKey, json!(null)),
+        (PrefKey::KeepDays, json!(0)),
+        (PrefKey::TerminalBoldBright, json!(true)),
+        (PrefKey::TerminalContrast, json!(true)),
+        (PrefKey::TextSize, json!("default")),
+    ] {
+        assert_eq!(
+            serde_json::to_value(key.default()).unwrap()["value"],
+            default
+        );
+    }
+    for bad in [
+        json!({"c": "prefs", "id": "return_sends", "patch": "yes"}),
+        json!({"c": "prefs", "id": "capture_key", "patch": "Control+Space"}),
+        json!({"c": "prefs", "id": "capture_key", "patch": {"alt": true, "code": "Space"}}),
+        json!({"c": "prefs", "id": "talk_key", "patch":
+            {"control": true, "alt": false, "shift": false, "meta": false, "code": "Space", "hyper": true}}),
+        json!({"c": "prefs", "id": "talk_key", "patch":
+            {"control": true, "alt": false, "shift": false, "meta": false, "code": "x".repeat(40)}}),
+        json!({"c": "prefs", "id": "keep_days", "patch": 3651}),
+        json!({"c": "prefs", "id": "keep_days", "patch": -1}),
+        json!({"c": "prefs", "id": "keep_days", "patch": "forever"}),
+        json!({"c": "prefs", "id": "terminal_bold_bright", "patch": 1}),
+        json!({"c": "prefs", "id": "text_size", "patch": "huge"}),
+    ] {
+        assert!(
+            serde_json::from_value::<PutTarget>(bad.clone()).is_err(),
+            "{bad}"
+        );
+    }
+    let days = json!({"c": "prefs", "id": "keep_days", "patch": 4000});
+    let why = serde_json::from_value::<PutTarget>(days).unwrap_err();
+    assert_eq!(
+        why.to_string(),
+        "Finished thoughts are kept for 1 to 3650 days, or for ever with 0"
+    );
+
+    // The rule of a shortcut, as a table: the modifiers held, the key, and why not.
+    let rule = [
+        // Today's keys, and each system's default for capture.
+        ((true, true, false, false, "Space"), None),
+        ((false, true, true, false, "Space"), None),
+        ((false, true, false, false, "Space"), None),
+        ((false, false, false, true, "KeyK"), None),
+        ((true, false, true, false, "F5"), None),
+        ((true, false, false, false, "Digit1"), None),
+        ((true, true, true, true, "Slash"), None),
+        ((false, true, false, false, "F12"), None),
+        // Not a bare key, and Shift alone does not make one a shortcut.
+        ((false, false, false, false, "Space"), Some(Shortcut::BARE)),
+        ((false, false, true, false, "KeyA"), Some(Shortcut::BARE)),
+        ((false, false, false, false, "F5"), Some(Shortcut::BARE)),
+        // A key by its code, of the keys every host registers.
+        ((true, false, false, false, "space"), Some(Shortcut::NO_KEY)),
+        ((true, false, false, false, " "), Some(Shortcut::NO_KEY)),
+        ((true, false, false, false, ""), Some(Shortcut::NO_KEY)),
+        ((true, false, false, false, "KeyÄ"), Some(Shortcut::NO_KEY)),
+        ((true, false, false, false, "Keya"), Some(Shortcut::NO_KEY)),
+        ((true, false, false, false, "KeyAB"), Some(Shortcut::NO_KEY)),
+        (
+            (true, false, false, false, "Digit10"),
+            Some(Shortcut::NO_KEY),
+        ),
+        ((true, false, false, false, "F0"), Some(Shortcut::NO_KEY)),
+        ((true, false, false, false, "F01"), Some(Shortcut::NO_KEY)),
+        ((true, false, false, false, "F13"), Some(Shortcut::NO_KEY)),
+        (
+            (true, false, false, false, "ControlLeft"),
+            Some(Shortcut::NO_KEY),
+        ),
+        (
+            (true, false, false, false, "⌃Space"),
+            Some(Shortcut::NO_KEY),
+        ),
+        // What a system keeps, whichever system this is.
+        (
+            (false, false, false, true, "Space"),
+            Some(Shortcut::RESERVED),
+        ),
+        ((false, false, false, true, "Tab"), Some(Shortcut::RESERVED)),
+        ((false, true, false, false, "Tab"), Some(Shortcut::RESERVED)),
+        (
+            (false, false, false, true, "KeyQ"),
+            Some(Shortcut::RESERVED),
+        ),
+        ((false, true, false, false, "F4"), Some(Shortcut::RESERVED)),
+        (
+            (true, true, false, false, "Delete"),
+            Some(Shortcut::RESERVED),
+        ),
+        (
+            (true, false, true, false, "Escape"),
+            Some(Shortcut::RESERVED),
+        ),
+        (
+            (false, false, true, true, "Digit4"),
+            Some(Shortcut::RESERVED),
+        ),
+        // With one more modifier it is another combination.
+        ((true, false, false, true, "Space"), None),
+        // The keys that answer a waiting question.
+        ((true, true, false, false, "KeyY"), Some(Shortcut::ANSWERS)),
+        ((true, true, false, false, "KeyN"), Some(Shortcut::ANSWERS)),
+        ((true, true, false, false, "KeyJ"), Some(Shortcut::ANSWERS)),
+        ((true, true, true, false, "KeyJ"), None),
+    ];
+    for ((control, alt, shift, meta, code), why) in rule {
+        let shortcut = key(control, alt, shift, meta, code);
+        assert_eq!(shortcut.refused(), why, "{shortcut:?}");
+    }
+    // The default is a shortcut by its own rule on each system, and never
+    // Control-Alt off the Mac, which is AltGr on many keyboards.
+    assert_eq!(
+        Shortcut::capture(true),
+        key(true, true, false, false, "Space")
+    );
+    assert_eq!(
+        Shortcut::capture(false),
+        key(false, true, true, false, "Space")
+    );
+    for mac in [true, false] {
+        assert_eq!(Shortcut::capture(mac).refused(), None);
+    }
+}
+
 #[test]
 fn ambient_and_terminal_preferences_put_as_the_wire_says_within_their_bounds() {
     let cases = [

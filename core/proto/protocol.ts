@@ -19,7 +19,7 @@ export const MAX_TEXT = 65536;
 export const MAX_LINE = 8192;
 export const MAX_POINTS = 2048;
 /** The value of each preference while none is stored: deleting one restores it. */
-export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] } = {"agent":null,"hold":5,"keys":[],"motion_ambient":"breathing","motion_hue":265,"motion_lumen":false,"motion_palette":"chromatic","motion_style":"slats","route_by":null,"speech_by":null,"speech_languages":[],"terminal_font":"","terminal_line_height":100,"terminal_size":14};
+export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] } = {"agent":null,"capture_key":null,"hold":5,"keep_days":0,"keys":[],"motion_ambient":"breathing","motion_hue":265,"motion_lumen":false,"motion_palette":"chromatic","motion_style":"slats","return_sends":true,"route_by":null,"speech_by":null,"speech_languages":[],"talk_key":null,"terminal_bold_bright":true,"terminal_contrast":true,"terminal_font":"","terminal_line_height":100,"terminal_size":14,"text_size":"default"};
 
 /**
  * Who may make a call (design §2): authorization is per call.
@@ -690,14 +690,14 @@ export type Placed = "picked" | "name" | "model" | "follow_up" | "answer" | "kep
 /**
  * A preference row: `{id, value, rev}`, where the key fixes the value's type.
  */
-export type Pref = { rev: Rev, } & ({ "id": "hold", "value": number } | { "id": "agent", "value": string | null } | { "id": "route_by", "value": RouteBy | null } | { "id": "motion_style", "value": MotionStyle } | { "id": "motion_palette", "value": MotionPalette } | { "id": "motion_hue", "value": number } | { "id": "motion_lumen", "value": boolean } | { "id": "motion_ambient", "value": MotionAmbient } | { "id": "terminal_font", "value": string } | { "id": "terminal_size", "value": number } | { "id": "terminal_line_height", "value": number } | { "id": "speech_by", "value": SpeechBy | null } | { "id": "speech_languages", "value": Array<string> } | { "id": "keys", "value": Array<string> });
+export type Pref = { rev: Rev, } & ({ "id": "hold", "value": number } | { "id": "agent", "value": string | null } | { "id": "route_by", "value": RouteBy | null } | { "id": "motion_style", "value": MotionStyle } | { "id": "motion_palette", "value": MotionPalette } | { "id": "motion_hue", "value": number } | { "id": "motion_lumen", "value": boolean } | { "id": "motion_ambient", "value": MotionAmbient } | { "id": "terminal_font", "value": string } | { "id": "terminal_size", "value": number } | { "id": "terminal_line_height", "value": number } | { "id": "speech_by", "value": SpeechBy | null } | { "id": "speech_languages", "value": Array<string> } | { "id": "keys", "value": Array<string> } | { "id": "return_sends", "value": boolean } | { "id": "capture_key", "value": Shortcut | null } | { "id": "talk_key", "value": Shortcut | null } | { "id": "keep_days", "value": number } | { "id": "terminal_bold_bright", "value": boolean } | { "id": "terminal_contrast", "value": boolean } | { "id": "text_size", "value": TextSize });
 
-export type PrefKey = "hold" | "agent" | "route_by" | "motion_style" | "motion_palette" | "motion_hue" | "motion_lumen" | "motion_ambient" | "terminal_font" | "terminal_size" | "terminal_line_height" | "speech_by" | "speech_languages" | "keys";
+export type PrefKey = "hold" | "agent" | "route_by" | "motion_style" | "motion_palette" | "motion_hue" | "motion_lumen" | "motion_ambient" | "terminal_font" | "terminal_size" | "terminal_line_height" | "speech_by" | "speech_languages" | "keys" | "return_sends" | "capture_key" | "talk_key" | "keep_days" | "terminal_bold_bright" | "terminal_contrast" | "text_size";
 
 /**
  * A preference write: `{id, patch}`, where the key fixes the value's type.
  */
-export type PrefPatch = { "id": "hold", "patch": number } | { "id": "agent", "patch": string | null } | { "id": "route_by", "patch": RouteBy | null } | { "id": "motion_style", "patch": MotionStyle } | { "id": "motion_palette", "patch": MotionPalette } | { "id": "motion_hue", "patch": number } | { "id": "motion_lumen", "patch": boolean } | { "id": "motion_ambient", "patch": MotionAmbient } | { "id": "terminal_font", "patch": string } | { "id": "terminal_size", "patch": number } | { "id": "terminal_line_height", "patch": number } | { "id": "speech_by", "patch": SpeechBy | null } | { "id": "speech_languages", "patch": Array<string> };
+export type PrefPatch = { "id": "hold", "patch": number } | { "id": "agent", "patch": string | null } | { "id": "route_by", "patch": RouteBy | null } | { "id": "motion_style", "patch": MotionStyle } | { "id": "motion_palette", "patch": MotionPalette } | { "id": "motion_hue", "patch": number } | { "id": "motion_lumen", "patch": boolean } | { "id": "motion_ambient", "patch": MotionAmbient } | { "id": "terminal_font", "patch": string } | { "id": "terminal_size", "patch": number } | { "id": "terminal_line_height", "patch": number } | { "id": "speech_by", "patch": SpeechBy | null } | { "id": "speech_languages", "patch": Array<string> } | { "id": "return_sends", "patch": boolean } | { "id": "capture_key", "patch": Shortcut | null } | { "id": "talk_key", "patch": Shortcut | null } | { "id": "keep_days", "patch": number } | { "id": "terminal_bold_bright", "patch": boolean } | { "id": "terminal_contrast", "patch": boolean } | { "id": "text_size", "patch": TextSize };
 
 export type Project = { id: ProjectId, rev: Rev, name: string,
 /**
@@ -1005,6 +1005,22 @@ export type Settle = { id: ThoughtId, attempt: AttemptId, keep: boolean, };
 export type ShimHold = { hold: boolean, stop: boolean, };
 
 /**
+ * A key combination in a portable form: the modifiers held, and the key
+ * by its place on the keyboard, the `code` of a keyboard event in a page
+ * (`Space`, `KeyJ`, `F5`). Never a display string: each side writes it
+ * out in its system's own words.
+ */
+export type Shortcut = { control: boolean,
+/**
+ * Option on a Mac.
+ */
+alt: boolean, shift: boolean,
+/**
+ * Command on a Mac, the Windows key elsewhere.
+ */
+meta: boolean, code: string, };
+
+/**
  * A terminal size: `[cols, rows]`.
  */
 export type Size = [number, number];
@@ -1105,6 +1121,8 @@ export type TerminalId = string;
 export type TerminalKind = "shell" | "agent" | "task";
 
 export type TerminalState = "running" | "exited" | "lost";
+
+export type TextSize = "small" | "default" | "large";
 
 /**
  * The primary record. A note is a thought with mode `note`.

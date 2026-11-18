@@ -456,6 +456,10 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
             match &value {
                 PrefValue::SpeechBy(Some(by)) => crate::speech::consented(by),
                 PrefValue::SpeechLanguages(languages) => crate::speech::spoken(languages),
+                // One rule for both keys, which the host shares (design §12).
+                PrefValue::CaptureKey(Some(key)) | PrefValue::TalkKey(Some(key)) => {
+                    key.refused().map_or(Ok(()), |why| Err(why.into()))
+                }
                 _ => Ok(()),
             }
             .map_err(invalid)?;

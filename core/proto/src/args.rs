@@ -8,8 +8,8 @@ use crate::ids::{
 };
 use crate::records::{
     Collection, Isolate, Mode, MotionAmbient, MotionPalette, MotionStyle, PrefKey, PrefValue,
-    Question, QuestionKind, QuestionSource, Response, RouteBy, Set, Source, Stroke, Thought,
-    TurnResult,
+    Question, QuestionKind, QuestionSource, Response, RouteBy, Set, Shortcut, Source, Stroke,
+    TextSize, Thought, TurnResult,
 };
 use crate::{MAX_LINE, MAX_TEXT};
 use serde::{Deserialize, Serialize};
@@ -92,10 +92,32 @@ pub enum PrefPatch {
     TerminalLineHeight(#[serde(deserialize_with = "ranged::<100, 200, _, _>")] u16),
     SpeechBy(Option<crate::records::SpeechBy>),
     SpeechLanguages(#[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")] Vec<String>),
+    ReturnSends(bool),
+    /// Refused by the core with the sentence of [`Shortcut::refused`].
+    CaptureKey(Option<Shortcut>),
+    TalkKey(Option<Shortcut>),
+    KeepDays(#[serde(deserialize_with = "kept")] u16),
+    TerminalBoldBright(bool),
+    TerminalContrast(bool),
+    TextSize(TextSize),
 }
 
 /// A font family's name, as JSON, is at most this many bytes.
 const MAX_FONT: usize = 128;
+
+/// The longest `keep_days`: ten years.
+pub const MAX_KEEP_DAYS: u16 = 3650;
+
+/// For `deserialize_with`: days to keep what is finished, 0 for ever.
+fn kept<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u16, D::Error> {
+    let days = <u16 as serde::Deserialize>::deserialize(d)?;
+    match days <= MAX_KEEP_DAYS {
+        true => Ok(days),
+        false => Err(serde::de::Error::custom(format_args!(
+            "Finished thoughts are kept for 1 to {MAX_KEEP_DAYS} days, or for ever with 0"
+        ))),
+    }
+}
 
 /// For `deserialize_with`: a whole number from `LO` to `HI`.
 fn ranged<'de, const LO: u16, const HI: u16, D, T>(d: D) -> Result<T, D::Error>
@@ -129,6 +151,13 @@ impl From<PrefPatch> for PrefValue {
             PrefPatch::TerminalLineHeight(v) => PrefValue::TerminalLineHeight(v),
             PrefPatch::SpeechBy(v) => PrefValue::SpeechBy(v),
             PrefPatch::SpeechLanguages(v) => PrefValue::SpeechLanguages(v),
+            PrefPatch::ReturnSends(v) => PrefValue::ReturnSends(v),
+            PrefPatch::CaptureKey(v) => PrefValue::CaptureKey(v),
+            PrefPatch::TalkKey(v) => PrefValue::TalkKey(v),
+            PrefPatch::KeepDays(v) => PrefValue::KeepDays(v),
+            PrefPatch::TerminalBoldBright(v) => PrefValue::TerminalBoldBright(v),
+            PrefPatch::TerminalContrast(v) => PrefValue::TerminalContrast(v),
+            PrefPatch::TextSize(v) => PrefValue::TextSize(v),
         }
     }
 }

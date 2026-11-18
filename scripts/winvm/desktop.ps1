@@ -108,7 +108,7 @@ function Window-Of($process, $seconds) {
     } while ((Get-Date) -lt $until -and -not $process.HasExited)
 }
 # The cores that run from a data folder, and everything else that does.
-function From($folder) { @(Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($folder, [StringComparison]::OrdinalIgnoreCase) }) }
+function Under($folder) { @(Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($folder, [StringComparison]::OrdinalIgnoreCase) }) }
 function Children($process, $name) { @(Get-Process $name -ErrorAction SilentlyContinue | Where-Object { $_.Parent.Id -eq $process.Id }) }
 # The page's answer once it is one: the page and the core need a moment after a command.
 function Soon($expr, $want, $tries = 15) {
@@ -138,7 +138,7 @@ $rows['1'] = 'Starts the app as Explorer would, with no debug channel and its ow
     $new = @([Tasktap.Desk]::Windows() | Where-Object { $_.Handle -notin $before -and $_.Handle -ne $window.Handle })
     $consoles = @($new | Where-Object { $_.Class -match 'ConsoleWindowClass|CASCADIA_HOSTING_WINDOW_CLASS' })
     Check 1 'no console window opens' (-not $consoles) "new windows besides the app's: $(($new | ForEach-Object { "$($_.Class) '$($_.Title)'" }) -join '; ')"
-    $core = From $data | Where-Object Name -eq 'tasktap'
+    $core = Under $data | Where-Object Name -eq 'tasktap'
     $views = Children $process 'msedgewebview2'
     Check 1 'the core and the web view run beside the app' ($core -and $views) "tasktap.exe: $(($core | ForEach-Object Path) -join ', '); msedgewebview2.exe under the app: $($views.Count)"
     Check 1 'its data is in %LOCALAPPDATA%\Tasktap Next' (Test-Path "$data\core.db") "$data\core.db"
@@ -147,10 +147,10 @@ $rows['1'] = 'Starts the app as Explorer would, with no debug channel and its ow
     $ended = $process.WaitForExit(10000)
     Check 1 'closing the window quits the app' $ended $(if ($ended) { "gone after $([int]$watch.Elapsed.TotalMilliseconds) ms" } else { 'still running 10 s later; this script ended it' })
     if (-not $ended) { $process.Kill($true) }
-    $stayed = @(From $data | Where-Object Name -eq 'tasktap').Count -gt 0
+    $stayed = @(Under $data | Where-Object Name -eq 'tasktap').Count -gt 0
     Check 1 'the core stays behind the closed app' $stayed
-    while ($watch.Elapsed.TotalSeconds -lt 90 -and (From $data)) { Start-Sleep -Milliseconds 500 }
-    $left = From $data
+    while ($watch.Elapsed.TotalSeconds -lt 90 -and (Under $data)) { Start-Sleep -Milliseconds 500 }
+    $left = Under $data
     Check 1 'the core leaves by itself within a minute and a half' (-not $left) $(if ($left) { "still running, ended by this script: $(($left | ForEach-Object Name) -join ', ')" } else { "gone $([int]$watch.Elapsed.TotalSeconds) s after the window closed" })
     $left | Stop-Process -Force -ErrorAction SilentlyContinue
 }
@@ -220,7 +220,7 @@ $rows['5'] = 'In the same app: makes a folder a workspace, opens a terminal, and
     $null = Js "(__ws.type('`$PSVersionTable.PSEdition + 6*7'), 1)"
     $screen = Soon '__ws.text()' '(?m)^(Desktop|Core)42'
     Check 5 'PowerShell runs in the terminal and answers' ($screen -match '(?m)^(Desktop|Core)42') (($screen -split "`n")[-3..-1] -join ' | ')
-    $core = From "$tmp\data" | Where-Object Name -eq 'tasktap' | Select-Object -First 1
+    $core = Under "$tmp\data" | Where-Object Name -eq 'tasktap' | Select-Object -First 1
     $open = Children $core 'OpenConsole'
     $system = Children $core 'conhost'
     Check 5 'the terminal''s console is OpenConsole.exe under the core, not conhost.exe' ($open -and -not $system) "OpenConsole.exe: $(($open | ForEach-Object Path) -join ', '); conhost.exe under the core: $($system.Count)"
@@ -333,7 +333,7 @@ try {
                 $ended = $proc.WaitForExit(10000)
                 Check '+' 'the app quits when told through its debug channel' $ended $(if ($ended) { "gone after $([int]$watch.Elapsed.TotalMilliseconds) ms" } else { 'still running 10 s later' })
                 Start-Sleep -Milliseconds 500
-                $left = From $tmp
+                $left = Under $tmp
                 Check '+' 'it leaves nothing running' (-not $left) (($left | ForEach-Object Name) -join ', ')
             }
             & $rows[$row][1]
@@ -343,7 +343,7 @@ try {
     }
 } finally {
     if ($proc -and -not $proc.HasExited) { $proc.Kill($true) }
-    From $tmp | Stop-Process -Force -ErrorAction SilentlyContinue
+    Under $tmp | Stop-Process -Force -ErrorAction SilentlyContinue
     if ($seen) { $seen | Set-Content "$Out\rows4-8-app.txt" }
     Start-Sleep -Milliseconds 500
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue

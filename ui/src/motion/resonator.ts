@@ -47,10 +47,7 @@ void main(){ VIEW
     float en=clamp(e/tr,-1.,1.);
     float shade=.5+.5*smoothstep(-R,R,dot(Q,Wd));                   // the far side of each ring sits in the stack's shade
     vec3 N=en*S3+sqrt(1.-en*en)*M; beam(xn);
-    // towards its edges the tube turns further under one pixel, and reflects as much more softly
-    float ae=abs(e)/tr, hp=.5*px/tr, sf=3.*(asin(min(ae+hp,1.))-asin(clamp(ae-hp,-1.,1.)));
-    fine=smoothstep(.45,.9,sf); sf=clamp(sf,soft,.45);
-    col+=(1.-a)*cov*(chrome(N,metal(r),sf)*shade+sheen(N,glow)); a+=(1.-a)*cov;
+    col+=(1.-a)*cov*(chrome(N,metal(r),soft)*shade+sheen(N,glow)); a+=(1.-a)*cov;
   }
   put(col/max(a,1e-3),a,glow);
 }`,

@@ -21,7 +21,7 @@ const has = (name) => process.argv.includes(name);
 const arg = (name, or) => (has(name) ? process.argv[process.argv.indexOf(name) + 1] : or);
 const W = 593, H = 380, STEPS = 200, PER = 0.01;
 /** The most one pixel of each form may change in a step: half as much again as its shader's worst (slats 16, glyphs
- *  20, rings 12), and well under what each did while lines finer than a pixel stood in it (112, 249, 157). */
+ *  20, rings 18), and well under what each did while lines finer than a pixel stood in it (112, 249, 157). */
 const WORST = { slats: 30, glyphs: 30, resonator: 30 };
 
 /** In the page: draws `frag` after `head` at W by H for each of `runs` (uniform sets a step apart), and says how far

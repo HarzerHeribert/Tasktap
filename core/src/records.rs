@@ -445,9 +445,11 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
     };
     let core = &mut *cx.core;
     let mut tx = core.store.begin().map_err(fail)?;
+    let mut kept = false;
     match target {
         PutTarget::Prefs(patch) => {
             let value = PrefValue::from(patch);
+            kept = value.key() == PrefKey::KeepDays;
             // A consent names what this core would really ask (design §8).
             if let PrefValue::RouteBy(Some(by)) = &value {
                 crate::route::consented(by).map_err(|why| Error::new(Code::Invalid, why))?;
@@ -507,7 +509,11 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
     }
     .map_err(fail)?;
     let change = tx.commit().map_err(fail)?;
-    Ok(published(core, change))
+    let revision = published(core, change);
+    if kept {
+        crate::effects::keep(core, false);
+    }
+    Ok(revision)
 }
 
 /// `delete`: removes plain data, and a terminal that is not running with
@@ -552,7 +558,16 @@ pub fn delete(cx: &mut Cx, args: Delete) -> Result<Revision, Error> {
     if let Delete::Terminals { id } = args {
         crate::terminal::forget(core, id);
     }
-    Ok(published(core, change))
+    let revision = published(core, change);
+    if matches!(
+        args,
+        Delete::Prefs {
+            id: PrefKey::KeepDays
+        }
+    ) {
+        crate::effects::keep(core, false);
+    }
+    Ok(revision)
 }
 
 /// `history`: finished thoughts that left the live set, newest first, with

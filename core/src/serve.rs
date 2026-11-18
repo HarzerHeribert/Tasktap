@@ -195,6 +195,9 @@ async fn serve(opts: Options) -> io::Result<()> {
     crate::questions::start(&mut core.borrow_mut()).map_err(io::Error::other)?;
     // Before the first connection is taken, so no launch of this run is in it.
     crate::effects::sweep(&mut core.borrow_mut());
+    // What the person keeps for a number of days and is older goes now,
+    // and then once a day while this core runs.
+    crate::effects::keep(&mut core.borrow_mut(), true);
     if opts.detect {
         crate::calls::detect_at_start(&core.borrow());
     }

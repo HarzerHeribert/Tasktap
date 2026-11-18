@@ -2042,6 +2042,84 @@ impl Machine<'_, '_> {
 
 /// A new random id at `now`, the core's clock, for a record the core creates
 /// outside an event, so every id it mints carries the same clock.
+/// Milliseconds in a day of the `keep_days` preference.
+pub const DAY: u64 = 24 * 60 * 60 * 1000;
+/// Thoughts, and sessions, one step of pruning removes at most: a step is
+/// one transaction on the core's thread, and the next one waits its turn.
+pub const PRUNE_STEP: usize = 50;
+
+/// What one step of pruning removed.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Pruned {
+    pub thoughts: usize,
+    pub sessions: usize,
+    /// The terminals that went with their sessions: their history files
+    /// are the caller's to remove once the step is committed.
+    pub terminals: Vec<TerminalId>,
+    /// The step was full: another has more to remove.
+    pub more: bool,
+}
+
+/// One step of pruning (design §5, row "pruned"): removes what the person
+/// keeps for `days` days and is older, and nothing else.
+///
+/// A thought goes, with its questions, their answers, its results and the
+/// attempts made for it, when it is finished (done or failed, read, no
+/// changes waiting to be kept or discarded), was last changed more than
+/// `days` days before `now`, has no worktree left to settle, and no
+/// session that has not ended is at it as its turn. An ended session goes
+/// once no thought, question or result refers to it, and the terminal an
+/// agent ran in goes with its last session, with its history. Nothing that
+/// is captured, routed, working, unread or pending is ever touched, nor a
+/// shell, which is the person's own. With 0 days nothing goes at all.
+pub fn prune(tx: &mut Tx<'_>, now: Time, days: u16) -> store::Result<Pruned> {
+    let mut pruned = Pruned::default();
+    if days == 0 {
+        return Ok(pruned);
+    }
+    let kept = u64::from(days) * DAY;
+    let Some(before) = now.get().checked_sub(kept).and_then(Time::new) else {
+        return Ok(pruned);
+    };
+    let expired = tx.expired(before, PRUNE_STEP + 1)?;
+    pruned.more = expired.len() > PRUNE_STEP;
+    for t in expired.into_iter().take(PRUNE_STEP) {
+        // An ended session is at no turn once its last one is gone.
+        for s in tx.sessions_at(t.id)? {
+            tx.update_session(&Session {
+                thought_id: None,
+                ..s
+            })?;
+        }
+        tx.delete_thought(t.id)?;
+        tx.delete_attempts(t.id)?;
+        pruned.thoughts += 1;
+    }
+    let spent = tx.spent(PRUNE_STEP + 1)?;
+    pruned.more |= spent.len() > PRUNE_STEP;
+    for s in spent.into_iter().take(PRUNE_STEP) {
+        tx.delete_session(s.id)?;
+        pruned.sessions += 1;
+        let terminal = s.terminal_id.map(|id| tx.terminal(id)).transpose()?;
+        let Some(terminal) = terminal.flatten() else {
+            continue;
+        };
+        let ended = terminal.state != TerminalState::Running;
+        if terminal.kind != TerminalKind::Agent || !ended {
+            continue;
+        }
+        match tx.delete_terminal(terminal.id) {
+            // Another session ran in it and is still there.
+            Err(store::Error::Reference) => {}
+            deleted => {
+                deleted?;
+                pruned.terminals.push(terminal.id);
+            }
+        }
+    }
+    Ok(pruned)
+}
+
 /// Whether `put` and `delete` may treat a thought as plain data, editing
 /// its text or removing it (design §1, §5): while it is captured and nothing
 /// of it was ever launched. A note, an idea the router found no place for,

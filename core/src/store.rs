@@ -1104,8 +1104,56 @@ impl Tx<'_> {
         found(self.update(Table::Thoughts, t)?)
     }
 
-    /// Removes a thought with its questions, their answers, and its results.
-    /// A session whose current thought it is makes this `Reference`.
+    /// Finished thoughts last changed before `before`, oldest first and
+    /// at most `most`, that nothing still needs (`state::prune`): no
+    /// session that has not ended is at one as its turn, and none has a
+    /// worktree not yet settled.
+    pub fn expired(&self, before: Time, most: usize) -> Result<Vec<Thought>> {
+        let clause = "WHERE finished = 1 AND data ->> 'updated' < ?1 \
+             AND coalesce(data ->> '$.workdir.changes', '') NOT IN ('none', 'pending') \
+             AND NOT EXISTS (SELECT 1 FROM sessions s \
+                 WHERE s.thought_id = thoughts.id AND s.state <> 'ended') \
+             ORDER BY id LIMIT ?2";
+        self.all(
+            Table::Thoughts,
+            clause,
+            params![before.get() as i64, most as i64],
+        )
+    }
+
+    /// The sessions at a thought as their turn.
+    pub fn sessions_at(&self, thought: ThoughtId) -> Result<Vec<Session>> {
+        self.all(Table::Sessions, "WHERE thought_id = ?1", [key(&thought)?])
+    }
+
+    /// Ended sessions nothing refers to any more, at most `most`: at no
+    /// thought, and the session of no thought, question or result.
+    pub fn spent(&self, most: usize) -> Result<Vec<Session>> {
+        let clause = "WHERE state = 'ended' AND thought_id IS NULL \
+             AND NOT EXISTS (SELECT 1 FROM thoughts t WHERE t.session_id = sessions.id) \
+             AND NOT EXISTS (SELECT 1 FROM questions q WHERE q.session_id = sessions.id) \
+             AND NOT EXISTS (SELECT 1 FROM results r WHERE r.session_id = sessions.id) \
+             ORDER BY id LIMIT ?1";
+        self.all(Table::Sessions, clause, [most as i64])
+    }
+
+    /// Removes a session nothing refers to; one that is referred to is `Reference`.
+    pub fn delete_session(&mut self, id: SessionId) -> Result<bool> {
+        let session = key(&id)?;
+        self.db
+            .prepare_cached("DELETE FROM seen_events WHERE session_id = ?1")?
+            .execute([&session])?;
+        self.delete(Table::Sessions, &id)
+    }
+
+    /// Forgets the attempts made for a thought that is gone.
+    pub fn delete_attempts(&mut self, thought: ThoughtId) -> Result<()> {
+        self.db
+            .prepare_cached("DELETE FROM attempts WHERE target = ?1")?
+            .execute([key(&thought)?])?;
+        Ok(())
+    }
+
     /// Deletes a terminal's row; one a session refers to is `Reference`.
     pub fn delete_terminal(&mut self, id: TerminalId) -> Result<bool> {
         let key = key(&id)?;
@@ -1130,6 +1178,8 @@ impl Tx<'_> {
             .query_row([key(&thought)?], |r| r.get(0))?)
     }
 
+    /// Removes a thought with its questions, their answers, and its results.
+    /// A session whose current thought it is makes this `Reference`.
     pub fn delete_thought(&mut self, id: ThoughtId) -> Result<bool> {
         let key = key(&id)?;
         let named: bool = self

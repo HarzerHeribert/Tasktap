@@ -191,6 +191,81 @@ fn the_loop() {
     nothing_ran_again(&mut s, &before);
 }
 
+/// The `keep_days` preference through the binary, on a run the real
+/// launcher started: nothing goes in the moment the limit is set, nor
+/// before a day has passed, nor while the thought is only as old as the
+/// limit; a day later it goes, and with it its result, its session, the
+/// terminal it ran in and that terminal's history on disk.
+#[test]
+fn what_a_run_left_goes_once_it_is_older_than_the_person_keeps_it() {
+    const DAY: u64 = 24 * 60 * 60 * 1000;
+    let mut s = Scene::real("tk", "fixture");
+    let t = s.capture("the build fails on main");
+    s.tick(HOLD_MS);
+    let session = s.w.model.thought(t).session_id.unwrap();
+    let mut agent = InTerminal::start(&mut s, session);
+    agent.ready_and_begin();
+    agent.finish("Fixed.");
+    s.w.until("the thought is done", |m| m.status(t) == Done);
+    // Unread, it is not finished: a year changes nothing.
+    let keep = |days| tasktap_proto::Put {
+        target: tasktap_proto::PutTarget::Prefs(tasktap_proto::PrefPatch::KeepDays(days)),
+        if_rev: None,
+    };
+    s.w.ok::<call::Put>(&keep(2));
+    s.tick(365 * DAY);
+    assert!(s.w.model.thoughts.contains_key(&t), "unread");
+    s.w.ok::<call::ThoughtRead>(&Ref { id: t });
+    // Read, and its agent still there, idle: it is that session's turn.
+    s.tick(3 * DAY);
+    assert!(s.w.model.thoughts.contains_key(&t), "its session lives");
+    agent.0.line("exit:0");
+    let terminal = s.w.model.session(session).terminal_id.unwrap();
+    s.w.until("the terminal ended", |m| {
+        m.terminals[&terminal].state == TerminalState::Exited
+    });
+    let history = s
+        .data
+        .0
+        .join("scrollback")
+        .join(terminal.uuid().to_string());
+    assert!(history.exists(), "{history:?}");
+
+    // For ever, and then two days again: setting the limit removes nothing,
+    // though the thought is three days old.
+    let unset = tasktap_proto::Delete::Prefs {
+        id: tasktap_proto::PrefKey::KeepDays,
+    };
+    s.w.ok::<call::Delete>(&unset);
+    s.tick(30 * DAY);
+    s.w.ok::<call::Put>(&keep(40));
+    s.w.sync();
+    assert!(
+        s.w.model.thoughts.contains_key(&t),
+        "kept for ever meanwhile"
+    );
+    // The next pruning is a day after the limit was set, not earlier: then
+    // the thought is 34 days old, and 40 are kept.
+    s.tick(DAY - 1);
+    s.w.ok::<call::Put>(&keep(33));
+    s.w.sync();
+    assert!(s.w.model.thoughts.contains_key(&t), "a changed limit waits");
+    s.tick(1);
+    s.w.sync();
+    let m = &s.w.model;
+    assert!(!m.thoughts.contains_key(&t), "34 days old, 33 kept");
+    assert!(m.results.is_empty() && m.sessions.is_empty(), "{m:?}");
+    assert!(!m.terminals.contains_key(&terminal));
+    assert!(!history.exists(), "its history went with it");
+    let page = tasktap_proto::History {
+        before: None,
+        after: None,
+        limit: tasktap_proto::Limit::MAX,
+    };
+    assert!(s.w.ok::<call::History>(&page).thoughts.is_empty());
+    assert_eq!(s.w.model.glance().done, 0);
+}
+
 #[test]
 fn a_restart_with_a_router_question_open_keeps_it_answerable() {
     let mut s = Scene::real("tr", "fixture");

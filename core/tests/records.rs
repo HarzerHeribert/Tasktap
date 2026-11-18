@@ -761,6 +761,90 @@ fn the_settings_preferences_are_stored_refused_in_a_sentence_and_restored_by_del
     assert_eq!(stored(&mut w), settings.clone().map(|_| None));
 }
 
+/// `keep_days` as the core starts: what is older than the person keeps it
+/// goes before the first client is answered, with its results; what is
+/// newer, unread or kept for ever stays. Setting the limit removed nothing.
+#[test]
+fn a_core_that_starts_prunes_what_is_older_than_the_limit_before_anyone_sees_it() {
+    const DAY: u64 = 24 * 60 * 60 * 1000;
+    let data = Folder::new("tr");
+    let core = Core::start(&data);
+    let mut w = core.device();
+    let aged = |days: u64, read: bool| Thought {
+        read,
+        updated: Time::new(wall_ms() - days * DAY).unwrap(),
+        ..finished(ThoughtId::mint(), "long ago")
+    };
+    let (old, edge, new, unread) = (
+        aged(40, true),
+        aged(29, true),
+        aged(1, true),
+        aged(40, false),
+    );
+    let result = TurnResult {
+        id: ResultId::mint(),
+        rev: Rev::ZERO,
+        thought_id: old.id,
+        session_id: None,
+        turn: None,
+        kind: ResultKind::Answer,
+        summary: "Done.".into(),
+    };
+    let all = vec![old.clone(), edge.clone(), new.clone(), unread.clone()];
+    let results = Set::Results(Rows {
+        put: vec![result.clone()],
+        del: Vec::new(),
+    });
+    fixture(&mut w, vec![thoughts(all), results]);
+    let keep = |days| PutTarget::Prefs(PrefPatch::KeepDays(days));
+    put(&mut w, keep(30), None).unwrap();
+    let there = |c: &mut Client| {
+        let snap = subscribe(c, &ALL);
+        let has = |t: &Thought| snap.model.get("thoughts", t.id).is_some();
+        let result = snap.model.get("results", result.id).is_some();
+        ([&old, &edge, &new, &unread].map(has), result)
+    };
+    assert_eq!(
+        there(&mut w),
+        ([true; 4], true),
+        "nothing goes when the limit is set"
+    );
+
+    drop(w);
+    core.stop();
+    let core = Core::start(&data);
+    let mut w = core.device();
+    assert_eq!(there(&mut w), ([false, true, true, true], false));
+    let page = History {
+        before: None,
+        after: None,
+        limit: Limit::MAX,
+    };
+    let history = w.call::<call::History>(&page).unwrap().unwrap();
+    assert!(history.thoughts.is_empty() && history.results.is_empty());
+
+    // Kept for ever again, a start removes nothing, however old.
+    delete(
+        &mut w,
+        Delete::Prefs {
+            id: PrefKey::KeepDays,
+        },
+    )
+    .unwrap();
+    drop(w);
+    core.stop();
+    let core = Core::start(&data);
+    let mut w = core.device();
+    assert_eq!(there(&mut w), ([false, true, true, true], false));
+    // With 28 days kept, the next start takes the one of 29 days ago too.
+    put(&mut w, keep(28), None).unwrap();
+    drop(w);
+    core.stop();
+    let core = Core::start(&data);
+    let mut w = core.device();
+    assert_eq!(there(&mut w), ([false, false, true, true], false));
+}
+
 #[test]
 fn if_rev_writes_only_over_the_revision_the_caller_saw() {
     let data = Folder::new("tr");

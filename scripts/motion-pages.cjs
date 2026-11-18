@@ -22,7 +22,7 @@ function serve(distDir) {
 }
 
 // Runs in the page before its scripts: the Tauri runtime and the core, both fake.
-function fakeRuntime({ label, records: records0, welcome }) {
+function fakeRuntime({ label, records: records0, welcome, terms }) {
   const callbacks = new Map();
   let nextCb = 1;
   const listeners = new Map(); // event -> [{handler, id}]
@@ -47,6 +47,7 @@ function fakeRuntime({ label, records: records0, welcome }) {
   const reply = (id, ok) => toCore({ t: 'reply', id, ok: ok === undefined ? null : ok });
   // A stream's bytes: kind 1, the stream id, the data.
   let nextStream = 1;
+  const heard = {};
   const toStream = (s, text) => {
     const p = enc.encode(text), out = new Uint8Array(9 + p.length);
     new DataView(out.buffer).setUint32(0, p.length + 5, true);
@@ -72,6 +73,45 @@ function fakeRuntime({ label, records: records0, welcome }) {
       return;
     }
     if (name === 'history') return reply(id, { thoughts: [], questions: [], results: [] });
+    // What a model that places thoughts and a speech service are sent, as the core says it.
+    if (name === 'route.terms') return reply(id, { ...terms.route, tools: records.tools || terms.route.tools });
+    if (name === 'speech.terms') return reply(id, terms.speech);
+    const pref = (key, value) => {
+      rev++;
+      records.prefs = (records.prefs || []).filter((p) => p.id !== key);
+      if (value !== undefined) records.prefs.push({ id: key, value, rev });
+      push({ t: 'change', rev, sets: [{ c: 'prefs', ...(value === undefined ? { del: [key] } : { put: [{ id: key, value, rev }] }) }] });
+    };
+    const keys = () => ((records.prefs || []).find((p) => p.id === 'keys') || { value: [] }).value;
+    if (name === 'delete' && args.c === 'prefs') return pref(args.id), reply(id, null);
+    if (name === 'key.set') return pref('keys', [...keys().filter((s) => s !== args.server), args.server]), reply(id, null);
+    if (name === 'key.remove') return pref('keys', keys().filter((s) => s !== args.server)), reply(id, null);
+    // A dictation: its row, a stream for the recording whose bytes are kept for the checks and whose loudest
+    // sample is the row's level, as the core's is; then what `hears` says it was heard as.
+    const row = (d, del) => push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', ...(del ? { del: [d.id] } : { put: [{ ...d, rev }] }) }] });
+    const dictation = (i) => (records.dictations || []).find((d) => d.id === i);
+    if (name === 'dictation.start') {
+      const s = nextStream++;
+      heard[s] = { id: args.id, bytes: [], peak: 0, since: 0 };
+      row({ id: args.id, phase: 'recording', text: '', level: 0, target: args.target, error: null });
+      return reply(id, { stream: { s, credit: 9600000 }, seconds: 300 });
+    }
+    if (name === 'dictation.finish') {
+      const d = dictation(args.id), said = records.hears || { text: 'Make the header stay on one line' };
+      row({ ...d, phase: 'transcribing', level: 0 });
+      setTimeout(() => {
+        if (!dictation(args.id)) return;
+        if (said.error) return row({ ...d, phase: 'failed', level: 0, text: said.text || '', error: said.error });
+        if (d.target.kind === 'text') return row({ ...d, phase: 'heard', level: 0, text: said.text });
+        row(d, true);
+        const now = Date.now();
+        push({ t: 'change', rev: ++rev, sets: [{ c: 'thoughts', put: [{ id: d.target.id, rev, text: said.text, strokes: [], source: 'voice', mode: 'ask', phase: 'routed', status: 'routed', reason: null, live: false,
+          project_id: d.target.project_id || ((records.projects || [])[0] || {}).id || null, session_id: null, brief: said.brief || said.text, route: said.route || null, agent: 'claude', model: null, workdir: null,
+          hold_until: now + 5000, read: false, created: now, updated: now }] }] });
+      }, said.ms || 600);
+      return reply(id, null);
+    }
+    if (name === 'dictation.cancel') return dictation(args.id) && row(dictation(args.id), true), reply(id, null);
     // `hold`: a capture is never answered, so the field stays as it is while a thought is on its way.
     if (name === 'thought.capture' && records.hold) return;
     // A thought saved for later is kept as the core keeps it, so the page can show where it landed.
@@ -110,6 +150,19 @@ function fakeRuntime({ label, records: records0, welcome }) {
       if (bytes[at + 4] === 0) {
         const f = JSON.parse(dec.decode(bytes.subarray(at + 5, at + 4 + len)));
         if (f.t === 'call') answer(f);
+      } else {
+        // A stream's bytes from the page: a recording. Its level follows every tenth of a second of samples.
+        const h = heard[new DataView(bytes.buffer, bytes.byteOffset + at + 5, 4).getUint32(0, true)], data = bytes.slice(at + 9, at + 4 + len);
+        if (h) {
+          h.bytes.push(...data);
+          const view = new DataView(data.buffer);
+          for (let i = 0; i + 1 < data.length; i += 2) h.peak = Math.max(h.peak, Math.abs(view.getInt16(i, true)));
+          if ((h.since += data.length) >= 3200) {
+            const db = 20 * Math.log10(Math.max(1, h.peak) / 32768), d = (records.dictations || []).find((x) => x.id === h.id);
+            if (d && d.phase === 'recording') push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', put: [{ ...d, rev, level: Math.round(Math.max(0, Math.min(100, ((db + 55) / 49) * 100))) }] }] });
+            h.since = h.peak = 0;
+          }
+        }
       }
       at += 4 + len;
     }
@@ -121,7 +174,7 @@ function fakeRuntime({ label, records: records0, welcome }) {
     if (payload.do === 'geometry') (tab = payload.width), (geo = payload = { ...payload, width: tab + 2 * wing });
     for (const l of listeners.get(event) || []) callbacks.get(l.handler)?.({ event, id: l.id, payload });
   };
-  window.__fake = { emit, push, records };
+  window.__fake = { emit, push, records, heard };
   window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
   window.__TAURI_INTERNALS__ = {
     metadata: { currentWindow: { label }, currentWebview: { windowLabel: label, label } },
@@ -161,18 +214,37 @@ function fakeRuntime({ label, records: records0, welcome }) {
 }
 
 const CALLS = ['sub', 'put', 'capture', 'thought.stop', 'question.answer', 'terminal.open', 'thought.changes', 'thought.settle', 'history'];
+// What the core's `route.terms` and `speech.terms` answer: the instructions are the core's own file.
+const TERMS = {
+  route: {
+    instructions: fs.readFileSync(path.join(root, 'core/src/route/instructions.md'), 'utf8'),
+    sends: [
+      'the thought, as you said or typed it', 'the names and aliases of up to 8 of your open projects',
+      'of up to 8 sessions in them: the name, the last request (180 characters), the agent and whether it is working',
+      'of up to 3 recent exchanges: the request (320 characters), how it ended and the first line of the result (160 characters)',
+    ],
+    tools: [{ agent: 'claude', model: 'haiku' }, { agent: 'codex', model: 'gpt-6-luna' }],
+  },
+  speech: {
+    sent: [
+      'The recording: what the microphone heard from the start of a dictation to its end, at most 5 minutes, as 16 kHz mono audio',
+      'The name of the model', 'The languages you set as a hint, when you set any', 'Your key for that server, when one is stored',
+    ],
+    path: '/v1/audio/transcriptions', seconds: 300,
+  },
+};
 
 // A page with the fake runtime, loaded, with `sub` answered from `records`.
 // `video`: Playwright's recordVideo for the context; `clock`: the page's clock held until the caller runs it.
-async function open(browser, { label, records = {}, viewport, dpr = 2, url, video, clock }) {
+async function open(browser, { label, records = {}, viewport, dpr = 2, url, video, clock, permissions }) {
   const size = viewport || (label === 'notch' ? { width: 560, height: 520 } : { width: 1180, height: 760 });
-  const context = await browser.newContext({ viewport: size, deviceScaleFactor: dpr, ...(video ? { recordVideo: video } : {}) });
+  const context = await browser.newContext({ viewport: size, deviceScaleFactor: dpr, ...(video ? { recordVideo: video } : {}), ...(permissions ? { permissions } : {}) });
   const page = await context.newPage();
   if (clock) await page.clock.install();
   page.errors = [];
   page.on('pageerror', (e) => page.errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') page.errors.push(m.text()); });
-  await page.addInitScript(fakeRuntime, { label, records, welcome: { v: VERSION, calls: CALLS } });
+  await page.addInitScript(fakeRuntime, { label, records, welcome: { v: VERSION, calls: CALLS }, terms: TERMS });
   await page.goto(`${url}/${label}.html`);
   if (label === 'notch') await page.evaluate(() => { document.documentElement.style.background = '#3a4048'; });
   await page.waitForTimeout(400); // welcome, sub and first paint

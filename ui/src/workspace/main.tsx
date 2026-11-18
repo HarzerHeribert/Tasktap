@@ -6,24 +6,29 @@ import '@xterm/xterm/css/xterm.css';
 import '../motion/motion.css';
 import './fonts.css';
 import './window.css';
+import '../way.css';
+import './consent.css';
 import '../scroll.ts';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { render } from 'preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
-import { cap } from '../capture.tsx';
+import { cap, followSpeech } from '../capture.tsx';
+import { LevelVoice } from '../speech/level.ts';
+import { live, loudness, recording, talk } from '../speech/record.ts';
 import { I, Mark, Wave, plural } from '../ui.tsx';
 import { apply, fontsReady, look } from './appearance.ts';
 import { Deck, startAgent } from './deck.tsx';
 import { Earlier, Home, homeCounts } from './home.tsx';
 import { wakeLook } from './light.tsx';
-import { stats } from '../motion/engine.ts';
+import { setVoice, stats } from '../motion/engine.ts';
+import type { Voice } from '../motion/voice.ts';
 import { debug } from '../motion/motion.tsx';
 import * as L from './layout.ts';
 import { burst, echo } from './measure.ts';
 import { choose, shown as menu } from './menu.ts';
 import {
-  LOOSE, call, client, closeTab, copy, current, dismiss, fail, focusSession, layout, newTerminal, onRedraw, open, page, paste,
+  LOOSE, call, client, closeTab, copy, current, dismiss, fail, focusSession, layout, loadTerms, newTerminal, onRedraw, open, page, paste,
   pref, records, redraw, reconcile, sessionOf, setLayout, settleFocus, show, textSize, textSizeBy, ui,
 } from './model.ts';
 import { Sheets } from './sheets.tsx';
@@ -236,12 +241,28 @@ function App() {
   );
 }
 
+/** While a dictation records, whichever page records it, the motion listens: its form answers the level the core
+ *  reports for the recording (speech/level.ts), which stands in for a voice of the motion's own. */
+const heard = new LevelVoice(loudness);
+let hears = false;
+function listenToSpeech() {
+  if (recording() === hears) return;
+  hears = ui.voice = !hears;
+  setVoice(hears ? (heard as unknown as Voice) : null);
+}
 records.onchange = () => {
+  followSpeech();
+  listenToSpeech();
   reconcile();
   redraw();
 };
+/** Where the host, or the notch through it, sends the window: a session's terminal, or a part of Settings. */
+function arrive(at: string) {
+  if (at === 'settings:speech' || at === 'settings:thoughts') open({ kind: 'settings', at: at === 'settings:speech' ? 'speech' : 'thoughts' });
+  else focusSession(at);
+}
 void listen<{ do: string; at?: string; id?: string }>('ui', ({ payload }) => {
-  if (payload.do === 'focus' && payload.at) focusSession(payload.at);
+  if (payload.do === 'focus' && payload.at) arrive(payload.at);
   else if (payload.do === 'menu' && payload.id) command(payload.id);
 });
 const narrow = () => {
@@ -266,13 +287,14 @@ void win.onFocusChanged(({ payload }) => {
 // The window shows once the page has laid out its first frame (a hidden window draws nothing).
 setTimeout(() => void call('host.ready', {}).catch(() => {}));
 void client
-  .sub(['thoughts', 'projects', 'sessions', 'terminals', 'questions', 'results', 'layouts', 'prefs', 'agents'], records)
+  .sub(['thoughts', 'projects', 'sessions', 'terminals', 'questions', 'results', 'layouts', 'prefs', 'agents', 'dictations'], records)
   .then(() => {
     ui.ready = true;
     reconcile();
     const at = new URLSearchParams(location.search).get('focus');
-    if (at) focusSession(at);
+    if (at) arrive(at);
     else show(ui.view);
+    void loadTerms();
   })
   .catch(fail);
 
@@ -302,4 +324,5 @@ const type = (line: string) => (engines.get(current()?.id ?? '')?.term.input(lin
 Object.assign(window, {
   __ws: { ui, records, layout, command, greet, slide, engines, focusSession, show, newTerminal, startAgent, call, echo, burst, text, type, current, dismiss, menu, choose, LOOSE, L },
   __motion: { debug, stats, redraw },
+  __speech: { talk, live, cap },
 });

@@ -25,11 +25,12 @@ const LISTS = [
   { list: '.ws', row: ':scope > .row.s', parts: { mark: '.st', label: '.lbl' } },
   { list: '.tree', row: ':scope > .row.home, :scope > .ws > .row.w', parts: { label: '.lbl' } },
   { list: '.acts', row: ':scope > .act', parts: { key: 'kbd', label: 'span' } },
-  { list: '.settings', row: ':scope > .set', parts: { label: '.t', fact: '.c' } },
-  { list: '.files', row: ':scope > .file', parts: { mark: '.ch', label: '.path' } },
+  { list: '.settings, .terms', row: ':scope > .set', parts: { label: '.t', fact: '.c' } },  { list: '.files', row: ':scope > .file', parts: { mark: '.ch', label: '.path' } },
   { list: '.cap-list', row: ':scope > button', parts: { mark: '.i, .st', label: 'span' } },
   { list: '.rows', row: ':scope > .row', parts: { mark: '.st', label: '.t', fact: '.x', time: 'time' } },
   { list: '.ask-notch .qa', row: ':scope > .ans', parts: { key: 'kbd', label: 'span' } },
+  { list: '.ask-home .qa', row: ':scope > .ans', parts: { key: 'kbd' } },
+  { list: '.ways', row: ':scope > .way', parts: { mark: '.way-h > .i, .way-h > .st', label: '.way-h > b' } },
 ];
 
 function audit(LISTS) {
@@ -143,7 +144,7 @@ function band() {
 
 /** The agents' rings in a scene: each agent's state, and whether it is the one that runs the next thought. */
 const rings = () => [...document.querySelectorAll('.home .ring')].map((r) => `${r.dataset.agent}:${r.dataset.s ?? 'ready'}${r.getAttribute('aria-checked') === 'true' ? ':runs' : ''}${r.querySelector('.turn') ? ':turns' : ''}${r.querySelector('b')?.textContent ?? ''}${r.querySelector('.fix') ? ':fix' : ''}`).join(' ');
-const RINGS = { busy: 'claude:asks:runs:turns5 codex:asks:turns2', quiet: 'claude:ready:runs codex:ready', first: 'claude:ready:runs codex:off:fix' };
+const RINGS = { busy: 'claude:asks:runs:turns3 codex:asks:turns1', quiet: 'claude:ready:runs codex:ready', first: 'claude:ready:runs codex:off:fix' };
 
 /** Starts a motion and watches it frame by frame: every glyph of the wake that shows must lie behind the moving edge
  *  of `sel` (its right edge across the window, or its lower edge down it), on the side the edge has come from. */

@@ -7,6 +7,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { next, pending, running, settle, settling, Status, Told } from '../changes.tsx';
 import { Ask } from '../question.tsx';
 import { Answer, I, Mark, ago, madeAt, when } from '../ui.tsx';
+import { placed } from '../way.ts';
 import * as L from './layout.ts';
 import { type Item, popup } from './menu.ts';
 import {
@@ -171,10 +172,12 @@ function Tab({ project, pane, id }: { project: string; pane: L.Pane; id: string 
   const active = pane.active === id;
   const c = cue(id);
   const name = label(id);
+  // How the session's thought found its way here, said quietly with its name.
+  const th = thoughtOf(sessionOf(id)), how = th && placed(th, agentName);
   return (
     <div class={`tabw${active ? ' on' : ''}${c.s === 'shell' ? ' shl' : ''}`}>
       <button type="button" role="tab" class="tab" data-id={id} aria-selected={active} tabIndex={active ? 0 : -1}
-        title={`${name}\n${c.words}`} aria-description="Drag to move it to another pane. Right-click for its commands"
+        title={[name, c.words, how].filter(Boolean).join('\n')} aria-description="Drag to move it to another pane. Right-click for its commands"
         onPointerDown={(e) => grab(e, project, pane.id, id)}
         onClick={() => {
           if (dragged) return;

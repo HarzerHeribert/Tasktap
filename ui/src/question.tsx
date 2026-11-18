@@ -2,8 +2,10 @@
 // answers as key caps on 1 to 9, a reply in the person's own words on T. One only its terminal can answer offers the
 // way there instead. The keys act only while the question's own element has the keyboard, never the terminal's.
 import type { AnswerQuestion, Question } from '../../core/proto/protocol.ts';
-import { call, fail, focus } from './page.ts';
-import { Answer } from './ui.tsx';
+import { call, fail, focus, pref, projects, records } from './page.ts';
+import { control, mine, talk } from './speech/record.ts';
+import { Answer, I, Level } from './ui.tsx';
+import { briefOf } from './way.ts';
 
 type Response = AnswerQuestion extends infer A ? (A extends { id: string } ? Omit<A, 'id'> : never) : never;
 
@@ -26,6 +28,7 @@ export function keys(q: Question, e: KeyboardEvent, terminal?: () => void): bool
     if (k !== 'enter' || !terminal || target.closest('button')) return false;
     terminal();
   } else if (n >= 1 && n <= Math.min(9, all.length)) void choose(q, n - 1);
+  else if (q.source === 'router' && k === 'l') void reply(q, { kind: 'deny' });
   else if (q.kind === 'confirm' && (k === 'y' || k === 'n')) void choose(q, k === 'y' ? 0 : 1);
   else if (k === 't') focus((e.currentTarget as HTMLElement).querySelector<HTMLElement>('.reply input'));
   else return false;
@@ -43,12 +46,27 @@ export function Answers({ q, terminal, who }: { q: Question; terminal?: () => vo
         {!terminal && <span class="q-detail">{who ?? 'The agent'} takes the answer in its terminal.</span>}
       </div>
     );
+  // Where a thought should go: the folders and sessions it could mean, each on its key, and the way to keep it for
+  // later. No reply in words: a place is one of these.
+  if (q.source === 'router') {
+    const folders = new Set(projects().map((p) => p.name));
+    return (
+      <div class="qa">
+        {answers(q).map((label, i) => (i < 9 ? <Answer k={String(i + 1)} label={label} icon={folders.has(label) ? 'folder' : 'term'} onClick={() => void choose(q, i)} /> : null))}
+        <Answer k="L" label="Keep for later" icon="later" onClick={() => void reply(q, { kind: 'deny' })} />
+      </div>
+    );
+  }
+  // Speech into the reply: its words arrive in the field, and nothing is sent before Return.
+  const d = talk.field?.closest<HTMLElement>('[data-question]')?.dataset.question === q.id ? mine() : undefined;
+  const hears = d?.phase === 'recording' || d?.phase === 'transcribing';
+  const field = (e: Event) => (e.currentTarget as HTMLElement).closest('.reply')!.querySelector('input');
   return (
     <div class="qa">
       {answers(q).map((label, i) => (i < 9 ? <Answer k={String(i + 1)} label={label} onClick={() => void choose(q, i)} /> : null))}
-      <label class="reply">
-        <kbd>T</kbd>
-        <input aria-label="Reply" placeholder={q.kind === 'text' ? 'Your answer' : 'Reply in your own words'} autocomplete="off" spellcheck={false}
+      <label class="reply" data-hears={hears || undefined}>
+        {d?.phase === 'recording' ? <Level l={d.level / 100} /> : <kbd>T</kbd>}
+        <input aria-label="Reply" placeholder={d?.phase === 'recording' ? 'Listening' : hears ? 'Writing it down…' : q.kind === 'text' ? 'Your answer' : 'Reply in your own words'} autocomplete="off" spellcheck={false}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.isComposing) {
               const text = e.currentTarget.value.trim();
@@ -60,6 +78,10 @@ export function Answers({ q, terminal, who }: { q: Question; terminal?: () => vo
               focus(e.currentTarget.closest<HTMLElement>('[data-question]'));
             }
           }} />
+        <button type="button" class="mic" data-off={!pref('speech_by') || undefined} aria-label="Talk" title="Hold to talk, or hold ⌥Space in the field"
+          onPointerDown={(e) => control.down(e, field(e))} onPointerUp={control.up} onPointerCancel={control.up} onClick={(e) => control.key(e, field(e))}>
+          <I n="mic" />
+        </button>
       </label>
     </div>
   );
@@ -67,9 +89,13 @@ export function Answers({ q, terminal, who }: { q: Question; terminal?: () => vo
 
 /** The question in full and its answers, inside an element that takes the keyboard for them. */
 export function Ask({ q, size, terminal, who, class: cls = '' }: { q: Question; size: 'home' | 'notch' | 'pane'; terminal?: () => void; who?: string; class?: string }) {
+  // The router's question is about a thought that has no place yet: the thought in full, and its brief so far.
+  const said = q.source === 'router' && q.thought_id ? records.thoughts.get(q.thought_id) : undefined;
   return (
     <div class={`ask-${size} ${cls}`} data-question={q.id} tabIndex={-1} onKeyDown={(e) => keys(q, e, terminal)}>
       <p class="qp">{q.prompt}</p>
+      {said && <p class="way-w"><span>You said</span>{said.text}</p>}
+      {said && briefOf(said) && <p class="way-b"><span>Brief so far</span>{briefOf(said)}</p>}
       {q.detail && <p class="q-detail">{q.detail}</p>}
       <Answers q={q} terminal={terminal} who={who} />
     </div>

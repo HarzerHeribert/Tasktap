@@ -3,7 +3,8 @@
 // capture shortcut opened it.
 import type { Thought } from '../../../core/proto/protocol.ts';
 import { useEffect, useState } from 'preact/hooks';
-import { Capture, cap } from '../capture.tsx';
+import { Capture, cap, going } from '../capture.tsx';
+import { talk } from '../speech/record.ts';
 import { lost, next, pending, running, settle, settling, Status, Told } from '../changes.tsx';
 import { Answer as Act, Mark, type State, elapsed, plural, when } from '../ui.tsx';
 import { agentName, call, fail, openQuestions, projectName, records, redraw, resultOf, title, ui, why } from './model.ts';
@@ -17,6 +18,8 @@ export const hooks = {
   started: () => ui.mode === 'pinned' && !ui.inside && !openQuestions().length && fold(),
   // An agent is signed in from the workspace window, where the same ring leads to it.
   agents: () => void call('host.show', { surface: 'workspace' }).then(fold, fail),
+  // A speech service is chosen in the workspace's Settings, at Speech.
+  speech: () => void call('host.show', { surface: 'workspace', at: 'settings:speech' }).then(fold, fail),
 };
 
 const stateOf = (t: Thought): State =>
@@ -93,7 +96,8 @@ function Result({ t }: { t: Thought }) {
 
 export function Home() {
   const thoughts = [...records.thoughts.values()].filter((t) => t.mode !== 'note' && t.id !== cap.undone?.id);
-  const working = thoughts.filter((t) => t.status === 'routed' || t.status === 'working').sort((a, b) => b.created - a.created);
+  // One placed and held is on its way, under the capture line with its Undo; the rows are what runs.
+  const working = thoughts.filter((t) => t.status === 'working').sort((a, b) => b.created - a.created);
   const finished = thoughts
     .filter((t) => (t.status === 'done' || t.status === 'failed') && (!t.read || ui.seen.has(t.id) || pending(t)))
     .sort((a, b) => Number(pending(b)) - Number(pending(a)) || b.updated - a.updated);
@@ -110,7 +114,7 @@ export function Home() {
     }, 1200);
     return () => clearTimeout(timer);
   });
-  const first = ui.capturing || !top;
+  const first = ui.capturing || !top || going().length > 0 || !!talk.id || talk.asking;
   const rows = [...working, ...(first ? finished : rest)].slice(0, 4);
   const capture = <div class="capture-block"><Capture {...hooks} /></div>;
   const words = [working.length && `${working.length} working`, finished.filter((t) => !t.read).length && plural(finished.filter((t) => !t.read).length, 'new result', 'new results')]

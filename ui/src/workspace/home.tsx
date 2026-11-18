@@ -7,10 +7,11 @@
 import type { Question, Thought } from '../../../core/proto/protocol.ts';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useState } from 'preact/hooks';
-import { Capture, cap } from '../capture.tsx';
+import { Capture, cap, offerable } from '../capture.tsx';
 import { next, pending, running, settle, Status, Told } from '../changes.tsx';
 import { Ask } from '../question.tsx';
 import { Answer, I, Mark, type State, elapsed, plural, when } from '../ui.tsx';
+import { laterWhy, placed } from '../way.ts';
 import { Light, useLight } from './light.tsx';
 import {
   agentName, call, fail, focus, focusSession, layout, open, openQuestions, page, projectName, projects, records, redraw, resultOf, show,
@@ -27,7 +28,8 @@ export function home() {
     const s = t.session_id ? records.sessions.get(t.session_id) : undefined;
     return !!s?.terminal_id && bg.has(s.terminal_id);
   };
-  const runningRows = thoughts.filter((t) => t.status === 'routed' || t.status === 'working')
+  // A thought that is placed and held is not running yet: it is on its way, under the Composer, with its Undo.
+  const runningRows = thoughts.filter((t) => t.status === 'working')
     .sort((a, b) => Number(inBackground(a)) - Number(inBackground(b)) || b.created - a.created);
   const waiting = thoughts.filter((t) => pending(t)).sort((a, b) => b.updated - a.updated);
   const results = thoughts.filter((t) => (t.status === 'done' || t.status === 'failed') && !pending(t)).sort((a, b) => b.updated - a.updated);
@@ -41,10 +43,12 @@ const stateOf = (t: Thought): State => (t.status === 'failed' ? 'failed' : !t.re
 function QuestionRow({ q, open: isOpen, choose }: { q: Question; open: boolean; choose: () => void }) {
   const t = q.thought_id ? records.thoughts.get(q.thought_id) : undefined;
   const s = q.session_id ? records.sessions.get(q.session_id) : undefined;
-  const who = q.source === 'router' ? 'Where should it go?' : agentName(s?.agent ?? t?.agent);
+  // Where a thought should go is Tasktap's own question, about a thought that has no folder yet.
+  const router = q.source === 'router';
+  const who = router ? 'A thought with no place yet' : agentName(s?.agent ?? t?.agent);
   const meta = (
     <span class="hq-m">
-      <b>{projectName(t?.project_id ?? s?.project_id)}</b><span>{who}</span>{t && <span class="hq-t">{title(t)}</span>}
+      {router ? <b>{who}</b> : <><b>{projectName(t?.project_id ?? s?.project_id)}</b><span>{who}</span>{t && <span class="hq-t">{title(t)}</span>}</>}
     </span>
   );
   const time = <time>{elapsed(t?.updated ?? Date.now())}</time>;
@@ -52,8 +56,8 @@ function QuestionRow({ q, open: isOpen, choose }: { q: Question; open: boolean; 
   if (!isOpen)
     return (
       <button type="button" class="hq" data-nav onClick={choose} title={q.prompt}>
-        <Mark s="asks" /><span class="hr-w">{projectName(t?.project_id ?? s?.project_id)}</span>
-        <span class="hq-w">{t ? `${who} · ${title(t)}` : who}</span><span class="hq-q">{q.prompt}</span>{time}
+        <Mark s="asks" /><span class="hr-w">{router ? 'No place yet' : projectName(t?.project_id ?? s?.project_id)}</span>
+        <span class="hq-w">{router ? title(t) : t ? `${who} · ${title(t)}` : who}</span><span class="hq-q">{q.prompt}</span>{time}
       </button>
     );
   return (
@@ -68,7 +72,7 @@ function QuestionRow({ q, open: isOpen, choose }: { q: Question; open: boolean; 
 function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean }) {
   const s = t.session_id ? records.sessions.get(t.session_id) : undefined;
   const r = resultOf(t);
-  const fact = kind === 'run' ? (t.status === 'routed' ? 'Starting soon' : s?.activity.at(-1) ?? 'Starting') : t.status === 'failed' ? `${why(t)}${r?.summary ? `: ${r.summary}` : ''}` : r?.summary;
+  const fact = kind === 'run' ? (s?.activity.at(-1) ?? 'Starting') : t.status === 'failed' ? `${why(t)}${r?.summary ? `: ${r.summary}` : ''}` : r?.summary;
   const changes = pending(t) ? t : null;
   const go = () => {
     if (t.session_id && focusSession(t.session_id) && (t.status === 'done' || t.status === 'failed') && !t.read)
@@ -87,7 +91,7 @@ function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean })
   const k = kind === 'run' ? 'working' : stateOf(t);
   return (
     <div class={`hr ${kind}${bg ? ' bgd' : ''}${kind === 'res' && t.read && !changes ? ' seen' : ''}`} data-nav tabIndex={0} data-thought={t.id}
-      title={[t.text, fact].filter(Boolean).join('\n')}
+      title={[t.text, fact, placed(t, agentName)].filter(Boolean).join('\n')}
       onClick={(e) => !(e.target as HTMLElement).closest('.hr-a') && go()}
       onKeyDown={(e) => {
         if ((e.target as HTMLElement) !== e.currentTarget || e.metaKey || e.ctrlKey) return;
@@ -106,6 +110,7 @@ function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean })
       {kind === 'res' && <span class="hr-d">{t.workdir ? <Status t={{ ...t, workdir: t.workdir }} /> : null}</span>}
       <time>{kind === 'run' ? elapsed(t.created) : when(t.updated)}</time>
       {changes && <Told t={changes} />}
+      {t.route?.fallback && <p class="hr-n">{placed(t, agentName)}</p>}
       {acts}
     </div>
   );
@@ -129,16 +134,18 @@ export function ChangeActs({ t }: { t: Changed }) {
 /** A thought saved for later: where it waits, and the way on. The one just saved shows its actions without being asked. */
 function LaterRow({ t }: { t: Thought }) {
   const send = () => open({ kind: 'send', thought: t.id });
+  const kept = [...records.questions.values()].some((q) => q.thought_id === t.id && q.source === 'router' && q.answer?.kind === 'deny');
   return (
-    <div class={`hr later${t.id === cap.sent?.id ? ' new' : ''}`} data-nav tabIndex={0} title={t.text} onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && (e.preventDefault(), send())}>
+    <div class={`hr later${t.id === cap.sent?.id ? ' new' : ''}`} data-nav tabIndex={0} title={[t.text, t.route?.fallback].filter(Boolean).join('\n')} onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && (e.preventDefault(), send())}>
       <Mark s="later" />
       <span class="hr-t">{title(t)}</span>
-      <span class="hr-x">Not sent anywhere yet</span>
+      <span class="hr-x">{laterWhy(t, agentName, kept)}</span>
       <div class="hr-a">
         <button type="button" class="btn" onClick={send}>Send to a folder…</button>
         <button type="button" class="btn" onClick={() => void call('delete', { c: 'thoughts', id: t.id }).catch(fail)}>Drop</button>
       </div>
       <time>{when(t.created)}</time>
+      {t.route?.fallback && <p class="hr-n">{t.route.fallback}</p>}
     </div>
   );
 }
@@ -233,7 +240,9 @@ export function Home() {
     <Light load={asks ? 'asks' : h.running.length ? 'busy' : 'quiet'} />
     <div class={`home${asks ? ' asks' : h.running.length ? ' busy' : ' quiet'}`} id="main" tabIndex={-1}>
       <div class={`hx${two ? ' two' : ''}${first ? ' first' : ''}`} onKeyDown={nav}>
-        <Capture raised agents={() => open({ kind: 'agents' })} />
+        <Capture raised agents={() => open({ kind: 'agents' })} speech={() => open({ kind: 'settings', at: 'speech' })} terms={() => open({ kind: 'placing' })}
+          // Once a folder is open and an agent signed in, before the first thought: the one moment placing is offered unasked.
+          offer={folders && !records.thoughts.size && offerable()} />
         {first && (
           <p class="attach">
             <span>A thought starts in a folder. Until one is open, it is saved for later.</span>

@@ -1,0 +1,90 @@
+/* What both pages draw of a thought on its way and of voice (capture.tsx, question.tsx, way.ts): the microphone, the
+   wave as loud as the voice, the row while the person speaks, the thought that is being placed or held with its brief,
+   and the seat of the agent that runs the next thought. Quiet controls on the ground they stand on; the one metal key
+   is Start, while the Composer's own key has nothing to do. */
+
+/* The agent that runs the next thought is seated, as a chosen segment is in Settings: the selected fill and its
+   hairline, the ring lit and a little heavier, the agent's name beside it where the row has room. The seat is where
+   the click landed, and the ring that takes it settles into it, so the choice is seen made. */
+.ring[aria-checked=true]{background:var(--sel);box-shadow:inset 0 0 0 1px var(--line2)}
+.ring[aria-checked=true] .ring-o circle:not(.turn){stroke-width:1.75px}
+.ring:not([aria-checked=true],[data-s=off]):hover{background:var(--hover);color:var(--fg)}
+.ring .nm{padding-right:5px;font:var(--f-small);color:var(--fg)}
+.cap-row{container:row/inline-size}
+@container row (max-width:520px){.ring .nm{display:none}}
+@container row (max-width:520px){.mic kbd{display:none}}
+@media(prefers-reduced-motion:no-preference){
+  .ring[aria-checked=true]{animation:ring-seat 420ms var(--ease)}
+  .ring[aria-checked=true] .ring-o{animation:ring-take 420ms var(--ease)}
+}
+@keyframes ring-seat{from{background:var(--fill-hover);box-shadow:inset 0 0 0 1px var(--fg3)}}
+@keyframes ring-take{from{transform:scale(1.24)}}
+
+/* The microphone: quiet, its key beside it. Without a speech service it is dimmer, and says why when pressed. */
+.mic{display:inline-flex;align-items:center;gap:5px;flex:none;height:var(--row-h);padding:0 6px;border-radius:var(--r1);color:var(--fg2);touch-action:none}
+.mic:hover{background:var(--hover);color:var(--fg)}
+.mic:active{background:var(--sel)}
+.mic kbd{font:var(--f-num);color:var(--fg3)}
+.mic[data-off] .i{opacity:.55}
+.capture.raised .mic{padding:0 9px;border-radius:var(--r-in)}
+.cap-to+.mic{margin-left:auto}
+.cap-row .mic+.key{margin-left:var(--sp1)}
+.reply .mic{height:22px;padding:0 4px;margin-right:-2px;color:var(--fg3)}
+
+/* The wave as loud as the voice: each bar its own share of the level, eased between the core's ten reports a second
+   by the clock. */
+.lvl b{height:calc(var(--h) * (.12 + .88 * var(--l,0)));min-height:2px;transition:height 110ms linear}
+.hear .lvl{--wh:24px;--ww:3px;--wg:2.5px;margin-right:2px}
+.reply .lvl{--wh:14px;--ww:2px;--wg:1.5px;min-width:18px;justify-content:center}
+
+/* The row while the person speaks, and while their words are written down. */
+.cap-row.hear{gap:10px;min-height:var(--row-h)}
+.hear b{font:var(--f-small);font-weight:500;color:var(--fg)}
+.hear time{font:var(--f-num);color:var(--fg2)}
+.hear-x{margin-left:auto;font:var(--f-small);color:var(--fg3)}
+.hear .act{height:22px}
+.cap-row.hear .key{margin-left:var(--sp1)}
+.capture.raised .cap-row.hear{padding:0 0 0 10px}
+
+/* On its way. Each thought is one block under the Composer's row: its first line says where it goes and what the work
+   is called, with Undo and Start; the newest shows its brief in full and the person's own words under it. Its top
+   edge is the hold: a lit line that runs out with the time that is left, and stands whole while that is still open. */
+.ways{display:grid;min-width:0}
+.capture.raised .ways{padding:0 var(--sp3) 0 22px}
+.capture.raised .ways>:first-child{margin-top:var(--sp3)}
+.capture.raised .ways .cap-said{margin-top:0;padding:0}
+.way{position:relative;min-width:0;padding:6px 0 var(--sp2)}
+.way+.way,.way+.cap-said,.cap-said+.way,.cap-said+.cap-said{border-top:1px solid var(--line)}
+.way-hold{position:absolute;inset:0 0 auto;height:1px;background:var(--lit);transform-origin:0 50%;transform:scaleX(var(--from,1));animation:way-hold var(--ms,0ms) linear forwards}
+.way-hold[data-open]{animation:none;transform:none;opacity:.4}
+@keyframes way-hold{to{transform:scaleX(0)}}
+.way-h{display:flex;align-items:center;gap:var(--sp2);min-width:0;min-height:var(--row-h);font:var(--f-small);color:var(--fg2)}
+.way-h>.i,.way-h>.st{flex:none}
+.way-h>b{font:var(--f-lead);color:var(--fg)}
+.way-h em{flex:none;font-style:normal;color:var(--fg3)}
+.way-h .act{flex:none;height:22px;margin-left:auto}
+.way-h :is(.key,.btn){flex:none}
+.way-h .btn .i{width:14px;height:14px}
+.way-b,.way-w{margin-top:6px;font:var(--f-body);color:var(--fg);text-wrap:pretty;overflow-wrap:anywhere;white-space:pre-wrap;-webkit-user-select:text;user-select:text}
+.way-w{padding-left:10px;border-left:1px solid var(--line2);font:var(--f-small);color:var(--fg2)}
+:is(.way-b,.way-w)>span{display:block;margin-bottom:1px;font:var(--f-cap);color:var(--fg3);-webkit-user-select:none;user-select:none}
+/* What a model called the work, beside the word Brief: the name its session will have. */
+.way-b>span b{font-weight:400;color:var(--fg2)}
+.way-b>span b::before{content:"·";margin:0 6px;color:var(--fg3)}
+.way-n{margin-top:var(--sp2);font:var(--f-cap);color:var(--fg3);text-wrap:pretty}
+.way.failed .way-h>b{font:var(--f-small);font-weight:500;text-wrap:pretty}
+.way.failed .way-h .btn{margin-left:auto}
+.way.failed .way-h .btn+.act{margin-left:0}
+.cap-said i{font-style:normal;color:var(--fg3)}
+.cap-said i::before{content:"·";margin:0 var(--sp2)}
+.cap-said>span{min-width:0;text-wrap:pretty}
+.cap-said .btn{flex:none;margin-left:auto}
+.cap-said .btn+.act{margin-left:0}
+
+/* How a thought was placed, on its row on Home, where a model was asked and could not be used: the core's sentence in full. */
+.hr-n{grid-column:3/-1;margin:-5px 0 9px;font:var(--f-cap);color:var(--fg3);white-space:normal;text-wrap:pretty}
+.hr.later .hr-n{grid-column:2/-1}
+
+/* A question about where a thought should go shows the thought and its brief so far, as the thought on its way does. */
+[data-question] .way-w{margin-top:var(--sp2)}
+.ans>.i{width:14px;height:14px;color:var(--fg2)}

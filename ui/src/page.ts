@@ -1,6 +1,6 @@
 // What every page has: its one connection to the core, the records it holds, one redraw, the
 // element to focus next, and the words the records are shown in. Each page's bundle has its own.
-import { type AgentHealth, PREF_DEFAULTS, type Question, type Thought, type TurnResult } from '../../core/proto/protocol.ts';
+import { type AgentHealth, PREF_DEFAULTS, type Question, type RouteTerms, type SpeechTerms, type Thought, type TurnResult } from '../../core/proto/protocol.ts';
 import { tauriBridge } from './bridge.ts';
 import { Client, Records } from './client.ts';
 
@@ -51,6 +51,18 @@ export const title = (t: Thought | undefined) => {
   const line = t?.text.trim().split('\n')[0] ?? '';
   return line.length > 90 ? line.slice(0, 89) + '…' : line;
 };
+
+/** What the core says is sent when a model places thoughts and when a speech service hears them, for the person to
+ *  read before they allow either: asked for once the page has its records, and again when Settings opens. */
+export const terms = { route: null as RouteTerms | null, speech: null as SpeechTerms | null };
+export const loadTerms = () =>
+  Promise.all([call('route.terms', {}).then((t) => (terms.route = t)), call('speech.terms', {}).then((t) => (terms.speech = t))]).then(redraw, () => {});
+/** The agents whose model can place thoughts: those the core would ask that are installed and signed in. */
+export const placers = () =>
+  (terms.route?.tools ?? []).filter((t) => {
+    const a = records.agents.get(t.agent);
+    return !!a?.installed && a.signed_in !== false;
+  });
 
 /** Open questions, oldest first: their ids are time ordered. */
 export const openQuestions = (): Question[] =>

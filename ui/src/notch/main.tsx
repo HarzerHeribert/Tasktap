@@ -3,6 +3,7 @@
 import '../tokens.css';
 import '../parts.css';
 import './notch.css';
+import '../way.css';
 import '../scroll.ts';
 import { listen } from '@tauri-apps/api/event';
 import { render } from 'preact';
@@ -10,11 +11,12 @@ import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Answer, FIRST } from './answer.tsx';
 import { Art, look, place } from './art.tsx';
 import { Home } from './home.tsx';
-import { cap } from '../capture.tsx';
+import { cap, followSpeech } from '../capture.tsx';
+import { live, talk } from '../speech/record.ts';
 import { lookOf } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
 import { Mark, Wave } from '../ui.tsx';
-import { agentName, call, client, fail, onRedraw, openQuestions, page, records, redraw, settleFocus, ui } from './model.ts';
+import { agentName, call, client, fail, onRedraw, openQuestions, page, records, redraw, settleFocus, title, ui } from './model.ts';
 import { fold, reveal } from './panel.ts';
 
 const body = document.body;
@@ -56,6 +58,7 @@ const host = {
 /** Questions that were open at the last change: a new one opens the notch by itself. */
 const known = new Set<string>();
 records.onchange = () => {
+  followSpeech();
   const open = openQuestions();
   const fresh = open.some((q) => !known.has(q.id));
   known.clear();
@@ -96,7 +99,7 @@ function Glance() {
   const any = !!g && g.working + g.needs_you + g.done + g.failed > 0;
   const s = q?.session_id ? records.sessions.get(q.session_id) : undefined;
   const t = q?.thought_id ? records.thoughts.get(q.thought_id) : undefined;
-  const asks = q && <span class="peek"><b>{q.source === 'router' ? 'Where to?' : `${agentName(s?.agent ?? t?.agent)} asks`}</b> {q.prompt}</span>;
+  const asks = q && <span class="peek"><b>{q.source === 'router' ? 'Where to?' : `${agentName(s?.agent ?? t?.agent)} asks`}</b> {q.source === 'router' ? title(t) : q.prompt}</span>;
   useLayoutEffect(() => {
     // Asked once the host has said what the tab is: its width here is the tab's own, without the wings.
     if (!ui.geometry) return;
@@ -192,8 +195,8 @@ void listen<{ do: keyof typeof host } & Record<string, number | boolean>>('ui', 
 });
 render(<App />, body);
 // For the debug channel's checks (host/scripts/smoke.sh), which read the records the page holds.
-Object.assign(window, { __records: records, __look: (l: Partial<typeof look>) => (Object.assign(look, l), redraw(), look) });
+Object.assign(window, { __records: records, __speech: { talk, live, cap }, __look: (l: Partial<typeof look>) => (Object.assign(look, l), redraw(), look) });
 void client
-  .sub(['glance', 'thoughts', 'questions', 'results', 'sessions', 'projects', 'prefs', 'agents', 'terminals'], records)
+  .sub(['glance', 'thoughts', 'questions', 'results', 'sessions', 'projects', 'prefs', 'agents', 'terminals', 'dictations'], records)
   .then(() => call('host.notch', {}))
   .catch(fail);

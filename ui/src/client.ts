@@ -2,7 +2,7 @@
 // calls, records kept from a snapshot and the ordered changes after it, and streams with
 // credit. It knows only the Bridge, so it runs the same in a page and in a test.
 import type {
-  AgentHealth, Calls, Change, Close, CloseWhy, Code, Collection, Control, Credit, Device, Dictation, Diff, Glance, Layout, Mark, Opened,
+  AgentHealth, Calls, Change, Close, CloseWhy, Code, Collection, Control, Credit, Device, Dictation, Diff, Glance, Layout, Listening, Mark, Opened,
   Pref,
   Project, Question, Session, SessionId, Set as RowSet, Terminal, Thought, TurnResult, Welcome,
 } from '../../core/proto/protocol.ts';
@@ -181,6 +181,15 @@ export class Client {
   /** `thought.changes`: the files in the reply, and the diff on the stream it opens. */
   changes(args: Args<'thought.changes'>, on: Partial<Pick<Stream, 'ondata' | 'onclose'>>): Promise<{ diff: Diff; stream: Stream }> {
     return this.request('thought.changes', args, (v) => ({ diff: v as Diff, stream: this.stream((v as Diff).stream, args.credit, on) }));
+  }
+
+  /** `dictation.start`: the stream the recording goes on, within the credit the core gives it, when the core
+   *  transcribes; and the longest a recording lasts. */
+  dictate(args: Args<'dictation.start'>, on: Partial<Pick<Stream, 'onclose'>>): Promise<{ stream: Stream | null; seconds: number }> {
+    return this.request('dictation.start', args, (v) => {
+      const l = v as Listening;
+      return { seconds: l.seconds, stream: l.stream ? this.stream(l.stream, 0, on) : null };
+    });
   }
 
   private stream(opened: Opened, window: number, on: Partial<Pick<Stream, 'ondata' | 'onmark' | 'onclose'>>) {

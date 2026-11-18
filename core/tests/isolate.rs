@@ -364,7 +364,7 @@ fn a_busy_project_gives_a_new_run_a_worktree_and_a_quiet_one_runs_in_place() {
     });
     let session = s.w.model.thought(a).session_id.unwrap();
     assert_eq!(s.w.model.thought(a).workdir, None);
-    assert_eq!(s.w.model.session(session).cwd, repo.to_str().unwrap());
+    assert_eq!(Path::new(&s.w.model.session(session).cwd), plain(&repo));
 
     // The project is busy: the next run gets a worktree of its own.
     let mut s = s.running(SILENT);

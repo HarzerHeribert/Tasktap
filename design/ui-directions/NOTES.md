@@ -307,8 +307,8 @@ Structure, top to bottom, in one centred column of at most 1040 px (two columns 
 | Results fold | Click its line; `→` or Return with it focused | Click again; `←`; Esc | Shows the newest five. New results first, failed among them. A new result that came back from an isolated run shows Keep, Discard, Review; a failed one shows Open terminal, Try again. Seen results are single dimmed lines. Opening marks nothing as seen; acting on a row or opening its terminal does |
 | For later fold | Same | Same | Each row: the thought, "Not sent anywhere yet", the time. Send to a folder… and Drop appear on hover or focus, and on the one just saved; Return on the row is Send |
 | Earlier page | "All results" at the end of the Results fold | Back in the title bar; ⌘[; Esc | Find a thought (⌘F), For later, then results grouped Today, Yesterday, weekday names, then dates. The rail and the sidebar stay |
-| Agents sheet | Agents in the rail; the ring of an agent that is not signed in | Esc; click outside | Each agent's ring, name, version, sign-in state, and Sign in when needed |
-| Settings sheet | Settings in the rail; ⌘, | Esc; click outside | Terminal theme, text size, capture shortcut, start without review, notch on this display |
+| Settings › Agents | Settings in the rail, then Agents (⌘3); the ring of an agent that is not signed in | Esc; ⌘W; click outside | Each agent's ring, name, version, sign-in state, Sign in when needed, and which is the default |
+| Settings sheet | Settings in the rail; ⌘, | Esc; ⌘W; click outside | Six sections at its left: Thoughts, Voice, Agents, Appearance, Terminal, About (section 11) |
 
 Only one fold is open at a time. The page scrolls when an open fold makes it taller than the window; the capture line scrolls with it.
 

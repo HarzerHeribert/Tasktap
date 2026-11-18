@@ -122,7 +122,8 @@ function AgentsPane() {
   );
 }
 
-/** The chrome and its light, with the form itself to look at, and how much of it moves. */
+/** The chrome and its light, with the form itself to look at, and how much of it moves. The owner froze these
+ *  controls: their look, their words and what they do are as they were; only their place is new. */
 function AppearancePane() {
   const look = lookOf(records.prefs);
   const state = motionState({
@@ -151,12 +152,12 @@ function AppearancePane() {
       <Row name="Lumen" hint="Coloured light behind the form and a beam across it. The light behind the notch takes the same colours.">
         <Switch on={look.lumen} name="Lumen" set={(on) => setPref({ id: 'motion_lumen', patch: on })} />
       </Row>
-      <Row name="Effects" hint="Still keeps the picture and stops what moves by itself. Off draws none of it, which takes the least power and memory. While Reduce Motion or Low Power Mode is on, Full behaves as Still.">
+      <Row name="Effects" hint="The light, the chrome and everything that moves by itself. Still keeps the picture and stops the motion; Off draws none of it, which takes the least power and memory. While Reduce Motion or Low Power Mode is on in System Settings, Full behaves as Still.">
         <Choice name="Effects" value={pref('motion_ambient')} all={effects} set={(v) => setPref({ id: 'motion_ambient', patch: v })} />
       </Row>
-      <Row name="Try it with your voice" hint="The form listens while this is on and Appearance is shown. Nothing is recorded or sent anywhere.">
+      <Row name="Microphone" hint="The form listens while this is on and this sheet is open. Nothing is recorded or sent anywhere.">
         <button type="button" class="btn" aria-pressed={!!trial} disabled={asking} onClick={() => void toggleTrial()}>
-          {trial ? 'Stop listening' : asking ? 'Asking…' : 'Listen'}
+          {trial ? 'Stop listening' : asking ? 'Asking…' : 'Try with the microphone'}
         </button>
         {said && <p class="hint" role="status">{said}</p>}
       </Row>

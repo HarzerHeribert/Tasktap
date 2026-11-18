@@ -39,7 +39,7 @@ jobs:
 
   interface:
     name: Interface (types, tests, build, pages)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # held: the page checks' browser does not install on the newer image yet
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6

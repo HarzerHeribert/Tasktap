@@ -218,6 +218,33 @@ pub fn snapshot(webview: *mut std::ffi::c_void, path: PathBuf, done: impl Fn(boo
     };
 }
 
+/// Holds a web view to `rules`, a content rule list (frames.rs): compiled into `store`, a folder of this app's data,
+/// and added to the view's own controller, so it holds for every load in every frame from then on. `done` hears
+/// whether it holds.
+pub fn confine(webview: *mut std::ffi::c_void, rules: &str, store: &std::path::Path, done: impl Fn(bool) + 'static) {
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::{NSString, NSURL};
+    let view = webview as usize;
+    let compiled = RcBlock::new(move |list: *mut AnyObject, _error: *mut AnyObject| {
+        if !list.is_null() {
+            // SAFETY: `view` is the window's WKWebView, alive as long as its window, and `list` a WKContentRuleList.
+            unsafe {
+                let configuration: *mut AnyObject = msg_send![view as *mut AnyObject, configuration];
+                let controller: *mut AnyObject = msg_send![configuration, userContentController];
+                let _: () = msg_send![controller, addContentRuleList: list];
+            }
+        }
+        done(!list.is_null());
+    });
+    let at = NSURL::fileURLWithPath_isDirectory(&NSString::from_str(&store.display().to_string()), true);
+    // SAFETY: public WebKit API, on the main thread; the block is copied by the store.
+    unsafe {
+        let store: *mut AnyObject = msg_send![objc2::class!(WKContentRuleListStore), storeWithURL: &*at];
+        let _: () = msg_send![store, compileContentRuleListForIdentifier: &*NSString::from_str("tasktap-frames"),
+            encodedContentRuleList: &*NSString::from_str(rules), completionHandler: &*compiled];
+    }
+}
+
 /// A folder panel, in front of every app; the person chose to open it.
 pub fn pick_folder() -> Option<PathBuf> {
     let mtm = mtm();

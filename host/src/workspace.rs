@@ -6,12 +6,14 @@ use crate::notch;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::utils::config::{BackgroundThrottlingPolicy, WindowEffectsConfig};
 use tauri::utils::{WindowEffect, WindowEffectState};
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent, Wry};
+use tauri::webview::{NewWindowResponse, PageLoadEvent};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent, Wry};
 
 pub const LABEL: &str = "workspace";
 
@@ -30,6 +32,22 @@ struct State {
 }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
+
+/// The web view loads nothing from the network but this machine's own addresses (frames.rs `RULES`): only then is a
+/// preview given a frame.
+pub static CONFINED: AtomicBool = AtomicBool::new(false);
+/// The page the window shows: where its top frame is sent back to, should it ever be anywhere else.
+static HOME: Mutex<Option<Url>> = Mutex::new(None);
+
+/// A place a frame may not go, or a window one asked for: said in the log, and, when it is an address of the web,
+/// to the page, which offers it to the person for the browser. Nothing is opened here.
+fn stopped(app: &AppHandle, url: &str) -> bool {
+    crate::log(json!({"event": "frame", "stopped": url}));
+    if tasktap_proto::web(url) == tasktap_proto::Web::Remote {
+        let _ = app.emit_to(LABEL, "ui", json!({"do": "stopped", "url": url}));
+    }
+    false
+}
 
 fn with<T>(f: impl FnOnce(&mut State) -> T) -> T {
     f(STATE.lock().unwrap().as_mut().expect("workspace::start ran"))
@@ -80,7 +98,27 @@ pub fn show(app: &AppHandle, at: Option<&str>) -> tauri::Result<()> {
         ..Default::default()
     };
     let frame = with(|st| st.settings.frame).filter(|f| on_screen(app, f));
+    let (to, asks) = (app.clone(), app.clone());
     let mut builder = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App(path.into()))
+        // What a preview's frame is held to (frames.rs): it goes to this machine's own addresses and nowhere else,
+        // it opens no window, and the top frame stays on the app's own pages.
+        .on_navigation(move |url| crate::frames::allowed(url.as_str()) || stopped(&to, url.as_str()))
+        .on_new_window(move |url, _| {
+            stopped(&asks, url.as_str());
+            NewWindowResponse::Deny
+        })
+        .on_page_load(|window, load| {
+            if load.event() != PageLoadEvent::Started {
+                return;
+            }
+            let mut home = HOME.lock().unwrap();
+            if crate::frames::own(load.url().as_str()) {
+                *home = Some(load.url().clone());
+            } else if let Some(home) = home.clone() {
+                crate::log(json!({"event": "frame", "top": load.url().as_str()}));
+                let _ = window.navigate(home);
+            }
+        })
         .title("Tasktap")
         .min_inner_size(640.0, 400.0)
         .transparent(true)
@@ -112,6 +150,17 @@ pub fn show(app: &AppHandle, at: Option<&str>) -> tauri::Result<()> {
         None => builder.inner_size(1180.0, 760.0).center(),
     };
     let window = builder.build()?;
+    CONFINED.store(false, Ordering::Relaxed);
+    #[cfg(target_os = "macos")]
+    {
+        let rules = with(|st| st.path.with_file_name("frames"));
+        window.with_webview(move |view| {
+            crate::native::confine(view.inner(), crate::frames::RULES, &rules, |ok| {
+                CONFINED.store(ok, Ordering::Relaxed);
+                crate::log(json!({"event": "frame", "confined": ok}));
+            })
+        })?;
+    }
     let handle = app.clone();
     window.on_window_event(move |event| {
         if let WindowEvent::Moved(_) | WindowEvent::Resized(_) | WindowEvent::CloseRequested { .. } = event {

@@ -1,0 +1,52 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Probe</title>
+<!-- A page that tries what a preview's frame may not do (host/src/frames.rs), for host/scripts/smoke.sh. It is shown
+     as a local web address (served by frame-fixture.py) and as a file of a project (served by the host). Its address
+     says what to try with: `remote`, an address that reaches this machine and that the rule calls remote; `outside`,
+     the address a file outside the opened folders would have on the host's server; `inside`, a file beside this one;
+     `local`, another server of this machine. What came of each try is said to the page around it, which a check
+     listens to and the app never does; `go=away` or `go=redirect` then tries to leave for the web. -->
+<body style="font:14px system-ui;margin:20px;color:#ddd;background:#111">
+<p id="said">Probing…</p>
+<script>
+const q = new URLSearchParams(location.search), said = {};
+const loads = (make) => new Promise((done) => {
+  const el = make();
+  el.onload = () => done('loaded');
+  el.onerror = () => done('refused');
+  setTimeout(() => done('nothing'), 3000);
+  document.body.append(el);
+});
+const img = (src) => loads(() => Object.assign(new Image(), { src }));
+const got = (url, how) => fetch(url, how).then((r) => (r.type === 'opaque' ? 'loaded' : String(r.status)), () => 'refused');
+(async () => {
+  // The app's own interface: its object, the page around this one, the web view's message handler and its protocol.
+  said.internals = typeof window.__TAURI_INTERNALS__;
+  try { said.parent = typeof parent.__TAURI_INTERNALS__; } catch { said.parent = 'refused'; }
+  try { said.records = typeof parent.__ws; } catch { said.records = 'refused'; }
+  try {
+    window.webkit.messageHandlers.ipc.postMessage(JSON.stringify({ cmd: 'debug_report', callback: 1, error: 2, payload: { label: 'probe', data: 'REACHED-BY-HANDLER' }, options: {} }));
+    said.handler = 'posted';
+  } catch { said.handler = 'none'; }
+  said.protocol = await got('ipc://localhost/debug_report', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Tauri-Callback': '1', 'Tauri-Error': '2' }, body: JSON.stringify({ label: 'probe', data: 'REACHED-BY-PROTOCOL' }) });
+  // A window of its own.
+  try { said.window = window.open(q.get('remote') ? `http://${q.get('remote')}/leak-window` : 'about:blank') ? 'opened' : 'refused'; } catch { said.window = 'refused'; }
+  // The network: an address the rule calls remote, as a picture, a request and a frame.
+  if (q.get('remote')) {
+    said.picture = await img(`http://${q.get('remote')}/leak-picture`);
+    said.request = await got(`http://${q.get('remote')}/leak-request`, { mode: 'no-cors' });
+    said.frame = await loads(() => Object.assign(document.createElement('iframe'), { src: `http://${q.get('remote')}/leak-frame`, hidden: true }));
+  }
+  // Files: one beside this page, one outside the folders the person opened, and another server of this machine.
+  if (q.get('inside')) said.inside = await got(q.get('inside'));
+  if (q.get('outside')) said.outside = await got(q.get('outside'));
+  if (q.get('local')) said.local = await got(q.get('local'), { mode: 'no-cors' });
+  // The window around it.
+  try { top.location = location.origin + '/leak-top'; said.top = 'asked'; } catch { said.top = 'refused'; }
+  document.querySelector('#said').textContent = JSON.stringify(said);
+  parent.postMessage({ probe: said }, '*');
+  if (q.get('go') === 'away') location.href = `http://${q.get('remote')}/leak-away`;
+  if (q.get('go') === 'redirect') location.href = '/away';
+})();
+</script>

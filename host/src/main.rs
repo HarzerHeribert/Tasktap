@@ -4,6 +4,7 @@
 //! (design §12), answers the page's `host.*` calls, places the notch panel and binds the global
 //! shortcuts. Everything else is the core's or the page's.
 mod core;
+mod frames;
 // Windows has no window for the tab yet: what it will stand on is compiled and tested there,
 // and not yet called.
 #[cfg_attr(windows, allow(dead_code))]
@@ -142,6 +143,23 @@ fn bridge_host(app: AppHandle, frame: String) -> String {
             open::open(args, &roots, notch::NOTCH.lock().unwrap().passive)
         }
         "host.capture_key" => keys::call(&app, args),
+        // Where a preview's frame loads a file from (frames.rs): given only once the web view is held to this
+        // machine's own addresses, which the Windows host does not do yet.
+        #[cfg(windows)]
+        "host.frame" => Err(format!("showing a page here is {}", native::NOT_YET)),
+        "host.frame" if !workspace::CONFINED.load(std::sync::atomic::Ordering::Relaxed) => {
+            Err("Showing a page here is not ready yet".into())
+        }
+        "host.frame" => {
+            let host = app.state::<Host>();
+            let (link, worktrees) = (host.link.clone(), host.core.data.join("worktrees"));
+            frames::base(move || {
+                let mut roots: Vec<_> = link.folders.lock().unwrap().iter().map(|(_, folder)| folder.clone()).collect();
+                roots.push(worktrees.clone());
+                roots
+            })
+            .map(|base| json!({"base": base}))
+        }
         name => Err(format!("this host has no {name}")),
     };
     match outcome {

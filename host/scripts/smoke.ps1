@@ -127,9 +127,11 @@ try {
     Start-Sleep -Milliseconds 500
     $line = $null
     while ($lines.TryDequeue([ref]$line)) { $seen.Add($line) }
-    # Nothing of this run stays behind: its core and what the core started.
-    $left = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($tmp) })
-    if ($left.Count) { Fail "left running: $(($left | ForEach-Object Name) -join ', ')"; $left | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } } else { Pass 'nothing is left running' }
+    # Nothing of this run stays behind: its core and the shims run from the data folder. Found by
+    # their paths, not their command lines: those only the management service tells
+    # (Win32_Process), and it refuses a standard account signed in over SSH.
+    $left = @(Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($tmp, [StringComparison]::OrdinalIgnoreCase) })
+    if ($left.Count) { Fail "left running: $(($left | ForEach-Object Name) -join ', ')"; $left | Stop-Process -Force -ErrorAction SilentlyContinue } else { Pass 'nothing is left running' }
     if ($failed) { Write-Host '--- what the app said'; $seen | Select-Object -First 60 | ForEach-Object { Write-Host "  $($_.Substring(0, [Math]::Min(300, $_.Length)))" } }
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }

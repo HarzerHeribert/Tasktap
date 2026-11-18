@@ -106,9 +106,9 @@ mod shell {
         NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICON_VERSION_4,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        AppendMenuW, CreateIconIndirect, CreatePopupMenu, DestroyIcon, DestroyMenu, PostMessageW, SetForegroundWindow,
-        TrackPopupMenuEx, HICON, ICONINFO, MF_SEPARATOR, MF_STRING, SM_CXSMICON, TPM_NONOTIFY, TPM_RETURNCMD,
-        TPM_RIGHTBUTTON, WM_NULL,
+        AppendMenuW, CreateIconIndirect, CreatePopupMenu, DestroyIcon, DestroyMenu, GetSystemMetrics, PostMessageW,
+        SetForegroundWindow, TrackPopupMenuEx, HICON, ICONINFO, MF_SEPARATOR, MF_STRING, SM_CXSMICON, SM_CYSCREEN,
+        TPM_BOTTOMALIGN, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, TPM_TOPALIGN, WM_NULL,
     };
 
     /// The icon's number among this window's icons: it has one.
@@ -267,7 +267,11 @@ mod shell {
                 };
             }
             SetForegroundWindow(window);
-            let chosen = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON, x, y, window, null());
+            // Up from an icon in the lower half of the screen and down from one in the upper half, as the
+            // notification area's own menus open; the system keeps the menu on the screen.
+            let up = if y > GetSystemMetrics(SM_CYSCREEN) / 2 { TPM_BOTTOMALIGN } else { TPM_TOPALIGN };
+            let chosen =
+                TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON | up, x, y, window, null());
             PostMessageW(window, WM_NULL, 0, 0);
             DestroyMenu(menu);
             chosen as u32

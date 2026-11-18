@@ -634,6 +634,8 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
         $items = if ($menu) { [Tasktap.Desk]::Popup($menu.Handle) -join ', ' } else { '' }
         Check 3 'a right click on the icon opens a menu of the system''s: Open Tasktap, Settings, Quit Tasktap' ($items -eq 'Open Tasktap, Settings, -, Quit Tasktap') "the menu: $(if ($items) { $items } else { 'none opened' })"
         if ($menu) {
+            # (The system fades a menu in.)
+            Start-Sleep -Milliseconds 500
             $r = [Tasktap.Desk+Rect]::new()
             $null = [Tasktap.Desk]::GetWindowRect($menu.Handle, [ref]$r)
             $w = $r.Right - $r.Left; $h = $r.Bottom - $r.Top

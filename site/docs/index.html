@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0a0a0b">
+<title>How Tasktap works</title>
+<meta name="description" content="A short guide to Tasktap as it is built today: capture, placing and the brief, questions, results with Keep and Discard, the workspace, voice, settings and effects.">
+<link rel="icon" href="../assets/favicon.png">
+<link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
+<link rel="stylesheet" href="../app/tokens.css">
+<link rel="stylesheet" href="../site.css">
+<script>document.documentElement.classList.add('js')</script>
+<script src="../site.js" defer></script>
+</head>
+<body class="guide-page">
+<a class="skip" href="#main">Skip to content</a>
+<header class="bar">
+  <a class="brand" href="../" aria-label="Tasktap"><span class="wave" aria-hidden="true"><b></b><b></b><b></b><b class="cu"></b><b class="cu"></b><b></b><b></b><b class="gr"></b><b></b><b></b><b></b><b class="cu"></b><b class="gr"></b></span><span class="brand-name">Tasktap</span></a>
+  <nav class="bar-nav" aria-label="Site">
+    <a href="./" aria-current="page">How it works</a>
+    <a href="https://github.com/HarzerHeribert/Tasktap">Source</a>
+  </nav>
+</header>
+
+<main id="main" class="doc wrap">
+  <header class="doc-head">
+    <h1>How it works</h1>
+    <p class="lead">A short guide to Tasktap as it is built today. The app is in development; what is missing from this page is listed at its end.</p>
+  </header>
+
+  <div class="doc-in">
+    <nav class="contents" aria-label="On this page">
+      <a href="#capture">Capture</a>
+      <a href="#placing">Placing and the brief</a>
+      <a href="#questions">Questions</a>
+      <a href="#results">Results, Keep and Discard</a>
+      <a href="#workspace">The workspace</a>
+      <a href="#voice">Voice</a>
+      <a href="#settings">Settings</a>
+      <a href="#effects">Effects</a>
+      <a href="#missing">Not covered yet</a>
+    </nav>
+
+    <article>
+      <section id="capture" aria-labelledby="capture-h">
+        <h2 id="capture-h">Capture</h2>
+        <p>Press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd> in any app. The notch opens on one line: type the thought and press <kbd>↩</kbd>. Or hold <kbd>⌥</kbd><kbd>Space</kbd> in that line and talk, and let go to send it.</p>
+        <p>The window’s Home starts with the same field, and <kbd>⌘</kbd><kbd>N</kbd> opens it from a workspace. The field says where the thought will go, and its key says what <kbd>↩</kbd> will do: Start, or Save for later. A thought saved for later waits on Home until you send it to a folder.</p>
+      </section>
+
+      <section id="placing" aria-labelledby="placing-h">
+        <h2 id="placing-h">Placing and the brief</h2>
+        <p>At first a thought goes to the folder or the session it names. You can let a model place the thoughts that name nothing. It is a model of your own agent, and the sheet that asks shows who reads your thoughts, what is sent with each one, and the instructions the model follows. <kbd>↩</kbd> allows it, <kbd>esc</kbd> declines, and Settings turns it off again.</p>
+        <p>The same model writes the brief, which is what the agent receives. It states the goal, the limits you gave and what counts as done, and it adds nothing you did not say. Your own words always travel with it. A short, clear thought goes on as it is.</p>
+        <p>Once placed, the thought waits under the field for a few seconds, five unless you change it. You see where it goes, its brief, the words you said, and Undo on <kbd>⌘</kbd><kbd>Z</kbd>. The lit line above it runs out with the time that is left. <kbd>↩</kbd> on the empty field starts it at once.</p>
+        <p>If the model cannot tell where a thought belongs, it asks you: “Where should this go?”, with the folders and sessions it could mean on keys, and <kbd>L</kbd> to keep it for later.</p>
+      </section>
+
+      <section id="questions" aria-labelledby="questions-h">
+        <h2 id="questions-h">Questions</h2>
+        <p>While agents work, the folded notch shows counts: working, needing you, finished. When an agent needs an answer, the notch opens by itself and shows the question in full.</p>
+        <p>Choices are on <kbd>1</kbd> to <kbd>9</kbd>. A yes or no is also on <kbd>Y</kbd> and <kbd>N</kbd>. <kbd>T</kbd> opens a reply in your own words. With several waiting the notch says which one you see, “2 of 3”, and <kbd>→</kbd> shows the next.</p>
+        <p>The same question stands first on Home and under its terminal in the workspace, so you answer it wherever you are. Some questions can only be answered in the agent’s own terminal; the card then leads there.</p>
+      </section>
+
+      <section id="results" aria-labelledby="results-h">
+        <h2 id="results-h">Results, Keep and Discard</h2>
+        <p>A finished thought comes back as a result: a summary, and its changes when it ran in its own copy of the project.</p>
+        <p>In a git project that already has work running, a new thought gets its own copy (a git worktree) and its own branch, so two runs cannot overwrite each other. Keep adds its commits to your branch by a fast-forward, the same one you would run yourself. Discard removes the copy. Review changes shows the diff first. In the notch they are on <kbd>↩</kbd>, <kbd>D</kbd> and, to open the session, <kbd>O</kbd>.</p>
+        <p>Tasktap never deletes or rewrites anything outside its own folder and its own branches. If something unexpected happens it stops and reports the real state. Folders without git run in place.</p>
+      </section>
+
+      <section id="workspace" aria-labelledby="workspace-h">
+        <h2 id="workspace-h">The workspace</h2>
+        <p>One window. The sidebar lists Home and every open folder as a workspace, with its sessions and the state of each. A workspace holds real terminals in panes with tabs.</p>
+        <dl class="keys">
+          <div><dt><kbd>⌘</kbd><kbd>T</kbd></dt><dd>New terminal</dd></div>
+          <div><dt><kbd>⌘</kbd><kbd>D</kbd></dt><dd>Split right</dd></div>
+          <div><dt><kbd>⇧</kbd><kbd>⌘</kbd><kbd>D</kbd></dt><dd>Split down</dd></div>
+          <div><dt><kbd>⌘</kbd><kbd>F</kbd></dt><dd>Find in the terminal</dd></div>
+          <div><dt><kbd>⌘</kbd><kbd>N</kbd></dt><dd>New task</dd></div>
+          <div><dt><kbd>⌘</kbd><kbd>,</kbd></dt><dd>Settings</dd></div>
+        </dl>
+        <p>Drag a divider to resize panes and a tab to move it to another pane. A tab’s right-click menu has the rest, including Keep running in background: the session leaves the panes, stays in the sidebar, and a click brings its terminal back where it left off.</p>
+        <p>Quitting the app does not stop a session. The core keeps running for as long as a terminal runs.</p>
+      </section>
+
+      <section id="voice" aria-labelledby="voice-h">
+        <h2 id="voice-h">Voice</h2>
+        <p>Hold <kbd>⌥</kbd><kbd>Space</kbd> in the capture field or in a reply, or press and hold the microphone. A short click on the microphone keeps it on until the next click. While it records, the wave follows your voice.</p>
+        <p>Speech is turned into text by a service you choose in Settings, under Speech: OpenAI, Groq or another server, with your own key. Before anything is stored, the sheet shows exactly what is sent and where. A recording is at most five minutes. You can name up to four languages you speak, as a hint.</p>
+        <p>Without a service, voice is off. Recognising speech on the Mac itself is not built yet.</p>
+      </section>
+
+      <section id="settings" aria-labelledby="settings-h">
+        <h2 id="settings-h">Settings</h2>
+        <dl class="rows">
+          <div><dt>Thoughts</dt><dd>When a sent thought starts: at once, or after 3, 5 or 10 seconds. The capture shortcut. Placing, by name or by a model.</dd></div>
+          <div><dt>Speech</dt><dd>The service that turns voice into text, its key, and the languages you speak.</dd></div>
+          <div><dt>Terminal</dt><dd>The font, its size and the line height.</dd></div>
+          <div><dt>Appearance</dt><dd>Effects, the form of the chrome (Slats, Glyphs or Resonator), its colour, and Lumen, the coloured light behind it.</dd></div>
+        </dl>
+      </section>
+
+      <section id="effects" aria-labelledby="effects-h">
+        <h2 id="effects-h">Effects</h2>
+        <p>Home has soft light and a band of chrome, and the foot of the sidebar a few chrome glyphs. At rest they are still and cost nothing. They move only while something goes on: agents working, a question waiting, your voice.</p>
+        <p>One setting covers all of it: Full, Still, which keeps the picture and stops the motion, or Off, which draws none of it. While Reduce Motion or Low Power Mode is on, Full behaves as Still.</p>
+      </section>
+
+      <section id="missing" aria-labelledby="missing-h">
+        <h2 id="missing-h">Not covered yet</h2>
+        <p>This page is not a manual. A full guide still needs:</p>
+        <ul>
+          <li>Installing and updating. There is no download, installer or updater yet; the app is <a href="../#get">built from source</a>.</li>
+          <li>Setting up Claude Code and Codex: installing them, signing in, and what Tasktap needs from each.</li>
+          <li>Every key and menu command in one table.</li>
+          <li>The permissions macOS asks for, and why.</li>
+          <li>Placing in depth: follow-ups to a running session, and examples of briefs.</li>
+          <li>Runs in their own copy in depth: when one is made, and what Keep does when your branch has moved on.</li>
+          <li>Results, Earlier and For later on Home.</li>
+          <li>Where Tasktap keeps its data, and troubleshooting.</li>
+          <li>Windows, once it exists.</li>
+        </ul>
+      </section>
+    </article>
+  </div>
+</main>
+
+<footer class="foot wrap">
+  <p class="license">Tasktap is source-available under Apache License 2.0 with the Commons Clause. Use, modification, and free redistribution are permitted under those terms; selling Tasktap or a service whose value comes substantially from it requires separate permission. Third-party tools retain their own terms. <a href="https://github.com/HarzerHeribert/Tasktap/blob/main/LICENSE">Full license</a></p>
+  <nav aria-label="More"><a href="../">Tasktap</a><a href="https://github.com/HarzerHeribert/Tasktap">Source</a></nav>
+</footer>
+</body>
+</html>

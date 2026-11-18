@@ -972,7 +972,7 @@ export type ShimHold = { hold: boolean, stop: boolean, };
  */
 export type Size = [number, number];
 
-export type Source = "typed" | "voice" | "terminal" | "import";
+export type Source = "typed" | "voice" | "terminal";
 
 /**
  * What the `speech_by` preference names: a server that speaks the

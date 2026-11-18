@@ -315,15 +315,32 @@ fn tens_of_megabytes_arrive_intact_through_a_slow_client_and_a_reconnect() {
     // take there. So Windows prints a third as much, still three times what
     // the ring holds.
     let (batch, batches) = (4096, if cfg!(windows) { 24 } else { 70 });
+    // Windows' console can hold back a line typed as a burst ends, with its
+    // program waiting to read it (the test of a line typed so, below). So
+    // there each request is typed a batch early, while the batch before it
+    // still comes: the program finds it when it reads, and the client is
+    // at most two batches behind, a third of the ring.
+    let early = u64::from(cfg!(windows));
+    let ask = |c: &mut Client, v: &View, b: u64| {
+        if b < batches {
+            c.write(v.s, format!("{batch}\r").as_bytes()).unwrap();
+        }
+    };
     let mut v = open(
         &mut c,
         &args(id, Some(fixture(&["serve"])), None, 16 << 10),
         true,
     );
     let mut all = Vec::new();
+    // Where in the view the search for a batch's last line goes on: with a
+    // request typed early the next batch follows at once.
+    let searched = std::cell::Cell::new(0);
+    for b in 0..early {
+        ask(&mut c, &v, b);
+    }
     for b in 0..batches {
         let before = v.pos();
-        c.write(v.s, format!("{batch}\r").as_bytes()).unwrap();
+        ask(&mut c, &v, b + early);
         let last = (b + 1) * batch - 1;
         if b == batches / 2 {
             // Mid-stream, away with the whole connection, then on from
@@ -337,9 +354,19 @@ fn tens_of_megabytes_arrive_intact_through_a_slow_client_and_a_reconnect() {
             c = core.device();
             v = open(&mut c, &args(id, None, Some(from), 16 << 10), true);
             assert_eq!(v.start(), from, "the stream goes on where it was");
+            searched.set(0);
         }
         until(&mut c, &mut v, &format!("batch {b}"), |v| {
-            shows(v.bytes(), last)
+            if early == 0 {
+                return shows(v.bytes(), last);
+            }
+            let bytes = v.bytes();
+            let found = text(&bytes[searched.get()..]).contains(&line(last));
+            if !found {
+                // Less than the line and what the console wraps it in.
+                searched.set(searched.get().max(bytes.len().saturating_sub(4 << 10)));
+            }
+            found
         });
     }
     all.extend_from_slice(v.bytes());
@@ -532,6 +559,49 @@ fn input_reaches_the_process_and_comes_back() {
 
 const FNV: u64 = 0xcbf2_9ce4_8422_2325;
 
+/// A line typed the moment a program's output has come reaches the program.
+/// Each terminal here answers a line with a burst of output and reads the
+/// next, and its client types that line as soon as the burst is whole, on
+/// several terminals at once so that the machine is busy.
+///
+/// Windows fails this, in its console host and not in the core: about one
+/// such line in a hundred stays in the console, which echoes nothing and
+/// leaves the program waiting in its read, until any other input event
+/// comes (a key, a focus event, a size that changed; seen with conhost
+/// 10.0.26100.4202, on ARM64 and x64, in every run of this test). The core
+/// has written the line by then, and has passed on everything the console
+/// gave it. Sending such an event after each typed line ended the waiting
+/// and now and then crashed the console host instead, so the core sends
+/// none, and the test waits here for a console that passes input on.
+#[test]
+#[cfg_attr(windows, ignore = "the Windows console host holds a typed line back")]
+fn a_line_typed_as_a_burst_ends_reaches_the_program() {
+    let typists: Vec<_> = (0..8)
+        .map(|t| {
+            let run = move || {
+                let data = Folder::new(&format!("tt-type{t}"));
+                let core = Core::start(&data);
+                let mut c = core.device();
+                let id = TerminalId::mint();
+                let start = Some(fixture(&["serve"]));
+                let mut v = open(&mut c, &args(id, start, None, 16 << 10), true);
+                let (burst, bursts) = (150, 300);
+                for b in 0..bursts {
+                    c.write(v.s, format!("{burst}\r").as_bytes()).unwrap();
+                    let last = (b + 1) * burst - 1;
+                    until(&mut c, &mut v, &format!("burst {b}"), |v| {
+                        shows(v.bytes(), last)
+                    });
+                }
+            };
+            let name = format!("a_line_typed_as_a_burst_ends_reaches_the_program-{t}");
+            std::thread::Builder::new().name(name).spawn(run).unwrap()
+        })
+        .collect();
+    let held = typists.into_iter().filter_map(|t| t.join().err()).count();
+    assert_eq!(held, 0, "terminals whose program never got a line typed");
+}
+
 /// What a client typed before it left reaches the process, even when the
 /// core learns that the client is gone from a write of the output still
 /// flowing to it, before it has read what the client sent last. Each
@@ -567,11 +637,20 @@ fn what_a_client_typed_before_it_left_reaches_the_process() {
 /// Input a process does not read stays bounded: a client that sends what it
 /// was granted and closes its stream leaves that input waiting, and a
 /// client attaching after it is granted only what the terminal's budget
-/// leaves, not 64 KiB more each time. The process makes its terminal raw so
-/// that what it does not read stays unwritten (`stty`: Mac and Linux).
+/// leaves, not 64 KiB more each time.
+///
+/// The bound is on what the core holds, so the test keeps the system's own
+/// terminal out of the count. The process says it stalls only once its
+/// terminal is raw (`stty`: Mac and Linux): one still in its line mode
+/// takes whatever is written and drops what it has no room for, so the
+/// core would hold nothing and rightly grant again. And the input comes in
+/// one frame larger than a raw terminal holds unread (about 1 KiB on a
+/// Mac, between 12 and 20 KiB on Linux, by how it is written), so the
+/// input thread never writes it whole and none of it counts as written.
 #[cfg(unix)]
 #[test]
 fn input_a_process_does_not_read_stays_bounded_however_often_clients_reattach() {
+    const INPUT: usize = 64 << 10;
     let data = Folder::new("tt-bound");
     let core = Core::start(&data);
     let mut c = core.device();
@@ -585,18 +664,32 @@ fn input_a_process_does_not_read_stays_bounded_however_often_clients_reattach() 
     until(&mut c, &mut v, "the process stalls", |v| {
         text(v.bytes()).contains("stalling")
     });
+    let first = c.credit(v.s) as usize;
+    assert_eq!(first, INPUT, "what one attached client may have on its way");
     let mut sent = 0;
-    for _ in 0..4 {
+    for round in 0..5 {
         let credit = c.credit(v.s) as usize;
         sent += c.send_some(v.s, &vec![b'x'; credit]).unwrap();
         c.close(v.s).unwrap();
+        // The last one comes once the input thread has had time to write
+        // what the terminal takes: the rest is still the core's to hold.
+        if round == 4 {
+            std::thread::sleep(Duration::from_millis(200));
+        }
         v = open(&mut c, &args(id, None, None, 1 << 20), true);
     }
     sent += c.credit(v.s) as usize;
-    // 64 KiB, and what the terminal itself took before it was full.
     assert!(
-        sent <= (64 + 16) << 10,
+        sent <= INPUT,
         "{sent} bytes accepted for a process that reads none"
+    );
+    // Nothing of it was written as if to a terminal in its line mode,
+    // which would have echoed it.
+    until(&mut c, &mut v, "the replay", |v| !v.lives().is_empty());
+    let shown = text(v.bytes());
+    assert!(
+        !shown.contains("xxxx"),
+        "the terminal was not raw: {shown:?}"
     );
 }
 
@@ -1248,6 +1341,9 @@ fn deleting_a_terminal_that_ended_removes_its_history() {
         &args(running, Some(fixture(&["serve"])), None, 1),
         false,
     );
+    // Its stream closes as it ends; its history is written off the core's
+    // thread, and the record says exited once it is on disk.
+    state(&mut w, ended, TerminalState::Exited);
     let history = data.0.join("scrollback").join(ended.uuid().to_string());
     assert!(history.exists());
     let busy = w.refused::<call::Delete>(&Delete::Terminals { id: running });
@@ -1263,6 +1359,33 @@ fn deleting_a_terminal_that_ended_removes_its_history() {
             "never started again"
         );
     }
+}
+
+/// A terminal that ended is deleted only once its history is on disk. Until
+/// then its record says running, though its clients saw it end: a delete in
+/// between would remove the record and then find the history written after
+/// it, left behind for good.
+#[test]
+fn a_terminal_whose_history_is_still_on_its_way_to_disk_is_not_deleted() {
+    let data = Folder::new("tt-late");
+    // Whatever runs off the core's thread waits this long first.
+    let core = Core::start_with(&data, &["--check-ms", "2000"]);
+    let mut w = core.watch();
+    let mut c = core.device();
+    let id = TerminalId::mint();
+    let start = fixture(&["print 3", "exit 0"]);
+    let mut v = open(&mut c, &args(id, Some(start), None, 1 << 20), true);
+    closed(&mut c, &mut v);
+    assert_eq!(v.exit(), Some(Some(0)));
+    let history = data.0.join("scrollback").join(id.uuid().to_string());
+    let early = w.refused::<call::Delete>(&Delete::Terminals { id });
+    assert_eq!(early.code, Code::Conflict);
+    assert_eq!(w.model.terminals[&id].state, TerminalState::Running);
+    state(&mut w, id, TerminalState::Exited);
+    assert!(history.exists(), "exited, so its history is on disk");
+    w.ok::<call::Delete>(&Delete::Terminals { id });
+    assert!(!history.exists());
+    assert!(!w.model.terminals.contains_key(&id));
 }
 
 /// Memory per terminal (design §10: at most 2.2 MiB at full scrollback),

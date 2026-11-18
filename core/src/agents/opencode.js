@@ -93,7 +93,10 @@ export default {
         if (type === "session.inbox.enqueued" && data.item?.type !== "user") return;
         if (!HEARD.has(type)) return;
         const payload = { id, type, data };
-        if (type === "session.tool.called") payload.tool = tools.get(data.id);
+        if (type === "session.tool.called") {
+          payload.tool = tools.get(data.id);
+          tools.delete(data.id);
+        }
         if (type === "session.execution.succeeded") payload.text = texts.get(session);
         last = last.then(() => {
           const printed = hook(payload);

@@ -6,14 +6,19 @@
 #                       the window's edges while it is in front (the frame, a menu, the backdrop as a person sees them)
 #   <Out>\*.txt         what the smoke script, the credential test and the app printed (rows4-12-app.txt, row13-app.txt)
 # -DryRun starts nothing and shows no window: it says what each row would do and checks that
-# what the round needs is there.
+# what the round needs is there. -Rows 3,14 runs those rows alone (5, 8, 10, 11 and 12 need 4, whose app they share).
+# The round makes no sound: for as long as it runs, this account's sounds for the system's events and its warning
+# beep are off, and they are put back when it ends (a round that was cut short is put right by the next).
 param(
     [string]$Out = "C:\tasktap\desktop-rounds\$(Get-Date -Format 'yyyyMMdd-HHmmss')",
     [string]$Target = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64' } else { 'x86_64' }),
+    [string]$Rows = '',
+    # The checkout whose build is tried; this script's own unless it is run from somewhere else.
+    [string]$Checkout = '',
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
-$checkout = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+$checkout = if ($Checkout) { $Checkout } else { Split-Path (Split-Path $PSScriptRoot -Parent) -Parent }
 $triple = "$Target-pc-windows-msvc"
 $app = "$checkout\host\target\$triple\release\Tasktap Next"
 $exe = "$app\Tasktap Next.exe"
@@ -189,6 +194,59 @@ public static void SetText(IntPtr field, string text) { SendText(field, 0x000C, 
 public static void Button(IntPtr dialog, int id) { PostMessage(dialog, 0x0111, (IntPtr)id, IntPtr.Zero); }
 // Asks a window to close, as its close button does.
 public static void Close(IntPtr window) { PostMessage(window, 0x0010, IntPtr.Zero, IntPtr.Zero); }
+// Tells a window something without waiting for it, as the shell tells a window about its icon.
+public static void Tell(IntPtr window, uint message, long w, long l) { PostMessage(window, message, (IntPtr)w, (IntPtr)l); }
+[DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] static extern IntPtr GetWindowLongPtr(IntPtr window, int index);
+// A window's extended styles: 0x8 above every window, 0x20 lets the pointer through, 0x80 no taskbar button and no
+// place in Alt+Tab, 0x40000 a taskbar button, 0x80000 layered, 0x8000000 never activated by a click.
+public static long Styles(IntPtr window) { return GetWindowLongPtr(window, -20).ToInt64(); }
+[DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr window, uint which);
+// The top-level window that has a point of the screen: the one a click there would reach.
+public static IntPtr At(int x, int y) { return GetAncestor(WindowFromPoint(new Point { X = x, Y = y }), 2); }
+[StructLayout(LayoutKind.Sequential)] struct IconId { public uint Size; public IntPtr Window; public uint Id; public Guid Item; }
+[DllImport("shell32.dll")] static extern int Shell_NotifyIconGetRect(ref IconId id, out Rect where);
+// Where the shell has an icon of the notification area, by the window and number it was added with; null when the
+// shell has no such icon. An icon in the overflow has its place there.
+public static int[] Icon(IntPtr window, uint id) {
+    var which = new IconId { Size = (uint)Marshal.SizeOf(typeof(IconId)), Window = window, Id = id };
+    Rect r;
+    return Shell_NotifyIconGetRect(ref which, out r) == 0 ? new[] { r.Left, r.Top, r.Right, r.Bottom } : null;
+}
+// What a menu the system has open says, by its window (class #32768).
+public static string[] Popup(IntPtr menuWindow) {
+    var menu = SendMessage(menuWindow, 0x01E1, IntPtr.Zero, IntPtr.Zero);
+    var names = new List<string>();
+    for (int i = 0; menu != IntPtr.Zero && i < GetMenuItemCount(menu); i++) {
+        var name = new StringBuilder(128);
+        GetMenuString(menu, (uint)i, name, 128, 0x400);
+        names.Add(name.Length > 0 ? name.ToString().Replace("&", "") : "-");
+    }
+    return names.ToArray();
+}
+[StructLayout(LayoutKind.Sequential)] struct Gui { public int Size, Flags; public IntPtr Active, Focus, Capture, MenuOwner, MoveSize, Caret; public Rect CaretRect; }
+[DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint thread, ref Gui info);
+// The window that has the keyboard inside the window in front; zero when none has.
+public static IntPtr Focus() {
+    uint process;
+    var info = new Gui { Size = Marshal.SizeOf(typeof(Gui)) };
+    return GetGUIThreadInfo(GetWindowThreadProcessId(GetForegroundWindow(), out process), ref info) ? info.Focus : IntPtr.Zero;
+}
+[DllImport("user32.dll")] static extern bool SystemParametersInfo(uint what, uint value, ref int answer, uint how);
+// The warning beep of this session, read and set; nothing is written to the account's settings.
+public static bool Beep() { int on = 0; SystemParametersInfo(1, 0, ref on, 0); return on != 0; }
+public static void Beep(bool on) { int none = 0; SystemParametersInfo(2, on ? 1u : 0u, ref none, 0); }
+// What a picture's points are: how many are not black, how many colours there are (up to 64), and how many points
+// say how see-through they are (a fourth byte that is neither 0 nor 255).
+public static int[] Told(byte[] bits) {
+    int lit = 0, partly = 0;
+    var colours = new HashSet<int>();
+    for (int i = 0; i + 3 < bits.Length; i += 4) {
+        if (bits[i] != 0 || bits[i + 1] != 0 || bits[i + 2] != 0) lit++;
+        if (bits[i + 3] != 0 && bits[i + 3] != 255) partly++;
+        if (colours.Count < 64) colours.Add(bits[i] | bits[i + 1] << 8 | bits[i + 2] << 16);
+    }
+    return new[] { lit, colours.Count, partly };
+}
 // Presses the keys together, as the keyboard would, and lets them go.
 public static void Chord(params byte[] keys) {
     foreach (var key in keys) keybd_event(key, 0, 0, UIntPtr.Zero);
@@ -295,15 +353,96 @@ function Window-Of($process, $seconds) {
 # The cores that run from a data folder, and everything else that does.
 function Under($folder) { @(Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($folder, [StringComparison]::OrdinalIgnoreCase) }) }
 function Children($process, $name) { @(Get-Process $name -ErrorAction SilentlyContinue | Where-Object { $_.Parent.Id -eq $process.Id }) }
-# The page's answer once it is one: the page and the core need a moment after a command.
-function Soon($expr, $want, $tries = 15) {
+# The page's answer once it is one: the page and the core need a moment after a command. `notch` asks the tab's page.
+function Soon($expr, $want, $tries = 15, $page = 'workspace') {
     $got = $null
     for ($i = 0; $i -lt $tries; $i++) {
-        $got = Js $expr 2
+        $got = Js $expr 2 $page
         if ("$got" -match $want) { break }
         Start-Sleep -Milliseconds 400
     }
     "$got"
+}
+# What the app says of the tab: its window and where it is, the strip under it, whether Windows says to hide it,
+# whether the pointer is being read, the displays as Windows reports them, and the icon.
+function Tab {
+    Send 'tab'
+    $line = Until '"strip-pixels"' 5
+    if ($line) { ConvertFrom-Json $line }
+}
+# The tab once it is as wanted: `$want` is asked of what Tab says, up to three seconds.
+function Tab-Soon([scriptblock]$want) {
+    $t = $null
+    for ($i = 0; $i -lt 15; $i++) {
+        $t = Tab
+        if ($t -and (& $want $t)) { break }
+        Start-Sleep -Milliseconds 200
+    }
+    $t
+}
+# The notch's own account of itself (the app's `state`): collapsed or open, whether it has the keyboard.
+function Notch {
+    Send 'state'
+    $line = Until '"event":"state"' 5
+    if ($line) { (ConvertFrom-Json $line).notch }
+}
+# The tab's own window into <Out>\<name>.png, as the system draws it for a program that asks, and into
+# <Out>\<name>-screen.png as it stands on the screen: the screen's own points inside the window's edges, with whatever
+# of the window behind shows through where the tab draws nothing. What the pictures hold is said with them: a
+# picture with one colour is no picture.
+function Tab-Picture([IntPtr]$window, $name) {
+    $r = [Tasktap.Desk+Rect]::new()
+    $null = [Tasktap.Desk]::GetWindowRect($window, [ref]$r)
+    $w = [Math]::Max(1, $r.Right - $r.Left); $h = [Math]::Max(1, $r.Bottom - $r.Top)
+    $bits = [Tasktap.Desk]::Bits($window, $w, $h, $false, 0, 0)
+    $own = [Tasktap.Desk]::Told($bits)
+    $picture = Bitmap-Of $bits $w $h
+    $picture.Save("$Out\$name.png", [Drawing.Imaging.ImageFormat]::Png)
+    $picture.Dispose()
+    $bits = [Tasktap.Desk]::Bits([IntPtr]::Zero, $w, $h, $true, $r.Left, $r.Top)
+    $shown = [Tasktap.Desk]::Told($bits)
+    $picture = Bitmap-Of $bits $w $h
+    $picture.Save("$Out\$name-screen.png", [Drawing.Imaging.ImageFormat]::Png)
+    $picture.Dispose()
+    "$name.png ($w x $h at $($r.Left),$($r.Top); $($own[0]) points not black, $($own[1]) colours, $($own[2]) partly see-through); as on the screen: $name-screen.png ($($shown[1]) colours)"
+}
+# This account's sounds for the system's events, and its warning beep, off for as long as the round runs: a key
+# no window takes, a dialog or an error must not be heard. What they were is kept in a file, so that a round that
+# was cut short is put right by the next one.
+$sounds = 'C:\tasktap\desktop-rounds\sounds-off.json'
+function Sounds-Off {
+    if (Test-Path $sounds) { Sounds-On }
+    $was = [Collections.Generic.List[object]]::new()
+    $apps = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('AppEvents\Schemes\Apps')
+    foreach ($program in @(if ($apps) { $apps.GetSubKeyNames() })) {
+        $its = $apps.OpenSubKey($program)
+        foreach ($occasion in $its.GetSubKeyNames()) {
+            $key = $its.OpenSubKey("$occasion\.Current", $true)
+            if (-not $key) { continue }
+            $value = $key.GetValue('', $null, 'DoNotExpandEnvironmentNames')
+            if ($value) { $was.Add(@{ key = "AppEvents\Schemes\Apps\$program\$occasion\.Current"; value = "$value"; kind = "$($key.GetValueKind(''))" }) }
+            $key.Dispose()
+        }
+    }
+    ConvertTo-Json @{ beep = [Tasktap.Desk]::Beep(); sounds = $was.ToArray() } -Depth 4 | Set-Content $sounds
+    foreach ($sound in $was) {
+        $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($sound.key, $true)
+        $key.SetValue('', '', [Microsoft.Win32.RegistryValueKind]$sound.kind)
+        $key.Dispose()
+    }
+    [Tasktap.Desk]::Beep($false)
+    $was.Count
+}
+function Sounds-On {
+    if (-not (Test-Path $sounds)) { return 0 }
+    $was = Get-Content $sounds -Raw | ConvertFrom-Json
+    foreach ($sound in @($was.sounds)) {
+        $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($sound.key, $true)
+        if ($key) { $key.SetValue('', $sound.value, [Microsoft.Win32.RegistryValueKind]$sound.kind); $key.Dispose() }
+    }
+    [Tasktap.Desk]::Beep([bool]$was.beep)
+    Remove-Item $sounds
+    @($was.sounds).Count
 }
 
 $rows = [ordered]@{}
@@ -356,8 +495,160 @@ $rows['2'] = 'Runs host\scripts\smoke.ps1 against the built app and the fixture 
     Check 2 'the smoke script: only PASS lines and all passed' ($code -eq 0 -and $said -contains 'all passed' -and -not ($said -match '^(FAIL|NOTE)')) "exit $code; $(@($said -match '^PASS').Count) PASS, $(@($said -match '^FAIL').Count) FAIL; $($quit -join '; '); row2-smoke.txt"
 }
 
-$rows['3'] = 'Nothing: the tab at the top edge is not built yet.', {
-    Say 'SKIP' 3 'the tab at the top edge is not built yet'
+$rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must hang centred from the top edge of the main display''s work area at the size the arithmetic gives for what Windows reports, above every window, with no taskbar button, never the window in front. Pictures of its own window, collapsed and open. With the script''s Notepad in front and the app''s window under the tab: a point beside the tab belongs to the window below and a click there reaches it; the pointer on the tab opens the sheet without taking the keyboard and leaving folds it (the pointer moves over the tab and the app''s window only and is put back); the capture key opens it with the caret in its field, what is typed lands there, Escape folds it and Notepad has the keyboard again, and so does a click elsewhere. The icon is in the notification area, its menu opens and says Open, Settings and Quit. The app''s own window over the whole display hides the tab; back in its frame the tab shows again. At rest nothing moves: processor time and context switches of the app and its web views over half a minute, with the tab and with it switched off.', {
+    New-Item -ItemType Directory -Force "$tmp\data3", "$tmp\project3" | Out-Null
+    $window = Start-Own @{ TASKTAP_DATA = "$tmp\data3"; TASKTAP_PICK = "$tmp\project3" } 420
+    if ($window -eq [IntPtr]::Zero) { Say 'FAIL' 3 'the app shows no window'; End-Own 'row3-app.txt'; return }
+    $made = @($seen | Where-Object { $_ -match '"made":' })[-1]
+    if (-not $made) { $made = Until '"made":' 15 }
+    $page = Soon 'typeof __records' 'object' 20 'notch'
+    $t = Tab-Soon { param($t) $t.shown }
+    Check 3 'the tab''s window is made after the workspace has drawn, with the notch''s own page in it, and is shown' ("$made" -match '"made":true' -and $page -eq 'object' -and $t.shown) "the app: $made; the page's records: $page; shown: $($t.shown)"
+    if (-not $t -or -not $t.window) { End-Own 'row3-app.txt'; return }
+    $tab = [IntPtr][long]$t.window
+    # Where the arithmetic puts it, worked out here from what Windows reports of the main display.
+    $screen = [Windows.Forms.Screen]::PrimaryScreen
+    $scale = [Tasktap.Desk]::GetDpiForWindow($tab) / 96
+    $bar = [Math]::Max(0, $screen.WorkingArea.Top - $screen.Bounds.Top)
+    $wide = $screen.Bounds.Width / $scale; $high = ($screen.Bounds.Height - $bar) / $scale
+    $large = $wide -ge 1920 -or ($wide -ge 1680 -and $high -ge 1000)
+    $tw = if ($large) { 104 } else { 120 }; $th = if ($large) { 16 } else { 20 }
+    $want = @([int][Math]::Round($screen.Bounds.Left + ($wide / 2 - ($tw + 128) / 2) * $scale), ($screen.Bounds.Top + $bar), [int][Math]::Round(($tw + 128) * $scale), [int][Math]::Round(($th + 40) * $scale))
+    Check 3 'it hangs centred from the top edge of the work area, at the arithmetic''s place and size' (($t.pixels -join ' ') -eq ($want -join ' ')) "window (left top width height): $($t.pixels -join ' '); the arithmetic for a display of $($screen.Bounds.Width) x $($screen.Bounds.Height) at $([int]($scale * 100)) %, $bar pixels of taskbar at the top: $($want -join ' ') (the tab $tw x $th points, with room for its light around it)"
+    $drawn = Js "(r => [r.x, r.y, r.width, r.height, devicePixelRatio].join(' '))(document.getElementById('tab').getBoundingClientRect())" 5 'notch'
+    Check 3 'the page draws the tab at the Mac''s size for a display without a camera housing, centred in the window, a point of the page a point of the display' ($drawn -eq "64 0 $tw $th $scale") "the tab in its page (left top width height, pixels a point): $drawn"
+    $styles = [Tasktap.Desk]::Styles($tab)
+    $listed = @([Tasktap.Desk]::Windows() | Where-Object { $_.Handle -eq $tab })
+    Check 3 'above every window, no taskbar button and no place in Alt+Tab, never activated by a click, and the pointer passes through it' (($styles -band 0x8) -and ($styles -band 0x80) -and -not ($styles -band 0x40000) -and ($styles -band 0x8000000) -and ($styles -band 0x20) -and $listed) ('extended styles 0x{0:x}: topmost {1}, tool window {2}, taskbar button {3}, never activated {4}, pointer passes {5}' -f $styles, [bool]($styles -band 0x8), [bool]($styles -band 0x80), [bool]($styles -band 0x40000), [bool]($styles -band 0x8000000), [bool]($styles -band 0x20))
+    Check 3 'showing it took the keyboard from nobody' ([Tasktap.Desk]::GetForegroundWindow() -ne $tab -and -not (Notch).key) "the window in front is the tab: $([Tasktap.Desk]::GetForegroundWindow() -eq $tab)"
+    # The app's window under the tab, and the script's Notepad in front beside it: what a person has there.
+    $null = [Tasktap.Desk]::SetWindowPos($window, [IntPtr]::Zero, $want[0] - 500, $screen.Bounds.Top + $bar, 1100, 700, 0x0014)
+    $notepad = Other-Program "Tasktap-tab-$PID"
+    if (-not $notepad) { Say 'FAIL' 3 'not run further: Notepad could not be put in front'; End-Own 'row3-app.txt'; return }
+    $null = [Tasktap.Desk]::SetWindowPos($notepad.Handle, [IntPtr]::Zero, $want[0] + $want[2] + 40, $screen.Bounds.Top + $bar + 200, 700, 400, 0x0014)
+    Start-Sleep -Milliseconds 600
+    Say 'LOOK' 3 'the tab collapsed, with nothing running: its own window, and as it stands on the screen over the app''s window' (Tab-Picture $tab 'row3-tab-collapsed')
+    $was = [Tasktap.Desk+Point]::new()
+    $null = [Tasktap.Desk]::GetCursorPos([ref]$was)
+    try {
+        # Beside the tab, inside its window: the window below has the point, and a click reaches it.
+        $cx = $want[0] + [int]($want[2] / 2); $beside = $want[0] + [int](12 * $scale); $below = $want[1] + [int](($th + 14) * $scale)
+        $at = @([Tasktap.Desk]::At($beside, $want[1] + 4), [Tasktap.Desk]::At($cx, $below), [Tasktap.Desk]::At($cx, $want[1] + 4))
+        Check 3 'beside the tab and under it, inside the tab''s window, a point belongs to the window below; on the tab it does not' ($at[0] -eq $window -and $at[1] -eq $window -and $at[2] -ne $window -and $at[2] -ne $notepad.Handle) "left of the tab: $(if ($at[0] -eq $window) { 'the app''s window below' } else { "window $($at[0])" }); under it: $(if ($at[1] -eq $window) { 'the app''s window below' } else { "window $($at[1])" }); on it: $(if ($at[2] -eq [IntPtr]$t.strip) { 'the strip under the tab' } elseif ($at[2] -eq $tab) { 'the tab' } else { "window $($at[2])" })"
+        [Tasktap.Desk]::Press($beside, $want[1] + 4, $false, 1)
+        $reached = $false
+        for ($i = 0; $i -lt 15 -and -not $reached; $i++) { Start-Sleep -Milliseconds 100; $reached = [Tasktap.Desk]::GetForegroundWindow() -eq $window }
+        Check 3 'a click beside the tab reaches the window below: it comes in front' $reached "Notepad was in front; in front after the click: $(if ($reached) { 'the app''s window' } else { [Tasktap.Desk]::GetForegroundWindow() })"
+        $null = Front $notepad.Handle
+        # The pointer on the tab: the sheet opens, and nobody loses the keyboard.
+        [Tasktap.Desk]::Point_($cx, $want[1] + 6)
+        $open = Tab-Soon { param($t) $t.pixels[3] -gt $want[3] -and $t.watching }
+        $state = Notch
+        $body = Soon "String(document.body.classList.contains('open'))" 'true' 8 'notch'
+        Check 3 'the pointer on the tab opens the sheet, and Notepad keeps the keyboard' ($body -eq 'true' -and -not $state.collapsed -and -not $state.key -and [Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle) "the page open: $body; the window: $($open.pixels -join ' '); it has the keyboard: $($state.key); Notepad in front: $([Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle); the pointer is read: $($open.watching)"
+        Start-Sleep -Milliseconds 700
+        Say 'LOOK' 3 'the sheet open under the pointer' (Tab-Picture $tab 'row3-tab-open')
+        # Away, over the app's own window: it folds, and the reading of the pointer ends.
+        [Tasktap.Desk]::Point_($want[0] - 300, $want[1] + 400)
+        $folded = Tab-Soon { param($t) ($t.pixels -join ' ') -eq ($want -join ' ') -and -not $t.watching }
+        Check 3 'the pointer away from it folds it, the window is the tab''s again and the pointer is no longer read' (($folded.pixels -join ' ') -eq ($want -join ' ') -and -not $folded.watching -and (Notch).collapsed) "the window: $($folded.pixels -join ' '); the pointer is read: $($folded.watching)"
+        # The capture key from Notepad.
+        $null = Front $notepad.Handle
+        [Tasktap.Desk]::Chord([byte[]](0x12, 0x10, 0x20))
+        $front = $false
+        for ($i = 0; $i -lt 30 -and -not $front; $i++) { Start-Sleep -Milliseconds 100; $front = [Tasktap.Desk]::GetForegroundWindow() -eq $tab }
+        $caret = Soon "document.activeElement?.id ?? ''" 'capture-input' 10 'notch'
+        $words = 'Typed into the tab'
+        if ($front) { [Windows.Forms.SendKeys]::SendWait($words) }
+        $typed = Soon "document.activeElement?.value ?? ''" ([regex]::Escape($words)) 8 'notch'
+        Check 3 'Alt-Shift-Space over Notepad opens the sheet with the caret in its field, and what is typed next is there' ($front -and $caret -eq 'capture-input' -and $typed -eq $words) "the tab in front: $front; the caret in: $caret; the field holds: $typed; the workspace window stayed where it was: $([Tasktap.Desk]::GetForegroundWindow() -ne $window)"
+        Start-Sleep -Milliseconds 500
+        Say 'LOOK' 3 'the sheet opened by the key, a thought typed' (Tab-Picture $tab 'row3-tab-capture')
+        if ($front) { [Windows.Forms.SendKeys]::SendWait('{ESC}') }
+        $back = $false
+        for ($i = 0; $i -lt 20 -and -not $back; $i++) { Start-Sleep -Milliseconds 100; $back = [Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle }
+        $keys = [Tasktap.Desk]::Focus()
+        Check 3 'Escape folds it and Notepad has the keyboard again' ($back -and $keys -ne [IntPtr]::Zero -and (Notch).collapsed) "Notepad in front: $back; the keyboard is in its window $keys; the tab collapsed: $((Notch).collapsed)"
+        # Once more, and a click elsewhere: on the app's own window.
+        [Tasktap.Desk]::Chord([byte[]](0x12, 0x10, 0x20))
+        $front = $false
+        for ($i = 0; $i -lt 30 -and -not $front; $i++) { Start-Sleep -Milliseconds 100; $front = [Tasktap.Desk]::GetForegroundWindow() -eq $tab }
+        Start-Sleep -Milliseconds 400
+        [Tasktap.Desk]::Press($want[0] - 300, $want[1] + 400, $false, 1)
+        $gone = Tab-Soon { param($t) ($t.pixels -join ' ') -eq ($want -join ' ') }
+        Check 3 'a click elsewhere folds a sheet the key opened, and the keyboard is where the click was' ($front -and (Notch).collapsed -and [Tasktap.Desk]::GetForegroundWindow() -eq $window) "opened by the key: $front; collapsed after the click: $((Notch).collapsed); in front: $(if ([Tasktap.Desk]::GetForegroundWindow() -eq $window) { 'the app''s window, which was clicked' } else { [Tasktap.Desk]::GetForegroundWindow() })"
+        $kept = Js "document.querySelector('#capture-input')?.value ?? ''" 3 'notch'
+        Say 'INFO' 3 "what was typed stays for the next time the sheet opens: '$kept'"
+    } finally {
+        $null = [Tasktap.Desk]::SetCursorPos($was.X, $was.Y)
+    }
+    # The icon in the notification area, as the shell has it, and its menu, as the shell asks for it.
+    $t = Tab
+    $where = [Tasktap.Desk]::Icon([IntPtr][long]$t.icon.window, [uint32]$t.icon.id)
+    Check 3 'the icon is in the notification area' ($t.icon.added -and $where) "the shell has it at $(if ($where) { $where -join ' ' } else { 'no place' }) (in the overflow until a person drags it out); it shows $($t.icon.waits), for a $(if ($t.icon.light) { 'light' } else { 'dark' }) taskbar, and says '$($t.icon.says)'"
+    if ($where) {
+        $x = [int](($where[0] + $where[2]) / 2); $y = [int](($where[1] + $where[3]) / 2)
+        [Tasktap.Desk]::Tell([IntPtr][long]$t.helper, 0x8001, ($y -shl 16) -bor ($x -band 0xffff), (1 -shl 16) -bor 0x7B)
+        $menu = $null
+        for ($i = 0; $i -lt 25 -and -not $menu; $i++) { Start-Sleep -Milliseconds 100; $menu = [Tasktap.Desk]::Every() | Where-Object { $_.Class -eq '#32768' -and $_.ProcessId -eq $proc.Id } | Select-Object -First 1 }
+        $items = if ($menu) { [Tasktap.Desk]::Popup($menu.Handle) -join ', ' } else { '' }
+        Check 3 'a right click on the icon opens a menu of the system''s: Open Tasktap, Settings, Quit Tasktap' ($items -eq 'Open Tasktap, Settings, -, Quit Tasktap') "the menu: $(if ($items) { $items } else { 'none opened' })"
+        if ($menu) {
+            $r = [Tasktap.Desk+Rect]::new()
+            $null = [Tasktap.Desk]::GetWindowRect($menu.Handle, [ref]$r)
+            $w = $r.Right - $r.Left; $h = $r.Bottom - $r.Top
+            $shot = Bitmap-Of ([Tasktap.Desk]::Bits([IntPtr]::Zero, $w, $h, $true, $r.Left, $r.Top)) $w $h
+            $shot.Save("$Out\row3-icon-menu-screen.png", [Drawing.Imaging.ImageFormat]::Png)
+            $shot.Dispose()
+            Say 'LOOK' 3 'the icon''s menu as it stands on the screen' "row3-icon-menu-screen.png ($w x $h at $($r.Left),$($r.Top))"
+            # Closed as a click elsewhere closes it, with nothing chosen.
+            [Tasktap.Desk]::Tell([IntPtr][long]$t.helper, 0x001F, 0, 0)
+            $closed = $false
+            for ($i = 0; $i -lt 20 -and -not $closed; $i++) { Start-Sleep -Milliseconds 100; $closed = -not ([Tasktap.Desk]::Every() | Where-Object { $_.Class -eq '#32768' -and $_.ProcessId -eq $proc.Id }) }
+            Check 3 'the menu closes with nothing chosen, and the app runs on' ($closed -and -not $proc.HasExited) "closed: $closed"
+        }
+    }
+    # A window over the whole display: the app's own.
+    $null = Front $window
+    Send 'fullscreen on'
+    $hidden = Tab-Soon { param($t) -not $t.shown }
+    Check 3 'the tab hides while a window fills the whole display' (-not $hidden.shown -and $hidden.hidden) "the tab shown: $($hidden.shown); Windows says to hide: $($hidden.hidden)"
+    Send 'fullscreen off'
+    $shown = Tab-Soon { param($t) $t.shown }
+    Check 3 'and shows again when it no longer does' ($shown.shown -and -not $shown.hidden) "the tab shown: $($shown.shown)"
+    [Tasktap.Desk]::Close($notepad.Handle)
+    # At rest. The app's own processes and the web views under it: processor time and how often the system let
+    # their threads run, over half a minute with the tab collapsed and again with the tab switched off.
+    $measure = {
+        $ids = @($proc.Id) + @((Children $proc 'msedgewebview2') | ForEach-Object { $_.Id; (Children $_ 'msedgewebview2').Id })
+        $running = @($ids | Where-Object { $_ } | ForEach-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
+        $switches = $null
+        try { $switches = (@($running | ForEach-Object { Get-CimInstance Win32_PerfRawData_PerfProc_Thread -Filter "IDProcess=$($_.Id)" -ErrorAction Stop }) | Measure-Object ContextSwitchesPersec -Sum).Sum } catch { }
+        @{ cpu = ($running | ForEach-Object { $_.TotalProcessorTime.TotalMilliseconds } | Measure-Object -Sum).Sum; switches = $switches; memory = ($running | Measure-Object PrivateMemorySize64 -Sum).Sum; processes = $running.Count }
+    }
+    $rest = {
+        param($seconds)
+        Start-Sleep -Seconds 5
+        $a = & $measure; $before = Tab
+        Start-Sleep -Seconds $seconds
+        $b = & $measure; $after = Tab
+        @{ cpu = [int]($b.cpu - $a.cpu); switches = if ($null -ne $a.switches) { [int](($b.switches - $a.switches) / $seconds) }; memory = [int]($b.memory / 1MB); processes = $b.processes; moved = ($before.pixels -join ' ') -ne ($after.pixels -join ' ') -or $after.watching }
+    }
+    $with = & $rest 30
+    Send 'tab off'
+    $null = Until '"event":"tab","set"' 5
+    Start-Sleep -Seconds 3
+    $without = & $rest 30
+    Send 'tab main'
+    $null = Until '"event":"tab","set"' 5
+    $again = Tab-Soon { param($t) $t.shown }
+    Check 3 'at rest nothing moves: the tab''s window stays, the pointer is not read, and the app with the tab uses no more processor time than without it' (-not $with.moved -and $with.cpu -le $without.cpu + 150) "half a minute collapsed: $($with.cpu) ms of processor time in $($with.processes) processes$(if ($null -ne $with.switches) { ", $($with.switches) context switches a second" }), $($with.memory) MB of their own; with the tab switched off: $($without.cpu) ms in $($without.processes) processes$(if ($null -ne $without.switches) { ", $($without.switches) a second" }), $($without.memory) MB"
+    Check 3 'switched off the tab is gone, and switched on it is back where it was' ($again.shown -and ($again.pixels -join ' ') -eq ($want -join ' ')) "back: $($again.pixels -join ' ')"
+    End-Own 'row3-app.txt'
+    Start-Sleep -Milliseconds 500
+    $left = Under $tmp
+    Check 3 'the app leaves nothing running' (-not $left) (($left | ForEach-Object Name) -join ', ')
+    $left | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 
 $rows['4'] = 'Starts the app with its debug channel on a data folder of its own (it stays up for rows 5 and 8). Reads the capture-key event: the default must register and be Alt-Shift-Space. Has the page change the key to Control-Alt-T and back to the default through host.capture_key. Opens Notepad in front, presses Alt-Shift-Space as the keyboard would, and expects the Tasktap window in front; says where the caret is.', {
@@ -883,9 +1174,16 @@ New-Item -ItemType Directory -Force $Out, "$tmp\data", "$tmp\project" | Out-Null
 # No test run may change the checkout meanwhile.
 $lock = [IO.File]::Open('C:\tasktap\checkout.lock', 'OpenOrCreate', 'ReadWrite', 'None')
 $workspace = [IntPtr]::Zero
+$only = @($Rows -split '[ ,]+' | Where-Object { $_ })
 try {
     Say 'INFO' '' "commit $(git -C $checkout rev-parse HEAD), $triple, $([Environment]::OSVersion.VersionString), session $session"
+    Say 'INFO' '' "no sound for as long as the round runs: $(Sounds-Off) sounds of this account's for the system's events are off, and its warning beep; both are put back at the end"
+    # What Windows reports of the displays: a monitor that is switched off may leave none, or another size.
+    $displays = @([Windows.Forms.Screen]::AllScreens | ForEach-Object { "$($_.Bounds.Width) x $($_.Bounds.Height) at $($_.Bounds.Left),$($_.Bounds.Top)$(if ($_.Primary) { ', the main one' }), work area $($_.WorkingArea.Width) x $($_.WorkingArea.Height) at $($_.WorkingArea.Left),$($_.WorkingArea.Top)" })
+    Say 'INFO' '' "displays as Windows reports them: $($displays.Count): $($displays -join '; ')"
+    if (-not $displays) { throw 'Windows reports no display: nothing can be shown or looked at.' }
     foreach ($row in $rows.Keys) {
+        if ($only -and $row -notin $only) { continue }
         try {
             if ($row -eq '4') {
                 # Rows 4, 5, 8, 10, 11 and 12 share one app, driven through its debug channel.
@@ -921,6 +1219,7 @@ try {
     if ($seen) { $seen | Set-Content "$Out\row13-app.txt" }
     Start-Sleep -Milliseconds 500
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    Say 'INFO' '' "the account's sounds are as they were: $(Sounds-On) put back"
     $lock.Dispose()
 }
 $said = @(Get-Content "$Out\results.txt")

@@ -4,16 +4,18 @@
 # screen to that account. It builds the app at the commit (host.sh --tower), has desktop.ps1 run
 # there through the tower's desktop helper, and fetches the results and the pictures of the
 # app's own window into a folder outside the repository.
-#   scripts/winvm/desktop.sh [ref] [--out DIR] [--no-build]
+#   scripts/winvm/desktop.sh [ref] [--out DIR] [--no-build] [--rows 3,14]
 #   scripts/winvm/desktop.sh --dry-run    over SSH alone: says what each row would do, starts nothing,
 #                                         and fetches that as the round's results would be fetched
+# --rows runs those rows alone. The round makes no sound (desktop.ps1 says how).
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
-ref='' out='' build=1 dry=0
-usage() { echo 'usage: desktop.sh [ref] [--out DIR] [--no-build] [--dry-run]' >&2; exit 2; }
+ref='' out='' build=1 dry=0 rows=''
+usage() { echo 'usage: desktop.sh [ref] [--out DIR] [--no-build] [--rows 3,14] [--dry-run]' >&2; exit 2; }
 while (($#)); do
   case $1 in
     --out) [[ $# -ge 2 ]] || usage; out=$2; shift ;;
+    --rows) [[ $# -ge 2 && $2 =~ ^[0-9+,]+$ ]] || usage; rows=$2; shift ;;
     --no-build) build=0 ;;
     --dry-run) dry=1 ;;
     -*) usage ;;
@@ -24,7 +26,7 @@ done
 script='C:\tasktap\checkout\scripts\winvm\desktop.ps1'
 stamp=$(date +%Y%m%d-%H%M%S)
 out=${out:-${TMPDIR:-/tmp}/tasktap-desktop-round}
-run="pwsh -NoProfile -File $script -Out C:\\tasktap\\desktop-rounds\\$stamp"
+run="pwsh -NoProfile -File $script -Out C:\\tasktap\\desktop-rounds\\$stamp${rows:+ -Rows $rows}"
 status=0
 if ((dry)); then
   # The checkout's copy, as the round would run it: of the commit last built or tested there.

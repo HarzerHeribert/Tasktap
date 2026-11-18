@@ -45,6 +45,9 @@ if out="$(node "$root/scripts/type-check.cjs" 2>&1)"; then pass "$(echo "$out" |
 echo "== The Composer's field is the person's while a thought is sent (headless, real keys, a core that answers late or refuses)"
 if out="$(node "$root/scripts/composer-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the Composer's field"; fi
 
+echo "== Links in terminals (headless, a real pointer and real keys, a host that keeps what it is asked to open)"
+if out="$(node "$root/scripts/links-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "links in terminals"; fi
+
 echo "== Voice, recorded by the page (headless, a microphone that is a file)"
 if out="$(node "$root/scripts/voice-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "voice in the page"; fi
 

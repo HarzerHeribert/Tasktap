@@ -67,6 +67,8 @@ const screens = {
     `  ${E('1;32', 'VITE')} ${green('v7.0.4')}  ready in ${bold('412')} ms`,
     '',
     `  ${green('➜')}  ${bold('Local')}:   ${cyan('http://localhost:5173/')}`,
+    // A hyperlink the program prints itself (OSC 8): its words are not its address.
+    `  ${green('➜')}  ${bold('Preview')}: \x1b]8;;https://preview.cuegrid.example/rehearsal-05\x07the shared preview\x1b]8;;\x07`,
     `  ${dim('➜  Network: use --host to expose')}`,
     `  ${dim('➜  press h + enter to show help')}`,
     '',
@@ -263,6 +265,8 @@ function scene(name, { now = Date.now(), changes = false } = {}) {
   return {
     thoughts, projects, sessions, terminals, questions, results, layouts, prefs: [], devices: [], agents,
     glance: { rev: 44, working, needs_you: needs, done: thoughts.filter((t) => t.status === 'done' && !t.read).length, failed: thoughts.filter((t) => t.status === 'failed' && !t.read).length, question: questions[0]?.id ?? null, retiring: false },
+    // The paths its terminals print that exist, as the host would say: what each really is.
+    files: Object.fromEntries(['src/rehearsal/Timer.tsx', 'src/rehearsal/timer.css', 'notes/rehearsal-05.md', 'src/export/pdf.ts', 'src/menu.ts'].map((p) => [p, `/Users/example/projects/cuegrid/${p}`])),
     screens: scr, diffs: T.pdf ? { [T.pdf.t.id]: diff } : {}, ids: { projects: P, ...Object.fromEntries(Object.entries(T).map(([k, v]) => [k, { thought: v.t?.id, session: v.sid, terminal: v.tid }])) },
   };
 }

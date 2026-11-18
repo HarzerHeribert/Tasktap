@@ -119,6 +119,19 @@ button.row:active{background:var(--sel)}
 .term .xterm .xterm-scrollable-element>.scrollbar{background:transparent;border:0;box-shadow:none;pointer-events:none}
 .term .xterm .xterm-scrollable-element>.scrollbar.vertical>.slider{width:2px!important;left:auto!important;right:1px;border-radius:1px;background:color-mix(in srgb,var(--deck-fg) 45%,transparent);opacity:0;transition:opacity 180ms linear}
 .term.scrolling .xterm .xterm-scrollable-element>.scrollbar.vertical>.slider{opacity:1;transition:none}
+/* A link in a terminal shows as one only while ⌘ is held (terminal.ts): without it the underline xterm.js draws under
+   the pointer and its hand are not there, so nothing in a terminal looks clickable that a plain click would not open.
+   What a link opens, where its text does not say it, stands at the terminal's foot for as long as it is pointed at. */
+:root:not([data-cmd]) .xterm-rows span[style*="text-decoration: underline"]:not([class*=xterm-underline]){text-decoration:none!important}
+/* A hyperlink a program printed itself has xterm.js's dashed line under it at rest, since its words do not say that
+   it is one: under the pointer without ⌘ it keeps that line. */
+:root:not([data-cmd]) .xterm-rows span.xterm-underline-5[style*="text-decoration: underline"]{text-decoration:dashed underline!important}
+:root:not([data-cmd]) .xterm .xterm-cursor-pointer{cursor:inherit}
+.term-link{position:absolute;z-index:2;left:14px;bottom:10px;max-width:calc(100% - 28px);display:flex;align-items:baseline;gap:var(--sp3);padding:5px 10px;border-radius:var(--r1);
+  background:var(--bg);box-shadow:inset 0 0 0 1px var(--line2);font:var(--f-num);color:var(--fg);pointer-events:none}
+.term-link b{overflow-wrap:anywhere}
+.term-link i{flex:none;font-style:normal;color:var(--fg3)}
+.term-link i:empty,.term-link[hidden],:root:not([data-cmd]) .term-link{display:none}
 .term-more{position:absolute;z-index:2;left:50%;bottom:10px;transform:translateX(-50%);background:var(--bg);color:var(--fg2)}
 /* The seam between panes is the divider's own line; a pane below another needs none: its tab bar is the edge. */
 .divider{position:absolute;z-index:3;outline-offset:-2px}

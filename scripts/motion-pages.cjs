@@ -173,7 +173,14 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       at += 4 + len;
     }
   };
-  const hostValue = () => null;
+  // The host's rule for `host.open`, in small: a web address, or a path `files` says exists; what was opened is kept.
+  const opened = [];
+  const hostValue = (name, a) => {
+    if (name !== 'host.open') return null;
+    const real = /^https?:\/\/[^/\s]/i.test(a.target) ? a.target : (records.files || {})[a.target] || null;
+    if (real && !a.probe) opened.push({ ...a, real });
+    return real;
+  };
   // The host's part of the notch: the geometry it last described, widened by the wings the page asks for.
   let geo = null, tab = 0, wing = 0;
   const emit = (payload, event = 'ui') => {
@@ -186,7 +193,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     if (d) push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', del: [d.id] }] });
     toCore({ t: 'close', s: Number(s), why: 'gone' });
   };
-  window.__fake = { emit, push, records, heard, calls, close };
+  window.__fake = { emit, push, records, heard, calls, close, opened };
   window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
   window.__TAURI_INTERNALS__ = {
     metadata: { currentWindow: { label }, currentWebview: { windowLabel: label, label } },
@@ -206,7 +213,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
           wing = a.wing;
           if (geo) setTimeout(() => emit({ ...geo, width: tab }), 0);
         }
-        return JSON.stringify({ t: 'reply', id, ok: hostValue(name) });
+        return JSON.stringify({ t: 'reply', id, ok: hostValue(name, a) });
       }
       if (cmd === 'plugin:event|listen') {
         const id = nextEvent++;

@@ -77,7 +77,7 @@ function pictures() {
 /** The notch from the site's own embed, as a picture for where it cannot run: [name, step, width, height]. */
 const STILLS = [['notch-rest', 'rest', 200, 40], ['notch', 'ask', 480, 400], ['notch-320', 'ask', 328, 440]];
 /** The chrome at rest, from the site's own page, for where it is not drawn live: [name, the page's width]. */
-const BANDS = [['band', 1280], ['band-s', 390]];
+const BANDS = [['band', 1440], ['band-s', 600]];
 
 async function shots(only) {
   const { chromium } = require('playwright');

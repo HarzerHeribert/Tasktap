@@ -232,6 +232,8 @@ h3{font:var(--f-sub);letter-spacing:var(--ls-thought);padding-top:6px}
   .steps{margin-inline:calc(-1 * var(--gut))}
   .steps button{padding:0 2px}
   .keys{grid-template-columns:minmax(0,1fr)}
+  .figures :is(th,td){height:auto;padding:9px var(--sp3) 9px 0;white-space:normal;vertical-align:top}
+  .figures td{font:var(--f-code);line-height:18px}
   .doc .rows>div{grid-template-columns:minmax(0,1fr)}
 }
 @media(min-width:521px){

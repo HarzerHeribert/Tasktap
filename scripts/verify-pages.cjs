@@ -1,185 +1,218 @@
-// Exercise the deployed repository subpath. No external service is contacted.
-const assert=require('node:assert/strict');
-const {chromium}=require('playwright');
-const {createServer}=require('node:http');
-const fs=require('node:fs/promises');
-const path=require('node:path');
-const {createHash}=require('node:crypto');
-const root=path.resolve(__dirname,'../build/pages');
-const types={'.html':'text/html','.css':'text/css','.js':'text/javascript','.svg':'image/svg+xml','.webp':'image/webp','.jpg':'image/jpeg','.png':'image/png','.mp4':'video/mp4'};
-const prefix='/Tasktap/';
-(async()=>{
- const server=createServer(async(req,res)=>{
-  const name=new URL(req.url,'http://localhost').pathname;
-  if(!name.startsWith(prefix)){res.writeHead(404).end();return}
-  const file=path.join(root,name.slice(prefix.length),name.endsWith('/')?'index.html':'');
-  try{res.setHeader('Content-Type',types[path.extname(file)]||'application/octet-stream');res.end(await fs.readFile(file))}catch{res.writeHead(404).end()}
- });
- await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));let browser;
- try{
-  browser=await chromium.launch({executablePath:process.env.BROWSER_EXECUTABLE||undefined});
-  const url='http://127.0.0.1:'+server.address().port+prefix;
-  const page=await browser.newPage({reducedMotion:'reduce'}),errors=[];
-  page.setDefaultTimeout(6000);
-  page.on('pageerror',error=>errors.push(error.message));page.on('response',response=>{if(response.status()>=400)errors.push(response.url())});
-  await page.addInitScript(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>{window.copiedCommand=text}}}));
-  const shots=process.env.TASKTAP_SCREENSHOTS;if(shots)await fs.mkdir(shots,{recursive:true});
-  for(const [width,height] of [[1440,1000],[820,900],[390,844],[320,780],[640,450]]){
-   await page.setViewportSize({width,height});
-   for(const suffix of ['','docs/']){
-    await page.goto(url+suffix);
-    assert.equal(await page.locator('h1').count(),1);
-    const mark=page.locator('[data-brand-motion]');
-    assert.ok((await mark.getAttribute('src')).endsWith('tasktap-icon.png'));
-    assert.ok(await mark.evaluate(async image=>{await image.decode();return image.naturalWidth>0}));
-    await page.keyboard.press('Tab');assert.equal(await page.locator(':focus').textContent(),'Skip to content');
-    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`${suffix||'home'} fits ${width}px`);
-    // Lazy product imagery must also exist and decode when reached.
-    await page.locator('img').evaluateAll(images=>Promise.all(images.map(async image=>{image.loading='eager';await image.decode()})));
-    if(!suffix){
-     assert.ok(await page.locator('#terminals').isVisible(),'embedded workspace is visible without opening a chapter');
-     assert.ok(await page.evaluate(()=>document.querySelector('#terminals').getBoundingClientRect().bottom<=document.querySelector('#workspace').getBoundingClientRect().top),'terminal workspace leads into the routing walkthrough');
-     assert.ok(await page.locator('#theme-image').evaluate(i=>i.naturalWidth>=i.clientWidth*2-2),'the prominent workspace capture retains Retina resolution');
-     assert.ok(await page.evaluate(()=>[...document.querySelectorAll('.story-panel img')].every(i=>i.getAttribute('src')!==document.querySelector('#theme-image').getAttribute('src'))),'each story capture adds a distinct product view');
-     if(shots&&[1440,390,320].includes(width))await page.locator('#terminals').screenshot({path:path.join(shots,'terminals-'+width+'.png')});
+// Exercises the built site (build/pages) under the repository subpath it is published at. No external service is
+// contacted, and the run fails if the pages try to reach one. What it holds the site to:
+//   - both pages at six sizes: one headline, the skip link first, no sideways scroll, every picture there and shown
+//     at its own size (never scaled), every link and anchor inside the site resolving
+//   - the words: nothing of what was true only of 1.2, the retired installer and update feed not published, the
+//     download area honest about there being no download, and one metal key in view at a time
+//   - with scripts off the page still explains the product; under Reduce Motion nothing moves by itself
+//   - the live notch (the app's own page): it plays, it can be paused and stepped, it never takes the keyboard, and
+//     it rests while the top is out of sight
+//   - every word keeps the app's floor of 4.5 : 1 against what it stands on
+// TASKTAP_SCREENSHOTS=<dir> keeps pictures of what was checked.
+const assert = require('node:assert/strict');
+const { chromium } = require('playwright');
+const { createServer } = require('node:http');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+
+const root = path.resolve(__dirname, '../build/pages');
+const prefix = '/Tasktap/';
+const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.png': 'image/png' };
+// True of 1.2 and not of this app (docs/rebuild-plan.md, "Repository cutover"): none of it may come back.
+const RETIRED = /Python|Notebook|Activity view|Session history|review[- ]first|themes?\b|install\.sh|appcast|Sparkle|notariz|Homebrew|agents are not supported/i;
+const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [640, 450]];
+
+(async () => {
+  const server = createServer(async (req, res) => {
+    const name = new URL(req.url, 'http://localhost').pathname;
+    if (!name.startsWith(prefix)) return void res.writeHead(404).end();
+    const file = path.join(root, name.slice(prefix.length), name.endsWith('/') ? 'index.html' : '');
+    try {
+      const body = await fs.readFile(file);
+      res.writeHead(200, { 'Content-Type': types[path.extname(file)] || 'application/octet-stream' }).end(body);
+    } catch {
+      res.writeHead(404).end();
     }
-    const refs=await page.locator('a[href]').evaluateAll(links=>links.map(link=>link.href));
-    for(const ref of new Set(refs.filter(ref=>ref.startsWith(url)))){
-     const target=new URL(ref),response=await page.request.get(target.href);assert.equal(response.status(),200,target.href);
-     if(target.hash){const html=await response.text();assert.ok(html.includes('id="'+decodeURIComponent(target.hash.slice(1))+'"'),target.href+' anchor exists')}
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const origin = 'http://127.0.0.1:' + server.address().port, url = origin + prefix;
+  const shots = process.env.TASKTAP_SCREENSHOTS;
+  if (shots) await fs.mkdir(shots, { recursive: true });
+  let browser;
+  try {
+    browser = await chromium.launch({ executablePath: process.env.BROWSER_EXECUTABLE || undefined });
+    const errors = [], outside = [];
+    const watch = (page) => {
+      page.setDefaultTimeout(10000);
+      page.on('pageerror', (error) => errors.push(error.message));
+      page.on('response', (response) => response.status() >= 400 && errors.push(response.status() + ' ' + response.url()));
+      page.on('request', (request) => !request.url().startsWith(origin) && !request.url().startsWith('data:') && outside.push(request.url()));
+      return page;
+    };
+    const fits = (page) => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1);
+
+    // ---- both pages, at every size, at rest ----
+    const still = await browser.newContext({ reducedMotion: 'reduce' });
+    const page = watch(await still.newPage());
+    for (const [width, height] of SIZES) {
+      await page.setViewportSize({ width, height });
+      for (const suffix of ['', 'docs/']) {
+        const name = suffix ? 'guide' : 'home';
+        await page.goto(url + suffix);
+        assert.equal(await page.locator('h1').count(), 1, `${name} has one headline`);
+        await page.keyboard.press('Tab');
+        assert.equal(await page.locator(':focus').textContent(), 'Skip to content', `${name}: the skip link is first`);
+        assert.ok(await fits(page), `${name} fits ${width}px`);
+        // Every picture is there, and is shown at its own size (the browser gives a picture's width in CSS pixels,
+        // whatever its density): one picture pixel to one screen pixel.
+        const pictures = await page.locator('img').evaluateAll((images) => Promise.all(images.map(async (image) => {
+          image.loading = 'eager';
+          await image.decode();
+          return { src: image.currentSrc, natural: image.naturalWidth, shown: image.clientWidth, attr: Number(image.getAttribute('width')), hidden: image.clientWidth === 0 };
+        })));
+        for (const p of pictures.filter((p) => !p.hidden && !/band/.test(p.src)))
+          assert.equal(p.natural, p.shown, `${name} at ${width}px shows ${p.src} unscaled`);
+        const refs = await page.locator('a[href]').evaluateAll((links) => links.map((link) => link.href));
+        for (const ref of new Set(refs.filter((ref) => ref.startsWith(url)))) {
+          const target = new URL(ref), response = await page.request.get(target.href);
+          assert.equal(response.status(), 200, target.href);
+          if (target.hash) assert.ok((await response.text()).includes('id="' + decodeURIComponent(target.hash.slice(1)) + '"'), target.href + ' has its anchor');
+        }
+        await page.evaluate(() => (document.activeElement?.blur(), scrollTo(0, 0)));
+        if (shots && [1440, 820, 390].includes(width)) await page.screenshot({ path: path.join(shots, `${name}-${width}.png`), fullPage: true });
+      }
     }
-    await page.evaluate(()=>{document.activeElement?.blur();scrollTo(0,0)});
-    if(shots&&[1440,390,320].includes(width))await page.screenshot({path:path.join(shots,(suffix?'docs':'landing')+'-'+width+'.png'),fullPage:true});
-   }
+
+    // ---- the words ----
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    for (const suffix of ['', 'docs/']) {
+      await page.goto(url + suffix);
+      const text = await page.locator('body').innerText();
+      assert.equal(RETIRED.exec(text), null, `${suffix || 'home'} says nothing that was true only of 1.2`);
+      assert.equal(/!/.test(text), false, 'no exclamation marks');
+      assert.equal(await page.locator('a[href*="releases"], a[href$=".zip"], a[href$=".dmg"]').count(), 0, 'no download is offered while there is none');
+    }
+    await page.goto(url);
+    assert.match(await page.locator('#get').innerText(), /In development/);
+    assert.match(await page.locator('#get').innerText(), /There is no download yet/);
+    assert.match(await page.locator('#get pre').innerText(), /host\/scripts\/build\.sh/);
+    assert.match(await page.locator('.foot .license').innerText(), /source-available under Apache License 2\.0 with the Commons Clause/);
+    for (const gone of ['install.sh', 'appcast.xml']) assert.equal((await page.request.get(url + gone)).status(), 404, `${gone} is no longer published`);
+    // One metal key in view: the page's two keys are further apart than any window is tall.
+    const keys = await page.locator('a.key').evaluateAll((all) => all.map((k) => k.getBoundingClientRect().top + scrollY));
+    assert.equal(keys.length, 2);
+    assert.ok(keys[1] - keys[0] > 2000, 'the two keys never share a view');
+    // The app's floor for words: 4.5 : 1 on what they stand on; in the top, on the light at its brightest.
+    for (const suffix of ['', 'docs/']) {
+      await page.goto(url + suffix);
+      const low = await page.evaluate(() => {
+        const rgb = (s) => (s.match(/[\d.]+/g) || []).map(Number);
+        const lum = ([r, g, b]) => [r, g, b].map((v) => ((v /= 255) <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+        const out = [];
+        for (const el of document.querySelectorAll('body *')) {
+          if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) || el.closest('.sr, .skip, noscript, [hidden]') || !el.getClientRects().length) continue;
+          let ground = el.closest('.top') ? [29, 26, 34] : [10, 10, 11];
+          if (el.closest('.key, kbd')) ground = [221, 224, 229];
+          else for (let at = el; at; at = at.parentElement) {
+            const c = rgb(getComputedStyle(at).backgroundColor);
+            if (c.length === 3 || c[3] === 1) { ground = c; break; }
+          }
+          const ink = rgb(getComputedStyle(el).color), a = lum(ink), b = lum(ground), ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+          if (ratio < 4.5) out.push(`${el.tagName.toLowerCase()}.${el.className} “${el.textContent.trim().slice(0, 30)}” ${ratio.toFixed(2)}`);
+        }
+        return out;
+      });
+      assert.deepEqual(low, [], 'every word keeps 4.5 : 1');
+    }
+
+    // ---- Reduce Motion: the notch shows one telling state, and nothing moves by itself ----
+    await page.goto(url);
+    const frame = page.frameLocator('.notch iframe');
+    await frame.locator('[data-question] .qp').waitFor();
+    assert.equal(await page.locator('.steps [aria-current]').textContent(), 'Needs you');
+    assert.equal(await page.locator('.hold').isVisible(), false, 'nothing plays, so nothing is paused');
+    await page.waitForTimeout(2500);
+    assert.equal(await page.locator('.steps [aria-current]').textContent(), 'Needs you', 'it stays where it is');
+    assert.equal(await page.evaluate(() => document.getAnimations().filter((a) => a.playState === 'running').length), 0, 'no animation runs');
+    assert.equal(await page.locator('.light').getAttribute('data-moves'), 'false');
+    await page.getByRole('button', { name: 'Result', exact: true }).click();
+    await frame.locator('.result .qp').waitFor();
+    assert.match(await frame.locator('.result').innerText(), /Keep/);
+    await still.close();
+
+    // ---- at 2x the sharper pictures are the ones shown ----
+    const dense = await browser.newContext({ deviceScaleFactor: 2, viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' });
+    const sharp = watch(await dense.newPage());
+    await sharp.goto(url);
+    const chosen = await sharp.locator('.shot img').evaluateAll((images) => Promise.all(images.map(async (image) => {
+      image.loading = 'eager';
+      await image.decode();
+      return [image.currentSrc, image.naturalWidth, image.clientWidth];
+    })));
+    assert.equal(chosen.length, 3);
+    for (const [src, natural, shown] of chosen) assert.ok(src.includes('@2x') && natural === shown, `${src} is the 2x picture, unscaled`);
+    await dense.close();
+
+    // ---- scripts off: the page still explains the product ----
+    const plain = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 390, height: 844 } });
+    const bare = watch(await plain.newPage());
+    await bare.goto(url);
+    assert.ok(await bare.locator('h1').isVisible());
+    assert.ok(await bare.locator('.notch-ask img').evaluate(async (image) => (await image.decode(), image.naturalWidth > 0 && image.clientWidth > 0)), 'the notch is a picture');
+    assert.ok(await bare.locator('.still-says').isVisible(), 'and its caption says what it shows');
+    assert.equal(await bare.locator('.steps').isVisible(), false);
+    assert.equal(await bare.locator('main section:visible').count(), 7);
+    assert.ok(await bare.locator('#get pre').isVisible());
+    assert.ok(await fits(bare));
+    if (shots) await bare.screenshot({ path: path.join(shots, 'home-noscript-390.png'), fullPage: true });
+    await bare.goto(url + 'docs/');
+    assert.ok(await bare.locator('.contents a[href="#results"]').isVisible());
+    assert.equal(await bare.locator('article section:visible').count(), 9);
+    await plain.close();
+
+    // ---- the live notch ----
+    const moving = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const live = watch(await moving.newPage());
+    await live.goto(url);
+    const notch = live.frameLocator('.notch iframe');
+    await live.locator('.stage.live').waitFor();
+    // It plays: the thought is typed into the app's own capture line.
+    await live.locator('.steps [aria-current]').filter({ hasText: 'Put in' }).waitFor();
+    await live.waitForFunction(() => document.querySelector('.notch iframe').contentDocument.querySelector('#capture-input')?.value.length > 4);
+    assert.notEqual(await live.evaluate(() => document.activeElement?.tagName), 'IFRAME', 'the notch never takes the keyboard');
+    // Paused, it holds where it is.
+    await live.getByRole('button', { name: 'Pause', exact: true }).click();
+    await live.waitForTimeout(300);
+    const typed = () => notch.locator('#capture-input').inputValue();
+    const held = await typed();
+    await live.waitForTimeout(900);
+    assert.equal(await typed(), held, 'paused, the walk-through holds');
+    assert.equal(await live.locator('.light').getAttribute('data-moves'), 'false');
+    await live.getByRole('button', { name: 'Play', exact: true }).click();
+    // A step can be chosen: the question, in full, in the app's own card.
+    await live.getByRole('button', { name: 'Needs you', exact: true }).click();
+    await notch.locator('[data-question] .qp').waitFor();
+    await live.locator('.light[data-state=needs][data-moves=true]').waitFor();
+    assert.equal(await notch.locator('[data-question] .ans').count(), 2);
+    // The chrome: drawn live where the browser can, else its picture stands.
+    const drawn = await live.locator('#band').evaluate((band) => !!band.querySelector('canvas') || band.querySelector('img').clientWidth > 0);
+    assert.ok(drawn, 'the chrome is drawn, or its picture stands in');
+    // Out of sight it rests.
+    await live.locator('#get').scrollIntoViewIfNeeded();
+    await live.locator('.light[data-moves=false]').waitFor();
+    await live.evaluate(() => scrollTo(0, 0));
+    await live.locator('.light[data-moves=true]').waitFor();
+    if (shots) await live.screenshot({ path: path.join(shots, 'home-live-1280.png') });
+    await moving.close();
+
+    assert.deepEqual(outside, [], 'nothing outside the site is requested');
+    assert.deepEqual(errors, []);
+    console.log('PASS: the product page and the guide at six sizes (one headline, skip link, no sideways scroll, pictures present and unscaled at 1x and 2x, links and anchors); the words (nothing of 1.2, no installer or feed, an honest download area, one key in view, 4.5 : 1); scripts off; Reduce Motion; the live notch (plays, pauses, steps, keeps out of the keyboard, rests out of sight); nothing requested from outside; no browser errors.');
+  } finally {
+    if (browser) await browser.close();
+    server.close();
   }
-  await page.setViewportSize({width:1280,height:900});await page.goto(url);
-  const film=page.locator('.wave-field video');assert.equal(await film.getAttribute('poster'),'assets/motion/glyph.jpg');assert.equal(await film.getAttribute('src'),null);
-  for(const artwork of ['glyph'])for(const extension of ['jpg','mp4']){
-   const digest=async file=>createHash('sha256').update(await fs.readFile(file)).digest('hex');
-   assert.equal(await digest(path.join(root,'assets/motion/'+artwork+'.'+extension)),await digest(path.resolve(__dirname,'../site/assets/motion/'+artwork+'.'+extension)),'public artwork uses the high-resolution site composition');
-  }
-  assert.equal(await page.getByRole('button',{name:'Pause artwork',exact:true}).isVisible(),false);
-  assert.equal(await page.getByRole('button',{name:'Pause logo animation'}).isVisible(),false);
-  for(const download of await page.locator('a.download-app').all())assert.equal(await download.getAttribute('href'),'https://github.com/HarzerHeribert/Tasktap/releases/latest');
-  assert.match(await page.locator('#download').innerText(),/Python 3/);assert.match(await page.locator('#download').innerText(),/not Apple notarized/);
-  assert.equal(await page.locator('[data-art],.signature-caption,.phase-transition').count(),0,'one hero background, no artwork chooser or decorative transition');
-  assert.ok(!(await page.locator('body').innerText()).includes('·'),'no separator dots');
-  assert.ok(await page.locator('#install-command').isVisible());
-  assert.match(await page.locator('#install-command').innerText(),/curl -fL --proto '=https' --tlsv1\.2/);
-  assert.equal((await page.request.get(url+'install.sh')).status(),200);
-  await page.getByRole('button',{name:'Copy install command',exact:true}).click();
-  assert.equal(await page.evaluate(()=>window.copiedCommand),await page.locator('#install-command').innerText());
-  assert.match(await page.locator('#install-status').innerText(),/Command copied/);
-  // Progressive enhancement: the full story, download links, source and native
-  // disclosure remain usable with JavaScript disabled.
-  const staticContext=await browser.newContext({javaScriptEnabled:false,viewport:{width:390,height:844}}),staticPage=await staticContext.newPage();
-  await staticPage.goto(url);
-  assert.ok(await staticPage.locator('#install-command').isVisible());
-  assert.equal(await staticPage.locator('a.download-app').count(),1);
-  assert.equal(await staticPage.locator('.story-panel:visible').count(),5);
-  assert.equal(await staticPage.locator('[role=tablist]').count(),0);
-  assert.ok(await staticPage.locator('a[href="install.sh"]').isVisible());
-  assert.equal(await staticPage.locator('.wave-field video').getAttribute('src'),null);
-  assert.ok(await staticPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
-  if(shots)await staticPage.screenshot({path:path.join(shots,'landing-nojs.png'),fullPage:true});await staticContext.close();
-  // The guide keeps its grouped contents available without JavaScript and
-  // reveals them by keyboard on a narrow screen with enhancement enabled.
-  await page.setViewportSize({width:390,height:844});await page.goto(url+'docs/');
-  const contents=page.locator('.contents');assert.equal(await contents.evaluate(el=>el.open),false);
-  await contents.locator('summary').focus();await page.keyboard.press('Enter');assert.equal(await contents.evaluate(el=>el.open),true);
-  await contents.locator('a[href="#workspaces"]').click();
-  await page.waitForFunction(()=>document.querySelector('.contents a[href="#workspaces"]').getAttribute('aria-current')==='location');
-  const guideStatic=await browser.newContext({javaScriptEnabled:false,viewport:{width:390,height:844}}),guidePage=await guideStatic.newPage();
-  await guidePage.goto(url+'docs/');assert.ok(await guidePage.locator('.contents a[href="#workspaces"]').isVisible());await guideStatic.close();
-  // Artwork respects Reduce Motion and pause controls, preserving the cadence of
-  // the slow 60 fps source at every size instead of lowering playback speed.
-  await page.setViewportSize({width:1280,height:900});await page.emulateMedia({reducedMotion:'no-preference'});await page.goto(url);
-  const logo=page.locator('[data-brand-motion]');
-  await page.waitForFunction(()=>document.querySelector('[data-brand-motion]').src.endsWith('.webp'));
-  await page.locator('.brand-lockup').hover();await page.getByRole('button',{name:'Pause logo animation'}).click();assert.ok((await logo.getAttribute('src')).endsWith('.png'));
-  await page.getByRole('button',{name:'Play logo animation'}).click();
-  await page.waitForFunction(()=>document.querySelector('[data-brand-motion]').src.endsWith('.webp'));
-  await film.scrollIntoViewIfNeeded();await page.waitForFunction(()=>document.querySelector('.wave-field video').currentTime>0);
-  const media=await film.evaluate(v=>({rate:v.playbackRate,width:v.videoWidth,height:v.videoHeight,duration:v.duration}));
-  assert.equal(media.rate,1);assert.equal(media.width,1920);assert.equal(media.height,900);assert.ok(Math.abs(media.duration-16)<.1);
-  await page.getByRole('button',{name:'Pause artwork',exact:true}).click();assert.equal(await film.evaluate(v=>v.paused),true);
-  await page.getByRole('button',{name:'Play artwork',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.wave-field video').paused);
-  await page.locator('#download').scrollIntoViewIfNeeded();await page.waitForFunction(()=>document.querySelector('.wave-field video').paused);
-  for(const width of [390,320]){await page.setViewportSize({width,height:844});await page.evaluate(()=>scrollTo(0,0));assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'motion controls fit at '+width+'px');assert.equal(await film.evaluate(v=>v.playbackRate),1,'small artwork retains full-rate playback')}
-  await page.emulateMedia({reducedMotion:'reduce'});await page.waitForFunction(()=>!document.querySelector('.wave-field video').hasAttribute('src'));
-  // Every chapter is reachable by keyboard and deep link; no hidden text is
-  // exposed as a second active panel. All capture edges stay inside their frame.
-  for(const width of [1440,820,390,320]){
-   await page.setViewportSize({width,height:900});await page.goto(url);
-   for(let i=0;i<5;i++){
-    await page.locator('[data-step="'+i+'"]').click();
-    assert.equal(await page.locator('.story-panel:visible').count(),1);
-    assert.equal(await page.locator('[role=tab][aria-selected=true]').getAttribute('data-step'),String(i));
-    const panel=page.locator('.story-panel:visible');
-    await panel.locator('img').evaluateAll(images=>Promise.all(images.map(i=>i.decode())));
-    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'chapter fits '+width);
-    assert.ok(await panel.locator('.scene-figure').evaluate(el=>{const box=el.getBoundingClientRect(),parent=el.closest('.story-stage').getBoundingClientRect();return box.left>=parent.left&&box.right<=parent.right&&box.bottom<=parent.bottom}),'capture stays within the stage');
-    if(await panel.locator('img').count())assert.ok(await panel.locator('img').evaluate(i=>i.naturalWidth>=i.clientWidth*2-2),'capture has at least 2× resolution');
-    else assert.ok(await panel.locator('.prompt-result').isVisible(),'preparation uses readable live text');
-    if(shots&&[1440,390].includes(width))await page.locator('#workspace').screenshot({path:path.join(shots,'story-'+i+'-'+width+'.png')});
-   }
-  }
-  await page.locator('[data-step="0"]').focus();await page.keyboard.press('ArrowRight');
-  assert.equal(await page.locator('[role=tab][aria-selected=true]').getAttribute('data-step'),'1');
-  await page.keyboard.press('End');assert.equal(await page.locator('[role=tab][aria-selected=true]').getAttribute('data-step'),'4');
-  await page.goto(url+'#scene-review');assert.ok(await page.locator('#scene-review').isVisible());
-  assert.equal(await page.locator('#story-play').isVisible(),false,'Reduce Motion leaves manual chapters');
-  await page.locator('#theme-image').evaluate(i=>i.decode());
-  assert.ok(await page.locator('#theme-image').evaluate(i=>i.currentSrc.endsWith('agents-native.jpg')&&i.naturalWidth===3600&&i.naturalHeight===2260),'all widths use the unmodified native Retina capture');
-  assert.equal(await page.locator('[data-theme]').count(),0,'no reconstructed theme variants');
-  await page.evaluate(()=>scrollTo(0,0));
-  assert.equal(await film.getAttribute('poster'),'assets/motion/glyph.jpg');
-  await page.emulateMedia({reducedMotion:'no-preference'});
-  await page.waitForFunction(()=>document.querySelector('.wave-field video').currentTime>0);
-  assert.equal(await film.evaluate(v=>v.videoWidth),960,'small screens use the Retina mobile encode');
-  await page.locator('#workspace').scrollIntoViewIfNeeded();
-  await page.locator('#step-capture').click();
-  await page.locator('#story-play').click();
-  await page.waitForFunction(()=>document.querySelector('#step-prepare').getAttribute('aria-selected')==='true',{},{timeout:9000});
-  await page.getByRole('button',{name:'Pause the walkthrough',exact:true}).click();
-  await page.waitForFunction(()=>!document.querySelector('.morph-shell'));
-  // Live preparation text joins the same morph as the captured interface, and
-  // the selected chapter remains usable when navigation interrupts it.
-  await page.locator('#step-review').click();
-  await page.waitForSelector('.morph-shell');
-  assert.ok(await page.locator('.morph-dom .prompt-result').count(),'the prepared prompt travels into review');
-  await page.waitForFunction(()=>!document.querySelector('.morph-shell'));
-  assert.ok(await page.locator('#scene-review .scene-figure').isVisible());
-  await page.locator('#step-prepare').click();
-  await page.waitForSelector('.morph-shell');
-  await page.setViewportSize({width:390,height:900});
-  await page.waitForFunction(()=>!document.querySelector('.morph-shell'));
-  assert.ok(await page.locator('#scene-prepare .prompt-result').isVisible(),'resizing restores the live preparation content');
-  await page.setViewportSize({width:1440,height:1000});
-  await page.locator('#step-capture').click();
-  await page.waitForFunction(()=>!document.querySelector('.morph-shell'));
-  await page.locator('#step-review').click();
-  await page.waitForSelector('.morph-shell');
-  assert.ok(await page.locator('.morph-piece').count()>=5,'real interface regions reassemble within one moving frame');
-  const frameMotion=await page.locator('.morph-shell').evaluate(el=>el.getAnimations()[0].effect.getKeyframes());
-  assert.notEqual(frameMotion[0].width,frameMotion.at(-1).width,'capture expands into the wider review');
-  assert.notEqual(frameMotion[0].height,frameMotion.at(-1).height,'shared frame changes shape');
-  if(shots){
-   await stagePause(page,true);
-   assert.equal(await page.locator('.morph-base').last().evaluate(el=>getComputedStyle(el).opacity),'0','full capture stays hidden while its components move');
-   await page.screenshot({path:path.join(shots,'morph-midpoint.png')});
-   await stagePause(page,false);
-  }
-  await page.waitForFunction(()=>!document.querySelector('.morph-shell'));
-  // Rapid navigation cancels stale frames and always reveals the chosen panel.
-  await page.evaluate(()=>{document.querySelector('#step-work').click();document.querySelector('#step-decision').click()});
-  assert.equal(await page.locator('.morph-shell').count(),1);
-  await page.emulateMedia({reducedMotion:'reduce'});
-  await page.waitForFunction(()=>!document.querySelector('.morph-shell'));
-  assert.ok(await page.locator('#scene-decision .scene-figure').isVisible());
-  assert.equal(await page.locator('.story-panel:visible').count(),1);
-  async function stagePause(page,pause){await page.locator('.story-stage').evaluate((stage,pause)=>{for(const a of stage.getAnimations({subtree:true})){if(pause){a.pause();a.currentTime=500}else a.play()}},pause)}
-  assert.deepEqual(errors,[]);
-  console.log('PASS: component morphs and cancellation, product storytelling, all chapters at four widths, Retina captures, keyboard/deep links/no-JS, glyph background and native app capture, playback and reduced motion; product page and guide links/assets, five responsive sizes including 200%-equivalent viewport, visible keyboard/no-JS installer, source and clipboard, actual product images, download requirements, reduced-motion/visibility artwork controls; no browser errors.');
- }finally{if(browser)await browser.close();server.close()}
-})().catch(error=>{console.error(error);process.exitCode=1});
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});

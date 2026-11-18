@@ -14,6 +14,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use tauri::ipc::{Channel, InvokeBody};
 use tauri::{AppHandle, Emitter};
 
@@ -54,6 +55,8 @@ struct Now {
     failed: Option<String>,
     /// The dictation that records, and its helper's input.
     feeding: Option<(String, ChildStdin)>,
+    /// The window that records it, and since when.
+    by: Option<(String, Instant)>,
     /// Every helper that runs, by its dictation: the one fed, and those still writing down.
     engines: HashMap<String, Arc<Mutex<Child>>>,
 }
@@ -238,14 +241,25 @@ impl Speech {
     }
 
     /// Starts the helper for the dictation `id`; `on` gets each line it prints, and `{"error": "engine"}` when it ends
-    /// without a transcript. `Err("model")` when there is no model, `Err("engine")` when the helper does not start.
+    /// without a transcript. `Err("model")` when there is no model, `Err("engine")` when the helper does not start,
+    /// `Err("busy")` while another window (`from` is the asking one) records: one records at a time, as in the core.
     pub fn listen(
         self: &Arc<Self>,
         id: &str,
+        from: &str,
         languages: &[String],
         on: impl Fn(Value) + Send + 'static,
     ) -> Result<(), String> {
         let model = self.model().ok_or("model")?;
+        // Another window's recording is left alone, unless it is older than any recording lasts (the core ends one
+        // after 310 s). The same window's earlier one, never ended because its page was loaded again, is replaced.
+        let now = self.now.lock().unwrap();
+        if let (Some(_), Some((who, since))) = (&now.feeding, &now.by) {
+            if who != from && since.elapsed() < Duration::from_secs(320) {
+                return Err("busy".into());
+            }
+        }
+        drop(now);
         let languages = languages
             .iter()
             .filter(|l| (2..=10).contains(&l.len()) && l.bytes().all(|b| b.is_ascii_alphabetic() || b == b'-'))
@@ -261,7 +275,7 @@ impl Speech {
         let (input, out) = (child.stdin.take().expect("piped"), child.stdout.take().expect("piped"));
         let child = Arc::new(Mutex::new(child));
         let mut now = self.now.lock().unwrap();
-        // One records at a time: an earlier one that was never ended is ended now.
+        now.by = Some((from.to_owned(), Instant::now()));
         if let Some((old, _)) = now.feeding.replace((id.to_owned(), input)) {
             if let Some(engine) = now.engines.remove(&old) {
                 let _ = engine.lock().unwrap().kill();
@@ -356,8 +370,13 @@ pub fn speech_model(app: AppHandle, act: Option<String>) -> Result<Value, String
 
 /// A page begins a dictation it transcribes here: the helper starts, and its lines arrive on `heard`.
 #[tauri::command]
-pub fn speech_listen(id: String, languages: Vec<String>, heard: Channel<Value>) -> Result<(), String> {
-    speech().listen(&id, &languages, move |said| drop(heard.send(said)))
+pub fn speech_listen(
+    webview: tauri::Webview,
+    id: String,
+    languages: Vec<String>,
+    heard: Channel<Value>,
+) -> Result<(), String> {
+    speech().listen(&id, webview.label(), &languages, move |said| drop(heard.send(said)))
 }
 
 /// What the page recorded since the last call.
@@ -519,7 +538,7 @@ mod tests {
     fn lines(speech: &Arc<Speech>, id: &str, languages: &[&str]) -> mpsc::Receiver<Value> {
         let (tell, told) = mpsc::channel();
         let languages: Vec<String> = languages.iter().map(|l| (*l).to_owned()).collect();
-        speech.listen(id, &languages, move |said| drop(tell.send(said))).unwrap();
+        speech.listen(id, "window", &languages, move |said| drop(tell.send(said))).unwrap();
         told
     }
     fn next(told: &mpsc::Receiver<Value>) -> Value {
@@ -562,10 +581,13 @@ mod tests {
         std::thread::sleep(Duration::from_millis(200));
         assert!(speech.now.lock().unwrap().engines.is_empty(), "no helper is left");
 
-        // Cancelled while it records: the helper is ended, and no transcript arrives.
+        // Cancelled while it records: the helper is ended, and no transcript arrives. While it records another
+        // window is refused, and its recording goes on.
         let told = lines(&speech, "two", &[]);
         assert_eq!(next(&told), json!({"ready": true}));
         next(&told);
+        speech.audio(&signal[..3200]).unwrap();
+        assert_eq!(speech.listen("other", "notch", &[], |_| {}).unwrap_err(), "busy");
         speech.audio(&signal[..3200]).unwrap();
         speech.end("two", true);
         assert_eq!(next(&told), json!({"error": "engine"}));
@@ -579,10 +601,10 @@ mod tests {
         assert_eq!(next(&lines(&speech, "four", &[])), json!({"error": "model"}));
         // No model, and no helper: each refused before anything starts.
         let speech = Speech::new(engine(&dir, "works"), dir.join("models"), None, none());
-        assert_eq!(speech.listen("five", &[], |_| {}).unwrap_err(), "model");
+        assert_eq!(speech.listen("five", "window", &[], |_| {}).unwrap_err(), "model");
         let speech = Speech::new(dir.join("missing"), dir.join("models"), Some(model), none());
         assert_eq!(speech.status()["supported"], false);
-        assert_eq!(speech.listen("six", &[], |_| {}).unwrap_err(), "engine");
+        assert_eq!(speech.listen("six", "window", &[], |_| {}).unwrap_err(), "engine");
         let _ = fs::remove_dir_all(dir);
     }
 }

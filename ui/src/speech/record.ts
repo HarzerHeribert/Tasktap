@@ -56,6 +56,7 @@ export const needs = () =>
 const WHY: Record<string, string> = {
   model: 'The speech model on this Mac is missing or damaged. Download it again in Settings, Speech.',
   engine: 'Speech on this Mac could not start. Try again; if it keeps failing, choose a speech service in Settings, Speech.',
+  busy: 'Another window is recording. Finish there first.',
 };
 
 type Ear = { node: AudioWorkletNode; rate: number; deaf(): void; close(): void };

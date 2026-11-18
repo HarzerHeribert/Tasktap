@@ -773,7 +773,7 @@ js workspace "(__ws.show('home'), document.querySelector('.home .mic').click(), 
 until_has workspace "text .home .ways" 3 "Voice needs setting up first" && js workspace "(document.querySelector('.home .ways .btn').click(), 1)" >/dev/null \
   && until_has workspace "eval __ws.ui.sheet?.kind + ' ' + __ws.ui.sheet?.at" 3 "settings speech" && ask workspace "text .settings" | grep -q "Needs a model first: Whisper large-v3 turbo, 574 MB" \
   && pass "with nothing to turn speech into text the microphone says so in one line and leads to Speech in Settings, which says what on this Mac needs" || fail "voice with nothing set up"
-js workspace "([...document.querySelectorAll('.settings .btn')].find(b => b.textContent === 'A speech service').click(), 1)" >/dev/null
+js workspace "([...document.querySelectorAll('.settings .seg button')].find(b => b.textContent === 'A speech service').click(), 1)" >/dev/null
 until_has workspace "text .sheet" 3 "What it is sent" || fail "the speech sheet opens"
 js workspace "(document.querySelectorAll('.terms .seg button')[2].click(), 1)" >/dev/null
 sleep 0.3

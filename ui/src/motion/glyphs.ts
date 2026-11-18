@@ -53,11 +53,16 @@ void main(){ VIEW
       float d=glyph(pg,k), af=clamp(.5-d*du/px,0.,1.), ab=clamp(.5-glyph(pb,k)*du/px,0.,1.);
       a=max(af,ab);
       if(a>0.){
-        vec2 gr=vec2(glyph(pg+vec2(.02,0),k)-d,glyph(pg+vec2(0,.02),k)-d)/.02;
+        // The face's slope over this pixel, not at a point: across a crease one facet becomes the other within the
+        // pixel, and where the slope turns under it (a crease, the chamfer's own bend) it reflects as much more softly.
+        vec2 hp=max(.5*px/du,.01)*vec2(1.,sx);
+        vec2 gr=vec2(glyph(pg+vec2(hp.x,0),k)-glyph(pg-vec2(hp.x,0),k),glyph(pg+vec2(0,hp.y),k)-glyph(pg-vec2(0,hp.y),k))/(2.*hp);
         float bev=smoothstep(.15,0.,-d);                                        // a chamfer round the face
+        float turn=abs(smoothstep(.15,0.,-d-hp.x)-smoothstep(.15,0.,-d+hp.x))+2.*bev*sqrt(max(1.-dot(gr,gr),0.));
         vec3 nf=vec3(tl+(gr*R)*bev*.9,1.); beam(xn);
-        vec3 cf=chrome(nf,metal(rc),clamp(bev*15.*px/du,.04,.45))+sheen(nf,glow);
         vec3 cs=chrome(vec3(-tl*3.,.5),metal(rc),.25)*.7;                      // the side wall
+        fine=smoothstep(.45,.9,max(bev*15.*px/du,2.25*turn));
+        vec3 cf=chrome(nf,metal(rc),clamp(max(bev*15.*px/du,1.1*turn),.04,.45))+sheen(nf,glow);
         col=mix(cs,cf,af);
       }
     }

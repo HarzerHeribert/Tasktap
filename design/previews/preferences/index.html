@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Tasktap · Preferences preview</title>
+  <link rel="stylesheet" href="preferences.css">
+</head>
+<body>
+  <div class="preferences-window">
+    <aside class="sidebar">
+      <div class="window-controls" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="brand"><img src="../../../site/assets/tasktap-icon.png" width="32" height="32" alt=""><div><strong>Tasktap</strong><span>Preferences</span></div></div>
+      <nav aria-label="Preferences" id="navigation"></nav>
+      <div class="sidebar-bottom"><span class="preview-dot"></span><div><strong>Design preview</strong><span>No changes to your app</span></div></div>
+    </aside>
+    <main id="main">
+      <header class="page-header"><div><div class="breadcrumb">PREFERENCES</div><h1 id="page-title"></h1><p id="page-description"></p></div><button class="icon-button" id="theme-toggle" aria-label="Switch to light appearance" title="Switch appearance"></button></header>
+      <div id="page-content"></div>
+      <footer class="page-footer"><span id="save-status" role="status">Design preview · Setup and microphone access are simulated.</span><span class="keyboard-hint">Tasktap · made for your Mac</span></footer>
+    </main>
+  </div>
+  <dialog id="connection-dialog" aria-labelledby="connection-title"></dialog>
+  <div class="toast" role="status" id="toast" hidden></div>
+  <script src="preferences.js"></script>
+</body>
+</html>

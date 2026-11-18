@@ -69,7 +69,7 @@ const SIGNAL = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [2, 1.05, 0.22], [0.
 const DIM = [0.8, 1, 0.95, 0.92, 0.85, 1.05, 0.42];
 /** Seconds a calm view plays a state that does not last for, after it begins: done's pass of light, failed's slump.
  *  The states that last (listening, thinking, working, needs you) run on. */
-const MOMENT = [0, Infinity, Infinity, Infinity, Infinity, 3.2, 2];
+const MOMENT = [0, Infinity, Infinity, Infinity, Infinity, 6.4, 2];
 /** Seconds a state takes to come in, twice over: its weight follows a value that itself follows the state, so a
  *  change begins from the pose and the pace on screen, small, and grows; a second change on its way bends it. */
 const BLEND = 0.22;
@@ -487,9 +487,9 @@ export class View {
       this.onz += (V.onsets - this.onz) * (1 - Math.exp(-adv / 0.09));
       this.ph[2] = this.onz;
       // In a calm view a question waiting is its two beats at the view's tempo, a slower and gentler insistence,
-      // and a result's pass of light takes twice as long.
+      // and a result's pass of light takes four times as long.
       const s = STATES.indexOf(this.o.state);
-      this.ph[3] = this.stT * (this.o.pace !== 'calm' ? 1 : s === 4 ? (this.o.tempo ?? 1) : s === 5 ? 0.5 : 1);
+      this.ph[3] = this.stT * (this.o.pace !== 'calm' ? 1 : s === 4 ? (this.o.tempo ?? 1) : s === 5 ? 0.25 : 1);
     } else this.ph[3] = 9.9;
     const sig = [0, 0, 0], beat = (() => {
       const t = (this.ph[3]! / 2.4) % 1, b = (x: number, k: number) => Math.exp(-((x / k) ** 2));

@@ -34,9 +34,11 @@ void main(){ VIEW
     vec2 dC=q-C.xy;
     vec3 Q=vec3(dC,-(dC.x*A.x+dC.y*A.y)/A.z);    // where this pixel's ray pierces the ring's plane
     vec2 p2=vec2(dot(Q,Wr),dot(Q,Ur));
-    float cr=R*.45, d2; vec2 b=abs(p2)-(R-cr), g2;  // distance to the rounded-square outline, and its direction
-    if(b.x>0.&&b.y>0.){ float l=length(b); g2=b/l*sign(p2); d2=l-cr; }
-    else if(b.x>b.y){ g2=vec2(sign(p2.x),0.); d2=b.x-cr; } else { g2=vec2(0.,sign(p2.y)); d2=b.y-cr; }
+    // Distance to the rounded-square outline, and its direction: square to a side beside it, turning round a corner,
+    // and inside the corner turning back the same way, so it changes at no line (a line there cuts a small ring's
+    // tube), and within a few pixels of where the turns meet no faster than a pixel shows.
+    float cr=R*.45; vec2 b=abs(p2)-(R-cr), u=max(b,0.)+max(-b.yx,0.); float l=length(u), d2=(b.x>0.&&b.y>0.?l:max(b.x,b.y))-cr;
+    vec2 g2=normalize(u+px*smoothstep(6.*px,0.,l))*sign(p2);
     vec3 G=g2.x*Wr+g2.y*Ur, T=cross(A,G);
     vec2 s2=vec2(T.y,-T.x); float sl=length(s2); if(sl<1e-3) continue; s2/=sl;
     float e=d2*dot(G.xy,s2), cov=clamp(.5+(tr-abs(e))/px,0.,1.);   // the tube around the outline, seen from the eye

@@ -1,0 +1,834 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tasktap 1.0 · Landing Page &amp; GitHub README Design Mockup</title>
+  <link rel="icon" type="image/svg+xml" href="../../../site/assets/mark.svg">
+  <link rel="stylesheet" href="mockup.css">
+  <script defer src="mockup.js"></script>
+</head>
+<body>
+  <header class="studio-bar" aria-label="Mockup Studio Controls">
+    <div class="studio-title">
+      <span class="studio-badge">Design Mockup</span>
+      <span>Tasktap 1.0 · Live repo files untouched</span>
+    </div>
+
+    <div class="studio-tabs" role="tablist" aria-label="Mockup surfaces">
+      <button type="button" role="tab" data-view-btn="landing" aria-selected="true">01 · Landing Page</button>
+      <button type="button" role="tab" data-view-btn="github" aria-selected="false">02 · GitHub README</button>
+      <button type="button" role="tab" data-view-btn="audit" aria-selected="false">03 · What Changed &amp; AI Art</button>
+    </div>
+
+    <div class="viewport-pills" aria-label="Preview viewport width">
+      <button type="button" data-vp-btn="full" aria-pressed="true">Full</button>
+      <button type="button" data-vp-btn="1440" aria-pressed="false">1440px</button>
+      <button type="button" data-vp-btn="820" aria-pressed="false">820px</button>
+      <button type="button" data-vp-btn="390" aria-pressed="false">390px</button>
+    </div>
+  </header>
+
+  <div class="viewport-frame" id="viewport-frame" data-vp="full">
+    <!-- ==================== VIEW 1: LANDING PAGE MOCKUP ==================== -->
+    <div class="lp" data-view-panel="landing">
+      <header class="mast shell">
+        <div class="brand-lockup">
+          <a class="home-link" href="#lp-top">
+            <img class="brand-mark" src="../../../site/assets/tasktap-icon.webp" width="46" height="46" alt="Tasktap">
+            <span class="wordmark">Tasktap</span>
+          </a>
+        </div>
+        <nav aria-label="Landing navigation">
+          <a class="hide-sm" href="#lp-workspace">Workspace</a>
+          <a class="hide-sm" href="#lp-capture">Notch</a>
+          <a class="hide-sm" href="../../../site/docs/index.html">Docs</a>
+          <a class="nav-cta" href="#lp-download">Install Script <span aria-hidden="true">↙</span></a>
+        </nav>
+      </header>
+
+      <main id="lp-top">
+        <section class="hero shell">
+          <div>
+            <a class="eyebrow-pill" href="https://github.com/HarzerHeribert/Tasktap/releases/tag/v1.0.0">
+              <span class="eyebrow-dot" aria-hidden="true"></span>
+              <span>Tasktap 1.0 · Native Mac Workspace</span>
+              <span aria-hidden="true" style="color:var(--accent)">↗</span>
+            </a>
+            <h1>A place for<br><em>the whole task.</em></h1>
+            <p class="lede">Your coding agents, split terminals, and live previews in one calm workspace on your Mac — with the notch always ready when a thought arrives.</p>
+
+            <!-- Promoted Above-the-Fold Verified Terminal Installer -->
+            <div class="hero-install" aria-label="Quick Terminal Install">
+              <div class="hero-install-top">
+                <div class="install-modes" role="tablist" aria-label="Install mode">
+                  <button type="button" data-cmd-mode="quick" aria-selected="true">$ Quick install</button>
+                  <button type="button" data-cmd-mode="inspect" aria-selected="false">Inspect first</button>
+                  <button type="button" data-cmd-mode="pin" aria-selected="false">Pin v1.0.0</button>
+                </div>
+                <div class="hero-install-actions">
+                  <a class="link-subtle" href="../../../site/install.sh" data-open-source>Inspect install.sh ↗</a>
+                  <button type="button" class="copy-pill" data-copy-from="hero-cmd-text">Copy</button>
+                </div>
+              </div>
+              <pre class="hero-cmd-box"><span class="sigil">$</span><code id="hero-cmd-text">curl -fL --proto '=https' --tlsv1.2 https://harzerheribert.github.io/Tasktap/install.sh -o tasktap-install.sh &amp;&amp; bash tasktap-install.sh</code></pre>
+              <div class="hero-install-foot">
+                <span><b>✓</b> SHA256SUMS verified</span>
+                <span><b>✓</b> codesign --strict</span>
+                <span><b>✓</b> Auto ZIP backup on update</span>
+              </div>
+            </div>
+
+            <div class="hero-cta-row">
+              <a class="btn btn-primary" href="https://github.com/HarzerHeribert/Tasktap/releases/latest">Download App (.zip) <span aria-hidden="true">↓</span></a>
+              <a class="btn btn-ghost" href="#lp-workspace">Explore workspace <span aria-hidden="true">↘</span></a>
+            </div>
+            <p class="compat-note">Apple silicon · macOS 26+ · <a href="#lp-download">See installer guarantees &amp; community signing note</a></p>
+          </div>
+
+          <div class="signature">
+            <div class="wave-field" aria-hidden="true">
+              <video muted loop playsinline preload="none" width="1200" height="240" poster="../../../prototype/assets/motion/glyph/home.jpg" data-source="../../../prototype/assets/motion/glyph/home.mp4"></video>
+            </div>
+            <div class="signature-caption">
+              <span>A thought · A thread · A place</span>
+              <button type="button" class="icon-circle" id="wave-toggle-btn" aria-label="Pause artwork">Ⅱ</button>
+            </div>
+          </div>
+        </section>
+
+        <div class="stack-strip shell" aria-label="Supported CLI ecosystem">
+          <span class="stack-label">WORKS WITH YOUR SIGNED-IN CLI STACK</span>
+          <ul class="stack-chips">
+            <li>Claude Code</li>
+            <li>Codex</li>
+            <li>Antigravity <code>agy</code></li>
+            <li>Cursor CLI</li>
+            <li>Pi <code>pi</code></li>
+            <li>Follow Ghostty</li>
+            <li>Starship &amp; Oh My Zsh</li>
+          </ul>
+        </div>
+
+        <section class="workspace-sec shell" id="lp-workspace">
+          <div class="sec-head">
+            <div>
+              <span class="sec-index">01 / THE WORKSPACE</span>
+              <h2>Less window juggling. More room to build.</h2>
+            </div>
+            <a class="arrow-link" href="../../../site/docs/index.html#workspaces">Workspaces &amp; session lifecycle <span>↗</span></a>
+          </div>
+
+          <figure style="margin:0">
+            <div class="studio-stage">
+              <img class="studio-stage-bg" src="assets/studio-stage.webp" alt="">
+              <div class="studio-window">
+                <img src="../../../site/assets/product/workspace.png" width="1440" height="900" alt="Tasktap actual workspace showing agent terminal beside localhost preview and Markdown notes.">
+              </div>
+            </div>
+            <figcaption class="fig-cap">
+              <span>Tasktap 1.0 · Actual macOS interface framed on bespoke smoked-glass studio stage</span>
+              <a class="arrow-link" href="../../../site/assets/product/workspace.png">Open full resolution <span>↗</span></a>
+            </figcaption>
+          </figure>
+
+          <div class="pillars">
+            <article>
+              <span class="pillar-num">01 · RECURSIVE SPLITS</span>
+              <h3>Your layout, your focus.</h3>
+              <p>Split right (<kbd>⌘D</kbd>) or down (<kbd>⇧⌘D</kbd>). Group tabs by pane, expand one surface temporarily with <strong>Focus pane</strong>, and snap back to your saved tree.</p>
+            </article>
+            <article>
+              <span class="pillar-num">02 · SIDE-BY-SIDE MEDIA</span>
+              <h3>The output beside the shell.</h3>
+              <p>Render localhost servers, Markdown, isolated local HTML, PDFs, images, and audio/video right next to your terminal. Attach any view to a prompt via <strong>Ask agent</strong>.</p>
+            </article>
+            <article>
+              <span class="pillar-num">03 · LIVE PERSISTENCE</span>
+              <h3>Close a tab, keep the process.</h3>
+              <p>Closing a pane or quitting the window leaves embedded PTY sessions alive in Tasktap’s local terminal service. Reopen any running thread from Session history.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="band-dark" id="lp-capture">
+          <div class="shell story-grid">
+            <div class="story-copy">
+              <span class="sec-index">02 / THE NOTCH &amp; REVIEW</span>
+              <h2>Catch the thought<br>before you lose focus.</h2>
+              <p>Spot a layout bug in Safari or think of a refactor mid-call. Summon the notch from any app without switching windows.</p>
+              <div class="keycap">
+                <kbd>⌃ ⌥ Space</kbd>
+                <span><strong>Tap</strong> to type · <strong>Hold</strong> to dictate<br>Press <strong>⌘ Return</strong> to review</span>
+              </div>
+              <ul class="check-list">
+                <li><strong>Independent review editors</strong> — Tweak Task wording, Destination agent/model, or Context without resetting the others.</li>
+                <li><strong>Frozen source snapshots</strong> — Binds the active URL or file when capture begins so switching tabs mid-sentence never swaps your reference.</li>
+              </ul>
+              <a class="arrow-link" href="../../../site/docs/index.html#capture">See how capture &amp; review work <span>↗</span></a>
+            </div>
+            <figure style="margin:0">
+              <div class="notch-art-card">
+                <img class="notch-art-bg" src="assets/notch-signal.webp" alt="">
+                <div class="notch-inner-shot">
+                  <img src="../../../site/assets/product/review.png" width="430" height="643" alt="Tasktap Review screen">
+                </div>
+              </div>
+              <figcaption class="fig-cap" style="justify-content:center">Actual review card · Reviewed task, destination &amp; frozen URL</figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <section class="band-open">
+          <div class="shell story-grid">
+            <figure style="margin:0">
+              <div class="decision-stage">
+                <span class="camera-cutout" aria-hidden="true"></span>
+                <img src="../../../site/assets/product/question.png" width="430" height="455" alt="Tasktap Notch decision card">
+              </div>
+              <figcaption class="fig-cap" style="justify-content:center">Actual notch decision · Settle once across notch, pane &amp; notification</figcaption>
+            </figure>
+            <div class="story-copy">
+              <span class="sec-index">03 / DECISIONS &amp; REPORTS</span>
+              <h2>Let the agent run.<br>Keep the judgment calls.</h2>
+              <p>Managed Claude Code and Codex sessions surface scoped questions in the notch, workspace pane, and macOS notifications at once. Answer in any one place and all three resolve.</p>
+              <p>Reported completions and errors collect in <strong>Activity</strong> — never guessed from terminal scrollback or exit code 0. Read the full Markdown report, listen with local Siri or offline Kokoro voices, or nudge the exact conversation.</p>
+              <a class="arrow-link" style="margin-top:1.2rem" href="../../../site/docs/index.html#notifications">Questions, reports &amp; Codex Micro <span>↗</span></a>
+            </div>
+          </div>
+        </section>
+
+        <section class="band-open">
+          <div class="shell story-grid">
+            <div class="story-copy">
+              <span class="sec-index">04 / MAKE IT YOURS</span>
+              <h2>Familiar from<br>the first prompt.</h2>
+              <p>Your shell loads its real startup files — zsh, fish, aliases, Oh My Zsh, and Starship included. Choose one application palette or import your Ghostty theme automatically.</p>
+              <div class="layer-grid">
+                <div class="layer-row"><strong>Application Palette</strong><span>Follow Ghostty + 7 native dark/light themes</span></div>
+                <div class="layer-row"><strong>Window Backdrop</strong><span>Optional macOS vibrancy &amp; blur, opaque crisp text</span></div>
+                <div class="layer-row"><strong>Terminal Engine</strong><span>Embedded xterm.js or external Ghostty / iTerm2 / Warp</span></div>
+              </div>
+              <a class="arrow-link" href="../../../site/docs/index.html#appearance">Appearance &amp; terminal layers <span>↗</span></a>
+            </div>
+            <figure style="margin:0">
+              <div class="palette-card">
+                <img src="../../../site/assets/product/appearance.png" width="630" height="267" alt="Tasktap eight appearance choices">
+              </div>
+              <figcaption class="fig-cap" style="justify-content:center">One cohesive palette across workspaces, terminals, and preferences</figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <section class="install-sec shell" id="lp-download">
+          <div class="install-header">
+            <span class="sec-index">05 / GET TASKTAP 1.0</span>
+            <h2>Install in one command.</h2>
+            <p>Use the inspectable Terminal installer for cryptographic verification and automatic rollback backups, or download the app bundle directly.</p>
+          </div>
+
+          <div class="install-cards">
+            <!-- Featured Option A: Terminal Installer -->
+            <div class="cli-spotlight">
+              <div class="cli-banner">
+                <img src="assets/terminal-monolith.webp" alt="">
+                <div class="cli-banner-copy">
+                  <span class="sec-index" style="margin:0">OPTION A · RECOMMENDED FOR CLI USERS</span>
+                  <h3>Verified Terminal Installer</h3>
+                  <p>Downloads <code>install.sh</code> locally first — no blind pipe — then checks SHA-256 digests and strict Apple code signatures before installing.</p>
+                </div>
+              </div>
+
+              <div class="cli-body">
+                <div class="install-modes" style="margin-bottom:10px">
+                  <button type="button" data-cmd-mode="quick" aria-selected="true">Latest stable</button>
+                  <button type="button" data-cmd-mode="inspect" aria-selected="false">Inspect in less</button>
+                  <button type="button" data-cmd-mode="pin" aria-selected="false">Pin v1.0.0</button>
+                </div>
+
+                <div class="term-window">
+                  <div class="term-bar"><i></i><i></i><i></i><span>zsh — tasktap-install.sh</span></div>
+                  <pre class="term-code" id="dl-cmd-text">curl -fL --proto '=https' --tlsv1.2 https://harzerheribert.github.io/Tasktap/install.sh -o tasktap-install.sh &amp;&amp; bash tasktap-install.sh</pre>
+                  <div class="term-output" id="sim-output">
+                    <div>Installing Tasktap 1.0.0…</div>
+                    <div><span class="ok">✔</span> Tasktap-1.0.0-arm64.zip: OK (SHA256SUMS matched)</div>
+                    <div><span class="ok">✔</span> codesign --verify --deep --strict passed (v1.0.0)</div>
+                    <div><span class="ok">✔</span> Previous app archived to ~/Library/Application Support/Tasktap/Backups</div>
+                    <div><span class="ok">✔</span> Installed ~/Applications/Tasktap.app</div>
+                  </div>
+                </div>
+
+                <div class="cli-toolbar">
+                  <div class="cli-toolbar-left">
+                    <button type="button" class="copy-pill" data-copy-from="dl-cmd-text">Copy command</button>
+                    <button type="button" class="mini-btn" data-open-source>Read 69-line install.sh</button>
+                  </div>
+                  <button type="button" class="mini-btn" id="toggle-sim-output">Hide terminal output ▴</button>
+                </div>
+
+                <div class="trust-grid">
+                  <div class="trust-item">
+                    <strong>SHA-256 &amp; Strict Codesign</strong>
+                    Verifies <code>SHA256SUMS</code>, bundle ID, version, and <code>codesign --strict</code> before staging.
+                  </div>
+                  <div class="trust-item">
+                    <strong>Atomic Rollback Backup</strong>
+                    Compresses any existing <code>Tasktap.app</code> into <code>Application Support/Tasktap/Backups</code>.
+                  </div>
+                  <div class="trust-item">
+                    <strong>No Duplicate Copies</strong>
+                    Installs to <code>~/Applications</code> or updates <code>/Applications</code> in place cleanly.
+                  </div>
+                  <div class="trust-item">
+                    <strong>Zero Gatekeeper Bypass</strong>
+                    Never strips macOS quarantine attributes; in-app Sparkle handles later updates.
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Option B: Direct ZIP + Requirements -->
+            <div class="zip-card">
+              <span class="sec-index" style="margin:0">OPTION B · DIRECT ARCHIVE</span>
+              <h3>macOS App Bundle (.zip)</h3>
+              <p>Prefer Finder? Download the latest release ZIP from GitHub, unzip it, and move <strong>Tasktap.app</strong> into Applications.</p>
+              <a class="btn btn-primary" href="https://github.com/HarzerHeribert/Tasktap/releases/latest">Get for Mac (.zip) <span aria-hidden="true">↓</span></a>
+
+              <dl class="req-list">
+                <h4>Before you begin</h4>
+                <div class="req-row"><dt>Your Mac</dt><dd>Apple silicon (M-series) · macOS 26 or newer.</dd></div>
+                <div class="req-row"><dt>Agent CLI</dt><dd>Python 3 + signed-in CLI (Claude Code, Codex, Antigravity, Cursor, or Pi). Local notes work without an agent.</dd></div>
+                <div class="req-row"><dt>First launch</dt><dd>Community builds are locally signed, <strong>not Apple notarized</strong>. Use <strong>Privacy &amp; Security → Open Anyway</strong> on first open.</dd></div>
+                <div class="req-row"><dt>Updates</dt><dd>Re-run <code>install.sh</code> or choose <strong>Check for Updates…</strong> (Sparkle signed archives).</dd></div>
+              </dl>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="lp-footer shell">
+        <div><strong style="color:var(--ink)">Tasktap 1.0</strong> · A place for the whole task.</div>
+        <nav aria-label="Footer">
+          <a href="../../../site/install.sh" data-open-source>install.sh</a>
+          <a href="../../../site/docs/index.html">User Guide</a>
+          <a href="https://github.com/HarzerHeribert/Tasktap">GitHub ↗</a>
+          <a href="https://github.com/HarzerHeribert/Tasktap/releases">Releases ↗</a>
+        </nav>
+      </footer>
+    </div>
+
+    <!-- ==================== VIEW 2: GITHUB REPO & README MOCKUP ==================== -->
+    <div class="gh-page" data-view-panel="github" hidden>
+      <div class="gh-shell">
+        <div class="gh-repo-head">
+          <div class="gh-crumb">
+            <span>HarzerHeribert</span> / <strong>Tasktap</strong>
+            <span class="gh-public">Public</span>
+          </div>
+          <div class="gh-head-actions">
+            <button type="button" class="gh-btn" id="gh-mode-rendered" aria-pressed="true">Rendered README</button>
+            <button type="button" class="gh-btn" id="gh-mode-raw" aria-pressed="false">Raw Markdown</button>
+            <button type="button" class="gh-btn" data-copy-from="raw-readme-code">Copy README.md</button>
+          </div>
+        </div>
+
+        <div class="gh-layout">
+          <div>
+            <div class="gh-files">
+              <div class="gh-files-head">
+                <span><b>HarzerHeribert</b> Redesign README &amp; spotlight verified Terminal installer</span>
+                <span>main · v1.0.0</span>
+              </div>
+              <div class="gh-file-row"><span>📁 docs</span><span>Architecture, controls, agent questions &amp; QA plan</span><span>today</span></div>
+              <div class="gh-file-row"><span>📁 native</span><span>Swift macOS 26 window, notch, PTY &amp; Sparkle host</span><span>today</span></div>
+              <div class="gh-file-row"><span>📁 scripts</span><span>Build, packaging &amp; automated Playwright/Swift checks</span><span>today</span></div>
+              <div class="gh-file-row highlight-file"><span>📁 site</span><span>Product landing page, docs &amp; verified install.sh</span><span>updated</span></div>
+              <div class="gh-file-row highlight-file"><span>📄 README.md</span><span>Visual hero, 1-command installer &amp; structured guide</span><span>updated</span></div>
+            </div>
+
+            <div class="gh-readme-box">
+              <div class="gh-readme-bar">
+                <span>📖 README.md</span>
+                <span style="color:#8b949e;font-weight:400;font-size:12px">GitHub Dark preview · 100% GFM-compatible</span>
+              </div>
+
+              <div class="md-body" id="gh-rendered-pane">
+                <p style="text-align:center">
+                  <img src="assets/readme-hero.png" alt="Tasktap 1.0 Hero Banner" style="border-radius:12px">
+                </p>
+
+                <div class="md-badges">
+                  <span class="md-shield"><span>Tasktap</span><span style="background:#ddba91">v1.0.0</span></span>
+                  <span class="md-shield"><span>macOS</span><span style="background:#b0b1ad">26+ · Apple Silicon</span></span>
+                  <span class="md-shield"><span>Installer</span><span style="background:#8fd19e">SHA-256 + codesign</span></span>
+                  <span class="md-shield"><span>License</span><span style="background:#8d908d">Apache 2.0 + Commons</span></span>
+                </div>
+
+                <p class="md-nav-links">
+                  <strong><a href="#gh-install">Terminal Install</a></strong> ·
+                  <a href="https://github.com/HarzerHeribert/Tasktap/releases/latest">Download App (.zip)</a> ·
+                  <a href="#lp-top" onclick="document.querySelector('[data-view-btn=landing]').click();return false;">Product Page</a> ·
+                  <a href="../../../site/docs/index.html">User Guide</a> ·
+                  <a href="#gh-build">Build from Source</a>
+                </p>
+
+                <hr>
+
+                <p><strong>Tasktap 1.0</strong> is a native Mac workspace for coding agents, real terminals, and the things you build. Keep an agent or shell beside a live preview or Markdown note, split panes recursively as you work, and use your MacBook’s notch (<code>⌃ ⌥ Space</code>) to capture a thought or answer an agent question from any app.</p>
+
+                <ul>
+                  <li><strong>One workspace for the whole task</strong> — Real PTY terminals, tabs, nested splits (<code>⌘D</code> / <code>⇧⌘D</code>), and a calm sidebar showing only open surfaces.</li>
+                  <li><strong>Live output right beside the terminal</strong> — Render <code>localhost</code> previews, Markdown, isolated local HTML, PDFs, images, audio, and video side-by-side. Attach any preview to a reviewed prompt with <strong>Ask agent</strong>.</li>
+                  <li><strong>The notch keeps agents within reach</strong> — Tap <code>⌃ ⌥ Space</code> to type or hold to dictate from any app. Review <strong>Task</strong>, <strong>Destination</strong>, and frozen <strong>Context</strong> before dispatch.</li>
+                  <li><strong>Built for your existing CLI stack</strong> — Launches <strong>Claude Code</strong>, <strong>Codex</strong>, <strong>Antigravity (<code>agy</code>)</strong>, <strong>Cursor CLI (<code>cursor-agent</code>)</strong>, and <strong>Pi (<code>pi</code>)</strong> with your own shell, Starship prompt, and Ghostty color palette.</li>
+                </ul>
+
+                <h2 id="gh-install">Install in One Command</h2>
+
+                <p><img src="assets/readme-installer.png" alt="Install or update Tasktap from Terminal" style="border-radius:10px"></p>
+
+                <p>The fastest way to install or update Tasktap on <strong>macOS 26+ (Apple silicon)</strong> is the official inspectable Bash installer — no blind <code>curl | sh</code> pipe required:</p>
+
+                <div class="md-pre-wrap">
+                  <pre><code id="gh-install-snippet">curl -fL --proto '=https' --tlsv1.2 https://harzerheribert.github.io/Tasktap/install.sh -o tasktap-install.sh &amp;&amp; bash tasktap-install.sh</code></pre>
+                  <button type="button" class="gh-copy-code" data-copy-from="gh-install-snippet">Copy</button>
+                </div>
+
+                <details open>
+                  <summary>Inspect the script first, pin a specific version, or see what <code>install.sh</code> verifies</summary>
+                  <div style="margin-top:12px">
+                    <div class="md-pre-wrap">
+                      <pre><code id="gh-pin-snippet">curl -fL --proto '=https' --tlsv1.2 https://harzerheribert.github.io/Tasktap/install.sh -o tasktap-install.sh
+less tasktap-install.sh
+bash tasktap-install.sh 1.0.0</code></pre>
+                      <button type="button" class="gh-copy-code" data-copy-from="gh-pin-snippet">Copy</button>
+                    </div>
+                    <table class="md-table">
+                      <thead><tr><th>Installer Guarantee</th><th>Behavior</th></tr></thead>
+                      <tbody>
+                        <tr><td><strong>Cryptographic &amp; bundle checks</strong></td><td>Verifies <code>SHA256SUMS</code> over TLS 1.2+, runs <code>codesign --verify --deep --strict</code>, and checks bundle ID + version.</td></tr>
+                        <tr><td><strong>Smart Applications target</strong></td><td>Installs fresh copies into <code>~/Applications/Tasktap.app</code> or updates <code>/Applications/Tasktap.app</code> in place; prevents duplicates.</td></tr>
+                        <tr><td><strong>Automatic rollback backup</strong></td><td>Saves your previous <code>Tasktap.app</code> as a verified <code>.zip</code> in <code>~/Library/Application Support/Tasktap/Backups</code>.</td></tr>
+                        <tr><td><strong>Zero security bypasses</strong></td><td>Never removes quarantine flags or weakens Gatekeeper. <a href="../../../site/install.sh" data-open-source>Read source (<code>site/install.sh</code>)</a>.</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+
+                <h3>Alternative: Direct <code>.zip</code> Download &amp; First Launch</h3>
+                <ol>
+                  <li><strong>Download:</strong> Grab the ZIP from <a href="https://github.com/HarzerHeribert/Tasktap/releases/latest">GitHub Releases</a>, unzip it, and move <strong>Tasktap.app</strong> to <strong>Applications</strong> (later updates work via Sparkle’s signed <strong>Check for Updates…</strong>).</li>
+                  <li><strong>First launch note:</strong> Community builds are locally signed and <strong>not Apple notarized</strong>; macOS may require <strong>System Settings → Privacy &amp; Security → Open Anyway</strong> on first launch.</li>
+                  <li><strong>Prerequisites:</strong> Agent sessions require <strong>Python 3</strong> and a signed-in agent CLI. Local notes work without an agent.</li>
+                </ol>
+
+                <h2>Inside the Workspace</h2>
+                <p><img src="../../../site/assets/product/workspace.png" alt="Tasktap workspace screenshot" style="border-radius:8px;border:1px solid #30363d"></p>
+
+                <div class="md-two-col">
+                  <div class="md-col-card">
+                    <h3>01 · Capture &amp; Review from Any App</h3>
+                    <p>Tap <code>⌃ ⌥ Space</code> to type or hold to dictate, then press <code>⌘ Return</code> to inspect <strong>Task</strong>, <strong>Destination</strong>, and frozen <strong>Context</strong> before starting.</p>
+                    <img src="../../../site/assets/product/review.png" width="290" alt="Review screen">
+                  </div>
+                  <div class="md-col-card">
+                    <h3>02 · Notch Decisions &amp; Cohesive Themes</h3>
+                    <p>Answer Claude Code &amp; Codex questions once from the notch or workspace, and unify your UI across 8 palettes including <strong>Follow Ghostty</strong>.</p>
+                    <img src="../../../site/assets/product/question.png" width="270" alt="Question screen">
+                    <img src="../../../site/assets/product/appearance.png" alt="Themes" style="margin-top:12px">
+                  </div>
+                </div>
+
+                <h2>Workspace &amp; Preview Guarantees</h2>
+                <table class="md-table">
+                  <thead><tr><th>Action / Surface</th><th>What happens</th></tr></thead>
+                  <tbody>
+                    <tr><td><strong>Close a tab, pane, or window</strong></td><td>Views close; embedded PTY processes stay running in the local terminal service and reopen from <strong>Session history</strong>.</td></tr>
+                    <tr><td><strong>Close a workspace</strong></td><td>Split tree and open tabs are saved; restore anytime via <strong>+ → Closed workspaces</strong>.</td></tr>
+                    <tr><td><strong>Markdown &amp; Local HTML</strong></td><td>Sandboxed local previews with <strong>Source / Preview</strong> toggle and <strong>Ask agent</strong> attachment (no native command bridge or remote network leakage).</td></tr>
+                    <tr><td><strong>Web, PDF, Image &amp; Media</strong></td><td>Localhost dev servers, zoomable images, PDF navigation, and WebKit media playback beside your shell.</td></tr>
+                  </tbody>
+                </table>
+
+                <details>
+                  <summary>Agents, Request Preparation Privacy, Notifications &amp; Appearance Layers</summary>
+                  <div style="margin-top:10px">
+                    <p>Preserves every technical detail from the current README in scannable collapsible sections: supported CLIs (Claude Code, Codex, Antigravity, Cursor CLI, Pi), local-default <strong>On this Mac</strong> preparation vs. reviewed remote payloads, opt-in external session discovery, scoped report exports, Siri/Kokoro narration, and xterm.js vs. Ghostty/shell layer boundaries.</p>
+                  </div>
+                </details>
+
+                <h2 id="gh-build">Build and Verify from Source</h2>
+                <div class="md-pre-wrap">
+                  <pre><code>git clone https://github.com/HarzerHeribert/Tasktap.git
+cd Tasktap
+./scripts/build-mac.sh
+open build/Tasktap.app</code></pre>
+                </div>
+              </div>
+
+              <div id="gh-raw-pane" hidden>
+                <pre class="raw-md"><code id="raw-readme-code">&lt;p align=&quot;center&quot;&gt;
+  &lt;a href=&quot;https://harzerheribert.github.io/Tasktap/&quot;&gt;
+    &lt;img src=&quot;site/assets/readme-hero.png&quot; width=&quot;100%&quot; alt=&quot;Tasktap 1.0 — A Mac workspace for coding agents, split terminals, live previews, and a thought-catching notch.&quot;&gt;
+  &lt;/a&gt;
+&lt;/p&gt;
+
+&lt;p align=&quot;center&quot;&gt;
+  &lt;a href=&quot;https://github.com/HarzerHeribert/Tasktap/releases/latest&quot;&gt;&lt;img src=&quot;https://img.shields.io/badge/Tasktap-v1.0.0-ddba91?style=flat-square&amp;labelColor=171819&quot; alt=&quot;Release v1.0.0&quot;&gt;&lt;/a&gt;
+  &lt;img src=&quot;https://img.shields.io/badge/macOS-26%2B%20%C2%B7%20Apple%20Silicon-b0b1ad?style=flat-square&amp;labelColor=171819&quot; alt=&quot;macOS 26+ Apple silicon&quot;&gt;
+  &lt;a href=&quot;https://harzerheribert.github.io/Tasktap/install.sh&quot;&gt;&lt;img src=&quot;https://img.shields.io/badge/Installer-SHA--256%20%2B%20codesign-8fd19e?style=flat-square&amp;labelColor=171819&quot; alt=&quot;Verified Bash Installer&quot;&gt;&lt;/a&gt;
+  &lt;a href=&quot;LICENSE&quot;&gt;&lt;img src=&quot;https://img.shields.io/badge/License-Apache%202.0%20%2B%20Commons-8d908d?style=flat-square&amp;labelColor=171819&quot; alt=&quot;License&quot;&gt;&lt;/a&gt;
+&lt;/p&gt;
+
+&lt;p align=&quot;center&quot;&gt;
+  &lt;strong&gt;&lt;a href=&quot;#install-in-one-command&quot;&gt;Terminal Install&lt;/a&gt;&lt;/strong&gt; ·
+  &lt;a href=&quot;https://github.com/HarzerHeribert/Tasktap/releases/latest&quot;&gt;Download App (.zip)&lt;/a&gt; ·
+  &lt;a href=&quot;https://harzerheribert.github.io/Tasktap/&quot;&gt;Product Page&lt;/a&gt; ·
+  &lt;a href=&quot;https://harzerheribert.github.io/Tasktap/docs/&quot;&gt;User Guide&lt;/a&gt; ·
+  &lt;a href=&quot;#build-and-verify&quot;&gt;Build from Source&lt;/a&gt;
+&lt;/p&gt;
+
+---
+
+**Tasktap 1.0** is a native Mac workspace for coding agents, real terminals, and the things you build. Keep an agent or shell beside a live preview or Markdown note, split panes recursively as you work, and use your MacBook’s notch (`⌃ ⌥ Space`) to capture a thought or answer an agent question from any app.
+
+- **One workspace for the whole task** — Real PTY terminals, tabs, nested horizontal/vertical splits (`⌘D` / `⇧⌘D`), and a calm sidebar showing only open surfaces.
+- **Live output right beside the terminal** — Render `localhost` previews, Markdown, isolated local HTML, PDFs, images, audio, and video side-by-side. Attach any preview to a reviewed prompt with **Ask agent**.
+- **The notch keeps agents within reach** — Tap `⌃ ⌥ Space` to type or hold to dictate from any app. Review **Task**, **Destination**, and frozen **Context** before dispatch, and answer Claude Code or Codex questions right from the notch.
+- **Built for your existing CLI stack** — Launches **Claude Code**, **Codex**, **Antigravity (`agy`)**, **Cursor CLI (`cursor-agent`)**, and **Pi (`pi`)** with your own shell, Starship prompt, Oh My Zsh plugins, and Ghostty color palette.
+
+---
+
+## Install in One Command
+
+&lt;p align=&quot;center&quot;&gt;
+  &lt;a href=&quot;https://harzerheribert.github.io/Tasktap/install.sh&quot;&gt;
+    &lt;img src=&quot;site/assets/readme-installer.png&quot; width=&quot;100%&quot; alt=&quot;Install or update Tasktap from Terminal with SHA-256 verification, strict codesign check, and automatic ZIP backup.&quot;&gt;
+  &lt;/a&gt;
+&lt;/p&gt;
+
+The fastest way to install or update Tasktap on **macOS 26+ (Apple silicon)** is the official inspectable Bash installer — no blind `curl | sh` pipe required:
+
+```sh
+curl -fL --proto &#x27;=https&#x27; --tlsv1.2 https://harzerheribert.github.io/Tasktap/install.sh -o tasktap-install.sh &amp;&amp; bash tasktap-install.sh
+```
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;Inspect the script first, pin a specific version, or see what &lt;code&gt;install.sh&lt;/code&gt; verifies&lt;/strong&gt;&lt;/summary&gt;
+
+&lt;br&gt;
+
+Review the 69-line script in your pager before running, or pass an explicit stable tag such as `1.0.0`:
+
+```sh
+curl -fL --proto &#x27;=https&#x27; --tlsv1.2 https://harzerheribert.github.io/Tasktap/install.sh -o tasktap-install.sh
+less tasktap-install.sh
+bash tasktap-install.sh 1.0.0
+```
+
+| Installer Guarantee | Behavior |
+| --- | --- |
+| **Cryptographic &amp; bundle checks** | Downloads `SHA256SUMS` over TLS 1.2+, verifies the archive hash, runs `codesign --verify --deep --strict`, and validates `CFBundleIdentifier` + `CFBundleShortVersionString`. |
+| **Smart Applications target** | Installs fresh copies into `~/Applications/Tasktap.app`, or updates `/Applications/Tasktap.app` in place; refuses to create duplicate installs across both folders. |
+| **Automatic rollback backup** | Archives your previous `Tasktap.app` as a verified `.zip` in `~/Library/Application Support/Tasktap/Backups` before atomic replacement. |
+| **Zero security bypasses** | Never clears quarantine attributes or weakens macOS Gatekeeper. Source: [`site/install.sh`](site/install.sh). |
+
+&lt;/details&gt;
+
+### Alternative: Direct `.zip` Download &amp; First Launch
+
+1. **Download:** Grab the latest archive from **[GitHub Releases](https://github.com/HarzerHeribert/Tasktap/releases/latest)**, unzip it, and move **Tasktap.app** to **Applications** (subsequent updates work inside the app via Sparkle’s signed **Check for Updates…**).
+2. **First launch note:** Community builds are locally signed and **not Apple notarized**. On first open, macOS may ask you to confirm via **System Settings → Privacy &amp; Security → Open Anyway**. See [release and update instructions](docs/releases.md).
+3. **Prerequisites:** Agent sessions require **Python 3** and an installed, signed-in agent CLI. Local notes work without an agent. Xcode is needed only when building from source.
+
+---
+
+## Inside the Workspace
+
+&lt;p align=&quot;center&quot;&gt;
+  &lt;img src=&quot;site/assets/product/workspace.png&quot; width=&quot;100%&quot; alt=&quot;Tasktap workspace showing an agent terminal on the left and a localhost preview stacked over Markdown notes on the right.&quot;&gt;
+&lt;/p&gt;
+
+&lt;table&gt;
+  &lt;tr&gt;
+    &lt;td width=&quot;50%&quot; valign=&quot;top&quot;&gt;
+      &lt;h3 align=&quot;left&quot;&gt;01 · Capture &amp;amp; Review from Any App&lt;/h3&gt;
+      &lt;p&gt;Tap &lt;kbd&gt;⌃&lt;/kbd&gt; &lt;kbd&gt;⌥&lt;/kbd&gt; &lt;kbd&gt;Space&lt;/kbd&gt; to type or hold to dictate. Add an optional sketch and press &lt;kbd&gt;⌘&lt;/kbd&gt; &lt;kbd&gt;Return&lt;/kbd&gt; to inspect the handoff before anything runs:&lt;/p&gt;
+      &lt;ul&gt;
+        &lt;li&gt;&lt;strong&gt;Task&lt;/strong&gt; — Edit phrasing without resetting your destination.&lt;/li&gt;
+        &lt;li&gt;&lt;strong&gt;Destination&lt;/strong&gt; — Pick workspace, agent, host, model, or thread.&lt;/li&gt;
+        &lt;li&gt;&lt;strong&gt;Context&lt;/strong&gt; — Active URL or file path is frozen the instant capture starts.&lt;/li&gt;
+      &lt;/ul&gt;
+      &lt;p align=&quot;center&quot;&gt;&lt;img src=&quot;site/assets/product/review.png&quot; width=&quot;320&quot; alt=&quot;Tasktap Review screen&quot;&gt;&lt;/p&gt;
+    &lt;/td&gt;
+    &lt;td width=&quot;50%&quot; valign=&quot;top&quot;&gt;
+      &lt;h3 align=&quot;left&quot;&gt;02 · Notch Decisions &amp;amp; Cohesive Themes&lt;/h3&gt;
+      &lt;p&gt;Supported &lt;strong&gt;Claude Code&lt;/strong&gt; and &lt;strong&gt;Codex&lt;/strong&gt; questions appear in the notch, workspace pane, and notifications simultaneously — answer once and every surface resolves.&lt;/p&gt;
+      &lt;p align=&quot;center&quot;&gt;&lt;img src=&quot;site/assets/product/question.png&quot; width=&quot;320&quot; alt=&quot;Tasktap Notch decision card&quot;&gt;&lt;/p&gt;
+      &lt;p&gt;Choose from 8 full-app palettes (including &lt;strong&gt;Follow Ghostty&lt;/strong&gt;) with optional native macOS translucency and blur:&lt;/p&gt;
+      &lt;p align=&quot;center&quot;&gt;&lt;img src=&quot;site/assets/product/appearance.png&quot; width=&quot;100%&quot; alt=&quot;Tasktap eight appearance themes&quot;&gt;&lt;/p&gt;
+    &lt;/td&gt;
+  &lt;/tr&gt;
+&lt;/table&gt;
+
+---
+
+## Quick Setup &amp; Daily Workflow
+
+1. **First run:** Complete guided setup or choose **Set up later**. Tasktap separates **request preparation** (local matching + on-device Apple model by default) from the **project agent** doing the work.
+2. **Open a project:** Click **+** beside **Workspaces** to open an existing folder or create one (default location: `~/projects`, configurable in **Preferences → Workspaces** without moving existing projects).
+3. **Split &amp; preview:** Press **⌘D** (split right) or **⇧⌘D** (split down). Use toolbar **+** for **Open file…**, **Web preview…**, or **Project files**. Closing the workspace window leaves the resident notch active in your menu bar.
+
+### Workspace &amp; Process Lifecycle
+
+| Action | What happens |
+| --- | --- |
+| **Close a tab or pane** | Views close; embedded terminal processes keep running. Reopen anytime from **Session history**. |
+| **Close a workspace** | Tabs and split layout are saved. Restore via **+ → Closed workspaces**. |
+| **Quit Tasktap** | Embedded sessions continue running while Tasktap’s private local terminal service remains alive. |
+| **Session details → Stop session…** | Explicitly terminates that process after confirmation. |
+| **Reboot Mac / lose terminal service** | Processes end cleanly. Tasktap never auto-reruns commands; supported agent threads can be resumed explicitly. |
+
+### Supported Previews &amp; Sandbox Boundaries
+
+| Surface | Behavior &amp; Security Model |
+| --- | --- |
+| **Markdown** | Headings, lists, tables, task lists, code, and local images (**Source** toggle included). Embedded HTML and automatic remote images are disabled. |
+| **Local HTML** | Interactive pages with local scripts/assets (**Source / Preview** toggle). Runs in an isolated frame without Tasktap’s native bridge; network requests and nested frames are blocked. |
+| **Images, PDF, Text &amp; Media** | Image fit/zoom, PDF page navigation, UTF-8 code/text views, and WebKit-supported audio/video playback. |
+| **Web preview** | Localhost dev servers or embeddable sites, with **Open in browser** for pages requiring browser sign-in or remote framing permissions. |
+
+[Preview boundaries and workspace architecture →](docs/integrated-workspaces.md#media-surfaces)
+
+---
+
+## Agents, Routing, Privacy &amp; Appearance
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;Supported agents, terminal hosts, and request preparation privacy&lt;/strong&gt;&lt;/summary&gt;
+
+&lt;br&gt;
+
+- **Supported project agents:** Launches installed **Claude Code**, **Codex**, **Antigravity (`agy`)**, **Cursor CLI (`cursor-agent`)**, and **Pi (`pi`)** using each tool’s own CLI login and settings (**Preferences → Agents → Session models**).
+- **Embedded &amp; external terminals:** Uses Tasktap’s embedded **xterm.js** terminal by default while respecting external preferences for **Terminal**, **cmux**, **Ghostty**, **iTerm2**, **Warp**, **WezTerm**, and **kitty** (**Change destination → Open this session in** overrides per session).
+- **Request preparation vs. execution:** Default **On this Mac** keeps preparation local. Optional routes include local/compatible model servers (Ollama, vLLM, LiteLLM), Codex login, interactive Claude Code, Keychain-stored provider API keys, or eligible ChatGPT sign-in. Before remote preparation, Tasktap previews what will be sent and offers local preparation instead; audio, sketch geometry, and resolved reference attachments are excluded from remote preparation payloads.
+- **Permissions &amp; Git:** Fresh Codex handoffs offer exact-folder trust with the workspace-write sandbox; Claude Code requests Auto mode where supported. Tasktap provides default Git guidance without creating branches, worktrees, or commits behind your back.
+- **External session discovery:** **Find sessions in other apps** is opt-in (**Preferences → Workspaces**) and never silently migrates external threads into embedded terminals.
+- **Diagnostics:** Exposes effective instructions, routing evidence, payloads, and receipt IDs while excluding connection secrets and redacting recognizable credentials.
+
+&lt;/details&gt;
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;Decisions, reports, notifications, voice, and Codex Micro&lt;/strong&gt;&lt;/summary&gt;
+
+&lt;br&gt;
+
+- **Scoped agent tools:** Managed Claude Code and Codex sessions settle decisions across pane, notch, and notifications simultaneously. Closing a card defers it; ordinary terminal output and exit code `0` never impersonate completed tasks.
+- **Reports &amp; Activity:** View labeled excerpts in Session details, open **Read full report**, or use **Export summary** to export the report document.
+- **Alerts &amp; narration:** **Preferences → Voice &amp; alerts** displays Tasktap’s switch separately from macOS authorization, banners, and Focus suppression. Supports local Siri voices and optional offline Kokoro narration, plus optional hardware **Codex Micro** controls ([keyboard &amp; controller guide](docs/controls.md)).
+
+&lt;/details&gt;
+
+&lt;details&gt;
+&lt;summary&gt;&lt;strong&gt;Appearance layers: App palette vs. Ghostty vs. Shell&lt;/strong&gt;&lt;/summary&gt;
+
+&lt;br&gt;
+
+| Layer | Controls |
+| --- | --- |
+| **Preferences → Appearance** | Application palette (**Follow Ghostty**, **Midnight**, **Daylight**, **Ocean**, **Dusk**, **Ember**, **Rose**, or **System**) plus native window translucency and blur. |
+| **Workspace actions → Terminal preferences** | Shell executable, text-size override, Ghostty font/cursor import, and **Reload Ghostty settings**. |
+| **Your shell startup** | `zsh` / `bash` / `fish` config, aliases, Oh My Zsh plugins, and Starship prompts. |
+
+Tasktap renders terminals with **xterm.js** (not `libghostty`), importing supported Ghostty palette/font/cursor fields with a neutral fallback when unavailable. Text stays opaque over translucent backdrops, **Reduce Transparency** takes precedence, and **Reduce Motion** pauses animated artwork.
+
+&lt;/details&gt;
+
+---
+
+## Build and Verify from Source
+
+Requires Git, Python 3, and Xcode or Command Line Tools with the **macOS 26 SDK or newer**:
+
+```sh
+git clone https://github.com/HarzerHeribert/Tasktap.git
+cd Tasktap
+./scripts/build-mac.sh
+open build/Tasktap.app
+```
+
+Run the style, workspace, installer, and site verification suite (`npm ci` + Playwright Chromium or `BROWSER_EXECUTABLE` for browser checks):
+
+```sh
+bash scripts/verify-installer.sh
+python3 scripts/verify-style.py
+node scripts/verify-review.cjs
+node scripts/verify-workspace-splits.cjs
+node scripts/verify-workspace-documents.cjs
+python3 scripts/verify-workspace-terminals.py
+python3 scripts/build-site.py
+```
+
+The [browser preview](prototype/index.html) uses fictional data. Native `--verify-interface` and `--verify-workspace` exercise real Mac UI/PTY behavior with fixtures; `--verify-live` uses an authenticated Codex CLI. See the [implementation and QA plan](docs/implementation-gap-plan.md).
+
+[Requirements](docs/requirements.md) · [Interaction design](docs/interaction-design.md) · [Workspace architecture](docs/integrated-workspaces.md) · [Agent question protocol](docs/agent-questions.md) · [Release maintenance](docs/releases.md)
+
+## License
+
+Source-available under **Apache License 2.0 with the Commons Clause**. Personal/internal use, modification, and free redistribution are permitted; selling Tasktap or a service whose value derives substantially from it requires permission. Third-party tools retain their own licenses. See [`LICENSE`](LICENSE).
+</code></pre>
+              </div>
+            </div>
+          </div>
+
+          <aside>
+            <div class="gh-side-section">
+              <h4>About</h4>
+              <p style="color:#e6edf3;margin:0 0 10px">A Mac workspace for coding agents, split terminals, live previews, and a thought-catching notch.</p>
+              <div>🔗 <a href="#lp-top" style="color:#58a6ff" onclick="document.querySelector('[data-view-btn=landing]').click();return false;">harzerheribert.github.io/Tasktap/</a></div>
+              <div class="gh-topics">
+                <span>macos</span><span>coding-agents</span><span>terminal</span><span>claude-code</span><span>codex</span><span>ghostty</span><span>notch</span>
+              </div>
+            </div>
+            <div class="gh-side-section">
+              <h4>Releases</h4>
+              <strong style="color:#e6edf3">Tasktap 1.0.0</strong> <span style="color:#3fb950;border:1px solid #2ea043;border-radius:999px;padding:1px 7px;font-size:11px">Latest</span>
+              <div style="margin-top:6px">Includes <code>Tasktap-1.0.0-arm64.zip</code> + <code>SHA256SUMS</code> for verified Terminal installer.</div>
+            </div>
+            <div class="gh-side-section" style="border:0">
+              <h4>Quick Install</h4>
+              <code style="display:block;padding:10px;border-radius:6px;background:#161b22;border:1px solid #30363d;color:#e6edf3;font:11.5px/1.5 var(--mono);overflow-wrap:anywhere">curl -fL https://harzerheribert.github.io/Tasktap/install.sh -o tasktap-install.sh &amp;&amp; bash tasktap-install.sh</code>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== VIEW 3: DESIGN AUDIT & AI ARTWORK ==================== -->
+    <div class="compare-page" data-view-panel="audit" hidden>
+      <span class="sec-index">DESIGN CRITIQUE &amp; UPGRADE NOTES</span>
+      <h2 style="margin:0;font-size:2.4rem;letter-spacing:-0.045em">What we elevated — and how we spotlighted <code>install.sh</code>.</h2>
+      <p style="color:var(--muted);max-width:64ch;margin-top:10px">All changes live safely inside <code>design/previews/tasktap-mockup/</code> until you’re happy with every word, layout choice, and visual asset.</p>
+
+      <div class="compare-grid">
+        <div class="compare-card">
+          <span class="sec-index" style="color:var(--quiet)">BEFORE · CURRENT LIVE SITE &amp; README</span>
+          <h3>Hidden installer &amp; wall-of-text README</h3>
+          <ul>
+            <li><strong>Zero mention of <code>install.sh</code> in <code>README.md</code></strong> — GitHub visitors only saw manual ZIP instructions.</li>
+            <li><strong>Buried on the Landing Page</strong> — Terminal install was hidden at the very bottom inside a closed <code>&lt;details&gt;</code> accordion (<em>"Prefer installing with Terminal?"</em>).</li>
+            <li><strong>No product visuals in <code>README.md</code></strong> — Only a 112px icon followed by 130 lines of dense prose; none of the 4 product screenshots were shown.</li>
+            <li><strong>Flat screenshot framing</strong> — Landing page screenshots sat on flat backgrounds without studio depth or CLI stack context, and the appearance card sat in a mismatched blue box.</li>
+          </ul>
+        </div>
+
+        <div class="compare-card after">
+          <span class="sec-index">AFTER · NEW MOCKUP DESIGN</span>
+          <h3>Installer front-and-center + Studio hardware aesthetic</h3>
+          <ul>
+            <li><strong>Hero Quick-Install Dock on Landing Page</strong> — Interactive mode tabs (<em>Quick install / Inspect first / Pin v1.0.0</em>), 1-click Copy, inline <code>install.sh</code> source modal, and trust badges above the fold.</li>
+            <li><strong>Featured Option A Spotlight Card in <code>#download</code></strong> — Side-by-side with Direct ZIP, complete with simulated terminal output and 4 cryptographic/rollback guarantees.</li>
+            <li><strong>Headline <code>## Install in One Command</code> in <code>README.md</code></strong> — Retina composited Terminal banner + copyable Bash block + verification table right near the top.</li>
+            <li><strong>Visual Tour + Collapsible Reference</strong> — Retina Hero Banner + 2-column screenshot tour in <code>README.md</code>, keeping 100% of Tasktap’s honest technical documentation neatly organized.</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3 style="margin:40px 0 8px;font-size:1.4rem;letter-spacing:-0.03em">Bespoke Google AI Studio Artwork Generated for This Mockup</h3>
+      <p style="margin:0;color:var(--muted);font-size:0.92rem">Generated under your subscription to match Tasktap’s obsidian, smoked optical glass, brushed titanium, and warm <code>#ddba91</code> champagne-brass palette — never faking UI text, always framing real app pixels:</p>
+
+      <div class="art-gallery">
+        <div class="art-tile">
+          <img src="assets/studio-stage.webp" alt="Studio stage AI artwork">
+          <div><strong>01 · Smoked Optical Glass Stage</strong>Frames <code>workspace.png</code> on the Landing Page and powers the Retina <code>readme-hero.png</code> composite.</div>
+        </div>
+        <div class="art-tile">
+          <img src="assets/notch-signal.webp" alt="Notch signal AI artwork">
+          <div><strong>02 · Space-Black Notch &amp; Wave</strong>Echoes Tasktap’s 19-bar metallic voice icon beneath a MacBook camera bezel in Section 02.</div>
+        </div>
+        <div class="art-tile">
+          <img src="assets/terminal-monolith.webp" alt="Terminal monolith AI artwork">
+          <div><strong>03 · CNC Anodized Keycap Monolith</strong>Anchors the Verified Terminal Installer card on both the Landing Page and GitHub README banner.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <dialog class="source-dialog" id="install-source-dialog">
+    <div class="source-dialog-head">
+      <strong>site/install.sh (69 lines · inspectable Bash source)</strong>
+      <button type="button" class="mini-btn" id="close-source-dialog">Close ✕</button>
+    </div>
+    <pre><code>#!/bin/bash
+# Download this file, inspect it, then run: bash install.sh [VERSION]
+set -euo pipefail
+resolve_version() {
+  local requested=&quot;${1:-latest}&quot; release_url
+  if [ &quot;$requested&quot; = latest ]; then
+    release_url=&quot;$(curl --fail --silent --show-error --location --proto &#x27;=https&#x27; --proto-redir &#x27;=https&#x27; --tlsv1.2 --output /dev/null --write-out &#x27;%{url_effective}&#x27; &#x27;https://github.com/HarzerHeribert/Tasktap/releases/latest&#x27;)&quot; || return 1
+    case &quot;$release_url&quot; in
+      https://github.com/HarzerHeribert/Tasktap/releases/tag/v*) requested=&quot;${release_url##*/v}&quot; ;;
+      *) echo &#x27;Could not resolve the latest stable Tasktap release.&#x27; &gt;&amp;2; return 1 ;;
+    esac
+  fi
+  [[ &quot;$requested&quot; =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo &#x27;Use latest or a stable version such as 1.0.0.&#x27; &gt;&amp;2; return 2; }
+  printf &#x27;%s\n&#x27; &quot;$requested&quot;
+}
+install_tasktap() {
+  local source=&quot;$1&quot; install_dir=&quot;$2&quot; backups=&quot;$3&quot; staged dest archive_dir
+  dest=&quot;$install_dir/Tasktap.app&quot;
+  mkdir -p &quot;$install_dir&quot; &quot;$backups&quot;
+  staged=&quot;$(mktemp -d &quot;$install_dir/.tasktap-install.XXXXXX&quot;)&quot; || return 1
+  if ! ditto &quot;$source&quot; &quot;$staged/new.app&quot;; then rm -rf &quot;$staged&quot;; return 1; fi
+  if [ -e &quot;$dest&quot; ]; then
+    archive_dir=&quot;$(mktemp -d &quot;$backups/Tasktap-backup.XXXXXX&quot;)&quot; || { rm -rf &quot;$staged&quot;; return 1; }
+    if ! ditto -c -k --sequesterRsrc --keepParent &quot;$dest&quot; &quot;$archive_dir/Tasktap.zip&quot; || ! /usr/bin/unzip -tq &quot;$archive_dir/Tasktap.zip&quot; &gt;/dev/null; then
+      rm -rf &quot;$staged&quot;; return 1
+    fi
+    if ! mv &quot;$dest&quot; &quot;$staged/previous.app&quot;; then rm -rf &quot;$staged&quot;; return 1; fi
+  fi
+  if ! mv &quot;$staged/new.app&quot; &quot;$dest&quot;; then
+    if [ -e &quot;$staged/previous.app&quot; ]; then
+      mv &quot;$staged/previous.app&quot; &quot;$dest&quot; || { echo &quot;Restore the previous app from $staged/previous.app&quot;; return 1; }
+    fi
+    rm -rf &quot;$staged&quot;; return 1
+  fi
+  rm -rf &quot;$staged&quot;
+}
+# Sourcing exposes the installation transaction for isolated filesystem tests.
+if [[ &quot;${BASH_SOURCE[0]}&quot; != &quot;$0&quot; ]]; then return 0; fi
+[ &quot;$#&quot; -le 1 ] || { echo &#x27;Usage: bash install.sh [VERSION]&#x27;; exit 2; }
+[ &quot;$(uname -s)&quot; = Darwin ] || { echo &#x27;Tasktap requires macOS.&#x27;; exit 1; }
+[ &quot;$(sw_vers -productVersion | cut -d. -f1)&quot; -ge 26 ] || { echo &#x27;Tasktap requires macOS 26 or later.&#x27;; exit 1; }
+arch=&quot;$(uname -m)&quot;
+[ &quot;$arch&quot; = arm64 ] || { echo &#x27;This community release supports Apple silicon.&#x27;; exit 1; }
+if pgrep -x Tasktap &gt;/dev/null; then echo &#x27;Quit Tasktap before installing. Terminal agents can keep running.&#x27;; exit 1; fi
+version=&quot;$(resolve_version &quot;${1:-latest}&quot;)&quot;
+printf &#x27;Installing Tasktap %s…\n&#x27; &quot;$version&quot;
+tmp=&quot;$(mktemp -d)&quot;
+trap &#x27;rm -rf &quot;$tmp&quot;&#x27; EXIT
+archive=&quot;Tasktap-$version-$arch.zip&quot;
+base=&quot;https://github.com/HarzerHeribert/Tasktap/releases/download/v$version&quot;
+curl --fail --location --proto &#x27;=https&#x27; --tlsv1.2 &quot;$base/$archive&quot; -o &quot;$tmp/$archive&quot;
+curl --fail --location --proto &#x27;=https&#x27; --tlsv1.2 &quot;$base/SHA256SUMS&quot; -o &quot;$tmp/checksums&quot;
+(cd &quot;$tmp&quot; &amp;&amp; awk -v name=&quot;$archive&quot; &#x27;$2==name {print}&#x27; checksums &gt; selected &amp;&amp; test -s selected &amp;&amp; shasum -a 256 -c selected)
+ditto -x -k &quot;$tmp/$archive&quot; &quot;$tmp/extracted&quot;
+app=&quot;$tmp/extracted/Tasktap.app&quot;
+codesign --verify --deep --strict &quot;$app&quot;
+[ &quot;$(/usr/libexec/PlistBuddy -c &#x27;Print :CFBundleIdentifier&#x27; &quot;$app/Contents/Info.plist&quot;)&quot; = io.github.harzerheribert.tasktap ]
+[ &quot;$(/usr/libexec/PlistBuddy -c &#x27;Print :CFBundleShortVersionString&#x27; &quot;$app/Contents/Info.plist&quot;)&quot; = &quot;$version&quot; ]
+if [ -d /Applications/Tasktap.app ] &amp;&amp; [ -d &quot;$HOME/Applications/Tasktap.app&quot; ]; then
+  echo &#x27;Two Tasktap installations already exist. Keep one in Applications before updating.&#x27;; exit 1
+fi
+install_dir=&quot;$HOME/Applications&quot;
+if [ -d /Applications/Tasktap.app ]; then install_dir=/Applications; fi
+if [ -d &quot;$install_dir&quot; ] &amp;&amp; [ ! -w &quot;$install_dir&quot; ]; then
+  echo &quot;Replace Tasktap in $install_dir using Finder; no second copy was installed.&quot;; exit 1
+fi
+dest=&quot;$install_dir/Tasktap.app&quot;
+install_tasktap &quot;$app&quot; &quot;$install_dir&quot; &quot;$HOME/Library/Application Support/Tasktap/Backups&quot;
+printf &#x27;Installed %s. Open it in Finder. If blocked, use Privacy &amp; Security → Open Anyway.\nPython 3 and a signed-in agent CLI are required for agent sessions.\n&#x27; &quot;$dest&quot;
+</code></pre>
+  </dialog>
+</body>
+</html>

@@ -37,11 +37,15 @@ float sweep(float xn){ return u_st[5]*bump(xn+1.7-3.4*smoothstep(0.,1.3,u_ph.w),
 // ---- the studio: a dark room, a wide key overhead, a tall cool strip left, a warm strip right ----
 vec3 xl=vec3(0,0,1), xlc=vec3(0);   // one more light that a concept may steer: direction and colour
 float amb=1.;                       // and the room's own level
+float fine=0.;                      // 1 where the metal turns further under one pixel than its softest reflection (.45) shows
 float card(vec3 d, vec3 n, vec2 hs, float s){
   float c=dot(d,n); if(c<.05) return 0.;
   vec3 r=normalize(cross(vec3(0,1,0),n)), u=cross(n,r), p=d/c;
-  vec2 uv=vec2(dot(p,r),dot(p,u)), a=abs(uv)-hs; uv/=hs;
-  return smoothstep(s,-s,a.x)*smoothstep(s,-s,a.y)*(1.-.18*dot(uv,uv));          // a softbox is hottest at its centre
+  vec2 uv=vec2(dot(p,r),dot(p,u)), a=abs(uv)-hs; uv/=hs; vec2 on=clamp(uv,-1.,1.);
+  // A softbox is hottest at its centre. Out in a soft reflection's skirt that falloff runs below zero, which the
+  // tone curve shows as light again, with a black hairline where it crosses zero: it is taken as the light it shows
+  // as, and where the metal turns too far under one pixel for that fringe to be drawn (fine), it stops at the edge.
+  return smoothstep(s,-s,a.x)*smoothstep(s,-s,a.y)*mix(abs(1.-.18*dot(uv,uv)),1.-.18*dot(on,on),fine);
 }
 vec3 env(vec3 d, float s){
   float t=u_ph.x*.03+d.x*.28, az=atan(d.x,d.z);                   // az: 0 is behind the camera, +-PI behind the metal
@@ -132,12 +136,14 @@ float slat(vec2 q, float asp, float px, float f, float g, out vec3 n, out vec4 m
   float xc=-X+(i+.5)*pitch, xn=xc/X, r=hash(i+1.), bw=pitch*.37, cr=bw*.36;
   vec2 w=wave(xn,r,f,g)*sc;
   float hh=max(w.y,bw);
-  vec2 p=vec2(q.x-xc,q.y-w.x), e=sign(p)*max(abs(p)-vec2(bw,hh)+cr,0.)/cr;
-  float rr=length(e), ang=asin(min(rr,1.))*.96;                    // a flat face with rolled shoulders
+  vec2 p=vec2(q.x-xc,q.y-w.x), b=(abs(p)-vec2(bw,hh))/cr+1., e=sign(p)*max(b,0.);
+  float rr=length(e), ang=asin(min(rr,1.))*.96, h=.5*px/cr;        // a flat face with rolled shoulders
   n=vec3(e/max(rr,1e-4)*sin(ang),cos(ang)); n.x+=p.x/bw*.16;
-  // The face reflects sharply and the shoulder softly; one becomes the other over a pixel and a half, not at a line,
-  // which would stand on whole pixels and jump from one to the next as the slat's height changes.
-  m=vec4(xn,r,p.y/sc,mix(.03,clamp(2.5*px/cr,.03,.45),smoothstep(.02,.02+1.5*px/cr,rr)));
+  // The face reflects sharply and the shoulder softly, by how far it turns under one pixel (S, and more towards its
+  // rim); one becomes the other by the share of the pixel that lies on the shoulder (t), not at a line, which would
+  // stand on whole pixels and jump from one to the next as the slat moves.
+  float S=max(2.5*px/cr,.03), t=min(length(max(b+h,0.))/(2.*h),1.), k=sqrt(1.-min(rr*rr,.9));
+  m=vec4(xn,r,p.y/sc,.03*pow(min(S,.45)/.03,t)/k); fine=smoothstep(.45,.9,S/k)*min(4.*t,1.);
   return clamp(.5+(1.-rr)*cr/px,0.,1.);
 }
 #define VIEW float asp=u_res.x/u_res.y, px=2./u_res.y; vec2 q=(gl_FragCoord.xy-u_org-.5*u_res)*px;
@@ -171,5 +177,5 @@ void beam(float xn){
   xl=normalize(vec3(sin(az),.12,cos(az))); xlc=u_lm.x*I*mix(vec3(1),lc,.5);
 }
 // What the metal's shoulders catch of the light behind it.
-vec3 sheen(vec3 n, vec3 glow){ float z=normalize(n).z; return glow*pow(1.-z,1.5)*3.+lc*la*.5*pow(1.-z,2.); }
+vec3 sheen(vec3 n, vec3 glow){ float z=min(normalize(n).z,1.); return glow*pow(1.-z,1.5)*3.+lc*la*.5*pow(1.-z,2.); }
 `;

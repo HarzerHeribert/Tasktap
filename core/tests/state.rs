@@ -17,11 +17,11 @@ use tasktap_core::state::{
 use tasktap_core::store::{AttemptKind, AttemptOutcome, Store, Tx};
 use tasktap_proto::{
     AttemptId, Capture, Change, Changes, Code, Collection, Device, DeviceId, Event as Said,
-    Isolate, Mode, Offset, Outcome, Phase, PrefKey, PrefValue, Project, ProjectId, ProjectKind,
-    Question, QuestionId, QuestionKind, QuestionSource, QuestionState, READ_HOLD, Reason, ReplyVia,
-    Response, ResultKind, Rev, RouteBy, Routing, Secret, Session, SessionId, SessionState, Set,
-    Source, Status, Terminal, TerminalId, TerminalKind, TerminalState, Thought, ThoughtId, Time,
-    TurnResult, Workdir,
+    Isolate, Mode, Offset, Outcome, Phase, Placed, PrefKey, PrefValue, Project, ProjectId,
+    ProjectKind, Question, QuestionId, QuestionKind, QuestionSource, QuestionState, READ_HOLD,
+    Reason, ReplyVia, Response, ResultKind, Rev, RouteBy, Routing, Secret, Session, SessionId,
+    SessionState, Set, Source, Status, Terminal, TerminalId, TerminalKind, TerminalState, Thought,
+    ThoughtId, Time, TurnResult, Workdir,
 };
 
 /// Seconds a thought is held while the preference is unset.
@@ -475,6 +475,7 @@ fn row_route_clear_and_the_persons_pick_route_and_start_the_hold() {
         thought: t,
         route,
         how: locally(None),
+        current: None,
     });
     assert_eq!(effects, [Effect::Hold { thought: t, until }]);
     let th = w.thought(t);
@@ -492,6 +493,7 @@ fn row_route_clear_and_the_persons_pick_route_and_start_the_hold() {
         thought: t,
         route: Route::Unknown,
         how: locally(None),
+        current: None,
     };
     assert_eq!(w.ignored(late), Ignored::State);
 
@@ -551,6 +553,7 @@ fn row_route_ambiguous_asks_and_the_answer_routes() {
         thought: t,
         route,
         how: locally(None),
+        current: None,
     });
     let &[Effect::Notify(q)] = effects.as_slice() else {
         panic!("{effects:?}")
@@ -619,6 +622,7 @@ fn a_router_question_declined_or_bypassed_closes() {
         thought: t,
         route,
         how: locally(None),
+        current: None,
     }));
     assert_eq!(w.answer(q, Response::Deny).unwrap(), NONE);
     let th = w.thought(t);
@@ -635,6 +639,7 @@ fn a_router_question_declined_or_bypassed_closes() {
         thought: t,
         route,
         how: locally(None),
+        current: None,
     }));
     let to = Destination::New(w.project);
     w.ok(Event::Pick { thought: t, to });
@@ -653,6 +658,7 @@ fn a_router_question_declined_or_bypassed_closes() {
             thought: t,
             route,
             how: locally(None),
+            current: None,
         }),
         NONE
     );
@@ -669,6 +675,7 @@ fn row_route_unknown_keeps_an_idea_that_can_start_later() {
             thought: t,
             route,
             how: locally(None),
+            current: None,
         }),
         NONE
     );
@@ -1771,6 +1778,7 @@ fn an_event_that_does_not_fit_changes_nothing() {
         thought: c,
         route: Route::Unknown,
         how: locally(None),
+        current: None,
     });
     let (t, s) = w.turn();
     let rev = w.store.rev();
@@ -1794,6 +1802,7 @@ fn an_event_that_does_not_fit_changes_nothing() {
             thought: t,
             route: Route::Unknown,
             how: locally(None),
+            current: None,
         },
         Event::Settle {
             thought: t,
@@ -2018,6 +2027,7 @@ fn a_router_question_survives_a_restart_and_still_routes() {
         thought: t,
         route,
         how: locally(None),
+        current: None,
     });
     let &[Effect::Notify(q)] = effects.as_slice() else {
         panic!("{effects:?}")
@@ -2093,6 +2103,7 @@ fn a_thought_runs_captured_routed_working_needs_you_working_done() {
         thought: t,
         route,
         how: locally(None),
+        current: None,
     });
     seen(&mut w, t);
     let &[Effect::Hold { until, .. }] = effects.as_slice() else {
@@ -2408,6 +2419,7 @@ impl Sweep {
                 thought: id,
                 route,
                 how: locally(None),
+                current: None,
             }));
             moves.extend([
                 Event::Pick { thought: id, to: p },
@@ -3050,6 +3062,7 @@ impl World {
             thought,
             route,
             how: by_model(),
+            current: None,
         })
     }
 
@@ -3212,6 +3225,147 @@ fn rows_start_and_undo_act_at_once_while_a_late_route_is_there_to_read() {
     );
 }
 
+/// Every way a thought comes by its place, and every reason it waits for
+/// later (design §5, `placed`): the closed set, each from the event that
+/// decides it.
+#[test]
+fn row_placed_says_how_a_thought_came_by_its_place_or_why_it_waits() {
+    let mut w = World::new("placed");
+    let site = project("/work/site");
+    w.write(|tx| tx.insert_project(&site).unwrap());
+    let (_, s) = w.running();
+    w.say(s, Said::Ready).unwrap();
+    let (_, other) = w.running();
+    let app = Destination::New(w.project);
+    let placed = |w: &mut World, t| (w.thought(t).placed, w.thought(t).mode);
+    let clear = |to| Route::Clear {
+        to,
+        brief: "Do it.".into(),
+    };
+    let ambiguous = || Route::Ambiguous {
+        prompt: "Where should this go?".into(),
+        candidates: vec![
+            Candidate {
+                label: "app".into(),
+                to: app,
+            },
+            Candidate {
+                label: "site".into(),
+                to: Destination::New(site.id),
+            },
+        ],
+        brief: None,
+    };
+    let answered = |w: &mut World, route, how, current| {
+        let t = w.capture("do it");
+        // Nothing is recorded while the router is still asked.
+        assert_eq!(w.thought(t).placed, None);
+        let effects = w.ok(Event::Routed {
+            thought: t,
+            route,
+            how,
+            current,
+        });
+        (t, effects)
+    };
+
+    // The person picked: at capture, later, and by typing in a session's terminal.
+    let t = ThoughtId::mint();
+    let picked = Capture {
+        project_id: Some(w.project),
+        ..capture(t, "fix the build")
+    };
+    w.ok(captured(picked));
+    assert_eq!(placed(&mut w, t), (Some(Placed::Picked), Mode::Ask));
+    let t = w.routed("and the docs");
+    assert_eq!(placed(&mut w, t), (Some(Placed::Picked), Mode::Ask));
+    let prompt = Some("by hand".to_string());
+    w.say(s, Said::TurnStarted { prompt }).unwrap();
+    let typed = w.session(s).thought_id.unwrap();
+    assert_eq!(w.thought(typed).placed, Some(Placed::Picked));
+    w.say(s, Said::TurnFinished { answer: None }).unwrap();
+
+    // The router found one place: the match on names, or a model.
+    let (t, _) = answered(&mut w, clear(app), locally(None), None);
+    assert_eq!(placed(&mut w, t), (Some(Placed::Name), Mode::Ask));
+    let (t, _) = answered(&mut w, clear(app), by_model(), None);
+    assert_eq!(placed(&mut w, t), (Some(Placed::Model), Mode::Ask));
+    // A model that failed left it to the match on names.
+    let fell_back = locally(Some("claude: it ended without an answer".into()));
+    let (t, _) = answered(&mut w, clear(app), fell_back, None);
+    assert_eq!(placed(&mut w, t), (Some(Placed::Name), Mode::Ask));
+
+    // It stays in the session it was captured in: a follow-up there,
+    // whoever answered; to any other session it was placed as above.
+    let here = Destination::Session(s);
+    for how in [locally(None), by_model()] {
+        let (t, _) = answered(&mut w, clear(here), how, Some(s));
+        assert_eq!(placed(&mut w, t), (Some(Placed::FollowUp), Mode::Nudge));
+    }
+    let (t, _) = answered(&mut w, clear(here), locally(None), None);
+    assert_eq!(placed(&mut w, t), (Some(Placed::Name), Mode::Nudge));
+    let (t, _) = answered(&mut w, clear(here), by_model(), Some(other));
+    assert_eq!(placed(&mut w, t), (Some(Placed::Model), Mode::Nudge));
+
+    // The router asked, and the person chose or declined. Until then
+    // nothing is recorded.
+    let question = |effects: Vec<Effect>| match effects.as_slice() {
+        &[Effect::Notify(q)] => q,
+        other => panic!("{other:?}"),
+    };
+    let (t, effects) = answered(&mut w, ambiguous(), by_model(), None);
+    assert_eq!(placed(&mut w, t), (None, Mode::Ask));
+    let choice = Response::Choice { choice: 1 };
+    w.answer(question(effects), choice).unwrap();
+    assert_eq!(placed(&mut w, t), (Some(Placed::Answer), Mode::Ask));
+    assert_eq!(w.thought(t).project_id, Some(site.id));
+    let (t, effects) = answered(&mut w, ambiguous(), locally(None), None);
+    w.answer(question(effects), Response::Deny).unwrap();
+    assert_eq!(placed(&mut w, t), (Some(Placed::KeptAnswer), Mode::Note));
+    // Picked while the question was open: the person's pick.
+    let (t, _) = answered(&mut w, ambiguous(), locally(None), None);
+    w.ok(Event::Pick {
+        thought: t,
+        to: app,
+    });
+    assert_eq!(placed(&mut w, t), (Some(Placed::Picked), Mode::Ask));
+
+    // For later: saved so by the person, or no place was found, by the
+    // match on names or by a model.
+    let t = ThoughtId::mint();
+    let note = Capture {
+        mode: Some(Mode::Note),
+        ..capture(t, "an idea")
+    };
+    assert_eq!(w.ok(captured(note)), NONE);
+    assert_eq!(placed(&mut w, t), (Some(Placed::Kept), Mode::Note));
+    let (t, _) = answered(&mut w, Route::Unknown, locally(None), None);
+    assert_eq!(placed(&mut w, t), (Some(Placed::KeptName), Mode::Note));
+    let (t, _) = answered(&mut w, Route::Unknown, by_model(), Some(s));
+    assert_eq!(placed(&mut w, t), (Some(Placed::KeptModel), Mode::Note));
+    // A place that went while the router answered is no place.
+    let nowhere = Destination::New(ProjectId::mint());
+    let (t, _) = answered(&mut w, clear(nowhere), by_model(), None);
+    assert_eq!(placed(&mut w, t), (Some(Placed::KeptModel), Mode::Note));
+    let (t, _) = answered(&mut w, clear(nowhere), locally(None), None);
+    assert_eq!(placed(&mut w, t), (Some(Placed::KeptName), Mode::Note));
+
+    // The last decision counts: an idea the person then sends somewhere
+    // is their pick, and Undo leaves the place and how it came about.
+    w.ok(Event::Pick {
+        thought: t,
+        to: app,
+    });
+    assert_eq!(placed(&mut w, t), (Some(Placed::Picked), Mode::Ask));
+    let (t, _) = answered(&mut w, clear(app), by_model(), None);
+    w.ok(Event::Stop { thought: t });
+    let th = w.thought(t);
+    assert_eq!(
+        (th.phase, th.placed, th.project_id),
+        (Phase::Captured, Some(Placed::Model), Some(w.project))
+    );
+}
+
 #[test]
 fn row_a_new_run_is_named_by_the_title_a_model_gave_the_work() {
     let mut w = World::new("title");
@@ -3234,6 +3388,7 @@ fn row_a_new_run_is_named_by_the_title_a_model_gave_the_work() {
         thought: id,
         route,
         how: titled.clone(),
+        current: None,
     });
     let s = start(&mut w, id);
     let session = w.session(s);
@@ -3256,6 +3411,7 @@ fn row_a_new_run_is_named_by_the_title_a_model_gave_the_work() {
         thought: f,
         route,
         how: follow,
+        current: None,
     });
     assert_eq!(start(&mut w, f), s);
     assert_eq!(w.session(s).name.as_deref(), Some("Green build"));

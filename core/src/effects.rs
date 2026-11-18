@@ -433,16 +433,18 @@ fn route(
     let sure = matches!(local, Route::Clear { .. }) && short(&asked.text);
     let tool = match by.filter(|_| !sure) {
         Some(by) => consented(&by).and_then(|tool| askable(&asked.text).map(|()| tool)),
-        None => return routed(core, id, local, state::locally(None)),
+        None => return routed(core, id, local, state::locally(None), current),
     };
     let narrowed = read(core, |tx| narrow(tx, asked)).map_err(|e| e.message);
     let (agent, how, asked) = match (tool, narrowed) {
         (Ok((agent, how)), _) if core.seams.gone(agent.id()) => {
             let why = crate::route::gone(how.tool);
-            return routed(core, id, local, state::locally(Some(why)));
+            return routed(core, id, local, state::locally(Some(why)), current);
         }
         (Ok((agent, how)), Ok(asked)) => (agent, how, asked),
-        (Err(why), _) | (_, Err(why)) => return routed(core, id, local, state::locally(Some(why))),
+        (Err(why), _) | (_, Err(why)) => {
+            return routed(core, id, local, state::locally(Some(why)), current);
+        }
     };
     let folder = core.terminals.data().join("route");
     let (hear, heard) = mpsc::channel();
@@ -501,15 +503,22 @@ fn route(
                 )
             }
         };
-        routed(core, id, route, how);
+        routed(core, id, route, how, current);
     });
 }
 
-fn routed(core: &mut Core, thought: ThoughtId, route: Route, how: Routing) {
+fn routed(
+    core: &mut Core,
+    thought: ThoughtId,
+    route: Route,
+    how: Routing,
+    current: Option<SessionId>,
+) {
     let routed = Event::Routed {
         thought,
         route,
         how,
+        current,
     };
     report(core, routed, |_| Ok(()));
 }

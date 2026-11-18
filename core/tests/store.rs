@@ -97,6 +97,7 @@ fn thought(project: Option<ProjectId>, phase: Phase) -> Thought {
         session_id: None,
         brief: Some("brief".into()),
         route: None,
+        placed: None,
         agent: Some("claude".into()),
         model: None,
         workdir: None,

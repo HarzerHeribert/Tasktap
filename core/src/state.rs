@@ -30,7 +30,7 @@ use sha2::{Digest, Sha256};
 // agent said, P a thought's phase, S a session's state, Q a question's state.
 use tasktap_proto::{
     Answer, AttemptId, Capture, Changes, Code, DeviceId, Event as A, Isolate, MAX_OPEN_QUESTIONS,
-    MAX_SESSION_QUESTIONS, Mode, Offset, Outcome, Phase as P, PrefKey, PrefValue, Project,
+    MAX_SESSION_QUESTIONS, Mode, Offset, Outcome, Phase as P, Placed, PrefKey, PrefValue, Project,
     ProjectId, ProjectKind, Question, QuestionId, QuestionKind, QuestionSource, QuestionState as Q,
     READ_HOLD, Reason, ReplyVia, Response, ResultKind, Rev, RouteBy, Routing, Secret, Session,
     SessionId, SessionState as S, Source, Status, Terminal, TerminalId, TerminalKind,
@@ -59,10 +59,13 @@ pub enum Event {
     Pick { thought: ThoughtId, to: Destination },
     /// The router's answer for a thought it was asked about, and `how` it
     /// came by it: who answered, and why not the model that was asked.
+    /// `current` is the session the thought was captured in, as the
+    /// router was told it.
     Routed {
         thought: ThoughtId,
         route: Route,
         how: Routing,
+        current: Option<SessionId>,
     },
     /// The thought's hold timer fired. The core mints the attempt.
     HoldEnded {
@@ -557,12 +560,13 @@ impl Machine<'_, '_> {
                 E::Routed {
                     route: Route::Clear { to, brief },
                     how,
+                    current,
                     ..
                 },
                 _,
                 Some(P::Captured),
                 ..,
-            ) if routing(&thought) => self.routed(some(thought)?, to, brief, how),
+            ) if routing(&thought) => self.routed(some(thought)?, to, brief, how, current),
             // the brief of a thought whose destination the person picked.
             (
                 E::Routed {
@@ -579,7 +583,7 @@ impl Machine<'_, '_> {
             }
             (E::Pick { to, .. }, _, Some(P::Captured), ..) => {
                 let now = self.now;
-                self.route(some(thought)?, to, None, now)
+                self.route(some(thought)?, to, None, now, Placed::Picked)
             }
             // route ambiguous: stays captured, a router question opens.
             (
@@ -601,7 +605,8 @@ impl Machine<'_, '_> {
             }
             // route unknown, or ambiguous with nothing to choose: an idea.
             (E::Routed { how, .. }, _, Some(P::Captured), ..) if routing(&thought) => {
-                self.keep_as_idea(some(thought)?, Some(how))
+                let placed = unplaced(&how);
+                self.keep_as_idea(some(thought)?, Some(how), placed)
             }
             // hold ends, or thought.start: routed → working once the attempt
             // is written. A hold that ends while the router still writes the
@@ -968,6 +973,8 @@ impl Machine<'_, '_> {
             session_id: None,
             brief: None,
             route: None,
+            // Saved for later by the person: nobody is asked about a note.
+            placed: (mode == Mode::Note).then_some(Placed::Kept),
             agent: Some(agent),
             model: c.model,
             workdir: None,
@@ -981,7 +988,7 @@ impl Machine<'_, '_> {
         match pick {
             Some(to) => {
                 let now = self.now;
-                self.route(t, to, None, now)
+                self.route(t, to, None, now, Placed::Picked)
             }
             None if mode == Mode::Note => Ok(()),
             None => {
@@ -1036,24 +1043,33 @@ impl Machine<'_, '_> {
 
     /// The router found one destination. The hold counts from the capture,
     /// so the time the router took is not added to it. A destination that
-    /// went meanwhile leaves the thought an idea.
+    /// went meanwhile leaves the thought an idea. One that stays in the
+    /// session it was captured in is a follow-up there, whoever answered.
     fn routed(
         &mut self,
         mut t: Thought,
         to: Destination,
         brief: String,
         how: Routing,
+        current: Option<SessionId>,
     ) -> Result<()> {
+        let (placed, kept) = match (to, how.by == LOCAL) {
+            (Destination::Session(s), _) if current == Some(s) => {
+                (Placed::FollowUp, unplaced(&how))
+            }
+            (_, true) => (Placed::Name, Placed::KeptName),
+            (_, false) => (Placed::Model, Placed::KeptModel),
+        };
         t.route = Some(how);
         match self.target(to) {
             Ok(_) => {
                 let since = t.created;
-                self.route(t, to, Some(brief), since)
+                self.route(t, to, Some(brief), since, placed)
             }
             Err(Error::Gone) => {
                 let route = t.route.as_mut().expect("set above");
                 route.fallback = Some("the destination it found is gone".into());
-                self.keep_as_idea(t, None)
+                self.keep_as_idea(t, None, kept)
             }
             Err(e) => Err(e),
         }
@@ -1119,8 +1135,10 @@ impl Machine<'_, '_> {
         to: Destination,
         brief: Option<String>,
         since: Time,
+        placed: Placed,
     ) -> Result<()> {
         let (project, session) = self.target(to)?;
+        t.placed = Some(placed);
         let until = self.held(after(since, self.hold()?)?)?;
         // Picked while the router was still asked where it goes.
         self.unask(&mut t, "the person picked where it goes");
@@ -1211,15 +1229,16 @@ impl Machine<'_, '_> {
         match to {
             Some(to) => {
                 let now = self.now;
-                self.route(t, to, None, now)
+                self.route(t, to, None, now, Placed::Answer)
             }
-            None => self.keep_as_idea(t, None),
+            None => self.keep_as_idea(t, None, Placed::KeptAnswer),
         }
     }
 
-    fn keep_as_idea(&mut self, mut t: Thought, how: Option<Routing>) -> Result<()> {
+    fn keep_as_idea(&mut self, mut t: Thought, how: Option<Routing>, why: Placed) -> Result<()> {
         t.mode = Mode::Note;
         t.route = how.or(t.route);
+        t.placed = Some(why);
         self.save(t)
     }
 
@@ -1497,6 +1516,7 @@ impl Machine<'_, '_> {
             session_id: Some(s.id),
             brief: None,
             route: None,
+            placed: Some(Placed::Picked),
             agent: Some(s.agent.clone()),
             model: s.model.clone(),
             workdir: None,
@@ -2102,6 +2122,15 @@ pub fn locally(why: Option<String>) -> Routing {
         by: LOCAL.into(),
         fallback: why,
         ..Routing::default()
+    }
+}
+
+/// Why a thought the router found no place for is kept for later: by
+/// the match on names, or by the model that answered.
+fn unplaced(how: &Routing) -> Placed {
+    match how.by == LOCAL {
+        true => Placed::KeptName,
+        false => Placed::KeptModel,
     }
 }
 

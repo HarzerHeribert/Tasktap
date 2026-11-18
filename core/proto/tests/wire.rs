@@ -899,6 +899,40 @@ fn the_consent_to_route_by_a_model_and_a_thoughts_route_are_as_the_wire_says() {
         routed
     );
     wire.as_object_mut().unwrap().remove("route");
+    assert_eq!(
+        serde_json::from_value::<Thought>(wire.clone()).unwrap(),
+        thought()
+    );
+
+    // How a thought's place came about is one word of a closed set; a
+    // thought stored before it was recorded reads with none.
+    let words: Vec<_> = (Placed::ALL.iter())
+        .map(|p| serde_json::to_value(p).unwrap())
+        .collect();
+    assert_eq!(
+        json!(words),
+        json!([
+            "picked",
+            "name",
+            "model",
+            "follow_up",
+            "answer",
+            "kept",
+            "kept_answer",
+            "kept_name",
+            "kept_model"
+        ])
+    );
+    let placed = Thought {
+        placed: Some(Placed::FollowUp),
+        ..thought()
+    };
+    assert_eq!(
+        serde_json::to_value(&placed).unwrap()["placed"],
+        "follow_up"
+    );
+    assert_eq!(wire["placed"], json!(null));
+    wire.as_object_mut().unwrap().remove("placed");
     assert_eq!(serde_json::from_value::<Thought>(wire).unwrap(), thought());
 
     // `route.terms` is a device's call with no arguments.

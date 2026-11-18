@@ -543,6 +543,7 @@ fn settling_keeps_or_discards_pending_changes_through_the_launcher() {
         session_id: None,
         brief: None,
         route: None,
+        placed: None,
         agent: Some("claude".into()),
         model: None,
         workdir: Some(Workdir {

@@ -48,6 +48,7 @@ pub fn thought() -> Thought {
             deletions: 3,
         }),
         route: None,
+        placed: None,
         hold_until: None,
         read: false,
         created: time(0),

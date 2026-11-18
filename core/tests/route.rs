@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use tasktap_core::route::{Followed, Named, Request, accept, local, same, short};
 use tasktap_core::state::{Candidate, Destination, Route};
 use tasktap_proto::{
-    AddProject, Capture, FixtureClock, Hint, Mode, PrefPatch, ProjectId, ProjectPatch, Put,
+    AddProject, Capture, FixtureClock, Hint, Mode, Placed, PrefPatch, ProjectId, ProjectPatch, Put,
     PutTarget, QuestionKind, QuestionSource, RouteBy, Routing, SessionId, SessionState, Status,
     Thought, ThoughtId, call,
 };
@@ -205,6 +205,7 @@ fn a_normal_build_routes_by_name_and_hints_the_same() {
         (th.status, th.project_id, th.brief.as_deref(), th.mode),
         (Status::Routed, Some(folio), Some(text), Mode::Ask)
     );
+    assert_eq!(th.placed, Some(Placed::Name));
 
     // Two named: a router question with both.
     let text = "move the code from folio to app";
@@ -228,6 +229,7 @@ fn a_normal_build_routes_by_name_and_hints_the_same() {
     let t = capture(&mut w, "buy milk", None);
     let th = w.model.thought(t);
     assert_eq!((th.status, th.mode), (Status::Captured, Mode::Note));
+    assert_eq!(th.placed, Some(Placed::KeptName));
     assert_eq!(
         hint(&mut w, "buy milk", None),
         tasktap_proto::Route::Unknown
@@ -254,6 +256,7 @@ fn a_normal_build_routes_by_name_and_hints_the_same() {
         m.thoughts[&run].session_id.is_some()
     });
     let session = w.model.thought(run).session_id.unwrap();
+    assert_eq!(w.model.thought(run).placed, Some(Placed::Picked));
     hold(&mut w, 5);
     let text = "and add tests";
     let to_session = tasktap_proto::Place::Session(session);
@@ -266,6 +269,7 @@ fn a_normal_build_routes_by_name_and_hints_the_same() {
         (th.status, th.session_id, th.mode),
         (Status::Routed, Some(session), Mode::Nudge)
     );
+    assert_eq!(th.placed, Some(Placed::FollowUp));
     let elsewhere = "and add tests to folio";
     let t = capture(&mut w, elsewhere, Some(session));
     let th = w.model.thought(t);
@@ -273,6 +277,7 @@ fn a_normal_build_routes_by_name_and_hints_the_same() {
         (th.status, th.project_id, th.session_id),
         (Status::Routed, Some(folio), None)
     );
+    assert_eq!(th.placed, Some(Placed::Name));
     core.stop();
 }
 
@@ -656,6 +661,7 @@ fn a_model_routes_a_thought_and_writes_its_brief() {
         (th.status, th.project_id, th.mode),
         (Status::Routed, Some(a.folio), Mode::Ask)
     );
+    assert_eq!(th.placed, Some(Placed::Model));
     // The brief, as the model wrote it, to read during the hold, which
     // counts from the capture.
     assert_eq!(
@@ -923,6 +929,7 @@ fn an_ambiguous_answer_asks_the_person_and_their_choice_routes_the_thought() {
             Some("Keep the header on one line.")
         )
     );
+    assert_eq!(th.placed, Some(Placed::Answer));
     assert_eq!(a.asked(), None);
 }
 

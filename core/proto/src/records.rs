@@ -72,6 +72,10 @@ pub struct Thought {
     /// asked: a note, or a pick whose words go on as they are.
     #[serde(default)]
     pub route: Option<Routing>,
+    /// How its place came about, written when it is placed or kept for
+    /// later; none until then, and in a row older than the field.
+    #[serde(default)]
+    pub placed: Option<Placed>,
     pub agent: Option<String>,
     pub model: Option<String>,
     pub workdir: Option<Workdir>,
@@ -104,6 +108,34 @@ pub struct Routing {
     pub title: Option<String>,
     /// Milliseconds the answer took.
     pub ms: Option<u32>,
+}
+
+words! {
+    /// How a thought's place came about (design §5): who decided where it
+    /// goes, or that it waits for later. The last decision counts: a
+    /// thought kept for later that the person then sends somewhere is
+    /// `picked`.
+    pub enum Placed {
+        /// The person picked the destination, at capture or later, or
+        /// typed the prompt into the session's terminal themselves.
+        Picked,
+        /// The match on names found the folder or session the words name.
+        Name,
+        /// A model placed it somewhere other than the session it was captured in.
+        Model,
+        /// It went on to the session the person was in when they captured it.
+        FollowUp,
+        /// The person chose the destination in the router's question.
+        Answer,
+        /// For later: the person saved it so at capture.
+        Kept,
+        /// For later: the person declined the choices of the router's question.
+        KeptAnswer,
+        /// For later: the match on names found no place for it.
+        KeptName,
+        /// For later: a model found no place for it.
+        KeptModel,
+    }
 }
 
 /// One handwritten stroke: `[x, y]` points on a 600 × 176 canvas.

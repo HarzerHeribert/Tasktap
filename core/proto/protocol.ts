@@ -658,6 +658,14 @@ export type Phase = "captured" | "routed" | "working" | "done" | "failed";
 export type Place = { "project": ProjectId } | { "session": SessionId };
 
 /**
+ * How a thought's place came about (design §5): who decided where it
+ * goes, or that it waits for later. The last decision counts: a
+ * thought kept for later that the person then sends somewhere is
+ * `picked`.
+ */
+export type Placed = "picked" | "name" | "model" | "follow_up" | "answer" | "kept" | "kept_answer" | "kept_name" | "kept_model";
+
+/**
  * A preference row: `{id, value, rev}`, where the key fixes the value's type.
  */
 export type Pref = { rev: Rev, } & ({ "id": "hold", "value": number } | { "id": "agent", "value": string | null } | { "id": "route_by", "value": RouteBy | null } | { "id": "motion_style", "value": MotionStyle } | { "id": "motion_palette", "value": MotionPalette } | { "id": "motion_hue", "value": number } | { "id": "motion_lumen", "value": boolean } | { "id": "motion_ambient", "value": MotionAmbient } | { "id": "terminal_font", "value": string } | { "id": "terminal_size", "value": number } | { "id": "terminal_line_height", "value": number } | { "id": "speech_by", "value": SpeechBy | null } | { "id": "speech_languages", "value": Array<string> } | { "id": "keys", "value": Array<string> });
@@ -1077,7 +1085,12 @@ export type Thought = { id: ThoughtId, rev: Rev, text: string, strokes: Array<Ar
  * How it found its destination and its brief; none when no router was
  * asked: a note, or a pick whose words go on as they are.
  */
-route: Routing | null, agent: string | null, model: string | null, workdir: Workdir | null, hold_until: Time | null, read: boolean, created: Time, updated: Time, };
+route: Routing | null,
+/**
+ * How its place came about, written when it is placed or kept for
+ * later; none until then, and in a row older than the field.
+ */
+placed: Placed | null, agent: string | null, model: string | null, workdir: Workdir | null, hold_until: Time | null, read: boolean, created: Time, updated: Time, };
 
 /**
  * A UUID v7 in text, minted by whoever creates the record.

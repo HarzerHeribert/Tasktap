@@ -153,7 +153,7 @@ async function main() {
   console.log(`${has('--app') ? "The built app's web view" : 'Headless Chromium'} (${renderer || 'no renderer'}): each form at ${W} x ${H}, moved ${PER} px a step, ${STEPS} steps`);
   console.log(table(['form', 'moved', 'usual change a step', 'steps unchanged', "edge pixel's largest step", 'usual worst pixel', 'worst pixel', 'where (x, y from the bottom left)'], rows));
   for (const f of failures) console.log('FAIL  ' + f);
-  console.log(failures.length ? 'FAIL  a form moves in whole steps' : "PASS  every hundredth of a pixel changes each form's picture, a slat's top and side fill their pixels evenly as they pass, and no pixel of any form jumps in a step");
+  console.log(failures.length ? 'FAIL  a form moves in whole steps' : `PASS  every hundredth of a pixel changes each form's picture, a slat's top and side fill their pixels evenly as they pass, and no pixel of any form jumps in a step${rows.some((r) => r[2].startsWith('not drawn')) ? ' (of the forms this software renderer drew: the rest are not judged here)' : ''}`);
   process.exitCode = failures.length ? 1 : 0;
 }
 main().catch((e) => (console.error(e), process.exit(1)));

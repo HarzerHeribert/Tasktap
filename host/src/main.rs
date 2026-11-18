@@ -185,7 +185,9 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
         // The capture key was pressed with the workspace in front and it has no field of its own in view: what
         // the key opens from another app. Without a notch or a tab that is New Task.
         "host.capture" => {
-            match notch::NOTCH.lock().unwrap().panel {
+            // (The lock is let go before the notch is asked: it takes it itself.)
+            let panel = notch::NOTCH.lock().unwrap().panel;
+            match panel {
                 0 => workspace::on_menu(app, "new-task"),
                 _ => notch::capture(app),
             }
@@ -259,7 +261,9 @@ fn glance(app: &AppHandle, g: tasktap_proto::Glance) {
 /// A thought from anywhere: the notch opens with the keyboard in its field, on Windows the tab. Where there is
 /// neither (Windows, with the tab switched off) the workspace comes in front with a field for it.
 pub(crate) fn capture(app: &AppHandle) {
-    match notch::NOTCH.lock().unwrap().panel {
+    // (The lock is let go before the notch is asked: it takes it itself.)
+    let panel = notch::NOTCH.lock().unwrap().panel;
+    match panel {
         0 => workspace::capture(app),
         _ => notch::capture(app),
     }

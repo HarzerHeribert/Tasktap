@@ -212,6 +212,15 @@ public static int[] Icon(IntPtr window, uint id) {
     Rect r;
     return Shell_NotifyIconGetRect(ref which, out r) == 0 ? new[] { r.Left, r.Top, r.Right, r.Bottom } : null;
 }
+// A top-level window of a process by its class, shown or not; zero when it has none.
+public static IntPtr Find(string kind, uint process) {
+    for (var window = FindWindowEx(IntPtr.Zero, IntPtr.Zero, kind, null); window != IntPtr.Zero; window = FindWindowEx(IntPtr.Zero, window, kind, null)) {
+        uint its;
+        GetWindowThreadProcessId(window, out its);
+        if (its == process) return window;
+    }
+    return IntPtr.Zero;
+}
 // What a menu the system has open says, by its window (class #32768).
 public static string[] Popup(IntPtr menuWindow) {
     var menu = SendMessage(menuWindow, 0x01E1, IntPtr.Zero, IntPtr.Zero);
@@ -406,6 +415,20 @@ function Tab-Picture([IntPtr]$window, $name) {
     $picture.Dispose()
     "$name.png ($w x $h at $($r.Left),$($r.Top); $($own[0]) points not black, $($own[1]) colours, $($own[2]) partly see-through); as on the screen: $name-screen.png ($($shown[1]) colours)"
 }
+# The icon's menu, asked for as the shell asks for it after a right click on the icon: the app's helper window is
+# told, with the icon's own place as the point. The menu's window, or nothing when none opens in two and a half
+# seconds. (Windows keeps a new icon in the overflow, which no script can open without the pointer on the taskbar.)
+function Icon-Menu([IntPtr]$helper, [uint32]$id, $process) {
+    $where = [Tasktap.Desk]::Icon($helper, $id)
+    if (-not $where) { return }
+    $x = [int](($where[0] + $where[2]) / 2); $y = [int](($where[1] + $where[3]) / 2)
+    [Tasktap.Desk]::Tell($helper, 0x8001, ($y -shl 16) -bor ($x -band 0xffff), ([int]$id -shl 16) -bor 0x7B)
+    for ($i = 0; $i -lt 25; $i++) {
+        Start-Sleep -Milliseconds 100
+        $menu = [Tasktap.Desk]::Every() | Where-Object { $_.Class -eq '#32768' -and $_.ProcessId -eq $process.Id } | Select-Object -First 1
+        if ($menu) { return $menu }
+    }
+}
 # This account's sounds for the system's events, and its warning beep, off for as long as the round runs: a key
 # no window takes, a dialog or an error must not be heard. What they were is kept in a file, so that a round that
 # was cut short is put right by the next one.
@@ -474,16 +497,31 @@ $rows['1'] = 'Starts the app as Explorer would, with no debug channel and its ow
     $views = Children $process 'msedgewebview2'
     Check 1 'the core and the web view run beside the app' ($core -and $views) "tasktap.exe: $(($core | ForEach-Object Path) -join ', '); msedgewebview2.exe under the app: $($views.Count)"
     Check 1 'its data is in %LOCALAPPDATA%\Tasktap Next' (Test-Path "$data\core.db") "$data\core.db"
-    $watch.Restart()
+    # The tab and the icon: the app is there without its window, as it is on a Mac with its notch.
+    $tab = $null
+    for ($i = 0; $i -lt 40 -and -not $tab; $i++) { Start-Sleep -Milliseconds 250; $tab = [Tasktap.Desk]::Every() | Where-Object { $_.ProcessId -eq $process.Id -and $_.Title -eq 'Tasktap tab' } | Select-Object -First 1 }
+    $helper = [Tasktap.Desk]::Find('TASKTAP_SHELL', $process.Id)
+    $icon = if ($helper -ne [IntPtr]::Zero) { [Tasktap.Desk]::Icon($helper, 1) }
+    Check 1 'the tab hangs at the top edge and the icon is in the notification area' ($tab -and $icon) "the tab's window: $(if ($tab) { ([Tasktap.Desk]::Frame($tab.Handle) | ForEach-Object { "$($_.Left),$($_.Top) to $($_.Right),$($_.Bottom)" }) } else { 'none' }); the icon: $(if ($icon) { $icon -join ' ' } else { 'not there' })"
     [Tasktap.Desk]::Close($window.Handle)
+    Start-Sleep -Seconds 3
+    $shown = @([Tasktap.Desk]::Windows() | Where-Object { $_.ProcessId -eq $process.Id -and $_.Title -eq 'Tasktap' })
+    $stays = -not $process.HasExited -and -not $shown -and $tab -and ([Tasktap.Desk]::Every() | Where-Object { $_.Handle -eq $tab.Handle })
+    Check 1 'closing the window leaves the app running, with its tab and its icon' $stays "the window is gone: $(-not $shown); the app runs: $(-not $process.HasExited); the icon: $(if ($helper -ne [IntPtr]::Zero -and [Tasktap.Desk]::Icon($helper, 1)) { 'there' } else { 'gone' })"
+    # Quit, in the icon's menu: its last line, chosen with the keys a person would use in a menu.
+    $menu = if (-not $process.HasExited -and $helper -ne [IntPtr]::Zero) { Icon-Menu $helper 1 $process }
+    $watch.Restart()
+    if ($menu) {
+        foreach ($key in 0x26, 0x0D) { [Tasktap.Desk]::Tell($menu.Handle, 0x0100, $key, 0); [Tasktap.Desk]::Tell($menu.Handle, 0x0101, $key, 0); Start-Sleep -Milliseconds 150 }
+    }
     $ended = $process.WaitForExit(10000)
-    Check 1 'closing the window quits the app' $ended $(if ($ended) { "gone after $([int]$watch.Elapsed.TotalMilliseconds) ms" } else { 'still running 10 s later; this script ended it' })
+    Check 1 'Quit in the icon''s menu ends the app' ($menu -and $ended) $(if (-not $menu) { 'the menu did not open; this script ended the app' } elseif ($ended) { "gone after $([int]$watch.Elapsed.TotalMilliseconds) ms" } else { 'still running 10 s later; this script ended it' })
     if (-not $ended) { $process.Kill($true) }
     $stayed = @(Under $data | Where-Object Name -eq 'tasktap').Count -gt 0
-    Check 1 'the core stays behind the closed app' $stayed
+    Check 1 'the core stays behind the app that quit' $stayed
     while ($watch.Elapsed.TotalSeconds -lt 90 -and (Under $data)) { Start-Sleep -Milliseconds 500 }
     $left = Under $data
-    Check 1 'the core leaves by itself within a minute and a half' (-not $left) $(if ($left) { "still running, ended by this script: $(($left | ForEach-Object Name) -join ', ')" } else { "gone $([int]$watch.Elapsed.TotalSeconds) s after the window closed" })
+    Check 1 'the core leaves by itself within a minute and a half' (-not $left) $(if ($left) { "still running, ended by this script: $(($left | ForEach-Object Name) -join ', ')" } else { "gone $([int]$watch.Elapsed.TotalSeconds) s after the app quit" })
     $left | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 
@@ -521,20 +559,22 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
     $listed = @([Tasktap.Desk]::Windows() | Where-Object { $_.Handle -eq $tab })
     Check 3 'above every window, no taskbar button and no place in Alt+Tab, never activated by a click, and the pointer passes through it' (($styles -band 0x8) -and ($styles -band 0x80) -and -not ($styles -band 0x40000) -and ($styles -band 0x8000000) -and ($styles -band 0x20) -and $listed) ('extended styles 0x{0:x}: topmost {1}, tool window {2}, taskbar button {3}, never activated {4}, pointer passes {5}' -f $styles, [bool]($styles -band 0x8), [bool]($styles -band 0x80), [bool]($styles -band 0x40000), [bool]($styles -band 0x8000000), [bool]($styles -band 0x20))
     Check 3 'showing it took the keyboard from nobody' ([Tasktap.Desk]::GetForegroundWindow() -ne $tab -and -not (Notch).key) "the window in front is the tab: $([Tasktap.Desk]::GetForegroundWindow() -eq $tab)"
-    # The app's window under the tab, and the script's Notepad in front beside it: what a person has there.
-    $null = [Tasktap.Desk]::SetWindowPos($window, [IntPtr]::Zero, $want[0] - 500, $screen.Bounds.Top + $bar, 1100, 700, 0x0014)
+    # Two windows under the tab's window, as a person has them there: the app's own, dark, under its left margin, and
+    # the script's Notepad, light, in front under the tab itself and the rest.
+    $edge = $want[0] + [int](40 * $scale)
+    $null = [Tasktap.Desk]::SetWindowPos($window, [IntPtr]::Zero, $edge - 940, $screen.Bounds.Top + $bar, 940, 700, 0x0014)
     $notepad = Other-Program "Tasktap-tab-$PID"
     if (-not $notepad) { Say 'FAIL' 3 'not run further: Notepad could not be put in front'; End-Own 'row3-app.txt'; return }
-    $null = [Tasktap.Desk]::SetWindowPos($notepad.Handle, [IntPtr]::Zero, $want[0] + $want[2] + 40, $screen.Bounds.Top + $bar + 200, 700, 400, 0x0014)
+    $null = [Tasktap.Desk]::SetWindowPos($notepad.Handle, [IntPtr]::Zero, $edge + 4, $screen.Bounds.Top + $bar, 760, 440, 0x0014)
     Start-Sleep -Milliseconds 600
-    Say 'LOOK' 3 'the tab collapsed, with nothing running: its own window, and as it stands on the screen over the app''s window' (Tab-Picture $tab 'row3-tab-collapsed')
+    Say 'LOOK' 3 'the tab collapsed, with nothing running: its own window, and as it stands on the screen over the app''s window and Notepad' (Tab-Picture $tab 'row3-tab-collapsed')
     $was = [Tasktap.Desk+Point]::new()
     $null = [Tasktap.Desk]::GetCursorPos([ref]$was)
     try {
         # Beside the tab, inside its window: the window below has the point, and a click reaches it.
         $cx = $want[0] + [int]($want[2] / 2); $beside = $want[0] + [int](12 * $scale); $below = $want[1] + [int](($th + 14) * $scale)
         $at = @([Tasktap.Desk]::At($beside, $want[1] + 4), [Tasktap.Desk]::At($cx, $below), [Tasktap.Desk]::At($cx, $want[1] + 4))
-        Check 3 'beside the tab and under it, inside the tab''s window, a point belongs to the window below; on the tab it does not' ($at[0] -eq $window -and $at[1] -eq $window -and $at[2] -ne $window -and $at[2] -ne $notepad.Handle) "left of the tab: $(if ($at[0] -eq $window) { 'the app''s window below' } else { "window $($at[0])" }); under it: $(if ($at[1] -eq $window) { 'the app''s window below' } else { "window $($at[1])" }); on it: $(if ($at[2] -eq [IntPtr]$t.strip) { 'the strip under the tab' } elseif ($at[2] -eq $tab) { 'the tab' } else { "window $($at[2])" })"
+        Check 3 'beside the tab and under it, inside the tab''s window, a point belongs to the window below; on the tab it does not' ($at[0] -eq $window -and $at[1] -eq $notepad.Handle -and $at[2] -ne $window -and $at[2] -ne $notepad.Handle) "left of the tab: $(if ($at[0] -eq $window) { 'the app''s window below' } else { "window $($at[0])" }); under it: $(if ($at[1] -eq $notepad.Handle) { 'Notepad below' } else { "window $($at[1])" }); on it: $(if ($at[2] -eq [IntPtr][long]$t.strip) { 'the strip under the tab' } elseif ($at[2] -eq $tab) { 'the tab' } else { "window $($at[2])" })"
         [Tasktap.Desk]::Press($beside, $want[1] + 4, $false, 1)
         $reached = $false
         for ($i = 0; $i -lt 15 -and -not $reached; $i++) { Start-Sleep -Milliseconds 100; $reached = [Tasktap.Desk]::GetForegroundWindow() -eq $window }
@@ -549,7 +589,7 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
         Start-Sleep -Milliseconds 700
         Say 'LOOK' 3 'the sheet open under the pointer' (Tab-Picture $tab 'row3-tab-open')
         # Away, over the app's own window: it folds, and the reading of the pointer ends.
-        [Tasktap.Desk]::Point_($want[0] - 300, $want[1] + 400)
+        [Tasktap.Desk]::Point_($edge - 400, $want[1] + 400)
         $folded = Tab-Soon { param($t) ($t.pixels -join ' ') -eq ($want -join ' ') -and -not $t.watching }
         Check 3 'the pointer away from it folds it, the window is the tab''s again and the pointer is no longer read' (($folded.pixels -join ' ') -eq ($want -join ' ') -and -not $folded.watching -and (Notch).collapsed) "the window: $($folded.pixels -join ' '); the pointer is read: $($folded.watching)"
         # The capture key from Notepad.
@@ -574,7 +614,7 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
         $front = $false
         for ($i = 0; $i -lt 30 -and -not $front; $i++) { Start-Sleep -Milliseconds 100; $front = [Tasktap.Desk]::GetForegroundWindow() -eq $tab }
         Start-Sleep -Milliseconds 400
-        [Tasktap.Desk]::Press($want[0] - 300, $want[1] + 400, $false, 1)
+        [Tasktap.Desk]::Press($edge - 400, $want[1] + 400, $false, 1)
         $gone = Tab-Soon { param($t) ($t.pixels -join ' ') -eq ($want -join ' ') }
         Check 3 'a click elsewhere folds a sheet the key opened, and the keyboard is where the click was' ($front -and (Notch).collapsed -and [Tasktap.Desk]::GetForegroundWindow() -eq $window) "opened by the key: $front; collapsed after the click: $((Notch).collapsed); in front: $(if ([Tasktap.Desk]::GetForegroundWindow() -eq $window) { 'the app''s window, which was clicked' } else { [Tasktap.Desk]::GetForegroundWindow() })"
         $kept = Js "document.querySelector('#capture-input')?.value ?? ''" 3 'notch'
@@ -678,18 +718,47 @@ $rows['4'] = 'Starts the app with its debug channel on a data folder of its own 
     if ([Tasktap.Desk]::GetForegroundWindow() -ne $notepad.Handle) {
         Say 'INFO' 4 'the shortcut was not pressed: Notepad could not be put in front of the app, so a press would prove nothing'
     } else {
+        $t = Tab-Soon { param($t) $t.shown }
+        $tab = [IntPtr][long]$t.window
+        [Tasktap.Desk]::Chord([byte[]](0x12, 0x10, 0x20))
+        $front = $false
+        for ($i = 0; $i -lt 30 -and -not $front; $i++) { Start-Sleep -Milliseconds 100; $front = [Tasktap.Desk]::GetForegroundWindow() -eq $tab }
+        $caret = Soon "document.activeElement?.id ?? ''" 'capture-input' 10 'notch'
+        Check 4 'Alt-Shift-Space pressed over Notepad opens the tab''s sheet with the caret in its field, and the Tasktap window stays where it is' ($front -and $caret -eq 'capture-input' -and "$(Js 'String(!!__ws.ui.sheet)' 3)" -eq 'false' -and [Tasktap.Desk]::GetForegroundWindow() -ne $workspace) "the tab in front: $front; the caret is in: $caret; a sheet in the window: $(Js 'String(!!__ws.ui.sheet)' 3)"
+        Start-Sleep -Milliseconds 500
+        Say 'LOOK' 4 'the tab''s sheet open over another program, the caret in its field' (Tab-Picture $tab 'row4-shortcut')
+        if ($front) { [Windows.Forms.SendKeys]::SendWait('{ESC}') }
+        $back = $false
+        for ($i = 0; $i -lt 20 -and -not $back; $i++) { Start-Sleep -Milliseconds 100; $back = [Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle }
+        Check 4 'Escape folds it and Notepad is in front again' $back "Notepad in front: $back"
+        # The key with Home in front: Home has a field for a thought already, so the caret goes there.
+        $null = Front $workspace
+        $null = Js "(document.activeElement?.blur(), 1)"
+        [Tasktap.Desk]::Chord([byte[]](0x12, 0x10, 0x20))
+        $onHome = Soon "[__ws.ui.view, document.activeElement?.id, !!document.activeElement?.closest('.hx'), !!__ws.ui.sheet].join(' ')" 'home capture-input true false' 10
+        Start-Sleep -Milliseconds 400
+        Check 4 'pressed with Home in front, the key puts the caret in Home''s own field: no sheet opens over it and the tab stays folded' ($onHome -eq 'home capture-input true false' -and (Notch).collapsed -and [Tasktap.Desk]::GetForegroundWindow() -eq $workspace) "the view, where the caret is, whether that is Home's, whether a sheet is open: $onHome; the tab collapsed: $((Notch).collapsed)"
+        Say 'LOOK' 4 'Home after the key: the caret in its own field, nothing over it' (Capture $workspace 'row4-home')
+        # With the tab switched off the key brings the window forward, as before the tab: to Home's field while Home
+        # shows.
+        Send 'tab off'
+        $null = Until '"event":"tab","set"' 5
+        $null = Js "(document.activeElement?.blur(), 1)"
+        $null = Front $notepad.Handle
         [Tasktap.Desk]::Chord([byte[]](0x12, 0x10, 0x20))
         $front = $false
         for ($i = 0; $i -lt 30 -and -not $front; $i++) { Start-Sleep -Milliseconds 100; $front = [Tasktap.Desk]::GetForegroundWindow() -eq $workspace }
-        $caret = Js "(e => e ? e.tagName + ' ' + (e.getAttribute('placeholder') ?? e.className) : 'nothing')(document.activeElement)"
-        Check 4 'Alt-Shift-Space pressed over Notepad brings the Tasktap window to the front' $front "the caret is in: $caret"
-        Say 'LOOK' 4 'New Task open with the caret in its field' (Capture $workspace 'row4-shortcut')
+        $onHome = Soon "[__ws.ui.view, document.activeElement?.id, !!__ws.ui.sheet].join(' ')" 'home capture-input false' 10
+        Check 4 'with the tab switched off the key brings the Tasktap window forward, the caret in Home''s field' ($front -and $onHome -eq 'home capture-input false') "the window in front: $front; the view, where the caret is, whether a sheet is open: $onHome"
+        Send 'tab main'
+        $null = Until '"event":"tab","set"' 5
+        $null = Tab-Soon { param($t) $t.shown }
     }
     [Tasktap.Desk]::Close($notepad.Handle)
-    # The sheet is closed again: the rows after this one start where a person would, with nothing open.
+    # Nothing is open: the rows after this one start where a person would.
     $null = Js "(__ws.dismiss(), 1)"
     $closed = Soon 'String(!__ws.ui.sheet)' 'true' 5
-    Check 4 'the New Task sheet closes again' ($closed -eq 'true') "no sheet open: $closed"
+    Check 4 'no sheet is left open' ($closed -eq 'true') "no sheet open: $closed"
 }
 
 $rows['5'] = 'In the same app: makes a folder a workspace, opens a terminal, and types into it: set /a 6*7 (cmd answers 42), ping -t localhost and Control-C (the prompt comes back and answers again), powershell and a line only PowerShell answers. Then looks at the terminal''s console: OpenConsole.exe under the core, and no conhost.exe there.', {
@@ -1079,17 +1148,25 @@ $rows['14'] = 'Starts the app with the core that has the fixture agent, the agen
     $thought = "[...__ws.records.thoughts.values()].find((t) => t.text === '$words')"
     $notepad = Other-Program "Tasktap-flow-$PID"
     if (-not $notepad) { Say 'FAIL' 14 'not run: Notepad could not be put in front of the app, so no other program was in front'; End-Own 'row14-app.txt'; return }
+    $t = Tab-Soon { param($t) $t.shown }
+    $tab = [IntPtr][long]$t.window
     [Tasktap.Desk]::Chord([byte[]](0x12, 0x10, 0x20))
     $front = $false
-    for ($i = 0; $i -lt 30 -and -not $front; $i++) { Start-Sleep -Milliseconds 100; $front = [Tasktap.Desk]::GetForegroundWindow() -eq $window }
-    Start-Sleep -Milliseconds 500
-    # Typed as a keyboard types, and only into the app's own window.
+    for ($i = 0; $i -lt 30 -and -not $front; $i++) { Start-Sleep -Milliseconds 100; $front = [Tasktap.Desk]::GetForegroundWindow() -eq $tab }
+    $null = Soon "document.activeElement?.id ?? ''" 'capture-input' 10 'notch'
+    # Typed as a keyboard types, and only into the app's own window: the tab's.
     if ($front) { [Windows.Forms.SendKeys]::SendWait($words) }
-    $typed = Soon "document.activeElement?.value ?? ''" ([regex]::Escape($words)) 8
-    Check 14 'Alt-Shift-Space over Notepad opens New Task, and what is typed next is in its field' ($front -and $typed -eq $words) "the app in front: $front; the field holds: $typed"
+    $typed = Soon "document.activeElement?.value ?? ''" ([regex]::Escape($words)) 8 'notch'
+    Check 14 'Alt-Shift-Space over Notepad opens the tab, and what is typed next is in its field' ($front -and $typed -eq $words) "the tab in front: $front; the field holds: $typed"
     if ($front -and $typed -eq $words) { [Windows.Forms.SendKeys]::SendWait('{ENTER}') }
     $phase = Soon "String($thought`?.phase)" 'working' 50
     Check 14 'Return sends it: the thought is placed in the open folder and starts after its hold' ($phase -eq 'working') "its phase: $phase; where: $(Js "(p => p?.name ?? 'nowhere')(__ws.records.projects.get($thought`?.project_id))" 2)"
+    # Started, the tab has done its job: it folds by itself and Notepad has the keyboard again.
+    $back = $false
+    for ($i = 0; $i -lt 40 -and -not $back; $i++) { Start-Sleep -Milliseconds 100; $back = [Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle -and (Notch).collapsed }
+    Check 14 'once the thought has started the tab folds by itself and Notepad is in front again' $back "Notepad in front: $([Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle); the tab collapsed: $((Notch).collapsed)"
+    Start-Sleep -Milliseconds 600
+    Say 'LOOK' 14 'the tab collapsed while a thought runs: the mark for what works' (Tab-Picture $tab 'row14-tab-working')
     $session = Js "$thought`?.session_id ?? ''" 2
     $null = Soon "String(__ws.focusSession('$session'))" 'true' 20
     $screen = Soon '__ws.text()' 'fixture-agent' 25
@@ -1098,14 +1175,44 @@ $rows['14'] = 'Starts the app with the core that has the fixture agent, the agen
     $strip = Soon "document.querySelector('.strip')?.innerText ?? ''" 'Deploy to staging\?' 25
     $keys = @($seen | Where-Object { $_ -match '"event":"answer-keys"' })[-1]
     Check 14 'its question shows in its pane, and the answer keys are held while it waits' ("$strip" -match 'Deploy to staging\?' -and "$keys" -match '"ok":true' -and "$keys" -match '"on":true') "the strip: $("$strip".Replace("`n", ' ')); the host: $keys"
+    # The question opens the tab by itself, and takes the keyboard from nobody.
+    $asks = Soon "document.body.classList.contains('open') + ' ' + (document.querySelector('#sheet')?.innerText ?? '').replace(/\s+/g, ' ')" 'true .*Deploy to staging\?' 20 'notch'
+    Check 14 'the question opens the tab by itself, in full, and Notepad keeps the keyboard' ("$asks" -match '^true .*Deploy to staging\?' -and [Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle -and -not (Notch).key) "the tab's sheet: $("$asks".Substring(0, [Math]::Min(160, "$asks".Length))); Notepad in front: $([Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle)"
+    Start-Sleep -Milliseconds 700
+    Say 'LOOK' 14 'the tab open on a question, over another program' (Tab-Picture $tab 'row14-tab-question')
     # Answered from another program, as the global shortcut is for.
     $other = Front $notepad.Handle
     if ($other) { [Tasktap.Desk]::Chord([byte[]](0x11, 0x12, 0x59)) }
     $answered = Soon '__ws.text()' 'answer:yes' 25
     Check 14 'Ctrl+Alt+Y pressed over Notepad answers the agent, and Notepad stays in front' ($other -and "$answered" -match 'answer:yes' -and [Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle) "Notepad in front before: $other, after: $([Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle); the terminal: $(("$answered".Trim() -split "`n" | Select-Object -Last 2) -join ' | ')"
+    $folded = $false
+    for ($i = 0; $i -lt 30 -and -not $folded; $i++) { Start-Sleep -Milliseconds 100; $folded = [bool](Notch).collapsed }
+    Check 14 'answered, the tab folds by itself' $folded "collapsed: $folded"
     $null = Js "(__ws.type('event:turn_finished:All green.'), 1)"
     $marks = Soon "document.querySelector('.tabw.on .st')?.dataset.s + ' ' + document.querySelector('.row.s.sel .st')?.dataset.s" 'ready ready' 25
     Check 14 'the turn''s end is a result: the tab and the sidebar row mark it unread' ($marks -eq 'ready ready') "the marks: $marks"
+    # The result on the tab: its mark while collapsed, the icon's dot, and read once the sheet has shown it.
+    $glance = Soon "(g => g.working + ' ' + g.needs_you + ' ' + g.done)(__records.glance)" '0 0 1' 15 'notch'
+    $t = Tab
+    Check 14 'the collapsed tab counts the result, and the icon shows that one waits' ($glance -eq '0 0 1' -and $t.icon.waits -eq 'Result') "working, needs you, new: $glance; the icon: $($t.icon.waits), '$($t.icon.says)'"
+    Start-Sleep -Milliseconds 600
+    Say 'LOOK' 14 'the tab collapsed with a result waiting' (Tab-Picture $tab 'row14-tab-result')
+    $was = [Tasktap.Desk+Point]::new()
+    $null = [Tasktap.Desk]::GetCursorPos([ref]$was)
+    try {
+        [Tasktap.Desk]::Point_($t.pixels[0] + [int]($t.pixels[2] / 2), $t.pixels[1] + 6)
+        $result = Soon "(document.querySelector('#sheet .result')?.innerText ?? '').replace(/\s+/g, ' ')" 'Result .*All green' 15 'notch'
+        Start-Sleep -Milliseconds 800
+        Say 'LOOK' 14 'the tab open on the result, under the pointer' (Tab-Picture $tab 'row14-tab-result-open')
+        $read = Soon "String(__records.glance.done)" '^0$' 15 'notch'
+        Check 14 'the pointer on the tab shows the result, and shown for a moment it counts as read' ("$result" -match 'All green' -and $read -eq '0') "the sheet: $("$result".Substring(0, [Math]::Min(120, "$result".Length))); new results after: $read"
+        # Away again, over the app's own window.
+        $f = [Tasktap.Desk]::Frame($window)
+        [Tasktap.Desk]::Point_([int](($f.Left + $f.Right) / 2), [int](($f.Top + $f.Bottom) / 2))
+        $null = Tab-Soon { param($t) -not $t.watching }
+    } finally {
+        $null = [Tasktap.Desk]::SetCursorPos($was.X, $was.Y)
+    }
     [Tasktap.Desk]::Close($notepad.Handle)
     $null = Front $window
     $null = Js "(__ws.dismiss(), 1)"

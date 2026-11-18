@@ -654,6 +654,48 @@ fn what_a_client_typed_before_it_left_reaches_the_process() {
 /// one frame larger than a raw terminal holds unread (about 1 KiB on a
 /// Mac, between 12 and 20 KiB on Linux, by how it is written), so the
 /// input thread never writes it whole and none of it counts as written.
+/// Control-C typed into a terminal ends the program in front, and the shell
+/// reads on. On Windows that is the console's doing: it tells every program
+/// attached to it, and a program told to ignore Control-C never hears of it.
+/// A process started in a group of its own is told to ignore it, and what it
+/// starts after that inherits the same; the core is started that way
+/// (`sys::detach`), so its shells must not inherit it.
+#[test]
+fn control_c_ends_what_runs_in_a_shell_and_the_shell_reads_on() {
+    let data = Folder::new("tt-control-c");
+    let core = Core::start(&data);
+    // What the program itself prints says that it runs in front: a shell
+    // that has not handed it the terminal yet takes the Control-C itself.
+    #[cfg(windows)]
+    let (shell, runs, running, next) = (
+        std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_owned()),
+        "ping -t localhost",
+        ["::1", "127.0.0.1"],
+        "set /a 7*191",
+    );
+    #[cfg(unix)]
+    let (shell, runs, running, next) = (
+        "/bin/sh".to_owned(),
+        "sh -c 'echo $((3*271)); exec sleep 600'",
+        ["813", "813"],
+        "echo $((7*191))",
+    );
+    let start = StartTerminal {
+        project: None,
+        argv: vec![shell],
+        title: None,
+    };
+    let mut screen = Screen::start(&core, TerminalId::mint(), Some(start));
+    screen.line(runs);
+    while !running.iter().any(|said| screen.text().contains(said)) {
+        assert!(screen.pump(), "the core went away first");
+    }
+    screen.write(b"\x03");
+    std::thread::sleep(Duration::from_millis(500));
+    screen.line(next);
+    screen.until("1337");
+}
+
 #[cfg(unix)]
 #[test]
 fn input_a_process_does_not_read_stays_bounded_however_often_clients_reattach() {

@@ -1,8 +1,9 @@
 // What the motion's checks run inside a page, in headless Chromium or in the real app through its debug channel
 // (`eval`): each is a function of the page's own, with no comments in it, since the channel takes one line.
-// CADENCE: every display frame of Home's band for a while: whether the band was drawn again in it, the time since it
-// last was, and how far its picture changed (the mean difference of its canvas, read back, in 8-bit levels), with
-// the first and last frames of each movement kept as pictures.
+// CADENCE: every display frame of Home's band for a while: whether the band was shown anew in it (drawn by the page,
+// or faded on by the compositor between two keyframes: engine.ts carry), the time since it last was, and how far the
+// picture on screen changed (its layers, each by its share, added up; the mean difference in 8-bit levels), with the
+// first and last frames of each movement kept as pictures.
 // FLOW: every display frame and every key typed into the Composer while the page's state changes: frame intervals,
 // the delay from a key to the frame that shows it, and what the page's own script took in each frame.
 
@@ -10,57 +11,71 @@
  *  wait since it was last drawn, how far its picture changed from the last drawing (mean, in 8-bit levels), the
  *  largest change of one pixel, the light's state, and, where the engine says them (stats.seen), the band's own
  *  clocks at that drawing: its pulse's, its form's own phase, the seconds in its state, and a sum of the places
- *  it keeps clear of words (when that changes, light comes or goes under words at once, which is no movement)].
+ *  it keeps clear of words (when that changes, light comes or goes under words, which is no movement), and whether
+ *  the compositor was fading it on in that frame].
  *  `keep`: how many display frames to keep as pictures from the start and from the end of each movement (a movement:
  *  drawings with no rest of half a second between them); `crop`: the part kept, as shares of the canvas [x, y, w, h]. */
 const CADENCE = ({ seconds, keep = 0, crop = [0, 0, 1, 1] }) => new Promise((done) => {
-  const band = document.querySelector('.band .motion'), S = window.__motion.stats, told = 'seen' in S;
+  const band = document.querySelector('.band .motion'), S = window.__motion.stats;
   if (!band) return done({ error: 'no band' });
-  const round = (x, k = 10) => Math.round(x * k) / k, port = new MessageChannel();
+  const round = (x, k = 10) => Math.round(x * k) / k, port = new MessageChannel(), store = new Map();
   const frames = [], moves = [];
-  let read = null, pic = null, cut = null, prev = null, drawn = S.frames, lastDraw = -1e9, lastFrame = 0, move = null, from = 0, at = 0, fresh = null, canvas = null;
-  const look = (cv) => {
-    if (!read || canvas !== cv) {
-      canvas = cv;
+  let read = null, pic = null, cut = null, prev = null, lastDraw = -1e9, lastFrame = 0, move = null, from = 0, at = 0, drew = false, view = null, canvas = null, old = null;
+  /* Each picture the page draws is kept as it was drawn: a layer the compositor fades is not drawn again. */
+  S.seen = (v, cv, now) => {
+    if (v.el !== band) return;
+    let c = store.get(cv);
+    if (!c || c.width !== cv.width || c.height !== cv.height) store.set(cv, (c = Object.assign(document.createElement('canvas'), { width: cv.width, height: cv.height })));
+    const g = c.getContext('2d');
+    g.globalCompositeOperation = 'copy';
+    g.drawImage(cv, 0, 0);
+    (view = v), (canvas = cv), (drew = true);
+    if (!v.showing) old = [round((now - v.pulse.began) / 2000, 10000), round(v.ph[0], 10000), round(v.stT, 1000), Math.round(v.holes.reduce((a, b) => a + b, 0))];
+  };
+  /* What is on screen: the pictures, each by its share, added up. */
+  const look = (of) => {
+    const cv = canvas;
+    if (!read || read.size !== cv.width + 'x' + cv.height) {
       const W = Math.min(cv.width, 400), H = Math.max(1, Math.round((cv.height * W) / cv.width));
       read = Object.assign(document.createElement('canvas'), { width: W, height: H }).getContext('2d', { willReadFrequently: true });
+      read.size = cv.width + 'x' + cv.height;
       cut = [Math.round(crop[0] * cv.width), Math.round(crop[1] * cv.height), Math.round(crop[2] * cv.width), Math.round(crop[3] * cv.height)];
       pic = Object.assign(document.createElement('canvas'), { width: cut[2], height: cut[3] }).getContext('2d');
       prev = null;
     }
     const W = read.canvas.width, H = read.canvas.height;
-    read.clearRect(0, 0, W, H);
-    read.drawImage(cv, 0, 0, W, H);
+    const put = (g, ...where) => {
+      g.globalCompositeOperation = 'source-over';
+      g.globalAlpha = 1;
+      g.fillStyle = '#000';
+      g.fillRect(0, 0, g.canvas.width, g.canvas.height);
+      g.globalCompositeOperation = 'lighter';
+      for (const [c, share] of of) if (store.get(c) && share > 0) (g.globalAlpha = share), g.drawImage(store.get(c), ...where);
+    };
+    put(read, 0, 0, W, H);
     const d = read.getImageData(0, 0, W, H).data, lum = new Float32Array(W * H);
     let change = 0, most = 0;
-    for (let i = 0, j = 0; j < lum.length; i += 4, j++) lum[j] = ((d[i] + d[i + 1] + d[i + 2]) * d[i + 3]) / 765;
+    for (let i = 0, j = 0; j < lum.length; i += 4, j++) lum[j] = (d[i] + d[i + 1] + d[i + 2]) / 3;
     if (prev) {
       for (let j = 0; j < lum.length; j++) { const x = Math.abs(lum[j] - prev[j]); change += x; if (x > most) most = x; }
       change /= lum.length;
     }
     prev = lum;
     let picture = null;
-    if (keep) (pic.fillStyle = '#000', pic.fillRect(0, 0, cut[2], cut[3]), pic.drawImage(cv, cut[0], cut[1], cut[2], cut[3], 0, 0, cut[2], cut[3]), (picture = pic.canvas.toDataURL('image/png')));
+    if (keep) (put(pic, cut[0], cut[1], cut[2], cut[3], 0, 0, cut[2], cut[3]), (picture = pic.canvas.toDataURL('image/png')));
     return { change, most, picture };
   };
-  if (told) S.seen = (view, cv, now) => {
-    if (view.el !== band) return;
-    fresh = { ...look(cv), clocks: [round((now - view.pulse.began) / 2000, 10000), round(view.ph[0], 10000), round(view.stT, 1000), Math.round(view.holes.reduce((a, b) => a + b, 0))] };
-  };
   const sample = () => {
-    if (!told) {
-      const cv = band.querySelector('canvas'), now = S.frames;
-      if (cv && (now !== drawn || !prev)) fresh = look(cv);
-      if (now === drawn && frames.length) fresh = null;
-      drawn = now;
-    }
-    const d = fresh;
-    fresh = null;
+    /* A frame shows the band anew when the page drew it in that frame, or when the compositor is fading one of its
+       pictures into the next, which it does in every frame. */
+    const s = view ? (view.showing ? view.showing(at) : { of: [[canvas, 1]], clocks: old }) : null, anew = s && (drew || s.of.length > 1) && s.of.every((x) => store.has(x[0]));
+    drew = false;
+    const d = anew ? { ...look(s.of), clocks: [round(s.clocks[0], 10000), round(s.clocks[1], 10000), round(s.clocks[2], 1000), Math.round(s.clocks[3])] } : null;
     if (d) {
       if (!move || at - lastDraw > 500) (move = { from: at, to: at, first: [], last: [] }), moves.push(move);
       move.to = at;
     }
-    frames.push([round(at - from), round(at - lastFrame), d ? 1 : 0, d && lastDraw > -1e8 ? round(at - lastDraw) : 0, d ? round(d.change, 10000) : 0, d ? round(d.most) : 0, document.querySelector('.light')?.dataset.state ?? '', ...(d?.clocks ?? [])]);
+    frames.push([round(at - from), round(at - lastFrame), d ? 1 : 0, d && lastDraw > -1e8 ? round(at - lastDraw) : 0, d ? round(d.change, 10000) : 0, d ? round(d.most) : 0, document.querySelector('.light')?.dataset.state ?? '', ...(d ? [...d.clocks, s.of.length > 1 ? 1 : 0] : [])]);
     if (d) lastDraw = at;
     lastFrame = at;
     if (keep && move && at - move.to < 500) {
@@ -76,10 +91,10 @@ const CADENCE = ({ seconds, keep = 0, crop = [0, 0, 1, 1] }) => new Promise((don
     port.port2.postMessage(0);
     if (t - from < seconds * 1000) requestAnimationFrame(tick);
     else setTimeout(() => {
-      if (told) S.seen = null;
+      S.seen = null;
       for (const m of moves) (m.from -= from), (m.to -= from);
       const box = band.getBoundingClientRect();
-      done({ size: canvas ? [canvas.width, canvas.height] : [0, 0], shown: [box.width, box.height], dpr: devicePixelRatio, hidden: document.hidden, frames, moves });
+      done({ size: canvas ? [canvas.width, canvas.height] : [0, 0], shown: [box.width, box.height], dpr: devicePixelRatio, hidden: document.hidden, frames, moves, drawn: [S.frames, S.keys ?? 0] });
     }, 50);
   };
   requestAnimationFrame(tick);
@@ -90,13 +105,17 @@ const CADENCE = ({ seconds, keep = 0, crop = [0, 0, 1, 1] }) => new Promise((don
  *  typed first and sent with Return, and the typing goes on into the next thought.
  *  A frame: [when, the interval since the last, what the page's own work for it took after its callbacks began (style,
  *  layout, paint), what handling the core's changes took since the last frame (with the render that follows), frames
- *  the motion drew, changes handled]. A key: [when, the delay to the end of the frame that shows it, the wait for
- *  that frame to begin]. A mark: [when, what Home showed from then on: the light's state, the receipt, its rows]. */
+ *  the motion drew, changes handled, the longest the page's own thread was held up in that interval (a timer that
+ *  asks to run at once says how late it ran)]. A key: [when, the delay to the end of the frame that shows it, the
+ *  wait for that frame to begin, how long the page's thread was held up before that frame]. A mark: [when, what Home showed from then on: the light's state, the receipt, its rows]. */
 const FLOW = ({ seconds, every = 0, send = '' }) => new Promise((done) => {
   const field = () => document.querySelector('.home #capture-input');
   const round = (x) => Math.round(x * 10) / 10, text = 'the quick brown fox jumps over the lazy dog ';
   const frames = [], keys = [], marks = [], port = new MessageChannel(), R = window.__ws.records, change = R.onchange;
-  let waiting = [], from = 0, zero = 0, last = 0, began = 0, work = 0, calls = 0, drawn = window.__motion.stats.frames, said = '', n = 0, typed = 0, refused = 0, lost = 0, caret = 0, expect = null, over = false;
+  let waiting = [], from = 0, zero = 0, last = 0, began = 0, work = 0, calls = 0, drawn = window.__motion.stats.frames, said = '', n = 0, typed = 0, refused = 0, lost = 0, caret = 0, expect = null, over = false, beat = 0, held = 0, was = 0;
+  /* A frame that comes late while the page's thread is free was held up by the machine, not by the page. */
+  const pulse = () => { const now = performance.now(); if (beat) held = Math.max(held, now - beat); beat = now; if (!over) setTimeout(pulse, 0); };
+  setTimeout(pulse, 0);
   R.onchange = () => { const t = performance.now(); change(); queueMicrotask(() => { work += performance.now() - t; calls++; }); };
   const see = () => [document.querySelector('.light')?.dataset.state ?? '-', (document.querySelector('.home .cap-said')?.textContent ?? '').slice(0, 28), document.querySelectorAll('.home .hr').length + ' rows'].join(' | ');
   const input = (e) => { if (e.target.id === 'capture-input') waiting.push({ at: performance.now(), frame: 0 }); };
@@ -104,7 +123,7 @@ const FLOW = ({ seconds, every = 0, send = '' }) => new Promise((done) => {
   port.port1.onmessage = () => {
     const now = performance.now(), f = frames[frames.length - 1], s = see();
     f[2] = round(now - began);
-    for (const k of waiting) if (k.frame) keys.push([round(k.at - zero), round(now - k.at), round(k.frame - k.at)]);
+    for (const k of waiting) if (k.frame) keys.push([round(k.at - zero), round(now - k.at), round(k.frame - k.at), round(was)]);
     waiting = waiting.filter((k) => !k.frame);
     if (s !== said) marks.push([f[0], (said = s)]);
     if (over) {
@@ -118,8 +137,9 @@ const FLOW = ({ seconds, every = 0, send = '' }) => new Promise((done) => {
     if (!from) (from = last = t), (zero = began);
     for (const k of waiting) k.frame = began;
     const d = window.__motion.stats.frames;
-    frames.push([round(t - from), round(t - last), 0, round(work), d - drawn, calls]);
-    (last = t), (work = 0), (calls = 0), (drawn = d);
+    was = Math.max(held, beat ? began - beat : 0);
+    frames.push([round(t - from), round(t - last), 0, round(work), d - drawn, calls, round(was)]);
+    (last = t), (work = 0), (calls = 0), (drawn = d), (held = 0);
     over = t - from >= seconds * 1000;
     port.port2.postMessage(0);
     if (!over) requestAnimationFrame(tick);
@@ -152,10 +172,13 @@ const FLOW = ({ seconds, every = 0, send = '' }) => new Promise((done) => {
 const STREAM = async ({ gaps, late = 0, seconds }) => {
   const S = window.__motion.stats, band = document.querySelector('.band .motion'), real = [window.requestAnimationFrame, window.cancelAnimationFrame];
   let queue = [], seed = 7, t = (window.__stream ?? performance.now()) + 1000, drawn = [], hit = false;
+  /* The page's own loop is what is paced here: nothing is left to the compositor, which runs on the real clock. */
+  S.carry = false;
   const chance = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
   window.requestAnimationFrame = (f) => queue.push(f);
   window.cancelAnimationFrame = () => {};
   S.seen = (view) => { if (view.el === band) hit = true; };
+  await new Promise((ok) => setTimeout(ok, 400));
   await new Promise((ok) => real[0].call(window, () => real[0].call(window, ok)));
   const from = t;
   let frames = 0, own = null;
@@ -170,6 +193,7 @@ const STREAM = async ({ gaps, late = 0, seconds }) => {
     t += chance() < 0.04 && late ? late : gaps[Math.floor(chance() * gaps.length)];
   }
   S.seen = null;
+  S.carry = true;
   [window.requestAnimationFrame, window.cancelAnimationFrame] = real;
   for (const f of queue) window.requestAnimationFrame(f);
   window.__stream = t;

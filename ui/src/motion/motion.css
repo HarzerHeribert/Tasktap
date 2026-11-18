@@ -1,7 +1,11 @@
 /* The motion (motion.tsx): an element the engine fills with a canvas. The canvas is light over the page: where it is
    black it is clear, and the words above it keep their contrast. */
-.motion{display:block;position:relative;pointer-events:none}
+.motion{display:block;position:relative;pointer-events:none;isolation:isolate}
 .motion-canvas{position:absolute;inset:0;display:block;width:100%;height:100%}
+/* The layers of a view the compositor carries (engine.ts carry): each holds a keyframe, and they add up, so one
+   fading out as the next fades in is, at every moment, the share of each: no dip between them, as two half-clear
+   pictures laid over each other would have. */
+.motion-layer{position:absolute;inset:0;mix-blend-mode:plus-lighter}
 /* Too small for the metal to read: nothing, not even the last frame. */
 .motion[data-small]{visibility:hidden}
 

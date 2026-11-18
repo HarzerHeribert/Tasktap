@@ -305,6 +305,11 @@ button.hq:hover{background:var(--hover)}
 }
 @keyframes drop{from{transform:translate(-50%,-100%)}}
 @keyframes arrive{from{opacity:0}}
+/* A row or a receipt that comes to Home arrives, and the light under its words gives way in the same time
+   (engine.ts CLEAR). */
+@media(prefers-reduced-motion:no-preference){
+  .home :is(.hr,.cap-said,.way){animation:arrive 200ms linear both}
+}
 /* The wake an edge sheds behind it as it sweeps (wake.ts): chrome glyphs, each a picture, there for one sweep. */
 .wake{position:fixed;inset:0;z-index:30;overflow:hidden;pointer-events:none}
 /* Behind Home's rows, in its light: a closing sidebar's wake crosses no word. */

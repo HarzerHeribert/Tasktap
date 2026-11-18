@@ -169,17 +169,22 @@ sleep 2
   && [ "$(js workspace "document.querySelector('.light')?.dataset.moves")" = false ] \
   && pass "at rest nothing is drawn and nothing moves: Home holds its still light, and the notch has no canvas at all" || fail "nothing draws at rest"
 # While agents work, in the window in use (which a passive window is only when told so), the layer is a loop: the
-# band is drawn frame after frame and the light moves; back at rest it stops.
+# band moves and the light with it; once the loop is at its pace the compositor carries it, and the page draws
+# keyframes and no frames; back at rest it stops.
 if [ "$(js workspace "String(document.hidden)")" = true ]; then
   pass "the loop while agents work: the window is covered, so nothing is drawn yet"
 else
+  drawn="__motion.stats.frames + __motion.stats.keys"
   js workspace "(Object.assign(__motion.debug, { state: 'working', active: true }), __motion.redraw(), 1)" >/dev/null; sleep 1
-  frames=$(js workspace "__motion.stats.frames"); sleep 2
-  moving="$(js workspace "String(__motion.stats.frames - $frames > 40) + ' ' + document.querySelector('.light').dataset.moves")"
+  was=$(js workspace "$drawn"); sleep 2
+  moving="$(js workspace "String($drawn - $was > 20) + ' ' + document.querySelector('.light').dataset.moves")"
+  sleep 1.5
+  frames=$(js workspace "__motion.stats.frames"); keys=$(js workspace "__motion.stats.keys"); sleep 1.5
+  carried="$(js workspace "String(__motion.stats.frames === $frames && __motion.stats.keys > $keys && document.querySelectorAll('.light .motion-layer canvas').length === 3)")"
   js workspace "(Object.assign(__motion.debug, { state: null, active: null }), __motion.redraw(), 1)" >/dev/null; sleep 2.5
-  frames=$(js workspace "__motion.stats.frames"); sleep 1
-  [ "$moving" = "true true" ] && [ "$(js workspace "__motion.stats.frames")" = "$frames" ] \
-    && pass "while agents work in the window in use the band is drawn in every frame and the light moves; back at rest it is still within a moment" || fail "the loop while agents work" "$moving"
+  was=$(js workspace "$drawn"); sleep 1
+  [ "$moving" = "true true" ] && [ "$carried" = true ] && [ "$(js workspace "$drawn")" = "$was" ] \
+    && pass "while agents work in the window in use the band and the light move, and once the loop is at its pace the compositor carries it between keyframes while the page draws no frame; back at rest it is still within a moment" || fail "the loop while agents work" "$moving $carried"
 fi
 # The sidebar's glyphs: a few, large, each a picture drawn once (no view of the motion's own), still while idle.
 glyphs="[...document.querySelectorAll('.spark .glyph.in')]"

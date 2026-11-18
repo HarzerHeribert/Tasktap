@@ -392,7 +392,7 @@ shot collapsed-done
 shot pane-result workspace
 send "hover in"
 until_has notch "text #sheet" 5 "All green." && pass "the open notch shows the result's summary" || fail "the result shows"
-ask notch "text #sheet .result" | grep -q "Open" && pass "the result offers Open" || fail "the result offers Open"
+until_has notch "text #sheet .result" 5 "Open" && pass "the result offers Open" || fail "the result offers Open" "$(ask notch "text #sheet .result" | head -c 200)"
 shot result
 sleep 2
 send "key notch Escape"

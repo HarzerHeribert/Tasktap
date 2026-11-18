@@ -134,10 +134,15 @@ function VoicePane() {
  *  the default: it runs a thought unless another ring was picked for that thought in the Composer. Only here is the
  *  default changed (the `agent` preference). */
 const signIn: Record<string, string> = { claude: 'claude', codex: 'codex login', agy: 'agy', pi: 'pi', opencode: 'opencode auth login' };
-/** What a row adds about its agent: whose models it runs, where its name does not say, and that what it asks is
- *  answered in its own terminal, where no hook of it lets the notch answer. */
+/** What a row adds about its agent: whose models it runs, where its name does not say, and what of it the notch
+ *  cannot do, in the words of what the core says its runs can (its row's `events`, `permissions`, `questions`): one
+ *  that reports nothing is heard only when it ends, and what one asks where nothing outside its terminal can answer
+ *  is answered there. Nothing is said of what the notch does answer. */
 const family: Record<string, string> = { agy: 'Gemini' };
-const about = (a: { id: string; permissions: string | null }) => [family[a.id], a.permissions === 'terminal' && 'asks in its terminal'];
+const about = (a: { id: string; events: boolean; permissions: string | null; questions: string | null }) => {
+  const [p, q] = [a.permissions === 'terminal', a.questions === 'terminal'];
+  return [family[a.id], !a.events ? 'heard only when it ends' : p && q ? 'asks in its terminal' : p ? 'approvals in its terminal' : q && 'questions in its terminal'];
+};
 function AgentsPane() {
   const agents = [...records.agents.values()];
   if (!agents.length) return <p class="note">Looking for agents…</p>;
@@ -149,13 +154,13 @@ function AgentsPane() {
           // What its own commands said, and when they could not say: nothing is shown as known that was not checked.
           const off = runs(a) && a.signed_in === false;
           const state = !a.supported ? 'does not run on this system yet' : !a.installed ? 'not installed' : !a.checked ? 'checking…'
-            : a.signed_in === false ? 'not signed in' : a.signed_in === null ? 'could not check whether it is signed in'
+            : a.signed_in === false ? 'not signed in' : a.signed_in === null ? 'sign-in could not be checked'
             : a.stale ? `signed in when last checked, ${ago(a.checked)}` : 'signed in';
           return (
             <div class="line ag" data-s={off || !runs(a) ? 'off' : undefined}>
               <Ring agent={a.id} s={off || !runs(a) ? 'off' : ''} />
               <span class="t">{agentName(a.id)}</span>
-              <span class="x">{[a.version, state, a.identity, ...about(a)].filter(Boolean).join(' · ')}</span>
+              <span class="x">{[a.version, state, ...about(a), a.identity].filter(Boolean).join(' · ')}</span>
               {off && signIn[a.id] && (
                 <button type="button" class="btn" onClick={() => (dismiss(), newTerminal(LOOSE, { title: `Sign in to ${agentName(a.id)}`, type: signIn[a.id] }))}>Sign in</button>
               )}

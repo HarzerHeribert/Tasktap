@@ -6,6 +6,26 @@
 // pages draw these and decide nothing themselves.
 import type { RouteBy, Thought } from '../../core/proto/protocol.ts';
 
+/** The two letters of an agent the app has no mark for, from its id, which is what a person types to start it: the
+ *  initials of its first two words, or the first two letters of its one. */
+export const letters = (id: string) => {
+  const w = id.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  return w.length > 1 ? (w[0]![0]! + w[1]![0]!).toUpperCase() : (w[0] ?? '?').slice(0, 2).replace(/^./, (c) => c.toUpperCase());
+};
+/** The letters of each of `ids`, no two alike. They are taken in the order given, the core's: where an agent's own
+ *  two are taken by one before it, it keeps its first letter and takes the next letter of its id that makes a pair
+ *  still free; with none free it shows its own, twice seen. */
+export function lettersOf(ids: string[]) {
+  const taken = new Set<string>(), all = new Map<string, string>();
+  for (const id of ids) {
+    const own = letters(id), rest = [...id.replace(/[^\p{L}\p{N}]/gu, '')].slice(1);
+    const free = taken.has(own) ? rest.map((c) => own[0] + c.toLowerCase()).find((pair) => !taken.has(pair)) : own;
+    all.set(id, free ?? own);
+    taken.add(free ?? own);
+  }
+  return all;
+}
+
 type T = Pick<Thought, 'phase' | 'status' | 'mode' | 'route' | 'project_id' | 'text' | 'brief' | 'hold_until' | 'created'>;
 
 /** The steps between a capture and its start; null for a thought that is not, or no longer, on its way. */

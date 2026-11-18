@@ -2,7 +2,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Routing, Thought } from '../../core/proto/protocol.ts';
-import { back, briefOf, clock, hold, into, laterWhy, leave, onWay, placed, placing, ring, step } from './way.ts';
+import { back, briefOf, clock, hold, into, laterWhy, leave, letters, lettersOf, onWay, placed, placing, ring, step } from './way.ts';
+
+test('the two letters of a ring are no two agents alike', () => {
+  assert.deepEqual(['agy', 'pi', 'opencode', 'cursor-agent', 'x'].map(letters), ['Ag', 'Pi', 'Op', 'CA', 'X']);
+  // Alone, each shows its own.
+  assert.deepEqual([...lettersOf(['agy', 'pi', 'opencode']).values()], ['Ag', 'Pi', 'Op']);
+  // Where a later one's are taken, it keeps its first letter and takes its next letter that is free.
+  assert.deepEqual([...lettersOf(['copilot', 'codex', 'cody', 'co']).entries()], [['copilot', 'Co'], ['codex', 'Cd'], ['cody', 'Cy'], ['co', 'Co']]);
+  assert.deepEqual([...lettersOf(['crush', 'cline', 'crow']).values()], ['Cr', 'Cl', 'Co']);
+});
 
 const route = (o: Partial<Routing> = {}): Routing => ({ by: 'claude', model: 'haiku', pending: false, fallback: null, quote: null, title: null, ms: 2100, ...o });
 const thought = (o: Partial<Thought> = {}) => ({

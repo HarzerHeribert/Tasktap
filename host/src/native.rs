@@ -126,6 +126,10 @@ pub fn ns_window_number(ptr: usize) -> isize {
 pub fn order_front(ptr: usize) {
     unsafe { &*(ptr as *const NSWindow) }.orderFrontRegardless()
 }
+/// Puts a window behind every other of its level, where a passive run's window opens.
+pub fn order_back(ptr: usize) {
+    unsafe { &*(ptr as *const NSWindow) }.orderBack(None)
+}
 /// Whether this app is the active one, as other apps see it (not `NSApp.isActive`, which a key
 /// non-activating panel also sets; see trials/tauri-notch/RESULT.md).
 pub fn app_active() -> bool {

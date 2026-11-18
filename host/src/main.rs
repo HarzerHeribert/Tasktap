@@ -275,6 +275,13 @@ fn command(app: &AppHandle, line: &str) {
                 native::order_front(window as usize)
             }
         }
+        // `back`: behind the other windows again, once a check has seen what it brought the window forward for.
+        #[cfg(target_os = "macos")]
+        "back" => {
+            if let Some(window) = app.get_webview_window(workspace::LABEL).and_then(|w| w.ns_window().ok()) {
+                native::order_back(window as usize)
+            }
+        }
         "menu" => workspace::on_menu(app, rest),
         "close" => {
             if let Some(window) = app.get_webview_window(rest) {

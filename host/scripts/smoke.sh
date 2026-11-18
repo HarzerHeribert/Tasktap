@@ -18,7 +18,8 @@
 # is held to by a page that tries everything it may not, the core's tool run as an agent runs it, staying current,
 # a file that went away, a server that starts later, the keys, the ninth, a restart); speech on this Mac: Settings, the download, a thought
 # and words for a field through the helper, in a short launch of its own, with the real helper and model too when
-# SPEECH_MODEL names the model's file; then quit and relaunch with the layout restored
+# SPEECH_MODEL names the model's file, and then German, English and thoughts that change between them written as they
+# were said in either order of the person's languages; then quit and relaunch with the layout restored
 # and nothing rerun). It never sends keys or clicks to the system: every step is a line on the app's
 # standard input, and the app is passive (its windows never take the keyboard; no system menu is
 # ever opened). Prints PASS or FAIL per promise; exits non-zero on any FAIL. SHOTS=<folder> also
@@ -66,6 +67,11 @@ if out="$(node "$root/scripts/speech-check.cjs" 2>&1)"; then pass "$(echo "$out"
 echo "== Speech on this Mac, in the app (a short launch of its own; a tone and generated recordings, never the microphone)"
 out="$(node "$root/scripts/speech-app-check.cjs" ${SPEECH_MODEL:+--model "$SPEECH_MODEL"} 2>&1)"
 if [ $? = 0 ]; then echo "$out" | grep -E '^(PASS|NOTE)' | sed '$d'; pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "speech on this Mac in the app"; fi
+
+if [ -n "${SPEECH_MODEL:-}" ]; then
+  echo "== Speech on this Mac is written in the language it is said in (the real helper and model; the Mac's voices in files)"
+  if out="$(node "$root/scripts/speech-language-check.cjs" "$SPEECH_MODEL" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the language of speech on this Mac"; fi
+fi
 
 tmp="$(mktemp -d)"
 log="$tmp/log"

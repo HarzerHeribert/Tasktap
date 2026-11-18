@@ -4,8 +4,8 @@
 //
 // It tells Tasktap what the session on screen does: each event that counts is
 // given to `tasktap hook opencode` on standard input, as OpenCode's server
-// sent it, with what the event leaves out (the tool's name, the prompt, the
-// last text said). For an approval or a question that program waits for the
+// sent it, with what the event leaves out (the tool's name, the last text
+// said). For an approval or a question that program waits for the
 // person's answer in Tasktap and prints it, and the answer is given to
 // OpenCode here, as its own dialog would; answered in the dialog first, it
 // prints nothing.
@@ -14,6 +14,7 @@ import { spawn } from "node:child_process";
 const TASKTAP = "@TASKTAP@";
 
 const HEARD = new Set([
+  "session.inbox.enqueued",
   "session.execution.started",
   "session.execution.succeeded",
   "session.execution.failed",
@@ -48,7 +49,6 @@ export default {
   id: "tasktap",
   setup(context) {
     const tools = new Map(); // a tool call's name, by the call's id
-    const prompts = new Map(); // what a session was last told
     const texts = new Map(); // what a session last said in its turn
     // The session this run is: the one on screen, or the one whose
     // sub-agent is on screen. A sub-agent is a session of its own, and what
@@ -89,13 +89,11 @@ export default {
         if (type === "session.tool.input.started") tools.set(data.id, data.name);
         if (type === "session.text.ended") texts.set(session, data.text);
         if (type === "session.execution.started") texts.delete(session);
-        if (type === "session.inbox.enqueued" && data.item?.type === "user") {
-          prompts.set(session, data.item.payload?.text);
-        }
+        // What a person told it; what a sub-agent brings back is no prompt.
+        if (type === "session.inbox.enqueued" && data.item?.type !== "user") return;
         if (!HEARD.has(type)) return;
         const payload = { id, type, data };
         if (type === "session.tool.called") payload.tool = tools.get(data.id);
-        if (type === "session.execution.started") payload.prompt = prompts.get(session);
         if (type === "session.execution.succeeded") payload.text = texts.get(session);
         last = last.then(() => {
           const printed = hook(payload);

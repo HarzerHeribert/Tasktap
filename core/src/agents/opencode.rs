@@ -7,20 +7,21 @@
 //! OpenCode lays over the person's own `cli.json` without writing it. The
 //! plugin hears the server's events for the session on screen and runs
 //! `<exe> hook opencode` with each that counts on standard input, as the
-//! server sent it, with what that event leaves out: the tool's name, the
-//! prompt, the last text said.
+//! server sent it, with what that event leaves out: the tool's name and
+//! the last text said.
 //!
 //! | Event | Heard |
 //! | --- | --- |
 //! | the plugin is set up | `ready` |
-//! | `session.execution.started` | `turn_started` with the prompt |
+//! | `session.inbox.enqueued` of what a person told it | `turn_started` with the prompt |
+//! | `session.execution.started` | `turn_started` without a prompt: the turn that prompt opened goes on, or one starts by itself, as when a sub-agent is done |
 //! | `session.tool.called` | `activity`, the tool and what it does |
 //! | `permission.asked` | a permission request: a confirm question the hook waits on |
 //! | `form.created` | its one question, with its options as choices, waited on; with several questions or many answers, a question answered in the terminal |
 //! | `permission.replied`, `form.replied`, `form.cancelled` | `continued` |
 //! | `session.execution.succeeded` | `turn_finished` with the last text |
 //! | `session.execution.failed` | `turn_failed` with the error |
-//! | `session.execution.interrupted` | `turn_interrupted` |
+//! | `session.execution.interrupted` | `turn_interrupted`; nothing when a new prompt took its place, which has said so |
 //!
 //! Each event's id is the one the server gave it, and the session's id is
 //! the handle `--session` takes. A sub-agent is a session of its own, whose
@@ -250,9 +251,15 @@ impl Agent for OpenCode {
         let form = data.get("form");
         let resume = text("sessionID").or_else(|| form?.get("sessionID")?.as_str());
         let event = match kind {
-            "session.execution.started" => Event::TurnStarted {
-                prompt: p.str("prompt").map(|t| fit(t, MAX_TEXT)),
-            },
+            "session.inbox.enqueued" => {
+                let item = data.get("item").filter(|i| i["type"] == "user");
+                let Some(told) = item.and_then(|i| i.get("payload")?.get("text")?.as_str()) else {
+                    return Ok(None);
+                };
+                let prompt = Some(fit(told, MAX_TEXT));
+                Event::TurnStarted { prompt }
+            }
+            "session.execution.started" => Event::TurnStarted { prompt: None },
             // Its form asks.
             "session.tool.called" if p.str("tool") == Some(QUESTION) => return Ok(None),
             "session.tool.called" => Event::Activity {
@@ -301,6 +308,10 @@ impl Agent for OpenCode {
                 Event::TurnFailed {
                     error: why.map(|e| fit(&line(&e, 500), MAX_LINE)),
                 }
+            }
+            // The prompt that took its place opened the next turn already.
+            "session.execution.interrupted" if text("reason") == Some("superseded") => {
+                return Ok(None);
             }
             "session.execution.interrupted" => Event::TurnInterrupted,
             _ => return Ok(None),

@@ -99,12 +99,25 @@ fn its_events_map_to_the_one_vocabulary() {
     let ready = event("ready");
     assert_eq!((ready.id.as_str(), &ready.event), ("ready", &Event::Ready));
     assert_eq!(ready.resume, None);
-    // A turn starts with what the session was told, which the plugin adds.
-    let started = event("execution-started");
-    let Event::TurnStarted { prompt: Some(told) } = &started.event else {
-        panic!("{started:?}");
+    // What a person tells it, at its start or typed in its terminal, opens
+    // a turn with those words.
+    let told = event("inbox-enqueued");
+    let Event::TurnStarted {
+        prompt: Some(prompt),
+    } = &told.event
+    else {
+        panic!("{told:?}");
     };
-    assert!(told.starts_with("Tasktap test: use your question tool"));
+    assert!(prompt.starts_with("Tasktap test: run the shell command"));
+    assert_eq!(told.resume.as_deref(), Some(TALK));
+    // What a sub-agent brings back is given to it the same way, and is no
+    // prompt.
+    let brought = changed("inbox-enqueued", "/data/item/type", json!("synthetic"));
+    assert!(heard(&brought).is_none());
+    // Its work starts: the turn the prompt opened goes on, or one starts by
+    // itself, as when a sub-agent it left at work is done.
+    let started = event("execution-started");
+    assert_eq!(started.event, Event::TurnStarted { prompt: None });
     // Each event has the id the server gave it and the session's, which
     // `--session` takes; it numbers no turns, and none is a sub-agent's.
     assert_eq!(started.id, "evt_01fixture");
@@ -143,8 +156,12 @@ fn its_events_map_to_the_one_vocabulary() {
     assert_eq!(bare.event, Event::TurnFailed { error });
     // Stopped by the person, or by a question they dismissed.
     assert_eq!(event("execution-interrupted").event, Event::TurnInterrupted);
+    // Ended because a new prompt took its place: that prompt said so.
+    let superseded = changed("execution-interrupted", "/data/reason", json!("superseded"));
+    assert!(heard(&superseded).is_none());
     // Every event has its own id, so a repeat is ignored and the next is not.
     let ids: Vec<String> = [
+        "inbox-enqueued",
         "execution-started",
         "tool-called-shell",
         "permission-replied",
@@ -344,6 +361,7 @@ fn it_runs_with_a_server_of_its_own_and_its_plugin_named_by_a_variable() {
     assert!(plugin.contains(r#"spawn(TASKTAP, ["hook", "opencode"]"#));
     // Every event the adapter reads is one the plugin gives the hook.
     for kind in [
+        "session.inbox.enqueued",
         "session.execution.started",
         "session.execution.succeeded",
         "session.execution.failed",

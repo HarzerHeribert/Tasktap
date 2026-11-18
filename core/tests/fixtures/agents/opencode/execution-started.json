@@ -3,6 +3,5 @@
   "type": "session.execution.started",
   "data": {
     "sessionID": "ses_01fixture"
-  },
-  "prompt": "Tasktap test: use your question tool to ask me whether I prefer red or blue, offering exactly those two options. Then run the shell command `echo` followed by my choice, and finish with one short sentence."
+  }
 }

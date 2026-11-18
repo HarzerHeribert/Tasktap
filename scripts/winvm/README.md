@@ -215,3 +215,23 @@ These are wall times for the complete `test.sh` command at commit `4b6408f` on t
 | ARM64 warm | 4m 07s | 290 passed, 1 failed, 8 ignored before Cargo stopped |
 
 The x64 launch test `two_thoughts_launched_at_once_in_one_project_each_get_their_own_terminal` passed all 40 isolated runs in 20.4 seconds total. The ARM64 warm failure was in `tens_of_megabytes_arrive_intact_through_a_slow_client_and_a_reconnect`. Its watchdog killed the core after 60 seconds and the reader reported an unexpected EOF at offset 6062289. The script returned Cargo's exit code 101. An immediate isolated rerun passed in 10.5 seconds end to end (1.35 seconds in the test harness). Full logs and timings are in the private media folder.
+
+## Results on both machines, 2026-11-18
+
+Wall times of the complete command from the Mac at commit `d553b3a` (383 tests; 10 more are ignored, which need a real agent, a key or a desktop). The tower ran at its manners: 8 of 16 logical cores, priority BelowNormal, its owner using it meanwhile. Windows 11 Pro 25H2 (build 26200) there, 24H2 in the VM.
+
+| Machine and run | Wall time | Result |
+| --- | --- | --- |
+| Tower, `test.sh --tower`, build folder empty | 2m 35s | 383 passed |
+| Tower, the same again | 1m 44s | 383 passed |
+| Tower, `--system-console` | 1m 37s | 383 passed, twice |
+| Tower, `--batch-agents`, with either console | 1m 49s to 1m 57s | 383 passed, four times |
+| Tower, `host.sh --tower --run`, dependencies built before | 1m 47s | Clippy clean, 19 tests, folder and zip, smoke all passed |
+| VM, `test.sh --x64` (emulated), core rebuilt | 5m 29s | 383 passed |
+| VM, `test.sh --arm64`, core rebuilt | 4m 05s | 383 passed |
+| VM, `test.sh --arm64 --batch-agents` | 2m 17s | 383 passed |
+| VM, `host.sh --arm64 --run`, dependencies built before | 2m 44s | as on the tower |
+
+The suite alone, without building, takes 93 to 111 s on the tower, 127 s in the VM natively and 224 s there emulated: most of it is waiting for timers, which faster hardware does not shorten. The tower compiles the core and its tests from nothing in 38 s on its eight cores.
+
+`a_shim_killed_ends_its_session_and_stopping_one_never_ends_the_shell` (`tests/roles.rs`) failed 13 runs of 13 on the tower before the shim ended its agent through a job, and none of 40 after (`--repeat 10`, plain and `--batch-agents`, each with either console); in the VM it passed 10 of 10 on each architecture after the change, as it did before. Over SSH the app behaves on the tower as in the VM: the smoke script passes, the capture key cannot be registered ("This operation requires an interactive window station", error 1459), and told to quit the app says `quitting`, never `quit`, and sits idle at no processor time until the script ends it.

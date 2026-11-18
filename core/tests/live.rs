@@ -1,5 +1,5 @@
 //! Live runs of the real agents through the core (design §14 D). Every test
-//! here is ignored by default: each runs Claude Code or Codex, signed in on
+//! here is ignored by default: each runs a real agent, signed in on
 //! this computer, for a few short turns on the person's own subscription.
 //! `core/scripts/live-agents.sh` runs them and says what they did.
 //!
@@ -543,6 +543,103 @@ fn antigravity_runs_asks_follows_up_and_resumes() {
     assert_ne!(again, session, "a resume is a new session");
     let result = s.done(r, &tty);
     assert!(result.to_lowercase().contains("resumed"), "{result}");
+    assert_eq!(
+        s.w.model.session(again).resume,
+        handle,
+        "the same conversation"
+    );
+    s.end(again, &tty);
+    s.core.stop();
+}
+
+/// OpenCode, with the plugin of Tasktap's in its terminal interface: its
+/// question and its approval are answered from the core, and an approval in
+/// its terminal settles the one the core shows. The run's own server must
+/// ask before a shell command, which `live-agents.sh` tells it for these
+/// runs alone (`OPENCODE_CONFIG_CONTENT`), with a model that costs nothing.
+#[test]
+#[ignore = "runs OpenCode for three turns on this computer's account"]
+fn opencode_runs_asks_follows_up_and_resumes() {
+    let mut s = Live::new("live-opencode");
+    // A new run; its question is answered from the core.
+    let t = s.ask(
+        "opencode",
+        "Tasktap test: use your question tool to ask me which of two colors I prefer, \
+         Red or Blue. Then reply with only the color I picked.",
+    );
+    let (session, tty) = s.started(t);
+    let q = s.question(&tty);
+    let asked = s.w.model.question(q).clone();
+    say(&format!(
+        "question: {:?} {:?} via {:?}",
+        asked.prompt, asked.kind, asked.reply_via
+    ));
+    assert_eq!(asked.reply_via, ReplyVia::Core);
+    let QuestionKind::Choice { choices } = &asked.kind else {
+        panic!("a choice: {asked:?}")
+    };
+    let blue = choices
+        .iter()
+        .position(|c| c == "Blue")
+        .expect("Blue is a choice") as u32;
+    let answer = AnswerQuestion {
+        id: q,
+        response: Response::Choice { choice: blue },
+    };
+    s.w.ok::<call::QuestionAnswer>(&answer);
+    say("answered Blue from the core");
+    let result = s.done(t, &tty);
+    assert!(result.contains("Blue"), "{result}");
+    let receipt = s.w.model.question(q).answer.clone().unwrap();
+    assert!(receipt.delivered.is_some(), "the hook confirmed the answer");
+    let handle = s.w.model.session(session).resume.clone();
+    say(&format!("resume handle (the session id): {handle:?}"));
+    assert!(handle.as_deref().is_some_and(|h| h.starts_with("ses_")));
+
+    // A follow-up typed into the live session; its approval is given from
+    // the core.
+    let f = s.nudge(
+        session,
+        "Tasktap test: run the shell command `echo followed` and reply with only its output.",
+    );
+    let q2 = s.question(&tty);
+    let asked = s.w.model.question(q2).clone();
+    say(&format!(
+        "approval: {:?} {:?} via {:?}",
+        asked.prompt, asked.kind, asked.reply_via
+    ));
+    assert_eq!(asked.prompt, "OpenCode asks to run echo followed");
+    assert_eq!(asked.reply_via, ReplyVia::Core);
+    assert_eq!(asked.kind, QuestionKind::Confirm);
+    let answer = AnswerQuestion {
+        id: q2,
+        response: Response::Affirm,
+    };
+    s.w.ok::<call::QuestionAnswer>(&answer);
+    say("approved from the core");
+    let result = s.done(f, &tty);
+    assert!(result.contains("followed"), "{result}");
+
+    // The session ends; a follow-up resumes its conversation in a new run,
+    // whose approval is given in the terminal, as a person there would.
+    s.end(session, &tty);
+    let r = s.nudge(
+        session,
+        "Tasktap test: run the shell command `echo resumed` and reply with only its output.",
+    );
+    let (again, tty) = s.started(r);
+    assert_ne!(again, session, "a resume is a new session");
+    // Its dialog's foot: Return allows once.
+    tty.when("enter confirm", b"\r");
+    let q3 = s.question(&tty);
+    let result = s.done(r, &tty);
+    let q3 = s.w.model.question(q3).clone();
+    say(&format!(
+        "the approval given in the terminal ended {:?}",
+        q3.state
+    ));
+    assert_ne!(q3.state, QuestionState::Open);
+    assert!(result.contains("resumed"), "{result}");
     assert_eq!(
         s.w.model.session(again).resume,
         handle,

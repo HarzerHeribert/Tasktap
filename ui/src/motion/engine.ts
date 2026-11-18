@@ -3,7 +3,10 @@
 // pixels to draw per device pixel, how bright the metal is, and where the words are that it must keep clear. States
 // blend as the lab blends them (0.3 s), and so does Lumen when it is switched. A frame is drawn only while something
 // moves: a settled idle, done or failed, Reduce Motion with nothing changing, a view out of sight, an inactive view
-// and a hidden page draw nothing at all, and with no view ever shown no context is made.
+// and a hidden page draw nothing at all, and with no view ever shown no context is made. While something does move
+// it is drawn at one cadence from its first frame to its last, however slowly it moves: in every frame the page is
+// given, up to about 60 a second (the loop at the foot). All of its timing is time passed, never a count of frames,
+// so it runs alike on every display, whatever its rate and however that varies.
 // The largest primary view draws into the context's own canvas; any other view is a copy (a 2D canvas) of a frame
 // drawn there just before it, as the lab draws its small sizes.
 import { HEAD } from './head.ts';
@@ -26,32 +29,35 @@ export type Options = {
   active?: boolean;
   /** May draw into the context's own canvas rather than be a copy. */
   primary?: boolean;
-  /** How it moves. `live`, as the lab: the state's own motion keeps running. `calm`: it moves only when something
-   *  happens: a change of state plays its blend and the state's moment (MOMENT), then holds a still frame; the voice
-   *  drives it live. `breathe`: calm, but while thinking or working it drifts at a fifth of its pace, 10 frames a
-   *  second. */
-  pace?: 'live' | 'calm' | 'breathe';
+  /** How it moves. `live`, as the lab: the state's own motion keeps running. `calm`: it moves while something goes
+   *  on and rests otherwise: thinking, working, a question waiting and listening are loops that run for as long as
+   *  they last; a result or a failure is a moment (MOMENT) laid over whatever came before, after which it comes to
+   *  rest; idle is a still frame. Its own motion gathers way and loses it over most of a second, never at once.
+   *  `still`: a fixed picture of its state, drawn once when something changes it and never moved. */
+  pace?: 'live' | 'calm' | 'still';
+  /** A calm view's lasting states hold still where they are (the window not in use). */
+  rest?: boolean;
   /** The smallest size, in CSS pixels, at which this view draws, where it asks for fewer elements than its size would
    *  (`count`), so each is still large enough for the metal to read. Otherwise MIN. */
   min?: [number, number];
   /** How many elements it draws, instead of what its kind of size asks for. */
   count?: number;
-  /** Light behind the page rather than an object: a copied frame is softened by this many CSS pixels of blur, once, as
-   *  it is copied, so the compositor never blurs it again. */
-  soften?: number;
+  /** Light behind the page rather than an object: drawn at one pixel to a CSS pixel however dense the display, and
+   *  scaled by the page. */
+  soft?: boolean;
   /** The view's own motion at this share of the lab's pace (the ambient light's one tempo); 1 by default. */
   tempo?: number;
   /** Where its own clock starts, so views of one style side by side are not in step. */
   seed?: number;
-  /** At most this many frames a second, once its blend is over (ambient views, whose motion is slow). */
-  fps?: number;
   /** Home's band: how far it stands in the icon's S, its elements leaning with it (head.ts u_pose). 0 everywhere
    *  else, which is the form as the lab draws it. */
   pose?: number;
-  /** Home's band: the strength of the pulses that pass through it while this is above 0, each swelling its heights
-   *  from the centre outward and settling, at uneven intervals of about a breath and a quarter and uneven strengths.
-   *  It is drawn only while a pulse passes, as often as so slow a swell needs, and is a still frame between them. */
+  /** Home's band: the strength of a pulse that passes through it, swelling its heights from the centre outward and
+   *  settling. It is drawn while a pulse passes and is a still frame otherwise. */
   pulse?: number;
+  /** Pulses pass by themselves about this many seconds apart, give or take a third, each of its own strength, the
+   *  first at once; none with 0. */
+  every?: number;
   /** A pulse starts at once each time this changes (focus entering the panel). */
   kick?: number;
 };
@@ -59,16 +65,19 @@ export type Options = {
 // The lab's: the signal light of each state (amber, pale green, dull red), the studio's level, draws a second.
 const SIGNAL = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [2, 1.05, 0.22], [0.45, 1.2, 0.75], [1.25, 0.1, 0.07]];
 const DIM = [0.8, 1, 0.95, 0.92, 0.85, 1.05, 0.42];
-const RATE = [20, 60, 60, 30, 30, 60, 60];
-/** Seconds a calm view plays a state for after it begins: the packet's shuttle, the hump's wander, two beats of needs
- *  you, done's pass of light, failed's slump. */
-const MOMENT = [0, 0, 2.5, 2, 4.8, 3, 2];
+/** Seconds a calm view plays a state that does not last for, after it begins: done's pass of light, failed's slump.
+ *  The states that last (listening, thinking, working, needs you) run on. */
+const MOMENT = [0, Infinity, Infinity, Infinity, Infinity, 3.2, 2];
+/** Seconds a state takes to come in, twice over: its weight follows a value that itself follows the state, so a
+ *  change begins from the pose and the pace on screen, small, and grows; a second change on its way bends it. */
+const BLEND = 0.22;
+/** Seconds a calm view's own motion takes to reach its pace, or to come to rest from it. */
+const WAY = 0.8;
 const VERT = '#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.-1.,0.,1.);}';
 const UNI = { res: 2, org: 2, n: 1, irid: 1, dim: 1, light: 1, hoff: 1, aux: 1, ph: '4fv', v: '4fv', w: '4fv', p: '1fv', st: '1fv',
-  sig: '3fv', ta: '3fv', tb: '3fv', bg: '3fv', lm: '4fv', holes: '4fv', hole: 2, pose: '3fv' } as const;
-/** A pulse (head.ts pulse): the seconds one unit of its clock takes, and the units it lasts until it has settled.
- *  It rises and travels outward in its first two units, drawn 12 times a second, which at its size is under a pixel
- *  a frame, and settles through the rest, drawn 6 times. */
+  sig: '3fv', ta: '3fv', tb: '3fv', bg: '3fv', lm: '4fv', holes: '4fv', hole: 2, pose: '3fv', was: 2 } as const;
+/** A pulse (head.ts pulse): the seconds one unit of its clock takes, and the units it lasts until the form's ends
+ *  have settled too: it rises in half a unit, falls to nothing in 2.2 more, and reaches the ends 0.9 later. */
 const BEAT = 2, PULSE = 3.6;
 type Uniforms = { -readonly [K in keyof typeof UNI]: number | ArrayLike<number> };
 const HOLES = 24;
@@ -79,8 +88,10 @@ const SILENT = { level: 0, fast: 0, slow: 0, onset: 0, onsets: 0, bright: 0.4, v
 
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 const views = new Set<View>();
-/** What the debug channel's checks read: frames drawn on this page, and by each style. */
-export const stats = { frames: 0, contexts: 0 };
+/** What the debug channel's checks read: frames drawn on this page, WebGL contexts made, the milliseconds its frames
+ *  have taken the page, and the most frames a second it draws (the loop at the foot). `seen`, when a check sets
+ *  it, is called with each view just drawn, the canvas that holds its picture and the motion's clock. */
+export const stats = { frames: 0, contexts: 0, ms: 0, rate: 60, seen: null as ((view: View, picture: HTMLCanvasElement, now: number) => void) | null };
 let voice: Voice | null = null;
 
 /** The page's voice source, or none: while one is open, every view's listening state hears it. */
@@ -171,7 +182,7 @@ export function still(style: StyleId, look: Look, state: MotionState, size: numb
     // Half the palette's iridescence: an object this small in full colour reads as coloured, not as metal.
     render(style, size, size, {
       res: [0, 0], org: [0, 0], n: 1, irid: P.irid * 0.5, dim: DIM[s]!, light: 0, hoff: 0, aux, ph: [phase, 0, 0, 9], p: new Float32Array(8), st, sig: SIGNAL[s]!,
-      ta: P.a, tb: P.b, v: [0, 0, 0, 0.4], w: [0, 0, 0.4, 0], bg: [0, 0, 0], lm: [0, 0, 1, 0], holes: new Float32Array(HOLES * 4), hole: [0, 0], pose: [0, 0, 0],
+      ta: P.a, tb: P.b, v: [0, 0, 0, 0.4], w: [0, 0, 0.4, 0], bg: [0, 0, 0], lm: [0, 0, 1, 0], holes: new Float32Array(HOLES * 4), hole: [0, 0], pose: [0, 0, 0], was: [9, 0],
     });
     const px = new Uint8Array(size * size * 4);
     g.readPixels(0, 0, size, size, g.RGBA, g.UNSIGNED_BYTE, px);
@@ -213,17 +224,20 @@ export class View {
   private holes = new Float32Array(HOLES * 4);
   private hole = [0, 0];
   private stale = true;
-  // The lab's per-column animation: state weights, seconds in the state, phases, and Lumen's own.
+  // The lab's per-column animation: state weights (and what each follows), seconds in the state, phases, and Lumen's own.
   private stW = new Float32Array(7);
+  private stV = new Float32Array(7);
+  /** How much of its pace a calm view's own motion has: 0 at rest. */
+  private go = 0;
   private stT = 9;
   private ph = [0, 0, 0, 9];
   private aux = 0;
   private onz = 0;
   private lm = 0;
   private lph = 0;
-  /** The pulse passing through a posed view: when it began and when the next is due (the page's clock, ms), its
-   *  strength, how many there have been, and the kick last answered. */
-  private pulse = { began: -1e9, due: 0, strength: 0, n: 0, kick: 0, on: false };
+  /** The pulse passing through a posed view, and the one before it, which may still be settling: when each began
+   *  (the motion's clock, ms) and its strength; when the next is due; how many there have been; the kick last answered. */
+  private pulse = { began: -1e9, strength: 0, was: -1e9, weak: 0, due: 0, n: 0, kick: 0, on: false };
   private p = new Float32Array(8);
   private moving = false;
   private slow = 0;
@@ -269,6 +283,7 @@ export class View {
       if (o.seed) (this.aux = o.seed * 7.3), (this.ph[0] = o.seed * 11.1);
     }
     else if (o.state !== was.state) this.stT = 0;
+    if (o.pace === 'still') this.settle();
     if (JSON.stringify(o) !== JSON.stringify(was)) {
       this.dirty = this.stale = true;
       this.watch();
@@ -294,7 +309,8 @@ export class View {
   /** Starts in its state, with no blend: a view that appears shows what is, not how it came to be. */
   settle() {
     this.stW.fill(0);
-    this.stW[STATES.indexOf(this.o.state)] = 1;
+    this.stV.fill(0);
+    this.stW[STATES.indexOf(this.o.state)] = this.stV[STATES.indexOf(this.o.state)] = 1;
     this.lm = this.o.look.lumen ? 1 : 0;
     this.stT = 9;
   }
@@ -316,66 +332,63 @@ export class View {
 
   /** Its size in drawn pixels. */
   size() {
-    // Every device pixel: the metal's edges and reflections are the point. Softened into light, one per CSS pixel.
-    const k = this.o.soften ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+    // Every device pixel: the metal's edges and reflections are the point. As light, one per CSS pixel.
+    const k = this.o.soft ? 1 : Math.min(window.devicePixelRatio || 1, 2);
     return [Math.max(2, Math.round(this.css[0]! * k)), Math.max(2, Math.round(this.css[1]! * k))];
   }
 
   tick(dt: number) {
-    const s = STATES.indexOf(this.o.state);
+    const s = STATES.indexOf(this.o.state), k = 1 - Math.exp(-dt / BLEND);
     this.moving = false;
     for (let i = 0; i < 7; i++) {
-      const d = +(i === s) - this.stW[i]!;
-      if (Math.abs(d) > 0.004) this.moving = true;
-      this.stW[i]! += d * (1 - Math.exp(-dt / 0.3));
+      this.stV[i]! += (+(i === s) - this.stV[i]!) * k;
+      this.stW[i]! += (this.stV[i]! - this.stW[i]!) * k;
+      if (Math.abs(+(i === s) - this.stW[i]!) > 0.002) this.moving = true;
     }
+    // A calm view's own motion runs while its state lasts, or for its moment: it gathers way and loses it evenly.
+    const to = this.o.pace !== 'calm' ? 1 : +(this.stT < MOMENT[s]! && !(this.o.rest && s < 5) && !reduced.matches);
+    this.go += Math.max(-dt / WAY, Math.min(dt / WAY, to - this.go));
     const d = +this.o.look.lumen - this.lm;
     if (Math.abs(d) > 0.004) this.moving = true;
     this.lm += d * (1 - Math.exp(-dt / 0.3));
     this.stT += dt;
   }
 
-  /** Draws a second it asks for now. The lab's policy, except that idle holds a still frame here; a calm view holds
-   *  one once its state's moment is over, or drifts at 10 a second while it breathes. */
-  rate() {
-    const s = STATES.indexOf(this.o.state), v = voice ?? SILENT, pace = this.o.pace ?? 'live';
-    if (reduced.matches) return this.moving || (s === 1 && Math.abs(v.slow - this.slow) > 0.004) ? 20 : 0;
-    if (this.moving) return 60;
-    const at = this.beat(), drift = at < PULSE ? (at < 2 ? 12 : 6) : 0;
-    if (s === 0 || (s >= 5 && this.stT > 3)) return drift;
-    if (s === 1) return v.quiet > 1.5 ? 20 : 60;
-    if (pace !== 'live' && this.stT >= MOMENT[s]!) return this.breathing() ? Math.min(10, this.o.fps ?? 10) : drift;
-    return Math.min(RATE[s]!, this.o.fps ?? RATE[s]!);
+  /** Whether it moves now, and so is drawn in this frame: while its states blend, while a pulse passes, while it
+   *  listens, and while its own motion has any of its pace; idle, and a result or a failure once its moment is
+   *  over, hold a still frame. */
+  moves(now: number) {
+    const s = STATES.indexOf(this.o.state), v = voice ?? SILENT;
+    // Before anything else: this is where its next pulse begins.
+    const pulse = this.beat(now) < PULSE;
+    if (this.o.pace === 'still') return false;
+    if (this.moving) return true;
+    if (reduced.matches) return s === 1 && Math.abs(v.slow - this.slow) > 0.004;
+    if (pulse || s === 1) return true;
+    return this.o.pace === 'calm' ? this.go > 0 : !(s === 0 || (s >= 5 && this.stT > 3));
   }
 
-  /** A breathing view after its moment, thinking or working: its own motion runs at a fifth of its pace. */
-  private breathing() {
-    const s = STATES.indexOf(this.o.state);
-    return this.o.pace === 'breathe' && (s === 2 || s === 3) && this.stT >= MOMENT[s]!;
-  }
-
-  /** The clock of the view's pulse, in its units; the next begins when its time has come: about a breath and a
-   *  quarter after the last began, give or take a third, each of its own strength, so it is never a metronome. With
-   *  no pulse, past it. */
-  private beat() {
-    // A kick, or its pulses beginning again (the window back in use), starts one at once.
-    const P = this.pulse, now = performance.now(), kicked = (this.o.kick ?? 0) !== P.kick || (!!this.o.pulse && !P.on);
+  /** The clock of the view's pulse, in its units; the next begins when its time has come, or at a kick. One that
+   *  begins while the last still settles joins it, the two drawn together, so nothing starts again from nothing;
+   *  none begins while two are passing. With none, past it. */
+  private beat(now: number) {
+    const P = this.pulse, every = this.o.every ?? 0, kicked = (this.o.kick ?? 0) !== P.kick || (!!every && !P.on);
     P.kick = this.o.kick ?? 0;
-    P.on = !!this.o.pulse;
-    if (this.o.pulse && !reduced.matches && (kicked || now >= P.due)) {
-      const r = (k: number) => Math.abs(Math.sin((++P.n + k) * 12.9898) * 43758.5453) % 1, breath = 3600 / (this.o.tempo ?? 0.3);
-      Object.assign(P, { began: now, strength: this.o.pulse * (kicked ? 0.8 : 0.6 + 0.4 * r(0.3)), due: now + breath * (0.9 + 0.7 * r(0.7)) });
+    P.on = !!every;
+    if (this.o.pulse && !reduced.matches && (kicked || (every && now >= P.due)) && (now - P.was) / 1000 / BEAT >= PULSE) {
+      const r = (k: number) => Math.abs(Math.sin((++P.n + k) * 12.9898) * 43758.5453) % 1;
+      Object.assign(P, { was: P.began, weak: P.strength, began: now, strength: this.o.pulse * (kicked ? 0.8 : 0.6 + 0.4 * r(0.3)), due: now + every * 1000 * (0.72 + 0.56 * r(0.7)) });
     }
-    return this.o.pulse ? (now - P.began) / 1000 / BEAT : PULSE;
+    return (now - P.began) / 1000 / BEAT;
   }
   /** When a view at rest is next due a frame, in ms from now: when its next pulse begins. Never, with none. */
-  rest() {
-    return this.o.pulse && !reduced.matches ? Math.max(0, this.pulse.due - performance.now()) : Infinity;
+  rest(now: number) {
+    return this.o.pulse && this.o.every && !reduced.matches ? Math.max(0, this.pulse.due - now) : Infinity;
   }
 
-  /** The lab's uniforms for this view, its phases moved on by `adv` seconds. */
-  uniforms(adv: number, n: number): Uniforms {
-    adv *= this.o.tempo ?? 1;
+  /** The lab's uniforms for this view at the frame's time, its phases moved on by `adv` seconds. */
+  uniforms(adv: number, n: number, now: number): Uniforms {
+    adv *= (this.o.tempo ?? 1) * this.go;
     const C = STYLES[this.o.look.style], P = lights(this.o.look.palette, this.o.look.hue), p = this.p, w = this.stW, r = reduced.matches;
     const V = voice ?? SILENT;
     let lp = 0, amb = 0;
@@ -385,7 +398,6 @@ export class View {
       p[k] = x;
     }
     for (let i = 0; i < 7; i++) (lp += w[i]! * LUMEN[i]![1]!), (amb += w[i]! * LUMEN[i]![7]!);
-    if (this.breathing()) adv *= 0.2;
     if (!r) {
       this.ph[0]! += adv * p[1]!;
       this.ph[1]! += adv * V.level * p[0]!;
@@ -393,10 +405,13 @@ export class View {
       this.lph += adv * lp;
       this.onz += (V.onsets - this.onz) * (1 - Math.exp(-adv / 0.09));
       this.ph[2] = this.onz;
-      this.ph[3] = this.stT;
+      // In a calm view a question waiting is its two beats at the view's tempo, a slower and gentler insistence,
+      // and a result's pass of light takes twice as long.
+      const s = STATES.indexOf(this.o.state);
+      this.ph[3] = this.stT * (this.o.pace !== 'calm' ? 1 : s === 4 ? (this.o.tempo ?? 1) : s === 5 ? 0.5 : 1);
     } else this.ph[3] = 9.9;
     const sig = [0, 0, 0], beat = (() => {
-      const t = (this.stT / 2.4) % 1, b = (x: number, k: number) => Math.exp(-((x / k) ** 2));
+      const t = (this.ph[3]! / 2.4) % 1, b = (x: number, k: number) => Math.exp(-((x / k) ** 2));
       return b(t - 0.1, 0.06) + 0.7 * b(t - 0.31, 0.07);
     })();
     let dim = 0;
@@ -410,7 +425,8 @@ export class View {
       res: [0, 0], org: [0, 0], n, irid: P.irid, dim, light: 0, hoff: V.hoff, aux: this.aux, ph: this.ph, p, st: w, sig, ta: P.a, tb: P.b,
       v: [r ? V.slow : V.level, r ? V.slow : V.fast, r ? 0 : V.onset, V.bright],
       w: [r ? V.slow : V.vowel, r ? 0 : V.sib, V.pitch, r ? V.slow : V.activity],
-      bg: [0, 0, 0], lm: [this.lm, this.lph, amb, 0], holes: this.holes, hole: this.hole, pose: [this.o.pose ?? 0, (performance.now() - this.pulse.began) / 1000 / BEAT, this.pulse.strength],
+      bg: [0, 0, 0], lm: [this.lm, this.lph, amb, 0], holes: this.holes, hole: this.hole,
+      pose: [this.o.pose ?? 0, (now - this.pulse.began) / 1000 / BEAT, this.pulse.strength], was: [(now - this.pulse.was) / 1000 / BEAT, this.pulse.weak],
     };
   }
 
@@ -435,18 +451,18 @@ export class View {
   }
 
   /** Draws into the context's canvas, at most `W` by `H`, and copies the frame out unless it is the canvas's own. */
-  draw(adv: number, host: boolean, W: number, H: number) {
+  draw(adv: number, host: boolean, W: number, H: number, now: number) {
     const [bw, bh] = this.size() as [number, number];
     const s = host ? 1 : Math.min(1, W / bw, H / bh), rw = Math.floor(bw * s), rh = Math.floor(bh * s);
     this.clear(rw);
-    render(this.o.look.style, rw, rh, this.uniforms(adv, this.count()));
+    render(this.o.look.style, rw, rh, this.uniforms(adv, this.count(), now));
     this.drawn++;
     this.dirty = false;
     if (host) {
       this.cv?.remove();
       this.cv = null;
       if (canvas!.parentElement !== this.el) this.el.append(canvas!);
-      return;
+      return void stats.seen?.(this, canvas!, now);
     }
     if (!this.cv) {
       this.cv = document.createElement('canvas');
@@ -456,8 +472,8 @@ export class View {
     if (this.cv.width !== bw || this.cv.height !== bh) [this.cv.width, this.cv.height] = [bw, bh];
     const g = this.cv.getContext('2d')!;
     g.clearRect(0, 0, bw, bh);
-    g.filter = this.o.soften ? `blur(${(this.o.soften * bw) / Math.max(1, this.css[0]!)}px)` : 'none';
     g.drawImage(canvas!, 0, H - rh, rw, rh, 0, 0, bw, bh);
+    stats.seen?.(this, this.cv, now);
   }
 }
 
@@ -503,26 +519,36 @@ function words(selector: string, pad: number): Box[] {
 // ---- the frame loop: running only while a view needs a frame ----
 let raf = 0;
 let timer = 0;
-let last = 0;
-/** When the next frame is due. Below the display's rate the loop is paced by counting the display's own frames, never
- *  by a chain of timers: a web view slows such timers down the longer they run (the band fell from 8 frames a second
- *  to under 2 within minutes), which no pace of a frame may depend on. A timer only ends a rest. */
-let next = 0;
+/** When a frame of the motion was last drawn, by the time its frame was given; 0 while the loop sleeps. */
+let drew = 0;
+/** The motion's clock, in ms: it moves on by the time that passed between one drawing and the next, and never by
+ *  more than three frames' worth at once, so after a stall everything goes on from where it was and nothing lurches;
+ *  through a rest, when nothing is in motion, it moves on by all of the rest. */
+let clock = 0;
+let slept = 0;
 
 function wake() {
-  next = 0;
   clearTimeout(timer);
   timer = 0;
   if (!raf && !document.hidden) raf = requestAnimationFrame(frame);
 }
 
-function frame(now: number) {
+/** The frames a page is given come at whatever pace the display and the web view choose, and not evenly: 60, 120,
+ *  144 or 240 a second, or a pace that varies from one frame to the next. Nothing here asks what that pace is. A
+ *  frame of the motion is drawn when at least four fifths of a sixtieth of a second have passed since the last
+ *  (`stats.rate` a second at most, about; no faster cadence can be seen, and each costs), and everything moves by
+ *  the time that passed, never by a count of frames. Never paced by a timer: a web view slows chains of timers down
+ *  the longer they run. A timer only ends a rest. */
+function frame(at: number) {
   raf = 0;
-  if (now < next) return void (raf = requestAnimationFrame(frame));
+  if (drew && at - drew < 800 / stats.rate) return void (raf = requestAnimationFrame(frame));
   const shown = [...views].filter((v) => v.shown());
-  if (!shown.length || !context()) return void (last = 0);
-  const step = last ? (now - last) / 1000 : 0.016, dt = Math.min(0.05, step), adv = reduced.matches ? 0 : Math.min(0.1, step);
-  last = now;
+  if (!shown.length || !context()) return void (drew = 0);
+  const began = performance.now(), ms = drew ? Math.min(50, at - drew) : 1000 / 60, step = ms / 1000, dt = step, adv = reduced.matches ? 0 : step;
+  clock += ms + (slept ? Math.max(0, at - slept) : 0);
+  drew = at;
+  slept = 0;
+  const now = clock;
   voice?.update(dt, reduced.matches);
   const g = gl!;
   if (voice?.open) {
@@ -532,14 +558,14 @@ function frame(now: number) {
     g.texSubImage2D(g.TEXTURE_2D, 0, 0, 0, 128, 2, g.RGBA, g.FLOAT, new Float32Array(128 * 2 * 4));
     zeroed = true;
   }
-  let rate = 0;
+  let moving = false;
   const due: View[] = [];
   for (const v of shown) {
     v.tick(dt);
-    const r = v.rate();
-    rate = Math.max(rate, r);
+    const m = v.moves(now);
+    moving ||= m;
     // A view still and unchanged keeps the frame it has: the sidebar's glyphs turning do not redraw Home's chrome.
-    if (r || v.dirty) due.push(v);
+    if (m || v.dirty) due.push(v);
   }
   // The largest primary view is the canvas's own; the others are copies of frames drawn before it.
   const host = shown.filter((v) => v.o.primary).sort((a, b) => b.size()[0]! * b.size()[1]! - a.size()[0]! * a.size()[1]!)[0];
@@ -548,22 +574,21 @@ function frame(now: number) {
   if (canvas!.width !== W || canvas!.height !== H) [canvas!.width, canvas!.height] = [W!, H!];
   if (!host && canvas!.parentElement) canvas!.remove();
   try {
-    for (const v of due) if (v !== host) v.draw(adv, false, W!, H!);
+    for (const v of due) if (v !== host) v.draw(adv, false, W!, H!, now);
     // The canvas is the host's own picture: drawn again whenever another view used it.
-    if (host && due.length) host.draw(adv, true, W!, H!);
+    if (host && due.length) host.draw(adv, true, W!, H!, now);
     if (due.length) stats.frames++;
   } catch (e) {
     console.error(e);
     broken = true;
-    return void (last = 0);
+    return void (drew = 0);
   }
-  if (rate) {
-    next = rate >= 60 ? 0 : now + 1000 / rate - 4;
-    return void (raf = requestAnimationFrame(frame));
-  }
+  stats.ms += performance.now() - began;
+  if (moving) return void (raf = requestAnimationFrame(frame));
   // Nothing moves: the loop sleeps, until the next pulse of a view that has them is due.
-  last = 0;
-  const rest = Math.min(...shown.map((v) => v.rest()));
+  drew = 0;
+  slept = at;
+  const rest = Math.min(...shown.map((v) => v.rest(now)));
   if (rest !== Infinity)
     timer = window.setTimeout(() => {
       timer = 0;
@@ -575,7 +600,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     cancelAnimationFrame(raf);
     clearTimeout(timer);
-    raf = timer = last = 0;
+    raf = timer = drew = slept = 0;
   } else {
     views.forEach((v) => (v.dirty = true));
     wake();

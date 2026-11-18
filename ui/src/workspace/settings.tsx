@@ -14,7 +14,7 @@ import { call, fail, openQuestions, pref, records, redraw, ui } from './model.ts
 
 const styles: [MotionStyle, string][] = [['slats', 'Slats'], ['glyphs', 'Glyphs'], ['resonator', 'Resonator']];
 const palettes: [MotionPalette, string][] = [['chrome', 'Chrome'], ['chromatic', 'Chromatic'], ['warm', 'Warm'], ['cool', 'Cool'], ['custom', 'Custom']];
-const lights: [MotionAmbient, string][] = [['off', 'Off'], ['still', 'Still'], ['breathing', 'Breathing']];
+const effects: [MotionAmbient, string][] = [['off', 'Off'], ['still', 'Still'], ['breathing', 'Full']];
 const holds: [number, string][] = [[0, 'At once'], [3, '3 s'], [5, '5 s'], [10, '10 s']];
 // Sizes whose cells differ by a whole pixel in the Default face.
 const sizes: [number, string][] = [12, 14, 15, 16, 18].map((n) => [n, String(n)]);
@@ -129,8 +129,8 @@ export function Settings() {
       <Row name="Lumen" hint="Coloured light behind the form and a beam across it. The light behind the notch takes the same colours.">
         <Switch on={look.lumen} name="Lumen" set={(on) => setPref({ id: 'motion_lumen', patch: on })} />
       </Row>
-      <Row name="Ambient light" hint="Light in the window's black, in the form's colours, that breathes while agents work.">
-        <Choice name="Ambient light" value={pref('motion_ambient')} all={lights} set={(v) => setPref({ id: 'motion_ambient', patch: v })} />
+      <Row name="Effects" hint="The light, the chrome and everything that moves by itself. Still keeps the picture and stops the motion; Off draws none of it, which takes the least power and memory. While Reduce Motion or Low Power Mode is on in System Settings, Full behaves as Still.">
+        <Choice name="Effects" value={pref('motion_ambient')} all={effects} set={(v) => setPref({ id: 'motion_ambient', patch: v })} />
       </Row>
       <Row name="Microphone" hint="The form listens while this is on and this sheet is open. Nothing is recorded or sent anywhere.">
         <button type="button" class="btn" aria-pressed={!!trial} disabled={asking} onClick={() => void toggleTrial()}>

@@ -79,7 +79,7 @@
   --i-w:1.2px; --i-cap:butt; --i-join:miter;
   /* time */
   --t-fast:120ms; --t-sheet:220ms; --t-side:280ms; --t-notch-open:510ms; --t-notch-fold:320ms; --t-wave:900ms; --t-bloom:12s;
-  --t-ambient:12s;     /* one breath of the ambient light; its glyphs sway and its chrome floats in the same time */
+  --t-ambient:12s;     /* one breath of the ambient light; its glyphs sway and its chrome drifts in the same time */
   --ambient:1;         /* how far everything ambient travels: the owner's "calmer" (1.5 was calm, .6 calmest) */
   --ease:cubic-bezier(.19,.76,.19,1);
   --ease-fold:cubic-bezier(.45,0,.5,1);

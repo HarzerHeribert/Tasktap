@@ -16,6 +16,7 @@ uniform vec4 u_lm;                  // Lumen laid over the form: how much of it,
 uniform vec4 u_holes[24];           // text the motion keeps clear, in this view's pixels: centre and half size
 uniform vec2 u_hole;                // how many, and how far the light takes to come back around each
 uniform vec3 u_pose;                // Home's band alone: how far it stands in the icon's S, its pulse's clock, its pulse's strength
+uniform vec2 u_was;                 // and the pulse before it, which may still be settling: its clock and its strength
 // (A slat stays upright in that S: its column leaves it under two degrees of lean, which at the band's size only
 // breaks its edges into steps. Its face turns instead, in slats.ts.)
 out vec4 o;
@@ -99,8 +100,11 @@ void put(vec3 c, float a, vec3 g){
 }
 
 // Home's band: the pulse passing through it at ax from the centre: it leaves the centre, reaches the ends, and settles,
-// as loudness does in this wave; a beat's rise and a long fall.
-float pulse(float ax){ float t=u_pose.y-ax*.9; return smoothstep(0.,.5,t)*exp(-max(t-.5,0.)*1.4); }
+// as loudness does in this wave; a beat's rise and a long fall. The fall gathers way from the top and then loses it
+// evenly, so it comes to rest at a moment (2.7 units in) and not along a tail that never ends; one pulse joins the
+// last where they meet.
+float swell(float t){ float x=clamp((t-.5)/2.2,0.,1.); return smoothstep(0.,.5,t)*(x<.12?1.-x*x/.12:(1.-x)*(1.-x)/.88); }
+float pulse(float ax){ return u_pose.z*swell(u_pose.y-ax*.9)+u_was.y*swell(u_was.x-ax*.9); }
 // ---- the icon's wave: centre and half-height at xn in -1..1 (rnd: the element's own random; f: phase; g: voice) ----
 vec2 wave(float xn, float rnd, float f, float g){
   float ax=abs(xn);
@@ -116,7 +120,7 @@ vec2 wave(float xn, float rnd, float f, float g){
   // Home's band: it stands in the icon's S in every state, never on a ruler, and stays there; what moves is its
   // heights, swelling as a pulse passes outward from the centre.
   c-=u_pose.x*.1*sin(PI*xn)*(1.-u_p[6]);
-  h+=u_pose.z*.06*pulse(ax)*(.55+.45*cos(ax*2.))*(1.-u_p[6]);
+  h+=.06*pulse(ax)*(.55+.45*cos(ax*2.))*(1.-u_p[6]);
   return vec2(c,h*smoothstep(1.,.72,ax));
 }
 float span(float asp){ return min(asp*.8,max(1.35,asp*.62)); }
@@ -131,7 +135,9 @@ float slat(vec2 q, float asp, float px, float f, float g, out vec3 n, out vec4 m
   vec2 p=vec2(q.x-xc,q.y-w.x), e=sign(p)*max(abs(p)-vec2(bw,hh)+cr,0.)/cr;
   float rr=length(e), ang=asin(min(rr,1.))*.96;                    // a flat face with rolled shoulders
   n=vec3(e/max(rr,1e-4)*sin(ang),cos(ang)); n.x+=p.x/bw*.16;
-  m=vec4(xn,r,p.y/sc,clamp(2.5*px/cr*step(.02,rr),.03,.45));
+  // The face reflects sharply and the shoulder softly; one becomes the other over a pixel and a half, not at a line,
+  // which would stand on whole pixels and jump from one to the next as the slat's height changes.
+  m=vec4(xn,r,p.y/sc,mix(.03,clamp(2.5*px/cr,.03,.45),smoothstep(.02,.02+1.5*px/cr,rr)));
   return clamp(.5+(1.-rr)*cr/px,0.,1.);
 }
 #define VIEW float asp=u_res.x/u_res.y, px=2./u_res.y; vec2 q=(gl_FragCoord.xy-u_org-.5*u_res)*px;

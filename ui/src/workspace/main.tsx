@@ -16,7 +16,7 @@ import { I, Mark, Wave, plural } from '../ui.tsx';
 import { apply, fontsReady, look } from './appearance.ts';
 import { Deck, startAgent } from './deck.tsx';
 import { Earlier, Home, homeCounts } from './home.tsx';
-import { wakeLook } from './light.tsx';
+import { effects, power, wakeLook } from './light.tsx';
 import { stats } from '../motion/engine.ts';
 import { debug } from '../motion/motion.tsx';
 import * as L from './layout.ts';
@@ -100,13 +100,13 @@ function slid() {
  *  stirs; among terminals a glint runs along the focused tab's lit edge (window.css data-greet; light.tsx). Once per
  *  entry, by the pointer or the keyboard, and once for the region that has focus when the window comes back into
  *  use: never for typing, scrolling or a click inside the region it is in, never restarted while it runs, at most
- *  once a second for a region, and not at all under Reduce Motion or with the ambient light Still or Off. */
+ *  once a second for a region, and not at all below Full on the effects control. */
 type Region = 'side' | 'main';
 const greeted: Record<Region, number> = { side: 0, main: 0 };
 let region: Region | '' = '';
 function greet(r: Region) {
   const now = performance.now();
-  if (ui.greet || now - greeted[r] < 1200 || reduced.matches || pref('motion_ambient') !== 'breathing') return;
+  if (ui.greet || now - greeted[r] < 1200 || effects() !== 'full') return;
   greeted[r] = now;
   ui.greet = r;
   redraw();
@@ -212,14 +212,18 @@ function App() {
   const project = ui.view === LOOSE || records.projects.get(ui.view)?.open ? ui.view : null;
   useLayoutEffect(() => {
     document.documentElement.classList.toggle('narrow', ui.narrow);
+    document.documentElement.dataset.effects = effects();
     settleFocus();
   });
   // The terminals follow their preferences at once and as they change, from this window or another.
   useLayoutEffect(loadLook, [pref('terminal_font'), pref('terminal_size'), pref('terminal_line_height')]);
-  // As it slides the sidebar's edge sheds its wake along its foot, where no row is.
+  // As it slides the sidebar's edge sheds its wake along its foot, where no row is. Opening, the wake lies on the
+  // sidebar's own foot; closing, it lies where the sidebar was, which is the main panel's by then: behind Home's
+  // rows, in its light, and not at all over a terminal, which is text from edge to edge.
   useLayoutEffect(() => {
     const side = document.querySelector<HTMLElement>('.side'), foot = side?.querySelector('.spark')?.getBoundingClientRect();
-    if (ui.slide && side && foot) wake(side, 'x', wakeLook(), [foot.top + 28, foot.bottom]);
+    const room = ui.slide === 'out' ? document.querySelector('.room') : null;
+    if (ui.slide && side && foot && (ui.slide === 'in' || room)) wake(side, 'x', wakeLook(), [foot.top + 28, foot.bottom], room ?? undefined);
   }, [ui.slide]);
   const side = ui.sidebar && !ui.narrow;
   return (
@@ -240,10 +244,13 @@ records.onchange = () => {
   reconcile();
   redraw();
 };
-void listen<{ do: string; at?: string; id?: string }>('ui', ({ payload }) => {
+void listen<{ do: string; at?: string; id?: string; low?: boolean }>('ui', ({ payload }) => {
   if (payload.do === 'focus' && payload.at) focusSession(payload.at);
   else if (payload.do === 'menu' && payload.id) command(payload.id);
+  // Low Power Mode began or ended: the effects follow it (light.tsx effects).
+  else if (payload.do === 'power') (power.low = !!payload.low), redraw();
 });
+void call('host.power', {}).then((low) => ((power.low = !!low), redraw()), () => {});
 const narrow = () => {
   const n = innerWidth < NARROW;
   if (n !== ui.narrow) (ui.narrow = n), redraw();

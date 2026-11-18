@@ -1,6 +1,7 @@
 // The wake: a moving edge sheds a few of the product's glyphs, the same chrome ones that stand at the sidebar's foot,
 // one after another as it passes their places. A wake is what an edge leaves behind it, so it lies where the edge has
 // just been: left of the sidebar's edge as it opens and right of it as it closes, above a sheet's edge as it drops.
+// Where that is over a panel's content (the sidebar closing), it lies behind the content, in the panel's light.
 // Each glyph is large enough to read as its character, has a place to itself, trails the edge a little way, turns
 // slightly and is gone, the oldest first: a short wake, not a scatter. All of it is opacity and transform on pictures
 // drawn once. Nothing remains at rest; none under Reduce Motion or with the ambient light off.
@@ -23,8 +24,9 @@ function picture(k: number, look: Look) {
 /** `el`'s edge has begun to move: its right edge across the window (`x`, the sidebar) or its lower edge along it
  *  (`y`, a sheet), by `el`'s own size. Glyphs are shed behind that edge, whichever way it travels, as it passes each
  *  of their places, until it rests. `span`: the part of the edge that sheds, in window pixels (the sidebar's foot,
- *  where no row is, so a glyph crosses none of its words); all of it otherwise. `look`: null for none. */
-export function wake(el: HTMLElement, axis: 'x' | 'y', look: Look | null, span?: [number, number]) {
+ *  where no row is, so a glyph crosses none of its words); all of it otherwise. `look`: null for none. `under`:
+ *  the element whose content the wake lies behind (window.css), over everything otherwise. */
+export function wake(el: HTMLElement, axis: 'x' | 'y', look: Look | null, span?: [number, number], under?: Element) {
   if (!look || reduced.matches) return;
   const x = axis === 'x', box = () => el.getBoundingClientRect(), edge = () => box()[x ? 'right' : 'bottom'];
   const first = box(), along = x ? first.width : first.height;
@@ -37,7 +39,7 @@ export function wake(el: HTMLElement, axis: 'x' | 'y', look: Look | null, span?:
   // A sheet comes from behind the title bar: so does its wake.
   const top = x ? 0 : first.bottom - first.height;
   layer.style.top = `${top}px`;
-  document.body.append(layer);
+  (under ?? document.body).append(layer);
   const start = edge(), ratio = devicePixelRatio || 1;
   let shed = 0, last = start, rested = 0, frames = 0;
   const frame = () => {

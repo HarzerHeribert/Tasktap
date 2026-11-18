@@ -308,6 +308,8 @@ button.hq:hover{background:var(--hover)}
 @keyframes arrive{from{opacity:0}}
 /* The wake an edge sheds behind it as it sweeps (wake.ts): chrome glyphs, each a picture, there for one sweep. */
 .wake{position:fixed;inset:0;z-index:30;overflow:hidden;pointer-events:none}
+/* Behind Home's rows, in its light: a closing sidebar's wake crosses no word. */
+.room>.wake{z-index:0}
 .wake canvas{position:absolute;opacity:0}
 .sheet header{display:flex;align-items:center;justify-content:space-between;gap:var(--sp3)}
 .sheet h2{display:flex;align-items:baseline;gap:var(--sp3);min-width:0;font:var(--f-title)}
@@ -402,8 +404,8 @@ button.line:hover{background:var(--hover)}
 .code tr.h td{padding:4px 18px 4px 112px;color:var(--fg3);background:var(--hover)}
 .code .said{padding:var(--sp3) 18px;font:var(--f-small);color:var(--fg2)}
 
-/* ——— the light (light.tsx): pools of the person's colour, dithered, breathing only by opacity (set by its clock); one
-   low band of chrome, softened, kept from under the words, dimmer as the page fills ——— */
+/* ——— the light (light.tsx): pools of the person's colour, dithered, breathing only by opacity; one low band of
+   chrome, kept from under the words, dimmer as the page fills ——— */
 .light{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none}
 .pool{position:absolute;border-radius:50%;opacity:.88;transition:opacity 1.2s ease,background-color 1.2s ease;
   -webkit-mask-image:radial-gradient(closest-side,#000,rgb(0 0 0/.8) 18%,rgb(0 0 0/.5) 42%,rgb(0 0 0/.2) 68%,rgb(0 0 0/.05) 88%,transparent);
@@ -411,30 +413,24 @@ button.line:hover{background:var(--hover)}
 .pool.a{left:-14%;top:-46%;width:100%;height:100%;background:var(--noise,none),var(--c1)}
 .pool.b{right:-26%;bottom:-42%;width:82%;height:118%;background:var(--noise,none),var(--c2)}
 .pool.c{left:-30%;bottom:-56%;width:64%;height:86%;background:var(--noise,none),var(--c3)}
-[data-lift] .pool{opacity:1}
-/* While the window is in use the light breathes: each pool's opacity rises and falls about its resting level, each in
-   its own time, carried by the compositor from one end of the breath to the other, so it never stops and starts and
-   costs the page nothing. It holds where it is while the window is not in use. --ambient is how far all of it goes. */
+/* While something goes on the light breathes: each pool's opacity falls and rises about its resting level, each in
+   its own time, carried by the compositor from one end of a breath to the other and back, so it pauses only where it
+   turns and costs the page nothing. It begins at its resting level (half a breath in) and holds wherever it is while
+   it rests. --ambient is how far all of it goes; a question waiting takes half of it, a gentler insistence. */
+:is(.light,.spark)[data-state=needs]{--ambient:.5}
 @media(prefers-reduced-motion:no-preference){
-  .pool{animation:breath calc(2 * var(--t-ambient)) ease-in-out infinite paused}
-  .pool.b{animation-duration:calc(2.46 * var(--t-ambient))}
-  .pool.c{animation-duration:calc(2.94 * var(--t-ambient))}
-  [data-breathe=true] :is(.pool,.band .motion,.turn){animation-play-state:running}
+  .pool{animation:breath var(--t-ambient) ease-in-out calc(-.5 * var(--t-ambient)) infinite alternate paused}
+  .pool.b{animation-duration:calc(1.23 * var(--t-ambient));animation-delay:calc(-.615 * var(--t-ambient))}
+  .pool.c{animation-duration:calc(1.47 * var(--t-ambient));animation-delay:calc(-.735 * var(--t-ambient))}
+  [data-moves=true] :is(.pool,.turn){animation-play-state:running}
 }
-@keyframes breath{0%,100%{opacity:.88}35%{opacity:calc(.88 - .12 * var(--ambient))}75%{opacity:calc(.88 + .09 * var(--ambient))}}
+@keyframes breath{from{opacity:calc(.88 - .1 * var(--ambient))}to{opacity:calc(.88 + .1 * var(--ambient))}}
 .band{position:absolute;left:0;right:0;bottom:0;height:min(52%,420px);opacity:.5;
   -webkit-mask-image:linear-gradient(90deg,transparent 8%,#000 42%,#000 86%,transparent),linear-gradient(0deg,transparent 4%,#000 34%,#000 52%,transparent);-webkit-mask-composite:source-in;
   mask-image:linear-gradient(90deg,transparent 8%,#000 42%,#000 86%,transparent),linear-gradient(0deg,transparent 4%,#000 34%,#000 52%,transparent);mask-composite:intersect}
-/* The form is far larger than the band and drawn at half that size, then scaled: only its light reaches the band. */
+/* The form is far larger than the band and drawn at half that size, then scaled: only its light reaches the band.
+   What moves in it is drawn by its shader (motion/engine.ts), in every frame while it moves. */
 .band .motion{position:absolute;left:-6%;top:-55%;width:62%;height:105%;transform:scale(2);transform-origin:0 0}
-/* While the light breathes the chrome floats: the compositor carries its picture a few pixels each way, never further
-   than the room its words are given (light.tsx pad), and its light rises and falls a little; nothing is drawn. */
-@media(prefers-reduced-motion:no-preference){
-  .band .motion{animation:float var(--t-ambient) linear infinite paused,glow calc(.7 * var(--t-ambient)) ease-in-out infinite alternate paused}
-}
-/* A slow round, at an even pace: it never stops at a corner. */
-@keyframes float{0%,100%{translate:calc(var(--ambient) * -5px) calc(var(--ambient) * 1px)}12.5%{translate:calc(var(--ambient) * -3.5px) calc(var(--ambient) * -2px)}25%{translate:0 calc(var(--ambient) * -3px)}37.5%{translate:calc(var(--ambient) * 3.5px) calc(var(--ambient) * -2px)}50%{translate:calc(var(--ambient) * 5px) calc(var(--ambient) * 1px)}62.5%{translate:calc(var(--ambient) * 3.5px) calc(var(--ambient) * 3px)}75%{translate:0 calc(var(--ambient) * 4px)}87.5%{translate:calc(var(--ambient) * -3.5px) calc(var(--ambient) * 3px)}}
-@keyframes glow{to{opacity:calc(1 - .12 * var(--ambient))}}
 .light[data-load=busy] .band{opacity:.375}
 .light[data-load=asks] .band{opacity:.225}
 .light[data-load=paged] .band{opacity:.15}
@@ -447,8 +443,8 @@ button.line:hover{background:var(--hover)}
 .spark[data-away] .glyph.in{opacity:.5;transform:translateY(4px) scale(.985)}
 @starting-style{.glyph.in{opacity:0;transform:translateY(10px) scale(.94)}}
 /* A region answers when it takes focus (main.tsx greet), within about a second: the sidebar's glyphs step forward as
-   they do when the window comes back into use; on Home the light lifts and its chrome brightens while it stirs; among
-   terminals one glint runs along the lit edge of the focused tab, over no text. */
+   they do when the window comes back into use; on Home the light lifts and its chrome brightens while it stirs, as
+   it does when a result arrives; among terminals one glint runs along the lit edge of the focused tab, over no text. */
 @media(prefers-reduced-motion:no-preference){
   [data-greet=side] .glyph.in{animation:greet .9s var(--ease) calc(var(--i) * 90ms) both}
   .light[data-stir]{animation:lift 1.2s ease-in-out}
@@ -460,7 +456,8 @@ button.line:hover{background:var(--hover)}
 .turn,.turn canvas{position:absolute;inset:0;width:100%;height:100%}
 /* A glyph sways by the compositor alone: a drift of a few pixels, a tilt, and a rock about its upright axis that never
    brings it near edge-on, each in its own time and each glyph out of step with the others, so it never stops and
-   starts; it holds its pose while the window is not in use. A new picture of it comes in over the last (light.tsx). */
+   starts; it holds its pose while the light rests. A new picture of it comes in over the last, evenly, for as long
+   as the page says (light.tsx). */
 @media(prefers-reduced-motion:no-preference){
   .turn{animation:sway var(--t-ambient) ease-in-out calc(var(--i) * -.37 * var(--t-ambient)) infinite alternate paused,tilt calc(1.61 * var(--t-ambient)) ease-in-out calc(var(--i) * -.53 * var(--t-ambient)) infinite alternate paused,
     rock calc(.81 * var(--t-ambient)) ease-in-out calc(var(--i) * -.29 * var(--t-ambient)) infinite alternate paused}
@@ -470,3 +467,8 @@ button.line:hover{background:var(--hover)}
 @keyframes rock{from{transform:perspective(480px) rotateY(calc(var(--ambient) * -16deg))}to{transform:perspective(480px) rotateY(calc(var(--ambient) * 16deg))}}
 .turn canvas{transition:opacity 1.2s linear}
 @starting-style{.turn canvas{opacity:0}}
+/* The effects control (Settings; light.tsx effects). Below Full nothing moves by itself: the marks of work hold a
+   pose, the Composer's lit rim and its glow come and go at once, and the light, where it is shown, is a picture.
+   What the interface does to show a change of its own (a sheet dropping, the sidebar sliding) stays. */
+:root:is([data-effects=still],[data-effects=off]) :is(.st b,.wave b,.ring-o .turn){animation:none}
+:root:is([data-effects=still],[data-effects=off]) :is(.capture.raised::before,.capture.raised .cap,.capture.raised .cap::after,.pool,.glyph,.turn canvas){transition:none}

@@ -25,9 +25,10 @@ export function Motion({ class: cls, children, ...o }: Options & { class?: strin
   return <span ref={el} class={`motion ${cls ?? ''}`} data-style={o.look.style} data-state={o.state} aria-hidden="true">{children}</span>;
 }
 
-/** For the debug channel: a state shown instead of the product's (`__motion.debug.state='working'`), and the light
- *  breathing, or not, whatever the window and the state (measure.sh). */
+/** For the debug channel: a state shown instead of the product's (`__motion.debug.state='working'`), the window
+ *  taken as the one in use, or not, whatever it is (a passive window never is), and Low Power Mode taken as on. */
 export const debug = {
   state: null as MotionState | null,
-  breathe: null as boolean | null,
+  active: null as boolean | null,
+  saving: null as boolean | null,
 };

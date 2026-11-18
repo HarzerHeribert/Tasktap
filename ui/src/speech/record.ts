@@ -16,7 +16,7 @@ import type { DictationTarget } from '../../../core/proto/protocol.ts';
 import { type Stream, uuid7 } from '../client.ts';
 import { call, client, focus, pref, records, redraw } from '../page.ts';
 import { into } from '../way.ts';
-import { type Heard, feed, hear, local, ready, stop } from './local.ts';
+import { type Heard, feed, hear, local, model, ready, stop } from './local.ts';
 import { Loud } from './loud.ts';
 import { BYTES, Pcm } from './pcm.ts';
 
@@ -154,6 +154,8 @@ function heardHere(id: string, h: Heard) {
     reset();
     hearing = '';
     talk.said = WHY[h.error] ?? WHY.engine!;
+    // The host removed a model it could not read: Settings offers it again.
+    if (h.error === 'model') void model().catch(() => {});
     if (row) void call('dictation.cancel', { id }).catch(() => {});
     redraw();
   }
@@ -226,6 +228,7 @@ export async function begin(target: DictationTarget, field: Field | null): Promi
       talk.said = e instanceof DOMException && e.name === 'NotAllowedError'
         ? 'The microphone was not allowed. Tasktap can be allowed in System Settings, Privacy & Security, Microphone.'
         : typeof e === 'string' ? (WHY[e] ?? e) : e instanceof Error ? e.message : String(e);
+      if (e === 'model') void model().catch(() => {});
     }
     redraw();
     return false;

@@ -297,8 +297,9 @@ fn main() {
         // The pages may hear the microphone (hold to talk, which the page records itself so it is the same on every
         // system, and the appearance panel's trial; the person starts both, and macOS then asks them once, with
         // Info.plist's reason), and nothing else a web view can ask for.
+        // A passive run (the checks) is never given it: a check that forgot its stand-in hears nothing.
         .on_permission_request(|_, kind| match kind {
-            PermissionKind::Microphone => PermissionResponse::Allow,
+            PermissionKind::Microphone if std::env::var_os("TASKTAP_PASSIVE").is_none() => PermissionResponse::Allow,
             _ => PermissionResponse::Deny,
         })
         .on_menu_event(|app, event| workspace::on_menu(app, event.id().as_ref()))

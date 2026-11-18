@@ -13,7 +13,7 @@ import { cap } from '../capture.tsx';
 import { type Local, local, model, watch } from '../speech/local.ts';
 import { I, Ring } from '../ui.tsx';
 import { placing } from '../way.ts';
-import { agent, agentName, call, dismiss, fail, focus, loadTerms, open, placers, pref, records, terms } from './model.ts';
+import { agent, agentName, call, dismiss, fail, focus, loadTerms, open, placers, pref, records, redraw, terms } from './model.ts';
 import { type Act, Frame } from './sheets.tsx';
 
 function Row({ name, hint, children }: { name: string; hint?: string; children: ComponentChildren }) {
@@ -174,6 +174,8 @@ function OnThisMac({ l, used }: { l: Local | null; used: boolean }) {
 export function Speech() {
   const by = pref('speech_by'), languages = pref('speech_languages'), l = local.now;
   const here = !by || shown === 'local', fetched = l?.model === 'ready';
+  // Asked again whenever Settings opens: the host looks at the file.
+  useEffect(() => void model().catch(() => {}), []);
   const toggle = (code: string) => {
     const next = languages.includes(code) ? languages.filter((x) => x !== code) : [...languages, code].slice(0, 4);
     void call('put', { c: 'prefs', id: 'speech_languages', patch: next }).catch(fail);
@@ -183,7 +185,7 @@ export function Speech() {
     shown = where === 'local' ? 'local' : '';
     if (where === 'service' && !by) open({ kind: 'speech' });
     else if (where === 'local' && by && fetched) useLocal();
-    else focus(document.querySelector<HTMLElement>('.sheet'));
+    else redraw();
   };
   const hint = !here ? 'Hold ⌥Space in a thought or a reply, or hold the microphone. A recording is sent when you let go.'
     : fetched ? 'Hold ⌥Space in a thought or a reply, or hold the microphone. What you say is turned into text on this Mac and sent nowhere.'

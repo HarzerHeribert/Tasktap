@@ -532,6 +532,49 @@ fn input_reaches_the_process_and_comes_back() {
 
 const FNV: u64 = 0xcbf2_9ce4_8422_2325;
 
+/// A line typed the moment a program's output has come reaches the program.
+/// Each terminal here answers a line with a burst of output and reads the
+/// next, and its client types that line as soon as the burst is whole, on
+/// several terminals at once so that the machine is busy.
+///
+/// Windows fails this, in its console host and not in the core: about one
+/// such line in a hundred stays in the console, which echoes nothing and
+/// leaves the program waiting in its read, until any other input event
+/// comes (a key, a focus event, a size that changed; seen with conhost
+/// 10.0.26100.4202, on ARM64 and x64, in every run of this test). The core
+/// has written the line by then, and has passed on everything the console
+/// gave it. Sending such an event after each typed line ended the waiting
+/// and now and then crashed the console host instead, so the core sends
+/// none, and the test waits here for a console that passes input on.
+#[test]
+#[cfg_attr(windows, ignore = "the Windows console host holds a typed line back")]
+fn a_line_typed_as_a_burst_ends_reaches_the_program() {
+    let typists: Vec<_> = (0..8)
+        .map(|t| {
+            let run = move || {
+                let data = Folder::new(&format!("tt-type{t}"));
+                let core = Core::start(&data);
+                let mut c = core.device();
+                let id = TerminalId::mint();
+                let start = Some(fixture(&["serve"]));
+                let mut v = open(&mut c, &args(id, start, None, 16 << 10), true);
+                let (burst, bursts) = (150, 300);
+                for b in 0..bursts {
+                    c.write(v.s, format!("{burst}\r").as_bytes()).unwrap();
+                    let last = (b + 1) * burst - 1;
+                    until(&mut c, &mut v, &format!("burst {b}"), |v| {
+                        shows(v.bytes(), last)
+                    });
+                }
+            };
+            let name = format!("a_line_typed_as_a_burst_ends_reaches_the_program-{t}");
+            std::thread::Builder::new().name(name).spawn(run).unwrap()
+        })
+        .collect();
+    let held = typists.into_iter().filter_map(|t| t.join().err()).count();
+    assert_eq!(held, 0, "terminals whose program never got a line typed");
+}
+
 /// What a client typed before it left reaches the process, even when the
 /// core learns that the client is gone from a write of the output still
 /// flowing to it, before it has read what the client sent last. Each

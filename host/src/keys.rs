@@ -54,6 +54,20 @@ pub fn follow(
     Ok(())
 }
 
+/// Puts back the key that was registered `before` a change the core then refused: the one registered
+/// meanwhile is let go, and the old one is asked for again.
+pub fn back(held: &mut Option<Key>, before: Option<Key>, mut set: impl FnMut(&Key, bool) -> Result<(), String>) {
+    if *held == before {
+        return;
+    }
+    if let Some(now) = held.take() {
+        let _ = set(&now, false);
+    }
+    if let Some(before) = before {
+        let _ = follow(held, before, set);
+    }
+}
+
 /// Registers a key with the system, or lets it go. Whatever the system's reason, the person is told
 /// the key is taken; the reason goes to the log.
 fn register(app: &AppHandle) -> impl FnMut(&Key, bool) -> Result<(), String> + '_ {
@@ -101,14 +115,7 @@ pub fn call(app: &AppHandle, args: &Value) -> Result<Value, String> {
         Ok(Outcome::Err(e)) => e.message,
         Err(_) => "The core did not answer, so the key was not changed".into(),
     };
-    let mut held = CAPTURE.lock().unwrap();
-    if let Some(now) = held.take().filter(|now| Some(now) != before.as_ref()) {
-        let _ = register(app)(&now, false);
-        *held = None;
-    }
-    if let Some(before) = before {
-        let _ = follow(&mut held, before, register(app));
-    }
+    back(&mut CAPTURE.lock().unwrap(), before, register(app));
     Err(refused)
 }
 
@@ -167,6 +174,27 @@ mod tests {
         assert_eq!(held, None);
         assert_eq!(follow(&mut held, other.clone(), system.set()), Ok(()));
         assert_eq!(held, Some(other));
+    }
+
+    #[test]
+    fn a_change_the_core_refuses_puts_back_the_key_that_was_registered() {
+        let (first, other) = (Key::capture(true), key(true, false, "KeyK"));
+        let mut system = System { taken: Vec::new(), registered: Vec::new() };
+        let mut held = None;
+        follow(&mut held, first.clone(), system.set()).unwrap();
+        // Another key was taken by the system, and then the core refused to store it.
+        let before = held.clone();
+        follow(&mut held, other.clone(), system.set()).unwrap();
+        back(&mut held, before.clone(), system.set());
+        assert_eq!((held.clone(), system.registered.clone()), (Some(first.clone()), vec![first.clone()]));
+        // The same key asked for again, and refused by the core: nothing was changed, nothing is put back.
+        back(&mut held, before, |_, _| panic!("the system was asked"));
+        assert_eq!(held, Some(first.clone()));
+        // With none registered before, none is afterwards.
+        let (mut held, mut system) = (None, System { taken: Vec::new(), registered: Vec::new() });
+        follow(&mut held, other, system.set()).unwrap();
+        back(&mut held, None, system.set());
+        assert_eq!((held, system.registered.len()), (None, 0));
     }
 
     #[test]

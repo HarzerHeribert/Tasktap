@@ -2369,6 +2369,11 @@ pub enum Spoken {
         id: DictationId,
         heard: bool,
     },
+    /// `dictation.finish {as: "text"}`: it is to end as words only,
+    /// whatever it was started for.
+    Words {
+        id: DictationId,
+    },
     /// The speech service's answer, or why there is none.
     Transcribed {
         id: DictationId,
@@ -2509,6 +2514,19 @@ pub fn dictate(all: &mut Vec<Dictating>, event: Spoken) -> Result<Vec<Heard>> {
                 // Finished already: a repeat.
                 Transcribing => Vec::new(),
                 Failed | Words => return Err(Error::Ignored(Ignored::State)),
+            }
+        }
+        Spoken::Words { id } => {
+            let i = at(all, id).ok_or(Error::Gone)?;
+            let d = &mut all[i];
+            match (d.row.phase, &d.row.target) {
+                (Failed | Words, _) => return Err(Error::Ignored(Ignored::State)),
+                (_, DictationTarget::Text) => Vec::new(),
+                // Not captured yet: from here on it is the text target's.
+                (Recording | Transcribing, DictationTarget::Thought(_)) => {
+                    d.row.target = DictationTarget::Text;
+                    vec![Heard::Put(id)]
+                }
             }
         }
         Spoken::Transcribed { id, transcript } => {

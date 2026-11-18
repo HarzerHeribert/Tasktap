@@ -4096,6 +4096,51 @@ mod dictations {
         assert!(gone(&all, id));
     }
 
+    /// `dictation.finish {as: "text"}`: the person let go and wants the
+    /// words to edit, so a dictation started for a thought ends as the
+    /// text target does, from any point before its thought is captured.
+    #[test]
+    fn a_spoken_thought_finished_as_text_is_only_heard_and_nothing_is_delivered() {
+        let mut all = Vec::new();
+        // At the finish, transcribed by the core and by the recorder.
+        for stream in [true, false] {
+            let id = recording(&mut all, stream);
+            let told = dictate(&mut all, Spoken::Words { id }).unwrap();
+            assert_eq!(told, [Heard::Put(id)]);
+            assert_eq!(row(&all, id).target, DictationTarget::Text);
+            // Said twice it is said once.
+            assert_eq!(dictate(&mut all, Spoken::Words { id }).unwrap(), []);
+            dictate(&mut all, Spoken::Finish { id, heard: true }).unwrap();
+            let transcript = Ok(" Hallo ".to_owned());
+            let told = dictate(&mut all, Spoken::Transcribed { id, transcript }).unwrap();
+            assert_eq!(told, [Heard::Put(id), Heard::End(id)]);
+            let r = row(&all, id);
+            assert_eq!((r.phase, r.text.as_str()), (P::Heard, "Hallo"));
+            dictate(&mut all, Spoken::Cancel { id }).unwrap();
+        }
+        // Decided after letting go, while the words are on their way.
+        let id = transcribing(&mut all, true);
+        assert_eq!(
+            dictate(&mut all, Spoken::Words { id }).unwrap(),
+            [Heard::Put(id)]
+        );
+        let transcript = Ok("Hallo".to_owned());
+        let told = dictate(&mut all, Spoken::Transcribed { id, transcript }).unwrap();
+        assert_eq!(told, [Heard::Put(id), Heard::End(id)]);
+        assert_eq!(row(&all, id).phase, P::Heard);
+        // Once it has ended there is nothing to turn, and none that is unknown.
+        // (The next start clears a row that ended, so each is asked in turn.)
+        let told = dictate(&mut all, Spoken::Words { id });
+        assert!(matches!(told, Err(Error::Ignored(Ignored::State))));
+        let id = failed(&mut all);
+        let told = dictate(&mut all, Spoken::Words { id });
+        assert!(matches!(told, Err(Error::Ignored(Ignored::State))));
+        let unknown = Spoken::Words {
+            id: DictationId::mint(),
+        };
+        assert!(matches!(dictate(&mut all, unknown), Err(Error::Gone)));
+    }
+
     #[test]
     fn words_for_a_field_are_only_heard_and_nothing_is_delivered() {
         let mut all = Vec::new();
@@ -4315,6 +4360,7 @@ mod dictations {
                 },
                 Spoken::Finish { id, heard: true },
                 Spoken::Finish { id, heard: false },
+                Spoken::Words { id },
                 Spoken::Transcribed {
                     id,
                     transcript: Ok("Hallo".into()),

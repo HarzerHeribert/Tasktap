@@ -22,9 +22,10 @@ use tasktap_core::client::Client;
 use tasktap_proto::call::{self, Code, Error};
 use tasktap_proto::{
     Ask, Capture, CloseWhy, Control, Delete, Dictation, DictationId, DictationPhase,
-    DictationTarget, Empty, Frame, Listening, MAX_CREDIT, Outcome, PrefKey, PrefPatch, PrefValue,
-    Put, PutTarget, QuestionKind, Ref, ReportDictation, Request, Response, Server, SetKey, Source,
-    SpeechBy, StartDictation, Status, StreamId, ThoughtId, encode_data,
+    DictationTarget, Empty, FinishAs, FinishDictation, Frame, Listening, MAX_CREDIT, Outcome,
+    PrefKey, PrefPatch, PrefValue, Put, PutTarget, QuestionKind, Ref, ReportDictation, Request,
+    Response, Server, SetKey, Source, SpeechBy, StartDictation, Status, StreamId, ThoughtId,
+    encode_data,
 };
 
 /// What the fixture service hears in every recording.
@@ -265,8 +266,13 @@ impl Recorder {
     }
 
     fn finish(&mut self) -> Result<(), Error> {
-        let id = self.id;
-        self.c.call::<call::DictationFinish>(&Ref { id }).unwrap()
+        self.finish_as(None)
+    }
+
+    /// Finishes, with `as: "text"` as words only.
+    fn finish_as(&mut self, words: Option<FinishAs>) -> Result<(), Error> {
+        let finish = FinishDictation { id: self.id, words };
+        self.c.call::<call::DictationFinish>(&finish).unwrap()
     }
 
     fn report(&mut self, text: Option<&str>, level: Option<u8>) -> Result<(), Error> {
@@ -411,6 +417,57 @@ fn a_spoken_thought_is_captured_routed_and_held_as_a_typed_one_is() {
     );
     s.tick(HOLD_MS);
     assert_eq!(s.w.model.status(t), Status::Working);
+}
+
+/// The person spoke a new thought, let go, and wants to edit before
+/// sending: `dictation.finish {as: "text"}` ends it as the text target
+/// does (design §8).
+#[test]
+fn a_spoken_thought_finished_as_text_leaves_its_words_and_captures_nothing() {
+    let (mut s, service) = stage("speech-words", &[]);
+    consent(&mut s.w, &service.url(), "ok");
+    let heard = |w: &mut Watch, id: DictationId| {
+        let heard =
+            |m: &Model| (m.dictations.get(&id)).is_some_and(|d| d.phase == DictationPhase::Heard);
+        w.until("the words", heard);
+        w.model.dictations[&id].clone()
+    };
+    // From the empty Composer: started for a thought, finished as text.
+    let (t, target) = thought();
+    let mut r = recorded(&s, target, &tone(300, 8000));
+    r.finish_as(Some(FinishAs::Text)).unwrap();
+    assert_eq!(r.closed(), Some(CloseWhy::Done));
+    let row = heard(&mut s.w, r.id);
+    assert_eq!((row.text.as_str(), row.error), (HEARD, None));
+    assert_eq!(row.target, DictationTarget::Text);
+    s.w.sync();
+    assert!(s.w.model.thoughts.is_empty(), "{t:?} was not captured");
+    nothing_left(&s.data.0);
+    cancel(&mut s.w, r.id);
+
+    // Decided after letting go, while the speech service still answers.
+    consent(&mut s.w, &service.url(), "slow");
+    let mut r = recorded(&s, thought_target(), &tone(300, 8000));
+    r.finish().unwrap();
+    r.finish_as(Some(FinishAs::Text)).unwrap();
+    let row = heard(&mut s.w, r.id);
+    assert_eq!(
+        (row.text.as_str(), row.target),
+        (HEARD, DictationTarget::Text)
+    );
+    s.w.sync();
+    assert!(s.w.model.thoughts.is_empty());
+    cancel(&mut s.w, r.id);
+
+    // Too late once its thought is captured: there is no dictation any more.
+    consent(&mut s.w, &service.url(), "ok");
+    let (t, target) = thought();
+    let mut r = recorded(&s, target, &tone(300, 8000));
+    r.finish().unwrap();
+    delivered(&mut s.w, r.id, t);
+    let late = r.finish_as(Some(FinishAs::Text)).unwrap_err();
+    assert_eq!(late.code, Code::Gone);
+    assert_eq!(s.w.model.thoughts.len(), 1);
 }
 
 #[test]
@@ -904,7 +961,10 @@ fn only_the_recorder_finishes_and_one_records_while_four_are_under_way() {
     let mut first = recorded(&s, thought_target(), &tone(300, 8000));
     // Another connection, of the same device or not, cannot finish it: its
     // call could arrive before the recorder's last samples.
-    let finish = Ref { id: first.id };
+    let finish = FinishDictation {
+        id: first.id,
+        words: None,
+    };
     assert_eq!(
         s.w.refused::<call::DictationFinish>(&finish).code,
         Code::Denied
@@ -1173,7 +1233,11 @@ fn a_dictation_does_not_survive_the_core_and_a_recording_left_behind_is_removed(
 impl Recorder {
     /// `dictation.finish` on a connection that may have ended.
     fn finish_io(&mut self) -> std::io::Result<Result<(), Error>> {
-        self.c.call::<call::DictationFinish>(&Ref { id: self.id })
+        let finish = FinishDictation {
+            id: self.id,
+            words: None,
+        };
+        self.c.call::<call::DictationFinish>(&finish)
     }
 }
 

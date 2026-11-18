@@ -351,6 +351,21 @@ export type Error = { code: Code, message: string, };
 export type FileChange = "added" | "modified" | "deleted" | "type";
 
 /**
+ * What `dictation.finish` may turn a dictation into: only the words.
+ */
+export type FinishAs = "text";
+
+/**
+ * `dictation.finish`: the recording is over. With `as: "text"` a
+ * dictation started for a new thought ends as words only, as one started
+ * with the `text` target does: the person let go and wants to read or
+ * edit before sending, so nothing is captured and the words are in its
+ * row once it is `heard`. It counts until the thought is captured: also
+ * in a second finish while the words are still on their way.
+ */
+export type FinishDictation = { id: DictationId, as?: FinishAs | null, };
+
+/**
  * `fixture.clock`: from now on the core's clock reads `now` and moves only
  * when called again; every hold that has ended by then ends before the reply.
  */
@@ -1204,7 +1219,7 @@ export type Calls = {
   "input": { args: Input; result: null; access: "device" };
   "dictation.start": { args: StartDictation; result: Listening; access: "device" };
   "dictation.report": { args: ReportDictation; result: null; access: "device" };
-  "dictation.finish": { args: Ref<DictationId>; result: null; access: "device" };
+  "dictation.finish": { args: FinishDictation; result: null; access: "device" };
   "dictation.cancel": { args: Ref<DictationId>; result: null; access: "device" };
   "speech.terms": { args: Empty; result: SpeechTerms; access: "device" };
   "key.set": { args: SetKey; result: null; access: "device" };

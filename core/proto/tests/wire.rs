@@ -448,7 +448,19 @@ fn every_call_round_trips() {
         };
         round_trip::<call::DictationReport>(report, (), seen);
     }
-    round_trip::<call::DictationFinish>(Ref { id: id(6) }, (), seen);
+    let finish = FinishDictation {
+        id: id(6),
+        words: Some(FinishAs::Text),
+    };
+    round_trip::<call::DictationFinish>(finish, (), seen);
+    // As words only is said with `as`; without it a finish names its dictation alone.
+    assert_eq!(
+        serde_json::to_value(finish).unwrap(),
+        json!({"id": "01930000-0000-7000-8000-000000000006", "as": "text"})
+    );
+    let plain = json!({"id": "01930000-0000-7000-8000-000000000006"});
+    let plain: FinishDictation = serde_json::from_value(plain).unwrap();
+    assert_eq!(plain.words, None);
     round_trip::<call::DictationCancel>(Ref { id: id(6) }, (), seen);
     let terms = SpeechTerms {
         sent: vec!["The recording".into()],

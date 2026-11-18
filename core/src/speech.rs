@@ -404,7 +404,7 @@ pub fn report(cx: &mut Cx, args: ReportDictation) -> Result<(), Error> {
 
 /// `dictation.finish`: only on the recorder's connection, where it comes
 /// after the last of the audio.
-pub fn finish(cx: &mut Cx, args: Ref<DictationId>) -> Result<(), Error> {
+pub fn finish(cx: &mut Cx, args: tasktap_proto::FinishDictation) -> Result<(), Error> {
     let id = args.id;
     let Some(live) = cx.core.speech.live.get(&id) else {
         return Err(Error::new(Code::Gone, "no such dictation"));
@@ -418,7 +418,13 @@ pub fn finish(cx: &mut Cx, args: Ref<DictationId>) -> Result<(), Error> {
         audio.ended = true;
         audio.heard()
     });
-    apply(cx.core, Spoken::Finish { id, heard }).or_else(|e| refused("dictation.finish", e))
+    let words = match args.words {
+        Some(tasktap_proto::FinishAs::Text) => apply(cx.core, Spoken::Words { id }),
+        None => Ok(()),
+    };
+    words
+        .and_then(|()| apply(cx.core, Spoken::Finish { id, heard }))
+        .or_else(|e| refused("dictation.finish", e))
 }
 
 /// `dictation.cancel`: from any device, at any point.

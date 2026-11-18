@@ -836,6 +836,25 @@ pub struct Listening {
     pub seconds: u32,
 }
 
+/// `dictation.finish`: the recording is over. With `as: "text"` a
+/// dictation started for a new thought ends as words only, as one started
+/// with the `text` target does: the person let go and wants to read or
+/// edit before sending, so nothing is captured and the words are in its
+/// row once it is `heard`. It counts until the thought is captured: also
+/// in a second finish while the words are still on their way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct FinishDictation {
+    pub id: crate::ids::DictationId,
+    #[serde(default, rename = "as")]
+    pub words: Option<FinishAs>,
+}
+
+words! {
+    /// What `dictation.finish` may turn a dictation into: only the words.
+    pub enum FinishAs { Text }
+}
+
 /// `dictation.report`, from a recorder that transcribes: while recording,
 /// the transcript so far and the level; once finished, the transcript.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

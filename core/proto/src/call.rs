@@ -102,7 +102,7 @@ table! {
     // Speech (design §8)
     DictationStart "dictation.start" Device (crate::args::StartDictation) -> crate::args::Listening;
     DictationReport "dictation.report" Device (crate::args::ReportDictation) -> ();
-    DictationFinish "dictation.finish" Device (Ref<crate::ids::DictationId>) -> ();
+    DictationFinish "dictation.finish" Device (crate::args::FinishDictation) -> ();
     DictationCancel "dictation.cancel" Device (Ref<crate::ids::DictationId>) -> ();
     SpeechTerms "speech.terms" Device (Empty) -> crate::args::SpeechTerms;
     KeySet "key.set" Device (crate::args::SetKey) -> ();

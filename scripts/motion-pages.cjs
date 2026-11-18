@@ -99,7 +99,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       const real = web ? args.target : (records.files || {})[args.target];
       if (!real) return refuse('gone', `${args.target} does not exist`);
       const of = (records.previews || []).filter((p) => p.terminal_id === args.terminal), had = of.find((p) => p.target === real);
-      if (!had && of.length >= 8) return refuse('conflict', 'A terminal has 8 previews beside it already: close one to open another');
+      if (!had && of.length >= 8) return refuse('conflict', 'This terminal has 8 previews open already: close one first');
       const row = had || { id: `019a8b6c-7d10-7000-9000-${String(++rev).padStart(12, '0')}`, rev, terminal_id: args.terminal, kind: web ? 'web' : 'file', target: real,
         title: web ? new URL(real).host : real.split('/').pop(), by: 'person' };
       if (!had) push({ t: 'change', rev, sets: [{ c: 'previews', put: [row] }] });

@@ -25,6 +25,8 @@ export type HostCalls = {
   'host.clipboard': { args: { text?: string }; result: string | null };
   /** The workspace page has drawn: its window may show. */
   'host.ready': { args: Record<string, never>; result: null };
+  /** Whether the Mac is in Low Power Mode; the host says when that changes (the `ui` event `power`). */
+  'host.power': { args: Record<string, never>; result: boolean };
 };
 type AllCalls = { [K in keyof Calls]: { args: Calls[K]['args']; result: Calls[K]['result'] } } & HostCalls;
 export type Name = keyof AllCalls;

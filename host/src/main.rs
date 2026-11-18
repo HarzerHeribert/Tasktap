@@ -18,7 +18,7 @@ use std::time::Instant;
 use tasktap_proto::{QuestionId, Role};
 use tauri::ipc::{Channel, InvokeBody, InvokeResponseBody};
 use tauri::webview::{PermissionKind, PermissionResponse};
-use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 struct Host {
@@ -111,6 +111,7 @@ fn bridge_host(app: AppHandle, frame: String) -> String {
             Err(_) => json!(native::pick_folder()),
         }),
         "host.clipboard" => Ok(json!(native::clipboard(args["text"].as_str(), notch::NOTCH.lock().unwrap().passive))),
+        "host.power" => Ok(json!(native::low_power())),
         name => Err(format!("this host has no {name}")),
     };
     match outcome {
@@ -181,6 +182,13 @@ fn command(app: &AppHandle, line: &str) {
         "deny" => input(app, "answer.deny"),
         "hover" => notch::tell(app, json!({"do": if rest == "in" { "hover-enter" } else { "hover-exit" }})),
         "show" => drop(workspace::show(app, (!rest.is_empty()).then_some(rest))),
+        // `front`: the workspace window in front of every other, with the keyboard left where it is: a measurement
+        // needs the window seen, and a passive one opens behind the app in use.
+        "front" => {
+            if let Some(window) = app.get_webview_window(workspace::LABEL).and_then(|w| w.ns_window().ok()) {
+                native::order_front(window as usize)
+            }
+        }
         "menu" => workspace::on_menu(app, rest),
         "close" => {
             if let Some(window) = app.get_webview_window(rest) {
@@ -318,6 +326,12 @@ fn main() {
                 let handle = app.handle().clone();
                 native::watch_pointer(move || notch::moved(&handle));
             }
+
+            // The workspace's effects rest while the Mac is in Low Power Mode.
+            let handle = app.handle().clone();
+            native::watch_power(move || {
+                let _ = handle.emit_to(workspace::LABEL, "ui", json!({"do": "power", "low": native::low_power()}));
+            });
 
             if std::env::var_os("TASKTAP_DEBUG").is_some() {
                 let handle = app.handle().clone();

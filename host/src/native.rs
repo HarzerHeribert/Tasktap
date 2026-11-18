@@ -122,10 +122,31 @@ pub fn window_number(ptr: usize) -> isize {
 pub fn ns_window_number(ptr: usize) -> isize {
     unsafe { &*(ptr as *const NSWindow) }.windowNumber()
 }
+/// Puts a window in front of every app's, without making this app the active one or the window key.
+pub fn order_front(ptr: usize) {
+    unsafe { &*(ptr as *const NSWindow) }.orderFrontRegardless()
+}
 /// Whether this app is the active one, as other apps see it (not `NSApp.isActive`, which a key
 /// non-activating panel also sets; see trials/tauri-notch/RESULT.md).
 pub fn app_active() -> bool {
     objc2_app_kit::NSRunningApplication::currentApplication().isActive()
+}
+
+/// Whether the Mac is in Low Power Mode.
+pub fn low_power() -> bool {
+    objc2_foundation::NSProcessInfo::processInfo().isLowPowerModeEnabled()
+}
+
+/// Calls `changed` on the main thread whenever Low Power Mode begins or ends; nothing runs between.
+pub fn watch_power(changed: impl Fn() + 'static) {
+    let block = RcBlock::new(move |_: NonNull<objc2_foundation::NSNotification>| changed());
+    let center = objc2_foundation::NSNotificationCenter::defaultCenter();
+    let name = objc2_foundation::NSString::from_str("NSProcessInfoPowerStateDidChangeNotification");
+    let queue = objc2_foundation::NSOperationQueue::mainQueue();
+    // The observer lives as long as the app.
+    std::mem::forget(unsafe {
+        center.addObserverForName_object_queue_usingBlock(Some(&name), None, Some(&queue), &block)
+    });
 }
 
 /// Calls `moved` on the main thread for every pointer move or drag, in any app; nothing runs

@@ -43,7 +43,7 @@ jobs:
           cargo build --quiet
           ./scripts/conpty.ps1 -Target x86_64 -Into target/debug
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --workspace --no-fail-fast
 
   interface:
     name: Interface (types, tests, build, pages)

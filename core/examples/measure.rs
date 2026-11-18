@@ -20,7 +20,9 @@
 //!
 //! `stream` needs a core built with the `fixtures` feature; the others work with any build.
 
-use std::io::{self, Read, Write};
+#[cfg(unix)]
+use std::io::Read;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -299,6 +301,14 @@ fn keys(data: &Path, n: u64, load: &str) -> io::Result<()> {
     io::stdout().flush()
 }
 
+/// The library the core's terminals use on Mac and Linux, measured by itself;
+/// on Windows the core makes its console itself, and there is no such floor.
+#[cfg(windows)]
+fn pty(_: u64) -> io::Result<()> {
+    Err(io::Error::other("this measure runs on Mac and Linux only"))
+}
+
+#[cfg(unix)]
 fn pty(n: u64) -> io::Result<()> {
     use portable_pty::{CommandBuilder, PtySize, native_pty_system};
     let size = PtySize {

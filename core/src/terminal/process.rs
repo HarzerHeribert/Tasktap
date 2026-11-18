@@ -10,6 +10,7 @@
 //! is not woken.
 
 use crate::sys;
+#[cfg(unix)]
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, SlavePty, native_pty_system};
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
@@ -77,9 +78,21 @@ pub struct Plan {
 
 /// The core's side of a running terminal.
 pub struct Process {
-    master: Option<Box<dyn MasterPty + Send>>,
+    master: Option<Master>,
     group: Option<Rc<Group>>,
 }
+
+/// The core's end of the pseudo-terminal: on Windows the console itself,
+/// which the reader thread holds too until it has started the child in it.
+#[cfg(unix)]
+type Master = Box<dyn MasterPty + Send>;
+#[cfg(windows)]
+type Master = Arc<sys::console::Console>;
+/// What the reader thread starts the child in.
+#[cfg(unix)]
+type Slave = Box<dyn SlavePty + Send>;
+#[cfg(windows)]
+type Slave = Arc<sys::console::Console>;
 
 /// What [`Process::start`] hands over: the process, where its input goes
 /// (to the input thread, which writes it in order), and its reports.
@@ -135,25 +148,14 @@ impl Process {
     /// other terminal, and reports [`Report::Started`] or
     /// [`Report::Failed`] before any output.
     pub fn start(plan: Plan) -> io::Result<Started> {
-        let size = PtySize {
-            rows: plan.size.1,
-            cols: plan.size.0,
-            pixel_width: 0,
-            pixel_height: 0,
-        };
-        let pair = native_pty_system()
-            .openpty(size)
-            .map_err(io::Error::other)?;
-        let reader = pair.master.try_clone_reader().map_err(io::Error::other)?;
-        let writer = pair.master.take_writer().map_err(io::Error::other)?;
+        let (master, slave, reader, writer) = open(plan.size)?;
         let (tx, rx) = mpsc::channel(QUEUE);
         let (input, inputs) = plain::channel();
         let wrote = tx.clone();
         thread("terminal-input", move || write(writer, inputs, wrote))?;
-        let slave = pair.slave;
         thread("terminal-output", move || read(slave, plan, reader, tx))?;
         let process = Process {
-            master: Some(pair.master),
+            master: Some(master),
             group: None,
         };
         Ok((process, input, rx))
@@ -165,14 +167,11 @@ impl Process {
 
     pub fn resize(&self, size: Size) {
         if let Some(master) = &self.master {
-            let size = PtySize {
-                rows: size.1,
-                cols: size.0,
-                pixel_width: 0,
-                pixel_height: 0,
-            };
             // A terminal whose child has gone has nothing to tell.
-            let _ = master.resize(size);
+            #[cfg(unix)]
+            let _ = master.resize(pty_size(size));
+            #[cfg(windows)]
+            let _ = master.resize(size.0, size.1);
         }
     }
 
@@ -255,6 +254,37 @@ impl Process {
     }
 }
 
+type Ends = (Master, Slave, Box<dyn Read + Send>, Box<dyn Write + Send>);
+
+#[cfg(unix)]
+fn pty_size(size: Size) -> PtySize {
+    PtySize {
+        rows: size.1,
+        cols: size.0,
+        pixel_width: 0,
+        pixel_height: 0,
+    }
+}
+
+/// Opens the pseudo-terminal: the core's end, the child's, the output to
+/// read and the input to write.
+#[cfg(unix)]
+fn open(size: Size) -> io::Result<Ends> {
+    let pair = native_pty_system()
+        .openpty(pty_size(size))
+        .map_err(io::Error::other)?;
+    let reader = pair.master.try_clone_reader().map_err(io::Error::other)?;
+    let writer = pair.master.take_writer().map_err(io::Error::other)?;
+    Ok((pair.master, pair.slave, reader, writer))
+}
+
+#[cfg(windows)]
+fn open(size: Size) -> io::Result<Ends> {
+    let (console, output, input) = sys::console::open(size.0, size.1)?;
+    let console = Arc::new(console);
+    Ok((console.clone(), console, Box::new(output), Box::new(input)))
+}
+
 fn thread(name: &str, run: impl FnOnce() + Send + 'static) -> io::Result<()> {
     let builder = std::thread::Builder::new().name(name.into());
     builder.stack_size(STACK).spawn(run).map(drop)
@@ -263,20 +293,8 @@ fn thread(name: &str, run: impl FnOnce() + Send + 'static) -> io::Result<()> {
 /// The reader thread: starts the child and its waiter, then reads until the
 /// output ends. Once the core no longer listens it still reads, so that
 /// whatever holds the terminal is never blocked writing to it.
-fn read(
-    slave: Box<dyn SlavePty + Send>,
-    plan: Plan,
-    mut reader: Box<dyn Read + Send>,
-    tx: mpsc::Sender<Report>,
-) {
-    let child = slave.spawn_command(command(plan));
-    // From here on only the child's tree holds its side of the terminal, so
-    // the output ends when the last of them lets go.
-    drop(slave);
-    let started = child
-        .map_err(|e| e.to_string())
-        .and_then(|child| watch(child, &tx));
-    let mut listening = match started {
+fn read(slave: Slave, plan: Plan, mut reader: Box<dyn Read + Send>, tx: mpsc::Sender<Report>) {
+    let mut listening = match spawn(slave, plan, &tx) {
         Ok(group) => tx.blocking_send(Report::Started(group)).is_ok(),
         Err(why) => {
             let _ = tx.blocking_send(Report::Failed(why));
@@ -299,8 +317,53 @@ fn read(
     let _ = tx.blocking_send(Report::Closed);
 }
 
+/// Starts the child and the thread that waits for its exit, and returns
+/// what ends its tree.
+#[cfg(unix)]
+fn spawn(slave: Slave, plan: Plan, tx: &mpsc::Sender<Report>) -> Result<Group, String> {
+    let child = slave.spawn_command(command(plan));
+    // From here on only the child's tree holds its side of the terminal, so
+    // the output ends when the last of them lets go.
+    drop(slave);
+    child
+        .map_err(|e| e.to_string())
+        .and_then(|child| watch(child, tx))
+}
+
+/// On Windows the child is made in its job, so that whatever it starts,
+/// however early, ends with the terminal (design §9, "Stopping").
+#[cfg(windows)]
+fn spawn(console: Slave, plan: Plan, tx: &mpsc::Sender<Report>) -> Result<Group, String> {
+    let job =
+        sys::Job::new().map_err(|e| format!("cannot hold the child's processes together: {e}"))?;
+    let argv: Vec<OsString> = match plan.argv.is_empty() {
+        true => vec![shell().into()],
+        false => plan.argv.into_iter().map(OsString::from).collect(),
+    };
+    let child = console.spawn(&argv, &plan.env, &folder(plan.cwd), &job);
+    // The core's thread may have let go of the console already: closing it
+    // waits for its output to be read, which is this thread's to do.
+    if let Some(last) = Arc::into_inner(console) {
+        let _ = thread("terminal-close", move || drop(last));
+    }
+    let child = child.map_err(|e| {
+        let name = argv[0].to_string_lossy();
+        format!("{name} could not be started: {e}")
+    })?;
+    let exited = tx.clone();
+    let wait = move || {
+        let _ = exited.blocking_send(Report::Exited(child.wait()));
+    };
+    if let Err(e) = thread("terminal-exit", wait) {
+        job.kill();
+        return Err(e.to_string());
+    }
+    Ok(job)
+}
+
 /// Starts the thread that waits for the child's exit, and returns what ends
 /// its tree.
+#[cfg(unix)]
 fn watch(
     mut child: Box<dyn Child + Send + Sync>,
     tx: &mpsc::Sender<Report>,
@@ -308,12 +371,9 @@ fn watch(
     let mut killer = child.clone_killer();
     // Without a group or a waiter nothing could end it or learn of its
     // exit: it must not run.
-    let group = match group(&*child) {
-        Ok(group) => group,
-        Err(why) => {
-            let _ = killer.kill();
-            return Err(why);
-        }
+    let Some(group) = child.process_id() else {
+        let _ = killer.kill();
+        return Err("the child has no process id".into());
     };
     let exited = tx.clone();
     let wait = move || {
@@ -329,21 +389,6 @@ fn watch(
 }
 
 #[cfg(unix)]
-fn group(child: &(dyn Child + Send + Sync)) -> Result<Group, String> {
-    child
-        .process_id()
-        .ok_or_else(|| "the child has no process id".into())
-}
-
-#[cfg(windows)]
-fn group(child: &(dyn Child + Send + Sync)) -> Result<Group, String> {
-    let handle = child
-        .as_raw_handle()
-        .ok_or_else(|| io::Error::other("no handle"));
-    let job = handle.and_then(sys::Job::new);
-    job.map_err(|e| format!("cannot hold the child's processes together: {e}"))
-}
-
 fn command(plan: Plan) -> CommandBuilder {
     let mut cmd = match plan.argv.is_empty() {
         // The person's shell as a Linux terminal starts it: interactive, not

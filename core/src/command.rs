@@ -58,15 +58,14 @@ pub fn run(
     (hear, heard): Wait,
 ) -> Result<Ran, Failed> {
     let deadline = Instant::now() + limit;
-    let mut child = command
+    let piped = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| match e.kind() {
-            ErrorKind::NotFound => Failed::Missing,
-            _ => Failed::Start(e.to_string()),
-        })?;
+        .stderr(Stdio::piped());
+    let (mut child, tree) = crate::sys::Tree::spawn(piped).map_err(|e| match e.kind() {
+        ErrorKind::NotFound => Failed::Missing,
+        _ => Failed::Start(e.to_string()),
+    })?;
     let (stdin, out, err) = (child.stdin.take(), child.stdout.take(), child.stderr.take());
     // Written beside the reading, so a program that prints before it has
     // read everything never stops both.
@@ -95,14 +94,14 @@ pub fn run(
         Ok(Signal::Stop) | Err(RecvTimeoutError::Disconnected) => Err(Failed::Stopped),
         Err(RecvTimeoutError::Timeout) => Err(Failed::Slow),
     };
-    let out = out.inspect_err(|_| end(&mut child))?;
+    let out = out.inspect_err(|_| end(&mut child, &tree))?;
     // Its output ended, so it is about to: its code is waited for.
     let code = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status.code(),
             Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(2)),
             _ => {
-                end(&mut child);
+                end(&mut child, &tree);
                 return Err(Failed::Slow);
             }
         }
@@ -111,7 +110,9 @@ pub fn run(
     Ok(Ran { code, out, err })
 }
 
-fn end(child: &mut Child) {
+/// Ends the program and, on Windows, what it started.
+fn end(child: &mut Child, tree: &crate::sys::Tree) {
+    tree.kill();
     let _ = child.kill();
     let _ = child.wait();
 }

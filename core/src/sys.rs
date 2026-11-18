@@ -156,6 +156,22 @@ mod unix {
         data.join("core.sock")
     }
 
+    /// A program run to its end by the core (`command.rs`, the agents'
+    /// checks). On Windows it holds everything the program started too.
+    pub struct Tree;
+
+    impl Tree {
+        pub fn spawn(command: &mut Command) -> io::Result<(std::process::Child, Tree)> {
+            Ok((command.spawn()?, Tree))
+        }
+
+        /// Ends what the program started; the program is the caller's to end.
+        pub fn kill(&self) {}
+    }
+
+    /// Only Windows opens a window for a program that has none to write in.
+    pub fn no_window(_: &mut Command) {}
+
     /// The process at the other end of a connection, as the kernel says.
     pub fn peer_pid(stream: &Stream) -> Option<u32> {
         let pid = stream.peer_cred().ok()?.pid()?;
@@ -586,8 +602,10 @@ mod windows {
     unsafe impl Send for Job {}
 
     impl Job {
-        /// Puts `process`, a process handle, in a new job.
-        pub fn new(process: RawHandle) -> io::Result<Job> {
+        /// A new job with no process in it yet. A terminal's child is created
+        /// in its job ([`console::Console::spawn`]), so nothing it starts is
+        /// ever outside it.
+        pub fn new() -> io::Result<Job> {
             // SAFETY: null attributes and name ask for an unnamed job with
             // default security; the handle is checked before use.
             let job = unsafe { CreateJobObjectW(null(), null()) };
@@ -610,11 +628,20 @@ mod windows {
                     size,
                 )
             };
-            // SAFETY: both handles are open for the call.
-            if set == 0 || unsafe { AssignProcessToJobObject(job.0, process as HANDLE) } == 0 {
+            if set == 0 {
                 return Err(io::Error::last_os_error());
             }
             Ok(job)
+        }
+
+        /// Puts `process`, a process handle, in the job, and with it every
+        /// process it starts from then on.
+        pub fn hold(&self, process: RawHandle) -> io::Result<()> {
+            // SAFETY: both handles are open for the call.
+            if unsafe { AssignProcessToJobObject(self.0, process as HANDLE) } == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
         }
 
         /// Ends every process in the job.
@@ -846,6 +873,598 @@ mod windows {
         fn drop(&mut self) {
             // SAFETY: `Owned` holds a handle it opened and closes it once.
             unsafe { CloseHandle(self.0) };
+        }
+    }
+
+    /// A program the core runs for its output, such as git, must not open a
+    /// console window: the core has no console, and Windows gives a program
+    /// that needs one a window of its own.
+    pub fn no_window(command: &mut Command) {
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+    }
+
+    /// A program run to its end by the core (`command.rs`, the agents'
+    /// checks), with everything it starts: a tool installed as a batch file
+    /// is the command prompt running the tool, and ending the command prompt
+    /// alone leaves the tool running. The program starts suspended, is put
+    /// in a job, and only then runs, so nothing it starts is outside it;
+    /// the job ends with [`Tree::kill`] or when the tree is dropped.
+    pub struct Tree(Job);
+
+    impl Tree {
+        pub fn spawn(command: &mut Command) -> io::Result<(std::process::Child, Tree)> {
+            use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+                CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First,
+                Thread32Next,
+            };
+            use windows_sys::Win32::System::Threading::{
+                CREATE_NO_WINDOW, CREATE_SUSPENDED, OpenThread, ResumeThread, THREAD_SUSPEND_RESUME,
+            };
+            let job = Job::new()?;
+            // No console window of its own either: the core has none to share.
+            let mut child = command
+                .creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW)
+                .spawn()?;
+            let held = job.hold(child.as_raw_handle());
+            // Resumed whether or not the job took it: its one thread, found
+            // among the system's by the process it belongs to.
+            let mut resumed = false;
+            // SAFETY: the snapshot is a handle closed below; `entry` is a
+            // valid THREADENTRY32 with its size set, as the calls require;
+            // each thread handle is used once and closed once.
+            unsafe {
+                let threads = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+                let mut entry: THREADENTRY32 = std::mem::zeroed();
+                entry.dwSize = size_of::<THREADENTRY32>() as u32;
+                let mut more = Thread32First(threads, &mut entry) != 0;
+                while more {
+                    if entry.th32OwnerProcessID == child.id() {
+                        let thread = OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID);
+                        if !thread.is_null() {
+                            resumed |= ResumeThread(thread) != u32::MAX;
+                            CloseHandle(thread);
+                        }
+                    }
+                    more = Thread32Next(threads, &mut entry) != 0;
+                }
+                CloseHandle(threads);
+            }
+            if let Err(e) = held.and_then(|()| match resumed {
+                true => Ok(()),
+                false => Err(io::Error::other("the program could not be let run")),
+            }) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(e);
+            }
+            Ok((child, Tree(job)))
+        }
+
+        /// Ends the program and everything it started.
+        pub fn kill(&self) {
+            self.0.kill();
+        }
+    }
+
+    /// A pseudo-console and the child that runs in it (design §9). The core
+    /// creates both itself: the child is in its job from its first
+    /// instruction, where a job assigned after the start would miss what the
+    /// child had started by then, and a batch file's arguments are written
+    /// for the command prompt that reads them, or refused.
+    pub mod console {
+        use super::Job;
+        use std::ffi::{OsStr, OsString, c_void};
+        use std::fs::File;
+        use std::io;
+        use std::os::windows::ffi::OsStrExt;
+        use std::os::windows::io::FromRawHandle;
+        use std::path::{Path, PathBuf};
+        use std::ptr::{null, null_mut};
+        use std::sync::OnceLock;
+        use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+        use windows_sys::Win32::System::Console::{
+            COORD, ClosePseudoConsole, CreatePseudoConsole, HPCON, ResizePseudoConsole,
+        };
+        use windows_sys::Win32::System::LibraryLoader::{
+            GetProcAddress, LOAD_WITH_ALTERED_SEARCH_PATH, LoadLibraryExW,
+        };
+        use windows_sys::Win32::System::Pipes::CreatePipe;
+        use windows_sys::Win32::System::Threading::{
+            CREATE_UNICODE_ENVIRONMENT, CreateProcessW, DeleteProcThreadAttributeList,
+            EXTENDED_STARTUPINFO_PRESENT, GetExitCodeProcess, INFINITE,
+            InitializeProcThreadAttributeList, PROC_THREAD_ATTRIBUTE_JOB_LIST,
+            PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, PROCESS_INFORMATION, STARTF_USESTDHANDLES,
+            STARTUPINFOEXW, UpdateProcThreadAttribute, WaitForSingleObject,
+        };
+        use windows_sys::core::HRESULT;
+
+        /// The three calls of a pseudo-console.
+        struct Api {
+            create: unsafe extern "system" fn(COORD, HANDLE, HANDLE, u32, *mut HPCON) -> HRESULT,
+            resize: unsafe extern "system" fn(HPCON, COORD) -> HRESULT,
+            close: unsafe extern "system" fn(HPCON),
+        }
+
+        /// Microsoft's current console when it lies beside this program
+        /// (`conpty.dll`, which runs the `OpenConsole.exe` beside it), else the
+        /// one that ships with Windows, which can hold a typed line back
+        /// (design §9, "Input"). Loaded by its whole path, so only from this
+        /// program's own folder.
+        fn api() -> &'static Api {
+            static API: OnceLock<Api> = OnceLock::new();
+            API.get_or_init(|| {
+                let system = Api {
+                    create: CreatePseudoConsole,
+                    resize: ResizePseudoConsole,
+                    close: ClosePseudoConsole,
+                };
+                let Ok(exe) = std::env::current_exe() else {
+                    return system;
+                };
+                let beside = wide(exe.with_file_name("conpty.dll").as_os_str());
+                // SAFETY: `beside` is a NUL-terminated path; a module that
+                // loaded stays loaded for the life of the process; each name
+                // is a NUL-terminated string, and a function found under it
+                // has the signature the console's header declares for it.
+                unsafe {
+                    let module =
+                        LoadLibraryExW(beside.as_ptr(), null_mut(), LOAD_WITH_ALTERED_SEARCH_PATH);
+                    if module.is_null() {
+                        return system;
+                    }
+                    let find = |name: &[u8]| GetProcAddress(module, name.as_ptr());
+                    match (
+                        find(b"CreatePseudoConsole\0"),
+                        find(b"ResizePseudoConsole\0"),
+                        find(b"ClosePseudoConsole\0"),
+                    ) {
+                        (Some(create), Some(resize), Some(close)) => Api {
+                            create: std::mem::transmute::<
+                                unsafe extern "system" fn() -> isize,
+                                unsafe extern "system" fn(
+                                    COORD,
+                                    HANDLE,
+                                    HANDLE,
+                                    u32,
+                                    *mut HPCON,
+                                )
+                                    -> HRESULT,
+                            >(create),
+                            resize: std::mem::transmute::<
+                                unsafe extern "system" fn() -> isize,
+                                unsafe extern "system" fn(HPCON, COORD) -> HRESULT,
+                            >(resize),
+                            close: std::mem::transmute::<
+                                unsafe extern "system" fn() -> isize,
+                                unsafe extern "system" fn(HPCON),
+                            >(close),
+                        },
+                        _ => system,
+                    }
+                }
+            })
+        }
+
+        fn wide(text: &OsStr) -> Vec<u16> {
+            text.encode_wide().chain([0]).collect()
+        }
+
+        fn coord(cols: u16, rows: u16) -> COORD {
+            COORD {
+                X: cols.min(i16::MAX as u16) as i16,
+                Y: rows.min(i16::MAX as u16) as i16,
+            }
+        }
+
+        fn failed(what: &str, result: HRESULT) -> io::Error {
+            io::Error::other(format!("{what}: HRESULT {result:#010x}"))
+        }
+
+        pub struct Console(HPCON);
+
+        // SAFETY: a pseudo-console may be resized, used to start a process
+        // and closed from any thread.
+        unsafe impl Send for Console {}
+        unsafe impl Sync for Console {}
+
+        /// A process handle, closed with the value.
+        pub struct Child(HANDLE);
+
+        // SAFETY: a process handle may be waited on and closed from any thread.
+        unsafe impl Send for Child {}
+
+        /// Opens a console of `cols` by `rows`, and returns it with its
+        /// output to read and its input to write.
+        pub fn open(cols: u16, rows: u16) -> io::Result<(Console, File, File)> {
+            let pipe = || {
+                let (mut read, mut write) = (null_mut(), null_mut());
+                // SAFETY: both places are valid; the handles are not inherited.
+                if unsafe { CreatePipe(&mut read, &mut write, null(), 0) } == 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                // SAFETY: both handles were just made and are owned from here on.
+                Ok(unsafe { (File::from_raw_handle(read), File::from_raw_handle(write)) })
+            };
+            let (input_read, input) = pipe()?;
+            let (output, output_write) = pipe()?;
+            let mut console: HPCON = 0;
+            // What portable-pty asked for: the console takes over the
+            // cursor (it asks for its position first, `terminal/queries.rs`),
+            // rewraps on resize, and sends keys as Windows programs read them.
+            const INHERIT_CURSOR: u32 = 0x1;
+            const RESIZE_QUIRK: u32 = 0x2;
+            const WIN32_INPUT_MODE: u32 = 0x4;
+            use std::os::windows::io::AsRawHandle;
+            // SAFETY: both pipe ends are open for the call, after which the
+            // console holds its own copies and these close; `console` is a
+            // valid place for the handle.
+            let result = unsafe {
+                (api().create)(
+                    coord(cols, rows),
+                    input_read.as_raw_handle(),
+                    output_write.as_raw_handle(),
+                    INHERIT_CURSOR | RESIZE_QUIRK | WIN32_INPUT_MODE,
+                    &mut console,
+                )
+            };
+            if result != 0 {
+                return Err(failed("the console could not be made", result));
+            }
+            Ok((Console(console), output, input))
+        }
+
+        impl Console {
+            pub fn resize(&self, cols: u16, rows: u16) -> io::Result<()> {
+                // SAFETY: the console is open while `self` lives.
+                match unsafe { (api().resize)(self.0, coord(cols, rows)) } {
+                    0 => Ok(()),
+                    result => Err(failed("the console could not be resized", result)),
+                }
+            }
+
+            /// Starts `argv` in the console with exactly the environment
+            /// `env`, in `cwd` when that is a folder, and in `job` from its
+            /// first instruction. `argv[0]` is the program's file; a batch
+            /// file runs in the command prompt ([`command_line`]).
+            pub fn spawn(
+                &self,
+                argv: &[OsString],
+                env: &[(String, OsString)],
+                cwd: &Path,
+                job: &Job,
+            ) -> io::Result<Child> {
+                let (program, mut line) = command_line(argv)?;
+                let program = wide(program.as_os_str());
+                let mut block = environment(env);
+                let cwd = cwd.is_dir().then(|| wide(cwd.as_os_str()));
+                let jobs = [job.0];
+                // SAFETY: the attribute list is sized by the system, lives in
+                // `list` until it is deleted below, and points at the console
+                // handle and at `jobs`, which outlive the call that reads
+                // them; every string is NUL-terminated and outlives it too;
+                // `info` and `made` are valid for the call, which closes over
+                // nothing else. The standard handles are named and invalid,
+                // so the child takes the console's and never this process's.
+                unsafe {
+                    let mut size = 0;
+                    InitializeProcThreadAttributeList(null_mut(), 2, 0, &mut size);
+                    let mut list = vec![0u64; size.div_ceil(8)];
+                    let attributes = list.as_mut_ptr().cast::<c_void>();
+                    if InitializeProcThreadAttributeList(attributes, 2, 0, &mut size) == 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    let set = |attribute: u32, value: *const c_void, size: usize| {
+                        let attribute = attribute as usize;
+                        UpdateProcThreadAttribute(
+                            attributes,
+                            0,
+                            attribute,
+                            value,
+                            size,
+                            null_mut(),
+                            null(),
+                        ) != 0
+                    };
+                    let mut info: STARTUPINFOEXW = std::mem::zeroed();
+                    info.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
+                    info.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+                    info.StartupInfo.hStdInput = INVALID_HANDLE_VALUE;
+                    info.StartupInfo.hStdOutput = INVALID_HANDLE_VALUE;
+                    info.StartupInfo.hStdError = INVALID_HANDLE_VALUE;
+                    info.lpAttributeList = attributes;
+                    let mut made: PROCESS_INFORMATION = std::mem::zeroed();
+                    let started = set(
+                        PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
+                        self.0 as *const c_void,
+                        size_of::<HPCON>(),
+                    ) && set(
+                        PROC_THREAD_ATTRIBUTE_JOB_LIST,
+                        jobs.as_ptr().cast(),
+                        size_of::<HANDLE>(),
+                    ) && CreateProcessW(
+                        program.as_ptr(),
+                        line.as_mut_ptr(),
+                        null(),
+                        null(),
+                        0,
+                        EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
+                        block.as_mut_ptr().cast(),
+                        cwd.as_ref().map_or(null(), |cwd| cwd.as_ptr()),
+                        &info.StartupInfo,
+                        &mut made,
+                    ) != 0;
+                    let error = io::Error::last_os_error();
+                    DeleteProcThreadAttributeList(attributes);
+                    if !started {
+                        return Err(error);
+                    }
+                    CloseHandle(made.hThread);
+                    Ok(Child(made.hProcess))
+                }
+            }
+        }
+
+        impl Drop for Console {
+            fn drop(&mut self) {
+                // SAFETY: `Console` holds the console it made and closes it once.
+                unsafe { (api().close)(self.0) };
+            }
+        }
+
+        impl Child {
+            /// Waits for the process to end: its exit code.
+            pub fn wait(&self) -> Option<u32> {
+                let mut code = 0;
+                // SAFETY: the handle is open while `self` lives, and `code`
+                // is a valid place for the one u32 written.
+                let known = unsafe {
+                    WaitForSingleObject(self.0, INFINITE);
+                    GetExitCodeProcess(self.0, &mut code) != 0
+                };
+                known.then_some(code)
+            }
+        }
+
+        impl Drop for Child {
+            fn drop(&mut self) {
+                // SAFETY: `Child` holds the handle it was given and closes it once.
+                unsafe { CloseHandle(self.0) };
+            }
+        }
+
+        /// The environment block of a process: `key=value` strings, each
+        /// ended by a NUL, in the order Windows keeps them, and one NUL more.
+        fn environment(env: &[(String, OsString)]) -> Vec<u16> {
+            let mut vars = std::collections::BTreeMap::new();
+            for (key, value) in env {
+                vars.insert(key.to_uppercase(), (key, value));
+            }
+            let mut block = Vec::new();
+            for (key, value) in vars.values() {
+                block.extend(key.encode_utf16());
+                block.push(u16::from(b'='));
+                block.extend(value.encode_wide());
+                block.push(0);
+            }
+            if block.is_empty() {
+                block.push(0);
+            }
+            block.push(0);
+            block
+        }
+
+        /// The program Windows is to start for `argv` and the command line
+        /// it is given. A program is found as the command prompt finds it,
+        /// on the core's PATH with the extensions of `PATHEXT`, when it is
+        /// named without a folder.
+        ///
+        /// A batch file (`.cmd`, `.bat`: how npm installs a tool) is not a
+        /// program: the command prompt runs it, and reads the line by its
+        /// own rules, under which an argument written for a program can end
+        /// early and the rest of it run as commands. The line is therefore
+        /// written as the Rust standard library writes one for a batch file
+        /// (`std::process::Command`, "Windows argument splitting"), and
+        /// what cannot be written safely, a line break in an argument, is
+        /// refused.
+        pub fn command_line(argv: &[OsString]) -> io::Result<(PathBuf, Vec<u16>)> {
+            let invalid = |why: &str| io::Error::new(io::ErrorKind::InvalidInput, why.to_owned());
+            let (name, args) = argv
+                .split_first()
+                .ok_or_else(|| invalid("no program is named"))?;
+            if argv.iter().any(|arg| arg.encode_wide().any(|c| c == 0)) {
+                return Err(invalid("an argument holds a NUL character"));
+            }
+            let named = Path::new(name);
+            let bare = named.components().count() == 1 && !named.has_root();
+            let found = bare
+                .then(|| std::env::var_os("PATH"))
+                .flatten()
+                .and_then(|path| {
+                    let name = name.to_str()?;
+                    let exact = std::env::split_paths(&path)
+                        .map(|folder| folder.join(name))
+                        .find(|file| file.is_file());
+                    exact.or_else(|| crate::roles::shim::find(name, &path, |_, _| true))
+                });
+            let program = found.unwrap_or_else(|| named.to_owned());
+            let batch = program.extension().is_some_and(|ext| {
+                ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat")
+            });
+            let mut line = Vec::new();
+            if !batch {
+                quote(program.as_os_str(), &mut line);
+                for arg in args {
+                    line.push(u16::from(b' '));
+                    quote(arg, &mut line);
+                }
+                line.push(0);
+                return Ok((program, line));
+            }
+            let script: Vec<u16> = program.as_os_str().encode_wide().collect();
+            if script.contains(&u16::from(b'"')) || script.last() == Some(&u16::from(b'\\')) {
+                return Err(invalid("a batch file's name may not hold a quote"));
+            }
+            // /e:ON has the prompt read `%cd:~,%` as nothing, which is what
+            // keeps a percent sign a percent sign; /v:OFF leaves `!` alone;
+            // /d runs no AutoRun command; the whole command is quoted once
+            // more, as /c takes it.
+            line.extend("cmd.exe /e:ON /v:OFF /d /c \"\"".encode_utf16());
+            line.extend(&script);
+            line.push(u16::from(b'"'));
+            for arg in args {
+                if arg.encode_wide().any(|c| c == 13 || c == 10) {
+                    let why = "a tool installed as a batch file cannot be given an argument with a line break";
+                    return Err(invalid(why));
+                }
+                line.push(u16::from(b' '));
+                quote_for_batch(arg, &mut line);
+            }
+            line.extend([u16::from(b'"'), 0]);
+            let system = std::env::var_os("SystemRoot").map(PathBuf::from);
+            let prompt = system
+                .map(|root| root.join("System32").join("cmd.exe"))
+                .filter(|prompt| prompt.is_file())
+                .ok_or_else(|| invalid("Windows' command prompt was not found"))?;
+            Ok((prompt, line))
+        }
+
+        /// One argument as a program's start-up code reads it back
+        /// (`CommandLineToArgvW` and the C runtime): quoted when it is empty
+        /// or holds a blank or a quote, with backslashes doubled only where
+        /// a quote follows.
+        fn quote(arg: &OsStr, line: &mut Vec<u16>) {
+            let (quote, slash) = (u16::from(b'"'), u16::from(b'\\'));
+            let plain = !arg.is_empty()
+                && !arg
+                    .encode_wide()
+                    .any(|c| matches!(c, 0x20 | 0x09 | 0x0a | 0x0b | 0x22));
+            if plain {
+                line.extend(arg.encode_wide());
+                return;
+            }
+            line.push(quote);
+            let mut slashes = 0;
+            for c in arg.encode_wide() {
+                if c == slash {
+                    slashes += 1;
+                } else {
+                    if c == quote {
+                        line.extend(std::iter::repeat_n(slash, slashes + 1));
+                    }
+                    slashes = 0;
+                }
+                line.push(c);
+            }
+            line.extend(std::iter::repeat_n(slash, slashes));
+            line.push(quote);
+        }
+
+        /// One argument as the command prompt hands it on to the program a
+        /// batch file starts with `%*`: quoted unless it is made of letters,
+        /// digits and a few signs the prompt gives no meaning, a quote
+        /// doubled (which the prompt and the program both read as one), and
+        /// each percent sign preceded by `%%cd:~,`, which the prompt reads
+        /// as the start of nothing, so that no variable is put in its place.
+        fn quote_for_batch(arg: &OsStr, line: &mut Vec<u16>) {
+            let (quote, slash) = (u16::from(b'"'), u16::from(b'\\'));
+            let chars: Vec<u16> = arg.encode_wide().collect();
+            let known = |c: &u16| {
+                let c = char::from_u32(u32::from(*c));
+                c.is_some_and(|c| {
+                    !c.is_control()
+                        && (!c.is_ascii()
+                            || c.is_ascii_alphanumeric()
+                            || r"#$*+-./:?@\_".contains(c))
+                })
+            };
+            let quoted =
+                chars.is_empty() || chars.last() == Some(&slash) || !chars.iter().all(known);
+            if quoted {
+                line.push(quote);
+            }
+            let mut slashes = 0;
+            for &c in &chars {
+                if c == slash {
+                    slashes += 1;
+                } else {
+                    if c == quote {
+                        line.extend(std::iter::repeat_n(slash, slashes));
+                        line.push(quote);
+                    } else if c == u16::from(b'%') {
+                        line.extend("%%cd:~,".encode_utf16());
+                    }
+                    slashes = 0;
+                }
+                line.push(c);
+            }
+            if quoted {
+                line.extend(std::iter::repeat_n(slash, slashes));
+                line.push(quote);
+            }
+        }
+
+        #[cfg(test)]
+        mod tests {
+            use super::*;
+
+            fn text(line: &[u16]) -> String {
+                String::from_utf16(line.strip_suffix(&[0]).unwrap()).unwrap()
+            }
+
+            fn args(args: &[&str]) -> Vec<OsString> {
+                args.iter().map(OsString::from).collect()
+            }
+
+            #[test]
+            fn a_program_s_arguments_are_quoted_as_its_start_up_code_reads_them() {
+                let argv = args(&[
+                    r"C:\tools\tool.exe",
+                    "plain",
+                    "two words",
+                    "",
+                    r#"say "hi""#,
+                    r"ends in a slash\",
+                    r#"{"a":"b\"}"#,
+                ]);
+                let (program, line) = command_line(&argv).unwrap();
+                assert_eq!(program, Path::new(r"C:\tools\tool.exe"));
+                assert_eq!(
+                    text(&line),
+                    r#"C:\tools\tool.exe plain "two words" "" "say \"hi\"" "ends in a slash\\" "{\"a\":\"b\\\"}""#
+                );
+            }
+
+            #[test]
+            fn a_batch_file_s_arguments_are_written_for_the_command_prompt() {
+                let argv = args(&[
+                    r"C:\npm\tool.cmd",
+                    "plain",
+                    "two words",
+                    r#"{"hooks":{"Stop":"a & b"}}"#,
+                    "100%",
+                    "a&b|c<d>e^f",
+                    r"ends in a slash\",
+                ]);
+                let (program, line) = command_line(&argv).unwrap();
+                assert!(program.ends_with(r"System32\cmd.exe"), "{program:?}");
+                assert_eq!(
+                    text(&line),
+                    r#"cmd.exe /e:ON /v:OFF /d /c ""C:\npm\tool.cmd" plain "two words" "{""hooks"":{""Stop"":""a & b""}}" "100%%cd:~,%" "a&b|c<d>e^f" "ends in a slash\\"""#
+                );
+            }
+
+            #[test]
+            fn a_batch_file_is_refused_an_argument_with_a_line_break() {
+                for bad in ["two\nlines", "two\rlines"] {
+                    let argv = args(&[r"C:\npm\tool.CMD", bad]);
+                    let refused = command_line(&argv).unwrap_err();
+                    assert_eq!(refused.kind(), io::ErrorKind::InvalidInput);
+                    assert!(refused.to_string().contains("line break"), "{refused}");
+                }
+                // A program takes it as it is.
+                assert!(command_line(&args(&[r"C:\tools\tool.exe", "two\nlines"])).is_ok());
+                assert!(command_line(&args(&[r#"C:\npm\a"b.cmd"#])).is_err());
+            }
         }
     }
 

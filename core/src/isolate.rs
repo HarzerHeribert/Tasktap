@@ -1032,6 +1032,7 @@ impl Git {
         command
             .env_clear()
             .envs(self.env.iter().map(|(k, v)| (k, v)));
+        crate::sys::no_window(&mut command);
         command
     }
 

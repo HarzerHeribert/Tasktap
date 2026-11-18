@@ -48,7 +48,7 @@ Grafts from the directions not chosen:
 
 1. **What needs you.** Questions, question first. The first one is open: its folder, agent and thought on one quiet line, the question in full at 17 px, its answers as key caps. Any further question is a single line (wave, folder, agent, thought, the question cut to fit) and opens when chosen; opening one closes the other. The section has the page's only lit rule, so it is the first thing the eye lands on. When nothing needs you the section is absent, not empty.
 2. **What is running.** One line each: the moving wave, the folder, the thought, the one fact that matters (the step it is on), the elapsed time. Sessions in the background are dimmed and sort last. No buttons: the row itself opens the terminal. At most four rows; more than that collapse into a last line, "3 more running", which opens in place (specified here, not drawn in the mock-up, which never has more than four).
-3. **The capture field.** Always the first thing on the page, so it is always in the same place. The owner chose the Composer (2026-11-17, of three variants; the other two are gone): the **surface** material (section 5), raised, with no border, lit from behind by the room's light gathered under it, 20 px corners (`--r4`), centred and 720 px wide (`--cap-w`). The thought is on lines of its own at 20 px (the placeholder an invitation in `--fg-field`, the caret `--accent`), growing a line at a time up to six (Shift-Return for a new line). Under it, inside the surface, one row:
+3. **The capture field.** Always the first thing on the page, so it is always in the same place. The owner chose the Composer (2026-11-17, of three variants; the other two are gone): the **surface** material (section 5): opaque graphite with a hairline, the room's light gathered around it and never through it (the owner, 2026-11-19: lit from behind through a translucent surface it "looks too blueish and should be more in theme with the rest of the app"; its colour is now its lit rim and, with the effects on, the palette chosen in Appearance: the light behind it and the rim follow it, and have no colour with the default palette), 20 px corners (`--r4`), centred and 720 px wide (`--cap-w`). The thought is on lines of its own at 20 px (the placeholder an invitation in `--fg-field`, the caret `--accent`), growing a line at a time up to six (Shift-Return for a new line). Under it, inside the surface, one row:
    - at its left, where the thought will go: "→ folder", a follow-up's session, "For later", or, before any folder is open, "No folder yet";
    - then the agents as **rings** (section 5): the lit one runs the thought, a click on another picks it (the core's `agent` preference), one that is not signed in is an open ring that leads to where it is signed in;
    - at its right, the **key** that says what Return does: "Start", "Send" for a follow-up, "Save for later" when the thought has no folder to go to. It is metal whenever Return does something and quiet when it does nothing. With a thought in the field it sends that thought. With the field empty and a thought held under it, it says "Start" and starts that one now: it is the one thing in view that says Start. A thought leaves the field the moment it is sent, so the next can be typed while it is on its way to the core: the field is never locked, what is typed meanwhile is the beginning of the next thought, the key shows the wave until the core has the last one, and a second Return sends nothing twice. If the core refuses a thought its words are back in the field, before what was typed since.
@@ -129,7 +129,7 @@ The app's one design-token file, `ui/src/tokens.css`, as built. Nothing else in 
   --fg:#f2f2f3;        /* 17.7 : 1 on --bg */
   --fg2:#a3a4aa;       /*  8.0 : 1 */
   --fg3:#7c7d84;       /*  4.8 : 1; times, hints, disabled */
-  --fg-field:#c4c5cb;  /* secondary words on a raised field, lit from behind: 4.5 : 1 at the strongest light */
+  --fg-field:#c4c5cb;  /* secondary words on the Composer's surface: 10 : 1 on it with the keyboard */
   --ink:#0d0d0e;       /* text on metal */
   /* lines */
   --line:#1f2024; --line2:#33343a;
@@ -140,15 +140,16 @@ The app's one design-token file, `ui/src/tokens.css`, as built. Nothing else in 
   --plus:var(--fg2); --minus:var(--fg3);              /* a diffstat's counts */
   --add:rgb(155 203 167/.09); --del:rgb(240 113 110/.09);  /* a diff's lines, under the sign that marks them */
   /* Materials (NOTES §5): every control is one of four, on the ground above.
-     Surface: the Composer, raised and lit from behind by the room's light.
+     Surface: the Composer: opaque graphite of the ground's own family with a hairline round it, brighter along its
+       top. The room's light stands around it and never shows through it, so it has no colour of its own.
      Metal: the key, the one primary action in view, and the caps that show a key. A flat, evenly lit face its label
        always reads on (--ink on it is 15 : 1); the metal is at its edges: a bright top edge, the chromatic glint along
        its lower edge, a soft shadow beneath. Never a band behind the words.
      Quiet: every other control: text, a fill only under the pointer (--hover, --sel), a hairline round a button.
      Edge: --lit, the chromatic lit edge, for what has the keyboard and what is live. Never text, never decoration. */
-  --surface:linear-gradient(180deg,rgb(255 255 255/.075),rgb(255 255 255/.04));
-  --surface-lit:linear-gradient(180deg,rgb(255 255 255/.095),rgb(255 255 255/.05));
-  --surface-edge:inset 0 1px 0 rgb(255 255 255/.09),0 1px 0 rgb(0 0 0/.5),0 30px 60px -28px rgb(0 0 0/.85);
+  --surface:var(--fill);
+  --surface-lit:var(--sel);
+  --surface-edge:inset 0 1px 0 var(--line2),inset 0 0 0 1px var(--line),0 30px 60px -28px rgb(0 0 0/.85);
   --key:linear-gradient(180deg,#eceef1,#dde0e5);
   --key-edge:inset 0 1px 0 #fff,0 1px 0 #000,0 3px 7px -2px rgb(0 0 0/.75);
   --key-down:inset 0 1px 2px rgb(0 0 0/.28);
@@ -238,7 +239,7 @@ The owner, on the first real window (2026-11-18): the title bar's "Home" in the 
 | Material | What it is for | How it is drawn |
 | --- | --- | --- |
 | **Ground** | The window, the sidebar, the tab bar, the rail (`--bg`); sheets and the notch (`--sheet`) | One black. Hairlines divide it |
-| **Surface** | The Composer on Home | Raised and lit from behind by the room's light: `--surface`, `--surface-edge`, 20 px corners, no border. Brighter (`--surface-lit`) with the keyboard or a thought |
+| **Surface** | The Composer on Home | Opaque graphite, the family of the app's other fills (`--surface` is `--fill`), with a hairline that is brighter along its top (`--surface-edge`), 20 px corners. A shade brighter (`--surface-lit`, which is `--sel`) with the keyboard or a thought. The room's light stands around it: with the effects on, a soft light of the palette's first colour behind it and the lit rim in the palette's two; no colour with the default palette; with the effects off, the surface and its hairline only |
 | **Metal** | The key: the one primary action in view. And the caps that show a key | A machined key, not a pipe: a flat, evenly lit face (`--key`) its label always reads on (`--ink` on it is 15 : 1; the check holds every key to 7 : 1), with the metal at its edges only: a bright top edge, the chromatic glint along its lower edge, a soft shadow beneath (`--key-edge`). Never a band behind the words. Two sizes of key, 24 px and 34 px (Home's Composer and what is attached to it); the cap is 18 px. Under the pointer it brightens; pressed, it travels a pixel and its shadow goes (`--key-down`); with nothing to do it is quiet; while its work is on its way it shows the wave |
 | **Quiet** | Every other control: an answer (a cap and its label), a button among words, an icon button, the Composer's place, a ring, a row | Text. A fill only under the pointer (`--hover`), deeper while pressed (`--sel`); a button among words has a hairline round it (`--line2`). On the surface the same rule in the surface's own tones |
 | **Edge** | What has the keyboard, and what is live: the focused tab, the selected row, a field with the keyboard, the Composer with the keyboard or a thought, the top of a sheet, the rule over what needs you, the ring of the agent that runs the next thought | `--lit`, one pixel (two on a tab), never text, never decoration |

@@ -15,7 +15,7 @@
   --fg:#f2f2f3;        /* 17.7 : 1 on --bg */
   --fg2:#a3a4aa;       /*  8.0 : 1 */
   --fg3:#7c7d84;       /*  4.8 : 1; times, hints, disabled */
-  --fg-field:#c4c5cb;  /* secondary words on a raised field, lit from behind: 4.5 : 1 at the strongest light */
+  --fg-field:#c4c5cb;  /* secondary words on the Composer's surface: 10 : 1 on it with the keyboard */
   --ink:#0d0d0e;       /* text on metal */
   /* lines */
   --line:#1f2024; --line2:#33343a;
@@ -26,15 +26,16 @@
   --plus:var(--fg2); --minus:var(--fg3);              /* a diffstat's counts */
   --add:rgb(155 203 167/.09); --del:rgb(240 113 110/.09);  /* a diff's lines, under the sign that marks them */
   /* Materials (NOTES §5): every control is one of four, on the ground above.
-     Surface: the Composer, raised and lit from behind by the room's light.
+     Surface: the Composer: opaque graphite of the ground's own family with a hairline round it, brighter along its
+       top. The room's light stands around it and never shows through it, so it has no colour of its own.
      Metal: the key, the one primary action in view, and the caps that show a key. A flat, evenly lit face its label
        always reads on (--ink on it is 15 : 1); the metal is at its edges: a bright top edge, the chromatic glint along
        its lower edge, a soft shadow beneath. Never a band behind the words.
      Quiet: every other control: text, a fill only under the pointer (--hover, --sel), a hairline round a button.
      Edge: --lit, the chromatic lit edge, for what has the keyboard and what is live. Never text, never decoration. */
-  --surface:linear-gradient(180deg,rgb(255 255 255/.075),rgb(255 255 255/.04));
-  --surface-lit:linear-gradient(180deg,rgb(255 255 255/.095),rgb(255 255 255/.05));
-  --surface-edge:inset 0 1px 0 rgb(255 255 255/.09),0 1px 0 rgb(0 0 0/.5),0 30px 60px -28px rgb(0 0 0/.85);
+  --surface:var(--fill);
+  --surface-lit:var(--sel);
+  --surface-edge:inset 0 1px 0 var(--line2),inset 0 0 0 1px var(--line),0 30px 60px -28px rgb(0 0 0/.85);
   --key:linear-gradient(180deg,#eceef1,#dde0e5);
   --key-edge:inset 0 1px 0 #fff,0 1px 0 #000,0 3px 7px -2px rgb(0 0 0/.75);
   --key-down:inset 0 1px 2px rgb(0 0 0/.28);

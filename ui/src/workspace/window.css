@@ -260,16 +260,20 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .hx.two .folds{margin-top:26px}
 .col{min-width:0;container-type:inline-size}
 .hx :is(button.hq,.fold-h){width:100%}
-/* The Composer on Home: the surface material, raised and lit from behind by the room's light, no border; the thought
-   at 20 px, growing a line at a time; under it, inside the surface, where it goes, the agents' rings and the key.
-   Centred, as wide as a thought needs rather than as wide as the page. While it has the keyboard or holds a thought
-   the surface brightens and its rim is the lit edge, brightest along the top, as on the focused tab. */
+/* The Composer on Home: the surface material: opaque graphite with a hairline, so the room's light stands around it
+   and never tints it; the thought at 20 px, growing a line at a time; under it, inside the surface, where it goes, the
+   agents' rings and the key. Centred, as wide as a thought needs rather than as wide as the page. While it has the
+   keyboard or holds a thought the surface is a shade brighter and its rim is the lit edge, brightest along the top, as
+   on the focused tab. Its colour is the light's: with the effects on, the rim and the light gathered behind it are of
+   the person's palette (light.tsx --edge, --glow), and of no colour with the default one, whose rim is --lit. */
 .capture.raised{position:relative;width:min(100%,var(--cap-w));margin:6px auto 14px;--hover:rgb(255 255 255/.07);--sel:rgb(255 255 255/.11);--fill:rgb(255 255 255/.06);--fg2:var(--fg-field);--fg3:var(--fg-field);--row-h:var(--ctl-l);--line2:rgb(255 255 255/.22)}
-/* The light gathered behind the field: full under it, gone a little beyond it, short of the nearest words. */
-.capture.raised::before{content:"";position:absolute;z-index:-1;inset:-34px -90px;background:radial-gradient(closest-side,var(--glow,transparent) 50%,transparent);opacity:.75;transition:opacity var(--t-sheet);pointer-events:none}
+/* The light gathered behind the field: full under it, gone a little beyond it, short of the nearest words; dithered as
+   the pools are. With the effects off there is no --glow, and so none of it. */
+.capture.raised::before{content:"";position:absolute;z-index:-1;inset:-34px -90px;background:var(--noise,none),var(--glow);opacity:.75;transition:opacity var(--t-sheet);pointer-events:none;
+  -webkit-mask-image:radial-gradient(closest-side,#000 50%,transparent);mask-image:radial-gradient(closest-side,#000 50%,transparent)}
 .capture.raised:is(:focus-within,.has)::before{opacity:1}
 .capture.raised .cap{position:relative;row-gap:var(--sp1);padding:var(--sp3);border-radius:var(--r4);background:var(--surface);box-shadow:var(--surface-edge);transition:background var(--t-fast)}
-.capture.raised .cap::after{content:"";position:absolute;inset:0;padding:1px;border-radius:inherit;background:var(--lit);opacity:0;transition:opacity var(--t-sheet);pointer-events:none;
+.capture.raised .cap::after{content:"";position:absolute;inset:0;padding:1px;border-radius:inherit;background:var(--edge,var(--lit));opacity:0;transition:opacity var(--t-sheet);pointer-events:none;
   mask:linear-gradient(#000,rgb(0 0 0/.4) 22px,transparent 70%),linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:intersect,exclude}
 .capture.raised:is(:focus-within,.has) .cap{background:var(--surface-lit)}
 .capture.raised:is(:focus-within,.has) .cap::after{opacity:.9}

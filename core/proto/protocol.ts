@@ -7,6 +7,7 @@ export const MAX_DATA = 65531;
 export const MAX_CREDIT = 4194304;
 export const MAX_PENDING_CALLS = 64;
 export const MAX_STREAMS = 64;
+export const MAX_TERMINAL_CLIENTS = 8;
 export const MAX_TERMINAL_SIZE = 1000;
 export const READ_HOLD = 2;
 // Bounds of what a call writes into a row; a call over one is `invalid`. MAX_TEXT: a thought's
@@ -637,7 +638,9 @@ export type Offset = number;
  * effect there, the bytes, a size mark at each later resize, a `live` mark
  * where the ring ended at the time of opening, an `exit` mark after the
  * last byte, and the close, `done`. `cols` and `rows` resize a running
- * terminal: the last caller wins. Input is accepted while the process runs.
+ * terminal: the last caller wins. Input is accepted while the process runs,
+ * from at most `MAX_TERMINAL_CLIENTS` clients attached at once: one more
+ * open of a running terminal is `conflict` until one closes its stream.
  */
 export type OpenTerminal = { id: TerminalId, start?: StartTerminal | null, cols: number, rows: number,
 /**

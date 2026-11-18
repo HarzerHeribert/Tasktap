@@ -65,6 +65,7 @@ fn typescript() -> String {
         ("MAX_CREDIT", MAX_CREDIT as usize),
         ("MAX_PENDING_CALLS", MAX_PENDING_CALLS),
         ("MAX_STREAMS", MAX_STREAMS),
+        ("MAX_TERMINAL_CLIENTS", crate::MAX_TERMINAL_CLIENTS),
         ("MAX_TERMINAL_SIZE", MAX_TERMINAL_SIZE.into()),
         ("READ_HOLD", crate::READ_HOLD as usize),
     ] {

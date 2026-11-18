@@ -55,6 +55,11 @@ pub const MAX_SESSION_QUESTIONS: usize = 8;
 /// Questions all sessions together may have open at once; a router's question
 /// is one per captured thought and not counted.
 pub const MAX_OPEN_QUESTIONS: usize = 64;
+/// Clients attached to one running terminal at once: with what each may
+/// have on its way to the process, the bound on input a terminal holds for
+/// a process that does not read (design §9). One more `terminal.open` is
+/// `conflict` until one of them closes its stream.
+pub const MAX_TERMINAL_CLIENTS: usize = 8;
 /// Most columns, and most rows, of a terminal; the least is 1.
 pub const MAX_TERMINAL_SIZE: u16 = 1000;
 

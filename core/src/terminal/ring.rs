@@ -17,7 +17,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc as plain;
-use tasktap_proto::{CloseWhy, MAX_SAFE, Mark, Offset, Size, Terminal, TerminalState};
+use tasktap_proto::{
+    CloseWhy, MAX_SAFE, MAX_TERMINAL_CLIENTS, Mark, Offset, Size, Terminal, TerminalState,
+};
 use tokio::sync::oneshot;
 
 /// Whether what the core typed was written: `Err` says why not.
@@ -38,6 +40,10 @@ const GROWN: usize = 64 << 10;
 /// Input one attached client may have on its way to the process, and the
 /// most a terminal holds for its process before it grants any more: what
 /// a client sent and closed its stream on, and what the core typed, count.
+/// With at most [`MAX_TERMINAL_CLIENTS`] attached at once, a process that
+/// reads nothing has less than that many times this, and once more, held
+/// for it: every grant is made while less than this is held, and no
+/// client ever has more than this granted and unwritten.
 pub const INPUT: u32 = 64 << 10;
 /// Sizes remembered for the bytes in the ring. A client resizing faster
 /// than the terminal writes costs the oldest bytes, never more memory.
@@ -91,10 +97,11 @@ impl Term {
 
     /// What a client attaching now is granted: as much as one client may
     /// have on its way, while the terminal holds less than that for its
-    /// process; never what input already waiting there takes.
-    pub fn grantable(&mut self) -> u32 {
+    /// process; never what input already waiting there takes. None while
+    /// as many clients are attached as a terminal takes.
+    pub fn grantable(&mut self) -> Option<u32> {
         self.readers.retain(|r| r.handle.is_open());
-        INPUT.saturating_sub(self.queued)
+        (self.readers.len() < MAX_TERMINAL_CLIENTS).then(|| INPUT.saturating_sub(self.queued))
     }
 
     /// A client attached, `granted` what [`Term::grantable`] said.

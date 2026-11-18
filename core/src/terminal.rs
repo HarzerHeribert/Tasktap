@@ -30,9 +30,9 @@ use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 use std::time::Duration;
 use tasktap_proto::{
-    CloseProject, Code, Error, MAX_TERMINAL_SIZE, Offset, OpenTerminal, Opened, ProjectId, Ref,
-    ResizeTerminal, Rev, Secret, Size, StartTerminal, Terminal, TerminalId, TerminalKind,
-    TerminalState,
+    CloseProject, Code, Error, MAX_TERMINAL_CLIENTS, MAX_TERMINAL_SIZE, Offset, OpenTerminal,
+    Opened, ProjectId, Ref, ResizeTerminal, Rev, Secret, Size, StartTerminal, Terminal, TerminalId,
+    TerminalKind, TerminalState,
 };
 use tokio::sync::mpsc;
 
@@ -526,10 +526,16 @@ fn attach(cx: &mut Cx, t: &Terminal, from: Option<Offset>, credit: u32) -> Resul
         Some(_) => (start, true),
         None => (start, false),
     };
-    // Input only while there is a process to take it.
-    let grant = live
-        .as_ref()
-        .map_or(0, |term| term.borrow_mut().grantable());
+    // Input only while there is a process to take it, and from no more
+    // clients at once than bound what it holds for that process.
+    let grant = match live.as_ref().map(|term| term.borrow_mut().grantable()) {
+        None => 0,
+        Some(Some(grant)) => grant,
+        Some(None) => {
+            let why = format!("this terminal is open in {MAX_TERMINAL_CLIENTS} places already");
+            return Err(Error::new(Code::Conflict, why));
+        }
+    };
     let opened = stream::open(cx.link, credit, grant, |handle| {
         if let Some(term) = &live {
             term.borrow_mut().attach(handle.clone(), grant);

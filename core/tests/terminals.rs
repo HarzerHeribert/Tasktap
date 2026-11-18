@@ -693,6 +693,94 @@ fn input_a_process_does_not_read_stays_bounded_however_often_clients_reattach() 
     );
 }
 
+/// The bound with several clients attached at once (design §9, "Input"):
+/// each may have 64 KiB on its way, so the terminal takes no more than
+/// `MAX_TERMINAL_CLIENTS` of them, and a process that reads nothing has
+/// less than that many times 64 KiB, and once more, held for it, however
+/// the clients come and go. The process stalls with its terminal raw, as
+/// in the test before this one, so that what the core holds is counted.
+#[cfg(unix)]
+#[test]
+fn input_a_stalled_process_does_not_read_is_bounded_with_every_client_a_terminal_takes_attached() {
+    use tasktap_proto::MAX_TERMINAL_CLIENTS;
+    const INPUT: usize = 64 << 10;
+    let data = Folder::new("tt-many");
+    let core = Core::start(&data);
+    let id = TerminalId::mint();
+    let start = StartTerminal {
+        project: None,
+        argv: vec![EXE.into(), "fixture-agent".into(), "stall:30000".into()],
+        title: None,
+    };
+    let mut first = core.device();
+    let mut v = open(&mut first, &args(id, Some(start), None, 1 << 20), true);
+    until(&mut first, &mut v, "the process stalls", |v| {
+        text(v.bytes()).contains("stalling")
+    });
+    // Every client the terminal takes, each on a connection of its own,
+    // attached before any of them sends: each is granted its 64 KiB.
+    let mut clients = vec![(first, v)];
+    for _ in 1..MAX_TERMINAL_CLIENTS {
+        let mut c = core.device();
+        let v = open(&mut c, &args(id, None, None, 1 << 20), true);
+        clients.push((c, v));
+    }
+    for (c, v) in &clients {
+        assert_eq!(c.credit(v.s) as usize, INPUT);
+    }
+    // One more is refused, and takes nothing from the others.
+    let mut late = core.device();
+    let attach = args(id, None, None, 1 << 20);
+    let refused = late
+        .opened::<call::TerminalOpen>(&attach, attach.credit, true)
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(
+        (refused.code, refused.message.as_str()),
+        (
+            tasktap_proto::Code::Conflict,
+            "this terminal is open in 8 places already"
+        )
+    );
+    // All of them send all they may. The process reads none of it.
+    let mut sent = 0;
+    for (c, v) in &mut clients {
+        let credit = c.credit(v.s) as usize;
+        sent += c.send_some(v.s, &vec![b'x'; credit]).unwrap();
+    }
+    assert_eq!(sent, MAX_TERMINAL_CLIENTS * INPUT);
+    // Clients go and others come, as often as they like: a place is free
+    // again, and what the terminal holds leaves nothing to grant.
+    let mut came = Vec::new();
+    for _ in 0..3 {
+        let (mut c, v) = clients.remove(0);
+        c.close(v.s).unwrap();
+        let mut next = core.device();
+        // The place is free once the core has seen the stream close.
+        let since = Instant::now();
+        let opened = loop {
+            let opened = next.opened::<call::TerminalOpen>(&attach, attach.credit, true);
+            match opened.unwrap() {
+                Ok(opened) => break opened,
+                Err(e) => assert_eq!(e.code, tasktap_proto::Code::Conflict, "{e}"),
+            }
+            assert!(
+                since.elapsed() < Duration::from_secs(10),
+                "no place was freed"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        // Whatever it is granted counts as accepted: it could send it.
+        sent += next.credit(opened.s) as usize;
+        came.push(next);
+    }
+    let bound = (MAX_TERMINAL_CLIENTS + 1) * INPUT;
+    assert!(
+        sent < bound,
+        "{sent} bytes accepted for a process that reads none; the bound is {bound}"
+    );
+}
+
 #[test]
 fn a_resize_reaches_the_process_and_is_a_mark_where_it_happened() {
     let data = Folder::new("tt-size");

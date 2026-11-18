@@ -710,7 +710,9 @@ pub struct AddProject {
 /// effect there, the bytes, a size mark at each later resize, a `live` mark
 /// where the ring ended at the time of opening, an `exit` mark after the
 /// last byte, and the close, `done`. `cols` and `rows` resize a running
-/// terminal: the last caller wins. Input is accepted while the process runs.
+/// terminal: the last caller wins. Input is accepted while the process runs,
+/// from at most `MAX_TERMINAL_CLIENTS` clients attached at once: one more
+/// open of a running terminal is `conflict` until one closes its stream.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct OpenTerminal {

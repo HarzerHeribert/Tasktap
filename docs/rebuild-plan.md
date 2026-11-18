@@ -420,3 +420,5 @@ Done on 2026-11-17, on top of `rebuild-phase-2`. The repository now holds one pr
 **The public site in the new design** (owner, 2026-11-18): now that the app's final form and look are settled, the GitHub Pages site is rebuilt in the Instrument look and describes the new app. It is built on this branch and reaches the public only when the rebuild is merged into `main`, where Pages deploys from. Its wording is the owner's to approve. It shows only what is built, uses captures of the new app made from invented data, and replaces the one live screenshot that was taken from the owner's own Mac.
 
 **There are no 1.2 users** (owner, 2026-11-18): he was the only one. The old installer and update feed on the site (`site/install.sh`, `site/appcast.xml`) and their checks are removed with the site rebuild, and the new app simply replaces the old one at release; nothing has to keep working for an installed 1.2.
+
+**The installed 1.2 is gone** (owner, 2026-11-18): the old app, its data and its traces were removed from his Mac at his word. What remains before the new app takes the name: signing, an updater, and renaming "Tasktap Next" to "Tasktap".

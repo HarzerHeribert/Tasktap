@@ -2,6 +2,7 @@
 // answer, a diffstat, and the words for times.
 import type { Workdir } from '../../core/proto/protocol.ts';
 import type { ComponentChildren } from 'preact';
+import { spell } from './keys.ts';
 
 /** One owned set of icons on a 16 px grid, drawn as strokes. */
 const icons = {
@@ -66,14 +67,12 @@ export function Level({ l, n = 5 }: { l: number; n?: number }) {
   return <span class="wave lvl" style={{ '--l': String(Math.max(0, Math.min(1, l))) }} aria-hidden="true">{bars}</span>;
 }
 
-/** A key as a Mac writes it: the modifiers in the order ⌃⌥⇧⌘, then the key. */
-const MODS = '⌃⌥⇧⌘';
-export const keyed = (k: string) => [...k].filter((c) => MODS.includes(c)).sort((a, b) => MODS.indexOf(a) - MODS.indexOf(b)).join('') + [...k].filter((c) => !MODS.includes(c)).join('');
-/** A key, wherever one is shown: on a metal cap (`cap`: the key that answers) or as a hint after a label. One role
- *  for both (tokens.css --f-key), so none is smaller than another; Return is the icon set's own arrow, as large as
- *  the letters beside it. */
+/** A key, wherever one is shown: on a metal cap (`cap`: the key that answers) or as a hint after a label, written as
+ *  the Mac has it and shown as this system writes its own key for it (keys.ts `spell`). One role for both
+ *  (tokens.css --f-key), so none is smaller than another; Return is the icon set's own arrow, as large as the
+ *  letters beside it. */
 export function Key({ k, cap = false }: { k: string; cap?: boolean }) {
-  const s = keyed(k), at = s.indexOf('↩');
+  const s = spell(k), at = s.indexOf('↩');
   return <kbd class={cap ? 'keycap' : undefined}>{at < 0 ? s : <>{s.slice(0, at)}<I n="ret" />{s.slice(at + 1)}</>}</kbd>;
 }
 

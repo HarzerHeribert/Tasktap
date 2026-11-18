@@ -16,7 +16,8 @@
 // in the field with nothing captured (`dictation.finish` with `as: "text"`).
 import type { DictationTarget } from '../../../core/proto/protocol.ts';
 import { type Stream, uuid7 } from '../client.ts';
-import { holds, isModifier, recorder, talkKey } from '../keys.ts';
+import { holds, isModifier, recorder } from '../keys.ts';
+import { talkKey } from '../page.ts';
 import { call, client, focus, pref, records, redraw } from '../page.ts';
 import { into } from '../way.ts';
 import { type Heard, feed, hear, local, model, ready, stop } from './local.ts';
@@ -331,7 +332,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && (busy || talk.said)) cancel();
   else if (e.key === 'Enter' && ear && talk.latched) end();
   // E while a new thought records: its words go to the field instead. By the key's place, since ⌥ is held with it.
-  else if (e.code === 'KeyE' && ear && talk.kind === 'thought' && !e.metaKey && !e.ctrlKey && !e.repeat && fieldNow()) end(true);
+  else if (e.code === 'KeyE' && ear && talk.kind === 'thought' && e.metaKey === talkKey().meta && e.ctrlKey === talkKey().control && !e.repeat && fieldNow()) end(true);
   else if (!recorder.on && holds(e, talkKey()) && fieldNow()) {
     if (!e.repeat && !wait && !held && !busy) {
       const field = fieldNow();

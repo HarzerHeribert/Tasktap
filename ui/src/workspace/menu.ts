@@ -1,6 +1,8 @@
 // Context menus are the system's own, drawn by the host (Tauri's menu API), never by the page.
 import { Menu, MenuItem, PredefinedMenuItem } from '@tauri-apps/api/menu';
+import { accelerator } from '../keys.ts';
 
+/** `key`: the item's key, written as the Mac has it (keys.ts); the menu shows this system's key for it. */
 export type Item = { text: string; do: () => void; key?: string; off?: boolean } | '-';
 
 /** For the checks, which never open a system menu (`dry`): the last menu asked for, by its items' words. */
@@ -14,7 +16,7 @@ export async function popup(e: Event, items: Item[]) {
   if (shown.dry) return;
   try {
     const built = await Promise.all(items.map((i) =>
-      i === '-' ? PredefinedMenuItem.new({ item: 'Separator' }) : MenuItem.new({ text: i.text, enabled: !i.off, accelerator: i.key, action: () => i.do() })));
+      i === '-' ? PredefinedMenuItem.new({ item: 'Separator' }) : MenuItem.new({ text: i.text, enabled: !i.off, accelerator: i.key && accelerator(i.key), action: () => i.do() })));
     const menu = await Menu.new({ items: built });
     await menu.popup();
   } catch {

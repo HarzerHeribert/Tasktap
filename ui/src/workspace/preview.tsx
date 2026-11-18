@@ -20,6 +20,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
 import { CallError, type Stream } from '../client.ts';
 import { I, Key } from '../ui.tsx';
+import { FILES, shownPath } from '../system.ts';
 import * as L from './layout.ts';
 import { type Block, type Inline, parse } from './markdown.ts';
 import { type Item } from './menu.ts';
@@ -179,9 +180,11 @@ export function swap() {
 
 /** Where a preview's target can also be opened, in the host's terms: a web address in the browser, a file of text in
  *  the editor, anything else shown in Finder. */
-const elsewhere = (p: Row, kind?: FileKind) => (p.kind === 'web' ? 'Open in Browser' : kind && TEXTS.includes(kind) ? 'Open in Editor' : 'Show in Finder');
+/** Shows a file among its neighbours, in the system's words. */
+const REVEAL = `Show in ${FILES}`;
+const elsewhere = (p: Row, kind?: FileKind) => (p.kind === 'web' ? 'Open in Browser' : kind && TEXTS.includes(kind) ? 'Open in Editor' : REVEAL);
 const open = (p: Row, reveal = false) => void call('host.open', { target: p.target, reveal }).catch(fail);
-const tilde = (path: string) => path.replace(/^\/Users\/[^/]+/, '~');
+const tilde = (path: string) => shownPath(path);
 /** Who opened it, when it was the agent in its terminal. */
 export const openedBy = (p: Row) => (p.by !== 'agent' ? '' : sessionOf(p.terminal_id) ? `Opened by ${agentName(sessionOf(p.terminal_id)!.agent)}` : 'Opened from its terminal');
 
@@ -189,12 +192,12 @@ export const openedBy = (p: Row) => (p.by !== 'agent' ? '' : sessionOf(p.termina
 export function previewMenu(project: string, p: Row, several: boolean, move: () => void): Item[] {
   const how = elsewhere(p, views.get(p.id)?.file?.kind);
   return [
-    { text: 'Reload', key: 'CmdOrCtrl+R', do: () => reload(p.id) },
-    { text: how, do: () => open(p, how === 'Show in Finder') },
-    ...(p.kind === 'file' && how !== 'Show in Finder' ? [{ text: 'Show in Finder', do: () => open(p, true) }] : []),
+    { text: 'Reload', key: '⌘R', do: () => reload(p.id) },
+    { text: how, do: () => open(p, how === REVEAL) },
+    ...(p.kind === 'file' && how !== REVEAL ? [{ text: REVEAL, do: () => open(p, true) }] : []),
     '-',
     ...(several ? [{ text: 'Move Tab To…', do: move }] : []),
-    { text: 'Close Tab', key: 'CmdOrCtrl+W', do: () => closeTab(project, p.id) },
+    { text: 'Close Tab', key: '⌘W', do: () => closeTab(project, p.id) },
   ];
 }
 
@@ -278,7 +281,7 @@ export function Preview({ p, project, select }: { p: Row; project: string; selec
         <span class="pv-do">
           {v.picture && !v.said && act(v.real ? 'Fit' : 'Real Size', () => ((v.real = !v.real), redraw()))}
           {act('Reload', () => reload(p.id), '⌘R')}
-          {act(how, () => open(p, how === 'Show in Finder'))}
+          {act(how, () => open(p, how === REVEAL))}
         </span>
       </div>
       {v.said ? (
@@ -311,7 +314,7 @@ export function Preview({ p, project, select }: { p: Row; project: string; selec
         <div class="pv-b pv-s" tabIndex={-1} role="status">
           <b>No preview</b>
           <p>A file of this kind is not shown here.</p>
-          <div class="qa">{act('Show in Finder', () => open(p, true))}{act('Close', shut)}</div>
+          <div class="qa">{act(REVEAL, () => open(p, true))}{act('Close', shut)}</div>
         </div>
       ) : <div class="pv-b pv-s" tabIndex={-1} role="status"><p>Opening…</p></div>}
       {stopped && framed && (

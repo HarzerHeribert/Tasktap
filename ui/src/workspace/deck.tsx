@@ -7,6 +7,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { next, pending, running, settle, settling, Status, Told } from '../changes.tsx';
 import { Ask } from '../question.tsx';
 import { Answer, I, Mark, Ring, ago, madeAt, when } from '../ui.tsx';
+import { tip } from '../keys.ts';
+import { shownPath } from '../system.ts';
 import { placed } from '../way.ts';
 import * as L from './layout.ts';
 import { type Item, popup } from './menu.ts';
@@ -24,7 +26,7 @@ export const startAgent = (project: string, agent: string, into?: string) =>
 
 /** New terminal and the installed agents, as a menu's items. */
 const starts = (project: string, into?: string): Item[] => [
-  { text: 'New Terminal', key: 'CmdOrCtrl+T', do: () => newTerminal(project, { into }) },
+  { text: 'New Terminal', key: '⌘T', do: () => newTerminal(project, { into }) },
   ...(project === LOOSE ? [] : [...records.agents.values()].filter((a) => a.installed)
     .map((a) => ({ text: `New ${agentName(a.id)} Session`, do: () => void startAgent(project, a.id, into) }))),
 ];
@@ -35,14 +37,14 @@ function tabMenu(project: string, id: string): Item[] {
   const several = L.panes(layout(project)).length > 1;
   if (shows) return previewMenu(project, shows, several, () => open({ kind: 'move', project, id }));
   return [
-    ...(sessionOf(id) ? [{ text: 'Session Details…', key: 'CmdOrCtrl+I', do: () => void details(id) }, '-' as const] : []),
-    { text: 'Find…', key: 'CmdOrCtrl+F', do: () => open({ kind: 'find', id }) },
-    { text: 'Copy', key: 'CmdOrCtrl+C', do: () => void copy(id), off: !engines.get(id)?.term.hasSelection() },
-    { text: 'Paste', key: 'CmdOrCtrl+V', do: () => void paste(id) },
+    ...(sessionOf(id) ? [{ text: 'Session Details…', key: '⌘I', do: () => void details(id) }, '-' as const] : []),
+    { text: 'Find…', key: '⌘F', do: () => open({ kind: 'find', id }) },
+    { text: 'Copy', key: '⌘C', do: () => void copy(id), off: !engines.get(id)?.term.hasSelection() },
+    { text: 'Paste', key: '⌘V', do: () => void paste(id) },
     '-',
-    { text: 'Larger Text', key: 'CmdOrCtrl+=', do: () => textSizeBy(id, 1) },
-    { text: 'Smaller Text', key: 'CmdOrCtrl+-', do: () => textSizeBy(id, -1) },
-    { text: 'Actual Size', key: 'CmdOrCtrl+0', do: () => textSizeBy(id, 0) },
+    { text: 'Larger Text', key: '⌘=', do: () => textSizeBy(id, 1) },
+    { text: 'Smaller Text', key: '⌘-', do: () => textSizeBy(id, -1) },
+    { text: 'Actual Size', key: '⌘0', do: () => textSizeBy(id, 0) },
     { text: 'Release Mouse Capture', do: () => engines.get(id)?.release() },
     '-',
     ...(several ? [{ text: 'Move Tab To…', do: () => open({ kind: 'move', project, id }) }] : []),
@@ -50,7 +52,7 @@ function tabMenu(project: string, id: string): Item[] {
       { text: 'Keep Running in Background', do: () => keepInBackground(project, id) },
       { text: 'Stop Session…', do: () => open({ kind: 'stop', project, id }) },
     ] : []),
-    { text: 'Close Tab', key: 'CmdOrCtrl+W', do: () => closeTab(project, id) },
+    { text: 'Close Tab', key: '⌘W', do: () => closeTab(project, id) },
   ];
 }
 
@@ -122,7 +124,7 @@ function Pane({ project, pane, index, rect, focused }: { project: string; pane: 
       onPointerDownCapture={select} onFocusIn={select}>
       <div class="tabs" role="tablist" aria-label={`Pane ${index + 1}`}>
         {pane.tabs.map((tab) => <Tab key={tab} project={project} pane={pane} id={tab} />)}
-        <button type="button" class="tab-add ib" title="New terminal  ⌘T" aria-label="New terminal"
+        <button type="button" class="tab-add ib" title={tip('New terminal', '⌘T')} aria-label="New terminal"
           onClick={() => newTerminal(project, { into: pane.id })} onContextMenu={(e) => popup(e, starts(project, pane.id))}>
           <I n="plus" />
         </button>
@@ -203,7 +205,7 @@ function Tab({ project, pane, id }: { project: string; pane: L.Pane; id: string 
   const active = pane.active === id;
   // A preview's tab says what it shows, and by its mark who opened it: the agent's own mark when the agent did.
   const shows = records.previews.get(id);
-  const c = shows ? { s: 'shell' as const, words: [shows.kind === 'web' ? shows.target : shows.target.replace(/^\/Users\/[^/]+/, '~'), openedBy(shows)].filter(Boolean).join('\n') } : cue(id);
+  const c = shows ? { s: 'shell' as const, words: [shows.kind === 'web' ? shows.target : shownPath(shows.target), openedBy(shows)].filter(Boolean).join('\n') } : cue(id);
   const name = shows ? shows.title : label(id);
   // How the session's thought found its way here, said quietly with its name.
   const th = thoughtOf(sessionOf(id)), how = th && placed(th, agentName);
@@ -231,7 +233,7 @@ function Tab({ project, pane, id }: { project: string; pane: L.Pane; id: string 
         {shows ? <i class="st by" data-by={shows.by} role="img" aria-label={openedBy(shows) || 'Preview'}>{shows.by !== 'agent' ? <I n="view" /> : sessionOf(shows.terminal_id) ? <Ring agent={sessionOf(shows.terminal_id)!.agent} s="" /> : <I n="term" />}</i>
           : <Mark s={c.s} label={c.words} />}<span class="lbl">{name}</span>
       </button>
-      <button type="button" class="x" title="Close tab  ⌘W" aria-label={`Close ${name}`} onClick={() => closeTab(project, id)}><I n="x" /></button>
+      <button type="button" class="x" title={tip('Close tab', '⌘W')} aria-label={`Close ${name}`} onClick={() => closeTab(project, id)}><I n="x" /></button>
     </div>
   );
 }

@@ -9,7 +9,8 @@
 // it. Which of the two is in use is the `speech_by` preference alone: with it the service, without it this Mac.
 import { useEffect, useState } from 'preact/hooks';
 import { cap } from '../capture.tsx';
-import { keyName, talkKey } from '../keys.ts';
+import { keyName } from '../keys.ts';
+import { talkKey } from '../page.ts';
 import { type Local, local, model, watch } from '../speech/local.ts';
 import { I, Ring } from '../ui.tsx';
 import { placing } from '../way.ts';

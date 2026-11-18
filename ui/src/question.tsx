@@ -2,7 +2,8 @@
 // answers as key caps on 1 to 9, a reply in the person's own words on T. One only its terminal can answer offers the
 // way there instead. The keys act only while the question's own element has the keyboard, never the terminal's.
 import type { AnswerQuestion, Question } from '../../core/proto/protocol.ts';
-import { keyName, talkKey } from './keys.ts';
+import { keyName } from './keys.ts';
+import { talkKey } from './page.ts';
 import { agentName, call, fail, focus, openQuestions, pref, projectName, records, sessionName } from './page.ts';
 import { control, mine, talk } from './speech/record.ts';
 import { Answer, I, Key, Level, Mark } from './ui.tsx';

@@ -11,6 +11,8 @@ import type { Stream } from '../client.ts';
 import { call, client, fail, records, redraw } from '../page.ts';
 import { type Look, look as ownLook, terminalOptions } from './appearance.ts';
 import { type Found, find, lineAt, pointsAt, range } from './links.ts';
+import { LINK, links, ours, spell } from '../keys.ts';
+import { FILES, shownPath } from '../system.ts';
 
 /** The fewest columns and rows a terminal is ever asked to have. A pane that cannot be measured is no size: one not
  *  laid out yet, hidden, or squeezed to nothing on its way somewhere has no room at all, and xterm.js's fit answers
@@ -28,9 +30,10 @@ let look: Look = ownLook();
 // Links. An address or a path a terminal prints is a link only while ⌘ is held, as in Mac terminals: then it is
 // underlined under the pointer, ⌘-click opens it and ⇧⌘-click shows a file in Finder. A plain click is never a link's:
 // it belongs to the program in the terminal. Whether ⌘ is held is said on the page's root, which the styles follow.
+// (On Windows the key is Control, as in its terminals: keys.ts LINK.)
 const held = (on: boolean) => document.documentElement.toggleAttribute('data-cmd', on);
-addEventListener('keydown', (e) => e.key === 'Meta' && held(true), true);
-addEventListener('keyup', (e) => e.key === 'Meta' && held(false), true);
+addEventListener('keydown', (e) => e.key === LINK && held(true), true);
+addEventListener('keyup', (e) => e.key === LINK && held(false), true);
 addEventListener('blur', () => held(false));
 /** What the host says a path is, asked once for a few seconds: null when it does not exist or may not be opened. */
 const probes = new Map<string, { at: number; found: Promise<string | null> }>();
@@ -101,14 +104,14 @@ export class Engine {
     this.mute();
     this.term.onData((data) => this.reply || this.write(encoder.encode(data)));
     this.term.onBinary((data) => this.write(Uint8Array.from(data, (c) => c.charCodeAt(0))));
-    // ⌘ shortcuts are the application menu's and the page's, never input.
-    this.term.attachCustomKeyEventHandler((e) => !e.metaKey);
+    // The app's keys are the application menu's and the page's, never input (keys.ts `ours`).
+    this.term.attachCustomKeyEventHandler((e) => !ours(e));
     // No bar: while it is scrolled back a pill says how many lines are below and returns to the end (⌘↓ too), and
     // the hair-thin mark of where the person is shows only while they scroll.
     this.more.type = 'button';
     this.more.className = 'btn term-more';
     this.more.hidden = true;
-    this.more.innerHTML = '<span></span><kbd>⌘↓</kbd>';
+    this.more.innerHTML = `<span></span><kbd>${spell('⌘↓')}</kbd>`;
     this.more.onclick = () => (this.term.scrollToBottom(), this.term.focus());
     this.element.append(this.more);
     this.term.onScroll(() => {
@@ -165,8 +168,8 @@ export class Engine {
 
   /** ⌘-click: what can be shown beside the terminal is; anything else the host opens, or says why not. With ⇧ a file
    *  is shown in Finder; with ⌥ the other of the two is done (preview.tsx follow). */
-  private follow(e: Pick<MouseEvent, 'metaKey' | 'shiftKey' | 'altKey'>, to: Pick<Found, 'kind' | 'target'> | null) {
-    if (e.metaKey && to) hooks.follow(this.id, to, this.folder(), e);
+  private follow(e: Pick<MouseEvent, 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'>, to: Pick<Found, 'kind' | 'target'> | null) {
+    if (links(e) && to) hooks.follow(this.id, to, this.folder(), e);
   }
 
   /** Says what the link under the pointer opens, where its text does not: the whole path of a file, with the way to
@@ -178,8 +181,8 @@ export class Engine {
     void (real !== undefined ? Promise.resolve(real) : to.kind === 'web' ? Promise.resolve(to.target) : probe(to.target, this.folder())).then((real) => {
       if (this.tip.dataset.at !== at || !real || real === shown.trim()) return;
       const path = document.createElement('b'), how = document.createElement('i');
-      path.textContent = to.kind === 'web' ? real : real.replace(/^\/Users\/[^/]+/, '~');
-      how.textContent = to.kind === 'web' ? '' : '⇧ shows it in Finder';
+      path.textContent = to.kind === 'web' ? real : shownPath(real);
+      how.textContent = to.kind === 'web' ? '' : `${spell('⇧')} shows it in ${FILES}`;
       this.tip.replaceChildren(path, how);
       this.tip.hidden = false;
     });

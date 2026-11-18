@@ -18,6 +18,8 @@ import { uuid7 } from '../client.ts';
 import { LevelVoice } from '../speech/level.ts';
 import { live, loudness, recording, talk } from '../speech/record.ts';
 import { I, Key, Mark, Wave, plural } from '../ui.tsx';
+import { commands, hit, tip } from '../keys.ts';
+import { mac, shownPath } from '../system.ts';
 import { apply, fontsReady, look } from './appearance.ts';
 import { Deck, startAgent } from './deck.tsx';
 import { follow, refresh, reload, stop, swap } from './preview.tsx';
@@ -138,27 +140,36 @@ function enter(e: Event) {
 document.addEventListener('pointerdown', enter, true);
 document.addEventListener('focusin', enter, true);
 
-/** ⌘ shortcuts, handled before xterm.js or the web view can treat them as input or zoom. The application menu shows
- *  the same; a key the page handles never reaches it twice. While a sheet is open, the sheet has the keys. */
-const keys: Record<string, string> = { n: 'new-task', t: 'new-terminal', o: 'open-workspace', w: 'close-tab', f: 'find', d: 'split-right',
-  '=': 'bigger', '+': 'bigger', '-': 'smaller', '0': 'reset', ',': 'settings', '[': 'back', i: 'session', r: 'reload-preview', p: 'preview' };
+/** The commands' keys, written as the Mac has them; each system has its own key for each (keys.ts). They are handled
+ *  here, before xterm.js or the web view can treat them as input or zoom. On the Mac the application menu shows the
+ *  same, and a key the page handles never reaches it twice; on Windows the window's menu button shows them. While a
+ *  sheet is open, the sheet has the keys. */
+export const KEYS: Record<string, string> = {
+  'new-task': '⌘N', 'new-terminal': '⌘T', 'open-workspace': '⌘O', 'close-tab': '⌘W', find: '⌘F', sidebar: '⌃⌘S', 'split-right': '⌘D', 'split-down': '⇧⌘D',
+  preview: '⌘P', 'reload-preview': '⌘R', bigger: '⌘=', smaller: '⌘-', reset: '⌘0', settings: '⌘,', back: '⌘[', session: '⌘I',
+};
 document.addEventListener('keydown', (e) => {
-  if (!e.metaKey || e.ctrlKey || e.altKey || e.isComposing || ui.sheet) return;
-  const k = e.key.toLowerCase();
+  if (e.isComposing || ui.sheet) return;
+  // The Mac's menu has the keys held with Control (⌃⌘S).
+  if (mac && e.ctrlKey) return;
   const inTerminal = !!(e.target as HTMLElement).closest?.('.xterm');
+  const id = current()?.id, term = inTerminal && id ? engines.get(id)?.term : undefined;
   // ⌘↓ returns a terminal scrolled back to its end.
-  if (k === 'arrowdown' && inTerminal) return (e.preventDefault(), void engines.get(current()?.id ?? '')?.term.scrollToBottom());
-  // ⌘C copies a terminal's selection; elsewhere the Edit menu copies as usual.
-  if (k === 'c' && inTerminal && !e.shiftKey) {
-    const id = current()?.id;
-    if (!id || !engines.get(id)?.term.hasSelection()) return;
+  if (term && hit('⌘↓', e)) return (e.preventDefault(), void term.scrollToBottom());
+  // ⌘C copies a terminal's selection; elsewhere the Edit menu copies as usual. On Windows Control-C copies it too
+  // while there is one, and is the program's otherwise; and paste, which the Mac's Edit menu does, is done here.
+  if (term && (hit('⌘C', e) || (!mac && hit('⌃C', e)))) {
+    if (!term.hasSelection()) return void (!mac && e.shiftKey && e.preventDefault());
     e.preventDefault();
-    return void copy(id);
+    if (!mac) e.stopPropagation();
+    return void copy(id!).then(() => mac || term.clearSelection());
   }
-  const name = k === 'd' && e.shiftKey ? 'split-down' : e.shiftKey && k !== '+' ? undefined : keys[k];
+  if (term && !mac && (hit('⌘V', e) || hit('⌃V', e))) return (e.preventDefault(), e.stopPropagation(), void paste(id!));
+  // The key that types + is Shift with = on some keyboards and a key of its own on others.
+  const name = Object.keys(KEYS).find((n) => hit(KEYS[n]!, e)) ?? (commands(e) && e.key === '+' ? 'bigger' : undefined);
   if (!name) return;
   // In a text field, only the commands that are not editing keys.
-  if ((e.target as HTMLElement).closest?.('input, textarea:not(.xterm-helper-textarea)') && ['-', '=', '+', '0', '['].includes(k)) return;
+  if ((e.target as HTMLElement).closest?.('input, textarea:not(.xterm-helper-textarea)') && ['bigger', 'smaller', 'reset', 'back'].includes(name)) return;
   e.preventDefault();
   e.stopPropagation();
   command(name);
@@ -180,22 +191,22 @@ function Bar({ project }: { project: string | null }) {
   return (
     <header class={`bar${project || ui.view === 'earlier' ? '' : ' bare'}`} data-tauri-drag-region>
       {/* Room for the window's buttons, and the way back to the sidebar: there while it is away, and on its way. */}
-      {!side && <span class="lead"><button type="button" class="ib" title="Show sidebar  ⌃⌘S" aria-label="Show sidebar" onClick={() => command('sidebar')}><I n="sidebar" /></button></span>}
+      {!side && <span class="lead"><button type="button" class="ib" title={tip('Show sidebar', '⌃⌘S')} aria-label="Show sidebar" onClick={() => command('sidebar')}><I n="sidebar" /></button></span>}
       {project ? (
         <span class="crumb" data-tauri-drag-region>
-          <b>{p?.name ?? 'Sign-in terminals'}</b>{p && <span class="path">{p.folder.replace(/^\/Users\/[^/]+/, '~')}</span>}
+          <b>{p?.name ?? 'Sign-in terminals'}</b>{p && <span class="path">{shownPath(p.folder)}</span>}
         </span>
       ) : ui.view === 'earlier' ? (
         <span class="crumb">
-          <button type="button" class="back" title="Back to Home  ⌘[" onClick={() => show('home')}><I n="chev" /><span>Home</span></button>
+          <button type="button" class="back" title={tip('Back to Home', '⌘[')} onClick={() => show('home')}><I n="chev" /><span>Home</span></button>
           <b class="sub">Earlier</b>
         </span>
       ) : <span class="crumb" data-tauri-drag-region>{!side && <b>Home</b>}</span>}
       {project && (
         <span class="bar-r">
-          <button type="button" class="ib" title="Split right  ⌘D" aria-label="Split right" onClick={() => command('split-right')}><I n="splitr" /></button>
-          <button type="button" class="ib" title="Split down  ⇧⌘D" aria-label="Split down" onClick={() => command('split-down')}><I n="splitd" /></button>
-          <button type="button" class="newt" title="New task  ⌘N" onClick={() => command('new-task')}><span><Wave n={5} />New task</span><Key k="⌘N" /></button>
+          <button type="button" class="ib" title={tip('Split right', '⌘D')} aria-label="Split right" onClick={() => command('split-right')}><I n="splitr" /></button>
+          <button type="button" class="ib" title={tip('Split down', '⇧⌘D')} aria-label="Split down" onClick={() => command('split-down')}><I n="splitd" /></button>
+          <button type="button" class="newt" title={tip('New task', '⌘N')} onClick={() => command('new-task')}><span><Wave n={5} />New task</span><Key k="⌘N" /></button>
         </span>
       )}
     </header>
@@ -218,7 +229,7 @@ function Rail() {
         {page.error ? <span class="err">{page.error}</span> : <><Mark s={mark} label="" />{words.length ? words : <span>Nothing running</span>}</>}
       </span>
       <span class="rail-r">
-        <button type="button" title="Settings  ⌘," onClick={() => command('settings')}>Settings</button>
+        <button type="button" title={tip('Settings', '⌘,')} onClick={() => command('settings')}>Settings</button>
       </span>
     </footer>
   );

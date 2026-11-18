@@ -8,6 +8,7 @@ import { useEffect, useRef } from 'preact/hooks';
 import { cap } from '../capture.tsx';
 import { pending, Status, Told } from '../changes.tsx';
 import { I, Mark, Ring, madeAt, plural, when } from '../ui.tsx';
+import { plain, shownPath } from '../system.ts';
 import { briefOf, placed } from '../way.ts';
 import { agentName, cue, dismiss, focusSession, label, open, page, projectOf, records, why } from './model.ts';
 import { older, past } from './past.ts';
@@ -69,7 +70,7 @@ export function SessionSheet({ id }: { id: string }) {
   });
   if (!s) return <Frame title="This session is gone" acts={[{ k: 'esc', label: 'Close', do: dismiss }]} />;
   const term = s.terminal_id ?? '', c = cue(term), project = records.projects.get(s.project_id);
-  const home = (path: string) => path.replace(/^\/Users\/[^/]+/, '~');
+  const home = (path: string) => shownPath(path);
   // The copy it works in is its thoughts': the newest that has one says what became of the changes.
   const copy = turns.find((t) => t.workdir), w = copy?.workdir;
   const changes = turns.find((t) => pending(t));
@@ -100,7 +101,7 @@ export function SessionSheet({ id }: { id: string }) {
         <div class="line">
           <I n={w ? 'bg' : 'folder'} />
           <span class="t">{w ? `A copy of ${project?.name ?? 'its folder'}` : (project?.name ?? 'Its folder')}</span>
-          <span class="x mono" title={w ? w.path : project?.folder}>{w ? `${w.branch}${w.destination ? ` → ${w.destination}` : ''}` : home(s.cwd || project?.folder || '')}</span>
+          <span class="x mono" title={plain(w ? w.path : project?.folder ?? '')}>{w ? `${w.branch}${w.destination ? ` → ${w.destination}` : ''}` : home(s.cwd || project?.folder || '')}</span>
           <span class="x sx-d">{copy && w && <Status t={{ ...copy, workdir: w }} />}</span>
         </div>
         </div>

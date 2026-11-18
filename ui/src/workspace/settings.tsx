@@ -8,7 +8,9 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import type { MotionAmbient, MotionPalette, MotionStyle, Shortcut, TextSize } from '../../../core/proto/protocol.ts';
 import { routing } from '../capture.tsx';
-import { recorder, talkKey } from '../keys.ts';
+import { hit, recorder } from '../keys.ts';
+import { talkKey } from '../page.ts';
+import { mac } from '../system.ts';
 import { setVoice } from '../motion/engine.ts';
 import { Motion, lookOf } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
@@ -99,12 +101,12 @@ function ThoughtsPane() {
         <Choice name="A sent thought starts" value={hold?.id === 'hold' ? hold.value : 5} all={holds} set={(v) => setPref({ id: 'hold', patch: v })} />
       </Row>
       <Thoughts />
-      <Row name="Return in a thought" hint={sends ? 'Shift-Return starts a new line.' : 'Command-Return sends it.'}>
+      <Row name="Return in a thought" hint={sends ? `${mac ? 'Shift-Return' : 'Shift+Enter'} starts a new line.` : `${mac ? 'Command-Return' : 'Ctrl+Enter'} sends it.`}>
         <Choice name="Return in a thought" value={sends} all={returns} set={(v) => setPref({ id: 'return_sends', patch: v })} />
       </Row>
       <Row name="From any app" hint={lost ? `The key you chose is taken by the system or another app${capture ? ', so the one shown is in use' : ', so no key is in use'}. Choose another, or use the default.`
         : capture === null ? 'The usual key is taken by the system or another app, so no key is in use. Record one of your own.'
-          : 'Opens the notch for a thought, whatever is in front.'}>
+          : mac ? 'Opens the notch for a thought, whatever is in front.' : 'Brings Tasktap forward with a new thought, whatever is in front.'}>
         {capture !== undefined && <Recorder name="From any app" value={capture} own={!!stored} set={setCapture} />}
       </Row>
       <Row name="Finished thoughts are kept" hint={days ? 'Applies from the next start, or within a day. Nothing that waits for you is ever removed.' : undefined}>
@@ -290,7 +292,7 @@ export function Settings({ at }: { at: Section }) {
   useEffect(() => {
     const keys = (e: KeyboardEvent) => {
       // While a key is recorded every combination is the recorder's.
-      const to = !recorder.on && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey ? SECTIONS[Number(e.key) - 1] : undefined;
+      const to = !recorder.on ? SECTIONS.find((_, i) => hit(`⌘${i + 1}`, e)) : undefined;
       if (to) (e.preventDefault(), go(to[0]));
     };
     document.addEventListener('keydown', keys, true);

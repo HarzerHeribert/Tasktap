@@ -363,11 +363,13 @@ const scaled = (px) => Math.round(px * SCALE);
 // A page with the fake runtime, loaded, with `sub` answered from `records`.
 // `video`: Playwright's recordVideo for the context; `clock`: the page's clock held until the caller runs it.
 // TEXT gives every page that text size unless its records choose one; WIDTH, a workspace window that wide where the
-// caller names no size.
-async function open(browser, { label, records = {}, viewport, dpr = 2, url, video, clock, permissions }) {
+// caller names no size. `system: 'windows'`: the page is told it runs on Windows (ui/src/system.ts reads the browser's
+// own account of itself), so its keys and paths are Windows'.
+const WINDOWS = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0';
+async function open(browser, { label, records = {}, viewport, dpr = 2, url, video, clock, permissions, system }) {
   const size = viewport || (label === 'notch' ? { width: 560, height: 520 } : { width: Number(process.env.WIDTH) || 1180, height: 760 });
   if (TEXT !== 'default' && !(records.prefs || []).some((p) => p.id === 'text_size')) records = { ...records, prefs: [...(records.prefs || []), { id: 'text_size', value: TEXT, rev: 1 }] };
-  const context = await browser.newContext({ viewport: size, deviceScaleFactor: dpr, ...(video ? { recordVideo: video } : {}), ...(permissions ? { permissions } : {}) });
+  const context = await browser.newContext({ viewport: size, deviceScaleFactor: dpr, ...(video ? { recordVideo: video } : {}), ...(permissions ? { permissions } : {}), ...(system === 'windows' ? { userAgent: WINDOWS } : {}) });
   const page = await context.newPage();
   if (clock) await page.clock.install();
   page.errors = [];

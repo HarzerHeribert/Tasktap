@@ -13,6 +13,8 @@ import { uuid7 } from '../client.ts';
 import { type Review, Told, lost, next, pending, review, running, settle } from '../changes.tsx';
 import { Ask } from '../question.tsx';
 import { Answer, Diffstat, I, Key } from '../ui.tsx';
+import { hit } from '../keys.ts';
+import { mac, plain, shownPath } from '../system.ts';
 import * as L from './layout.ts';
 import {
   agentName, call, dismiss, fail, finishClose, focus, focusTerminal, keepInBackground, label, layout, open, openWorkspace,
@@ -78,8 +80,9 @@ function matches(k: string, e: KeyboardEvent, typing: boolean) {
   if (k === 'esc') return e.key === 'Escape';
   if (k === '↩') return e.key === 'Enter' && !e.shiftKey && !e.metaKey && !on && !typing;
   if (k === '⇧↩') return e.key === 'Enter' && e.shiftKey && !typing;
-  if (k === '⌘⌫') return e.key === 'Backspace' && e.metaKey;
-  if (k.startsWith('⌘')) return e.metaKey && e.key.toLowerCase() === k.slice(1).toLowerCase();
+  // Control-Backspace takes a word out of a field on Windows: there it is the field's while one has the keyboard.
+  if (k === '⌘⌫') return hit(k, e) && (mac || !typing);
+  if (k.startsWith('⌘')) return hit(k, e);
   return !typing && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === k.toLowerCase();
 }
 const quote = (s: string) => `“${s.length > 60 ? s.slice(0, 59) + '…' : s}”`;
@@ -122,8 +125,8 @@ function Picker() {
           <h3>Open again</h3>
           <div class="list">
             {closed.map((p) => (
-              <button type="button" class="line" title={p.folder} onClick={() => void openWorkspace(p.folder)}>
-                <span class="t">{p.name}</span><span class="x mono">{p.available ? p.folder.replace(/^\/Users\/[^/]+/, '~') : 'Folder unavailable'}</span>
+              <button type="button" class="line" title={plain(p.folder)} onClick={() => void openWorkspace(p.folder)}>
+                <span class="t">{p.name}</span><span class="x mono">{p.available ? shownPath(p.folder) : 'Folder unavailable'}</span>
               </button>
             ))}
           </div>

@@ -65,7 +65,7 @@ function audit(LISTS) {
   // An icon and its label, a key cap and its word, a wave and what it says: each pair on one centred line.
   for (const [within, a, b] of [
     ['.mic', '.i', 'kbd'], ['.ring[aria-checked=true]', '.ring-o', '.nm'], ['.way-h', ':scope > .i, :scope > .st', ':scope > b'], ['.way-h', '.act kbd', '.act span'],
-    ['.way-h', ':scope > b', ':scope > .key span, :scope > .btn span'], ['.cap-row.hear', '.lvl, .st', 'b'], ['.cap-row.hear', 'b', '.act span'], ['.ans', '.i', 'span'], ['.disc', '.i', 'span'],
+    ['.way-h', ':scope > b', ':scope > .btn span'], ['.cap-row.hear', '.lvl, .st', 'b'], ['.cap-row.hear', 'b', '.act span'], ['.ans', '.i', 'span'], ['.disc', '.i', 'span'],
     ['.cap-said', ':scope > span', '.btn'], ['.reply', '.lvl', 'input'], ['.line.tool', '.ring-o', '.t'],
   ])
     for (const el of document.querySelectorAll(within)) {
@@ -81,10 +81,12 @@ function audit(LISTS) {
     seen.add('whole text');
     if (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1) bad.push(`"${el.textContent.trim().slice(0, 40)}" is cut short (${el.className || el.tagName})`);
   }
-  // In the Composer and what is under it, one key at most is metal.
+  // In the Composer and what is under it, one key at most is metal, and one thing at most says Start.
   for (const c of document.querySelectorAll('.capture')) {
     const keys = [...c.querySelectorAll('.key:not(:disabled)')].filter((k) => k.offsetParent);
     if (keys.length > 1) bad.push(`${keys.length} metal keys in the Composer: ${keys.map((k) => k.textContent.trim()).join(', ')}`);
+    const starts = [...c.querySelectorAll('button')].filter((b) => b.offsetParent && b.textContent.trim() === 'Start');
+    if (starts.length > 1) bad.push(`Start is said ${starts.length} times in the Composer`);
   }
   // The composition. The Composer is centred on the lists under it, in one column or two.
   const mid = (el) => box(el).left + box(el).width / 2, cap = document.querySelector('.home .capture.raised .cap'), cols = document.querySelector('.hx .cols');
@@ -292,7 +294,7 @@ async function main() {
   }
   console.log(`measured: ${[...measured].join('; ')}`);
   for (const f of [...new Set(failures)]) console.log('FAIL  ' + f);
-  console.log(failures.length ? `FAIL  alignment: ${new Set(failures).size} things out of line` : 'PASS  every list keeps its columns, marks centred, labels and secondary text on shared edges; the Composer is centred on what is under it; keys read at 7 : 1; the rings show each state; no scroller shows a bar; a wake lies behind its edge; the collapsed notch is centred in every state on both kinds of display');
+  console.log(failures.length ? `FAIL  alignment: ${new Set(failures).size} things out of line` : 'PASS  every list keeps its columns, marks centred, labels and secondary text on shared edges; the Composer is centred on what is under it and says Start once; keys read at 7 : 1; the rings show each state; no scroller shows a bar; a wake lies behind its edge; the collapsed notch is centred in every state on both kinds of display');
   process.exitCode = failures.length ? 1 : 0;
 }
 main().catch((e) => (console.error(e), process.exit(1)));

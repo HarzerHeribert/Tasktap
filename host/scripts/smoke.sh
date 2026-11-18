@@ -265,9 +265,9 @@ until_has notch "eval (r => r?.dataset.s + ' ' + r?.querySelector('b')?.textCont
   && pass "while its session works an agent's ring turns, with the count beside it" || fail "a working agent's ring"
 send "type notch Undo me" "key notch Enter"
 until_has notch "text .way" 5 "project" && pass "with a folder open, Enter sends the thought there, and it shows on its way" || fail "Enter sends"
-ask notch "text .way" | grep -q "Undo" && ask notch "text .way .key" | grep -q "Start" \
+ask notch "text .way" | grep -q "Undo" && [ "$(js notch "(b => b.textContent + ' ' + b.disabled)(document.querySelector('.cap-row .key'))")" = "Start false" ] \
   && [ "$(js notch "String((h => !!h && !h.hasAttribute('data-open') && parseFloat(getComputedStyle(h).getPropertyValue('--ms')) > 500)(document.querySelector('.way-hold')))")" = true ] \
-  && pass "while it is held it offers Undo and Start, and its hold is a line that runs out by the clock" || fail "the thought on its way offers Undo" "$(ask notch "text .way")"
+  && pass "while it is held it offers Undo, the Composer's key says that Return starts it, and its hold is a line that runs out by the clock" || fail "the thought on its way offers Undo" "$(ask notch "text .way")"
 ask notch "click .way .act" >/dev/null
 until_has notch "eval document.querySelector('#capture-input').value" 3 "Undo me" \
   && pass "Undo stops the thought before it starts and returns its text to the field" || fail "Undo"
@@ -701,8 +701,8 @@ key="$(route_key project)"
 js workspace "([...document.querySelectorAll('.hq.open .ans')].find(b => b.querySelector('span').textContent === 'project').click(), 1)" >/dev/null
 until_has workspace "text .home .way" 5 "Keep the header on one line." && going="$(ask workspace "text .home .way")" \
   && echo "$going" | grep -q "project" && echo "$going" | grep -q "You said" && echo "$going" | grep -q "so the header thing" && echo "$going" | grep -q "Placed by Fixture agent · fixture-small" \
-  && [ "$(js workspace "document.querySelector('.home .way .key')?.textContent")" = "Start" ] \
-  && pass "answered, it is on its way to that folder: the brief in full, the person's own words under it, how it was placed, Undo and the key Start" || fail "the answered thought on its way" "$(echo "${going:-}" | tr '\n' '|' | cut -c1-240)"
+  && [ "$(js workspace "(b => b.textContent + ' ' + b.disabled)(document.querySelector('.home .cap-row .key'))")" = "Start false" ] \
+  && pass "answered, it is on its way to that folder: the brief in full, the person's own words under it, how it was placed, Undo, and the Composer's key Start" || fail "the answered thought on its way" "$(echo "${going:-}" | tr '\n' '|' | cut -c1-240)"
 shot held-brief workspace
 ask workspace "click .home .way .act" >/dev/null
 until_has workspace "eval $field.value + ' ' + [...__ws.records.thoughts.values()].find(t => t.text.startsWith('so the header thing'))?.phase" 3 "so the header thing, I think it should stay on one line captured" \

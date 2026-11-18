@@ -5,7 +5,8 @@
 //
 // Under the row is what is on its way, by one mechanism for typing and for voice (way.ts): speech being heard and
 // written down, then the thought being placed, then where it goes with its brief, readable for the length of its hold,
-// with Undo and Start. Every Composer shows every thought on its way, whoever captured it.
+// with Undo. Every Composer shows every thought on its way, whoever captured it. Return on an empty field starts the
+// newest of them now, and the Composer's key says so: it is the one key that says Start.
 import type { Capture as CaptureArgs, Dictation, DictationTarget, Route, Thought } from '../../core/proto/protocol.ts';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'preact/hooks';
@@ -117,15 +118,20 @@ async function addProject(hooks: Hooks): Promise<string | undefined> {
 }
 
 const start = (t: Thought) => void call('thought.start', { id: t.id, attempt: uuid7() }).catch(fail);
+/** The thought Return on an empty field starts now: the newest on its way, once it has its place. None while one is
+ *  still on its way to the core, so a second Return after the one that sent it starts nothing by surprise. */
+const waiting = () => {
+  const t = going()[0];
+  return !cap.sending && t && step(t) !== 'placing' ? t : undefined;
+};
 
 async function send(e: Event, hooks: Hooks) {
   e.preventDefault();
   const text = cap.draft.trim();
   if (cap.sending) return;
   if (!text) {
-    // Return on an empty field starts the thought that waits, now.
-    const t = going()[0];
-    return void (t && step(t) !== 'placing' && start(t));
+    const t = waiting();
+    return void (t && start(t));
   }
   cap.sending = true;
   redraw();
@@ -293,9 +299,10 @@ function Hold({ t }: { t: Thought }) {
   return <i class="way-hold" key={t.hold_until ?? 0} data-open={!h || undefined} style={h ? { '--from': String(h.share), '--ms': `${Math.round(h.ms)}ms` } : undefined} />;
 }
 
-/** A thought on its way. The newest is `open`: where it goes and what the work is called, the brief in full when it
- *  says the words differently, the person's own words under it, and how it was placed. Any other is its first line. */
-function Going({ t, open, main }: { t: Thought; open: boolean; main: boolean }) {
+/** A thought on its way, with the way to take it back. The newest is `open`: where it goes and what the work is
+ *  called, the brief in full when it says the words differently, the person's own words under it, and how it was
+ *  placed. Any other is its first line. */
+function Going({ t, open }: { t: Thought; open: boolean }) {
   const at = step(t), brief = briefOf(t);
   const mineToo = cap.sent?.id === t.id && cap.sent.picked;
   const note = placed(t, agentName, mineToo);
@@ -308,7 +315,6 @@ function Going({ t, open, main }: { t: Thought; open: boolean; main: boolean }) 
         )}
         {at === 'briefing' && <em>Writing the brief…</em>}
         <button type="button" class="act" onClick={() => void undo(t)}><kbd>⌘Z</kbd><span>Undo</span></button>
-        {at !== 'placing' && <button type="button" class={main ? 'key' : 'btn'} title="Start it now" onClick={() => start(t)}><I n="ret" /><span>Start</span></button>}
       </p>
       {open && brief && <p class="way-b"><span>Brief{t.route?.title && <b>{t.route.title}</b>}</span>{brief}</p>}
       {open && (brief || t.source === 'voice') && <p class="way-w"><span>You said</span>{t.text}</p>}
@@ -366,7 +372,7 @@ function Way({ hooks, raised, offer }: { hooks: Hooks; raised: boolean; offer: b
       {failed.map((d) => <Failed key={d.id} d={d} />)}
       {talk.said === 'service' && line('Voice needs a speech service to turn it into text.', hooks.speech && <button type="button" class="btn" onClick={() => (cancel(), hooks.speech!())}>Choose one…</button>)}
       {talk.said && talk.said !== 'service' && line(talk.said)}
-      {all.map((x, i) => <Going key={x.id} t={x} open={i === 0} main={i === 0 && !cap.draft.trim()} />)}
+      {all.map((x, i) => <Going key={x.id} t={x} open={i === 0} />)}
       {sent?.to === 'later' && t && line(projects().some((p) => p.kind === 'folder') ? 'Saved for later' : 'Saved for later, until a folder is open',
         <button type="button" class="act" onClick={() => void undo('later')}><kbd>⌘Z</kbd><span>Undo</span></button>)}
       {sent && sent.to !== 'later' && t && !onWay(t) && (
@@ -420,7 +426,10 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
   const folders = projects().filter((p) => p.kind === 'folder');
   const later = w.by === 'later', model = w.by === 'router' && !route;
   const session = route?.confidence === 'clear' && 'session' in route.to;
-  const does = later ? 'Save for later' : session ? 'Send' : 'Start';
+  // What Return does, which the key says: with a thought in the field it sends that; with none it starts the one that
+  // waits, if one does.
+  const has = !!cap.draft.trim(), now = !has && !!waiting();
+  const does = now ? 'Start' : later ? 'Save for later' : session ? 'Send' : 'Start';
   const d = mine(), service = !!pref('speech_by');
   const hearing = here() && (talk.asking || d?.phase === 'recording' || d?.phase === 'transcribing');
   const area = useRef<HTMLTextAreaElement>(null);
@@ -481,7 +490,7 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
               onPointerDown={(e) => control.down(e, area.current)} onClick={(e) => control.key(e, area.current)}>
               <I n="mic" /><kbd>⌥Space</kbd>
             </button>
-            <button type="submit" class={`key${raised ? ' lg' : ''}`} disabled={!cap.draft.trim()} aria-busy={cap.sending || undefined}>
+            <button type="submit" class={`key${raised ? ' lg' : ''}`} disabled={!has && !now} aria-busy={cap.sending || undefined} title={now ? 'Start it now' : undefined}>
               {cap.sending ? <Mark s="working" label="" /> : <I n="ret" />}<span>{does}</span>
             </button>
           </div>

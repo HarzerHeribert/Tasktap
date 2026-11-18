@@ -1,0 +1,28 @@
+[
+  {"id": "de-1", "lang": "de", "say": "Bitte prüfe, warum die Tests seit gestern fehlschlagen, und schreib mir eine kurze Zusammenfassung.", "terms": ["Tests", "Zusammenfassung"]},
+  {"id": "de-2", "lang": "de", "say": "Die Einstellungen sollen sich die Größe des Fensters merken, auch nach einem Neustart.", "terms": ["Einstellungen", "Neustart"]},
+  {"id": "de-3", "lang": "de", "say": "Wir brauchen eine Übersicht aller offenen Fragen, sortiert nach Dringlichkeit.", "terms": ["Übersicht", "Dringlichkeit"]},
+  {"id": "de-4", "lang": "de", "say": "Ändere die Schriftgröße im Terminal auf vierzehn Punkt und die Zeilenhöhe auf hundertzwanzig Prozent.", "want": "Ändere die Schriftgröße im Terminal auf 14 Punkt und die Zeilenhöhe auf 120 Prozent.", "terms": ["Schriftgröße", "Terminal", "14", "120"]},
+  {"id": "de-5", "lang": "de", "say": "Das Mikrofon darf nur laufen, solange ich die Taste gedrückt halte.", "terms": ["Mikrofon", "Taste"]},
+  {"id": "de-6", "lang": "de", "say": "Schau bitte nach, ob das Herunterladen nach einem Abbruch an derselben Stelle weitermacht.", "terms": ["Herunterladen", "Abbruch"]},
+  {"id": "de-7", "lang": "de", "say": "Morgen um neun Uhr dreißig möchte ich die Ergebnisse von allen drei Projekten sehen.", "want": "Morgen um 9:30 Uhr möchte ich die Ergebnisse von allen drei Projekten sehen.", "terms": ["Ergebnisse", "Projekten"]},
+  {"id": "de-8", "lang": "de", "say": "Lösch den alten Ordner erst, wenn die Sicherung vollständig ist.", "terms": ["Ordner", "Sicherung"]},
+
+  {"id": "en-1", "lang": "en", "say": "Please rebase the feature branch onto main and open a pull request when the tests pass.", "terms": ["rebase", "feature branch", "main", "pull request"]},
+  {"id": "en-2", "lang": "en", "say": "The TypeScript compiler complains about a missing type in settings dot T S X.", "want": "The TypeScript compiler complains about a missing type in settings.tsx.", "terms": ["TypeScript", "compiler", "settings.tsx"]},
+  {"id": "en-3", "lang": "en", "say": "Add a retry with exponential backoff to the download and verify the checksum afterwards.", "terms": ["retry", "exponential backoff", "checksum"]},
+  {"id": "en-4", "lang": "en", "say": "Why does the idle CPU usage go up to three percent after the window closes?", "want": "Why does the idle CPU usage go up to 3 percent after the window closes?", "terms": ["idle", "CPU", "3"]},
+  {"id": "en-5", "lang": "en", "say": "Refactor the recorder so the microphone stops the moment I let go of the key.", "terms": ["Refactor", "recorder", "microphone"]},
+  {"id": "en-6", "lang": "en", "say": "Run cargo clippy and cargo test in the host folder and fix every warning.", "terms": ["cargo clippy", "cargo test", "host"]},
+  {"id": "en-7", "lang": "en", "say": "Pull request number forty two needs a second review before we merge it.", "want": "Pull request number 42 needs a second review before we merge it.", "terms": ["Pull request", "42", "review", "merge"]},
+  {"id": "en-8", "lang": "en", "say": "Write a short summary of what changed between version one point two and the rebuild.", "want": "Write a short summary of what changed between version 1.2 and the rebuild.", "terms": ["summary", "1.2", "rebuild"]},
+
+  {"id": "mix-1", "lang": "mix", "say": "Mach bitte einen {Rebase} auf {main} und erstelle danach einen {Pull Request}.", "want": "Mach bitte einen Rebase auf main und erstelle danach einen Pull Request.", "terms": ["Rebase", "main", "Pull Request"]},
+  {"id": "mix-2", "lang": "mix", "say": "Die Tests in der {C I} schlagen fehl, weil {TypeScript} einen Fehler in {settings} Punkt {T S X} meldet.", "want": "Die Tests in der CI schlagen fehl, weil TypeScript einen Fehler in settings.tsx meldet.", "terms": ["Tests", "CI", "TypeScript", "settings.tsx"]},
+  {"id": "mix-3", "lang": "mix", "say": "Kannst du den {Feature Branch} mergen, sobald der {Build} grün ist?", "want": "Kannst du den Feature Branch mergen, sobald der Build grün ist?", "terms": ["Feature Branch", "mergen", "Build"]},
+  {"id": "mix-4", "lang": "mix", "say": "Der {Commit} von gestern hat den {Recorder} kaputt gemacht, bitte mach einen {Revert}.", "want": "Der Commit von gestern hat den Recorder kaputt gemacht, bitte mach einen Revert.", "terms": ["Commit", "Recorder", "Revert"]},
+  {"id": "mix-5", "lang": "mix", "say": "Schreib einen Test für den {Download} mit {Resume} und {Checksum} und lass danach {cargo test} laufen.", "want": "Schreib einen Test für den Download mit Resume und Checksum und lass danach cargo test laufen.", "terms": ["Test", "Download", "Resume", "Checksum", "cargo test"]},
+  {"id": "mix-6", "lang": "mix", "say": "Im {Pull Request} fehlen noch das {Update} der {Readme} und ein {Screenshot} vom neuen {Layout}.", "want": "Im Pull Request fehlen noch das Update der Readme und ein Screenshot vom neuen Layout.", "terms": ["Pull Request", "Update", "Readme", "Screenshot", "Layout"]},
+  {"id": "mix-7", "lang": "mix", "say": "{Deploy} das Ganze erst, wenn der {Reviewer} sein Okay gegeben hat. {That is important, do not skip the code review.}", "want": "Deploy das Ganze erst, wenn der Reviewer sein Okay gegeben hat. That is important, do not skip the code review.", "terms": ["Deploy", "Reviewer", "Okay", "important", "code review"]},
+  {"id": "mix-8", "lang": "mix", "say": "Öffne {main} Punkt {R S} und such den {Handler} für die {Permission} vom Mikrofon.", "want": "Öffne main.rs und such den Handler für die Permission vom Mikrofon.", "terms": ["main.rs", "Handler", "Permission", "Mikrofon"]}
+]

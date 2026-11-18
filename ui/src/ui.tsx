@@ -18,6 +18,8 @@ const icons = {
   folder: () => <path d="M2.25 4.25h4l1.5 1.75h6v6.75H2.25z" />,
   ret: () => <path d="M12.75 3.5v4.75H3.5M6.75 5L3.5 8.25l3.25 3.25" />,
   down: () => <path d="M8 2.75v10M4 9l4 4 4-4" />,
+  later: () => <circle cx="8" cy="8" r="2.75" />,
+  mic: () => <><rect x="6" y="2.25" width="4" height="7.5" rx="2" /><path d="M3.75 7.75a4.25 4.25 0 0 0 8.5 0M8 12v1.75" /></>,
 } as const;
 export type IconName = keyof typeof icons;
 
@@ -52,6 +54,16 @@ export function Wave({ n = 9, live = false, rest = false, style }: { n?: number;
   return <span class={`wave${live ? ' live' : ''}${rest ? ' rest' : ''}`} style={style} aria-hidden="true">{bars}</span>;
 }
 
+/** The wave as loud as a voice: its bars' heights follow `l`, 0 to 1, the level of the dictation that records. Five
+ *  bars, or as many as the wave it stands in for. */
+export function Level({ l, n = 5 }: { l: number; n?: number }) {
+  const bars = Array.from({ length: n }, (_, i) => {
+    const tint = [3, 4, 11].includes(i % 14) ? 'cu' : [7, 12].includes(i % 14) ? 'gr' : '';
+    return <b class={n === 5 ? (i === 1 ? 'cu' : i === 3 ? 'gr' : '') : tint} style={{ '--h': `${Math.round(34 + 66 * Math.sin((Math.PI * (i + 0.5)) / n))}%` }} />;
+  });
+  return <span class="wave lvl" style={{ '--l': String(Math.max(0, Math.min(1, l))) }} aria-hidden="true">{bars}</span>;
+}
+
 /** What a key cap shows: Return as the icon set draws it, so it is as large as the letters beside it. */
 export const glyph = (k: string) => (k === '↩' ? <I n="ret" /> : k);
 
@@ -65,26 +77,26 @@ export type RingState = '' | 'off' | 'working' | 'asks';
 /** An agent's ring: its mark in a fine circle on a 24 px grid. The circle is whole when the agent can run and open
  *  when it is not signed in; a second arc turns on it while its sessions work. The circle is `--arc` of a turn, so it
  *  can show a share of something later. */
-export function Ring({ agent, s }: { agent: string; s: RingState }) {
+export function Ring({ agent, s, turns = s === 'working' }: { agent: string; s: RingState; turns?: boolean }) {
   return (
     <svg class="ring-o" viewBox="0 0 24 24" aria-hidden="true">
       <linearGradient id="ring-lit" x1="0" y1="1" x2="1" y2="0">
         <stop offset="0" stop-color="#b98a5e" /><stop offset=".3" stop-color="#edcda6" /><stop offset=".5" stop-color="#f7f8fa" /><stop offset=".72" stop-color="#a9c0df" /><stop offset="1" stop-color="#7b92c4" />
       </linearGradient>
       <circle cx="12" cy="12" r="11" pathLength="100" />
-      {(s === 'working' || s === 'asks') && <circle class="turn" cx="12" cy="12" r="11" pathLength="100" />}
+      {turns && <circle class="turn" cx="12" cy="12" r="11" pathLength="100" />}
       {MARKS[agent] ? <path d={MARKS[agent]} transform="translate(5.5 5.5) scale(.542)" /> : <text x="12" y="15.6" text-anchor="middle">{agent.charAt(0).toUpperCase()}</text>}
     </svg>
   );
 }
 
 /** An answer: its key cap and its label. */
-export function Answer({ k, label, primary = false, danger = false, onClick, cls = 'ans' }: {
-  k: string; label: string; primary?: boolean; danger?: boolean; onClick: () => void; cls?: string;
+export function Answer({ k, label, primary = false, danger = false, onClick, cls = 'ans', icon }: {
+  k: string; label: string; primary?: boolean; danger?: boolean; onClick: () => void; cls?: string; icon?: IconName;
 }) {
   return (
     <button type="button" class={`${cls}${primary ? ' primary' : ''}${danger ? ' danger' : ''}`} onClick={onClick}>
-      <kbd>{glyph(k)}</kbd><span>{label}</span>
+      <kbd>{glyph(k)}</kbd>{icon && <I n={icon} />}<span>{label}</span>
     </button>
   );
 }

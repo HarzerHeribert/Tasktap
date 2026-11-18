@@ -10,7 +10,8 @@ import { Motion, lookOf } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
 import { motionState } from '../motion/state.ts';
 import { Voice } from '../motion/voice.ts';
-import { call, fail, openQuestions, pref, records, redraw, ui } from './model.ts';
+import { Speech, Thoughts } from './consent.tsx';
+import { call, fail, loadTerms, openQuestions, pref, records, redraw, ui } from './model.ts';
 
 const styles: [MotionStyle, string][] = [['slats', 'Slats'], ['glyphs', 'Glyphs'], ['resonator', 'Resonator']];
 const palettes: [MotionPalette, string][] = [['chrome', 'Chrome'], ['chromatic', 'Chromatic'], ['warm', 'Warm'], ['cool', 'Cool'], ['custom', 'Custom']];
@@ -95,12 +96,17 @@ export function Settings() {
   });
   // Closing the sheet ends the trial.
   useEffect(() => () => void (trial && stopTrial()), []);
+  useEffect(() => void loadTerms(), []);
   return (
     <div class="settings">
+      <h3 id="set-thoughts">Thoughts</h3>
       <Row name="A sent thought starts" hint="Undo stays possible until then.">
         <Choice name="A sent thought starts" value={hold?.id === 'hold' ? hold.value : 5} all={holds} set={(v) => setPref({ id: 'hold', patch: v })} />
       </Row>
       <Row name="Capture shortcut"><span class="v mono">⌃⌥Space</span></Row>
+      <Thoughts />
+      <h3 id="set-speech">Speech</h3>
+      <Speech />
       <h3>Terminal</h3>
       <Row name="Font" hint="Any installed monospace family. Prompt symbols come from the Nerd Fonts symbols either way.">
         <input class="text" list="fonts" placeholder="Default (Hack)" aria-label="Font" spellcheck={false} maxLength={100} defaultValue={pref('terminal_font')}

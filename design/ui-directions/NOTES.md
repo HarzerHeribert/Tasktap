@@ -158,24 +158,24 @@ The app's one design-token file, `ui/src/tokens.css`, as built. Nothing else in 
   --bar-copper:linear-gradient(90deg,#5a3a22,#e9b683 40%,#ffe6c8 48%,#b07a4c 70%,#4a2f1c);
   --bar-graphite:linear-gradient(90deg,#26282c,#7b7f87 42%,#9a9ea6 48%,#4a4d53 70%,#1c1d20);
   --sheet-shadow:0 0 0 1px var(--line),0 30px 70px rgb(0 0 0/.7);
-  /* type. Expanded is the system font's width axis; where the web view ignores it the names fall back to regular width */
+  /* type. One family at its normal width for everything said in words; the monospace face for figures, keys, counts
+     and code only. Hierarchy is size, weight and colour. Each role is one size, weight, line height and letter
+     spacing, and nothing in either page sets a font outside these (scripts/type-check.cjs holds both pages to it). */
   --ui:system-ui,-apple-system,"Segoe UI Variable","Segoe UI",sans-serif;
   --mono:ui-monospace,"SF Mono",Menlo,"Cascadia Mono",Consolas,monospace;
-  --f-display:600 expanded 20px/26px var(--ui);  /* NOTES §4; the capture field is set at 20 px regular instead */
-  --f-question:500 17px/24px var(--ui);          /* a question on Home */
-  --f-question-n:500 16px/22px var(--ui);        /* in the notch */
-  --f-question-p:500 15px/21px var(--ui);        /* under a terminal */
-  --f-title:600 expanded 13px/18px var(--ui);    /* workspace name, sheet title */
-  --f-head:600 expanded 11px/14px var(--ui);     /* section names on Home */
-  --f-strong:600 13px/18px var(--ui);
-  --f-lead:500 13px/18px var(--ui);              /* a thought in a row */
-  --f-body:400 13px/18px var(--ui);
-  --f-small:400 12px/16px var(--ui);             /* sidebar rows, tabs, secondary */
-  --f-cap:400 11px/14px var(--ui);
-  --f-num:400 11px/14px var(--mono);             /* times, counts, versions, diffstat, key caps */
-  --f-key:600 11px/18px var(--mono);
-  --f-shell:400 11.5px/16px var(--mono);         /* a shell's name */
-  --f-term:400 13px/18px var(--mono);            /* default; the person's terminal settings win */
+  --f-thought:400 20px/28px var(--ui);   /* the Composer's thought on Home */
+  --f-question:500 16px/22px var(--ui);  /* a question, wherever it is asked; the thought in the notch and the capture sheet; a find field */
+  --f-title:600 13px/18px var(--ui);     /* where you are: the window's and a sheet's title; and the word on a key and on the default answer */
+  --f-label:500 13px/18px var(--ui);     /* a row's label: a thought, a workspace, a setting */
+  --f-text:400 13px/18px var(--ui);      /* running text: a brief, an answer, a summary */
+  --f-small:400 12px/16px var(--ui);     /* secondary text: a session, a tab, a fact, a quiet button */
+  --f-section:600 11px/14px var(--ui);   /* a section's label: Workspaces, Running, Results, For later, Terminal */
+  --f-cap:400 11px/14px var(--ui);       /* fine print: a hint, the word over a brief */
+  --f-num:400 11px/14px var(--mono);     /* figures: times, counts, key hints, paths, a diffstat */
+  --f-key:600 11px/18px var(--mono);     /* the glyph on a key cap */
+  --f-code:400 12px/18px var(--mono);    /* code, and a shell's name */
+  --f-term:400 13px/18px var(--mono);    /* a terminal's default; the person's terminal settings win */
+  --ls-thought:-.014em; --ls-question:-.008em;  /* the two large roles are set a hair tighter; every other role at 0 */
   /* measure: a 4 px grid */
   --sp1:4px; --sp2:8px; --sp3:12px; --sp4:16px; --sp5:24px; --sp6:32px;
   --side-w:224px; --bar-h:38px; --tab-h:30px; --row-h:28px; --rail-h:26px; --ctl-h:24px; --ctl-l:34px; --key-h:18px;
@@ -202,6 +202,32 @@ The app's one design-token file, `ui/src/tokens.css`, as built. Nothing else in 
 ```
 
 The terminal's own colours come from the person's theme and are not tokens of ours. Instrument never derives a colour from them.
+
+### Type: one family, one width, a scale of roles
+
+The owner, on the first real window (2026-11-18): the title bar's "Home" in the expanded width sat a few pixels from the sidebar's "Home" in the regular width and read as a stretched font; the "Workspaces" label was a third style and the Composer a fourth. The expanded width gave the mock-ups character and broke the window. So the type is one system:
+
+- **One family at its normal width** for everything said in words, the system face. The expanded width is gone everywhere, with its tokens. **The monospace face** is for figures, keys, counts, paths and code only.
+- **Hierarchy is size, weight and colour**, on eleven roles, each exactly one size, weight, line height and letter spacing. Nothing in either page sets a font size, weight or family outside them; a `<b>` carries no weight of its own.
+
+| Role | Set in | Used for |
+| --- | --- | --- |
+| `thought` | 20/28, 400, -0.014em | The Composer's thought on Home |
+| `question` | 16/22, 500, -0.008em | A question, wherever it is asked (Home, a pane's strip, the notch, a sheet: they were 17, 15 and 16); the thought in the notch and the capture sheet; a find field |
+| `title` | 13/18, 600 | Where you are: the title bar, a sheet's title. And the word on a key and on the default answer |
+| `label` | 13/18, 500 | A row's label: a thought, a workspace, Home in the sidebar, a setting, an agent |
+| `text` | 13/18, 400 | Running text: a brief, an answer, a summary, a result already seen |
+| `small` | 12/16, 400 | Secondary text: a session, a tab, a fact, a folder, a quiet button, a choice |
+| `section` | 11/14, 600 | A section's label, one style everywhere, in `--fg2`: Workspaces in the sidebar; Needs you, Running, Results and For later on Home; Thoughts, Speech, Terminal and Appearance in Settings; who asks, in the notch's head |
+| `cap` | 11/14, 400 | Fine print: a hint, the word over a brief, a note on how a thought was placed |
+| `num` | mono 11/14, 400 | Figures: times, counts, key hints, paths, a diffstat |
+| `key` | mono 11/18, 600 | The glyph on a key cap |
+| `code` | mono 12/18, 400 | Code in a diff, the router's instructions, a shell's name |
+
+  Merged, since no reason could be stated for the difference: the three question sizes into one; the key's own 12 px bold into `title`; a shell's 11.5 px into `code`; the 15 px find field into `question`; key hints inside a key or a button, which were in the text face, into `num`.
+- **The title bar says where you are only where nothing beside it does.** With the sidebar open on Home it carries nothing: the selected row a few pixels away says Home. With the sidebar away it says "Home". In a workspace it carries the workspace's name with its folder, and on Earlier the way back.
+- **Checked** by `scripts/type-check.cjs` (in `host/scripts/smoke.sh`): it renders both pages in every fixture state, reads the computed family, width, size, weight and letter spacing of every element that shows text of its own, fails on any that is no role's or whose width is not normal, and prints the roles with where each is used. A terminal's text is left out: its font is the person's.
+- **What it changed in Settings' Appearance part**, whose controls are frozen: nothing in its controls; its heading "Appearance", like "Terminal", is now the section role at the normal width instead of the expanded one.
 
 ## 5. Components and their states
 
@@ -251,7 +277,7 @@ A grid: sidebar (224 px) and main, over a full-width rail (26 px). The window is
 
 **Sidebar.** It slides in and out (⌃⌘S) in 280 ms (`--t-side`, `--ease-slide`), and what is beside it moves with its edge for the whole of the way, on the same curve: it is the window's own column that narrows or widens, so nothing is left to jump at the end, and the title makes room for the window's buttons as it goes. A terminal keeps its size while it slides and is fitted once when the slide is over. Top strip 38 px (window buttons, hide-sidebar). Then Home (with the count of things that need you, in copper, absent at zero), the label "Workspaces" with ＋ (Open a folder, ⌘O; shown on hover of the sidebar and always on first run), then each workspace: a row with a chevron that folds its sessions, and its sessions indented under a guide line. A session row is mark, title, time. Sessions order: asks, working, ready, failed, ended; background ones dimmed with the background glyph. Shells are rows too, in mono. Nothing else is in the sidebar.
 
-**Title bar.** 38 px, hairline below. In a workspace: its name (Expanded), its path (mono, dim), then at the right Split right (⌘D), Split down (⇧⌘D), and New task (⌘N). On Home: "Home" and nothing else (in the Sheets layering, Results and For later with counts; on Earlier, a way back and the name).
+**Title bar.** 38 px, hairline below. In a workspace: its name (the title role), its path (mono, dim), then at the right Split right (⌘D), Split down (⇧⌘D), and New task (⌘N). On Home: nothing while the sidebar is open, "Home" while it is away (in the Sheets layering, Results and For later with counts; on Earlier, a way back and the name).
 
 **Deck.** Nested splits of panes. A pane is a 30 px tab bar on `--bg` and, below it, the terminal, padded 12 × 14. As built: one terminal look, Default, on Instrument's black, in Hack 14 with the Nerd Fonts symbols, at the nearest size whose cells are whole pixels wide (13.3 px in cells of 8), every colour kept at 4.5 : 1 on what it is drawn over (both shipped with the app); its palette is the owner's own terminal's. Settings › Terminal sets another family, the size and the line height. Following Ghostty was removed. Tabs: mark, title, cross on hover at the left; ＋ at the end. There is no per-pane toolbar, no status strip, no outline round a pane. Copy, paste and text size are menu commands with their standard shortcuts. Panes are separated by a 1 px seam; a pane below another needs none, its tab bar is the separation. The unfocused panes' terminals draw at 84 %.
 
@@ -339,3 +365,38 @@ Kept for the record; the cut-outs are under Current → Diagnosis.
 ## 8. The directions not chosen
 
 **Native** (system materials, the deck coloured from the terminal theme, capsules) and **Ledger** (thoughts in the system serif, state as words, paper and ink) remain on the page behind "Not chosen", with their styles in `d1.css` and `d3.css`. Their tokens are the first block of each of those files; what was worth keeping from them is in the graft table above.
+
+## 9. Routing and speech, as built
+
+The two things that make Tasktap what it is: a thought is spoken or typed, a model works out where it belongs and writes the brief, and an agent starts. Both leave the Mac only once the person has allowed them, so each has a place where it is allowed, and both use one mechanism for "something is on its way". The pictures of every state are made by `scripts/flow-shots.cjs` from fixture records (`instrument-fixtures.cjs`, `flow`), in English and German, with a long thought and brief.
+
+**Allowing a model to place thoughts** (`ui/src/workspace/consent.tsx`, the core's `route.terms` and `route_by`).
+- A sheet from the title bar, in the list sheet's measure: what the person gets, in three lines (a thought with no folder named goes where it belongs; a brief written from rambling speech, with nothing they did not say; their own words always sent along); *Who reads them*, one line an agent that is installed and signed in, with the model it would ask, the chosen one a selected row; *What it is sent with each thought*, the core's list as it is; and *The instructions it follows* behind one quiet line that opens them in full. Return is Allow and writes `route_by {agent, model}`; Esc is Not now.
+- It is offered, never pushed: one quiet line under the Composer ("Thoughts can find their own folder, and get a brief, with your own agent." See what it sends… Not now) at two moments only: once a folder is open and an agent signed in, before the first thought; and under the first thought of a run that named no folder and went to the usual one. Not now and Turn off both store No (`route_by: null`), and a stored answer is never asked again. To the core a null is no consent, as an absent preference is.
+- Settings has a part *Thoughts*: when a sent thought starts, the capture shortcut, and *Placing*: "By name: a thought goes to the folder or session it names" with Let a model place them…, or "By Claude Code · haiku" with What it is sent…, where the same sheet turns it off; or "Needs agreeing again" when the stored model is no longer the one this Tasktap would ask.
+- Once allowed, the Composer's place reads **Where it belongs** unless the person picks a folder or the text names one, and Return leaves the placing to the router.
+
+**A thought on its way** (`capture.tsx`, `way.ts`). Under the Composer's row, on Home, in the capture sheet and in the notch, every thought that is being placed or held shows as one block, whoever captured it, so one captured in the notch can be undone on Home:
+- **Placing…** with Undo, while a model is asked and it has no place yet.
+- Then where it goes (→ folder, or Follow-up: its session), with **Undo** (⌘Z) and **Start**. Start is the one metal key while the Composer's own key has nothing to do, and Return on the empty field presses it; with a new thought typed, the Composer's key is the metal one and Start steps down to quiet.
+- Under it, for the newest: **Brief**, with what the model called the work beside the word, and the brief in full; then **You said**, the person's own words, set off by a hairline, since they are what the agent also receives. Both show whenever the brief says the words differently or the thought was spoken; a short typed thought that goes on as it is shows its first line alone. Nothing in it is cut short. Last, how it was placed: "Placed by Claude Code · haiku", with the quoted words for a follow-up, or "Placed by name." and the core's reason as it gave it.
+- **The hold is the block's top edge**: a lit line that runs out with the time that is left, from the share that is left, by the clock. No number counts down. It follows the record: when the core moves the hold's end because a brief arrived, the line starts again from the new share; while a brief is still being written ("Writing the brief…") the end is open and the line stands whole and dim.
+- A thought that is held is no longer listed under Running; it is on its way until it starts.
+- **How it was placed** stays with the thought afterwards, quietly: in its row's and its tab's tooltip; and as a second line on its row where a model was asked and could not be used, the core's sentence in full. A thought in For later says why it is there: "You saved it for later", "It named no folder", "Claude Code found no folder for it", "You kept it for later".
+
+**When it could not decide.** The router's question is a question like any other, first and in full on Home, in the notch and in a sheet: "Where should this go?", the thought under **You said**, the **Brief so far**, the folders and sessions it could mean on their keys (a folder or a terminal mark before each) and **L Keep for later**. It has no reply field: a place is one of these. The collapsed notch says "Where to?" and the thought.
+
+**The agents' rings.** The one that runs the next thought is *seated*: the selected fill and hairline of a chosen segment in Settings, its ring lit and a little heavier, its name beside it where the row has room (Home; in the notch and the capture sheet the seat alone). The seat is where the click landed, and the ring that takes it settles into it over 420 ms, so the choice is seen made and can be read at rest without hovering. The figure beside a ring is what its agent is working on; a session that asks is the ring's attention colour, not part of the count.
+
+**Voice** (`ui/src/speech/`). The page records, so it is the same on every system: the microphone is asked for when voice is first used and never before, heard through an audio worklet (`public/pcm-worklet.js`), turned into 16 kHz mono 16-bit little-endian samples (`pcm.ts`) and sent on the stream `dictation.start` opens, within its credit. It stops at once when the person lets go, cancels, the page loses the window, the core closes the stream, or the 300 seconds are up; the page keeps no audio.
+- **The gesture: hold ⌥Space** in the Composer or a reply field, or **press and hold the microphone control**; a hold shorter than 150 ms starts nothing. A short click on the control keeps it on until the next click or Return, for hands that cannot hold. The control shows the microphone and its key, ⌥Space, on Home; in the notch and the capture sheet the Composer's invitation says it instead: "Type, or hold ⌥Space and talk". The capture shortcut (⌃⌥Space) opens the Composer as before.
+- **While recording** the Composer's row is the recording: the wave as loud as the voice (five bars on Home; in the notch and the sheet the wave beside the thought, which was there already, follows the voice), "Listening", the time once it passes five seconds ("0:07"), the limit once it is half a minute away ("4:41 of 5:00"), "Let go to send" or "Let go to add it", and Esc Cancel; kept on by a click, the key reads ↩ Done. Then "Writing it down…". The wave's height is the `level` of the `dictations` row, eased between the core's ten reports a second by the clock.
+- **Into an empty Composer** it is a new thought: captured as typing and Return would have, so it is placed, shows on its way with its words under You said, and has its hold and Undo. **Into a field that holds text, or a reply**, the words arrive at the caret and nothing is sent until Return.
+- **A failure** shows the core's sentence as it is, whatever was heard under "Heard" with Use these words, and Dismiss; Escape cancels at any point.
+- **Without a speech service** the control says so in one line, "Voice needs a speech service to turn it into text.", with Choose one…, which opens Settings at Speech.
+- **Settings, Speech**: *Turned into text*: "Voice is off" with Use a speech service… and the plain statement that on this Mac is not built yet; or "By OpenAI · gpt-transcribe" with Change…. *Key*: a field that is only ever written, then "A key is stored" and Remove. *Languages you speak*: up to four, German and English first. The service's sheet shows, before anything is stored: OpenAI, Groq or another server; the address and the model; the key; exactly what is sent (the core's `speech.terms`); where; the five-minute limit; and a warning for an address that is not https. Return is Allow.
+- **The motion listens** while any dictation records: the workspace hands the motion a voice made from the row's level (`speech/level.ts`), so Home's chrome answers the person speaking.
+
+**Checked.** `scripts/align-check.cjs` holds the new lists and sheets to their columns, every icon and label pair to one centred line, what is read before a thought starts to being whole, and the Composer to one metal key; `scripts/voice-check.cjs` runs the real recorder in headless Chromium against a microphone that is a file; `ui/src/way.test.ts` and `ui/src/speech/pcm.test.ts` prove the mapping from records to what is shown and the bytes of the conversion; `host/scripts/smoke.sh` drives all of it in the real app against the real core, its fixture router and a speech service of its own on this machine, with a tone made in the page in place of a microphone.
+
+**Alternatives that were drawn and not chosen** (pictures only): the terms as a switch in Settings that allows at the flick (it allows before it is read, and cannot be offered where a thought is); the brief beside the words in two columns (the eye zig-zags, and the notch has no room for two); the candidates as the Composer's list of places (a second kind of question beside the one card); the recording as a full overlay with a large waveform (it hides where the thought goes and has no place in a reply); the speech service set up inline in Settings rows (two ways of allowing something, and nothing to return to from the notch).

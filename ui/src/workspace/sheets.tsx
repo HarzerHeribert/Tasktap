@@ -13,6 +13,7 @@ import {
   LOOSE, agentName, call, dismiss, fail, finishClose, focus, focusTerminal, keepInBackground, label, layout, newTerminal, open, openWorkspace,
   pickFolder, projectName, projects, records, setLayout, stop, title, ui,
 } from './model.ts';
+import { PlacingSheet, SpeechSheet } from './consent.tsx';
 import { wakeLook } from './light.tsx';
 import { Settings } from './settings.tsx';
 
@@ -21,10 +22,10 @@ let wasOpen = false;
 import { engines } from './terminal.ts';
 import { wake } from './wake.ts';
 
-type Act = { k: string; label: string; do: () => void; kind?: 'primary' | 'danger' };
+export type Act = { k: string; label: string; do: () => void; kind?: 'primary' | 'danger' };
 
 /** The sheet's frame: title, words, and its choices as rows of key cap and label. */
-function Frame({ title: name, children, acts = [], wide }: { title: ComponentChildren; children?: ComponentChildren; acts?: Act[]; wide?: 'list' | 'capture' | 'review' }) {
+export function Frame({ title: name, children, acts = [], wide }: { title: ComponentChildren; children?: ComponentChildren; acts?: Act[]; wide?: 'list' | 'capture' | 'review' }) {
   const ref = useRef<HTMLDivElement>(null);
   const keys = (e: KeyboardEvent) => {
     const typing = (e.target as HTMLElement).matches('input, textarea');
@@ -222,13 +223,17 @@ function Body() {
     case 'capture':
       return (
         <Frame wide="capture" title="New task">
-          <Capture started={dismiss} agents={() => open({ kind: 'agents' })} />
+          <Capture started={dismiss} agents={() => open({ kind: 'agents' })} speech={() => open({ kind: 'settings', at: 'speech' })} terms={() => open({ kind: 'placing' })} />
         </Frame>
       );
     case 'settings':
       return <Frame wide="list" title="Settings"><Settings /></Frame>;
     case 'agents':
       return <Frame wide="list" title="Agents"><Agents /></Frame>;
+    case 'placing':
+      return <PlacingSheet back={d.back} />;
+    case 'speech':
+      return <SpeechSheet />;
     case 'reply': {
       const q = records.questions.get(d.question);
       if (!q || q.state !== 'open') return <Frame title="Answered" acts={[{ k: 'esc', label: 'Close', do: dismiss }]} />;
@@ -316,6 +321,8 @@ export function Sheets() {
     if (sheet && !wasOpen) wake(sheet, 'y', wakeLook());
     wasOpen = true;
     focus(sheet?.querySelector<HTMLElement>('#capture-input, #find-text, .field input, .ask-notch .ans, .reply input') ?? sheet);
+    // Settings opened at one of its parts shows that part.
+    if (d.kind === 'settings' && d.at) document.getElementById(`set-${d.at}`)?.scrollIntoView({ block: 'start' });
   }, [key]);
   // Tab stays inside the sheet.
   useEffect(() => {

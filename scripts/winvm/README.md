@@ -1,4 +1,13 @@
-# Windows test VM
+# Windows test machines
+
+Two machines run the Windows checks, through the same scripts and the same folders (`C:\tasktap\repo.git`, `checkout`, `target`):
+
+| | The VM (the default) | The tower (`--tower`) |
+| --- | --- | --- |
+| What it is | Windows 11 ARM64 in VMware Fusion on this Mac; x64 programs run emulated | A person's PC: Windows 11 x64 on real hardware, reached as `tasktap-tower` |
+| Good for | Both architectures; snapshots to go back to; nobody to disturb; an administrator account | Native x64 and its timing; a standard account, as most people have; a real desktop when its owner hands it over |
+| Cannot | Show a desktop to a script; time x64 as hardware does | Build or run ARM64; run when it is switched off; be changed (no administrator) |
+| Manners | None needed | Shared with a person: half the cores at low priority, nothing on the screen (below) |
 
 Run these commands from the worktree containing the commit you want to test. Until the scripts are committed, use the absolute path to the original checkout’s `scripts/winvm/test.sh` when calling it from another worktree. It resolves `HEAD` in the caller’s current directory.
 
@@ -11,12 +20,16 @@ scripts/winvm/test.sh HEAD~1 -- --test launch
 scripts/winvm/test.sh --x64 --repeat 40 two_thoughts_launched_at_once_in_one_project_each_get_their_own_terminal -- --test launch
 scripts/winvm/host.sh --arm64
 scripts/winvm/host.sh --x64 --run
+scripts/winvm/test.sh --tower
+scripts/winvm/test.sh --tower --batch-agents --system-console
+scripts/winvm/host.sh --tower --run
+scripts/winvm/desktop.sh --dry-run
 scripts/winvm/shell.sh
 scripts/winvm/status.sh
 scripts/winvm/down.sh
 ```
 
-`test.sh` sends a committed revision to the VM's bare repository over SSH. It runs the Windows CI sequence in `core` with stable Rust, rustfmt, Clippy and Cargo. The default target is `x86_64-pc-windows-msvc`. Windows runs the resulting binaries under emulation. Use `--arm64` for native ARM64. The guest kernel and scheduler are ARM64 on both runs. A GitHub x64 runner still provides independent native-x64 coverage.
+`test.sh` sends a committed revision to the machine's bare repository over SSH. It runs the Windows CI sequence in `core` with stable Rust, rustfmt, Clippy and Cargo; the suite runs with `--no-fail-fast`, so a failing test file never keeps the ones after it from running. The default target is `x86_64-pc-windows-msvc`. Windows runs the resulting binaries under emulation. Use `--arm64` for native ARM64. The guest kernel and scheduler are ARM64 on both runs. A GitHub x64 runner still provides independent native-x64 coverage.
 
 The checkout is `C:\tasktap\checkout`. Both architectures reuse `C:\tasktap\target`, with Cargo's target-specific subdirectories. Test runs and interactive shells acquire the same exclusive checkout lock. Close the active shell or finish the active test before starting another. Local edits on the Windows checkout block automated switches. Commit Mac worktree changes before testing. Plain `git push winvm my-branch` transfers a branch, and `test.sh my-branch` selects it for testing.
 
@@ -24,7 +37,17 @@ The checkout is `C:\tasktap\checkout`. Both architectures reuse `C:\tasktap\targ
 
 `--batch-agents` runs the core's suite with the tests' agents installed the way npm installs a tool on Windows, as a batch file around the program (`TASKTAP_TEST_BATCH_AGENTS`, `core/tests/common`): finding, launching, adopting, asking and stopping them then all go through the command prompt.
 
-Both scripts put Microsoft's console (`conpty.dll`, `OpenConsole.exe`; `core/scripts/conpty.ps1` downloads the pinned package from nuget.org into `core\target\conpty` and checks it) beside the core they test or bundle, and `test.sh` takes it out of the shared build folder again when it is done.
+Both scripts put Microsoft's console (`conpty.dll`, `OpenConsole.exe`; `core/scripts/conpty.ps1` downloads the pinned package from nuget.org into `core\target\conpty` and checks it) beside the core they test or bundle, and `test.sh` takes it out of the shared build folder again when it is done. `--system-console` leaves it out: the terminals of that run are in the console Windows came with.
+
+## The tower
+
+`--tower` sends a job to the PC instead of the VM (`job.sh` holds the difference: the SSH alias, where the commit is pushed, and the manners). The Mac's SSH configuration has to know `tasktap-tower`; the scripts name nothing else of that machine, and its own notes are in `C:\tasktap\README.md` there. What is different from the VM:
+
+- **A person uses it.** A job there runs at priority BelowNormal, which every process it starts inherits, and on half the logical cores (`CARGO_BUILD_JOBS` and `RUST_TEST_THREADS`). `--no-polite` lifts both, for when the machine is free; `--polite` asks the VM for the same. Over SSH nothing can appear on the screen: the session has no desktop. Never start anything there through `C:\tasktap\desk.ps1` unless its owner has handed the desktop over, never change its settings, and never leave a build looping.
+- **The account is a standard one**, and signed in over SSH it is refused by Windows Management Instrumentation: `taskkill`, `tasklist`, `Get-CimInstance Win32_Process` and `Get-Process -IncludeUserName` all answer "Access denied". Nothing in the core, the tests or the scripts may need them. That refusal is what the tower found on its first day: a shim ended its agent with `taskkill`, which the VM's administrator account never noticed (13 failures of 13 runs of one test there, none since the shim ends its agent through a job). A process's own path, start time and parent are still readable for the account's own processes, and only for those.
+- **x64 only.** Its Build Tools have no ARM64 compiler or linker, so `--arm64` stops with "C++ Build Tools (ARM64) missing"; adding them needs an administrator.
+- **The checkout is a clone** of the bare repository, not a worktree of it, so a job fetches its commit; it is left detached at the last commit tested, as in the VM. `C:\tasktap\target\x86_64-pc-windows-msvc` is the scripts' build folder; `C:\tasktap\target\debug` belongs to the commands in the tower's own notes.
+- **No snapshots.** What a run leaves behind stays: look for processes after a run that was cut short (`Get-Process | Where-Object StartTime` lists the account's own).
 
 ## At the desktop
 
@@ -51,6 +74,27 @@ $app = 'C:\tasktap\checkout\host\target\aarch64-pc-windows-msvc\release\Tasktap 
 | 7 | WebView2 grants the microphone | In the app: View › Settings…, Appearance, start the trial of the motion with the microphone | No prompt from the app; the form moves with sound. If Windows' own setting blocks it (Settings › Privacy & security › Microphone › Let desktop apps access your microphone), the page says so and nothing crashes. The VM needs a sound card with an input in Fusion's settings for this. |
 | 8 | Text of the bundled fonts | In a terminal: `chcp 65001` then `echo ┌─┬─┐ │ █▀▄ ░▒▓`; look at Home and Settings | Terminal text is Hack with the box lines and blocks joining without gaps, at 100 % and at 150 % scale (Settings › System › Display › Scale); interface text is sharp, with no fallback serif face anywhere. |
 | 9 | Opening a folder | File › Open Workspace… | **Not built yet**: the page is told "choosing a folder is not available on Windows yet". Start the app with `$env:TASKTAP_PICK = 'C:\tasktap\checkout'` to give it that folder instead. |
+
+**On the tower, by script.** Once the tower's owner has switched its screen to the test account, one command from the Mac runs what a script can do of the table, in order and unattended:
+
+```sh
+scripts/winvm/desktop.sh            # builds the app at HEAD there (host.sh --tower), then runs the round
+scripts/winvm/desktop.sh --dry-run  # over SSH alone: says what each row would do and starts nothing
+```
+
+`desktop.ps1` then runs in that desktop through the tower's helper (`C:\tasktap\desk.ps1`) and refuses to start unless the test account's desktop is the one on the screen and unlocked. For each check it writes `PASS` or `FAIL` with its evidence to `results.txt`; `LOOK` lines name pictures of the app's own window (taken from the window, never from the screen) for a person to judge. Everything stays in `C:\tasktap\desktop-rounds\<time>` and is copied to a folder outside the repository (`--out`, by default under `$TMPDIR/tasktap-desktop-round`). It takes about five minutes. What it does:
+
+| Row | By script | Left for a person |
+| --- | --- | --- |
+| 1 | Starts the app as Explorer would; times the window; reads the menu bar's names; looks for a new console window; finds the core and the web view; checks `%LOCALAPPDATA%\Tasktap Next`; closes the window and times the app's end; watches the core leave by itself | The picture `row1-window.png`: Home in the window, Mica behind it |
+| 2 | `smoke.ps1` at the desktop, where "the app quits when told" counts and the capture key must register | |
+| 4 | The default key registers and is Alt-Shift-Space; Control-Alt-T registers when asked for and the default again when cleared (`host.capture_key`); Alt-Shift-Space pressed over Notepad brings the window to the front | Whether New Task is open with the caret in it (`row4-shortcut.png`); AltGr on a German layout; whether Alt-Shift-Space also switches the keyboard layout where Windows has two; Ctrl+Alt+Y and N with a question waiting |
+| 5 | A terminal answers in cmd, Control-C ends `ping`, PowerShell answers; the console is `OpenConsole.exe` under the core and no `conhost.exe` | Dragging the window larger and `mode con`; a line typed the moment output ends; `row5-terminal.png` |
+| 6 | The credential test, and that it leaves no entry | |
+| 8 | The terminal is set in Hack and the page loaded it; box and block characters typed | The pictures `row8-terminal.png`, `row8-home.png`, `row8-settings.png` at 100 % and, by hand, at 150 % |
+| + | Whether Windows Management Instrumentation answers the account at the desktop (it refuses it over SSH); quitting through the debug channel, timed | |
+
+Rows 3, 7 and 9 are not run: the tab and the folder panel are not built, and the microphone is for a person. **The round has not run yet** (2026-11-18): only its dry run has, which checks that the helpers compile and that the app, the fixture core and the helper's task are there. The window checks, the pictures and the pressed key are untested until a desktop is handed over.
 
 **The smoke script.** `host/scripts/smoke.sh` cannot run on Windows as it is. Mac-only in it: bash and the `ln` links it makes of the fixture agent; the app's path inside the bundle; the speech fixture, which is Python (the VM has none); `snapshot`, which asks WKWebView for a picture; every step on the notch (hover, capture, the answer card, its frame and keyboard), which needs the tab; the lines it types into zsh; and its checks of the Dock, the menu bar and the pasteboard. `host/scripts/smoke.ps1` is the start of a Windows variant and covers what exists there: the core starting, the host reaching it over the pipe, the page running and having the core's records, New Terminal starting the shell, quitting with nothing left. To grow into the whole of smoke.sh it needs the tab, a `snapshot` on WebView2 (`CapturePreview`), the speech fixture in Node, and the typed lines in cmd's or PowerShell's words.
 

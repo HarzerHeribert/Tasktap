@@ -396,9 +396,14 @@ fn revoke(cx: &mut Cx, args: Ref<DeviceId>) -> Result<(), Error> {
 fn add_project(cx: &mut Cx, args: AddProject) -> Option<Control> {
     let folder = args.folder.clone();
     let look = move || {
+        // The folder as a person knows it: canonical, and on Windows without
+        // the `\\?\` a canonical path begins with there, which no person
+        // types and few programs take. It is the path the pages show, the
+        // one a terminal starts in and the one agents are told.
         let path = std::fs::canonicalize(folder)
             .ok()
-            .filter(|path| path.is_dir());
+            .filter(|path| path.is_dir())
+            .map(crate::terminal::folder);
         let git = path.as_ref().is_some_and(|path| path.join(".git").exists());
         (path, git)
     };

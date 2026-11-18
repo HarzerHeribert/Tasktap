@@ -1385,7 +1385,7 @@ fn a_terminal_may_belong_to_no_project_and_a_closed_project_starts_none() {
     until(&mut c, &mut v, "the line", |v| shows(v.bytes(), 0));
     w.sync();
     assert_eq!(w.model.terminals[&first].project_id, Some(p));
-    let canonical = std::fs::canonicalize(&folder.0).unwrap();
+    let canonical = kept(&folder.0);
     assert_eq!(Path::new(&w.model.terminals[&first].cwd), canonical);
     w.ok::<call::ProjectClose>(&CloseProject { id: p, stop: true });
     state(&mut w, first, TerminalState::Exited);

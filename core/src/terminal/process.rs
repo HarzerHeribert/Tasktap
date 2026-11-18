@@ -407,8 +407,10 @@ fn command(plan: Plan) -> CommandBuilder {
     cmd
 }
 
-/// A canonical Windows path (`\\?\C:\…`, as `project.add` stores it) is
-/// no working folder Windows takes; the same path without the prefix is.
+/// A canonical Windows path (`\\?\C:\…`) is no working folder Windows
+/// takes, and no path a person knows; the same path without the prefix is
+/// both. `project.add` keeps a folder that way, and a path made canonical
+/// elsewhere (a copy's folder) is handed to a program that way.
 #[cfg(windows)]
 pub fn folder(path: PathBuf) -> PathBuf {
     let plain = path.to_str().and_then(|p| p.strip_prefix(r"\\?\"));

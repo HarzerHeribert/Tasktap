@@ -21,6 +21,7 @@ $tmp = Join-Path ([IO.Path]::GetTempPath()) "tasktap-desk-$PID"
 . "$checkout\host\scripts\app.ps1"
 
 Add-Type -AssemblyName System.Drawing.Common
+Add-Type -AssemblyName System.Windows.Forms
 Add-Type -Namespace Tasktap -Name Desk -UsingNamespace System.Text, System.Collections.Generic -MemberDefinition @'
 public delegate bool EnumProc(IntPtr window, IntPtr none);
 [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc each, IntPtr none);
@@ -41,7 +42,40 @@ public delegate bool EnumProc(IntPtr window, IntPtr none);
 [DllImport("user32.dll")] public static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
 [DllImport("user32.dll")] public static extern bool CloseDesktop(IntPtr desktop);
 [DllImport("kernel32.dll")] public static extern uint WTSGetActiveConsoleSessionId();
+[DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out Rect value, int size);
+[DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr window);
+[DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr w, IntPtr l);
+[DllImport("user32.dll")] static extern IntPtr WindowFromPoint(Point at);
+[DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+[DllImport("user32.dll")] public static extern bool GetCursorPos(out Point at);
+[DllImport("user32.dll")] static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extra);
+[DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr window);
+[DllImport("user32.dll")] public static extern bool IsIconic(IntPtr window);
+[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int how);
+[DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int w, int h, uint flags);
+public struct Point { public int X, Y; }
 public struct Rect { public int Left, Top, Right, Bottom; }
+// The window as a person sees it: without the unseen margins Windows keeps around it for resizing.
+public static Rect Frame(IntPtr window) {
+    Rect r;
+    if (DwmGetWindowAttribute(window, 9, out r, 16) != 0) GetWindowRect(window, out r);
+    return r;
+}
+// What the window under a point of the screen says that point is: 1 its inside, 2 its title bar, 8, 9 and 20 its
+// Minimize, Maximize and Close, 12 its top edge.
+public static int HitTest(int x, int y) {
+    var window = WindowFromPoint(new Point { X = x, Y = y });
+    return (int)SendMessage(window, 0x0084, IntPtr.Zero, (IntPtr)(((y & 0xffff) << 16) | (x & 0xffff)));
+}
+// The pointer put somewhere, and pressed there: the left button, or the right; once or twice.
+public static void Point_(int x, int y) { SetCursorPos(x, y); mouse_event(1, 0, 0, 0, UIntPtr.Zero); }
+public static void Press(int x, int y, bool right, int times) {
+    Point_(x, y);
+    for (int i = 0; i < times; i++) {
+        mouse_event(right ? 8u : 2u, 0, 0, 0, UIntPtr.Zero);
+        mouse_event(right ? 16u : 4u, 0, 0, 0, UIntPtr.Zero);
+    }
+}
 public class Window { public IntPtr Handle; public uint ProcessId; public string Class; public string Title; }
 // Every visible top-level window.
 public static List<Window> Windows() {
@@ -86,18 +120,63 @@ function Say($verdict, $row, $what, $evidence = '') {
     if (-not $DryRun) { Add-Content "$Out\results.txt" $line }
 }
 function Check($row, $what, $ok, $evidence = '') { Say $(if ($ok) { 'PASS' } else { 'FAIL' }) $row $what $evidence }
-# The window as it is drawn, into <Out>\<name>.png: the window's own picture, not the screen's.
-function Capture([IntPtr]$window, $name) {
+# The window's own picture, as the system draws the window for a program that asks: the whole window with the unseen
+# margins Windows keeps around it, which are cut off.
+function Picture([IntPtr]$window) {
     $rect = [Tasktap.Desk+Rect]::new()
     $null = [Tasktap.Desk]::GetWindowRect($window, [ref]$rect)
-    $bitmap = [Drawing.Bitmap]::new([Math]::Max(1, $rect.Right - $rect.Left), [Math]::Max(1, $rect.Bottom - $rect.Top))
-    $graphics = [Drawing.Graphics]::FromImage($bitmap)
+    $frame = [Tasktap.Desk]::Frame($window)
+    $whole = [Drawing.Bitmap]::new([Math]::Max(1, $rect.Right - $rect.Left), [Math]::Max(1, $rect.Bottom - $rect.Top))
+    $graphics = [Drawing.Graphics]::FromImage($whole)
     $dc = $graphics.GetHdc()
-    $drawn = [Tasktap.Desk]::PrintWindow($window, $dc, 2)
+    $script:drawn = [Tasktap.Desk]::PrintWindow($window, $dc, 2)
     $graphics.ReleaseHdc($dc)
+    $graphics.Dispose()
+    $seen = [Drawing.Rectangle]::FromLTRB([Math]::Max(0, $frame.Left - $rect.Left), [Math]::Max(0, $frame.Top - $rect.Top), [Math]::Min($whole.Width, $frame.Right - $rect.Left), [Math]::Min($whole.Height, $frame.Bottom - $rect.Top))
+    $bitmap = $whole.Clone($seen, $whole.PixelFormat)
+    $whole.Dispose()
+    $bitmap
+}
+# How light a picture is, 0 to 255: the mean over a grid of its points.
+function Light([Drawing.Bitmap]$bitmap) {
+    $sum = 0; $n = 0
+    for ($x = 0; $x -lt 24; $x++) { for ($y = 0; $y -lt 16; $y++) {
+        $c = $bitmap.GetPixel([int](($x + 0.5) * $bitmap.Width / 24), [int](($y + 0.5) * $bitmap.Height / 16))
+        $sum += ($c.R + $c.G + $c.B) / 3; $n++
+    } }
+    [int]($sum / $n)
+}
+# The window as it is drawn, into <Out>\<name>.png. With -Screen also as it stands on the screen, into
+# <Out>\<name>-screen.png: the screen's own points inside the window's edges and nowhere else, taken only while the
+# window is the one in front and nothing covers it. That is the only picture with the frame's hairline, the round
+# corners and the backdrop as a person sees them.
+function Capture([IntPtr]$window, $name, [switch]$Screen) {
+    $bitmap = Picture $window
     $bitmap.Save("$Out\$name.png", [Drawing.Imaging.ImageFormat]::Png)
-    $graphics.Dispose(); $bitmap.Dispose()
-    "$name.png ($($rect.Right - $rect.Left) x $($rect.Bottom - $rect.Top)$(if (-not $drawn) { ', the system did not draw it' }))"
+    $said = "$name.png ($($bitmap.Width) x $($bitmap.Height)$(if (-not $drawn) { ', the system did not draw it' }))"
+    $bitmap.Dispose()
+    if ($Screen) {
+        $frame = [Tasktap.Desk]::Frame($window)
+        if ([Tasktap.Desk]::GetForegroundWindow() -eq $window) {
+            $shot = [Drawing.Bitmap]::new($frame.Right - $frame.Left, $frame.Bottom - $frame.Top)
+            $graphics = [Drawing.Graphics]::FromImage($shot)
+            $graphics.CopyFromScreen($frame.Left, $frame.Top, 0, 0, $shot.Size)
+            $graphics.Dispose()
+            $shot.Save("$Out\$name-screen.png", [Drawing.Imaging.ImageFormat]::Png)
+            $shot.Dispose()
+            $said += "; as on the screen: $name-screen.png"
+        } else { $said += '; not taken from the screen: the window was not the one in front' }
+    }
+    $said
+}
+# The app's window in front, as a click on it would put it: Windows lets a program in the background bring a window
+# forward only after a key press.
+function Front([IntPtr]$window) {
+    if ([Tasktap.Desk]::GetForegroundWindow() -eq $window) { return $true }
+    [Tasktap.Desk]::Chord([byte[]](0x12))
+    $null = [Tasktap.Desk]::SetForegroundWindow($window)
+    Start-Sleep -Milliseconds 400
+    [Tasktap.Desk]::GetForegroundWindow() -eq $window
 }
 function Window-Of($process, $seconds) {
     $until = (Get-Date).AddSeconds($seconds)
@@ -131,10 +210,13 @@ $rows['1'] = 'Starts the app as Explorer would, with no debug channel and its ow
     $ms = [int]$watch.Elapsed.TotalMilliseconds
     Check 1 'one window titled Tasktap appears' ($null -ne $window) "after $ms ms (the checklist asks for two seconds; the web view's first start on a machine takes longer)"
     if (-not $window) { if (-not $process.HasExited) { $process.Kill($true) }; return }
+    # What the window shows from the moment it can be seen: never a light window before the page has drawn.
+    $lights = @(for ($i = 0; $i -lt 12; $i++) { $first = Picture $window.Handle; Light $first; if ($i -eq 0) { $first.Save("$Out\row1-first.png", [Drawing.Imaging.ImageFormat]::Png) }; $first.Dispose(); Start-Sleep -Milliseconds 25 })
+    Check 1 'the window is dark from the first moment it is seen' (($lights | Measure-Object -Maximum).Maximum -lt 60) "how light its first twelve pictures are, of 255: $($lights -join ' '); the first is row1-first.png"
     Start-Sleep -Seconds 4
     $menu = [Tasktap.Desk]::Menu($window.Handle) -join ', '
-    Check 1 'its menu bar is Tasktap, File, Edit, View, Window' ($menu -eq 'Tasktap, File, Edit, View, Window') "menu bar: $menu"
-    Say 'LOOK' 1 'the window with Home in it, and its backdrop (Mica, not the desktop showing through)' (Capture $window.Handle 'row1-window')
+    Check 1 'the window has no menu bar of the system''s' (-not $menu) "menu bar: $(if ($menu) { $menu } else { 'none' })"
+    Say 'LOOK' 1 'the window with Home in it: one dark surface, the page''s top row as its title bar' (Capture $window.Handle 'row1-window' -Screen)
     $new = @([Tasktap.Desk]::Windows() | Where-Object { $_.Handle -notin $before -and $_.Handle -ne $window.Handle })
     $consoles = @($new | Where-Object { $_.Class -match 'ConsoleWindowClass|CASCADIA_HOSTING_WINDOW_CLASS' })
     Check 1 'no console window opens' (-not $consoles) "new windows besides the app's: $(($new | ForEach-Object { "$($_.Class) '$($_.Title)'" }) -join '; ')"
@@ -202,6 +284,10 @@ $rows['4'] = 'Starts the app with its debug channel on a data folder of its own 
         Say 'LOOK' 4 'New Task open with the caret in its field' (Capture $workspace 'row4-shortcut')
     }
     [Tasktap.Desk]::Close($notepad.Handle)
+    # The sheet is closed again: the rows after this one start where a person would, with nothing open.
+    $null = Js "(__ws.dismiss(), 1)"
+    $closed = Soon 'String(!__ws.ui.sheet)' 'true' 5
+    Check 4 'the New Task sheet closes again' ($closed -eq 'true') "no sheet open: $closed"
 }
 
 $rows['5'] = 'In the same app: makes a folder a workspace, opens a terminal, and types into it: set /a 6*7 (cmd answers 42), ping -t localhost and Control-C (the prompt comes back and answers again), powershell and a line only PowerShell answers. Then looks at the terminal''s console: OpenConsole.exe under the core, and no conhost.exe there.', {
@@ -212,6 +298,28 @@ $rows['5'] = 'In the same app: makes a folder a workspace, opens a terminal, and
     $terminal = Soon "[...__ws.records.terminals.values()].find(t => t.state === 'running')?.id ?? ''" '.'
     Check 5 'New Terminal starts a shell' ([bool]$terminal) "terminal $terminal"
     if (-not $terminal) { return }
+    # The terminal's size: what the core keeps, what the page's screen has and what the console says, all the size
+    # its pane has room for; and it was never another. (The first round's terminal was started two columns wide.)
+    $sizes = "(e => JSON.stringify({ core: [__ws.records.terminals.get(e.id).cols, __ws.records.terminals.get(e.id).rows], screen: [e.term.cols, e.term.rows], room: (d => [d.cols, d.rows])(e.fit.proposeDimensions()) }))(__ws.engines.get(__ws.current().id))"
+    Start-Sleep -Milliseconds 600
+    $size = Js $sizes
+    $at = ConvertFrom-Json $size
+    $null = Js "(__ws.type('mode con'), 1)"
+    $screen = Soon '__ws.text()' "(?m):\s+$($at.screen[0])\s*$"
+    $said = @([regex]::Matches($screen, '(?m)^\s+\S[^:\n]*:\s+(\d+)\s*$') | ForEach-Object { $_.Groups[1].Value })
+    Check 5 'the terminal has the size its pane has room for, and the console says the same' ("$($at.core)" -eq "$($at.screen)" -and "$($at.core)" -eq "$($at.room)" -and $at.core[0] -ge 20 -and $said.Count -ge 2 -and $said[1] -eq "$($at.core[0])" -and $said[0] -eq "$($at.core[1])") "$size; mode con: $($said[1]) columns, $($said[0]) lines"
+    $first = ($screen -split "`n") | Where-Object { $_ } | Select-Object -First 4
+    Check 5 'the first prompt is drawn once, on one line' (@($first | Where-Object { $_ -match '^[A-Z]:\\.*>' }).Count -ge 1 -and -not ($screen -match '(?m)^.{1,2}$\n^.{1,2}$\n^.{1,2}$')) (($first -join ' | '))
+    # A sheet over the terminal, as a person meets it: the pane keeps its size and so does the terminal.
+    $null = Js "(__ws.command('new-task'), 1)"
+    $open = Soon 'String(!!__ws.ui.sheet)' 'true' 5
+    Start-Sleep -Milliseconds 700
+    $under = Js $sizes
+    $null = Js "(__ws.dismiss(), 1)"
+    Start-Sleep -Milliseconds 500
+    $after = Js $sizes
+    Check 5 'New Task opened over the terminal leaves its size alone, and so does closing it' ($open -eq 'true' -and $under -eq $size -and $after -eq $size) "under the sheet: $under; after it: $after"
+    $null = Js "(__ws.type('cls'), 1)"
     $null = Js "(__ws.type('set /a 6*7'), 1)"
     $screen = Soon '__ws.text()' '(?m)^42'
     Check 5 'cmd.exe answers what is typed' ($screen -match '(?m)^42') (($screen -split "`n")[-3..-1] -join ' | ')
@@ -268,6 +376,170 @@ $rows['8'] = 'In the same app: asks the page which bundled fonts it loaded and w
     Send 'menu settings'
     Start-Sleep -Seconds 1
     Say 'LOOK' 8 'Settings: no fallback serif face' (Capture $workspace 'row8-settings')
+    $null = Js "(__ws.dismiss(), 1)"
+}
+
+$rows['10'] = 'In the same app, with its window in front and the pointer used on it (put back where it was afterwards): the window has no menu bar; the points where the page draws Minimize, Maximize and Close answer as those buttons, and the edges and a corner as places to resize by; hovering Maximize lights it and opens the Snap layouts; a click on it maximises and another puts the window back; a double click on the top row does the same; a right click there and Alt-Space open the window''s own menu; Alt alone and F10 open the app''s menu; Minimize minimises. Pictures of the window restored, maximised, and with another window in front.', {
+    $null = Js "(__ws.show('home'), 1)"
+    $front = Front $workspace
+    Check 10 'the app''s window comes to the front' $front
+    $scale = [Tasktap.Desk]::GetDpiForWindow($workspace) / 96
+    Say 'INFO' 10 "the window's display is at $([int]($scale * 100)) %; $([Windows.Forms.Screen]::AllScreens.Count) display(s): $(([Windows.Forms.Screen]::AllScreens | ForEach-Object { "$($_.Bounds.Width) x $($_.Bounds.Height)" }) -join ', ')"
+    Check 10 'the window has no menu bar of the system''s' (-not [Tasktap.Desk]::Menu($workspace))
+    Start-Sleep -Milliseconds 500
+    Say 'LOOK' 10 'the window restored: one dark surface to its edges, round corners, no light caption, frame or border' (Capture $workspace 'row10-restored' -Screen)
+    # Where the page draws the three buttons (window.css .caps: 46 wide each, in a top row 38 high), and the middle of
+    # the top row, where nothing is pressed.
+    $buttons = { $f = [Tasktap.Desk]::Frame($workspace); foreach ($i in 2, 1, 0) { , @(($f.Right - [int]((23 + 46 * $i) * $scale)), ($f.Top + [int](21 * $scale))) } }
+    $bar = { $f = [Tasktap.Desk]::Frame($workspace); @([int]($f.Left + ($f.Right - $f.Left) * 0.55), ($f.Top + [int](21 * $scale))) }
+    $hits = { (& $buttons | ForEach-Object { [Tasktap.Desk]::HitTest($_[0], $_[1]) }) -join ' ' }
+    $said = & $hits
+    Check 10 'where the page draws Minimize, Maximize and Close, the window answers as those buttons' ($said -eq '8 9 20') "hit tests: $said (8, 9 and 20 are the three)"
+    $f = [Tasktap.Desk]::Frame($workspace)
+    $middle = @([int](($f.Left + $f.Right) / 2), [int](($f.Top + $f.Bottom) / 2))
+    $edges = @([Tasktap.Desk]::HitTest($middle[0], $f.Top + 1), [Tasktap.Desk]::HitTest($f.Left - 3, $middle[1]), [Tasktap.Desk]::HitTest($f.Right + 2, $middle[1]), [Tasktap.Desk]::HitTest($middle[0], $f.Bottom + 2), [Tasktap.Desk]::HitTest($f.Right + 2, $f.Bottom + 2)) -join ' '
+    Check 10 'the top, left, right and bottom edges and the bottom right corner resize' ($edges -eq '12 10 11 15 17') "hit tests: $edges (12, 10, 11, 15 and 17 are those)"
+    $pointer = [Tasktap.Desk+Point]::new()
+    $null = [Tasktap.Desk]::GetCursorPos([ref]$pointer)
+    $menus = { @([Tasktap.Desk]::Windows() | Where-Object { $_.Class -eq '#32768' }).Count }
+    $escape = { [Tasktap.Desk]::Chord([byte[]](0x1B)); Start-Sleep -Milliseconds 300 }
+    try {
+        $max = (& $buttons)[1]
+        $before = @([Tasktap.Desk]::Windows() | ForEach-Object Handle)
+        [Tasktap.Desk]::Point_($max[0] - 4, $max[1])
+        Start-Sleep -Milliseconds 150
+        [Tasktap.Desk]::Point_($max[0], $max[1])
+        Start-Sleep -Milliseconds 1600
+        $lit = Js "document.querySelector('.cap.maximize')?.className ?? 'no button'"
+        Check 10 'the page lights Maximize under the pointer' ("$lit" -match 'over') "the button's classes: $lit"
+        $new = @([Tasktap.Desk]::Windows() | Where-Object { $_.Handle -notin $before })
+        Check 10 'hovering Maximize opens the Snap layouts' ($new.Count -gt 0) "windows that appeared: $(($new | ForEach-Object { "$($_.Class) '$($_.Title)'" }) -join '; ')"
+        Say 'LOOK' 10 'Maximize under the pointer' (Capture $workspace 'row10-hover')
+        $away = & $bar
+        [Tasktap.Desk]::Point_($away[0], $away[1])
+        Start-Sleep -Milliseconds 900
+        [Tasktap.Desk]::Press($max[0], $max[1], $false, 1)
+        Start-Sleep -Milliseconds 1200
+        Check 10 'a click on Maximize maximises the window' ([Tasktap.Desk]::IsZoomed($workspace))
+        $away = & $bar
+        [Tasktap.Desk]::Point_($away[0], $away[1])
+        Start-Sleep -Milliseconds 600
+        $said = & $hits
+        Check 10 'maximised, the three buttons answer where the page draws them' ($said -eq '8 9 20') "hit tests: $said"
+        Say 'LOOK' 10 'the window maximised: dark to the screen''s edges' (Capture $workspace 'row10-maximized' -Screen)
+        $max = (& $buttons)[1]
+        [Tasktap.Desk]::Press($max[0], $max[1], $false, 1)
+        Start-Sleep -Milliseconds 1200
+        Check 10 'a click on it again puts the window back' (-not [Tasktap.Desk]::IsZoomed($workspace))
+        $at = & $bar
+        [Tasktap.Desk]::Press($at[0], $at[1], $false, 2)
+        Start-Sleep -Milliseconds 1200
+        $zoomed = [Tasktap.Desk]::IsZoomed($workspace)
+        $at = & $bar
+        [Tasktap.Desk]::Press($at[0], $at[1], $false, 2)
+        Start-Sleep -Milliseconds 1200
+        Check 10 'a double click on the top row maximises the window, and another puts it back' ($zoomed -and -not [Tasktap.Desk]::IsZoomed($workspace)) "maximised after the first: $zoomed"
+        $at = & $bar
+        [Tasktap.Desk]::Press($at[0], $at[1], $true, 1)
+        Start-Sleep -Milliseconds 700
+        $opened = & $menus
+        & $escape
+        Check 10 'a right click on the top row opens the window''s own menu' ($opened -gt 0 -and (& $menus) -eq 0) "menus open: $opened"
+        [Tasktap.Desk]::Chord([byte[]](0x12, 0x20))
+        Start-Sleep -Milliseconds 700
+        $opened = & $menus
+        & $escape
+        Check 10 'Alt-Space opens the window''s own menu' ($opened -gt 0 -and (& $menus) -eq 0) "menus open: $opened"
+        foreach ($key in @('Alt alone', 0x12), @('F10', 0x79)) {
+            $null = Js "(__ws.menu.items = [], 1)"
+            [Tasktap.Desk]::Chord([byte[]]($key[1]))
+            Start-Sleep -Milliseconds 900
+            $opened = & $menus
+            $items = Js "__ws.menu.items.map(i => i === '-' ? '-' : 'items' in i ? i.text + ' (' + i.items.filter(x => x !== '-').map(x => x.text + (x.key ? ' ' + x.key : '')).join(', ') + ')' : i.text).join('; ')"
+            & $escape
+            & $escape
+            Check 10 "$($key[0]) opens the app's menu, and Escape closes it" ($opened -gt 0 -and "$items" -match 'File' -and (& $menus) -eq 0) "menus open: $opened; its items: $items"
+        }
+        $min = (& $buttons)[0]
+        [Tasktap.Desk]::Press($min[0], $min[1], $false, 1)
+        Start-Sleep -Milliseconds 900
+        $gone = [Tasktap.Desk]::IsIconic($workspace)
+        $null = [Tasktap.Desk]::ShowWindow($workspace, 9)
+        Start-Sleep -Milliseconds 700
+        Check 10 'a click on Minimize minimises the window' $gone
+    } finally { $null = [Tasktap.Desk]::SetCursorPos($pointer.X, $pointer.Y) }
+    # With another window in front: the app's window as one that is not in use.
+    $marker = "Tasktap-desk-$PID-b"
+    Set-Content "$tmp\$marker.txt" ''
+    Start-Process notepad.exe -ArgumentList "$tmp\$marker.txt"
+    $notepad = $null
+    for ($i = 0; $i -lt 50 -and -not $notepad; $i++) { Start-Sleep -Milliseconds 200; $notepad = [Tasktap.Desk]::Windows() | Where-Object { $_.Title -like "*$marker*" } | Select-Object -First 1 }
+    if ($notepad) {
+        $null = Front $notepad.Handle
+        Start-Sleep -Milliseconds 600
+        Say 'LOOK' 10 'the window with another in front of it: as dark, its buttons quieter' (Capture $workspace 'row10-unfocused')
+        [Tasktap.Desk]::Close($notepad.Handle)
+        Start-Sleep -Milliseconds 500
+    }
+    $null = Front $workspace
+}
+
+$rows['11'] = 'In the same app: reads every key hint and tooltip in the workspace, on Home, in New Task and in each section of Settings, and expects none of the Mac''s signs; reads the folder in the header; saves a picture of each section of Settings.', {
+    $mac = '[\u2318\u2325\u2303\u21E7\u238B\u232B]'
+    $hints = "[...new Set([...document.querySelectorAll('kbd')].map(e => e.textContent).concat([...document.querySelectorAll('[title]')].map(e => e.getAttribute('title')).filter(t => /  /.test(t)).map(t => t.split('  ').pop())))].join(' | ')"
+    $project = Js "[...__ws.records.projects.values()].find(p => p.kind === 'folder')?.id ?? ''"
+    $seen = [ordered]@{}
+    $null = Js "(__ws.show('$project'), 1)"
+    Start-Sleep -Milliseconds 600
+    $seen['a workspace'] = Js $hints
+    $path = Js "document.querySelector('.crumb .path')?.textContent ?? ''"
+    Check 11 'the folder in the header is a path a person knows' ("$path" -match '^[A-Z]:\\' -and "$path" -notmatch '\?') $path
+    $null = Js "(__ws.show('home'), 1)"
+    Start-Sleep -Milliseconds 600
+    $seen['Home'] = Js $hints
+    $null = Js "(__ws.command('new-task'), 1)"
+    Start-Sleep -Milliseconds 700
+    $seen['New Task'] = Js $hints
+    $null = Js "(__ws.dismiss(), 1)"
+    foreach ($section in 'thoughts', 'voice', 'agents', 'appearance', 'terminal', 'about') {
+        $null = Js "(__ws.open({ kind: 'settings', at: '$section' }), 1)"
+        Start-Sleep -Milliseconds 900
+        $seen["Settings, $section"] = Js $hints
+        Say 'LOOK' 11 "Settings, $section" (Capture $workspace "row11-settings-$section")
+    }
+    $null = Js "(__ws.dismiss(), 1)"
+    $wrong = @($seen.Keys | Where-Object { "$($seen[$_])" -match $mac })
+    Check 11 'every key is named as Windows names it: none of the Mac''s signs anywhere' (-not $wrong -and $seen['a workspace']) (($seen.Keys | ForEach-Object { "${_}: $($seen[$_])" }) -join ' ;; ')
+}
+
+$rows['12'] = 'In the same app: makes the window larger with the terminal in front and expects the terminal, the core and the console to agree on the larger size, then makes it as it was; lets the backdrop through the page for one picture of the screen inside the window''s edges, to say what Mica is behind it.', {
+    $project = Js "[...__ws.records.projects.values()].find(p => p.kind === 'folder')?.id ?? ''"
+    $null = Js "(__ws.show('$project'), 1)"
+    Start-Sleep -Milliseconds 600
+    $sizes = "(e => e ? JSON.stringify({ core: [__ws.records.terminals.get(e.id).cols, __ws.records.terminals.get(e.id).rows], screen: [e.term.cols, e.term.rows] }) : 'no terminal')(__ws.engines.get(__ws.current()?.id ?? ''))"
+    $was = Js $sizes
+    $rect = [Tasktap.Desk+Rect]::new()
+    $null = [Tasktap.Desk]::GetWindowRect($workspace, [ref]$rect)
+    $null = [Tasktap.Desk]::SetWindowPos($workspace, [IntPtr]::Zero, 0, 0, $rect.Right - $rect.Left + 240, $rect.Bottom - $rect.Top + 120, 0x16)
+    Start-Sleep -Milliseconds 1200
+    $now = Js $sizes
+    $null = Js "(__ws.type('cls'), 1)"
+    $null = Js "(__ws.type('mode con'), 1)"
+    $at = ConvertFrom-Json $now
+    $screen = Soon '__ws.text()' "(?m):\s+$($at.screen[0])\s*$"
+    $said = @([regex]::Matches($screen, '(?m)^\s+\S[^:\n]*:\s+(\d+)\s*$') | ForEach-Object { $_.Groups[1].Value })
+    $grew = (ConvertFrom-Json $was).screen[0] -lt $at.screen[0] -and (ConvertFrom-Json $was).screen[1] -lt $at.screen[1]
+    Check 12 'a larger window gives the terminal more columns and rows, and the core and the console agree' ($grew -and "$($at.core)" -eq "$($at.screen)" -and $said.Count -ge 2 -and $said[1] -eq "$($at.screen[0])" -and $said[0] -eq "$($at.screen[1])") "before: $was; after: $now; mode con: $($said[1]) columns, $($said[0]) lines"
+    Say 'LOOK' 12 'the larger window with its terminal: the prompt drawn once, no stray characters' (Capture $workspace 'row12-larger')
+    $null = [Tasktap.Desk]::SetWindowPos($workspace, [IntPtr]::Zero, 0, 0, $rect.Right - $rect.Left, $rect.Bottom - $rect.Top, 0x16)
+    Start-Sleep -Milliseconds 1200
+    $back = Js $sizes
+    Check 12 'made as it was, the terminal has its first size again' ($back -eq $was) "now: $back"
+    $null = Js "(__ws.show('home'), document.documentElement.style.setProperty('--window-opacity', '0.35'), document.body.style.opacity = '0.35', 1)"
+    $null = Front $workspace
+    Start-Sleep -Milliseconds 900
+    Say 'LOOK' 12 'the backdrop let through the page (the page at a third of its strength): what Mica is behind it' (Capture $workspace 'row12-backdrop' -Screen)
+    $null = Js "(document.documentElement.style.removeProperty('--window-opacity'), document.body.style.opacity = '', 1)"
 }
 
 $rows['9'] = 'Nothing of its own: a folder given by TASKTAP_PICK becomes a workspace in rows 2 and 5; the folder panel is not built yet.', {
@@ -277,6 +549,24 @@ $rows['9'] = 'Nothing of its own: a folder given by TASKTAP_PICK becomes a works
 $rows['+'] = 'Beyond the checklist: asks taskkill''s and tasklist''s service (Windows Management Instrumentation) for this process, which it refuses the same account over SSH; tells the app with the debug channel to quit and times it, and looks for what it left running.', {
     $listed = & "$env:SystemRoot\System32\tasklist.exe" /FI "PID eq $PID" /NH 2>&1
     Say $(if ($LASTEXITCODE -eq 0) { 'PASS' } else { 'INFO' }) '+' 'the management service answers a standard account at the desktop' "tasklist exit ${LASTEXITCODE}: $("$listed".Trim())"
+}
+
+$rows['13'] = 'Starts the app once more with the system''s own title bar in the page''s colours (TASKTAP_CHROME=native), for one picture to set beside the app''s own top row as the title bar; then tells it to quit.', {
+    Start-App $exe @{ TASKTAP_DATA = "$tmp\data"; TASKTAP_PICK = "$tmp\project"; TASKTAP_CHROME = 'native' } 120
+    $null = Until '"event":"ready"' 45
+    $null = Soon 'typeof __ws' 'object'
+    Send 'state'
+    $state = Until '"event":"state"' 5
+    $native = if ($state) { [IntPtr][long](ConvertFrom-Json $state).workspace } else { [IntPtr]::Zero }
+    if ($native -eq [IntPtr]::Zero) { Say 'FAIL' 13 'the app with the system''s title bar shows no window'; return }
+    Start-Sleep -Seconds 2
+    $null = Front $native
+    Start-Sleep -Milliseconds 500
+    Say 'LOOK' 13 'the other way, for comparison: the system''s own title bar in the page''s colours, the app''s top row under it' (Capture $native 'row13-native' -Screen)
+    Send 'call core.retire {"when":"now"}'
+    $null = Until '"event":"reply"' 3
+    Send 'quit'
+    $null = $proc.WaitForExit(10000)
 }
 
 # What the rows need.
@@ -322,7 +612,7 @@ try {
     foreach ($row in $rows.Keys) {
         try {
             if ($row -eq '4') {
-                # Rows 4, 5 and 8 share one app, driven through its debug channel.
+                # Rows 4, 5, 8, 10, 11 and 12 share one app, driven through its debug channel.
                 Start-App $exe @{ TASKTAP_DATA = "$tmp\data"; TASKTAP_PICK = "$tmp\project" } 600
                 $ready = Until '"event":"ready"' 45
                 $page = Soon 'typeof __ws' 'object'
@@ -331,7 +621,7 @@ try {
                 if ($state) { $workspace = [IntPtr][long](ConvertFrom-Json $state).workspace }
                 Check 4 'the app starts with its debug channel and its page runs' ($ready -and $page -eq 'object' -and $workspace -ne [IntPtr]::Zero) "window $workspace"
             }
-            if ($row -in '4', '5', '8' -and ($proc.HasExited -or $workspace -eq [IntPtr]::Zero)) { Say 'FAIL' $row 'not run: the app of rows 4, 5 and 8 is not running'; continue }
+            if ($row -in '4', '5', '8', '10', '11', '12' -and ($proc.HasExited -or $workspace -eq [IntPtr]::Zero)) { Say 'FAIL' $row 'not run: the app of rows 4 to 12 is not running'; continue }
             if ($row -eq '+' -and $proc -and -not $proc.HasExited) {
                 Send 'call core.retire {"when":"now"}'
                 $null = Until '"event":"reply"' 3

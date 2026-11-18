@@ -1002,6 +1002,15 @@ impl Drop for Screen {
     }
 }
 
+/// A folder as the core keeps it (`project.add`): canonical, and on Windows
+/// without the `\\?\` a canonical path begins with there.
+#[allow(dead_code)]
+pub fn kept(folder: impl AsRef<Path>) -> PathBuf {
+    let path = std::fs::canonicalize(folder).unwrap();
+    let text = path.to_string_lossy();
+    PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text).to_owned())
+}
+
 /// A core with a project and its fixtures selected, the router answering
 /// `clear` for that project and the clock held at the wall time.
 pub struct Scene {

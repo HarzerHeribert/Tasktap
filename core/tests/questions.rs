@@ -1468,7 +1468,7 @@ fn projects_are_added_once_per_folder_and_scanned_when_asked() {
     };
     assert_eq!(w.ok::<call::ProjectAdd>(&add(id, &folder, None)), id);
     let p = w.model.projects[&id].clone();
-    let canonical = std::fs::canonicalize(&folder).unwrap();
+    let canonical = kept(&folder);
     assert_eq!(
         (p.name.as_str(), p.folder.as_str(), p.git, p.available),
         ("site", canonical.to_str().unwrap(), true, true)

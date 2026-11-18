@@ -40,7 +40,8 @@ fn log(value: Value) {
     println!("{value}");
 }
 
-/// The app, for window events that carry none; and when it started, for the launch measure.
+/// The app, for window events that carry none, set once its state is managed; and when it started, for the launch
+/// measure.
 static APP: OnceLock<AppHandle> = OnceLock::new();
 static START: OnceLock<Instant> = OnceLock::new();
 fn since_start() -> u128 {
@@ -256,6 +257,21 @@ fn data_folder() -> std::path::PathBuf {
 
 fn main() {
     START.get_or_init(Instant::now);
+    // The core starts while the app and its windows are made: macOS takes a tenth of a second over the first run of
+    // a new copy of it, and nothing needs it before a page asks.
+    let starting = std::thread::spawn(|| -> std::io::Result<(Arc<Core>, Arc<Link>)> {
+        // The core this app bundles, next to its own program; a check may name another.
+        let (exe, build) = match (std::env::var_os("TASKTAP_CORE_EXE"), std::env::var("TASKTAP_CORE_BUILD")) {
+            (Some(exe), Ok(build)) => (exe.into(), build),
+            _ => (std::env::current_exe()?.with_file_name("tasktap"), env!("TASKTAP_CORE_BUILD").to_owned()),
+        };
+        let core = Arc::new(Core::prepare(data_folder(), &exe, build)?);
+        let link = Link::start(core.clone(), |g| {
+            let app = APP.wait();
+            let _ = app.run_on_main_thread(move || glance(app, g.question));
+        })?;
+        Ok((core, link))
+    });
     let app = tauri::Builder::default()
         .activate_ignoring_other_apps(false)
         .plugin(
@@ -276,7 +292,7 @@ fn main() {
             _ => PermissionResponse::Deny,
         })
         .on_menu_event(|app, event| workspace::on_menu(app, event.id().as_ref()))
-        .setup(|app| {
+        .setup(move |app| {
             let passive = std::env::var_os("TASKTAP_PASSIVE").is_some();
             notch::NOTCH.lock().unwrap().passive = passive;
             // In the Dock with a menu, as 1.2 was; a passive run (the checks) stays out of both.
@@ -285,21 +301,8 @@ fn main() {
             } else {
                 tauri::ActivationPolicy::Regular
             });
-            let _ = APP.set(app.handle().clone());
-            // The core this app bundles, next to its own program; a check may name another.
-            let (exe, build) = match (std::env::var_os("TASKTAP_CORE_EXE"), std::env::var("TASKTAP_CORE_BUILD")) {
-                (Some(exe), Ok(build)) => (exe.into(), build),
-                _ => (std::env::current_exe()?.with_file_name("tasktap"), env!("TASKTAP_CORE_BUILD").to_owned()),
-            };
-            let core = Arc::new(Core::prepare(data_folder(), &exe, build)?);
-            let handle = app.handle().clone();
-            let link = Link::start(core.clone(), move |g| {
-                let inner = handle.clone();
-                let _ = handle.run_on_main_thread(move || glance(&inner, g.question));
-            })?;
-            workspace::start(core.data.clone());
+            workspace::start(data_folder());
             app.set_menu(workspace::menu(app.handle())?)?;
-            app.manage(Host { core, link, pages: Mutex::default(), question: Mutex::default() });
             app.global_shortcut().register(keys(Code::Space))?;
 
             // Tauri's own window stays hidden; its web view moves into a real non-activating panel,
@@ -344,7 +347,10 @@ fn main() {
                 });
             }
             workspace::show(app.handle(), None)?;
-            log(json!({"event": "ready", "data": app.state::<Host>().core.data}));
+            let (core, link) = starting.join().expect("the core's start panicked")?;
+            log(json!({"event": "ready", "data": core.data}));
+            app.manage(Host { core, link, pages: Mutex::default(), question: Mutex::default() });
+            let _ = APP.set(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())

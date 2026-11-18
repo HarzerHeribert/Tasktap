@@ -10,7 +10,9 @@
 # briefed by the core's fixture router, Undo during its hold, the router's question answered, placing by
 # name when the model fails; voice: a speech service allowed, a thought spoken, words spoken into a field
 # and into a question's reply, a failure and cancel, with a tone made in the page in place of a microphone
-# and a speech service of the check's own on this machine; then quit and relaunch with the layout restored
+# and a speech service of the check's own on this machine; a ring picked for one thought, a spoken thought ended as
+# words, what the host opens and refuses to (with an opener of the check's own: nothing is opened on this Mac), links in
+# a real terminal, a session's details, a terminal open in as many places as it may be; then quit and relaunch with the layout restored
 # and nothing rerun). It never sends keys or clicks to the system: every step is a line on the app's
 # standard input, and the app is passive (its windows never take the keyboard; no system menu is
 # ever opened). Prints PASS or FAIL per promise; exits non-zero on any FAIL. SHOTS=<folder> also
@@ -67,6 +69,8 @@ printf '[user]\n\tname = Smoke\n\temail = smoke@example.com\n[init]\n\tdefaultBr
 export GIT_CONFIG_GLOBAL="$tmp/gitconfig" GIT_CONFIG_NOSYSTEM=1
 git -C "$tmp/project" init -q && echo "smoke" > "$tmp/project/README" && echo "*.log" > "$tmp/project/.gitignore" && git -C "$tmp/project" add README .gitignore && git -C "$tmp/project" commit -qm "Start" \
   || { echo "FAIL  the project's repository"; exit 1; }
+# What the host would have the system open goes to a file instead: nothing is opened on this Mac.
+printf '#!/bin/sh\necho "$@" >> "%s"\n' "$tmp/opened" > "$tmp/opener" && chmod +x "$tmp/opener" && : > "$tmp/opened"
 app=0
 cleanup() {
   # Writing to the app's input once it has quit would end this script with SIGPIPE.
@@ -85,7 +89,7 @@ trap cleanup EXIT
 launch() {
   rm -f "$tmp/in"
   mkfifo "$tmp/in"
-  env PATH="$tmp/agents:$PATH" TASKTAP_DEBUG=1 TASKTAP_PASSIVE=1 TASKTAP_DATA="$tmp/data" TASKTAP_PICK="$tmp/project" \
+  env PATH="$tmp/agents:$PATH" TASKTAP_DEBUG=1 TASKTAP_PASSIVE=1 TASKTAP_DATA="$tmp/data" TASKTAP_PICK="$tmp/project" TASKTAP_OPEN="$tmp/opener" \
     TASKTAP_CORE_EXE="$host/binaries/fixtures/tasktap" TASKTAP_CORE_BUILD="$(cat "$host/binaries/fixtures/build.txt")" \
     "$host/target/debug/tasktap-next" < "$tmp/in" >> "$log" 2>&1 &
   app=$!
@@ -235,9 +239,10 @@ other="$(js workspace "document.querySelector('.home .ring:not([data-agent=fixtu
 if [ -n "$other" ]; then
   js workspace "(document.querySelector('.home .ring[data-agent=$other]').click(), 1)" >/dev/null
   until_has workspace "eval document.querySelector('.home .ring[aria-checked=true]').dataset.agent" 3 "$other" \
-    && pass "a click on another ring picks that agent for the next thought, as the core's preference" || fail "picking an agent by its ring"
-  send 'call put {"c":"prefs","id":"agent","patch":"fixture"}'
-  until_has workspace "eval document.querySelector('.home .ring[aria-checked=true]').dataset.agent" 3 "fixture" || fail "the fixture agent is chosen again"
+    && [ "$(js workspace "__ws.records.prefs.get('agent').value + ' ' + __speech.cap.agent")" = "fixture $other" ] \
+    && pass "a click on another ring picks that agent for the thought being written; the default, the core's preference, stays as it was" || fail "picking an agent by its ring"
+  js workspace "(document.querySelector('.home .ring[data-agent=fixture]').click(), 1)" >/dev/null
+  until_has workspace "eval document.querySelector('.home .ring[aria-checked=true]').dataset.agent + ' ' + __speech.cap.agent" 3 "fixture undefined" || fail "the usual agent is chosen again"
 fi
 
 echo "== A thought saved for later before a folder is open, then sent to one"
@@ -812,6 +817,17 @@ echo "$heard" | python3 -c 'import sys; p, rate, ch, bits, s, peak, hz = sys.std
 shot spoken-thought workspace
 ask workspace "click .home .way .act" >/dev/null
 until_has workspace "eval $field.value" 3 "Make the header stay on one line in project" && clear_field && until_has workspace "eval String(__ws.records.thoughts.size)" 3 "$before" || fail "the spoken thought is taken back"
+# E while a new thought records ends it as its words: they are in the field to be edited, and nothing is captured.
+js workspace "($field.focus(), 1)" >/dev/null
+mic_down
+until_has workspace "text .home .hear" 5 "Edit first" && [ "$(js workspace "document.querySelector('.home .hear kbd').textContent + ' ' + __speech.talk.kind")" = "E thought" ] \
+  && pass "while a new thought is spoken the listening line says what letting go does and names the key that ends it as words: E, Edit first" || fail "the listening line names Edit first" "$(ask workspace "text .home .hear")"
+sleep 1
+js workspace "($field.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', key: 'e', altKey: true, bubbles: true, cancelable: true })), 1)" >/dev/null
+until_has workspace "eval $field.value + ' ' + __speech.live() + ' ' + __ws.records.dictations.size + ' ' + __ws.records.thoughts.size + ' ' + !document.querySelector('.home .way')" 10 "Make the header stay on one line in project false 0 $before true" \
+  && pass "E ends a spoken thought as its words: they are in the field to edit, nothing was captured or placed, and no microphone or row is left" || fail "a spoken thought ended as words" "$(js workspace "$field.value + ' ' + JSON.stringify(__speech.talk) + ' ' + __ws.records.thoughts.size")"
+mic_up
+clear_field
 # Into a field that holds text: the words arrive at the caret and nothing is sent.
 js workspace "($field.focus(), document.execCommand('insertText', false, 'First this, then'), 1)" >/dev/null
 echo "the header on one line" > "$tmp/says"
@@ -840,6 +856,91 @@ shot speech-failed workspace
 js workspace "([...document.querySelectorAll('.home .way.failed .act')].at(-1).click(), 1)" >/dev/null
 quiet && [ "$(thoughts)" = "$before" ] && pass "Dismiss removes it, and nothing was captured" || fail "dismissing a failed dictation"
 send 'call delete {"c":"prefs","id":"speech_by"}' 'call delete {"c":"prefs","id":"speech_languages"}' 'call put {"c":"prefs","id":"hold","patch":2}'
+
+echo "== An agent for one thought; what the host opens; links in a terminal; a session's details; a terminal open in 8 places"
+# The ring picked goes with the thought written under it, and with no other: the next is the default's again.
+other="$(js workspace "document.querySelector('.home .ring:not([data-agent=fixture]):not([data-s=off])')?.dataset.agent ?? ''")"
+if [ -n "$other" ]; then
+  js workspace "(document.querySelector('.home .ring[data-agent=$other]').click(), __speech.cap.dest = 'later', 1)" >/dev/null
+  home_says "Let the other agent have this one"
+  until_has workspace "$(thought 'Let the other agent have this one' agent) + ' ' + __ws.records.prefs.get('agent').value + ' ' + __speech.cap.agent + ' ' + document.querySelector('.home .ring[aria-checked=true]').dataset.agent" 5 "$other fixture undefined fixture" \
+    && pass "a thought sent under a picked ring is that agent's ($other); the default stays, and the ring of the next thought is the default's again" || fail "an agent picked for one thought" "$(js workspace "JSON.stringify([__speech.cap.agent, __speech.cap.refused])")"
+  js workspace "(__ws.call('delete', { c: 'thoughts', id: [...__ws.records.thoughts.values()].find(t => t.text === 'Let the other agent have this one').id }), 1)" >/dev/null
+else
+  fail "an agent picked for one thought" "the fixture core lists no second agent"
+fi
+# An agent the core will not run a thought with: its sentence is under the field, and the words are back in it.
+js workspace "(__speech.cap.agent = 'nobody', __speech.cap.dest = 'later', 1)" >/dev/null
+home_says "Nobody can run this"
+until_has workspace "text .home .way.failed" 5 "Tasktap has no agent nobody." && [ "$(js workspace "$field.value + ' ' + __speech.cap.agent")" = "Nobody can run this nobody" ] \
+  && pass "a thought the core refuses for its agent says why under the field, in the core's sentence, and its words and its agent are back" || fail "a refused agent" "$(ask workspace "text .home .ways" | cut -c1-200)"
+js workspace "(__speech.cap.agent = undefined, __speech.cap.dest = undefined, 1)" >/dev/null
+clear_field
+js workspace "(__ws.show('$project'), 1)" >/dev/null
+
+# The host's rule for opening, asked as a page asks: a web address, or what exists inside a folder the person opened.
+real="$(cd "$tmp/project" && pwd -P)"
+echo "not yours" > "$tmp/outside.txt" && ln -s "$tmp/outside.txt" "$tmp/project/way-out.txt"
+host_open() { js workspace "__ws.call('host.open', $1)"; }
+: > "$tmp/opened"
+[ "$(host_open "{ target: '.gitignore', cwd: '$tmp/project' }")" = "$real/.gitignore" ] && [ "$(host_open "{ target: 'https://example.com/docs?a=1' }")" = "https://example.com/docs?a=1" ] \
+  && [ "$(host_open "{ target: '$tmp/project/.gitignore', reveal: true }")" = "$real/.gitignore" ] && [ "$(host_open "{ target: '.', cwd: '$tmp/project' }")" = "$real" ] && sleep 0.5 \
+  && [ "$(cat "$tmp/opened")" = "-t $real/.gitignore
+-u https://example.com/docs?a=1
+-R $real/.gitignore
+-R $real" ] \
+  && pass "the host opens a web address in the browser and a file of text inside an opened folder in the text editor, and shows a file on request, and a folder, in Finder (to the check's own opener: nothing was opened here)" || fail "what the host opens" "$(tr '\n' '|' < "$tmp/opened")"
+refused=""
+for no in "{ target: '/etc/hosts' }" "{ target: 'file:///etc/hosts' }" "{ target: '../outside.txt', cwd: '$tmp/project' }" "{ target: 'way-out.txt', cwd: '$tmp/project' }" "{ target: 'no-such-file.txt', cwd: '$tmp/project' }" \
+  "{ target: 'x-apple.systempreferences://general' }" "{ target: 'https://' }" "{ target: '.gitignore' }"; do
+  case "$(host_open "$no")" in error:*) ;; *) refused="$refused $no" ;; esac
+done
+sleep 0.3
+[ -z "$refused" ] && [ "$(wc -l < "$tmp/opened" | tr -d ' ')" = 4 ] && [ "$(host_open "{ target: '/etc/hosts', probe: true }")" = None ] \
+  && host_open "{ target: '../outside.txt', cwd: '$tmp/project' }" | grep -q "outside the folders you opened in Tasktap" \
+  && pass "the host refuses, in a sentence, a path outside the opened folders (by name, through .., through a link that leads out), one that does not exist, one with no folder to start from, and any address that is not http or https; nothing was opened" \
+  || fail "what the host refuses" "$refused | $(tr '\n' '|' < "$tmp/opened")"
+
+# In a real terminal: what it prints is found, a path only where the host says it exists inside the folder.
+shell="$(js workspace "__ws.newTerminal('$project')")"
+until_has workspace "eval __ws.records.terminals.get('$shell')?.state + ' ' + __ws.engines.get('$shell')?.attached" 10 "running true" || fail "a shell for the links"
+sleep 1
+term_line "echo see .gitignore:1 and https://example.com/docs, not /etc/hosts or missing.txt"
+links="(async () => { const e = __ws.engines.get('$shell'), out = []; for (let y = 1; y <= e.term.buffer.active.length; y++) out.push(...(await e.links(y))); return out; })()"
+until_has workspace "eval $links.then((l) => [...new Set(l.map((x) => x.text))].sort().join(' '))" 8 ".gitignore:1 https://example.com/docs" \
+  && [ "$(js workspace "$links.then((l) => [...new Set(l.map((x) => x.text))].sort().join(' '))")" = ".gitignore:1 https://example.com/docs" ] \
+  && pass "a real terminal's links are the web address and the path that exists in its folder, with its line; a path outside the folder and one that does not exist are none" || fail "links in a real terminal" "$(js workspace "$links.then((l) => l.map((x) => x.text).join('|'))")"
+: > "$tmp/opened"
+js workspace "$links.then((l) => { const f = l.find((x) => x.text === '.gitignore:1'); f.activate({ metaKey: false, shiftKey: false }, f.text); f.activate({ metaKey: true, shiftKey: false }, f.text); f.activate({ metaKey: true, shiftKey: true }, f.text); return 1; })" >/dev/null
+sleep 0.6
+[ "$(cat "$tmp/opened")" = "-t $real/.gitignore
+-R $real/.gitignore" ] \
+  && pass "a plain click on a link opens nothing; with ⌘ the host opens the file, and with ⇧⌘ shows it in Finder" || fail "a link followed" "$(tr '\n' '|' < "$tmp/opened")"
+
+# A session's details: what it is, and its turns, from the records and the core's history.
+sid="$(js workspace "[...__ws.records.sessions.values()].filter((s) => __ws.records.terminals.has(s.terminal_id ?? '')).sort((a, b) => b.turn - a.turn)[0]?.id ?? ''")"
+if [ -n "$sid" ]; then
+  js workspace "(__ws.focusSession('$sid'), __ws.command('session'), 1)" >/dev/null
+  said="$(js workspace "(s => [...__ws.records.thoughts.values()].find(t => t.session_id === s.id)?.text ?? '')(__ws.records.sessions.get('$sid'))")"
+  until_has workspace "eval String(__ws.ui.sheet?.kind === 'session' && document.querySelectorAll('.sheet .sx .line').length === 2 && document.querySelectorAll('.sheet .tn').length >= 1 && !!document.querySelector('.sheet .sx-a .btn'))" 5 "true" \
+    && ask workspace "text .sheet" | grep -q "Fixture agent" && { [ -z "$said" ] || ask workspace "text .sheet .sx" | grep -qF "$said"; } \
+    && pass "⌘I shows a session's details in one sheet: its agent and state, its folder, what can be done, and each turn as the thought that began it ($(js workspace "document.querySelectorAll('.sheet .tn').length") of $(js workspace "__ws.records.sessions.get('$sid').turn") turns)" || fail "a session's details" "$(ask workspace "text .sheet" | tr '\n' '|' | cut -c1-300)"
+  shot session-details workspace
+  press workspace ".sheet" Escape >/dev/null
+  until_has workspace "eval String(__ws.ui.sheet)" 3 "None" || fail "the session sheet closes"
+else
+  fail "a session's details" "no session with a terminal"
+fi
+
+# One more view than a terminal allows: the pane says so in the core's words, and nothing is asked for again by itself.
+js workspace "(__ws.focusSession('$shell') || __ws.show('$project'), 1)" >/dev/null
+js workspace "(async () => { const e = __ws.engines.get('$shell'); e.detach(); for (let i = 0; i < 8; i++) await __ws.call('terminal.open', { id: '$shell', cols: 80, rows: 24, credit: 0 }); __motion.redraw(); return 1; })()" >/dev/null
+until_has workspace "text .pane .strip[data-full]" 5 "This terminal is open in 8 places already." \
+  && pass "a terminal that is open in 8 places says so, in the core's words, in the pane where a ninth view would open" || fail "a terminal open in 8 places" "$(js workspace "JSON.stringify([...__ws.ui.full])")"
+shot terminal-full workspace
+js workspace "(__ws.call('terminal.stop', { id: '$shell' }), 1)" >/dev/null
+until_has workspace "eval __ws.records.terminals.get('$shell')?.state" 8 "exited" && js workspace "(__ws.focusSession('$shell'), __ws.command('close-tab'), 1)" >/dev/null
+rm -f "$tmp/project/way-out.txt"
 js workspace "(__ws.show('$project'), 1)" >/dev/null
 
 # Closing the window leaves the notch; showing it again comes back to the same workspace.

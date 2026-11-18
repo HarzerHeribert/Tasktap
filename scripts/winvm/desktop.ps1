@@ -123,6 +123,48 @@ public static string[] Menu(IntPtr window) {
     }
     return names.ToArray();
 }
+[StructLayout(LayoutKind.Sequential)] struct Header { public int Size, Width, Height; public short Planes, Bits; public int Compression, SizeImage, X, Y, Used, Important; }
+[DllImport("gdi32.dll")] static extern IntPtr CreateCompatibleDC(IntPtr dc);
+[DllImport("gdi32.dll")] static extern IntPtr CreateDIBSection(IntPtr dc, ref Header info, uint usage, out IntPtr bits, IntPtr section, uint offset);
+[DllImport("gdi32.dll")] static extern IntPtr SelectObject(IntPtr dc, IntPtr thing);
+[DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr thing);
+[DllImport("gdi32.dll")] static extern bool DeleteDC(IntPtr dc);
+[DllImport("gdi32.dll")] static extern bool BitBlt(IntPtr to, int x, int y, int w, int h, IntPtr from, int fx, int fy, uint how);
+[DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr window);
+[DllImport("user32.dll")] static extern int ReleaseDC(IntPtr window, IntPtr dc);
+public static bool Drawn;
+// A window as the system draws it for a program that asks, or the screen's own points from (sx, sy): w by h points
+// of four bytes (blue, green, red and one unused), top row first, read straight from memory the system drew into.
+public static byte[] Bits(IntPtr window, int w, int h, bool screen, int sx, int sy) {
+    var info = new Header { Size = 40, Width = w, Height = -h, Planes = 1, Bits = 32 };
+    IntPtr bits;
+    var all = GetDC(IntPtr.Zero);
+    var dc = CreateCompatibleDC(all);
+    var picture = CreateDIBSection(dc, ref info, 0, out bits, IntPtr.Zero, 0);
+    var old = SelectObject(dc, picture);
+    Drawn = screen ? BitBlt(dc, 0, 0, w, h, all, sx, sy, 0x00CC0020) : PrintWindow(window, dc, 2);
+    var bytes = new byte[w * h * 4];
+    Marshal.Copy(bits, bytes, 0, bytes.Length);
+    SelectObject(dc, old); DeleteObject(picture); DeleteDC(dc); ReleaseDC(IntPtr.Zero, all);
+    return bytes;
+}
+// Points that are exactly black with no black point beside them: in the whole picture but a margin of 12 points
+// (its round corners), and among those the ones in its foot.
+public static int[] Specks(IntPtr scan, int stride, int width, int height) {
+    var bytes = new byte[stride * height];
+    Marshal.Copy(scan, bytes, 0, bytes.Length);
+    Func<int, int, bool> black = (x, y) => { int i = y * stride + x * 4; return bytes[i] == 0 && bytes[i + 1] == 0 && bytes[i + 2] == 0; };
+    int all = 0, foot = 0;
+    for (int y = 12; y < height - 12; y++) for (int x = 12; x < width - 12; x++) {
+        if (!black(x, y)) continue;
+        bool alone = true;
+        for (int dy = -1; dy <= 1 && alone; dy++) for (int dx = -1; dx <= 1; dx++) if ((dx != 0 || dy != 0) && black(x + dx, y + dy)) { alone = false; break; }
+        if (!alone) continue;
+        all++;
+        if (y > height * 0.55 && x < width * 0.6) foot++;
+    }
+    return new[] { all, foot };
+}
 // Asks a window to close, as its close button does.
 public static void Close(IntPtr window) { PostMessage(window, 0x0010, IntPtr.Zero, IntPtr.Zero); }
 // Presses the keys together, as the keyboard would, and lets them go.
@@ -139,21 +181,47 @@ function Say($verdict, $row, $what, $evidence = '') {
 }
 function Check($row, $what, $ok, $evidence = '') { Say $(if ($ok) { 'PASS' } else { 'FAIL' }) $row $what $evidence }
 # The window's own picture, as the system draws the window for a program that asks: the whole window with the unseen
-# margins Windows keeps around it, which are cut off.
-function Picture([IntPtr]$window) {
+# margins Windows keeps around it, which are cut off. It is drawn straight into memory of the system's own kind
+# ([Tasktap.Desk]::Bits). Not through System.Drawing's Graphics: before that library lets the system draw into a
+# picture it fills its scratch memory with one colour, rgb 13 11 12, and afterwards takes every point still in that
+# colour for one that was not drawn, so each point a window really has in that colour came out as a hole. The page's
+# faint light passes through that colour: the "dark points" of the first rounds were holes in their pictures and
+# never on the screen. -Library takes the picture that old way, for the count that says so.
+function Picture([IntPtr]$window, [switch]$Library) {
     $rect = [Tasktap.Desk+Rect]::new()
     $null = [Tasktap.Desk]::GetWindowRect($window, [ref]$rect)
     $frame = [Tasktap.Desk]::Frame($window)
-    $whole = [Drawing.Bitmap]::new([Math]::Max(1, $rect.Right - $rect.Left), [Math]::Max(1, $rect.Bottom - $rect.Top))
-    $graphics = [Drawing.Graphics]::FromImage($whole)
-    $dc = $graphics.GetHdc()
-    $script:drawn = [Tasktap.Desk]::PrintWindow($window, $dc, 2)
-    $graphics.ReleaseHdc($dc)
-    $graphics.Dispose()
+    $w = [Math]::Max(1, $rect.Right - $rect.Left); $h = [Math]::Max(1, $rect.Bottom - $rect.Top)
+    if ($Library) {
+        $whole = [Drawing.Bitmap]::new($w, $h)
+        $graphics = [Drawing.Graphics]::FromImage($whole)
+        $dc = $graphics.GetHdc()
+        $script:drawn = [Tasktap.Desk]::PrintWindow($window, $dc, 2)
+        $graphics.ReleaseHdc($dc)
+        $graphics.Dispose()
+    } else {
+        $whole = Bitmap-Of ([Tasktap.Desk]::Bits($window, $w, $h, $false, 0, 0)) $w $h
+        $script:drawn = [Tasktap.Desk]::Drawn
+    }
     $inner = [Drawing.Rectangle]::FromLTRB([Math]::Max(0, $frame.Left - $rect.Left), [Math]::Max(0, $frame.Top - $rect.Top), [Math]::Min($whole.Width, $frame.Right - $rect.Left), [Math]::Min($whole.Height, $frame.Bottom - $rect.Top))
-    $bitmap = $whole.Clone($inner, $whole.PixelFormat)
+    $bitmap = $whole.Clone($inner, [Drawing.Imaging.PixelFormat]::Format32bppRgb)
     $whole.Dispose()
     $bitmap
+}
+# A picture of the points [Tasktap.Desk]::Bits read: four bytes a point, no alpha.
+function Bitmap-Of([byte[]]$bits, $w, $h) {
+    $bitmap = [Drawing.Bitmap]::new($w, $h, [Drawing.Imaging.PixelFormat]::Format32bppRgb)
+    $into = $bitmap.LockBits([Drawing.Rectangle]::new(0, 0, $w, $h), 'WriteOnly', 'Format32bppRgb')
+    [Runtime.InteropServices.Marshal]::Copy($bits, 0, $into.Scan0, $bits.Length)
+    $bitmap.UnlockBits($into)
+    $bitmap
+}
+# Single black points in a picture: points that are exactly black with no black point beside them, counted in the
+# whole picture and in its foot (below 55 % of its height, left of 60 % of its width: the foot of Home beside the
+# sidebar and the sidebar's own foot, where the faint light is). A line, a letter or a corner is never one.
+function Specks([Drawing.Bitmap]$bitmap) {
+    $from = $bitmap.LockBits([Drawing.Rectangle]::new(0, 0, $bitmap.Width, $bitmap.Height), 'ReadOnly', 'Format32bppRgb')
+    try { , [Tasktap.Desk]::Specks($from.Scan0, $from.Stride, $bitmap.Width, $bitmap.Height) } finally { $bitmap.UnlockBits($from) }
 }
 # How light a picture is, 0 to 255: the mean over a grid of its points.
 function Light([Drawing.Bitmap]$bitmap) {
@@ -176,10 +244,8 @@ function Capture([IntPtr]$window, $name, [switch]$Screen) {
     if ($Screen) {
         $frame = [Tasktap.Desk]::Frame($window)
         if ([Tasktap.Desk]::GetForegroundWindow() -eq $window) {
-            $shot = [Drawing.Bitmap]::new($frame.Right - $frame.Left, $frame.Bottom - $frame.Top)
-            $graphics = [Drawing.Graphics]::FromImage($shot)
-            $graphics.CopyFromScreen($frame.Left, $frame.Top, 0, 0, $shot.Size)
-            $graphics.Dispose()
+            $w = $frame.Right - $frame.Left; $h = $frame.Bottom - $frame.Top
+            $shot = Bitmap-Of ([Tasktap.Desk]::Bits([IntPtr]::Zero, $w, $h, $true, $frame.Left, $frame.Top)) $w $h
             $shot.Save("$Out\$name-screen.png", [Drawing.Imaging.ImageFormat]::Png)
             $shot.Dispose()
             $said += "; as on the screen: $name-screen.png"
@@ -235,6 +301,11 @@ $rows['1'] = 'Starts the app as Explorer would, with no debug channel and its ow
     $menu = [Tasktap.Desk]::Menu($window.Handle) -join ', '
     Check 1 'the window has no menu bar of the system''s' (-not $menu) "menu bar: $(if ($menu) { $menu } else { 'none' })"
     Say 'LOOK' 1 'the window with Home in it: one dark surface, the page''s top row as its title bar' (Capture $window.Handle 'row1-window' -Screen)
+    # The faint light at the foot of Home and of the sidebar, point by point; and the same window through the drawing
+    # library, as the rounds before this check took their pictures.
+    $picture = Picture $window.Handle; $specks = Specks $picture; $picture.Dispose()
+    $picture = Picture $window.Handle -Library; $lost = Specks $picture; $picture.Dispose()
+    Check 1 'the faint light is drawn whole: no single black point in the window''s picture' ($specks[0] -eq 0) "single black points: $($specks[0]), at the foot of Home and of the sidebar: $($specks[1]); the same window taken through System.Drawing has $($lost[0]) and $($lost[1]): holes of that library's making, wherever the window is rgb 13 11 12"
     $new = @([Tasktap.Desk]::Windows() | Where-Object { $_.Handle -notin $before -and $_.Handle -ne $window.Handle })
     $consoles = @($new | Where-Object { $_.Class -match 'ConsoleWindowClass|CASCADIA_HOSTING_WINDOW_CLASS' })
     Check 1 'no console window opens' (-not $consoles) "new windows besides the app's: $(($new | ForEach-Object { "$($_.Class) '$($_.Title)'" }) -join '; ')"

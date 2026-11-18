@@ -5,6 +5,7 @@
 //   apple <speech|dictation> <locale[,locale]> <file.wav> [realtime|fast]
 //   apple install <speech|dictation> <locale>        # asks the system for that language's model; prints progress
 //   apple status
+//   apple release <locale>                          # gives the language's model back: macOS removes it when it sees fit
 //
 // The recording is fed as the app feeds it: 16 kHz mono 16-bit, a tenth of a second at a time, at the pace of speech
 // (`realtime`) or as fast as it is taken (`fast`). With two locales both listen to the same audio and the transcript
@@ -59,6 +60,10 @@ final class Heard: @unchecked Sendable {
         if a.count > 1, a[1] == "status" {
             emit(["speech": await SpeechTranscriber.installedLocales.map(\.identifier).sorted(), "dictation": await DictationTranscriber.installedLocales.map(\.identifier).sorted(),
                   "reserved": await AssetInventory.reservedLocales.map(\.identifier)])
+            return
+        }
+        if a.count > 2, a[1] == "release" {
+            emit(["released": await AssetInventory.release(reservedLocale: Locale(identifier: a[2])), "reserved": await AssetInventory.reservedLocales.map(\.identifier)])
             return
         }
         if a.count > 3, a[1] == "install" {

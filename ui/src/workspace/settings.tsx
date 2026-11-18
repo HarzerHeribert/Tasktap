@@ -133,11 +133,11 @@ function VoicePane() {
 /** The agents this Mac has, with how each is signed in, and a terminal to sign in to one that is not. One of them is
  *  the default: it runs a thought unless another ring was picked for that thought in the Composer. Only here is the
  *  default changed (the `agent` preference). */
-const signIn: Record<string, string> = { claude: 'claude', codex: 'codex login', agy: 'agy' };
+const signIn: Record<string, string> = { claude: 'claude', codex: 'codex login', agy: 'agy', 'cursor-agent': 'cursor-agent login' };
 /** What a row adds about its agent: whose models it runs, where its name does not say, and that what it asks is
  *  answered in its own terminal, where no hook of it lets the notch answer. */
 const family: Record<string, string> = { agy: 'Gemini' };
-const about = (a: { id: string; permissions: string | null }) => [family[a.id], a.permissions === 'terminal' && 'asks in its terminal'];
+const about = (a: { id: string; permissions: string | null }) => [family[a.id], a.permissions !== 'core' && 'asks in its terminal'];
 function AgentsPane() {
   const agents = [...records.agents.values()];
   if (!agents.length) return <p class="note">Looking for agents…</p>;

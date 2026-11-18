@@ -11,12 +11,16 @@
 #   codex   a new run, a follow-up, a resume (3 turns)
 #   agy     Antigravity: a new run whose question is answered in the terminal,
 #           a follow-up, a resume (3 turns, on its smallest model)
+#   cursor  Cursor: a new run, a follow-up, a resume (3 turns). Not yet run:
+#           the tool was signed out where its adapter was written
+#   seen    Cursor as this computer has it: installed, its version, signed in
+#           or not; signed out, a capture that names it is refused (no turn)
 #   alone   a Codex run with no client attached to its terminal (1 turn)
 #   trust   Claude Code in a folder it has not seen asks, through the core, to be
 #           trusted there; left unanswered (no turn)
 #   loop    the loop check with Claude Code as its agent (1 turn)
 #
-# Usage: core/scripts/live-agents.sh [claude] [codex] [agy] [alone] [trust] [loop]   (none: all six)
+# Usage: core/scripts/live-agents.sh [claude] [codex] [agy] [cursor] [seen] [alone] [trust] [loop]   (none: all eight)
 #
 # Tasktap writes nothing to ~/.claude, ~/.codex or ~/.gemini: hooks and
 # settings go on each run's command line. Antigravity keeps each run's
@@ -34,6 +38,8 @@ run_of() {
     claude) echo "claude_runs_asks_follows_up_and_resumes claude 3" ;;
     codex) echo "codex_runs_follows_up_and_resumes codex 3" ;;
     agy) echo "antigravity_runs_asks_follows_up_and_resumes agy 3" ;;
+    cursor) echo "cursor_runs_follows_up_and_resumes cursor-agent 3" ;;
+    seen) echo "cursor_is_seen_as_this_computer_has_it cursor-agent 0" ;;
     alone) echo "codex_runs_with_no_window codex 1" ;;
     trust) echo "claude_in_a_new_folder_asks_to_be_trusted_there claude 0" ;;
     loop) echo "the_loop_on_claude claude 1" ;;
@@ -41,13 +47,13 @@ run_of() {
   esac
 }
 
-[ $# -eq 0 ] && set -- claude codex agy alone trust loop
+[ $# -eq 0 ] && set -- claude codex agy cursor seen alone trust loop
 for name in "$@"; do
-  run_of "$name" >/dev/null || { echo "live-agents: no run called $name (claude, codex, agy, alone, trust, loop)" >&2; exit 64; }
+  run_of "$name" >/dev/null || { echo "live-agents: no run called $name (claude, codex, agy, cursor, seen, alone, trust, loop)" >&2; exit 64; }
 done
 
 echo "live-agents: the agents on this computer"
-for agent in claude codex agy; do
+for agent in claude codex agy cursor-agent; do
   if command -v "$agent" >/dev/null; then
     echo "  $agent $("$agent" --version 2>&1 | head -1)"
   else

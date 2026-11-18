@@ -17,6 +17,7 @@ pub mod antigravity;
 pub mod checks;
 pub mod claude;
 pub mod codex;
+pub mod cursor;
 pub mod rules;
 
 use std::ffi::OsString;
@@ -419,6 +420,7 @@ const AGENTS: &[&dyn Agent] = &[
     &claude::Claude,
     &codex::Codex,
     &antigravity::Antigravity,
+    &cursor::Cursor,
     #[cfg(feature = "fixtures")]
     &Fixture {
         events: true,

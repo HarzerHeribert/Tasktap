@@ -552,6 +552,91 @@ fn antigravity_runs_asks_follows_up_and_resumes() {
     s.core.stop();
 }
 
+/// Cursor reports through a plugin of Tasktap's own (design §7): a new run,
+/// its result read from its transcript, a follow-up, the end, and a resume
+/// of the same chat. What it asks no hook hears, so nothing is asked of it.
+/// NOT yet run: the tool was signed out where this was written, and its
+/// smallest model is to be named here once `cursor-agent models` lists them.
+#[test]
+#[ignore = "runs Cursor for three turns on this computer's subscription"]
+fn cursor_runs_follows_up_and_resumes() {
+    let mut s = Live::new("live-cursor");
+    let t = s.ask(
+        "cursor-agent",
+        "Tasktap test: reply with the single word ready. Do not use any tools.",
+    );
+    let (session, tty) = s.started(t);
+    // The throwaway project is a folder it has not seen: its trust dialog,
+    // answered in the terminal as a person would.
+    tty.when("Trust this workspace", b"a");
+    let result = s.done(t, &tty);
+    assert!(result.to_lowercase().contains("ready"), "{result}");
+    let handle = s.w.model.session(session).resume.clone();
+    say(&format!("resume handle (the chat id): {handle:?}"));
+    assert!(handle.is_some());
+
+    let f = s.nudge(
+        session,
+        "Tasktap test: reply with the single word again. Do not use any tools.",
+    );
+    let result = s.done(f, &tty);
+    assert!(result.to_lowercase().contains("again"), "{result}");
+
+    s.end(session, &tty);
+    let r = s.nudge(
+        session,
+        "Tasktap test: reply with the single word resumed. Do not use any tools.",
+    );
+    let (again, tty) = s.started(r);
+    assert_ne!(again, session, "a resume is a new session");
+    let result = s.done(r, &tty);
+    assert!(result.to_lowercase().contains("resumed"), "{result}");
+    assert_eq!(s.w.model.session(again).resume, handle, "the same chat");
+    s.end(again, &tty);
+    s.core.stop();
+}
+
+/// Cursor as this computer has it, through the core (design §7): its own
+/// two commands say that it is installed, its version and whether it is
+/// signed in. Signed out, a capture that names it is refused and says so,
+/// and nothing starts. Uses no turn and no account.
+#[test]
+#[ignore = "runs cursor-agent's version and status commands; uses no turn"]
+fn cursor_is_seen_as_this_computer_has_it() {
+    let mut s = Live::new("live-cursor-seen");
+    let asked = tasktap_proto::DetectAgents {
+        agents: Some(vec!["cursor-agent".into()]),
+    };
+    let tasktap_proto::Agents { agents } = s.w.ok::<call::AgentsDetect>(&asked);
+    let row = &agents[0];
+    say(&format!(
+        "{}: installed {}, version {:?}, signed in {:?}, {}",
+        row.id,
+        row.installed,
+        row.version,
+        row.signed_in,
+        row.identity
+            .as_ref()
+            .map_or("as nobody named", |_| "as someone it names")
+    ));
+    assert!(row.installed && row.version.is_some());
+    assert!(row.signed_in.is_some(), "its status command did not say");
+    if row.signed_in == Some(false) {
+        let capture = Capture {
+            project_id: Some(s.project),
+            agent: Some("cursor-agent".into()),
+            ..typed(ThoughtId::mint(), "Tasktap test: nothing runs")
+        };
+        let e = s.w.call::<call::ThoughtCapture>(&capture).unwrap_err();
+        say(&format!(
+            "a capture that names it is refused: {:?}",
+            e.message
+        ));
+        assert_eq!(e.message, "Cursor is not signed in");
+    }
+    s.core.stop();
+}
+
 /// Claude Code in a folder it has not seen stops at its folder-trust dialog
 /// before any hook runs (design §7): the core sees the dialog in the
 /// terminal and asks the person to answer it there, so the thought does

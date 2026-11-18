@@ -9,11 +9,14 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
+#[cfg(target_os = "macos")]
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::utils::config::{BackgroundThrottlingPolicy, WindowEffectsConfig};
 use tauri::utils::{WindowEffect, WindowEffectState};
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent, Wry};
+#[cfg(target_os = "macos")]
+use tauri::Wry;
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 pub const LABEL: &str = "workspace";
 
@@ -87,6 +90,13 @@ pub fn show(app: &AppHandle, at: Option<&str>) -> tauri::Result<()> {
         Some(at) => format!("workspace.html?focus={at}"),
         None => "workspace.html".to_owned(),
     };
+    // On Windows the page is told whose title bar the window has: its own top row, or the system's (chrome.rs).
+    #[cfg(windows)]
+    let path = format!(
+        "{path}{}chrome={}",
+        if path.contains('?') { '&' } else { '?' },
+        if crate::chrome::own() { "own" } else { "native" }
+    );
     let effects = WindowEffectsConfig {
         // Each system's own backdrop: the Mac's under-window material, Windows 11's Mica.
         effects: vec![
@@ -133,8 +143,10 @@ pub fn show(app: &AppHandle, at: Option<&str>) -> tauri::Result<()> {
         } else {
             BackgroundThrottlingPolicy::Suspend
         });
-    // The Mac's buttons sit over the page's own top row; Windows keeps its title bar, and the
-    // menu, which on the Mac is the application's, is the window's.
+    // The Mac's buttons sit over the page's own top row, and its menu is the application's. On
+    // Windows the page's top row is the title bar, with the window's buttons and a menu button of
+    // the page's own in it (chrome.rs), and the window is dark whatever the system's setting is:
+    // its backdrop, its menus and what it shows before the page has drawn.
     #[cfg(target_os = "macos")]
     {
         builder = builder
@@ -144,13 +156,15 @@ pub fn show(app: &AppHandle, at: Option<&str>) -> tauri::Result<()> {
     }
     #[cfg(windows)]
     {
-        builder = builder.menu(menu(app)?);
+        builder = builder.theme(Some(tauri::Theme::Dark)).decorations(!crate::chrome::own());
     }
     builder = match frame {
         Some([x, y, w, h]) => builder.position(x, y).inner_size(w, h),
         None => builder.inner_size(1180.0, 760.0).center(),
     };
     let window = builder.build()?;
+    #[cfg(windows)]
+    crate::chrome::dress(app, &window);
     CONFINED.store(false, Ordering::Relaxed);
     #[cfg(target_os = "macos")]
     {
@@ -225,6 +239,7 @@ fn on_screen(app: &AppHandle, f: &[f64; 4]) -> bool {
 }
 
 /// The About panel's notices: the terminal's typefaces, whose licences ship in the app's pages (licenses/).
+#[cfg(target_os = "macos")]
 fn about() -> AboutMetadata<'static> {
     AboutMetadata {
         credits: Some(
@@ -237,14 +252,28 @@ fn about() -> AboutMetadata<'static> {
     }
 }
 
-/// The application menu: Quit, the Edit commands a web view needs for ⌘C and ⌘V, and the
-/// workspace's own commands, which go to its page (`command` in ui/src/workspace/main.tsx).
+/// `host.window`: the window minimised, maximised or put back, or closed, for the page's own caption buttons and
+/// its menu (Windows; the buttons' window in chrome.rs does the same for the pointer).
+pub fn window(app: &AppHandle, what: &str) -> Result<serde_json::Value, String> {
+    let window = app.get_webview_window(LABEL).ok_or("the window is not open")?;
+    match what {
+        "minimize" => window.minimize(),
+        "maximize" if window.is_maximized().unwrap_or(false) => window.unmaximize(),
+        "maximize" => window.maximize(),
+        "close" => window.close(),
+        _ => return Err(format!("a window cannot {what}")),
+    }
+    .map(|_| serde_json::Value::Null)
+    .map_err(|e| e.to_string())
+}
+
+/// The Mac's application menu: Quit, the Edit commands a web view needs for ⌘C and ⌘V, and the
+/// workspace's own commands, which go to its page (`command` in ui/src/workspace/main.tsx). On
+/// Windows the page has the same commands behind its menu button, each with its Windows key
+/// (ui/src/workspace/chrome.tsx).
+#[cfg(target_os = "macos")]
 pub fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
-    // On Windows the commands have no keys yet: Ctrl with a letter belongs to the program in
-    // the terminal, and which keys the workspace takes there is not decided.
-    let item = |id: &str, text: &str, keys: Option<&str>| {
-        MenuItem::with_id(app, id, text, true, keys.filter(|_| cfg!(target_os = "macos")))
-    };
+    let item = |id: &str, text: &str, keys: Option<&str>| MenuItem::with_id(app, id, text, true, keys);
     let sep = || PredefinedMenuItem::separator(app);
     Menu::with_items(
         app,

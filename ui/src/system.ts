@@ -11,5 +11,9 @@ export const plain = (path: string) => path.replace(/^\\\\\?\\UNC\\/, '\\\\').re
 /** A path as it is shown: plain, and with the home folder as ~ where the system writes it so. */
 export const shownPath = (path: string) => plain(path).replace(/^\/Users\/[^/]+/, '~');
 
+/** Whether the page's top row is the window's title bar, with the caption buttons the page draws in it: on Windows,
+ *  unless the host kept the system's own (host/src/chrome.rs). On a Mac the system's three buttons lie over it. */
+export const titled = !mac && !(typeof location !== 'undefined' && new URLSearchParams(location.search).get('chrome') === 'native');
+
 /** Where the system shows a file among its neighbours. */
 export const FILES = mac ? 'Finder' : 'File Explorer';

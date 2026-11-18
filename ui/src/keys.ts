@@ -47,6 +47,13 @@ export function local(k: string, onMac = mac): Chord {
   return WINDOWS[ordered(k)] ?? { control: true, alt: c.alt, shift: c.shift || /^[a-z]$/i.test(c.key), meta: false, key: c.key };
 }
 
+/** The commands' keys, written as the Mac has them: the Mac's menu shows the same (host/src/workspace.rs), the
+ *  Windows menu button shows this system's (workspace/chrome.tsx), and the page acts on them (workspace/main.tsx). */
+export const COMMANDS: Record<string, string> = {
+  'new-task': '⌘N', 'new-terminal': '⌘T', 'open-workspace': '⌘O', 'close-tab': '⌘W', find: '⌘F', sidebar: '⌃⌘S', 'split-right': '⌘D', 'split-down': '⇧⌘D',
+  preview: '⌘P', 'reload-preview': '⌘R', bigger: '⌘=', smaller: '⌘-', reset: '⌘0', settings: '⌘,', back: '⌘[', session: '⌘I',
+};
+
 /** What Windows prints on a key the Mac has a sign for. Return keeps its arrow: ui.tsx `Key` draws it. */
 const PRINTED: Record<string, string> = { esc: 'Esc', '⌫': 'Backspace', '⌦': 'Del', '⇥': 'Tab', '↖': 'Home', '↘': 'End', '⇞': 'PgUp', '⇟': 'PgDn' };
 /** The modifiers as Windows writes them: Win, Ctrl, Alt, Shift. */

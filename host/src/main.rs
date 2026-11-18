@@ -3,6 +3,8 @@
 //! Tasktap Next: the host, on the Mac and (without the notch's counterpart yet) on Windows. It starts the core, gives each page one pass-through to it
 //! (design §12), answers the page's `host.*` calls, places the notch panel and binds the global
 //! shortcuts. Everything else is the core's or the page's.
+#[cfg(windows)]
+mod chrome;
 mod core;
 // Windows shows no frame yet: what holds one to this machine there is not built, so its server is not called.
 #[cfg_attr(windows, allow(dead_code))]
@@ -134,6 +136,7 @@ fn bridge_host(app: AppHandle, frame: String) -> String {
             Ok(folder) => json!(folder),
             Err(_) => json!(native::pick_folder()),
         }),
+        "host.window" => workspace::window(&app, args["do"].as_str().unwrap_or_default()),
         "host.clipboard" => Ok(json!(native::clipboard(args["text"].as_str(), notch::NOTCH.lock().unwrap().passive))),
         "host.power" => Ok(json!(native::low_power())),
         // A web address, or what is inside a folder the person opened or a copy Tasktap made of one (open.rs).

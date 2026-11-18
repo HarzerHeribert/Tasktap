@@ -18,8 +18,9 @@ import { uuid7 } from '../client.ts';
 import { LevelVoice } from '../speech/level.ts';
 import { live, loudness, recording, talk } from '../speech/record.ts';
 import { I, Key, Mark, Wave, plural } from '../ui.tsx';
-import { commands, hit, tip } from '../keys.ts';
-import { mac, shownPath } from '../system.ts';
+import { COMMANDS, commands, hit, recorder, tip } from '../keys.ts';
+import { mac, shownPath, titled } from '../system.ts';
+import { Caps, MenuButton, heard as captionSaid, openMenu } from './chrome.tsx';
 import { apply, fontsReady, look } from './appearance.ts';
 import { Deck, startAgent } from './deck.tsx';
 import { follow, refresh, reload, stop, swap } from './preview.tsx';
@@ -140,14 +141,11 @@ function enter(e: Event) {
 document.addEventListener('pointerdown', enter, true);
 document.addEventListener('focusin', enter, true);
 
-/** The commands' keys, written as the Mac has them; each system has its own key for each (keys.ts). They are handled
- *  here, before xterm.js or the web view can treat them as input or zoom. On the Mac the application menu shows the
+/** The commands' keys are written as the Mac has them, and each system has its own key for each (keys.ts). They are
+ *  handled here, before xterm.js or the web view can treat them as input or zoom. On the Mac the application menu shows the
  *  same, and a key the page handles never reaches it twice; on Windows the window's menu button shows them. While a
  *  sheet is open, the sheet has the keys. */
-export const KEYS: Record<string, string> = {
-  'new-task': '⌘N', 'new-terminal': '⌘T', 'open-workspace': '⌘O', 'close-tab': '⌘W', find: '⌘F', sidebar: '⌃⌘S', 'split-right': '⌘D', 'split-down': '⇧⌘D',
-  preview: '⌘P', 'reload-preview': '⌘R', bigger: '⌘=', smaller: '⌘-', reset: '⌘0', settings: '⌘,', back: '⌘[', session: '⌘I',
-};
+const KEYS = COMMANDS;
 document.addEventListener('keydown', (e) => {
   if (e.isComposing || ui.sheet) return;
   // The Mac's menu has the keys held with Control (⌃⌘S).
@@ -175,6 +173,24 @@ document.addEventListener('keydown', (e) => {
   command(name);
 }, true);
 
+// Windows: Alt pressed and let go alone, or F10, opens the menu, as a menu bar's keys do. Alt held with any other key
+// is that key's.
+if (!mac) {
+  let alone = false;
+  document.addEventListener('keydown', (e) => {
+    alone = e.key === 'Alt' && !e.repeat && !e.ctrlKey && !e.shiftKey && !e.metaKey;
+    if (e.key === 'F10' && !e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey && !recorder.on) (e.preventDefault(), e.stopPropagation(), openMenu(command));
+  }, true);
+  document.addEventListener('keyup', (e) => {
+    if (e.key === 'Alt' && alone && !recorder.on) (e.preventDefault(), openMenu(command));
+    alone = false;
+  }, true);
+  addEventListener('blur', () => (alone = false));
+  document.addEventListener('pointerdown', () => (alone = false), true);
+}
+document.documentElement.classList.toggle('windows', !mac);
+document.documentElement.classList.toggle('titled', titled);
+
 /** The terminals take the look the core's preferences describe. */
 function loadLook() {
   const l = look();
@@ -191,7 +207,7 @@ function Bar({ project }: { project: string | null }) {
   return (
     <header class={`bar${project || ui.view === 'earlier' ? '' : ' bare'}`} data-tauri-drag-region>
       {/* Room for the window's buttons, and the way back to the sidebar: there while it is away, and on its way. */}
-      {!side && <span class="lead"><button type="button" class="ib" title={tip('Show sidebar', '⌃⌘S')} aria-label="Show sidebar" onClick={() => command('sidebar')}><I n="sidebar" /></button></span>}
+      {!side && <span class="lead">{!mac && <MenuButton run={command} />}<button type="button" class="ib" title={tip('Show sidebar', '⌃⌘S')} aria-label="Show sidebar" onClick={() => command('sidebar')}><I n="sidebar" /></button></span>}
       {project ? (
         <span class="crumb" data-tauri-drag-region>
           <b>{p?.name ?? 'Sign-in terminals'}</b>{p && <span class="path">{shownPath(p.folder)}</span>}
@@ -209,6 +225,7 @@ function Bar({ project }: { project: string | null }) {
           <button type="button" class="newt" title={tip('New task', '⌘N')} onClick={() => command('new-task')}><span><Wave n={5} />New task</span><Key k="⌘N" /></button>
         </span>
       )}
+      {titled && <Caps />}
     </header>
   );
 }
@@ -291,8 +308,10 @@ function arrive(at: string) {
   if (section) open({ kind: 'settings', at: section });
   else focusSession(at);
 }
-void listen<{ do: string; at?: string; id?: string; low?: boolean; url?: string }>('ui', ({ payload }) => {
+void listen<{ do: string; at?: string; id?: string; low?: boolean; url?: string; over?: string; down?: string; max?: boolean }>('ui', ({ payload }) => {
   if (payload.do === 'focus' && payload.at) arrive(payload.at);
+  // What the pointer does on the caption buttons, and whether the window is maximised (Windows).
+  else if (payload.do === 'caption') captionSaid(payload);
   // A preview's frame tried to leave this machine: the host stopped it, and the person is offered the address.
   else if (payload.do === 'stopped' && payload.url) stop(payload.url);
   else if (payload.do === 'menu' && payload.id) command(payload.id);

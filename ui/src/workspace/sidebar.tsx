@@ -11,6 +11,8 @@ import {
 } from './model.ts';
 import { I, Mark, elapsed, madeAt, when } from '../ui.tsx';
 import { tip } from '../keys.ts';
+import { mac } from '../system.ts';
+import { MenuButton } from './chrome.tsx';
 
 const ORDER = { asks: 0, working: 1, ready: 2, failed: 3, ended: 4, shell: 5 } as Record<string, number>;
 
@@ -78,6 +80,7 @@ export function Sidebar() {
   return (
     <aside class="side" id="sidebar" aria-label="Sidebar">
       <div class="side-top" data-tauri-drag-region>
+        {!mac && <MenuButton run={command} />}
         <button type="button" class="ib" title={tip('Hide sidebar', '⌃⌘S')} aria-label="Hide sidebar" onClick={() => command('sidebar')}><I n="sidebar" /></button>
       </div>
       <nav class="tree" aria-label="Home and workspaces">

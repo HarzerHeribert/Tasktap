@@ -25,6 +25,8 @@ export type HostCalls = {
   'host.clipboard': { args: { text?: string }; result: string | null };
   /** The workspace page has drawn: its window may show. */
   'host.ready': { args: Record<string, never>; result: null };
+  /** The window minimised, maximised or put back, or closed: for the page's own caption buttons and menu (Windows). */
+  'host.window': { args: { do: 'minimize' | 'maximize' | 'close' }; result: null };
   /** Has the system open a web address, or a path inside a folder the person opened (a file of text in the default
    *  text editor; anything else, and with `reveal`, shown in Finder). The host refuses everything else. `probe`:
    *  nothing is opened, and the reply is what would be, or null. A path is taken from `cwd` unless it is whole. */

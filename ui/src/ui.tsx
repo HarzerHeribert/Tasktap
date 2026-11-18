@@ -22,6 +22,7 @@ const icons = {
   down: () => <path d="M8 2.75v10M4 9l4 4 4-4" />,
   later: () => <circle cx="8" cy="8" r="2.75" />,
   view: () => <><path d="M1.75 8S4 3.75 8 3.75 14.25 8 14.25 8 12 12.25 8 12.25 1.75 8 1.75 8z" /><circle cx="8" cy="8" r="1.75" /></>,
+  menu: () => <path d="M2.75 4.75h10.5M2.75 8h10.5M2.75 11.25h10.5" />,
   mic: () => <><rect x="6" y="2.25" width="4" height="7.5" rx="2" /><path d="M3.75 7.75a4.25 4.25 0 0 0 8.5 0M8 12v1.75" /></>,
 } as const;
 export type IconName = keyof typeof icons;

@@ -80,6 +80,24 @@ button.row:active{background:var(--sel)}
 .newt:hover{background:var(--hover)}
 .newt .wave{--wh:12px;--ww:1.5px;--wg:1.5px}
 .win.dimmed .bar::after{content:"";position:absolute;inset:0;background:var(--scrim);pointer-events:none}
+/* Windows (chrome.tsx). The top row is the title bar: the window is dragged by it, a double click maximises it and a
+   right click opens the window's own menu (WebView2 takes app-region for the system's title bar), and what is pressed
+   in it is not part of that. The menu button stands where the Mac's three buttons do; the caption buttons are
+   Windows 11's in size and in what they do under the pointer, and run to the window's edge. */
+:root.titled :is(.bar,.side-top){app-region:drag}
+:root.titled :is(.bar,.side-top) :is(button,input,a){app-region:no-drag}
+:root.windows .side-top{justify-content:space-between}
+:root.windows .bar .lead{justify-content:flex-start;gap:2px;width:auto;margin-left:calc(var(--sp2) - 14px);overflow:visible}
+.caps{display:flex;flex:none;align-self:stretch;margin:0 calc(-1*var(--sp2)) 0 auto}
+.bar-r~.caps{margin-left:var(--sp2)}
+.cap{display:grid;place-items:center;width:46px;color:var(--fg2);border-radius:0}
+.cap svg{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:1;overflow:visible}
+.cap:is(:hover,.over){background:rgb(255 255 255/.07);color:var(--fg)}
+.cap.down{background:rgb(255 255 255/.045)}
+.cap.close:is(:hover,.over){background:#c42b1c;color:#fff}
+.cap.close.down{background:#b3271b;color:rgb(255 255 255/.8)}
+.cap:focus-visible{outline-offset:-3px}
+:root.inactive .cap:not(:hover,.over){color:var(--fg3)}
 
 /* ——— panes ——— */
 .deck{position:relative;min-width:0;min-height:0}

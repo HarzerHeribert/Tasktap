@@ -16,6 +16,8 @@
 //!   Windows Terminal's does over its own; what the pointer does there is told to the page,
 //!   which lights the button, and a click is carried out here.
 //! - **Dark menus.** A menu Windows draws is light unless the program asks otherwise.
+//! - **No browser's keys.** WebView2 acts on a browser's own keys unless told not to: F5 and
+//!   Ctrl+R would load the page anew, Ctrl+P print it, Ctrl+F open a browser's find bar.
 //! - **The frame's hairline**, in the page's own line colour.
 use serde_json::json;
 use std::ffi::c_void;
@@ -86,10 +88,27 @@ fn colour(window: HWND, attribute: u32, colour: u32) {
     unsafe { DwmSetWindowAttribute(window, attribute, (&raw const colour).cast(), size_of::<u32>() as u32) };
 }
 
-/// Dresses the window once it is made: dark menus, the frame's hairline, and either the caption buttons' window
-/// (the page's top row is the title bar) or the system's title bar in the page's colours.
+/// The web view acts on no key as a browser would (reload, print, find, zoom): every key is the page's, a field's or
+/// the program's in a terminal.
+fn no_browser_keys(window: &WebviewWindow) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+    use windows_core::Interface;
+    let _ = window.with_webview(|view| {
+        // SAFETY: the calls are made on the web view's own thread, where Tauri runs this, on a view that is open.
+        let done = unsafe {
+            view.controller().CoreWebView2().and_then(|core| core.Settings()).and_then(|settings| {
+                settings.cast::<ICoreWebView2Settings3>()?.SetAreBrowserAcceleratorKeysEnabled(false)
+            })
+        };
+        crate::log(json!({"event": "chrome", "browser-keys-off": done.is_ok()}));
+    });
+}
+
+/// Dresses the window once it is made: dark menus, no browser's keys, the frame's hairline, and either the caption
+/// buttons' window (the page's top row is the title bar) or the system's title bar in the page's colours.
 pub fn dress(app: &AppHandle, window: &WebviewWindow) {
     dark_menus();
+    no_browser_keys(window);
     let Ok(frame) = window.hwnd() else { return };
     let frame = frame.0 as HWND;
     colour(frame, DWMWA_BORDER_COLOR as u32, LINE);

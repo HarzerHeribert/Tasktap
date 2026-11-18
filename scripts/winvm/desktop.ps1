@@ -43,6 +43,23 @@ public delegate bool EnumProc(IntPtr window, IntPtr none);
 [DllImport("user32.dll")] public static extern bool CloseDesktop(IntPtr desktop);
 [DllImport("kernel32.dll")] public static extern uint WTSGetActiveConsoleSessionId();
 [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out Rect value, int size);
+[DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string kind, string title);
+// Every visible top-level window, those of the system's own layers among them (its flyouts), which EnumWindows
+// leaves out.
+public static List<Window> Every() {
+    var all = new List<Window>();
+    for (var window = FindWindowEx(IntPtr.Zero, IntPtr.Zero, null, null); window != IntPtr.Zero; window = FindWindowEx(IntPtr.Zero, window, null, null)) {
+        if (!IsWindowVisible(window)) continue;
+        uint process;
+        GetWindowThreadProcessId(window, out process);
+        var kind = new StringBuilder(256);
+        GetClassName(window, kind, 256);
+        var title = new StringBuilder(512);
+        GetWindowText(window, title, 512);
+        all.Add(new Window { Handle = window, ProcessId = process, Class = kind.ToString(), Title = title.ToString() });
+    }
+    return all;
+}
 [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr window);
 [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr w, IntPtr l);
 [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(Point at);
@@ -405,16 +422,16 @@ $rows['10'] = 'In the same app, with its window in front and the pointer used on
     $escape = { [Tasktap.Desk]::Chord([byte[]](0x1B)); Start-Sleep -Milliseconds 300 }
     try {
         $max = (& $buttons)[1]
-        $before = @([Tasktap.Desk]::Windows() | ForEach-Object Handle)
+        $before = @([Tasktap.Desk]::Every() | ForEach-Object Handle)
         [Tasktap.Desk]::Point_($max[0] - 4, $max[1])
         Start-Sleep -Milliseconds 150
         [Tasktap.Desk]::Point_($max[0], $max[1])
         Start-Sleep -Milliseconds 1600
         $lit = Js "document.querySelector('.wb.maximize')?.className ?? 'no button'"
         Check 10 'the page lights Maximize under the pointer' ("$lit" -match 'over') "the button's classes: $lit"
-        $new = @([Tasktap.Desk]::Windows() | Where-Object { $_.Handle -notin $before })
+        $new = @([Tasktap.Desk]::Every() | Where-Object { $_.Handle -notin $before })
         Check 10 'hovering Maximize opens the Snap layouts' ($new.Count -gt 0) "windows that appeared: $(($new | ForEach-Object { "$($_.Class) '$($_.Title)'" }) -join '; ')"
-        Say 'LOOK' 10 'Maximize under the pointer' (Capture $workspace 'row10-hover')
+        Say 'LOOK' 10 'Maximize under the pointer, and the Snap layouts under it' (Capture $workspace 'row10-hover' -Screen)
         $away = & $bar
         [Tasktap.Desk]::Point_($away[0], $away[1])
         Start-Sleep -Milliseconds 900
@@ -455,12 +472,21 @@ $rows['10'] = 'In the same app, with its window in front and the pointer used on
             [Tasktap.Desk]::Chord([byte[]]($key[1]))
             Start-Sleep -Milliseconds 900
             $opened = & $menus
+            if ($key[1] -eq 0x12) { Say 'LOOK' 10 'the app''s menu open under its button: dark, each command with its Windows key' (Capture $workspace 'row10-menu' -Screen) }
             & $escape
             & $escape
             # (Asked once the menu is closed: the page answers nothing while a menu of the system's is open.)
             $items = Js "__ws.menu.items.map(i => i === '-' ? '-' : 'items' in i ? i.text + ' (' + i.items.filter(x => x !== '-').map(x => x.text + (x.key ? ' ' + x.key : '')).join(', ') + ')' : i.text).join('; ')"
             Check 10 "$($key[0]) opens the app's menu, and Escape closes it" ($opened -gt 0 -and "$items" -match 'File' -and (& $menus) -eq 0) "menus open: $opened; its items: $items"
         }
+        # A browser's own keys do nothing: F5 and Ctrl+R would load the page anew, and what it holds would be gone.
+        $null = Js "(window.__kept = 1, document.activeElement?.blur(), 1)"
+        [Tasktap.Desk]::Chord([byte[]](0x74))
+        Start-Sleep -Milliseconds 400
+        [Tasktap.Desk]::Chord([byte[]](0x11, 0x52))
+        Start-Sleep -Milliseconds 1500
+        $kept = Soon 'typeof window.__kept' 'number' 8
+        Check 10 'F5 and Ctrl+R do not load the page anew' ($kept -eq 'number') "what the page kept: $kept"
         $min = (& $buttons)[0]
         [Tasktap.Desk]::Press($min[0], $min[1], $false, 1)
         Start-Sleep -Milliseconds 900

@@ -691,7 +691,7 @@ until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.val
 ask workspace "click .home .way .act" >/dev/null
 until_has workspace "eval $field.value" 3 "Tidy the changelog a little" && clear_field \
   && until_has workspace "eval String([...__ws.records.thoughts.values()].some(t => t.text === 'Tidy the changelog a little'))" 3 "false" || fail "the offered thought is taken back"
-[ "$(js workspace "document.querySelector('.home #dest-chip b').textContent")" = "Where it belongs" ] \
+[ "$(js workspace "document.querySelector('.home #dest-chip b').textContent")" = "Tasktap decides" ] \
   && pass "once allowed, a thought with no folder named goes where it belongs: the Composer says so before Return" || fail "the Composer's place once allowed"
 # The model cannot decide between two folders: it asks, first and in full, on Home and in the notch.
 before=$(thoughts)

@@ -10,7 +10,7 @@ import { Ask } from '../question.tsx';
 import { Answer, Diffstat, I, Ring } from '../ui.tsx';
 import * as L from './layout.ts';
 import {
-  LOOSE, agentName, call, dismiss, fail, finishClose, focus, focusTerminal, keepInBackground, label, layout, newTerminal, open, openWorkspace,
+  LOOSE, agent, agentName, call, dismiss, fail, finishClose, focus, focusTerminal, keepInBackground, label, layout, newTerminal, open, openWorkspace,
   pickFolder, projectName, projects, records, setLayout, stop, title, ui,
 } from './model.ts';
 import { PlacingSheet, SpeechSheet } from './consent.tsx';
@@ -285,12 +285,17 @@ function Body() {
   }
 }
 
-/** The agents this Mac has, with how each is signed in, and a terminal to sign in to one that is not. */
+/** The agents this Mac has, with how each is signed in, and a terminal to sign in to one that is not. One of them is
+ *  the default: it runs a thought unless another ring was picked for that thought in the Composer. Only here is the
+ *  default changed (the `agent` preference). */
 const signIn: Record<string, string> = { claude: 'claude', codex: 'codex login' };
 export function Agents() {
   const agents = [...records.agents.values()];
   if (!agents.length) return <p>Looking for agents…</p>;
+  const usual = agent()?.id;
   return (
+    <>
+    <p>The default runs your thoughts. For one thought, pick another by its ring where you write it.</p>
     <div class="list">
       {agents.map((a) => {
         const off = a.installed && a.signed_in === false;
@@ -303,10 +308,14 @@ export function Agents() {
             {off && signIn[a.id] && (
               <button type="button" class="btn" onClick={() => (dismiss(), newTerminal(LOOSE, { title: `Sign in to ${agentName(a.id)}`, type: signIn[a.id] }))}>Sign in</button>
             )}
+            {a.id === usual ? <span class="x def">Default</span> : a.installed && !off && (
+              <button type="button" class="btn" onClick={() => void call('put', { c: 'prefs', id: 'agent', patch: a.id }).catch(fail)}>Make default</button>
+            )}
           </div>
         );
       })}
     </div>
+    </>
   );
 }
 

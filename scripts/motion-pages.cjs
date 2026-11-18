@@ -108,7 +108,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
         row(d, true);
         const now = Date.now();
         push({ t: 'change', rev: ++rev, sets: [{ c: 'thoughts', put: [{ id: d.target.id, rev, text: said.text, strokes: [], source: 'voice', mode: 'ask', phase: 'routed', status: 'routed', reason: null, live: false,
-          project_id: d.target.project_id || ((records.projects || [])[0] || {}).id || null, session_id: null, brief: said.brief || said.text, route: said.route || null, agent: 'claude', model: null, workdir: null,
+          project_id: d.target.project_id || ((records.projects || [])[0] || {}).id || null, session_id: null, brief: said.brief || said.text, route: said.route || null, placed: said.placed || (d.target.project_id ? 'picked' : 'name'), agent: d.target.agent || 'claude', model: null, workdir: null,
           hold_until: now + 5000, read: false, created: now, updated: now }] }] });
       }, said.ms || 600);
       return reply(id, null);
@@ -124,7 +124,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     if (name === 'thought.capture' && args.mode === 'note') {
       rev++;
       push({ t: 'change', rev, sets: [{ c: 'thoughts', put: [{ id: args.id, rev, text: args.text, strokes: [], source: 'typed', mode: 'note', phase: 'captured', status: 'captured',
-        reason: null, live: false, project_id: null, session_id: null, brief: args.text, agent: null, model: null, workdir: null, hold_until: null, read: false, created: Date.now(), updated: Date.now() }] }] });
+        reason: null, live: false, project_id: null, session_id: null, brief: args.text, route: null, placed: 'kept', agent: null, model: null, workdir: null, hold_until: null, read: false, created: Date.now(), updated: Date.now() }] }] });
       return reply(id, null);
     }
     // Keep or Discard: what `settles` holds for the thought is the core's refusal in its own words; else it settles,
@@ -268,7 +268,7 @@ const P1 = 'p-tasktap', P2 = 'p-scratch';
 const id = (n) => `019a8b6c-7d10-7000-8000-${String(n).padStart(12, '0')}`;
 const THOUGHT = (n, status, text, o = {}) => ({
   id: id(n), rev: n, text, strokes: [], source: 'typed', mode: 'ask', phase: status === 'needs_you' ? 'working' : status, status,
-  reason: null, live: status === 'working' || status === 'needs_you', project_id: P1, session_id: id(200 + n), brief: text,
+  reason: null, live: status === 'working' || status === 'needs_you', project_id: P1, session_id: id(200 + n), brief: text, route: null, placed: 'picked',
   agent: 'claude', model: null, workdir: null, hold_until: null, read: false, created: NOW - 3600 + n * 60, updated: NOW - 600 + n * 30, ...o,
 });
 const SESSION = (n, state, activity, o = {}) => ({

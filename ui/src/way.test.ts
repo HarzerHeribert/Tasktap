@@ -6,7 +6,7 @@ import { back, briefOf, clock, hold, into, laterWhy, leave, onWay, placed, placi
 
 const route = (o: Partial<Routing> = {}): Routing => ({ by: 'claude', model: 'haiku', pending: false, fallback: null, quote: null, title: null, ms: 2100, ...o });
 const thought = (o: Partial<Thought> = {}) => ({
-  phase: 'captured', status: 'captured', mode: 'ask', route: null, project_id: null, text: 'make the header stay on one line', brief: null, hold_until: null, created: 1000, ...o,
+  phase: 'captured', status: 'captured', mode: 'ask', route: null, placed: null, project_id: null, text: 'make the header stay on one line', brief: null, hold_until: null, created: 1000, ...o,
 }) as Thought;
 const name = (id: string) => ({ claude: 'Claude Code', codex: 'Codex' })[id] ?? id;
 
@@ -43,25 +43,42 @@ test('the hold is a share of its whole length from the capture, and follows the 
   assert.equal(hold(thought(), 3500), null);
 });
 
-test('how it was placed: by whose model, with the words quoted, or by name with the reason as the core gave it', () => {
-  assert.equal(placed(thought(), name), null);
-  assert.equal(placed(thought({ route: route() }), name), 'Placed by Claude Code · haiku');
-  assert.equal(placed(thought({ route: route({ quote: 'the header again' }) }), name), 'Placed by Claude Code · haiku, because you said “the header again”');
-  assert.equal(placed(thought({ route: route({ by: 'local', model: null }) }), name), 'Placed by name');
-  assert.equal(placed(thought({ route: route({ by: 'local', model: null, fallback: 'claude: it did not answer within 12 s' }) }), name), 'Placed by name. claude: it did not answer within 12 s');
-  const gone = 'Codex no longer offers the model Tasktap asks for routing; routing by name until Tasktap is updated';
-  assert.equal(placed(thought({ route: route({ by: 'local', model: null, fallback: gone }) }), name), `Placed by name. ${gone}`);
-  // The person picked the place: a model wrote the brief at most.
-  assert.equal(placed(thought({ route: route() }), name, true), 'Brief by Claude Code · haiku');
-  assert.equal(placed(thought({ route: route({ fallback: 'claude: it did not answer within 12 s' }) }), name, true), 'Sent in your words. claude: it did not answer within 12 s');
+test('how it came by its place is told from the core\'s word for it, never from who is named in its route', () => {
+  const local = route({ by: 'local', model: null }), slow = 'claude: it did not answer within 12 s';
+  const gone = 'Codex no longer offers the model Tasktap asks for placing; placing by name until Tasktap is updated';
+  const says = (placed_: Thought['placed'], r: Routing | null) => placed(thought({ placed: placed_, route: r }), name);
+  // "Placed by" only where the match on names or a model placed it.
+  assert.equal(says('name', local), 'Placed by name');
+  assert.equal(says('name', route({ ...local, fallback: slow })), `Placed by name. ${slow}`);
+  assert.equal(says('name', route({ ...local, fallback: gone })), `Placed by name. ${gone}`);
+  assert.equal(says('model', route()), 'Placed by Claude Code · haiku');
+  assert.equal(says('model', route({ quote: 'the header again' })), 'Placed by Claude Code · haiku, because you said “the header again”');
+  // The person decided: a pick, a follow-up to the session they were in, an answer to where it should go. A model
+  // wrote the brief at most, and the same route never reads as "Placed by".
+  for (const p of ['picked', 'follow_up', 'answer'] as const) {
+    assert.equal(says(p, null), null);
+    assert.equal(says(p, local), null);
+    assert.equal(says(p, route({ quote: 'the header again' })), 'Brief by Claude Code · haiku');
+    assert.equal(says(p, route({ fallback: slow })), `Sent in your words. ${slow}`);
+  }
+  // No word yet, or the asking was cut short: nothing, or the core's sentence alone.
+  assert.equal(says(null, null), null);
+  assert.equal(says(null, route({ pending: true })), null);
+  assert.equal(says(null, route({ ...local, fallback: 'Tasktap stopped while it was being placed' })), 'Tasktap stopped while it was being placed');
+  // Every word the core has is told from: a new one fails here before it reads as nothing.
+  const words: Record<NonNullable<Thought['placed']>, true> = { picked: true, name: true, model: true, follow_up: true, answer: true, kept: true, kept_answer: true, kept_name: true, kept_model: true };
+  assert.equal(Object.keys(words).length, 9);
 });
 
-test('why a thought waits in For later', () => {
-  assert.equal(laterWhy(thought({ mode: 'note' }), name), 'You saved it for later');
-  assert.equal(laterWhy(thought({ mode: 'note', route: route({ by: 'local', model: null }) }), name), 'It named no folder');
-  assert.equal(laterWhy(thought({ mode: 'note', route: route() }), name), 'Claude Code found no folder for it');
-  assert.equal(laterWhy(thought({ mode: 'note', route: route({ fallback: 'the destination it found is gone' }) }), name), 'It named no folder');
-  assert.equal(laterWhy(thought({ mode: 'note', route: route() }), name, true), 'You kept it for later');
+test('why a thought waits in For later: the four reasons, whatever its route says', () => {
+  const why = (placed_: Thought['placed'], r: Routing | null = null) => laterWhy(thought({ mode: 'note', placed: placed_, route: r }), name);
+  assert.equal(why('kept'), 'You saved it for later');
+  assert.equal(why('kept_answer', route()), 'You kept it for later');
+  assert.equal(why('kept_name', route({ by: 'local', model: null })), 'It named no folder');
+  assert.equal(why('kept_name', route({ by: 'local', model: null, fallback: 'the folder or session it found is gone' })), 'It named no folder');
+  assert.equal(why('kept_model', route()), 'Claude Code found no folder for it');
+  assert.equal(why('kept_model', route({ by: 'codex', model: 'gpt-6-luna' })), 'Codex found no folder for it');
+  assert.equal(why(null, route()), 'Saved for later');
 });
 
 test('placing by a model is on only for what this Tasktap would ask', () => {

@@ -179,7 +179,7 @@ function scene(name, { now = Date.now(), changes = false } = {}) {
     const t = {
       id, rev: 10, text: o.text, strokes: [], source: 'typed', mode: 'ask', phase: status === 'needs_you' ? 'working' : status, status,
       reason: status === 'failed' ? 'turn_failed' : null, live: status === 'working' || status === 'needs_you', project_id: P[o.p], session_id: sid,
-      brief: o.text, agent: o.agent ?? 'claude', model: null, workdir: o.workdir ?? null, hold_until: null, read: o.read ?? false, created, updated,
+      brief: o.text, route: null, placed: 'picked', agent: o.agent ?? 'claude', model: null, workdir: o.workdir ?? null, hold_until: null, read: o.read ?? false, created, updated,
     };
     const ended = o.ended ?? (status === 'done' || status === 'failed');
     sessions.push({
@@ -203,7 +203,7 @@ function scene(name, { now = Date.now(), changes = false } = {}) {
     return tid;
   };
   const idea = (text, age) => thoughts.push({ id: uid(now - age * MIN), rev: 4, text, strokes: [], source: 'typed', mode: 'note', phase: 'captured', status: 'captured',
-    reason: null, live: false, project_id: null, session_id: null, brief: null, agent: 'claude', model: null, workdir: null, hold_until: null, read: false, created: now - age * MIN, updated: now - age * MIN });
+    reason: null, live: false, project_id: null, session_id: null, brief: null, route: null, placed: 'kept', agent: 'claude', model: null, workdir: null, hold_until: null, read: false, created: now - age * MIN, updated: now - age * MIN });
   const workdir = (files, insertions, deletions) => ({ path: '/Users/example/Library/Application Support/Tasktap Next/worktrees/cuegrid-export-pdf', branch: 'tasktap/cuegrid-export-pdf',
     destination: 'main', base: '4f2a91c', left_out: false, changes: 'pending', files, insertions, deletions });
 
@@ -288,7 +288,8 @@ const BRIEF_MORE = {
 };
 
 /** Adds one state of the flows to a scene's records and returns them: a thought being placed, held with its brief,
- *  briefed after a pick, sent on as a follow-up, placed by name after a model failed, asked about, or saved for later;
+ *  briefed after a pick, sent on as a follow-up, placed by name after a model failed, asked about, or saved for later,
+ *  each with the core's word for how it came by its place (`placed`), and the question with what its choices are;
  *  or a dictation that records, is written down, or failed. `lang` en or de, `long` for a long thought and brief,
  *  `voice` for a spoken thought. */
 function flow(records, kind, { lang = 'en', long = false, voice = true, now = Date.now() } = {}) {
@@ -299,8 +300,9 @@ function flow(records, kind, { lang = 'en', long = false, voice = true, now = Da
   const speech = () => (pref('speech_by', { server: 'https://api.openai.com', model: 'gpt-transcribe' }), pref('keys', ['https://api.openai.com']), pref('speech_languages', ['de', 'en']));
   const id = uid(now, 1600);
   const thought = (o) => records.thoughts.push({ id, rev: 60, text, strokes: [], source: voice ? 'voice' : 'typed', mode: 'ask', phase: 'captured', status: 'captured', reason: null, live: false, project_id: null,
-    session_id: null, brief: null, route: null, agent: 'claude', model: null, workdir: null, hold_until: null, read: false, created: now - 1600, updated: now, ...o });
-  const routed = (o) => thought({ phase: 'routed', status: 'routed', project_id: P.cuegrid, brief, hold_until: now + 3400, ...o });
+    session_id: null, brief: null, route: null, placed: null, agent: 'claude', model: null, workdir: null, hold_until: null, read: false, created: now - 1600, updated: now, ...o });
+  const routed = (o) => thought({ phase: 'routed', status: 'routed', project_id: P.cuegrid, brief, hold_until: now + 3400, placed: 'model', ...o });
+  const GONE = 'Codex no longer offers the model Tasktap asks for placing; placing by name until Tasktap is updated';
   const dictation = (o) => (speech(), (records.dictations = [{ id: uid(now, o.ago ?? 0), rev: 61, phase: 'recording', text: '', level: 0, target: { kind: 'thought' }, error: null, ...o }]));
   if (kind !== 'off') pref('route_by', by);
   if (voice) speech();
@@ -311,22 +313,28 @@ function flow(records, kind, { lang = 'en', long = false, voice = true, now = Da
     // Two on their way at once: the newest in full, the one before it as its first line.
     two: () => {
       records.thoughts.push({ id: uid(now, 4000), rev: 59, text: 'Fix the flaky export test in cuegrid', strokes: [], source: 'typed', mode: 'ask', phase: 'routed', status: 'routed', reason: null, live: false,
-        project_id: P.cuegrid, session_id: null, brief: 'Fix the flaky export test in cuegrid', route: local, agent: 'claude', model: null, workdir: null, hold_until: now + 1000, read: false, created: now - 4000, updated: now });
+        project_id: P.cuegrid, session_id: null, brief: 'Fix the flaky export test in cuegrid', route: local, placed: 'name', agent: 'claude', model: null, workdir: null, hold_until: now + 1000, read: false, created: now - 4000, updated: now });
       routed({ project_id: P.fieldnotes, route: model });
     },
-    plain: () => thought({ phase: 'routed', status: 'routed', project_id: P.cuegrid, text: 'Fix the flaky export test in cuegrid', brief: 'Fix the flaky export test in cuegrid', source: 'typed', hold_until: now + 3400, route: local }),
-    briefing: () => routed({ brief: text, hold_until: now + 400, route: { ...model, pending: true, title: null, ms: null } }),
-    followup: () => routed({ session_id: records.ids.timer.session, route: { ...model, title: null, quote: lang === 'de' ? 'der Probentimer' : 'the rehearsal timer' } }),
-    fallback: () => routed({ brief: text, route: { ...local, fallback: 'claude: it did not answer within 12 s' } }),
-    gone: () => routed({ brief: text, route: { ...local, fallback: 'Codex no longer offers the model Tasktap asks for routing; routing by name until Tasktap is updated' } }),
+    plain: () => thought({ phase: 'routed', status: 'routed', project_id: P.cuegrid, text: 'Fix the flaky export test in cuegrid', brief: 'Fix the flaky export test in cuegrid', source: 'typed', hold_until: now + 3400, route: local, placed: 'name' }),
+    briefing: () => routed({ brief: text, hold_until: now + 400, placed: 'picked', route: { ...model, pending: true, title: null, ms: null } }),
+    // A pick the model wrote the brief for; a follow-up to the session the person was in; one a model sent to another session.
+    picked: () => routed({ placed: 'picked', route: model }),
+    followup: () => routed({ session_id: records.ids.timer.session, placed: 'follow_up', route: { ...model, title: null } }),
+    'followup-model': () => routed({ session_id: records.ids.timer.session, route: { ...model, title: null, quote: lang === 'de' ? 'der Probentimer' : 'the rehearsal timer' } }),
+    fallback: () => routed({ brief: text, placed: 'name', route: { ...local, fallback: 'claude: it did not answer within 12 s' } }),
+    gone: () => routed({ brief: text, placed: 'name', route: { ...local, fallback: GONE } }),
     asked: () => {
       thought({ status: 'needs_you', brief, route: model });
       records.questions.unshift({ id: uid(now, 900), rev: 62, thought_id: id, session_id: null, turn: null, source: 'router', prompt: 'Where should this go?', detail: null, reply_via: 'core', state: 'open', answer: null,
-        kind: 'choice', choices: ['cuegrid', 'fieldnotes', 'The codex session in fieldnotes'] });
+        kind: 'choice', choices: ['cuegrid', 'fieldnotes', 'The codex session in fieldnotes'],
+        places: [{ project: P.cuegrid }, { project: P.fieldnotes }, { session: records.ids.search?.session ?? records.ids.sync.session }] });
       records.glance = { ...records.glance, needs_you: records.glance.needs_you + 1, question: records.questions[0].id };
     },
-    later: () => thought({ mode: 'note', text: lang === 'de' ? 'Mal schauen, ob der Export auch als CSV geht' : 'See whether the export could also do CSV', route: local }),
-    'later-gone': () => thought({ mode: 'note', route: { ...local, fallback: 'Codex no longer offers the model Tasktap asks for routing; routing by name until Tasktap is updated' } }),
+    later: () => thought({ mode: 'note', text: lang === 'de' ? 'Mal schauen, ob der Export auch als CSV geht' : 'See whether the export could also do CSV', route: local, placed: 'kept_name' }),
+    'later-model': () => thought({ mode: 'note', route: model, placed: 'kept_model' }),
+    'later-answer': () => thought({ mode: 'note', route: model, placed: 'kept_answer' }),
+    'later-gone': () => thought({ mode: 'note', placed: 'kept_name', route: { ...local, fallback: GONE } }),
     recording: () => dictation({ level: 64, ago: 7000 }),
     'recording-long': () => dictation({ level: 38, ago: 283000 }),
     writing: () => dictation({ phase: 'transcribing', ago: 9000 }),

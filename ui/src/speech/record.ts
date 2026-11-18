@@ -6,7 +6,9 @@
 // loses the window. The page keeps no audio: what the worklet hands over is converted, sent and forgotten.
 //
 // A dictation is one of two things (the core's targets): a new thought, captured as typing and Return would have, or
-// words for a field, which arrive in the dictation's row and are put at the field's caret for the person to send.
+// words for a field, which arrive in the dictation's row and are put at the field's caret for the person to send. A
+// new thought can still end as words: E while it records ("Edit first") ends it there and then, and its words arrive
+// in the field with nothing captured (`dictation.finish` with `as: "text"`).
 import type { DictationTarget } from '../../../core/proto/protocol.ts';
 import { type Stream, uuid7 } from '../client.ts';
 import { call, client, focus, pref, records, redraw } from '../page.ts';
@@ -30,6 +32,8 @@ export const talk = {
   asking: false,
   /** Kept on by a click, until the next click or Return; else it ends with the hold. */
   latched: false,
+  /** A spoken new thought was ended with E: its words go to the field, to be edited before they are sent. */
+  edit: false,
   /** Why voice could not start: `service` for no speech service chosen, else the words to show. */
   said: '',
   /** The checks' switch: a tone made in the page takes the microphone's place, so no microphone is opened. */
@@ -98,7 +102,7 @@ function shut() {
   ending = 0;
 }
 function reset() {
-  Object.assign(talk, { id: '', kind: '', field: null, asking: false, latched: false });
+  Object.assign(talk, { id: '', kind: '', field: null, asking: false, latched: false, edit: false });
 }
 
 /** Starts a dictation for `target`, its words for `field`. False when it could not start; `talk.said` says why. */
@@ -158,7 +162,7 @@ function finish() {
   if (!ear) return;
   shut();
   const id = talk.id;
-  void call('dictation.finish', { id }).catch((e) => {
+  void call('dictation.finish', { id, ...(talk.edit && { as: 'text' as const }) }).catch((e) => {
     if (talk.id !== id) return;
     reset();
     talk.said = e instanceof Error ? e.message : String(e);
@@ -167,10 +171,12 @@ function finish() {
   redraw();
 }
 
-/** Letting go: the microphone stops now, what the worklet still holds is handed over, and the core takes it from there. */
-export function end() {
+/** Letting go: the microphone stops now, what the worklet still holds is handed over, and the core takes it from there.
+ *  `edit`: a new thought ends as its words, in the field. */
+export function end(edit = false) {
   if (talk.asking) return cancel();
   if (!ear || ending) return;
+  talk.edit = edit && talk.kind === 'thought';
   ear.deaf();
   ear.node.port.postMessage(0);
   ending = window.setTimeout(finish, 200);
@@ -230,6 +236,8 @@ document.addEventListener('keydown', (e) => {
   // Escape cancels at any point; Return ends a recording that a click keeps on.
   if (e.key === 'Escape' && (busy || talk.said)) cancel();
   else if (e.key === 'Enter' && ear && talk.latched) end();
+  // E while a new thought records: its words go to the field instead. By the key's place, since ⌥ is held with it.
+  else if (e.code === 'KeyE' && ear && talk.kind === 'thought' && !e.metaKey && !e.ctrlKey && !e.repeat && fieldNow()) end(true);
   else if (e.code === 'Space' && e.altKey && !e.metaKey && !e.ctrlKey && fieldNow()) {
     if (!e.repeat && !wait && !held && !busy) {
       const field = fieldNow();

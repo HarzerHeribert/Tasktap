@@ -134,12 +134,11 @@ export function ChangeActs({ t }: { t: Changed }) {
 /** A thought saved for later: where it waits, and the way on. The one just saved shows its actions without being asked. */
 function LaterRow({ t }: { t: Thought }) {
   const send = () => open({ kind: 'send', thought: t.id });
-  const kept = [...records.questions.values()].some((q) => q.thought_id === t.id && q.source === 'router' && q.answer?.kind === 'deny');
   return (
     <div class={`hr later${t.id === cap.sent?.id ? ' new' : ''}`} data-nav tabIndex={0} title={[t.text, t.route?.fallback].filter(Boolean).join('\n')} onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && (e.preventDefault(), send())}>
       <Mark s="later" />
       <span class="hr-t">{title(t)}</span>
-      <span class="hr-x">{laterWhy(t, agentName, kept)}</span>
+      <span class="hr-x">{laterWhy(t, agentName)}</span>
       <div class="hr-a">
         <button type="button" class="btn" onClick={send}>Send to a folder…</button>
         <button type="button" class="btn" onClick={() => void call('delete', { c: 'thoughts', id: t.id }).catch(fail)}>Drop</button>

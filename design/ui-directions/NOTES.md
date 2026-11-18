@@ -450,16 +450,24 @@ The owner, of Settings: "It does not need its animation with glyphs, and its str
 
 | Section | Key | Rows |
 | --- | --- | --- |
-| Thoughts | ⌘1 | A sent thought starts (`hold`). Placing: by name or by a model, with what it is sent behind one button (`route_by`). From any app: the capture key, as a fact |
-| Voice | ⌘2 | Where speech becomes text: on this Mac (what its model needs, how far its download is, ready, failed, Remove) or by a service (`speech_by`), the service's key (`keys`), the languages (`speech_languages`) |
+| Thoughts | ⌘1 | A sent thought starts (`hold`). Placing: by name or by a model, with what it is sent behind one button (`route_by`). Return in a thought: sends it, or starts a new line (`return_sends`). From any app: the capture key, recorded (`capture_key`). Finished thoughts are kept: for ever, 30 days, 90 days, a year (`keep_days`) |
+| Voice | ⌘2 | Where speech becomes text: on this Mac (what its model needs, how far its download is, ready, failed, Remove) or by a service (`speech_by`), the service's key (`keys`), the languages (`speech_languages`). Hold to talk: its key, recorded (`talk_key`) |
 | Agents | ⌘3 | Each agent: its ring, version, sign-in, Sign in, and which is the default (`agent`). Before, a sheet of its own behind a second button in the rail |
-| Appearance | ⌘4 | The form itself, live; Form, Colour with its hue, Lumen, Effects, and the trial with the voice. The controls are the frozen ones, unchanged; only their place is new |
-| Terminal | ⌘5 | Font, Size, Line height |
+| Appearance | ⌘4 | Text size: small, default, large (`text_size`). Then the form itself, live; Form, Colour with its hue, Lumen, Effects, and the trial with the voice. The controls are the frozen ones, unchanged; only their place is new |
+| Terminal | ⌘5 | Font, Size, Line height. Bold text in bright colours (`terminal_bold_bright`). Keep text readable (`terminal_contrast`) |
 | About | ⌘6 | The version. What leaves this Mac, line by line, each with the way to the section that decides it. What is kept on this Mac. The licences of the bundled fonts and of what turns speech into text on this Mac, their words behind one line |
 
 One row component for every setting and for the forms that ask before something leaves the Mac (`form.tsx` `Row`): the question at the left, the answer readable at a glance at the right, and under it what the choice means only where that matters. Settings opens where it was last, or at the section a link asks for (the Composer's ring, the microphone, the notch: `settings:voice`, `settings:agents`). In the list the arrows move; ⌘1 to ⌘6 reach a section from anywhere in the sheet.
 
-Left out because the core has no preference for them, rather than shown dead: what Return does, a capture key of the person's own (the key is shown as the fact it is), the hold-to-talk key, a terminal's colours, how long history is kept. A notices file for the libraries the app is built from is not bundled; About names them, and shows the words of the two licences that are.
+**Settings the core lacks.** Five were left out at first because the core had no preference for them, rather than shown dead. The core has them now (core design §5, "Settings"), and each is a row where a person looks for it:
+
+- **What Return does** (Thoughts): Sends it, or Starts a new line, with the other key said under it in words (Shift-Return; Command-Return). The Composer follows at once, on Home, in the capture sheet and in the notch: its key shows ⌘ before the Return arrow when Command-Return sends.
+- **The capture key** (Thoughts, "From any app") and **the hold-to-talk key** (Voice) are one recorder (`form.tsx` `Recorder`): the key in use on a cap, in a Mac's order; a click, Return or Space listens, and the next combination pressed is tried. Whoever keeps the key says whether it may be one, in their own sentence under the key, and the key that was in use stays: the host for the capture key (`host.capture_key`: the rule of a shortcut, then the system, which may say another app holds it), the core for the talk key (a plain preference, held to the same rule). Escape stops listening and changes nothing, as does leaving the control. A key of the person's own has "Use the default" beside it. The capture key shown is the one the system registered: where the stored one was refused at start, the row says so, and that the one shown, or none, is in use. Every hint that names the talk key reads the preference. A key is named as the US keyboard prints it; the page does not know the keyboard's layout.
+- **How long finished thoughts are kept** (Thoughts): For ever, 30 days, 90 days, A year; any other number the core holds is shown as one more choice. Under a number: "Applies from the next start, or within a day. Nothing that waits for you is ever removed."
+- **A terminal's colours** stay Default's. The two places Default changes what a program painted are two switches (Terminal), taken by every open terminal at once.
+- **Text size** (Appearance, above the form: it is how the app looks, and it is not the form's): one number, `--ts` in the token file (.92, 1, 1.15), by which every role's size and line height is multiplied and rounded to whole pixels; the key cap's height and the Composer's most lines follow it. A terminal keeps its own size. `scripts/text-sizes.sh` runs the align, type and composer checks at the three sizes and at 720, 1180 and 1800 px.
+
+What remains without a preference: a terminal theme other than Default; the keys of the workspace's own commands; the choice of 30, 90 or 365 days as the only numbers offered (the core takes any from 1 to 3650). A notices file for the libraries the app is built from is not bundled; About names them, and shows the words of the two licences that are.
 
 **One key, one role** (`ui.tsx` `Key`). Keys were shown in three ways (a metal cap in the monospace face at 11 px bold; a hint inside a button in the monospace face at 11 px, at 62 % on metal; "esc" as a dim word), and ⌘, ⌥, ⇧ and ⌫ at 11 px in that face were a few pixels of loops. Both faces were set side by side at 11, 12 and 13 px, at one pixel to a point and at two: the system face draws the modifiers larger and clearer at the same size, as the menus of a Mac do. So:
 
@@ -468,4 +476,40 @@ Left out because the core has no preference for them, rather than shown dead: wh
 - **A hint never shrinks and never squeezes its label.** Where a row has no room for both the hint goes (it wraps out of the button and is cut off there) and stays in the tooltip and the menu.
 - Modifiers stand in a Mac's order, ⌃⌥⇧⌘, then the key; the component orders them, so it cannot be written otherwise.
 - `scripts/align-check.cjs` holds every key in both pages, in every fixture state, to the role's size and weight, to 4.5 : 1, to the order, and to being whole; `scripts/type-check.cjs` holds the role to keys and keys to the role.
+
+## 12. Previews beside a terminal (2026-11-18)
+
+What an agent made or serves is seen beside its session instead of in another app: it says "open http://localhost:5173", or writes a picture, a PDF, a report or its notes, and the person looks to the right.
+
+**What a ⌘-click does now** (a rule a person can tell before clicking, by the link's own text):
+
+| The link is | ⌘-click | ⌥⌘-click (the other of the two) | ⇧⌘-click |
+| --- | --- | --- | --- |
+| A web address of this machine (`localhost`, `127.…`, `[::1]`) | Shown beside the terminal | The browser | The browser |
+| Any other web address | The browser | The browser (the core shows none) | The browser |
+| A file named `.png .jpg .jpeg .gif .webp .svg .pdf .html .htm .md .markdown` | Shown beside the terminal | The editor if it is text, else Finder | Finder |
+| Any other file | The editor if it is text, else Finder, as before | Shown beside the terminal (text as text) | Finder |
+
+A link inside a Markdown preview follows the same rule with a plain click, from the folder its file is in. What the core will not show (a file that is not there, one outside the folders the person opened, the ninth beside one terminal) is said in its own sentence in a strip under the terminal, with "Open It Instead" and "Dismiss". An agent opens one itself with `tasktap preview <file or address>` in its terminal: it appears beside that terminal, nothing is selected and the keyboard stays where it was, also in focus mode.
+
+**Where it lives.** A preview is a tab like a terminal's, and the layout places it (`layout.ts` `beside`): the first beside a pane of terminals splits that pane and takes its right half; every later one of the terminals in that pane is a tab of the same preview pane, the newest in front. **Tabs, not a pane each**: the core allows eight beside one terminal, and eight panes beside one terminal at 1180 px are 60 px each; one pane of previews beside one pane of terminals is also what the eye pairs. Its tab carries an eye, or, opened by an agent, the agent's own mark (a terminal's mark where no agent's session is in it); its close button and ⌘W close it for good (`delete {c: previews}`). A tab drags like any other. Under the tabs one line says what is shown (opened by whom; the path, cut at its start, or the address; a picture's size) and holds what can be done: Real Size or Fit for a picture, Reload ⌘R, and the one place it also opens: Open in Browser, Open in Editor, Show in Finder. A terminal sent to the background takes its previews out of the layout and brings them back with it.
+
+**How each kind is drawn**, with what an agent wrote treated as not the app's:
+
+| Kind | Drawn by | Why it is safe |
+| --- | --- | --- |
+| Picture (PNG, JPEG, GIF, WebP) and drawing (SVG) | The page, as an image from the bytes `file.read` gave: fitted, real size on a click | An image runs nothing and loads nothing, an SVG included |
+| Markdown | The page, from plain data (`markdown.ts`, about 110 lines, no dependency) into the type roles: a title in `question`, headings in `title` and `label`, the rest `text`, code in `code` | No markup is ever made from the file: raw HTML in it is the words it is |
+| Text | The page, as it is, in `code` | Text |
+| A page (HTML), a local web address | A frame, sandboxed (scripts and forms; no way to the window around it, no new windows) | The frame's address is never the app's: a file comes from the host's own server on this machine, an address is loaded as it is. The host answers no command from any address but the app's, blocks every load that is not this machine's, and stops every navigation elsewhere (`host/src/frames.rs`) |
+| PDF | The web view's own viewer, in a frame from the host's server | Chosen over "show it in Preview.app": the point is not to leave. WebKit draws no PDF in a sandboxed frame (tried with each of the sandbox's permissions), so this one frame has no sandbox; it is held by the host's three rules like every frame, and the host's server calls a file a PDF by its first bytes, so that frame is never handed a page |
+| Anything else | Not shown: "A file of this kind is not shown here", with Show in Finder | |
+
+Text and Markdown are drawn up to 256 KiB (the core cuts text at 2 MiB); where either cut it, the foot says "It goes on: only its beginning is shown here" with Open in Editor. A frame that tries to leave this machine is stopped by the host, and the pane says where it wanted to go, with Open in Browser and Dismiss: nothing is opened by itself.
+
+**Staying current, with nothing running.** A preview asks whether its file changed (`file.read` with the stamp it has: one `stat` in the core) when its terminal has printed something and been quiet for 400 ms, when the window comes back into use, and on Reload. A local address nothing answers at says so, is asked again at the same moments (one attempt to connect, by the host), and is shown once its server answers; a page that is shown is reloaded only by Reload, since its own server keeps it current.
+
+**Keys**, in the View menu: ⌘P moves the keyboard from a terminal to the preview beside it and back; ⌘R reloads the preview in front, or the one beside the terminal in use; ⌘W closes it.
+
+**Drawn and not chosen:** a pane for every preview (above); the preview as a strip under its terminal (a page or a picture wants height, and the strip is the question's and the result's); selecting the preview's pane when the person opens one (they clicked in a terminal they are typing in; the pointer scrolls a preview without the keyboard).
 

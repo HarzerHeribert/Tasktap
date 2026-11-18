@@ -53,6 +53,9 @@ const VIEWS = [
   ['normal', '', 'held'], ['normal', '', 'two'], ['normal', '', 'placing'], ['normal', '', 'gone'], ['busy', '', 'asked'], ['normal', `(w) => (w.__ws.ui.fold = 'later')`, 'later-gone'],
   ['normal', mine, 'recording'], ['normal', mine, 'writing'], ['normal', mine, 'failed-heard'], ['normal', `(w) => (w.__speech.talk.said = 'service')`, 'no-service', { voice: false }],
   ['busy', `(w) => (w.__ws.ui.sheet = { kind: 'session', id: [...w.__ws.records.sessions.values()].find((s) => s.turn > 1).id })`, 'session'],
+  ...['previews', 'preview-notes', 'preview-text', 'preview-gone', 'preview-other', 'preview-web'].map((kind) => ['workspace', `(w) => w.__ws.show(w.__fake.records.ids.projects.cuegrid)`, kind]),
+  ['workspace', `(w) => (w.__ws.show(w.__fake.records.ids.projects.cuegrid), w.__ws.follow(w.__fake.records.ids.timer.terminal, { kind: 'path', target: 'notes/missing.md' }, '/Users/example/projects/cuegrid', {}))`, 'preview-notes'],
+  ['busy', `(w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'thoughts' }, w.__motion.redraw(), w.setTimeout(() => w.document.querySelector('.rec').click(), 100))`],
   ['normal', sheet({ kind: 'placing' }), 'off'], ['normal', sheet({ kind: 'speech' }), 'no-service', { voice: false }], ['first-folder', '', 'off'],
 ];
 const NOTCH = [

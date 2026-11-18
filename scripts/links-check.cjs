@@ -31,6 +31,7 @@ const state = ([id, needle]) => {
     hand: getComputedStyle(e.element.querySelector('.xterm-screen')).cursor === 'pointer',
     tip: tip && getComputedStyle(tip).display !== 'none' ? tip.textContent : '',
     opened: window.__fake.opened.map((o) => `${o.reveal ? 'show ' : ''}${o.real}`),
+    previews: [...window.__ws.records.previews.values()].map((p) => p.target),
     needle,
   };
 };
@@ -52,10 +53,10 @@ async function main(out) {
     // name, terminal, the text pointed at, what the host is asked to open, what the foot says (nothing: the text says it).
     const links = [
       ['path', records.ids.timer.terminal, 'src/rehearsal/Timer.tsx', real('src/rehearsal/Timer.tsx'), '~/projects/cuegrid/src/rehearsal/Timer.tsx'],
-      ['address', records.ids.devsrv.terminal, 'http://localhost:5173/', 'http://localhost:5173/', ''],
+      ['address', records.ids.devsrv.terminal, 'http://localhost:5173/', 'http://localhost:5173/', '', true],
       ['hyperlink', records.ids.devsrv.terminal, 'the shared preview', 'https://preview.cuegrid.example/rehearsal-05', 'https://preview.cuegrid.example/rehearsal-05'],
     ];
-    for (const [name, id, needle, target, says] of links) {
+    for (const [name, id, needle, target, says, shown] of links) {
       const at = await page.evaluate(where, [id, needle]);
       if (!at) { failures.push(`${name}: ${needle} is not on the screen`); continue; }
       const before = (await page.evaluate(state, [id, needle])).opened.length;
@@ -82,7 +83,18 @@ async function main(out) {
       await page.keyboard.up('Meta');
       await page.waitForTimeout(200);
       s = await page.evaluate(state, [id, needle]);
-      expect(s.opened.at(-2) === target && s.opened.at(-1) === `show ${target}`, `${name}: ⌘-click and ⇧⌘-click asked the host for ${JSON.stringify(s.opened.slice(before))}`);
+      // What can be shown beside the terminal (an address of this machine) is, by ⌘-click; the host is asked for the rest.
+      if (shown) expect(s.previews.includes(target) && s.opened.length === before + 1 && s.opened.at(-1) === `show ${target}`, `${name}: ⌘-click did not show it beside the terminal (${JSON.stringify(s.previews)}), or ⇧⌘-click asked the host for ${JSON.stringify(s.opened.slice(before))}`);
+      else expect(s.opened.at(-2) === target && s.opened.at(-1) === `show ${target}` && !s.previews.includes(target), `${name}: ⌘-click and ⇧⌘-click asked the host for ${JSON.stringify(s.opened.slice(before))}`);
+      // ⌥ does the other of the two: what is previewed goes to the host, what is not is shown beside the terminal.
+      await page.keyboard.down('Meta');
+      await page.keyboard.down('Alt');
+      await page.mouse.click(at.x, at.y);
+      await page.keyboard.up('Alt');
+      await page.keyboard.up('Meta');
+      await page.waitForTimeout(250);
+      s = await page.evaluate(state, [id, needle]);
+      if (name !== 'hyperlink') expect(shown ? s.opened.at(-1) === target : s.previews.includes(target), `${name}: ⌥⌘-click did not do the other of the two (${JSON.stringify([s.previews, s.opened.slice(before)])})`);
       expect(!s.underlined && !s.tip, `${name}: it still shows as a link once ⌘ is let go`);
     }
     // A path nothing is at is no link, even with ⌘.
@@ -101,7 +113,7 @@ async function main(out) {
   }
   for (const f of failures) console.log(`FAIL  ${f}`);
   console.log(failures.length ? `FAIL  links in terminals: ${failures.length} things wrong`
-    : 'PASS  in a terminal a path that exists, a web address and a program\'s own hyperlink are links only while ⌘ is held: underlined under the pointer, opened through the host by ⌘-click, shown in Finder by ⇧⌘-click, their real target said where the text does not say it; a plain click opens nothing, and a path nothing is at is no link');
+    : 'PASS  in a terminal a path that exists, a web address and a program\'s own hyperlink are links only while ⌘ is held: underlined under the pointer, shown beside the terminal by ⌘-click where it can be (a web address of this machine) and opened through the host otherwise, the other of the two by ⌥⌘-click, shown in Finder by ⇧⌘-click, their real target said where the text does not say it; a plain click opens nothing, and a path nothing is at is no link');
   if (failures.length) process.exitCode = 1;
 }
 main(process.argv[2] && path.resolve(process.argv[2])).catch((e) => (console.error(e), process.exit(1)));

@@ -292,6 +292,9 @@ async function main() {
     ['normal', (w) => (w.__speech.talk.said = 'service'), 'no-service', { voice: false }],
     ['normal', (w) => (w.__ws.ui.sheet = { kind: 'placing' }), 'off'], ['normal', (w) => (w.__ws.ui.sheet = { kind: 'speech' }), 'no-service', { voice: false }],
     ['normal', (w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'thoughts' }), 'plain'], ['normal', (w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'voice' }), 'plain'],
+    ['normal', (w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'terminal' }), 'plain'],
+    // Previews beside a terminal: what the person opened and what the agent did, text that is cut, a file that is gone.
+    ...['previews', 'preview-text', 'preview-gone', 'preview-web'].map((kind) => ['workspace', (w) => w.__ws.show(w.__fake.records.ids.projects.cuegrid), kind]),
   ];
   // The key role, from the token file: no key is set smaller or lighter.
   const [, weight, size] = /--f-key:(\d+) round\(([\d.]+)px/.exec(require('node:fs').readFileSync(path.resolve(__dirname, '../ui/src/tokens.css'), 'utf8'));

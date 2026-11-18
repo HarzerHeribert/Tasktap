@@ -5,7 +5,8 @@
      as a local web address (served by frame-fixture.py) and as a file of a project (served by the host). Its address
      says what to try with: `remote`, an address that reaches this machine and that the rule calls remote; `outside`,
      the address a file outside the opened folders would have on the host's server; `inside`, a file beside this one;
-     `local`, another server of this machine. What came of each try is said to the page around it, which a check
+     `local`, another server of this machine; `literal`, a second loopback address the check's server listens on
+     (Windows). What came of each try is said to the page around it, which a check
      listens to and the app never does; `go=away` or `go=redirect` then tries to leave for the web. -->
 <body style="font:14px system-ui;margin:20px;color:#ddd;background:#111">
 <p id="said">Probing…</p>
@@ -30,6 +31,18 @@ const got = (url, how) => fetch(url, how).then((r) => (r.type === 'opaque' ? 'lo
     said.handler = 'posted';
   } catch { said.handler = 'none'; }
   said.protocol = await got('ipc://localhost/debug_report', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Tauri-Callback': '1', 'Tauri-Error': '2' }, body: JSON.stringify({ label: 'probe', data: 'REACHED-BY-PROTOCOL' }) });
+  // The same on Windows, where the web view is WebView2: its message channel, the protocol under the name it has
+  // there, and the app's own call, which WebView2 leaves in every frame (it runs the app's start-up scripts in all
+  // of them), so there the host's refusal is the whole of the rule.
+  try {
+    window.chrome.webview.postMessage(JSON.stringify({ cmd: 'debug_report', callback: 1, error: 2, payload: { label: 'probe', data: 'REACHED-BY-CHANNEL' }, options: {} }));
+    said.channel = 'posted';
+  } catch { said.channel = 'none'; }
+  said.named = await got('http://ipc.localhost/debug_report', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Tauri-Callback': '1', 'Tauri-Error': '2' }, body: JSON.stringify({ label: 'probe', data: 'REACHED-BY-NAME' }) });
+  said.invoke = typeof window.__TAURI_INTERNALS__?.invoke !== 'function' ? 'none' : await Promise.race([
+    window.__TAURI_INTERNALS__.invoke('debug_report', { label: 'probe', data: 'REACHED-BY-INVOKE' }).then(() => 'answered', (e) => 'refused: ' + e),
+    new Promise((done) => setTimeout(() => done('nothing'), 3000)),
+  ]);
   // A window of its own.
   try { said.window = window.open(q.get('remote') ? `http://${q.get('remote')}/leak-window` : 'about:blank') ? 'opened' : 'refused'; } catch { said.window = 'refused'; }
   // The network: an address the rule calls remote, as a picture, a request and a frame.
@@ -37,7 +50,25 @@ const got = (url, how) => fetch(url, how).then((r) => (r.type === 'opaque' ? 'lo
     said.picture = await img(`http://${q.get('remote')}/leak-picture`);
     said.request = await got(`http://${q.get('remote')}/leak-request`, { mode: 'no-cors' });
     said.frame = await loads(() => Object.assign(document.createElement('iframe'), { src: `http://${q.get('remote')}/leak-frame`, hidden: true }));
+    said.socket = await new Promise((done) => {
+      try {
+        const socket = new WebSocket(`ws://${q.get('remote')}/leak-socket`);
+        socket.onopen = () => done('loaded');
+        socket.onerror = () => done('refused');
+      } catch { done('refused'); }
+      setTimeout(() => done('nothing'), 3000);
+    });
   }
+  // A socket to an address of this machine that is written as numbers and is not one of the three the web view
+  // on Windows is let through to: whether what holds its sockets back holds an address back as it does a name.
+  if (q.get('literal')) said.literal = await new Promise((done) => {
+    try {
+      const socket = new WebSocket(`ws://${q.get('literal')}/leak-literal`);
+      socket.onopen = () => done('loaded');
+      socket.onerror = () => done('refused');
+    } catch { done('refused'); }
+    setTimeout(() => done('nothing'), 3000);
+  });
   // Files: one beside this page, one outside the folders the person opened, and another server of this machine.
   if (q.get('inside')) said.inside = await got(q.get('inside'));
   if (q.get('outside')) said.outside = await got(q.get('outside'));

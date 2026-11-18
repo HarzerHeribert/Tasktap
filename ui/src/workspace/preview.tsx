@@ -20,7 +20,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
 import { CallError, type Stream } from '../client.ts';
 import { I, Key } from '../ui.tsx';
-import { FILES, HERE, shownPath } from '../system.ts';
+import { FILES, HERE, asAddress, shownPath } from '../system.ts';
 import * as L from './layout.ts';
 import { type Block, type Inline, parse } from './markdown.ts';
 import { type Item } from './menu.ts';
@@ -298,7 +298,7 @@ export function Preview({ p, project, select }: { p: Row; project: string; selec
         </div>
       ) : framed && v.base ? (
         <iframe key={v.turn} ref={frame} class="pv-f" title={p.title} referrerpolicy="no-referrer" sandbox={kind === 'pdf' ? undefined : SANDBOX}
-          src={web ? p.target : v.base + encodeURI(p.target).replace(/[?#]/g, encodeURIComponent)} />
+          src={web ? p.target : v.base + encodeURI(asAddress(p.target)).replace(/[?#]/g, encodeURIComponent)} />
       ) : v.picture ? (
         <div class={`pv-b pv-p${v.real ? ' real' : ''}`} tabIndex={-1}>
           <img src={v.picture} alt={p.title} draggable={false} title={v.real ? 'Click to fit it' : 'Click for its real size'}

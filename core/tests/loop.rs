@@ -195,7 +195,8 @@ fn the_loop() {
 /// launcher started: nothing goes in the moment the limit is set, nor
 /// before a day has passed, nor while the thought is only as old as the
 /// limit; a day later it goes, and with it its result, its session, the
-/// terminal it ran in and that terminal's history on disk.
+/// terminal it ran in, that terminal's history on disk and what was shown
+/// beside it.
 #[test]
 fn what_a_run_left_goes_once_it_is_older_than_the_person_keeps_it() {
     const DAY: u64 = 24 * 60 * 60 * 1000;
@@ -230,6 +231,14 @@ fn what_a_run_left_goes_once_it_is_older_than_the_person_keeps_it() {
         .join("scrollback")
         .join(terminal.uuid().to_string());
     assert!(history.exists(), "{history:?}");
+    // What was shown beside the session's terminal is still shown, now that it has ended.
+    let shown = tasktap_proto::OpenPreview {
+        terminal: Some(terminal),
+        target: "http://localhost:5173/".into(),
+        cwd: None,
+    };
+    let preview = s.w.ok::<call::PreviewOpen>(&shown);
+    assert!(s.w.model.previews.contains_key(&preview));
 
     // For ever, and then two days again: setting the limit removes nothing,
     // though the thought is three days old.
@@ -256,6 +265,7 @@ fn what_a_run_left_goes_once_it_is_older_than_the_person_keeps_it() {
     assert!(!m.thoughts.contains_key(&t), "34 days old, 33 kept");
     assert!(m.results.is_empty() && m.sessions.is_empty(), "{m:?}");
     assert!(!m.terminals.contains_key(&terminal));
+    assert!(m.previews.is_empty(), "its previews closed with it");
     assert!(!history.exists(), "its history went with it");
     let page = tasktap_proto::History {
         before: None,

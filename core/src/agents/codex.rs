@@ -244,6 +244,7 @@ impl Agent for Codex {
                 args.extend([schema.file.to_string_lossy().into_owned(), "-".into()]);
                 args
             },
+            stdin: str::to_owned,
             answer: |out| match serde_json::from_str::<Value>(out.trim()) {
                 Ok(Value::Object(_)) => Ok(out.trim().into()),
                 _ => Err("it printed no answer".into()),

@@ -27,6 +27,7 @@ pub struct Rules {
 const RULES: &[&Rules] = &[
     &super::codex::RULES,
     &super::claude::RULES,
+    &super::antigravity::RULES,
     #[cfg(feature = "fixtures")]
     &FIXTURE,
 ];
@@ -53,6 +54,8 @@ const VALUE_OPTIONS: &[&str] = &[
     "--add-dir", "-a", "--ask-for-approval", "--provider", "--api-key", "--permission-mode",
     "--settings", "--session-id", "--resume", "--agent", "--format", "--output-format",
     "--input-format", "-e", "--extension", "--thinking", "--remote", "--remote-auth-token-env",
+    "--conversation", "--effort", "--mode", "--project", "--log-file", "--json-schema",
+    "--print-timeout", "--prompt-interactive", "-i",
 ];
 
 impl Rules {
@@ -127,6 +130,14 @@ mod tests {
             ("codex", &["-c", "model=o3", "resume"], true),
             ("codex", &["-p", "work"], true),
             ("codex", &["--json"], false),
+            ("agy", &[], true),
+            ("agy", &["-i", "fix the bug"], true),
+            ("agy", &["--conversation", "abc"], true),
+            ("agy", &["-p", "hi"], false),
+            ("agy", &["--prompt", "hi"], false),
+            ("agy", &["models"], false),
+            ("agy", &["--model", "gemini-4-carbon-low", "acp"], false),
+            ("agy", &["--model", "models"], true),
         ] {
             assert_eq!(
                 rules(agent).interactive(&words(args)),
@@ -155,6 +166,9 @@ mod tests {
             ("codex", &[], &["--approve-for-me"]),
             ("codex", &["-c", "approval_policy=never"], &[]),
             ("codex", &["--sandbox=read-only"], &[]),
+            // Antigravity keeps the mode the person set: none is added.
+            ("agy", &[], &[]),
+            ("agy", &["--mode", "plan"], &[]),
         ] {
             assert_eq!(
                 rules(agent).approval(&words(args)),

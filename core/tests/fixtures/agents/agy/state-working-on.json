@@ -1,0 +1,49 @@
+{
+  "cwd": "/tmp/project",
+  "session_id": "11111111-2222-4333-8444-555555555555",
+  "conversation_id": "11111111-2222-4333-8444-555555555555",
+  "transcript_path": "/home/person/.gemini/antigravity/brain/11111111-2222-4333-8444-555555555555/.system_generated/logs/transcript.jsonl",
+  "model": {
+    "id": "Gemini 3.8 Flash (Low)",
+    "display_name": "Gemini 3.8 Flash (Low)",
+    "effort": "low"
+  },
+  "workspace": {
+    "current_dir": "/tmp/project",
+    "project_dir": "/tmp/project"
+  },
+  "version": "1.5.11",
+  "context_window": {
+    "total_input_tokens": 13436,
+    "total_output_tokens": 40,
+    "context_window_size": 1048576,
+    "used_percentage": 1.2813568115234375,
+    "remaining_percentage": 98.71864318847656,
+    "current_usage": {
+      "input_tokens": 9524,
+      "output_tokens": 40,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+    }
+  },
+  "exceeds_200k_tokens": false,
+  "product": "antigravity",
+  "quota": {
+    "gemini-5h": {
+      "remaining_fraction": 1,
+      "reset_time": "2026-01-01T00:00:00Z",
+      "reset_in_seconds": 18000
+    }
+  },
+  "agent_state": "working",
+  "vcs": {
+    "type": "git"
+  },
+  "cycle_mode": "accept-edits",
+  "sandbox": {
+    "enabled": false
+  },
+  "plan_tier": "A plan",
+  "email": "person@example.com",
+  "terminal_width": 120
+}

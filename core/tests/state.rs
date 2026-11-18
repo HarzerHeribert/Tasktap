@@ -1128,6 +1128,29 @@ fn row_turn_started_in_an_open_turn_interrupts_it_first() {
 }
 
 #[test]
+fn row_turn_started_without_a_prompt_in_an_open_turn_goes_on() {
+    let mut w = World::new("goes-on");
+    let (t, s) = w.turn();
+    let waited = w.ask(s, ReplyVia::Core);
+    let in_terminal = w.ask(s, ReplyVia::Terminal);
+    // An agent that reports its state says it is at work whenever that
+    // state comes: the turn is the same one, and what it asked in its
+    // terminal was answered there.
+    assert_eq!(w.say(s, Said::TurnStarted { prompt: None }).unwrap(), NONE);
+    assert_eq!(w.question(in_terminal).state, QuestionState::Answered);
+    assert_eq!(w.question(waited).state, QuestionState::Open);
+    let session = w.session(s);
+    assert_eq!((session.state, session.turn), (SessionState::Working, 1));
+    assert_eq!(session.thought_id, Some(t));
+    assert_eq!(w.thought(t).phase, Phase::Working);
+    // Said again with nothing open, nothing changes; its end is the thought's.
+    assert_eq!(w.say(s, Said::TurnStarted { prompt: None }).unwrap(), NONE);
+    let answer = Some("done".to_string());
+    w.say(s, Said::TurnFinished { answer }).unwrap();
+    assert_eq!(w.thought(t).phase, Phase::Done);
+}
+
+#[test]
 fn row_turn_started_by_hand_creates_its_thought() {
     let mut w = World::new("typed");
     let (t, s) = w.turn();

@@ -50,7 +50,7 @@ export function agent(): AgentHealth | undefined {
   return all.find((a) => a.id === id) ?? (id ? undefined : all[0]);
 }
 
-const agents: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', fixture: 'Fixture agent' };
+const agents: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', agy: 'Antigravity', fixture: 'Fixture agent' };
 export const agentName = (id: string | null | undefined) => (id ? (agents[id] ?? id) : 'Agent');
 export const projectName = (id: string | null | undefined) => (id && records.projects.get(id)?.name) || 'For later';
 export const title = (t: Thought | undefined) => {

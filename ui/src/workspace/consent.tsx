@@ -77,7 +77,7 @@ export function PlacingSheet({ back }: { back?: boolean }) {
               {tools.map((x) => (
                 <button type="button" class="line tool" role="radio" aria-checked={x === chosen}
                   onClick={(e) => (setPick(x.agent), focus(e.currentTarget.closest<HTMLElement>('.sheet')))}>
-                  <Ring agent={x.agent} s="" /><span class="t">{agentName(x.agent)}</span><span class="x">its small model, {x.model}, under the sign-in it already has</span>
+                  <Ring agent={x.agent} s="" /><span class="t">{agentName(x.agent)}</span><span class="x">its small model, {x.model}, under the sign-in it already has{x.agent === 'agy' && '; each placing stays in its history'}</span>
                 </button>
               ))}
             </div>

@@ -643,7 +643,7 @@ fn an_agent_typed_in_a_shell_of_the_core_is_adopted() {
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     shims.sort();
-    assert_eq!(shims, ["claude", "codex", "fixture", "tasktap"]);
+    assert_eq!(shims, ["agy", "claude", "codex", "fixture", "tasktap"]);
     let typed = b"fixture event:ready event:turn_started:tidy exit:4\r";
     c.write(shell, typed).unwrap();
     let ended = |m: &Model| {

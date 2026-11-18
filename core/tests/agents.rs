@@ -1,9 +1,10 @@
-//! The adapters of Claude Code and Codex (design §7, §14 D): what their
-//! hooks say in the core's one vocabulary, what a hook that waited prints
-//! for each, their command lines, Codex's hook-trust probe and detection.
-//! The payloads are recorded from the real tools (Claude Code 2.1.326, Codex
-//! 0.169.0) in `tests/fixtures/agents/`, with paths, ids and anything
-//! personal replaced, so the suite needs neither tool. The live runs are in
+//! The adapters of Claude Code, Codex and Antigravity (design §7, §14 D):
+//! what their hooks say in the core's one vocabulary, what a hook that
+//! waited prints for each, their command lines, Codex's hook-trust probe
+//! and detection. The payloads are recorded from the real tools (Claude
+//! Code 2.1.326, Codex 0.169.0, Antigravity 1.5.11) in
+//! `tests/fixtures/agents/`, with paths, ids and anything personal
+//! replaced, so the suite needs none of the tools. The live runs are in
 //! `tests/live.rs`, ignored by default.
 //!
 //! The adapters are pure functions, called here as the `tasktap hook` role
@@ -577,6 +578,388 @@ fn each_agent_says_whether_it_is_signed_in_and_as_whom() {
     assert_eq!((codex.account_of)(None, ""), (None, None));
 }
 
+// Antigravity says what state it is in, not what happened (design §7).
+
+/// The end of a transcript as Antigravity kept it then.
+fn transcript(name: &str) -> String {
+    printed(&format!("agy/transcript-{name}.jsonl"))
+}
+
+/// What a state says once the hook has read `transcript`, as the role does.
+fn read(name: &str, transcript: Option<&str>) -> SessionEvent {
+    match heard("agy", &payload("agy", name)) {
+        Some(Heard::Read { event, files, fill }) => {
+            // Where 1.5 really keeps it, the full one first; then as the state names it.
+            let files: Vec<_> = files.iter().map(|f| f.to_string_lossy()).collect();
+            let (cli, named) = (
+                "/.gemini/antigravity-cli/brain/",
+                "/.gemini/antigravity/brain/",
+            );
+            assert_eq!(files.len(), 4, "{files:?}");
+            assert!(files[0].contains(cli) && files[0].ends_with("/logs/transcript_full.jsonl"));
+            assert!(files[1].contains(named) && files[1].ends_with("/logs/transcript_full.jsonl"));
+            assert!(files[2].contains(cli) && files[2].ends_with("/logs/transcript.jsonl"));
+            assert!(files[3].contains(named) && files[3].ends_with("/logs/transcript.jsonl"));
+            let filled = transcript.and_then(|end| fill(&event, end));
+            filled.unwrap_or(event)
+        }
+        other => panic!("agy {name}: {other:?}"),
+    }
+}
+
+#[test]
+fn antigravitys_states_map_to_the_one_vocabulary() {
+    const TALK: &str = "11111111-2222-4333-8444-555555555555";
+    // Signing in, with no conversation yet: nothing. Then idle: ready.
+    assert!(heard("agy", &payload("agy", "state-authenticating")).is_none());
+    let ready = event("agy", "state-ready");
+    assert_eq!((ready.id.as_str(), &ready.event), ("ready", &Event::Ready));
+    assert_eq!(ready.resume, None);
+    // At work: a turn starts, with no prompt, since its state names none.
+    let working = event("agy", "state-working");
+    assert_eq!(working.event, Event::TurnStarted { prompt: None });
+    assert_eq!(working.id, format!("working:{TALK}:0"));
+    assert_eq!(working.resume.as_deref(), Some(TALK));
+    assert_eq!(working.turn, None);
+    // The same state again is the same event; after its next step, another.
+    assert_eq!(event("agy", "state-working").id, working.id);
+    let on = event("agy", "state-working-on");
+    assert_eq!(on.event, Event::TurnStarted { prompt: None });
+    assert_eq!(on.id, format!("working:{TALK}:40"));
+
+    // It waits for an approval in its terminal: what it asks to do is the
+    // last step of its transcript.
+    let asked = read("state-approval", Some(&transcript("approval")));
+    assert_eq!(asked.id, format!("question:{TALK}:40"));
+    let Event::Question { question } = asked.event else {
+        panic!("{asked:?}");
+    };
+    assert_eq!(question.request, asked.id);
+    assert_eq!(question.prompt, "Antigravity asks to run touch made.txt");
+    assert_eq!(question.kind, QuestionKind::Confirm);
+    assert_eq!(
+        question.source,
+        Some(tasktap_proto::QuestionSource::Permission)
+    );
+    let detail: Value = serde_json::from_str(question.detail.as_deref().unwrap()).unwrap();
+    assert_eq!(detail["CommandLine"], "touch made.txt");
+    // Without the transcript it still says that it waits there.
+    let Event::Question { question } = read("state-approval", None).event else {
+        panic!();
+    };
+    assert_eq!(
+        (question.prompt.as_str(), question.detail),
+        (
+            "Antigravity is asking for an approval in its terminal",
+            None
+        )
+    );
+
+    // A question it asks with its own tool looks like any tool in use; the
+    // transcript says it is one, with its options.
+    let asked = read("state-question", Some(&transcript("question")));
+    assert_eq!(asked.id, format!("question:{TALK}:45"));
+    let Event::Question { question } = asked.event else {
+        panic!("{asked:?}");
+    };
+    assert_eq!(question.prompt, "Which color do you choose?");
+    let choices = ["(Recommended) red", "blue"].map(String::from).to_vec();
+    assert_eq!(question.kind, QuestionKind::Choice { choices });
+    assert_eq!(question.source, None);
+    // Any other tool in use, or a transcript that cannot be read: at work.
+    for end in [Some(transcript("approval")), None] {
+        let using = read("state-question", end.as_deref());
+        assert_eq!(using.event, Event::TurnStarted { prompt: None });
+        assert_eq!(using.id, format!("working:{TALK}:45"));
+    }
+
+    // Idle in a conversation: the turn finished, with the last thing it
+    // said since the prompt.
+    let done = read("state-idle", Some(&transcript("finished")));
+    assert_eq!(done.id, format!("idle:{TALK}:52"));
+    let said = "The file `made.txt` has been successfully created.";
+    let answer = Some(said.to_owned());
+    assert_eq!(done.event, Event::TurnFinished { answer });
+    // A transcript whose end is not a message of this turn gives none.
+    let asked_only = read("state-idle", Some(&transcript("approval")));
+    assert_eq!(asked_only.event, Event::TurnFinished { answer: None });
+    assert_eq!(
+        read("state-idle", None).event,
+        Event::TurnFinished { answer: None }
+    );
+
+    // Not recorded live: waiting for a review of a plan, and an error.
+    let reviewing = changed(
+        "agy",
+        "state-working-on",
+        json!({ "agent_state": "reviewing" }),
+    );
+    let Some(Heard::Event(review)) = heard("agy", &reviewing) else {
+        panic!();
+    };
+    let Event::Question { question } = review.event else {
+        panic!();
+    };
+    assert_eq!(
+        question.prompt,
+        "Antigravity is waiting for your review in its terminal"
+    );
+    let failed = changed("agy", "state-idle", json!({ "agent_state": "error" }));
+    let Some(Heard::Read { event, fill, .. }) = heard("agy", &failed) else {
+        panic!();
+    };
+    assert_eq!(event.id, format!("error:{TALK}:52"));
+    let step =
+        r#"{"step_index":4,"type":"GENERIC","status":"ERROR","error":"the model is overloaded"}"#;
+    let error = Some("the model is overloaded".to_owned());
+    assert_eq!(
+        fill(&event, step).unwrap().event,
+        Event::TurnFailed { error }
+    );
+    // The short transcript keeps the questions as their JSON text: the same question.
+    let short = transcript("question").replace(
+        r#""questions":[{"is_multi_select":false,"options":["(Recommended) red","blue"],"question":"Which color do you choose?"}]"#,
+        r#""questions":"[{\"is_multi_select\":false,\"options\":[\"(Recommended) red\",\"blue\"],\"question\":\"Which color do you choose?\"}]""#,
+    );
+    assert_ne!(short, transcript("question"));
+    let Event::Question { question } = read("state-question", Some(&short)).event else {
+        panic!();
+    };
+    assert_eq!(question.prompt, "Which color do you choose?");
+    // A step still being written is no answer yet: the hook reads again.
+    let Some(Heard::Read { event, fill, .. }) = heard("agy", &payload("agy", "state-question"))
+    else {
+        panic!();
+    };
+    let begun = r#"{"step_index":1,"type":"PLANNER_RESPONSE","tool_calls":[{"name":"ask_question","args":{}}]}"#;
+    assert!(fill(&event, begun).is_none());
+    let Some(Heard::Read { event, fill, .. }) = heard("agy", &payload("agy", "state-idle")) else {
+        panic!();
+    };
+    assert!(fill(&event, &transcript("approval")).is_none());
+    // A state it does not name, and what is no state at all.
+    let other = changed("agy", "state-working", json!({ "agent_state": "dreaming" }));
+    assert!(heard("agy", &other).is_none());
+    assert!(heard("agy", b"{}").is_none());
+    assert!(agents::find("agy").unwrap().event(&[], b"[]").is_err());
+    // Nothing it asks is answered through a hook.
+    let yes = Response::Affirm;
+    assert!(reply("agy", &payload("agy", "state-approval"), yes).is_none());
+}
+
+#[test]
+fn antigravity_runs_trusted_with_its_title_script_and_no_policy_of_ours() {
+    let agy = agents::find("agy").unwrap();
+    let argv = agy.launch(&run("Fix it", Some("gemini-4-carbon-low"), None));
+    let rest: Vec<&str> = argv.iter().map(String::as_str).collect();
+    assert_eq!(
+        rest[..4],
+        ["agy", "--model", "gemini-4-carbon-low", "--settings"]
+    );
+    assert_eq!(rest[5..], ["--prompt-interactive", "Fix it"]);
+    // One flag holds the script and the trust: of two it reads the last alone.
+    let settings: Value = serde_json::from_str(&argv[4]).unwrap();
+    assert_eq!(settings["title"]["type"], "command");
+    assert_eq!(
+        settings["title"]["command"],
+        format!("{} hook agy", quoted("/opt/tasktap/tasktap"))
+    );
+    assert_eq!(settings["trustedWorkspaces"], json!(["/tmp/project"]));
+    assert_eq!(
+        settings.as_object().unwrap().len(),
+        2,
+        "and no hooks: it refuses them there"
+    );
+    // A resumed run continues the conversation, and is told its model
+    // again: by itself Antigravity would take the person's usual one.
+    let argv = agy.launch(&run("Go on", Some("gemini-4-carbon-low"), Some("abc")));
+    let rest: Vec<&str> = argv.iter().map(String::as_str).collect();
+    assert_eq!(
+        rest[..4],
+        ["agy", "--model", "gemini-4-carbon-low", "--settings"]
+    );
+    let rest = &rest[2..];
+    assert_eq!(
+        rest[3..],
+        ["--conversation", "abc", "--prompt-interactive", "Go on"]
+    );
+    // Typed by hand it is given the script alone: the folder's trust is the
+    // person's to give, and its mode theirs to choose.
+    let attached = agy.attach(Path::new("/opt/tasktap/tasktap"));
+    assert_eq!(attached[0], "--settings");
+    let settings: Value = serde_json::from_str(attached[1].to_str().unwrap()).unwrap();
+    assert_eq!(settings.as_object().unwrap().len(), 1);
+    assert!(settings["title"]["command"].is_string());
+    assert!(agy.probe(Path::new("/x"), Path::new("/y")).is_none());
+    let caps = agy.caps();
+    assert!(caps.events && caps.resume);
+    let terminal = Some(tasktap_proto::ReplyVia::Terminal);
+    assert_eq!((caps.permissions, caps.questions), (terminal, terminal));
+}
+
+#[test]
+fn antigravity_is_signed_in_when_it_lists_its_models() {
+    let agy = agents::find("agy").unwrap().detect();
+    assert_eq!(agy.version, ["--version"]);
+    assert_eq!((agy.version_of)("1.5.11\n").as_deref(), Some("1.5.11"));
+    assert_eq!(agy.account, ["models"]);
+    let listed = "Fetching available models...\n\
+                  gemini-4-carbon-low\tGemini 4 Carbon (Low)\n\
+                  gemini-3.8-flash-low\tGemini 3.8 Flash (Low)\n";
+    assert_eq!((agy.account_of)(Some(0), listed), (Some(true), None));
+    let out = "Fetching available models...\nError: Please sign in to view available models. \
+               Launch the CLI without arguments to sign in.\n";
+    assert_eq!((agy.account_of)(Some(1), out), (Some(false), None));
+    // Anything else, such as no network, says nothing either way.
+    for (code, said) in [
+        (Some(1), "Error: deadline exceeded"),
+        (Some(0), ""),
+        (None, listed),
+    ] {
+        assert_eq!((agy.account_of)(code, said), (None, None), "{said}");
+    }
+}
+
+#[test]
+fn antigravity_is_asked_one_message_and_answers_in_its_last_line() {
+    let schema = agents::Schema {
+        text: r#"{"type":"object"}"#,
+        file: Path::new("/data/route/schema.json"),
+    };
+    let agy = headless("agy");
+    let args = (agy.args)(&schema);
+    let has = |flags: &[&str]| args.windows(flags.len()).any(|w| w == flags);
+    assert_eq!(agy.model, "gemini-3.8-flash-low");
+    let flags: [&[&str]; 6] = [
+        &["--model", "gemini-3.8-flash-low"],
+        &["--input-format", "stream-json"],
+        &["--output-format", "stream-json"],
+        &["--disable-slash-commands"],
+        &["--json-schema", schema.text],
+        &["--print", ""],
+    ];
+    for flag in flags {
+        assert!(has(flag), "{flag:?} in {args:?}");
+    }
+    // The question is one message on one line, whatever lines it has.
+    let message = (agy.stdin)("Place this.\nIt has two lines.");
+    assert_eq!(message.matches('\n').count(), 1);
+    assert!(message.ends_with('\n'));
+    let message: Value = serde_json::from_str(&message).unwrap();
+    assert_eq!(message["event"], "user");
+    assert_eq!(
+        message["message"]["content"][0],
+        json!({ "type": "text", "text": "Place this.\nIt has two lines." })
+    );
+    // The others take the question as it is.
+    assert_eq!((headless("claude").stdin)("as it is"), "as it is");
+
+    let all = printed("agy/headless-answer.jsonl");
+    let answer: Value = serde_json::from_str(&(agy.answer)(&all).unwrap()).unwrap();
+    assert_eq!(
+        answer,
+        json!({ "colour": "green", "title": "Tasktap Test" })
+    );
+    assert!(!(agy.gone)(&all, ""));
+    // No part of it is an answer: neither its earlier lines nor a cut last one.
+    let lines: Vec<&str> = all.lines().collect();
+    assert!((agy.answer)(&format!("{}\n", lines[..lines.len() - 1].join("\n"))).is_err());
+    assert!((agy.answer)(all.trim_end()).is_err());
+    assert!((agy.answer)(&all[..all.len() - 40]).is_err());
+    assert!((agy.answer)("").is_err());
+    // Asked for a model it does not have, it says so and lists its own.
+    let failed = printed("agy/headless-error.jsonl");
+    let why = (agy.answer)(&failed).unwrap_err();
+    assert!(why.contains("invalid model selection"), "{why}");
+    assert!((agy.gone)(&failed, ""));
+    assert!(!(agy.gone)("", "") && !(agy.gone)("not json", "error"));
+}
+
+#[test]
+fn antigravitys_trust_dialog_is_read_from_its_terminal_once() {
+    // Antigravity 1.5 in a folder it does not trust shows this before
+    // anything else. A run the core starts is told its folder is trusted;
+    // one typed by hand in a Tasktap terminal shows it. Recorded with the
+    // folder replaced.
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/agents/agy/trust-dialog.bin");
+    let dialog = std::fs::read(path).unwrap();
+    let agy = agents::find("agy").unwrap();
+    let mut watch = agents::Watch::new(agy.prompts()).unwrap();
+    let found: Vec<_> = dialog.chunks(7).filter_map(|c| watch.read(c)).collect();
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].asks,
+        "Antigravity is asking whether to trust this folder"
+    );
+    assert!(watch.read(&dialog).is_none());
+}
+
+#[test]
+fn an_antigravity_hook_reads_what_its_state_leaves_out_from_the_transcript() {
+    let mut s = Scene::new("ag");
+    let (thought, session, mut agent) = s.launch("tidy up");
+    let log = s.log();
+    let launched = log.launched.iter().find(|l| l.session == session);
+    let token = serde_json::to_value(&launched.unwrap().token).unwrap();
+    // The transcript where the state says it is, as Antigravity kept it then.
+    let kept = s.data.0.join("transcript.jsonl");
+    let socket = s.data.0.join("core.sock");
+    let hook = |state: &str, end: &str| {
+        std::fs::write(&kept, transcript(end)).unwrap();
+        let named = json!({ "transcript_path": kept.to_string_lossy() });
+        let mut hook = Command::new(EXE);
+        hook.args(["hook", "agy"])
+            .env("TASKTAP_SOCKET", &socket)
+            .env("TASKTAP_TOKEN", token.as_str().unwrap())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+        let mut child = hook.spawn().unwrap();
+        let state = changed("agy", state, named);
+        child.stdin.take().unwrap().write_all(&state).unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(out.stdout.is_empty(), "it prints nothing: no title is set");
+        out.status.code()
+    };
+    // It waits for an approval: shown, to be answered in its terminal.
+    assert_eq!(hook("state-approval", "approval"), Some(0));
+    let q = s.shown();
+    let asked = s.w.model.question(q).clone();
+    assert_eq!(asked.prompt, "Antigravity asks to run touch made.txt");
+    assert_eq!(asked.reply_via, tasktap_proto::ReplyVia::Terminal);
+    assert_eq!(asked.source, tasktap_proto::QuestionSource::Permission);
+    // The same state again says nothing new, and is no failure: after 30
+    // failed runs in a row Antigravity stops running the script.
+    assert_eq!(hook("state-approval", "approval"), Some(0));
+    // At work again: the turn goes on, and that was answered there.
+    assert_eq!(hook("state-working-on", "approval"), Some(0));
+    s.w.until("the approval closes", |m| {
+        m.question(q).state == tasktap_proto::QuestionState::Answered
+    });
+    assert_eq!(
+        s.w.model.session(session).state,
+        tasktap_proto::SessionState::Working
+    );
+    assert_eq!(
+        s.w.model.thought(thought).phase,
+        tasktap_proto::Phase::Working
+    );
+    // Idle: the turn finished with what it said last.
+    assert_eq!(hook("state-idle", "finished"), Some(0));
+    s.w.until("the result", |m| !m.results_of(thought).is_empty());
+    let results = s.w.model.results_of(thought);
+    assert_eq!(
+        results[0].summary,
+        "The file `made.txt` has been successfully created."
+    );
+    let resume = s.w.model.session(session).resume.clone();
+    assert_eq!(
+        resume.as_deref(),
+        Some("11111111-2222-4333-8444-555555555555")
+    );
+    agent.sync();
+}
+
 // Through the binary.
 
 #[test]
@@ -1078,9 +1461,11 @@ fn the_persons_words_follow_the_brief_as_each_agent_takes_them() {
         codex.told(brief, words),
         format!("{brief}\n\n---\n{frame}\n\n{words}")
     );
+    let agy = agents::find("agy").unwrap();
+    assert_eq!(agy.told(brief, words), codex.told(brief, words));
     // A run is told both, as its last argument; without a brief that
     // differs, the words alone, once.
-    for agent in [claude, codex] {
+    for agent in [claude, codex, agy] {
         let both = Run {
             words: Some(words),
             ..run(brief, None, None)

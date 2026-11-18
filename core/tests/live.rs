@@ -489,6 +489,69 @@ fn codex_runs_follows_up_and_resumes() {
     s.core.stop();
 }
 
+/// Antigravity says what state it is in (design §7): a question it asks is
+/// shown and answered in its terminal, its last message is read from its
+/// transcript, and its conversation is resumed by the id its state names.
+/// Asked of its smallest model, since its default is the person's largest.
+#[test]
+#[ignore = "runs Antigravity for three turns on this computer's subscription"]
+fn antigravity_runs_asks_follows_up_and_resumes() {
+    let mut s = Live::new("live-agy");
+    let t = ThoughtId::mint();
+    let text = "Tasktap test: use your ask_question tool to ask me which of two colors I prefer, \
+                red or blue. Then reply with only the color I picked.";
+    let capture = Capture {
+        project_id: Some(s.project),
+        agent: Some("agy".into()),
+        model: Some("gemini-3.8-flash-low".into()),
+        ..typed(t, text)
+    };
+    s.w.ok::<call::ThoughtCapture>(&capture);
+    say(&format!("captured a thought for agy: {text:?}"));
+    let (session, tty) = s.started(t);
+    // Its dialog's foot: Return takes the first option.
+    tty.when("enter Select", b"\r");
+    let q = s.question(&tty);
+    let asked = s.w.model.question(q).clone();
+    say(&format!(
+        "question: {:?} {:?} via {:?}; answering it in the terminal",
+        asked.prompt, asked.kind, asked.reply_via
+    ));
+    assert_eq!(asked.reply_via, ReplyVia::Terminal);
+    let result = s.done(t, &tty);
+    let q = s.w.model.question(q).clone();
+    say(&format!("the question ended {:?}", q.state));
+    assert_ne!(q.state, QuestionState::Open);
+    assert!(result.to_lowercase().contains("red"), "{result}");
+    let handle = s.w.model.session(session).resume.clone();
+    say(&format!("resume handle (the conversation id): {handle:?}"));
+    assert!(handle.is_some());
+
+    let f = s.nudge(
+        session,
+        "Tasktap test: now say only this word and nothing else: followed",
+    );
+    let result = s.done(f, &tty);
+    assert!(result.to_lowercase().contains("followed"), "{result}");
+
+    s.end(session, &tty);
+    let r = s.nudge(
+        session,
+        "Tasktap test: now say only this word and nothing else: resumed",
+    );
+    let (again, tty) = s.started(r);
+    assert_ne!(again, session, "a resume is a new session");
+    let result = s.done(r, &tty);
+    assert!(result.to_lowercase().contains("resumed"), "{result}");
+    assert_eq!(
+        s.w.model.session(again).resume,
+        handle,
+        "the same conversation"
+    );
+    s.end(again, &tty);
+    s.core.stop();
+}
+
 /// Claude Code in a folder it has not seen stops at its folder-trust dialog
 /// before any hook runs (design §7): the core sees the dialog in the
 /// terminal and asks the person to answer it there, so the thought does

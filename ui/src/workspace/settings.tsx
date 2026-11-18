@@ -133,7 +133,11 @@ function VoicePane() {
 /** The agents this Mac has, with how each is signed in, and a terminal to sign in to one that is not. One of them is
  *  the default: it runs a thought unless another ring was picked for that thought in the Composer. Only here is the
  *  default changed (the `agent` preference). */
-const signIn: Record<string, string> = { claude: 'claude', codex: 'codex login' };
+const signIn: Record<string, string> = { claude: 'claude', codex: 'codex login', agy: 'agy' };
+/** What a row adds about its agent: whose models it runs, where its name does not say, and that what it asks is
+ *  answered in its own terminal, where no hook of it lets the notch answer. */
+const family: Record<string, string> = { agy: 'Gemini' };
+const about = (a: { id: string; permissions: string | null }) => [family[a.id], a.permissions === 'terminal' && 'asks in its terminal'];
 function AgentsPane() {
   const agents = [...records.agents.values()];
   if (!agents.length) return <p class="note">Looking for agents…</p>;
@@ -148,7 +152,7 @@ function AgentsPane() {
             <div class="line ag" data-s={off || !a.installed ? 'off' : undefined}>
               <Ring agent={a.id} s={off || !a.installed ? 'off' : ''} />
               <span class="t">{agentName(a.id)}</span>
-              <span class="x">{[a.version, state, a.identity].filter(Boolean).join(' · ')}</span>
+              <span class="x">{[a.version, state, a.identity, ...about(a)].filter(Boolean).join(' · ')}</span>
               {off && signIn[a.id] && (
                 <button type="button" class="btn" onClick={() => (dismiss(), newTerminal(LOOSE, { title: `Sign in to ${agentName(a.id)}`, type: signIn[a.id] }))}>Sign in</button>
               )}

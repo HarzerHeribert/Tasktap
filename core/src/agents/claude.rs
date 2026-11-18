@@ -250,6 +250,7 @@ impl Agent for Claude {
                 .map(Into::into)
                 .into()
             },
+            stdin: str::to_owned,
             answer,
             // Its one JSON object says so: the provider knows no such model.
             gone: |printed, _| {

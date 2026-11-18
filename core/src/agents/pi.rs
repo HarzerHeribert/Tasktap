@@ -126,9 +126,11 @@ fn dialog(request: String, p: &Payload) -> Ask {
 }
 
 /// An error as a provider words it, without the part of a key some name in
-/// it ("Incorrect API key provided: sk-…abcd"): no part of one is kept.
+/// it ("Incorrect API key provided: sk-…abcd", "Your api key: ****abcd is
+/// invalid"): no part of one is kept.
 fn unkeyed(error: &str) -> String {
-    let words = error.split(' ').map(|word| match word.contains("sk-") {
+    let keyed = |word: &str| word.contains("sk-") || word.starts_with("**");
+    let words = error.split(' ').map(|word| match keyed(word) {
         true => "(a key)",
         false => word,
     });

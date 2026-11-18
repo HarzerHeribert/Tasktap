@@ -149,6 +149,10 @@ fn pis_events_map_to_the_one_vocabulary() {
     let error = error.unwrap();
     assert!(error.starts_with("401: {\"message\":\"Authentication Fails"));
     assert!(!error.contains('\n'));
+    assert!(
+        error.contains("Your api key: (a key) is invalid"),
+        "{error}"
+    );
     // No part of a key a provider names in its error is kept.
     let named = json!({ "error": "Incorrect API key provided: sk-12*****cdef. Check it." });
     let Event::TurnFailed { error } = heard(&changed("agent-settled-error", named)).unwrap().event

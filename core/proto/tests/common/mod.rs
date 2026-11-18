@@ -67,6 +67,7 @@ pub fn question() -> Question {
         kind: QuestionKind::Choice {
             choices: vec!["Keep the cookie".into(), "Use a header".into()],
         },
+        places: None,
         prompt: "How should the redirect be remembered?".into(),
         detail: None,
         reply_via: ReplyVia::Core,

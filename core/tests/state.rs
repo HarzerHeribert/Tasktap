@@ -17,7 +17,7 @@ use tasktap_core::state::{
 use tasktap_core::store::{AttemptKind, AttemptOutcome, Store, Tx};
 use tasktap_proto::{
     AttemptId, Capture, Change, Changes, Code, Collection, Device, DeviceId, Event as Said,
-    Isolate, Mode, Offset, Outcome, Phase, Placed, PrefKey, PrefValue, Project, ProjectId,
+    Isolate, Mode, Offset, Outcome, Phase, Place, Placed, PrefKey, PrefValue, Project, ProjectId,
     ProjectKind, Question, QuestionId, QuestionKind, QuestionSource, QuestionState, READ_HOLD,
     Reason, ReplyVia, Response, ResultKind, Rev, RouteBy, Routing, Secret, Session, SessionId,
     SessionState, Set, Source, Status, Terminal, TerminalId, TerminalKind, TerminalState, Thought,
@@ -108,6 +108,7 @@ fn question(s: &Session, via: ReplyVia) -> Question {
         turn: Some(s.turn),
         source: QuestionSource::Agent,
         kind: QuestionKind::Confirm,
+        places: None,
         prompt: "Deploy?".into(),
         detail: None,
         reply_via: via,
@@ -572,6 +573,11 @@ fn row_route_ambiguous_asks_and_the_answer_routes() {
         (Some(t), None, QuestionState::Open)
     );
     assert_eq!(asked.prompt, "Which project?");
+    // Each choice says what it is: here two folders, by their ids.
+    assert_eq!(
+        asked.places,
+        Some(vec![Place::Project(w.project), Place::Project(site.id)])
+    );
     let choices = vec!["app".to_string(), "site".to_string()];
     assert_eq!(asked.kind, QuestionKind::Choice { choices });
 
@@ -3223,6 +3229,64 @@ fn rows_start_and_undo_act_at_once_while_a_late_route_is_there_to_read() {
         matches!(effects.as_slice(), [Effect::Launch(_)]),
         "{effects:?}"
     );
+}
+
+/// A router question's choices carry what they are, a folder or a session
+/// and its id, beside their labels (design §6); no other question does.
+#[test]
+fn a_router_questions_choices_say_what_they_are() {
+    let mut w = World::new("places");
+    let (_, s) = w.running();
+    w.say(s, Said::Ready).unwrap();
+    let t = w.capture("and the docs");
+    let candidates = vec![
+        Candidate {
+            label: "The claude session in app".into(),
+            to: Destination::Session(s),
+        },
+        Candidate {
+            label: "app".into(),
+            to: Destination::New(w.project),
+        },
+    ];
+    let route = Route::Ambiguous {
+        prompt: "Where should this go?".into(),
+        candidates,
+        brief: None,
+    };
+    let effects = w.ok(Event::Routed {
+        thought: t,
+        route,
+        how: locally(None),
+        current: None,
+    });
+    let &[Effect::Notify(q)] = effects.as_slice() else {
+        panic!("{effects:?}")
+    };
+    let asked = w.question(q);
+    let choices = vec!["The claude session in app".into(), "app".into()];
+    assert_eq!(asked.kind, QuestionKind::Choice { choices });
+    assert_eq!(
+        asked.places,
+        Some(vec![Place::Session(s), Place::Project(w.project)])
+    );
+    // The answer is an index, as for any choice, and goes where its place says.
+    w.answer(q, Response::Choice { choice: 0 }).unwrap();
+    let th = w.thought(t);
+    assert_eq!((th.session_id, th.mode), (Some(s), Mode::Nudge));
+
+    // An agent's choice question has labels only.
+    w.say(s, Said::TurnStarted { prompt: None }).unwrap();
+    let session = w.session(s);
+    let agents = Question {
+        kind: QuestionKind::Choice {
+            choices: vec!["yes".into(), "no".into()],
+        },
+        ..question(&session, ReplyVia::Core)
+    };
+    let id = agents.id;
+    w.ok(ask(agents));
+    assert_eq!(w.question(id).places, None);
 }
 
 /// Every way a thought comes by its place, and every reason it waits for

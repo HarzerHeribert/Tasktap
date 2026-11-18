@@ -45,8 +45,8 @@
 
 use serde_json::{Value, json};
 use tasktap_proto::{
-    Collection, Error, Hint, Place, ProjectId, RouteBy, RouteTerms, Routing, SessionId,
-    SessionState, Set, Status, ThoughtId,
+    Collection, Error, Hint, ProjectId, RouteBy, RouteTerms, Routing, SessionId, SessionState, Set,
+    Status, ThoughtId,
 };
 
 use crate::agents::{self, Agent, Headless};
@@ -619,13 +619,9 @@ pub fn hint(cx: &mut Cx, args: Hint) -> Result<tasktap_proto::Route, Error> {
 
 /// A route as the protocol says it.
 pub fn wire(route: Route) -> tasktap_proto::Route {
-    let place = |to| match to {
-        Destination::New(p) => Place::Project(p),
-        Destination::Session(s) => Place::Session(s),
-    };
     match route {
         Route::Clear { to, brief } => tasktap_proto::Route::Clear {
-            to: place(to),
+            to: to.into(),
             brief,
         },
         Route::Ambiguous {
@@ -635,7 +631,7 @@ pub fn wire(route: Route) -> tasktap_proto::Route {
             candidates: (candidates.into_iter())
                 .map(|c| tasktap_proto::Candidate {
                     label: c.label,
-                    to: place(c.to),
+                    to: c.to.into(),
                 })
                 .collect(),
         },
@@ -647,8 +643,8 @@ pub fn wire(route: Route) -> tasktap_proto::Route {
 #[cfg(feature = "fixtures")]
 pub fn unwire(route: tasktap_proto::Route) -> Route {
     let to = |place| match place {
-        Place::Project(id) => Destination::New(id),
-        Place::Session(id) => Destination::Session(id),
+        tasktap_proto::Place::Project(id) => Destination::New(id),
+        tasktap_proto::Place::Session(id) => Destination::Session(id),
     };
     match route {
         tasktap_proto::Route::Clear { to: place, brief } => Route::Clear {

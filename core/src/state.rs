@@ -179,6 +179,15 @@ pub enum Destination {
     Session(SessionId),
 }
 
+impl From<Destination> for tasktap_proto::Place {
+    fn from(to: Destination) -> Self {
+        match to {
+            Destination::New(project) => Self::Project(project),
+            Destination::Session(session) => Self::Session(session),
+        }
+    }
+}
+
 /// What the router found, after the acceptance rules of design §8.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Route {
@@ -1184,6 +1193,7 @@ impl Machine<'_, '_> {
         t.brief = brief.or(t.brief);
         let id: QuestionId = self.mint(&[b"router", t.id.uuid().as_bytes()])?;
         let key = router_key(id, &candidates);
+        let places = candidates.iter().map(|c| c.to.into()).collect();
         let q = Question {
             id,
             rev: Rev::ZERO,
@@ -1194,6 +1204,7 @@ impl Machine<'_, '_> {
             kind: QuestionKind::Choice {
                 choices: candidates.into_iter().map(|c| c.label).collect(),
             },
+            places: Some(places),
             prompt,
             detail: None,
             reply_via: ReplyVia::Core,
@@ -1586,6 +1597,7 @@ impl Machine<'_, '_> {
             turn: Some(s.turn),
             source: ask.source.unwrap_or(QuestionSource::Agent),
             kind: ask.kind,
+            places: None,
             prompt: ask.prompt,
             detail: ask.detail,
             reply_via: ReplyVia::Terminal,

@@ -171,6 +171,7 @@ fn question(thought: Option<ThoughtId>, session: Option<SessionId>) -> Question 
         kind: QuestionKind::Choice {
             choices: vec!["yes".into(), "no".into()],
         },
+        places: None,
         prompt: "Deploy?".into(),
         detail: None,
         reply_via: ReplyVia::Terminal,

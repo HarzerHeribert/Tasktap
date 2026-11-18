@@ -708,7 +708,14 @@ if_rev?: Rev | null, } & ({ "c": "prefs" } & PrefPatch | { "c": "layouts", id: P
 /**
  * Everything except `state` and `answer` is written once.
  */
-export type Question = { id: QuestionId, rev: Rev, thought_id: ThoughtId | null, session_id: SessionId | null, turn: number | null, source: QuestionSource, prompt: string, detail: string | null, reply_via: ReplyVia, state: QuestionState, answer: Answer | null, } & ({ "kind": "confirm" } | { "kind": "choice", choices: Array<string>, } | { "kind": "text" });
+export type Question = { id: QuestionId, rev: Rev, thought_id: ThoughtId | null, session_id: SessionId | null, turn: number | null, source: QuestionSource,
+/**
+ * Of a router's question (`source: router`): where each of its
+ * `choices` sends the thought, in their order, a folder or a session
+ * by its id. None for every other question, and in a row older than
+ * the field.
+ */
+places: Array<Place> | null, prompt: string, detail: string | null, reply_via: ReplyVia, state: QuestionState, answer: Answer | null, } & ({ "kind": "confirm" } | { "kind": "choice", choices: Array<string>, } | { "kind": "text" });
 
 /**
  * A UUID v7 in text, minted by whoever creates the record.

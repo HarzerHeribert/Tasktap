@@ -328,6 +328,12 @@ pub struct Question {
     pub source: QuestionSource,
     #[serde(flatten)]
     pub kind: QuestionKind,
+    /// Of a router's question (`source: router`): where each of its
+    /// `choices` sends the thought, in their order, a folder or a session
+    /// by its id. None for every other question, and in a row older than
+    /// the field.
+    #[serde(default)]
+    pub places: Option<Vec<crate::args::Place>>,
     pub prompt: String,
     pub detail: Option<String>,
     pub reply_via: ReplyVia,

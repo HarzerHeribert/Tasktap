@@ -219,6 +219,12 @@ fn a_normal_build_routes_by_name_and_hints_the_same() {
             choices: vec!["app".into(), "folio".into()]
         }
     );
+    // What each choice is, so no page tells a folder from a session by its name.
+    let places = vec![
+        tasktap_proto::Place::Project(app),
+        tasktap_proto::Place::Project(folio),
+    ];
+    assert_eq!(q.places, Some(places));
     assert_eq!(w.model.status(t), Status::NeedsYou);
     let tasktap_proto::Route::Ambiguous { candidates, .. } = hint(&mut w, text, None) else {
         panic!("the hint is ambiguous too")

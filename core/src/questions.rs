@@ -130,6 +130,7 @@ fn open(core: &mut Core, s: &Session, ask: Ask) -> Result<Question, Refusal> {
         turn: Some(s.turn),
         source: ask.source.unwrap_or(QuestionSource::Agent),
         kind: ask.kind,
+        places: None,
         prompt: ask.prompt,
         detail: ask.detail,
         reply_via: ReplyVia::Core,

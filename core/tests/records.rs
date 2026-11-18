@@ -922,6 +922,7 @@ fn history_pages_the_questions_and_results_of_a_thought_that_do_not_fit_one_repl
                 turn: None,
                 source: QuestionSource::Agent,
                 kind: QuestionKind::Text,
+                places: None,
                 prompt: "?".into(),
                 detail: Some(long(i)),
                 reply_via: ReplyVia::Core,

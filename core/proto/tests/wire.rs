@@ -935,6 +935,34 @@ fn the_consent_to_route_by_a_model_and_a_thoughts_route_are_as_the_wire_says() {
     wire.as_object_mut().unwrap().remove("placed");
     assert_eq!(serde_json::from_value::<Thought>(wire).unwrap(), thought());
 
+    // A router's question says what each choice is beside its label; any
+    // other question, and one stored before the field, has none.
+    let asked = Question {
+        source: QuestionSource::Router,
+        places: Some(vec![Place::Project(id(2)), Place::Session(id(3))]),
+        ..question()
+    };
+    let mut wire = serde_json::to_value(&asked).unwrap();
+    assert_eq!(
+        (&wire["choices"], &wire["places"]),
+        (
+            &json!(["Keep the cookie", "Use a header"]),
+            &json!([{"project": "01930000-0000-7000-8000-000000000002"},
+                    {"session": "01930000-0000-7000-8000-000000000003"}])
+        )
+    );
+    assert_eq!(
+        serde_json::from_value::<Question>(wire.clone()).unwrap(),
+        asked
+    );
+    assert_eq!(
+        serde_json::to_value(question()).unwrap()["places"],
+        json!(null)
+    );
+    wire.as_object_mut().unwrap().remove("places");
+    let old: Question = serde_json::from_value(wire).unwrap();
+    assert_eq!((old.places, old.source), (None, QuestionSource::Router));
+
     // `route.terms` is a device's call with no arguments.
     assert_eq!(call::RouteTerms::NAME.as_str(), "route.terms");
     assert_eq!(call::RouteTerms::NAME.access(), Access::Device);

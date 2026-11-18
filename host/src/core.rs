@@ -14,9 +14,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use tasktap_proto::{
-    encode_control, Auth, CallId, Control, Decoder, DeviceId, Frame, Glance, Hello, Outcome, Register, Request, Role,
-    Secret, Set, Versions, Welcome, VERSION,
+    encode_control, Auth, CallId, Control, Decoder, DeviceId, Frame, Glance, Hello, Outcome, PrefKey, PrefValue,
+    Register, Request, Role, Secret, Set, Shortcut, Versions, Welcome, VERSION,
 };
+
+/// What the host's own connection watches: `glance`, the folders, and the capture key among the preferences.
+const WATCHED: [&str; 3] = ["glance", "projects", "prefs"];
 
 /// A connection to the core: its socket in the data folder, or on Windows its named pipe.
 #[cfg(unix)]
@@ -180,10 +183,12 @@ impl Core {
 
 type Waiter = Box<dyn FnOnce(Outcome) + Send>;
 
-/// The host's own connection: `glance`, the folders the person opened, and calls.
+/// The host's own connection: `glance`, the folders the person opened, the capture key, and calls.
 pub struct Link {
     /// Every project's folder, as the core has them: what `host.open` may open is inside one.
     pub folders: Mutex<Vec<(tasktap_proto::ProjectId, PathBuf)>>,
+    /// The `capture_key` preference as stored; none while it is unset.
+    capture: Mutex<Option<Shortcut>>,
     writer: Mutex<Option<Stream>>,
     waiting: Mutex<HashMap<u32, Waiter>>,
     next: Mutex<u32>,
@@ -191,11 +196,17 @@ pub struct Link {
 
 impl Link {
     /// Connects, retires a running core of another build that has no terminals so this app's
-    /// core starts instead, and from then on hands every `glance` to `glance`. The connection
-    /// is made again whenever it ends.
-    pub fn start(core: Arc<Core>, glance: impl Fn(Glance) + Send + 'static) -> io::Result<Arc<Link>> {
+    /// core starts instead, and from then on hands every `glance` to `glance`, and the capture key
+    /// the preferences name to `capture`: once the records have arrived, and whenever it changes.
+    /// The connection is made again whenever it ends.
+    pub fn start(
+        core: Arc<Core>,
+        glance: impl Fn(Glance) + Send + 'static,
+        capture: impl Fn(Option<Shortcut>) + Send + 'static,
+    ) -> io::Result<Arc<Link>> {
         let link = Arc::new(Link {
             folders: Mutex::default(),
+            capture: Mutex::default(),
             writer: Mutex::new(None),
             waiting: Mutex::default(),
             next: Mutex::new(1),
@@ -204,7 +215,7 @@ impl Link {
         let mut stream = Self::open(&core, &link, &mut decoder)?;
         let me = link.clone();
         std::thread::spawn(move || loop {
-            me.read(&mut stream, &mut decoder, &glance);
+            me.read(&mut stream, &mut decoder, &glance, &capture);
             me.writer.lock().unwrap().take();
             for (_, waiter) in me.waiting.lock().unwrap().drain() {
                 waiter(Outcome::Err(tasktap_proto::Error::new(tasktap_proto::Code::Gone, "the core went away")));
@@ -241,15 +252,17 @@ impl Link {
                 other => return Err(io::Error::other(format!("the core refused: {other:?}"))),
             };
             *link.writer.lock().unwrap() = Some(stream.try_clone()?);
+            // A snapshot holds only the preferences that are stored.
+            *link.capture.lock().unwrap() = None;
             if welcome.build == core.build || retired {
-                link.call("sub", json!({"collections": ["glance", "projects"]}), |_| {});
+                link.call("sub", json!({"collections": WATCHED}), |_| {});
                 return Ok(stream);
             }
             // Design §3: an older core with no terminals retires; one with terminals stays in use.
             let mut reader = stream.try_clone()?;
             let status = link.wait(&mut reader, decoder, "core.status", json!({}))?;
             if status.get("terminals").and_then(Value::as_u64) != Some(0) {
-                link.call("sub", json!({"collections": ["glance", "projects"]}), |_| {});
+                link.call("sub", json!({"collections": WATCHED}), |_| {});
                 return Ok(stream);
             }
             let _ = link.wait(&mut reader, decoder, "core.retire", json!({"when": "now"}));
@@ -288,7 +301,13 @@ impl Link {
         }
     }
 
-    fn read(&self, stream: &mut Stream, decoder: &mut Decoder, glance: &impl Fn(Glance)) {
+    fn read(
+        &self,
+        stream: &mut Stream,
+        decoder: &mut Decoder,
+        glance: &impl Fn(Glance),
+        capture: &impl Fn(Option<Shortcut>),
+    ) {
         let mut buf = vec![0u8; 64 << 10];
         loop {
             loop {
@@ -299,8 +318,21 @@ impl Link {
                         }
                     }
                     Ok(Some(Frame::Control(Control::Change(c)))) => {
+                        // The key is known once a snapshot is whole, stored or not, and anew when its row changes.
+                        let mut key = c.snap && !c.more;
                         for set in c.sets {
                             match set {
+                                Set::Prefs(rows) => {
+                                    let mut stored = self.capture.lock().unwrap();
+                                    if rows.del.contains(&PrefKey::CaptureKey) {
+                                        (*stored, key) = (None, true);
+                                    }
+                                    for pref in rows.put {
+                                        if let PrefValue::CaptureKey(now) = pref.value {
+                                            (*stored, key) = (now, true);
+                                        }
+                                    }
+                                }
                                 Set::Glance { put } => put.into_iter().for_each(glance),
                                 Set::Projects(rows) => {
                                     let mut folders = self.folders.lock().unwrap();
@@ -311,6 +343,9 @@ impl Link {
                                 }
                                 _ => {}
                             }
+                        }
+                        if key {
+                            capture(self.capture.lock().unwrap().clone());
                         }
                     }
                     Ok(Some(_)) => {}

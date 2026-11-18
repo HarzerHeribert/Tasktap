@@ -18,7 +18,8 @@
 # is held to by a page that tries everything it may not, the core's tool run as an agent runs it, staying current,
 # a file that went away, a server that starts later, the keys, the ninth, a restart); speech on this Mac: Settings, the download, a thought
 # and words for a field through the helper, in a short launch of its own, with the real helper and model too when
-# SPEECH_MODEL names the model's file; then quit and relaunch with the layout restored
+# SPEECH_MODEL names the model's file, and then German, English and thoughts that change between them written as they
+# were said in either order of the person's languages; then quit and relaunch with the layout restored
 # and nothing rerun). It never sends keys or clicks to the system: every step is a line on the app's
 # standard input, and the app is passive (its windows never take the keyboard; no system menu is
 # ever opened). Prints PASS or FAIL per promise; exits non-zero on any FAIL. SHOTS=<folder> also

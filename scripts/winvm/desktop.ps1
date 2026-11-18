@@ -6,13 +6,13 @@
 #                       the window's edges while it is in front (the frame, a menu, the backdrop as a person sees them)
 #   <Out>\*.txt         what the smoke script, the credential test and the app printed (rows4-12-app.txt, row13-app.txt)
 # -DryRun starts nothing and shows no window: it says what each row would do and checks that
-# what the round needs is there. -Rows 3,14 runs those rows alone (5, 8, 10, 11 and 12 need 4, whose app they share).
+# what the round needs is there. -Only 3,14 runs those rows alone (5, 8, 10, 11 and 12 need 4, whose app they share).
 # The round makes no sound: for as long as it runs, this account's sounds for the system's events and its warning
 # beep are off, and they are put back when it ends (a round that was cut short is put right by the next).
 param(
     [string]$Out = "C:\tasktap\desktop-rounds\$(Get-Date -Format 'yyyyMMdd-HHmmss')",
     [string]$Target = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64' } else { 'x86_64' }),
-    [string]$Rows = '',
+    [string]$Only = '',
     # The checkout whose build is tried; this script's own unless it is run from somewhere else.
     [string]$Checkout = '',
     [switch]$DryRun
@@ -1174,7 +1174,7 @@ New-Item -ItemType Directory -Force $Out, "$tmp\data", "$tmp\project" | Out-Null
 # No test run may change the checkout meanwhile.
 $lock = [IO.File]::Open('C:\tasktap\checkout.lock', 'OpenOrCreate', 'ReadWrite', 'None')
 $workspace = [IntPtr]::Zero
-$only = @($Rows -split '[ ,]+' | Where-Object { $_ })
+$chosen = @($Only -split '[ ,]+' | Where-Object { $_ })
 try {
     Say 'INFO' '' "commit $(git -C $checkout rev-parse HEAD), $triple, $([Environment]::OSVersion.VersionString), session $session"
     Say 'INFO' '' "no sound for as long as the round runs: $(Sounds-Off) sounds of this account's for the system's events are off, and its warning beep; both are put back at the end"
@@ -1183,7 +1183,7 @@ try {
     Say 'INFO' '' "displays as Windows reports them: $($displays.Count): $($displays -join '; ')"
     if (-not $displays) { throw 'Windows reports no display: nothing can be shown or looked at.' }
     foreach ($row in $rows.Keys) {
-        if ($only -and $row -notin $only) { continue }
+        if ($chosen -and $row -notin $chosen) { continue }
         try {
             if ($row -eq '4') {
                 # Rows 4, 5, 8, 10, 11 and 12 share one app, driven through its debug channel.

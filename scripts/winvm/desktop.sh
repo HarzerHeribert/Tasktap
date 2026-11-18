@@ -26,7 +26,7 @@ done
 script='C:\tasktap\checkout\scripts\winvm\desktop.ps1'
 stamp=$(date +%Y%m%d-%H%M%S)
 out=${out:-${TMPDIR:-/tmp}/tasktap-desktop-round}
-run="pwsh -NoProfile -File $script -Out C:\\tasktap\\desktop-rounds\\$stamp${rows:+ -Rows $rows}"
+run="pwsh -NoProfile -File $script -Out C:\\tasktap\\desktop-rounds\\$stamp${rows:+ -Only $rows}"
 status=0
 if ((dry)); then
   # The checkout's copy, as the round would run it: of the commit last built or tested there.

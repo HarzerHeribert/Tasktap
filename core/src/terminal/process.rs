@@ -381,11 +381,12 @@ pub fn folder(path: PathBuf) -> PathBuf {
 
 /// How long after input was written the Windows console is sent [`WAKE`].
 const SETTLE: Duration = Duration::from_millis(50);
-/// A key event that is no key: virtual key 0 released, with no character,
-/// as the console's own input mode writes one (`CSI Vk;Sc;Uc;Kd;Cs;Rc _`).
-/// A program reading lines never sees it, and one reading keys acts on
-/// keys pressed.
-const WAKE: &[u8] = b"\x1b[0;0;0;0;0;1_";
+/// The terminal has the focus, as a terminal's window says it to the
+/// console when someone turns to it. A program reading lines or keys never
+/// sees it; one that asked to be told of focus is told that it has it. A
+/// key event that is no key (virtual key 0, released) was tried first and
+/// now and then ended a program's read with an error.
+const WAKE: &[u8] = b"\x1b[I";
 
 /// The input thread: writes each chunk whole, in order, and says so, which
 /// is when the client that sent it may send more. The first write that

@@ -30,10 +30,10 @@ async function main() {
     for (let tries = 0; tries < 3; tries++) {
       try {
         app.seen();
-        const drew = async () => ws('[__motion.stats.frames, __motion.stats.keys ?? 0]');
+        const drew = async () => ws('[__motion.stats.frames, __motion.stats.keys ?? 0, __motion.stats.late ?? 0]');
         const before = await drew(), c = await app.cost(seconds, every), after = await drew();
         app.seen();
-        out.cost.push({ name, seconds, ...c, drawn: Math.round((after[0] - before[0]) / seconds), keys: Math.round(((after[1] - before[1]) / seconds) * 10) / 10 });
+        out.cost.push({ name, seconds, ...c, drawn: Math.round((after[0] - before[0]) / seconds), keys: Math.round(((after[1] - before[1]) / seconds) * 10) / 10, late: after[2] - before[2] });
         return console.log(`  ${name}: ${c.cpu} % of a core, ${c.wakeups} wakeups a second${every ? `; every ${every} s: ${c.series.join(', ')}` : ''}`);
       } catch (e) {
         if (!/covered|not on screen/.test(e.message)) throw e;
@@ -99,16 +99,18 @@ async function main() {
     }
   if (has('--json')) fs.writeFileSync(arg('--json'), JSON.stringify(out));
   const part = (c, ...names) => names.reduce((a, n) => a + (c.by[n]?.cpu ?? 0), 0).toFixed(1);
-  console.log('\n' + table(['', 'seconds', '% of a core', 'host', 'pages', 'graphics', 'core, network', 'on fast cores', 'M instructions/s', 'wakeups/s', 'mW', 'frames/s', 'keyframes/s', 'WindowServer %'],
-    out.cost.map((c) => [c.name, c.seconds, c.cpu.toFixed(1), part(c, 'host'), part(c, 'WebContent'), part(c, 'GPU'), part(c, 'core', 'Networking'), `${c.fast} %`, c.instructions, c.wakeups, c.mw, c.drawn, c.keys, c.compositor.toFixed(1)])));
+  console.log('\n' + table(['', 'seconds', '% of a core', 'host', 'pages', 'graphics', 'core, network', 'on fast cores', 'M instructions/s', 'wakeups/s', 'mW', 'frames/s', 'keyframes/s', 'keyframes late', 'WindowServer %'],
+    out.cost.map((c) => [c.name, c.seconds, c.cpu.toFixed(1), part(c, 'host'), part(c, 'WebContent'), part(c, 'GPU'), part(c, 'core', 'Networking'), `${c.fast} %`, c.instructions, c.wakeups, c.mw, c.drawn, c.keys, c.late, c.compositor.toFixed(1)])));
   for (const c of out.cost.filter((c) => c.series.length > 1)) console.log(`${c.name}, every 30 s: ${c.series.join(', ')} % of a core`);
   if (out.memory.length) console.log('\n' + table(['effects', 'memory, MB', 'WebGL contexts', 'canvases'], out.memory.map((m) => [m.level, m.mb.toFixed(1), m.contexts, m.canvases])));
   const failures = out.cost.filter((c) => /^at rest/.test(c.name) && c.cpu >= 0.3).map((c) => `${c.name}: ${c.cpu} % of a core`);
   const off = out.memory.find((m) => m.level === 'Off');
   for (const s of out.skipped) console.log(`not measured (the window was covered): ${s}`);
   if (off && (off.contexts || off.canvases)) failures.push(`with the effects off the page made ${off.contexts} WebGL contexts and ${off.canvases} canvases`);
+  // A keyframe that comes too late leaves the band standing until the page takes it back: a stall on screen.
+  for (const c of out.cost) if (c.late > c.seconds / 30) failures.push(`${c.name}: ${c.late} keyframes came too late to be faded into (the page's timers are held up): the band stood each time`);
   for (const f of failures) console.log('FAIL  ' + f);
-  console.log(failures.length ? 'FAIL  the effects cost something at rest' : 'PASS  at rest the app costs nothing, in front or behind' + (off ? ', and with the effects off no canvas and no WebGL context is made' : ''));
+  console.log(failures.length ? 'FAIL  the effects cost something at rest, or the carried loop stalls' : 'PASS  at rest the app costs nothing, in front or behind' + (off ? ', and with the effects off no canvas and no WebGL context is made' : ''));
   process.exitCode = failures.length ? 1 : 0;
 }
 main().catch((e) => (console.error(e), process.exit(1)));

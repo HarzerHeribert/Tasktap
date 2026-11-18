@@ -110,12 +110,13 @@ export type VoiceSource = typeof SILENT & { readonly open: boolean; readonly dat
 
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 const views = new Set<View>();
-/** What the debug channel's checks read: frames the page drew, keyframes it drew for the compositor to carry, WebGL
+/** What the debug channel's checks read: frames the page drew, keyframes it drew for the compositor to carry, how
+ *  often a keyframe came too late to be faded into (its timer was held up for a whole interval, and the band stood), WebGL
  *  contexts made, the milliseconds its frames have taken the page, and the most frames a second it draws (the loop at
  *  the foot). `seen`, when a check sets it, is called with each view just drawn, the canvas that holds its picture
  *  and the view's clock. `carry`: a check may hold every view to the page's own frames; `step`: or set how far
  *  an edge may go between two keyframes. */
-export const stats = { frames: 0, keys: 0, contexts: 0, ms: 0, rate: 60, carry: true, step: STEP, seen: null as ((view: View, picture: HTMLCanvasElement, now: number) => void) | null };
+export const stats = { frames: 0, keys: 0, late: 0, contexts: 0, ms: 0, rate: 60, carry: true, step: STEP, seen: null as ((view: View, picture: HTMLCanvasElement, now: number) => void) | null };
 let voice: VoiceSource | null = null;
 
 /** The page's voice source, or none: while one is open, every view's listening state hears it. */
@@ -609,8 +610,9 @@ export class View {
   carried(at: number, alone: boolean) {
     const P = this.plan;
     if (!P) return false;
-    const came = this.stale && this.clear() === 2;
-    if (!came && !this.dirty && alone && this.held() && at < P[P.length - 1]!.at) return true;
+    const came = this.stale && this.clear() === 2, out = at >= P[P.length - 1]!.at;
+    if (out) stats.late++;
+    if (!came && !this.dirty && alone && this.held() && !out) return true;
     this.leave(at);
     return false;
   }
@@ -636,8 +638,11 @@ export class View {
     // The plan ran out (the page was held up for a whole interval), or it may be carried no longer: the page takes
     // it back from where it stands.
     if ((P.length > 1 && now >= P[P.length - 1]!.at) || !this.shown() || !this.held()) return wake();
-    while (P.length < 2 || P[P.length - 2]!.at <= now) {
-      if (this.stale && this.clear() === 2) return wake();
+    for (let n = 0; P.length < 2 || P[P.length - 2]!.at <= now; n++) {
+      // Words came or went: the page draws their clearing in.
+      if (this.stale && this.clear() === 2) return void ((this.dirty = true), wake());
+      // Far behind: a few at a time, so that catching up holds nothing else up.
+      if (n === 3) return void (this.timer = window.setTimeout(this.ahead, 0));
       this.key();
     }
     this.timer = window.setTimeout(this.ahead, P[P.length - 2]!.at - now);

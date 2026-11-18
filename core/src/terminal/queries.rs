@@ -82,7 +82,9 @@ impl Queries {
 
     /// Scans the next chunk of output. `attended` when a client is
     /// attached: it answers the program's questions, and the core does not.
-    pub fn scan(&mut self, chunk: &[u8], attended: bool) -> Found {
+    /// `room` is how many bytes of answers the core may still type: a
+    /// question whose answer is longer than what is left of it gets none.
+    pub fn scan(&mut self, chunk: &[u8], attended: bool, room: usize) -> Found {
         let mut found = Found::default();
         let base = self.offset;
         let mut i = 0;
@@ -99,7 +101,7 @@ impl Queries {
                 self.at = base + i as u64;
             }
             if let Some(question) = self.step(chunk[i]) {
-                self.answer(question, attended, base, i + 1, &mut found);
+                self.answer(question, attended, room, base, i + 1, &mut found);
             }
             i += 1;
         }
@@ -138,9 +140,19 @@ impl Queries {
         question
     }
 
-    /// Answers a question that ended at `end` in the chunk starting at `base`.
+    /// Answers a question that ended at `end` in the chunk starting at
+    /// `base`, while its answer is within `room`. The console's own is
+    /// always answered: it asks once.
     #[cfg_attr(not(windows), expect(unused_variables))]
-    fn answer(&mut self, q: Question, attended: bool, base: u64, end: usize, found: &mut Found) {
+    fn answer(
+        &mut self,
+        q: Question,
+        attended: bool,
+        room: usize,
+        base: u64,
+        end: usize,
+        found: &mut Found,
+    ) {
         #[cfg(windows)]
         if q == Question::Cursor && self.console && self.at < CONSOLE {
             self.console = false;
@@ -155,16 +167,22 @@ impl Queries {
         if attended {
             return;
         }
-        match q {
-            Question::Primary => found.answers.extend_from_slice(PRIMARY),
-            Question::Secondary => found.answers.extend_from_slice(SECONDARY),
-            Question::Cursor => found.answers.extend_from_slice(CURSOR),
+        let color;
+        let answer = match q {
+            Question::Primary => PRIMARY,
+            Question::Secondary => SECONDARY,
+            Question::Cursor => CURSOR,
             Question::Color { which, end } => {
-                let color = if which == 10 { FOREGROUND } else { BACKGROUND };
-                let end: &[u8] = if end == BEL { b"\x07" } else { b"\x1b\\" };
-                let answer = [format!("\x1b]{which};{color}").as_bytes(), end].concat();
-                found.answers.extend_from_slice(&answer);
+                let rgb = if which == 10 { FOREGROUND } else { BACKGROUND };
+                let end = if end == BEL { "\x07" } else { "\x1b\\" };
+                color = format!("\x1b]{which};{rgb}{end}");
+                color.as_bytes()
             }
+        };
+        // More than the core may still type: the program goes on as with a
+        // terminal that does not answer.
+        if found.answers.len() + answer.len() <= room {
+            found.answers.extend_from_slice(answer);
         }
     }
 }

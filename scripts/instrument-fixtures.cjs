@@ -368,8 +368,57 @@ function flow(records, kind, { lang = 'en', long = false, voice = true, now = Da
       records.history = { thoughts: [first], questions: [], results: [{ id: uid(now, 26 * HOUR - 9 * 60000), rev: 29, thought_id: first.id, session_id: session, turn: 1, kind: 'answer', summary: 'Exports from the File menu and with ⌘E, 28 cues to a page.' }] };
     },
   };
+  // Previews beside the rehearsal timer's terminal (design §9): what the person opened and what the agent did, by
+  // kind; `reads` is what the stand-in core's `file.read` says of each file.
+  const T = records.ids.timer?.terminal, at = '/Users/example/projects/cuegrid/';
+  const shown = (n, target, o = {}) => ({ id: uid(now, 100 - n), rev: 70 + n, terminal_id: T, kind: /^http/.test(target) ? 'web' : 'file', target: /^http/.test(target) ? target : at + target,
+    title: /^http/.test(target) ? target.replace(/^https?:\/\/|\/.*$/g, '') : target.split('/').pop(), by: 'person', ...o });
+  const beside = (previews, reads = {}) => Object.assign(records, { previews, reads: Object.fromEntries(Object.entries(reads).map(([file, said]) => [at + file, said])) });
+  Object.assign(kinds, {
+    previews: () => beside([shown(1, 'notes/rehearsal-05.md'), shown(2, 'out/timer-390.svg', { by: 'agent' })], { 'notes/rehearsal-05.md': { kind: 'markdown', text: NOTES }, 'out/timer-390.svg': { kind: 'svg', text: CHART } }),
+    'preview-notes': () => beside([shown(1, 'notes/rehearsal-05.md')], { 'notes/rehearsal-05.md': { kind: 'markdown', text: NOTES } }),
+    'preview-text': () => beside([shown(1, 'out/build.log')], { 'out/build.log': { kind: 'text', cut: true, size: 9437184,
+      text: Array.from({ length: 400 }, (_, i) => `[${String(i).padStart(4, '0')}] vite v7.0.4 building for production: transformed ${i * 3} modules`).join('\n') } }),
+    'preview-gone': () => beside([shown(1, 'out/old-report.md', { by: 'agent' })], { 'out/old-report.md': { err: { code: 'gone', message: `${at}out/old-report.md does not exist` } } }),
+    'preview-other': () => beside([shown(1, 'out/cue-sheet.zip')], { 'out/cue-sheet.zip': { kind: 'other', size: 48211 } }),
+    'preview-web': () => Object.assign(beside([shown(1, 'http://localhost:5173/rehearsal')]), { listens: false }),
+  });
   kinds[kind]();
   return records;
 }
+
+/** What an agent writes about its work, with everything the preview draws and something it must not run. */
+const NOTES = `# Rehearsal 05: what changed
+
+The timer now stays on **one line** on a phone, and the cue list scrolls under it. Run \`npm test timer\` to see the three new cases.
+
+## What I did
+
+- Moved the digits into a grid of their own (\`src/rehearsal/Timer.tsx\`)
+- Dropped the fixed width in [timer.css](src/rehearsal/timer.css)
+- [x] Checked at 390 px and 320 px
+- [ ] The landscape layout is still open
+
+## Numbers
+
+| Width | Before | After |
+| --- | --- | --- |
+| 390 px | 2 lines | 1 line |
+| 320 px | 3 lines | 1 line |
+
+> The dev server is at http://localhost:5173/rehearsal, and the design note is at https://example.com/notes/timer.
+
+<script>alert('raw HTML is shown as the text it is')</script>
+
+\`\`\`ts
+const digits = format(remaining); // 12:04
+\`\`\`
+`;
+/** A drawing: the timer at 390 px, as a picture an agent might save. */
+const CHART = `<svg xmlns="http://www.w3.org/2000/svg" width="390" height="260" viewBox="0 0 390 260"><rect width="390" height="260" fill="#16161a"/><rect width="390" height="44" fill="#232329"/>
+<text x="16" y="28" font="600 15px system-ui" font-family="system-ui" font-size="15" font-weight="600" fill="#f2f2f3">cuegrid · rehearsal</text>
+<text x="195" y="150" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="72" font-weight="600" fill="#f2f2f3">12:04</text>
+<text x="195" y="196" text-anchor="middle" font-family="system-ui" font-size="15" fill="#a3a4aa">Next cue: lights down, stage left</text>
+<rect x="16" y="222" width="358" height="4" rx="2" fill="#33343a"/><rect x="16" y="222" width="212" height="4" rx="2" fill="#eab676"/></svg>`;
 
 module.exports = { scene, screens, flow, SAID, BRIEF };

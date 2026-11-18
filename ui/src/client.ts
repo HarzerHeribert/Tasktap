@@ -2,7 +2,7 @@
 // calls, records kept from a snapshot and the ordered changes after it, and streams with
 // credit. It knows only the Bridge, so it runs the same in a page and in a test.
 import type {
-  AgentHealth, Calls, Change, Close, CloseWhy, Code, Collection, Control, Credit, Device, Dictation, Diff, Glance, Layout, Listening, Mark, Opened,
+  AgentHealth, Calls, Change, Close, CloseWhy, Code, Collection, Control, Credit, Device, Dictation, Diff, FileRead, Glance, Layout, Listening, Mark, Opened,
   Pref, Preview,
   Project, Question, Session, SessionId, Set as RowSet, Shortcut, Terminal, Thought, TurnResult, Welcome,
 } from '../../core/proto/protocol.ts';
@@ -36,6 +36,10 @@ export type HostCalls = {
    *  so and the old key goes on working. The reply, and the reply to a call with no `key`, is the key registered
    *  now, or null when none is. */
   'host.capture_key': { args: { key?: Shortcut | null }; result: { key: Shortcut | null } };
+  /** What a preview's frame is given (host/src/frames.rs): `base`, the address of this machine a file's whole path
+   *  is added to for a frame to load it; and with `listens`, a local web address, whether anything answers there
+   *  now. Refused, in a sentence, by a host that cannot hold a frame to this machine. */
+  'host.frame': { args: { listens?: string }; result: { base: string; listens?: boolean } };
 };
 type AllCalls = { [K in keyof Calls]: { args: Calls[K]['args']; result: Calls[K]['result'] } } & HostCalls;
 export type Name = keyof AllCalls;
@@ -194,6 +198,15 @@ export class Client {
   /** `thought.changes`: the files in the reply, and the diff on the stream it opens. */
   changes(args: Args<'thought.changes'>, on: Partial<Pick<Stream, 'ondata' | 'onclose'>>): Promise<{ diff: Diff; stream: Stream }> {
     return this.request('thought.changes', args, (v) => ({ diff: v as Diff, stream: this.stream((v as Diff).stream, args.credit, on) }));
+  }
+
+  /** `file.read`: what the file is in the reply, and its bytes on the stream the reply opens, where it opens one
+   *  (none for a file that still has the stamp `unless` names, and for one of a kind nothing shows). */
+  read(args: Args<'file.read'>, on: Partial<Pick<Stream, 'ondata' | 'onclose'>>): Promise<{ file: FileRead; stream: Stream | null }> {
+    return this.request('file.read', args, (v) => {
+      const file = v as FileRead;
+      return { file, stream: file.stream ? this.stream(file.stream, args.credit, on) : null };
+    });
   }
 
   /** `dictation.start`: the stream the recording goes on, within the credit the core gives it, when the core

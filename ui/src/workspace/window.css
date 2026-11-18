@@ -162,6 +162,63 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .strip>.qa,.ask-pane .qa{margin-top:var(--sp2)}
 .ask-pane:focus-visible{outline-offset:4px}
 .strip .said{font:var(--f-small);color:var(--fg2)}
+.strip .said b{color:var(--fg);overflow-wrap:anywhere}
+.strip>.said{margin-top:3px;max-width:72ch;text-wrap:pretty}
+
+/* A preview (preview.tsx): beside its terminal, in the terminals' place under the tabs. A line that says what is shown
+   and holds what can be done with it; then the thing itself, which scrolls without a bar like everything else. Its
+   tab carries the mark of who opened it: the agent's own, or an eye. */
+.st.by :is(.i,.ring-o){width:14px;height:14px}
+.st.by[data-by=person]{color:var(--fg3)}
+.pv{display:grid;grid-template-rows:auto minmax(0,1fr) auto;min-width:0;min-height:0;background:var(--bg)}
+.pv-h{display:flex;flex-wrap:wrap;align-items:center;gap:2px var(--sp2);min-width:0;min-height:var(--tab-h);padding:3px 6px 3px var(--sp3);border-bottom:1px solid var(--line)}
+.pv-by{flex:none;font:var(--f-cap);color:var(--fg2)}
+.pv-by::after{content:"·";margin-left:var(--sp2);color:var(--fg3)}
+/* A path is cut at its start, where a long one says least. */
+.pv-at{flex:1 1 80px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left;font:var(--f-num);color:var(--fg3)}
+.pv-n{flex:none;font:var(--f-num);color:var(--fg3)}
+.pv-do{display:flex;flex-wrap:wrap;gap:2px;margin-left:auto}
+.pv .btn{box-shadow:none;color:var(--fg2)}
+.pv-b{min-width:0;min-height:0;overflow:auto;outline:0;-webkit-user-select:text;user-select:text;cursor:auto}
+.pv-f{width:100%;height:100%;border:0;background:#fff;color-scheme:light}
+/* Nothing to show: why, in a sentence, and what can be done. */
+.pv-s{display:flex;flex-direction:column;align-items:flex-start;gap:var(--sp1);padding:var(--sp5) var(--sp4);-webkit-user-select:none;user-select:none;cursor:default}
+.pv-s b{font:var(--f-label);color:var(--fg)}
+.pv-s p{max-width:62ch;font:var(--f-small);color:var(--fg2);text-wrap:pretty;overflow-wrap:anywhere}
+.pv-s .qa{margin:var(--sp2) 0 0 -10px}
+/* A picture: fitted, on a ground that shows where it ends; at its real size it scrolls. */
+.pv-p{display:grid;place-items:center;padding:var(--sp4)}
+.pv-p img{display:block;max-width:100%;max-height:100%;object-fit:contain;background:repeating-conic-gradient(#1b1b1e 0 25%,#141416 0 50%) 0 0/16px 16px;cursor:zoom-in}
+.pv-p.real{display:block}
+.pv-p.real img{max-width:none;max-height:none;cursor:zoom-out}
+/* Text as it is, and what says it is cut. */
+.pv-t pre{margin:0;padding:var(--sp3) var(--sp4);font:var(--f-code);color:var(--deck-fg);white-space:pre-wrap;overflow-wrap:anywhere;tab-size:4}
+.pv-cut{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp2);margin:0 var(--sp4) var(--sp4);padding-top:var(--sp2);border-top:1px solid var(--line);font:var(--f-small);color:var(--fg2);-webkit-user-select:none;user-select:none}
+/* Markdown, in the type roles: a title is a question's size, a heading the title's weight, the rest running text. */
+.md{padding:var(--sp4) var(--sp5) var(--sp5);font:var(--f-text);color:var(--fg)}
+.md>*{max-width:76ch}
+.md :is(p,ul,pre,blockquote,hr,.md-t){margin:0 0 var(--sp3)}
+.md h1{margin:var(--sp2) 0 var(--sp3);font:var(--f-question);letter-spacing:var(--ls-question)}
+.md h2{margin:var(--sp5) 0 var(--sp2);font:var(--f-title)}
+.md h3{margin:var(--sp4) 0 var(--sp1);font:var(--f-label);color:var(--fg2)}
+.md>:first-child{margin-top:0}
+.md :is(p,li,td,th,blockquote){text-wrap:pretty;overflow-wrap:anywhere}
+.md b{font:var(--f-title)}
+.md i{font-style:italic}
+.md a{color:var(--fg);text-decoration:underline;text-decoration-color:var(--fg3);text-underline-offset:2px;cursor:pointer}
+.md a:hover{text-decoration-color:var(--fg)}
+.md code{font:var(--f-code);color:var(--fg2)}
+.md pre{padding:var(--sp2) var(--sp3);border-radius:var(--r1);background:var(--fill);font:var(--f-code);color:var(--deck-fg);white-space:pre-wrap;overflow-wrap:anywhere;max-width:none}
+.md ul{padding:0;list-style:none}
+.md li{display:flex;gap:var(--sp2);padding:1px 0}
+.md-m{flex:none;min-width:14px;font:var(--f-num);line-height:inherit;color:var(--fg3);text-align:right}
+.md blockquote{padding-left:var(--sp3);border-left:2px solid var(--line2);color:var(--fg2)}
+.md blockquote>:last-child{margin-bottom:0}
+.md hr{height:1px;border:0;background:var(--line)}
+.md-t{overflow-x:auto;max-width:none}
+.md table{border-collapse:collapse}
+.md :is(th,td){padding:var(--sp1) var(--sp3) var(--sp1) 0;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.md th{font:var(--f-section);color:var(--fg2);white-space:nowrap}
 .said code,.sheet code{font:var(--f-num);color:var(--fg);-webkit-user-select:text;user-select:text}
 
 /* ——— rail ——— */

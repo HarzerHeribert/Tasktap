@@ -37,6 +37,14 @@ function probe(target: string, cwd: string) {
   return found;
 }
 
+/** What the previews take part in (preview.tsx): a link followed with ⌘, which is shown beside the terminal where it
+ *  can be and handed to the host otherwise; and output arriving, after which a preview asks whether its file changed. */
+export const hooks = {
+  follow: (_terminal: string, to: Pick<Found, 'kind' | 'target'>, cwd: string, e: Pick<MouseEvent, 'shiftKey' | 'altKey'>) =>
+    void call('host.open', { target: to.target, cwd, reveal: e.shiftKey }).catch(fail),
+  output: (_terminal: string) => {},
+};
+
 export class Engine {
   readonly id: string;
   /** `.term`, moved between panes' surfaces as its tab moves. */
@@ -149,9 +157,10 @@ export class Engine {
     return all.filter((l) => l !== null);
   }
 
-  /** ⌘-click: the host opens it, or says why not. With ⇧ a file is shown in Finder. */
-  private follow(e: Pick<MouseEvent, 'metaKey' | 'shiftKey'>, to: Pick<Found, 'kind' | 'target'> | null) {
-    if (e.metaKey && to) void call('host.open', { target: to.target, cwd: this.folder(), reveal: e.shiftKey }).catch(fail);
+  /** ⌘-click: what can be shown beside the terminal is; anything else the host opens, or says why not. With ⇧ a file
+   *  is shown in Finder; with ⌥ the other of the two is done (preview.tsx follow). */
+  private follow(e: Pick<MouseEvent, 'metaKey' | 'shiftKey' | 'altKey'>, to: Pick<Found, 'kind' | 'target'> | null) {
+    if (e.metaKey && to) hooks.follow(this.id, to, this.folder(), e);
   }
 
   /** Says what the link under the pointer opens, where its text does not: the whole path of a file, with the way to
@@ -211,6 +220,7 @@ export class Engine {
           const n = bytes.length;
           this.received += n;
           this.term.write(bytes, () => this.stream?.consumed(n));
+          hooks.output(this.id);
         },
         onmark: (m) => this.mark(m),
         onclose: () => {

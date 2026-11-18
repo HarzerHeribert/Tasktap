@@ -45,7 +45,7 @@ function Session({ project, id, bg }: { project: string; id: string; bg: boolean
 function Workspace({ id, name, folder }: { id: string; name: string; folder?: string }) {
   const l = layout(id);
   const folded = ui.folded.has(id);
-  const rows = [...L.tabs(l).map((t) => ({ t, bg: false })), ...l.background.map((t) => ({ t, bg: true }))]
+  const rows = [...L.tabs(l).filter((t) => !records.previews.has(t)).map((t) => ({ t, bg: false })), ...l.background.map((t) => ({ t, bg: true }))]
     .sort((a, b) => (ORDER[cue(a.t).s] ?? 9) - (ORDER[cue(b.t).s] ?? 9) || Number(a.bg) - Number(b.bg));
   const agents = [...records.agents.values()].filter((a) => a.installed);
   const menu: Item[] = [

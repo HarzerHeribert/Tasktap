@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  type Layout, background, close, empty, geometry, move, normalize, open, paneOf, panes, ratioAt, reconcile, resize, select,
+  type Layout, background, beside, close, empty, geometry, move, normalize, open, paneOf, panes, ratioAt, reconcile, resize, select,
   split, tabs, textSize, toggleFocus,
 } from './layout.ts';
 
@@ -149,4 +149,42 @@ test('backgrounding a tab lists it; opening it again restores it to a pane', () 
   assert.deepEqual([tabs(l), l.background], [['a', 'b'], []]);
   assert.deepEqual(textSize(textSize(l, 'a', 99), 'b', 12).sizes, { a: 40, b: 12 });
   assert.deepEqual(textSize(textSize(l, 'a', 13), 'a', null).sizes, {});
+});
+
+test('a preview gets a place beside its terminal, takes nothing from the person, and goes with its terminal', () => {
+  const id = ids();
+  let l = open(open(empty(), 'a', undefined, id), 'b', undefined, id);
+  const start = l;
+  // With nothing to show, the layout is the one it was given.
+  assert.equal(beside(l, []), l);
+  // The first: a new pane at the right of the terminal's, shown there; the selection stays where it was.
+  l = beside(l, [{ id: 'p1', of: 'a' }], id);
+  assert.deepEqual(shape(l), ['x', 50, 'a,b', 'p1']);
+  assert.equal(l.selected, start.selected);
+  // The next of that terminal, and one of the terminal it shares its pane with: tabs of the same pane, the newest in front.
+  l = beside(l, [{ id: 'p1', of: 'a' }, { id: 'p2', of: 'a' }, { id: 'p3', of: 'b' }], id);
+  assert.deepEqual(shape(l), ['x', 50, 'a,b', 'p1,p2,p3']);
+  assert.equal(paneOf(l, 'p3')?.active, 'p3');
+  assert.equal(l.selected, start.selected);
+  // In step already: nothing changes, and it is the same layout.
+  assert.equal(beside(l, [{ id: 'p1', of: 'a' }, { id: 'p2', of: 'a' }, { id: 'p3', of: 'b' }], id), l);
+  // A terminal in another pane has its previews beside itself.
+  l = split(l, paneOf(l, 'a')!.id, 'y', 'c', false, id);
+  l = beside(l, [{ id: 'p1', of: 'a' }, { id: 'p2', of: 'a' }, { id: 'p3', of: 'b' }, { id: 'p4', of: 'c' }], id);
+  assert.deepEqual(shape(l), ['x', 50, ['y', 50, 'a,b', ['x', 50, 'c', 'p4']], 'p1,p2,p3']);
+  assert.equal(l.selected, paneOf(l, 'c')!.id);
+  // Focus mode stays on: a preview an agent opens is there when the person looks up.
+  const one = beside(toggleFocus(open(empty(), 'a', undefined, id)), [{ id: 'p1', of: 'a' }], id);
+  assert.equal(one.focus, true);
+  assert.equal(one.selected, paneOf(one, 'a')!.id);
+  // A terminal closed or sent to the background takes its previews out of the layout; back in a tab, they are back.
+  const all = [{ id: 'p1', of: 'a' }, { id: 'p2', of: 'a' }, { id: 'p3', of: 'b' }, { id: 'p4', of: 'c' }];
+  l = beside(background(l, 'a'), all, id);
+  assert.deepEqual(shape(l), ['x', 50, ['y', 50, 'b', ['x', 50, 'c', 'p4']], 'p3']);
+  l = beside(open(l, 'a', paneOf(l, 'b')!.id, id), all, id);
+  assert.deepEqual(tabs(l).sort(), ['a', 'b', 'c', 'p1', 'p2', 'p3', 'p4']);
+  assert.equal(paneOf(l, 'p1'), paneOf(l, 'p3'));
+  // A preview that is closed is a tab the core no longer knows.
+  l = beside(reconcile(l, [], new Set(['a', 'b', 'c', 'p3', 'p4'])), [{ id: 'p3', of: 'b' }, { id: 'p4', of: 'c' }], id);
+  assert.deepEqual(tabs(l).sort(), ['a', 'b', 'c', 'p3', 'p4']);
 });

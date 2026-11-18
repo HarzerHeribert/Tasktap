@@ -247,6 +247,33 @@ export function reconcile(l: Layout, running: string[], known: Set<string>, id =
   return out;
 }
 
+/** What is shown beside a terminal (the core's `previews`): its id, and its terminal's. */
+export type Beside = { id: string; of: string };
+
+/** Keeps the previews in step with their terminals. A preview is a tab like a terminal's: one whose terminal is in no
+ *  tab leaves, and one with no place yet gets one beside its terminal, as a tab among that terminal's other previews
+ *  where it has any, else among those of the terminals it shares its pane with, else in a new pane at the right of
+ *  the terminal's: so a pane of terminals has one pane of previews, however many there are. It is the one shown
+ *  there, and nothing else changes: the selected pane stays selected and focus mode stays on, so that a preview an agent opens takes nothing
+ *  from the person. Returns the layout it was given when there is nothing to do. */
+export function beside(l: Layout, previews: Beside[], id = freshId): Layout {
+  const of = new Map(previews.map((p) => [p.id, p.of]));
+  let out = l;
+  for (const t of tabs(out)) {
+    const terminal = of.get(t);
+    if (terminal !== undefined && !paneOf(out, terminal)) out = close(out, t);
+  }
+  for (const p of previews) {
+    const home = paneOf(out, p.of);
+    if (paneOf(out, p.id) || !home) continue;
+    const holds = (terminals: string[]) => panes(out).find((pane) => pane.tabs.some((t) => terminals.includes(of.get(t) ?? '')));
+    const among = holds([p.of]) ?? holds(home.tabs);
+    const { selected, focus } = out;
+    out = { ...(among ? open(out, p.id, among.id, id) : split(out, home.id, 'x', p.id, false, id)), selected, focus };
+  }
+  return out;
+}
+
 /** Where each pane and divider goes in an area `w` by `h`: a 1 px seam between the
  *  parts of a split, and a 7 px divider target over it. In focus mode only the selected
  *  pane shows, filling the area. */

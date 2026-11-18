@@ -6,14 +6,15 @@ import type { Question, Thought } from '../../../core/proto/protocol.ts';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { next, pending, running, settle, settling, Status, Told } from '../changes.tsx';
 import { Ask } from '../question.tsx';
-import { Answer, I, Mark, ago, madeAt, when } from '../ui.tsx';
+import { Answer, I, Mark, Ring, ago, madeAt, when } from '../ui.tsx';
 import { placed } from '../way.ts';
 import * as L from './layout.ts';
 import { type Item, popup } from './menu.ts';
 import {
-  LOOSE, agentName, attach, closeTab, copy, cue, details, focusTerminal, keepInBackground, label, layout, newTerminal, open, paste, questionOf,
-  readSoon, records, resultOf, sessionOf, setLayout, store, textSize, textSizeBy, thoughtOf, ui,
+  LOOSE, agentName, attach, call, closeTab, copy, cue, details, fail, focusTerminal, keepInBackground, label, layout, newTerminal, open, paste, questionOf,
+  readSoon, records, redraw, resultOf, sessionOf, setLayout, store, textSize, textSizeBy, thoughtOf, ui,
 } from './model.ts';
+import { Preview, focusPreview, openedBy, previewMenu } from './preview.tsx';
 import { engine, engines, flushFits, queueFit } from './terminal.ts';
 
 /** An agent started as a person starts it: its name typed into a new shell of the workspace, where
@@ -30,8 +31,9 @@ const starts = (project: string, into?: string): Item[] => [
 
 /** What a tab offers on a right-click: the pane's commands, from the menu and the keys as well. */
 function tabMenu(project: string, id: string): Item[] {
-  const t = records.terminals.get(id);
+  const t = records.terminals.get(id), shows = records.previews.get(id);
   const several = L.panes(layout(project)).length > 1;
+  if (shows) return previewMenu(project, shows, several, () => open({ kind: 'move', project, id }));
   return [
     ...(sessionOf(id) ? [{ text: 'Session Details…', key: 'CmdOrCtrl+I', do: () => void details(id) }, '-' as const] : []),
     { text: 'Find…', key: 'CmdOrCtrl+F', do: () => open({ kind: 'find', id }) },
@@ -79,6 +81,8 @@ export function Deck({ project }: { project: string }) {
 function Pane({ project, pane, index, rect, focused }: { project: string; pane: L.Pane; index: number; rect?: L.Rect; focused: boolean }) {
   const surface = useRef<HTMLDivElement>(null);
   const id = pane.active;
+  // A tab is a terminal or a preview (preview.tsx): a preview is drawn in the terminals' place while it is in front.
+  const shows = id ? records.previews.get(id) : undefined;
   const s = id ? sessionOf(id) : undefined;
   // The tabs' terminals live in this surface: moved here, never rebuilt; only the active one shows.
   useLayoutEffect(() => {
@@ -88,6 +92,7 @@ function Pane({ project, pane, index, rect, focused }: { project: string; pane: 
       if (owner && !pane.tabs.includes(owner)) el.remove();
     }
     for (const tab of pane.tabs) {
+      if (records.previews.has(tab)) continue;
       const e = engine(tab);
       if (e.element.parentElement !== surface.current) surface.current!.append(e.element);
       e.element.hidden = tab !== pane.active;
@@ -96,6 +101,8 @@ function Pane({ project, pane, index, rect, focused }: { project: string; pane: 
       if (tab === pane.active) queueFit(e);
     }
   });
+  // The tab in front is in view, however many tabs the pane has.
+  useLayoutEffect(() => surface.current?.parentElement?.querySelector('.tabw.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }), [id]);
   const select = () => {
     const l = layout(project);
     if (l.selected !== pane.id) setLayout(project, L.select(l, pane.id));
@@ -105,7 +112,7 @@ function Pane({ project, pane, index, rect, focused }: { project: string; pane: 
   useEffect(() => void (focused && readSoon(th)), [focused, th?.id, th?.read, th?.status, ui.active]);
   const style = rect ? { left: rect.x + 'px', top: rect.y + 'px', width: rect.w + 'px', height: rect.h + 'px' } : undefined;
   const q = questionOf(s);
-  const full = id ? ui.full.get(id) : undefined;
+  const full = id ? ui.full.get(id) : undefined, refused = id ? ui.refused.get(id) : undefined;
   return (
     <section class={`pane${focused ? ' focus' : ''}`} hidden={!rect} style={style} data-pane={pane.id} aria-label={`Pane ${index + 1}`}
       onPointerDownCapture={select} onFocusIn={select}>
@@ -116,8 +123,19 @@ function Pane({ project, pane, index, rect, focused }: { project: string; pane: 
           <I n="plus" />
         </button>
       </div>
-      <div class="surface" ref={surface} role="tabpanel" />
-      {full && id ? (
+      <div class="surface" ref={surface} role="tabpanel" hidden={!!shows} />
+      {shows && <Preview key={shows.id} p={shows} project={project} select={select} />}
+      {refused && id ? (
+        // What the core would not show beside this terminal: said here, in its words, with the way it can be opened.
+        <div class="strip" role="status" data-refused={id}>
+          <p class="meta"><b>No preview</b></p>
+          <p class="said">{refused.said}</p>
+          <div class="qa">
+            <button type="button" class="btn" onClick={() => (ui.refused.delete(id), redraw(), void call('host.open', { target: refused.target, cwd: refused.cwd }).catch(fail))}>Open It Instead</button>
+            <button type="button" class="btn" onClick={() => (ui.refused.delete(id), redraw())}>Dismiss</button>
+          </div>
+        </div>
+      ) : full && id ? (
         // One more view than the core allows of a terminal: said where it would have opened.
         <div class="strip" role="status" data-full={id}>
           <p class="meta"><b>Not shown here</b></p>
@@ -179,19 +197,22 @@ export function ResultStrip({ t }: { t: Thought & { workdir: NonNullable<Thought
 
 function Tab({ project, pane, id }: { project: string; pane: L.Pane; id: string }) {
   const active = pane.active === id;
-  const c = cue(id);
-  const name = label(id);
+  // A preview's tab says what it shows, and by its mark who opened it: the agent's own mark when the agent did.
+  const shows = records.previews.get(id);
+  const c = shows ? { s: 'shell' as const, words: [shows.kind === 'web' ? shows.target : shows.target.replace(/^\/Users\/[^/]+/, '~'), openedBy(shows)].filter(Boolean).join('\n') } : cue(id);
+  const name = shows ? shows.title : label(id);
   // How the session's thought found its way here, said quietly with its name.
   const th = thoughtOf(sessionOf(id)), how = th && placed(th, agentName);
   return (
-    <div class={`tabw${active ? ' on' : ''}${c.s === 'shell' ? ' shl' : ''}`}>
+    <div class={`tabw${active ? ' on' : ''}${c.s === 'shell' && !shows ? ' shl' : ''}`}>
       <button type="button" role="tab" class="tab" data-id={id} aria-selected={active} tabIndex={active ? 0 : -1}
         title={[name, c.words, how].filter(Boolean).join('\n')} aria-description="Drag to move it to another pane. Right-click for its commands"
         onPointerDown={(e) => grab(e, project, pane.id, id)}
         onClick={() => {
           if (dragged) return;
           setLayout(project, L.select(layout(project), pane.id, id));
-          focusTerminal(id);
+          if (shows) focusPreview(id);
+          else focusTerminal(id);
         }}
         onContextMenu={(e) => popup(e, tabMenu(project, id))}
         onKeyDown={(e) => {
@@ -203,7 +224,8 @@ function Tab({ project, pane, id }: { project: string; pane: L.Pane; id: string 
           setLayout(project, L.select(layout(project), pane.id, next));
           requestAnimationFrame(() => document.querySelector<HTMLElement>(`.tab[data-id="${next}"]`)?.focus());
         }}>
-        <Mark s={c.s} label={c.words} /><span class="lbl">{name}</span>
+        {shows ? <i class="st by" data-by={shows.by} role="img" aria-label={openedBy(shows) || 'Preview'}>{shows.by !== 'agent' ? <I n="view" /> : sessionOf(shows.terminal_id) ? <Ring agent={sessionOf(shows.terminal_id)!.agent} s="" /> : <I n="term" />}</i>
+          : <Mark s={c.s} label={c.words} />}<span class="lbl">{name}</span>
       </button>
       <button type="button" class="x" title="Close tab  ⌘W" aria-label={`Close ${name}`} onClick={() => closeTab(project, id)}><I n="x" /></button>
     </div>

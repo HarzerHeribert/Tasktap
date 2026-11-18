@@ -4,6 +4,8 @@
 //! (design §12), answers the page's `host.*` calls, places the notch panel and binds the global
 //! shortcuts. Everything else is the core's or the page's.
 mod core;
+// Windows shows no frame yet: what holds one to this machine there is not built, so its server is not called.
+#[cfg_attr(windows, allow(dead_code))]
 mod frames;
 // Windows has no window for the tab yet: what it will stand on is compiled and tested there,
 // and not yet called.
@@ -147,9 +149,11 @@ fn bridge_host(app: AppHandle, frame: String) -> String {
         // machine's own addresses, which the Windows host does not do yet.
         #[cfg(windows)]
         "host.frame" => Err(format!("showing a page here is {}", native::NOT_YET)),
+        #[cfg(not(windows))]
         "host.frame" if !workspace::CONFINED.load(std::sync::atomic::Ordering::Relaxed) => {
             Err("Showing a page here is not ready yet".into())
         }
+        #[cfg(not(windows))]
         "host.frame" => {
             let host = app.state::<Host>();
             let (link, worktrees) = (host.link.clone(), host.core.data.join("worktrees"));
@@ -158,7 +162,11 @@ fn bridge_host(app: AppHandle, frame: String) -> String {
                 roots.push(worktrees.clone());
                 roots
             })
-            .map(|base| json!({"base": base}))
+            // With `listens`, a local web address: whether anything answers there now.
+            .map(|base| match args["listens"].as_str() {
+                Some(address) => json!({"base": base, "listens": frames::listens(address)}),
+                None => json!({"base": base}),
+            })
         }
         name => Err(format!("this host has no {name}")),
     };

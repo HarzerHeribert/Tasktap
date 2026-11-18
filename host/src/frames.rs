@@ -54,6 +54,30 @@ pub fn own(url: &str) -> bool {
     allowed(url) && web(url) != Web::Local && !url.starts_with("about:")
 }
 
+/// Whether anything answers at a local web address now: one attempt to connect, to this machine only, so a
+/// preview can say that its server is not up yet instead of showing an empty frame. Anything the rule does not
+/// call local is not asked.
+pub fn listens(address: &str) -> bool {
+    use std::net::ToSocketAddrs;
+    if web(address) != Web::Local {
+        return false;
+    }
+    let lower = address.to_ascii_lowercase();
+    let (secure, rest) = match lower.strip_prefix("https://") {
+        Some(rest) => (true, rest),
+        None => (false, lower.strip_prefix("http://").unwrap_or_default()),
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((host, port)) if !port.ends_with(']') => (host, port.parse().unwrap_or(0)),
+        _ => (authority, if secure { 443 } else { 80 }),
+    };
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    (host, port)
+        .to_socket_addrs()
+        .is_ok_and(|mut all| all.any(|at| TcpStream::connect_timeout(&at, Duration::from_millis(250)).is_ok()))
+}
+
 /// The largest file a frame is given, the core's bound for a picture or a PDF (`MAX_FILE`).
 const MAX_FILE: u64 = 16 << 20;
 
@@ -228,6 +252,20 @@ mod tests {
         // (An empty frame, which is no web address, is the one thing the policy lets through besides.)
         for (address, kind) in table.into_iter().filter(|(address, _)| !address.starts_with("about:")) {
             assert_eq!(allowed(&address), kind == "local", "{address} is {kind}");
+        }
+    }
+
+    #[test]
+    fn a_local_address_is_asked_whether_anything_answers_and_no_other_is_asked_at_all() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(listens(&format!("http://127.0.0.1:{port}/rehearsal?x=1")));
+        assert!(listens(&format!("http://localhost:{port}")));
+        drop(listener);
+        assert!(!listens(&format!("http://127.0.0.1:{port}/")));
+        assert!(!listens(&format!("http://[::1]:{port}/")));
+        for remote in ["https://example.com/", "http://192.168.1.10:80/", "http://localhost.:80/", "not an address"] {
+            assert!(!listens(remote), "{remote}");
         }
     }
 

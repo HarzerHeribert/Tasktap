@@ -49,6 +49,8 @@ export const ui = {
   stopping: new Set<string>(),
   /** Terminals the core would not show here, each with its reason: one is open in as many places as it allows. */
   full: new Map<string, string>(),
+  /** What the core would not show beside a terminal, by that terminal: its sentence, and what was asked for. */
+  refused: new Map<string, { said: string; target: string; cwd: string }>(),
   /** Workspaces whose sessions are folded away in the sidebar. */
   folded: new Set<string>(),
   /** The first snapshot arrived: until then nothing is reconciled. */
@@ -99,7 +101,12 @@ export function layout(project: string): L.Layout {
   return l;
 }
 
+/** A workspace's previews, each with its terminal: they have their places in its layout as its terminals do. */
+const previewsOf = (project: string): L.Beside[] =>
+  [...records.previews.values()].filter((p) => projectOf(p.terminal_id) === project).map((p) => ({ id: p.id, of: p.terminal_id }));
+
 export function setLayout(project: string, l: L.Layout, store = true) {
+  l = L.beside(l, previewsOf(project));
   if (l === layouts.get(project)) return;
   layouts.set(project, l);
   redraw();
@@ -149,8 +156,10 @@ export function reconcile() {
   for (const project of [...workspaces().map((p) => p.id), LOOSE]) {
     const known = new Set([...records.terminals.values()].filter((t) => (t.project_id ?? LOOSE) === project).map((t) => t.id));
     for (const id of ui.starting.keys()) known.add(id);
+    const beside = previewsOf(project);
+    for (const p of beside) known.add(p.id);
     const l = layout(project);
-    const next = L.reconcile(l, running(project).map((t) => t.id), known);
+    const next = L.beside(L.reconcile(l, running(project).map((t) => t.id), known), beside);
     if (next !== l) setLayout(project, next);
   }
   for (const [id, e] of engines) {
@@ -207,12 +216,14 @@ export const textSize = (id: string) => layout(projectOf(id)).sizes[id] ?? curre
 
 // ——— What the person does ———
 
-/** The pane the toolbar and the keyboard act on in the workspace shown, and its terminal. */
+/** The pane the toolbar and the keyboard act on in the workspace shown, and what it shows: its terminal, or the
+ *  preview in front in it. */
 export function current() {
   const project = ui.view;
   if (project === 'home' || project === 'earlier') return undefined;
-  const pane = L.selectedPane(layout(project));
-  return { project, pane: pane?.id, id: pane?.active ?? undefined };
+  const pane = L.selectedPane(layout(project)), at = pane?.active ?? undefined;
+  const preview = at !== undefined && records.previews.has(at);
+  return { project, pane: pane?.id, id: preview ? undefined : at, preview: preview ? at : undefined };
 }
 
 export function show(view: string) {
@@ -280,9 +291,17 @@ export async function attach(id: string, again = false) {
   redraw();
 }
 
-/** Closing a tab: a live terminal asks first (README, Arrange your workspace); an ended one closes. */
+/** Closing a tab: a live terminal asks first (README, Arrange your workspace); an ended one closes. A preview is
+ *  closed for good: its record goes, and the keyboard is its terminal's again. */
 export function closeTab(project: string, id: string) {
   if (records.terminals.get(id)?.state === 'running' && !ui.stopping.has(id)) return open({ kind: 'close-tab', project, id });
+  const shows = records.previews.get(id);
+  if (shows) {
+    void call('delete', { c: 'previews', id }).catch(fail);
+    records.previews.delete(id);
+    setLayout(project, L.close(layout(project), id));
+    return focusTerminal(shows.terminal_id);
+  }
   setLayout(project, L.close(layout(project), id));
   engines.get(id)?.dispose();
   engines.delete(id);

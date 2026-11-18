@@ -35,6 +35,7 @@ static STATE: Mutex<Option<State>> = Mutex::new(None);
 
 /// The web view loads nothing from the network but this machine's own addresses (frames.rs `RULES`): only then is a
 /// preview given a frame.
+#[cfg_attr(windows, allow(dead_code))]
 pub static CONFINED: AtomicBool = AtomicBool::new(false);
 /// The page the window shows: where its top frame is sent back to, should it ever be anywhere else.
 static HOME: Mutex<Option<Url>> = Mutex::new(None);
@@ -304,6 +305,9 @@ pub fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
                     &item("focus", "Focus Surface", None)?,
                     &item("split-right", "Split Right", Some("CmdOrCtrl+D"))?,
                     &item("split-down", "Split Down", Some("CmdOrCtrl+Shift+D"))?,
+                    &sep()?,
+                    &item("preview", "Switch Terminal and Preview", Some("CmdOrCtrl+P"))?,
+                    &item("reload-preview", "Reload Preview", Some("CmdOrCtrl+R"))?,
                     &sep()?,
                     &item("bigger", "Increase Text Size", Some("CmdOrCtrl+="))?,
                     &item("smaller", "Decrease Text Size", Some("CmdOrCtrl+-"))?,

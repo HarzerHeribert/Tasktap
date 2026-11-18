@@ -20,6 +20,7 @@ import { live, loudness, recording, talk } from '../speech/record.ts';
 import { I, Key, Mark, Wave, plural } from '../ui.tsx';
 import { apply, fontsReady, look } from './appearance.ts';
 import { Deck, startAgent } from './deck.tsx';
+import { follow, refresh, reload, stop, swap } from './preview.tsx';
 import { Earlier, Home, homeCounts } from './home.tsx';
 import { effects, power, wakeLook } from './light.tsx';
 import { setVoice, stats } from '../motion/engine.ts';
@@ -61,7 +62,12 @@ export function command(id: string) {
       return (id === 'appearance' || ui.sheet?.kind !== 'settings') && open({ kind: 'settings', at: id === 'appearance' ? id : shown.at });
     // ⌘W closes what is in front: a sheet, when one is.
     case 'close-tab':
-      return ui.sheet ? dismiss() : c?.id && closeTab(c.project, c.id);
+      return ui.sheet ? dismiss() : c && (c.preview ?? c.id) && closeTab(c.project, (c.preview ?? c.id)!);
+    // A preview: read anew; and the keyboard between a terminal and the preview beside it.
+    case 'reload-preview':
+      return reload();
+    case 'preview':
+      return swap();
     case 'find':
       if (ui.view === 'earlier' || ui.view === 'home') return show('earlier');
       return c?.id && open({ kind: 'find', id: c.id });
@@ -135,7 +141,7 @@ document.addEventListener('focusin', enter, true);
 /** ⌘ shortcuts, handled before xterm.js or the web view can treat them as input or zoom. The application menu shows
  *  the same; a key the page handles never reaches it twice. While a sheet is open, the sheet has the keys. */
 const keys: Record<string, string> = { n: 'new-task', t: 'new-terminal', o: 'open-workspace', w: 'close-tab', f: 'find', d: 'split-right',
-  '=': 'bigger', '+': 'bigger', '-': 'smaller', '0': 'reset', ',': 'settings', '[': 'back', i: 'session' };
+  '=': 'bigger', '+': 'bigger', '-': 'smaller', '0': 'reset', ',': 'settings', '[': 'back', i: 'session', r: 'reload-preview', p: 'preview' };
 document.addEventListener('keydown', (e) => {
   if (!e.metaKey || e.ctrlKey || e.altKey || e.isComposing || ui.sheet) return;
   const k = e.key.toLowerCase();
@@ -274,8 +280,10 @@ function arrive(at: string) {
   if (section) open({ kind: 'settings', at: section });
   else focusSession(at);
 }
-void listen<{ do: string; at?: string; id?: string; low?: boolean }>('ui', ({ payload }) => {
+void listen<{ do: string; at?: string; id?: string; low?: boolean; url?: string }>('ui', ({ payload }) => {
   if (payload.do === 'focus' && payload.at) arrive(payload.at);
+  // A preview's frame tried to leave this machine: the host stopped it, and the person is offered the address.
+  else if (payload.do === 'stopped' && payload.url) stop(payload.url);
   else if (payload.do === 'menu' && payload.id) command(payload.id);
   // Low Power Mode began or ended: the effects follow it (light.tsx effects).
   else if (payload.do === 'power') (power.low = !!payload.low), redraw();
@@ -297,13 +305,13 @@ void win.onFocusChanged(({ payload }) => {
   ui.active = payload;
   document.documentElement.classList.toggle('inactive', !payload);
   redraw();
-  // Back in use: the region that has the focus answers, as a greeting.
-  if (payload) greet(region || 'main');
+  // Back in use: the region that has the focus answers, as a greeting, and a preview asks whether its file changed.
+  if (payload) (greet(region || 'main'), refresh());
 });
 // The window shows once the page has laid out its first frame (a hidden window draws nothing).
 setTimeout(() => void call('host.ready', {}).catch(() => {}));
 void client
-  .sub(['thoughts', 'projects', 'sessions', 'terminals', 'questions', 'results', 'layouts', 'prefs', 'agents', 'dictations'], records)
+  .sub(['thoughts', 'projects', 'sessions', 'terminals', 'questions', 'results', 'layouts', 'prefs', 'agents', 'dictations', 'previews'], records)
   .then(() => {
     ui.ready = true;
     reconcile();
@@ -338,7 +346,7 @@ const slide = () => new Promise((done) => {
 /** Types a line into the terminal shown, as the keyboard would. */
 const type = (line: string) => (engines.get(current()?.id ?? '')?.term.input(line + '\r', true), !!current()?.id);
 Object.assign(window, {
-  __ws: { uuid7, ui, records, layout, command, greet, slide, engines, focusSession, show, newTerminal, startAgent, call, echo, burst, text, type, current, dismiss, open, menu, choose, LOOSE, L },
+  __ws: { uuid7, ui, records, layout, command, greet, slide, engines, focusSession, show, newTerminal, startAgent, call, echo, burst, text, type, current, dismiss, open, menu, choose, LOOSE, L, follow, refresh },
   __motion: { debug, stats, redraw },
   __speech: { talk, live, cap },
 });

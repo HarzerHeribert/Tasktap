@@ -12,7 +12,11 @@
 # and into a question's reply, a failure and cancel, with a tone made in the page in place of a microphone
 # and a speech service of the check's own on this machine; a ring picked for one thought, a spoken thought ended as
 # words, what the host opens and refuses to (with an opener of the check's own: nothing is opened on this Mac), links in
-# a real terminal, a session's details, a terminal open in as many places as it may be; speech on this Mac: Settings, the download, a thought
+# a real terminal, a session's details, a terminal open in as many places as it may be; Settings' new rows (what Return
+# does, the capture key and the hold-to-talk key on the recorder with their refusals, how long thoughts are kept, the
+# terminal's switches, text size in both pages); previews beside a terminal (what a link opens, each kind, what a frame
+# is held to by a page that tries everything it may not, the core's tool run as an agent runs it, staying current,
+# a file that went away, a server that starts later, the keys, the ninth, a restart); speech on this Mac: Settings, the download, a thought
 # and words for a field through the helper, in a short launch of its own, with the real helper and model too when
 # SPEECH_MODEL names the model's file; then quit and relaunch with the layout restored
 # and nothing rerun). It never sends keys or clicks to the system: every step is a line on the app's
@@ -585,6 +589,99 @@ until_has workspace "eval $at" 3 "agents Agents" && js workspace "(document.quer
 shot settings-appearance workspace
 js workspace "(__ws.command('close-tab'), 1)" >/dev/null
 until_has workspace "eval String(__ws.ui.sheet)" 3 "null" && pass "⌘W closes the sheet in front" || fail "⌘W with a sheet open"
+echo "== Settings: what Return does, the two keys on one recorder, how long thoughts are kept, the terminal's switches, text size"
+# A key pressed on the recorder in row `$1`, as the keyboard would: `$2` its code, then which modifiers are held.
+setting() { echo "[...document.querySelectorAll('.set-pane .set')].find((r) => r.querySelector('.t').textContent === '$1')"; }
+record() {
+  js workspace "(r => (r.querySelector('.rec[aria-pressed=false]')?.click(), 1))($(setting "$1"))" >/dev/null
+  sleep 0.3
+  js workspace "(r => (r.querySelector('.rec').dispatchEvent(new KeyboardEvent('keydown', { key: '${2#Key}', code: '$2', ctrlKey: ${3:-false}, altKey: ${4:-false}, shiftKey: ${5:-false}, metaKey: ${6:-false}, bubbles: true, cancelable: true })), 1))($(setting "$1"))" >/dev/null
+  sleep 0.6
+}
+key_row() { echo "eval (r => [r.querySelector('.rec kbd')?.textContent ?? 'no key', r.querySelector('.rec').getAttribute('aria-pressed'), r.querySelector('.hint.err')?.textContent ?? ''].join(' | '))($(setting "$1"))"; }
+choose_in() { js workspace "(r => ([...r.querySelectorAll('.seg button')].find((b) => b.textContent === '$2').click(), 1))($(setting "$1"))" >/dev/null; }
+pref() { echo "eval JSON.stringify(__ws.records.prefs.get('$1')?.value ?? null)"; }
+js workspace "(__ws.show('home'), __ws.open({ kind: 'settings', at: 'thoughts' }), 1)" >/dev/null
+until_has workspace "text .set-pane" 5 "Return in a thought" || fail "the Thoughts section shows its rows"
+# Return: as set, the Composer's key says what sends, and the field does it.
+choose_in "Return in a thought" "Starts a new line"
+until_has workspace "$(pref return_sends)" 3 "false" && until_has workspace "eval document.querySelector('.home .capture .key .sends').textContent + ' ' + $(setting "Return in a thought").querySelector('.hint').textContent" 3 "⌘ Command-Return sends it." \
+  || fail "Return starts a new line, once chosen"
+js workspace "(__ws.dismiss(), document.querySelector('.home #capture-input').focus(), document.execCommand('insertText', false, 'see whether return sends'), 1)" >/dev/null
+before=$(js workspace "__ws.records.thoughts.size")
+press workspace ".home #capture-input" Enter >/dev/null
+sleep 0.6
+held="$(js workspace "document.querySelector('.home #capture-input').value + ' ' + (__ws.records.thoughts.size - $before)")"
+press workspace ".home #capture-input" Enter true >/dev/null
+until_has workspace "eval document.querySelector('.home #capture-input').value + '|' + (__ws.records.thoughts.size - $before)" 5 "|1" && [ "$held" = "see whether return sends 0" ] \
+  && pass "with Return set to start a new line, Return sends nothing and ⌘Return sends the thought; the Composer's key shows ⌘ with Return" || fail "Return as a preference" "$held"
+send 'call delete {"c":"prefs","id":"return_sends"}'
+until_has workspace "eval String(document.querySelector('.home .capture .key .sends').textContent)" 3 "" || fail "Return sends again"
+js workspace "(t => t && __ws.call('thought.stop', { id: t.id }).catch(() => 0))([...__ws.records.thoughts.values()].find((t) => t.text === 'see whether return sends'))" >/dev/null
+# The capture key: recorded, refused by the rule in its own sentence, registered with the system, and back to the default.
+js workspace "(__ws.open({ kind: 'settings', at: 'thoughts' }), 1)" >/dev/null
+until_has workspace "$(key_row "From any app")" 5 "| false |" || fail "the capture key's row"
+at_start="$(ask workspace "$(key_row "From any app")")"
+record "From any app" KeyK
+bare="$(ask workspace "$(key_row "From any app")")"
+record "From any app" Space false false false true
+kept="$(ask workspace "$(key_row "From any app")")"
+case "$bare|$kept" in *"A shortcut needs Control, Option (Alt) or Command (the Windows key) held with its key."*"|"*"The system keeps that combination for itself."*) pass "a bare key and a combination the system keeps are refused under the recorder in the rule's own sentences, and the key in use stays (${at_start%% |*})" ;; *) fail "the recorder's refusals" "$bare || $kept" ;; esac
+shot settings-key-refused workspace
+js workspace "(r => (r.querySelector('.rec').click(), 1))($(setting "From any app"))" >/dev/null
+sleep 0.3
+js workspace "(r => (r.querySelector('.rec').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true })), 1))($(setting "From any app"))" >/dev/null
+until_has workspace "eval $(setting "From any app").querySelector('.rec').getAttribute('aria-pressed') + ' ' + __ws.ui.sheet?.kind" 3 "false settings" \
+  && pass "Escape leaves the recorder and changes nothing; the sheet stays" || fail "Escape in the recorder"
+record "From any app" F9 true true true
+until_has workspace "$(key_row "From any app")" 5 "⌃⌥⇧F9 | false | " && until_has workspace "$(pref capture_key)" 3 '"code":"F9"' \
+  && [ "$(js workspace "__ws.call('host.capture_key', {}).then((r) => r.key?.code)")" = F9 ] && grep -q '"event":"capture-key".*"code":"F9".*"ok":true\|"event":"capture-key".*"ok":true.*"code":"F9"' "$log" \
+  && pass "a combination pressed in the recorder is asked of the system through the host, registered, stored as the preference and shown as the key in use (⌃⌥⇧F9)" || fail "a capture key of the person's own" "$(ask workspace "$(key_row "From any app")")"
+shot settings-key-own workspace
+js workspace "(r => ([...r.querySelectorAll('.btn')].find((b) => b.textContent === 'Use the default').click(), 1))($(setting "From any app"))" >/dev/null
+sleep 1
+back="$(ask workspace "$(key_row "From any app")")"
+case "$back" in
+  "⌃⌥Space | false | ") [ "$(ask workspace "$(pref capture_key)")" = null ] && pass "Use the default registers the system's own key again and removes the preference" || fail "back to the default key" "$back" ;;
+  *"That key is taken by the system or another app."*) [ "$(js workspace "__ws.call('host.capture_key', {}).then((r) => r.key?.code)")" = F9 ] \
+    && pass "the default key is held by another app on this Mac: the recorder says so in the host's words, and the key that was registered goes on working (⌃⌥⇧F9)" || fail "a taken key leaves the old one" "$back" ;;
+  *) fail "back to the default key" "$back" ;;
+esac
+shot settings-key-default workspace
+# How long finished thoughts are kept.
+choose_in "Finished thoughts are kept" "30 days"
+until_has workspace "$(pref keep_days)" 3 "30" && ask workspace "text .set-pane" | grep -q "Applies from the next start, or within a day. Nothing that waits for you is ever removed." \
+  && choose_in "Finished thoughts are kept" "For ever" && until_has workspace "$(pref keep_days)" 3 "0" \
+  && pass "how long finished thoughts are kept is one choice, with when it applies and that nothing waiting is removed" || fail "keep_days"
+# The hold-to-talk key: the same recorder, a plain preference the core holds to the rule; every hint follows it.
+js workspace "(__ws.open({ kind: 'settings', at: 'voice' }), 1)" >/dev/null
+until_has workspace "$(key_row "Hold to talk")" 5 "⌥Space | false | " || fail "the hold-to-talk row"
+record "Hold to talk" Space
+until_has workspace "$(key_row "Hold to talk")" 3 "A shortcut needs Control" || fail "a bare talk key is refused by the core"
+record "Hold to talk" KeyT true
+until_has workspace "$(key_row "Hold to talk")" 3 "⌃T | false | " && until_has workspace "eval document.querySelector('.home .capture .mic kbd')?.textContent + ' ' + $(setting "Turned into text").innerText.includes('Hold ⌃T in a thought')" 3 "⌃T " \
+  && pass "the hold-to-talk key is recorded the same way and stored as its preference; a bare key is refused in the core's sentence; the Composer's microphone and Settings name the new key at once" || fail "the hold-to-talk key" "$(ask workspace "$(key_row "Hold to talk")")"
+shot settings-voice workspace
+js workspace "(r => ([...r.querySelectorAll('.btn')].find((b) => b.textContent === 'Use the default').click(), 1))($(setting "Hold to talk"))" >/dev/null
+until_has workspace "$(key_row "Hold to talk")" 3 "⌥Space | false | " && [ "$(ask workspace "$(pref talk_key)")" = null ] || fail "the talk key's default"
+# The terminal's two switches, taken by open terminals at once.
+js workspace "(__ws.open({ kind: 'settings', at: 'terminal' }), 1)" >/dev/null
+opts="(e => e.term.options.drawBoldTextInBrightColors + ' ' + e.term.options.minimumContrastRatio)([...__ws.engines.values()][0])"
+until_has workspace "eval $opts" 3 "true 4.5" || fail "the terminals' defaults"
+js workspace "(document.querySelectorAll('.set-pane .switch').forEach((s) => s.click()), 1)" >/dev/null
+until_has workspace "eval $opts" 3 "false 1" && js workspace "(document.querySelectorAll('.set-pane .switch').forEach((s) => s.click()), 1)" >/dev/null && until_has workspace "eval $opts" 3 "true 4.5" \
+  && pass "the terminal's two switches (bold text in bright colours, text kept readable) reach every open terminal at once, and back" || fail "the terminal's switches" "$(js workspace "$opts")"
+# Text size: a scale on the type roles of both pages.
+js workspace "(__ws.open({ kind: 'settings', at: 'appearance' }), 1)" >/dev/null
+sizes="[getComputedStyle(document.body).fontSize, getComputedStyle(document.body).lineHeight, document.documentElement.dataset.text].join(' ')"
+choose_in "Text size" "Large"
+until_has workspace "eval $sizes" 3 "15px 21px large" && until_has notch "eval $sizes" 3 "15px 21px large" || fail "large text in both pages" "$(js workspace "$sizes") | $(js notch "$sizes")"
+shot settings-large workspace
+choose_in "Text size" "Small"
+until_has workspace "eval $sizes" 3 "12px 17px small" && until_has notch "eval $sizes" 3 "12px 17px small" && choose_in "Text size" "Default" \
+  && until_has workspace "eval $sizes" 3 "13px 18px default" && until_has notch "eval $sizes" 3 "13px 18px default" \
+  && pass "text size scales the type roles of the workspace and the notch at once: small, default, large" || fail "text size" "$(js workspace "$sizes") | $(js notch "$sizes")"
+js workspace "(__ws.dismiss(), 1)" >/dev/null
 # The terminal: scrolled back, a pill says how many lines are below and returns to the end.
 js workspace "(__ws.show('$project'), 1)" >/dev/null
 pill="document.querySelector('.term:not([hidden]) .term-more')"
@@ -972,6 +1069,208 @@ shot terminal-full workspace
 js workspace "(__ws.call('terminal.stop', { id: '$shell' }), 1)" >/dev/null
 until_has workspace "eval __ws.records.terminals.get('$shell')?.state" 8 "exited" && js workspace "(__ws.focusSession('$shell'), __ws.command('close-tab'), 1)" >/dev/null
 rm -f "$tmp/project/way-out.txt"
+
+echo "== Previews beside a terminal: what a link opens, each kind, what a frame is held to, an agent's own, staying current"
+# A web server of the check's own on this machine, and a project with one file of each kind.
+python3 "$host/scripts/frame-fixture.py" "$tmp/frames.log" "$host/scripts/frame-probe.html" > "$tmp/frames.port" &
+for _ in $(seq 1 50); do [ -s "$tmp/frames.port" ] && break; sleep 0.1; done
+read -r fport remote < "$tmp/frames.port"
+real="$(cd "$tmp/project" && pwd -P)"
+printf '# Smoke notes\n\nWritten by **the agent**. See [the log](plain.txt) and https://example.com/docs.\n\n<script>document.title = "ran"</script>\n\n- [x] one\n- [ ] two\n' > "$tmp/project/notes.md"
+echo "plain words" > "$tmp/project/plain.txt"
+echo "beside" > "$tmp/project/beside.txt"
+python3 -c "
+import zlib, struct, sys
+w, h = 320, 200
+raw = b''.join(b'\x00' + b''.join(bytes((40 + x * 200 // w, 60 + y * 150 // h, 190, 255)) for x in range(w)) for y in range(h))
+chunk = lambda t, d: struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d))
+open(sys.argv[1], 'wb').write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
+open(sys.argv[2], 'wb').write(b'%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n4 0 obj<</Length 44>>stream\nBT /F1 24 Tf 40 100 Td (Fixture PDF) Tj ET\nendstream endobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n')
+open(sys.argv[3], 'w').write('a line of the log that goes on and on\n' * 70000)
+open(sys.argv[4], 'wb').write(bytes(range(256)) * 8)
+" "$tmp/project/shot.png" "$tmp/project/paper.pdf" "$tmp/project/big.log" "$tmp/project/data.bin"
+echo '<!doctype html><title>Report</title><body style="font:16px system-ui;margin:24px"><h1>Report</h1><p>Written by the agent.</p><img src="shot.png" width="160">' > "$tmp/project/report.html"
+js workspace "(__ws.show('$project'), 1)" >/dev/null
+pshell="$(js workspace "__ws.newTerminal('$project')")"
+until_has workspace "eval __ws.records.terminals.get('$pshell')?.state + ' ' + __ws.engines.get('$pshell')?.attached" 10 "running true" || fail "a shell for the previews"
+sleep 1
+term_line "echo notes.md plain.txt shot.png paper.pdf report.html big.log data.bin http://127.0.0.1:$fport/ https://example.com/docs"
+plinks="(async () => { const e = __ws.engines.get('$pshell'), out = []; for (let y = 1; y <= e.term.buffer.active.length; y++) out.push(...(await e.links(y))); return out; })()"
+# A link of the terminal, followed as a ⌘-click follows it; `$2`: with ⌥ or ⇧ as well.
+click() { js workspace "$plinks.then((l) => { const f = l.find((x) => x.text === '$1'); f?.activate({ metaKey: true, shiftKey: '${2:-}' === 'shiftKey', altKey: '${2:-}' === 'altKey' }, f.text); return !!f; })" >/dev/null; }
+shown() { echo "eval [...__ws.records.previews.values()].filter((p) => p.terminal_id === '$pshell').map((p) => p.title + ':' + p.kind + ':' + p.by).join(' ')"; }
+# What the preview in front shows: its kind, and its words.
+front="(p => p ? p.dataset.kind + ' ' + p.querySelector('.pv-b, .pv-f')?.tagName + ' ' + (p.querySelector('.pv-b')?.innerText ?? '').replace(/\\s+/g, ' ').slice(0, 300) : 'none')(document.querySelector('.pane:not([hidden]) > .pv'))"
+until_has workspace "eval $plinks.then((l) => ['shot.png', 'data.bin', 'https://example.com/docs'].every((t) => l.some((x) => x.text === t)))" 8 "True" || fail "the links of the previews' terminal" "$(js workspace "$plinks.then((l) => l.map((x) => x.text).join('|'))")"
+selected="$(js workspace "__ws.layout('$project').selected")"
+panes_before=$(js workspace "__ws.L.panes(__ws.layout('$project')).length")
+: > "$tmp/opened"
+click notes.md
+until_has workspace "$(shown)" 5 "notes.md:file:person" && until_has workspace "eval $front" 5 "markdown DIV Smoke notes" \
+  && [ "$(js workspace "__ws.L.panes(__ws.layout('$project')).length - $panes_before")" = 1 ] \
+  && [ "$(js workspace "String(__ws.layout('$project').selected === '$selected' && __ws.current().id === '$pshell')")" = true ] \
+  && pass "⌘-click on a Markdown file's path shows it beside its terminal, in a pane of its own at the terminal's right, and the terminal keeps the keyboard" || fail "a Markdown preview" "$(js workspace "$front")"
+[ "$(js workspace "(p => String(p.innerText.includes('<script>document.title = \"ran\"</script>') && !p.querySelector('script, iframe') && document.title !== 'ran' && !!p.querySelector('h1') && p.querySelectorAll('li').length === 2 && p.querySelectorAll('a').length === 2))(document.querySelector('.pv .md'))")" = true ] \
+  && pass "Markdown is drawn by the page as text in its roles: a heading, a list, links; raw HTML in it is shown as the words it is and nothing of it runs" || fail "Markdown as text" "$(js workspace "document.querySelector('.pv .md')?.innerHTML.slice(0, 400)")"
+shot preview-markdown workspace
+click plain.txt
+click notes.md altKey
+click notes.md shiftKey
+click https://example.com/docs
+sleep 0.8
+[ "$(sort "$tmp/opened" | tr '\n' '|')" = "-R $real/notes.md|-t $real/notes.md|-t $real/plain.txt|-u https://example.com/docs|" ] && [ "$(js workspace "__ws.records.previews.size")" = 1 ] \
+  && pass "a file of text still goes to the editor and a web address that is not this machine's to the browser; ⌥⌘-click opens a previewed file in the editor instead, ⇧⌘-click shows it in Finder (to the check's own opener)" || fail "what still opens elsewhere" "$(tr '\n' '|' < "$tmp/opened")"
+click plain.txt altKey
+until_has workspace "eval $front" 5 "text DIV plain words" && pass "⌥⌘-click on a file of text shows it beside the terminal instead, as text" || fail "a text preview" "$(js workspace "$front")"
+click big.log altKey
+until_has workspace "eval $front.slice(0, 40) + ' ' + document.querySelector('.pv .pv-cut')?.innerText" 8 "It goes on" && [ "$(js workspace "String(document.querySelector('.pv pre').textContent.length <= 262144)")" = true ] \
+  && pass "text longer than the page draws says that only its beginning is shown, and offers the editor" || fail "cut text" "$(js workspace "$front.slice(0, 80)")"
+shot preview-cut workspace
+click shot.png
+until_has workspace "eval $front + ' ' + (i => i && i.naturalWidth + 'x' + i.naturalHeight + ' ' + (i.getBoundingClientRect().width <= i.parentElement.clientWidth))(document.querySelector('.pv-p img')) + ' ' + document.querySelector('.pv-n')?.textContent" 8 "320x200 true 320 × 200" \
+  && js workspace "(document.querySelector('.pv-p img').click(), 1)" >/dev/null \
+  && until_has workspace "eval String(document.querySelector('.pv-p.real img')?.getBoundingClientRect().width)" 3 "320" \
+  && pass "a picture is shown fitted, with its size said, and at its real size on a click" || fail "a picture preview" "$(js workspace "$front")"
+shot preview-picture workspace
+click data.bin altKey
+until_has workspace "eval $front" 5 "other DIV No preview" && pass "a file of a kind nothing shows says so, and offers Finder" || fail "a file of another kind" "$(js workspace "$front")"
+
+# Frames: a page and a PDF from the host's own server, a local address as it is; each held to this machine.
+frame="(f => f ? [f.getAttribute('sandbox'), new URL(f.src).host, f.src.split('/').pop()].join(' ') : 'no frame')(document.querySelector('.pane:not([hidden]) .pv iframe'))"
+base="$(js workspace "__ws.call('host.frame', {}).then((f) => f.base)")"
+fhost="$(echo "$base" | sed 's|http://||; s|/.*||')"
+click report.html
+until_has workspace "eval $frame" 8 "allow-scripts allow-forms allow-same-origin $fhost report.html" \
+  && pass "a page is shown in a sandboxed frame that loads it from the host's own server, at an address that is not the app's" || fail "a page preview" "$(js workspace "$frame") | $base"
+sleep 1
+shot preview-page workspace
+click paper.pdf
+until_has workspace "eval $frame" 8 "$fhost paper.pdf" && [ "$(js workspace "String(document.querySelector('.pane:not([hidden]) .pv iframe').hasAttribute('sandbox'))")" = false ] \
+  && pass "a PDF is shown by the web view's own viewer, in a frame from the host's server (the one frame with no sandbox: WebKit draws no PDF in one)" || fail "a PDF preview" "$(js workspace "$frame")"
+sleep 1.5
+shot preview-pdf workspace
+click "http://127.0.0.1:$fport/"
+until_has workspace "eval $frame" 8 "allow-scripts allow-forms allow-same-origin 127.0.0.1:$fport" && until_has workspace "$(shown)" 3 "127.0.0.1:$fport:web:person" \
+  && grep -q "^127.0.0.1:$fport /\$" "$tmp/frames.log" \
+  && pass "a web address of this machine is shown in a sandboxed frame, loaded as it is" || fail "a local address" "$(js workspace "$frame")"
+sleep 1
+shot preview-web workspace
+
+# What a frame may not do, tried by a page that tries all of it: as a local address, and as a file of the project.
+# (Room for them first: a terminal has eight previews beside it at most.)
+for title in plain.txt big.log data.bin shot.png; do js workspace "(p => p && __ws.call('delete', { c: 'previews', id: p.id }))([...__ws.records.previews.values()].find((p) => p.title === '$title'))" >/dev/null; done
+js workspace "(window.__probe = [], addEventListener('message', (e) => e.data?.probe && window.__probe.push(e.data.probe)), 1)" >/dev/null
+echo "outside" > "$tmp/outside-frame.txt"
+sed "s|<p id=\"said\">|<script>history.replaceState(null, '', '?remote=$remote\&inside=beside.txt\&outside=$base$tmp/outside-frame.txt\&local=http://127.0.0.1:$fport/self')</script><p id=\"said\">|" "$host/scripts/frame-probe.html" > "$tmp/project/probe.html"
+follow() { js workspace "(__ws.follow('$pshell', { kind: '$1', target: '$2' }, '$tmp/project', {}), 1)" >/dev/null; }
+follow web "http://127.0.0.1:$fport/probe.html?remote=$remote&local=http://localhost:$fport/self&outside=$base$tmp/outside-frame.txt"
+until_has workspace "eval window.__probe.length" 15 "1" || fail "the probe as a local address answered"
+follow path probe.html
+until_has workspace "eval window.__probe.length" 15 "2" || fail "the probe as a file answered"
+probes="$(js workspace "JSON.stringify(window.__probe)")"
+api="window.__probe.every((p) => p.internals === 'undefined' && p.parent === 'refused' && p.records === 'refused' && p.protocol !== '200' && p.protocol !== 'loaded')"
+[ "$remote" != none ] || fail "no address that reaches this machine is remote by the rule: what a frame may load cannot be told here"
+[ "$(js workspace "String($api)")" = true ] && ! grep -q "REACHED" "$log" \
+  && pass "a frame has nothing of the app: no bridge object, no way to the page around it or its records, and the host answers no command from it (tried through the web view's message handler and the app's own protocol)" || fail "a frame and the app's interface" "$probes"
+[ "$(js workspace "String(window.__probe.every((p) => p.top === 'refused' && p.window === 'refused'))")" = true ] \
+  && pass "a frame cannot move the window around it, and no window opens for it" || fail "a frame, the top window and new windows" "$probes"
+[ "$(js workspace "String(window.__probe.every((p) => p.picture === 'refused' && p.request === 'refused'))")" = true ] && ! grep -q "/leak" "$tmp/frames.log" \
+  && grep -q "\"stopped\":\"http://$remote/leak-frame\"" "$log" \
+  && pass "a frame loads nothing from an address that is not this machine's: a picture, a request and a frame inside it were each refused, and none reached the server ($remote)" || fail "a frame and the network" "$probes | $(grep -c /leak "$tmp/frames.log")"
+[ "$(js workspace "(p => String(!!p && p.inside === '200' && p.outside === '403' && p.local === 'refused'))(window.__probe.find((p) => 'inside' in p))")" = true ] \
+  && [ "$(js workspace "(p => String(!!p && p.local === 'loaded' && p.outside !== '200' && p.outside !== 'loaded'))(window.__probe.find((p) => !('inside' in p)))")" = true ] \
+  && pass "a page of the project reads the file beside it and no file outside the folders the person opened (the host's server answers 403), and nothing of another server; a local address reads nothing from the host's server" || fail "a frame and files" "$probes"
+# Leaving for the web, by a link and by a redirect: stopped by the host, and offered to the person.
+: > "$tmp/opened"
+follow web "http://127.0.0.1:$fport/probe.html?remote=$remote&go=away"
+until_has workspace "text .pv .strip" 15 "http://$remote/leak-away" && grep -q "\"stopped\":\"http://$remote/leak-away\"" "$log" \
+  && js workspace "(document.querySelector('.pv .strip .btn').click(), 1)" >/dev/null && sleep 0.6 \
+  && [ "$(cat "$tmp/opened")" = "-u http://$remote/leak-away" ] && ! grep -q "/leak" "$tmp/frames.log" \
+  && pass "a frame that tries to go to an address that is not this machine's is stopped by the host; the page says where it wanted to go and the person may open that in the browser" || fail "a frame leaving for the web" "$(ask workspace "text .pv .strip") | $(cat "$tmp/opened")"
+shot preview-stopped workspace
+follow web "http://127.0.0.1:$fport/probe.html?remote=$remote&go=redirect"
+for _ in $(seq 1 60); do grep -q "\"stopped\":\"http://$remote/leak-redirect\"" "$log" && break; sleep 0.2; done
+grep -q "\"stopped\":\"http://$remote/leak-redirect\"" "$log" && ! grep -q "/leak" "$tmp/frames.log" \
+  && pass "a local address that redirects to one that is not is stopped at the redirect" || fail "a redirect out of this machine"
+js workspace "(document.querySelector('.pv .strip .btn:last-child')?.click(), 1)" >/dev/null
+
+# An agent shows what it made with the core's own tool, run in its terminal with that terminal's token; it takes
+# nothing from the person. (The fixture agent has no step that runs a program, so the check types what an agent runs.)
+aterm="$(js workspace "__ws.newTerminal('$project')")"
+until_has workspace "eval __ws.records.terminals.get('$aterm')?.state + ' ' + __ws.engines.get('$aterm')?.attached" 10 "running true" || fail "a shell for the agent's preview"
+sleep 1
+echo "# Made by the agent" > "$tmp/project/made.md"
+selected="$(js workspace "__ws.layout('$project').selected")"
+term_line "tasktap preview made.md"
+ashown="eval [...__ws.records.previews.values()].filter((p) => p.terminal_id === '$aterm').map((p) => p.title + ':' + p.kind + ':' + p.by).join(' ')"
+until_has workspace "$ashown" 8 "made.md:file:agent" \
+  && until_has workspace "eval String(!!document.querySelector('.tab .st.by[data-by=agent]')) + ' ' + [...document.querySelectorAll('.pv .pv-by')].map((b) => b.textContent).join()" 5 "true Opened from its terminal" \
+  && [ "$(js workspace "String(__ws.layout('$project').selected === '$selected' && __ws.current().id === '$aterm')")" = true ] \
+  && pass "tasktap preview, run in a terminal as an agent runs it, shows the file beside that terminal, marked on its tab and in its head as opened by the agent, and the terminal keeps the selection" || fail "a preview an agent opens" "$(ask workspace "$ashown") | $(ask workspace "$(screen)" | tail -3 | tr '\n' '|')"
+shot preview-agent workspace
+term_line "tasktap preview /etc/hosts; tasktap preview https://example.com/"
+until_has workspace "eval __ws.text().replace(/\n/g, '')" 8 "outside the folders you opened in Tasktap" && until_has workspace "eval __ws.text().replace(/\n/g, '')" 3 "this one opens in the browser" \
+  && pass "what the core will not show for an agent is said in the agent's terminal, in the core's words" || fail "the tool's refusals"
+
+# Staying current with no timer: after its terminal has printed and gone quiet, and on Reload.
+js workspace "(__ws.focusSession('$pshell'), 1)" >/dev/null
+click notes.md
+until_has workspace "eval $front" 5 "markdown DIV Smoke notes" || fail "the notes are in front again"
+echo "A line added later." >> "$tmp/project/notes.md"
+term_line "echo wrote the notes"
+until_has workspace "eval $front" 6 "A line added later." && pass "a preview follows its file once its terminal has printed something and gone quiet" || fail "a preview follows its file" "$(js workspace "$front")"
+echo "And one more." >> "$tmp/project/notes.md"
+sleep 1.5
+[ "$(js workspace "String(document.querySelector('.pv .md').innerText.includes('And one more.'))")" = false ] && js workspace "(__ws.command('reload-preview'), 1)" >/dev/null \
+  && until_has workspace "eval $front" 5 "And one more." && pass "nothing watches the file while nothing happens; Reload (⌘R) reads it anew" || fail "Reload"
+mv "$tmp/project/notes.md" "$tmp/notes.away" && js workspace "(__ws.command('reload-preview'), 1)" >/dev/null
+until_has workspace "eval $front" 5 "said DIV It is gone" && ask workspace "text .pv .pv-s" | grep -q "notes.md does not exist" \
+  && mv "$tmp/notes.away" "$tmp/project/notes.md" && js workspace "(__ws.command('reload-preview'), 1)" >/dev/null && until_has workspace "eval $front" 5 "markdown DIV Smoke notes" \
+  && pass "a file that went away is said so in the core's sentence, and is shown again once it is back" || fail "a file that went away" "$(js workspace "$front")"
+# A local address nothing listens at yet: said, and shown once its server answers and the terminal has gone quiet.
+for _ in 1 2 3 4; do js workspace "(p => p && __ws.call('delete', { c: 'previews', id: p.id }))([...__ws.records.previews.values()].find((p) => p.target.includes('probe.html')))" >/dev/null; done
+quietport="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+follow web "http://127.0.0.1:$quietport/"
+until_has workspace "eval $front" 8 "web DIV Nothing answers yet" || fail "nothing listening is said" "$(js workspace "$front")"
+shot preview-nothing workspace
+python3 -m http.server "$quietport" --bind 127.0.0.1 --directory "$tmp/project" >/dev/null 2>&1 &
+late=$!
+sleep 1
+term_line "echo the server is up"
+until_has workspace "eval $frame" 8 "allow-scripts allow-forms allow-same-origin 127.0.0.1:$quietport" && pass "a local address that nothing answers says so, and is shown once its server does and its terminal has gone quiet" || fail "a server that starts later" "$(js workspace "$front")"
+kill "$late" 2>/dev/null
+
+# The keys: from the terminal to its preview and back, and ⌘W on a preview closes it for good.
+js workspace "(__ws.focusSession('$pshell'), __ws.command('preview'), 1)" >/dev/null
+until_has workspace "eval String(!!__ws.current().preview && !__ws.current().id)" 3 "true" && js workspace "(__ws.command('preview'), 1)" >/dev/null \
+  && until_has workspace "eval String(__ws.current().id)" 3 "$pshell" \
+  && pass "⌘P moves between a terminal and the preview beside it" || fail "the key between a terminal and its preview"
+count=$(js workspace "__ws.records.previews.size")
+js workspace "(__ws.command('preview'), __ws.command('close-tab'), 1)" >/dev/null
+until_has workspace "eval __ws.records.previews.size" 5 "$((count - 1))" && pass "⌘W on a preview closes it: its record is gone" || fail "closing a preview"
+# The ninth beside one terminal: the core's sentence, under the terminal.
+for n in 1 2 3 4 5 6 7 8 9; do echo "# Note $n" > "$tmp/project/n$n.md"; done
+for _ in $(seq 1 12); do
+  [ "$(js workspace "[...__ws.records.previews.values()].filter((p) => p.terminal_id === '$pshell').length")" -le 0 ] && break
+  js workspace "(p => p && __ws.call('delete', { c: 'previews', id: p.id }))([...__ws.records.previews.values()].find((p) => p.terminal_id === '$pshell'))" >/dev/null
+done
+for n in 1 2 3 4 5 6 7 8; do js workspace "__ws.call('preview.open', { terminal: '$pshell', target: '$tmp/project/n$n.md' })" >/dev/null; done
+js workspace "(__ws.focusSession('$pshell'), 1)" >/dev/null
+follow path n9.md
+until_has workspace "text .pane .strip[data-refused]" 5 "No preview" && [ "$(js workspace "[...__ws.records.previews.values()].filter((p) => p.terminal_id === '$pshell').length")" = 8 ] \
+  && pass "a ninth preview beside one terminal is refused in the core's words, under that terminal: $(ask workspace "text .pane .strip[data-refused] .said")" || fail "the ninth preview" "$(ask workspace "text .pane .strip")"
+shot preview-ninth workspace
+js workspace "(document.querySelector('.strip[data-refused] .btn:last-child').click(), 1)" >/dev/null
+previews=$(js workspace "__ws.records.previews.size")
+# The top frame: sent anywhere but to the app's own pages, the host brings it back.
+js workspace "(setTimeout(() => (location.href = 'http://127.0.0.1:$fport/'), 50), 1)" >/dev/null
+for _ in $(seq 1 50); do grep -q "\"top\":\"http://127.0.0.1:$fport/\"" "$log" && break; sleep 0.2; done
+until_has workspace "eval __ws.ui.ready + ' ' + location.protocol" 15 "true tauri:" && grep -q "\"top\":\"http://127.0.0.1:$fport/\"" "$log" \
+  && pass "a top frame sent to an address that is not the app's own page is brought back to it by the host" || fail "the top frame stays on the app's pages" "$(js workspace "location.href")"
+js workspace "(__ws.menu.dry = true)" >/dev/null
+js workspace "(__ws.show('$project'), 1)" >/dev/null
+until_has workspace "eval __ws.records.previews.size + ' ' + document.querySelectorAll('.pane:not([hidden]) > .pv').length" 8 "$previews 1" \
+  && pass "the previews are back after the page starts again, beside their terminal" || fail "previews after the page restarts"
 js workspace "(__ws.show('$project'), 1)" >/dev/null
 terminals=$(ask workspace "eval __ws.records.terminals.size")
 
@@ -1001,6 +1300,8 @@ until_has workspace "eval document.querySelectorAll('.pane:not([hidden])').lengt
 [ "$(ask workspace "eval __ws.records.terminals.size")" = "$terminals" ] \
   && [ "$(ask workspace "eval [...__ws.records.terminals.values()].filter(t=>t.state==='running').length")" = "$running" ] \
   && pass "nothing is started again: the same terminals, still running" || fail "nothing reruns"
+until_has workspace "eval __ws.records.previews.size + ' ' + document.querySelectorAll('.pane:not([hidden]) > .pv').length" 5 "$previews 1" \
+  && pass "the previews outlive the app and its core: after quit and relaunch they are beside their terminal again" || fail "previews after a relaunch" "$(js workspace "__ws.records.previews.size")"
 until_has workspace "eval [...document.querySelectorAll('.tab .lbl')].map(s=>s.textContent).join('|')" 5 "Hello from the smoke" \
   && pass "the run's tab is back with its name" || fail "the run's tab"
 shot relaunched workspace

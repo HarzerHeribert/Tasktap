@@ -49,7 +49,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
   let nextStream = 1;
   const heard = {};
   const toStream = (s, text) => {
-    const p = enc.encode(text), out = new Uint8Array(9 + p.length);
+    const p = typeof text === 'string' ? enc.encode(text) : text, out = new Uint8Array(9 + p.length);
     new DataView(out.buffer).setUint32(0, p.length + 5, true);
     out[4] = 1;
     new DataView(out.buffer).setUint32(5, s, true);
@@ -88,6 +88,34 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       reply(id, { stream: { s, credit: 0 }, files: d.files, more: 0, size: d.text.length, cut: false });
       setTimeout(() => (toStream(s, d.text), toCore({ t: 'close', s, why: 'done' })), 0);
       return;
+    }
+    // Previews (design §9): `preview.open` under the rule in small (a web address of this machine; a path `files` says
+    // exists; eight beside a terminal), and `file.read` from `reads`, by the file's whole path: what it is (`kind`),
+    // its `text` or its bytes in base64 (`b64`), whether it is `cut`, its `stamp`, or the refusal (`err`).
+    const refuse = (code, message) => toCore({ t: 'reply', id, err: { code, message } });
+    if (name === 'preview.open') {
+      const web = /^https?:\/\//i.test(args.target), local = /^https?:\/\/(localhost|127\.\d+\.\d+\.\d+|\[::1\])(:\d+)?([/?#]|$)/i.test(args.target);
+      if (web && !local) return refuse('invalid', 'A preview shows web addresses of this machine only: this one opens in the browser');
+      const real = web ? args.target : (records.files || {})[args.target];
+      if (!real) return refuse('gone', `${args.target} does not exist`);
+      const of = (records.previews || []).filter((p) => p.terminal_id === args.terminal), had = of.find((p) => p.target === real);
+      if (!had && of.length >= 8) return refuse('conflict', 'A terminal has 8 previews beside it already: close one to open another');
+      const row = had || { id: `019a8b6c-7d10-7000-9000-${String(++rev).padStart(12, '0')}`, rev, terminal_id: args.terminal, kind: web ? 'web' : 'file', target: real,
+        title: web ? new URL(real).host : real.split('/').pop(), by: 'person' };
+      if (!had) push({ t: 'change', rev, sets: [{ c: 'previews', put: [row] }] });
+      return reply(id, row.id);
+    }
+    if (name === 'delete' && args.c === 'previews') return push({ t: 'change', rev: ++rev, sets: [{ c: 'previews', del: [args.id] }] }), reply(id, null);
+    if (name === 'file.read') {
+      const f = (records.reads || {})[args.path];
+      if (!f) return refuse('gone', `${args.path} does not exist`);
+      if (f.err) return refuse(f.err.code, f.err.message);
+      const bytes = f.b64 ? Uint8Array.from(atob(f.b64), (c) => c.charCodeAt(0)) : enc.encode(f.text || ''), stamp = f.stamp || '1-' + bytes.length;
+      const said = { size: f.size || bytes.length, kind: f.kind, encoding: f.b64 ? null : 'utf-8', cut: !!f.cut, stamp };
+      if (args.unless === stamp || f.kind === 'other') return reply(id, { ...said, stream: null });
+      const s = nextStream++;
+      reply(id, { ...said, stream: { s, credit: 0 } });
+      return void setTimeout(() => (toStream(s, bytes), toCore({ t: 'close', s, why: 'done' })), f.ms || 0);
     }
     // The history the scene has (`history`), as one page; then, or with none, the empty page that is its end.
     if (name === 'history') return reply(id, (!args.before && records.history) || { thoughts: [], questions: [], results: [] });
@@ -214,6 +242,12 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       records.prefs = (records.prefs || []).filter((p) => p.id !== 'capture_key').concat(a.key ? [{ id: 'capture_key', value: key, rev }] : []);
       push({ t: 'change', rev, sets: [{ c: 'prefs', ...(a.key ? { put: [{ id: 'capture_key', value: key, rev }] } : { del: ['capture_key'] }) }] });
       return { key };
+    }
+    // A preview's frame: where it loads a file from (`frames`, a server of the check's own), whether a local address
+    // is answered (`listens`), or the host's refusal (`noframes`).
+    if (name === 'host.frame') {
+      if (records.noframes) throw records.noframes;
+      return { base: records.frames || 'http://127.0.0.1:9/none', ...(a.listens ? { listens: records.listens !== false } : {}) };
     }
     if (name !== 'host.open') return null;
     const real = /^https?:\/\/[^/\s]/i.test(a.target) ? a.target : (records.files || {})[a.target] || null;

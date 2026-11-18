@@ -29,3 +29,7 @@
 .set .text.wide{width:min(100%,360px)}
 .set .text:read-only{color:var(--fg2)}
 .seg button:disabled{opacity:.38}
+/* How much of the model for speech on this Mac is here: one thin line under its row. */
+.set .got{flex-basis:100%;height:2px;border:0;border-radius:1px;background:var(--line2);-webkit-appearance:none;appearance:none}
+.set .got::-webkit-progress-bar{background:transparent}
+.set .got::-webkit-progress-value{border-radius:1px;background:var(--accent)}

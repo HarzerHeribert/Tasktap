@@ -42,6 +42,8 @@
 .hear b{font:var(--f-label);color:var(--fg)}
 .hear time{font:var(--f-num);color:var(--fg2)}
 .hear-x{margin-left:auto;font:var(--f-small);color:var(--fg3)}
+.hear-t{flex:1;min-width:0;overflow:hidden;white-space:nowrap;direction:rtl;text-align:left;text-overflow:ellipsis;font:var(--f-small);color:var(--fg2)}
+.hear-t+.hear-x{display:none}
 .hear .act{height:22px}
 .cap-row.hear .key{margin-left:var(--sp1)}
 .capture.raised .cap-row.hear{padding:0 0 0 10px}

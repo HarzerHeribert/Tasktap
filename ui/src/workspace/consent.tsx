@@ -3,9 +3,14 @@
 // into text (`speech_by`). Each is a sheet that shows, in the core's own words (`route.terms`, `speech.terms`), what is
 // sent and to whom before anything is stored; Allow writes the preference, and its section of Settings says what is
 // on and turns it off. Nothing here is kept by the page.
+//
+// Speech has a second way that sends nothing: on this Mac, by a model the person downloads once (speech/local.ts).
+// Its row says what it needs, how far the download is, that it is ready and how large, or why it failed, and removes
+// it. Which of the two is in use is the `speech_by` preference alone: with it the service, without it this Mac.
 import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { cap } from '../capture.tsx';
+import { type Local, local, model, watch } from '../speech/local.ts';
 import { I, Ring } from '../ui.tsx';
 import { placing } from '../way.ts';
 import { agent, agentName, call, dismiss, fail, focus, loadTerms, open, placers, pref, records, terms } from './model.ts';
@@ -120,22 +125,81 @@ function Key({ server, value, onInput }: { server: string; value?: string; onInp
   );
 }
 
-/** Settings, "Speech": where what the person says is turned into text, the key of that service, and the languages
- *  they speak. */
-export function Speech() {
-  const by = pref('speech_by'), languages = pref('speech_languages');
-  const toggle = (code: string) => {
-    const next = languages.includes(code) ? languages.filter((l) => l !== code) : [...languages, code].slice(0, 4);
-    void call('put', { c: 'prefs', id: 'speech_languages', patch: next }).catch(fail);
-  };
+const useLocal = () => void call('delete', { c: 'prefs', id: 'speech_by' }).catch(fail);
+// Once its model is here, this Mac is what turns speech into text: the service the person used until then is let go.
+watch((now, was) => was?.model === 'fetching' && now.model === 'ready' && pref('speech_by') && useLocal());
+/** Which of the two the person is looking at, when it is not the one in use: this Mac while it is being set up. */
+let shown: 'local' | '' = '';
+const mb = (bytes: number) => `${Math.round(bytes / 1e6)} MB`;
+const MODEL = 'Whisper large-v3 turbo';
+
+/** "On this Mac": what it needs, how far that is, that it is ready and what it takes, or why it failed. */
+function OnThisMac({ l, used }: { l: Local | null; used: boolean }) {
+  const [err, say] = useState('');
+  const act = (what: 'install' | 'stop' | 'remove') => (say(''), void model(what).catch((e) => say(said(e))));
+  if (!l) return <span class="v dim">Asking…</span>;
+  if (!l.supported) return <span class="v dim">Not available on this system. Voice needs a speech service here.</span>;
+  const part = l.have > 0 && l.have < l.of;
   return (
     <>
-      <Row name="Turned into text" hint={by ? 'Hold ⌥Space in a thought or a reply, or hold the microphone. A recording is sent when you let go.' : 'On this Mac is not built yet. Until it is, voice needs a speech service.'}>
-        {by ? <span class="v">By {serviceName(by.server)} · {by.model}</span> : <span class="v">Voice is off</span>}
-        <button type="button" class="btn" onClick={() => open({ kind: 'speech' })}>{by ? 'Change…' : 'Use a speech service…'}</button>
+      {l.model === 'ready' && <><span class="v">{used ? 'Ready' : 'Ready, not in use'} · {MODEL} · {mb(l.of)} on this Mac</span><button type="button" class="btn" onClick={() => act('remove')}>Remove</button></>}
+      {l.model === 'fetching' && (
+        <>
+          <span class="v" role="status">Downloading · {Math.floor((100 * l.have) / l.of)} % of {mb(l.of)}</span>
+          <button type="button" class="btn" onClick={() => act('stop')}>Stop</button>
+          <progress class="got" max={l.of} value={l.have} aria-label="Download" />
+        </>
+      )}
+      {l.model === 'none' && (
+        <>
+          <span class="v">{part ? `Stopped at ${Math.floor((100 * l.have) / l.of)} % of ${mb(l.of)}` : `Needs a model first: ${MODEL}, ${mb(l.of)}`}</span>
+          <button type="button" class="btn" onClick={() => act('install')}>{part ? 'Continue' : 'Download'}</button>
+          {part && <button type="button" class="btn" onClick={() => act('remove')}>Remove</button>}
+        </>
+      )}
+      {l.model === 'failed' && (
+        <>
+          <span class="v warn" role="alert">{l.error}</span>
+          <button type="button" class="btn" onClick={() => act('install')}>Try again</button>
+          {l.have > 0 && <button type="button" class="btn" onClick={() => act('remove')}>Remove</button>}
+        </>
+      )}
+      {err && <p class="hint warn" role="alert">{err}</p>}
+    </>
+  );
+}
+
+/** Settings, "Speech": where what the person says is turned into text, on this Mac or by a service, what each needs,
+ *  and the languages they speak. */
+export function Speech() {
+  const by = pref('speech_by'), languages = pref('speech_languages'), l = local.now;
+  const here = !by || shown === 'local', fetched = l?.model === 'ready';
+  const toggle = (code: string) => {
+    const next = languages.includes(code) ? languages.filter((x) => x !== code) : [...languages, code].slice(0, 4);
+    void call('put', { c: 'prefs', id: 'speech_languages', patch: next }).catch(fail);
+  };
+  // This Mac is chosen by having its model; until then choosing it only shows what it needs.
+  const choose = (where: 'local' | 'service') => {
+    shown = where === 'local' ? 'local' : '';
+    if (where === 'service' && !by) open({ kind: 'speech' });
+    else if (where === 'local' && by && fetched) useLocal();
+    else focus(document.querySelector<HTMLElement>('.sheet'));
+  };
+  const hint = !here ? 'Hold ⌥Space in a thought or a reply, or hold the microphone. A recording is sent when you let go.'
+    : fetched ? 'Hold ⌥Space in a thought or a reply, or hold the microphone. What you say is turned into text on this Mac and sent nowhere.'
+      : l?.supported ? `Downloaded once from huggingface.co and kept in Tasktap’s data folder. After that, what you say is turned into text on this Mac and sent nowhere.${by ? ` Until it is here, ${serviceName(by.server)} stays in use.` : ''}` : undefined;
+  const names = languages.map((code) => LANGUAGES.find(([c]) => c === code)?.[1] ?? code);
+  return (
+    <>
+      <Row name="Turned into text" hint={hint}>
+        <div class="seg" role="radiogroup" aria-label="Turned into text">
+          <button type="button" role="radio" aria-checked={here} onClick={() => choose('local')}>On this Mac</button>
+          <button type="button" role="radio" aria-checked={!here} onClick={() => choose('service')}>A speech service</button>
+        </div>
+        {here ? <OnThisMac l={l} used={!by} /> : <><span class="v">By {serviceName(by.server)} · {by.model}</span><button type="button" class="btn" onClick={() => open({ kind: 'speech' })}>Change…</button></>}
       </Row>
-      {by && <Row name="Key"><Key server={by.server} /></Row>}
-      <Row name="Languages you speak" hint="Up to four, as a hint. With none chosen, the service listens for any.">
+      {by && !here && <Row name="Key"><Key server={by.server} /></Row>}
+      <Row name="Languages you speak" hint={`Up to four. ${names.length > 1 ? `The first you chose, ${names[0]}, is taken as your own; the others may be mixed in. ` : ''}With none chosen, any language is listened for.`}>
         <div class="seg" role="group" aria-label="Languages you speak">
           {LANGUAGES.map(([code, name]) => <button type="button" role="checkbox" aria-checked={languages.includes(code)} disabled={!languages.includes(code) && languages.length >= 4} onClick={() => toggle(code)}>{name}</button>)}
         </div>

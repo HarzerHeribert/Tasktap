@@ -11,7 +11,7 @@ import type { Capture as CaptureArgs, Dictation, DictationTarget, Route, Thought
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'preact/hooks';
 import { uuid7 } from './client.ts';
-import { cancel, control, end, follow, mine, place, setAim, talk } from './speech/record.ts';
+import { cancel, control, end, follow, mine, needs, place, setAim, talk, voiced } from './speech/record.ts';
 import { I, Level, Mark, Ring, Wave, madeAt } from './ui.tsx';
 import { agent, agentName, call, fail, focus, openQuestions, page, placers, pref, projectName, projects, records, redraw, title, why } from './page.ts';
 import { back, briefOf, clock, hold, laterWhy, leave, onWay, placed, ring, step } from './way.ts';
@@ -293,6 +293,8 @@ function Hearing({ d, raised }: { d: Dictation | undefined; raised: boolean }) {
       {writing ? <Mark s="working" label="" /> : raised && <Level l={(d?.level ?? 0) / 100} />}
       <b>{writing ? 'Writing it down…' : d ? 'Listening' : 'Opening the microphone…'}</b>
       {time && <time>{time}</time>}
+      {/* What is written down while the person speaks on (speech on this Mac): the last of it. */}
+      {!writing && d?.text && <span class="hear-t">{d.text.slice(-90)}</span>}
       <span class="hear-x">{!writing && !talk.latched && d && (talk.kind === 'thought' ? 'Let go to send' : 'Let go to add it')}</span>
       <button type="button" class="act" onClick={cancel}><kbd>esc</kbd><span>Cancel</span></button>
       {!writing && talk.latched && <button type="button" class={`key${raised ? ' lg' : ''}`} onClick={end}><I n="ret" /><span>Done</span></button>}
@@ -380,7 +382,7 @@ function Way({ hooks, raised, offer }: { hooks: Hooks; raised: boolean; offer: b
   return (
     <div class={`ways${raised ? ' under' : ''}`}>
       {failed.map((d) => <Failed key={d.id} d={d} />)}
-      {talk.said === 'service' && line('Voice needs a speech service to turn it into text.', hooks.speech && <button type="button" class="btn" onClick={() => (cancel(), hooks.speech!())}>Choose one…</button>)}
+      {talk.said === 'service' && line(needs(), hooks.speech && <button type="button" class="btn" onClick={() => (cancel(), hooks.speech!())}>Set up…</button>)}
       {talk.said && talk.said !== 'service' && line(talk.said)}
       {all.map((x, i) => <Going key={x.id} t={x} open={i === 0} />)}
       {sent?.to === 'later' && t && line(projects().some((p) => p.kind === 'folder') ? 'Saved for later' : 'Saved for later, until a folder is open',
@@ -440,7 +442,7 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
   // waits, if one does; and while the last is still on its way to the core and nothing new is typed, it shows the wave.
   const has = !!cap.draft.trim(), now = !has && !!waiting(), busy = !has && cap.sending > 0;
   const does = now ? 'Start' : later ? 'Save for later' : session ? 'Send' : 'Start';
-  const d = mine(), service = !!pref('speech_by');
+  const d = mine(), service = voiced();
   const hearing = here() && (talk.asking || d?.phase === 'recording' || d?.phase === 'transcribing');
   // The field is as high as its words, a line at a time. It is measured when they change, typed or put there, or its
   // width does, and on no other render: a measure makes the page lay itself out there and then.
@@ -508,7 +510,7 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
             </button>
             <Rings hooks={hooks} />
             <button type="button" class="mic" data-off={!service || undefined} aria-label="Talk"
-              title={service ? 'Hold to talk, or hold ⌥Space. A click keeps it on until the next' : 'Voice needs a speech service first'}
+              title={service ? 'Hold to talk, or hold ⌥Space. A click keeps it on until the next' : 'Voice needs setting up first'}
               onPointerDown={(e) => control.down(e, area.current)} onClick={(e) => control.key(e, area.current)}>
               <I n="mic" /><kbd>⌥Space</kbd>
             </button>

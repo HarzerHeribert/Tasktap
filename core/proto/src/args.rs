@@ -255,7 +255,11 @@ pub struct Capture {
     pub session_id: Option<SessionId>,
     /// The agent a new run of the thought uses, by the id `agents.detect`
     /// lists; without one, the `agent` preference, else the first agent
-    /// this core has. A follow-up uses its session's agent.
+    /// this core has. The agent named runs the thought or nobody does: one
+    /// its row of the `agents` collection says is not installed, or not
+    /// signed in, is refused as `failed` with that for a message, and one
+    /// no build has as `invalid`. A follow-up uses its session's agent,
+    /// whatever is named here.
     #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub agent: Option<String>,
     /// The model a new run asks its agent for; without one, the agent's own default.

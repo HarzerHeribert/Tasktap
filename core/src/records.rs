@@ -170,6 +170,11 @@ impl Core {
         Ok(())
     }
 
+    /// The agent as last detected: its row of the `agents` collection.
+    pub fn detected(&self, agent: &str) -> Option<&AgentHealth> {
+        self.memory.agents.iter().find(|a| a.id == agent)
+    }
+
     /// Puts the agents just detected in the `agents` collection, each
     /// stamped with the change's revision and the time, and sends them as
     /// one change. Returns the rows as put.

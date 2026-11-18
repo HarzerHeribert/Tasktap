@@ -760,6 +760,101 @@ fn a_new_run_uses_the_captures_agent_else_the_preference_else_the_first() {
     }
 }
 
+/// A capture's agent (design §7, "Which agent a run uses"): the one it
+/// names runs the thought or nobody does, a follow-up keeps its session's,
+/// and without a name the preference applies.
+#[test]
+fn a_capture_is_refused_for_an_agent_found_missing_or_signed_out_and_never_run_by_another() {
+    use tasktap_proto::{AgentHealth, Code, Rev, ThoughtId};
+    // The rule, on what detection found.
+    let found = |installed, signed_in| AgentHealth {
+        id: "codex".into(),
+        rev: Rev::ZERO,
+        checked: Time::ZERO,
+        installed,
+        version: None,
+        signed_in,
+        identity: None,
+        events: true,
+        resume: true,
+        permissions: None,
+        questions: None,
+    };
+    let usable = |health: Option<AgentHealth>| agents::usable("codex", health.as_ref());
+    assert_eq!(
+        usable(Some(found(false, None))).unwrap_err(),
+        "codex is not installed on this computer"
+    );
+    assert_eq!(
+        usable(Some(found(true, Some(false)))).unwrap_err(),
+        "codex is not signed in"
+    );
+    // Signed in, or it would not say: it may run. So it may while nothing
+    // was detected yet; a run that cannot start then fails and says why.
+    for known in [Some(found(true, Some(true))), Some(found(true, None)), None] {
+        assert_eq!(usable(known), Ok(()));
+    }
+
+    // Through the calls, in a core whose PATH has no fixture agent: a
+    // thought runs, by the scene's stand-in launcher, and has a session.
+    let mut s = Scene::new("an");
+    let t = s.capture("fix the build");
+    s.tick(HOLD_MS);
+    let session = s.w.model.thought(t).session_id.unwrap();
+    let ran_by = s.w.model.session(session).agent.clone();
+    assert_ne!(ran_by, "fixture");
+    let named = |id, text: &str| Capture {
+        agent: Some("fixture".into()),
+        ..typed(id, text)
+    };
+    // Detection finds the fixture agent missing: a capture that names it is
+    // refused and leaves nothing behind.
+    let asked = DetectAgents {
+        agents: Some(vec!["fixture".into()]),
+    };
+    let Agents { agents } = s.w.ok::<call::AgentsDetect>(&asked);
+    assert!(!agents[0].installed);
+    let refused = ThoughtId::mint();
+    for capture in [
+        named(refused, "and the docs"),
+        Capture {
+            project_id: Some(s.project),
+            ..named(refused, "and the docs")
+        },
+    ] {
+        let e = s.w.call::<call::ThoughtCapture>(&capture).unwrap_err();
+        assert_eq!(
+            (e.code, e.message.as_str()),
+            (Code::Failed, "fixture is not installed on this computer")
+        );
+    }
+    s.w.sync();
+    assert!(!s.w.model.thoughts.contains_key(&refused));
+    // A follow-up keeps its session's agent, whatever the capture names.
+    let follow = ThoughtId::mint();
+    let capture = Capture {
+        session_id: Some(session),
+        ..named(follow, "and the docs")
+    };
+    s.w.ok::<call::ThoughtCapture>(&capture);
+    let th = s.w.model.thought(follow).clone();
+    assert_eq!(
+        (th.session_id, th.agent.as_deref(), th.mode),
+        (Some(session), Some(ran_by.as_str()), Mode::Nudge)
+    );
+    // Without a name the preference applies as before, also for an agent
+    // found missing: its run fails and says why.
+    let preferred = PutTarget::Prefs(PrefPatch::Agent(Some("fixture".into())));
+    s.w.ok::<call::Put>(&Put {
+        target: preferred,
+        if_rev: None,
+    });
+    s.script(clear(s.project), None);
+    let unnamed = ThoughtId::mint();
+    s.w.ok::<call::ThoughtCapture>(&typed(unnamed, "tidy up"));
+    assert_eq!(s.w.model.thought(unnamed).agent.as_deref(), Some("fixture"));
+}
+
 #[test]
 fn detection_runs_each_agents_own_commands() {
     let data = Folder::new("ad");

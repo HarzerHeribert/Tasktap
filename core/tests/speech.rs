@@ -671,9 +671,21 @@ fn nothing_leaves_the_machine_without_consent_or_when_nothing_was_heard() {
         text: "Noch etwas:".into(),
         ..spoken().1
     };
+    // An agent detection found missing runs nothing: its thought is
+    // refused before it is spoken, not run by another.
+    let asked = tasktap_proto::DetectAgents {
+        agents: Some(vec!["fixture".into()]),
+    };
+    let found = s.w.ok::<call::AgentsDetect>(&asked);
+    assert!(!found.agents[0].installed);
+    let missing = Capture {
+        agent: Some("fixture".into()),
+        ..spoken().1
+    };
     for (target, code) in [
         (typed_one, Code::Invalid),
         (DictationTarget::Thought(Box::new(strange)), Code::Invalid),
+        (DictationTarget::Thought(Box::new(missing)), Code::Failed),
         (DictationTarget::Thought(Box::new(existing)), Code::Conflict),
         // Speech into a field that holds text is the text target's: a
         // spoken thought's text is its transcript and nothing else.

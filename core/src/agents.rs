@@ -24,7 +24,7 @@ use std::time::Duration;
 
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
-use tasktap_proto::{Answer, Ask, Event, ReplyVia, SessionEvent, SessionId};
+use tasktap_proto::{AgentHealth, Answer, Ask, Event, ReplyVia, SessionEvent, SessionId};
 
 /// What one hook says.
 #[derive(Debug)]
@@ -298,6 +298,20 @@ pub trait Agent: Sync {
 /// The agent named `id`.
 pub fn find(id: &str) -> Option<&'static dyn Agent> {
     AGENTS.iter().copied().find(|agent| agent.id() == id)
+}
+
+/// Whether a capture may name the agent, by what detection last found of
+/// it (`health`, its row of the `agents` collection): not while it is
+/// known to be missing or signed out, so that no other agent runs the
+/// thought in its place. While nothing is known, because no detection
+/// has finished or the agent would not say whether it is signed in, it
+/// may: a run that cannot start fails and says why.
+pub fn usable(id: &str, health: Option<&AgentHealth>) -> Result<(), String> {
+    match health {
+        Some(h) if !h.installed => Err(format!("{id} is not installed on this computer")),
+        Some(h) if h.signed_in == Some(false) => Err(format!("{id} is not signed in")),
+        _ => Ok(()),
+    }
 }
 
 /// Every agent this build has, the default first.

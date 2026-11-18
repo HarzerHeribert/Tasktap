@@ -296,7 +296,7 @@ pub fn aside<T: Send + 'static>(
 /// A preference naming an agent this build lacks is passed over. A
 /// dictation's transcript is captured here too (design §8).
 pub fn capture(core: &mut Core, capture: tasktap_proto::Capture) -> Result<(), Error> {
-    check(&capture)?;
+    check(core, &capture)?;
     let pref = effects::read(core, |tx| tx.pref(PrefKey::Agent))
         .ok()
         .flatten();
@@ -311,13 +311,20 @@ pub fn capture(core: &mut Core, capture: tasktap_proto::Capture) -> Result<(), E
     effects::call(core, "thought.capture", Event::Capture { capture, agent })
 }
 
-/// Whether a capture names an agent this core has and a model an agent
-/// can be given.
-pub fn check(capture: &tasktap_proto::Capture) -> Result<(), Error> {
+/// Whether a capture names an agent this core has, which is neither
+/// missing nor signed out as far as detection knows, and a model an agent
+/// can be given. The agent a capture names is the one that runs it or
+/// nobody: it is refused here rather than run by another.
+pub fn check(core: &Core, capture: &tasktap_proto::Capture) -> Result<(), Error> {
     let invalid = |why: String| Error::new(Code::Invalid, why);
     if let Some(name) = &capture.agent {
         crate::agents::find(name)
             .ok_or_else(|| invalid(format!("this core has no agent {name}")))?;
+        // A follow-up keeps its session's agent, whatever the capture names.
+        if capture.session_id.is_none() {
+            crate::agents::usable(name, core.detected(name))
+                .map_err(|why| Error::new(Code::Failed, why))?;
+        }
     }
     if let Some(model) = &capture.model {
         // As 1.2 checked a model: a word an agent takes as its value, never as a flag.

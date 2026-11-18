@@ -317,7 +317,7 @@ fn fits(core: &mut Core, target: &DictationTarget) -> Result<(), Error> {
                            speech into a field that holds text has the target text";
                 return Err(Error::new(Code::Invalid, why));
             }
-            crate::calls::check(capture)?;
+            crate::calls::check(core, capture)?;
             match effects::read(core, |tx| tx.thought(capture.id))? {
                 Some(_) => Err(Error::new(Code::Conflict, "a thought with this id exists")),
                 None => Ok(()),

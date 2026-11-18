@@ -202,6 +202,7 @@ pub fn base(roots: impl Fn() -> Vec<PathBuf> + Send + 'static) -> Result<String,
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::fs;
 
     #[test]
@@ -269,6 +270,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     fn get(base: &str, path: &str, host: Option<&str>) -> String {
         let (address, token) = base.strip_prefix("http://").unwrap().split_once('/').unwrap();
         let mut stream = TcpStream::connect(address).unwrap();
@@ -279,6 +281,8 @@ mod tests {
         reply
     }
 
+    // (On a Mac, where frames are given: a path on Windows has no place in an address yet.)
+    #[cfg(unix)]
     #[test]
     fn the_server_gives_a_frame_what_is_inside_an_opened_folder_and_nothing_else() {
         let dir = std::env::temp_dir().join(format!("tasktap-frames-{}", std::process::id()));
@@ -291,7 +295,6 @@ mod tests {
         fs::write(project.join("paper.html"), "%PDF-1.4 <script>1</script>").unwrap();
         fs::write(project.join("page.pdf"), "<script>1</script>").unwrap();
         fs::write(outside.join("secret.txt"), "the secret").unwrap();
-        #[cfg(unix)]
         std::os::unix::fs::symlink(outside.join("secret.txt"), project.join("link.txt")).unwrap();
         let project = project.canonicalize().unwrap();
         let roots = vec![project.clone()];
@@ -317,7 +320,6 @@ mod tests {
         for (path, status) in [
             (secret.as_str(), "403"),
             (at("../outside/secret.txt").as_str(), "403"),
-            #[cfg(unix)]
             (at("link.txt").as_str(), "403"),
             ("/etc/passwd", "403"),
             (at("missing.html").as_str(), "404"),

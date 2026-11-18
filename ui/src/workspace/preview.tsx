@@ -87,6 +87,7 @@ export async function load(id: string, again = false) {
         if (file.kind === 'html' || file.kind === 'pdf') {
           // A frame loads the file itself: its bytes are not wanted here.
           stream?.close();
+          v.file = file;
           v.base = (await call('host.frame', {})).base;
           v.turn++;
         } else if (stream) {
@@ -119,7 +120,7 @@ export function refresh(terminal?: string) {
 // The one timer here, and it exists only while output arrives in a terminal that has a preview.
 const quiet = new Map<string, number>();
 hooks.output = (terminal) => {
-  if (![...records.previews.values()].some((p) => p.terminal_id === terminal)) return;
+  if (!records.previews.size || ![...records.previews.values()].some((p) => p.terminal_id === terminal)) return;
   clearTimeout(quiet.get(terminal));
   quiet.set(terminal, window.setTimeout(() => (quiet.delete(terminal), refresh(terminal)), 400));
 };
@@ -256,7 +257,15 @@ export function Preview({ p, project, select }: { p: Row; project: string; selec
   // A link in what is shown follows the rule a link in the terminal does, from the folder its file is in.
   const to = (target: string, e: MouseEvent | KeyboardEvent) => {
     e.preventDefault();
-    if (!target.startsWith('#')) void follow(p.terminal_id, { kind: /^https?:\/\//i.test(target) ? 'web' : 'path', target: decodeURI(target.replace(/#.*$/, '')) }, p.target.replace(/\/[^/]*$/, ''), e);
+    if (target.startsWith('#')) return;
+    const web = /^https?:\/\//i.test(target);
+    let path = target.replace(/#.*$/, '');
+    try {
+      path = decodeURI(path);
+    } catch {
+      // Not escaped as an address is: it is taken as it is written.
+    }
+    void follow(p.terminal_id, { kind: web ? 'web' : 'path', target: web ? target : path }, p.target.replace(/\/[^/]*$/, ''), e);
   };
   const act = (label: string, f: () => void, k?: string) => <button type="button" class="btn" onClick={f}><span>{label}</span>{k && <Key k={k} />}</button>;
   const shut = () => closeTab(project, p.id);

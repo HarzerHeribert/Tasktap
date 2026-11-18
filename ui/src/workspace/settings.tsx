@@ -103,7 +103,8 @@ function ThoughtsPane() {
         <Choice name="Return in a thought" value={sends} all={returns} set={(v) => setPref({ id: 'return_sends', patch: v })} />
       </Row>
       <Row name="From any app" hint={lost ? `The key you chose is taken by the system or another app${capture ? ', so the one shown is in use' : ', so no key is in use'}. Choose another, or use the default.`
-        : 'Opens the notch for a thought, whatever is in front.'}>
+        : capture === null ? 'The usual key is taken by the system or another app, so no key is in use. Record one of your own.'
+          : 'Opens the notch for a thought, whatever is in front.'}>
         {capture !== undefined && <Recorder name="From any app" value={capture} own={!!stored} set={setCapture} />}
       </Row>
       <Row name="Finished thoughts are kept" hint={days ? 'Applies from the next start, or within a day. Nothing that waits for you is ever removed.' : undefined}>

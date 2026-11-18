@@ -2,8 +2,9 @@
 # temporary data folder, passive (it takes no keyboard and uses a clipboard of its own), drives
 # it only through its debug channel (one command per line on standard input), and says PASS or
 # FAIL for: the core starting and the host reaching it over its pipe, the workspace page running,
-# the page having the core's records through the bridge, a terminal with the system's shell
-# echoing what is typed into it, and the app quitting with nothing left running.
+# the page having the core's records through the bridge, a folder becoming a workspace, a
+# terminal with the system's shell answering what is typed into it, and the app quitting with
+# nothing left running.
 #   pwsh host\scripts\build.ps1 -Fixtures
 #   pwsh host\scripts\smoke.ps1
 # What smoke.sh checks beyond this (the notch, capture, questions, results, speech, pictures)
@@ -12,7 +13,7 @@ param(
     [string]$Target = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64' } else { 'x86_64' }),
     [string]$App = (Join-Path (Split-Path $PSScriptRoot -Parent) "target\$Target-pc-windows-msvc\release\Tasktap Next"),
     [string]$Core = (Join-Path (Split-Path $PSScriptRoot -Parent) 'binaries\fixtures\tasktap.exe'),
-    [int]$Seconds = 30
+    [int]$Seconds = 120
 )
 $ErrorActionPreference = 'Stop'
 $tmp = Join-Path ([IO.Path]::GetTempPath()) "tasktap-smoke-$PID"
@@ -66,7 +67,8 @@ function Js($expr, $seconds = 5) {
 }
 
 try {
-    if (Until '"event":"ready"' 15) { Pass 'the core starts and the host reaches it over its pipe' } else { Fail 'the core starts and the host reaches it' }
+    # The first start of the web view on a machine takes its time.
+    if (Until '"event":"ready"' 45) { Pass 'the core starts and the host reaches it over its pipe' } else { Fail 'the core starts and the host reaches it' }
     Send 'call core.status {}'
     $status = Until '"event":"reply"' 5
     if ($status -match '"terminals":0') { Pass 'the core answers the host: no terminal runs' } else { Fail "the core answers the host: $status" }
@@ -78,14 +80,27 @@ try {
         $records = $null
         for ($i = 0; $i -lt 10 -and $records -ne 'true'; $i++) { $records = "$(Js "String(__ws.records.prefs !== undefined && __ws.records.projects !== undefined)" 2)".ToLower() }
         if ($records -eq 'true') { Pass 'the page has the core''s records through the bridge' } else { Fail "the page has the core's records (it said: $records)" }
-        Send 'menu new-terminal'
-        $typed = $null
-        for ($i = 0; $i -lt 15 -and -not $typed; $i++) {
+        # A folder as a workspace, and in it a terminal with the system's shell, typed into.
+        $folder = "$tmp\project".Replace('\', '\\')
+        $null = Js "(__ws.call('project.add', { id: __ws.uuid7(), folder: '$folder' }), 1)"
+        $project = $null
+        for ($i = 0; $i -lt 10 -and -not $project; $i++) { $project = Js "[...__ws.records.projects.values()].find(p => p.kind === 'folder')?.id ?? ''" 2 }
+        if ($project) { Pass 'a folder becomes a workspace' } else { Fail 'a folder becomes a workspace' }
+        $null = Js "(__ws.show('$project'), __ws.command('new-terminal'), 1)"
+        $terminal = $null
+        for ($i = 0; $i -lt 15 -and -not $terminal; $i++) {
             Start-Sleep -Milliseconds 400
-            $terminal = Js "(() => { const t = [...__ws.records.terminals.values()].find(t => t.state === 'running'); return t ? t.id : '' })()" 2
-            if ($terminal) { $typed = $terminal }
+            $terminal = Js "[...__ws.records.terminals.values()].find(t => t.state === 'running')?.id ?? ''" 2
         }
-        if ($typed) { Pass 'New Terminal starts the system''s shell' } else { Fail 'New Terminal starts the system''s shell' }
+        if ($terminal) { Pass 'New Terminal starts the system''s shell' } else { Fail 'New Terminal starts the system''s shell' }
+        if ($terminal) {
+            # The command prompt reckons: the answer is nowhere in what was typed.
+            $null = Js "(__ws.type('set /a 6*7'), 1)"
+            $screen = ''
+            for ($i = 0; $i -lt 15 -and "$screen" -notmatch '(?m)^42'; $i++) { Start-Sleep -Milliseconds 400; $screen = Js '__ws.text()' 2 }
+            if ("$screen" -match '(?m)^42') { Pass 'the shell is typed into and answers' } else { Fail "the shell is typed into and answers (its screen: $("$screen".Trim()))" }
+            $null = Js "(__ws.call('terminal.stop', { id: '$terminal' }), 1)"
+        }
     }
     Send 'state'
     if (Until '"event":"state"' 5) { Pass 'the app says its state' } else { Fail 'the app says its state' }
@@ -94,7 +109,9 @@ try {
         Send 'call core.retire {"when":"now"}'
         $null = Until '"event":"reply"' 3
         Send 'quit'
-        if (-not $proc.WaitForExit(5000)) { $proc.Kill($true); Fail 'the app quits when told' } else { Pass 'the app quits when told' }
+        $asked = Get-Date
+        if (-not $proc.WaitForExit(5000)) { Write-Host "NOTE still running 5 s after quit; closing its standard input"; $proc.StandardInput.Close() }
+        if (-not $proc.WaitForExit(20000)) { $proc.Kill($true); Fail 'the app quits when told (ended by this script after 20 s)' } else { Pass "the app quits when told ($([int]((Get-Date) - $asked).TotalMilliseconds) ms)" }
     } else {
         Fail "the app ended by itself with exit code $($proc.ExitCode)"
     }

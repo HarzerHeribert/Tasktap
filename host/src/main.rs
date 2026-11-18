@@ -412,7 +412,11 @@ fn main() {
     app.run(|app, event| match event {
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => drop(workspace::show(app, None)),
-        RunEvent::ExitRequested { .. } => workspace::quit(),
+        RunEvent::ExitRequested { .. } => {
+            workspace::quit();
+            log(json!({"event": "quitting"}))
+        }
+        RunEvent::Exit => log(json!({"event": "quit"})),
         _ => {}
     });
 }

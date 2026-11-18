@@ -33,14 +33,14 @@ $start.Environment['TASKTAP_PICK'] = "$tmp\project"
 $start.Environment['TASKTAP_CORE_EXE'] = $Core
 $start.Environment['TASKTAP_CORE_BUILD'] = (Get-Content (Join-Path (Split-Path $Core -Parent) 'build.txt') -Raw).Trim()
 $lines = [Collections.Concurrent.ConcurrentQueue[string]]::new()
-$app = [Diagnostics.Process]::new()
-$app.StartInfo = $start
+$proc = [Diagnostics.Process]::new()
+$proc.StartInfo = $start
 $seen = [Collections.Generic.List[string]]::new()
-$null = Register-ObjectEvent $app OutputDataReceived -MessageData $lines -Action { if ($EventArgs.Data) { $Event.MessageData.Enqueue($EventArgs.Data) } }
-$null = Register-ObjectEvent $app ErrorDataReceived -MessageData $lines -Action { if ($EventArgs.Data) { $Event.MessageData.Enqueue("stderr: $($EventArgs.Data)") } }
-$null = $app.Start()
-$app.BeginOutputReadLine()
-$app.BeginErrorReadLine()
+$null = Register-ObjectEvent $proc OutputDataReceived -MessageData $lines -Action { if ($EventArgs.Data) { $Event.MessageData.Enqueue($EventArgs.Data) } }
+$null = Register-ObjectEvent $proc ErrorDataReceived -MessageData $lines -Action { if ($EventArgs.Data) { $Event.MessageData.Enqueue("stderr: $($EventArgs.Data)") } }
+$null = $proc.Start()
+$proc.BeginOutputReadLine()
+$proc.BeginErrorReadLine()
 $deadline = (Get-Date).AddSeconds($Seconds)
 
 # The next line the app prints that matches, within the run's time; every line is kept.
@@ -53,11 +53,11 @@ function Until($pattern, $seconds = 10) {
             $seen.Add($line)
             if ($line -match $pattern) { return $line }
         }
-        if ((Get-Date) -ge $until -or $app.HasExited) { return $null }
+        if ((Get-Date) -ge $until -or $proc.HasExited) { return $null }
         Start-Sleep -Milliseconds 50
     }
 }
-function Send($line) { $app.StandardInput.WriteLine($line); $app.StandardInput.Flush() }
+function Send($line) { $proc.StandardInput.WriteLine($line); $proc.StandardInput.Flush() }
 # The value of an expression in the workspace page, as text; $null when the page does not answer.
 function Js($expr, $seconds = 5) {
     Send "eval workspace $expr"
@@ -90,13 +90,13 @@ try {
     Send 'state'
     if (Until '"event":"state"' 5) { Pass 'the app says its state' } else { Fail 'the app says its state' }
 } finally {
-    if (-not $app.HasExited) {
+    if (-not $proc.HasExited) {
         Send 'call core.retire {"when":"now"}'
         $null = Until '"event":"reply"' 3
         Send 'quit'
-        if (-not $app.WaitForExit(5000)) { $app.Kill($true); Fail 'the app quits when told' } else { Pass 'the app quits when told' }
+        if (-not $proc.WaitForExit(5000)) { $proc.Kill($true); Fail 'the app quits when told' } else { Pass 'the app quits when told' }
     } else {
-        Fail "the app ended by itself with exit code $($app.ExitCode)"
+        Fail "the app ended by itself with exit code $($proc.ExitCode)"
     }
     Start-Sleep -Milliseconds 500
     $line = $null

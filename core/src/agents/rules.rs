@@ -27,6 +27,7 @@ pub struct Rules {
 const RULES: &[&Rules] = &[
     &super::codex::RULES,
     &super::claude::RULES,
+    &super::antigravity::RULES,
     #[cfg(feature = "fixtures")]
     &FIXTURE,
 ];
@@ -53,6 +54,8 @@ const VALUE_OPTIONS: &[&str] = &[
     "--add-dir", "-a", "--ask-for-approval", "--provider", "--api-key", "--permission-mode",
     "--settings", "--session-id", "--resume", "--agent", "--format", "--output-format",
     "--input-format", "-e", "--extension", "--thinking", "--remote", "--remote-auth-token-env",
+    "--conversation", "--effort", "--mode", "--project", "--log-file", "--json-schema",
+    "--print-timeout", "--prompt-interactive", "-i",
 ];
 
 impl Rules {

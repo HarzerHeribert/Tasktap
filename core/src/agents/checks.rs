@@ -188,6 +188,7 @@ pub fn ask(
     );
     let (mut child, tree) = spawned.map_err(|e| format!("{name} could not run: {e}"))?;
     let (input, mut out, err) = (child.stdin.take(), child.stdout.take(), child.stderr.take());
+    let question = (how.stdin)(&question);
     // The question is written beside the reading, so a tool that prints
     // before it has read everything never stops both.
     std::thread::spawn(move || {

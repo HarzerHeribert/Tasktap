@@ -58,6 +58,8 @@ pub const WAIT: Duration = Duration::from_secs(5);
 
 /// The largest hook payload read; a tool's whole input may be in it.
 const MAX_PAYLOAD: u64 = 16 << 20;
+/// How much of the end of an agent's own file a hook reads.
+const MAX_END: u64 = 1 << 20;
 
 /// What the core puts in the environment of each terminal it starts.
 pub fn environment(data: &Path, token: &Secret) -> [(&'static str, OsString); 2] {
@@ -117,6 +119,13 @@ pub fn hook(args: Vec<OsString>) -> ExitCode {
         match agent.event(args, &payload).map_err(malformed)? {
             None => Ok(()),
             Some(Heard::Event(event)) => report(&mut session("hook", Vec::new())?, &event),
+            Some(Heard::Read { event, files, fill }) => {
+                let event = match files.iter().find_map(|file| end_of(file)) {
+                    Some(end) => fill(event, &end),
+                    None => event,
+                };
+                report(&mut session("hook", Vec::new())?, &event)
+            }
             Some(Heard::Wait(ask)) => {
                 let mut c = session("hook", Vec::new())?;
                 drop(bound);
@@ -126,6 +135,23 @@ pub fn hook(args: Vec<OsString>) -> ExitCode {
             }
         }
     })())
+}
+
+/// The end of a file an agent keeps, as text: at most [`MAX_END`] of it,
+/// from the start of a line. None when it cannot be read.
+fn end_of(file: &Path) -> Option<String> {
+    use std::io::{Seek, SeekFrom};
+    let mut file = std::fs::File::open(file).ok()?;
+    let from = file.metadata().ok()?.len().saturating_sub(MAX_END);
+    file.seek(SeekFrom::Start(from)).ok()?;
+    let mut end = Vec::new();
+    file.take(MAX_END).read_to_end(&mut end).ok()?;
+    let text = String::from_utf8_lossy(&end);
+    let whole = match from {
+        0 => &text[..],
+        _ => text.split_once('\n').map_or("", |(_, rest)| rest),
+    };
+    Some(whole.to_owned())
 }
 
 /// `tasktap ask [--request KEY] [--detail TEXT] [--choice TEXT]... [--text]

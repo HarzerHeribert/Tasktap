@@ -13,13 +13,14 @@
 //! children are the only place that names an agent; the list below is the
 //! registry, and its first entry is the default agent.
 
+pub mod antigravity;
 pub mod checks;
 pub mod claude;
 pub mod codex;
 pub mod rules;
 
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::{Map, Value};
@@ -34,6 +35,15 @@ pub enum Heard {
     /// Asked through the core: the agent lets this hook decide, so it waits
     /// for the answer and prints [`Agent::reply`].
     Wait(Ask),
+    /// Reported once the hook has read the end of a file its agent keeps:
+    /// what the payload leaves out, such as the turn's last message, is
+    /// there. `fill` completes the event from the end of the first of
+    /// `files` that can be read; with none, it is reported as it is.
+    Read {
+        event: SessionEvent,
+        files: Vec<PathBuf>,
+        fill: fn(SessionEvent, &str) -> SessionEvent,
+    },
 }
 
 /// What an agent's runs can do, read where the core decides.
@@ -126,6 +136,8 @@ pub struct Headless {
     pub limit: Duration,
     /// Its arguments for one question whose answer must fit `schema`.
     pub args: fn(&Schema) -> Vec<String>,
+    /// The question as its standard input takes it: as it is for most.
+    pub stdin: fn(&str) -> String,
     /// The answer, a JSON text, in what it printed; or why it gave none.
     /// It is asked each time more was printed, and the first answer ends
     /// the tool: it must find none in a part of one.
@@ -342,6 +354,7 @@ pub fn variables() -> Vec<&'static str> {
 const AGENTS: &[&dyn Agent] = &[
     &claude::Claude,
     &codex::Codex,
+    &antigravity::Antigravity,
     #[cfg(feature = "fixtures")]
     &Fixture {
         events: true,
@@ -597,6 +610,7 @@ impl Agent for Fixture {
             model: "fixture-small",
             limit: Duration::from_secs(if self.events { 20 } else { 1 }),
             args: |_| vec!["keep:asked".into(), "script:ask".into()],
+            stdin: str::to_owned,
             answer: |out| {
                 let last = out.lines().last().unwrap_or_default().trim();
                 match (

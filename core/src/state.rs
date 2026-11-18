@@ -676,6 +676,13 @@ impl Machine<'_, '_> {
             (_, Some(A::TurnStarted { prompt }), _, Some(S::Starting | S::Idle), _) => {
                 self.start_turn(some(session)?, prompt)
             }
+            // turn_started without a prompt while a turn is open: an agent that
+            // reports its state, not what happened, says it is at work, as
+            // often as that state comes. The turn goes on, and what it asked
+            // in its terminal was answered there.
+            (_, Some(A::TurnStarted { prompt: None }), _, Some(S::Working), _) => {
+                self.continued(some(session)?, None)
+            }
             // turn_started while a turn is open: the person interrupted it in
             // the terminal and the agent did not say so, as an agent with no
             // interrupt hook cannot. That turn ends as turn_interrupted would

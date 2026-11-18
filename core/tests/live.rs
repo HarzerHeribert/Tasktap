@@ -217,6 +217,12 @@ impl Live {
     fn in_folder(prefix: &str, folder: PathBuf) -> Live {
         let data = Folder::new(prefix);
         let core = Core::live(&data.0, PATIENCE);
+        Self::on(core, data, folder)
+    }
+
+    /// The same on a core that was started already, as with variables of
+    /// its own.
+    fn on(core: Core, data: Folder, folder: PathBuf) -> Live {
         let mut w = core.watch();
         patient(&mut w.c);
         let add = tasktap_proto::AddProject {
@@ -526,6 +532,106 @@ fn antigravity_runs_asks_follows_up_and_resumes() {
     let handle = s.w.model.session(session).resume.clone();
     say(&format!("resume handle (the conversation id): {handle:?}"));
     assert!(handle.is_some());
+
+    let f = s.nudge(
+        session,
+        "Tasktap test: now say only this word and nothing else: followed",
+    );
+    let result = s.done(f, &tty);
+    assert!(result.to_lowercase().contains("followed"), "{result}");
+
+    s.end(session, &tty);
+    let r = s.nudge(
+        session,
+        "Tasktap test: now say only this word and nothing else: resumed",
+    );
+    let (again, tty) = s.started(r);
+    assert_ne!(again, session, "a resume is a new session");
+    let result = s.done(r, &tty);
+    assert!(result.to_lowercase().contains("resumed"), "{result}");
+    assert_eq!(
+        s.w.model.session(again).resume,
+        handle,
+        "the same conversation"
+    );
+    s.end(again, &tty);
+    s.core.stop();
+}
+
+/// A tool with which the model asks the person, as an extension of the
+/// person's own may add one. Pi has none itself, so its live run is given
+/// this one, in a Pi folder of its own.
+const PI_ASKS: &str = r#"import { Type } from "typebox";
+export default function (pi) {
+  pi.registerTool({
+    name: "ask_person",
+    label: "Ask",
+    description: "Ask the person one question with a few options and get their choice.",
+    parameters: Type.Object({ question: Type.String(), options: Type.Array(Type.String()) }),
+    async execute(_id, params, _signal, _update, ctx) {
+      const choice = await ctx.ui.select(params.question, params.options);
+      return { content: [{ type: "text", text: choice ?? "(no answer)" }], details: {} };
+    },
+  });
+}
+"#;
+
+/// Pi runs on whichever provider the person signed it in with, so the run
+/// names its model (`TASKTAP_LIVE_PI_MODEL`, as `provider/model`) and is
+/// signed in by that provider's key in this test's environment, which the
+/// core passes on. Its core has a home of its own: Pi keeps its sessions
+/// and settings there, and reads none of the person's settings, extensions
+/// or skills, whose names it would send to the provider.
+#[test]
+#[ignore = "runs Pi for three turns on a key of this test's environment"]
+fn pi_runs_asks_follows_up_and_resumes() {
+    let model = std::env::var("TASKTAP_LIVE_PI_MODEL")
+        .expect("TASKTAP_LIVE_PI_MODEL names the model, as provider/model");
+    let home = Folder::new("live-pi-home");
+    let extensions = home.0.join(".pi/agent/extensions");
+    std::fs::create_dir_all(&extensions).unwrap();
+    std::fs::write(extensions.join("ask.ts"), PI_ASKS).unwrap();
+    let data = Folder::new("live-pi");
+    let env = [("HOME", home.0.to_str().unwrap())];
+    let core = Core::start_patient(&data.0, &[], &env, PATIENCE);
+    let folder = project();
+    let mut s = Live::on(core, data, folder.clone());
+
+    let t = ThoughtId::mint();
+    let text = "Tasktap test: use the ask_person tool to ask me 'Tea or coffee?' with the options \
+                Tea and Coffee. Then reply with only my choice.";
+    let capture = Capture {
+        project_id: Some(s.project),
+        agent: Some("pi".into()),
+        model: Some(model.clone()),
+        ..typed(t, text)
+    };
+    s.w.ok::<call::ThoughtCapture>(&capture);
+    say(&format!("captured a thought for pi on {model}: {text:?}"));
+    let (session, tty) = s.started(t);
+    // Its dialog's foot: Return takes the first option.
+    tty.when("enter select", b"\r");
+    let q = s.question(&tty);
+    let asked = s.w.model.question(q).clone();
+    say(&format!(
+        "question: {:?} {:?} via {:?}; answering it in the terminal",
+        asked.prompt, asked.kind, asked.reply_via
+    ));
+    assert_eq!(asked.prompt, "Tea or coffee?");
+    assert_eq!(asked.reply_via, ReplyVia::Terminal);
+    let result = s.done(t, &tty);
+    let q = s.w.model.question(q).clone();
+    say(&format!("the question ended {:?}", q.state));
+    assert_ne!(q.state, QuestionState::Open);
+    assert!(result.to_lowercase().contains("tea"), "{result}");
+    let handle = s.w.model.session(session).resume.clone();
+    say(&format!("resume handle (Pi's session id): {handle:?}"));
+    assert!(handle.is_some());
+    // The extension is in Tasktap's folder, and the project got no file.
+    assert!(s._data.0.join("agents/pi/tasktap.mjs").is_file());
+    let made: Vec<_> = std::fs::read_dir(&folder).unwrap().flatten().collect();
+    let names: Vec<_> = made.iter().map(|entry| entry.file_name()).collect();
+    assert_eq!(names, [".git"], "nothing is written to the project");
 
     let f = s.nudge(
         session,

@@ -1,0 +1,6 @@
+{
+  "event": "before_agent_start",
+  "session": "01930000-0000-7000-8000-000000000001",
+  "at": "m0000000.2",
+  "prompt": "Tasktap test: use the ask_person tool to ask me 'Tea or coffee?' with the options Tea and Coffee, then run the shell command 'echo done' and reply with only my choice."
+}

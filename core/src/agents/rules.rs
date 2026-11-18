@@ -28,6 +28,7 @@ const RULES: &[&Rules] = &[
     &super::codex::RULES,
     &super::claude::RULES,
     &super::antigravity::RULES,
+    &super::pi::RULES,
     #[cfg(feature = "fixtures")]
     &FIXTURE,
 ];
@@ -55,7 +56,9 @@ const VALUE_OPTIONS: &[&str] = &[
     "--settings", "--session-id", "--resume", "--agent", "--format", "--output-format",
     "--input-format", "-e", "--extension", "--thinking", "--remote", "--remote-auth-token-env",
     "--conversation", "--effort", "--mode", "--project", "--log-file", "--json-schema",
-    "--print-timeout", "--prompt-interactive", "-i",
+    "--print-timeout", "--prompt-interactive", "-i", "--session", "--fork", "--session-dir", "--name",
+    "-n", "--models", "--tools", "-t", "--exclude-tools", "-xt", "--system-prompt",
+    "--append-system-prompt", "--skill", "--prompt-template", "--theme", "--use-theme", "--tui-mode",
 ];
 
 impl Rules {
@@ -145,6 +148,28 @@ mod tests {
             ("agy", &["models"], false),
             ("agy", &["--model", "gemini-4-carbon-low", "acp"], false),
             ("agy", &["--model", "models"], true),
+            ("pi", &[], true),
+            ("pi", &["fix the bug"], true),
+            ("pi", &["--session", "abc", "go on"], true),
+            (
+                "pi",
+                &[
+                    "--model",
+                    "deepseek/deepseek-flash",
+                    "--tools",
+                    "read,ls",
+                    "list",
+                ],
+                false,
+            ),
+            ("pi", &["--name", "list"], true),
+            ("pi", &["-p", "hi"], false),
+            ("pi", &["--mode", "json", "hi"], false),
+            ("pi", &["--list-models"], false),
+            ("pi", &["-v"], false),
+            ("pi", &["auth", "login", "deepseek"], false),
+            ("pi", &["-e", "x.ts", "install", "npm:x"], false),
+            ("pi", &["--", "update"], true),
         ] {
             assert_eq!(
                 rules(agent).interactive(&words(args)),
@@ -156,7 +181,7 @@ mod tests {
 
     #[test]
     fn only_an_agent_with_an_adapter_has_a_shim() {
-        for agent in ["pi", "opencode", "cursor"] {
+        for agent in ["opencode", "cursor"] {
             assert!(named(OsStr::new(agent)).is_none(), "{agent}");
         }
         for agent in shimmed() {
@@ -187,6 +212,9 @@ mod tests {
             // Antigravity keeps the mode the person set: none is added.
             ("agy", &[], &[]),
             ("agy", &["--mode", "plan"], &[]),
+            // Pi asks for no approval: there is none to add.
+            ("pi", &[], &[]),
+            ("pi", &["--approve"], &[]),
         ] {
             assert_eq!(
                 rules(agent).approval(&words(args)),

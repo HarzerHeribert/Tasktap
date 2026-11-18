@@ -11,16 +11,23 @@
 #   codex   a new run, a follow-up, a resume (3 turns)
 #   agy     Antigravity: a new run whose question is answered in the terminal,
 #           a follow-up, a resume (3 turns, on its smallest model)
+#   pi      Pi: a new run whose question, asked in the dialog of an extension
+#           the test gives it, is answered in the terminal, a follow-up, a
+#           resume (3 turns). Pi runs on whichever provider it is signed in
+#           with, so this one is told: TASKTAP_LIVE_PI_MODEL=provider/model,
+#           with that provider's key in the environment; skipped without
 #   alone   a Codex run with no client attached to its terminal (1 turn)
 #   trust   Claude Code in a folder it has not seen asks, through the core, to be
 #           trusted there; left unanswered (no turn)
 #   loop    the loop check with Claude Code as its agent (1 turn)
 #
-# Usage: core/scripts/live-agents.sh [claude] [codex] [agy] [alone] [trust] [loop]   (none: all six)
+# Usage: core/scripts/live-agents.sh [claude] [codex] [agy] [pi] [alone] [trust] [loop]   (none: all seven)
 #
 # Tasktap writes nothing to ~/.claude, ~/.codex or ~/.gemini: hooks and
 # settings go on each run's command line. Antigravity keeps each run's
-# conversation in the person's history, as it does for every run. The project is a throwaway git repository at
+# conversation in the person's history, as it does for every run. Pi runs
+# with a temporary home, so it keeps its sessions there and reads none of
+# the person's settings or skills. The project is a throwaway git repository at
 # $TMPDIR/tasktap-live-agents/project (TASKTAP_LIVE_PROJECT moves it), made
 # anew each time at the same place, so that Claude Code, which asks once
 # whether to trust a folder, asks about that one only. Each run's core has a
@@ -34,6 +41,7 @@ run_of() {
     claude) echo "claude_runs_asks_follows_up_and_resumes claude 3" ;;
     codex) echo "codex_runs_follows_up_and_resumes codex 3" ;;
     agy) echo "antigravity_runs_asks_follows_up_and_resumes agy 3" ;;
+    pi) echo "pi_runs_asks_follows_up_and_resumes pi 3" ;;
     alone) echo "codex_runs_with_no_window codex 1" ;;
     trust) echo "claude_in_a_new_folder_asks_to_be_trusted_there claude 0" ;;
     loop) echo "the_loop_on_claude claude 1" ;;
@@ -41,13 +49,13 @@ run_of() {
   esac
 }
 
-[ $# -eq 0 ] && set -- claude codex agy alone trust loop
+[ $# -eq 0 ] && set -- claude codex agy pi alone trust loop
 for name in "$@"; do
-  run_of "$name" >/dev/null || { echo "live-agents: no run called $name (claude, codex, agy, alone, trust, loop)" >&2; exit 64; }
+  run_of "$name" >/dev/null || { echo "live-agents: no run called $name (claude, codex, agy, pi, alone, trust, loop)" >&2; exit 64; }
 done
 
 echo "live-agents: the agents on this computer"
-for agent in claude codex agy; do
+for agent in claude codex agy pi; do
   if command -v "$agent" >/dev/null; then
     echo "  $agent $("$agent" --version 2>&1 | head -1)"
   else
@@ -62,6 +70,10 @@ for name in "$@"; do
   read -r test agent turns <<<"$(run_of "$name")"
   if ! command -v "$agent" >/dev/null; then
     echo "live-agents: $name skipped, $agent is not installed"
+    continue
+  fi
+  if [ "$name" = pi ] && [ -z "${TASKTAP_LIVE_PI_MODEL:-}" ]; then
+    echo "live-agents: pi skipped, TASKTAP_LIVE_PI_MODEL names no model"
     continue
   fi
   log="$logs/$name.log"

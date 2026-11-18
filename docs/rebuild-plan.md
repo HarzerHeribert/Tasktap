@@ -303,6 +303,7 @@ Aim for under 20 checks, each named after a promise to the user.
 - Phase 2: started 2026-11-17. Its packages are listed in the design under "Phase 2 work packages".
 - Phases 3 to 7: not started.
 - A third agent, Antigravity (Google's `agy`, 2026-11-18, on `worktree-agent-a6924977252b61a03`): it runs thoughts as Claude Code and Codex do, started with its title script, which says what state it is in, since its hooks cannot be given to one run (design §7, "Antigravity"). What it asks is shown and answered in its terminal; it resumes by its conversation's id; it places thoughts through its smallest model as well as the other two and more slowly (design §8). Two things grew for it and are any agent's: a hook may read the end of a file its agent keeps, and a headless question may be shaped for the tool's standard input.
+- A fourth agent, Pi (`pi` 1.5.2, 2026-11-19): it runs thoughts through an extension of Tasktap's own, given to each run from Tasktap's folder, which tells the hook when a turn starts, what tool it uses, when a dialog waits and how the turn settled (design §7, "Pi"). It asks for no approval; a dialog of an extension the person added is shown and answered in its terminal; it resumes by its session's id; it places no thought, having been right in 13 of the evaluation's 14.
 
 **Core, measured on 2026-11-17** with `core/scripts/measure.sh` (Apple M4 Pro, two clients subscribed, no terminals, end of Phase 1):
 

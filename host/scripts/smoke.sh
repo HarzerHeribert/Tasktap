@@ -42,6 +42,9 @@ else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the capture flow ke
 echo "== One type system (headless, every state of both pages)"
 if out="$(node "$root/scripts/type-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the type scale"; fi
 
+echo "== The Composer's field is the person's while a thought is sent (headless, real keys, a core that answers late or refuses)"
+if out="$(node "$root/scripts/composer-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the Composer's field"; fi
+
 echo "== Voice, recorded by the page (headless, a microphone that is a file)"
 if out="$(node "$root/scripts/voice-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "voice in the page"; fi
 

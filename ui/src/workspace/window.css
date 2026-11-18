@@ -186,7 +186,7 @@ body.dragging,body.dragging *{cursor:grabbing!important}
   mask:linear-gradient(#000,rgb(0 0 0/.4) 22px,transparent 70%),linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:intersect,exclude}
 .capture.raised:is(:focus-within,.has) .cap{background:var(--surface-lit)}
 .capture.raised:is(:focus-within,.has) .cap::after{opacity:.9}
-.capture.raised textarea{grid-column:1/-1;max-height:176px;padding:6px 10px 8px;font:var(--f-thought);letter-spacing:var(--ls-thought);color:var(--fg)}
+.capture.raised textarea{grid-column:1/-1;max-height:182px;padding:6px 10px 8px;font:var(--f-thought);letter-spacing:var(--ls-thought);color:var(--fg)}
 .capture.raised textarea::placeholder{color:var(--fg-field)}
 .capture.raised .cap-row{gap:6px;padding:0;border:0}
 .capture.raised :is(.cap-to,.cap-list button,.ring){border-radius:var(--r-in)}

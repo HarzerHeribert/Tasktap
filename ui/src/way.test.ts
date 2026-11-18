@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Routing, Thought } from '../../core/proto/protocol.ts';
-import { briefOf, clock, hold, into, laterWhy, onWay, placed, placing, ring, step } from './way.ts';
+import { back, briefOf, clock, hold, into, laterWhy, leave, onWay, placed, placing, ring, step } from './way.ts';
 
 const route = (o: Partial<Routing> = {}): Routing => ({ by: 'claude', model: 'haiku', pending: false, fallback: null, quote: null, title: null, ms: 2100, ...o });
 const thought = (o: Partial<Thought> = {}) => ({
@@ -95,4 +95,54 @@ test('heard words go in at the caret, set off from what is beside them', () => {
   assert.deepEqual(into('Fix the header', 14, 14, 'and keep the logo'), { text: 'Fix the header and keep the logo', caret: 32 });
   assert.deepEqual(into('Fix  now.', 4, 4, ' the header '), { text: 'Fix the header now.', caret: 14 });
   assert.deepEqual(into('Fix it, please', 4, 6, 'the header'), { text: 'Fix the header, please', caret: 14 });
+});
+
+/** A field as the Composer keeps it, and a core that answers each thought when the test says, with yes or no. */
+function flight() {
+  const field = { draft: '', sending: 0 }, sent: string[] = [], land: (() => void)[] = [], refuse: ((e: Error) => void)[] = [];
+  const go = (text: string) => new Promise<void>((ok, no) => (sent.push(text), land.push(ok), refuse.push(no)));
+  const type = (keys: string) => void (field.draft += keys);
+  return { field, sent, go, type, land, refuse };
+}
+
+test('what is typed while a thought is on its way to the core stays, in order, as the beginning of the next', async () => {
+  const f = flight();
+  f.type('fix the header ');
+  const gone = leave(f.field, f.go);
+  // Its words are out of the field at once, trimmed, and the field takes the next thought from the first key.
+  assert.deepEqual([f.sent, f.field], [['fix the header'], { draft: '', sending: 1 }]);
+  f.type('and then ');
+  f.land[0]!();
+  await gone;
+  f.type('the footer');
+  // Every key since is there, in the order typed, and nothing went twice.
+  assert.deepEqual([f.sent, f.field], [['fix the header'], { draft: 'and then the footer', sending: 0 }]);
+});
+
+test('a second thought sent before the first has arrived goes after it, and neither goes twice', async () => {
+  const f = flight();
+  f.type('one');
+  const first = leave(f.field, f.go);
+  f.type('two');
+  const second = leave(f.field, f.go);
+  assert.deepEqual([f.sent, f.field], [['one', 'two'], { draft: '', sending: 2 }]);
+  f.land[0]!();
+  await first;
+  assert.equal(f.field.sending, 1);
+  f.land[1]!();
+  await second;
+  assert.deepEqual([f.sent, f.field], [['one', 'two'], { draft: '', sending: 0 }]);
+});
+
+test('a thought the core refuses is back in the field, before what was typed since', async () => {
+  const f = flight();
+  f.type('fix the header');
+  const gone = leave(f.field, f.go);
+  f.type('and the footer');
+  f.refuse[0]!(new Error('no'));
+  await assert.rejects(gone, /no/);
+  assert.deepEqual(f.field, { draft: 'fix the header\nand the footer', sending: 0 });
+  // With nothing typed since, it is back as it was; so is a thought Undo takes back.
+  assert.equal(back('fix the header', ' \n'), 'fix the header');
+  assert.equal(back('fix the header', 'next'), 'fix the header\nnext');
 });

@@ -200,11 +200,12 @@ else
   moving="$(js workspace "String($drawn - $was > 20) + ' ' + document.querySelector('.light').dataset.moves")"
   sleep 1.5
   frames=$(js workspace "__motion.stats.frames"); keys=$(js workspace "__motion.stats.keys"); sleep 1.5
-  carried="$(js workspace "String(__motion.stats.frames === $frames && __motion.stats.keys > $keys && document.querySelectorAll('.light .motion-layer canvas').length === 3)")"
+  # The loop is drawn in the page, frame by frame: carried by the compositor it flickered in the app (stats.carry is off).
+  carried="$(js workspace "String(__motion.stats.frames - $frames > 20 && __motion.stats.keys === $keys)")"
   js workspace "(Object.assign(__motion.debug, { state: null, active: null }), __motion.redraw(), 1)" >/dev/null; sleep 2.5
   was=$(js workspace "$drawn"); sleep 1
   [ "$moving" = "true true" ] && [ "$carried" = true ] && [ "$(js workspace "$drawn")" = "$was" ] \
-    && pass "while agents work in the window in use the band and the light move, and once the loop is at its pace the compositor carries it between keyframes while the page draws no frame; back at rest it is still within a moment" || fail "the loop while agents work" "$moving $carried"
+    && pass "while agents work in the window in use the band and the light move, and the loop goes on being drawn in the page for as long as they work; back at rest it is still within a moment" || fail "the loop while agents work" "$moving $carried"
 fi
 # The sidebar's glyphs: a few, large, each a picture drawn once (no view of the motion's own), still while idle.
 glyphs="[...document.querySelectorAll('.spark .glyph.in')]"

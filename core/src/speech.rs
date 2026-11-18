@@ -1,5 +1,5 @@
 //! Speech (design §8, "Speech"): dictations, from the recorder's call to
-//! the thought or the answer they become. The rules are `state::dictate`;
+//! the thought they become or the words they leave for a field. The rules are `state::dictate`;
 //! this module moves things between them and the world, as `effects.rs`
 //! does for the stored records: the audio arriving on a stream and its
 //! level, the one deadline of a dictation, the call to the speech service
@@ -21,13 +21,13 @@ use std::time::Duration;
 use serde_json::Value;
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
-    CloseWhy, Control, DeviceId, DictationId, DictationPhase, DictationTarget, Empty, Listening,
-    MAX_CREDIT, MAX_TEXT, PrefKey, PrefValue, QuestionState, Ref, ReplyVia, ReportDictation,
-    Response, Server, SetKey, Source, SpeechBy, SpeechTerms, StartDictation, json_len,
+    CloseWhy, Control, DictationId, DictationPhase, DictationTarget, Empty, Listening, MAX_CREDIT,
+    MAX_TEXT, PrefKey, PrefValue, Ref, ReportDictation, Server, SetKey, Source, SpeechBy,
+    SpeechTerms, StartDictation, json_len,
 };
 use tokio::task::AbortHandle;
 
-use crate::calls::{Caller, Cx};
+use crate::calls::Cx;
 use crate::command::Signal;
 use crate::conn::Link;
 use crate::effects::{self, Refusal};
@@ -45,6 +45,11 @@ const BYTES_A_SECOND: usize = RATE as usize * 2;
 pub const CAP: usize = RECORDING as usize * BYTES_A_SECOND;
 /// The audio a level is taken from: 100 ms. Less than this is no recording.
 const WINDOW: usize = BYTES_A_SECOND / 10;
+/// Whole windows a recording needs before a room can be told from a word.
+const TELLING: u32 = 5;
+/// The sum of the squares of a window's samples at -30 dBFS: no quiet
+/// room is that strong, so a window that is counts as said.
+const STRONG: u64 = 1_717_986_918;
 /// A level of 0 is this many dBFS, and 100 is `FLOOR + SPAN` (as in 1.2).
 const FLOOR: f32 = -55.0;
 const SPAN: f32 = 49.0;
@@ -68,8 +73,6 @@ pub struct Speech {
 struct Live {
     /// The connection that records: only it may finish the dictation.
     recorder: Weak<Link>,
-    /// The device that started it, which a spoken answer is the answer of.
-    by: Option<DeviceId>,
     audio: Option<Rc<RefCell<Audio>>>,
     stream: Option<Handle>,
     deadline: Option<AbortHandle>,
@@ -89,7 +92,8 @@ impl Speech {
 
     /// Whether a dictation is under way, which would be lost with the core.
     pub fn busy(&self) -> bool {
-        (self.all.iter()).any(|d| d.row.phase != DictationPhase::Failed)
+        let under_way = [DictationPhase::Recording, DictationPhase::Transcribing];
+        (self.all.iter()).any(|d| under_way.contains(&d.row.phase))
     }
 }
 
@@ -104,6 +108,13 @@ struct Audio {
     /// The loudest sample of that window, and of every window before.
     window: u16,
     peak: u16,
+    /// The sum of the squares of that window's samples, and the largest and
+    /// the smallest such sum of the whole windows before it.
+    energy: u64,
+    strongest: u64,
+    weakest: u64,
+    /// Whole windows heard.
+    windows: u32,
     level: u8,
     /// A change of the level waits to be published.
     told: bool,
@@ -133,22 +144,37 @@ impl Audio {
             for sample in self.pcm[self.scanned..end].as_chunks::<2>().0 {
                 let loud = i16::from_le_bytes(*sample).unsigned_abs();
                 self.window = self.window.max(loud);
+                self.energy += u64::from(loud) * u64::from(loud);
             }
             self.heard += end - self.scanned;
             self.scanned = end;
             if self.heard == WINDOW {
                 self.level = level(self.window);
                 self.peak = self.peak.max(self.window);
-                (self.window, self.heard) = (0, 0);
+                self.strongest = self.strongest.max(self.energy);
+                self.weakest = match self.windows {
+                    0 => self.energy,
+                    _ => self.weakest.min(self.energy),
+                };
+                self.windows += 1;
+                (self.window, self.heard, self.energy) = (0, 0, 0);
             }
         }
     }
 
-    /// Whether there is anything to transcribe: at least one window of
-    /// audio, some of it above the floor. A microphone that is muted or
-    /// refused gives zeros.
+    /// Whether there is anything to transcribe (design §8, "Nothing was
+    /// said"). Not when there is less than one window of audio, or none of
+    /// it above the floor: a microphone that is muted or refused gives
+    /// zeros. And not when a recording long enough to tell is as even as an
+    /// empty room is: no window twice as strong (3 dB) as its weakest, and
+    /// none strong in itself. Anything else is sent: a word no louder
+    /// than the room's own noise still stands out of its weakest window.
     fn heard(&self) -> bool {
-        self.pcm.len() >= WINDOW && level(self.peak.max(self.window)) > 0
+        if self.pcm.len() < WINDOW || level(self.peak.max(self.window)) == 0 {
+            return false;
+        }
+        let even = self.strongest < self.weakest.saturating_mul(2);
+        self.windows < TELLING || !even || self.strongest >= STRONG
     }
 }
 
@@ -266,36 +292,12 @@ fn carry(core: &mut Core, effect: Heard) {
             core.events.notify_one();
         }
         Heard::Transcribe(id) => transcribe(core, id),
-        Heard::Deliver { id, target, text } => {
-            let by = core.speech.live.get(&id).and_then(|live| live.by);
-            let refused = deliver(core, by, target, text).err().map(|e| e.message);
+        // The transcript is the thought's text: exactly the capture that
+        // typing it would have been.
+        Heard::Deliver { id, capture, text } => {
+            let capture = tasktap_proto::Capture { text, ..*capture };
+            let refused = (crate::calls::capture(core, capture).err()).map(|e| e.message);
             let _ = apply(core, Spoken::Delivered { id, refused });
-        }
-    }
-}
-
-/// A transcript goes where typing it would have gone.
-fn deliver(
-    core: &mut Core,
-    by: Option<DeviceId>,
-    target: DictationTarget,
-    text: String,
-) -> Result<(), Error> {
-    match target {
-        DictationTarget::Thought(mut capture) => {
-            // What the person typed before they spoke comes first.
-            capture.text = match capture.text.trim_end() {
-                "" => text,
-                typed => format!("{typed} {text}"),
-            };
-            if json_len(&capture.text) > MAX_TEXT {
-                return Err(Error::new(Code::Invalid, "The thought is too long"));
-            }
-            crate::calls::capture(core, *capture)
-        }
-        DictationTarget::Answer { question } => {
-            let response = Response::Text { text };
-            crate::questions::respond(core, by, "dictation.finish", question, response)
         }
     }
 }
@@ -308,23 +310,20 @@ fn fits(core: &mut Core, target: &DictationTarget) -> Result<(), Error> {
                 let why = "the capture of a dictation has the source voice";
                 return Err(Error::new(Code::Invalid, why));
             }
+            // One mechanism for speech into a field that holds text: the
+            // text target, whose words the page places itself.
+            if !capture.text.is_empty() {
+                let why = "a spoken thought's text is its transcript; \
+                           speech into a field that holds text has the target text";
+                return Err(Error::new(Code::Invalid, why));
+            }
             crate::calls::check(capture)?;
             match effects::read(core, |tx| tx.thought(capture.id))? {
                 Some(_) => Err(Error::new(Code::Conflict, "a thought with this id exists")),
                 None => Ok(()),
             }
         }
-        DictationTarget::Answer { question } => {
-            let q = effects::read(core, |tx| tx.question(*question))?;
-            match q.filter(|q| q.state == QuestionState::Open) {
-                None => Err(Error::new(Code::Gone, "the question is not open")),
-                Some(q) if q.reply_via == ReplyVia::Terminal => Err(Error::new(
-                    Code::Invalid,
-                    "this question is answered in its terminal",
-                )),
-                Some(_) => Ok(()),
-            }
-        }
+        DictationTarget::Text => Ok(()),
     }
 }
 
@@ -348,15 +347,10 @@ pub fn start(cx: &mut Cx, args: StartDictation) -> Result<Listening, Error> {
             "a dictation with this id exists",
         ));
     }
-    let by = match cx.who {
-        Caller::Device(id) => Some(id),
-        _ => None,
-    };
     let stream = service.is_some();
     let audio = stream.then(Rc::<RefCell<Audio>>::default);
     let live = Live {
         recorder: Rc::downgrade(cx.link),
-        by,
         audio: audio.clone(),
         stream: None,
         deadline: None,

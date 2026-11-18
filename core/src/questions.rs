@@ -146,13 +146,7 @@ fn open(core: &mut Core, s: &Session, ask: Ask) -> Result<Question, Refusal> {
 
 /// `question.answer`, from a device.
 pub fn answer(cx: &mut Cx, args: AnswerQuestion) -> Result<(), Error> {
-    respond(
-        cx.core,
-        device(cx),
-        "question.answer",
-        args.id,
-        args.response,
-    )
+    respond(cx, "question.answer", args.id, args.response)
 }
 
 /// `input`: affirm or deny, bound to the question the device showed.
@@ -161,36 +155,24 @@ pub fn input(cx: &mut Cx, args: Input) -> Result<(), Error> {
         Action::Affirm => Response::Affirm,
         Action::Deny => Response::Deny,
     };
-    respond(cx.core, device(cx), "input", args.question, response)
+    respond(cx, "input", args.question, response)
 }
 
-/// The device that made a call, if one did.
-fn device(cx: &Cx) -> Option<tasktap_proto::DeviceId> {
-    match cx.who {
+fn respond(cx: &mut Cx, name: &str, question: QuestionId, response: Response) -> Result<(), Error> {
+    let by = match cx.who {
         Caller::Device(id) => Some(id),
         _ => None,
-    }
-}
-
-/// Answers a question for device `by`: a device's own call, or the
-/// transcript of the dictation it started (design §8).
-pub fn respond(
-    core: &mut Core,
-    by: Option<tasktap_proto::DeviceId>,
-    name: &str,
-    question: QuestionId,
-    response: Response,
-) -> Result<(), Error> {
+    };
     let event = Event::Answer {
         question,
         response,
         by,
     };
-    match effects::run(core, event) {
+    match effects::run(cx.core, event) {
         Ok(_) => Ok(()),
         // Say how it was settled: the second of two devices answering learns it lost.
         Err(Refusal::State(state::Error::Gone)) => {
-            let q = effects::read(core, |tx| tx.question(question))?;
+            let q = effects::read(cx.core, |tx| tx.question(question))?;
             let why = match q.map(|q| q.state) {
                 Some(Q::Answered) => "the question was answered already",
                 Some(Q::Withdrawn) => "the question was withdrawn",

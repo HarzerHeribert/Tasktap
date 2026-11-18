@@ -15,6 +15,9 @@ uniform sampler2D u_data;           // row 0: two seconds of (level, bright, ons
 uniform vec4 u_lm;                  // Lumen laid over the form: how much of it, its own phase, the room's level under it
 uniform vec4 u_holes[24];           // text the motion keeps clear, in this view's pixels: centre and half size
 uniform vec2 u_hole;                // how many, and how far the light takes to come back around each
+uniform vec3 u_pose;                // Home's band alone: how far it stands in the icon's S, its pulse's clock, its pulse's strength
+// (A slat stays upright in that S: its column leaves it under two degrees of lean, which at the band's size only
+// breaks its edges into steps. Its face turns instead, in slats.ts.)
 out vec4 o;
 #define PI 3.14159265
 
@@ -95,6 +98,9 @@ void put(vec3 c, float a, vec3 g){
   o.a=max(o.r,max(o.g,o.b));
 }
 
+// Home's band: the pulse passing through it at ax from the centre: it leaves the centre, reaches the ends, and settles,
+// as loudness does in this wave; a beat's rise and a long fall.
+float pulse(float ax){ float t=u_pose.y-ax*.9; return smoothstep(0.,.5,t)*exp(-max(t-.5,0.)*1.4); }
 // ---- the icon's wave: centre and half-height at xn in -1..1 (rnd: the element's own random; f: phase; g: voice) ----
 vec2 wave(float xn, float rnd, float f, float g){
   float ax=abs(xn);
@@ -107,6 +113,10 @@ vec2 wave(float xn, float rnd, float f, float g){
   h=mix(h,(.1+.62*bump(xn,.34))*(1.+.2*beat()),u_p[4]);       c*=1.-u_p[4];
   h=mix(h,.46*sqrt(max(1.-xn*xn*.8,0.)),u_p[5]);              c*=1.-u_p[5];
   h=mix(h,.07+.16*rnd*rnd,u_p[6]);                            c=mix(c,-.42+.1*rnd,u_p[6]);
+  // Home's band: it stands in the icon's S in every state, never on a ruler, and stays there; what moves is its
+  // heights, swelling as a pulse passes outward from the centre.
+  c-=u_pose.x*.1*sin(PI*xn)*(1.-u_p[6]);
+  h+=u_pose.z*.06*pulse(ax)*(.55+.45*cos(ax*2.))*(1.-u_p[6]);
   return vec2(c,h*smoothstep(1.,.72,ax));
 }
 float span(float asp){ return min(asp*.8,max(1.35,asp*.62)); }

@@ -7,7 +7,7 @@ import { Capture, cap } from '../capture.tsx';
 import { uuid7 } from '../client.ts';
 import { type Review, Told, lost, next, pending, review, running, settle } from '../changes.tsx';
 import { Ask } from '../question.tsx';
-import { Answer, Diffstat, I, Mark } from '../ui.tsx';
+import { Answer, Diffstat, I, Ring } from '../ui.tsx';
 import * as L from './layout.ts';
 import {
   LOOSE, agentName, call, dismiss, fail, finishClose, focus, focusTerminal, keepInBackground, label, layout, newTerminal, open, openWorkspace,
@@ -222,7 +222,7 @@ function Body() {
     case 'capture':
       return (
         <Frame wide="capture" title="New task">
-          <Capture started={dismiss} />
+          <Capture started={dismiss} agents={() => open({ kind: 'agents' })} />
         </Frame>
       );
     case 'settings':
@@ -291,8 +291,8 @@ export function Agents() {
         const off = a.installed && a.signed_in === false;
         const state = !a.installed ? 'not installed' : a.signed_in === false ? 'not signed in' : a.signed_in ? 'signed in' : 'installed';
         return (
-          <div class={`line ag${off ? ' off' : ''}`}>
-            <Mark s={off || !a.installed ? 'off' : 'dot'} label={state} />
+          <div class="line ag" data-s={off || !a.installed ? 'off' : undefined}>
+            <Ring agent={a.id} s={off || !a.installed ? 'off' : ''} />
             <span class="t">{agentName(a.id)}</span>
             <span class="x">{[a.version, state, a.identity].filter(Boolean).join(' · ')}</span>
             {off && signIn[a.id] && (

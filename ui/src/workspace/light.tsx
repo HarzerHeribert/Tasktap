@@ -1,10 +1,13 @@
 // The window's light: on Home, a few large, soft pools of the person's colour in the window's black, strongest by the
 // capture field and around one low band of chrome, as if a large chrome form were just out of focus behind the page;
-// at the sidebar's foot, the same light with a few large chrome glyphs that sway while agents work. The pools are plain
-// gradients the system composites, dithered against banding; the chrome is the motion engine's, drawn on a change of
-// state and then held; each glyph is a picture drawn once. Everything that moves here moves on one slow clock, by
-// opacity and transform only, at one tempo (tokens.css --t-ambient). One setting, the core's `motion_ambient`: Off,
-// Still or Breathing. The same state function as the motion and the notch's glow (motion/state.ts).
+// at the sidebar's foot, the same light with a few large chrome glyphs. The pools are plain gradients the system
+// composites, dithered against banding; the chrome is the motion engine's; each glyph is a picture drawn once.
+// The rule (docs/rebuild-plan.md, design decision 9): the ambient layer moves while its surface is shown in the window
+// in use, whether or not agents work: the pools breathe, the chrome floats, the glyphs sway, by opacity and transform
+// only, which the compositor carries, at one tempo (tokens.css --t-ambient). It is a still frame that costs nothing
+// while the window is not the one in use or is out of sight, under Reduce Motion, and with the core's
+// `motion_ambient` at Still; Off removes it. The same state function as the motion and the notch's glow
+// (motion/state.ts); a change of state still plays its moment.
 import { type RefObject } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { routing } from '../capture.tsx';
@@ -28,76 +31,53 @@ function deep(c: RGB, Y: number, sat = 0.8) {
   return `rgb(${g.map((v) => Math.round(255 * srgb(Math.min(1, (v * Y) / Math.max(1e-6, y))))).join(' ')})`;
 }
 
-/** States in which something happens: the light breathes. */
+/** States in which something happens: the glyphs stand at full strength. */
 const LIVE = new Set<MotionState>(['listening', 'thinking', 'working', 'needs']);
-/** How long the light keeps breathing after a change of state, as a moment of its own. */
-const AFTER = 6000;
 /** The ambient light's one tempo: the seconds a breath takes (tokens.css --t-ambient). The glyphs sway and the chrome
- *  drifts in the same time: at a glance all of it is still; only a longer look shows it moving. */
-let seconds = 0;
-const tempo = () => (seconds ||= parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--t-ambient')) || 24);
+ *  drifts in the same time: a glance of two or three seconds shows it is alive, and it is too slow to pull the eye
+ *  from a row being read. */
+const tempo = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--t-ambient')) || 12;
 /** The share of the lab's pace the chrome moves at, at that tempo. */
 const pace = () => 3.6 / tempo();
+/** How far everything ambient travels (tokens.css --ambient): 1 is the owner's "calmer". */
+const amount = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ambient')) || 1;
 
-/** The ambient clock: one timer, twice a second, steps the pools' opacity, so the window is composited that often
- *  and not at the display's rate: a step is about one percent of a pool's opacity, in colours this deep below what the
- *  eye can tell. Once a second it gives each glyph its next pose and the compositor carries it there, so a glyph moves
- *  at the display's rate and costs the page one change a second. Measured in the app (host/scripts/measure.sh): the
- *  pools are most of the cost, a step each; carrying the glyphs and fading their pictures in are the rest. The clock
- *  counts only while it runs, so what it moves goes on from where it stopped. */
-const STEPS = 2;
+/** The glyphs' reflections. A glyph sways by the compositor alone (window.css sway, tilt, rock), so it never stops and
+ *  starts; what the page does is draw its picture again, every eight seconds, as it then faces, and bring that in over
+ *  a moment, as a glint. Each drawing reads a picture back from the graphics card, which is all the glyphs cost, so it
+ *  is no more often than that, and one that would start while the last is still coming in is skipped, never queued. */
 const moving = new Set<HTMLElement>();
-let clock = 0, beat = 0, began = 0, stepped = 0, steps = 0;
+let clock = 0, beat = 0;
 const reduce = matchMedia('(prefers-reduced-motion: reduce)');
-const OFFSET = [0, 0.4, 0.7], LENGTH = [1, 1.23, 1.47];
-/** Where glyph `i` stands in its sway at `beat` seconds: a drift of a few pixels, a tilt, and a rock about its upright
- *  axis that never brings it near edge-on. */
-const rock = (i: number, at = beat) => Math.sin(((2 * Math.PI * at) / tempo()) * 1.23 + (1 + i * 2.1) * 1.3);
-function pose(el: HTMLElement, i: number) {
-  const w = (2 * Math.PI * beat) / tempo(), f = 1 + i * 2.1;
-  const x = 6 * Math.sin(w + f), y = 7 * Math.sin(w * 0.81 + f * 1.7), tilt = 8 * Math.sin(w * 0.62 + f * 0.9);
-  el.style.transform = `translate(${x.toFixed(2)}px,${y.toFixed(2)}px) perspective(480px) rotateY(${(24 * rock(i)).toFixed(2)}deg) rotate(${tilt.toFixed(2)}deg)`;
-}
 /** How a glyph's picture is drawn again, its face leaning by `lean` more, and laid over the one it has, coming in
  *  over `seconds`. */
 const drawers = new WeakMap<HTMLElement, (lean: number, seconds: number) => void>();
-/** The reflection follows the rock, slowly: three times a breath the glyph is drawn again as it will then face, and
- *  comes in over a moment, as a glint. */
-function reflect(el: HTMLElement, i: number) {
-  const span = tempo() / 3, k = String(Math.floor(beat / span + i / 3));
-  if (el.dataset.k !== k) (el.dataset.k = k), drawers.get(el)?.(0.3 * rock(i, beat + span / 2), 1.5);
-}
+/** How far a glyph is turned about its upright axis now, of the furthest it turns: -1 to 1. */
+const turned = (el: HTMLElement) => Math.max(-1, Math.min(1, -new DOMMatrix(getComputedStyle(el).transform).m13 / Math.sin(0.28)));
 function step() {
-  const now = performance.now();
-  beat += Math.min(0.5, (now - stepped) / 1000);
-  stepped = now;
-  // A breath begins from the pools' resting level and grows to its full depth over its first seconds.
-  const depth = Math.min(1, (now - began) / 4000);
-  steps++;
-  for (const root of moving) {
-    root.querySelectorAll<HTMLElement>(':scope > .pool').forEach((p, i) => {
-      const x = 0.5 - 0.5 * Math.cos(2 * Math.PI * (beat / (2 * tempo() * (LENGTH[i] ?? 1)) + (OFFSET[i] ?? 0)));
-      p.style.opacity = (0.88 + depth * (0.66 + 0.34 * x - 0.88)).toFixed(3);
-    });
-    if (steps % STEPS === 0) root.querySelectorAll<HTMLElement>('.turn').forEach((el, i) => (pose(el, i), reflect(el, i)));
-  }
+  beat++;
+  for (const root of moving)
+    root.querySelectorAll<HTMLElement>('.turn').forEach((el, i) => (beat + i * 3) % 8 === 0 && drawers.get(el)?.(0.3 * turned(el), 1.5));
 }
-function useBreath(ref: RefObject<HTMLElement | null>, on: boolean) {
+function useSway(ref: RefObject<HTMLElement | null>, on: boolean) {
   useEffect(() => {
     const el = ref.current;
     if (!el || !on || reduce.matches) return;
-    if (!moving.size) (began = stepped = performance.now()), (clock = window.setInterval(step, 1000 / STEPS));
+    if (!moving.size) clock = window.setInterval(step, 1000);
     moving.add(el);
     return () => {
       moving.delete(el);
-      el.querySelectorAll<HTMLElement>(':scope > .pool').forEach((p) => (p.style.opacity = ''));
       if (!moving.size) clearInterval(clock);
     };
   }, [on, ref.current]);
 }
 
+/** How many times focus entering the panel has been answered, and whether it is being answered now. */
+let greets = 0, greeted = false;
 let last: { state: MotionState; at: number } = { state: 'idle', at: 0 };
 let settle = 0;
+// Out of sight it is still, and moves again when it is seen.
+document.addEventListener('visibilitychange', redraw);
 
 /** The look the wake's glyphs take, or none while the ambient light is off. */
 export const wakeLook = () => (pref('motion_ambient') === 'off' ? null : lookOf(records.prefs));
@@ -111,7 +91,7 @@ export function useLight() {
   if (state !== last.state) {
     last = { state, at: now };
     clearTimeout(settle);
-    settle = window.setTimeout(redraw, AFTER + 50);
+    settle = window.setTimeout(redraw, 2550);
   }
   const look = lookOf(records.prefs);
   const L = lights(look.palette, look.hue);
@@ -121,7 +101,7 @@ export function useLight() {
   const asks = state === 'needs';
   const c1 = asks ? mix(a, ASKS, 0.6) : a, c2 = asks ? mix(b, ASKS, 0.35) : b, c3 = state === 'failed' ? FAIL : mix(a, b, 0.5);
   const level = asks ? 1.2 : state === 'idle' ? 0.85 : 1;
-  const breathe = debug.breathe ?? (mode === 'breathing' && ui.active && (LIVE.has(state) || now - last.at < AFTER));
+  const breathe = debug.breathe ?? (mode === 'breathing' && ui.active && !document.hidden);
   return {
     state, look, mode, breathe, lift: state === 'done' && now - last.at < 2500,
     vars: {
@@ -156,15 +136,19 @@ function noise() {
 /** Home's light: three pools and the chrome band, behind the column. `load` dims the chrome as the page fills. */
 export function Light({ load }: { load: 'quiet' | 'busy' | 'asks' | 'paged' }) {
   const l = useLight();
-  const ref = useRef<HTMLDivElement>(null);
   useEffect(() => void document.documentElement.style.setProperty('--noise', noise()), []);
-  useBreath(ref, l.breathe);
   if (l.mode === 'off') return null;
+  // Its chrome stands in the icon's S, never on a level row (engine.ts pose), and stays there. While the light
+  // breathes the compositor floats its picture a few pixels each way (window.css), inside the room its words are
+  // given, and every breath or two a pulse swells its heights from the centre outward and settles, its faces turning
+  // a little as it passes (engine.ts pulse). Focus entering the panel lifts the light and sends a pulse at once.
+  if (ui.greet === 'main' && !greeted) greets++;
+  greeted = ui.greet === 'main';
   return (
-    <div class="light" ref={ref} data-state={l.state} data-breathe={String(l.breathe)} data-lift={l.lift || undefined} data-load={load} style={l.vars} aria-hidden="true">
+    <div class="light" data-state={l.state} data-breathe={String(l.breathe)} data-lift={l.lift || undefined} data-stir={ui.greet === 'main' || undefined} data-load={load} style={l.vars} aria-hidden="true">
       <i class="pool a" /><i class="pool b" /><i class="pool c" />
       <span class="band">
-        <Motion look={l.look} state={l.state} pace="calm" tempo={pace()} fps={12} clear=".hx" pad={10} feather={30} soften={7} />
+        <Motion look={l.look} state={l.state} pace="calm" pose={1} pulse={l.breathe ? amount() : 0} kick={greets} tempo={pace()} fps={12} clear=".hx" pad={10} feather={30} soften={7} />
       </span>
     </div>
   );
@@ -196,8 +180,7 @@ function Glyph({ i, here, look, state }: { i: number; here: boolean; look: Retur
       el.append(cv);
     };
     drawers.set(el, draw);
-    draw(0.3 * rock(i), 1.2);
-    pose(el, i);
+    draw(0.3 * turned(el), 1.2);
   }, [here, JSON.stringify(look), state]);
   return (
     <span class={`glyph${here ? ' in' : ''}`} style={{ width: `${g.size}px`, height: `${g.size}px`, left: `calc(${g.x * 100}% - ${g.size / 2}px)`, bottom: `${g.y}px`, '--i': String(i) }}>
@@ -207,8 +190,8 @@ function Glyph({ i, here, look, state }: { i: number; here: boolean; look: Retur
 }
 
 /** The sidebar's foot: the same light rising from the bottom, and the glyphs, there only where the rows leave them
- *  room; rows always win. They sway while the light breathes, hold their pose when it is still, and step back while
- *  the window is not the one in use. */
+ *  room; rows always win. They sway while the light breathes, hold their pose when it is still, step back while the
+ *  window is not the one in use, and step forward again when focus enters the sidebar (window.css greet). */
 export function Spark() {
   const l = useLight();
   const ref = useRef<HTMLDivElement>(null);
@@ -218,7 +201,7 @@ export function Spark() {
     watch.observe(ref.current!);
     return () => watch.disconnect();
   }, []);
-  useBreath(ref, l.breathe);
+  useSway(ref, l.breathe);
   return (
     <div class="spark" ref={ref} data-state={l.state} data-breathe={String(l.breathe)} data-away={!ui.active && !debug.breathe ? '' : undefined} style={l.vars} aria-hidden="true">
       {l.mode !== 'off' && <i class="pool s" />}

@@ -273,15 +273,15 @@ export type Device = { id: DeviceId, rev: Rev, name: string, last_seen: Time | n
 export type DeviceId = string;
 
 /**
- * A dictation that is under way or has failed (design §8). Memory only:
- * one that was delivered has no row, since it became its thought or its
- * answer.
+ * A dictation that is under way or has ended without becoming a thought
+ * (design §8): its words are there to be placed in a field, or it failed.
+ * Memory only: one that became its thought has no row.
  */
 export type Dictation = { id: DictationId, rev: Rev, phase: DictationPhase,
 /**
  * What was heard: the transcript so far while a recorder that
- * transcribes reports it, and the whole of it when it could not be
- * delivered.
+ * transcribes reports it, and the whole of it once it is `heard`, or
+ * when it could not be captured.
  */
 text: string,
 /**
@@ -298,12 +298,16 @@ error: string | null, };
  */
 export type DictationId = string;
 
-export type DictationPhase = "recording" | "transcribing" | "failed";
+/**
+ * `heard`: the words are in `text`, and the core does nothing with
+ * them; the interface places them in its field.
+ */
+export type DictationPhase = "recording" | "transcribing" | "heard" | "failed";
 
 /**
- * What a dictation becomes: exactly what typing it would have been.
+ * What a dictation becomes.
  */
-export type DictationTarget = { "kind": "thought" } & Capture | { "kind": "answer", question: QuestionId, };
+export type DictationTarget = { "kind": "thought" } & Capture | { "kind": "text" };
 
 /**
  * The reply of `thought.changes`: the files, and the stream of the diff

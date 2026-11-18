@@ -1,8 +1,9 @@
 #!/bin/bash
 # host/scripts/smoke.sh: builds Tasktap Next with a core that has the fixture agent, runs it on a
-# temporary data folder and drives it through its debug channel: the notch (an idea kept before
-# any folder is open and sent to one, capture, Undo, a run, a trust prompt, a question, affirm, the
-# result), Home (the question in full, the Folds, Earlier, Ideas) and the workspace (a run's
+# temporary data folder and drives it through its debug channel: the notch (a thought saved for
+# later before any folder is open and sent to one, capture, Undo, a run, a trust prompt, a question,
+# affirm, the result), Home (first run, the agents' rings, the question in full, the Folds, Earlier,
+# For later), the sidebar's slide, scrolling without bars, and the workspace (a run's
 # terminal, a question in its pane's strip, a shell typed into, splits, a moved tab, a divider,
 # the sheets, Keep running in background and restore, Stop, text size, Keep and Discard of a run
 # that worked in its own copy of the project, then quit and relaunch with the layout restored and
@@ -24,6 +25,9 @@ cargo build --quiet --manifest-path "$host/Cargo.toml" || { echo "FAIL  host bui
 
 echo "== Lists keep their columns (headless, fixture records)"
 if out="$(node "$root/scripts/align-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "list alignment"; fi
+
+echo "== The ambient layer holds steady (headless, two and a half minutes)"
+if out="$(node "$root/scripts/soak-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the ambient layer holds steady"; fi
 
 tmp="$(mktemp -d)"
 log="$tmp/log"
@@ -117,10 +121,14 @@ js workspace "(__ws.menu.dry = true)" >/dev/null
 sleep 1
 shot collapsed-idle
 shot home workspace
-until_has workspace "text .hx" 5 "Open a folder" && ask workspace "text .hx" | grep -q "Agents" \
-  && [ "$(js workspace "document.querySelector('#dest-chip')?.textContent")" = Idea ] \
-  && [ "$(js workspace "(b => b.textContent + ' ' + b.disabled)(document.querySelector('.home .cap-go'))")" = "↩Keep as an idea true" ] \
-  && pass "with no folder open, Home offers to open one, lists the agents apart; its field's chip says Idea and its button, with its key, that Return keeps an idea" || fail "Home on first run"
+# First run is one composition: the Composer a little above the middle of the content, and on its own edges the one
+# thing to do first, which is the key while the Composer is empty.
+edges="((c, a, k, h) => [Math.abs(c.left + c.width / 2 - (h.left + h.width / 2)) < 1, a.left >= c.left && a.right <= c.right, Math.abs(k.right - document.querySelector('.home .cap-row .key').getBoundingClientRect().right) < 1, c.top + c.height / 2 < h.top + h.height / 2 && c.top > h.top + h.height * 0.2].join(' '))(document.querySelector('.home .cap').getBoundingClientRect(), document.querySelector('.attach').getBoundingClientRect(), document.querySelector('.attach .key').getBoundingClientRect(), document.querySelector('#main').getBoundingClientRect())"
+until_has workspace "text .attach" 5 "Open a folder" && ! ask workspace "text .hx" | grep -q "Agents" \
+  && [ "$(js workspace "document.querySelector('#dest-chip')?.textContent")" = "No folder yet" ] \
+  && [ "$(js workspace "(b => b.textContent + ' ' + b.disabled)(document.querySelector('.home .cap-row .key'))")" = "Save for later true" ] \
+  && [ "$(js workspace "$edges")" = "true true true true" ] \
+  && pass "with no folder open, Home is one composition: the Composer centred a little above the middle, its place saying No folder yet and its key that Return saves for later; under it, on its edges, Open a folder as the one key" || fail "Home on first run" "$(js workspace "$edges")"
 # The light: Home's chrome is drawn once and then nothing while nothing happens, the notch draws no form at all, and
 # the person's choice reaches both pages at once.
 # A window the person has covered draws nothing (WebKit reports it hidden), so a covered window is said, not failed.
@@ -142,8 +150,8 @@ if [ "$(js workspace "String(document.hidden)")" = true ]; then
   pass "the sidebar's glyphs: the window is covered, so nothing is drawn yet"
 else
   until_has workspace "eval String((g => g.length >= 2 && g.every(x => x.offsetWidth >= 56 && x.querySelector('.turn canvas')) && !document.querySelector('.spark .motion'))($glyphs))" 5 "true" \
-    && a="$(js workspace "$glyphs.map(x => x.querySelector('.turn').style.transform).join('|')")" && sleep 1.5 \
-    && [ "$(js workspace "$glyphs.map(x => x.querySelector('.turn').style.transform).join('|')")" = "$a" ] \
+    && a="$(js workspace "$glyphs.map(x => getComputedStyle(x.querySelector('.turn')).transform + getComputedStyle(x.querySelector('.turn')).translate).join('|')")" && sleep 1.5 \
+    && [ "$(js workspace "$glyphs.map(x => getComputedStyle(x.querySelector('.turn')).transform + getComputedStyle(x.querySelector('.turn')).translate).join('|')")" = "$a" ] \
     && pass "the sidebar's foot shows a few large chrome glyphs, each a picture drawn once, at rest while idle" || fail "the sidebar's glyphs" "$(js workspace "$glyphs.length")"
 fi
 # The ambient light is the core's preference: Off removes the light and the glyphs, and the page keeps nothing itself.
@@ -163,50 +171,76 @@ send 'call delete {"c":"prefs","id":"motion_style"}' 'call delete {"c":"prefs","
 [ "$(js workspace "String(isSecureContext && typeof navigator.mediaDevices?.getUserMedia === 'function')")" = true ] \
   && pass "the workspace page may ask for the microphone (secure, with getUserMedia)" || fail "the workspace page offers getUserMedia"
 
-echo "== An idea, kept before a folder is open, then sent to one"
+# The agents are rings in the Composer, not a list: each its mark in a circle, the one that runs the next thought lit.
+ring="document.querySelector('.home .ring[data-agent=fixture]')"
+until_has workspace "eval String($ring?.getAttribute('aria-checked') === 'true' && !!$ring.querySelector('.ring-o circle') && /Fixture agent.*runs the next thought/.test($ring.title) && !document.querySelector('.hx .list, .rail .off'))" 5 "true" \
+  && pass "the agents are rings in the Composer: each its mark in a circle, named in its tooltip and for VoiceOver, the one that runs the next thought lit; no list of agents on Home, no names in the rail" || fail "the agents' rings" "$(js workspace "$ring?.outerHTML.slice(0, 200)")"
+other="$(js workspace "document.querySelector('.home .ring:not([data-agent=fixture]):not([data-s=off])')?.dataset.agent ?? ''")"
+if [ -n "$other" ]; then
+  js workspace "(document.querySelector('.home .ring[data-agent=$other]').click(), 1)" >/dev/null
+  until_has workspace "eval document.querySelector('.home .ring[aria-checked=true]').dataset.agent" 3 "$other" \
+    && pass "a click on another ring picks that agent for the next thought, as the core's preference" || fail "picking an agent by its ring"
+  send 'call put {"c":"prefs","id":"agent","patch":"fixture"}'
+  until_has workspace "eval document.querySelector('.home .ring[aria-checked=true]').dataset.agent" 3 "fixture" || fail "the fixture agent is chosen again"
+fi
+
+echo "== A thought saved for later before a folder is open, then sent to one"
 send capture
-until_has notch "text #sheet" 5 "Keep as an idea" && [ "$(js notch "(c => c.textContent + ': ' + c.title)(document.querySelector('#dest-chip'))")" = "Idea: Kept as an idea until a folder is open" ] \
-  && pass "the capture shortcut opens the field; with no folder yet its chip says Idea and its button that Return keeps an idea" \
+until_has notch "text #sheet" 5 "Save for later" && [ "$(js notch "document.querySelector('#dest-chip').textContent")" = "No folder yet" ] \
+  && pass "the capture shortcut opens the field; with no folder yet its place says No folder yet and its key that Return saves for later" \
   || fail "capture opens"
 send "type notch Hello from the smoke" "key notch Enter"
-until_has notch "text .cap-said" 5 "Kept as an idea" && [ "$(js notch "[...__records.thoughts.values()].find(t=>t.text==='Hello from the smoke')?.mode")" = note ] \
-  && pass "Enter keeps it as an idea, and says so" || fail "an idea is kept"
+until_has notch "text .cap-said" 5 "Saved for later" && [ "$(js notch "[...__records.thoughts.values()].find(t=>t.text==='Hello from the smoke')?.mode")" = note ] \
+  && pass "Enter saves it for later, and says so" || fail "a thought is saved for later"
 send "key notch Escape"
-until_has workspace "text .hx" 5 "Hello from the smoke" && pass "Home lists the idea" || fail "Home lists the idea"
-ask workspace "click .hr.idea .btn" >/dev/null
+until_has workspace "text .hx .hsec" 5 "Hello from the smoke" && ask workspace "text .hx .hsec" | grep -q "For later" && js workspace "document.querySelector('.hr.later').textContent" | grep -q "Send to a folder" \
+  && pass "it lands on Home in a For later line of its own, with Send to a folder on it" || fail "Home lists what was saved for later"
+# Typed on Home instead: the Composer's key becomes the one key, and what is saved lands under it with its way on shown.
+js workspace "(document.querySelector('.home #capture-input').focus(), document.execCommand('insertText', false, 'Later, from Home'), 1)" >/dev/null
+until_has workspace "eval document.querySelector('.home .cap-row .key').disabled + ' ' + document.querySelector('.attach button').className" 3 "false btn lg" \
+  && send "key workspace Enter" && until_has workspace "text .home .cap-said" 5 "Saved for later" \
+  && until_has workspace "eval getComputedStyle(document.querySelector('.hr.later.new .hr-a')).visibility" 3 "visible" \
+  && pass "typed on Home, Return saves it for later: the Composer's key is then the one key, the receipt says so, and the thought lands in For later with Send to a folder showing" || fail "save for later on Home"
+js workspace "([...document.querySelectorAll('.hr.later')].find(r=>r.textContent.includes('Later, from Home')).querySelectorAll('.btn')[1].click(), 1)" >/dev/null
+until_has workspace "eval String(document.querySelectorAll('.hr.later').length)" 3 "1" || fail "the thought saved on Home is dropped"
+ask workspace "click .hr.later .btn" >/dev/null
 until_has workspace "text .sheet" 3 "Open a folder" && pass "Send to a folder opens a sheet hanging from the title bar" || fail "the send sheet"
 shot send-sheet workspace
 press workspace ".sheet" o true >/dev/null
 until_has workspace "text #sidebar" 10 "project" && pass "choosing a folder there opens it as a workspace" || fail "the folder opens"
 project=$(js workspace "[...__ws.records.projects.values()].find(p=>p.kind==='folder')?.id")
-until_has workspace "$(thought 'Hello from the smoke' phase)" 10 "working" && pass "the idea is sent there and starts after its hold" || fail "the idea starts"
+until_has workspace "$(thought 'Hello from the smoke' phase)" 10 "working" && pass "it is sent there and starts after its hold" || fail "the saved thought starts"
 until_has notch "text .tab .wing.l" 10 "1" && pass "the collapsed glance counts it working" || fail "the collapsed glance shows it working"
 shot collapsed-working
 
 echo "== Capture and Undo"
 send capture
 until_has notch "eval document.activeElement?.id" 5 "capture-input" || fail "capture opens again"
+until_has notch "eval (r => r?.dataset.s + ' ' + r?.querySelector('b')?.textContent + ' ' + !!r?.querySelector('.turn'))(document.querySelector('.ring[data-agent=fixture]'))" 5 "working 1 true" \
+  && pass "while its session works an agent's ring turns, with the count beside it" || fail "a working agent's ring"
 send "type notch Undo me" "key notch Enter"
 until_has notch "text .cap-said" 5 "Sent to project" && pass "with a folder open, Enter sends the thought there" || fail "Enter sends"
 ask notch "text .cap-said" | grep -q "Undo" && pass "the receipt offers Undo during the hold" || fail "the receipt offers Undo"
 ask notch "click .cap-said .act" >/dev/null
 until_has notch "eval document.querySelector('#capture-input').value" 3 "Undo me" \
   && pass "Undo stops the thought before it starts and returns its text to the field" || fail "Undo"
-# Retyped and kept as an idea this time: the undone thought leaves no stale copy, and an idea can be dropped.
+# Retyped and saved for later this time: the undone thought leaves no stale copy, and one saved for later can be dropped.
 js notch "(__records && document.querySelector('#dest-chip').click(), 1)" >/dev/null
-until_has notch "text .cap-list" 3 "Idea" || fail "the destination list"
-ask notch "eval ([...document.querySelectorAll('.cap-list button')].find(b=>b.textContent==='Idea').click(), 1)" >/dev/null
+# The choice is a list of its own, one place a line, with the key that sends away while it is open.
+until_has notch "text .cap-list" 3 "For later" && [ "$(js notch "String(new Set([...document.querySelectorAll('.cap-list button')].map(b => b.getBoundingClientRect().left)).size === 1 && !document.querySelector('.cap-row .key'))")" = true ] \
+  && pass "in the notch the places to send it are one list, a line each, and never wrap" || fail "the destination list"
+ask notch "eval ([...document.querySelectorAll('.cap-list button')].find(b=>b.textContent==='For later').click(), 1)" >/dev/null
 send "eval notch (document.querySelector('#capture-input').focus(),document.execCommand('selectAll'),document.execCommand('insertText',false,'Drop me'))" "key notch Enter"
 until_has notch "eval [...__records.thoughts.values()].map(t=>t.text).join('|')" 3 "Drop me" \
   && ask notch "eval [...__records.thoughts.values()].map(t=>t.text).join('|')" | grep -qv "Undo me" \
-  && pass "the undone thought, retyped and kept as an idea, leaves no stale copy" || fail "Undo and retyping leave one thought"
+  && pass "the undone thought, retyped and saved for later, leaves no stale copy" || fail "Undo and retyping leave one thought"
 shot capture-receipt
 send "key notch Escape"
-js workspace "(__ws.ui.fold = 'ideas', __motion.redraw(), 1)" >/dev/null
-until_has workspace "text .fold-b" 3 "Drop me" || fail "the Ideas fold lists the idea"
-js workspace "([...document.querySelectorAll('.hr.idea')].find(r=>r.textContent.includes('Drop me')).querySelectorAll('.btn')[1].click(), 1)" >/dev/null
+js workspace "(__ws.ui.fold = 'later', __motion.redraw(), 1)" >/dev/null
+until_has workspace "text .fold-b" 3 "Drop me" || fail "the For later fold lists it"
+js workspace "([...document.querySelectorAll('.hr.later')].find(r=>r.textContent.includes('Drop me')).querySelectorAll('.btn')[1].click(), 1)" >/dev/null
 until_has workspace "eval String([...__ws.records.thoughts.values()].some(t=>t.text==='Drop me'))" 3 "false" \
-  && pass "Drop removes an idea" || fail "drop an idea"
+  && pass "Drop removes a thought saved for later" || fail "drop a saved thought"
 
 echo "== The run, its questions and its result"
 send "hover in"
@@ -239,6 +273,8 @@ until_has notch "eval document.activeElement?.id" 5 "capture-input" && ask notch
   && ! ask notch "eval document.body.innerText" | grep -qi "question needs you\|questions need you" \
   && pass "with a question open, the capture shortcut opens the field under the question, which stays first" \
   || fail "capture with a question open"
+[ "$(js notch "document.querySelector('.ring[data-agent=fixture]')?.dataset.s")" = asks ] \
+  && pass "while one of its sessions asks, the agent's ring takes the attention colour" || fail "an asking agent's ring"
 send "key notch Escape"
 until_has notch "eval String(!!document.activeElement?.closest('[data-question]'))" 3 "true" && [ "$(js notch "String(!!document.querySelector('#sheet [data-question]'))")" = true ] \
   && pass "Escape leaves the capture line and keeps the question open" || fail "Escape from capture under a question"
@@ -354,8 +390,8 @@ press workspace "#find-thought" Escape >/dev/null
 until_has workspace "eval __ws.ui.view" 3 "home" && ! ask workspace "text .bar" | grep -q "Earlier" && pass "Escape goes back to Home" || fail "back from Earlier"
 js workspace "(document.querySelector('.home #capture-input').focus(), document.execCommand('insertText', false, 'A thought typed on Home that runs long enough to need a second line of the field, which grows to hold it'), 1)" >/dev/null
 until_has workspace "eval String(document.querySelector('.home #capture-input').clientHeight > 44 && !!document.querySelector('.home .capture #dest-chip'))" 3 "true" \
-  && [ "$(js workspace "(b => b.textContent + ' ' + b.disabled)(document.querySelector('.home .cap-go'))")" = "↩Start false" ] \
-  && pass "Home's capture field grows a line for a longer thought, its destination a chip inside it, its button saying that Return starts it" || fail "Home's capture field"
+  && [ "$(js workspace "(b => b.textContent + ' ' + b.disabled)(document.querySelector('.home .cap-row .key'))")" = "Start false" ] \
+  && pass "Home's capture field grows a line for a longer thought, its destination a chip inside it, its key saying that Return starts it" || fail "Home's capture field"
 # Choosing a destination opens in the field's own row: nothing under the field is covered.
 js workspace "(document.querySelector('.home #dest-chip').click(), 1)" >/dev/null
 inside="((l, f) => l.top >= f.top && l.bottom <= f.bottom && l.left >= f.left && l.right <= f.right)(document.querySelector('.home .cap-list').getBoundingClientRect(), document.querySelector('.home .cap').getBoundingClientRect())"
@@ -413,6 +449,50 @@ until_has workspace "eval String((e => !!e && Math.abs(e.term.options.fontSize *
   && until_has workspace "eval String((e => Math.abs(e.term.options.fontSize * 0.60205 - 8) < 0.01 && e.term.options.lineHeight === 1)($other))" 3 "true" \
   && pass "the terminal's size and line height are the core's preferences, taken at once in cells of whole pixels, and deleting them restores Default" || fail "the terminal preferences"
 
+echo "== The sidebar's slide, and scrolling without bars"
+# Judged from the page's own frames: the content's left edge and the title move the whole way with the sidebar's edge
+# and end where they rest; the terminal beside it keeps its columns until the slide is over and is fitted once.
+judge() { python3 -c '
+import json, sys
+d = json.loads(sys.argv[1]); f = d["frames"]; xs = [a[0] for a in f]; ts = [a[1] for a in f]; way = 1 if xs[-1] > xs[0] else -1
+steps = [way * (b - a) for a, b in zip(xs, xs[1:])]
+ok = len(f) >= 6 and abs(xs[-1] - xs[0]) > 200 and min(steps) > -0.6 and abs(xs[-1] - d["rest"][0]) < 0.6 and abs(ts[-1] - d["rest"][1]) < 0.6 and max(steps[len(steps) * 2 // 3:] or [0]) < 24
+print("ok" if ok else "frames %d, from %s to %s, rests at %s, title %s rests %s, last steps %s" % (len(f), xs[0], xs[-1], d["rest"][0], ts[-1], d["rest"][1], steps[-4:]))' "$1"; }
+js workspace "(__ws.show('$project'), 1)" >/dev/null
+sleep 0.5
+if [ "$(js workspace "String(document.hidden)")" = true ]; then
+  pass "the sidebar's slide: the window is covered, so nothing moves to judge"
+else
+  cols="$(js workspace "__ws.engines.get(__ws.current().id).term.cols")"
+  out="$(js workspace "JSON.stringify(await __ws.slide())")"; shut="$(judge "$out")"
+  sleep 0.4
+  wider="$(js workspace "__ws.engines.get(__ws.current().id).term.cols")"
+  back="$(js workspace "JSON.stringify(await __ws.slide())")"; open="$(judge "$back")"
+  sleep 0.4
+  [ "$shut" = ok ] && [ "$open" = ok ] && [ "$wider" -gt "$cols" ] && [ "$(js workspace "__ws.engines.get(__ws.current().id).term.cols")" = "$cols" ] \
+    && [ "$(js workspace "String(__ws.ui.sidebar && !__ws.ui.slide && !!document.querySelector('.side'))")" = true ] \
+    && pass "the sidebar slides shut and open with the content and the title moving with its edge the whole way and ending where they rest, and the terminal beside it is fitted once the slide is over" \
+    || fail "the sidebar's slide" "shut: $shut; open: $open; columns $cols, $wider"
+fi
+# No scroller shows a bar, in either page: none has a width for one, and each says which way there is more instead.
+bars="[...document.querySelectorAll('*')].filter(e => { const s = getComputedStyle(e); return /auto|scroll/.test(s.overflowY + s.overflowX) && (s.scrollbarWidth !== 'none' || e.offsetWidth - e.clientWidth - parseFloat(s.borderLeftWidth) - parseFloat(s.borderRightWidth) > 0.5); }).map(e => e.tagName + '.' + e.className).join(' ')"
+js workspace "(__ws.show('home'), __ws.ui.fold = 'results', __motion.redraw(), 1)" >/dev/null
+sleep 0.3
+# A sheet taller than the window: it says there is more below, then, scrolled to its end, more above.
+js workspace "(__ws.command('settings'), 1)" >/dev/null
+more="document.querySelector('.sheet').dataset.more"
+[ -z "$(js workspace "$bars")" ] && [ -z "$(js notch "$bars")" ] && until_has workspace "eval $more" 3 "down" \
+  && js workspace "(document.querySelector('.sheet').scrollTop = 9999, 1)" >/dev/null && until_has workspace "eval $more" 3 "up" \
+  && pass "no scroller in either page shows a bar; one with more beyond an edge says which, for its content to dissolve there" || fail "scrolling without bars" "$(js workspace "$bars") $(js notch "$bars") $(js workspace "$more")"
+press workspace ".sheet" Escape >/dev/null
+# The terminal: scrolled back, a pill says how many lines are below and returns to the end.
+js workspace "(__ws.show('$project'), 1)" >/dev/null
+pill="document.querySelector('.term:not([hidden]) .term-more')"
+js workspace "(t => new Promise(done => t.write(Array.from({ length: 300 }, (_, i) => 'line ' + i).join('\r\n'), () => (t.scrollLines(-120), done(1)))))(__ws.engines.get(__ws.current().id).term)" >/dev/null
+until_has workspace "eval $pill.hidden + ' ' + $pill.textContent" 3 "false ↓ 120 lines⌘↓" && js workspace "($pill.click(), 1)" >/dev/null \
+  && until_has workspace "eval String($pill.hidden && (b => b.viewportY === b.baseY)(__ws.engines.get(__ws.current().id).term.buffer.active))" 3 "true" \
+  && pass "a terminal scrolled back shows no bar: a pill says how many lines are below, and a click on it returns to the end" || fail "the terminal's scrollback" "$(js workspace "$pill.hidden + ' ' + $pill.textContent")"
+
 echo "== Keep and Discard"
 send "call put {\"c\":\"projects\",\"id\":\"$project\",\"patch\":{\"isolate\":\"always\"}}"
 sleep 0.5
@@ -423,7 +503,7 @@ js workspace "(__ws.show('home'), 1)" >/dev/null
 until_has workspace "text .waiting" 5 "1 file +1 −0" && ask workspace "text .waiting" | grep -q "Keep" \
   && pass "Home lists a result whose changes wait under Changes waiting, with its diffstat and Keep, Discard and Review changes" || fail "Changes waiting on Home"
 shot changes-waiting workspace
-ask workspace "click .waiting .btn.primary" >/dev/null
+ask workspace "click .waiting .key" >/dev/null
 until_has workspace "$(thought 'write:kept.txt:hello' 'workdir?.changes')" 30 "kept" && [ -f "$tmp/project/kept.txt" ] \
   && pass "Keep brings the changes into the project's branch" || fail "Keep"
 # A run whose agent is still running when its changes come back: Discard stops it first, once confirmed.
@@ -454,7 +534,7 @@ until_has workspace "$(thought 'write:kept.txt:theirs' 'workdir?.changes')" 30 "
 echo "mine" > "$tmp/project/kept.txt" && git -C "$tmp/project" commit -qam "Mine"
 js workspace "(__ws.show('home'), 1)" >/dev/null
 until_has workspace "text .waiting" 5 "Keep" || fail "the third run waits"
-ask workspace "click .waiting .btn.primary" >/dev/null
+ask workspace "click .waiting .key" >/dev/null
 until_has workspace "text .waiting .told" 30 "Not kept" && ask workspace "text .waiting .told" | grep -q "conflict with this thought's in kept.txt" && ask workspace "text .waiting .told" | grep -q "tasktap/" \
   && pass "a refused Keep says the branch is as it was and shows the core's reason in full: the file in conflict and the branch to merge by hand" || fail "Keep refused" "$(ask workspace "text .waiting")"
 # What the core says when it stops short is shown as what it is. A file of the person's in the way: git's own words
@@ -465,11 +545,11 @@ run "write:way.txt:agent"
 until_has workspace "$(thought 'write:way.txt:agent' 'workdir?.changes')" 30 "pending" || fail "a fourth run's changes come back pending"
 echo "mine" > "$tmp/project/way.txt"
 way="$(row 'write:way.txt:agent')"
-ask workspace "click $way .btn.primary" >/dev/null
+ask workspace "click $way .key" >/dev/null
 until_has workspace "text $way .told" 30 "Not kept" && ask workspace "text $way .told" | grep -q "way.txt" && [ "$(cat "$tmp/project/way.txt")" = mine ] \
   && pass "a Keep that git refuses, a file of the person's being in the way, names the file in git's own words and touches nothing" || fail "Keep refused by git" "$(ask workspace "text $way")"
 rm "$tmp/project/way.txt"
-ask workspace "click $way .btn.primary" >/dev/null
+ask workspace "click $way .key" >/dev/null
 until_has workspace "$(thought 'write:way.txt:agent' 'workdir?.changes')" 30 "kept" && [ "$(cat "$tmp/project/way.txt")" = agent ] \
   && pass "with the file moved away, Keep again brings the changes in" || fail "Keep after a refusal"
 # The changes are in, but git will not remove the copy: said as kept with one thing left, with Tidy up as the action;
@@ -478,9 +558,9 @@ run "write:locked.txt:n"
 until_has workspace "$(thought 'write:locked.txt:n' 'workdir?.changes')" 30 "pending" || fail "a fifth run's changes come back pending"
 git -C "$tmp/project" worktree lock "$(js workspace "[...__ws.records.thoughts.values()].find(t=>t.text==='write:locked.txt:n').workdir.path")"
 locked="$(row 'write:locked.txt:n')"
-ask workspace "click $locked .btn.primary" >/dev/null
+ask workspace "click $locked .key" >/dev/null
 until_has workspace "text $locked .told" 30 "Kept, with one thing left" && [ "$(cat "$tmp/project/locked.txt")" = n ] \
-  && [ "$(js workspace "document.querySelector(\"$locked .btn.primary\").textContent + ' ' + document.querySelector(\"$locked .told\").getAttribute('role')")" = "Tidy up status" ] \
+  && [ "$(js workspace "document.querySelector(\"$locked .key\").textContent + ' ' + document.querySelector(\"$locked .told\").getAttribute('role')")" = "Tidy up status" ] \
   && pass "a Keep whose changes are in while its copy stays says so as a success with one thing left, and offers Tidy up" || fail "Keep with the copy left" "$(ask workspace "text $locked")"
 ask workspace "click $locked .btn:nth-of-type(2)" >/dev/null
 until_has workspace "text .sheet" 3 "The changes stay in main" || fail "the discard sheet after a Keep"
@@ -494,9 +574,9 @@ run "write:out.log:built"
 until_has workspace "$(thought 'write:out.log:built' 'workdir?.changes')" 30 "pending" || fail "a sixth run's copy is left over"
 left="$(row 'write:out.log:built')"
 until_has workspace "text $left" 5 "Copy left over" && ask workspace "text $left" | grep -q "A copy of the project is left over" \
-  && [ "$(js workspace "[...document.querySelectorAll(\"$left .btn\")].map(b => b.textContent).join('|')")" = "Remove the copy" ] && ! ask workspace "text $left" | grep -q "0 files" \
+  && [ "$(js workspace "[...document.querySelectorAll(\"$left :is(.key,.btn)\")].map(b => b.textContent).join('|')")" = "Remove the copy" ] && ! ask workspace "text $left" | grep -q "0 files" \
   && pass "a copy left over with nothing in it to keep says so, with Remove the copy as its one action" || fail "a leftover copy" "$(ask workspace "text $left")"
-ask workspace "click $left .btn.primary" >/dev/null
+ask workspace "click $left .key" >/dev/null
 until_has workspace "text .sheet" 3 "Remove the copy left by" || fail "the sheet for a leftover copy"
 press workspace ".sheet" Backspace true >/dev/null
 until_has workspace "$(thought 'write:out.log:built' 'workdir?.changes')" 30 "discarded" && pass "⌘⌫ removes the leftover copy" || fail "removing a leftover copy"

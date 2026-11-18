@@ -2333,7 +2333,7 @@ pub enum Spoken {
         id: DictationId,
         transcript: std::result::Result<String, String>,
     },
-    /// The transcript was captured or given as the answer, or refused.
+    /// The transcript was captured as a thought, or refused.
     Delivered {
         id: DictationId,
         refused: Option<String>,
@@ -2365,26 +2365,28 @@ pub enum Heard {
     End(DictationId),
     /// The speech service is asked for the transcript of its audio.
     Transcribe(DictationId),
-    /// The transcript goes where typing it would have gone; what came of
-    /// it returns as [`Spoken::Delivered`].
+    /// The transcript is captured as the thought it was spoken as; what
+    /// came of it returns as [`Spoken::Delivered`].
     Deliver {
         id: DictationId,
-        target: DictationTarget,
+        capture: Box<tasktap_proto::Capture>,
         text: String,
     },
 }
 
 /// Applies one event to the dictations (design §8, the table of "Speech").
 pub fn dictate(all: &mut Vec<Dictating>, event: Spoken) -> Result<Vec<Heard>> {
-    use DictationPhase::{Failed, Recording, Transcribing};
+    use DictationPhase::{Failed, Heard as Words, Recording, Transcribing};
     let at = |all: &[Dictating], id| all.iter().position(|d| d.row.id == id);
+    // Neither recording nor being transcribed any more.
+    let ended = |d: &Dictating| matches!(d.row.phase, Failed | Words);
     let fail = |d: &mut Dictating, why: &str| {
         (d.row.phase, d.row.level, d.row.error) = (Failed, 0, Some(why.to_owned()));
         vec![Heard::Put(d.row.id), Heard::End(d.row.id)]
     };
     Ok(match event {
         Spoken::Start { id, target, stream } => {
-            let under_way = all.iter().filter(|d| d.row.phase != Failed).count();
+            let under_way = all.iter().filter(|d| !ended(d)).count();
             if at(all, id).is_some() {
                 return Err(Error::Conflict("a dictation with this id exists"));
             } else if all.iter().any(|d| d.row.phase == Recording) {
@@ -2394,11 +2396,11 @@ pub fn dictate(all: &mut Vec<Dictating>, event: Spoken) -> Result<Vec<Heard>> {
                     "four dictations are still being transcribed",
                 ));
             }
-            // The person moved on from what failed before.
-            let mut told: Vec<Heard> = (all.iter().filter(|d| d.row.phase == Failed))
+            // The person moved on from what ended before.
+            let mut told: Vec<Heard> = (all.iter().filter(|d| ended(d)))
                 .flat_map(|d| [Heard::Del(d.row.id), Heard::End(d.row.id)])
                 .collect();
-            all.retain(|d| d.row.phase != Failed);
+            all.retain(|d| !ended(d));
             let row = Dictation {
                 id,
                 rev: Rev::ZERO,
@@ -2445,7 +2447,7 @@ pub fn dictate(all: &mut Vec<Dictating>, event: Spoken) -> Result<Vec<Heard>> {
                         "the report of a finished dictation carries its transcript",
                     ));
                 }
-                (Failed, _) => return Err(Error::Ignored(Ignored::State)),
+                (Failed | Words, _) => return Err(Error::Ignored(Ignored::State)),
             }
         }
         Spoken::Finish { id, heard } => {
@@ -2465,7 +2467,7 @@ pub fn dictate(all: &mut Vec<Dictating>, event: Spoken) -> Result<Vec<Heard>> {
                 }
                 // Finished already: a repeat.
                 Transcribing => Vec::new(),
-                Failed => return Err(Error::Ignored(Ignored::State)),
+                Failed | Words => return Err(Error::Ignored(Ignored::State)),
             }
         }
         Spoken::Transcribed { id, transcript } => {
@@ -2479,8 +2481,16 @@ pub fn dictate(all: &mut Vec<Dictating>, event: Spoken) -> Result<Vec<Heard>> {
                 Ok(text) if text.is_empty() => fail(d, NOTHING_HEARD),
                 Ok(text) => {
                     d.row.text = text.clone();
-                    let target = d.row.target.clone();
-                    vec![Heard::Deliver { id, target, text }]
+                    match d.row.target.clone() {
+                        DictationTarget::Thought(capture) => {
+                            vec![Heard::Deliver { id, capture, text }]
+                        }
+                        // Only the words were asked for: there they are.
+                        DictationTarget::Text => {
+                            d.row.phase = Words;
+                            vec![Heard::Put(id), Heard::End(id)]
+                        }
+                    }
                 }
             }
         }

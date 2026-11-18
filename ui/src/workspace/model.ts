@@ -33,6 +33,10 @@ export const ui = {
   /** 'home', 'earlier', a project id, or LOOSE. */
   view: 'home',
   sidebar: true,
+  /** The sidebar is sliding in or out: it is shown until it has. */
+  slide: '' as '' | 'in' | 'out',
+  /** The region that answers focus entering it, for the second it does (main.tsx greet). */
+  greet: '' as '' | 'side' | 'main',
   sheet: null as Sheet | null,
   /** Terminals this page asked the core to start, until their stream opens. */
   starting: new Map<string, StartTerminal>(),
@@ -49,7 +53,7 @@ export const ui = {
   /** The appearance part of Settings has its microphone trial on: the motion listens. */
   voice: false,
   /** Home's open fold, and how far Running is opened. */
-  fold: '' as '' | 'results' | 'ideas' | 'shut' | 'shut-ideas',
+  fold: '' as '' | 'results' | 'later' | 'shut' | 'shut-later',
   more: false,
   /** The window is narrower than the sidebar and a workspace need; the sidebar then comes over the content (`peek`). */
   narrow: false,

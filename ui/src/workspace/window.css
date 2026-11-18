@@ -7,6 +7,21 @@ html{background:transparent}
 .win.solo{grid-template-columns:minmax(0,1fr)}
 .win.peek .side{position:absolute;z-index:23;top:0;bottom:var(--rail-h);left:0;width:var(--side-w);box-shadow:var(--sheet-shadow)}
 .main{position:relative;display:grid;grid-template-rows:var(--bar-h) minmax(0,1fr);min-width:0;min-height:0}
+/* The sidebar's slide (main.tsx): the column itself narrows or widens, so what is beside it moves with its edge the
+   whole way on one curve; the sidebar keeps its width and rides the column's edge; its words come in as it arrives;
+   the title makes room for the window's buttons as it goes. */
+@media(prefers-reduced-motion:no-preference){
+  .win[data-slide]{animation:side-out var(--t-side) var(--ease-slide) both}
+  .win[data-slide=in]{animation-name:side-in}
+  .win[data-slide] .lead{animation:lead-in var(--t-side) var(--ease-slide) both}
+  .win[data-slide=in] .lead{animation-direction:reverse}
+  .win[data-slide=in] .side>:not(.spark){animation:arrive 200ms ease-out 120ms both}
+}
+@keyframes side-out{to{grid-template-columns:0 minmax(0,1fr)}}
+@keyframes side-in{from{grid-template-columns:0 minmax(0,1fr)}}
+@keyframes lead-in{from{width:0;margin-right:calc(-1 * var(--sp3));opacity:0}}
+.win[data-slide] .side{width:var(--side-w);justify-self:end}
+.win[data-slide]::before{content:none}
 
 /* ——— sidebar ——— */
 .side{position:relative;z-index:2;display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bg);border-right:1px solid var(--line)}
@@ -44,8 +59,7 @@ button.row:active{background:var(--sel)}
 
 /* ——— title bar ——— */
 .bar{position:relative;z-index:22;display:flex;align-items:center;gap:var(--sp3);min-width:0;padding:0 var(--sp2) 0 14px;background:var(--bg);border-bottom:1px solid var(--line);white-space:nowrap}
-.bar .lights{flex:none;width:58px}
-.bar>.ib{margin-left:-6px}
+.bar .lead{display:flex;justify-content:flex-end;flex:none;width:92px;overflow:hidden}
 .crumb{display:flex;align-items:center;min-width:0}
 .crumb b{font:var(--f-title)}
 .crumb .path{min-width:0;margin-left:var(--sp3);overflow:hidden;text-overflow:ellipsis;font:var(--f-num);color:var(--fg3)}
@@ -65,9 +79,8 @@ button.row:active{background:var(--sel)}
 .deck{position:relative;min-width:0;min-height:0}
 .deck-empty{position:absolute;inset:0;display:grid;place-items:center;background:var(--bg)}
 .pane{position:absolute;display:grid;grid-template-rows:var(--tab-h) minmax(0,1fr) auto;min-width:0;min-height:0;background:var(--bg)}
-.tabs{display:flex;align-items:stretch;min-width:0;overflow-x:auto;scrollbar-width:none;background:var(--bg);border-bottom:1px solid var(--line)}
-.tabs::-webkit-scrollbar{display:none}
-.tabw{position:relative;display:flex;flex:0 1 auto;min-width:72px;max-width:232px;border-right:1px solid var(--line)}
+.tabs{display:flex;align-items:stretch;min-width:0;overflow-x:auto;background:var(--bg);border-bottom:1px solid var(--line)}
+.tabw{position:relative;display:flex;flex:0 1 auto;min-width:72px;max-width:232px;overflow:hidden;border-right:1px solid var(--line)}
 .tab{display:flex;align-items:center;gap:var(--sp2);width:100%;min-width:0;padding:0 14px 0 var(--sp3);font:var(--f-small);color:var(--fg2);white-space:nowrap}
 .tab .lbl{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .tabw.shl .lbl{font:var(--f-shell)}
@@ -88,17 +101,18 @@ button.row:active{background:var(--sel)}
 /* The terminal: the person's font, colours and padding; a slim scrollbar that shows while it scrolls. */
 .surface>.term{position:absolute;inset:0;padding:var(--deck-padding);color:var(--deck-fg);overflow:hidden}
 .term-view{width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}
-.term .xterm{height:100%;padding:0}
+.term .xterm{height:100%;padding:0;font-synthesis:none}
 .term .xterm-screen{position:relative}
 .term .xterm-viewport{overscroll-behavior:contain;background-color:transparent!important}
 .term .xterm .xterm-viewport{overflow:hidden}
 .term .xterm-helper-textarea{padding:0;border:0;min-height:0;outline:none}
 .term :is(.xterm,.xterm-screen,.xterm-viewport,.xterm-scrollable-element,.xterm-helper-textarea,canvas):is(:focus,:focus-visible){outline:none}
-.term .xterm .xterm-scrollable-element>.scrollbar{background:transparent;border:0;box-shadow:none}
-.term .xterm .xterm-scrollable-element>.scrollbar.vertical>.slider{width:4px!important;left:auto!important;right:2px;border-radius:2px;background:color-mix(in srgb,var(--deck-fg) 24%,transparent);opacity:0;transition:opacity 180ms linear,background 180ms linear}
-.term.scrolling .xterm .xterm-scrollable-element>.scrollbar.vertical>.slider,.term .xterm .xterm-scrollable-element>.scrollbar.vertical:hover>.slider,.term .xterm .xterm-scrollable-element>.scrollbar.vertical>.slider.active{opacity:1}
-.term .xterm .xterm-scrollable-element>.scrollbar.vertical:hover>.slider{background:color-mix(in srgb,var(--deck-fg) 40%,transparent)}
-.term .xterm .xterm-scrollable-element>.scrollbar.vertical>.slider.active{background:color-mix(in srgb,var(--deck-fg) 55%,transparent)}
+/* It scrolls without a bar (terminal.ts). While the person scrolls back, a hair-thin mark of where they are shows and
+   goes at once; while they are back, a quiet pill at the foot says how far and returns to the end. */
+.term .xterm .xterm-scrollable-element>.scrollbar{background:transparent;border:0;box-shadow:none;pointer-events:none}
+.term .xterm .xterm-scrollable-element>.scrollbar.vertical>.slider{width:2px!important;left:auto!important;right:1px;border-radius:1px;background:color-mix(in srgb,var(--deck-fg) 45%,transparent);opacity:0;transition:opacity 180ms linear}
+.term.scrolling .xterm .xterm-scrollable-element>.scrollbar.vertical>.slider{opacity:1;transition:none}
+.term-more{position:absolute;z-index:2;left:50%;bottom:10px;transform:translateX(-50%);background:var(--bg);color:var(--fg2)}
 /* The seam between panes is the divider's own line; a pane below another needs none: its tab bar is the edge. */
 .divider{position:absolute;z-index:3;outline-offset:-2px}
 .divider[data-axis=x]{cursor:col-resize}
@@ -142,10 +156,6 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .rail-r{display:flex;align-items:center;gap:2px;flex:none}
 .rail button{height:20px;padding:0 7px;border-radius:var(--r1);font:var(--f-num);color:var(--fg3)}
 .rail button:hover{background:var(--hover);color:var(--fg)}
-.rail button:not(.plain)::before{content:"";display:inline-block;width:5px;height:5px;margin-right:7px;border-radius:50%;background:var(--fg3);vertical-align:1px}
-.rail button.off{color:var(--asks)}
-.rail button.off::before{background:none;box-shadow:inset 0 0 0 1px var(--asks)}
-.narrow .rail-r button:not(.plain):not(.off){display:none}
 
 /* ——— Home: one column, centred, as wide as its rows read well; two where the window is wide (home.tsx) ——— */
 .room{position:relative;min-height:0;display:grid;background:var(--bg);overflow:hidden}
@@ -156,36 +166,34 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .hx.two .folds{margin-top:26px}
 .col{min-width:0;container-type:inline-size}
 .hx :is(button.hq,.fold-h){width:100%}
-/* The capture field on Home: the page's one inviting control. A soft raised surface lit from behind by the room's
-   light, no border; the thought at 20 px, growing a line at a time; under it, inside the surface, where it goes and the
-   button that starts it. Centred, as wide as a thought needs rather than as wide as the page. While it has the keyboard
-   its surface brightens and a lit edge shows under it. */
-.capture.raised{position:relative;width:min(100%,var(--cap-w));margin:6px auto 14px}
+/* The Composer on Home: the surface material, raised and lit from behind by the room's light, no border; the thought
+   at 20 px, growing a line at a time; under it, inside the surface, where it goes, the agents' rings and the key.
+   Centred, as wide as a thought needs rather than as wide as the page. While it has the keyboard or holds a thought
+   the surface brightens and its rim is the lit edge, brightest along the top, as on the focused tab. */
+.capture.raised{position:relative;width:min(100%,var(--cap-w));margin:6px auto 14px;--hover:rgb(255 255 255/.07);--sel:rgb(255 255 255/.11);--fill:rgb(255 255 255/.06);--fg2:var(--fg-field);--fg3:var(--fg-field);--row-h:var(--ctl-l);--line2:rgb(255 255 255/.22)}
 /* The light gathered behind the field: full under it, gone a little beyond it, short of the nearest words. */
 .capture.raised::before{content:"";position:absolute;z-index:-1;inset:-34px -90px;background:radial-gradient(closest-side,var(--glow,transparent) 50%,transparent);opacity:.75;transition:opacity var(--t-sheet);pointer-events:none}
-.capture.raised:focus-within::before{opacity:1}
-.capture.raised .cap{position:relative;row-gap:var(--sp1);padding:var(--sp3);border-radius:20px;
-  background:linear-gradient(180deg,rgb(255 255 255/.075),rgb(255 255 255/.04));
-  box-shadow:inset 0 1px 0 rgb(255 255 255/.09),0 1px 0 rgb(0 0 0/.5),0 30px 60px -28px rgb(0 0 0/.85);transition:background var(--t-fast)}
-.capture.raised .cap::after{content:"";position:absolute;left:22px;right:22px;bottom:0;height:1px;background:var(--lit);opacity:0;transition:opacity var(--t-fast);pointer-events:none;
-  -webkit-mask-image:linear-gradient(90deg,transparent,#000 14%,#000 86%,transparent);mask-image:linear-gradient(90deg,transparent,#000 14%,#000 86%,transparent)}
-.capture.raised .cap:focus-within{background:linear-gradient(180deg,rgb(255 255 255/.095),rgb(255 255 255/.05))}
-.capture.raised .cap:focus-within::after{opacity:.6}
+.capture.raised:is(:focus-within,.has)::before{opacity:1}
+.capture.raised .cap{position:relative;row-gap:var(--sp1);padding:var(--sp3);border-radius:var(--r4);background:var(--surface);box-shadow:var(--surface-edge);transition:background var(--t-fast)}
+.capture.raised .cap::after{content:"";position:absolute;inset:0;padding:1px;border-radius:inherit;background:var(--lit);opacity:0;transition:opacity var(--t-sheet);pointer-events:none;
+  mask:linear-gradient(#000,rgb(0 0 0/.4) 22px,transparent 70%),linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:intersect,exclude}
+.capture.raised:is(:focus-within,.has) .cap{background:var(--surface-lit)}
+.capture.raised:is(:focus-within,.has) .cap::after{opacity:.9}
 .capture.raised textarea{grid-column:1/-1;max-height:176px;padding:6px 10px 8px;font:400 20px/28px var(--ui);letter-spacing:-.014em;color:var(--fg)}
 .capture.raised textarea::placeholder{color:var(--fg-field)}
-.capture.raised textarea:read-only{color:var(--fg-field)}
 .capture.raised .cap-row{gap:6px;padding:0;border:0}
-/* Its controls keep the surface's corner: 20 px less the 12 px they stand in from it. */
-.capture.raised :is(.cap-to,.cap-list button,.cap-go){height:34px;border-radius:9px;font:var(--f-body)}
-.capture.raised :is(.cap-to,.cap-list button){gap:7px;padding:0 10px;color:var(--fg-field)}
-.capture.raised :is(.cap-to,.cap-list){margin:0}
-.capture.raised :is(.cap-to,.cap-list button):hover{background:rgb(255 255 255/.07);color:var(--fg)}
-.capture.raised .cap-list [aria-selected=true]{background:rgb(255 255 255/.11);color:var(--fg)}
-.capture.raised :is(.cap-to,.cap-list) .i{color:var(--fg-field)}
-.capture.raised .cap-go{gap:var(--sp2);padding:0 14px 0 var(--sp3);font-weight:600}
-.capture.raised .cap-go kbd{font-size:13px}
-.capture.raised .cap-go:disabled{background:rgb(255 255 255/.06);color:var(--fg-field)}
-.capture.raised .cap-said{justify-content:center;margin-top:var(--sp2)}
+.capture.raised :is(.cap-to,.cap-list button,.ring){border-radius:var(--r-in)}
+.capture.raised :is(.cap-to,.cap-list button){gap:7px;padding:0 10px;margin:0;font:var(--f-body)}
+.capture.raised .cap-list{display:flex;flex-wrap:wrap;gap:2px}
+.capture.raised .ring{padding:0 5px}
+.capture.raised .ring-o{width:24px;height:24px}
+.capture.raised .cap-said{margin-top:var(--sp2);padding:0 var(--sp3) 0 22px}
+/* First run: under the Composer, on its own edges, the one thing to do first, said in one line. It is the key until
+   the Composer holds a thought; then that one's key is, and this is quiet. */
+.attach{display:flex;align-items:center;justify-content:space-between;gap:var(--sp4);width:min(100%,var(--cap-w));margin:0 auto;padding:0 var(--sp3) 0 22px;font:var(--f-body);color:var(--fg2)}
+.attach span{min-width:0;text-wrap:balance}
+.hx.first{padding-top:max(22px,calc(44vh - 118px))}
+.hx.first .cols{width:min(100%,var(--cap-w));margin-inline:auto}
 .hsec{margin-top:26px}
 .hsec h3{display:flex;align-items:center;gap:var(--sp2);padding-bottom:var(--sp2);border-bottom:1px solid var(--line);font:var(--f-head);color:var(--fg2)}
 .hsec h3 i{font:var(--f-num);color:var(--fg3)}
@@ -229,15 +237,10 @@ button.hq:hover{background:var(--hover)}
 .hr>.told{grid-column:3/-1;margin:0 0 10px}
 .hr .said{font:var(--f-small);color:var(--fg2);white-space:normal}
 .hr .said.refused{color:var(--fg)}
-.hr.idea{grid-template-columns:28px minmax(0,1.3fr) minmax(0,1fr) auto 48px}
-.idea .hr-a{grid-area:1/4;padding:0 6px 0 0;visibility:hidden}
-.idea:is(:hover,:focus-within) .hr-a{visibility:visible}
-/* First run: one action, said once, then the agents as a list of their own. */
-.start{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp2) var(--sp4);margin-top:26px}
-.start .btn{height:32px;padding:0 var(--sp3) 0 14px;gap:10px;font:var(--f-strong)}
-.start .btn kbd{min-width:0;height:auto;padding:0;background:none;box-shadow:none;font:var(--f-num);color:var(--ink);opacity:.6}
-.start p{font:var(--f-small);color:var(--fg2)}
-.hsec .list .line{height:var(--home-row);padding:0}
+.hr.later{grid-template-columns:28px minmax(0,1fr) auto auto 48px}
+.hr.later .hr-x{padding-left:var(--sp3)}
+.later .hr-a{grid-area:1/4;padding:0 6px 0 0;visibility:hidden}
+.later:is(:hover,:focus-within,.new) .hr-a{visibility:visible}
 /* the second layer, in place: a single line that opens */
 .folds{margin-top:34px}
 .fold-h{display:grid;grid-template-columns:28px 96px auto minmax(0,1fr) 48px;align-items:center;width:calc(100% - 2 * var(--home-gutter));height:var(--home-row);
@@ -270,18 +273,19 @@ button.hq:hover{background:var(--hover)}
 @media(max-width:799px){.hx{padding-inline:18px}}
 @container (max-width:640px){
   button.hq,.fold-h{width:calc(100% - 36px)}
-  .hr:not(.idea),:is(.hsec,.fold-b,.col):has(.hr-d>*)>.hr.res{grid-template-columns:28px minmax(0,1fr) 48px}
+  .hr:not(.later),:is(.hsec,.fold-b,.col):has(.hr-d>*)>.hr.res{grid-template-columns:28px minmax(0,1fr) 48px}
   button.hq{grid-template-columns:28px minmax(0,1fr) 48px}
   button.hq :is(.hr-w,.hq-w){display:none}
   .hr :is(.hr-w,.hr-x,.hr-d){display:none}
   .hr-a{grid-column:2/-1}
-  .hr.idea{grid-template-columns:28px minmax(0,1fr) auto 48px}
-  .hr.idea .hr-x{display:none}
-  .idea .hr-a{grid-area:1/3}
+  .hr.later{grid-template-columns:28px minmax(0,1fr) auto 48px}
+  .hr.later .hr-x{display:none}
+  .later .hr-a{grid-area:1/3}
+  .attach span{display:none}
+  .attach{justify-content:flex-end}
   .fold-h{grid-template-columns:28px 80px minmax(0,1fr) 48px}
   .fold-p{display:none}
   .more{padding-left:28px}
-  .capture .cap-to span{display:none}
 }
 
 /* ——— sheets hang from the title bar, as the notch hangs from the screen ——— */
@@ -289,13 +293,20 @@ button.hq:hover{background:var(--hover)}
 .sheet{position:absolute;z-index:21;top:var(--bar-h);left:50%;width:min(var(--sheet-w),calc(100% - 32px));max-height:calc(100% - var(--bar-h) - 40px);overflow:auto;
   padding:16px 18px 8px;background:var(--sheet);border-radius:0 0 var(--r3) var(--r3);box-shadow:var(--sheet-shadow);transform:translateX(-50%);outline:0}
 .sheet::before{content:"";position:sticky;display:block;top:-16px;height:1px;margin:-16px -18px 15px;background:var(--lit)}
+/* A sheet is a surface with an edge and a shadow, which a mask would cut: where it scrolls, its content dissolves under
+   its own black instead, at its foot and under the head of a list. */
+.win>.sheet{--pad:18px;mask-image:none}
+.win>.sheet::after,.sheet:is(.list,.review) header::after{content:"";display:block;height:var(--fade);background:linear-gradient(#0000,var(--sheet));opacity:0;pointer-events:none;transition:opacity var(--t-fast)}
+.win>.sheet::after{position:sticky;z-index:2;bottom:0;margin:calc(-1 * var(--fade)) calc(-1 * var(--pad)) 0}
+.sheet:is(.list,.review) header::after{position:absolute;inset:100% 0 auto;margin-top:1px;transform:scaleY(-1)}
+.win>.sheet[data-more~=down]::after,.sheet[data-more~=up] header::after{opacity:1}
 @media(prefers-reduced-motion:no-preference){
   .sheet{animation:drop var(--t-sheet) var(--ease)}
-  .sheet>*,.side.opening>*{animation:arrive 240ms ease-out 240ms both}
+  .sheet>*{animation:arrive 240ms ease-out 240ms both}
 }
 @keyframes drop{from{transform:translate(-50%,-100%)}}
 @keyframes arrive{from{opacity:0}}
-/* The wake an edge sheds as it sweeps (wake.ts): chrome glyphs, each a picture, there for one sweep. */
+/* The wake an edge sheds behind it as it sweeps (wake.ts): chrome glyphs, each a picture, there for one sweep. */
 .wake{position:fixed;inset:0;z-index:30;overflow:hidden;pointer-events:none}
 .wake canvas{position:absolute;opacity:0}
 .sheet header{display:flex;align-items:center;justify-content:space-between;gap:var(--sp3)}
@@ -318,7 +329,7 @@ button.hq:hover{background:var(--hover)}
 .sheet .ask-notch .qp{margin-top:10px;font:var(--f-question-n)}
 .sheet .ask-notch .qa{margin-top:var(--sp3)}
 /* list sheets: Agents, Settings, a review; centred on the main area */
-.sheet:is(.list,.review){left:calc(var(--side-w) + (100% - var(--side-w)) / 2);width:min(var(--list-sheet-w),calc(100% - var(--side-w) - 32px));padding:0 0 var(--sp2)}
+.sheet:is(.list,.review){--pad:0px;left:calc(var(--side-w) + (100% - var(--side-w)) / 2);width:min(var(--list-sheet-w),calc(100% - var(--side-w) - 32px));padding:0 0 var(--sp2)}
 .win.solo .sheet:is(.list,.review){left:50%;width:min(var(--list-sheet-w),calc(100% - 32px))}
 .sheet:is(.list,.review)::before{top:0;margin:0 0 -1px}
 .sheet:is(.list,.review) header{position:sticky;z-index:1;top:1px;height:42px;margin:0;padding:0 18px;background:var(--sheet);border-bottom:1px solid var(--line)}
@@ -326,15 +337,22 @@ button.hq:hover{background:var(--hover)}
 .sheet:is(.list,.review) .acts{margin:0 10px;padding-top:6px}
 .sheet.list h3{margin-inline:18px}
 .list{display:grid}
-.line>.st{justify-self:center}
+.line>.ring-o{justify-self:center}
 .line{display:grid;grid-template-columns:28px 190px minmax(0,1fr) auto;align-items:center;height:var(--home-row);padding:0 18px;border-bottom:1px solid var(--line);font:var(--f-small);color:var(--fg2);text-align:left}
 .line .t{overflow:hidden;text-overflow:ellipsis;font:var(--f-lead);color:var(--fg);white-space:nowrap}
 .line .x{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .line .x.mono{font:var(--f-num);color:var(--fg3)}
 button.line{grid-template-columns:190px minmax(0,1fr)}
 button.line:hover{background:var(--hover)}
-.line.ag.off .x{color:var(--asks)}
-/* Settings */
+.line[data-s=off] .x{color:var(--asks)}
+/* Settings. The owner froze how this sheet looks (2026-11-17): its switch and its button keep the look they had, and
+   nothing here follows a later change to the materials. */
+/* Where it scrolled, a scrollbar stood in a gutter 17 px wide; the bar is gone and its gutter stays, so no row in the
+   sheet is a pixel wider than it was and nothing in it reflows. */
+.sheet:has(>.settings){padding-right:17px}
+.settings .btn{background:var(--fill);box-shadow:none}
+.settings .btn:hover{background:var(--fill-hover)}
+.settings .btn:active{background:var(--line2)}
 .settings{padding-bottom:var(--sp2)}
 .set{display:grid;grid-template-columns:190px minmax(0,1fr);align-items:start;gap:0 var(--sp3);padding:10px 18px;border-bottom:1px solid var(--line)}
 .set .t{padding-top:3px;font:var(--f-lead);color:var(--fg)}
@@ -350,7 +368,7 @@ button.line:hover{background:var(--hover)}
 .seg .sw{width:12px;height:12px;border-radius:50%}
 .switch{position:relative;width:30px;height:18px;border-radius:9px;background:var(--fill-hover);flex:none}
 .switch span{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--fg3);transition:transform var(--t-fast)}
-.switch[aria-checked=true]{background:var(--metal)}
+.switch[aria-checked=true]{background:linear-gradient(180deg,#fbfbfc,#c9cdd3 40%,#8f949c 54%,#c6cad1 68%,#eef0f2)}
 .switch[aria-checked=true] span{transform:translateX(12px);background:var(--ink)}
 .hue{width:100%;accent-color:hsl(var(--hue) 90% 62%)}
 .set .text{width:240px;height:var(--ctl-h);padding:0 var(--sp2);border-radius:var(--r1);background:var(--fill);font:var(--f-small);color:var(--fg)}
@@ -394,14 +412,29 @@ button.line:hover{background:var(--hover)}
 .pool.b{right:-26%;bottom:-42%;width:82%;height:118%;background:var(--noise,none),var(--c2)}
 .pool.c{left:-30%;bottom:-56%;width:64%;height:86%;background:var(--noise,none),var(--c3)}
 [data-lift] .pool{opacity:1}
-/* While it breathes its opacity is set in steps, each pool on a layer of its own so a step is composited, not painted;
-   a transition would turn each step into an animation at the display's rate. */
-[data-breathe=true] .pool{transition:background-color 1.2s ease;will-change:opacity}
+/* While the window is in use the light breathes: each pool's opacity rises and falls about its resting level, each in
+   its own time, carried by the compositor from one end of the breath to the other, so it never stops and starts and
+   costs the page nothing. It holds where it is while the window is not in use. --ambient is how far all of it goes. */
+@media(prefers-reduced-motion:no-preference){
+  .pool{animation:breath calc(2 * var(--t-ambient)) ease-in-out infinite paused}
+  .pool.b{animation-duration:calc(2.46 * var(--t-ambient))}
+  .pool.c{animation-duration:calc(2.94 * var(--t-ambient))}
+  [data-breathe=true] :is(.pool,.band .motion,.turn){animation-play-state:running}
+}
+@keyframes breath{0%,100%{opacity:.88}35%{opacity:calc(.88 - .12 * var(--ambient))}75%{opacity:calc(.88 + .09 * var(--ambient))}}
 .band{position:absolute;left:0;right:0;bottom:0;height:min(52%,420px);opacity:.5;
   -webkit-mask-image:linear-gradient(90deg,transparent 8%,#000 42%,#000 86%,transparent),linear-gradient(0deg,transparent 4%,#000 34%,#000 52%,transparent);-webkit-mask-composite:source-in;
   mask-image:linear-gradient(90deg,transparent 8%,#000 42%,#000 86%,transparent),linear-gradient(0deg,transparent 4%,#000 34%,#000 52%,transparent);mask-composite:intersect}
 /* The form is far larger than the band and drawn at half that size, then scaled: only its light reaches the band. */
 .band .motion{position:absolute;left:-6%;top:-55%;width:62%;height:105%;transform:scale(2);transform-origin:0 0}
+/* While the light breathes the chrome floats: the compositor carries its picture a few pixels each way, never further
+   than the room its words are given (light.tsx pad), and its light rises and falls a little; nothing is drawn. */
+@media(prefers-reduced-motion:no-preference){
+  .band .motion{animation:float var(--t-ambient) linear infinite paused,glow calc(.7 * var(--t-ambient)) ease-in-out infinite alternate paused}
+}
+/* A slow round, at an even pace: it never stops at a corner. */
+@keyframes float{0%,100%{translate:calc(var(--ambient) * -5px) calc(var(--ambient) * 1px)}12.5%{translate:calc(var(--ambient) * -3.5px) calc(var(--ambient) * -2px)}25%{translate:0 calc(var(--ambient) * -3px)}37.5%{translate:calc(var(--ambient) * 3.5px) calc(var(--ambient) * -2px)}50%{translate:calc(var(--ambient) * 5px) calc(var(--ambient) * 1px)}62.5%{translate:calc(var(--ambient) * 3.5px) calc(var(--ambient) * 3px)}75%{translate:0 calc(var(--ambient) * 4px)}87.5%{translate:calc(var(--ambient) * -3.5px) calc(var(--ambient) * 3px)}}
+@keyframes glow{to{opacity:calc(1 - .12 * var(--ambient))}}
 .light[data-load=busy] .band{opacity:.375}
 .light[data-load=asks] .band{opacity:.225}
 .light[data-load=paged] .band{opacity:.15}
@@ -413,8 +446,27 @@ button.line:hover{background:var(--hover)}
 .glyph.in{opacity:var(--spark,1);transform:none}
 .spark[data-away] .glyph.in{opacity:.5;transform:translateY(4px) scale(.985)}
 @starting-style{.glyph.in{opacity:0;transform:translateY(10px) scale(.94)}}
+/* A region answers when it takes focus (main.tsx greet), within about a second: the sidebar's glyphs step forward as
+   they do when the window comes back into use; on Home the light lifts and its chrome brightens while it stirs; among
+   terminals one glint runs along the lit edge of the focused tab, over no text. */
+@media(prefers-reduced-motion:no-preference){
+  [data-greet=side] .glyph.in{animation:greet .9s var(--ease) calc(var(--i) * 90ms) both}
+  .light[data-stir]{animation:lift 1.2s ease-in-out}
+  [data-greet=main] .pane.focus .tabw.on::after{content:"";position:absolute;z-index:1;top:0;width:40px;height:2px;background:linear-gradient(90deg,#fff0,#fff,#fff0);animation:glint .7s ease-out both;pointer-events:none}
+}
+@keyframes greet{from{opacity:.6;transform:translateY(3px) scale(.99)}}
+@keyframes lift{25%{filter:brightness(1.25)}}
+@keyframes glint{from{left:-40px}to{left:100%}}
 .turn,.turn canvas{position:absolute;inset:0;width:100%;height:100%}
-/* The clock names a pose a second and the compositor carries the picture there; a new picture comes in over the last. */
-.turn{transition:transform 1s linear}
+/* A glyph sways by the compositor alone: a drift of a few pixels, a tilt, and a rock about its upright axis that never
+   brings it near edge-on, each in its own time and each glyph out of step with the others, so it never stops and
+   starts; it holds its pose while the window is not in use. A new picture of it comes in over the last (light.tsx). */
+@media(prefers-reduced-motion:no-preference){
+  .turn{animation:sway var(--t-ambient) ease-in-out calc(var(--i) * -.37 * var(--t-ambient)) infinite alternate paused,tilt calc(1.61 * var(--t-ambient)) ease-in-out calc(var(--i) * -.53 * var(--t-ambient)) infinite alternate paused,
+    rock calc(.81 * var(--t-ambient)) ease-in-out calc(var(--i) * -.29 * var(--t-ambient)) infinite alternate paused}
+}
+@keyframes sway{from{translate:calc(var(--ambient) * -4px) calc(var(--ambient) * 4px)}to{translate:calc(var(--ambient) * 4px) calc(var(--ambient) * -4px)}}
+@keyframes tilt{from{rotate:calc(var(--ambient) * -5deg)}to{rotate:calc(var(--ambient) * 5deg)}}
+@keyframes rock{from{transform:perspective(480px) rotateY(calc(var(--ambient) * -16deg))}to{transform:perspective(480px) rotateY(calc(var(--ambient) * 16deg))}}
 .turn canvas{transition:opacity 1.2s linear}
 @starting-style{.turn canvas{opacity:0}}

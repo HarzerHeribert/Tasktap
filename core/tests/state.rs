@@ -3612,7 +3612,7 @@ mod dictations {
         Spoken, dictate,
     };
     use tasktap_proto::{
-        Capture, DictationId, DictationPhase as P, DictationTarget, QuestionId, Source, ThoughtId,
+        Capture, DictationId, DictationPhase as P, DictationTarget, Source, ThoughtId,
     };
 
     fn thought() -> DictationTarget {
@@ -3644,6 +3644,18 @@ mod dictations {
     fn transcribing(all: &mut Vec<Dictating>, stream: bool) -> DictationId {
         let id = recording(all, stream);
         dictate(all, Spoken::Finish { id, heard: true }).unwrap();
+        id
+    }
+
+    /// A dictation whose words are there for a field, and nothing more.
+    fn heard(all: &mut Vec<Dictating>) -> DictationId {
+        let (id, target) = (DictationId::mint(), DictationTarget::Text);
+        let stream = true;
+        dictate(all, Spoken::Start { id, target, stream }).unwrap();
+        dictate(all, Spoken::Finish { id, heard: true }).unwrap();
+        let transcript = Ok("Ja, mach das.".to_owned());
+        let told = dictate(all, Spoken::Transcribed { id, transcript }).unwrap();
+        assert_eq!(told, [Heard::Put(id), Heard::End(id)]);
         id
     }
 
@@ -3843,28 +3855,99 @@ mod dictations {
     }
 
     #[test]
-    fn a_transcript_is_delivered_to_its_target_and_the_row_goes() {
+    fn a_spoken_thought_is_captured_and_its_row_goes() {
         let mut all = Vec::new();
-        let question = QuestionId::mint();
-        for target in [thought(), DictationTarget::Answer { question }] {
-            let id = DictationId::mint();
-            let start = Spoken::Start {
+        let target = thought();
+        let DictationTarget::Thought(capture) = target.clone() else {
+            panic!("a thought");
+        };
+        let id = DictationId::mint();
+        let stream = true;
+        dictate(&mut all, Spoken::Start { id, target, stream }).unwrap();
+        dictate(&mut all, Spoken::Finish { id, heard: true }).unwrap();
+        let transcript = Ok("  Mach das Fenster zu.\n".to_owned());
+        let told = dictate(&mut all, Spoken::Transcribed { id, transcript }).unwrap();
+        let text = "Mach das Fenster zu.".to_owned();
+        assert_eq!(told, [Heard::Deliver { id, capture, text }]);
+        // Still transcribing until its capture is known.
+        assert_eq!(row(&all, id).phase, P::Transcribing);
+        let told = dictate(&mut all, Spoken::Delivered { id, refused: None }).unwrap();
+        assert_eq!(told, [Heard::Del(id), Heard::End(id)]);
+        assert!(gone(&all, id));
+    }
+
+    #[test]
+    fn words_for_a_field_are_only_heard_and_nothing_is_delivered() {
+        let mut all = Vec::new();
+        // From the speech service, and from a recorder that transcribes.
+        let by_service = heard(&mut all);
+        let r = row(&all, by_service);
+        assert_eq!(
+            (r.phase, r.text.as_str(), r.level),
+            (P::Heard, "Ja, mach das.", 0)
+        );
+        assert_eq!(r.error, None);
+        let (id, target) = (DictationId::mint(), DictationTarget::Text);
+        // The start of the next clears the one that ended.
+        let told = dictate(
+            &mut all,
+            Spoken::Start {
                 id,
-                target: target.clone(),
-                stream: true,
-            };
-            dictate(&mut all, start).unwrap();
-            dictate(&mut all, Spoken::Finish { id, heard: true }).unwrap();
-            let transcript = Ok("  Mach das Fenster zu.\n".to_owned());
-            let told = dictate(&mut all, Spoken::Transcribed { id, transcript }).unwrap();
-            let text = "Mach das Fenster zu.".to_owned();
-            assert_eq!(told, [Heard::Deliver { id, target, text }]);
-            // Still transcribing until its delivery is known.
-            assert_eq!(row(&all, id).phase, P::Transcribing);
-            let told = dictate(&mut all, Spoken::Delivered { id, refused: None }).unwrap();
-            assert_eq!(told, [Heard::Del(id), Heard::End(id)]);
-            assert!(gone(&all, id));
+                target,
+                stream: false,
+            },
+        )
+        .unwrap();
+        assert_eq!(told[..2], [Heard::Del(by_service), Heard::End(by_service)]);
+        dictate(&mut all, Spoken::Finish { id, heard: true }).unwrap();
+        let text = Some(" Nein, lass es. ".to_owned());
+        let told = dictate(
+            &mut all,
+            Spoken::Report {
+                id,
+                text,
+                level: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(told, [Heard::Put(id), Heard::End(id)]);
+        let r = row(&all, id);
+        assert_eq!((r.phase, r.text.as_str()), (P::Heard, "Nein, lass es."));
+        // It is over: nothing more is finished, reported or interrupted.
+        for event in [
+            Spoken::Finish { id, heard: true },
+            Spoken::Report {
+                id,
+                text: Some("x".into()),
+                level: None,
+            },
+        ] {
+            let refused = dictate(&mut all, event);
+            assert!(matches!(refused, Err(Error::Ignored(Ignored::State))));
         }
+        for event in [Spoken::Left { id }, Spoken::Deadline { id }] {
+            assert_eq!(dictate(&mut all, event).unwrap(), []);
+        }
+        assert_eq!(row(&all, id).text, "Nein, lass es.");
+        // The interface took the words: the row is dismissed.
+        let told = dictate(&mut all, Spoken::Cancel { id }).unwrap();
+        assert_eq!(told, [Heard::Del(id), Heard::End(id)]);
+        assert!(all.is_empty());
+        // Words that are none are nothing heard, for a field too.
+        let (id, target) = (DictationId::mint(), DictationTarget::Text);
+        dictate(
+            &mut all,
+            Spoken::Start {
+                id,
+                target,
+                stream: true,
+            },
+        )
+        .unwrap();
+        dictate(&mut all, Spoken::Finish { id, heard: true }).unwrap();
+        let transcript = Ok(" ".to_owned());
+        let told = dictate(&mut all, Spoken::Transcribed { id, transcript }).unwrap();
+        fails(&all, id, told, NOTHING_HEARD);
     }
 
     #[test]
@@ -3977,12 +4060,13 @@ mod dictations {
     /// error, and a refusal changes nothing.
     #[test]
     fn every_event_in_every_state_keeps_the_rules() {
-        let states: [fn(&mut Vec<Dictating>) -> DictationId; 6] = [
+        let states: [fn(&mut Vec<Dictating>) -> DictationId; 7] = [
             |_| DictationId::mint(),
             |all| recording(all, true),
             |all| recording(all, false),
             |all| transcribing(all, true),
             |all| transcribing(all, false),
+            heard,
             failed,
         ];
         let events = |id: DictationId| {
@@ -4044,7 +4128,8 @@ mod dictations {
                     assert_eq!(all, before, "{what}");
                 }
                 let recording = all.iter().filter(|d| d.row.phase == P::Recording).count();
-                let under_way = all.iter().filter(|d| d.row.phase != P::Failed).count();
+                let ended = |d: &&Dictating| matches!(d.row.phase, P::Failed | P::Heard);
+                let under_way = all.len() - all.iter().filter(ended).count();
                 assert!(recording <= 1 && under_way <= DICTATIONS, "{what}");
                 for d in &all {
                     let failed = d.row.phase == P::Failed;

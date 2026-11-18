@@ -427,7 +427,7 @@ fn every_call_round_trips() {
                 from: None,
             }),
         ),
-        (DictationTarget::Answer { question: id(5) }, None),
+        (DictationTarget::Text, None),
     ] {
         let start = StartDictation {
             id: id(6),

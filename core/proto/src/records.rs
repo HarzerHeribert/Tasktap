@@ -564,9 +564,9 @@ pub struct Glance {
     pub retiring: bool,
 }
 
-/// A dictation that is under way or has failed (design §8). Memory only:
-/// one that was delivered has no row, since it became its thought or its
-/// answer.
+/// A dictation that is under way or has ended without becoming a thought
+/// (design §8): its words are there to be placed in a field, or it failed.
+/// Memory only: one that became its thought has no row.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Dictation {
@@ -574,8 +574,8 @@ pub struct Dictation {
     pub rev: Rev,
     pub phase: DictationPhase,
     /// What was heard: the transcript so far while a recorder that
-    /// transcribes reports it, and the whole of it when it could not be
-    /// delivered.
+    /// transcribes reports it, and the whole of it once it is `heard`, or
+    /// when it could not be captured.
     pub text: String,
     /// How loud the microphone is, 0 to 100, while recording.
     pub level: u8,
@@ -585,18 +585,22 @@ pub struct Dictation {
 }
 
 words! {
-    pub enum DictationPhase { Recording, Transcribing, Failed }
+    /// `heard`: the words are in `text`, and the core does nothing with
+    /// them; the interface places them in its field.
+    pub enum DictationPhase { Recording, Transcribing, Heard, Failed }
 }
 
-/// What a dictation becomes: exactly what typing it would have been.
+/// What a dictation becomes.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub enum DictationTarget {
-    /// A capture, as `thought.capture` takes it: its `source` is `voice`,
-    /// and its `text` is what the person typed before they spoke, which
-    /// the transcript follows.
+    /// A new thought: a capture as `thought.capture` takes it, its
+    /// `source` `voice` and its `text` empty, since the transcript is
+    /// its text. It is captured, routed and held as a typed one is.
     Thought(Box<crate::args::Capture>),
-    /// The text answer to a question.
-    Answer { question: QuestionId },
+    /// Only the words: the dictation ends as `heard` with them in its
+    /// row, and nothing is captured or sent. For speech into a field, an
+    /// answer or a thought half typed, which the person sends themselves.
+    Text,
 }

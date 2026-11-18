@@ -5,13 +5,13 @@
 // caret. First the same typing with nothing changing, for comparison; and each at every level of the effects
 // (the core's `motion_ambient`: full, still, off), so the light's part in a hitch can be told from the page's.
 // It fails when, during the flow, the 95th percentile of the frame intervals is over 1.2 of the frames the page is
-// given (20 ms where it is given 60 a second, less where it is given more) or one is over 50 ms (in the app: over
-// 33 ms, so that none is missed outright), when the 95th percentile of the key delays is over 1.8 frames (30 ms) or
-// one is over 100 ms (in the app 67), or when a key is lost. A frame that came late while the page's own thread was
-// free is the machine's (another program had the processor): it is counted and said, and not held against the page,
-// so the check says the same on a busy machine as on a quiet one. Headless it runs on the graphics card. In
+// given (20 ms where it is given 60 a second, less where it is given more) or one is over 50 ms, when the 95th
+// percentile of the key delays is over 1.8 frames (30 ms) or one is over 100 ms, or when a key is lost. In
 // the app at Full it also watches the band through the flow, as cadence-check.cjs does: it fails when the band
 // waits more than two of its intervals between drawings while it moves, or one of its clocks jumps.
+// In the app the worst frame may take 33 ms and the worst key 67, so that no frame is missed outright. A frame that
+// came late while the page's own thread was free is the machine's (another program had the processor): it is counted
+// and said, and not held against the page. Headless it runs on the graphics card.
 // usage: node scripts/flow-check.cjs [--app [--debug]] [--levels full,still,off] [--short] [--trace] [--json file]
 //   headless by default: ui/dist on fixture records, the core's changes pushed by a stand-in; --trace adds where the
 //   main thread's time went (script, style, layout, paint) and its long tasks, from Chromium's own timeline.

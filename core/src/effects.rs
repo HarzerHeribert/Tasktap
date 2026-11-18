@@ -551,7 +551,11 @@ fn launch(core: &mut Core, launch: Launch) -> Option<Outcome> {
     // Its worktree first, which the session then works in.
     let repo = read(core, |tx| tx.project(launch.project)).ok().flatten();
     let Some(repo) = repo.map(|p| PathBuf::from(p.folder)) else {
-        return Some(failed(core, attempt, "the project is gone".into()));
+        return Some(failed(
+            core,
+            attempt,
+            "the folder is no longer in Tasktap".into(),
+        ));
     };
     let owner = match &worktree {
         Worktree::New { .. } => launch.thought,
@@ -1024,7 +1028,7 @@ fn repeated(first: Option<AttemptOutcome>) -> Outcome {
         Some(AttemptOutcome::Reply(reply)) => reply,
         Some(AttemptOutcome::Interrupted) => Outcome::Err(Error::new(
             Code::Failed,
-            "the core stopped during this attempt; nothing was started again",
+            "Tasktap stopped during this attempt; nothing was started again",
         )),
         // A launch whose check still runs; every other reports before its call returns.
         None => Outcome::Err(Error::new(

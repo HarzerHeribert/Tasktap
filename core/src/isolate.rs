@@ -362,10 +362,7 @@ impl Git {
     fn look(&self, repo: &Path, w: &Workdir, own: &Own) -> Result<Found, String> {
         let here = own.path.symlink_metadata().is_ok();
         if !repo.is_dir() {
-            return Err(format!(
-                "the project folder {} is not there",
-                repo.display()
-            ));
+            return Err(format!("the folder {} is not there", repo.display()));
         }
         let tip = self.tip(repo, own)?;
         if !here && tip.is_none() {
@@ -563,7 +560,7 @@ impl Git {
         let own = self.own(w)?;
         if !repo.is_dir() {
             return Err(format!(
-                "the project folder {} is not there, so nothing can be kept into it",
+                "the folder {} is not there, so nothing can be kept into it",
                 repo.display()
             ));
         }
@@ -573,7 +570,7 @@ impl Git {
         );
         let Some(to) = &w.destination else {
             return Err(format!(
-                "the project folder was on no branch (a detached HEAD) when this run started, so there is no branch to keep it into. {by_hand}"
+                "the folder was on no branch (a detached HEAD) when this run started, so there is no branch to keep it into. {by_hand}"
             ));
         };
         self.tip(repo, &own)?;

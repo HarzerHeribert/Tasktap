@@ -318,8 +318,7 @@ pub fn capture(core: &mut Core, capture: tasktap_proto::Capture) -> Result<(), E
 pub fn check(core: &Core, capture: &tasktap_proto::Capture) -> Result<(), Error> {
     let invalid = |why: String| Error::new(Code::Invalid, why);
     if let Some(name) = &capture.agent {
-        crate::agents::find(name)
-            .ok_or_else(|| invalid(format!("this core has no agent {name}")))?;
+        crate::agents::find(name).ok_or_else(|| invalid(format!("Tasktap has no agent {name}")))?;
         // A follow-up keeps its session's agent, whatever the capture names.
         if capture.session_id.is_none() {
             crate::agents::usable(name, core.detected(name))
@@ -418,7 +417,7 @@ fn add_found(
     // Its canonical form may be longer than what was given.
     if json_len(&folder) > MAX_LINE {
         return Err(invalid(format!(
-            "{folder} is a longer path than a project takes"
+            "{folder} is a longer path than a folder may have"
         )));
     }
     let name = (args.name.clone())
@@ -439,7 +438,7 @@ fn add_found(
         match tx.project(args.id).map_err(stored)? {
             Some(p) if p.folder == folder => return reopen(tx, p),
             Some(_) => {
-                let why = "the project id was used for another folder";
+                let why = "the id was used for another folder";
                 return Err(Error::new(Code::Conflict, why));
             }
             None => {}
@@ -556,7 +555,7 @@ fn detect(cx: &mut Cx, args: DetectAgents) -> Option<Control> {
             let Some(found) = found else {
                 let e = Error::new(
                     Code::Invalid,
-                    "agents.detect names an agent this core lacks",
+                    "agents.detect names an agent Tasktap does not have",
                 );
                 return Some(call::AgentsDetect::reply(cx.id, Err(e)));
             };

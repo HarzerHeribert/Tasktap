@@ -698,7 +698,7 @@ impl Machine<'_, '_> {
             // open questions a new one is refused (design §6). Only the
             // router asks as the router, and never through this row.
             (E::Ask { question: q, .. }, ..) if q.source == QuestionSource::Router => {
-                Err(Error::Invalid("a session does not ask as the router"))
+                Err(Error::Invalid("only Tasktap asks where a thought goes"))
             }
             (E::Ask { question: q, .. }, .., Some(_)) if !same_ask(&q, question.as_ref()) => Err(
                 Error::Conflict("the request key was used for another question"),
@@ -1077,7 +1077,7 @@ impl Machine<'_, '_> {
             }
             Err(Error::Gone) => {
                 let route = t.route.as_mut().expect("set above");
-                route.fallback = Some("the destination it found is gone".into());
+                route.fallback = Some("the folder or session it found is gone".into());
                 self.keep_as_idea(t, None, kept)
             }
             Err(e) => Err(e),
@@ -1150,7 +1150,7 @@ impl Machine<'_, '_> {
         t.placed = Some(placed);
         let until = self.held(after(since, self.hold()?)?)?;
         // Picked while the router was still asked where it goes.
-        self.unask(&mut t, "the person picked where it goes");
+        self.unask(&mut t, "you picked where it goes");
         let failed = t.route.as_ref().is_some_and(|r| r.fallback.is_some());
         let wordy = brief.is_none() && t.brief.is_none() && !crate::route::short(&t.text);
         if let (true, false, Some(by)) = (wordy, failed, self.consent()?) {
@@ -1229,7 +1229,7 @@ impl Machine<'_, '_> {
                 let key = self.tx.request_key(q.id)?.unwrap_or_default();
                 let to = *destinations(&key)
                     .get(*choice as usize)
-                    .ok_or(Error::Invalid("the router question has no such choice"))?;
+                    .ok_or(Error::Invalid("the question has no such choice"))?;
                 self.target(to)?;
                 Some(to)
             }
@@ -1284,7 +1284,7 @@ impl Machine<'_, '_> {
         } else {
             let project = t
                 .project_id
-                .ok_or(Error::Invalid("a thought starts in a project"))?;
+                .ok_or(Error::Invalid("a thought starts in a folder"))?;
             let p = self.tx.project(project)?.ok_or(Error::Gone)?;
             let (cwd, worktree) = self.place(&t, &p, target.as_ref(), attempt)?;
             let agent = target
@@ -1868,7 +1868,7 @@ impl Machine<'_, '_> {
     /// work in it. Found again unchanged, what was looked at still holds.
     fn prepared(&mut self, mut t: Thought, session: Option<Session>, w: Workdir) -> Result<()> {
         if !made(&w) {
-            return Err(Error::Invalid("that is no worktree the core makes"));
+            return Err(Error::Invalid("that is no worktree Tasktap makes"));
         }
         match &t.workdir {
             Some(old) if open(old) && old.branch != w.branch => {
@@ -2097,7 +2097,7 @@ pub fn create(
         AttemptKind::Terminal(t) => AttemptId::try_from(t.uuid()),
         _ => {
             return Err(Error::Invalid(
-                "only a capture, project or terminal is a create",
+                "only a capture, folder or terminal is a create",
             ));
         }
     };
@@ -2473,7 +2473,7 @@ pub fn dictate(all: &mut Vec<Dictating>, event: Spoken) -> Result<Vec<Heard>> {
             let d = &mut all[i];
             match (d.row.phase, text) {
                 _ if d.stream => {
-                    return Err(Error::Conflict("the core transcribes this dictation"));
+                    return Err(Error::Conflict("Tasktap transcribes this dictation"));
                 }
                 (Recording, text) => {
                     let before = (d.row.text.clone(), d.row.level);

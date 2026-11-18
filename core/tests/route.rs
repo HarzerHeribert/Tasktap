@@ -783,8 +783,8 @@ fn a_tool_that_no_longer_offers_its_model_says_so_and_is_not_asked_again() {
     a.consent("fixture");
     a.script(&["print:error:no such model".into()]);
     let text = format!("{SPOKEN}, that is in folio by the way");
-    let gone = "The fixture agent no longer offers the model Tasktap asks for routing; \
-                routing by name until Tasktap is updated";
+    let gone = "The fixture agent no longer offers the model Tasktap asks for placing; \
+                placing by name until Tasktap is updated";
     let t = a.capture(&text, None);
     let th = a.settled(t);
     assert_eq!((th.status, th.project_id), (Status::Routed, Some(a.folio)));
@@ -1037,6 +1037,15 @@ fn no_model_is_asked_without_the_persons_consent_for_what_this_core_would_ask() 
             .contains("Add nothing the person did not say")
     );
     assert_eq!(terms.sends.len(), 4);
+    // In the words the interface uses: folders, never projects, and nothing is "routed".
+    assert_eq!(
+        terms.sends[1],
+        "the names and aliases of up to 8 of your open folders"
+    );
+    let said = terms.sends.join(" ").to_lowercase();
+    for word in ["project", "repositor", "rout"] {
+        assert!(!said.contains(word), "{word} in {said}");
+    }
     let tool = |agent: &str, model: &str| RouteBy {
         agent: agent.into(),
         model: model.into(),
@@ -1138,7 +1147,7 @@ fn a_core_that_stops_while_a_model_is_asked_asks_nobody_again_and_launches_nothi
         (
             Status::Captured,
             false,
-            Some("the core stopped while it was asked")
+            Some("Tasktap stopped while it was asked")
         )
     );
     // Nothing was asked again and nothing started.

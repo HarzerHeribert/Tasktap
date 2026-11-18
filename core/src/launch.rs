@@ -44,7 +44,8 @@ pub struct Prepared {
 pub fn prepare(l: &Launch) -> Result<Prepared, String> {
     let agent =
         agents::find(&l.agent).ok_or_else(|| format!("this build cannot run {}", l.agent))?;
-    let hook = crate::roles::program().map_err(|e| format!("the core cannot find itself: {e}"))?;
+    let hook =
+        crate::roles::program().map_err(|e| format!("Tasktap cannot find its own program: {e}"))?;
     let run = Run {
         session: l.session,
         cwd: Path::new(&l.cwd),
@@ -108,7 +109,7 @@ pub fn start(
         return Err("this run's terminal was started before".into());
     }
     if !project.is_some_and(|p| p.open) {
-        return Err("the project is closed".into());
+        return Err("the folder is closed".into());
     }
     let t = Terminal {
         id,

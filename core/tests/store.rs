@@ -1506,7 +1506,7 @@ fn recovery_stops_waiting_for_a_router_that_went_with_the_core() {
         );
         assert_eq!(
             (route.by.as_str(), route.fallback.as_deref()),
-            ("claude", Some("the core stopped while it was asked"))
+            ("claude", Some("Tasktap stopped while it was asked"))
         );
     }
     // One whose router had answered is as it was.

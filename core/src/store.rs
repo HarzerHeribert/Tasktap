@@ -684,7 +684,7 @@ impl<'s> Tx<'s> {
             let route = t.route.map(|route| match route.pending {
                 true => tasktap_proto::Routing {
                     pending: false,
-                    fallback: Some("the core stopped while it was asked".into()),
+                    fallback: Some("Tasktap stopped while it was asked".into()),
                     ..route
                 },
                 false => route,

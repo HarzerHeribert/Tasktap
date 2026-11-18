@@ -685,7 +685,7 @@ fn without_its_fixtures_a_build_routes_by_name_and_runs_only_agents_it_has() {
     let e = w.call::<call::ThoughtCapture>(&unknown).unwrap_err();
     assert_eq!(
         (e.code, e.message.as_str()),
-        (Code::Invalid, "this core has no agent nobody")
+        (Code::Invalid, "Tasktap has no agent nobody")
     );
     let picked = ThoughtId::mint();
     let capture = Capture {

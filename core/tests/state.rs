@@ -3701,7 +3701,7 @@ fn row_a_destination_that_went_while_the_router_was_asked_leaves_an_idea() {
     let route = t.route.unwrap();
     assert_eq!(
         (route.pending, route.fallback.as_deref()),
-        (false, Some("the destination it found is gone"))
+        (false, Some("the folder or session it found is gone"))
     );
 }
 
@@ -3813,7 +3813,7 @@ fn a_restart_between_the_routers_answer_and_the_launch_runs_nothing_again() {
         (
             Phase::Captured,
             false,
-            Some("the core stopped while it was asked")
+            Some("Tasktap stopped while it was asked")
         )
     );
     assert!(matches!(

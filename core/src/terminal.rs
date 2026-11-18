@@ -228,14 +228,14 @@ fn start_once(
             (Some(record), None) => record,
         };
         if closing {
-            return Err(Error::new(Code::Failed, "the core is shutting down"));
+            return Err(Error::new(Code::Failed, "Tasktap is shutting down"));
         }
         let (project_id, cwd) = match start.project {
             Some(p) => {
                 let p = tx.project(p).map_err(stored)?;
-                let p = p.ok_or_else(|| Error::new(Code::Gone, "no such project"))?;
+                let p = p.ok_or_else(|| Error::new(Code::Gone, "no such folder"))?;
                 if !p.open {
-                    return Err(Error::new(Code::Conflict, "the project is closed"));
+                    return Err(Error::new(Code::Conflict, "the folder is closed"));
                 }
                 (Some(p.id), p.folder)
             }
@@ -283,7 +283,7 @@ fn start_once(
 pub fn spawn(core: &mut Core, t: &Terminal, token: &Secret) -> std::io::Result<()> {
     let terminals = &mut core.terminals;
     if terminals.closing {
-        return Err(std::io::Error::other("the core is shutting down"));
+        return Err(std::io::Error::other("Tasktap is shutting down"));
     }
     let shell = t.kind == TerminalKind::Shell;
     let size = Size(t.cols, t.rows);
@@ -599,7 +599,7 @@ pub fn stop(core: &mut Core, id: TerminalId) -> bool {
 pub fn close_project(cx: &mut Cx, args: CloseProject) -> Result<(), Error> {
     effects::write(cx.core, |tx| {
         let p = tx.project(args.id).map_err(stored)?;
-        let mut p = p.ok_or_else(|| Error::new(Code::Gone, "no such project"))?;
+        let mut p = p.ok_or_else(|| Error::new(Code::Gone, "no such folder"))?;
         if p.open {
             p.open = false;
             tx.update_project(&p).map_err(stored)?;

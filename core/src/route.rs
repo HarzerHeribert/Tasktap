@@ -76,7 +76,7 @@ pub const SCHEMA: &str = concat!(
 /// What routing by a model sends, as `route.terms` lists it.
 const SENDS: &[&str] = &[
     "the thought, as you said or typed it",
-    "the names and aliases of up to 8 of your open projects",
+    "the names and aliases of up to 8 of your open folders",
     "of up to 8 sessions in them: the name, the last request (180 characters), the agent and whether it is working",
     "of up to 3 recent exchanges: the request (320 characters), how it ended and the first line of the result (160 characters)",
 ];
@@ -519,8 +519,8 @@ pub fn accept(r: &Request, answer: &str) -> Result<(Route, Routing), String> {
 /// it is asked for: words for the person, as the interface shows them.
 pub fn gone(tool: &str) -> String {
     format!(
-        "{tool} no longer offers the model Tasktap asks for routing; \
-         routing by name until Tasktap is updated"
+        "{tool} no longer offers the model Tasktap asks for placing; \
+         placing by name until Tasktap is updated"
     )
 }
 
@@ -565,10 +565,10 @@ pub fn askable(text: &str) -> Result<(), String> {
 /// The agent a consent names and how its tool is asked, when the consent
 /// covers what this core would ask: that tool, with that model.
 pub fn consented(by: &RouteBy) -> Result<(&'static dyn Agent, Headless), String> {
-    let agent = agents::find(&by.agent).ok_or(format!("this core has no agent {}", by.agent))?;
+    let agent = agents::find(&by.agent).ok_or(format!("Tasktap has no agent {}", by.agent))?;
     let how = agent
         .headless()
-        .ok_or(format!("{} cannot be asked to route", by.agent))?;
+        .ok_or(format!("{} cannot be asked to place thoughts", by.agent))?;
     match how.model == by.model {
         true => Ok((agent, how)),
         false => Err(format!(

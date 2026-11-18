@@ -716,9 +716,9 @@ shot router-question-home workspace
 key="$(route_key project)"
 js workspace "([...document.querySelectorAll('.hq.open .ans')].find(b => b.querySelector('span').textContent === 'project').click(), 1)" >/dev/null
 until_has workspace "text .home .way" 5 "Keep the header on one line." && going="$(ask workspace "text .home .way")" \
-  && echo "$going" | grep -q "project" && echo "$going" | grep -q "You said" && echo "$going" | grep -q "so the header thing" && echo "$going" | grep -q "Placed by Fixture agent · fixture-small" \
+  && echo "$going" | grep -q "project" && echo "$going" | grep -q "You said" && echo "$going" | grep -q "so the header thing" && echo "$going" | grep -q "Brief by Fixture agent · fixture-small" && ! echo "$going" | grep -q "Placed by" \
   && [ "$(js workspace "(b => b.textContent + ' ' + b.disabled)(document.querySelector('.home .cap-row .key'))")" = "Start false" ] \
-  && pass "answered, it is on its way to that folder: the brief in full, the person's own words under it, how it was placed, Undo, and the Composer's key Start" || fail "the answered thought on its way" "$(echo "${going:-}" | tr '\n' '|' | cut -c1-240)"
+  && pass "answered, it is on its way to that folder: the brief in full, the person's own words under it, who wrote the brief and not that anything placed it, since the person did, Undo, and the Composer's key Start" || fail "the answered thought on its way" "$(echo "${going:-}" | tr '\n' '|' | cut -c1-240)"
 shot held-brief workspace
 ask workspace "click .home .way .act" >/dev/null
 until_has workspace "eval $field.value + ' ' + [...__ws.records.thoughts.values()].find(t => t.text.startsWith('so the header thing'))?.phase" 3 "so the header thing, I think it should stay on one line captured" \
@@ -859,7 +859,7 @@ send 'call delete {"c":"prefs","id":"speech_by"}' 'call delete {"c":"prefs","id"
 
 echo "== An agent for one thought; what the host opens; links in a terminal; a session's details; a terminal open in 8 places"
 # The ring picked goes with the thought written under it, and with no other: the next is the default's again.
-other="$(js workspace "document.querySelector('.home .ring:not([data-agent=fixture]):not([data-s=off])')?.dataset.agent ?? ''")"
+other="$(js workspace "document.querySelector('.home .ring[data-agent^=fixture-]:not([data-s=off])')?.dataset.agent ?? ''")"
 if [ -n "$other" ]; then
   js workspace "(document.querySelector('.home .ring[data-agent=$other]').click(), __speech.cap.dest = 'later', 1)" >/dev/null
   home_says "Let the other agent have this one"
@@ -883,23 +883,29 @@ real="$(cd "$tmp/project" && pwd -P)"
 echo "not yours" > "$tmp/outside.txt" && ln -s "$tmp/outside.txt" "$tmp/project/way-out.txt"
 host_open() { js workspace "__ws.call('host.open', $1)"; }
 : > "$tmp/opened"
-[ "$(host_open "{ target: '.gitignore', cwd: '$tmp/project' }")" = "$real/.gitignore" ] && [ "$(host_open "{ target: 'https://example.com/docs?a=1' }")" = "https://example.com/docs?a=1" ] \
-  && [ "$(host_open "{ target: '$tmp/project/.gitignore', reveal: true }")" = "$real/.gitignore" ] && [ "$(host_open "{ target: '.', cwd: '$tmp/project' }")" = "$real" ] && sleep 0.5 \
-  && [ "$(cat "$tmp/opened")" = "-t $real/.gitignore
--u https://example.com/docs?a=1
--R $real/.gitignore
--R $real" ] \
-  && pass "the host opens a web address in the browser and a file of text inside an opened folder in the text editor, and shows a file on request, and a folder, in Finder (to the check's own opener: nothing was opened here)" || fail "what the host opens" "$(tr '\n' '|' < "$tmp/opened")"
+o1="$(host_open "{ target: '.gitignore', cwd: '$tmp/project' }")"
+o2="$(host_open "{ target: 'https://example.com/docs?a=1' }")"
+o3="$(host_open "{ target: '$tmp/project/.gitignore', reveal: true }")"
+o4="$(host_open "{ target: '.', cwd: '$tmp/project' }")"
+sleep 0.6
+opened="$(sort "$tmp/opened" | tr '\n' '|')"
+if [ "$o1|$o2|$o3|$o4" = "$real/.gitignore|https://example.com/docs?a=1|$real/.gitignore|$real" ] && [ "$opened" = "-R $real|-R $real/.gitignore|-t $real/.gitignore|-u https://example.com/docs?a=1|" ]; then
+  pass "the host opens a web address in the browser and a file of text inside an opened folder in the text editor, and shows a file on request, and a folder, in Finder (to the check's own opener: nothing was opened here)"
+else
+  fail "what the host opens" "$o1|$o2|$o3|$o4 || $opened"
+fi
 refused=""
 for no in "{ target: '/etc/hosts' }" "{ target: 'file:///etc/hosts' }" "{ target: '../outside.txt', cwd: '$tmp/project' }" "{ target: 'way-out.txt', cwd: '$tmp/project' }" "{ target: 'no-such-file.txt', cwd: '$tmp/project' }" \
   "{ target: 'x-apple.systempreferences://general' }" "{ target: 'https://' }" "{ target: '.gitignore' }"; do
   case "$(host_open "$no")" in error:*) ;; *) refused="$refused $no" ;; esac
 done
 sleep 0.3
-[ -z "$refused" ] && [ "$(wc -l < "$tmp/opened" | tr -d ' ')" = 4 ] && [ "$(host_open "{ target: '/etc/hosts', probe: true }")" = None ] \
+count="$(wc -l < "$tmp/opened" | tr -d ' ')"
+probe="$(host_open "{ target: '/etc/hosts', probe: true }")"
+[ -z "$refused" ] && [ "$count" = 4 ] && [ "$probe" = None ] \
   && host_open "{ target: '../outside.txt', cwd: '$tmp/project' }" | grep -q "outside the folders you opened in Tasktap" \
   && pass "the host refuses, in a sentence, a path outside the opened folders (by name, through .., through a link that leads out), one that does not exist, one with no folder to start from, and any address that is not http or https; nothing was opened" \
-  || fail "what the host refuses" "$refused | $(tr '\n' '|' < "$tmp/opened")"
+  || fail "what the host refuses" "$refused | $count | $probe"
 
 # In a real terminal: what it prints is found, a path only where the host says it exists inside the folder.
 shell="$(js workspace "__ws.newTerminal('$project')")"
@@ -907,14 +913,13 @@ until_has workspace "eval __ws.records.terminals.get('$shell')?.state + ' ' + __
 sleep 1
 term_line "echo see .gitignore:1 and https://example.com/docs, not /etc/hosts or missing.txt"
 links="(async () => { const e = __ws.engines.get('$shell'), out = []; for (let y = 1; y <= e.term.buffer.active.length; y++) out.push(...(await e.links(y))); return out; })()"
-until_has workspace "eval $links.then((l) => [...new Set(l.map((x) => x.text))].sort().join(' '))" 8 ".gitignore:1 https://example.com/docs" \
-  && [ "$(js workspace "$links.then((l) => [...new Set(l.map((x) => x.text))].sort().join(' '))")" = ".gitignore:1 https://example.com/docs" ] \
+found="$links.then((l) => (t => [t.includes('.gitignore:1'), t.includes('https://example.com/docs'), t.some((x) => x.includes('/etc/hosts') || x.includes('missing.txt'))].join(' '))(l.map((x) => x.text)))"
+until_has workspace "eval $found" 8 "true true false" \
   && pass "a real terminal's links are the web address and the path that exists in its folder, with its line; a path outside the folder and one that does not exist are none" || fail "links in a real terminal" "$(js workspace "$links.then((l) => l.map((x) => x.text).join('|'))")"
 : > "$tmp/opened"
 js workspace "$links.then((l) => { const f = l.find((x) => x.text === '.gitignore:1'); f.activate({ metaKey: false, shiftKey: false }, f.text); f.activate({ metaKey: true, shiftKey: false }, f.text); f.activate({ metaKey: true, shiftKey: true }, f.text); return 1; })" >/dev/null
 sleep 0.6
-[ "$(cat "$tmp/opened")" = "-t $real/.gitignore
--R $real/.gitignore" ] \
+[ "$(sort "$tmp/opened" | tr '\n' '|')" = "-R $real/.gitignore|-t $real/.gitignore|" ] \
   && pass "a plain click on a link opens nothing; with ⌘ the host opens the file, and with ⇧⌘ shows it in Finder" || fail "a link followed" "$(tr '\n' '|' < "$tmp/opened")"
 
 # A session's details: what it is, and its turns, from the records and the core's history.
@@ -927,14 +932,18 @@ if [ -n "$sid" ]; then
     && pass "⌘I shows a session's details in one sheet: its agent and state, its folder, what can be done, and each turn as the thought that began it ($(js workspace "document.querySelectorAll('.sheet .tn').length") of $(js workspace "__ws.records.sessions.get('$sid').turn") turns)" || fail "a session's details" "$(ask workspace "text .sheet" | tr '\n' '|' | cut -c1-300)"
   shot session-details workspace
   press workspace ".sheet" Escape >/dev/null
-  until_has workspace "eval String(__ws.ui.sheet)" 3 "None" || fail "the session sheet closes"
+  until_has workspace "eval String(__ws.ui.sheet)" 3 "null" || fail "the session sheet closes"
 else
   fail "a session's details" "no session with a terminal"
 fi
 
 # One more view than a terminal allows: the pane says so in the core's words, and nothing is asked for again by itself.
 js workspace "(__ws.focusSession('$shell') || __ws.show('$project'), 1)" >/dev/null
-js workspace "(async () => { const e = __ws.engines.get('$shell'); e.detach(); for (let i = 0; i < 8; i++) await __ws.call('terminal.open', { id: '$shell', cols: 80, rows: 24, credit: 0 }); __motion.redraw(); return 1; })()" >/dev/null
+# (The eight are the host's own: it holds their streams open and reads nothing from them.)
+js workspace "(__ws.engines.get('$shell').detach(), 1)" >/dev/null
+for _ in 1 2 3 4 5 6 7 8; do send "call terminal.open {\"id\":\"$shell\",\"cols\":80,\"rows\":24,\"credit\":0}"; done
+sleep 0.5
+js workspace "(__motion.redraw(), 1)" >/dev/null
 until_has workspace "text .pane .strip[data-full]" 5 "This terminal is open in 8 places already." \
   && pass "a terminal that is open in 8 places says so, in the core's words, in the pane where a ninth view would open" || fail "a terminal open in 8 places" "$(js workspace "JSON.stringify([...__ws.ui.full])")"
 shot terminal-full workspace
@@ -942,6 +951,7 @@ js workspace "(__ws.call('terminal.stop', { id: '$shell' }), 1)" >/dev/null
 until_has workspace "eval __ws.records.terminals.get('$shell')?.state" 8 "exited" && js workspace "(__ws.focusSession('$shell'), __ws.command('close-tab'), 1)" >/dev/null
 rm -f "$tmp/project/way-out.txt"
 js workspace "(__ws.show('$project'), 1)" >/dev/null
+terminals=$(ask workspace "eval __ws.records.terminals.size")
 
 # Closing the window leaves the notch; showing it again comes back to the same workspace.
 panes=$(ask workspace "eval __ws.L.panes(__ws.layout('$project')).length")

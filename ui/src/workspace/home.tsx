@@ -292,10 +292,13 @@ export function Home() {
   );
 }
 
-/** Whether Home is wide enough for two columns of rows that keep all their parts. */
+/** Whether Home is wide enough for two columns of rows that keep all their parts. While the sidebar slides it is the
+ *  width Home will have when the slide is over that counts (the window's, less the sidebar where it stays), from
+ *  the slide's first frame: the columns change before anything moves, and nothing reflows on the way. */
 const WIDE = 1480;
 function useWide() {
   const [wide, setWide] = useState(false);
+  const side = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--side-w')) || 0;
   useLayoutEffect(() => {
     const el = document.querySelector<HTMLElement>('.room');
     if (!el) return undefined;
@@ -303,7 +306,7 @@ function useWide() {
     watch.observe(el);
     return () => watch.disconnect();
   }, []);
-  return wide;
+  return ui.slide ? innerWidth - (ui.slide === 'in' ? side() : 0) >= WIDE : wide;
 }
 
 // ——— Earlier: every result by day, with ideas and a find field ———

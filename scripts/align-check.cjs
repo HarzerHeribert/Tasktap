@@ -5,7 +5,11 @@
 // It also holds the page to what else is promised of its composition: the Composer centred over the lists under it
 // (and, before a folder is open, a little above the middle with its one action on its own edges), a key's label at
 // 7 : 1 or better on its face, the agents' rings in each of their states, no scroller showing a bar, and a wake that
-// lies behind the edge that sheds it. And the collapsed notch: on a display without a camera cutout whatever its tab
+// lies behind the edge that sheds it. Every key shown, on a cap or as a hint, in every state of both pages: at the
+// key role's size or larger, at 4.5 : 1 or better on what is behind it, its modifiers in a Mac's order, and whole
+// (a hint a row has no room for is gone, never cut). Every sheet: centred on the window and hung from the title bar's
+// lower edge, with the sidebar open, closed and on its way, at four widths of window; it sheds no wake, and the
+// ambient layer rests behind it. And the collapsed notch: on a display without a camera cutout whatever its tab
 // draws is centred on the tab's own centre line and height, in every state; with a cutout its two halves keep the same
 // distance from the tab's outer edges and stay clear of the camera, and the line under it is centred. The open notch's
 // head row keeps equal insets and one centre line.
@@ -25,8 +29,10 @@ const LISTS = [
   { list: '.sx', row: ':scope > .tn', parts: { time: 'time', label: '.tn-t' } },
   { list: '.ws', row: ':scope > .row.s', parts: { mark: '.st', label: '.lbl' } },
   { list: '.tree', row: ':scope > .row.home, :scope > .ws > .row.w', parts: { label: '.lbl' } },
-  { list: '.acts', row: ':scope > .act', parts: { key: 'kbd', label: 'span' } },
-  { list: '.settings, .terms', row: ':scope > .set', parts: { label: '.t', fact: '.c' } },  { list: '.files', row: ':scope > .file', parts: { mark: '.ch', label: '.path' } },
+  { list: '.choices', row: ':scope > .act', parts: { key: 'kbd', label: 'span' } },
+  { list: '.set-pane, .terms', row: ':scope > .set', parts: { label: '.t', fact: '.c' } },
+  { list: '.set-nav', row: ':scope > button', parts: { label: 'span', fact: 'kbd' } },
+  { list: '.files', row: ':scope > .file', parts: { mark: '.ch', label: '.path' } },
   { list: '.cap-list', row: ':scope > button', parts: { mark: '.i, .st', label: 'span' } },
   { list: '.rows', row: ':scope > .row', parts: { mark: '.st', label: '.t', fact: '.x', time: 'time' } },
   { list: '.ask-notch .qa', row: ':scope > .ans', parts: { key: 'kbd', label: 'span' } },
@@ -34,7 +40,7 @@ const LISTS = [
   { list: '.ways', row: ':scope > .way', parts: { mark: '.way-h > .i, .way-h > .st', label: '.way-h > b' } },
 ];
 
-function audit(LISTS) {
+function audit([LISTS, KEY]) {
   const bad = [], seen = new Set();
   const box = (el) => el.getBoundingClientRect();
   for (const L of LISTS)
@@ -68,6 +74,7 @@ function audit(LISTS) {
     ['.mic', '.i', 'kbd'], ['.ring[aria-checked=true]', '.ring-o', '.nm'], ['.way-h', ':scope > .i, :scope > .st', ':scope > b'], ['.way-h', '.act kbd', '.act span'],
     ['.way-h', ':scope > b', ':scope > .btn span'], ['.cap-row.hear', '.lvl, .st', 'b'], ['.cap-row.hear', 'b', '.act span'], ['.ans', '.i', 'span'], ['.disc', '.i', 'span'],
     ['.cap-said', ':scope > span', '.btn'], ['.reply', '.lvl', 'input'], ['.line.tool', '.ring-o', '.t'],
+    ['.sh-f .act', 'kbd', 'span'], ['.sh-f .key', '.i', 'span'], ['.sh-f', '.act span', '.key span'], ['.newt', 'span', 'kbd'], ['.attach .lg', 'span', 'kbd'], ['.set', 'kbd.keycap', '.t'],
   ])
     for (const el of document.querySelectorAll(within)) {
       const [m, t] = [el.querySelector(a), el.querySelector(b)];
@@ -104,7 +111,7 @@ function audit(LISTS) {
   }
   // A key's label on its face: 7 : 1 or better against every stop of the face.
   const lum = (c) => { const [r, g, b] = c.match(/[\d.]+/g).slice(0, 3).map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
-  for (const k of document.querySelectorAll('.key:not(:disabled), .ans > kbd')) {
+  for (const k of document.querySelectorAll('.key:not(:disabled), kbd.keycap')) {
     if (!k.offsetParent) continue;
     const s = getComputedStyle(k), face = s.backgroundImage.slice(s.backgroundImage.lastIndexOf('linear-gradient')).match(/rgba?\([^)]+\)/g) ?? [], ink = lum(s.color);
     const least = Math.min(...face.map((c) => { const l = lum(c); return (Math.max(l, ink) + 0.05) / (Math.min(l, ink) + 0.05); }));
@@ -117,11 +124,70 @@ function audit(LISTS) {
     if (!/auto|scroll/.test(s.overflowY + s.overflowX)) continue;
     const bar = el.offsetWidth - el.clientWidth - parseFloat(s.borderLeftWidth) - parseFloat(s.borderRightWidth), barH = el.offsetHeight - el.clientHeight - parseFloat(s.borderTopWidth) - parseFloat(s.borderBottomWidth);
     if (bar > 0.5 || barH > 0.5) bad.push(`a scrollbar shows on .${el.className || el.tagName}`);
-    if (el.scrollHeight > el.clientHeight + 1 && el.matches('.home, .tree, .sheet, .review') && !/up|down/.test(el.dataset.more ?? '')) bad.push(`.${el.className} scrolls and does not say which way there is more`);
+    if (el.scrollHeight > el.clientHeight + 1 && el.matches('.home, .tree, .sh-b, .set-pane') && !/up|down/.test(el.dataset.more ?? '')) bad.push(`.${el.className} scrolls and does not say which way there is more`);
     if (el.scrollHeight > el.clientHeight + 1) seen.add('scrollers');
+  }
+  // Every key shown, on a cap or as a hint: no smaller than the key role, readable on what is behind it, its modifiers
+  // in a Mac's order, and whole. What is behind it: every colour and gradient stop under it, down to the first that
+  // is opaque, each laid over the ones below; the least contrast counts.
+  const rgba = (c) => { const [r, g, b, a = 1] = c.match(/[\d.]+/g).map(Number); return [r, g, b, a]; };
+  const over = ([r, g, b, a], [R, G, B]) => [r * a + R * (1 - a), g * a + G * (1 - a), b * a + B * (1 - a), 1];
+  const behind = (el) => {
+    const layers = [];
+    for (let e = el; e; e = e.parentElement) {
+      // Of its pictures, those that cover it: an edge a pixel or two wide is beside the key, not behind it.
+      const s = getComputedStyle(e), c = rgba(s.backgroundColor), sizes = s.backgroundSize.split(', ');
+      const pictures = [];
+      for (let i = 0, depth = 0, from = 0; i <= s.backgroundImage.length; i++) {
+        const ch = s.backgroundImage[i];
+        depth += ch === '(' ? 1 : ch === ')' ? -1 : 0;
+        if (i === s.backgroundImage.length || (ch === ',' && !depth)) (pictures.push(s.backgroundImage.slice(from, i).trim()), (from = i + 1));
+      }
+      const faces = pictures.filter((g, i) => g.includes('gradient') && (sizes[i] ?? sizes[0]) === 'auto').map((g) => g.match(/rgba?\([^)]+\)/g).map(rgba));
+      layers.push(...faces);
+      if (c[3] > 0) layers.push([c]);
+      if (c[3] === 1 || faces.some((g) => g.every((x) => x[3] === 1))) break;
+    }
+    return layers.reverse().reduce((under, layer) => under.flatMap((u) => layer.map((x) => over(x, u))), [[10, 10, 11, 1]]);
+  };
+  for (const k of document.querySelectorAll('kbd')) {
+    const b = box(k);
+    if (!b.width || !k.offsetParent) continue;
+    // A hint its button has no room for has wrapped out of it: wholly gone, which is the rule. Cut in part is a fault.
+    const within = k.closest('button'), clips = within && getComputedStyle(within).overflow !== 'visible' ? [box(within)] : [];
+    if (clips.some((c) => b.top >= c.bottom - 0.5 || b.left >= c.right - 0.5)) continue;
+    const name = `the key "${k.textContent.trim() || '↩'}"${k.closest('[class]:not(kbd)') ? ` in .${k.closest('[class]:not(kbd)').className.split(' ')[0]}` : ''}`;
+    seen.add('key hints');
+    if (clips.some((c) => b.left < c.left - 0.5 || b.right > c.right + 0.5 || b.top < c.top - 0.5 || b.bottom > c.bottom + 0.5) || k.scrollWidth > k.clientWidth + 1) bad.push(`${name} is cut`);
+    const s = getComputedStyle(k);
+    if (parseFloat(s.fontSize) < KEY.size || Number(s.fontWeight) < KEY.weight || !s.fontFamily.startsWith('system-ui')) bad.push(`${name} is set in ${s.fontWeight} ${s.fontSize} ${s.fontFamily.split(',')[0]}, under the key role (${KEY.weight} ${KEY.size}px)`);
+    if (!/^⌃?⌥?⇧?⌘?[^⌃⌥⇧⌘]*$/.test(k.textContent)) bad.push(`${name} does not put its modifiers in the order ⌃⌥⇧⌘`);
+    const ink = rgba(s.color), least = Math.min(...behind(k).map((u) => { const [a, c] = [lum(`rgb(${over(ink, u).slice(0, 3).join(',')})`), lum(`rgb(${u.slice(0, 3).join(',')})`)]; return (Math.max(a, c) + 0.05) / (Math.min(a, c) + 0.05); }));
+    if (!(least >= 4.5)) bad.push(`${name} is at ${least.toFixed(1)} : 1 on what is behind it`);
   }
   return { bad, seen: [...seen] };
 }
+
+/** Every sheet is the window's: centred on it, hung from the title bar's lower edge, inside it with room at its sides;
+ *  and it stays where it is while the sidebar goes and comes. Measured over the frames of both slides. */
+const hung = () => new Promise((done) => {
+  const bad = [], sheet = () => document.querySelector('.sheet').getBoundingClientRect();
+  const off = () => (sheet().left + sheet().right) / 2 - innerWidth / 2;
+  const s = sheet(), bar = document.querySelector('.bar').getBoundingClientRect();
+  if (Math.abs(off()) > 0.5) bad.push(`it is ${off().toFixed(1)} px off the window's centre`);
+  if (Math.abs(s.top - bar.bottom) > 0.5) bad.push(`its top is ${(s.top - bar.bottom).toFixed(1)} px from the title bar's lower edge`);
+  if (s.left < 15.5 || s.right > innerWidth - 15.5 || s.bottom > innerHeight - 15.5) bad.push('it does not keep 16 px to the window\'s edges');
+  let worst = 0, slides = 0;
+  const began = performance.now();
+  window.__ws.command('sidebar');
+  const tick = () => {
+    worst = Math.max(worst, Math.abs(off()));
+    if (!window.__ws.ui.slide && slides < 1 && performance.now() - began > 450) (slides++, window.__ws.command('sidebar'));
+    if (performance.now() - began < 1100) requestAnimationFrame(tick);
+    else done(worst > 0.5 ? [...bad, `it moves ${worst.toFixed(1)} px off the window's centre while the sidebar slides`] : bad);
+  };
+  requestAnimationFrame(tick);
+});
 
 /** The collapsed notch's tab, from the tight boxes of what it draws (bars, figures, the words of who asks), never from
  *  a box with room in it. `own` is the tab's width before its wings. */
@@ -176,6 +242,7 @@ const RINGS = { busy: 'claude:asks:runs:turns3 codex:asks:turns1', quiet: 'claud
 /** Starts a motion and watches it frame by frame: every glyph of the wake that shows must lie behind the moving edge
  *  of `sel` (its right edge across the window, or its lower edge down it), on the side the edge has come from. */
 const trail = ([start, sel, axis]) => new Promise((done) => {
+  document.querySelectorAll('.wake').forEach((w) => w.remove());
   const out = { glyphs: 0, ahead: 0, frames: 0 }, began = performance.now();
   let from = null, way = 0;
   new Function(start)();
@@ -202,11 +269,17 @@ async function main() {
   const { chromium } = require('playwright');
   const server = await serve(path.resolve(__dirname, '../ui/dist'));
   const browser = await chromium.launch({ headless: true });
-  const failures = [], measured = new Set();
+  const failures = [], measured = new Set(), TWO = { two: true };
   const views = [
     ['busy', null], ['busy', (w) => (w.__ws.ui.fold = 'results')], ['busy', (w) => (w.__ws.ui.fold = 'later')], ['normal', null], ['quiet', null], ['first', null],
-    ['busy', (w) => w.__ws.show('earlier')], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'agents' })], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'close-tab', project: '', id: '' })],
-    ['busy', (w) => (w.__ws.ui.sheet = { kind: 'settings' })], ['busy', (w) => w.document.querySelector('#dest-chip').click()],
+    ['busy', (w) => w.__ws.show('earlier')], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'close-tab', project: '', id: '' })], ['busy', (w) => w.document.querySelector('#dest-chip').click()],
+    // Settings, section by section, and the sheets that are a list of answers, a field, or the Composer.
+    // (At the usual width and the narrowest: `TWO`.)
+    ...['thoughts', 'voice', 'agents', 'appearance', 'terminal', 'about'].map((at) => ['busy', `(w) => (w.__ws.ui.sheet = { kind: 'settings', at: '${at}' })`, '', TWO]), ['first', (w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'agents' }), '', TWO],
+    ['busy', (w) => (w.__ws.ui.sheet = { kind: 'send', thought: [...w.__ws.records.thoughts.values()].find((t) => t.mode === 'note').id }), '', TWO], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'open-workspace' }), '', TWO],
+    ['busy', (w) => (w.__ws.ui.sheet = { kind: 'reply', question: [...w.__ws.records.questions.values()].find((q) => q.state === 'open' && q.kind === 'choice').id }), '', TWO], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'capture' }), '', TWO],
+    ['workspace', (w) => (w.__ws.show(w.__fake.records.ids.projects.cuegrid), (w.__ws.ui.sheet = { kind: 'find', id: w.__fake.records.ids.export.terminal })), '', TWO],
+    ['workspace', (w) => (w.__ws.show(w.__fake.records.ids.projects.cuegrid), (w.__ws.ui.sheet = { kind: 'settle', thought: [...w.__ws.records.thoughts.values()].find((t) => t.workdir?.changes === 'pending').id, keep: false })), '', TWO],
     ['workspace', (w) => (w.__ws.ui.sheet = { kind: 'review', thought: [...w.__ws.records.thoughts.values()].find((t) => t.workdir?.changes === 'pending').id })],
     // A session's details: its two lines of facts and its turns, one of them read from the core's history.
     ['busy', (w) => (w.__ws.ui.sheet = { kind: 'session', id: [...w.__ws.records.sessions.values()].find((s) => s.turn > 1).id }), 'session'],
@@ -216,8 +289,12 @@ async function main() {
     ['normal', null, 'placing'], ['normal', null, 'gone'], ['busy', null, 'asked', { lang: 'de' }], ['normal', (w) => (w.__ws.ui.fold = 'later'), 'later-gone'],
     ['normal', (w) => mine(w, 'thought', true), 'recording'], ['normal', (w) => mine(w), 'writing'], ['normal', (w) => mine(w), 'failed-heard'], ['busy', (w) => mine(w, 'text', false, '.hq.open .reply input'), 'recording'],
     ['normal', (w) => (w.__speech.talk.said = 'service'), 'no-service', { voice: false }],
-    ['normal', (w) => (w.__ws.ui.sheet = { kind: 'placing' }), 'off'], ['normal', (w) => (w.__ws.ui.sheet = { kind: 'speech' }), 'no-service', { voice: false }], ['normal', (w) => (w.__ws.ui.sheet = { kind: 'settings' }), 'plain'],
+    ['normal', (w) => (w.__ws.ui.sheet = { kind: 'placing' }), 'off'], ['normal', (w) => (w.__ws.ui.sheet = { kind: 'speech' }), 'no-service', { voice: false }],
+    ['normal', (w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'thoughts' }), 'plain'], ['normal', (w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'voice' }), 'plain'],
   ];
+  // The key role, from the token file: no key is set smaller or lighter.
+  const [, weight, size] = /--f-key:(\d+) ([\d.]+)px\/[\d.]+px var\(--ui\)/.exec(require('node:fs').readFileSync(path.resolve(__dirname, '../ui/src/tokens.css'), 'utf8'));
+  const KEY = { size: Number(size), weight: Number(weight) };
   // In the page: this page's dictation is the fixture's; and a thought typed into the Composer.
   const helpers = `const mine = (w, kind = 'thought', latched = false, field = '') => Object.assign(w.__speech.talk, { id: w.__fake.records.dictations[0].id, kind, latched, field: field ? w.document.querySelector(field) : null });
     const typeIn = (w, text) => (w.document.querySelector('#capture-input').focus(), w.document.execCommand('insertText', false, text));`;
@@ -225,11 +302,11 @@ async function main() {
     for (const [state, act, kind, opts] of views)
       // The widths the composition is promised at, and a short window, where Home, the sidebar and a sheet all scroll.
       // The flows are measured at the usual width, the widest and the narrowest.
-      for (const [width, height] of [[1180, 900], [1800, 900], [1480, 900], [720, 900], [1180, 420]].filter(([w, h]) => !kind || (w !== 1480 && h !== 420))) {
+      for (const [width, height] of [[1180, 900], [1800, 900], [1480, 900], [720, 900], [1180, 420]].filter(([w, h]) => (!kind || (w !== 1480 && h !== 420)) && (opts !== TWO || (h === 900 && (w === 1180 || w === 720))))) {
         const page = await open(browser, { label: 'workspace', records: kind ? flow(scene(state), kind, opts) : scene(state), url: server.url, dpr: 1, viewport: { width, height } });
         if (act) await page.evaluate(`${helpers}; (${act})(window); window.__motion.redraw()`);
         await page.waitForTimeout(500);
-        const r = await page.evaluate(audit, LISTS);
+        const r = await page.evaluate(audit, [LISTS, KEY]);
         if (kind) measured.add(`flow: ${kind}`);
         if (!act && !kind && RINGS[state] && width !== 720) {
           const got = await page.evaluate(rings);
@@ -241,19 +318,44 @@ async function main() {
         for (const e of page.errors) failures.push(`workspace ${state}${kind ? ` (${kind})` : ''}: the page said ${e}`);
         await page.context().close();
       }
-    // The wake: right of the sidebar's edge as it closes, left of it as it opens, above a sheet's edge as it drops.
+    // The wake: right of the sidebar's edge as it closes, left of it as it opens. No sheet sheds one.
     const moving = await open(browser, { label: 'workspace', records: scene('normal'), url: server.url, dpr: 1 });
     await moving.waitForTimeout(1500);
     for (const [name, ...motion] of [
       ['the sidebar closing', "__ws.command('sidebar')", '.side', 'x'], ['the sidebar opening', "__ws.command('sidebar')", '.side', 'x'],
-      ['a sheet dropping', "__ws.ui.sheet = { kind: 'agents' }; __motion.redraw()", '.sheet', 'y'],
+      ['a decision coming down', "__ws.ui.sheet = { kind: 'close-tab', project: '', id: '' }; __motion.redraw()", '.sheet', 'y', true],
+      ['Settings coming down', "__ws.dismiss(); __ws.command('settings')", '.sheet', 'y', true],
     ]) {
-      const r = await moving.evaluate(trail, motion);
+      const [, , , none] = motion, r = await moving.evaluate(trail, motion);
       await moving.waitForTimeout(700);
-      measured.add('wake');
-      if (!r.glyphs || r.ahead) failures.push(`${name}: ${r.glyphs ? `${r.ahead} sightings of a wake glyph ahead of the edge` : 'no wake was shed'}`);
+      measured.add(none ? 'no wake from a sheet' : 'wake');
+      if (none ? r.glyphs : !r.glyphs || r.ahead) failures.push(`${name}: ${none ? 'it shed a wake' : r.glyphs ? `${r.ahead} sightings of a wake glyph ahead of the edge` : 'no wake was shed'}`);
     }
     await moving.context().close();
+    // Every size of sheet, at four widths of window, with the sidebar open, closed and sliding: on the window's centre,
+    // under the title bar's edge. And behind one the ambient layer rests, though agents work in the window in use.
+    const P = '__fake.records.ids.projects.cuegrid';
+    for (const [name, sc, kind, sheet] of [
+      ['a decision', 'workspace', 'off', `(__ws.show(${P}), __ws.ui.sheet = { kind: 'close-tab', project: ${P}, id: __fake.records.ids.export.terminal })`],
+      ['the Composer', 'busy', 'off', `(__ws.ui.sheet = { kind: 'capture' })`], ['a form', 'normal', 'off', `(__ws.ui.sheet = { kind: 'placing' })`],
+      ['a session', 'busy', 'session', `(__ws.ui.sheet = { kind: 'session', id: [...__ws.records.sessions.values()].find((s) => s.turn > 1).id })`],
+      ['a review', 'workspace', 'off', `(__ws.show(${P}), __ws.ui.sheet = { kind: 'review', thought: [...__ws.records.thoughts.values()].find((t) => t.workdir?.changes === 'pending').id })`],
+      ['Settings', 'busy', 'plain', `(__ws.ui.sheet = { kind: 'settings', at: 'appearance' })`],
+    ])
+      for (const [width, height] of [[720, 540], [1180, 760], [1480, 900], [1800, 1100]]) {
+        const page = await open(browser, { label: 'workspace', records: flow(scene(sc), kind, { voice: false }), url: server.url, dpr: 1, viewport: { width, height } });
+        await page.evaluate(`__motion.debug.active = true; __motion.redraw()`);
+        await page.waitForTimeout(300);
+        const before = await page.evaluate(`document.querySelector('.light, .spark')?.dataset.moves`);
+        await page.evaluate(`${sheet}; __motion.redraw()`);
+        await page.waitForTimeout(400);
+        const after = await page.evaluate(`[...document.querySelectorAll('.light, .spark')].map((e) => e.dataset.moves).join()`);
+        if (before === 'true') measured.add('the ambient layer rests behind a sheet');
+        if (after.includes('true')) failures.push(`${name}, ${width}px: the ambient layer moves behind the sheet`);
+        for (const b of await page.evaluate(hung)) failures.push(`${name}, ${width}px: ${b}`);
+        measured.add('sheets on the window\'s centre');
+        await page.context().close();
+      }
     for (const [a, sc, kind, opts, then] of [
       ['answer', 'busy'], ['capture', 'normal'], ['capture', 'busy'], ['hover-enter', 'normal'],
       ['capture', 'normal', 'held', { lang: 'de', long: true }], ['capture', 'normal', 'two'], ['answer', 'normal', 'asked'], ['capture', 'normal', 'recording', {}, (w) => mine(w, 'thought', true)], ['capture', 'normal', 'failed-heard', {}, (w) => mine(w)],
@@ -263,7 +365,7 @@ async function main() {
       await page.evaluate((x) => window.__fake.emit({ do: x }), a);
       if (then) await page.evaluate(`${helpers}; (${then})(window); window.__look({})`);
       await page.waitForTimeout(900);
-      const r = await page.evaluate(audit, LISTS);
+      const r = await page.evaluate(audit, [LISTS, KEY]);
       r.seen.forEach((x) => measured.add(x.replace(/ ×\d+/, '')));
       for (const b of [...r.bad, ...(await page.evaluate(band)).map((x) => `the head row: ${x}`)]) failures.push(`notch ${a} ${sc}: ${b}`);
       measured.add('the open notch\'s head row');
@@ -297,7 +399,7 @@ async function main() {
   }
   console.log(`measured: ${[...measured].join('; ')}`);
   for (const f of [...new Set(failures)]) console.log('FAIL  ' + f);
-  console.log(failures.length ? `FAIL  alignment: ${new Set(failures).size} things out of line` : 'PASS  every list keeps its columns, marks centred, labels and secondary text on shared edges; the Composer is centred on what is under it and says Start once; keys read at 7 : 1; the rings show each state; no scroller shows a bar; a wake lies behind its edge; the collapsed notch is centred in every state on both kinds of display');
+  console.log(failures.length ? `FAIL  alignment: ${new Set(failures).size} things out of line` : 'PASS  every list keeps its columns, marks centred, labels and secondary text on shared edges; the Composer is centred on what is under it and says Start once; keys read at 7 : 1; every key shown is at the key role\'s size, at 4.5 : 1 or better, in a Mac\'s order and whole; the rings show each state; no scroller shows a bar; the sidebar\'s wake lies behind its edge and no sheet sheds one; every sheet is on the window\'s centre under the title bar, with the sidebar open, closed and sliding, and the ambient layer rests behind it; the collapsed notch is centred in every state on both kinds of display');
   process.exitCode = failures.length ? 1 : 0;
 }
 main().catch((e) => (console.error(e), process.exit(1)));

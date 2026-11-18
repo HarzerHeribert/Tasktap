@@ -43,7 +43,7 @@ const mine = `(w) => Object.assign(w.__speech.talk, { id: w.__fake.records.dicta
 const VIEWS = [
   ['busy'], ['normal'], ['quiet'], ['first'], ['busy', `(w) => (w.__ws.ui.fold = 'results')`], ['busy', `(w) => (w.__ws.ui.fold = 'later')`], ['busy', `(w) => w.__ws.show('earlier')`],
   ['workspace', `(w) => w.__ws.show(Object.values(w.__fake.records.ids.projects)[0])`], ['busy', `(w) => w.__ws.show(Object.values(w.__fake.records.ids.projects)[2])`], ['busy', `(w) => w.__ws.command('sidebar')`],
-  ['busy', sheet({ kind: 'agents' })], ['busy', sheet({ kind: 'settings' })], ['busy', sheet({ kind: 'close-tab', project: '', id: '' })], ['busy', sheet({ kind: 'capture' })], ['busy', sheet({ kind: 'open-workspace' })],
+  ...['thoughts', 'voice', 'agents', 'appearance', 'terminal', 'about'].map((at) => ['busy', sheet({ kind: 'settings', at })]), ['normal', sheet({ kind: 'settings', at: 'about' }), 'plain'], ['busy', sheet({ kind: 'close-tab', project: '', id: '' })], ['busy', sheet({ kind: 'capture' })], ['busy', sheet({ kind: 'open-workspace' })],
   ['workspace', `(w) => (w.__ws.ui.sheet = { kind: 'review', thought: [...w.__ws.records.thoughts.values()].find((t) => t.workdir?.changes === 'pending').id })`],
   ['busy', `(w) => (w.__ws.ui.sheet = { kind: 'send', thought: [...w.__ws.records.thoughts.values()].find((t) => t.mode === 'note').id })`], ['busy', `(w) => w.document.querySelector('#dest-chip').click()`],
   ['normal', '', 'held'], ['normal', '', 'two'], ['normal', '', 'placing'], ['normal', '', 'gone'], ['busy', '', 'asked'], ['normal', `(w) => (w.__ws.ui.fold = 'later')`, 'later-gone'],
@@ -68,6 +68,8 @@ async function main() {
       if (width !== '100%') failures.add(`${at}: text at width ${width}, not normal (${where.slice(0, 3).join(', ')})`);
       else if (!r) failures.add(`${at}: "${key.split(' ').slice(0, 4).join(' ')}" is no role's face, size, weight and spacing (${where.slice(0, 3).join(', ')})`);
       else where.forEach((w) => used[r.name].add(w));
+      // A key is in the key role and nothing else is, but the letters that stand for an agent with no mark.
+      for (const w of where) if (/\bkbd\b/.test(w) !== (r?.name === 'key') && !/ring-o text/.test(w)) failures.add(`${at}: ${/\bkbd\b/.test(w) ? `a key is set in the ${r?.name ?? 'no'} role` : 'something that is no key is set in the key role'} (${w})`);
     }
   };
   try {
@@ -104,7 +106,7 @@ async function main() {
   const unused = all.filter((r) => r.name !== 'term' && !used[r.name].size).map((r) => r.name);
   if (unused.length) failures.add(`roles nothing is set in: ${unused.join(', ')}`);
   for (const f of failures) console.log('FAIL  ' + f);
-  console.log(failures.size ? `FAIL  type: ${failures.size} things outside the scale` : `PASS  every text in both pages is one of ${all.length - 1} roles, in one family at its normal width, the monospace face for figures, keys and code only`);
+  console.log(failures.size ? `FAIL  type: ${failures.size} things outside the scale` : `PASS  every text in both pages is one of ${all.length - 1} roles, in one family at its normal width, the monospace face for figures, counts and code only, and every key in the key role`);
   process.exitCode = failures.size ? 1 : 0;
 }
 main().catch((e) => (console.error(e), process.exit(1)));

@@ -23,7 +23,12 @@ export const SECTIONS = [['thoughts', 'Thoughts'], ['voice', 'Voice'], ['agents'
 export type Section = (typeof SECTIONS)[number][0];
 /** The section last shown: Settings opens there again unless a link asks for another. */
 export const shown = { at: 'thoughts' as Section };
-const go = (at: Section) => ((ui.sheet = { kind: 'settings', at }), redraw());
+/** Shows a section. The keyboard goes to its place in the list: what had it may be a control of the section left. */
+function go(at: Section) {
+  ui.sheet = { kind: 'settings', at };
+  redraw();
+  requestAnimationFrame(() => focus(`#set-tab-${at}`));
+}
 
 const styles: [MotionStyle, string][] = [['slats', 'Slats'], ['glyphs', 'Glyphs'], ['resonator', 'Resonator']];
 const palettes: [MotionPalette, string][] = [['chrome', 'Chrome'], ['chromatic', 'Chromatic'], ['warm', 'Warm'], ['cool', 'Cool'], ['custom', 'Custom']];
@@ -245,7 +250,6 @@ export function Settings({ at }: { at: Section }) {
     if (!to) return;
     e.preventDefault();
     go(to[0]);
-    requestAnimationFrame(() => focus(`#set-tab-${to[0]}`));
   };
   return (
     <div class="settings">

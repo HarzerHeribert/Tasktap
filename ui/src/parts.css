@@ -8,7 +8,7 @@ body{font:var(--f-text);color:var(--fg);-webkit-font-smoothing:antialiased;text-
 :where(input,textarea){-webkit-user-select:text;user-select:text}
 button{cursor:default}
 /* A key (ui.tsx Key): one role, on a metal cap or as a hint after a label. */
-kbd{flex:none;font:var(--f-key);color:var(--fg2);white-space:nowrap}
+kbd{flex:none;font:var(--f-key);font-variant-numeric:tabular-nums;color:var(--fg2);white-space:nowrap}
 /* Weight is a role's, never a tag's. */
 :where(b,strong){font-weight:inherit}
 i{font-style:normal}

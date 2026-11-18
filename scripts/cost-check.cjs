@@ -78,7 +78,7 @@ async function main() {
       await level('breathing');
       await ws(`(__ws.command('open-workspace'), 1)`);
       await sleep(500);
-      app.send('click workspace .sheet .act.primary');
+      app.send('click workspace .sheet .sh-f .key');
       await sleep(3000);
       await measure("agents working, in front, beside a terminal: the sidebar's glyphs", long, every);
     }

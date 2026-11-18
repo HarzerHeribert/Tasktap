@@ -337,7 +337,7 @@ const slide = () => new Promise((done) => {
 /** Types a line into the terminal shown, as the keyboard would. */
 const type = (line: string) => (engines.get(current()?.id ?? '')?.term.input(line + '\r', true), !!current()?.id);
 Object.assign(window, {
-  __ws: { uuid7, ui, records, layout, command, greet, slide, engines, focusSession, show, newTerminal, startAgent, call, echo, burst, text, type, current, dismiss, menu, choose, LOOSE, L },
+  __ws: { uuid7, ui, records, layout, command, greet, slide, engines, focusSession, show, newTerminal, startAgent, call, echo, burst, text, type, current, dismiss, open, menu, choose, LOOSE, L },
   __motion: { debug, stats, redraw },
   __speech: { talk, live, cap },
 });

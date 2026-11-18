@@ -203,7 +203,7 @@ async function launch({ exe = RELEASE, fixture = false, env = {}, display = 0, p
     await sleep(1200);
     await ask('workspace', `(__ws.command('open-workspace'), 1)`);
     await sleep(500);
-    send('click workspace .sheet .act.primary');
+    send('click workspace .sheet .sh-f .key');
     if (!(await until('workspace', `String([...__ws.records.projects.values()].some(p => p.kind === 'folder') && __ws.records.agents.has('fixture'))`, 'true', 10))) throw new Error('the folder did not open');
     await ask('workspace', `(__ws.show('home'), 1)`);
   };

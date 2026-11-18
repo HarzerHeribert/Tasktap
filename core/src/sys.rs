@@ -993,6 +993,7 @@ mod windows {
         use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
         use windows_sys::Win32::System::Console::{
             COORD, ClosePseudoConsole, CreatePseudoConsole, HPCON, ResizePseudoConsole,
+            SetConsoleCtrlHandler,
         };
         use windows_sys::Win32::System::LibraryLoader::{
             GetProcAddress, LOAD_WITH_ALTERED_SEARCH_PATH, LoadLibraryExW,
@@ -1170,6 +1171,16 @@ mod windows {
                 let mut block = environment(env);
                 let cwd = cwd.is_dir().then(|| wide(cwd.as_os_str()));
                 let jobs = [job.0];
+                // A core started detached is in a process group of its own
+                // (`detach`), which Windows takes as "ignore Control-C", and
+                // what such a process starts inherits that: the console
+                // would tell the shell and its programs of a Control-C typed
+                // in the terminal and none of them would hear. Normal
+                // handling is put back in this process, for what it starts
+                // from here on; it has no console of its own for a Control-C
+                // to come from.
+                // SAFETY: no handler is added or removed, only the flag set.
+                unsafe { SetConsoleCtrlHandler(None, 0) };
                 // SAFETY: the attribute list is sized by the system, lives in
                 // `list` until it is deleted below, and points at the console
                 // handle and at `jobs`, which outlive the call that reads

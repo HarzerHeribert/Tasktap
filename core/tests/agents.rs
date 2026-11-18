@@ -928,8 +928,9 @@ fn an_antigravity_hook_reads_what_its_state_leaves_out_from_the_transcript() {
     assert_eq!(asked.prompt, "Antigravity asks to run touch made.txt");
     assert_eq!(asked.reply_via, tasktap_proto::ReplyVia::Terminal);
     assert_eq!(asked.source, tasktap_proto::QuestionSource::Permission);
-    // The same state again says nothing new.
-    assert_ne!(hook("state-approval", "approval"), None);
+    // The same state again says nothing new, and is no failure: after 30
+    // failed runs in a row Antigravity stops running the script.
+    assert_eq!(hook("state-approval", "approval"), Some(0));
     // At work again: the turn goes on, and that was answered there.
     assert_eq!(hook("state-working-on", "approval"), Some(0));
     s.w.until("the approval closes", |m| {

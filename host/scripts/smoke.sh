@@ -870,7 +870,8 @@ ask workspace "click .home .way .act" >/dev/null
 until_has workspace "eval $field.value" 3 "the footer in project" && clear_field && until_has workspace "eval String(__ws.records.thoughts.size)" 3 "$before" || fail "the thought placed by name is taken back"
 # Settings says what is on, and turns it off.
 js workspace "(__ws.command('settings'), 1)" >/dev/null
-until_has workspace "eval __ws.ui.sheet?.at" 3 "appearance" && press workspace ".sheet" 1 true >/dev/null
+# (A moment for the sheet to listen: behind a locked screen the page is hidden, and a hidden page takes its time.)
+until_has workspace "eval __ws.ui.sheet?.at" 3 "appearance" && sleep 1 && press workspace ".sheet" 1 true >/dev/null
 until_has workspace "text .settings" 3 "By Fixture agent · fixture-small" && pass "Settings opens where it was last shown, and under Thoughts says who places them" || fail "Settings, Thoughts"
 shot settings-flows workspace
 js workspace "([...document.querySelectorAll('.settings .btn')].find(b => b.textContent.startsWith('What it is sent')).click(), 1)" >/dev/null

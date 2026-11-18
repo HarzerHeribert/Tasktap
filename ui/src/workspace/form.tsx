@@ -46,7 +46,8 @@ export function Recorder({ name, value, own, set }: { name: string; value: Short
     set(key).catch((e: unknown) => say(sentence(e instanceof Error ? e.message : String(e))));
   };
   const keys = (e: KeyboardEvent) => {
-    if (!listens) return;
+    // (The flag as well as the state: a key let go in the moment after one was tried belongs to nobody.)
+    if (!listens || !recorder.on) return;
     e.preventDefault();
     e.stopPropagation();
     if (e.type === 'keyup' || isModifier(e)) return hold(heldNow(e));

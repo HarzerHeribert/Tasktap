@@ -252,8 +252,9 @@ impl Agent for Antigravity {
 
     fn launch(&self, run: &Run) -> Vec<String> {
         let mut argv = vec![self.program().to_owned()];
-        // As for the others: a resumed conversation keeps its model.
-        if let (Some(model), None) = (run.model, run.resume) {
+        // Also for a resume: it continues a conversation on the person's
+        // usual model, not on the one the conversation had.
+        if let Some(model) = run.model {
             argv.extend(["--model".into(), model.into()]);
         }
         argv.extend(["--settings".into(), settings(run.hook, Some(run.cwd))]);

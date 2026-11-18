@@ -1299,6 +1299,10 @@ impl Machine<'_, '_> {
                 .map(|s| s.agent.clone())
                 .or_else(|| t.agent.clone())
                 .ok_or(Error::Invalid("a thought starts with an agent"))?;
+            // A resume keeps its conversation's model: not every agent's
+            // tool does that by itself.
+            let kept = target.as_ref().and_then(|s| s.model.clone());
+            let model = kept.or_else(|| t.model.clone());
             // A new run is named by the title a model gave the work.
             let title = t.route.as_ref().and_then(|r| r.title.clone());
             let title = title.filter(|_| target.is_none());
@@ -1315,7 +1319,7 @@ impl Machine<'_, '_> {
                 resume: None,
                 named_at: title.as_ref().map(|_| self.now),
                 name: title,
-                model: t.model.clone(),
+                model: model.clone(),
                 cwd,
                 exit: None,
                 error: None,
@@ -1330,7 +1334,7 @@ impl Machine<'_, '_> {
                 project,
                 cwd: session.cwd,
                 agent,
-                model: t.model.clone(),
+                model,
                 prompt: text,
                 words,
                 resume: target.and_then(|s| s.resume),

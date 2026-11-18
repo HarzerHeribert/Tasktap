@@ -770,10 +770,15 @@ fn antigravity_runs_trusted_with_its_title_script_and_no_policy_of_ours() {
         2,
         "and no hooks: it refuses them there"
     );
-    // A resumed run continues the conversation, with the model it had.
+    // A resumed run continues the conversation, and is told its model
+    // again: by itself Antigravity would take the person's usual one.
     let argv = agy.launch(&run("Go on", Some("gemini-4-carbon-low"), Some("abc")));
     let rest: Vec<&str> = argv.iter().map(String::as_str).collect();
-    assert_eq!(rest[..2], ["agy", "--settings"]);
+    assert_eq!(
+        rest[..4],
+        ["agy", "--model", "gemini-4-carbon-low", "--settings"]
+    );
+    let rest = &rest[2..];
     assert_eq!(
         rest[3..],
         ["--conversation", "abc", "--prompt-interactive", "Go on"]

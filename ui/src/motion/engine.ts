@@ -73,6 +73,9 @@ const MOMENT = [0, Infinity, Infinity, Infinity, Infinity, 3.2, 2];
 /** Seconds a state takes to come in, twice over: its weight follows a value that itself follows the state, so a
  *  change begins from the pose and the pace on screen, small, and grows; a second change on its way bends it. */
 const BLEND = 0.22;
+/** The same for a result in a calm view (Home's band): its even form comes in, and goes again, at the pace of the
+ *  band's own pulse rather than at once. */
+const RESULT = 0.88;
 /** Seconds a calm view's own motion takes to reach its pace, or to come to rest from it. */
 const WAY = 0.8;
 const VERT = '#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.-1.,0.,1.);}';
@@ -408,7 +411,8 @@ export class View {
   }
 
   tick(dt: number) {
-    const s = STATES.indexOf(this.o.state), k = 1 - Math.exp(-dt / BLEND);
+    // A calm view takes a result's form, and gives it up again, four times as slowly: an accent, not a flash.
+    const s = STATES.indexOf(this.o.state), k = 1 - Math.exp(-dt / (this.o.pace === 'calm' && (s === 5 || this.stV[5]! > 0.002) ? RESULT : BLEND));
     this.moving = false;
     for (let i = 0; i < 7; i++) {
       this.stV[i]! += (+(i === s) - this.stV[i]!) * k;

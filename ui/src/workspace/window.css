@@ -119,6 +119,19 @@ button.row:active{background:var(--sel)}
 .term .xterm .xterm-scrollable-element>.scrollbar{background:transparent;border:0;box-shadow:none;pointer-events:none}
 .term .xterm .xterm-scrollable-element>.scrollbar.vertical>.slider{width:2px!important;left:auto!important;right:1px;border-radius:1px;background:color-mix(in srgb,var(--deck-fg) 45%,transparent);opacity:0;transition:opacity 180ms linear}
 .term.scrolling .xterm .xterm-scrollable-element>.scrollbar.vertical>.slider{opacity:1;transition:none}
+/* A link in a terminal shows as one only while ⌘ is held (terminal.ts): without it the underline xterm.js draws under
+   the pointer and its hand are not there, so nothing in a terminal looks clickable that a plain click would not open.
+   What a link opens, where its text does not say it, stands at the terminal's foot for as long as it is pointed at. */
+:root:not([data-cmd]) .xterm-rows span[style*="text-decoration: underline"]:not([class*=xterm-underline]){text-decoration:none!important}
+/* A hyperlink a program printed itself has xterm.js's dashed line under it at rest, since its words do not say that
+   it is one: under the pointer without ⌘ it keeps that line. */
+:root:not([data-cmd]) .xterm-rows span.xterm-underline-5[style*="text-decoration: underline"]{text-decoration:dashed underline!important}
+:root:not([data-cmd]) .xterm .xterm-cursor-pointer{cursor:inherit}
+.term-link{position:absolute;z-index:2;left:14px;bottom:10px;max-width:calc(100% - 28px);display:flex;align-items:baseline;gap:var(--sp3);padding:5px 10px;border-radius:var(--r1);
+  background:var(--bg);box-shadow:inset 0 0 0 1px var(--line2);font:var(--f-num);color:var(--fg);pointer-events:none}
+.term-link b{overflow-wrap:anywhere}
+.term-link i{flex:none;font-style:normal;color:var(--fg3)}
+.term-link i:empty,.term-link[hidden],:root:not([data-cmd]) .term-link{display:none}
 .term-more{position:absolute;z-index:2;left:50%;bottom:10px;transform:translateX(-50%);background:var(--bg);color:var(--fg2)}
 /* The seam between panes is the divider's own line; a pane below another needs none: its tab bar is the edge. */
 .divider{position:absolute;z-index:3;outline-offset:-2px}
@@ -358,6 +371,27 @@ button.hq:hover{background:var(--hover)}
 button.line{grid-template-columns:190px minmax(0,1fr)}
 button.line:hover{background:var(--hover)}
 .line[data-s=off] .x{color:var(--asks)}
+.line>.i{justify-self:center;width:14px;height:14px;color:var(--fg3)}
+.line .def{color:var(--fg3)}
+/* A session's details (session.tsx), to read: two lines of what it is, what can be done with it, then its turns, the
+   newest first. A turn is one set of columns for every line in it: the time, the mark, the words. Nothing is boxed;
+   a hairline parts the turns. */
+.sx .line .x+.x{padding-left:var(--sp3);text-align:right}
+.sx-s{display:inline-flex;align-items:center;gap:6px;color:var(--fg)}
+.sx-d{display:flex;justify-content:flex-end;gap:var(--sp3)}
+.sx>.told{margin:10px 18px 0}
+.sx-a{display:flex;flex-wrap:wrap;gap:6px;padding:10px 18px;border-bottom:1px solid var(--line)}
+.tn{display:grid;grid-template-columns:52px 22px minmax(0,1fr);align-items:start;row-gap:var(--sp2);padding:12px 18px 14px;border-bottom:1px solid var(--line)}
+.tn>time{padding-top:2px;font:var(--f-num);color:var(--fg3)}
+.tn>:is(.st,.i){margin-top:2px}
+.tn>.i{width:14px;height:14px;color:var(--fg3)}
+.sheet .tn>p{grid-column:3;margin:0;-webkit-user-select:text;user-select:text}
+.sheet .tn>:is(.tn-q,.tn-r){font:var(--f-text);color:var(--fg);text-wrap:pretty;overflow-wrap:anywhere}
+.sheet .tn>.tn-r{color:var(--fg2)}
+.sheet .tn>.tn-t{font:var(--f-label);color:var(--fg);white-space:pre-wrap;text-wrap:pretty;overflow-wrap:anywhere}
+.sheet .tn>:is(.way-b,.way-w,.way-n){margin-top:-2px}
+.sx-n{padding:14px 18px}
+.sx>.more{margin:6px 12px}
 /* Settings. The owner froze how this sheet looks (2026-11-17): its switch and its button keep the look they had, and
    nothing here follows a later change to the materials. */
 /* Where it scrolled, a scrollbar stood in a gutter 17 px wide; the bar is gone and its gutter stays, so no row in the

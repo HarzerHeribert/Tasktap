@@ -56,8 +56,10 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     out.set(p, 9);
     callbacks.get(channel)({ index: index++, message: out.buffer });
   };
+  const calls = [];
   const answer = (call) => {
     const { id, name, args } = call;
+    calls.push(name);
     // A terminal's screen from `screens`, a diff from `diffs`; the page's own history call gets an empty page.
     if (name === 'terminal.open') {
       const s = nextStream++;
@@ -174,7 +176,13 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     if (payload.do === 'geometry') (tab = payload.width), (geo = payload = { ...payload, width: tab + 2 * wing });
     for (const l of listeners.get(event) || []) callbacks.get(l.handler)?.({ event, id: l.id, payload });
   };
-  window.__fake = { emit, push, records, heard };
+  // `close`: the core closes the stream of the dictation that records, as it does when another device cancels it.
+  const close = () => {
+    const s = Object.keys(heard).pop(), d = (records.dictations || [])[0];
+    if (d) push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', del: [d.id] }] });
+    toCore({ t: 'close', s: Number(s), why: 'gone' });
+  };
+  window.__fake = { emit, push, records, heard, calls, close };
   window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
   window.__TAURI_INTERNALS__ = {
     metadata: { currentWindow: { label }, currentWebview: { windowLabel: label, label } },

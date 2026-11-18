@@ -39,7 +39,7 @@
 
 /* The row while the person speaks, and while their words are written down. */
 .cap-row.hear{gap:10px;min-height:var(--row-h)}
-.hear b{font:var(--f-small);font-weight:500;color:var(--fg)}
+.hear b{font:var(--f-label);color:var(--fg)}
 .hear time{font:var(--f-num);color:var(--fg2)}
 .hear-x{margin-left:auto;font:var(--f-small);color:var(--fg3)}
 .hear .act{height:22px}
@@ -60,19 +60,19 @@
 @keyframes way-hold{to{transform:scaleX(0)}}
 .way-h{display:flex;align-items:center;gap:var(--sp2);min-width:0;min-height:var(--row-h);font:var(--f-small);color:var(--fg2)}
 .way-h>.i,.way-h>.st{flex:none}
-.way-h>b{font:var(--f-lead);color:var(--fg)}
+.way-h>b{font:var(--f-label);color:var(--fg)}
 .way-h em{flex:none;font-style:normal;color:var(--fg3)}
 .way-h .act{flex:none;height:22px;margin-left:auto}
 .way-h :is(.key,.btn){flex:none}
 .way-h .btn .i{width:14px;height:14px}
-.way-b,.way-w{margin-top:6px;font:var(--f-body);color:var(--fg);text-wrap:pretty;overflow-wrap:anywhere;white-space:pre-wrap;-webkit-user-select:text;user-select:text}
+.way-b,.way-w{margin-top:6px;font:var(--f-text);color:var(--fg);text-wrap:pretty;overflow-wrap:anywhere;white-space:pre-wrap;-webkit-user-select:text;user-select:text}
 .way-w{padding-left:10px;border-left:1px solid var(--line2);font:var(--f-small);color:var(--fg2)}
 :is(.way-b,.way-w)>span{display:block;margin-bottom:1px;font:var(--f-cap);color:var(--fg3);-webkit-user-select:none;user-select:none}
 /* What a model called the work, beside the word Brief: the name its session will have. */
-.way-b>span b{font-weight:400;color:var(--fg2)}
+.way-b>span b{color:var(--fg2)}
 .way-b>span b::before{content:"·";margin:0 6px;color:var(--fg3)}
 .way-n{margin-top:var(--sp2);font:var(--f-cap);color:var(--fg3);text-wrap:pretty}
-.way.failed .way-h>b{font:var(--f-small);font-weight:500;text-wrap:pretty}
+.way.failed .way-h>b{font:var(--f-text);text-wrap:pretty}
 .way.failed .way-h .btn{margin-left:auto}
 .way.failed .way-h .btn+.act{margin-left:0}
 .cap-said i{font-style:normal;color:var(--fg3)}

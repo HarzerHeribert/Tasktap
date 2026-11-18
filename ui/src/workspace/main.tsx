@@ -14,6 +14,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { render } from 'preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
 import { cap, followSpeech } from '../capture.tsx';
+import { uuid7 } from '../client.ts';
 import { LevelVoice } from '../speech/level.ts';
 import { live, loudness, recording, talk } from '../speech/record.ts';
 import { I, Mark, Wave, plural } from '../ui.tsx';
@@ -45,7 +46,8 @@ export function command(id: string) {
   const pane = c?.pane;
   switch (id) {
     case 'new-task':
-      cap.dest = c && c.project !== LOOSE ? c.project : cap.dest;
+      // A thought begun in a workspace goes to its folder unless the person, its words or a model say otherwise.
+      cap.usual = c && c.project !== LOOSE ? c.project : cap.usual;
       cap.current = c?.id ? (sessionOf(c.id)?.id ?? null) : null;
       page.focus = '#capture-input';
       return open({ kind: 'capture' });
@@ -159,7 +161,9 @@ function loadLook() {
   setLook(l, textSize);
 }
 
-/** The title bar: the workspace's name and folder, and Split right, Split down and New task; on Home, "Home". */
+/** The title bar says where you are only where nothing beside it does: a workspace's name with its folder, Earlier
+ *  with the way back, and "Home" while the sidebar, whose selected row says it, is away. With the sidebar open on
+ *  Home it carries nothing. */
 function Bar({ project }: { project: string | null }) {
   const p = project ? records.projects.get(project) : undefined;
   const side = ui.sidebar && !ui.narrow && !ui.slide;
@@ -176,7 +180,7 @@ function Bar({ project }: { project: string | null }) {
           <button type="button" class="back" title="Back to Home  ⌘[" onClick={() => show('home')}><I n="chev" /><span>Home</span></button>
           <b class="sub">Earlier</b>
         </span>
-      ) : <span class="crumb" data-tauri-drag-region><b>Home</b></span>}
+      ) : <span class="crumb" data-tauri-drag-region>{!side && <b>Home</b>}</span>}
       {project && (
         <span class="bar-r">
           <button type="button" class="ib" title="Split right  ⌘D" aria-label="Split right" onClick={() => command('split-right')}><I n="splitr" /></button>
@@ -322,7 +326,7 @@ const slide = () => new Promise((done) => {
 /** Types a line into the terminal shown, as the keyboard would. */
 const type = (line: string) => (engines.get(current()?.id ?? '')?.term.input(line + '\r', true), !!current()?.id);
 Object.assign(window, {
-  __ws: { ui, records, layout, command, greet, slide, engines, focusSession, show, newTerminal, startAgent, call, echo, burst, text, type, current, dismiss, menu, choose, LOOSE, L },
+  __ws: { uuid7, ui, records, layout, command, greet, slide, engines, focusSession, show, newTerminal, startAgent, call, echo, burst, text, type, current, dismiss, menu, choose, LOOSE, L },
   __motion: { debug, stats, redraw },
   __speech: { talk, live, cap },
 });

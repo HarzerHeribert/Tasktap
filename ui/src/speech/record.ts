@@ -251,7 +251,8 @@ document.addEventListener('keyup', (e) => {
   if (held) (held = false), end();
 }, true);
 
-/** The microphone control: held, it records until let go; clicked, until the next click. */
+/** The microphone control: held, it records until let go; clicked, until the next click. Letting go is heard on the
+ *  page, not on the control, which the row that shows the recording has replaced by then. */
 export const control = {
   down(e: PointerEvent, field: Field | null) {
     if (e.button !== 0) return;
@@ -259,7 +260,12 @@ export const control = {
     if (talk.asking || talk.id) return void (ear && end());
     pressed = performance.now();
     talk.latched = false;
-    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    for (const up of ['pointerup', 'pointercancel']) document.addEventListener(up, control.up, { capture: true, once: true });
+    try {
+      (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    } catch {
+      // A press the checks make has no pointer to hold on to.
+    }
     speak(field);
   },
   up() {

@@ -15,13 +15,17 @@ import { I, Level, Mark, Ring, Wave, madeAt } from './ui.tsx';
 import { agent, agentName, call, fail, focus, openQuestions, page, placers, pref, projectName, projects, records, redraw, title, why } from './page.ts';
 import { briefOf, clock, hold, laterWhy, onWay, placed, ring, step } from './way.ts';
 
-/** What was just sent, for what is said of it once it is no longer on its way. `picked`: it named its place itself. */
-export type Sent = { id: string; text: string; to: string | 'later'; picked?: boolean };
+/** What was just sent, for what is said of it once it is no longer on its way. `picked`: it named its place itself;
+ *  `pick`: the place the person chose for it, which Undo gives back with its words. */
+export type Sent = { id: string; text: string; to: string | 'later'; picked?: boolean; pick?: string };
 
 export const cap = {
   draft: '',
-  /** The person's own pick of destination: a project id or 'later'. */
+  /** The person's own pick of destination for the thought in the field: a project id or 'later'. It goes with that
+   *  thought, so one saved for later, or sent to a folder by hand, does not decide where the next goes. */
   dest: undefined as string | undefined,
+  /** The folder the person was in when they began the thought: where it goes when nobody says otherwise. Not a pick. */
+  usual: undefined as string | undefined,
   /** Where the router would send the text typed now (route.hint), for the chip. */
   hint: null as { text: string; route: Route } | null,
   /** The session the person is in, which the router may send a follow-up to. */
@@ -52,11 +56,12 @@ export function hinted(): Route | undefined {
   return !picked() && r && r.confidence !== 'unknown' ? r : undefined;
 }
 
-/** Where the next capture goes when neither the person nor the router says: the project of the
- *  newest thought, else their first project. None until they have one: the chip offers to add it. */
+/** Where the next capture goes when neither the person nor the router says: the folder they were in,
+ *  else the project of the newest thought, else their first project. None until they have one: the chip offers to add it. */
 export function destination(): string | undefined {
   const pick = picked();
   if (pick) return pick;
+  if (cap.usual && records.projects.get(cap.usual)?.open) return cap.usual;
   const newest = [...records.thoughts.values()]
     .filter((t) => t.project_id && records.projects.get(t.project_id)?.open)
     .sort((a, b) => b.created - a.created)[0];
@@ -140,7 +145,7 @@ async function send(e: Event, hooks: Hooks) {
     }
     // A thought that named no place and went to the usual one: the moment to offer placing by a model, once.
     const offer = w.by === 'pick' && !picked() && !cap.offered && !!hooks.terms && offerable();
-    Object.assign(cap, { sent: { id, text, to: w.to, picked: w.by === 'pick' }, undone: null, draft: '', hint: null, offer, offered: cap.offered || offer });
+    Object.assign(cap, { sent: { id, text, to: w.to, picked: w.by === 'pick', pick: picked() }, undone: null, draft: '', hint: null, dest: undefined, offer, offered: cap.offered || offer });
     page.error = '';
   } catch (err) {
     fail(err);
@@ -150,20 +155,23 @@ async function send(e: Event, hooks: Hooks) {
 }
 
 /** Takes a thought back before it starts: the core stops asking about it and holding it, and its words return to the
- *  field. `later`: the one just saved for later is removed instead. */
+ *  field, with the place the person had picked, if they had, still picked. `later`: the one just saved for later is
+ *  removed instead. */
 export async function undo(t: Thought | 'later' | undefined = going()[0] ?? (cap.sent?.to === 'later' ? 'later' : undefined)) {
   const sent = cap.sent;
   try {
     if (t === 'later' && sent) {
       const text = records.thoughts.get(sent.id)?.text ?? sent.text;
       await call('delete', { c: 'thoughts', id: sent.id });
-      Object.assign(cap, { sent: null, draft: text });
+      Object.assign(cap, { sent: null, draft: text, dest: sent.pick });
     } else if (t && t !== 'later') {
       await call('thought.stop', { id: t.id });
       Object.assign(cap, {
-        undone: { id: t.id, text: t.text, to: t.project_id ?? '' }, sent: sent?.id === t.id ? null : sent, offer: false,
-        draft: cap.draft.trim() ? `${t.text}\n${cap.draft}` : t.text, dest: t.project_id ?? cap.dest,
+        undone: { id: t.id, text: t.text, to: t.project_id ?? '' }, sent: sent?.id === t.id ? null : sent, offer: false, dest: sent?.id === t.id ? sent.pick : cap.dest,
+        draft: cap.draft.trim() ? `${t.text}\n${cap.draft}` : t.text,
       });
+      // Where it goes is asked again for the words that are back, as it was while they were typed.
+      askRoute();
     } else return;
     page.focus = '#capture-input';
   } catch (e) {
@@ -238,7 +246,7 @@ function arrows(e: KeyboardEvent) {
 setAim((field): DictationTarget => {
   if (field?.id !== 'capture-input' || field.value.trim() || cap.undone) return { kind: 'text' };
   const w = where(), id = uuid7();
-  Object.assign(cap, { sent: { id, text: '', to: w.to, picked: w.by === 'pick' }, spoken: id, offer: false });
+  Object.assign(cap, { sent: { id, text: '', to: w.to, picked: w.by === 'pick', pick: picked() }, spoken: id, offer: false, dest: undefined });
   return { kind: 'thought', id, text: '', strokes: [], source: 'voice', ...named(w) };
 });
 
@@ -367,7 +375,7 @@ function Way({ hooks, raised, offer }: { hooks: Hooks; raised: boolean; offer: b
             : at === 'failed' ? line(`${why(t)} in ${projectName(t.project_id)}.`)
               : at === 'started' ? line(<>Started in <b>{projectName(t.project_id)}</b>{note && <i>{note}</i>}</>) : null
       )}
-      {(cap.offer || offer) && hooks.terms && offerable() && <Offer terms={hooks.terms} />}
+      {(cap.offer || offer) && hooks.terms && offerable() && !talk.id && !talk.asking && <Offer terms={hooks.terms} />}
     </div>
   );
 }
@@ -470,7 +478,7 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
             <Rings hooks={hooks} />
             <button type="button" class="mic" data-off={!service || undefined} aria-label="Talk"
               title={service ? 'Hold to talk, or hold ⌥Space. A click keeps it on until the next' : 'Voice needs a speech service first'}
-              onPointerDown={(e) => control.down(e, area.current)} onPointerUp={control.up} onPointerCancel={control.up} onClick={(e) => control.key(e, area.current)}>
+              onPointerDown={(e) => control.down(e, area.current)} onClick={(e) => control.key(e, area.current)}>
               <I n="mic" /><kbd>⌥Space</kbd>
             </button>
             <button type="submit" class={`key${raised ? ' lg' : ''}`} disabled={!cap.draft.trim()} aria-busy={cap.sending || undefined}>

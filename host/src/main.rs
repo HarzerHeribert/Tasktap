@@ -260,8 +260,9 @@ fn main() {
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![bridge_open, bridge_send, bridge_host, debug_report])
-        // The pages may hear the microphone (the appearance panel's trial, which the person starts; macOS then asks
-        // them once, with Info.plist's reason), and nothing else a web view can ask for.
+        // The pages may hear the microphone (hold to talk, which the page records itself so it is the same on every
+        // system, and the appearance panel's trial; the person starts both, and macOS then asks them once, with
+        // Info.plist's reason), and nothing else a web view can ask for.
         .on_permission_request(|_, kind| match kind {
             PermissionKind::Microphone => PermissionResponse::Allow,
             _ => PermissionResponse::Deny,

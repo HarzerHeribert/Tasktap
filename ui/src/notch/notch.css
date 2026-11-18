@@ -45,14 +45,13 @@ html,body{background:transparent!important}
 .open .tab:focus-visible{outline:0}
 .wing{display:inline-flex;align-items:center;gap:6px;flex:none}
 .wing:empty{display:none}
-.wing b,.wing .n b{font-weight:500}
 .wing .n{display:inline-flex;align-items:center;gap:5px}
 .wing .n+.n{margin-left:var(--sp2)}
 .wing .asks b{color:var(--asks)}.wing .fail b{color:var(--fail)}
 /* Whole pixels, so the dots at rest are even on a display that has one pixel to a point. */
 .tab .wave{--wh:12px;--ww:2px;--wg:2px}
 .peek{min-width:0;overflow:hidden;text-overflow:ellipsis;font:var(--f-cap);color:var(--fg2)}
-.peek b{margin-right:3px;font-weight:600;color:var(--asks)}
+.peek b{margin-right:3px;font:var(--f-section);color:var(--asks)}
 .tab>.peek{flex:0 1 auto;max-width:260px}
 .line{grid-column:1/-1;grid-row:2;display:flex;justify-content:center;height:24px;padding:0 4px 5px;min-width:0}
 @media(prefers-reduced-motion:no-preference){
@@ -66,12 +65,12 @@ html,body{background:transparent!important}
 .sheet.retracting{pointer-events:none}
 .band{display:flex;justify-content:space-between;align-items:center;gap:var(--sp3);height:30px;padding:2px 18px 0;font:var(--f-cap);color:var(--fg2);white-space:nowrap}
 .cutout .band{height:var(--tab-h,32px);padding-top:0}
-.band b{margin-right:6px;font-weight:600;color:var(--fg)}
+.band b{margin-right:6px;font:var(--f-section);color:var(--fg)}
 .band time,.band .of{font:var(--f-num);color:var(--fg2)}
 .band .of:hover{color:var(--fg)}
 .pad{padding:8px 18px 16px}
 .ctx{font:var(--f-cap);color:var(--fg2)}
-.ask-notch .qp,.result .qp{margin-top:2px;font:var(--f-question-n);letter-spacing:-.005em}
+.ask-notch .qp,.result .qp{margin-top:2px}
 .ask-notch .qa{display:grid;gap:0;margin:12px -8px 0;border-top:1px solid var(--line)}
 .ask-notch .ans{height:36px;padding:0 8px;gap:12px;border-radius:0;border-bottom:1px solid var(--line)}
 .ask-notch .reply{height:36px;padding:0 8px;gap:12px;border-radius:0;flex:none}
@@ -79,7 +78,7 @@ html,body{background:transparent!important}
 .act.quiet{margin:6px -6px -6px;color:var(--fg3);font:var(--f-small)}
 .act.quiet:hover{color:var(--fg)}
 .under{margin-top:12px}
-.result .sum{margin-top:6px;font:var(--f-body);color:var(--fg2);text-wrap:pretty;overflow-wrap:anywhere}
+.result .sum{margin-top:6px;font:var(--f-text);color:var(--fg2);text-wrap:pretty;overflow-wrap:anywhere}
 .result .status{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:8px}
 .result>.qa{margin-top:14px}
 .confirm{margin-top:12px;padding-top:10px;border-top:1px solid var(--line);font:var(--f-small);color:var(--fg2)}
@@ -93,7 +92,7 @@ html,body{background:transparent!important}
   font:var(--f-small);color:var(--fg2);white-space:nowrap;text-align:left}
 .rows .row:hover{background:var(--hover);color:var(--fg)}
 .rows .row:disabled{opacity:1}
-.rows .t{overflow:hidden;text-overflow:ellipsis;font:var(--f-lead);color:var(--fg)}
+.rows .t{overflow:hidden;text-overflow:ellipsis;font:var(--f-label);color:var(--fg)}
 .rows .x{overflow:hidden;text-overflow:ellipsis;color:var(--fg3)}
 .rows time{font:var(--f-num);color:var(--fg3);text-align:right}
 .rows .row>.st{justify-self:center}

@@ -12,7 +12,7 @@
 // usage: node scripts/align-check.cjs   (exit status 1 on a failure; ui/dist must be built)
 const path = require('node:path');
 const { serve, open } = require('./motion-pages.cjs');
-const { scene } = require('./instrument-fixtures.cjs');
+const { scene, flow } = require('./instrument-fixtures.cjs');
 
 // Lists: the rows that are siblings, and the parts of a row whose edges must agree.
 const LISTS = [
@@ -62,6 +62,30 @@ function audit(LISTS) {
         if (d > 1.5) bad.push(`${L.row.replace(':scope > ', '')}: mark and label ${d.toFixed(1)} px off one line ("${t.textContent.trim().slice(0, 30)}")`);
       }
     }
+  // An icon and its label, a key cap and its word, a wave and what it says: each pair on one centred line.
+  for (const [within, a, b] of [
+    ['.mic', '.i', 'kbd'], ['.ring[aria-checked=true]', '.ring-o', '.nm'], ['.way-h', ':scope > .i, :scope > .st', ':scope > b'], ['.way-h', '.act kbd', '.act span'],
+    ['.way-h', ':scope > b', ':scope > .key span, :scope > .btn span'], ['.cap-row.hear', '.lvl, .st', 'b'], ['.cap-row.hear', 'b', '.act span'], ['.ans', '.i', 'span'], ['.disc', '.i', 'span'],
+    ['.cap-said', ':scope > span', '.btn'], ['.reply', '.lvl', 'input'], ['.line.tool', '.ring-o', '.t'],
+  ])
+    for (const el of document.querySelectorAll(within)) {
+      const [m, t] = [el.querySelector(a), el.querySelector(b)];
+      if (!m || !t || !m.offsetParent || !t.offsetParent || box(t).height > 30) continue;
+      seen.add(`${within} pairs`);
+      const d = Math.abs(box(m).top + box(m).height / 2 - (box(t).top + box(t).height / 2));
+      if (d > 1.5) bad.push(`${within}: ${a} and ${b} are ${d.toFixed(1)} px off one line`);
+    }
+  // What the person reads before a thought starts, and what a failure says, is whole: nothing in it is cut short.
+  for (const el of document.querySelectorAll('.way-b, .way-w, .way-n, .way-h > b, .q-detail, .terms li, .terms p, .cap-said > span, #dest-chip b')) {
+    if (!el.offsetParent) continue;
+    seen.add('whole text');
+    if (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1) bad.push(`"${el.textContent.trim().slice(0, 40)}" is cut short (${el.className || el.tagName})`);
+  }
+  // In the Composer and what is under it, one key at most is metal.
+  for (const c of document.querySelectorAll('.capture')) {
+    const keys = [...c.querySelectorAll('.key:not(:disabled)')].filter((k) => k.offsetParent);
+    if (keys.length > 1) bad.push(`${keys.length} metal keys in the Composer: ${keys.map((k) => k.textContent.trim()).join(', ')}`);
+  }
   // The composition. The Composer is centred on the lists under it, in one column or two.
   const mid = (el) => box(el).left + box(el).width / 2, cap = document.querySelector('.home .capture.raised .cap'), cols = document.querySelector('.hx .cols');
   if (cap && cols && Math.abs(mid(cap) - mid(cols)) > 0.5) bad.push(`the Composer is ${(mid(cap) - mid(cols)).toFixed(1)} px off the centre of the lists under it`);
@@ -181,22 +205,35 @@ async function main() {
     ['busy', (w) => w.__ws.show('earlier')], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'agents' })], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'close-tab', project: '', id: '' })],
     ['busy', (w) => (w.__ws.ui.sheet = { kind: 'settings' })], ['busy', (w) => w.document.querySelector('#dest-chip').click()],
     ['workspace', (w) => (w.__ws.ui.sheet = { kind: 'review', thought: [...w.__ws.records.thoughts.values()].find((t) => t.workdir?.changes === 'pending').id })],
+    // The routing and speech flows: a thought on its way (also two, a long German one, one typed under while it waits),
+    // asked about, saved for later with the core's reason, a recording, its failure, the two sheets and Settings.
+    ['normal', null, 'held'], ['normal', null, 'two'], ['normal', null, 'held', { lang: 'de', long: true }], ['normal', (w) => typeIn(w, 'The next thought, typed while that one waits'), 'held'],
+    ['normal', null, 'placing'], ['normal', null, 'gone'], ['busy', null, 'asked', { lang: 'de' }], ['normal', (w) => (w.__ws.ui.fold = 'later'), 'later-gone'],
+    ['normal', (w) => mine(w, 'thought', true), 'recording'], ['normal', (w) => mine(w), 'writing'], ['normal', (w) => mine(w), 'failed-heard'], ['busy', (w) => mine(w, 'text', false, '.hq.open .reply input'), 'recording'],
+    ['normal', (w) => (w.__speech.talk.said = 'service'), 'no-service', { voice: false }],
+    ['normal', (w) => (w.__ws.ui.sheet = { kind: 'placing' }), 'off'], ['normal', (w) => (w.__ws.ui.sheet = { kind: 'speech' }), 'no-service', { voice: false }], ['normal', (w) => (w.__ws.ui.sheet = { kind: 'settings' }), 'plain'],
   ];
+  // In the page: this page's dictation is the fixture's; and a thought typed into the Composer.
+  const helpers = `const mine = (w, kind = 'thought', latched = false, field = '') => Object.assign(w.__speech.talk, { id: w.__fake.records.dictations[0].id, kind, latched, field: field ? w.document.querySelector(field) : null });
+    const typeIn = (w, text) => (w.document.querySelector('#capture-input').focus(), w.document.execCommand('insertText', false, text));`;
   try {
-    for (const [state, act] of views)
+    for (const [state, act, kind, opts] of views)
       // The widths the composition is promised at, and a short window, where Home, the sidebar and a sheet all scroll.
-      for (const [width, height] of [[1180, 900], [1800, 900], [1480, 900], [720, 900], [1180, 420]]) {
-        const page = await open(browser, { label: 'workspace', records: scene(state), url: server.url, dpr: 1, viewport: { width, height } });
-        if (act) await page.evaluate(`(${act})(window); window.__motion.redraw()`);
+      // The flows are measured at the usual width, the widest and the narrowest.
+      for (const [width, height] of [[1180, 900], [1800, 900], [1480, 900], [720, 900], [1180, 420]].filter(([w, h]) => !kind || (w !== 1480 && h !== 420))) {
+        const page = await open(browser, { label: 'workspace', records: kind ? flow(scene(state), kind, opts) : scene(state), url: server.url, dpr: 1, viewport: { width, height } });
+        if (act) await page.evaluate(`${helpers}; (${act})(window); window.__motion.redraw()`);
         await page.waitForTimeout(500);
         const r = await page.evaluate(audit, LISTS);
-        if (!act && RINGS[state] && width !== 720) {
+        if (kind) measured.add(`flow: ${kind}`);
+        if (!act && !kind && RINGS[state] && width !== 720) {
           const got = await page.evaluate(rings);
           measured.add('rings');
           if (got !== RINGS[state]) failures.push(`workspace ${state}: the agents' rings are "${got}", not "${RINGS[state]}"`);
         }
         r.seen.forEach((x) => measured.add(x.replace(/ ×\d+/, '')));
-        for (const b of r.bad) failures.push(`workspace ${state} ${width}px: ${b}`);
+        for (const b of r.bad) failures.push(`workspace ${state}${kind ? ` (${kind})` : ''} ${width}px: ${b}`);
+        for (const e of page.errors) failures.push(`workspace ${state}${kind ? ` (${kind})` : ''}: the page said ${e}`);
         await page.context().close();
       }
     // The wake: right of the sidebar's edge as it closes, left of it as it opens, above a sheet's edge as it drops.
@@ -212,10 +249,14 @@ async function main() {
       if (!r.glyphs || r.ahead) failures.push(`${name}: ${r.glyphs ? `${r.ahead} sightings of a wake glyph ahead of the edge` : 'no wake was shed'}`);
     }
     await moving.context().close();
-    for (const [a, sc] of [['answer', 'busy'], ['capture', 'normal'], ['capture', 'busy'], ['hover-enter', 'normal']]) {
-      const page = await open(browser, { label: 'notch', records: scene(sc), url: server.url, dpr: 1 });
+    for (const [a, sc, kind, opts, then] of [
+      ['answer', 'busy'], ['capture', 'normal'], ['capture', 'busy'], ['hover-enter', 'normal'],
+      ['capture', 'normal', 'held', { lang: 'de', long: true }], ['capture', 'normal', 'two'], ['answer', 'normal', 'asked'], ['capture', 'normal', 'recording', {}, (w) => mine(w, 'thought', true)], ['capture', 'normal', 'failed-heard', {}, (w) => mine(w)],
+    ]) {
+      const page = await open(browser, { label: 'notch', records: kind ? flow(scene(sc), kind, opts) : scene(sc), url: server.url, dpr: 1 });
       await page.evaluate(() => window.__fake.emit({ do: 'geometry', width: 185, height: 32, cutout: true, surfaceWidth: 420, surfaceOffset: 0, span: 560, pixel: 2, corner: 10, offset: 0, available: 700, collapsed: false }));
       await page.evaluate((x) => window.__fake.emit({ do: x }), a);
+      if (then) await page.evaluate(`${helpers}; (${then})(window); window.__look({})`);
       await page.waitForTimeout(900);
       const r = await page.evaluate(audit, LISTS);
       r.seen.forEach((x) => measured.add(x.replace(/ ×\d+/, '')));

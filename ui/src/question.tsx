@@ -79,7 +79,7 @@ export function Answers({ q, terminal, who }: { q: Question; terminal?: () => vo
             }
           }} />
         <button type="button" class="mic" data-off={!pref('speech_by') || undefined} aria-label="Talk" title="Hold to talk, or hold ⌥Space in the field"
-          onPointerDown={(e) => control.down(e, field(e))} onPointerUp={control.up} onPointerCancel={control.up} onClick={(e) => control.key(e, field(e))}>
+          onPointerDown={(e) => control.down(e, field(e))} onClick={(e) => control.key(e, field(e))}>
           <I n="mic" />
         </button>
       </label>

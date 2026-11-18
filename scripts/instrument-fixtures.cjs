@@ -308,6 +308,12 @@ function flow(records, kind, { lang = 'en', long = false, voice = true, now = Da
     off: () => {},
     placing: () => thought({ route: { ...model, pending: true, title: null, ms: null } }),
     held: () => routed({ route: model }),
+    // Two on their way at once: the newest in full, the one before it as its first line.
+    two: () => {
+      records.thoughts.push({ id: uid(now, 4000), rev: 59, text: 'Fix the flaky export test in cuegrid', strokes: [], source: 'typed', mode: 'ask', phase: 'routed', status: 'routed', reason: null, live: false,
+        project_id: P.cuegrid, session_id: null, brief: 'Fix the flaky export test in cuegrid', route: local, agent: 'claude', model: null, workdir: null, hold_until: now + 1000, read: false, created: now - 4000, updated: now });
+      routed({ project_id: P.fieldnotes, route: model });
+    },
     plain: () => thought({ phase: 'routed', status: 'routed', project_id: P.cuegrid, text: 'Fix the flaky export test in cuegrid', brief: 'Fix the flaky export test in cuegrid', source: 'typed', hold_until: now + 3400, route: local }),
     briefing: () => routed({ brief: text, hold_until: now + 400, route: { ...model, pending: true, title: null, ms: null } }),
     followup: () => routed({ session_id: records.ids.timer.session, route: { ...model, title: null, quote: lang === 'de' ? 'der Probentimer' : 'the rehearsal timer' } }),

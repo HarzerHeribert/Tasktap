@@ -56,7 +56,8 @@ export function PlacingSheet({ back }: { back?: boolean }) {
   };
   const same = state === 'on' && chosen?.agent === by!.agent;
   const acts: Act[] = !chosen ? [{ k: 'esc', label: 'Close', do: done }]
-    : same ? [{ k: '⌘⌫', label: 'Turn off', kind: 'danger', do: () => void call('delete', { c: 'prefs', id: 'route_by' }).then(done, fail) }, { k: 'esc', label: 'Close', do: done }]
+    // Turned off, the preference holds No rather than nothing, so what was answered is not offered again; to the core both are no consent.
+    : same ? [{ k: '⌘⌫', label: 'Turn off', kind: 'danger', do: () => put(null) }, { k: 'esc', label: 'Close', do: done }]
       : [{ k: '↩', label: state === 'on' ? `Use ${agentName(chosen.agent)} instead` : 'Allow', kind: 'primary', do: () => put(chosen) }, { k: 'esc', label: state === 'off' ? 'Not now' : 'Close', do: state === 'off' ? no : done }];
   return (
     <Frame wide="list" title={state === 'on' ? 'A model places your thoughts' : state === 'again' ? 'Placing needs agreeing again' : 'Let a model place your thoughts'} acts={acts}>

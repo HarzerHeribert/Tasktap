@@ -8,8 +8,8 @@
 .terms>.set:first-of-type{border-top:1px solid var(--line)}
 .terms .btn{background:var(--fill);box-shadow:none}
 .terms .btn:hover{background:var(--fill-hover)}
-.terms h3{margin:18px 18px 6px;font:var(--f-head);color:var(--fg2)}
-.gets,.sends{display:grid;gap:5px;margin:12px 18px 0;list-style:none;font:var(--f-body);color:var(--fg)}
+.terms h3{margin:18px 18px 6px;font:var(--f-section);color:var(--fg2)}
+.gets,.sends{display:grid;gap:5px;margin:12px 18px 0;list-style:none;font:var(--f-text);color:var(--fg)}
 .sends{margin-top:0;font:var(--f-small);color:var(--fg2)}
 :is(.gets,.sends) li{display:grid;grid-template-columns:16px minmax(0,1fr);text-wrap:pretty}
 :is(.gets,.sends) li::before{content:"";width:6px;height:1px;margin-top:9px;background:var(--fg3)}

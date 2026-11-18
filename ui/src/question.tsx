@@ -2,9 +2,9 @@
 // answers as key caps on 1 to 9, a reply in the person's own words on T. One only its terminal can answer offers the
 // way there instead. The keys act only while the question's own element has the keyboard, never the terminal's.
 import type { AnswerQuestion, Question } from '../../core/proto/protocol.ts';
-import { call, fail, focus, pref, projects, records } from './page.ts';
+import { agentName, call, fail, focus, openQuestions, pref, projectName, records, sessionName } from './page.ts';
 import { control, mine, talk } from './speech/record.ts';
-import { Answer, I, Level } from './ui.tsx';
+import { Answer, I, Level, Mark } from './ui.tsx';
 import { briefOf } from './way.ts';
 
 type Response = AnswerQuestion extends infer A ? (A extends { id: string } ? Omit<A, 'id'> : never) : never;
@@ -47,13 +47,24 @@ export function Answers({ q, terminal, who }: { q: Question; terminal?: () => vo
       </div>
     );
   // Where a thought should go: the folders and sessions it could mean, each on its key, and the way to keep it for
-  // later. No reply in words: a place is one of these.
+  // later. No reply in words: a place is one of these. What each choice is, the question says itself (`places`): a
+  // folder by its name; a session by its state, its name, and its agent and folder. A choice it says nothing of is
+  // shown in the core's words, with no mark.
   if (q.source === 'router') {
-    const folders = new Set(projects().map((p) => p.name));
+    const place = (label: string, i: number) => {
+      const p = q.places?.[i], s = p && 'session' in p ? records.sessions.get(p.session) : undefined;
+      if (s) {
+        const asks = openQuestions().some((x) => x.session_id === s.id), idle = s.state === 'idle';
+        const mark = <Mark s={asks ? 'asks' : idle || s.state === 'ended' ? 'ended' : 'working'} label={idle && !asks ? 'Waiting for a prompt' : undefined} />;
+        return { label: sessionName(s.id), lead: mark, more: `${agentName(s.agent)} · ${projectName(s.project_id)}` };
+      }
+      if (!p) return { label };
+      return { label: ('project' in p && records.projects.get(p.project)?.name) || label, lead: <I n={'project' in p ? 'folder' : 'term'} /> };
+    };
     return (
       <div class="qa">
-        {answers(q).map((label, i) => (i < 9 ? <Answer k={String(i + 1)} label={label} icon={folders.has(label) ? 'folder' : 'term'} onClick={() => void choose(q, i)} /> : null))}
-        <Answer k="L" label="Keep for later" icon="later" onClick={() => void reply(q, { kind: 'deny' })} />
+        {answers(q).map((label, i) => (i < 9 ? <Answer k={String(i + 1)} {...place(label, i)} onClick={() => void choose(q, i)} /> : null))}
+        <Answer k="L" label="Keep for later" lead={<I n="later" />} onClick={() => void reply(q, { kind: 'deny' })} />
       </div>
     );
   }

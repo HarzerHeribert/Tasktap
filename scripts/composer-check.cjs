@@ -64,7 +64,7 @@ async function main() {
     await page.keyboard.type('and these');
     await page.waitForTimeout(600);
     expect((await value(page)) === 'keep these words\nand these', `a refused capture: the field holds ${JSON.stringify(await value(page))}`);
-    expect((await page.locator('.rail .err').textContent().catch(() => '')).includes('could not take it'), 'a refused capture: the core\'s sentence is not shown');
+    expect((await page.locator('.capture .way.failed').textContent().catch(() => '')).includes('could not take it'), 'a refused capture: the core\'s sentence is not shown under the field');
     await page.context().close();
 
     // The field's height: measured when its words or its width change, and at no other time.

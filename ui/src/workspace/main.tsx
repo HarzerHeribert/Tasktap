@@ -28,7 +28,7 @@ import * as L from './layout.ts';
 import { burst, echo } from './measure.ts';
 import { choose, shown as menu } from './menu.ts';
 import {
-  LOOSE, call, client, closeTab, copy, current, dismiss, fail, focusSession, layout, loadTerms, newTerminal, onRedraw, open, page, paste,
+  LOOSE, call, client, closeTab, copy, current, details, dismiss, fail, focusSession, layout, loadTerms, newTerminal, onRedraw, open, page, paste,
   pref, records, redraw, reconcile, sessionOf, setLayout, settleFocus, show, textSize, textSizeBy, ui,
 } from './model.ts';
 import { Sheets } from './sheets.tsx';
@@ -79,6 +79,8 @@ export function command(id: string) {
       return c && setLayout(c.project, L.toggleFocus(layout(c.project)));
     case 'back':
       return ui.view === 'earlier' && show('home');
+    case 'session':
+      return void details(c?.id);
   }
 }
 
@@ -130,7 +132,7 @@ document.addEventListener('focusin', enter, true);
 /** ⌘ shortcuts, handled before xterm.js or the web view can treat them as input or zoom. The application menu shows
  *  the same; a key the page handles never reaches it twice. While a sheet is open, the sheet has the keys. */
 const keys: Record<string, string> = { n: 'new-task', t: 'new-terminal', o: 'open-workspace', w: 'close-tab', f: 'find', d: 'split-right',
-  '=': 'bigger', '+': 'bigger', '-': 'smaller', '0': 'reset', ',': 'settings', '[': 'back' };
+  '=': 'bigger', '+': 'bigger', '-': 'smaller', '0': 'reset', ',': 'settings', '[': 'back', i: 'session' };
 document.addEventListener('keydown', (e) => {
   if (!e.metaKey || e.ctrlKey || e.altKey || e.isComposing || ui.sheet) return;
   const k = e.key.toLowerCase();

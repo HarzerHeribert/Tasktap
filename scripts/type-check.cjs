@@ -48,6 +48,7 @@ const VIEWS = [
   ['busy', `(w) => (w.__ws.ui.sheet = { kind: 'send', thought: [...w.__ws.records.thoughts.values()].find((t) => t.mode === 'note').id })`], ['busy', `(w) => w.document.querySelector('#dest-chip').click()`],
   ['normal', '', 'held'], ['normal', '', 'two'], ['normal', '', 'placing'], ['normal', '', 'gone'], ['busy', '', 'asked'], ['normal', `(w) => (w.__ws.ui.fold = 'later')`, 'later-gone'],
   ['normal', mine, 'recording'], ['normal', mine, 'writing'], ['normal', mine, 'failed-heard'], ['normal', `(w) => (w.__speech.talk.said = 'service')`, 'no-service', { voice: false }],
+  ['busy', `(w) => (w.__ws.ui.sheet = { kind: 'session', id: [...w.__ws.records.sessions.values()].find((s) => s.turn > 1).id })`, 'session'],
   ['normal', sheet({ kind: 'placing' }), 'off'], ['normal', sheet({ kind: 'speech' }), 'no-service', { voice: false }], ['first-folder', '', 'off'],
 ];
 const NOTCH = [

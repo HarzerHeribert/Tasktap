@@ -1,6 +1,7 @@
 // From the records to what is shown of a thought on its way and of speech, as plain functions (way.test.ts): the step
 // a thought is at between capture and start, its brief when that says the words differently, how much of its hold is
-// left, how it was placed, why it waits in For later, whether placing by a model is on, what a ring says of its agent,
+// left, how it came by its place and why it waits in For later (the core's own word for each, `placed`), whether placing
+// by a model is on, what a ring says of its agent,
 // the time a recording shows, where heard words go in a field, and what a field holds while its thought is sent. The
 // pages draw these and decide nothing themselves.
 import type { RouteBy, Thought } from '../../core/proto/protocol.ts';
@@ -32,23 +33,40 @@ export function hold(t: T, now: number): { share: number; ms: number } | null {
   return { share: Math.min(1, ms / all), ms };
 }
 
-/** How a thought found its place, in a few words; the reason a model was not used is the core's sentence, as it is.
- *  `picked`: the person chose the place themselves, so a model can only have written the brief. */
-export function placed(t: Pick<Thought, 'route'>, agent: (id: string) => string, picked = false): string | null {
-  const r = t.route;
-  if (!r) return null;
-  if (r.fallback) return `${picked ? 'Sent in your words' : 'Placed by name'}. ${r.fallback}`;
-  if (r.by === 'local') return 'Placed by name';
-  const who = `${agent(r.by)}${r.model ? ` · ${r.model}` : ''}`;
-  return picked ? `Brief by ${who}` : r.quote ? `Placed by ${who}, because you said “${r.quote}”` : `Placed by ${who}`;
+/** How a thought came by its place, in a few words, from the core's word for it. "Placed by" only where the match on
+ *  names or a model placed it. Where the person decided (a pick, a follow-up to the session they were in, an answer to
+ *  where it should go) `route` only says who wrote the brief. Why a model was not used is the core's sentence, as it is;
+ *  with no word (the asking was cut short) that sentence is all there is to say. */
+export function placed(t: Pick<Thought, 'placed' | 'route'>, agent: (id: string) => string): string | null {
+  const r = t.route, who = r && r.by !== 'local' ? `${agent(r.by)}${r.model ? ` · ${r.model}` : ''}` : '';
+  switch (t.placed) {
+    case 'name':
+      return `Placed by name${r?.fallback ? `. ${r.fallback}` : ''}`;
+    case 'model':
+      return `Placed by ${who || 'a model'}${r?.quote ? `, because you said “${r.quote}”` : ''}`;
+    case 'picked':
+    case 'follow_up':
+    case 'answer':
+      return r?.fallback ? `Sent in your words. ${r.fallback}` : who ? `Brief by ${who}` : null;
+    default:
+      return r?.fallback ?? null;
+  }
 }
 
-/** Why a thought waits in For later. `kept`: the person answered its question with Keep for later. */
-export function laterWhy(t: Pick<Thought, 'route'>, agent: (id: string) => string, kept = false): string {
-  const r = t.route;
-  if (kept) return 'You kept it for later';
-  if (!r) return 'You saved it for later';
-  return r.by === 'local' || r.fallback ? 'It named no folder' : `${agent(r.by)} found no folder for it`;
+/** Why a thought waits in For later: the core's four reasons, in plain words. */
+export function laterWhy(t: Pick<Thought, 'placed' | 'route'>, agent: (id: string) => string): string {
+  switch (t.placed) {
+    case 'kept':
+      return 'You saved it for later';
+    case 'kept_answer':
+      return 'You kept it for later';
+    case 'kept_name':
+      return 'It named no folder';
+    case 'kept_model':
+      return `${agent(t.route?.by ?? '')} found no folder for it`;
+    default:
+      return 'Saved for later';
+  }
 }
 
 /** Placing by a model: off, on, or agreed to once for something this Tasktap no longer asks (`again`). */

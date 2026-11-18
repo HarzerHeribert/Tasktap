@@ -137,8 +137,10 @@ impl Core {
 
 type Waiter = Box<dyn FnOnce(Outcome) + Send>;
 
-/// The host's own connection: `glance` and calls.
+/// The host's own connection: `glance`, the folders the person opened, and calls.
 pub struct Link {
+    /// Every project's folder, as the core has them: what `host.open` may open is inside one.
+    pub folders: Mutex<Vec<(tasktap_proto::ProjectId, PathBuf)>>,
     writer: Mutex<Option<UnixStream>>,
     waiting: Mutex<HashMap<u32, Waiter>>,
     next: Mutex<u32>,
@@ -149,7 +151,12 @@ impl Link {
     /// core starts instead, and from then on hands every `glance` to `glance`. The connection
     /// is made again whenever it ends.
     pub fn start(core: Arc<Core>, glance: impl Fn(Glance) + Send + 'static) -> io::Result<Arc<Link>> {
-        let link = Arc::new(Link { writer: Mutex::new(None), waiting: Mutex::default(), next: Mutex::new(1) });
+        let link = Arc::new(Link {
+            folders: Mutex::default(),
+            writer: Mutex::new(None),
+            waiting: Mutex::default(),
+            next: Mutex::new(1),
+        });
         let mut decoder = Decoder::new();
         let mut stream = Self::open(&core, &link, &mut decoder)?;
         let me = link.clone();
@@ -192,14 +199,14 @@ impl Link {
             };
             *link.writer.lock().unwrap() = Some(stream.try_clone()?);
             if welcome.build == core.build || retired {
-                link.call("sub", json!({"collections": ["glance"]}), |_| {});
+                link.call("sub", json!({"collections": ["glance", "projects"]}), |_| {});
                 return Ok(stream);
             }
             // Design §3: an older core with no terminals retires; one with terminals stays in use.
             let mut reader = stream.try_clone()?;
             let status = link.wait(&mut reader, decoder, "core.status", json!({}))?;
             if status.get("terminals").and_then(Value::as_u64) != Some(0) {
-                link.call("sub", json!({"collections": ["glance"]}), |_| {});
+                link.call("sub", json!({"collections": ["glance", "projects"]}), |_| {});
                 return Ok(stream);
             }
             let _ = link.wait(&mut reader, decoder, "core.retire", json!({"when": "now"}));
@@ -250,8 +257,16 @@ impl Link {
                     }
                     Ok(Some(Frame::Control(Control::Change(c)))) => {
                         for set in c.sets {
-                            if let Set::Glance { put } = set {
-                                put.into_iter().for_each(glance)
+                            match set {
+                                Set::Glance { put } => put.into_iter().for_each(glance),
+                                Set::Projects(rows) => {
+                                    let mut folders = self.folders.lock().unwrap();
+                                    folders.retain(|(id, _)| {
+                                        !rows.del.contains(id) && rows.put.iter().all(|p| p.id != *id)
+                                    });
+                                    folders.extend(rows.put.into_iter().map(|p| (p.id, p.folder.into())));
+                                }
+                                _ => {}
                             }
                         }
                     }

@@ -5,6 +5,7 @@ mod core;
 mod geometry;
 mod native;
 mod notch;
+mod open;
 mod workspace;
 
 use crate::core::{Core, Link};
@@ -113,6 +114,14 @@ fn bridge_host(app: AppHandle, frame: String) -> String {
         }),
         "host.clipboard" => Ok(json!(native::clipboard(args["text"].as_str(), notch::NOTCH.lock().unwrap().passive))),
         "host.power" => Ok(json!(native::low_power())),
+        // A web address, or what is inside a folder the person opened or a copy Tasktap made of one (open.rs).
+        "host.open" => {
+            let host = app.state::<Host>();
+            let mut roots: Vec<_> =
+                host.link.folders.lock().unwrap().iter().map(|(_, folder)| folder.clone()).collect();
+            roots.push(host.core.data.join("worktrees"));
+            open::open(args, &roots, notch::NOTCH.lock().unwrap().passive)
+        }
         name => Err(format!("this host has no {name}")),
     };
     match outcome {

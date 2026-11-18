@@ -384,10 +384,9 @@ fn it_runs_with_a_server_of_its_own_and_its_plugin_named_by_a_variable() {
     };
     assert_eq!(*name, "OPENCODE_CLI_CONFIG_CONTENT");
     let settings: Value = serde_json::from_str(value).unwrap();
-    assert_eq!(
-        settings,
-        json!({ "plugins": ["/data dir/agents/opencode/plugin"] })
-    );
+    // As this system writes the path of a folder in it.
+    let folder = Path::new("/data dir/agents/opencode").join("plugin");
+    assert_eq!(settings, json!({ "plugins": [folder.to_string_lossy()] }));
     let caps = agent.caps();
     assert!(caps.events && caps.resume);
     let core = Some(ReplyVia::Core);

@@ -67,6 +67,18 @@ try {
             $null = Js "(__ws.call('terminal.stop', { id: '$terminal' }), 1)"
         }
     }
+    if ($page -eq 'object') {
+        # The capture key (design §12). At a desktop this system's own registers; a session
+        # without one is refused every key, and the host says so, holds none and goes on.
+        $refused = "e => 'refused: ' + (e.message ?? e)"
+        $key = Js "__ws.call('host.capture_key', {}).then(JSON.stringify, $refused)"
+        if ([Diagnostics.Process]::GetCurrentProcess().SessionId -ne 0) {
+            if ("$key" -match '"alt":true' -and "$key" -match '"shift":true' -and "$key" -match '"code":"Space"') { Pass 'the capture key registers: Alt-Shift-Space' } else { Fail "the capture key registers (the host said: $key)" }
+        } else {
+            $asked = Js "__ws.call('host.capture_key', { key: { control: true, alt: true, shift: false, meta: false, code: 'KeyT' } }).then(JSON.stringify, $refused)"
+            if ($key -eq '{"key":null}' -and "$asked" -match '^refused: .*taken') { Pass 'no desktop here (session 0): the host holds no capture key and says that one asked for is taken' } else { Fail "the capture key without a desktop (the host said: $key, then: $asked)" }
+        }
+    }
     Send 'state'
     if (Until '"event":"state"' 5) { Pass 'the app says its state' } else { Fail 'the app says its state' }
 } finally {

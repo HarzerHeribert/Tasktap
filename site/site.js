@@ -55,7 +55,7 @@
       stage.classList.add('live');
       steps.hidden = false;
     } else {
-      if ('open' in m) return void (light.dataset.open = String(m.open));
+      if ('open' in m) return void (stage.dataset.open = String(m.open));
       motion = m.motion || 'idle';
       for (const b of steps.querySelectorAll('[data-step]')) b.dataset.step === m.step ? b.setAttribute('aria-current', 'step') : b.removeAttribute('aria-current');
     }

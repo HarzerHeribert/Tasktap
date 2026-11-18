@@ -59,16 +59,18 @@ async function chrome() {
 // Parts of Home are cut out of the page with nothing behind them (the effects at Off, no ground), so on the site they
 // stand on the site's own ground as they stand on the window's.
 const TRAFFIC = 'body::after{content:"";position:fixed;z-index:99;left:14px;top:13px;width:12px;height:12px;border-radius:50%;background:#ff5f57;box-shadow:20px 0 #febc2e,40px 0 #28c840;pointer-events:none}';
+/* The list alone: the Composer above it would leave its shadow in the picture's top edge. */
+const ALONE = '.capture{visibility:hidden}';
 const off = (records) => ((records.prefs = (records.prefs || []).filter((p) => p.id !== 'motion_ambient').concat({ id: 'motion_ambient', value: 'off', rev: 70 })), records);
 function pictures() {
   const { scene, flow } = require('./instrument-fixtures.cjs');
   const show = (key) => async (page, r) => page.evaluate((id) => window.__ws.show(id), r.ids.projects[key]);
   return {
     // A spoken thought on its way: where it goes, its brief, the words as said, Undo. The Composer 600 wide.
-    held: { records: () => off(flow(scene('normal'), 'held', {})), fit: ['.capture.raised', 600], cut: '.capture.raised', pad: [10, 24, 12, 24], clear: true },
+    held: { records: () => off(flow(scene('normal'), 'held', {})), fit: ['.capture.raised', 600], cut: '.capture.raised', pad: [10, 20, 12, 20], clear: true },
     // Home's first layer while much goes on: what needs the person, changes waiting, what runs.
-    home: { records: () => off(scene('busy')), fit: ['.cols', 1040], cut: '.cols > .col', pad: [8, 0, 8, 0], clear: true, height: 1100 },
-    'home-640': { records: () => off(scene('busy')), fit: ['.cols', 640], cut: '.cols > .col', pad: [8, 0, 8, 0], clear: true, height: 1100 },
+    home: { records: () => off(scene('busy')), fit: ['.cols', 1040], cut: '.cols > .col', pad: [8, 0, 8, 0], clear: true, height: 1100, style: ALONE },
+    'home-640': { records: () => off(scene('busy')), fit: ['.cols', 640], cut: '.cols > .col', pad: [8, 0, 8, 0], clear: true, height: 1100, style: ALONE },
     // The workspace: terminals in splits, a question under its terminal.
     workspace: { records: () => scene('workspace'), viewport: [1040, 700], act: show('cuegrid'), style: TRAFFIC },
     'workspace-720': { records: () => scene('workspace'), viewport: [720, 540], act: show('cuegrid'), style: TRAFFIC },
@@ -91,7 +93,7 @@ async function shots(only) {
   const save = async (page, name, dpr, opts, lossy) => {
     const png = path.join(dir, `${name}.png`), webp = path.join(dir, `${name}${dpr === 2 ? '@2x' : ''}.webp`);
     await page.screenshot({ path: png, ...opts });
-    execFileSync('cwebp', ['-quiet', ...(lossy ? ['-q', '90', '-alpha_q', '95', '-sharp_yuv'] : ['-lossless', '-exact', '-q', '100']), '-m', '6', png, '-o', webp]);
+    execFileSync('cwebp', ['-quiet', ...(lossy ? ['-q', '84', '-alpha_q', '90', '-sharp_yuv'] : ['-lossless', '-exact', '-q', '100']), '-m', '6', png, '-o', webp]);
     fs.rmSync(png);
     console.log(path.relative(root, webp), fs.statSync(webp).size);
   };
@@ -144,10 +146,12 @@ async function shots(only) {
     for (const [name, w] of BANDS) {
       if (only && !only.includes(name)) continue;
       for (const dpr of [1, 2]) {
-        const context = await browser.newContext({ viewport: { width: w, height: 800 }, deviceScaleFactor: dpr, reducedMotion: 'reduce' });
+        // At rest, as the page is first seen: the notch is kept from starting, so nothing is going on.
+        const context = await browser.newContext({ viewport: { width: w, height: 800 }, deviceScaleFactor: dpr });
         const page = await context.newPage();
+        await page.route('**/app/notch.html', (r) => r.abort());
         await page.goto(`${site.url}/index.html`);
-        await page.addStyleTag({ content: 'html,body{background:transparent!important}.top-in,.bar,.pool{visibility:hidden}.band{-webkit-mask-image:none!important;mask-image:none!important}' });
+        await page.addStyleTag({ content: 'html,body{background:transparent!important}.words,.notch,.steps,.bar,.pool{visibility:hidden}.band{-webkit-mask-image:none!important;mask-image:none!important}' });
         await page.waitForSelector('#band.drawn', { timeout: 15000 });
         await page.waitForTimeout(600);
         const b = await page.evaluate(() => { const r = document.getElementById('band').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });

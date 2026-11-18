@@ -29,6 +29,12 @@ if out="$(node "$root/scripts/align-check.cjs" 2>&1)"; then pass "$(echo "$out" 
 echo "== The ambient layer holds steady (headless, two and a half minutes)"
 if out="$(node "$root/scripts/soak-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the ambient layer holds steady"; fi
 
+echo "== The capture flow keeps its pace (the built app with the fixture agent, in a short launch of its own)"
+out="$(node "$root/scripts/flow-check.cjs" --app --debug --short ${FRONT:+--front} 2>&1)"
+if [ $? = 0 ]; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"
+elif echo "$out" | grep -q "nothing can be measured\|nothing drawn on it can be measured"; then pass "the capture flow was not timed: $(echo "$out" | grep -o 'The [^:]*: nothing[^.]*' | head -1)"
+else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the capture flow keeps its pace"; fi
+
 tmp="$(mktemp -d)"
 log="$tmp/log"
 mkdir -p "$tmp/agents" "$tmp/project"
@@ -111,6 +117,9 @@ thought() { echo "eval [...__ws.records.thoughts.values()].find(t=>t.text==='$1'
 echo "== Driving the app on $tmp/data"
 launch
 for _ in $(seq 1 100); do grep -q '"event":"ready"' "$log" && break; sleep 0.1; done
+# FRONT=1: the app's window in front of the other apps' for the run (the keyboard stays where it is), so that what a
+# covered window would not draw is checked too.
+[ -n "${FRONT:-}" ] && send front
 grep -q '"event":"ready"' "$log" && pass "the app starts and reaches its own core" || { fail "the app starts" "$(tail -3 "$log")"; exit 1; }
 until_has workspace "eval __ws.ui.view + ' ' + !!document.querySelector('.home .capture')" 10 "home true" && grep -q '"event":"window"' "$log" \
   && pass "the workspace window opens at launch, on Home, once its page has drawn" || fail "the workspace window opens"
@@ -142,8 +151,21 @@ fi
 frames=$(js workspace "__motion.stats.frames")
 sleep 2
 [ "$(js workspace "__motion.stats.frames")" = "$frames" ] && [ "$(js notch "document.querySelectorAll('canvas').length")" = 0 ] \
-  && [ "$(js workspace "document.querySelector('.light')?.dataset.breathe")" = false ] \
-  && pass "while idle nothing is drawn and nothing breathes: Home holds its still light, and the notch has no canvas at all" || fail "nothing draws while idle"
+  && [ "$(js workspace "document.querySelector('.light')?.dataset.moves")" = false ] \
+  && pass "at rest nothing is drawn and nothing moves: Home holds its still light, and the notch has no canvas at all" || fail "nothing draws at rest"
+# While agents work, in the window in use (which a passive window is only when told so), the layer is a loop: the
+# band is drawn frame after frame and the light moves; back at rest it stops.
+if [ "$(js workspace "String(document.hidden)")" = true ]; then
+  pass "the loop while agents work: the window is covered, so nothing is drawn yet"
+else
+  js workspace "(Object.assign(__motion.debug, { state: 'working', active: true }), __motion.redraw(), 1)" >/dev/null; sleep 1
+  frames=$(js workspace "__motion.stats.frames"); sleep 2
+  moving="$(js workspace "String(__motion.stats.frames - $frames > 40) + ' ' + document.querySelector('.light').dataset.moves")"
+  js workspace "(Object.assign(__motion.debug, { state: null, active: null }), __motion.redraw(), 1)" >/dev/null; sleep 2.5
+  frames=$(js workspace "__motion.stats.frames"); sleep 1
+  [ "$moving" = "true true" ] && [ "$(js workspace "__motion.stats.frames")" = "$frames" ] \
+    && pass "while agents work in the window in use the band is drawn in every frame and the light moves; back at rest it is still within a moment" || fail "the loop while agents work" "$moving"
+fi
 # The sidebar's glyphs: a few, large, each a picture drawn once (no view of the motion's own), still while idle.
 glyphs="[...document.querySelectorAll('.spark .glyph.in')]"
 if [ "$(js workspace "String(document.hidden)")" = true ]; then
@@ -154,12 +176,20 @@ else
     && [ "$(js workspace "$glyphs.map(x => getComputedStyle(x.querySelector('.turn')).transform + getComputedStyle(x.querySelector('.turn')).translate).join('|')")" = "$a" ] \
     && pass "the sidebar's foot shows a few large chrome glyphs, each a picture drawn once, at rest while idle" || fail "the sidebar's glyphs" "$(js workspace "$glyphs.length")"
 fi
-# The ambient light is the core's preference: Off removes the light and the glyphs, and the page keeps nothing itself.
-send 'call put {"c":"prefs","id":"motion_ambient","patch":"off"}'
-until_has workspace "eval String(!document.querySelector('.light') && !document.querySelector('.spark .glyph'))" 3 "true" \
+# The effects are the core's preference: Still holds the light as a picture whatever goes on, Off removes the light
+# and the glyphs, Low Power Mode holds Full at Still, and the page keeps nothing itself.
+send 'call put {"c":"prefs","id":"motion_ambient","patch":"still"}'
+js workspace "(Object.assign(__motion.debug, { state: 'working', active: true }), __motion.redraw(), 1)" >/dev/null
+until_has workspace "eval document.documentElement.dataset.effects + ' ' + document.querySelector('.light')?.dataset.moves" 3 "still false" \
+  && frames=$(js workspace "__motion.stats.frames") && sleep 1.5 && [ "$(js workspace "__motion.stats.frames")" = "$frames" ] \
+  && send 'call put {"c":"prefs","id":"motion_ambient","patch":"off"}' \
+  && until_has workspace "eval String(!document.querySelector('.light') && !document.querySelector('.spark .glyph') && !document.querySelector('.room canvas'))" 3 "true" \
   && send 'call delete {"c":"prefs","id":"motion_ambient"}' \
-  && until_has workspace "eval String(!!document.querySelector('.light') && localStorage.length === 0)" 3 "true" \
-  && pass "Ambient light is the core's preference: Off takes the light and the glyphs away at once, and nothing is kept in the page" || fail "the ambient light preference"
+  && until_has workspace "eval String(!!document.querySelector('.light') && localStorage.length === 0) + ' ' + document.documentElement.dataset.effects" 3 "true full" \
+  && js workspace "(__motion.debug.saving = true, __motion.redraw(), 1)" >/dev/null \
+  && until_has workspace "eval document.documentElement.dataset.effects + ' ' + document.querySelector('.light')?.dataset.moves" 3 "still false" \
+  && pass "the effects are the core's preference: at Still the light is a picture while agents work, Off takes the light and the glyphs away at once, Low Power Mode holds Full at Still, and nothing is kept in the page" || fail "the effects preference"
+js workspace "(Object.assign(__motion.debug, { state: null, active: null, saving: null }), __motion.redraw(), 1)" >/dev/null
 send 'call put {"c":"prefs","id":"motion_style","patch":"glyphs"}' 'call put {"c":"prefs","id":"motion_lumen","patch":true}'
 until_has workspace "eval document.querySelector('.light .motion').dataset.style" 3 "glyphs" \
   && until_has notch "eval document.querySelector('#notch-art').dataset.glow" 3 "motion" \

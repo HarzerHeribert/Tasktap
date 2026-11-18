@@ -1,5 +1,5 @@
-// A soak of the ambient layer: Home, shown in the window in use, with nothing running, so the light breathes, the band
-// swells and the sidebar's glyphs sway, left alone for a while. It must cost at the end what it cost at the start:
+// A soak of the ambient layer: Home, shown in the window in use, with agents working, so the light breathes, the band
+// drifts and swells and the sidebar's glyphs sway, left alone for a while. It must cost at the end what it cost at the start:
 // nothing it makes may pile up. Renders the workspace page from ui/dist on fixture records, counts what the page owns
 // (elements, canvases, running animations, timers and frame callbacks it has pending, WebGL objects made and not
 // deleted, the heap) and times its frames, early and at the end, and fails if any of them grew.
@@ -54,6 +54,8 @@ async function main(seconds) {
   try {
     const page = await open(browser, { label: 'workspace', records: scene('quiet'), url: server.url, dpr: 1 });
     await page.evaluate(COUNT);
+    // The layer rests unless something goes on in the window in use: agents are working, and this window is that one.
+    await page.evaluate(() => (Object.assign(window.__motion.debug, { state: 'working', active: true }), window.__motion.redraw()));
     // A region taking focus and the sidebar sliding are part of a day: each once, early, so what they leave is counted.
     await page.evaluate(() => (window.__ws.greet('main'), window.__ws.command('sidebar')));
     await page.waitForTimeout(1500);

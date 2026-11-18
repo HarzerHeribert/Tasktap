@@ -73,6 +73,7 @@ function fakeRuntime({ label, records: records0, welcome }) {
     }
     if (name === 'history') return reply(id, { thoughts: [], questions: [], results: [] });
     // `hold`: a capture is never answered, so the field stays as it is while a thought is on its way.
+    if (name === 'thought.capture') window.__fake.sent = args;
     if (name === 'thought.capture' && records.hold) return;
     // A thought saved for later is kept as the core keeps it, so the page can show where it landed.
     if (name === 'thought.capture' && args.mode === 'note') {

@@ -8,18 +8,25 @@
 # channel, then quits it and its core. Then, as 1.2 was measured, launch to window again after
 # that full quit, on the same data folder.
 #
-# MOTION=1 host/scripts/measure.sh measures the light instead, in one short launch: the whole app idle in the
-# background (the window shown but not the one in use, on Home, the notch collapsed: nothing may move); then, held
-# through the debug channel as it is while the window is the one in use, the whole ambient layer moving with nothing
-# running (the pools breathing, the chrome drifting, the sidebar's glyphs swaying: an idle Home in front); then, in a
-# state held once its moment is over, Home's light still, the ambient layer moving on Home and beside a workspace's
-# terminal, and that terminal with the light still; each over 10 s, or 30 s where the layer moves. Last, an idle Home in front again once the layer
-# has moved for five minutes: it must cost what it cost at the start, since nothing it does may pile up. The system's window compositor (WindowServer) is reported beside the app, since compositing each
-# step is its work; it also draws everything else on the screen, so its share is only as quiet as the machine.
+# MOTION=1 host/scripts/measure.sh measures the effects instead (scripts/cost-check.cjs): the whole app at rest behind
+# other windows and in front (nothing may move, and it must cost nothing), then, held through the debug channel as it
+# is in the window in use, agents working on Home (the loop, over a minute), a question waiting, the same behind other
+# windows, at Still and at Off, and beside a terminal (the sidebar's glyphs alone, over a minute); then the app's
+# memory started at each level of the effects, and that Off makes no canvas and no WebGL context.
+# FLOW=1 host/scripts/measure.sh times the capture flow (scripts/flow-check.cjs --app): frames and keys while a
+# thought is typed, sent, placed, worked on and answered, at each level of the effects, with the fixture agent.
+# CADENCE=1 host/scripts/measure.sh records the band frame by frame (scripts/cadence-check.cjs --app).
+# Each says which display its window is on and that display's refresh rate, and refuses a sleeping, locked or
+# covered screen; DISPLAY_HZ=144 puts the window on the display of that rate.
 set -u
 host="$(cd "$(dirname "$0")/.." && pwd)"
 exe="$host/target/release/bundle/macos/Tasktap Next.app/Contents/MacOS/tasktap-next"
 [ -x "$exe" ] || { echo "Build the app first: host/scripts/build.sh"; exit 1; }
+root="$(cd "$host/.." && pwd)"
+on=${DISPLAY_HZ:+--display $DISPLAY_HZ}
+[ -n "${MOTION:-}" ] && exec node "$root/scripts/cost-check.cjs" $on
+[ -n "${FLOW:-}" ] && exec node "$root/scripts/flow-check.cjs" --app $on
+[ -n "${CADENCE:-}" ] && exec node "$root/scripts/cadence-check.cjs" --app $on
 webkit() { pgrep -f 'com.apple.WebKit' | sort; }
 for run in $(seq 1 "${1:-3}"); do
   tmp="$(mktemp -d)"
@@ -44,36 +51,6 @@ for run in $(seq 1 "${1:-3}"); do
   for _ in $(seq 1 100); do grep -q '"event":"window"' "$tmp/log" && break; sleep 0.1; done
   window=$(grep '"event":"window"' "$tmp/log" | sed 's/.*"ms":\([0-9]*\).*/\1/')
   sleep 1
-  if [ -n "${MOTION:-}" ]; then
-    # Processor use and idle wakeups of the whole app over $1 seconds, as one line.
-    phase() {
-      local core pages pids ws; core=$(pgrep -f "$tmp/data/bin/" | head -1); pages=$(comm -13 <(echo "$before") <(webkit) | tr '\n' ' ')
-      pids="$app $core $pages"; ws=$(pgrep -x WindowServer | head -1)
-      top -c d -l 2 -s "$1" -stats pid,cpu,idlew $(for p in $pids $ws; do printf -- '-pid %s ' "$p"; done) > "$tmp/top" 2>/dev/null
-      awk -v n="$(echo $pids | wc -w)" -v ws="$ws" 'NR > 1 && /^[0-9]+ / { p[++i] = $1; c[i] = $2; w[i] = $3 } END { m = n + 1; for (k = i - m + 1; k <= i; k++) { if (p[k] == ws) { s = c[k]; continue } cpu += c[k]; wake += w[k] } printf "%5.1f%% cpu  %5d wakeups/s   WindowServer %5.1f%%\n", cpu, wake, s }' "$tmp/top"
-    }
-    sleep 15
-    printf '%-52s %s\n' "idle in the background: Home shown, notch collapsed" "$(phase 20)"
-    began=$SECONDS
-    for run in "home idle true" "home working false" "home working true" "home needs true" "terminal working true" "terminal working false"; do
-      set -- $run
-      [ "$1" = terminal ] && [ "$(ask "__ws.ui.view")" = home ] && ask "(__ws.command('open-workspace'), 1)" >/dev/null && echo "click workspace .sheet .act.primary" >&3 && sleep 3
-      ask "(__motion.debug.state=$([ "$2" = idle ] && echo null || echo "'$2'"), __motion.debug.breathe=$3, __motion.redraw(), 1)" >/dev/null
-      sleep 8
-      # The band is drawn while a pulse passes and rests between two: a moving layer is measured over 30 s, two of them.
-      printf '%-52s %s\n' "$1, $2, $([ "$3" = true ] && echo "the ambient layer moving" || echo "light and glyphs still")" "$(phase "$([ "$3" = true ] && echo 30 || echo 10)")"
-    done
-    ask "(__ws.show('home'), __motion.debug.state=null, __motion.debug.breathe=true, __motion.redraw(), 1)" >/dev/null
-    [ $((began + 308 - SECONDS)) -gt 0 ] && sleep $((began + 308 - SECONDS))
-    printf '%-52s %s\n' "home, idle, moving, five minutes on" "$(phase 30)"
-    echo quit >&3
-    sleep 1
-    kill "$app" 2>/dev/null
-    pkill -f "$tmp/data/bin/" 2>/dev/null
-    exec 3>&-
-    rm -rf "$tmp"
-    break
-  fi
   ask "(__ws.command('open-workspace'), 1)" >/dev/null
   sleep 0.5
   echo "click workspace .sheet .act.primary" >&3

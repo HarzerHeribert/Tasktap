@@ -142,7 +142,7 @@ async function main(out, quick) {
       console.log(name);
     };
     if (!quick) {
-      await clip('breathing.webm', 'normal', (p) => set(p, { breathe: true }), 12);
+      await clip('breathing.webm', 'normal', (p) => set(p, { state: 'working', active: true }), 12);
       await clip('state-change.webm', 'quiet', async (p, r) => {
         await settle(p, 1500);
         await p.evaluate(() => (window.__motion.debug.state = 'working', window.__motion.redraw()));
@@ -151,7 +151,7 @@ async function main(out, quick) {
         await settle(p, 4000);
         await p.evaluate(() => (window.__motion.debug.state = 'done', window.__motion.redraw()));
       }, 5);
-      await clip('sidebar-glyphs-working.webm', 'normal', (p, r) => p.evaluate((id) => (window.__ws.show(id), window.__motion.debug.state = 'working', window.__motion.debug.breathe = true, window.__motion.redraw()), r.ids.projects.cuegrid), 8);
+      await clip('sidebar-glyphs-working.webm', 'normal', (p, r) => p.evaluate((id) => (window.__ws.show(id), window.__motion.debug.state = 'working', window.__motion.debug.active = true, window.__motion.redraw()), r.ids.projects.cuegrid), 8);
       for (const slow of [false, true]) {
         const sfx = slow ? '-quarter' : '';
         await clip(`wiper-sidebar${sfx}.webm`, 'normal', async (p) => {

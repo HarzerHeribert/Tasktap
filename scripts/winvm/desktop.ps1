@@ -269,7 +269,7 @@ $rows['9'] = 'Nothing of its own: a folder given by TASKTAP_PICK becomes a works
 
 $rows['+'] = 'Beyond the checklist: asks taskkill''s and tasklist''s service (Windows Management Instrumentation) for this process, which it refuses the same account over SSH; tells the app with the debug channel to quit and times it, and looks for what it left running.', {
     $listed = & "$env:SystemRoot\System32\tasklist.exe" /FI "PID eq $PID" /NH 2>&1
-    Say $(if ($LASTEXITCODE -eq 0) { 'PASS' } else { 'INFO' }) '+' 'the management service answers a standard account at the desktop' "tasklist exit $LASTEXITCODE: $("$listed".Trim())"
+    Say $(if ($LASTEXITCODE -eq 0) { 'PASS' } else { 'INFO' }) '+' 'the management service answers a standard account at the desktop' "tasklist exit ${LASTEXITCODE}: $("$listed".Trim())"
 }
 
 # What the rows need.

@@ -1,0 +1,39 @@
+{
+  "id": "evt_03fixture",
+  "type": "form.created",
+  "data": {
+    "form": {
+      "id": "frm_01fixture",
+      "sessionID": "ses_01fixture",
+      "title": "Questions",
+      "metadata": {
+        "kind": "question",
+        "tool": {
+          "messageID": "msg_01fixture",
+          "id": "call_01fixture"
+        }
+      },
+      "fields": [
+        {
+          "key": "q0",
+          "title": "Color preference",
+          "description": "Do you prefer red or blue?",
+          "type": "string",
+          "options": [
+            {
+              "value": "Red",
+              "label": "Red",
+              "description": "Choose red"
+            },
+            {
+              "value": "Blue",
+              "label": "Blue",
+              "description": "Choose blue"
+            }
+          ],
+          "custom": true
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "id": "evt_05fixture",
+  "type": "session.tool.called",
+  "data": {
+    "sessionID": "ses_01fixture",
+    "assistantMessageID": "msg_02fixture",
+    "id": "call_02fixture",
+    "input": {
+      "command": "echo Red"
+    },
+    "executed": false
+  },
+  "tool": "shell"
+}

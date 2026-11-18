@@ -1,0 +1,9 @@
+{
+  "id": "evt_07fixture",
+  "type": "permission.replied",
+  "data": {
+    "sessionID": "ses_01fixture",
+    "requestID": "per_01fixture",
+    "reply": "once"
+  }
+}

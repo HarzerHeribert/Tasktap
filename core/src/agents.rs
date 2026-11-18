@@ -17,6 +17,7 @@ pub mod antigravity;
 pub mod checks;
 pub mod claude;
 pub mod codex;
+pub mod opencode;
 pub mod pi;
 pub mod rules;
 
@@ -421,6 +422,7 @@ const AGENTS: &[&dyn Agent] = &[
     &codex::Codex,
     &antigravity::Antigravity,
     &pi::Pi,
+    &opencode::OpenCode,
     #[cfg(feature = "fixtures")]
     &Fixture {
         events: true,

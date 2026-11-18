@@ -1,0 +1,17 @@
+{
+  "id": "evt_00fixture",
+  "type": "session.inbox.enqueued",
+  "data": {
+    "inboxID": "msg_00fixture",
+    "sessionID": "ses_01fixture",
+    "item": {
+      "type": "user",
+      "payload": {
+        "text": "Tasktap test: run the shell command `echo tasktap-one` and tell me its output in one short sentence.",
+        "files": [],
+        "agents": []
+      },
+      "delivery": "steer"
+    }
+  }
+}

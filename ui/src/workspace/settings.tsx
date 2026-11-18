@@ -133,7 +133,7 @@ function VoicePane() {
 /** The agents this Mac has, with how each is signed in, and a terminal to sign in to one that is not. One of them is
  *  the default: it runs a thought unless another ring was picked for that thought in the Composer. Only here is the
  *  default changed (the `agent` preference). */
-const signIn: Record<string, string> = { claude: 'claude', codex: 'codex login', agy: 'agy', pi: 'pi' };
+const signIn: Record<string, string> = { claude: 'claude', codex: 'codex login', agy: 'agy', pi: 'pi', opencode: 'opencode auth login' };
 /** What a row adds about its agent: whose models it runs, where its name does not say, and that what it asks is
  *  answered in its own terminal, where no hook of it lets the notch answer. */
 const family: Record<string, string> = { agy: 'Gemini' };

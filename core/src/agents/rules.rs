@@ -29,6 +29,7 @@ const RULES: &[&Rules] = &[
     &super::claude::RULES,
     &super::antigravity::RULES,
     &super::pi::RULES,
+    &super::opencode::RULES,
     #[cfg(feature = "fixtures")]
     &FIXTURE,
 ];
@@ -59,6 +60,7 @@ const VALUE_OPTIONS: &[&str] = &[
     "--print-timeout", "--prompt-interactive", "-i", "--session", "--fork", "--session-dir", "--name",
     "-n", "--models", "--tools", "-t", "--exclude-tools", "-xt", "--system-prompt",
     "--append-system-prompt", "--skill", "--prompt-template", "--theme", "--use-theme", "--tui-mode",
+    "--server", "--prompt", "--log-level",
 ];
 
 impl Rules {
@@ -170,6 +172,21 @@ mod tests {
             ("pi", &["auth", "login", "deepseek"], false),
             ("pi", &["-e", "x.ts", "install", "npm:x"], false),
             ("pi", &["--", "update"], true),
+            ("opencode", &[], true),
+            ("opencode", &["--prompt", "fix the bug"], true),
+            ("opencode", &["--session", "ses_1", "--standalone"], true),
+            ("opencode", &["some/folder"], true),
+            (
+                "opencode",
+                &["--server", "http://127.0.0.1:4096", "run", "hi"],
+                false,
+            ),
+            ("opencode", &["run", "hi"], false),
+            ("opencode", &["auth", "list"], false),
+            ("opencode", &["--log-level", "debug", "serve"], false),
+            ("opencode", &["mini"], false),
+            ("opencode", &["-v"], false),
+            ("opencode", &["--completions", "zsh"], false),
         ] {
             assert_eq!(
                 rules(agent).interactive(&words(args)),
@@ -181,7 +198,7 @@ mod tests {
 
     #[test]
     fn only_an_agent_with_an_adapter_has_a_shim() {
-        for agent in ["opencode", "cursor"] {
+        for agent in ["cursor-agent", "aider"] {
             assert!(named(OsStr::new(agent)).is_none(), "{agent}");
         }
         for agent in shimmed() {
@@ -215,6 +232,9 @@ mod tests {
             // Pi asks for no approval: there is none to add.
             ("pi", &[], &[]),
             ("pi", &["--approve"], &[]),
+            // OpenCode keeps the permissions the person configured.
+            ("opencode", &[], &[]),
+            ("opencode", &["--auto"], &[]),
         ] {
             assert_eq!(
                 rules(agent).approval(&words(args)),

@@ -1,0 +1,15 @@
+{
+  "id": "evt_01fixture",
+  "type": "session.execution.failed",
+  "data": {
+    "sessionID": "ses_01fixture",
+    "error": {
+      "type": "provider.auth",
+      "message": "Authentication Fails, Your api key: ****test is invalid (request_id: 00000000-0000-4000-8000-000000000000)",
+      "status": 401,
+      "response": {
+        "body": "{\"error\":{\"message\":\"Authentication Fails, Your api key: ****test is invalid (request_id: 00000000-0000-4000-8000-000000000000)\",\"type\":\"authentication_error\",\"param\":null,\"code\":\"invalid_request_error\"}}"
+      }
+    }
+  }
+}

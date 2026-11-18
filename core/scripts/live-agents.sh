@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Live runs of Claude Code, Codex and Antigravity through the core (design §14 D).
+# Live runs of Claude Code, Codex, Antigravity and OpenCode through the core (design §14 D).
 #
 # Each run starts the real agent, installed and signed in on this computer,
 # for a few short turns on the person's own subscription, so this is never
@@ -16,16 +16,23 @@
 #           resume (3 turns). Pi runs on whichever provider it is signed in
 #           with, so this one is told: TASKTAP_LIVE_PI_MODEL=provider/model,
 #           with that provider's key in the environment; skipped without
+#   opencode  a new run whose question is answered from the core, a follow-up
+#           whose approval is given from the core, a resume whose approval is
+#           given in the terminal (3 turns, on a model that costs nothing)
 #   alone   a Codex run with no client attached to its terminal (1 turn)
 #   trust   Claude Code in a folder it has not seen asks, through the core, to be
 #           trusted there; left unanswered (no turn)
 #   loop    the loop check with Claude Code as its agent (1 turn)
 #
-# Usage: core/scripts/live-agents.sh [claude] [codex] [agy] [pi] [alone] [trust] [loop]   (none: all seven)
+# Usage: core/scripts/live-agents.sh [claude] [codex] [agy] [pi] [opencode] [alone] [trust] [loop]   (none: all eight)
 #
 # Tasktap writes nothing to ~/.claude, ~/.codex or ~/.gemini: hooks and
 # settings go on each run's command line. Antigravity keeps each run's
-# conversation in the person's history, as it does for every run. Pi runs
+# conversation in the person's history, as it does for every run, and so
+# does OpenCode (`opencode session list` in the project, `opencode session
+# delete <id>`); its runs have a server of their own, which is told here, for
+# these runs alone, to ask before a shell command and which model to use
+# (TASKTAP_LIVE_OPENCODE_MODEL, one of `opencode models`). Pi runs
 # with a temporary home, so it keeps its sessions there and reads none of
 # the person's settings or skills. The project is a throwaway git repository at
 # $TMPDIR/tasktap-live-agents/project (TASKTAP_LIVE_PROJECT moves it), made
@@ -42,6 +49,7 @@ run_of() {
     codex) echo "codex_runs_follows_up_and_resumes codex 3" ;;
     agy) echo "antigravity_runs_asks_follows_up_and_resumes agy 3" ;;
     pi) echo "pi_runs_asks_follows_up_and_resumes pi 3" ;;
+    opencode) echo "opencode_runs_asks_follows_up_and_resumes opencode 3" ;;
     alone) echo "codex_runs_with_no_window codex 1" ;;
     trust) echo "claude_in_a_new_folder_asks_to_be_trusted_there claude 0" ;;
     loop) echo "the_loop_on_claude claude 1" ;;
@@ -49,13 +57,13 @@ run_of() {
   esac
 }
 
-[ $# -eq 0 ] && set -- claude codex agy pi alone trust loop
+[ $# -eq 0 ] && set -- claude codex agy pi opencode alone trust loop
 for name in "$@"; do
-  run_of "$name" >/dev/null || { echo "live-agents: no run called $name (claude, codex, agy, pi, alone, trust, loop)" >&2; exit 64; }
+  run_of "$name" >/dev/null || { echo "live-agents: no run called $name (claude, codex, agy, pi, opencode, alone, trust, loop)" >&2; exit 64; }
 done
 
 echo "live-agents: the agents on this computer"
-for agent in claude codex agy pi; do
+for agent in claude codex agy pi opencode; do
   if command -v "$agent" >/dev/null; then
     echo "  $agent $("$agent" --version 2>&1 | head -1)"
   else
@@ -80,6 +88,10 @@ for name in "$@"; do
   echo
   echo "live-agents: $name runs $agent for $turns short turn(s); the full log is $log"
   start=$SECONDS
+  if [ "$name" = opencode ] && [ -z "${OPENCODE_CONFIG_CONTENT:-}" ]; then
+    model=${TASKTAP_LIVE_OPENCODE_MODEL:-opencode/deepseek-v4.1-flash-free}
+    export OPENCODE_CONFIG_CONTENT="{\"model\":\"$model\",\"permissions\":[{\"action\":\"shell\",\"resource\":\"*\",\"effect\":\"ask\"}]}"
+  fi
   if cargo test --quiet --test live -- --ignored --nocapture --exact "$test" >"$log" 2>&1; then
     result=passed
   else

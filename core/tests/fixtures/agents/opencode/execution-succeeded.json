@@ -1,0 +1,8 @@
+{
+  "id": "evt_08fixture",
+  "type": "session.execution.succeeded",
+  "data": {
+    "sessionID": "ses_01fixture"
+  },
+  "text": "You chose red, and the echo command confirmed it."
+}

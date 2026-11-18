@@ -1,0 +1,7 @@
+{
+  "id": "evt_01fixture",
+  "type": "session.execution.started",
+  "data": {
+    "sessionID": "ses_01fixture"
+  }
+}

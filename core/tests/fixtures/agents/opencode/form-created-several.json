@@ -1,0 +1,58 @@
+{
+  "id": "evt_01fixture",
+  "type": "form.created",
+  "data": {
+    "form": {
+      "id": "frm_01fixture",
+      "sessionID": "ses_01fixture",
+      "title": "Questions",
+      "metadata": {
+        "kind": "question",
+        "tool": {
+          "messageID": "msg_01fixture",
+          "id": "call_01fixture"
+        }
+      },
+      "fields": [
+        {
+          "key": "q0",
+          "title": "Favourite colour",
+          "description": "What is your favourite colour?",
+          "type": "string",
+          "options": [
+            {
+              "value": "Red",
+              "label": "Red",
+              "description": "Red"
+            },
+            {
+              "value": "Blue",
+              "label": "Blue",
+              "description": "Blue"
+            }
+          ],
+          "custom": true
+        },
+        {
+          "key": "q1",
+          "title": "Fruits",
+          "description": "Which fruits do you like? (several may be chosen)",
+          "type": "multiselect",
+          "options": [
+            {
+              "value": "Apple",
+              "label": "Apple",
+              "description": "Apple"
+            },
+            {
+              "value": "Pear",
+              "label": "Pear",
+              "description": "Pear"
+            }
+          ],
+          "custom": true
+        }
+      ]
+    }
+  }
+}

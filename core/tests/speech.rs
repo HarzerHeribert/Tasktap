@@ -337,11 +337,7 @@ fn a_spoken_thought_is_captured_routed_and_held_as_a_typed_one_is() {
     consent(&mut s.w, &service.url(), "ok");
     set_key(&mut s.w, &service.url(), KEY).unwrap();
     assert_eq!(keys(&s.w), [service.url()]);
-    put(
-        &mut s.w,
-        PrefPatch::SpeechLanguages(vec!["de-DE".into(), "en".into()]),
-    )
-    .unwrap();
+    put(&mut s.w, PrefPatch::SpeechLanguages(vec!["de-DE".into()])).unwrap();
 
     let (t, target) = thought();
     let mut r = recorded(&s, target.clone(), &tone(1000, 8000));
@@ -589,6 +585,10 @@ fn the_newer_model_is_given_every_language_and_a_key_goes_only_to_its_server() {
         other.seen()[0].header("authorization"),
         Some(format!("Bearer {KEY}"))
     );
+    // A model that takes one language is told none of two: told the
+    // first, it would translate what is said in the other.
+    assert!(other.seen()[0].fields("language").is_empty());
+    assert!(other.seen()[0].fields("languages[]").is_empty());
     assert_eq!(service.seen().len(), 1);
 }
 

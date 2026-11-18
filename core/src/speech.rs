@@ -687,16 +687,19 @@ fn ask(
         );
     }
     drop(pcm);
-    // One primary language for a model that takes one; the newer model of
-    // OpenAI takes several, in a field of its own, and refuses the other.
+    // The newer model of OpenAI takes several languages, in a field of its
+    // own, and refuses the other. A model that takes one is told it only
+    // when the person speaks one: told the first of several, Whisper
+    // translates what is said in another, so it is left to hear which.
     let languages = (service.languages.iter()).map(|l| l.split('-').next().unwrap_or(l));
+    let one = service.languages.len() == 1;
     let mut fields = vec![
         ("model", service.model.as_str()),
         ("response_format", "json"),
     ];
     match service.model.starts_with("gpt-transcribe") {
         true => fields.extend(languages.map(|l| ("languages[]", l))),
-        false => fields.extend(languages.take(1).map(|l| ("language", l))),
+        false => fields.extend(languages.filter(|_| one).map(|l| ("language", l))),
     }
     let url = format!("{}{PATH}", service.server);
     let post = http::Post {

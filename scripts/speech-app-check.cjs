@@ -78,7 +78,7 @@ async function withFixture(shots) {
     check(await app.until('workspace', `document.querySelector('.home .ways')?.innerText ?? ''`, 'Voice needs setting up first: on this Mac, or with a speech service.', 3) && !fs.existsSync(file),
       'with nothing set up the microphone says what voice needs, and nothing was fetched');
     await p.settings();
-    check(/Needs a model first: Whisper large-v3 turbo/.test(await p.row()), 'Settings › Speech says what On this Mac needs', await p.row());
+    check(/Needs a model first: Whisper large-v3 turbo/.test(await p.row()), 'Settings › Voice says what On this Mac needs', await p.row());
     if (shots) await app.snapshot('workspace', path.join(shots, 'app-settings-needs.png'));
     await p.press('Download');
     check(await app.until('workspace', `[...document.querySelectorAll('.settings .set .v')].map((v) => v.textContent).join('|')`, 'Ready · Whisper large-v3 turbo', 10) && fs.existsSync(file) && fs.readFileSync(file).equals(fs.readFileSync(model))

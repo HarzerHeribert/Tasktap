@@ -451,11 +451,11 @@ The owner, of Settings: "It does not need its animation with glyphs, and its str
 | Section | Key | Rows |
 | --- | --- | --- |
 | Thoughts | ⌘1 | A sent thought starts (`hold`). Placing: by name or by a model, with what it is sent behind one button (`route_by`). From any app: the capture key, as a fact |
-| Voice | ⌘2 | Where speech becomes text (`speech_by`), the service's key (`keys`), the languages (`speech_languages`) |
+| Voice | ⌘2 | Where speech becomes text: on this Mac (what its model needs, how far its download is, ready, failed, Remove) or by a service (`speech_by`), the service's key (`keys`), the languages (`speech_languages`) |
 | Agents | ⌘3 | Each agent: its ring, version, sign-in, Sign in, and which is the default (`agent`). Before, a sheet of its own behind a second button in the rail |
 | Appearance | ⌘4 | The form itself, live; Form, Colour with its hue, Lumen, Effects, and the trial with the voice. The controls are the frozen ones, unchanged; only their place is new |
 | Terminal | ⌘5 | Font, Size, Line height |
-| About | ⌘6 | The version. What leaves this Mac, line by line, each with the way to the section that decides it. What is kept on this Mac. The licences of the bundled fonts, their words behind one line |
+| About | ⌘6 | The version. What leaves this Mac, line by line, each with the way to the section that decides it. What is kept on this Mac. The licences of the bundled fonts and of what turns speech into text on this Mac, their words behind one line |
 
 One row component for every setting and for the forms that ask before something leaves the Mac (`form.tsx` `Row`): the question at the left, the answer readable at a glance at the right, and under it what the choice means only where that matters. Settings opens where it was last, or at the section a link asks for (the Composer's ring, the microphone, the notch: `settings:voice`, `settings:agents`). In the list the arrows move; ⌘1 to ⌘6 reach a section from anywhere in the sheet.
 

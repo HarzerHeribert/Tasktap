@@ -14,6 +14,14 @@
 //!   browser. A window a frame asks for is never opened. A top frame that turns up anywhere but on the app's own
 //!   pages is sent back to them (`workspace.rs`).
 //!
+//! On Windows the web view is WebView2, which has no rule list, and the same three are held by its own means
+//! (`windows.rs`, `confine`; `BROWSER`): it asks the host about every request before it is sent and about every
+//! frame's navigation, and its browser is started resolving nothing but this machine. Two things differ there and
+//! are said where they are: WebView2 runs the app's start-up scripts in every frame, so a frame has the app's own
+//! object and call, and the whole of the first rule is Tauri's refusal of a command from an origin that is not the
+//! app's (the check tries the call itself); and a frame never goes to one of the app's own pages, which there would
+//! be the app a second time (`goes`).
+//!
 //! The server reads nothing the rule of `rules.rs` does not let `host.open` open: a file that exists, inside a folder
 //! the person opened or a copy Tasktap made of one, every link on the way followed. It answers `GET` for a path under
 //! a token made anew at each start, on the loopback interface only, and nothing runs while nothing asks.

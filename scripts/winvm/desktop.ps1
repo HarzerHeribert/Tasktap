@@ -719,8 +719,8 @@ $rows['9'] = 'Starts the app with no folder named for it. With its window in fro
             if ($dialog) { Start-Sleep -Milliseconds 1200; return $dialog }
         }
     }
-    function Gone($dialog) {
-        for ($i = 0; $i -lt 40; $i++) {
+    function Gone($dialog, $tries = 40) {
+        for ($i = 0; $i -lt $tries; $i++) {
             if (-not ([Tasktap.Desk]::Windows() | Where-Object { $_.Handle -eq $dialog.Handle })) { return $true }
             Start-Sleep -Milliseconds 150
         }
@@ -740,12 +740,12 @@ $rows['9'] = 'Starts the app with no folder named for it. With its window in fro
         $w = $frame.Right - $frame.Left; $h = $frame.Bottom - $frame.Top
         $shot = Bitmap-Of ([Tasktap.Desk]::Bits([IntPtr]::Zero, $w, $h, $true, $frame.Left, $frame.Top)) $w $h
         $shot.Save("$Out\row9-dialog-screen.png", [Drawing.Imaging.ImageFormat]::Png); $shot.Dispose()
-        Say 'LOOK' 9 'the folder dialog over the app''s window: the system''s own, dark as the app is' "row9-dialog-screen.png ($w x $h): the screen's points inside the dialog's edges"
+        Say 'LOOK' 9 'the folder dialog over the app''s window: the system''s own, in the system''s own colours (light where Windows is set to light, whatever the app is)' "row9-dialog-screen.png ($w x $h): the screen's points inside the dialog's edges"
     } else { Say 'INFO' 9 'no picture of the dialog: it was not the window in front' }
     [Tasktap.Desk]::Button($dialog.Handle, 2)
     $closed = Gone $dialog
     Start-Sleep -Milliseconds 600
-    $after = Js "[__ws.records.projects.size, !__ws.ui.sheet, document.querySelector('.fail, .failure, [role=alert]')?.innerText ?? ''].join(' | ')"
+    $after = Js "[[...__ws.records.projects.values()].filter((p) => p.kind === 'folder').length, !__ws.ui.sheet, document.querySelector('.fail, .failure, [role=alert]')?.innerText ?? ''].join(' | ')"
     Check 9 'Cancel closes it and is no failure: no workspace, nothing said, and the window has the keyboard again' ($closed -and "$after" -eq '0 | true | ' -and [Tasktap.Desk]::IsWindowEnabled($window) -and [Tasktap.Desk]::GetForegroundWindow() -eq $window) "workspaces, no sheet open, what the page says of a failure: $after; the window in front: $([Tasktap.Desk]::GetForegroundWindow() -eq $window)"
     # A folder chosen through the dialog itself: its path put into the dialog's field, its own button pressed.
     $dialog = Ask-Folder
@@ -754,13 +754,21 @@ $rows['9'] = 'Starts the app with no folder named for it. With its window in fro
         Say 'INFO' 9 'a folder was not chosen through the dialog: its field was not found (a chosen folder is rows 2 and 5, through TASKTAP_PICK)'
         if ($dialog) { [Tasktap.Desk]::Button($dialog.Handle, 2); $null = Gone $dialog }
     } else {
+        # As a person does it: the path typed into the field and Return, which goes into that folder; then the
+        # dialog's own button, which takes the folder it is in. (While the dialog is open the app's event loop is
+        # inside it: the page answers nothing until it closes, so it is never left open.)
         [Tasktap.Desk]::SetText($field.Handle, "$tmp\chosen folder")
         Start-Sleep -Milliseconds 300
         [Tasktap.Desk]::Button($dialog.Handle, 1)
-        $null = Gone $dialog
+        if (-not (Gone $dialog 12)) {
+            $went = ([Tasktap.Desk]::Inside($dialog.Handle) | Where-Object { $_.Class -eq 'ToolbarWindow32' -and $_.Title -like 'Address: *' } | Select-Object -First 1).Title
+            Say 'INFO' 9 "after the path and the button the dialog is at: $went; its button once more takes that folder"
+            [Tasktap.Desk]::Button($dialog.Handle, 1)
+        }
+        if (-not (Gone $dialog)) { [Tasktap.Desk]::Button($dialog.Handle, 2); $null = Gone $dialog }
         $want = "$tmp\chosen folder"
         $got = ''
-        for ($i = 0; $i -lt 20 -and $got -ne $want; $i++) { Start-Sleep -Milliseconds 300; $got = "$(Js "[...__ws.records.projects.values()].map((p) => p.folder).join(' | ')" 2)" }
+        for ($i = 0; $i -lt 20 -and $got -ne $want; $i++) { Start-Sleep -Milliseconds 300; $got = "$(Js "[...__ws.records.projects.values()].filter((p) => p.kind === 'folder').map((p) => p.folder).join(' | ')" 2)" }
         Check 9 'a folder chosen in the dialog becomes a workspace, kept as the person knows it' ($got -eq $want) "the workspace's folder: $got"
     }
     End-Own 'row9-app.txt'
@@ -809,6 +817,7 @@ $rows['14'] = 'Starts the app with the core that has the fixture agent, the agen
     Check 14 'the turn''s end is a result: the tab and the sidebar row mark it unread' ($marks -eq 'ready ready') "the marks: $marks"
     [Tasktap.Desk]::Close($notepad.Handle)
     $null = Front $window
+    $null = Js "(__ws.dismiss(), 1)"
     Start-Sleep -Milliseconds 600
     Say 'LOOK' 14 'the workspace after the thought: the agent''s terminal with its question answered, and the result' (Capture $window 'row14-result')
     End-Own 'row14-app.txt'

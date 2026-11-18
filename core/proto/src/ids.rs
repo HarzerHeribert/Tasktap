@@ -66,6 +66,7 @@ ids! {
     ResultId,
     DeviceId,
     DictationId,
+    PreviewId,
     /// Names one attempt to start a process, so a repeated call never starts it twice.
     AttemptId,
 }

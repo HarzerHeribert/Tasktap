@@ -24,7 +24,7 @@ export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] 
 /**
  * Who may make a call (design §2): authorization is per call.
  */
-export type Access = "anyone" | "device" | "session" | "ability";
+export type Access = "anyone" | "device" | "session" | "either" | "ability";
 
 export type Action = "answer.affirm" | "answer.deny";
 
@@ -228,7 +228,7 @@ export type CloseWhy = "done" | "overflow" | "gone" | "denied";
 
 export type Code = "unknown" | "invalid" | "denied" | "conflict" | "gone" | "failed";
 
-export type Collection = "thoughts" | "projects" | "sessions" | "terminals" | "questions" | "results" | "layouts" | "prefs" | "devices" | "glance" | "agents" | "dictations";
+export type Collection = "thoughts" | "projects" | "sessions" | "terminals" | "questions" | "results" | "layouts" | "prefs" | "devices" | "previews" | "glance" | "agents" | "dictations";
 
 /**
  * A kind 0 frame. Unknown fields are ignored, so a newer peer may add fields
@@ -257,11 +257,12 @@ terminals: number, };
 export type Credit = { s: StreamId, n: number, };
 
 /**
- * `delete`: removes plain data, and a terminal that is not running with its
- * history, the only way history is removed; one a session refers to is
- * `conflict`. Deleting a preference restores its default.
+ * `delete`: removes plain data, a preview, and a terminal that is not
+ * running with its history and its previews, the only way history is
+ * removed by hand; one a session refers to is `conflict`. Deleting a
+ * preference restores its default.
  */
-export type Delete = { "c": "prefs", id: PrefKey, } | { "c": "layouts", id: ProjectId, } | { "c": "thoughts", id: ThoughtId, } | { "c": "terminals", id: TerminalId, };
+export type Delete = { "c": "prefs", id: PrefKey, } | { "c": "layouts", id: ProjectId, } | { "c": "thoughts", id: ThoughtId, } | { "c": "terminals", id: TerminalId, } | { "c": "previews", id: PreviewId, };
 
 /**
  * `agents.detect`: whether each agent this core can run is installed on the
@@ -342,6 +343,12 @@ cut: boolean, };
 export type Empty = Record<string, never>;
 
 /**
+ * How a file of text is encoded, in the words a page's `TextDecoder`
+ * takes. UTF-16 only where the file says so with its first bytes.
+ */
+export type Encoding = "utf-8" | "utf-16le" | "utf-16be";
+
+/**
  * The one error shape of every failed call.
  */
 export type Error = { code: Code, message: string, };
@@ -350,6 +357,42 @@ export type Error = { code: Code, message: string, };
  * `type`: a file became a link, or the reverse.
  */
 export type FileChange = "added" | "modified" | "deleted" | "type";
+
+/**
+ * What a file is, by its first bytes and then by its name
+ * (`file.read`): the formats a web view draws, text, and everything
+ * else, which no preview shows.
+ */
+export type FileKind = "text" | "markdown" | "html" | "svg" | "png" | "jpeg" | "gif" | "webp" | "pdf" | "other";
+
+/**
+ * The reply of `file.read`.
+ */
+export type FileRead = {
+/**
+ * The file's bytes from its first, which ends once all of them are
+ * sent, or at the cut. None when there is nothing to send: the file
+ * still has the stamp `unless` named, or it is of the kind `other`.
+ */
+stream: Opened | null,
+/**
+ * Bytes in the file.
+ */
+size: number, kind: FileKind,
+/**
+ * For text of every kind (text, markdown, html, svg): how to decode it.
+ */
+encoding: Encoding | null,
+/**
+ * The stream ends before the file does: text of more than
+ * [`MAX_FILE_TEXT`] bytes is cut there, between two characters.
+ */
+cut: boolean,
+/**
+ * Changes whenever the file does: its size and when it was last
+ * written. To be handed back as `unless`.
+ */
+stamp: string, };
 
 /**
  * What `dictation.finish` may turn a dictation into: only the words.
@@ -624,6 +667,28 @@ export type NotePatch = { text?: string | null, strokes?: Array<Array<[number, n
 export type Offset = number;
 
 /**
+ * `preview.open`: shows a file, or a web address of this machine, beside
+ * a terminal. The same target beside the same terminal again is the
+ * preview it already has.
+ */
+export type OpenPreview = {
+/**
+ * The terminal it is shown beside. A device names it; an agent's is
+ * the terminal of its token, and it may name no other.
+ */
+terminal?: TerminalId | null,
+/**
+ * A path, whole, from `cwd` or from the home folder with `~/`; or a
+ * web address.
+ */
+target: string,
+/**
+ * The folder a path that is not whole is taken from; without it, the
+ * folder the terminal started in.
+ */
+cwd?: string | null, };
+
+/**
  * `terminal.open`: attaches to terminal `id` and replies with a stream of
  * its output, which also carries input to it. With `start`, a terminal no
  * record has yet is started first; the same id with the same `start`
@@ -699,6 +764,41 @@ export type PrefKey = "hold" | "agent" | "route_by" | "motion_style" | "motion_p
  */
 export type PrefPatch = { "id": "hold", "patch": number } | { "id": "agent", "patch": string | null } | { "id": "route_by", "patch": RouteBy | null } | { "id": "motion_style", "patch": MotionStyle } | { "id": "motion_palette", "patch": MotionPalette } | { "id": "motion_hue", "patch": number } | { "id": "motion_lumen", "patch": boolean } | { "id": "motion_ambient", "patch": MotionAmbient } | { "id": "terminal_font", "patch": string } | { "id": "terminal_size", "patch": number } | { "id": "terminal_line_height", "patch": number } | { "id": "speech_by", "patch": SpeechBy | null } | { "id": "speech_languages", "patch": Array<string> } | { "id": "return_sends", "patch": boolean } | { "id": "capture_key", "patch": Shortcut | null } | { "id": "talk_key", "patch": Shortcut | null } | { "id": "keep_days", "patch": number } | { "id": "terminal_bold_bright", "patch": boolean } | { "id": "terminal_contrast", "patch": boolean } | { "id": "text_size", "patch": TextSize };
 
+/**
+ * Something shown beside a terminal (design §9, "Previews"): a file, or a
+ * web address of this machine. `preview.open` writes it, under the rules
+ * of what may be shown, and `delete` closes it; it goes with its
+ * terminal's record. Where it stands is the layout's.
+ */
+export type Preview = { id: PreviewId, rev: Rev,
+/**
+ * The terminal it is shown beside, a session's or a shell's.
+ */
+terminal_id: TerminalId, kind: PreviewKind,
+/**
+ * A file's whole path with every link followed, as `file.read` takes
+ * it; or the web address, as it was given.
+ */
+target: string,
+/**
+ * The file's name, or the address's host and port.
+ */
+title: string,
+/**
+ * Who opened it: the person at a device, or the agent in the
+ * terminal with `tasktap preview`.
+ */
+by: PreviewBy, };
+
+export type PreviewBy = "person" | "agent";
+
+/**
+ * A UUID v7 in text, minted by whoever creates the record.
+ */
+export type PreviewId = string;
+
+export type PreviewKind = "file" | "web";
+
 export type Project = { id: ProjectId, rev: Rev, name: string,
 /**
  * Canonical and unique among projects.
@@ -762,6 +862,27 @@ credit: number,
  * One file's diff instead of the whole: a path the list names.
  */
 path?: string | null, };
+
+/**
+ * `file.read`: the bytes of a file inside a folder the person opened in
+ * Tasktap, or inside a copy Tasktap made of one, as a stream.
+ */
+export type ReadFile = {
+/**
+ * The file's whole path. Links on the way to it are followed before
+ * the rule is applied.
+ */
+path: string,
+/**
+ * What the caller grants the core on the stream at once.
+ */
+credit: number,
+/**
+ * The `stamp` of an earlier reply: when the file still has it, nothing
+ * is read and the reply has no stream. How a preview asks whether its
+ * file changed.
+ */
+unless?: string | null, };
 
 /**
  * Why a thought failed.
@@ -980,7 +1101,7 @@ export type SessionState = "starting" | "idle" | "working" | "ended";
 /**
  * The rows of one collection that one change touches.
  */
-export type Set = { "c": "thoughts" } & Rows<Thought, ThoughtId> | { "c": "projects" } & Rows<Project, ProjectId> | { "c": "sessions" } & Rows<Session, SessionId> | { "c": "terminals" } & Rows<Terminal, TerminalId> | { "c": "questions" } & Rows<Question, QuestionId> | { "c": "results" } & Rows<TurnResult, ResultId> | { "c": "layouts" } & Rows<Layout, ProjectId> | { "c": "prefs" } & Rows<Pref, PrefKey> | { "c": "devices" } & Rows<Device, DeviceId> | { "c": "glance", put: Array<Glance>, } | { "c": "agents" } & Rows<AgentHealth, string> | { "c": "dictations" } & Rows<Dictation, DictationId>;
+export type Set = { "c": "thoughts" } & Rows<Thought, ThoughtId> | { "c": "projects" } & Rows<Project, ProjectId> | { "c": "sessions" } & Rows<Session, SessionId> | { "c": "terminals" } & Rows<Terminal, TerminalId> | { "c": "questions" } & Rows<Question, QuestionId> | { "c": "results" } & Rows<TurnResult, ResultId> | { "c": "layouts" } & Rows<Layout, ProjectId> | { "c": "prefs" } & Rows<Pref, PrefKey> | { "c": "devices" } & Rows<Device, DeviceId> | { "c": "previews" } & Rows<Preview, PreviewId> | { "c": "glance", put: Array<Glance>, } | { "c": "agents" } & Rows<AgentHealth, string> | { "c": "dictations" } & Rows<Dictation, DictationId>;
 
 /**
  * `key.set`: stores the key of a server in the system's credential
@@ -1237,6 +1358,8 @@ export type Calls = {
   "project.add": { args: AddProject; result: ProjectId; access: "device" };
   "project.scan": { args: Empty; result: null; access: "device" };
   "project.close": { args: CloseProject; result: null; access: "device" };
+  "file.read": { args: ReadFile; result: FileRead; access: "device" };
+  "preview.open": { args: OpenPreview; result: PreviewId; access: "either" };
   "input": { args: Input; result: null; access: "device" };
   "dictation.start": { args: StartDictation; result: Listening; access: "device" };
   "dictation.report": { args: ReportDictation; result: null; access: "device" };

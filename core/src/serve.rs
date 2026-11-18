@@ -75,6 +75,8 @@ pub struct Core {
     pub shims: crate::shim::Shims,
     /// The diffs `thought.changes` streams hold, counted to bound them.
     pub diffs: Rc<std::cell::Cell<usize>>,
+    /// The files `file.read` reads or its streams hold, counted likewise.
+    pub files: Rc<std::cell::Cell<usize>>,
     /// The dictations under way (design §8).
     pub speech: crate::speech::Speech,
     /// How long each folder check waits first, for tests (design §13).
@@ -187,6 +189,7 @@ async fn serve(opts: Options) -> io::Result<()> {
             terminals,
             shims: Default::default(),
             diffs: Default::default(),
+            files: Default::default(),
             speech: crate::speech::Speech::new(second),
             #[cfg(feature = "fixtures")]
             fixture_check: opts.check,

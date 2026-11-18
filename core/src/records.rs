@@ -68,6 +68,7 @@ fn collection(set: &Set) -> Collection {
         Set::Layouts(_) => Collection::Layouts,
         Set::Prefs(_) => Collection::Prefs,
         Set::Devices(_) => Collection::Devices,
+        Set::Previews(_) => Collection::Previews,
         Set::Glance { .. } => Collection::Glance,
         Set::Agents(_) => Collection::Agents,
         Set::Dictations(_) => Collection::Dictations,
@@ -379,7 +380,7 @@ fn chunks(rev: Rev, snap: bool, sets: Vec<Set>) -> Vec<Change> {
     for set in sets {
         split!(
             set, Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs,
-            Devices, Agents, Dictations
+            Devices, Previews, Agents, Dictations
         );
     }
     if !chunk.sets.is_empty() || chunk.done.is_empty() {
@@ -529,6 +530,8 @@ pub fn delete(cx: &mut Cx, args: Delete) -> Result<Revision, Error> {
         }
         Delete::Prefs { id } => tx.delete_pref(id),
         Delete::Layouts { id } => tx.delete_layout(id),
+        // Closed already, a preview is closed: nothing changes.
+        Delete::Previews { id } => tx.delete_preview(id),
         Delete::Thoughts { id } => {
             plain(&tx, id)?;
             match tx.delete_thought(id) {

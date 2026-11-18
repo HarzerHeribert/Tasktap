@@ -2054,6 +2054,92 @@ fn row_pruned_goes_in_steps_of_fifty_oldest_first_and_says_when_more_is_left() {
     assert_eq!(prune(&mut w, 1), nothing());
 }
 
+// Previews (design §9), on the rule alone.
+
+#[test]
+fn a_preview_is_one_per_target_beside_a_terminal_and_goes_with_the_terminals_record() {
+    use tasktap_proto::{MAX_PREVIEWS, PreviewBy, PreviewKind};
+    let mut w = World::new("previews");
+    let p = w.project;
+    let (mut person, mut agent) = (None, None);
+    w.write(|tx| {
+        person = Some(shell(tx, p));
+        agent = Some(session_in(tx, p, TerminalKind::Agent, None));
+    });
+    let (person, agent) = (person.unwrap(), agent.unwrap().terminal_id.unwrap());
+    let open = |w: &mut World, terminal, target: &str, by| {
+        let now = w.now();
+        let mut tx = w.store.begin().unwrap();
+        let shown = (PreviewKind::Web, target.to_owned(), "localhost".to_owned());
+        let opened = state::preview(&mut tx, now, terminal, shown, by);
+        if opened.is_ok() {
+            w.change = tx.commit().unwrap();
+        }
+        opened
+    };
+    // Beside a terminal the store knows, running or ended.
+    let unknown = open(
+        &mut w,
+        TerminalId::mint(),
+        "http://localhost:1/",
+        PreviewBy::Person,
+    );
+    assert!(matches!(unknown, Err(Error::Gone)), "{unknown:?}");
+    let first = open(&mut w, person, "http://localhost:1/", PreviewBy::Person).unwrap();
+    let row = w.read(|tx| tx.previews_of(person).unwrap());
+    assert_eq!(row.len(), 1);
+    assert_eq!(
+        (row[0].id, row[0].terminal_id, row[0].by),
+        (first, person, PreviewBy::Person)
+    );
+    // The same target again is that preview, whoever asks, and writes nothing.
+    w.change = None;
+    let again = open(&mut w, person, "http://localhost:1/", PreviewBy::Agent).unwrap();
+    assert_eq!((again, w.change.take()), (first, None));
+    // Beside another terminal it is another preview.
+    let beside = open(&mut w, agent, "http://localhost:1/", PreviewBy::Agent).unwrap();
+    assert_ne!(beside, first);
+    // Eight beside one terminal; the ninth is refused, and one of the eight is still found.
+    for n in 2..=MAX_PREVIEWS {
+        open(
+            &mut w,
+            person,
+            &format!("http://localhost:{n}/"),
+            PreviewBy::Person,
+        )
+        .unwrap();
+    }
+    let ninth = open(&mut w, person, "http://localhost:9/", PreviewBy::Person);
+    assert!(matches!(ninth, Err(Error::Conflict(_))), "{ninth:?}");
+    assert_eq!(
+        open(&mut w, person, "http://localhost:8/", PreviewBy::Agent)
+            .ok()
+            .map(|_| ()),
+        Some(())
+    );
+    assert_eq!(
+        w.read(|tx| tx.previews_of(person).unwrap()).len(),
+        MAX_PREVIEWS
+    );
+
+    // Pruning takes the agent's terminal, whose session is spent, and its preview with it.
+    let pruned = prune(&mut w, 1);
+    assert_eq!(pruned.terminals, [agent]);
+    let told = serde_json::to_value(w.change.take().unwrap().sets).unwrap();
+    let closed = told
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|set| set["c"] == "previews");
+    assert_eq!(
+        closed.map(|set| &set["del"]),
+        Some(&serde_json::json!([beside]))
+    );
+    // Deleting the person's terminal closes all of its.
+    w.write(|tx| assert!(tx.delete_terminal(person).unwrap()));
+    assert!(w.read(|tx| tx.previews_of(person).unwrap()).is_empty());
+}
+
 /// An id minted at `ms`, so that ids order as their thoughts were made.
 fn uuid_at(ms: u64) -> ThoughtId {
     state::fresh(time(ms)).unwrap()

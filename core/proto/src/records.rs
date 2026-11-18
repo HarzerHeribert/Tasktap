@@ -6,14 +6,14 @@
 //! on the wire. Every row is keyed by `id`, so one client loop merges them all.
 
 use crate::ids::{
-    DeviceId, DictationId, Offset, ProjectId, QuestionId, ResultId, Rev, SessionId, TerminalId,
-    ThoughtId, Time,
+    DeviceId, DictationId, Offset, PreviewId, ProjectId, QuestionId, ResultId, Rev, SessionId,
+    TerminalId, ThoughtId, Time,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 words! {
-    pub enum Collection { Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices, Glance, Agents, Dictations }
+    pub enum Collection { Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices, Previews, Glance, Agents, Dictations }
 }
 
 /// The rows of one collection that one change touches.
@@ -30,6 +30,7 @@ pub enum Set {
     Layouts(Rows<Layout, ProjectId>),
     Prefs(Rows<Pref, PrefKey>),
     Devices(Rows<Device, DeviceId>),
+    Previews(Rows<Preview, PreviewId>),
     /// One row that always exists, so it is only ever put.
     Glance {
         put: Vec<Glance>,
@@ -422,6 +423,60 @@ pub struct Layout {
     pub rev: Rev,
     #[cfg_attr(test, ts(type = "unknown"))]
     pub tree: Value,
+}
+
+/// Something shown beside a terminal (design §9, "Previews"): a file, or a
+/// web address of this machine. `preview.open` writes it, under the rules
+/// of what may be shown, and `delete` closes it; it goes with its
+/// terminal's record. Where it stands is the layout's.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Preview {
+    pub id: PreviewId,
+    pub rev: Rev,
+    /// The terminal it is shown beside, a session's or a shell's.
+    pub terminal_id: TerminalId,
+    pub kind: PreviewKind,
+    /// A file's whole path with every link followed, as `file.read` takes
+    /// it; or the web address, as it was given.
+    pub target: String,
+    /// The file's name, or the address's host and port.
+    pub title: String,
+    /// Who opened it: the person at a device, or the agent in the
+    /// terminal with `tasktap preview`.
+    pub by: PreviewBy,
+}
+
+words! {
+    pub enum PreviewKind { File, Web }
+}
+
+words! {
+    pub enum PreviewBy { Person, Agent }
+}
+
+/// Previews one terminal has open at once; `preview.open` of one more is
+/// `conflict`.
+pub const MAX_PREVIEWS: usize = 8;
+
+words! {
+    /// What a file is, by its first bytes and then by its name
+    /// (`file.read`): the formats a web view draws, text, and everything
+    /// else, which no preview shows.
+    pub enum FileKind { Text, Markdown, Html, Svg, Png, Jpeg, Gif, Webp, Pdf, Other }
+}
+
+/// How a file of text is encoded, in the words a page's `TextDecoder`
+/// takes. UTF-16 only where the file says so with its first bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub enum Encoding {
+    #[serde(rename = "utf-8")]
+    Utf8,
+    #[serde(rename = "utf-16le")]
+    Utf16le,
+    #[serde(rename = "utf-16be")]
+    Utf16be,
 }
 
 /// A preference row: `{id, value, rev}`, where the key fixes the value's type.

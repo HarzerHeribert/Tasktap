@@ -37,17 +37,17 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tasktap_proto::{
     Answer, AttemptId, Change, Collection, CoreId, Device, DeviceId, HistoryPage, Isolate, Layout,
-    Limit, Outcome, Phase, Pref, PrefKey, PrefValue, Project, ProjectId, ProjectKind, Question,
-    QuestionId, QuestionState, Reason, ResultId, Rev, Rows, Session, SessionId, SessionState, Set,
-    Status, Terminal, TerminalId, TerminalState, Thought, ThoughtId, Time, TurnResult, Uuid,
-    json_len,
+    Limit, Outcome, Phase, Pref, PrefKey, PrefValue, Preview, PreviewId, Project, ProjectId,
+    ProjectKind, Question, QuestionId, QuestionState, Reason, ResultId, Rev, Rows, Session,
+    SessionId, SessionState, Set, Status, Terminal, TerminalId, TerminalState, Thought, ThoughtId,
+    Time, TurnResult, Uuid, json_len,
 };
 
 /// Finished thoughts kept live, newest first; older ones leave for history.
 pub const LIVE_FINISHED: u32 = 200;
 
 /// The schema, oldest first: entry `n` brings `user_version` from `n` to `n + 1`.
-pub const MIGRATIONS: &[&str] = &[SCHEMA_V1];
+pub const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2];
 
 /// A SHA-256 digest: of a device key, a session token or a call's arguments.
 pub type Hash = [u8; 32];
@@ -382,6 +382,7 @@ enum Table {
     Layouts,
     Prefs,
     Devices,
+    Previews,
 }
 
 impl Table {
@@ -396,6 +397,7 @@ impl Table {
             Table::Layouts => "layouts",
             Table::Prefs => "prefs",
             Table::Devices => "devices",
+            Table::Previews => "previews",
         }
     }
 }
@@ -461,7 +463,8 @@ impl<'s> Tx<'s> {
             };
         }
         emit!(
-            Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices
+            Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices,
+            Previews
         );
         self.db
             .execute("UPDATE meta SET rev = ?1", [self.rev as i64])?;
@@ -1009,7 +1012,8 @@ impl Tx<'_> {
             };
         }
         Ok(Some(live!(
-            Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices
+            Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices,
+            Previews
         )))
     }
 
@@ -1154,7 +1158,8 @@ impl Tx<'_> {
         Ok(())
     }
 
-    /// Deletes a terminal's row; one a session refers to is `Reference`.
+    /// Deletes a terminal's row, and with it the previews shown beside it;
+    /// one a session refers to is `Reference`.
     pub fn delete_terminal(&mut self, id: TerminalId) -> Result<bool> {
         let key = key(&id)?;
         let named: bool = self
@@ -1164,7 +1169,30 @@ impl Tx<'_> {
         if named {
             return Err(Error::Reference);
         }
+        for preview in self.previews_of(id)? {
+            self.delete_preview(preview.id)?;
+        }
         self.delete(Table::Terminals, &id)
+    }
+
+    /// The previews shown beside a terminal, oldest first.
+    pub fn previews_of(&self, terminal: TerminalId) -> Result<Vec<Preview>> {
+        let clause = "WHERE terminal_id = ?1 ORDER BY id";
+        self.all(Table::Previews, clause, [key(&terminal)?])
+    }
+
+    pub fn insert_preview(&mut self, p: &Preview) -> Result<()> {
+        self.insert(Table::Previews, p)
+    }
+
+    /// False when there is no such preview.
+    pub fn delete_preview(&mut self, id: PreviewId) -> Result<bool> {
+        self.delete(Table::Previews, &id)
+    }
+
+    /// Every project's folder: what the person opened in Tasktap.
+    pub fn folders(&self) -> Result<Vec<String>> {
+        self.ids("SELECT folder FROM projects ORDER BY id", [])
     }
 
     /// Whether a run of the thought was ever launched or a follow-up typed:
@@ -1610,5 +1638,19 @@ CREATE TABLE prefs (
     rev INTEGER NOT NULL,
     live INTEGER NOT NULL AS (1),
     data TEXT NOT NULL
+) STRICT;
+"#;
+
+/// What is shown beside a terminal (design §9, "Previews"): one row per
+/// target and terminal, gone with the terminal's row.
+const SCHEMA_V2: &str = r#"
+CREATE TABLE previews (
+    id TEXT PRIMARY KEY,
+    rev INTEGER NOT NULL,
+    live INTEGER NOT NULL AS (1),
+    data TEXT NOT NULL,
+    terminal_id TEXT NOT NULL AS (data ->> 'terminal_id') REFERENCES terminals (id),
+    target TEXT NOT NULL AS (data ->> 'target'),
+    UNIQUE (terminal_id, target)
 ) STRICT;
 "#;

@@ -30,11 +30,12 @@ use sha2::{Digest, Sha256};
 // agent said, P a thought's phase, S a session's state, Q a question's state.
 use tasktap_proto::{
     Answer, AttemptId, Capture, Changes, Code, DeviceId, Event as A, Isolate, MAX_OPEN_QUESTIONS,
-    MAX_SESSION_QUESTIONS, Mode, Offset, Outcome, Phase as P, Placed, PrefKey, PrefValue, Project,
-    ProjectId, ProjectKind, Question, QuestionId, QuestionKind, QuestionSource, QuestionState as Q,
-    READ_HOLD, Reason, ReplyVia, Response, ResultKind, Rev, RouteBy, Routing, Secret, Session,
-    SessionId, SessionState as S, Source, Status, Terminal, TerminalId, TerminalKind,
-    TerminalState, Thought, ThoughtId, Time, TurnResult, Workdir,
+    MAX_PREVIEWS, MAX_SESSION_QUESTIONS, Mode, Offset, Outcome, Phase as P, Placed, PrefKey,
+    PrefValue, Preview, PreviewBy, PreviewId, PreviewKind, Project, ProjectId, ProjectKind,
+    Question, QuestionId, QuestionKind, QuestionSource, QuestionState as Q, READ_HOLD, Reason,
+    ReplyVia, Response, ResultKind, Rev, RouteBy, Routing, Secret, Session, SessionId,
+    SessionState as S, Source, Status, Terminal, TerminalId, TerminalKind, TerminalState, Thought,
+    ThoughtId, Time, TurnResult, Workdir,
 };
 
 use crate::store::{self, Attempt, AttemptKind, AttemptOutcome, Hash, Tx};
@@ -2042,6 +2043,47 @@ impl Machine<'_, '_> {
 
 /// A new random id at `now`, the core's clock, for a record the core creates
 /// outside an event, so every id it mints carries the same clock.
+/// `preview.open`, once its target is one a preview may show (design §9,
+/// "Previews"): a file inside a folder the person opened, by its real
+/// path, or a web address of this machine. The preview is shown beside a
+/// terminal the store knows, running or not, and lasts as long as that
+/// terminal's record: it is closed by `delete`, and goes with the terminal
+/// when that is deleted or pruned. The same target beside the same
+/// terminal is the preview that is open already, whoever opens it again;
+/// one more than [`MAX_PREVIEWS`] beside one terminal is `conflict`, so
+/// neither a page nor an agent can pile them up.
+pub fn preview(
+    tx: &mut Tx<'_>,
+    now: Time,
+    terminal: TerminalId,
+    (kind, target, title): (PreviewKind, String, String),
+    by: PreviewBy,
+) -> Result<PreviewId> {
+    if tx.terminal(terminal)?.is_none() {
+        return Err(Error::Gone);
+    }
+    let open = tx.previews_of(terminal)?;
+    if let Some(same) = open.iter().find(|p| p.target == target) {
+        return Ok(same.id);
+    }
+    if open.len() >= MAX_PREVIEWS {
+        return Err(Error::Conflict(
+            "this terminal has 8 previews open already: close one first",
+        ));
+    }
+    let id = fresh(now)?;
+    tx.insert_preview(&Preview {
+        id,
+        rev: Rev::ZERO,
+        terminal_id: terminal,
+        kind,
+        target,
+        title,
+        by,
+    })?;
+    Ok(id)
+}
+
 /// Milliseconds in a day of the `keep_days` preference.
 pub const DAY: u64 = 24 * 60 * 60 * 1000;
 /// Thoughts, and sessions, one step of pruning removes at most: a step is

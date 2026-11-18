@@ -441,6 +441,36 @@ fn every_call_round_trips() {
         (),
         seen,
     );
+    for (unless, stream) in [
+        (None, Some(diff.stream)),
+        (Some("18a9c2f0-4d2".to_owned()), None),
+    ] {
+        let read = ReadFile {
+            path: "/work/app/report.html".into(),
+            credit: 1 << 20,
+            unless,
+        };
+        let file = FileRead {
+            stream,
+            size: 1234,
+            kind: FileKind::Html,
+            encoding: Some(Encoding::Utf8),
+            cut: false,
+            stamp: "18a9c2f0-4d2".into(),
+        };
+        round_trip::<call::FileRead>(read, file, seen);
+    }
+    for (terminal, target, cwd) in [
+        (Some(id(3)), "http://localhost:5173/", None),
+        (None, "out/report.html", Some("/work/app".to_owned())),
+    ] {
+        let open = OpenPreview {
+            terminal,
+            target: target.into(),
+            cwd,
+        };
+        round_trip::<call::PreviewOpen>(open, id(9), seen);
+    }
     for action in [Action::Affirm, Action::Deny] {
         round_trip::<call::Input>(
             Input {
@@ -588,7 +618,7 @@ fn every_call_round_trips() {
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 44);
+    assert_eq!(Name::ALL.len(), 46);
 }
 
 #[test]
@@ -623,12 +653,15 @@ fn access_follows_the_authorization_table() {
             "session.adopt"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 37);
+    assert_eq!(by(Access::Device).len(), 38);
+    // An agent shows a preview beside its own terminal, as a device does beside any.
+    assert_eq!(by(Access::Either), ["preview.open"]);
     assert_eq!(by(Access::Ability), ["shim.hold"]);
     for (access, allowed) in [
         (Access::Anyone, [true, true, true]),
         (Access::Device, [true, false, false]),
         (Access::Session, [false, true, false]),
+        (Access::Either, [true, true, false]),
         (Access::Ability, [false, false, false]),
     ] {
         let who = [Identity::Device, Identity::Session, Identity::Anonymous];
@@ -818,6 +851,110 @@ fn motion_preferences_put_as_the_wire_says() {
     ] {
         assert!(serde_json::from_value::<PutTarget>(bad).is_err());
     }
+}
+
+/// The rule of which web addresses a preview loads (design §12), as the
+/// table every side shares: `tests/addresses.json`, each address with what
+/// it is. A page that mirrors the rule runs the same table.
+#[test]
+fn only_this_machines_own_addresses_are_local_by_the_shared_table() {
+    let table: Vec<(String, Web)> = serde_json::from_str(include_str!("addresses.json")).unwrap();
+    assert!(table.len() > 60);
+    for (address, is) in &table {
+        assert_eq!(web(address), *is, "{address:?}");
+    }
+    // Every kind is in the table, and local only where the host is this machine.
+    for kind in [Web::Local, Web::Remote, Web::Broken, Web::No] {
+        assert!(table.iter().any(|(_, is)| *is == kind), "{kind:?}");
+    }
+    let long = format!("http://localhost/{}", "a".repeat(MAX_ADDRESS));
+    assert_eq!(web(&long), Web::Broken);
+    let fits = format!("http://localhost/{}", "a".repeat(MAX_ADDRESS - 17));
+    assert_eq!((fits.len(), web(&fits)), (MAX_ADDRESS, Web::Local));
+}
+
+/// The rule of what is read, shown and opened on disk (design §12): the
+/// whole path a target names, and whether it is inside a folder the person
+/// opened once every link is followed.
+#[test]
+fn a_path_is_inside_a_folder_the_person_opened_only_with_its_links_followed() {
+    use std::fs;
+    let base = std::env::temp_dir().join(format!("tasktap-rules-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    let (project, other) = (base.join("my project"), base.join("other"));
+    fs::create_dir_all(project.join("src")).unwrap();
+    fs::create_dir_all(&other).unwrap();
+    fs::write(project.join("src/größe.md"), "# Größe\n").unwrap();
+    fs::write(other.join("secret.txt"), "no").unwrap();
+    let real = project.canonicalize().unwrap();
+    let roots = [project.clone()];
+
+    let file = real.join("src/größe.md");
+    assert_eq!(
+        inside(&project.join("src/größe.md"), &roots),
+        Ok(file.clone())
+    );
+    assert_eq!(
+        inside(&project.join("src/../src/größe.md"), &roots),
+        Ok(file.clone())
+    );
+    assert_eq!(inside(&project, &roots), Ok(real.clone()));
+    assert_eq!(
+        inside(&project.join("src/none.md"), &roots),
+        Err(Outside::Missing)
+    );
+    let secret = other.join("secret.txt");
+    let out = Outside::Outside(secret.canonicalize().unwrap());
+    assert_eq!(inside(&secret, &roots), Err(out.clone()));
+    assert_eq!(
+        inside(&project.join("../other/secret.txt"), &roots),
+        Err(out.clone())
+    );
+    // A folder whose name only begins like the person's is another folder.
+    fs::create_dir_all(base.join("my project too")).unwrap();
+    assert!(inside(&base.join("my project too"), &roots).is_err());
+    // With no folder opened nothing is inside, and a root that is gone is none.
+    assert!(inside(&file, &[]).is_err());
+    assert!(inside(&file, &[base.join("gone")]).is_err());
+    #[cfg(unix)]
+    {
+        // A link out of the folder is followed first; one into it from outside is fine.
+        std::os::unix::fs::symlink(&secret, project.join("link.txt")).unwrap();
+        std::os::unix::fs::symlink(&other, project.join("away")).unwrap();
+        std::os::unix::fs::symlink(&project, other.join("back")).unwrap();
+        assert_eq!(inside(&project.join("link.txt"), &roots), Err(out.clone()));
+        assert_eq!(inside(&project.join("away/secret.txt"), &roots), Err(out));
+        assert_eq!(
+            inside(&other.join("back/src/größe.md"), &roots),
+            Ok(file.clone())
+        );
+        // A root given through a link is the folder it leads to.
+        assert_eq!(inside(&file, &[other.join("back")]), Ok(file.clone()));
+    }
+    assert!(Outside::Missing.sentence(&file).ends_with("does not exist"));
+    let said = Outside::Outside(secret.clone()).sentence(&file);
+    assert!(
+        said.ends_with("is outside the folders you opened in Tasktap"),
+        "{said}"
+    );
+
+    // The whole path a target names.
+    let home = Some(base.as_path());
+    let cwd = project.to_str();
+    assert_eq!(
+        whole(file.to_str().unwrap(), None, None),
+        Some(file.clone())
+    );
+    assert_eq!(
+        whole("src/größe.md", cwd, None),
+        Some(project.join("src/größe.md"))
+    );
+    assert_eq!(whole("~/other/secret.txt", None, home), Some(secret));
+    assert_eq!(whole("src/größe.md", None, home), None);
+    assert_eq!(whole("src/größe.md", Some("my project"), home), None);
+    // Without a home folder `~` is a folder's name like any other.
+    assert_eq!(whole("~/x", cwd, None), Some(project.join("~/x")));
+    let _ = fs::remove_dir_all(base);
 }
 
 /// The settings the redesigned Settings sheet lacked a preference for.

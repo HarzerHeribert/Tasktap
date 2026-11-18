@@ -833,8 +833,19 @@ fn a_model_that_takes_too_long_is_stopped_and_the_match_on_names_routes() {
             Some("fixture-silent: it did not answer within 1 s")
         )
     );
-    // The tool was ended, not left to finish.
+    // The tool was ended, not left to finish. Installed as a batch file it
+    // is what the command prompt ran: ended with the prompt, at once.
     assert!(a.file("began").exists());
+    #[cfg(windows)]
+    if as_batch_files() {
+        let tool = batch_file(&agents(&a.data.0), "fixture-agent");
+        let ended = std::time::Instant::now();
+        while runs(&tool) {
+            let why = "the tool behind the batch file runs on";
+            assert!(ended.elapsed() < std::time::Duration::from_secs(2), "{why}");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
     std::thread::sleep(std::time::Duration::from_millis(3500));
     assert!(!a.file("ended").exists());
 }

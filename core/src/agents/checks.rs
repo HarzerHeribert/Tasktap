@@ -103,6 +103,33 @@ pub fn detect_all(agents: &[&'static dyn Agent]) -> Vec<AgentHealth> {
     })
 }
 
+/// Writes an agent's files ([`Agent::files`]) below `home`, its folder in
+/// the data folder: each whole or not at all, since a run may read it now,
+/// and only when it is not there as it should be. A name that would leave
+/// the folder is refused.
+pub fn keep(home: &Path, files: &[(&'static str, String)]) -> Result<(), String> {
+    use std::path::Component;
+    for (name, content) in files {
+        let inside = Path::new(name)
+            .components()
+            .all(|part| matches!(part, Component::Normal(_)));
+        if name.is_empty() || !inside {
+            return Err(format!("{name:?} is no file of the agent's own folder"));
+        }
+        let file = home.join(name);
+        if std::fs::read_to_string(&file).ok().as_deref() == Some(content.as_str()) {
+            continue;
+        }
+        let folder = file.parent().unwrap_or(home);
+        let new = file.with_extension(format!("{}.new", std::process::id()));
+        std::fs::create_dir_all(folder)
+            .and_then(|()| std::fs::write(&new, content))
+            .and_then(|()| std::fs::rename(&new, &file))
+            .map_err(|e| format!("{} could not be written: {e}", file.display()))?;
+    }
+    Ok(())
+}
+
 /// Runs a probe in `cwd` and returns the arguments it adds to the run.
 pub fn probe(mut probe: Probe, cwd: &Path) -> Result<Vec<String>, String> {
     let Some((name, args)) = probe.argv.split_first() else {

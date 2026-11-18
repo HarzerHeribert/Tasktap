@@ -276,7 +276,7 @@ impl Agent for Antigravity {
         argv
     }
 
-    fn attach(&self, exe: &Path) -> Vec<OsString> {
+    fn attach(&self, exe: &Path, _: &Path) -> Vec<OsString> {
         vec!["--settings".into(), settings(exe, None).into()]
     }
 

@@ -196,7 +196,7 @@ impl Agent for Codex {
         if let (Some(model), None) = (run.model, run.resume) {
             argv.extend(["--model".into(), model.into()]);
         }
-        let attached = self.attach(run.hook).into_iter();
+        let attached = self.attach(run.hook, run.home).into_iter();
         argv.extend(attached.map(|a| a.to_string_lossy().into_owned()));
         argv.extend(RULES.default.iter().map(|a| (*a).to_owned()));
         if let Some(handle) = run.resume {
@@ -206,7 +206,7 @@ impl Agent for Codex {
         argv
     }
 
-    fn attach(&self, exe: &Path) -> Vec<OsString> {
+    fn attach(&self, exe: &Path, _: &Path) -> Vec<OsString> {
         let command = toml(&command(exe));
         (HOOKS.iter())
             .flat_map(|(name, timeout)| {
@@ -276,7 +276,7 @@ impl Agent for Codex {
     fn probe(&self, exe: &Path, cwd: &Path) -> Option<Probe> {
         let mut argv = vec![self.program().to_owned()];
         argv.extend(
-            self.attach(exe)
+            self.attach(exe, Path::new(""))
                 .into_iter()
                 .map(|a| a.to_string_lossy().into_owned()),
         );

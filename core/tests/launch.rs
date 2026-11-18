@@ -196,6 +196,35 @@ fn what_an_agent_waits_on_in_its_terminal_before_it_is_ready_asks_to_be_answered
 }
 
 #[test]
+fn a_run_finds_its_agents_own_files_and_variables() {
+    // An agent that reads its hooks from a plugin folder or a settings file
+    // is given them in a folder of Tasktap's own, written before the run,
+    // and told where by its arguments or its environment (design §7).
+    let mut s = Scene::real("lf", "fixture");
+    let (_, _, terminal) = started(&mut s, "fix the build");
+    let home = s.data.0.join("agents").join("fixture");
+    let note = std::fs::read_to_string(home.join("kept").join("note.txt")).unwrap();
+    assert_eq!(note, "kept for the fixture agent\n");
+    let mut agent = screen(&s, terminal);
+    agent.line("env:FIXTURE_AGENT_HOME");
+    agent.until_bytes(format!("FIXTURE_AGENT_HOME={}", home.display()).as_bytes());
+    // Whole or not at all, only when it differs, and never outside the folder.
+    let keep = tasktap_core::agents::checks::keep;
+    std::fs::write(home.join("kept").join("note.txt"), "changed").unwrap();
+    keep(&home, &[("kept/note.txt", "kept again\n".into())]).unwrap();
+    let note = std::fs::read_to_string(home.join("kept").join("note.txt")).unwrap();
+    assert_eq!(note, "kept again\n");
+    let left: Vec<_> = std::fs::read_dir(home.join("kept")).unwrap().collect();
+    assert_eq!(left.len(), 1, "no part of a file is left beside it");
+    for outside in ["../note.txt", "/tmp/note.txt", "kept/../../x", ""] {
+        assert!(
+            keep(&home, &[(outside, "x".into())]).is_err(),
+            "{outside:?}"
+        );
+    }
+}
+
+#[test]
 fn the_agents_exit_code_ends_its_session_and_terminal() {
     let mut s = Scene::real("lx", "fixture");
     // An agent that reports events has not finished by exiting, even with 0.

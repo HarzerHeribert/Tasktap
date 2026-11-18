@@ -364,6 +364,7 @@ fn run<'a>(prompt: &'a str, model: Option<&'a str>, resume: Option<&'a str>) -> 
         model,
         resume,
         hook: Path::new("/opt/tasktap/tasktap"),
+        home: Path::new("/data/agents/x"),
     }
 }
 
@@ -792,7 +793,10 @@ fn antigravity_runs_trusted_with_its_title_script_and_no_policy_of_ours() {
     );
     // Typed by hand it is given the script alone: the folder's trust is the
     // person's to give, and its mode theirs to choose.
-    let attached = agy.attach(Path::new("/opt/tasktap/tasktap"));
+    let attached = agy.attach(
+        Path::new("/opt/tasktap/tasktap"),
+        Path::new("/data/agents/agy"),
+    );
     assert_eq!(attached[0], "--settings");
     let settings: Value = serde_json::from_str(attached[1].to_str().unwrap()).unwrap();
     assert_eq!(settings.as_object().unwrap().len(), 1);

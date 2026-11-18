@@ -51,9 +51,9 @@ pub const REAL: &str = "TASKTAP_FIXTURE_AGENT";
 /// Set by a test: a shim takes pipes for a terminal a person types in.
 pub const TTY: &str = "TASKTAP_FIXTURE_TTY";
 
-const STEPS: [&str; 13] = [
+const STEPS: [&str; 14] = [
     "print", "event", "ask", "wait", "sleep", "nohup", "detach", "stall", "query", "write", "exit",
-    "keep", "script",
+    "keep", "script", "env",
 ];
 /// What `query` asks: primary and secondary device attributes, the cursor
 /// position, and the foreground and background colors, one ended with ST
@@ -107,6 +107,8 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
         }
         match verb {
             "print" => println!("{rest}"),
+            // A variable of its environment, as its run was given it.
+            "env" => println!("{rest}={}", std::env::var(rest).unwrap_or_default()),
             "write" => {
                 let (path, text) = rest.split_once(':').unwrap_or((rest, ""));
                 let path = Path::new(path);

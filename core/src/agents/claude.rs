@@ -217,7 +217,7 @@ impl Agent for Claude {
         if let (Some(model), None) = (run.model, run.resume) {
             argv.extend(["--model".into(), model.into()]);
         }
-        let attached = self.attach(run.hook).into_iter();
+        let attached = self.attach(run.hook, run.home).into_iter();
         argv.extend(attached.map(|a| a.to_string_lossy().into_owned()));
         match run.resume {
             Some(handle) => argv.extend(["--resume".into(), handle.into()]),
@@ -228,7 +228,7 @@ impl Agent for Claude {
         argv
     }
 
-    fn attach(&self, exe: &Path) -> Vec<OsString> {
+    fn attach(&self, exe: &Path, _: &Path) -> Vec<OsString> {
         vec!["--settings".into(), Self::settings(exe).into()]
     }
 

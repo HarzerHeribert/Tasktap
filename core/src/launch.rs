@@ -36,16 +36,22 @@ pub struct Prepared {
     agent: &'static dyn Agent,
     argv: Vec<String>,
     probe: Option<Probe>,
+    /// The agent's folder in the data folder, and the files it reads there.
+    home: PathBuf,
+    files: Vec<(&'static str, String)>,
+    /// Variables the run is given beside its terminal's own.
+    env: Vec<(&'static str, String)>,
 }
 
 /// The command line of a run. Its program is found, and the check its
 /// agent needs is run, off the core's thread (`Prepared::look`); `start`
 /// takes what they found.
-pub fn prepare(l: &Launch) -> Result<Prepared, String> {
+pub fn prepare(l: &Launch, data: &Path) -> Result<Prepared, String> {
     let agent =
         agents::find(&l.agent).ok_or_else(|| format!("this build cannot run {}", l.agent))?;
     let hook =
         crate::roles::program().map_err(|e| format!("Tasktap cannot find its own program: {e}"))?;
+    let home = agents::home(data, agent);
     let run = Run {
         session: l.session,
         cwd: Path::new(&l.cwd),
@@ -54,10 +60,19 @@ pub fn prepare(l: &Launch) -> Result<Prepared, String> {
         model: l.model.as_deref(),
         resume: l.resume.as_deref(),
         hook: &hook,
+        home: &home,
     };
     let argv = agent.launch(&run);
     let probe = agent.probe(&hook, Path::new(&l.cwd));
-    Ok(Prepared { agent, argv, probe })
+    let (files, env) = (agent.files(&hook), agent.environment(&hook, &home));
+    Ok(Prepared {
+        agent,
+        argv,
+        probe,
+        home,
+        files,
+        env,
+    })
 }
 
 impl Prepared {
@@ -71,7 +86,10 @@ impl Prepared {
     ) -> impl FnOnce() -> Result<(PathBuf, Vec<String>), String> + Send + 'static {
         let name = self.argv.first().cloned().unwrap_or_default();
         let (probe, cwd) = (self.probe.take(), PathBuf::from(&l.cwd));
+        let (home, files) = (self.home.clone(), std::mem::take(&mut self.files));
         move || {
+            // The files its hooks are read from, before anything reads them.
+            agents::checks::keep(&home, &files)?;
             let program = terminal::find(&name)
                 .ok_or_else(|| format!("{name} is not installed: no folder of the PATH has it"))?;
             let more = match probe {
@@ -98,7 +116,10 @@ pub fn start(
     token: &Secret,
 ) -> Result<Terminal, String> {
     let Prepared {
-        agent, mut argv, ..
+        agent,
+        mut argv,
+        env,
+        ..
     } = prepared;
     argv[0] = program.to_string_lossy().into_owned();
     argv.splice(1..1, more);
@@ -125,7 +146,11 @@ pub fn start(
         exit: None,
         offset: Offset::ZERO,
     };
-    terminal::spawn(core, &t, token).map_err(|e| format!("cannot open a terminal: {e}"))?;
+    let env = env
+        .into_iter()
+        .map(|(key, value)| (key.to_owned(), value.into()));
+    terminal::spawn_with(core, &t, token, env.collect())
+        .map_err(|e| format!("cannot open a terminal: {e}"))?;
     if let Some(watch) = agents::Watch::new(agent.prompts()) {
         terminal::watch(core, id, watch);
     }

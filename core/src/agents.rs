@@ -79,6 +79,9 @@ pub struct Run<'a> {
     pub resume: Option<&'a str>,
     /// This program, which the hooks run as `<hook> hook <id>`.
     pub hook: &'a Path,
+    /// The folder of Tasktap's own that holds this agent's files
+    /// ([`Agent::files`]): `<data>/agents/<id>`.
+    pub home: &'a Path,
 }
 
 impl Run<'_> {
@@ -270,8 +273,27 @@ pub trait Agent: Sync {
     fn launch(&self, run: &Run) -> Vec<String>;
 
     /// Arguments, put before the person's own, with which a run of the agent
-    /// calls `<exe> hook <id>` on its hook events.
-    fn attach(&self, exe: &Path) -> Vec<OsString>;
+    /// calls `<exe> hook <id>` on its hook events. `home` is the folder its
+    /// files are in, for an agent that is given them by a path.
+    fn attach(&self, exe: &Path, home: &Path) -> Vec<OsString>;
+
+    /// Files its runs read their hooks from, for an agent that takes them
+    /// from a file and not from its arguments: a plugin, an extension, a
+    /// settings file. Each is a path below a folder of Tasktap's own for
+    /// this agent (`<data>/agents/<id>`, `home` above) with its content.
+    /// The launcher and the shim write them before a run ([`checks::keep`]):
+    /// nothing of the person's is written, and their project gets no file.
+    fn files(&self, _exe: &Path) -> Vec<(&'static str, String)> {
+        Vec::new()
+    }
+
+    /// Variables its runs are given beside the terminal's own, for an
+    /// agent that is told by its environment where its settings are or how
+    /// to reach what listens to it. Never a secret: the terminal's record
+    /// does not keep them, but its children all get them.
+    fn environment(&self, _exe: &Path, _home: &Path) -> Vec<(&'static str, String)> {
+        Vec::new()
+    }
 
     /// The check a run in `cwd` needs before it starts, with its hooks
     /// calling `exe`; none for most agents.
@@ -361,6 +383,11 @@ pub fn merged(
             ..found
         },
     }
+}
+
+/// The folder of Tasktap's own for the files of `agent`, in the data folder.
+pub fn home(data: &Path, agent: &dyn Agent) -> PathBuf {
+    data.join("agents").join(agent.id())
 }
 
 /// Every agent this build has, the default first.
@@ -597,7 +624,7 @@ impl Agent for Fixture {
     }
 
     fn launch(&self, run: &Run) -> Vec<String> {
-        let hooks = self.events.then(|| self.attach(run.hook));
+        let hooks = self.events.then(|| self.attach(run.hook, run.home));
         let hooks = hooks.into_iter().flatten();
         let mut argv = vec![self.program().to_owned()];
         argv.extend(hooks.map(|a| a.to_string_lossy().into_owned()));
@@ -605,8 +632,24 @@ impl Agent for Fixture {
         argv
     }
 
-    fn attach(&self, exe: &Path) -> Vec<OsString> {
+    fn attach(&self, exe: &Path, _: &Path) -> Vec<OsString> {
         vec!["--hook".into(), exe.into()]
+    }
+
+    /// One file and one variable, as an agent that reads its hooks from a
+    /// plugin folder would have them.
+    fn files(&self, _: &Path) -> Vec<(&'static str, String)> {
+        match self.events {
+            true => vec![("kept/note.txt", "kept for the fixture agent\n".into())],
+            false => Vec::new(),
+        }
+    }
+
+    fn environment(&self, _: &Path, home: &Path) -> Vec<(&'static str, String)> {
+        match self.events {
+            true => vec![("FIXTURE_AGENT_HOME", home.to_string_lossy().into_owned())],
+            false => Vec::new(),
+        }
     }
 
     fn variables(&self) -> &'static [&'static str] {

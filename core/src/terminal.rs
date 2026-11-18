@@ -281,6 +281,17 @@ fn start_once(
 /// no pseudo-terminal could be opened; a child that cannot be started ends
 /// the terminal at once, with the reason as its output.
 pub fn spawn(core: &mut Core, t: &Terminal, token: &Secret) -> std::io::Result<()> {
+    spawn_with(core, t, token, Vec::new())
+}
+
+/// The same with `more` variables beside the fixed list: those an agent's
+/// adapter gives its runs ([`crate::agents::Agent::environment`]).
+pub fn spawn_with(
+    core: &mut Core,
+    t: &Terminal,
+    token: &Secret,
+    more: Vec<(String, std::ffi::OsString)>,
+) -> std::io::Result<()> {
     let terminals = &mut core.terminals;
     if terminals.closing {
         return Err(std::io::Error::other("Tasktap is shutting down"));
@@ -296,10 +307,12 @@ pub fn spawn(core: &mut Core, t: &Terminal, token: &Secret) -> std::io::Result<(
         true => process::path(terminals.shims(), None),
         false => process::path(None, own),
     };
+    let mut env = process::environment(&terminals.data, token, path);
+    env.extend(more);
     let plan = Plan {
         argv: if shell { Vec::new() } else { t.argv.clone() },
         cwd: PathBuf::from(&t.cwd),
-        env: process::environment(&terminals.data, token, path),
+        env,
         size,
     };
     let (process, input, reports) = Process::start(plan)?;

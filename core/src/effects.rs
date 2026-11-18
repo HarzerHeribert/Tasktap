@@ -602,7 +602,8 @@ fn launch(core: &mut Core, launch: Launch) -> Option<Outcome> {
 /// found and its check run off the core's thread, then its terminal.
 fn begin(core: &mut Core, launch: Launch, token: Secret) -> Option<Outcome> {
     let attempt = launch.attempt;
-    let mut prepared = match crate::launch::prepare(&launch) {
+    let data = core.terminals.data().to_owned();
+    let mut prepared = match crate::launch::prepare(&launch, &data) {
         Ok(prepared) => prepared,
         Err(error) => return Some(failed(core, attempt, error)),
     };

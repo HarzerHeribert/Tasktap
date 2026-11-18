@@ -256,7 +256,21 @@ fn observe(
 ) -> ExitCode {
     let exe = super::program().unwrap_or_else(|_| "tasktap".into());
     let mut run = Command::new(real);
-    run.args(agent.attach(&exe));
+    // Its files, where it reads its hooks from one, in its folder of the
+    // data folder; one that cannot be written leaves it to run untouched.
+    let data = std::env::var_os("TASKTAP_DATA").unwrap_or_default();
+    let home = agents::home(Path::new(&data), agent);
+    if let Err(why) = agents::checks::keep(&home, &agent.files(&exe)) {
+        let _ = writeln!(
+            io::stderr(),
+            "tasktap: {} runs unobserved: {why}",
+            rules.agent
+        );
+        drop(link);
+        return pass(real, args);
+    }
+    run.args(agent.attach(&exe, &home));
+    run.envs(agent.environment(&exe, &home));
     // The check its hooks need, with the agent the shim found. One that
     // fails leaves the agent to run untouched, its session ended with this
     // connection.

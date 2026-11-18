@@ -315,15 +315,32 @@ fn tens_of_megabytes_arrive_intact_through_a_slow_client_and_a_reconnect() {
     // take there. So Windows prints a third as much, still three times what
     // the ring holds.
     let (batch, batches) = (4096, if cfg!(windows) { 24 } else { 70 });
+    // Windows' console can hold back a line typed as a burst ends, with its
+    // program waiting to read it (the test of a line typed so, below). So
+    // there each request is typed a batch early, while the batch before it
+    // still comes: the program finds it when it reads, and the client is
+    // at most two batches behind, a third of the ring.
+    let early = u64::from(cfg!(windows));
+    let ask = |c: &mut Client, v: &View, b: u64| {
+        if b < batches {
+            c.write(v.s, format!("{batch}\r").as_bytes()).unwrap();
+        }
+    };
     let mut v = open(
         &mut c,
         &args(id, Some(fixture(&["serve"])), None, 16 << 10),
         true,
     );
     let mut all = Vec::new();
+    // Where in the view the search for a batch's last line goes on: with a
+    // request typed early the next batch follows at once.
+    let searched = std::cell::Cell::new(0);
+    for b in 0..early {
+        ask(&mut c, &v, b);
+    }
     for b in 0..batches {
         let before = v.pos();
-        c.write(v.s, format!("{batch}\r").as_bytes()).unwrap();
+        ask(&mut c, &v, b + early);
         let last = (b + 1) * batch - 1;
         if b == batches / 2 {
             // Mid-stream, away with the whole connection, then on from
@@ -337,9 +354,19 @@ fn tens_of_megabytes_arrive_intact_through_a_slow_client_and_a_reconnect() {
             c = core.device();
             v = open(&mut c, &args(id, None, Some(from), 16 << 10), true);
             assert_eq!(v.start(), from, "the stream goes on where it was");
+            searched.set(0);
         }
         until(&mut c, &mut v, &format!("batch {b}"), |v| {
-            shows(v.bytes(), last)
+            if early == 0 {
+                return shows(v.bytes(), last);
+            }
+            let bytes = v.bytes();
+            let found = text(&bytes[searched.get()..]).contains(&line(last));
+            if !found {
+                // Less than the line and what the console wraps it in.
+                searched.set(searched.get().max(bytes.len().saturating_sub(4 << 10)));
+            }
+            found
         });
     }
     all.extend_from_slice(v.bytes());

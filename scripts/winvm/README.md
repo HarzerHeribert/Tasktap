@@ -8,6 +8,8 @@ scripts/winvm/test.sh
 scripts/winvm/test.sh --arm64
 scripts/winvm/test.sh HEAD~1 -- --test launch
 scripts/winvm/test.sh --x64 --repeat 40 two_thoughts_launched_at_once_in_one_project_each_get_their_own_terminal -- --test launch
+scripts/winvm/host.sh --arm64
+scripts/winvm/host.sh --x64 --run
 scripts/winvm/shell.sh
 scripts/winvm/status.sh
 scripts/winvm/down.sh
@@ -16,6 +18,40 @@ scripts/winvm/down.sh
 `test.sh` sends a committed revision to the VM's bare repository over SSH. It runs the Windows CI sequence in `core` with stable Rust, rustfmt, Clippy and Cargo. The default target is `x86_64-pc-windows-msvc`. Windows runs the resulting binaries under emulation. Use `--arm64` for native ARM64. The guest kernel and scheduler are ARM64 on both runs. A GitHub x64 runner still provides independent native-x64 coverage.
 
 The checkout is `C:\tasktap\checkout`. Both architectures reuse `C:\tasktap\target`, with Cargo's target-specific subdirectories. Test runs and interactive shells acquire the same exclusive checkout lock. Close the active shell or finish the active test before starting another. Local edits on the Windows checkout block automated switches. Commit Mac worktree changes before testing. Plain `git push winvm my-branch` transfers a branch, and `test.sh my-branch` selects it for testing.
+
+`host.sh` does for the host what `test.sh` does for the core: format, the pages, the core and the host by `host/scripts/build.ps1`, Clippy, the host's tests, and the runnable folder `C:\tasktap\checkout\host\target\<target>-pc-windows-msvc\release\Tasktap Next` with its zip. It builds inside the checkout (`host\target`, `ui\node_modules`), not in `C:\tasktap\target`. With `--run` it then starts the app for a few seconds through `host/scripts/smoke.ps1`; see below for how far that gets over SSH.
+
+Both scripts put Microsoft's console (`conpty.dll`, `OpenConsole.exe`; `core/scripts/conpty.ps1` downloads the pinned package from nuget.org into `core\target\conpty` and checks it) beside the core they test or bundle, and `test.sh` takes it out of the shared build folder again when it is done.
+
+## At the desktop
+
+An SSH session runs in session 0: no window can be shown there and the credential store refuses. What follows needs a person signed in at the VM's desktop (the Fusion window, account `tasktap`, password in the Mac's login Keychain under **Tasktap Windows VM local administrator**). First, from the Mac, build the app at the commit to try, and make sure no test run is active while you are at the desktop:
+
+```sh
+scripts/winvm/host.sh --arm64
+```
+
+Then, in PowerShell 7 at the desktop, in order. `$app` is used throughout:
+
+```powershell
+$app = 'C:\tasktap\checkout\host\target\aarch64-pc-windows-msvc\release\Tasktap Next'
+```
+
+| # | What | Run | A pass looks like |
+| --- | --- | --- | --- |
+| 1 | The app starts and shows its window | `& "$app\Tasktap Next.exe"` | Within two seconds one window titled Tasktap with a menu bar (Tasktap, File, Edit, View, Window) and Home in it. No console window opens, at the start or later. The window's backdrop is Windows 11's Mica, not the desktop showing through. Task Manager shows `Tasktap Next.exe`, `tasktap.exe` and `msedgewebview2.exe`. Its data is in `%LOCALAPPDATA%\Tasktap Next`. Closing the window quits the app; `tasktap.exe` stays for a minute, or as long as a terminal runs. |
+| 2 | The smoke script | `pwsh C:\tasktap\checkout\host\scripts\smoke.ps1 -Target aarch64` | Only `PASS` lines and `all passed`. It opens the window behind your own for a few seconds and closes it. |
+| 3 | The tab at the top edge | Look at the top edge of the primary display while the app runs | **Not built yet**: today there is none, and that is the expected result. Once it is built (plan, "The notch on Windows"): a tab of 104 × 16 points centred at the top edge that shows the counts, lets clicks through, never takes the keyboard when it appears, sits below a taskbar docked at the top, stays put at 100 % and 150 % scale, and hides while a video plays full-screen. |
+| 4 | The global shortcut | With another program in front (Notepad), press Ctrl+Alt+Space | The Tasktap window comes to the front with New Task open and the caret in its field. Until the tab is built this is the shortcut's whole effect. Started with `$env:TASKTAP_DEBUG=1` from a console, the app prints `{"event":"capture-key","ok":true}`; `false` means another program holds the combination. On a German layout check that AltGr+Q still types @ in Notepad while the app runs. With a question waiting, Ctrl+Alt+Y and Ctrl+Alt+N answer it from any program. |
+| 5 | A terminal with a real shell | File › New Terminal; type `echo hello`; then `powershell`, and in it `Get-Date`; `ping -t localhost` and Ctrl+C; drag the window larger and run `mode con` (in cmd) or `$Host.UI.RawUI.WindowSize` (in PowerShell) | The prompt of `cmd.exe` appears at once; every line typed is echoed and run without a second key press, also one typed the moment output ends; Ctrl+C ends `ping`; after the resize the shell reports the new columns and rows and the prompt is redrawn without stray characters. In Task Manager the terminal's console is `OpenConsole.exe` under `tasktap.exe`, not `conhost.exe`. The menu's commands have no keys on Windows yet, on purpose. |
+| 6 | The credential store | `cd C:\tasktap\checkout\core; cargo test -p tasktap-core --test secrets -- --ignored` | `test result: ok` with no test failed (over SSH it fails with error 1312). Credential Manager › Windows Credentials shows no entry left by the test. |
+| 7 | WebView2 grants the microphone | In the app: View › Settings…, Appearance, start the trial of the motion with the microphone | No prompt from the app; the form moves with sound. If Windows' own setting blocks it (Settings › Privacy & security › Microphone › Let desktop apps access your microphone), the page says so and nothing crashes. The VM needs a sound card with an input in Fusion's settings for this. |
+| 8 | Text of the bundled fonts | In a terminal: `chcp 65001` then `echo ┌─┬─┐ │ █▀▄ ░▒▓`; look at Home and Settings | Terminal text is Hack with the box lines and blocks joining without gaps, at 100 % and at 150 % scale (Settings › System › Display › Scale); interface text is sharp, with no fallback serif face anywhere. |
+| 9 | Opening a folder | File › Open Workspace… | **Not built yet**: the page is told "choosing a folder is not available on Windows yet". Start the app with `$env:TASKTAP_PICK = 'C:\tasktap\checkout'` to give it that folder instead. |
+
+**The smoke script.** `host/scripts/smoke.sh` cannot run on Windows as it is. Mac-only in it: bash and the `ln` links it makes of the fixture agent; the app's path inside the bundle; the speech fixture, which is Python (the VM has none); `snapshot`, which asks WKWebView for a picture; every step on the notch (hover, capture, the answer card, its frame and keyboard), which needs the tab; the lines it types into zsh; and its checks of the Dock, the menu bar and the pasteboard. `host/scripts/smoke.ps1` is the start of a Windows variant and covers what exists there: the core starting, the host reaching it over the pipe, the page running and having the core's records, New Terminal starting the shell, quitting with nothing left. To grow into the whole of smoke.sh it needs the tab, a `snapshot` on WebView2 (`CapturePreview`), the speech fixture in Node, and the typed lines in cmd's or PowerShell's words.
+
+**Without a person (a proposal for the owner; nothing of it is configured).** Agents could run rows 1, 2, 5, 6 and 8 themselves if the VM kept a signed-in desktop that SSH can start programs in. That needs, in the guest: (1) automatic sign-in of `tasktap` at boot (Sysinternals Autologon, which keeps the password as an LSA secret, or `AutoAdminLogon` under `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon`, which keeps it readable in the registry); (2) no lock and no sleep: `powercfg /change monitor-timeout-ac 0`, `powercfg /change standby-timeout-ac 0`, the screen saver off, and the lock screen disabled by policy; (3) one scheduled task, `schtasks /Create /TN TasktapDesktop /SC ONCE /ST 00:00 /IT /RU tasktap /TR "pwsh -NoProfile -File C:\tasktap\desktop\run.ps1"`, which runs only in the signed-in session, reads the command to run from `C:\tasktap\desktop\job.json` and writes what it printed to a file; an SSH session starts it with `schtasks /Run /TN TasktapDesktop` and reads the file; (4) a new `tools` snapshot taken with all that in place. The price: the account's password is kept in the guest, and the guest's desktop is unlocked to whoever opens the Fusion window. Fusion started with `nogui` still gives the guest a display, so windows are drawn; whether pictures of them are good enough to judge rows 3 and 8 by is not known.
 
 ## Host and media
 

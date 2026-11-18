@@ -1,6 +1,6 @@
 # Tasktap Next (host)
 
-The rebuilt Tasktap that can be tried: the Mac host (Tauri v2) with the notch and the workspace window, running on the new core in `core/`. Its pages are in `ui/`.
+The rebuilt Tasktap that can be tried: the Mac host (Tauri v2) with the notch and the workspace window, running on the new core in `core/`. Its pages are in `ui/`. The same host builds for Windows, without the notch's counterpart yet: see "Windows" below.
 
 ## Build and run
 
@@ -26,9 +26,19 @@ Tasktap Next is in the Dock and has a menu. Closing the workspace window leaves 
 - **The light.** Home's light is a few soft pools of the person's motion colour and one low band of the motion's chrome, drawn by `ui/src/motion/`; the sidebar's foot has the same light with a few large chrome glyphs, each a picture drawn once, there only where the rows leave room. At rest all of it is still and costs nothing. While something goes on in the window in use (agents thinking or working, a question waiting) it is a loop for as long as that lasts: the band drifts and pulses (the page draws keyframes of it and the compositor carries it between them, so the page is given no frames while the loop lasts), the pools breathe and the glyphs sway, slowly, on one clock (`--t-ambient`); a change of state blends into the next, a result or a region taking focus is a moment over it. The sidebar's edge and a dropping sheet shed a short wake of the same glyphs. Settings › Appearance chooses the form, the colour or a hue, Lumen, and Effects (Off, Still, Full: the one control over everything that moves by itself; Reduce Motion and Low Power Mode hold Full at Still), all the core's preferences, as are the terminal's font, size and line height; it can try the motion with the microphone while the sheet is open: macOS asks once, with the reason in `Info.plist`. The notch's sheet carries no form; its glow takes Lumen's colours.
 - **Keyboard.** A focus move by script never shows a focus ring.
 
+## Windows
+
+    pwsh host\scripts\build.ps1 [-Target x86_64|aarch64]
+
+It builds the pages, the core and the host and puts what runs into one folder, `host\target\<target>-pc-windows-msvc\release\Tasktap Next\`, and the same folder into a zip beside it: `Tasktap Next.exe`, the core (`tasktap.exe`), Microsoft's console (`conpty.dll`, `OpenConsole.exe`: the core's terminals run in it, `core/scripts/conpty.ps1`) and the licences. Needs Rust with the target, Visual Studio Build Tools and Node; to run, the WebView2 runtime that Windows 11 has. The app keeps everything in `%LOCALAPPDATA%\Tasktap Next`.
+
+Built, and checked as far as a machine without a signed-in desktop allows (`scripts/winvm/host.sh`, `host\scripts\smoke.ps1`): the host compiles and links for x64 and ARM64 with Clippy clean; it starts the core and talks to it over the core's named pipe, each page through its own connection (`src/windows.rs`); the workspace window with its menu, whose commands have no keys yet, since Ctrl with a letter belongs to the program in the terminal. Not built: the tab that stands for the notch (its place on a display is, `src/tab.rs`; the plan's "The notch on Windows" says what it will be), so the capture shortcut opens the workspace's New Task and closing the window quits the app; the folder panel (`TASKTAP_PICK` names a folder meanwhile); pictures of a page (`snapshot`); being told when battery saver begins or ends. `scripts/winvm/README.md`, "At the desktop", lists what a person has to look at.
+
+Nothing is signed. For a copy that leaves the owner's machines: an Authenticode certificate (or Microsoft's Trusted Signing) for `Tasktap Next.exe` and `tasktap.exe`, signed with a timestamp; Microsoft's two files keep Microsoft's signature; and an installer (`tauri build` makes NSIS or MSI ones, and downloads their tools to do so), signed too, which is also what gives the app the Start-menu shortcut that notifications need. Unsigned, a downloaded copy is stopped by SmartScreen until the person chooses to run it.
+
 ## Deliberately missing
 
-Document and web previews, Preferences, Notebook, Session history and Activity, speech, screen context, the updater, notifications, routing by a model, Windows, and terminal themes other than Default.
+Document and web previews, Preferences, Notebook, Session history and Activity, speech, screen context, the updater, notifications, routing by a model, the notch's counterpart on Windows, and terminal themes other than Default.
 
 ## How it fits together
 
@@ -36,6 +46,7 @@ Document and web previews, Preferences, Notebook, Session history and Activity, 
 - `src/main.rs`: the bridge of design §12. Each page gets its own core connection, said hello to by the host with its device key; after that the bytes pass through untouched both ways (`bridge_open`, `bridge_send`) and `host.*` calls are answered here (`bridge_host`): `host.notch`, `host.show`, `host.ready`, `host.pick` and `host.clipboard`. Also the global shortcuts and the debug channel.
 - `src/workspace.rs`: the workspace window, its frame, the application menu with the About panel's notices, and Dock reopening.
 - `src/notch.rs`, `src/native.rs`, `src/geometry.rs`: the notch panel from `trials/tauri-notch`, with pointer events in place of the 80 ms poll; the folder panel and the clipboard.
+- `src/windows.rs`, `src/tab.rs`: on Windows `windows.rs` is compiled in place of `native.rs`, under the same names: the core's pipe, the clipboard, the power state, and "there is no panel" for what the notch asks; `tab.rs` is where the tab will sit.
 - `../ui/`: the pages (`npm run check` type-checks them and tests the shared client and the layout model).
 
 ## Checks

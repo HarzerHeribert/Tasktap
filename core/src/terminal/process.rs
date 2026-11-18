@@ -18,6 +18,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc as plain;
+use std::time::Duration;
 use tasktap_proto::{Secret, Size};
 use tokio::sync::mpsc;
 
@@ -378,16 +379,55 @@ pub fn folder(path: PathBuf) -> PathBuf {
     path
 }
 
+/// How long after input was written the Windows console is sent [`WAKE`].
+const SETTLE: Duration = Duration::from_millis(50);
+/// A key event that is no key: virtual key 0 released, with no character,
+/// as the console's own input mode writes one (`CSI Vk;Sc;Uc;Kd;Cs;Rc _`).
+/// A program reading lines never sees it, and one reading keys acts on
+/// keys pressed.
+const WAKE: &[u8] = b"\x1b[0;0;0;0;0;1_";
+
 /// The input thread: writes each chunk whole, in order, and says so, which
 /// is when the client that sent it may send more. The first write that
 /// fails ends it, and it says why instead: what it did not write is never
 /// reported written.
+///
+/// On Windows the console host is between the core and the program, and
+/// input that reaches it just as the program begins to read can stay
+/// there: the console has it, echoes nothing, and the program waits on in
+/// its read until any other input event arrives (seen on Windows 11 24H2
+/// under load, for about one line in a hundred typed to a program that
+/// reads a line right after it printed: the line reached it only with the
+/// next key, focus event or change of size, and a size set to what it was
+/// did nothing). So once what was typed has been written and nothing more
+/// came for [`SETTLE`], the thread writes [`WAKE`]: by then the program
+/// waits in its read, and the event has the console pass on what it held.
+/// Mac and Linux terminals hold nothing back, and nothing is sent there.
 fn write(
     mut writer: Box<dyn Write + Send>,
     inputs: plain::Receiver<Input>,
     tx: mpsc::Sender<Report>,
 ) {
-    while let Ok(input) = inputs.recv() {
+    // Input was written that no later event has followed yet.
+    let mut owed = false;
+    loop {
+        let input = match owed {
+            true => match inputs.recv_timeout(SETTLE) {
+                Ok(input) => input,
+                Err(plain::RecvTimeoutError::Timeout) => {
+                    owed = false;
+                    // A failure shows at the next write of what was typed.
+                    let _ = writer.write_all(WAKE).and_then(|()| writer.flush());
+                    continue;
+                }
+                Err(plain::RecvTimeoutError::Disconnected) => break,
+            },
+            false => match inputs.recv() {
+                Ok(input) => input,
+                Err(_) => break,
+            },
+        };
+        owed = cfg!(windows);
         let report = match pieces(&mut *writer, &input) {
             Ok(whole) => Report::Wrote(whole),
             Err(e) => Report::Unwritable(e.to_string()),

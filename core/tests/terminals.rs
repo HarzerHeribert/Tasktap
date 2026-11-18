@@ -532,6 +532,41 @@ fn input_reaches_the_process_and_comes_back() {
 
 const FNV: u64 = 0xcbf2_9ce4_8422_2325;
 
+/// A line typed the moment a program begins to read reaches it. Each
+/// terminal here answers a line with a burst of output and reads the next,
+/// and its client types that line as soon as the burst is whole, on
+/// several terminals at once so that the machine is busy: on Windows the
+/// console then holds about one such line in a hundred back until another
+/// input event comes, which the core sends (`terminal/process.rs`). A line
+/// held shows as a burst that never comes.
+#[test]
+fn a_line_typed_as_a_program_begins_to_read_reaches_it() {
+    let typists: Vec<_> = (0..8)
+        .map(|t| {
+            let run = move || {
+                let data = Folder::new(&format!("tt-type{t}"));
+                let core = Core::start(&data);
+                let mut c = core.device();
+                let id = TerminalId::mint();
+                let start = Some(fixture(&["serve"]));
+                let mut v = open(&mut c, &args(id, start, None, 16 << 10), true);
+                let (burst, bursts) = (150, 300);
+                for b in 0..bursts {
+                    c.write(v.s, format!("{burst}\r").as_bytes()).unwrap();
+                    let last = (b + 1) * burst - 1;
+                    until(&mut c, &mut v, &format!("burst {b}"), |v| {
+                        shows(v.bytes(), last)
+                    });
+                }
+            };
+            let name = format!("a_line_typed_as_a_program_begins_to_read_reaches_it-{t}");
+            std::thread::Builder::new().name(name).spawn(run).unwrap()
+        })
+        .collect();
+    let held = typists.into_iter().filter_map(|t| t.join().err()).count();
+    assert_eq!(held, 0, "terminals whose program never got a line typed");
+}
+
 /// What a client typed before it left reaches the process, even when the
 /// core learns that the client is gone from a write of the output still
 /// flowing to it, before it has read what the client sent last. Each

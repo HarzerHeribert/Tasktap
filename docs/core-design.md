@@ -699,6 +699,8 @@ These are targets, not results. Phase 1 measures the first three, start time and
 
 **With speech (Phase 3)**, on the same machine on 2026-11-18: every row passes; idle 0 wakeups and 0 context switches in 60 s, memory with no terminals 2.9 MB, start 4.7 ms. The binary is 4.91 MB (4 909 584 bytes), 0.19 MB more than before speech (4 722 768), with no new package: dictations, the web call, the credential tools and their calls. Nothing runs between dictations: no thread, no timer, no process. While one records the core holds its audio, at most 9.6 MB for five minutes, and one deadline; while one is transcribed a `curl` runs for the length of the call.
 
+**With previews, the settings and pruning (Phase 4)**, on the same machine on 2026-11-18: every row passes; idle 0 wakeups and 0 context switches in 60 s, memory with no terminals 2.9 MB, start 3.5 ms. The binary is 5.08 MB (5 079 696 bytes), 0.15 MB more than before them (4 926 496), with no new package: the two rules of §12, the file kinds, `file.read` and `preview.open`, the `preview` role, the previews table, the rule of a shortcut and pruning. Nothing runs for a preview that is open: no watcher, no thread, no timer (§9, "Previews", row Change). While a file is read or waits to be taken the core holds it, 16 MiB at most and four at once. With finished thoughts kept for a number of days, one timer sleeps until the next day's pruning; kept for ever, as by default, there is none.
+
 ## 11. Import from 1.2
 
 Cut by the owner on 2026-11-17: the new app starts empty, and nothing reads or migrates 1.2's data.

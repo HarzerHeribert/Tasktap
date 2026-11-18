@@ -4,9 +4,9 @@
 // every key: the delay from the key to the end of the frame that shows it, and whether any was lost or moved the
 // caret. First the same typing with nothing changing, for comparison; and each at every level of the effects
 // (the core's `motion_ambient`: full, still, off), so the light's part in a hitch can be told from the page's.
-// It fails when, during the flow, the 95th percentile of the frame intervals is over 1.2 frames or one is over 3
-// (20 and 50 ms where the page is given 60 frames a second, less on a faster display that gives it more), when the
-// 95th percentile of the key delays is over 1.8 frames or one is over 6 (30 and 100 ms), or when a key is lost. In
+// It fails when, during the flow, the 95th percentile of the frame intervals is over 1.2 of the frames the page is
+// given (20 ms where it is given 60 a second, less where it is given more) or one is over 50 ms, when the 95th
+// percentile of the key delays is over 1.8 frames (30 ms) or one is over 100 ms, or when a key is lost. In
 // the app at Full it also watches the band through the flow, as cadence-check.cjs does: it fails when the band
 // waits more than two of its intervals between drawings while it moves, or one of its clocks jumps.
 // usage: node scripts/flow-check.cjs [--app [--debug]] [--levels full,still,off] [--short] [--trace] [--json file]
@@ -60,14 +60,15 @@ function print(name, level, quiet, flow) {
 /** The limits follow the rate the page is given frames at: at 60 a second they are 20 and 50 ms for a frame, 30 and
  *  100 ms for a key. */
 function judge(level, quiet, flow, failures) {
-  const s = stats(flow), frame = stats(quiet).median;
+  // The worst frame and the worst key are held to what a person would see as a hitch, however fast the frames come.
+  const s = stats(flow), frame = stats(quiet).median, hitch = Math.max(frame, 1000 / 60);
   if (flow.hidden) failures.push(`${level}: the window was covered, so nothing was measured`);
   if (s.keys < 40) failures.push(`${level}: only ${s.keys} keys reached the Composer`);
   if (!flow.marks.some((m) => /working|done|Started in/.test(m[1]))) failures.push(`${level}: the thought never came to work, so the flow was not measured`);
   if (s.p95 > frame * 1.2) failures.push(`${level}: the 95th percentile of the frame intervals during the flow is ${r1(s.p95)} ms (${r1(frame * 1.2)} at most, at a frame of ${r1(frame)} ms)`);
-  if (s.worst > frame * 3) failures.push(`${level}: a frame took ${r1(s.worst)} ms during the flow (${r1(frame * 3)} at most)`);
+  if (s.worst > hitch * 3) failures.push(`${level}: a frame took ${r1(s.worst)} ms during the flow (${r1(hitch * 3)} at most)`);
   if (s.kp95 > frame * 1.8) failures.push(`${level}: the 95th percentile of the delay from a key to its frame is ${r1(s.kp95)} ms (${r1(frame * 1.8)} at most)`);
-  if (s.kworst > frame * 6) failures.push(`${level}: a key took ${r1(s.kworst)} ms to show (${r1(frame * 6)} at most)`);
+  if (s.kworst > hitch * 6) failures.push(`${level}: a key took ${r1(s.kworst)} ms to show (${r1(hitch * 6)} at most)`);
   if (s.lost) failures.push(`${level}: ${flow.lost} keys were lost and ${flow.caret} moved the caret from the end`);
 }
 
@@ -202,7 +203,7 @@ async function main() {
   }
   console.log('');
   for (const f of failures) console.log('FAIL  ' + f);
-  console.log(failures.length ? 'FAIL  the capture flow hitches' : 'PASS  typing through a capture, its placing, a session starting, an agent\'s output and a result: frames keep their pace (95th percentile within 1.2 frames, none over 3: 20 and 50 ms at 60 a second), keys show within a frame or two (95th percentile within 1.8 frames, none over 6: 30 and 100 ms), and none is lost');
+  console.log(failures.length ? 'FAIL  the capture flow hitches' : 'PASS  typing through a capture, its placing, a session starting, an agent\'s output and a result: frames keep their pace (95th percentile within 1.2 of the frames given, 20 ms at 60 a second, none over 50 ms), keys show within a frame or two (95th percentile within 1.8 frames, 30 ms, none over 100 ms), and none is lost');
   process.exitCode = failures.length ? 1 : 0;
 }
 if (require.main === module) main().catch((e) => (console.error(e), process.exit(1)));

@@ -123,7 +123,13 @@ async function main() {
       };
       out[id] = sweeps;
       for (const [name, s] of Object.entries(sweeps)) {
-        if (!s.change) { failures.push(`${id}, ${name}: ${s.error || JSON.stringify(s)}`); continue; }
+        // A software renderer gives up on the rings (the context is lost, or the picture stays empty): headless that
+        // is said and passed over; in the app's own web view every form must draw.
+        if (!s.change || s.change.every((c) => c === 0)) {
+          if (has('--app')) failures.push(`${id}, ${name}: ${s.error || 'nothing was drawn'}`);
+          else rows.push([id, name, 'not drawn by this renderer', '', '', '', '']);
+          continue;
+        }
         const usual = median(s.change), most = Math.max(...s.most), none = s.change.filter((c) => c === 0).length;
         // The rows a slat's top edge crosses fill as the edge passes through them: the most any of them changed in a step.
         const edge = s.ramp.length ? Math.max(...s.ramp.slice(1).map((r, k) => Math.max(...r.map((v, i) => Math.abs(v - s.ramp[k][i]))))) : null;

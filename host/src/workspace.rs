@@ -38,7 +38,6 @@ static STATE: Mutex<Option<State>> = Mutex::new(None);
 
 /// The web view loads nothing from the network but this machine's own addresses (frames.rs `RULES`): only then is a
 /// preview given a frame.
-#[cfg_attr(windows, allow(dead_code))]
 pub static CONFINED: AtomicBool = AtomicBool::new(false);
 /// The page the window shows: where its top frame is sent back to, should it ever be anywhere else.
 static HOME: Mutex<Option<Url>> = Mutex::new(None);
@@ -174,6 +173,17 @@ pub fn show(app: &AppHandle, at: Option<&str>) -> tauri::Result<()> {
                 CONFINED.store(ok, Ordering::Relaxed);
                 crate::log(json!({"event": "frame", "confined": ok}));
             })
+        })?;
+    }
+    #[cfg(windows)]
+    {
+        let to = app.clone();
+        window.with_webview(move |view| {
+            let ok = crate::native::confine(&view, move |url| {
+                stopped(&to, url);
+            });
+            CONFINED.store(ok, Ordering::Relaxed);
+            crate::log(json!({"event": "frame", "confined": ok}));
         })?;
     }
     let handle = app.clone();

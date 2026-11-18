@@ -8,6 +8,15 @@ export const mac = /Mac|iPhone|iPad/.test(agent);
 /** A path without the prefix Windows puts before a canonical one: `\\?\C:\…` is `C:\…` to a person, and
  *  `\\?\UNC\server\share` is `\\server\share`. */
 export const plain = (path: string) => path.replace(/^\\\\\?\\UNC\\/, '\\\\').replace(/^\\\\\?\\/, '');
+/** A file's whole path as the path of an address on the host's own server, which a preview's frame loads it from. A
+ *  path of Windows begins with a drive and is written with backslashes: as an address it has a slash before the
+ *  drive and slashes throughout, so that what a page names beside itself is asked for beside it. A Mac's path is one
+ *  already, and a backslash in it is a character of a name. */
+export const asAddress = (path: string, windows = !mac) => {
+  if (!windows) return path;
+  const whole = plain(path).replace(/\\/g, '/');
+  return whole.startsWith('/') ? whole : `/${whole}`;
+};
 /** A path as it is shown: plain, and with the home folder as ~ where the system writes it so. */
 export const shownPath = (path: string) => plain(path).replace(/^\/Users\/[^/]+/, '~');
 

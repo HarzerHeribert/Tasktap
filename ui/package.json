@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "check": "tsc -p . && node --test src/keys.test.ts src/client.test.ts src/workspace/layout.test.ts src/notch/shape.test.ts src/motion/state.test.ts src/way.test.ts src/speech/pcm.test.ts src/speech/loud.test.ts src/workspace/links.test.ts src/workspace/markdown.test.ts",
+    "check": "tsc -p . && node --test src/keys.test.ts src/client.test.ts src/workspace/layout.test.ts src/notch/shape.test.ts src/motion/state.test.ts src/way.test.ts src/system.test.ts src/speech/pcm.test.ts src/speech/loud.test.ts src/workspace/links.test.ts src/workspace/markdown.test.ts",
     "tauri": "tauri"
   },
   "dependencies": {

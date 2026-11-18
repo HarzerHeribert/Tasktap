@@ -22,7 +22,7 @@ use tasktap_proto::{
     TurnResult, VERSION, Versions, When,
 };
 
-mod watchdog;
+pub mod watchdog;
 pub use watchdog::Watchdog;
 
 /// What each test did and saw, by its thread's name, with the time: shown

@@ -282,8 +282,8 @@ fn observe(
     #[cfg(feature = "fixtures")]
     run.env(super::fixture::REAL, "1");
     let modes = sys::modes();
-    let mut child = match run.spawn() {
-        Ok(child) => child,
+    let (mut child, tree) = match sys::Tree::attached(&mut run) {
+        Ok(spawned) => spawned,
         // The adopted session ends with this connection.
         Err(e) => {
             let _ = writeln!(
@@ -299,7 +299,7 @@ fn observe(
     let agent = child.id();
     std::thread::spawn({
         let hold = hold.clone();
-        move || answer(link, &hold, tty, agent)
+        move || answer(link, &hold, tty, agent, &tree)
     });
     let status = {
         let _interrupts = sys::ignore_interrupts();
@@ -460,7 +460,7 @@ fn drain() {
 /// the kill after 2 s if it has not exited by then; on Windows the agent's
 /// process tree at once. Only the agent: this shim and the shell it runs
 /// in go on, and once the agent has gone the shim reports its exit.
-fn end(hold: &Arc<Hold>, agent: u32) {
+fn end(hold: &Arc<Hold>, agent: u32, tree: &sys::Tree) {
     #[cfg(unix)]
     {
         sys::signal_process(agent, false);
@@ -475,21 +475,12 @@ fn end(hold: &Arc<Hold>, agent: u32) {
             });
     }
     #[cfg(windows)]
-    {
-        let _ = hold;
-        let pid = agent.to_string();
-        // By its path: the shell's PATH need not name the system's folder.
-        let root = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
-        let taskkill = Path::new(&root).join(r"System32\taskkill.exe");
-        let kill = Command::new(taskkill)
-            .args(["/PID", &pid, "/T", "/F"])
-            .output();
-        drop(kill);
-    }
+    let _ = (hold, agent);
+    tree.kill();
 }
 
 /// Answers the core's calls on the adopting connection until it ends.
-fn answer(mut link: Client, hold: &Arc<Hold>, tty: bool, agent: u32) {
+fn answer(mut link: Client, hold: &Arc<Hold>, tty: bool, agent: u32, tree: &sys::Tree) {
     loop {
         let request = match link.recv() {
             Ok(Frame::Control(Control::Call(request))) => request,
@@ -499,7 +490,7 @@ fn answer(mut link: Client, hold: &Arc<Hold>, tty: bool, agent: u32) {
         let reply = if request.name == call::ShimHold::NAME.as_str() {
             let held = call::ShimHold::args(request.args).and_then(|h| match h.stop {
                 true => {
-                    end(hold, agent);
+                    end(hold, agent, tree);
                     Ok(())
                 }
                 false => hold.set(h.hold, tty),

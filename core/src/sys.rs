@@ -165,6 +165,12 @@ mod unix {
             Ok((command.spawn()?, Tree))
         }
 
+        /// An agent a shim runs in its own terminal. Here it is the shim's
+        /// plain child, which the shim ends by signal.
+        pub fn attached(command: &mut Command) -> io::Result<(std::process::Child, Tree)> {
+            Self::spawn(command)
+        }
+
         /// Ends what the program started; the program is the caller's to end.
         pub fn kill(&self) {}
     }
@@ -606,13 +612,7 @@ mod windows {
         /// in its job ([`console::Console::spawn`]), so nothing it starts is
         /// ever outside it.
         pub fn new() -> io::Result<Job> {
-            // SAFETY: null attributes and name ask for an unnamed job with
-            // default security; the handle is checked before use.
-            let job = unsafe { CreateJobObjectW(null(), null()) };
-            if job.is_null() {
-                return Err(io::Error::last_os_error());
-            }
-            let job = Job(job);
+            let job = Job::lasting()?;
             // SAFETY: an all-zero JOBOBJECT_EXTENDED_LIMIT_INFORMATION is a
             // valid value: no limits.
             let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
@@ -632,6 +632,18 @@ mod windows {
                 return Err(io::Error::last_os_error());
             }
             Ok(job)
+        }
+
+        /// A job whose processes run on when its last handle closes: only
+        /// [`Job::kill`] ends them.
+        fn lasting() -> io::Result<Job> {
+            // SAFETY: null attributes and name ask for an unnamed job with
+            // default security; the handle is checked before use.
+            let job = unsafe { CreateJobObjectW(null(), null()) };
+            if job.is_null() {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(Job(job))
         }
 
         /// Puts `process`, a process handle, in the job, and with it every
@@ -893,18 +905,35 @@ mod windows {
 
     impl Tree {
         pub fn spawn(command: &mut Command) -> io::Result<(std::process::Child, Tree)> {
+            use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
+            // No console window of its own either: the core has none to share.
+            Self::start(command, Job::new()?, CREATE_NO_WINDOW)
+        }
+
+        /// An agent a shim runs in its own terminal, with everything the
+        /// agent starts: the agent may be a batch file around the program.
+        /// It shares the shim's console, and a shim that dies leaves it
+        /// running, as on Unix; [`Tree::kill`] is how the shim ends it. The
+        /// job is the terminal's way too (design §9), and asks nothing of
+        /// the system's management service, which `taskkill` needs and
+        /// which refuses some sign-ins.
+        pub fn attached(command: &mut Command) -> io::Result<(std::process::Child, Tree)> {
+            Self::start(command, Job::lasting()?, 0)
+        }
+
+        fn start(
+            command: &mut Command,
+            job: Job,
+            flags: u32,
+        ) -> io::Result<(std::process::Child, Tree)> {
             use windows_sys::Win32::System::Diagnostics::ToolHelp::{
                 CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First,
                 Thread32Next,
             };
             use windows_sys::Win32::System::Threading::{
-                CREATE_NO_WINDOW, CREATE_SUSPENDED, OpenThread, ResumeThread, THREAD_SUSPEND_RESUME,
+                CREATE_SUSPENDED, OpenThread, ResumeThread, THREAD_SUSPEND_RESUME,
             };
-            let job = Job::new()?;
-            // No console window of its own either: the core has none to share.
-            let mut child = command
-                .creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW)
-                .spawn()?;
+            let mut child = command.creation_flags(CREATE_SUSPENDED | flags).spawn()?;
             let held = job.hold(child.as_raw_handle());
             // Resumed whether or not the job took it: its one thread, found
             // among the system's by the process it belongs to.

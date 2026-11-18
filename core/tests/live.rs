@@ -167,7 +167,7 @@ fn until(
     let start = Instant::now();
     let done = Arc::new(AtomicBool::new(false));
     let seen = tty.map(|t| t.seen.clone());
-    let (pid, label) = (core.pid().to_string(), what.to_owned());
+    let (pid, label) = (core.pid(), what.to_owned());
     std::thread::spawn({
         let done = done.clone();
         move || {
@@ -181,14 +181,7 @@ fn until(
             say(&format!(
                 "{label}: not within {limit:?}; the terminal shows:\n{shows}"
             ));
-            #[cfg(unix)]
-            let _ = std::process::Command::new("kill")
-                .args(["-9", &pid])
-                .status();
-            #[cfg(windows)]
-            let _ = std::process::Command::new("taskkill")
-                .args(["/F", "/PID", &pid])
-                .status();
+            watchdog::kill(pid);
         }
     });
     w.until(what, ready);

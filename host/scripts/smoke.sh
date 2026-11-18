@@ -607,7 +607,8 @@ until_has workspace "text .set-pane" 5 "Return in a thought" || fail "the Though
 choose_in "Return in a thought" "Starts a new line"
 until_has workspace "$(pref return_sends)" 3 "false" && until_has workspace "eval document.querySelector('.home .capture .key .sends').textContent + ' ' + $(setting "Return in a thought").querySelector('.hint').textContent" 3 "⌘ Command-Return sends it." \
   || fail "Return starts a new line, once chosen"
-js workspace "(__ws.dismiss(), document.querySelector('.home #capture-input').focus(), document.execCommand('insertText', false, 'see whether return sends'), 1)" >/dev/null
+# (Saved for later, so that nothing is placed or started by the check of a key.)
+js workspace "(__ws.dismiss(), __speech.cap.dest = 'later', __motion.redraw(), document.querySelector('.home #capture-input').focus(), document.execCommand('insertText', false, 'see whether return sends'), 1)" >/dev/null
 before=$(js workspace "__ws.records.thoughts.size")
 press workspace ".home #capture-input" Enter >/dev/null
 sleep 0.6
@@ -617,7 +618,7 @@ until_has workspace "eval document.querySelector('.home #capture-input').value +
   && pass "with Return set to start a new line, Return sends nothing and ⌘Return sends the thought; the Composer's key shows ⌘ with Return" || fail "Return as a preference" "$held"
 send 'call delete {"c":"prefs","id":"return_sends"}'
 until_has workspace "eval String(document.querySelector('.home .capture .key .sends').textContent)" 3 "" || fail "Return sends again"
-js workspace "(t => t && __ws.call('thought.stop', { id: t.id }).catch(() => 0))([...__ws.records.thoughts.values()].find((t) => t.text === 'see whether return sends'))" >/dev/null
+js workspace "(__speech.cap.dest = undefined, (t => t && __ws.call('delete', { c: 'thoughts', id: t.id }).catch(() => 0))([...__ws.records.thoughts.values()].find((t) => t.text === 'see whether return sends')))" >/dev/null
 # The capture key: recorded, refused by the rule in its own sentence, registered with the system, and back to the default.
 js workspace "(__ws.open({ kind: 'settings', at: 'thoughts' }), 1)" >/dev/null
 until_has workspace "$(key_row "From any app")" 5 "| false |" || fail "the capture key's row"

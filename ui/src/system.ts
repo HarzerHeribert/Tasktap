@@ -18,5 +18,12 @@ export const titled = !mac && !(typeof location !== 'undefined' && new URLSearch
 /** Where the system shows a file among its neighbours. */
 export const FILES = mac ? 'Finder' : 'File Explorer';
 
+/** Where the system lets a program use the microphone, where it is told to move less or to save power, where the
+ *  app keeps its file, and what holds a service's key: in the system's own names. */
+export const MICROPHONE = mac ? 'System Settings, Privacy & Security, Microphone' : 'Windows Settings, Privacy & security, Microphone';
+export const CALM = mac ? 'While Reduce Motion or Low Power Mode is on in System Settings' : 'While animation effects are off in Windows Settings or the PC saves power';
+export const KEPT = mac ? "in Tasktap's own folder in your Library" : "in Tasktap's own folder among your account's app data";
+export const KEYS_KEPT = mac ? 'In the keychain' : 'In Credential Manager';
+
 /** What a person calls the machine in front of them. */
 export const HERE = mac ? 'this Mac' : 'this PC';

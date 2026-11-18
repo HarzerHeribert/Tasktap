@@ -10,7 +10,7 @@ import type { MotionAmbient, MotionPalette, MotionStyle, Shortcut, TextSize } fr
 import { routing } from '../capture.tsx';
 import { hit, recorder } from '../keys.ts';
 import { talkKey } from '../page.ts';
-import { HERE, mac } from '../system.ts';
+import { CALM, HERE, KEPT, KEYS_KEPT, MICROPHONE, mac } from '../system.ts';
 import { setVoice } from '../motion/engine.ts';
 import { Motion, lookOf } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
@@ -81,7 +81,7 @@ async function toggleTrial() {
     }
   } catch (e) {
     said = e instanceof DOMException && e.name === 'NotAllowedError'
-      ? 'The microphone was not allowed. Tasktap Next can be allowed in System Settings, Privacy & Security, Microphone.'
+      ? `The microphone was not allowed. Tasktap Next can be allowed in ${MICROPHONE}.`
       : e instanceof Error ? e.message : String(e);
   }
   asking = false;
@@ -197,7 +197,7 @@ function AppearancePane() {
       <Row name="Lumen" hint={`Coloured light behind the form and a beam across it.${mac ? ' The light behind the notch takes the same colours.' : ''}`}>
         <Switch on={look.lumen} name="Lumen" set={(on) => setPref({ id: 'motion_lumen', patch: on })} />
       </Row>
-      <Row name="Effects" hint="The light, the chrome and everything that moves by itself. Still keeps the picture and stops the motion; Off draws none of it, which takes the least power and memory. While Reduce Motion or Low Power Mode is on in System Settings, Full behaves as Still.">
+      <Row name="Effects" hint={`The light, the chrome and everything that moves by itself. Still keeps the picture and stops the motion; Off draws none of it, which takes the least power and memory. ${CALM}, Full behaves as Still.`}>
         <Choice name="Effects" value={pref('motion_ambient')} all={effects} set={(v) => setPref({ id: 'motion_ambient', patch: v })} />
       </Row>
       <Row name="Microphone" hint="The form listens while this is on and this sheet is open. Nothing is recorded or sent anywhere.">
@@ -269,8 +269,8 @@ function AboutPane() {
       </Row>
       <Row name="Anything else" hint="Tasktap has no account and reports nothing about what you do."><span class="v">Nothing</span></Row>
       <h3>Kept on {HERE}</h3>
-      <Row name="Thoughts and history" hint="With these settings, in Tasktap's own folder in your Library."><span class="v">In a file</span></Row>
-      <Row name="A service's key" hint="Written once and never shown again."><span class="v">In the keychain</span></Row>
+      <Row name="Thoughts and history" hint={`With these settings, ${KEPT}.`}><span class="v">In a file</span></Row>
+      <Row name="A service's key" hint="Written once and never shown again."><span class="v">{KEYS_KEPT}</span></Row>
       <h3>Licences</h3>
       <Licence name="Hack" what="The terminal's font · MIT and Bitstream Vera" file="Hack-3.003-LICENSE.md" />
       <Licence name="Nerd Fonts symbols" what="Prompt symbols · MIT" file="NerdFonts-3.4.0-LICENSE.txt" />

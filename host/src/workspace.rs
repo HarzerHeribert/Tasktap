@@ -132,6 +132,8 @@ pub fn show(app: &AppHandle, at: Option<&str>) -> tauri::Result<()> {
         })
         .title("Tasktap")
         .min_inner_size(640.0, 400.0)
+        .transparent(true)
+        .effects(effects)
         .visible(false)
         .focused(!passive)
         // A check reads the terminal while the window sits behind the person's own apps, where
@@ -156,12 +158,6 @@ pub fn show(app: &AppHandle, at: Option<&str>) -> tauri::Result<()> {
     {
         builder = builder.theme(Some(tauri::Theme::Dark)).decorations(!crate::chrome::own());
     }
-    // The window lets its backdrop through where the page does. `TASKTAP_OPAQUE` makes it a window with a ground of
-    // its own instead, for comparing the two where a display or its driver draws faint transparency wrong.
-    builder = match std::env::var_os("TASKTAP_OPAQUE") {
-        None => builder.transparent(true).effects(effects),
-        Some(_) => builder.background_color(tauri::window::Color(10, 10, 11, 255)),
-    };
     builder = match frame {
         Some([x, y, w, h]) => builder.position(x, y).inner_size(w, h),
         None => builder.inner_size(1180.0, 760.0).center(),

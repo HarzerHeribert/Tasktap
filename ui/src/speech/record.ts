@@ -23,7 +23,7 @@ import { into } from '../way.ts';
 import { type Heard, feed, hear, local, model, ready, stop } from './local.ts';
 import { Loud } from './loud.ts';
 import { BYTES, Pcm } from './pcm.ts';
-import { HERE } from '../system.ts';
+import { HERE, MICROPHONE } from '../system.ts';
 
 export type Field = HTMLTextAreaElement | HTMLInputElement;
 const FIELDS = '#capture-input, .reply input';
@@ -238,7 +238,7 @@ export async function begin(target: DictationTarget, field: Field | null): Promi
       if (hearing === id) hearing = '';
       reset();
       talk.said = e instanceof DOMException && e.name === 'NotAllowedError'
-        ? 'The microphone was not allowed. Tasktap can be allowed in System Settings, Privacy & Security, Microphone.'
+        ? `The microphone was not allowed. Tasktap can be allowed in ${MICROPHONE}.`
         : typeof e === 'string' ? (WHY[e] ?? e) : e instanceof Error ? e.message : String(e);
       if (e === 'model') void model().catch(() => {});
     }

@@ -2,7 +2,8 @@
 # order in the signed-in desktop of the test account, each with a PASS or FAIL and its evidence.
 # desktop.sh builds the app, starts this there and fetches what it wrote:
 #   <Out>\results.txt   one line per check
-#   <Out>\*.png         the app's own window (never the screen), where a picture is the evidence
+#   <Out>\*.png         the app's own window, where a picture is the evidence; *-screen.png is the screen inside
+#                       the window's edges while it is in front (the frame, a menu, the backdrop as a person sees them)
 #   <Out>\*.txt         what the smoke script, the credential test and the app printed (rows4-12-app.txt, row13-app.txt)
 # -DryRun starts nothing and shows no window: it says what each row would do and checks that
 # what the round needs is there.

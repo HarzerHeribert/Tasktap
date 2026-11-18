@@ -1,0 +1,11 @@
+{
+  "id": "evt_04fixture",
+  "type": "form.replied",
+  "data": {
+    "id": "frm_01fixture",
+    "sessionID": "ses_01fixture",
+    "answer": {
+      "q0": "Red"
+    }
+  }
+}

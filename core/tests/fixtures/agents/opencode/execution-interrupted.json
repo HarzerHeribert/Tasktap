@@ -1,0 +1,8 @@
+{
+  "id": "evt_01fixture",
+  "type": "session.execution.interrupted",
+  "data": {
+    "sessionID": "ses_01fixture",
+    "reason": "user"
+  }
+}

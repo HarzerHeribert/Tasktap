@@ -1,0 +1,29 @@
+{
+  "id": "evt_02fixture",
+  "type": "session.tool.called",
+  "data": {
+    "sessionID": "ses_01fixture",
+    "assistantMessageID": "msg_01fixture",
+    "id": "call_01fixture",
+    "input": {
+      "questions": [
+        {
+          "question": "Do you prefer red or blue?",
+          "header": "Color preference",
+          "options": [
+            {
+              "label": "Red",
+              "description": "Choose red"
+            },
+            {
+              "label": "Blue",
+              "description": "Choose blue"
+            }
+          ]
+        }
+      ]
+    },
+    "executed": false
+  },
+  "tool": "question"
+}

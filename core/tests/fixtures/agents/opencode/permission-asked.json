@@ -1,0 +1,20 @@
+{
+  "id": "evt_06fixture",
+  "type": "permission.asked",
+  "data": {
+    "id": "per_01fixture",
+    "sessionID": "ses_01fixture",
+    "action": "shell",
+    "resources": [
+      "echo Red"
+    ],
+    "save": [
+      "echo *"
+    ],
+    "source": {
+      "type": "tool",
+      "messageID": "msg_02fixture",
+      "id": "call_02fixture"
+    }
+  }
+}

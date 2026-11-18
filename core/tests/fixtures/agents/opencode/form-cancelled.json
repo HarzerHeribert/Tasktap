@@ -1,0 +1,8 @@
+{
+  "id": "evt_02fixture",
+  "type": "form.cancelled",
+  "data": {
+    "id": "frm_01fixture",
+    "sessionID": "ses_01fixture"
+  }
+}

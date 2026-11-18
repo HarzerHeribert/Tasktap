@@ -267,4 +267,75 @@ function scene(name, { now = Date.now(), changes = false } = {}) {
   };
 }
 
-module.exports = { scene, screens };
+// ——— A thought on its way, and voice (the routing and speech flows) ———
+
+const SAID = {
+  en: 'okay so the, um, the rehearsal timer, on my phone the digits get cut off, no wait, not cut off, they wrap onto two lines, so make them fit on one line, and keep the keyboard shortcuts working, and don\'t touch the desktop layout',
+  de: 'Äh, also, der Probentimer, auf dem Handy, da brechen die Ziffern um, also nicht abgeschnitten, die rutschen in die zweite Zeile, das soll einzeilig bleiben, und, ach ja, die Tastenkürzel müssen weiter funktionieren, Leertaste für Pause und R für Reset, und am Desktop bitte nichts anfassen, das Layout dort passt so',
+};
+const BRIEF = {
+  en: 'Make the rehearsal timer\'s digits fit on one line on phones; they currently wrap onto two. Keep the keyboard shortcuts working. Do not change the desktop layout.',
+  de: 'Die Ziffern des Probentimers sollen auf dem Handy einzeilig bleiben; sie brechen dort in eine zweite Zeile um. Die Tastenkürzel müssen weiter funktionieren (Leertaste für Pause, R für Reset). Am Desktop-Layout nichts ändern.',
+};
+const TITLE = { en: 'Timer digits on one line', de: 'Probentimer einzeilig auf dem Handy' };
+const MORE = {
+  en: ' and while you are in there, the colon between minutes and seconds blinks, which nobody asked for, I think that came in with the last change, so stop it blinking, unless that is the thing that tells you it is running, hm, no, it is the play button that tells you, so yes, stop the blinking, and then there was the thing with the font, the digits jump sideways when a one comes up, that is the tabular figures thing, turn those on',
+  de: ' und wenn du schon dabei bist, der Doppelpunkt zwischen Minuten und Sekunden blinkt, das hat niemand bestellt, ich glaube das kam mit der letzten Änderung rein, also das Blinken abstellen, außer das ist das, woran man sieht, dass er läuft, hm, nein, das sieht man am Play-Knopf, also ja, Blinken weg, und dann war da noch die Sache mit der Schrift, die Ziffern springen seitlich, wenn eine Eins kommt, das ist das mit den Tabellenziffern, die bitte einschalten',
+};
+const BRIEF_MORE = {
+  en: ' Stop the colon between minutes and seconds from blinking; the play button already shows that the timer runs. Turn on tabular figures so the digits do not shift sideways when a 1 appears.',
+  de: ' Das Blinken des Doppelpunkts zwischen Minuten und Sekunden abstellen; dass der Timer läuft, zeigt schon der Play-Knopf. Tabellenziffern einschalten, damit die Ziffern nicht seitlich springen, wenn eine 1 erscheint.',
+};
+
+/** Adds one state of the flows to a scene's records and returns them: a thought being placed, held with its brief,
+ *  briefed after a pick, sent on as a follow-up, placed by name after a model failed, asked about, or saved for later;
+ *  or a dictation that records, is written down, or failed. `lang` en or de, `long` for a long thought and brief,
+ *  `voice` for a spoken thought. */
+function flow(records, kind, { lang = 'en', long = false, voice = true, now = Date.now() } = {}) {
+  const P = records.ids.projects, text = SAID[lang] + (long ? MORE[lang] : ''), brief = BRIEF[lang] + (long ? BRIEF_MORE[lang] : '');
+  const pref = (id, value) => (records.prefs = records.prefs.filter((p) => p.id !== id).concat({ id, value, rev: 50 }));
+  const by = { agent: 'claude', model: 'haiku' }, model = { by: 'claude', model: 'haiku', pending: false, fallback: null, quote: null, title: TITLE[lang], ms: 2300 };
+  const local = { by: 'local', model: null, pending: false, fallback: null, quote: null, title: null, ms: 1 };
+  const speech = () => (pref('speech_by', { server: 'https://api.openai.com', model: 'gpt-transcribe' }), pref('keys', ['https://api.openai.com']), pref('speech_languages', ['de', 'en']));
+  const id = uid(now, 1600);
+  const thought = (o) => records.thoughts.push({ id, rev: 60, text, strokes: [], source: voice ? 'voice' : 'typed', mode: 'ask', phase: 'captured', status: 'captured', reason: null, live: false, project_id: null,
+    session_id: null, brief: null, route: null, agent: 'claude', model: null, workdir: null, hold_until: null, read: false, created: now - 1600, updated: now, ...o });
+  const routed = (o) => thought({ phase: 'routed', status: 'routed', project_id: P.cuegrid, brief, hold_until: now + 3400, ...o });
+  const dictation = (o) => (speech(), (records.dictations = [{ id: uid(now, o.ago ?? 0), rev: 61, phase: 'recording', text: '', level: 0, target: { kind: 'thought' }, error: null, ...o }]));
+  if (kind !== 'off') pref('route_by', by);
+  if (voice) speech();
+  const kinds = {
+    off: () => {},
+    placing: () => thought({ route: { ...model, pending: true, title: null, ms: null } }),
+    held: () => routed({ route: model }),
+    // Two on their way at once: the newest in full, the one before it as its first line.
+    two: () => {
+      records.thoughts.push({ id: uid(now, 4000), rev: 59, text: 'Fix the flaky export test in cuegrid', strokes: [], source: 'typed', mode: 'ask', phase: 'routed', status: 'routed', reason: null, live: false,
+        project_id: P.cuegrid, session_id: null, brief: 'Fix the flaky export test in cuegrid', route: local, agent: 'claude', model: null, workdir: null, hold_until: now + 1000, read: false, created: now - 4000, updated: now });
+      routed({ project_id: P.fieldnotes, route: model });
+    },
+    plain: () => thought({ phase: 'routed', status: 'routed', project_id: P.cuegrid, text: 'Fix the flaky export test in cuegrid', brief: 'Fix the flaky export test in cuegrid', source: 'typed', hold_until: now + 3400, route: local }),
+    briefing: () => routed({ brief: text, hold_until: now + 400, route: { ...model, pending: true, title: null, ms: null } }),
+    followup: () => routed({ session_id: records.ids.timer.session, route: { ...model, title: null, quote: lang === 'de' ? 'der Probentimer' : 'the rehearsal timer' } }),
+    fallback: () => routed({ brief: text, route: { ...local, fallback: 'claude: it did not answer within 12 s' } }),
+    gone: () => routed({ brief: text, route: { ...local, fallback: 'Codex no longer offers the model Tasktap asks for routing; routing by name until Tasktap is updated' } }),
+    asked: () => {
+      thought({ status: 'needs_you', brief, route: model });
+      records.questions.unshift({ id: uid(now, 900), rev: 62, thought_id: id, session_id: null, turn: null, source: 'router', prompt: 'Where should this go?', detail: null, reply_via: 'core', state: 'open', answer: null,
+        kind: 'choice', choices: ['cuegrid', 'fieldnotes', 'The codex session in fieldnotes'] });
+      records.glance = { ...records.glance, needs_you: records.glance.needs_you + 1, question: records.questions[0].id };
+    },
+    later: () => thought({ mode: 'note', text: lang === 'de' ? 'Mal schauen, ob der Export auch als CSV geht' : 'See whether the export could also do CSV', route: local }),
+    'later-gone': () => thought({ mode: 'note', route: { ...local, fallback: 'Codex no longer offers the model Tasktap asks for routing; routing by name until Tasktap is updated' } }),
+    recording: () => dictation({ level: 64, ago: 7000 }),
+    'recording-long': () => dictation({ level: 38, ago: 283000 }),
+    writing: () => dictation({ phase: 'transcribing', ago: 9000 }),
+    failed: () => dictation({ phase: 'failed', ago: 9000, error: 'The speech service did not answer within 90 s', text: '' }),
+    'failed-heard': () => dictation({ phase: 'failed', ago: 9000, error: 'This project is closed', text }),
+    'no-service': () => (records.prefs = records.prefs.filter((p) => !p.id.startsWith('speech') && p.id !== 'keys')),
+  };
+  kinds[kind]();
+  return records;
+}
+
+module.exports = { scene, screens, flow, SAID, BRIEF };

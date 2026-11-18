@@ -32,7 +32,9 @@ export function Answer({ questions }: { questions: Question[] }) {
     page.focus = '#capture-input';
     redraw();
   };
-  const about = t?.text.trim().split('\n')[0] || s?.name || '';
+  // Where a thought should go is asked by Tasktap, about a thought the card shows in full.
+  const router = q.source === 'router';
+  const about = router ? '' : t?.text.trim().split('\n')[0] || s?.name || '';
   const who = agentName(s?.agent ?? t?.agent);
   const keys = (e: KeyboardEvent) => {
     if ((e.target as HTMLElement).matches('input, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -49,7 +51,7 @@ export function Answer({ questions }: { questions: Question[] }) {
   return (
     <div class="view" onKeyDown={keys}>
       <header class="band">
-        <span><b>{projectName(t?.project_id ?? s?.project_id)}</b>{who}</span>
+        <span>{router ? <b>A thought with no place yet</b> : <><b>{projectName(t?.project_id ?? s?.project_id)}</b>{who}</>}</span>
         {n > 1 ? <button type="button" class="of" title="The next question  →" onClick={() => go(1)}>{i + 1} of {n}</button> : <time>{when(t?.updated ?? Date.now())}</time>}
       </header>
       <div class="pad">

@@ -6,8 +6,12 @@
 # For later), the sidebar's slide, scrolling without bars, and the workspace (a run's
 # terminal, a question in its pane's strip, a shell typed into, splits, a moved tab, a divider,
 # the sheets, Keep running in background and restore, Stop, text size, Keep and Discard of a run
-# that worked in its own copy of the project, then quit and relaunch with the layout restored and
-# nothing rerun). It never sends keys or clicks to the system: every step is a line on the app's
+# that worked in its own copy of the project, placing by a model: offered, allowed, a thought placed and
+# briefed by the core's fixture router, Undo during its hold, the router's question answered, placing by
+# name when the model fails; voice: a speech service allowed, a thought spoken, words spoken into a field
+# and into a question's reply, a failure and cancel, with a tone made in the page in place of a microphone
+# and a speech service of the check's own on this machine; then quit and relaunch with the layout restored
+# and nothing rerun). It never sends keys or clicks to the system: every step is a line on the app's
 # standard input, and the app is passive (its windows never take the keyboard; no system menu is
 # ever opened). Prints PASS or FAIL per promise; exits non-zero on any FAIL. SHOTS=<folder> also
 # saves pictures of the app's own pages, taken by the app itself (`snapshot`), so no permission is involved.
@@ -35,9 +39,20 @@ if [ $? = 0 ]; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"
 elif echo "$out" | grep -q "nothing can be measured\|nothing drawn on it can be measured"; then pass "the capture flow was not timed: $(echo "$out" | grep -o 'The [^:]*: nothing[^.]*' | head -1)"
 else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the capture flow keeps its pace"; fi
 
+echo "== One type system (headless, every state of both pages)"
+if out="$(node "$root/scripts/type-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the type scale"; fi
+
+echo "== Voice, recorded by the page (headless, a microphone that is a file)"
+if out="$(node "$root/scripts/voice-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "voice in the page"; fi
+
 tmp="$(mktemp -d)"
 log="$tmp/log"
 mkdir -p "$tmp/agents" "$tmp/project"
+# A speech service of the check's own, on this machine: it answers a recording with the words in $tmp/says.
+echo "nothing yet" > "$tmp/says"
+python3 "$host/scripts/speech-fixture.py" "$tmp/says" "$tmp/speech.log" > "$tmp/port" &
+for _ in $(seq 1 30); do [ -s "$tmp/port" ] && break; sleep 0.1; done
+port="$(cat "$tmp/port")"
 ln "$host/binaries/fixtures/tasktap" "$tmp/agents/fixture-agent"
 # The fixture agent as a person types it into a shell, under its own name (the shim's).
 ln "$host/binaries/fixtures/tasktap" "$tmp/agents/fixture"
@@ -249,9 +264,11 @@ until_has notch "eval document.activeElement?.id" 5 "capture-input" || fail "cap
 until_has notch "eval (r => r?.dataset.s + ' ' + r?.querySelector('b')?.textContent + ' ' + !!r?.querySelector('.turn'))(document.querySelector('.ring[data-agent=fixture]'))" 5 "working 1 true" \
   && pass "while its session works an agent's ring turns, with the count beside it" || fail "a working agent's ring"
 send "type notch Undo me" "key notch Enter"
-until_has notch "text .cap-said" 5 "Sent to project" && pass "with a folder open, Enter sends the thought there" || fail "Enter sends"
-ask notch "text .cap-said" | grep -q "Undo" && pass "the receipt offers Undo during the hold" || fail "the receipt offers Undo"
-ask notch "click .cap-said .act" >/dev/null
+until_has notch "text .way" 5 "project" && pass "with a folder open, Enter sends the thought there, and it shows on its way" || fail "Enter sends"
+ask notch "text .way" | grep -q "Undo" && ask notch "text .way .key" | grep -q "Start" \
+  && [ "$(js notch "String((h => !!h && !h.hasAttribute('data-open') && parseFloat(getComputedStyle(h).getPropertyValue('--ms')) > 500)(document.querySelector('.way-hold')))")" = true ] \
+  && pass "while it is held it offers Undo and Start, and its hold is a line that runs out by the clock" || fail "the thought on its way offers Undo" "$(ask notch "text .way")"
+ask notch "click .way .act" >/dev/null
 until_has notch "eval document.querySelector('#capture-input').value" 3 "Undo me" \
   && pass "Undo stops the thought before it starts and returns its text to the field" || fail "Undo"
 # Retyped and saved for later this time: the undone thought leaves no stale copy, and one saved for later can be dropped.
@@ -321,6 +338,22 @@ until_has workspace "$(screen)" 10 "answer:yes" && pass "affirm, as its global s
   || fail "affirm answers the question"
 term_line "ask:Ship it too?"
 until_has workspace "text .strip" 10 "Ship it too?" || fail "a second question shows in the pane"
+# Speech into the question's reply: the words arrive in the field, and nothing is sent before Return. The voice is a
+# tone made in the page, so no microphone is opened; the service is the check's own.
+send "call put {\"c\":\"prefs\",\"id\":\"speech_by\",\"patch\":{\"server\":\"http://127.0.0.1:$port\",\"model\":\"fixture-speech\"}}"
+echo "yes, and tag the release" > "$tmp/says"
+reply="document.querySelector('.strip .reply input')"
+until_has workspace "eval String(!!__ws.records.prefs.get('speech_by')?.value)" 3 "true" \
+  && js workspace "(__speech.talk.source = 'tone', $reply.focus(), $reply.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', altKey: true, bubbles: true, cancelable: true })), 1)" >/dev/null
+until_has workspace "eval document.querySelector('.strip .reply')?.dataset.hears + ' ' + !!document.querySelector('.strip .reply .lvl')" 5 "true true" \
+  && pass "⌥Space held in a question's reply field records for that field: its wave shows in the field's own row" || fail "the reply field listens"
+sleep 1
+js workspace "(document.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', key: ' ', bubbles: true })), 1)" >/dev/null
+until_has workspace "eval $reply.value + ' ' + __speech.live() + ' ' + __ws.records.dictations.size" 10 "yes, and tag the release false 0" \
+  && [ "$(js workspace "String(!!document.querySelector('.strip [data-question]'))")" = true ] && [ "$(ask workspace "$(screen)" | grep -c 'answer:')" = 1 ] \
+  && pass "what was said arrives in the reply field as words; the question is still open and nothing was sent to the agent; no microphone and no row is left" || fail "speech into a reply field" "$(js workspace "$reply.value + ' ' + JSON.stringify(__speech.talk)")"
+js workspace "($reply.value = '', 1)" >/dev/null
+send 'call delete {"c":"prefs","id":"speech_by"}'
 press workspace ".strip [data-question]" 1 >/dev/null
 until_has workspace "$(screen)" 10 "answer:yes" && [ "$(ask workspace "$(screen)" | grep -c 'answer:yes')" = 2 ] \
   && pass "the strip's key 1, pressed while it has the keyboard, answers the agent" || fail "the strip's keys answer"
@@ -613,6 +646,190 @@ until_has workspace "$(thought 'write:out.log:built' 'workdir?.changes')" 30 "di
 send "call put {\"c\":\"projects\",\"id\":\"$project\",\"patch\":{\"isolate\":\"busy\"}}"
 js workspace "(__ws.show('$project'), 1)" >/dev/null
 terminals=$(ask workspace "eval __ws.records.terminals.size")
+
+echo "== Placing by a model: offered, allowed, briefed, undone, asked, and by name when the model fails"
+# The model is the fixture agent's: asked as a real one is, it runs the steps written for it and prints its answer.
+mkdir -p "$tmp/data/route" "$tmp/other"
+says() { printf '%s\n' "$@" > "$tmp/data/route/ask"; }
+route_key() { python3 -c 'import json,sys; r=json.loads(open(sys.argv[1]).read().split("<request>\n")[1].rsplit("</request>",1)[0]); print(next(p["id"] for p in r["projects"] if p["name"]==sys.argv[2]))' "$tmp/data/route/asked" "$1"; }
+field="document.querySelector('.home #capture-input')"
+# Types a thought on Home and sends it; `clear_field` empties the field, which drops a thought that was taken back.
+home_says() { js workspace "($field.focus(), document.execCommand('selectAll'), document.execCommand('insertText', false, '$1'), 1)" >/dev/null; send "key workspace Enter"; }
+clear_field() { js "${1:-workspace}" "(document.querySelector('#capture-input').focus(), document.execCommand('selectAll'), document.execCommand('delete'), 1)" >/dev/null; }
+thoughts() { js workspace "__ws.records.thoughts.size"; }
+send 'call put {"c":"prefs","id":"hold","patch":10}'
+js workspace "(__ws.call('project.add', { id: __ws.uuid7(), folder: '$tmp/other' }), __ws.show('home'), 1)" >/dev/null
+until_has workspace "eval String([...__ws.records.projects.values()].filter(p => p.open && p.kind === 'folder').length) + ' ' + __ws.records.prefs.get('hold')?.value" 5 "2 10" || fail "a second folder is open"
+# Not allowed yet: a thought that names no folder goes to the usual one, and that is the moment it is offered, once.
+usual="$(js workspace "document.querySelector('.home #dest-chip b').textContent")"
+[ "$(js workspace "String(__ws.records.prefs.has('route_by'))")" = false ] && [ -n "$usual" ] || fail "before it is allowed, the usual folder is where a thought goes"
+home_says "Tidy the changelog a little"
+until_has workspace "text .home .offer" 5 "Thoughts can find their own folder" && ask workspace "text .home .way" | grep -q "$usual" \
+  && pass "the first thought that names no folder goes to the usual one, and placing by a model is offered under it, in one line" || fail "placing is offered"
+js workspace "(document.querySelector('.home .offer .btn').click(), 1)" >/dev/null
+terms="$(ask workspace "text .sheet")"
+until_has workspace "text .sheet" 5 "Who reads them" && terms="$(ask workspace "text .sheet")" \
+  && echo "$terms" | grep -q "the thought, as you said or typed it" && echo "$terms" | grep -q "names and aliases of up to 8" \
+  && [ "$(js workspace "(r => r.querySelector('.t').textContent + ' ' + /fixture-small/.test(r.querySelector('.x').textContent))(document.querySelector('.line.tool[aria-checked=true]'))")" = "Fixture agent true" ] \
+  && [ "$(js workspace "String(!document.querySelector('.instr'))")" = true ] \
+  && pass "its sheet says what the person gets, which signed-in agent would read the thoughts and with which model, and exactly what is sent; nothing is stored yet" || fail "the placing sheet" "$(echo "$terms" | tr '\n' '|' | cut -c1-200)"
+js workspace "(document.querySelector('.sheet .disc').click(), 1)" >/dev/null
+until_has workspace "text .sheet .instr" 3 "You are the router of Tasktap" && pass "the instructions the model follows are there to read in full, behind one quiet line" || fail "the instructions"
+shot placing-terms workspace
+press workspace ".sheet" Enter >/dev/null
+until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.value) + String(!!__ws.ui.sheet)" 5 '{"agent":"fixture","model":"fixture-small"}false' \
+  && pass "Allow writes the preference for that agent and its model, and the sheet goes" || fail "Allow"
+# The thought that was on its way is taken back, and its words return to the field.
+ask workspace "click .home .way .act" >/dev/null
+until_has workspace "eval $field.value" 3 "Tidy the changelog a little" && clear_field \
+  && until_has workspace "eval String([...__ws.records.thoughts.values()].some(t => t.text === 'Tidy the changelog a little'))" 3 "false" || fail "the offered thought is taken back"
+[ "$(js workspace "document.querySelector('.home #dest-chip b').textContent")" = "Where it belongs" ] \
+  && pass "once allowed, a thought with no folder named goes where it belongs: the Composer says so before Return" || fail "the Composer's place once allowed"
+# The model cannot decide between two folders: it asks, first and in full, on Home and in the notch.
+before=$(thoughts)
+says 'print:{"quote":"","confidence":"ambiguous","to":"","candidates":["p1","p2"],"brief":"Keep the header on one line.","title":""}'
+home_says "so the header thing, I think it should stay on one line"
+until_has workspace "text .home .needs .hq.open" 10 "Where should this go?" && asked="$(ask workspace "text .home .needs .hq.open")" \
+  && echo "$asked" | grep -q "so the header thing, I think it should stay on one line" && echo "$asked" | grep -q "Brief so far" && echo "$asked" | grep -q "Keep the header on one line." \
+  && echo "$asked" | grep -q "Keep for later" && [ "$(js workspace "[...document.querySelectorAll('.hq.open .ans span')].map(s => s.textContent).sort().join('|')")" = "Keep for later|other|project" ] \
+  && pass "a thought the model could not place is a question, first on Home and in full: the thought, its brief so far, the folders it could mean on their keys, and Keep for later" || fail "the router's question on Home" "$(echo "${asked:-}" | tr '\n' '|' | cut -c1-240)"
+until_has notch "text #sheet" 5 "Where should this go?" && ask notch "text #sheet" | grep -q "so the header thing" && ask notch "text #sheet" | grep -q "Keep for later" \
+  && pass "the notch opens on the same question by itself, in full" || fail "the router's question in the notch"
+shot router-question
+shot router-question-home workspace
+key="$(route_key project)"
+js workspace "([...document.querySelectorAll('.hq.open .ans')].find(b => b.querySelector('span').textContent === 'project').click(), 1)" >/dev/null
+until_has workspace "text .home .way" 5 "Keep the header on one line." && going="$(ask workspace "text .home .way")" \
+  && echo "$going" | grep -q "project" && echo "$going" | grep -q "You said" && echo "$going" | grep -q "so the header thing" && echo "$going" | grep -q "Placed by Fixture agent · fixture-small" \
+  && [ "$(js workspace "document.querySelector('.home .way .key')?.textContent")" = "Start" ] \
+  && pass "answered, it is on its way to that folder: the brief in full, the person's own words under it, how it was placed, Undo and the key Start" || fail "the answered thought on its way" "$(echo "${going:-}" | tr '\n' '|' | cut -c1-240)"
+shot held-brief workspace
+ask workspace "click .home .way .act" >/dev/null
+until_has workspace "eval $field.value + ' ' + [...__ws.records.thoughts.values()].find(t => t.text.startsWith('so the header thing'))?.phase" 3 "so the header thing, I think it should stay on one line captured" \
+  && clear_field && until_has workspace "eval String(__ws.records.thoughts.size)" 3 "$before" \
+  && pass "Undo during the hold stops it before anything starts and returns its words to the field" || fail "Undo during the hold"
+# From the notch, placed by the model: Placing… with Undo while it is asked, then where it goes, what the work is called and the brief.
+send "key notch Escape"
+says "sleep:1500" "print:{\"quote\":\"\",\"confidence\":\"clear\",\"to\":\"$key\",\"candidates\":[],\"brief\":\"Make the footer half as tall. Leave the links in it as they are.\",\"title\":\"Shorter footer\"}"
+send capture
+until_has notch "eval document.activeElement?.id" 5 "capture-input" || fail "capture opens for a placed thought"
+send "type notch okay the footer, it is way too tall, make it like half, but leave the links" "key notch Enter"
+until_has notch "text #sheet .way" 3 "Placing…" && ask notch "text #sheet .way" | grep -q "Undo" \
+  && pass "while the model is asked the thought says Placing…, with Undo" || fail "Placing…"
+until_has notch "text #sheet .way" 10 "Make the footer half as tall." && going="$(ask notch "text #sheet .way")" \
+  && echo "$going" | grep -q "project" && echo "$going" | grep -q "Shorter footer" && echo "$going" | grep -q "okay the footer, it is way too tall" \
+  && [ "$(js notch "String((h => !!h && !h.hasAttribute('data-open') && parseFloat(getComputedStyle(h).getPropertyValue('--ms')) > 1000)(document.querySelector('.way-hold')))")" = true ] \
+  && pass "placed by the model, it shows where it goes, what the work is called and the brief for the length of its hold, which is a line that runs out" || fail "the placed thought in the notch" "$(echo "${going:-}" | tr '\n' '|' | cut -c1-240)"
+until_has workspace "text .home .way" 3 "Make the footer half as tall." && pass "Home shows the same thought on its way, whoever captured it" || fail "Home shows a thought the notch captured"
+shot held-brief-notch
+ask notch "click #sheet .way .act" >/dev/null
+until_has notch "eval document.querySelector('#capture-input').value" 3 "okay the footer" && clear_field notch \
+  && until_has workspace "eval String(__ws.records.thoughts.size)" 3 "$before" || fail "the placed thought is taken back"
+send "key notch Escape"
+# The model fails: the thought is placed by name, and the row says so with the core's reason as it is.
+says "print:error:the model is overloaded"
+home_says "the footer in project is still too tall for my taste, I said it before and I say it again, please make it a good deal shorter than it is now, about half, and leave everything else on the page exactly as it is"
+until_has workspace "text .home .way" 10 "Placed by name." && ask workspace "text .home .way" | grep -q "the model is overloaded" \
+  && pass "when the model could not be used the thought is placed by name, and says so with the reason as the core gave it" || fail "the fallback note" "$(ask workspace "text .home .way" | tr '\n' '|' | cut -c1-240)"
+ask workspace "click .home .way .act" >/dev/null
+until_has workspace "eval $field.value" 3 "the footer in project" && clear_field && until_has workspace "eval String(__ws.records.thoughts.size)" 3 "$before" || fail "the thought placed by name is taken back"
+# Settings says what is on, and turns it off.
+js workspace "(__ws.command('settings'), 1)" >/dev/null
+until_has workspace "text .settings" 3 "By Fixture agent · fixture-small" && pass "Settings says who places the thoughts" || fail "Settings, Thoughts"
+shot settings-flows workspace
+js workspace "([...document.querySelectorAll('.settings .btn')].find(b => b.textContent.startsWith('What it is sent')).click(), 1)" >/dev/null
+until_has workspace "text .sheet .acts" 3 "Turn off" && press workspace ".sheet" Backspace true >/dev/null
+until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.value) + ' ' + __ws.ui.sheet?.kind" 3 "null settings" && ask workspace "text .settings" | grep -q "By name" \
+  && pass "Turn off ends it: the preference holds No, so it is not offered again, and Settings says thoughts go by name" || fail "turning placing off"
+js workspace "(__ws.dismiss(), 1)" >/dev/null
+
+echo "== Voice: a speech service chosen, a thought spoken, a failure, and cancel (a tone made in the page; no microphone)"
+tone() { js "${1:-workspace}" "(__speech.talk.source = 'tone')" >/dev/null; }
+mic_down() { js workspace "(document.querySelector('.home .mic').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 1 })), 1)" >/dev/null; }
+mic_up() { js workspace "(document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true })), 1)" >/dev/null; }
+quiet() { until_has "${1:-workspace}" "eval String(__speech.live()) + ' ' + __records_size()" 5 "false 0"; }
+js workspace "(window.__records_size = () => __ws.records.dictations.size, 1)" >/dev/null
+send 'call delete {"c":"prefs","id":"speech_by"}'
+until_has workspace "eval String(__ws.records.prefs.has('speech_by'))" 3 "false" || fail "no speech service is chosen"
+# Without a service the microphone says why in one line, and leads to where one is chosen.
+js workspace "(__ws.show('home'), document.querySelector('.home .mic').click(), 1)" >/dev/null
+until_has workspace "text .home .ways" 3 "Voice needs a speech service" && js workspace "(document.querySelector('.home .ways .btn').click(), 1)" >/dev/null \
+  && until_has workspace "eval __ws.ui.sheet?.kind + ' ' + __ws.ui.sheet?.at" 3 "settings speech" && ask workspace "text .settings" | grep -q "On this Mac is not built yet" \
+  && pass "without a speech service the microphone says so in one line and leads to Speech in Settings, which says plainly that on this Mac is not built yet" || fail "voice without a service"
+js workspace "([...document.querySelectorAll('.settings .btn')].find(b => b.textContent.startsWith('Use a speech service')).click(), 1)" >/dev/null
+until_has workspace "text .sheet" 3 "What it is sent" || fail "the speech sheet opens"
+js workspace "(document.querySelectorAll('.terms .seg button')[2].click(), 1)" >/dev/null
+sleep 0.3
+js workspace "((a, m) => (a.focus(), document.execCommand('insertText', false, 'http://127.0.0.1:$port'), m.focus(), document.execCommand('insertText', false, 'fixture-speech'), 1))(...document.querySelectorAll('.terms input.wide'))" >/dev/null
+until_has workspace "text .sheet" 3 "is not https" && sheet="$(ask workspace "text .sheet")" \
+  && echo "$sheet" | grep -q "The recording: what the microphone heard" && echo "$sheet" | grep -q "http://127.0.0.1:$port/v1/audio/transcriptions" && echo "$sheet" | grep -q "at most 5 minutes" \
+  && [ "$(js workspace "String(__ws.records.prefs.has('speech_by'))")" = false ] \
+  && pass "choosing a service shows its address and model, exactly what is sent and where, the five-minute limit, and a warning for an address that is not https, before anything is stored" || fail "the speech sheet" "$(echo "${sheet:-}" | tr '\n' '|' | cut -c1-300)"
+shot speech-terms workspace
+press workspace ".sheet" Enter >/dev/null
+until_has workspace "eval JSON.stringify(__ws.records.prefs.get('speech_by')?.value)" 5 "{\"server\":\"http://127.0.0.1:$port\",\"model\":\"fixture-speech\"}" \
+  && until_has workspace "text .settings" 3 "By 127.0.0.1:$port · fixture-speech" && pass "Allow writes the preference for that server and model, and Settings says where speech is turned into text" || fail "allowing a speech service"
+# A key is only ever written: once stored, all that shows is that one is, and Remove.
+js workspace "((k) => (k.focus(), document.execCommand('insertText', false, 'fixture-key-not-real'), k.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })), 1))(document.querySelector('.settings input[type=password]'))" >/dev/null
+until_has workspace "text .settings" 5 "A key is stored" && [ "$(js workspace "String(document.body.innerHTML.includes('fixture-key-not-real')) + ' ' + JSON.stringify(__ws.records.prefs.get('keys')?.value)")" = "false [\"http://127.0.0.1:$port\"]" ] \
+  && js workspace "([...document.querySelectorAll('.settings .btn')].find(b => b.textContent === 'Remove').click(), 1)" >/dev/null \
+  && until_has workspace "eval JSON.stringify(__ws.records.prefs.get('keys')?.value ?? [])" 5 "[]" \
+  && pass "a key is written and never shown: Settings says one is stored, and Remove takes it away" || fail "the key field"
+language() { js workspace "([...document.querySelectorAll('.settings .seg [role=checkbox]')].find(b => b.textContent === '$1').click(), 1)" >/dev/null; }
+language German
+until_has workspace "eval JSON.stringify(__ws.records.prefs.get('speech_languages')?.value)" 3 '["de"]' && language English
+until_has workspace "eval JSON.stringify(__ws.records.prefs.get('speech_languages')?.value)" 3 '["de","en"]' && pass "the languages spoken are a small choice, German and English first" || fail "the languages"
+js workspace "(__ws.dismiss(), __ws.show('home'), 1)" >/dev/null
+# A thought spoken into the empty Composer: the wave follows the level the core hears, and letting go sends it.
+before=$(thoughts)
+tone
+echo "Make the header stay on one line in project" > "$tmp/says"
+: > "$tmp/speech.log"
+js workspace "($field.focus(), 1)" >/dev/null
+mic_down
+until_has workspace "text .home .hear" 5 "Listening" && until_has workspace "eval String(__speech.live() && [...__ws.records.dictations.values()][0]?.level > 20 && __ws.ui.voice && parseFloat(document.querySelector('.home .hear .lvl').style.getPropertyValue('--l')) > 0.2)" 5 "true" \
+  && pass "holding the microphone records: the row says Listening, its wave follows the level the core hears, and the motion listens" || fail "recording" "$(js workspace "JSON.stringify([__speech.live(), [...__ws.records.dictations.values()], __ws.ui.voice, __speech.talk])" | cut -c1-300)"
+shot recording workspace
+sleep 1.2
+mic_up
+until_has workspace "eval [...__ws.records.thoughts.values()].find(t => t.source === 'voice')?.text + ' ' + __speech.live() + ' ' + __ws.records.dictations.size" 10 "Make the header stay on one line in project false 0" \
+  && until_has workspace "text .home .way" 3 "You said" \
+  && pass "letting go stops the recording at once; what was said becomes a thought on its way, with its hold and Undo, its words there to read" || fail "a spoken thought" "$(js workspace "JSON.stringify([[...__ws.records.dictations.values()], __speech.talk])" | cut -c1-300)"
+heard="$(tail -1 "$tmp/speech.log")"
+echo "$heard" | python3 -c 'import sys; p, rate, ch, bits, s, peak, hz = sys.stdin.read().split(); sys.exit(0 if (p, rate, ch, bits) == ("/v1/audio/transcriptions", "16000", "1", "16") and 1.0 < float(s) < 6 and int(peak) > 3000 and 200 < float(hz) < 240 else 1)' \
+  && pass "the service was sent what the page recorded: 16 kHz, one channel, 16 bits, as long as it was held, with the tone in it ($heard)" || fail "the recording as the service got it" "$heard"
+shot spoken-thought workspace
+ask workspace "click .home .way .act" >/dev/null
+until_has workspace "eval $field.value" 3 "Make the header stay on one line in project" && clear_field && until_has workspace "eval String(__ws.records.thoughts.size)" 3 "$before" || fail "the spoken thought is taken back"
+# Into a field that holds text: the words arrive at the caret and nothing is sent.
+js workspace "($field.focus(), document.execCommand('insertText', false, 'First this, then'), 1)" >/dev/null
+echo "the header on one line" > "$tmp/says"
+js workspace "($field.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', altKey: true, bubbles: true, cancelable: true })), 1)" >/dev/null
+until_has workspace "text .home .hear" 5 "Let go to add it" || fail "holding ⌥Space in a field that holds text records for the field"
+sleep 1
+js workspace "(document.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', key: ' ', bubbles: true })), 1)" >/dev/null
+until_has workspace "eval $field.value + ' ' + __speech.live() + ' ' + __ws.records.dictations.size + ' ' + __ws.records.thoughts.size" 10 "First this, then the header on one line false 0 $before" \
+  && pass "⌥Space held in a field that holds text puts the words at its caret; nothing is sent, and no microphone or row is left" || fail "speech into a field" "$(js workspace "$field.value + ' ' + JSON.stringify(__speech.talk)")"
+clear_field
+# Escape cancels at any point: nothing is captured.
+mic_down
+until_has workspace "text .home .hear" 5 "Listening" && js workspace "(document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })), 1)" >/dev/null
+quiet && [ "$(thoughts)" = "$before" ] && [ "$(js workspace "String(!document.querySelector('.home .hear'))")" = true ] \
+  && pass "Escape while recording cancels it: nothing is captured, and the microphone is off" || fail "cancel"
+mic_up
+# The service fails: the core's sentence as it is, and a way to dismiss it.
+send "call put {\"c\":\"prefs\",\"id\":\"speech_by\",\"patch\":{\"server\":\"http://127.0.0.1:$port\",\"model\":\"fixture-fail\"}}"
+until_has workspace "eval __ws.records.prefs.get('speech_by')?.value.model" 3 "fixture-fail" || fail "the failing service is chosen"
+js workspace "($field.focus(), 1)" >/dev/null
+mic_down
+until_has workspace "text .home .hear" 5 "Listening" && sleep 1 && mic_up
+until_has workspace "text .home .way.failed" 10 "The speech service failed (500)" && ask workspace "text .home .way.failed" | grep -q "The model is on fire" && [ "$(js workspace "String(__speech.live())")" = false ] \
+  && pass "a failed dictation shows the core's sentence as it is, with the microphone off" || fail "a failed dictation" "$(ask workspace "text .home .ways" | tr '\n' '|' | cut -c1-200)"
+shot speech-failed workspace
+js workspace "([...document.querySelectorAll('.home .way.failed .act')].at(-1).click(), 1)" >/dev/null
+quiet && [ "$(thoughts)" = "$before" ] && pass "Dismiss removes it, and nothing was captured" || fail "dismissing a failed dictation"
+send 'call delete {"c":"prefs","id":"speech_by"}' 'call delete {"c":"prefs","id":"speech_languages"}' 'call put {"c":"prefs","id":"hold","patch":2}'
+js workspace "(__ws.show('$project'), 1)" >/dev/null
 
 # Closing the window leaves the notch; showing it again comes back to the same workspace.
 panes=$(ask workspace "eval __ws.L.panes(__ws.layout('$project')).length")

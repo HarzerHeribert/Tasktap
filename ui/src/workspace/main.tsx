@@ -6,24 +6,29 @@ import '@xterm/xterm/css/xterm.css';
 import '../motion/motion.css';
 import './fonts.css';
 import './window.css';
+import '../way.css';
+import './consent.css';
 import '../scroll.ts';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { render } from 'preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
-import { cap } from '../capture.tsx';
+import { cap, followSpeech } from '../capture.tsx';
+import { uuid7 } from '../client.ts';
+import { LevelVoice } from '../speech/level.ts';
+import { live, loudness, recording, talk } from '../speech/record.ts';
 import { I, Mark, Wave, plural } from '../ui.tsx';
 import { apply, fontsReady, look } from './appearance.ts';
 import { Deck, startAgent } from './deck.tsx';
 import { Earlier, Home, homeCounts } from './home.tsx';
 import { effects, power, wakeLook } from './light.tsx';
-import { stats } from '../motion/engine.ts';
+import { setVoice, stats } from '../motion/engine.ts';
 import { debug } from '../motion/motion.tsx';
 import * as L from './layout.ts';
 import { burst, echo } from './measure.ts';
 import { choose, shown as menu } from './menu.ts';
 import {
-  LOOSE, call, client, closeTab, copy, current, dismiss, fail, focusSession, layout, newTerminal, onRedraw, open, page, paste,
+  LOOSE, call, client, closeTab, copy, current, dismiss, fail, focusSession, layout, loadTerms, newTerminal, onRedraw, open, page, paste,
   pref, records, redraw, reconcile, sessionOf, setLayout, settleFocus, show, textSize, textSizeBy, ui,
 } from './model.ts';
 import { Sheets } from './sheets.tsx';
@@ -40,7 +45,8 @@ export function command(id: string) {
   const pane = c?.pane;
   switch (id) {
     case 'new-task':
-      cap.dest = c && c.project !== LOOSE ? c.project : cap.dest;
+      // A thought begun in a workspace goes to its folder unless the person, its words or a model say otherwise.
+      cap.usual = c && c.project !== LOOSE ? c.project : cap.usual;
       cap.current = c?.id ? (sessionOf(c.id)?.id ?? null) : null;
       page.focus = '#capture-input';
       return open({ kind: 'capture' });
@@ -154,7 +160,9 @@ function loadLook() {
   setLook(l, textSize);
 }
 
-/** The title bar: the workspace's name and folder, and Split right, Split down and New task; on Home, "Home". */
+/** The title bar says where you are only where nothing beside it does: a workspace's name with its folder, Earlier
+ *  with the way back, and "Home" while the sidebar, whose selected row says it, is away. With the sidebar open on
+ *  Home it carries nothing. */
 function Bar({ project }: { project: string | null }) {
   const p = project ? records.projects.get(project) : undefined;
   const side = ui.sidebar && !ui.narrow && !ui.slide;
@@ -171,7 +179,7 @@ function Bar({ project }: { project: string | null }) {
           <button type="button" class="back" title="Back to Home  ⌘[" onClick={() => show('home')}><I n="chev" /><span>Home</span></button>
           <b class="sub">Earlier</b>
         </span>
-      ) : <span class="crumb" data-tauri-drag-region><b>Home</b></span>}
+      ) : <span class="crumb" data-tauri-drag-region>{!side && <b>Home</b>}</span>}
       {project && (
         <span class="bar-r">
           <button type="button" class="ib" title="Split right  ⌘D" aria-label="Split right" onClick={() => command('split-right')}><I n="splitr" /></button>
@@ -240,12 +248,28 @@ function App() {
   );
 }
 
+/** While a dictation records, whichever page records it, the motion listens: its form answers the level the core
+ *  reports for the recording (speech/level.ts), which stands in for a voice of the motion's own. */
+const heard = new LevelVoice(loudness);
+let hears = false;
+function listenToSpeech() {
+  if (recording() === hears) return;
+  hears = ui.voice = !hears;
+  setVoice(hears ? heard : null);
+}
 records.onchange = () => {
+  followSpeech();
+  listenToSpeech();
   reconcile();
   redraw();
 };
+/** Where the host, or the notch through it, sends the window: a session's terminal, or a part of Settings. */
+function arrive(at: string) {
+  if (at === 'settings:speech' || at === 'settings:thoughts') open({ kind: 'settings', at: at === 'settings:speech' ? 'speech' : 'thoughts' });
+  else focusSession(at);
+}
 void listen<{ do: string; at?: string; id?: string; low?: boolean }>('ui', ({ payload }) => {
-  if (payload.do === 'focus' && payload.at) focusSession(payload.at);
+  if (payload.do === 'focus' && payload.at) arrive(payload.at);
   else if (payload.do === 'menu' && payload.id) command(payload.id);
   // Low Power Mode began or ended: the effects follow it (light.tsx effects).
   else if (payload.do === 'power') (power.low = !!payload.low), redraw();
@@ -273,13 +297,14 @@ void win.onFocusChanged(({ payload }) => {
 // The window shows once the page has laid out its first frame (a hidden window draws nothing).
 setTimeout(() => void call('host.ready', {}).catch(() => {}));
 void client
-  .sub(['thoughts', 'projects', 'sessions', 'terminals', 'questions', 'results', 'layouts', 'prefs', 'agents'], records)
+  .sub(['thoughts', 'projects', 'sessions', 'terminals', 'questions', 'results', 'layouts', 'prefs', 'agents', 'dictations'], records)
   .then(() => {
     ui.ready = true;
     reconcile();
     const at = new URLSearchParams(location.search).get('focus');
-    if (at) focusSession(at);
+    if (at) arrive(at);
     else show(ui.view);
+    void loadTerms();
   })
   .catch(fail);
 
@@ -307,6 +332,7 @@ const slide = () => new Promise((done) => {
 /** Types a line into the terminal shown, as the keyboard would. */
 const type = (line: string) => (engines.get(current()?.id ?? '')?.term.input(line + '\r', true), !!current()?.id);
 Object.assign(window, {
-  __ws: { ui, records, layout, command, greet, slide, engines, focusSession, show, newTerminal, startAgent, call, echo, burst, text, type, current, dismiss, menu, choose, LOOSE, L },
+  __ws: { uuid7, ui, records, layout, command, greet, slide, engines, focusSession, show, newTerminal, startAgent, call, echo, burst, text, type, current, dismiss, menu, choose, LOOSE, L },
   __motion: { debug, stats, redraw },
+  __speech: { talk, live, cap },
 });

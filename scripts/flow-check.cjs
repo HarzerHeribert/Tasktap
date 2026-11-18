@@ -23,7 +23,7 @@ const cadence = require('./cadence-check.cjs');
 const has = (name) => process.argv.includes(name);
 const arg = (name, or) => (has(name) ? process.argv[process.argv.indexOf(name) + 1] : or);
 const LEVELS = { full: 'breathing', still: 'still', off: 'off' };
-const KEY = 90, QUIET = has('--short') ? 3 : 5, RUN = 10;
+const KEY = 90, QUIET = has('--short') ? 3 : 5, RUN = 11;
 
 const pct = (xs, p) => [...xs].sort((a, b) => a - b)[Math.min(xs.length - 1, Math.floor(xs.length * p))] ?? 0;
 const r1 = (x) => (Math.round(x * 10) / 10).toFixed(1);
@@ -139,6 +139,12 @@ async function headless(levels) {
       await page.waitForTimeout(1500);
       await push([{ c: 'thoughts', put: [{ ...t, phase: 'done', status: 'done', live: false, session_id: sid, hold_until: null, updated: Date.now() }] }, { c: 'sessions', put: [{ ...s, state: 'idle' }] },
         { c: 'results', put: [{ id: '01a1f000-0000-7000-8000-0000000000b3', rev: 1, thought_id: sent.id, session_id: sid, turn: 1, kind: 'answer', summary: 'All green.' }] }]);
+      // Then a dictation records in another window for two seconds, its level told ten times a second: the form
+      // listens, and whatever shows a recording moves.
+      await page.waitForTimeout(700);
+      const heard = { id: '01a1f000-0000-7000-8000-0000000000b4', phase: 'recording', text: '', target: { kind: 'text' }, error: null };
+      for (let i = 0; i < 20; i++) (await push([{ c: 'dictations', put: [{ ...heard, rev: 1, level: Math.round(35 + 30 * Math.sin(i * 0.9) + 20 * Math.sin(i * 2.3)) }] }]), await page.waitForTimeout(100));
+      await push([{ c: 'dictations', del: [heard.id] }]);
       const flow = await running;
       if (tracing) out.trace = attribute(JSON.parse(String(await browser.stopTracing())));
       out[level] = { quiet, flow };

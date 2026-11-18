@@ -3,6 +3,7 @@
 import '../tokens.css';
 import '../parts.css';
 import './notch.css';
+import '../way.css';
 import '../scroll.ts';
 import { listen } from '@tauri-apps/api/event';
 import { render } from 'preact';
@@ -10,11 +11,12 @@ import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Answer, FIRST } from './answer.tsx';
 import { Art, look, place } from './art.tsx';
 import { Home } from './home.tsx';
-import { cap } from '../capture.tsx';
+import { cap, followSpeech } from '../capture.tsx';
+import { live, talk } from '../speech/record.ts';
 import { lookOf } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
 import { Mark, Wave } from '../ui.tsx';
-import { agentName, call, client, fail, onRedraw, openQuestions, page, records, redraw, settleFocus, ui } from './model.ts';
+import { agentName, call, client, fail, onRedraw, openQuestions, page, records, redraw, settleFocus, title, ui } from './model.ts';
 import { fold, reveal } from './panel.ts';
 
 const body = document.body;
@@ -56,6 +58,7 @@ const host = {
 /** Questions that were open at the last change: a new one opens the notch by itself. */
 const known = new Set<string>();
 records.onchange = () => {
+  followSpeech();
   const open = openQuestions();
   const fresh = open.some((q) => !known.has(q.id));
   known.clear();
@@ -81,8 +84,12 @@ records.onchange = () => {
   redraw();
 };
 
-/** The glance on the collapsed tab: working in the left wing; needs you, new and failed in the right; with a cutout,
- *  a line under the camera that says who asks and what. Without one, all of it on the tab's one row. */
+/** The glance on the collapsed tab. Without a camera cutout it is one line, centred as a whole on the tab's centre line
+ *  in every state: the wave at rest when idle; else working, who asks and what, then needs you, new and failed. The tab
+ *  is as wide as that line needs and widens evenly about its centre. With a cutout the centre is the camera's, so the
+ *  line is split about it: working in the left wing from its outer edge, the rest in the right wing from its outer edge,
+ *  each wing as wide as the wider side, and a line under the camera that says who asks and what. */
+const PAD = 14, GAP = 8, CLEAR = 6;
 function Glance() {
   const g = records.glance;
   const left = useRef<HTMLSpanElement>(null);
@@ -92,10 +99,15 @@ function Glance() {
   const any = !!g && g.working + g.needs_you + g.done + g.failed > 0;
   const s = q?.session_id ? records.sessions.get(q.session_id) : undefined;
   const t = q?.thought_id ? records.thoughts.get(q.thought_id) : undefined;
-  const asks = q && <span class="peek"><b>{q.source === 'router' ? 'Where to?' : `${agentName(s?.agent ?? t?.agent)} asks`}</b> {q.prompt}</span>;
+  const asks = q && <span class="peek"><b>{q.source === 'router' ? 'Where to?' : `${agentName(s?.agent ?? t?.agent)} asks`}</b> {q.source === 'router' ? title(t) : q.prompt}</span>;
   useLayoutEffect(() => {
-    const peek = !cutout && asks ? Math.min(260, (document.querySelector('.tab .peek') as HTMLElement | null)?.scrollWidth ?? 0) / 2 : 0;
-    const wing = any ? Math.ceil(Math.max(left.current?.scrollWidth ?? 0, right.current?.scrollWidth ?? 0) + peek) + 6 : 0;
+    // Asked once the host has said what the tab is: its width here is the tab's own, without the wings.
+    if (!ui.geometry) return;
+    const [l, r] = [left.current?.scrollWidth ?? 0, right.current?.scrollWidth ?? 0];
+    const parts = [l, r, !cutout && asks ? Math.min(260, document.querySelector<HTMLElement>('.tab .peek')?.scrollWidth ?? 0) : 0].filter(Boolean);
+    const needs = parts.reduce((sum, w) => sum + w, 0) + GAP * Math.max(0, parts.length - 1) + 2 * PAD;
+    const own = Number(ui.geometry.width) - 2 * ui.wing;
+    const wing = !any ? 0 : cutout ? Math.ceil(Math.max(l, r)) + PAD + CLEAR : Math.max(0, Math.ceil((needs - own) / 2));
     const line = cutout && asks ? LINE : 0;
     if (wing === ui.wing && line === ui.line) return;
     [ui.wing, ui.line] = [wing, line];
@@ -183,8 +195,8 @@ void listen<{ do: keyof typeof host } & Record<string, number | boolean>>('ui', 
 });
 render(<App />, body);
 // For the debug channel's checks (host/scripts/smoke.sh), which read the records the page holds.
-Object.assign(window, { __records: records, __look: (l: Partial<typeof look>) => (Object.assign(look, l), redraw(), look) });
+Object.assign(window, { __records: records, __speech: { talk, live, cap }, __look: (l: Partial<typeof look>) => (Object.assign(look, l), redraw(), look) });
 void client
-  .sub(['glance', 'thoughts', 'questions', 'results', 'sessions', 'projects', 'prefs', 'agents', 'terminals'], records)
+  .sub(['glance', 'thoughts', 'questions', 'results', 'sessions', 'projects', 'prefs', 'agents', 'terminals', 'dictations'], records)
   .then(() => call('host.notch', {}))
   .catch(fail);

@@ -2,12 +2,14 @@
    the wave, key caps, answers, buttons, the reply field, the capture field and a question. Values come from tokens.css. */
 *,::before,::after{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden}
-body{font:var(--f-body);color:var(--fg);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;-webkit-user-select:none;user-select:none;cursor:default}
+body{font:var(--f-text);color:var(--fg);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;-webkit-user-select:none;user-select:none;cursor:default}
 :where(h1,h2,h3,h4,p,figure,ul,ol,dl,dd){margin:0;padding:0;font:inherit}
 :where(button,input,textarea,select){font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;outline:0;text-align:inherit;border-radius:0}
 :where(input,textarea){-webkit-user-select:text;user-select:text}
 button{cursor:default}
 kbd{font:inherit}
+/* Weight is a role's, never a tag's. */
+:where(b,strong){font-weight:inherit}
 i{font-style:normal}
 [hidden]{display:none!important}
 ::placeholder{color:var(--fg3);opacity:1}
@@ -69,27 +71,27 @@ i{font-style:normal}
 .key,:is(.ans,.act,.reply)>kbd{background:var(--lit) 0 100%/100% 1px no-repeat,var(--key);color:var(--ink);box-shadow:var(--key-edge)}
 :is(.ans,.act,.reply)>kbd{display:inline-grid;place-items:center;flex:none;min-width:var(--key-h);height:var(--key-h);padding:0 4px;border-radius:var(--r1);font:var(--f-key)}
 kbd .i{width:12px;height:12px;stroke-width:1.6px}
-.key{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;height:var(--ctl-h);padding:0 10px 0 var(--sp2);border-radius:var(--r1);font:var(--f-strong);font-size:12px;white-space:nowrap}
+.key{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;height:var(--ctl-h);padding:0 10px 0 var(--sp2);border-radius:var(--r1);font:var(--f-title);white-space:nowrap}
 .key .i{width:14px;height:14px;stroke-width:1.5px}
-.key kbd{font:var(--f-small);opacity:.62}
+.key kbd{font:var(--f-num);opacity:.62}
 .key .st{color:var(--ink)}
 .key:hover{filter:brightness(1.07)}
 .key:active,:is(.ans,.act):active>kbd{transform:translateY(1px);box-shadow:var(--key-down);filter:brightness(.93)}
 .key:disabled{opacity:1;background:var(--fill);color:var(--fg3);box-shadow:none}
 .key[aria-busy]{pointer-events:none}
-.lg:is(.key,.btn){height:var(--ctl-l);gap:var(--sp2);padding:0 14px 0 var(--sp3);border-radius:var(--r-in);font:var(--f-strong)}
+.lg:is(.key,.btn){height:var(--ctl-l);gap:var(--sp2);padding:0 14px 0 var(--sp3);border-radius:var(--r-in);font:var(--f-title)}
 /* Quiet: every other control. Text, with a fill only under the pointer, deeper while pressed. An answer is a cap and
    its label; a button among words has a hairline round it. */
 :is(.btn,.ans,.act,.reply,.ib,.ring,.cap-to,.cap-list button):hover{background:var(--hover);color:var(--fg)}
 :is(.btn,.ans,.act,.ib,.ring,.cap-to,.cap-list button):active{background:var(--sel)}
-.ans,.act{display:inline-flex;align-items:center;gap:var(--sp2);height:var(--row-h);padding:0 var(--sp2) 0 6px;border-radius:var(--r1);font:var(--f-body);color:var(--fg);white-space:nowrap;flex:none}
-.ans.primary span,.act.primary span{font-weight:600}
+.ans,.act{display:inline-flex;align-items:center;gap:var(--sp2);height:var(--row-h);padding:0 var(--sp2) 0 6px;border-radius:var(--r1);font:var(--f-text);color:var(--fg);white-space:nowrap;flex:none}
+.ans.primary span,.act.primary span{font:var(--f-title)}
 .act.danger span{color:var(--fail)}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--sp2);height:var(--ctl-h);padding:0 10px;border-radius:var(--r1);font:var(--f-small);color:var(--fg);box-shadow:inset 0 0 0 1px var(--line2);white-space:nowrap;flex:none}
-.btn kbd{font:var(--f-small);color:var(--fg3)}
+.btn kbd{font:var(--f-num);color:var(--fg3)}
 /* A field is a line: a hairline at rest, the lit edge while it has the keyboard. */
 .reply{display:inline-flex;align-items:center;gap:var(--sp2);flex:1 1 180px;min-width:0;height:var(--row-h);padding:0 6px;border-radius:var(--r1);color:var(--fg)}
-.reply input{flex:1;min-width:0;width:0;font:var(--f-body)}
+.reply input{flex:1;min-width:0;width:0;font:var(--f-text)}
 .reply:focus-within{background:var(--lit) 0 100%/100% 1px no-repeat,var(--hover)}
 
 /* An agent's ring (ui.tsx Ring): its mark in a fine circle. Whole when the agent can run; open, in the attention
@@ -101,9 +103,9 @@ kbd .i{width:12px;height:12px;stroke-width:1.6px}
 .ring-o{width:22px;height:22px;flex:none;overflow:visible}
 .ring-o circle{fill:none;stroke:var(--ring,var(--line2));stroke-width:1.25px;stroke-dasharray:calc(var(--arc,1) * 100) 100;transform-origin:center;transform:rotate(-50deg)}
 .ring-o path,.ring-o text{fill:currentColor}
-.ring-o text{font:600 11px/1 var(--mono)}
+.ring-o text{font:var(--f-key)}
 .ring[aria-checked=true]{--ring:url(#ring-lit);color:var(--fg)}
-.ring b{font-weight:400;color:var(--fg2)}
+.ring b{color:var(--fg2)}
 .ring-o .turn{stroke:var(--fg);stroke-dasharray:14 100;animation:ring-turn 1.8s linear infinite}
 @keyframes ring-turn{from{transform:rotate(-50deg)}to{transform:rotate(310deg)}}
 .ring:not([aria-checked=true]) path{opacity:.62}
@@ -120,7 +122,7 @@ kbd .i{width:12px;height:12px;stroke-width:1.6px}
 
 /* what the core said about a thought's changes (changes.tsx Told): its own words in full, wrapped; a command to copy */
 .told{flex-basis:100%;max-width:72ch;margin:6px 0 2px;font:var(--f-small);color:var(--fg2);text-wrap:pretty;overflow-wrap:anywhere;white-space:normal;-webkit-user-select:text;user-select:text}
-.told b{font-weight:600;color:var(--fg)}
+.told b{color:var(--fg)}
 .told.warn b{color:var(--asks)}
 .told code{font:var(--f-num);color:var(--fg)}
 .told ul{margin:4px 0;padding:0;list-style:none}
@@ -133,13 +135,13 @@ kbd .i{width:12px;height:12px;stroke-width:1.6px}
    a thought. Choosing where it goes turns the row into the choice: a list on a sheet, a line of options on Home. */
 .cap{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;column-gap:14px;min-width:0;cursor:text}
 .cap .wave{--wh:30px;--ww:3px;--wg:2.5px}
-.cap textarea{grid-column:2;min-width:0;max-height:92px;padding:10px 0;resize:none;overflow:auto;font:var(--f-question);letter-spacing:-.01em;caret-color:var(--accent)}
+.cap textarea{grid-column:2;min-width:0;max-height:92px;padding:10px 0;resize:none;overflow:auto;font:var(--f-question);letter-spacing:var(--ls-question);caret-color:var(--accent)}
 .cap textarea:read-only{color:var(--fg2)}
 .cap-row{grid-column:1/-1;display:flex;align-items:center;gap:var(--sp2);min-width:0;padding-top:var(--sp2);border-top:1px solid var(--line);cursor:default}
 .capture:is(:focus-within,.has) .cap-row{border-image:var(--lit) 1}
 .cap-to,.cap-list button{display:inline-flex;align-items:center;gap:6px;height:var(--row-h);padding:0 var(--sp2) 0 6px;border-radius:var(--r1);font:var(--f-small);color:var(--fg2);white-space:nowrap}
 .cap-to{min-width:0;margin-left:-6px;padding-right:5px}
-.cap-to b{overflow:hidden;text-overflow:ellipsis;font-weight:400;color:var(--fg)}
+.cap-to b{overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
 .cap-to span::before{content:"·";margin-right:6px;color:var(--fg3)}
 :is(.cap-to,.cap-list) .i{width:14px;height:14px;color:var(--fg3)}
 .cap-to .i:last-child{width:12px;height:12px;transform:rotate(90deg)}
@@ -149,11 +151,11 @@ kbd .i{width:12px;height:12px;stroke-width:1.6px}
 .cap-row .key{margin-left:auto}
 .rings+.key{margin-left:var(--sp1)}
 .cap-said{display:flex;align-items:center;gap:var(--sp2);min-height:var(--row-h);font:var(--f-small);color:var(--fg2)}
-.cap-said b{font-weight:400;color:var(--fg)}
+.cap-said b{color:var(--fg)}
 .cap-said .act{height:22px;margin-left:auto}
 
 /* a question: in full, its answers as key caps, a reply in the person's own words */
-.qp{text-wrap:pretty;overflow-wrap:anywhere;-webkit-user-select:text;user-select:text}
+.qp{font:var(--f-question);letter-spacing:var(--ls-question);text-wrap:pretty;overflow-wrap:anywhere;-webkit-user-select:text;user-select:text}
 .qa{display:flex;flex-wrap:wrap;align-items:center;gap:2px 14px;margin-left:-6px}
 .q-detail{margin-top:var(--sp1);font:var(--f-small);color:var(--fg2);text-wrap:pretty;overflow-wrap:anywhere}
 

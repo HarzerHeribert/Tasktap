@@ -2,6 +2,7 @@
 // is the core's. Each workspace's arrangement is its project's `layouts` record: kept here as a
 // copy that changes at once and is written back a moment later, never as the page's own data.
 import type { Session, StartTerminal, Thought } from '../../../core/proto/protocol.ts';
+import { cap } from '../capture.tsx';
 import { uuid7 } from '../client.ts';
 import { agentName, call, fail, focus, openQuestions, page, records, redraw, title, why } from '../page.ts';
 import type { State } from '../ui.tsx';
@@ -23,7 +24,9 @@ export type Sheet =
   | { kind: 'move'; project: string; id: string }
   | { kind: 'capture' }
   | { kind: 'reply'; question: string }
-  | { kind: 'settings' }
+  | { kind: 'settings'; at?: 'thoughts' | 'speech' }
+  | { kind: 'placing'; back?: boolean }
+  | { kind: 'speech' }
   | { kind: 'agents' }
   | { kind: 'review'; thought: string }
   | { kind: 'settle'; thought: string; keep: boolean }
@@ -61,7 +64,8 @@ export const ui = {
 };
 
 export const open = (d: Sheet) => ((ui.sheet = d), redraw());
-export const dismiss = () => ((ui.sheet = null), redraw());
+/** Puts the sheet away. A thought begun in a session's pane was a follow-up to that session only while its sheet was up. */
+export const dismiss = () => ((ui.sheet = null), (cap.current = null), redraw());
 
 // ——— Layouts, written through to the core ———
 

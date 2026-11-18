@@ -1,5 +1,6 @@
 // Opening and folding the notch. The page decides; the host moves the panel and the keyboard.
 import { cap, holding } from '../capture.tsx';
+import { end } from '../speech/record.ts';
 import { call, fail, page, redraw, ui, type View } from './model.ts';
 
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -25,6 +26,8 @@ export function fold() {
   if (ui.mode === 'closed') return void clearTimeout(ui.timer);
   clearTimeout(ui.timer);
   Object.assign(ui, { mode: 'closed', retracting: true, capturing: false, auto: false });
+  // A recording does not go on in a notch that is put away: it ends as letting go ends it.
+  end();
   cap.choosing = false;
   page.error = '';
   // A receipt whose hold is over is done; one still holding keeps its Undo for the next open.

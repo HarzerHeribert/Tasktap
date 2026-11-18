@@ -45,24 +45,24 @@
   --bar-copper:linear-gradient(90deg,#5a3a22,#e9b683 40%,#ffe6c8 48%,#b07a4c 70%,#4a2f1c);
   --bar-graphite:linear-gradient(90deg,#26282c,#7b7f87 42%,#9a9ea6 48%,#4a4d53 70%,#1c1d20);
   --sheet-shadow:0 0 0 1px var(--line),0 30px 70px rgb(0 0 0/.7);
-  /* type. Expanded is the system font's width axis; where the web view ignores it the names fall back to regular width */
+  /* type. One family at its normal width for everything said in words; the monospace face for figures, keys, counts
+     and code only. Hierarchy is size, weight and colour. Each role is one size, weight, line height and letter
+     spacing, and nothing in either page sets a font outside these (scripts/type-check.cjs holds both pages to it). */
   --ui:system-ui,-apple-system,"Segoe UI Variable","Segoe UI",sans-serif;
   --mono:ui-monospace,"SF Mono",Menlo,"Cascadia Mono",Consolas,monospace;
-  --f-display:600 expanded 20px/26px var(--ui);  /* NOTES §4; the capture field is set at 20 px regular instead */
-  --f-question:500 17px/24px var(--ui);          /* a question on Home */
-  --f-question-n:500 16px/22px var(--ui);        /* in the notch */
-  --f-question-p:500 15px/21px var(--ui);        /* under a terminal */
-  --f-title:600 expanded 13px/18px var(--ui);    /* workspace name, sheet title */
-  --f-head:600 expanded 11px/14px var(--ui);     /* section names on Home */
-  --f-strong:600 13px/18px var(--ui);
-  --f-lead:500 13px/18px var(--ui);              /* a thought in a row */
-  --f-body:400 13px/18px var(--ui);
-  --f-small:400 12px/16px var(--ui);             /* sidebar rows, tabs, secondary */
-  --f-cap:400 11px/14px var(--ui);
-  --f-num:400 11px/14px var(--mono);             /* times, counts, versions, diffstat, key caps */
-  --f-key:600 11px/18px var(--mono);
-  --f-shell:400 11.5px/16px var(--mono);         /* a shell's name */
-  --f-term:400 13px/18px var(--mono);            /* default; the person's terminal settings win */
+  --f-thought:400 20px/28px var(--ui);   /* the Composer's thought on Home */
+  --f-question:500 16px/22px var(--ui);  /* a question, wherever it is asked; the thought in the notch and the capture sheet; a find field */
+  --f-title:600 13px/18px var(--ui);     /* where you are: the window's and a sheet's title; and the word on a key and on the default answer */
+  --f-label:500 13px/18px var(--ui);     /* a row's label: a thought, a workspace, a setting */
+  --f-text:400 13px/18px var(--ui);      /* running text: a brief, an answer, a summary */
+  --f-small:400 12px/16px var(--ui);     /* secondary text: a session, a tab, a fact, a quiet button */
+  --f-section:600 11px/14px var(--ui);   /* a section's label: Workspaces, Running, Results, For later, Terminal */
+  --f-cap:400 11px/14px var(--ui);       /* fine print: a hint, the word over a brief */
+  --f-num:400 11px/14px var(--mono);     /* figures: times, counts, key hints, paths, a diffstat */
+  --f-key:600 11px/18px var(--mono);     /* the glyph on a key cap */
+  --f-code:400 12px/18px var(--mono);    /* code, and a shell's name */
+  --f-term:400 13px/18px var(--mono);    /* a terminal's default; the person's terminal settings win */
+  --ls-thought:-.014em; --ls-question:-.008em;  /* the two large roles are set a hair tighter; every other role at 0 */
   /* measure: a 4 px grid */
   --sp1:4px; --sp2:8px; --sp3:12px; --sp4:16px; --sp5:24px; --sp6:32px;
   --side-w:224px; --bar-h:38px; --tab-h:30px; --row-h:28px; --rail-h:26px; --ctl-h:24px; --ctl-l:34px; --key-h:18px;

@@ -14,7 +14,6 @@ import { LUMEN } from './lumen.ts';
 import { lights, type PaletteId } from './palette.ts';
 import { STATES, type MotionState } from './state.ts';
 import { STYLES, type Size, type StyleId } from './styles.ts';
-import type { Voice } from './voice.ts';
 
 export type Look = { style: Exclude<StyleId, 'glyph'>; palette: PaletteId; hue: number; lumen: boolean };
 export type Options = {
@@ -85,6 +84,10 @@ const HOLES = 24;
 const MIN: [number, number] = [400, 200];
 /** No voice: silence, as the shaders read it. */
 const SILENT = { level: 0, fast: 0, slow: 0, onset: 0, onsets: 0, bright: 0.4, vowel: 0, sib: 0, pitch: 0.4, activity: 0, quiet: 9, hoff: 0 };
+/** What the motion hears: a voice's measures, the two rows of texels its shaders read, and how it is moved on by
+ *  the time that passed. The microphone's (voice.ts) is one, and so is the level of a dictation that records
+ *  (speech/level.ts). */
+export type VoiceSource = typeof SILENT & { readonly open: boolean; readonly data: Float32Array; update(dt: number, calm?: boolean): void };
 
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 const views = new Set<View>();
@@ -92,10 +95,10 @@ const views = new Set<View>();
  *  have taken the page, and the most frames a second it draws (the loop at the foot). `seen`, when a check sets
  *  it, is called with each view just drawn, the canvas that holds its picture and the motion's clock. */
 export const stats = { frames: 0, contexts: 0, ms: 0, rate: 60, seen: null as ((view: View, picture: HTMLCanvasElement, now: number) => void) | null };
-let voice: Voice | null = null;
+let voice: VoiceSource | null = null;
 
 /** The page's voice source, or none: while one is open, every view's listening state hears it. */
-export function setVoice(v: Voice | null) {
+export function setVoice(v: VoiceSource | null) {
   voice = v;
   wake();
 }
@@ -364,7 +367,8 @@ export class View {
     if (this.o.pace === 'still') return false;
     if (this.moving) return true;
     if (reduced.matches) return s === 1 && Math.abs(v.slow - this.slow) > 0.004;
-    if (pulse || s === 1) return true;
+    // Listening is a loop like the other states that last: it rests with them in a window not in use.
+    if (pulse || (s === 1 && !this.o.rest)) return true;
     return this.o.pace === 'calm' ? this.go > 0 : !(s === 0 || (s >= 5 && this.stT > 3));
   }
 

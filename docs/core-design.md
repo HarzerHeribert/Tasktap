@@ -60,20 +60,20 @@ type Frame =                                   // kind 0: one JSON object
 
 **Plain data and effects.** `put {c, id, patch, if_rev?}` and `delete {c, id}` write the collections that are plain data (`prefs`, `layouts`, `previews`, the editable fields of `projects`, and the text of a thought that is captured and was never launched: a note, an idea, or one undone before it started, which `delete` also removes, so a person who undoes and retypes leaves nothing behind; `state::plain` decides). Everything with an effect is a named call. Fields the state machine owns are refused by `put`.
 
-Calls without a mark are built in Phase 1; (2) and (3) name the phase that adds the rest. The protocol crate holds only what exists.
+Calls without a mark are built in Phase 1; (2) and (3) name the phase that added the rest; "not built" marks those no phase has added yet. The protocol crate holds only what exists: the 39 built (`core/proto/src/call.rs`, whose test holds this table to them).
 
-| Area | Core calls (47) |
+| Area | Core calls (47: 39 built, 8 not built) |
 | --- | --- |
 | Records | `sub`, `put`, `delete`, `history` |
 | Thoughts | `thought.capture`, `thought.update`, `thought.start`, `thought.stop`, `thought.retry`, `thought.read`, `thought.settle` (3), `thought.changes` (3) |
 | Questions | `question.ask`, `question.answer`, `question.withdraw`, `question.received`, `question.focus` |
-| Sessions | `session.event`, `session.adopt` (2), `session.resume` (2) |
+| Sessions | `session.event`, `session.adopt` (2), `session.resume` (not built) |
 | Terminals (2) | `terminal.open`, `terminal.resize`, `terminal.stop` |
 | Projects | `project.add`, `project.scan`, `project.close` (2) |
-| Files | `preview.open` (2), `file.read` (2), `result.export` (3) |
+| Files | `preview.open` (not built), `file.read` (not built), `result.export` (not built) |
 | Input and voice | `input` (affirm and deny now; hold in 3), `dictation.start` (3), `dictation.report` (3), `dictation.finish` (3), `dictation.cancel` (3), `speech.terms` (3: what a speech service is sent, §8) |
-| Routing and agents | `route.hint` (2), `route.terms` (3: what routing by a model sends and to whom, §8), `key.set` (3), `key.remove` (3: a server's key, §8), `connection.login` (later), `connection.models` (later), `agents.detect` (2), `agents.login` (2) |
-| Devices and service | `device.revoke`, `core.status`, `core.retire`, `appearance.import` (2) |
+| Routing and agents | `route.hint` (2), `route.terms` (3: what routing by a model sends and to whom, §8), `key.set` (3), `key.remove` (3: a server's key, §8), `connection.login` (not built), `connection.models` (not built), `agents.detect` (2), `agents.login` (not built) |
+| Devices and service | `device.revoke`, `core.status`, `core.retire`, `appearance.import` (not built) |
 
 **Host abilities (18, Phase 4):** `host.show`, `host.notch`, `host.chrome`, `host.drag`, `host.pick`, `host.save`, `host.open`, `host.clipboard`, `host.permission`, `host.settings`, `host.update`, `host.notify`, `host.context`, `host.model`, `host.dictate`, `host.speak`, `host.speech_model`, `host.pdf`. A host lists the ones it has in `hello`. **Page ability (1):** `ui.do {action, id?}`: 14 menu actions, `close-front`, `navigate`, `hover-enter`, `hover-exit`, `previous`, `next`, `confirm`, `back`, `prepare-update`. **Shim ability (1):** `shim.hold` (§7).
 

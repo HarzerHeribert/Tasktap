@@ -19,6 +19,51 @@ const FROZEN: [&str; 7] = [
     "reply-core.retire.json",
 ];
 
+/// The design's table of core calls (`docs/core-design.md` §1) names as
+/// built exactly the calls this crate has, marks every other "not built",
+/// and counts both in its heading.
+#[test]
+fn the_designs_table_of_core_calls_agrees_with_the_calls_that_exist() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/core-design.md");
+    let Ok(design) = std::fs::read_to_string(path) else {
+        // Built from the crate alone, as in a container that mounts only `core`.
+        eprintln!("skipped: the design is not beside this crate");
+        return;
+    };
+    let mut lines = design.lines();
+    let heading = lines
+        .find(|line| line.starts_with("| Area | Core calls ("))
+        .expect("the table of core calls");
+    let (mut built, mut to_come) = (Vec::new(), Vec::new());
+    for row in lines.skip(1).take_while(|line| line.starts_with('|')) {
+        // A call is a name in backticks; what follows it up to the next says how it stands.
+        let calls = row.split('|').nth(2).expect("the row's calls");
+        let mut parts = calls.split('`').skip(1);
+        while let (Some(name), Some(mark)) = (parts.next(), parts.next()) {
+            match mark.contains("not built") {
+                true => to_come.push(name),
+                false => built.push(name),
+            }
+        }
+    }
+    let mut exist: Vec<&str> = (Name::ALL.iter())
+        .filter(|name| name.access() != Access::Ability)
+        .map(|name| name.as_str())
+        .filter(|name| !name.starts_with("fixture."))
+        .collect();
+    exist.sort_unstable();
+    built.sort_unstable();
+    assert_eq!(built, exist, "the calls the design's table says are built");
+    assert!(to_come.iter().all(|name| Name::parse(name).is_none()));
+    let counted = format!(
+        "({}: {} built, {} not built)",
+        built.len() + to_come.len(),
+        built.len(),
+        to_come.len()
+    );
+    assert!(heading.contains(&counted), "{heading} should say {counted}");
+}
+
 /// A JSON sample is the exact payload plus one newline; `data.bin` is a whole
 /// frame. `BLESS=1` writes a missing sample but never rewrites one: changing a
 /// sample means deleting it on purpose.

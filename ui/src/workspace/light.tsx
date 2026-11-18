@@ -13,7 +13,7 @@
 import { type RefObject } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { routing } from '../capture.tsx';
-import { still } from '../motion/engine.ts';
+import { built, still } from '../motion/engine.ts';
 import { Motion, debug, lookOf } from '../motion/motion.tsx';
 import { type RGB, lights } from '../motion/palette.ts';
 import { type MotionState, motionState } from '../motion/state.ts';
@@ -201,7 +201,11 @@ function Glyph({ i, here, look, state }: { i: number; here: boolean; look: Retur
     };
     drawers.set(el, draw);
     // One glyph a moment, in the order they arrive: three pictures read back in one frame would hold that frame up.
-    const first = window.setTimeout(() => draw(0.3 * turned(el), 1.2), el.children.length ? i * 140 : 0);
+    // And none before the glyph's program is built, which the web view does aside: nothing waits for it.
+    let first = window.setTimeout(function go() {
+      if (built('glyph')) draw(0.3 * turned(el), 1.2);
+      else first = window.setTimeout(go, 50);
+    }, el.children.length ? i * 140 : 0);
     return () => clearTimeout(first);
   }, [here, JSON.stringify(look), state]);
   return (

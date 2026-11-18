@@ -13,8 +13,8 @@ uniform vec3 u_sig, u_ta, u_tb, u_bg;   // signal light of the state; the palett
 uniform sampler2D u_data;           // row 0: two seconds of (level, bright, onset, vowel); row 1: spectrum
 // The app's own, neither of which changes a lab concept at its defaults (u_lm.x 0, no holes):
 uniform vec4 u_lm;                  // Lumen laid over the form: how much of it, its own phase, the room's level under it
-uniform vec4 u_holes[24];           // text the motion keeps clear, in this view's pixels: centre and half size
-uniform vec2 u_hole;                // how many, and how far the light takes to come back around each
+uniform vec4 u_holes[24], u_gone[24];   // text the motion keeps clear, in this view's pixels: centre and half size; and what it kept clear before
+uniform vec4 u_hole;                // how many, and how far the light takes to come back around each; how many before, and how far the change from those to these has come
 uniform vec3 u_pose;                // Home's band alone: how far it stands in the icon's S, its pulse's clock, its pulse's strength
 uniform vec2 u_was;                 // and the pulse before it, which may still be settling: its clock and its strength
 // (A slat stays upright in that S: its column leaves it under two degrees of lean, which at the band's size only
@@ -87,14 +87,15 @@ void put(vec3 c, float a, vec3 g){
   o=vec4(mix(b,m,a)+z,1.);
   // In the app a view is light over the page: black is clear. Where words sit above it there is none at all, so they keep
   // the contrast they have; the light comes back within the feather, the metal only further out, so it never shows cut.
-  if(u_hole.x>0.){
-    float d=1e9;
+  // Words that have just come are not cleared in one frame: the clearing before them gives way to theirs evenly.
+  if(u_hole.x>0.||u_hole.w<1.){
+    float d=1e9, e=1e9, f=max(u_hole.y,1.);
     for(int i=0;i<24;i++){
-      if(float(i)>=u_hole.x) break;
-      d=min(d,length(max(abs(gl_FragCoord.xy-u_holes[i].xy)-u_holes[i].zw,0.)));
+      if(float(i)<u_hole.x) d=min(d,length(max(abs(gl_FragCoord.xy-u_holes[i].xy)-u_holes[i].zw,0.)));
+      if(u_hole.w<1.&&float(i)<u_hole.z) e=min(e,length(max(abs(gl_FragCoord.xy-u_gone[i].xy)-u_gone[i].zw,0.)));
     }
-    float f=max(u_hole.y,1.);
     o.rgb=max(mix(b*smoothstep(0.,f,d),m*smoothstep(f*.5,f*3.,d),a)+z,0.)*step(1e-3,d);
+    if(u_hole.w<1.) o.rgb=mix(max(mix(b*smoothstep(0.,f,e),m*smoothstep(f*.5,f*3.,e),a)+z,0.)*step(1e-3,e),o.rgb,u_hole.w);
   }
   o.a=max(o.r,max(o.g,o.b));
 }

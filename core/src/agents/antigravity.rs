@@ -73,18 +73,18 @@ fn settings(exe: &Path, trusted: Option<&Path>) -> String {
     settings.to_string()
 }
 
-/// Where the transcript is: the path the state names, and the same below
-/// `antigravity-cli`, where 1.5 keeps it while naming the other.
+/// Where the transcript is: beside the one the state names, the full one,
+/// whose steps keep their tools' input as it was; and each below
+/// `antigravity-cli`, where 1.5 keeps them while naming the other folder.
 fn transcripts(p: &Payload) -> Vec<PathBuf> {
     let Some(named) = p.str("transcript_path") else {
         return Vec::new();
     };
     let kept = named.replacen("/antigravity/brain/", "/antigravity-cli/brain/", 1);
-    let mut files = vec![PathBuf::from(named)];
-    if kept != named {
-        files.push(kept.into());
-    }
-    files
+    let full = |path: &str| path.replacen("/transcript.jsonl", "/transcript_full.jsonl", 1);
+    let mut files = vec![full(&kept), full(named), kept, named.to_owned()];
+    files.dedup();
+    files.into_iter().map(PathBuf::from).collect()
 }
 
 /// The steps at the end of a transcript, the last first: one JSON object
@@ -98,51 +98,62 @@ fn steps(transcript: &str) -> impl Iterator<Item = Value> + '_ {
 fn calls(transcript: &str) -> Option<(String, Value)> {
     let last = steps(transcript).next()?;
     let call = last.get("tool_calls")?.get(0)?;
-    Some((
-        call.get("name")?.as_str()?.to_owned(),
-        call.get("args")?.clone(),
-    ))
+    let mut input = call.get("args")?.clone();
+    // The short transcript keeps a list or an object as its JSON text.
+    let values = input
+        .as_object_mut()
+        .into_iter()
+        .flat_map(|o| o.values_mut());
+    for value in values {
+        let listed = value.as_str().filter(|text| text.starts_with(['[', '{']));
+        if let Some(whole) = listed.and_then(|text| serde_json::from_str(text).ok()) {
+            *value = whole;
+        }
+    }
+    Some((call.get("name")?.as_str()?.to_owned(), input))
 }
 
-/// Completes an event from the end of the transcript (the table above).
-fn fill(mut heard: SessionEvent, transcript: &str) -> SessionEvent {
+/// Completes an event from the end of the transcript (the table above);
+/// none while the step it is about is not written there yet.
+fn fill(heard: &SessionEvent, transcript: &str) -> Option<SessionEvent> {
+    let mut heard = heard.clone();
     match &mut heard.event {
         // The last thing it said since the person's prompt.
         Event::TurnFinished { answer } => {
             let turn = steps(transcript).take_while(|s| s["type"] != "USER_INPUT");
             let said = turn.filter(|s| s["type"] == "PLANNER_RESPONSE");
             let mut last = said.filter_map(|s| Some(s.get("content")?.as_str()?.trim().to_owned()));
-            *answer = (last.find(|text| !text.is_empty())).map(|a| fit(&a, 512 << 10));
+            *answer = Some(fit(&last.find(|text| !text.is_empty())?, 512 << 10));
         }
         Event::TurnFailed { error } => {
             let why = steps(transcript).find_map(|s| Some(s.get("error")?.as_str()?.to_owned()));
             *error = (why.filter(|e| !e.is_empty())).map(|e| fit(&line(&e, 500), MAX_LINE));
         }
         Event::Question { question } => {
-            if let Some((tool, input)) = calls(transcript) {
-                *question = match tool == QUESTION {
-                    true => asked(question.request.clone(), &input),
-                    false => approval(question.request.clone(), &tool, &input),
-                };
-            }
+            let (tool, input) = calls(transcript)?;
+            *question = match tool == QUESTION {
+                true => asked(question.request.clone(), &input)?,
+                false => approval(question.request.clone(), &tool, &input)?,
+            };
         }
         // At work on a tool: unless that tool is its question to the person.
         Event::TurnStarted { .. } => {
             if let Some((_, input)) = calls(transcript).filter(|(tool, _)| tool == QUESTION) {
                 let request = heard.id.replacen("working", "question", 1);
-                let question = asked(request.clone(), &input);
+                let question = asked(request.clone(), &input)?;
                 heard.id = request;
                 heard.event = Event::Question { question };
             }
         }
         _ => {}
     }
-    heard
+    Some(heard)
 }
 
 /// `ask_question`, answered in its terminal: its one question with its
-/// options, or the first of several with the rest as the detail.
-fn asked(request: String, input: &Value) -> Ask {
+/// options, or the first of several with the rest as the detail. None
+/// while its step holds no question yet.
+fn asked(request: String, input: &Value) -> Option<Ask> {
     let questions = input.get("questions").and_then(Value::as_array);
     let questions: Vec<&Value> = questions.into_iter().flatten().collect();
     let text = |q: &&Value| Some(q.get("question")?.as_str()?.to_owned());
@@ -155,25 +166,23 @@ fn asked(request: String, input: &Value) -> Ask {
             .collect(),
         _ => Vec::new(),
     };
-    Ask {
+    Some(Ask {
         request,
         kind: match choices.is_empty() {
             true => QuestionKind::Text,
             false => QuestionKind::Choice { choices },
         },
-        prompt: fit(
-            all.first()
-                .map_or("Antigravity asks you something", String::as_str),
-            2000,
-        ),
+        prompt: fit(all.first()?, 2000),
         detail: (all.len() > 1).then(|| fit(&all.join("\n"), 16 << 10)),
         source: None,
-    }
+    })
 }
 
 /// The approval it waits on in its terminal, said as the other agents'
 /// permission requests are: its tools name their input in their own words.
-fn approval(request: String, tool: &str, input: &Value) -> Ask {
+/// None while its step names no input yet.
+fn approval(request: String, tool: &str, input: &Value) -> Option<Ask> {
+    input.as_object().filter(|fields| !fields.is_empty())?;
     let named = |key: &str| input.get(key).cloned().unwrap_or(Value::Null);
     let path = ["TargetFile", "AbsolutePath", "Path"].map(named);
     let said = json!({
@@ -184,10 +193,10 @@ fn approval(request: String, tool: &str, input: &Value) -> Ask {
     });
     let ask = permission("Antigravity", request, tool, Some(&said));
     let detail = serde_json::to_string_pretty(input).ok();
-    Ask {
+    Some(Ask {
         detail: detail.map(|d| fit(&d, 16 << 10)),
         ..ask
-    }
+    })
 }
 
 /// What it waits on in its terminal when the transcript does not say.

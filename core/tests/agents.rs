@@ -589,17 +589,19 @@ fn transcript(name: &str) -> String {
 fn read(name: &str, transcript: Option<&str>) -> SessionEvent {
     match heard("agy", &payload("agy", name)) {
         Some(Heard::Read { event, files, fill }) => {
-            // The path the state names, then where 1.5 really keeps it.
+            // Where 1.5 really keeps it, the full one first; then as the state names it.
             let files: Vec<_> = files.iter().map(|f| f.to_string_lossy()).collect();
-            assert!(
-                files[0].contains("/.gemini/antigravity/brain/"),
-                "{files:?}"
+            let (cli, named) = (
+                "/.gemini/antigravity-cli/brain/",
+                "/.gemini/antigravity/brain/",
             );
-            assert!(
-                files[1].contains("/.gemini/antigravity-cli/brain/"),
-                "{files:?}"
-            );
-            transcript.map_or(event.clone(), |end| fill(event, end))
+            assert_eq!(files.len(), 4, "{files:?}");
+            assert!(files[0].contains(cli) && files[0].ends_with("/logs/transcript_full.jsonl"));
+            assert!(files[1].contains(named) && files[1].ends_with("/logs/transcript_full.jsonl"));
+            assert!(files[2].contains(cli) && files[2].ends_with("/logs/transcript.jsonl"));
+            assert!(files[3].contains(named) && files[3].ends_with("/logs/transcript.jsonl"));
+            let filled = transcript.and_then(|end| fill(&event, end));
+            filled.unwrap_or(event)
         }
         other => panic!("agy {name}: {other:?}"),
     }
@@ -710,7 +712,31 @@ fn antigravitys_states_map_to_the_one_vocabulary() {
     let step =
         r#"{"step_index":4,"type":"GENERIC","status":"ERROR","error":"the model is overloaded"}"#;
     let error = Some("the model is overloaded".to_owned());
-    assert_eq!(fill(event, step).event, Event::TurnFailed { error });
+    assert_eq!(
+        fill(&event, step).unwrap().event,
+        Event::TurnFailed { error }
+    );
+    // The short transcript keeps the questions as their JSON text: the same question.
+    let short = transcript("question").replace(
+        r#""questions":[{"is_multi_select":false,"options":["(Recommended) red","blue"],"question":"Which color do you choose?"}]"#,
+        r#""questions":"[{\"is_multi_select\":false,\"options\":[\"(Recommended) red\",\"blue\"],\"question\":\"Which color do you choose?\"}]""#,
+    );
+    assert_ne!(short, transcript("question"));
+    let Event::Question { question } = read("state-question", Some(&short)).event else {
+        panic!();
+    };
+    assert_eq!(question.prompt, "Which color do you choose?");
+    // A step still being written is no answer yet: the hook reads again.
+    let Some(Heard::Read { event, fill, .. }) = heard("agy", &payload("agy", "state-question"))
+    else {
+        panic!();
+    };
+    let begun = r#"{"step_index":1,"type":"PLANNER_RESPONSE","tool_calls":[{"name":"ask_question","args":{}}]}"#;
+    assert!(fill(&event, begun).is_none());
+    let Some(Heard::Read { event, fill, .. }) = heard("agy", &payload("agy", "state-idle")) else {
+        panic!();
+    };
+    assert!(fill(&event, &transcript("approval")).is_none());
     // A state it does not name, and what is no state at all.
     let other = changed("agy", "state-working", json!({ "agent_state": "dreaming" }));
     assert!(heard("agy", &other).is_none());

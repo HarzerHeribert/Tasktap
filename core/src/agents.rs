@@ -38,11 +38,13 @@ pub enum Heard {
     /// Reported once the hook has read the end of a file its agent keeps:
     /// what the payload leaves out, such as the turn's last message, is
     /// there. `fill` completes the event from the end of the first of
-    /// `files` that can be read; with none, it is reported as it is.
+    /// `files` that can be read, or says none while the agent has not yet
+    /// written what the event needs, and the hook reads again for a moment.
+    /// With no file, or nothing in it by then, it is reported as it is.
     Read {
         event: SessionEvent,
         files: Vec<PathBuf>,
-        fill: fn(SessionEvent, &str) -> SessionEvent,
+        fill: fn(&SessionEvent, &str) -> Option<SessionEvent>,
     },
 }
 

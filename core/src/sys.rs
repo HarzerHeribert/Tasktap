@@ -1133,7 +1133,10 @@ mod windows {
                 cwd: &Path,
                 job: &Job,
             ) -> io::Result<Child> {
-                let (program, mut line) = command_line(argv)?;
+                // Found on the PATH the child will have, as its shell would find it.
+                let path = env.iter().find(|(key, _)| key.eq_ignore_ascii_case("PATH"));
+                let (program, mut line) =
+                    command_line(argv, path.map(|(_, path)| path.as_os_str()))?;
                 let program = wide(program.as_os_str());
                 let mut block = environment(env);
                 let cwd = cwd.is_dir().then(|| wide(cwd.as_os_str()));
@@ -1254,9 +1257,9 @@ mod windows {
         }
 
         /// The program Windows is to start for `argv` and the command line
-        /// it is given. A program is found as the command prompt finds it,
-        /// on the core's PATH with the extensions of `PATHEXT`, when it is
-        /// named without a folder.
+        /// it is given. A program named without a folder is found as the
+        /// command prompt finds it, in the folders of `path` with the
+        /// extensions of `PATHEXT`.
         ///
         /// A batch file (`.cmd`, `.bat`: how npm installs a tool) is not a
         /// program: the command prompt runs it, and reads the line by its
@@ -1266,7 +1269,10 @@ mod windows {
         /// (`std::process::Command`, "Windows argument splitting"), and
         /// what cannot be written safely, a line break in an argument, is
         /// refused.
-        pub fn command_line(argv: &[OsString]) -> io::Result<(PathBuf, Vec<u16>)> {
+        pub fn command_line(
+            argv: &[OsString],
+            path: Option<&OsStr>,
+        ) -> io::Result<(PathBuf, Vec<u16>)> {
             let invalid = |why: &str| io::Error::new(io::ErrorKind::InvalidInput, why.to_owned());
             let (name, args) = argv
                 .split_first()
@@ -1276,16 +1282,13 @@ mod windows {
             }
             let named = Path::new(name);
             let bare = named.components().count() == 1 && !named.has_root();
-            let found = bare
-                .then(|| std::env::var_os("PATH"))
-                .flatten()
-                .and_then(|path| {
-                    let name = name.to_str()?;
-                    let exact = std::env::split_paths(&path)
-                        .map(|folder| folder.join(name))
-                        .find(|file| file.is_file());
-                    exact.or_else(|| crate::roles::shim::find(name, &path, |_, _| true))
-                });
+            let found = path.filter(|_| bare).and_then(|path| {
+                let name = name.to_str()?;
+                let exact = std::env::split_paths(path)
+                    .map(|folder| folder.join(name))
+                    .find(|file| file.is_file());
+                exact.or_else(|| crate::roles::shim::find(name, path, |_, _| true))
+            });
             let program = found.unwrap_or_else(|| named.to_owned());
             let batch = program.extension().is_some_and(|ext| {
                 ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat")
@@ -1426,7 +1429,7 @@ mod windows {
                     r"ends in a slash\",
                     r#"{"a":"b\"}"#,
                 ]);
-                let (program, line) = command_line(&argv).unwrap();
+                let (program, line) = command_line(&argv, None).unwrap();
                 assert_eq!(program, Path::new(r"C:\tools\tool.exe"));
                 assert_eq!(
                     text(&line),
@@ -1445,7 +1448,7 @@ mod windows {
                     "a&b|c<d>e^f",
                     r"ends in a slash\",
                 ]);
-                let (program, line) = command_line(&argv).unwrap();
+                let (program, line) = command_line(&argv, None).unwrap();
                 assert!(program.ends_with(r"System32\cmd.exe"), "{program:?}");
                 assert_eq!(
                     text(&line),
@@ -1457,13 +1460,13 @@ mod windows {
             fn a_batch_file_is_refused_an_argument_with_a_line_break() {
                 for bad in ["two\nlines", "two\rlines"] {
                     let argv = args(&[r"C:\npm\tool.CMD", bad]);
-                    let refused = command_line(&argv).unwrap_err();
+                    let refused = command_line(&argv, None).unwrap_err();
                     assert_eq!(refused.kind(), io::ErrorKind::InvalidInput);
                     assert!(refused.to_string().contains("line break"), "{refused}");
                 }
                 // A program takes it as it is.
-                assert!(command_line(&args(&[r"C:\tools\tool.exe", "two\nlines"])).is_ok());
-                assert!(command_line(&args(&[r#"C:\npm\a"b.cmd"#])).is_err());
+                assert!(command_line(&args(&[r"C:\tools\tool.exe", "two\nlines"]), None).is_ok());
+                assert!(command_line(&args(&[r#"C:\npm\a"b.cmd"#]), None).is_err());
             }
         }
     }

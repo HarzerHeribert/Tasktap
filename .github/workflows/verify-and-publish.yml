@@ -144,7 +144,8 @@ jobs:
   # published from main only.
   site:
     name: Public site
-    runs-on: ubuntu-latest
+    # Not ubuntu-latest: that is Ubuntu 26.04 now, for which Playwright 1.60 has no browser.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6

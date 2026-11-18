@@ -31,8 +31,8 @@ vec4 hist3(float age){ return .25*hist(age-.025)+.5*hist(age)+.25*hist(age+.025)
 float spec(float f){ return texture(u_data, vec2((clamp(f,0.,1.)*127.+.5)/128., .75)).r; }
 // needs you: two soft beats, then a rest
 float beat(){ float t=fract(u_ph.w/2.4); return bump(t-.10,.06)+.7*bump(t-.31,.07); }
-// done: light passes once, left to right
-float sweep(float xn){ return u_st[5]*bump(xn+1.7-3.4*smoothstep(0.,1.3,u_ph.w),.3)*(1.-smoothstep(1.15,1.5,u_ph.w)); }
+// done: light passes once, left to right; in Home's band an accent, turning a face about as far as a pulse does
+float sweep(float xn){ return (1.-.88*u_pose.x)*u_st[5]*bump(xn+1.7-3.4*smoothstep(0.,1.3,u_ph.w),.3)*(1.-smoothstep(1.15,1.5,u_ph.w)); }
 
 // ---- the studio: a dark room, a wide key overhead, a tall cool strip left, a warm strip right ----
 vec3 xl=vec3(0,0,1), xlc=vec3(0);   // one more light that a concept may steer: direction and colour
@@ -172,7 +172,7 @@ void beam(float xn){
   float f=u_lm.y;
   float pos=u_st[0]*.6*sin(f*.5)+u_st[1]*.9*sin(u_ph.y*3.+u_ph.z*.7)+u_st[2]*.85*sin(f*1.25)+u_st[3]*(fract(f*.11)*3.2-1.6)
     +u_st[5]*(-1.7+3.4*smoothstep(0.,1.3,u_ph.w));
-  float I=u_st[0]*.5+u_st[1]*(.5+3.*u_v.y)+u_st[2]*2.2+u_st[3]*1.4+u_st[4]*(.5+1.5*beat())+u_st[5]*2.5*(1.-smoothstep(1.1,1.6,u_ph.w));
+  float I=u_st[0]*.5+u_st[1]*(.5+3.*u_v.y)+u_st[2]*2.2+u_st[3]*1.4+u_st[4]*(.5+1.5*beat())+u_st[5]*2.5*(1.-.88*u_pose.x)*(1.-smoothstep(1.1,1.6,u_ph.w));
   float az=clamp((pos-xn)*1.4,-1.45,1.45);
   xl=normalize(vec3(sin(az),.12,cos(az))); xlc=u_lm.x*I*mix(vec3(1),lc,.5);
 }

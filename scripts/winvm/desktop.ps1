@@ -661,6 +661,8 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
     [Tasktap.Desk]::Close($notepad.Handle)
     # At rest. The app's own processes and the web views under it: processor time and how often the system let
     # their threads run, over half a minute with the tab collapsed and again with the tab switched off.
+    if (-not (Notch).collapsed) { Send 'key notch Escape'; $null = Tab-Soon { param($t) -not $t.watching } }
+    Say 'INFO' 3 "before the measure the tab is collapsed: $((Notch).collapsed); the pointer is read: $((Tab).watching)"
     $measure = {
         $ids = @($proc.Id) + @((Children $proc 'msedgewebview2') | ForEach-Object { $_.Id; (Children $_ 'msedgewebview2').Id })
         $running = @($ids | Where-Object { $_ } | ForEach-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })

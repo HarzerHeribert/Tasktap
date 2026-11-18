@@ -3,6 +3,14 @@
 // system: what is "said" is a tone made in the page or a recording the check hands the page, which plays it into the
 // same worklet a microphone feeds.
 //
+// What a covered window does to it (WebKit calls its page hidden; found when a run failed here while the person
+// worked in another app): a page is asked for the microphone only while it is seen, the question of a hidden one
+// being held until it shows, so the step that asks "got no answer"; and a recording under way ends the moment its
+// window is covered, as letting go ends it (record.ts). A recording begun and ended behind another window is whole.
+// So the window comes forward for the one question (`front`, the keyboard stays where it is) and goes back after
+// it; behind a locked screen the question is not put, and that is said; and a part during which the window was
+// covered while it recorded is done once more.
+//
 //   node scripts/speech-app-check.cjs                      # the helper is the checks' own (speech-engine-fixture.py)
 //   node scripts/speech-app-check.cjs --model <ggml file>  # then also the real helper with the real model
 //
@@ -25,9 +33,10 @@ const { launch, DEBUG, sleep, root } = require('./app-driver.cjs');
 
 const arg = (name) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : null);
 const NAME = 'ggml-large-v3-turbo-q5_0.bin', SHA = '394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2';
-const failures = [];
-const pass = (said) => console.log('PASS  ' + said);
-const fail = (said, more = '') => (failures.push(said), console.log(`FAIL  ${said}${more ? ': ' + more : ''}`));
+const failures = [], lines = [];
+const pass = (said) => lines.push('PASS  ' + said);
+const note = (said) => lines.push('NOTE  ' + said);
+const fail = (said, more = '') => (failures.push(said), lines.push(`FAIL  ${said}${more ? ': ' + more : ''}`));
 const check = (ok, said, more) => (ok ? pass(said) : fail(said, more));
 const running = (what) => { try { return execFileSync('pgrep', ['-f', what], { encoding: 'utf8' }).split('\n').filter(Boolean); } catch { return []; } };
 const plain = (text) => text.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, '').replace(/\s+/g, ' ').trim();
@@ -54,7 +63,14 @@ function page(app) {
     await type('');
     await sleep(300);
   };
-  return { ask, row, press, settings, home, down, up, type, field, spoken, quiet, undo };
+  /** Counts how often the window is covered while this page records, from now on. */
+  const watch = () => ask(`(window.__covered = 0, document.addEventListener('visibilitychange', () => document.hidden && (__speech.live() || __speech.talk.asking) && __covered++), 1)`);
+  const covered = () => ask(`window.__covered`);
+  /** Whether the page is seen; a covered window comes forward first, until `back`. False behind a locked screen. */
+  let forward = false;
+  const seen = async () => !(await ask(`document.hidden`)) || (app.send('front'), (forward = true), app.until('workspace', `String(document.hidden)`, 'false', 3));
+  const back = () => forward && (app.send('back'), (forward = false));
+  return { ask, row, press, settings, home, down, up, type, field, spoken, quiet, undo, watch, covered, seen, back };
 }
 
 async function withFixture(shots) {
@@ -69,6 +85,7 @@ async function withFixture(shots) {
   try {
     await app.prepare();
     const p = page(app), file = path.join(app.tmp, 'data/models', NAME);
+    await p.watch();
     await p.ask(`(__speech.talk.source = 'tone')`);
     app.send('call put {"c":"prefs","id":"hold","patch":10}');
     app.send('call put {"c":"prefs","id":"speech_languages","patch":["de","en"]}');
@@ -86,18 +103,23 @@ async function withFixture(shots) {
     if (shots) await app.snapshot('workspace', path.join(shots, 'app-settings-ready.png'));
     await p.home();
     // A passive run is never given the microphone. This asks for it and records nothing: a refusal is the pass. Were
-    // it ever granted, the track is stopped in the same breath and the check ends here, loudly.
-    const asked = await p.ask(`navigator.mediaDevices.getUserMedia({ audio: true }).then((s) => (s.getTracks().forEach((t) => t.stop()), 'GRANTED'), (e) => 'refused: ' + e.name)`);
-    if (asked !== 'refused: NotAllowedError') {
-      fail('A PASSIVE RUN WAS GIVEN THE MICROPHONE (or refused it in another way); its track was stopped at once and the check ends here', String(asked));
-      return;
-    }
-    // And the recorder, with no stand-in named, says the refusal in words and hears nothing.
-    await p.ask(`(__speech.talk.source = 'microphone')`);
-    await p.type('');
-    await p.ask(`(document.querySelector('.home .mic').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 1 })), document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true })), 1)`);
-    const refused = await app.until('workspace', `document.querySelector('.home .ways')?.innerText ?? ''`, 'The microphone was not allowed. Tasktap can be allowed in System Settings, Privacy & Security, Microphone.', 5);
-    check(refused && (await p.quiet()) && running(helper).length === 0, 'a passive run is refused the microphone: asking for it fails in the page, the recorder says so in words, and nothing listens');
+    // it ever granted, the track is stopped in the same breath, whenever the answer comes, and the check ends here,
+    // loudly. The page must be seen to be asked at all (above).
+    if (await p.seen()) {
+      const asked = await p.ask(`Promise.race([navigator.mediaDevices.getUserMedia({ audio: true }).then((s) => (s.getTracks().forEach((t) => t.stop()), 'GRANTED'), (e) => 'refused: ' + e.name),
+        new Promise((r) => setTimeout(() => r('no answer in 10 s, the page ' + (document.hidden ? 'hidden' : 'seen')), 10000))])`);
+      if (asked !== 'refused: NotAllowedError') {
+        fail('A PASSIVE RUN WAS GIVEN THE MICROPHONE (or refused it in another way); its track was stopped at once and the check ends here', String(asked));
+        return;
+      }
+      // And the recorder, with no stand-in named, says the refusal in words and hears nothing.
+      await p.ask(`(__speech.talk.source = 'microphone')`);
+      await p.type('');
+      await p.ask(`(document.querySelector('.home .mic').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 1 })), document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true })), 1)`);
+      const refused = await app.until('workspace', `document.querySelector('.home .ways')?.innerText ?? ''`, 'The microphone was not allowed. Tasktap can be allowed in System Settings, Privacy & Security, Microphone.', 5);
+      check(refused && (await p.quiet()) && running(helper).length === 0, 'a passive run is refused the microphone: asking for it fails in the page, the recorder says so in words, and nothing listens');
+    } else note('the screen is locked or asleep, so the page was not asked for the microphone: a page that is not seen is not asked, and is given nothing; the host\'s rule is held by its own test (cargo test, granted)');
+    p.back();
     // A stand-in that is named and not there is an error, never the microphone.
     await p.ask(`(__speech.talk.source = 'clip', __speech.talk.clip = '', 1)`);
     await p.down(), await p.up();
@@ -153,6 +175,7 @@ async function withFixture(shots) {
     check(told && (await p.quiet()) && !fs.existsSync(file) && /Needs a model first/.test(await p.row()),
       'a model the helper cannot read is said in words, with what to do; it is removed, Settings offers it again and nothing is left listening', await p.ask(`__speech.talk.said`));
     if (shots) await app.snapshot('workspace', path.join(shots, 'app-damaged.png'));
+    return await p.covered();
   } finally {
     await app.quit();
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -170,6 +193,7 @@ async function withModel(model, shots) {
   try {
     await app.prepare();
     const p = page(app);
+    await p.watch();
     await p.ask(`(__speech.talk.source = 'tone')`);
     app.send('call put {"c":"prefs","id":"hold","patch":10}');
     app.send('call put {"c":"prefs","id":"speech_languages","patch":["de","en"]}');
@@ -228,6 +252,7 @@ async function withModel(model, shots) {
     await p.settings();
     await p.press('Remove');
     check(await app.until('workspace', `[...document.querySelectorAll('.settings .set .v')].map((v) => v.textContent).join('|')`, 'Needs a model first', 5) && !fs.existsSync(helper), 'Remove removes the real model');
+    return await p.covered();
   } finally {
     await app.quit();
     fs.rmSync(rec, { recursive: true, force: true });
@@ -237,9 +262,19 @@ async function withModel(model, shots) {
 (async () => {
   const shots = arg('--shots');
   if (shots) fs.mkdirSync(shots, { recursive: true });
-  await withFixture(shots);
+  // A part in which something went wrong while the window was covered as it recorded is done once more: the
+  // recording ended there as the recorder is built to end it, and the part says nothing about the app.
+  const part = async (run) => {
+    for (let again = 0, had = failures.length; ; again++) {
+      const covered = await run();
+      if (failures.length === had || !covered || again) return console.log(lines.splice(0).join('\n'));
+      (failures.length = had), (lines.length = 0);
+      console.log('NOTE  the check\'s window was covered while it recorded, which ends a recording as letting go does: this part is done once more');
+    }
+  };
+  await part(() => withFixture(shots));
   const model = arg('--model');
-  if (model) await withModel(model, shots);
+  if (model) await part(() => withModel(model, shots));
   else console.log('NOTE  the real helper was not run: no --model was given');
   console.log(failures.length ? `FAIL  speech on this Mac in the app: ${failures.length} things wrong` : `PASS  speech on this Mac works in the app${model ? ', with the real helper and model too' : ' with the checks\' helper'}`);
   process.exit(failures.length ? 1 : 0);

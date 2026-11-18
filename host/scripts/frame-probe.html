@@ -5,7 +5,8 @@
      as a local web address (served by frame-fixture.py) and as a file of a project (served by the host). Its address
      says what to try with: `remote`, an address that reaches this machine and that the rule calls remote; `outside`,
      the address a file outside the opened folders would have on the host's server; `inside`, a file beside this one;
-     `local`, another server of this machine. What came of each try is said to the page around it, which a check
+     `local`, another server of this machine; `literal`, a second loopback address the check's server listens on
+     (Windows). What came of each try is said to the page around it, which a check
      listens to and the app never does; `go=away` or `go=redirect` then tries to leave for the web. -->
 <body style="font:14px system-ui;margin:20px;color:#ddd;background:#111">
 <p id="said">Probing…</p>
@@ -58,6 +59,16 @@ const got = (url, how) => fetch(url, how).then((r) => (r.type === 'opaque' ? 'lo
       setTimeout(() => done('nothing'), 3000);
     });
   }
+  // A socket to an address of this machine that is written as numbers and is not one of the three the web view
+  // on Windows is let through to: whether what holds its sockets back holds an address back as it does a name.
+  if (q.get('literal')) said.literal = await new Promise((done) => {
+    try {
+      const socket = new WebSocket(`ws://${q.get('literal')}/leak-literal`);
+      socket.onopen = () => done('loaded');
+      socket.onerror = () => done('refused');
+    } catch { done('refused'); }
+    setTimeout(() => done('nothing'), 3000);
+  });
   // Files: one beside this page, one outside the folders the person opened, and another server of this machine.
   if (q.get('inside')) said.inside = await got(q.get('inside'));
   if (q.get('outside')) said.outside = await got(q.get('outside'));

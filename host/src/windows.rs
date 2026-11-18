@@ -386,7 +386,9 @@ pub fn pick_folder(owner: Option<isize>) -> Result<Option<PathBuf>, String> {
 ///   cancelled and told to `stopped`. (The top frame is Tauri's to ask about, and a window a frame asks for is
 ///   Tauri's to deny: workspace.rs, on every system.)
 /// - **What may be loaded.** Every request of the web view, of any kind, from any frame or worker, is asked about
-///   before it is sent: one that would leave this machine is answered here with a refusal (`frames::loads`).
+///   before it is sent: one that would leave this machine is answered here with a refusal (`frames::loads`). A
+///   socket is not asked about; it is stopped by what the browser is started with (`frames::BROWSER`), as is
+///   anything else that would get past this.
 ///
 /// False when the web view is too old to ask about every request (before 1.0.2478); then no preview gets a frame.
 pub fn confine(view: &tauri::webview::PlatformWebview, stopped: impl Fn(&str) + 'static) -> bool {

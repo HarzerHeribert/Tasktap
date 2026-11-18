@@ -4,14 +4,16 @@
 // address that is not this machine's by the rule. It notes every request it gets, a socket's among them, with the
 // name it was asked under, in a log: the check reads there whether anything it must not see arrived. It prints its
 // port, and the spelling of an address that reaches it and that the rule calls remote (`localhost.` with its stop,
-// or `0.0.0.0`), or `none` when this machine reaches it by neither. Nothing here leaves the machine.
+// or `0.0.0.0`), or `none` when this machine reaches it by neither; and then `127.0.0.2:<port>` when it listens
+// there as well (a loopback address the web view on Windows is not let through to), or `none`. Nothing here
+// leaves the machine.
 //   node frame-fixture.cjs <log> <frame-probe.html>
 const fs = require('node:fs');
 const http = require('node:http');
 const [log, probe] = process.argv.slice(2);
 let remote = 'none';
 const note = (request) => fs.appendFileSync(log, `${request.headers.host ?? ''} ${request.url}\n`);
-const server = http.createServer((request, response) => {
+const answer = (request, response) => {
   note(request);
   const path = request.url.split('?')[0];
   const send = (body, kind) => {
@@ -28,11 +30,12 @@ const server = http.createServer((request, response) => {
     response.writeHead(404);
     response.end();
   }
-});
-server.on('upgrade', (request, socket) => {
+};
+const hang = (request, socket) => {
   note(request);
   socket.destroy();
-});
+};
+const server = http.createServer(answer).on('upgrade', hang);
 const reaches = (name, port) => new Promise((done) => {
   const asked = http.get({ host: name, port, path: '/self', timeout: 2000 }, (answer) => {
     let body = '';
@@ -50,5 +53,7 @@ server.listen(0, '127.0.0.1', async () => {
       break;
     }
   }
-  console.log(`${port} ${remote}`);
+  const second = http.createServer(answer).on('upgrade', hang);
+  second.on('error', () => console.log(`${port} ${remote} none`));
+  second.listen(port, '127.0.0.2', async () => console.log(`${port} ${remote} ${(await reaches('127.0.0.2', port)) ? `127.0.0.2:${port}` : 'none'}`));
 });

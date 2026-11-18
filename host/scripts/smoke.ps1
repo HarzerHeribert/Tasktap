@@ -206,7 +206,7 @@ try {
         $start.UseShellExecute = $false; $start.RedirectStandardOutput = $true; $start.CreateNoWindow = $true
         $fixture = [Diagnostics.Process]::Start($start)
         $read = $fixture.StandardOutput.ReadLineAsync()
-        $port, $remote = if ($read.Wait(10000)) { "$($read.Result)" -split ' ' } else { '', 'none' }
+        $port, $remote, $literal = if ($read.Wait(10000)) { "$($read.Result)" -split ' ' } else { '', 'none', 'none' }
         if (-not $port) { Fail 'the check''s own web server starts' }
         Set-Content "$tmp\project\report.html" '<!doctype html><title>Report</title><body style="font:16px system-ui;margin:24px"><h1>Report</h1><p>Written by the agent.</p>'
         Set-Content "$tmp\project\beside.txt" 'beside'
@@ -231,7 +231,7 @@ try {
         $outside = "$base/" + "$tmp\outside-frame.txt".Replace('\', '/')
         $query = "?remote=$remote&inside=beside.txt&outside=$outside&local=http://127.0.0.1:$port/self"
         (Get-Content (Join-Path $PSScriptRoot 'frame-probe.html') -Raw).Replace('<p id="said">', "<script>history.replaceState(null, '', '$query')</script><p id=`"said`">") | Set-Content "$tmp\project\probe.html"
-        Follow 'web' "http://127.0.0.1:$port/probe.html?remote=$remote&local=http://localhost:$port/self&outside=$outside"
+        Follow 'web' "http://127.0.0.1:$port/probe.html?remote=$remote&local=http://localhost:$port/self&outside=$outside&literal=$literal"
         if (-not (Has 'String(window.__probe.length)' '1' 20)) { Fail 'the probe as a local address answered' $last }
         Follow 'path' 'probe.html'
         if (-not (Has 'String(window.__probe.length)' '2' 20)) { Fail 'the probe as a file answered' $last }
@@ -247,8 +247,11 @@ try {
         } else { Fail 'a frame and the app''s interface' "$probes | $(@($seen | Where-Object { $_.Contains('REACHED') }) -join ' | ')" }
         if (& $every "p.top === 'refused' && p.window === 'refused'") { Pass 'a frame cannot move the window around it, and no window opens for it' } else { Fail 'a frame, the top window and new windows' $probes }
         $stopped = Seen "`"stopped`":`"http://$remote/leak-frame`"" 2
-        if ((& $every "p.picture === 'refused' && p.request === 'refused' && p.socket !== 'loaded'") -and -not $leaked -and $stopped) {
-            Pass "a frame loads nothing from an address that is not this machine's: a picture, a request, a socket and a frame inside it were each refused, and none reached the server ($remote)"
+        # (A request the host refuses is answered 403, which a page that asked without leave to read sees as
+        # an answer it cannot read: whether anything left is the server's to say.)
+        if ($literal -eq 'none') { Fail 'the check''s server does not listen on a second loopback address: whether a socket to an address written as numbers is held back cannot be told here' }
+        if ((& $every "p.picture === 'refused' && p.socket !== 'loaded'") -and "$(Js "window.__probe.find((p) => 'literal' in p)?.literal" 2)" -ne 'loaded' -and -not $leaked -and $stopped) {
+            Pass "a frame loads nothing from an address that is not this machine's: a picture, a request, a socket and a frame inside it were each refused, and none reached the server ($remote); nor did a socket to a loopback address the web view is not let through to ($literal)"
         } else { Fail 'a frame and the network' "$probes | reached the server: $($leaked -join ', ') | the frame inside it stopped: $stopped" }
         $file = "$(Js "(p => String(!!p && p.inside === '200' && p.outside === '403' && p.local === 'refused'))(window.__probe.find((p) => 'inside' in p))" 3)"
         $web = "$(Js "(p => String(!!p && p.local === 'loaded' && p.outside !== '200' && p.outside !== 'loaded'))(window.__probe.find((p) => !('inside' in p)))" 3)"

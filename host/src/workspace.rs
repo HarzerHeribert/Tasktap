@@ -155,7 +155,10 @@ pub fn show(app: &AppHandle, at: Option<&str>) -> tauri::Result<()> {
     }
     #[cfg(windows)]
     {
-        builder = builder.theme(Some(tauri::Theme::Dark)).decorations(!crate::chrome::own());
+        builder = builder
+            .theme(Some(tauri::Theme::Dark))
+            .decorations(!crate::chrome::own())
+            .additional_browser_args(crate::frames::BROWSER);
     }
     builder = match frame {
         Some([x, y, w, h]) => builder.position(x, y).inner_size(w, h),

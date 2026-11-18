@@ -39,6 +39,17 @@ pub const RULES: &str = r#"[
 {"trigger":{"url-filter":"^[a-z]+://\\[::1\\](:[0-9]+)?[/?#]"},"action":{"type":"ignore-previous-rules"}}
 ]"#;
 
+/// What WebView2's browser is started with (Windows). Its first three words are what Tauri would have given it;
+/// the rule after them is the wall under everything else here: the browser resolves no name and no address but
+/// this machine's own three, so nothing it is asked to load, by any means, leaves the machine. It is what stops a
+/// socket (`ws`, `wss`), which WebView2 does not ask the host about as it asks about every other load; it also
+/// stops whatever a browser does on its own account. A preview at a loopback address other than these three
+/// (`127.0.0.2`) therefore stays empty on Windows.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub const BROWSER: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
+    --autoplay-policy=no-user-gesture-required \
+    --host-resolver-rules=\"MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE [::1]\"";
+
 /// Whether the web view may go to `url`, in any frame: the app's own pages (`tauri://` on a Mac,
 /// `http://tauri.localhost` on Windows), an empty frame, and this machine's own web addresses.
 pub fn allowed(url: &str) -> bool {

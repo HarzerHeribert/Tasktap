@@ -75,20 +75,20 @@ export function SessionSheet({ id }: { id: string }) {
   const changes = turns.find((t) => pending(t));
   const live = records.terminals.get(term)?.state === 'running';
   const all = (t: Thought) => [...records.questions.values(), ...past.questions.values()].filter((q, i, a) => q.thought_id === t.id && a.findIndex((x) => x.id === q.id) === i);
-  const acts: (Act & { hint: string })[] = [
-    ...(term ? [{ k: '↩', hint: '↩', label: 'Open its terminal', do: () => (dismiss(), void focusSession(id)) }] : []),
-    { k: 'F', hint: 'F', label: 'Follow up', do: () => {
+  const acts: Act[] = [
+    ...(term ? [{ k: '↩', label: 'Open its terminal', kind: 'primary' as const, do: () => (dismiss(), void focusSession(id)) }] : []),
+    { k: 'F', label: 'Follow up', do: () => {
       dismiss();
       // A thought begun here is this session's follow-up unless its words say otherwise.
       Object.assign(cap, { usual: s.project_id, current: id });
       page.focus = '#capture-input';
       open({ kind: 'capture' });
     } },
-    ...(changes ? [{ k: 'R', hint: 'R', label: 'Review changes', do: () => open({ kind: 'review', thought: changes.id }) }] : []),
-    ...(live ? [{ k: '⌘⌫', hint: '⌘⌫', label: 'Stop…', do: () => open({ kind: 'stop', project: projectOf(term), id: term }) }] : []),
+    ...(changes ? [{ k: 'R', label: 'Review changes', do: () => open({ kind: 'review', thought: changes.id }) }] : []),
+    ...(live ? [{ k: '⌘⌫', label: 'Stop…', kind: 'danger' as const, do: () => open({ kind: 'stop', project: projectOf(term), id: term }) }] : []),
   ];
   return (
-    <Frame wide="list" title={term ? label(term) : s.name || agentName(s.agent)} acts={acts} bare>
+    <Frame size="md" title={term ? label(term) : s.name || agentName(s.agent)} acts={acts}>
       <div class="sx">
         <div class="list">
         <div class="line">
@@ -105,9 +105,6 @@ export function SessionSheet({ id }: { id: string }) {
         </div>
         </div>
         {changes && <Told t={changes} />}
-        <div class="sx-a">
-          {acts.map((a) => <button type="button" class="btn" onClick={a.do}>{a.label}<kbd>{a.hint}</kbd></button>)}
-        </div>
         {turns.map((t) => <Turn key={t.id} t={t} s={s} questions={all(t)} results={[...records.results.values()].filter((r) => r.thought_id === t.id)} />)}
         {!turns.length && !missing && <p class="sx-n">Nothing was asked of it through Tasktap yet.</p>}
         {missing && (past.loading || pages.current < 12 ? <p class="sx-n" role="status">Reading its earlier turns…</p>

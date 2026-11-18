@@ -65,8 +65,16 @@ export function Level({ l, n = 5 }: { l: number; n?: number }) {
   return <span class="wave lvl" style={{ '--l': String(Math.max(0, Math.min(1, l))) }} aria-hidden="true">{bars}</span>;
 }
 
-/** What a key cap shows: Return as the icon set draws it, so it is as large as the letters beside it. */
-export const glyph = (k: string) => (k === '↩' ? <I n="ret" /> : k);
+/** A key as a Mac writes it: the modifiers in the order ⌃⌥⇧⌘, then the key. */
+const MODS = '⌃⌥⇧⌘';
+export const keyed = (k: string) => [...k].filter((c) => MODS.includes(c)).sort((a, b) => MODS.indexOf(a) - MODS.indexOf(b)).join('') + [...k].filter((c) => !MODS.includes(c)).join('');
+/** A key, wherever one is shown: on a metal cap (`cap`: the key that answers) or as a hint after a label. One role
+ *  for both (tokens.css --f-key), so none is smaller than another; Return is the icon set's own arrow, as large as
+ *  the letters beside it. */
+export function Key({ k, cap = false }: { k: string; cap?: boolean }) {
+  const s = keyed(k), at = s.indexOf('↩');
+  return <kbd class={cap ? 'keycap' : undefined}>{at < 0 ? s : <>{s.slice(0, at)}<I n="ret" />{s.slice(at + 1)}</>}</kbd>;
+}
 
 /** An agent's own mark, on a 24 px grid; one the app has no mark for shows two letters, so that agents whose names
  *  begin alike are told apart: the initials of its first two words, or the first two letters of its one. */
@@ -102,7 +110,7 @@ export function Answer({ k, label, primary = false, danger = false, onClick, cls
 }) {
   return (
     <button type="button" class={`${cls}${primary ? ' primary' : ''}${danger ? ' danger' : ''}`} onClick={onClick}>
-      <kbd>{glyph(k)}</kbd>{lead}<span>{label}</span>{more && <i>{more}</i>}
+      <Key k={k} cap />{lead}<span>{label}</span>{more && <i>{more}</i>}
     </button>
   );
 }

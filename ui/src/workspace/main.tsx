@@ -17,7 +17,7 @@ import { cap, followSpeech } from '../capture.tsx';
 import { uuid7 } from '../client.ts';
 import { LevelVoice } from '../speech/level.ts';
 import { live, loudness, recording, talk } from '../speech/record.ts';
-import { I, Mark, Wave, plural } from '../ui.tsx';
+import { I, Key, Mark, Wave, plural } from '../ui.tsx';
 import { apply, fontsReady, look } from './appearance.ts';
 import { Deck, startAgent } from './deck.tsx';
 import { Earlier, Home, homeCounts } from './home.tsx';
@@ -31,6 +31,7 @@ import {
   LOOSE, call, client, closeTab, copy, current, details, dismiss, fail, focusSession, layout, loadTerms, newTerminal, onRedraw, open, page, paste,
   pref, records, redraw, reconcile, sessionOf, setLayout, settleFocus, show, textSize, textSizeBy, ui,
 } from './model.ts';
+import { SECTIONS, shown } from './settings.tsx';
 import { Sheets } from './sheets.tsx';
 import { Sidebar } from './sidebar.tsx';
 import { engines, flushFits, setLook } from './terminal.ts';
@@ -54,11 +55,13 @@ export function command(id: string) {
       return c ? void newTerminal(c.project, { into: pane }) : open({ kind: 'open-workspace' });
     case 'open-workspace':
       return open({ kind: 'open-workspace' });
+    // Settings opens where it was last, and stays as it is when it is open already.
     case 'appearance':
     case 'settings':
-      return open({ kind: 'settings' });
+      return (id === 'appearance' || ui.sheet?.kind !== 'settings') && open({ kind: 'settings', at: id === 'appearance' ? id : shown.at });
+    // ⌘W closes what is in front: a sheet, when one is.
     case 'close-tab':
-      return c?.id && closeTab(c.project, c.id);
+      return ui.sheet ? dismiss() : c?.id && closeTab(c.project, c.id);
     case 'find':
       if (ui.view === 'earlier' || ui.view === 'home') return show('earlier');
       return c?.id && open({ kind: 'find', id: c.id });
@@ -186,7 +189,7 @@ function Bar({ project }: { project: string | null }) {
         <span class="bar-r">
           <button type="button" class="ib" title="Split right  ⌘D" aria-label="Split right" onClick={() => command('split-right')}><I n="splitr" /></button>
           <button type="button" class="ib" title="Split down  ⇧⌘D" aria-label="Split down" onClick={() => command('split-down')}><I n="splitd" /></button>
-          <button type="button" class="newt" title="New task  ⌘N" onClick={() => command('new-task')}><Wave n={5} /><span>New task</span><kbd>⌘N</kbd></button>
+          <button type="button" class="newt" title="New task  ⌘N" onClick={() => command('new-task')}><span><Wave n={5} />New task</span><Key k="⌘N" /></button>
         </span>
       )}
     </header>
@@ -209,8 +212,7 @@ function Rail() {
         {page.error ? <span class="err">{page.error}</span> : <><Mark s={mark} label="" />{words.length ? words : <span>Nothing running</span>}</>}
       </span>
       <span class="rail-r">
-        <button type="button" onClick={() => open({ kind: 'agents' })}>Agents</button>
-        <button type="button" title="Settings  ⌘," onClick={() => open({ kind: 'settings' })}>Settings</button>
+        <button type="button" title="Settings  ⌘," onClick={() => command('settings')}>Settings</button>
       </span>
     </footer>
   );
@@ -233,7 +235,7 @@ function App() {
   useLayoutEffect(() => {
     const side = document.querySelector<HTMLElement>('.side'), foot = side?.querySelector('.spark')?.getBoundingClientRect();
     const room = ui.slide === 'out' ? document.querySelector('.room') : null;
-    if (ui.slide && side && foot && (ui.slide === 'in' || room)) wake(side, 'x', wakeLook(), [foot.top + 28, foot.bottom], room ?? undefined);
+    if (ui.slide && side && foot && (ui.slide === 'in' || room)) wake(side, wakeLook(), [foot.top + 28, foot.bottom], room ?? undefined);
   }, [ui.slide]);
   const side = ui.sidebar && !ui.narrow;
   return (
@@ -267,7 +269,8 @@ records.onchange = () => {
 };
 /** Where the host, or the notch through it, sends the window: a session's terminal, or a part of Settings. */
 function arrive(at: string) {
-  if (at === 'settings:speech' || at === 'settings:thoughts') open({ kind: 'settings', at: at === 'settings:speech' ? 'speech' : 'thoughts' });
+  const section = SECTIONS.find(([id]) => at === `settings:${id}`)?.[0];
+  if (section) open({ kind: 'settings', at: section });
   else focusSession(at);
 }
 void listen<{ do: string; at?: string; id?: string; low?: boolean }>('ui', ({ payload }) => {
@@ -334,7 +337,7 @@ const slide = () => new Promise((done) => {
 /** Types a line into the terminal shown, as the keyboard would. */
 const type = (line: string) => (engines.get(current()?.id ?? '')?.term.input(line + '\r', true), !!current()?.id);
 Object.assign(window, {
-  __ws: { uuid7, ui, records, layout, command, greet, slide, engines, focusSession, show, newTerminal, startAgent, call, echo, burst, text, type, current, dismiss, menu, choose, LOOSE, L },
+  __ws: { uuid7, ui, records, layout, command, greet, slide, engines, focusSession, show, newTerminal, startAgent, call, echo, burst, text, type, current, dismiss, open, menu, choose, LOOSE, L },
   __motion: { debug, stats, redraw },
   __speech: { talk, live, cap },
 });

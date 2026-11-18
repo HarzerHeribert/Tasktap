@@ -78,7 +78,6 @@ button.row:active{background:var(--sel)}
 .bar .ib{color:var(--fg2)}
 .newt{display:inline-flex;align-items:center;gap:var(--sp2);height:var(--ctl-h);margin-left:var(--sp2);padding:0 6px 0 var(--sp2);border-radius:var(--r1);font:var(--f-small);color:var(--fg)}
 .newt:hover{background:var(--hover)}
-.newt kbd{font:var(--f-num);color:var(--fg3)}
 .newt .wave{--wh:12px;--ww:1.5px;--wg:1.5px}
 .win.dimmed .bar::after{content:"";position:absolute;inset:0;background:var(--scrim);pointer-events:none}
 
@@ -307,23 +306,36 @@ button.hq:hover{background:var(--hover)}
   .more{padding-left:28px}
 }
 
-/* ——— sheets hang from the title bar, as the notch hangs from the screen ——— */
+/* ——— sheets: panels of the same instrument, let down from the title bar ———
+   One family (sheets.tsx Frame). A sheet hangs from the bar's lower edge, which runs the whole width of the window
+   while one hangs, and is centred on the window whatever the sidebar does. Three widths, by what it holds: a quick
+   decision, a form or a list, a view to read. One layout: the lit seam, the title, the body (the only part that
+   scrolls: its content dissolves at the edge there is more beyond, as everywhere), and the foot, with the way out and
+   the answer at the right and anything else at the left. The window behind it is dimmed and still. */
 .scrim{position:absolute;inset:0;z-index:20;background:var(--scrim)}
-.sheet{position:absolute;z-index:21;top:var(--bar-h);left:50%;width:min(var(--sheet-w),calc(100% - 32px));max-height:calc(100% - var(--bar-h) - 40px);overflow:auto;
-  padding:16px 18px 8px;background:var(--sheet);border-radius:0 0 var(--r3) var(--r3);box-shadow:var(--sheet-shadow);transform:translateX(-50%);outline:0}
-.sheet::before{content:"";position:sticky;display:block;top:-16px;height:1px;margin:-16px -18px 15px;background:var(--lit)}
-/* A sheet is a surface with an edge and a shadow, which a mask would cut: where it scrolls, its content dissolves under
-   its own black instead, at its foot and under the head of a list. */
-.win>.sheet{--pad:18px;mask-image:none}
-.win>.sheet::after,.sheet:is(.list,.review) header::after{content:"";display:block;height:var(--fade);background:linear-gradient(#0000,var(--sheet));opacity:0;pointer-events:none;transition:opacity var(--t-fast)}
-.win>.sheet::after{position:sticky;z-index:2;bottom:0;margin:calc(-1 * var(--fade)) calc(-1 * var(--pad)) 0}
-.sheet:is(.list,.review) header::after{position:absolute;inset:100% 0 auto;margin-top:1px;transform:scaleY(-1)}
-.win>.sheet[data-more~=down]::after,.sheet[data-more~=up] header::after{opacity:1}
-@media(prefers-reduced-motion:no-preference){
-  .sheet{animation:drop var(--t-sheet) var(--ease)}
-  .sheet>*{animation:arrive 240ms ease-out 240ms both}
-}
-@keyframes drop{from{transform:translate(-50%,-100%)}}
+.win.dimmed::after{content:"";position:absolute;z-index:19;inset:calc(var(--bar-h) - 1px) 0 auto;height:1px;background:var(--line);pointer-events:none}
+.sheet{--w:var(--sheet-s);--pad:18px;position:absolute;z-index:21;top:var(--bar-h);left:50%;display:flex;flex-direction:column;width:min(var(--w),calc(100% - 32px));max-height:calc(100% - var(--bar-h) - 40px);
+  background:var(--sheet);border-radius:0 0 var(--r3) var(--r3);box-shadow:var(--sheet-shadow);transform:translateX(-50%);outline:0}
+.sheet.md{--w:var(--sheet-m)}
+.sheet.lg{--w:var(--sheet-l)}
+.sheet::before{content:"";position:relative;z-index:3;flex:none;height:1px;margin-bottom:-1px;background:var(--lit)}
+.sh-h{display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp3);flex:none;padding:14px var(--pad) 10px}
+.sh-h h2{min-width:0;font:var(--f-title);text-wrap:pretty;overflow-wrap:anywhere}
+.sheet:has(>.sh-b[data-more~=up]) .sh-h{box-shadow:0 1px 0 var(--line)}
+.sh-b{flex:1 1 auto;min-height:0;overflow:auto}
+.sh-b>p{margin:0 var(--pad) 14px}
+.sh-b>p+p{margin-top:-6px}
+.sh-f{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp1);flex:none;margin-top:-1px;padding:var(--sp2) 10px;border-top:1px solid var(--line)}
+.sh-r{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:var(--sp1);margin-left:auto}
+.sh-f .act{color:var(--fg2)}
+.sh-f .key{margin-left:6px}
+/* Answers that are a list of their own: where to move, where to send. */
+.choices{display:flex;flex-direction:column;padding:0 10px 8px}
+.choices .act{width:100%;height:32px;gap:10px;color:var(--fg)}
+.choices kbd.keycap{min-width:30px}
+/* The Composer in a sheet: it has its own key, so the sheet has no title to read and no foot. */
+.sheet.bare .sh-h{display:none}
+.sheet.bare .sh-b{padding:14px var(--pad);overflow:visible}
 @keyframes arrive{from{opacity:0}}
 /* A row or a receipt that comes to Home arrives, and the light under its words gives way in the same time
    (engine.ts CLEAR). */
@@ -335,33 +347,17 @@ button.hq:hover{background:var(--hover)}
 /* Behind Home's rows, in its light: a closing sidebar's wake crosses no word. */
 .room>.wake{z-index:0}
 .wake canvas{position:absolute;opacity:0}
-.sheet header{display:flex;align-items:center;justify-content:space-between;gap:var(--sp3)}
-.sheet h2{display:flex;align-items:baseline;gap:var(--sp3);min-width:0;font:var(--f-title)}
-.sheet h2 .diff{font:var(--f-num)}
-.sheet p{margin-top:6px;font:var(--f-small);color:var(--fg2);text-wrap:pretty}
-.sheet h3{margin:18px 0 6px;font:var(--f-section);color:var(--fg2)}
-.sheet .esc{font:var(--f-num);color:var(--fg3)}
-.acts{display:flex;flex-direction:column;margin:14px -8px 0;padding-top:6px;border-top:1px solid var(--line)}
-.acts .act{width:100%;height:32px;gap:10px;padding:0 var(--sp2);color:var(--fg2)}
-.acts .act kbd{min-width:30px}
-.acts .act.primary{color:var(--fg)}
-.sheet .field{display:flex;align-items:center;gap:10px;height:40px;margin-top:10px;border-bottom:1px solid var(--line2);color:var(--fg3)}
+.sheet :is(.sh-b,.terms,.set-pane,.sx,.review)>p{font:var(--f-small);color:var(--fg2);text-wrap:pretty}
+.sheet h3{margin:18px var(--pad) 6px;font:var(--f-section);color:var(--fg2)}
+.sheet .field{display:flex;align-items:center;gap:10px;height:40px;margin:0 var(--pad) 14px;border-bottom:1px solid var(--line2);color:var(--fg3)}
 .sheet .field:focus-within{border-image:var(--lit) 1}
 .sheet .field input{flex:1;min-width:0;font:var(--f-question);letter-spacing:var(--ls-question);color:var(--fg)}
 #find-state{font:var(--f-cap);color:var(--fg3)}
-.sheet.capture{width:min(var(--cap-sheet-w),calc(100% - 32px));padding:14px 18px}
-.sheet.capture header{display:none}
-.sheet.capture::before{top:-14px;margin:-14px -18px 13px}
-.sheet .ask-notch .qp{margin-top:10px}
-.sheet .ask-notch .qa{margin-top:var(--sp3)}
-/* list sheets: Agents, Settings, a review; centred on the main area */
-.sheet:is(.list,.review){--pad:0px;left:calc(var(--side-w) + (100% - var(--side-w)) / 2);width:min(var(--list-sheet-w),calc(100% - var(--side-w) - 32px));padding:0 0 var(--sp2)}
-.win.solo .sheet:is(.list,.review){left:50%;width:min(var(--list-sheet-w),calc(100% - 32px))}
-.sheet:is(.list,.review)::before{top:0;margin:0 0 -1px}
-.sheet:is(.list,.review) header{position:sticky;z-index:1;top:1px;height:42px;margin:0;padding:0 18px;background:var(--sheet);border-bottom:1px solid var(--line)}
-.sheet:is(.list,.review)>p,.sheet:is(.list,.review)>.field{margin-inline:18px}
-.sheet:is(.list,.review) .acts{margin:0 10px;padding-top:6px}
-.sheet.list h3{margin-inline:18px}
+.sh-b>.ask-notch{padding:0 var(--pad) 10px}
+.sheet .ask-notch .qp{margin-top:0}
+.sheet .ask-notch .qa{flex-direction:column;align-items:stretch;margin-top:var(--sp3)}
+.sheet .ask-notch .reply{flex:none}
+.sh-b>.list:first-child,.sh-b>:first-child>.list:first-child{border-top:1px solid var(--line)}
 .list{display:grid}
 .line>.ring-o{justify-self:center}
 .line{display:grid;grid-template-columns:28px 190px minmax(0,1fr) auto;align-items:center;height:var(--home-row);padding:0 18px;border-bottom:1px solid var(--line);font:var(--f-small);color:var(--fg2);text-align:left}
@@ -380,7 +376,6 @@ button.line:hover{background:var(--hover)}
 .sx-s{display:inline-flex;align-items:center;gap:6px;color:var(--fg)}
 .sx-d{display:flex;justify-content:flex-end;gap:var(--sp3)}
 .sx>.told{margin:10px 18px 0}
-.sx-a{display:flex;flex-wrap:wrap;gap:6px;padding:10px 18px;border-bottom:1px solid var(--line)}
 .tn{display:grid;grid-template-columns:52px 22px minmax(0,1fr);align-items:start;row-gap:var(--sp2);padding:12px 18px 14px;border-bottom:1px solid var(--line)}
 .tn>time{padding-top:2px;font:var(--f-num);color:var(--fg3)}
 .tn>:is(.st,.i){margin-top:2px}
@@ -392,21 +387,30 @@ button.line:hover{background:var(--hover)}
 .sheet .tn>:is(.way-b,.way-w,.way-n){margin-top:-2px}
 .sx-n{padding:14px 18px}
 .sx>.more{margin:6px 12px}
-/* Settings. The owner froze how this sheet looks (2026-11-17): its switch and its button keep the look they had, and
-   nothing here follows a later change to the materials. */
-/* Where it scrolled, a scrollbar stood in a gutter 17 px wide; the bar is gone and its gutter stays, so no row in the
-   sheet is a pixel wider than it was and nothing in it reflows. */
-.sheet:has(>.settings){padding-right:17px}
-.settings .btn{background:var(--fill);box-shadow:none}
-.settings .btn:hover{background:var(--fill-hover)}
-.settings .btn:active{background:var(--line2)}
-.settings{padding-bottom:var(--sp2)}
+/* Settings (settings.tsx): its sections listed at the left, one shown at a time, in a sheet of one size whichever is
+   shown. The owner froze how its Appearance controls look (2026-11-17): the switch, the choices, the swatches, the hue
+   slider and the preview keep the look they had, and nothing in them follows a later change to the materials. */
+.sh-b:has(>.settings){display:flex;overflow:hidden;border-top:1px solid var(--line)}
+.settings{display:grid;grid-template-columns:176px minmax(0,1fr);flex:1;min-width:0;min-height:0}
+.set-nav{display:flex;flex-direction:column;padding:var(--sp2) 0;border-right:1px solid var(--line)}
+.set-nav button{display:flex;align-items:center;justify-content:space-between;gap:var(--sp2);height:var(--row-h);padding:0 var(--sp3) 0 var(--pad);font:var(--f-label);color:var(--fg2)}
+.set-nav button:hover{background:var(--hover);color:var(--fg)}
+.set-nav button[aria-selected=true]{background:var(--lit-v) 0 0/2px 100% no-repeat,var(--sel);color:var(--fg)}
+.set-nav button:focus-visible{outline-offset:-2px}
+.set-nav button:not([aria-selected=true]) kbd{color:var(--fg3)}
+.set-pane{min-width:0;min-height:0;overflow:auto}
+.set-pane>.set:last-child{border-bottom-color:transparent}
+.set-pane>.note{margin:12px var(--pad) 14px}
+.set .btn .i{width:12px;height:12px;margin-right:-4px;color:var(--fg3)}
+:is(.settings,.terms) .btn{background:var(--fill);box-shadow:none}
+:is(.settings,.terms) .btn:hover{background:var(--fill-hover)}
+:is(.settings,.terms) .btn:active{background:var(--line2)}
 .set{display:grid;grid-template-columns:190px minmax(0,1fr);align-items:start;gap:0 var(--sp3);padding:10px 18px;border-bottom:1px solid var(--line)}
 .set .t{padding-top:3px;font:var(--f-label);color:var(--fg)}
 .set .c{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp2) var(--sp3);min-width:0}
 .set .v{font:var(--f-small);line-height:var(--ctl-h);color:var(--fg2)}
-.set .v.mono,.mono{font:var(--f-num)}
-.set .v.mono{line-height:var(--ctl-h)}
+.mono{font:var(--f-num)}
+.set kbd.keycap{margin-top:3px}
 .set .hint{flex-basis:100%;margin:0;font:var(--f-cap);color:var(--fg3)}
 .seg{display:inline-flex;flex-wrap:wrap;gap:2px}
 .seg button{display:inline-flex;align-items:center;gap:6px;height:var(--ctl-h);padding:0 9px;border-radius:var(--r1);font:var(--f-small);color:var(--fg2)}
@@ -420,12 +424,8 @@ button.line:hover{background:var(--hover)}
 .hue{width:100%;accent-color:hsl(var(--hue) 90% 62%)}
 .set .text{width:240px;height:var(--ctl-h);padding:0 var(--sp2);border-radius:var(--r1);background:var(--fill);font:var(--f-small);color:var(--fg)}
 .set .text:focus{box-shadow:inset 0 -1px 0 var(--accent)}
-.settings h3{margin:18px 18px 6px}
 .settings .preview{display:block;height:200px;margin:4px 18px 6px}
 /* a review: the files, then the diff, each line marked by its sign as well as its shade */
-.sheet.review{width:min(940px,calc(100% - var(--side-w) - 32px));display:flex;flex-direction:column;overflow:hidden;max-height:calc(100% - var(--bar-h) - 24px)}
-.win.solo .sheet.review{width:calc(100% - 32px)}
-.review{min-height:0;overflow:auto}
 .review>.said{padding:14px 18px}
 .review>.told{margin:14px 18px 10px}
 .files{display:grid;padding:6px 10px;border-bottom:1px solid var(--line)}

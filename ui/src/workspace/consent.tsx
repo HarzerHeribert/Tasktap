@@ -7,23 +7,15 @@
 // Speech has a second way that sends nothing: on this Mac, by a model the person downloads once (speech/local.ts).
 // Its row says what it needs, how far the download is, that it is ready and how large, or why it failed, and removes
 // it. Which of the two is in use is the `speech_by` preference alone: with it the service, without it this Mac.
-import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { cap } from '../capture.tsx';
 import { type Local, local, model, watch } from '../speech/local.ts';
 import { I, Ring } from '../ui.tsx';
 import { placing } from '../way.ts';
 import { agent, agentName, call, dismiss, fail, focus, loadTerms, open, placers, pref, records, redraw, terms } from './model.ts';
+import { Row } from './form.tsx';
 import { type Act, Frame } from './sheets.tsx';
 
-function Row({ name, hint, children }: { name: string; hint?: string; children: ComponentChildren }) {
-  return (
-    <div class="set">
-      <span class="t">{name}</span>
-      <div class="c">{children}{hint && <p class="hint">{hint}</p>}</div>
-    </div>
-  );
-}
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 // ——— Placing thoughts ———
@@ -33,11 +25,13 @@ export function Thoughts() {
   const tools = placers(), by = pref('route_by'), state = placing(by, tools);
   const sheet = () => open({ kind: 'placing', back: true });
   return (
-    <Row name="Placing" hint={state === 'on' ? 'It reads each thought that names no folder, and writes the brief from long ones. Your own words always go along.' : undefined}>
+    <Row name="Placing" hint={state === 'on' ? 'It reads each thought that names no folder, and writes the brief from long ones. Your own words always go along.'
+      : state === 'again' ? 'What Tasktap asks has changed. Until you agree again, thoughts go by name.'
+        : `A thought goes to the folder or session it names.${!tools.length && terms.route ? ' A model can place them once an agent is signed in.' : ''}`}>
       {state === 'on' && <><span class="v">By {agentName(by!.agent)} · {by!.model}</span><button type="button" class="btn" onClick={sheet}>What it is sent…</button></>}
-      {state === 'again' && <><span class="v warn">Needs agreeing again: what Tasktap asks has changed. Until then, by name.</span><button type="button" class="btn" onClick={sheet}>Look again…</button></>}
-      {state === 'off' && <span class="v">By name: a thought goes to the folder or session it names.</span>}
-      {state === 'off' && (tools.length ? <button type="button" class="btn" onClick={sheet}>Let a model place them…</button> : terms.route && <span class="v dim">A model can, once an agent is signed in.</span>)}
+      {state === 'again' && <><span class="v warn">Needs agreeing again</span><button type="button" class="btn" onClick={sheet}>Look again…</button></>}
+      {state === 'off' && <span class="v">By name</span>}
+      {state === 'off' && tools.length > 0 && <button type="button" class="btn" onClick={sheet}>Let a model place them…</button>}
     </Row>
   );
 }
@@ -65,7 +59,7 @@ export function PlacingSheet({ back }: { back?: boolean }) {
     : same ? [{ k: '⌘⌫', label: 'Turn off', kind: 'danger', do: () => put(null) }, { k: 'esc', label: 'Close', do: done }]
       : [{ k: '↩', label: state === 'on' ? `Use ${agentName(chosen.agent)} instead` : 'Allow', kind: 'primary', do: () => put(chosen) }, { k: 'esc', label: state === 'off' ? 'Not now' : 'Close', do: state === 'off' ? no : done }];
   return (
-    <Frame wide="list" title={state === 'on' ? 'A model places your thoughts' : state === 'again' ? 'Placing needs agreeing again' : 'Let a model place your thoughts'} acts={acts}>
+    <Frame size="md" title={state === 'on' ? 'A model places your thoughts' : state === 'again' ? 'Placing needs agreeing again' : 'Let a model place your thoughts'} acts={acts}>
       <div class="terms">
         {state === 'again' && <p class="warn">You agreed to {agentName(by!.agent)} with {by!.model}. Tasktap now asks {tools.find((x) => x.agent === by!.agent)?.model ?? 'another agent'}, so thoughts go by name until you agree again.</p>}
         <ul class="gets">
@@ -73,7 +67,7 @@ export function PlacingSheet({ back }: { back?: boolean }) {
           <li>Ramble. The agent gets a brief written from what you said, and nothing you did not say.</li>
           <li>Your own words are always sent along with the brief.</li>
         </ul>
-        {!t ? <p>Asking what is sent…</p> : !chosen ? <p>No agent that can do this is signed in yet. Sign one in under Agents, then come back.</p> : (
+        {!t ? <p>Asking what is sent…</p> : !chosen ? <p>No agent that can do this is signed in yet. Sign one in under Settings, Agents, then come back.</p> : (
           <>
             <h3>Who reads them</h3>
             <div class="list" role="radiogroup" aria-label="Who reads them">
@@ -103,7 +97,7 @@ const SERVICES = [
   { name: 'Groq', server: 'https://api.groq.com/openai', model: 'whisper-large-v3-turbo' },
 ] as const;
 const LANGUAGES: [string, string][] = [['de', 'German'], ['en', 'English'], ['fr', 'French'], ['es', 'Spanish'], ['it', 'Italian'], ['nl', 'Dutch'], ['pl', 'Polish'], ['pt', 'Portuguese']];
-const serviceName = (server: string) => SERVICES.find((s) => s.server === server)?.name ?? server.replace(/^https?:\/\//, '');
+export const serviceName = (server: string) => SERVICES.find((s) => s.server === server)?.name ?? server.replace(/^https?:\/\//, '');
 const setKey = (server: string, key: string) => call('key.set', { server, key });
 
 /** A key is only ever written: once stored, all that shows is that one is, and the way to remove it. */
@@ -221,7 +215,7 @@ export function SpeechSheet() {
   const [err, say] = useState('');
   useEffect(() => void loadTerms(), []);
   const at = server.trim().replace(/\/+$/, ''), asks = model.trim();
-  const done = () => open({ kind: 'settings', at: 'speech' });
+  const done = () => open({ kind: 'settings', at: 'voice' });
   const same = !!by && by.server === at && by.model === asks && !key.trim();
   const allow = async () => {
     if (!at || !asks) return say('A speech service needs an address and a model.');
@@ -238,7 +232,7 @@ export function SpeechSheet() {
     : [{ k: '↩', label: by ? 'Use this service' : 'Allow', kind: 'primary', do: () => void allow() }, { k: 'esc', label: by ? 'Close' : 'Not now', do: done }];
   const enter = (e: KeyboardEvent) => e.key === 'Enter' && !e.isComposing && (e.preventDefault(), void allow());
   return (
-    <Frame wide="list" title={by ? 'The speech service' : 'Use a speech service'} acts={acts}>
+    <Frame size="md" title={by ? 'The speech service' : 'Use a speech service'} acts={acts}>
       <div class="terms">
         <p>While you hold to talk, the microphone is recorded. When you let go, the recording goes to the service you choose here and comes back as text. Nothing is recorded at any other time, and Tasktap keeps no recording.</p>
         <Row name="Service">

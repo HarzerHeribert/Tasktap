@@ -247,6 +247,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
         return null;
       }
       if (cmd === 'plugin:window|is_focused') return true;
+      if (cmd === 'plugin:app|version') return '0.1.0';
       // The host's speech on this machine, when the check has one (`records.speech`, its status): `said` is the
       // helper's line for the dictation it listens to, `fed` the samples it was given, `ended` how each ended.
       if (cmd.startsWith('speech_') && records.speech) {

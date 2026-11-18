@@ -569,12 +569,22 @@ bars="[...document.querySelectorAll('*')].filter(e => { const s = getComputedSty
 js workspace "(__ws.show('home'), __ws.ui.fold = 'results', __motion.redraw(), 1)" >/dev/null
 sleep 0.3
 # A sheet taller than the window: it says there is more below, then, scrolled to its end, more above.
-js workspace "(__ws.command('settings'), 1)" >/dev/null
-more="document.querySelector('.sheet').dataset.more"
+js workspace "(__ws.open({ kind: 'settings', at: 'about' }), 1)" >/dev/null
+more="document.querySelector('.set-pane').dataset.more"
 [ -z "$(js workspace "$bars")" ] && [ -z "$(js notch "$bars")" ] && until_has workspace "eval $more" 3 "down" \
-  && js workspace "(document.querySelector('.sheet').scrollTop = 9999, 1)" >/dev/null && until_has workspace "eval $more" 3 "up" \
+  && js workspace "(document.querySelector('.set-pane').scrollTop = 9999, 1)" >/dev/null && until_has workspace "eval $more" 3 "up" \
   && pass "no scroller in either page shows a bar; one with more beyond an edge says which, for its content to dissolve there" || fail "scrolling without bars" "$(js workspace "$bars") $(js notch "$bars") $(js workspace "$more")"
-press workspace ".sheet" Escape >/dev/null
+# Settings is one sheet with its sections at its left: a section by its key, the arrows in the list, and it is the
+# window's: on the window's centre with the sidebar open. ⌘W closes it, as it closes whatever is in front.
+at="__ws.ui.sheet?.at + ' ' + document.querySelector('.set-nav [aria-selected=true]')?.textContent.replace(/[^A-Za-z]/g, '') + ' ' + document.activeElement?.id"
+press workspace ".sheet" 3 true >/dev/null
+until_has workspace "eval $at" 3 "agents Agents" && js workspace "(document.querySelector('#set-tab-agents').focus(), 1)" >/dev/null && press workspace "#set-tab-agents" ArrowDown >/dev/null \
+  && until_has workspace "eval $at" 3 "appearance Appearance set-tab-appearance" \
+  && [ "$(js workspace "(s => String(__ws.ui.sidebar && Math.abs((s.left + s.right) / 2 - innerWidth / 2) <= 0.5 && !document.querySelector('.wake canvas')))(document.querySelector('.sheet').getBoundingClientRect())")" = true ] \
+  && pass "Settings is one sheet on the window's centre, the sidebar open: ⌘3 shows Agents, the arrows move through its sections with the keyboard, and no glyphs are shed as it comes" || fail "Settings' sections" "$(js workspace "$at")"
+shot settings-appearance workspace
+js workspace "(__ws.command('close-tab'), 1)" >/dev/null
+until_has workspace "eval String(__ws.ui.sheet)" 3 "null" && pass "⌘W closes the sheet in front" || fail "⌘W with a sheet open"
 # The terminal: scrolled back, a pill says how many lines are below and returns to the end.
 js workspace "(__ws.show('$project'), 1)" >/dev/null
 pill="document.querySelector('.term:not([hidden]) .term-more')"
@@ -762,10 +772,11 @@ ask workspace "click .home .way .act" >/dev/null
 until_has workspace "eval $field.value" 3 "the footer in project" && clear_field && until_has workspace "eval String(__ws.records.thoughts.size)" 3 "$before" || fail "the thought placed by name is taken back"
 # Settings says what is on, and turns it off.
 js workspace "(__ws.command('settings'), 1)" >/dev/null
-until_has workspace "text .settings" 3 "By Fixture agent · fixture-small" && pass "Settings says who places the thoughts" || fail "Settings, Thoughts"
+until_has workspace "eval __ws.ui.sheet?.at" 3 "appearance" && press workspace ".sheet" 1 true >/dev/null
+until_has workspace "text .settings" 3 "By Fixture agent · fixture-small" && pass "Settings opens where it was last shown, and under Thoughts says who places them" || fail "Settings, Thoughts"
 shot settings-flows workspace
 js workspace "([...document.querySelectorAll('.settings .btn')].find(b => b.textContent.startsWith('What it is sent')).click(), 1)" >/dev/null
-until_has workspace "text .sheet .acts" 3 "Turn off" && press workspace ".sheet" Backspace true >/dev/null
+until_has workspace "text .sheet .sh-f" 3 "Turn off" && press workspace ".sheet" Backspace true >/dev/null
 until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.value) + ' ' + __ws.ui.sheet?.kind" 3 "null settings" && ask workspace "text .settings" | grep -q "By name" \
   && pass "Turn off ends it: the preference holds No, so it is not offered again, and Settings says thoughts go by name" || fail "turning placing off"
 js workspace "(__ws.dismiss(), 1)" >/dev/null
@@ -781,8 +792,8 @@ until_has workspace "eval String(__ws.records.prefs.has('speech_by'))" 3 "false"
 # Without a service the microphone says why in one line, and leads to where one is chosen.
 js workspace "(__ws.show('home'), document.querySelector('.home .mic').click(), 1)" >/dev/null
 until_has workspace "text .home .ways" 3 "Voice needs setting up first" && js workspace "(document.querySelector('.home .ways .btn').click(), 1)" >/dev/null \
-  && until_has workspace "eval __ws.ui.sheet?.kind + ' ' + __ws.ui.sheet?.at" 3 "settings speech" && ask workspace "text .settings" | grep -q "Needs a model first: Whisper large-v3 turbo, 574 MB" \
-  && pass "with nothing to turn speech into text the microphone says so in one line and leads to Speech in Settings, which says what on this Mac needs" || fail "voice with nothing set up"
+  && until_has workspace "eval __ws.ui.sheet?.kind + ' ' + __ws.ui.sheet?.at" 3 "settings voice" && ask workspace "text .settings" | grep -q "Needs a model first: Whisper large-v3 turbo, 574 MB" \
+  && pass "with nothing to turn speech into text the microphone says so in one line and leads to Voice in Settings, which says what on this Mac needs" || fail "voice with nothing set up"
 js workspace "([...document.querySelectorAll('.settings .seg button')].find(b => b.textContent === 'A speech service').click(), 1)" >/dev/null
 until_has workspace "text .sheet" 3 "What it is sent" || fail "the speech sheet opens"
 js workspace "(document.querySelectorAll('.terms .seg button')[2].click(), 1)" >/dev/null
@@ -938,7 +949,7 @@ sid="$(js workspace "[...__ws.records.sessions.values()].filter((s) => __ws.reco
 if [ -n "$sid" ]; then
   js workspace "(__ws.focusSession('$sid'), __ws.command('session'), 1)" >/dev/null
   said="$(js workspace "(s => [...__ws.records.thoughts.values()].find(t => t.session_id === s.id)?.text ?? '')(__ws.records.sessions.get('$sid'))")"
-  until_has workspace "eval String(__ws.ui.sheet?.kind === 'session' && document.querySelectorAll('.sheet .sx .line').length === 2 && document.querySelectorAll('.sheet .tn').length >= 1 && !!document.querySelector('.sheet .sx-a .btn'))" 5 "true" \
+  until_has workspace "eval String(__ws.ui.sheet?.kind === 'session' && document.querySelectorAll('.sheet .sx .line').length === 2 && document.querySelectorAll('.sheet .tn').length >= 1 && !!document.querySelector('.sheet .sh-f .key') && document.querySelectorAll('.sheet .sh-f .act').length >= 2)" 5 "true" \
     && ask workspace "text .sheet" | grep -q "Fixture agent" && { [ -z "$said" ] || ask workspace "text .sheet .sx" | grep -qF "$said"; } \
     && pass "⌘I shows a session's details in one sheet: its agent and state, its folder, what can be done, and each turn as the thought that began it ($(js workspace "document.querySelectorAll('.sheet .tn').length") of $(js workspace "__ws.records.sessions.get('$sid').turn") turns)" || fail "a session's details" "$(ask workspace "text .sheet" | tr '\n' '|' | cut -c1-300)"
   shot session-details workspace

@@ -10,7 +10,7 @@ import { useEffect, useLayoutEffect, useState } from 'preact/hooks';
 import { Capture, cap, offerable } from '../capture.tsx';
 import { next, pending, running, settle, Status, Told } from '../changes.tsx';
 import { Ask } from '../question.tsx';
-import { Answer, I, Mark, type State, elapsed, plural, when } from '../ui.tsx';
+import { Answer, I, Key, Mark, type State, elapsed, plural, when } from '../ui.tsx';
 import { laterWhy, placed } from '../way.ts';
 import { Light, useLight } from './light.tsx';
 import { popup } from './menu.ts';
@@ -243,13 +243,13 @@ export function Home() {
     <Light load={asks ? 'asks' : h.running.length ? 'busy' : 'quiet'} />
     <div class={`home${asks ? ' asks' : h.running.length ? ' busy' : ' quiet'}`} id="main" tabIndex={-1}>
       <div class={`hx${two ? ' two' : ''}${first ? ' first' : ''}`} onKeyDown={nav}>
-        <Capture raised agents={() => open({ kind: 'agents' })} speech={() => open({ kind: 'settings', at: 'speech' })} terms={() => open({ kind: 'placing' })}
+        <Capture raised agents={() => open({ kind: 'settings', at: 'agents' })} speech={() => open({ kind: 'settings', at: 'voice' })} terms={() => open({ kind: 'placing' })}
           // Once a folder is open and an agent signed in, before the first thought: the one moment placing is offered unasked.
           offer={folders && !records.thoughts.size && offerable()} />
         {first && (
           <p class="attach">
             <span>A thought starts in a folder. Until one is open, it is saved for later.</span>
-            <button type="button" class={`${cap.draft.trim() ? 'btn' : 'key'} lg`} onClick={() => open({ kind: 'open-workspace' })}>Open a folder…<kbd>⌘O</kbd></button>
+            <button type="button" class={`${cap.draft.trim() ? 'btn' : 'key'} lg`} onClick={() => open({ kind: 'open-workspace' })}><span>Open a folder…</span><Key k="⌘O" /></button>
           </p>
         )}
         <div class="cols">

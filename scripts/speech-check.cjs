@@ -77,7 +77,7 @@ async function main() {
   try {
     // ——— Settings › Speech, state by state ———
     let page = await start({ supported: true, model: 'none', have: 0, of: OF, error: null }, 'off');
-    const settings = () => page.evaluate(() => { window.__ws.ui.sheet = { kind: 'settings', at: 'speech' }; window.__motion.redraw(); });
+    const settings = () => page.evaluate(() => { window.__ws.ui.sheet = { kind: 'settings', at: 'voice' }; window.__motion.redraw(); });
     const row = () => page.evaluate(() => [...document.querySelectorAll('.settings .set')].find((r) => r.querySelector('.t')?.textContent === 'Turned into text')?.innerText.replace(/\s+/g, ' ') ?? '');
     const press = (label) => page.evaluate((l) => [...document.querySelectorAll('.settings .set button')].find((b) => b.textContent === l)?.click(), label);
     const tell = (status) => page.evaluate((s) => (Object.assign(window.__fake.records.speech, s), window.__fake.emit({ ...window.__fake.records.speech }, 'speech')), status);
@@ -128,7 +128,7 @@ async function main() {
     await hold(state(page).then((s) => s.asked === 0 && s.rows === 0), 'the microphone was asked for with nothing to write it down');
     await shot(page, 'voice-needs', '.capture');
     await page.locator('.home .ways .btn').click();
-    await hold(page.evaluate(() => window.__ws.ui.sheet?.kind === 'settings' && window.__ws.ui.sheet.at === 'speech'), 'Set up does not lead to Speech in Settings');
+    await hold(page.evaluate(() => window.__ws.ui.sheet?.kind === 'settings' && window.__ws.ui.sheet.at === 'voice'), 'Set up does not lead to Voice in Settings');
     await page.context().close();
 
     // ——— A thought spoken, written down on this Mac ———

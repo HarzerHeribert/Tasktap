@@ -4,7 +4,7 @@
 import type { AnswerQuestion, Question } from '../../core/proto/protocol.ts';
 import { agentName, call, fail, focus, openQuestions, pref, projectName, records, sessionName } from './page.ts';
 import { control, mine, talk } from './speech/record.ts';
-import { Answer, I, Level, Mark } from './ui.tsx';
+import { Answer, I, Key, Level, Mark } from './ui.tsx';
 import { briefOf } from './way.ts';
 
 type Response = AnswerQuestion extends infer A ? (A extends { id: string } ? Omit<A, 'id'> : never) : never;
@@ -76,7 +76,7 @@ export function Answers({ q, terminal, who }: { q: Question; terminal?: () => vo
     <div class="qa">
       {answers(q).map((label, i) => (i < 9 ? <Answer k={String(i + 1)} label={label} onClick={() => void choose(q, i)} /> : null))}
       <label class="reply" data-hears={hears || undefined}>
-        {d?.phase === 'recording' ? <Level l={d.level / 100} /> : <kbd>T</kbd>}
+        {d?.phase === 'recording' ? <Level l={d.level / 100} /> : <Key k="T" cap />}
         <input aria-label="Reply" placeholder={d?.phase === 'recording' ? 'Listening' : hears ? 'Writing it down…' : q.kind === 'text' ? 'Your answer' : 'Reply in your own words'} autocomplete="off" spellcheck={false}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.isComposing) {

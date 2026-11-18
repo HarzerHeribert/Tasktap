@@ -120,7 +120,8 @@ export function useLight() {
   const level = asks ? 1.2 : state === 'idle' ? 0.85 : 1;
   const active = (debug.active ?? ui.active) && !document.hidden;
   return {
-    state, look, level: fx, active, moves: fx === 'full' && active && ONGOING.has(state), lift: fx === 'full' && state === 'done' && now - last.at < 2500,
+    // Behind an open sheet it is a still picture: the sheet is what is read.
+    state, look, level: fx, active, moves: fx === 'full' && active && !ui.sheet && ONGOING.has(state), lift: fx === 'full' && state === 'done' && now - last.at < 2500,
     vars: fx === 'off' ? {} : {
       // The pool at the lower right lies under the most rows' times, the dimmest words: it stays at its default.
       '--c1': deep(c1, 0.0068 * level), '--glow': deep(c1, 0.02 * level), '--c2': deep(c2, 0.0056 * Math.min(level, 1.05), 0.7), '--c3': deep(c3, (state === 'failed' ? 0.008 : 0.005) * level),

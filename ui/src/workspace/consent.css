@@ -3,12 +3,10 @@
    agent, the chosen one a selected row; the instructions open under one quiet line. */
 .terms{padding-bottom:var(--sp1)}
 .terms>p{margin:10px 18px 0}
+.terms>p:first-child{margin-top:0}
 .terms>p code{overflow-wrap:anywhere}
 .terms>p:first-child{margin-bottom:var(--sp2)}
 .terms>.set:first-of-type{border-top:1px solid var(--line)}
-.terms .btn{background:var(--fill);box-shadow:none}
-.terms .btn:hover{background:var(--fill-hover)}
-.terms h3{margin:18px 18px 6px;font:var(--f-section);color:var(--fg2)}
 .gets,.sends{display:grid;gap:5px;margin:12px 18px 0;list-style:none;font:var(--f-text);color:var(--fg)}
 .sends{margin-top:0;font:var(--f-small);color:var(--fg2)}
 :is(.gets,.sends) li{display:grid;grid-template-columns:16px minmax(0,1fr);text-wrap:pretty}
@@ -24,7 +22,7 @@
 .disc .i{width:12px;height:12px;transition:transform var(--t-fast)}
 .disc[aria-expanded=true] .i{transform:rotate(90deg)}
 .instr{margin:6px 18px 0 24px;padding-left:12px;border-left:1px solid var(--line2);font:var(--f-num);line-height:17px;color:var(--fg2);white-space:pre-wrap;overflow-wrap:anywhere;-webkit-user-select:text;user-select:text}
-.warn,.set .v.warn{color:var(--asks)}
+.warn,.set .v.warn,.sheet .terms>p.warn{color:var(--asks)}
 .set .v.dim{color:var(--fg3)}
 .set .text.wide{width:min(100%,360px)}
 .set .text:read-only{color:var(--fg2)}

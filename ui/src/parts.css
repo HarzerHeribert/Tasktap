@@ -7,7 +7,8 @@ body{font:var(--f-text);color:var(--fg);-webkit-font-smoothing:antialiased;text-
 :where(button,input,textarea,select){font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;outline:0;text-align:inherit;border-radius:0}
 :where(input,textarea){-webkit-user-select:text;user-select:text}
 button{cursor:default}
-kbd{font:inherit}
+/* A key (ui.tsx Key): one role, on a metal cap or as a hint after a label. */
+kbd{flex:none;font:var(--f-key);color:var(--fg2);white-space:nowrap}
 /* Weight is a role's, never a tag's. */
 :where(b,strong){font-weight:inherit}
 i{font-style:normal}
@@ -68,15 +69,15 @@ i{font-style:normal}
    Metal: the key and the caps that show a key. Two sizes of key: 24 px, and 34 px on Home's surface. Its face is flat;
    under the pointer it brightens; pressed, it travels a pixel and its shadow goes; with nothing to do it is quiet;
    while its work is on its way it shows the wave. */
-.key,:is(.ans,.act,.reply)>kbd{background:var(--lit) 0 100%/100% 1px no-repeat,var(--key);color:var(--ink);box-shadow:var(--key-edge)}
-:is(.ans,.act,.reply)>kbd{display:inline-grid;place-items:center;flex:none;min-width:var(--key-h);height:var(--key-h);padding:0 4px;border-radius:var(--r1);font:var(--f-key)}
+.key,kbd.keycap{background:var(--lit) 0 100%/100% 1px no-repeat,var(--key);color:var(--ink);box-shadow:var(--key-edge)}
+kbd.keycap{display:inline-grid;grid-auto-flow:column;place-items:center;min-width:var(--key-h);height:var(--key-h);padding:0 4px;border-radius:var(--r1)}
 kbd .i{width:12px;height:12px;stroke-width:1.6px}
 .key{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;height:var(--ctl-h);padding:0 10px 0 var(--sp2);border-radius:var(--r1);font:var(--f-title);white-space:nowrap}
 .key .i{width:14px;height:14px;stroke-width:1.5px}
-.key kbd{font:var(--f-num);opacity:.62}
+.key kbd{color:rgb(13 13 14/.7)}
 .key .st{color:var(--ink)}
 .key:hover{filter:brightness(1.07)}
-.key:active,:is(.ans,.act):active>kbd{transform:translateY(1px);box-shadow:var(--key-down);filter:brightness(.93)}
+.key:active,:is(.ans,.act):active>kbd.keycap{transform:translateY(1px);box-shadow:var(--key-down);filter:brightness(.93)}
 .key:disabled{opacity:1;background:var(--fill);color:var(--fg3);box-shadow:none}
 .key[aria-busy]{pointer-events:none}
 .lg:is(.key,.btn){height:var(--ctl-l);gap:var(--sp2);padding:0 14px 0 var(--sp3);border-radius:var(--r-in);font:var(--f-title)}
@@ -88,7 +89,11 @@ kbd .i{width:12px;height:12px;stroke-width:1.6px}
 .ans.primary span,.act.primary span{font:var(--f-title)}
 .act.danger span{color:var(--fail)}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--sp2);height:var(--ctl-h);padding:0 10px;border-radius:var(--r1);font:var(--f-small);color:var(--fg);box-shadow:inset 0 0 0 1px var(--line2);white-space:nowrap;flex:none}
-.btn kbd{font:var(--f-num);color:var(--fg3)}
+/* A label and its key (ui.tsx Key): the hint after the label, at one distance, in the key's own role. Where a row has
+   no room for both, the hint goes: it wraps under the label and is cut off there, and stays in the tooltip and the
+   menu. It is never made smaller, and never squeezes the label. */
+:is(.btn,.key,.newt,.mic):has(>kbd){flex:0 1 auto;flex-wrap:wrap;align-content:flex-start;column-gap:var(--sp2);min-width:min-content;overflow:hidden}
+:is(.btn,.key,.newt,.mic):has(>kbd)>span{display:inline-flex;align-items:center;gap:inherit;height:100%}
 /* A field is a line: a hairline at rest, the lit edge while it has the keyboard. */
 .reply{display:inline-flex;align-items:center;gap:var(--sp2);flex:1 1 180px;min-width:0;height:var(--row-h);padding:0 6px;border-radius:var(--r1);color:var(--fg)}
 .reply input{flex:1;min-width:0;width:0;font:var(--f-text)}

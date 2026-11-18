@@ -24,10 +24,9 @@ export type Sheet =
   | { kind: 'move'; project: string; id: string }
   | { kind: 'capture' }
   | { kind: 'reply'; question: string }
-  | { kind: 'settings'; at?: 'thoughts' | 'speech' }
+  | { kind: 'settings'; at?: 'thoughts' | 'voice' | 'agents' | 'appearance' | 'terminal' | 'about' }
   | { kind: 'placing'; back?: boolean }
   | { kind: 'speech' }
-  | { kind: 'agents' }
   | { kind: 'review'; thought: string }
   | { kind: 'settle'; thought: string; keep: boolean }
   | { kind: 'send'; thought: string }
@@ -66,9 +65,22 @@ export const ui = {
   peek: false,
 };
 
-export const open = (d: Sheet) => ((ui.sheet = d), redraw());
+/** What had the keyboard when a sheet came down: it has it again when the sheet is put away, unless what put it
+ *  away sends the keyboard somewhere else. */
+let opener: Element | null = null;
+export const open = (d: Sheet) => {
+  if (!ui.sheet) opener = document.activeElement;
+  ui.sheet = d;
+  redraw();
+};
 /** Puts the sheet away. A thought begun in a session's pane was a follow-up to that session only while its sheet was up. */
-export const dismiss = () => ((ui.sheet = null), (cap.current = null), redraw());
+export const dismiss = () => {
+  if (ui.sheet && opener instanceof HTMLElement && opener !== document.body && opener.isConnected) focus(opener);
+  opener = null;
+  ui.sheet = null;
+  cap.current = null;
+  redraw();
+};
 
 // ——— Layouts, written through to the core ———
 

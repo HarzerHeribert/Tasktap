@@ -19,7 +19,7 @@ export const hooks = {
   // An agent is signed in from the workspace window, where the same ring leads to it.
   agents: () => void call('host.show', { surface: 'workspace' }).then(fold, fail),
   // A speech service is chosen in the workspace's Settings, at Speech.
-  speech: () => void call('host.show', { surface: 'workspace', at: 'settings:speech' }).then(fold, fail),
+  speech: () => void call('host.show', { surface: 'workspace', at: 'settings:voice' }).then(fold, fail),
 };
 
 const stateOf = (t: Thought): State =>

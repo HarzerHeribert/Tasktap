@@ -59,7 +59,7 @@
   --f-section:600 11px/14px var(--ui);   /* a section's label: Workspaces, Running, Results, For later, Terminal */
   --f-cap:400 11px/14px var(--ui);       /* fine print: a hint, the word over a brief */
   --f-num:400 11px/14px var(--mono);     /* figures: times, counts, key hints, paths, a diffstat */
-  --f-key:600 11px/18px var(--mono);     /* the glyph on a key cap */
+  --f-key:500 12px/18px var(--ui);       /* a key, on a cap or as a hint beside a label: never smaller (ui.tsx Key) */
   --f-code:400 12px/18px var(--mono);    /* code, and a shell's name */
   --f-term:400 13px/18px var(--mono);    /* a terminal's default; the person's terminal settings win */
   --ls-thought:-.014em; --ls-question:-.008em;  /* the two large roles are set a hair tighter; every other role at 0 */
@@ -68,7 +68,8 @@
   --side-w:224px; --bar-h:38px; --tab-h:30px; --row-h:28px; --rail-h:26px; --ctl-h:24px; --ctl-l:34px; --key-h:18px;
   --fade:24px;         /* how far content dissolves at an edge it scrolls beyond */
   --home-w:1040px; --home-wide:1520px; --home-row:36px; --home-gutter:36px; --cap-w:720px;
-  --notch-w:420px; --sheet-w:420px; --cap-sheet-w:460px; --list-sheet-w:640px;
+  --notch-w:420px;
+  --sheet-s:480px; --sheet-m:640px; --sheet-l:900px;  /* a sheet: a quick decision, a form or a list, a view to read */
   /* radii */
   --r1:3px;   /* controls, key caps */
   --r2:6px;   /* host-drawn panels */

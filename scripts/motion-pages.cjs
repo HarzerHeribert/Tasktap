@@ -228,6 +228,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
         return null;
       }
       if (cmd === 'plugin:window|is_focused') return true;
+      if (cmd === 'plugin:app|version') return '0.1.0';
       return null;
     },
   };

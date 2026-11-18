@@ -13,7 +13,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'preact/hooks';
 import { uuid7 } from './client.ts';
 import { cancel, control, end, follow, mine, place, setAim, talk } from './speech/record.ts';
-import { I, Level, Mark, Ring, Wave, madeAt } from './ui.tsx';
+import { I, Key, Level, Mark, Ring, Wave, madeAt } from './ui.tsx';
 import { agent, agentName, call, fail, focus, openQuestions, page, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
 import { back, briefOf, clock, hold, laterWhy, leave, onWay, placed, ring, step } from './way.ts';
 
@@ -308,8 +308,8 @@ function Hearing({ d, raised, said }: { d: Dictation | undefined; raised: boolea
       {!said && <b>{hears(d)}</b>}
       {time && <time>{time}</time>}
       <span class="hear-x">{!writing && !talk.latched && d && (talk.kind === 'thought' ? 'Let go to send' : 'Let go to add it')}</span>
-      {!writing && d && talk.kind === 'thought' && <button type="button" class="act" onClick={() => end(true)}><kbd>E</kbd><span>Edit first</span></button>}
-      <button type="button" class="act" onClick={cancel}><kbd>esc</kbd><span>Cancel</span></button>
+      {!writing && d && talk.kind === 'thought' && <button type="button" class="act" onClick={() => end(true)}><Key k="E" cap /><span>Edit first</span></button>}
+      <button type="button" class="act" onClick={cancel}><Key k="esc" cap /><span>Cancel</span></button>
       {!writing && talk.latched && <button type="button" class={`key${raised ? ' lg' : ''}`} onClick={() => end()}><I n="ret" /><span>Done</span></button>}
     </div>
   );
@@ -338,7 +338,7 @@ function Going({ t, open }: { t: Thought; open: boolean }) {
           <><I n={t.session_id ? 'term' : 'arrow'} /><b>{t.session_id ? `Follow-up: ${sessionName(t.session_id)}` : projectName(t.project_id)}</b></>
         )}
         {at === 'briefing' && <em>Writing the brief…</em>}
-        <button type="button" class="act" onClick={() => void undo(t)}><kbd>⌘Z</kbd><span>Undo</span></button>
+        <button type="button" class="act" onClick={() => void undo(t)}><Key k="⌘Z" cap /><span>Undo</span></button>
       </p>
       {open && brief && <p class="way-b"><span>Brief{t.route?.title && <b>{t.route.title}</b>}</span>{brief}</p>}
       {open && (brief || t.source === 'voice') && <p class="way-w"><span>You said</span>{t.text}</p>}
@@ -354,7 +354,7 @@ function Failed({ d }: { d: Dictation }) {
     <section class="way failed" role="alert" data-dictation={d.id}>
       <p class="way-h"><Mark s="failed" label="" /><b>{d.error ?? 'It could not be written down'}</b>
         {d.text && <button type="button" class="btn" onClick={() => (place(d.text), dismiss())}>Use these words</button>}
-        <button type="button" class="act" onClick={dismiss}><kbd>esc</kbd><span>Dismiss</span></button>
+        <button type="button" class="act" onClick={dismiss}><Key k="esc" cap /><span>Dismiss</span></button>
       </p>
       {d.text && <p class="way-w"><span>Heard</span>{d.text}</p>}
     </section>
@@ -400,7 +400,7 @@ function Way({ hooks, raised, offer }: { hooks: Hooks; raised: boolean; offer: b
       {talk.said && talk.said !== 'service' && line(talk.said)}
       {all.map((x, i) => <Going key={x.id} t={x} open={i === 0} />)}
       {sent?.to === 'later' && t && line(projects().some((p) => p.kind === 'folder') ? 'Saved for later' : 'Saved for later, until a folder is open',
-        <button type="button" class="act" onClick={() => void undo('later')}><kbd>⌘Z</kbd><span>Undo</span></button>)}
+        <button type="button" class="act" onClick={() => void undo('later')}><Key k="⌘Z" cap /><span>Undo</span></button>)}
       {sent && sent.to !== 'later' && t && !onWay(t) && (
         at === 'asked' ? line('Where should it go? Its question is open.')
           : at === 'later' ? line(later)
@@ -535,7 +535,7 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
             <button type="button" class="mic" data-off={!service || undefined} aria-label="Talk"
               title={service ? 'Hold to talk, or hold ⌥Space. A click keeps it on until the next' : 'Voice needs a speech service first'}
               onPointerDown={(e) => control.down(e, area.current)} onClick={(e) => control.key(e, area.current)}>
-              <I n="mic" /><kbd>⌥Space</kbd>
+              <span><I n="mic" /></span><Key k="⌥Space" />
             </button>
             <button type="submit" class={`key${raised ? ' lg' : ''}`} disabled={!has && !now && !busy} aria-busy={busy || undefined} title={now ? 'Start it now' : undefined}>
               {busy ? <Mark s="working" label="" /> : <I n="ret" />}<span>{does}</span>

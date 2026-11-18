@@ -5,7 +5,7 @@ import type { Question } from '../../../core/proto/protocol.ts';
 import { useEffect } from 'preact/hooks';
 import { Capture } from '../capture.tsx';
 import { Ask } from '../question.tsx';
-import { when } from '../ui.tsx';
+import { Key, when } from '../ui.tsx';
 import { hooks } from './home.tsx';
 import { agentName, call, fail, page, projectName, records, redraw, ui } from './model.ts';
 import { peek } from './panel.ts';
@@ -58,7 +58,7 @@ export function Answer({ questions }: { questions: Question[] }) {
         {about && <p class="ctx">{q.source === 'permission' ? `${who} asks permission · ${about}` : about}</p>}
         <Ask q={q} size="notch" who={who} terminal={q.reply_via === 'terminal' && s ? () => peek(s.id) : undefined} />
         {ui.capturing ? <div class="under"><Capture {...hooks} /></div> : (
-          <button type="button" class="act quiet" onClick={capture}><kbd>C</kbd><span>Put a thought in</span></button>
+          <button type="button" class="act quiet" onClick={capture}><Key k="C" cap /><span>Put a thought in</span></button>
         )}
       </div>
     </div>

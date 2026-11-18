@@ -1,51 +1,70 @@
-// Sheets: the one mechanism for every interruption inside the window. A sheet hangs from the title bar's lower edge,
-// dims the window behind it, takes the keyboard and keeps it until it is dismissed: Return is its default, ⌘⌫ its
-// destructive choice, Esc cancels, and so does a click on the dimmed window.
+// Sheets: the one mechanism for every interruption inside the window, and one family. A sheet hangs from the title
+// bar's lower edge, centred on the window whatever the sidebar does, dims the window behind it, takes the keyboard and
+// keeps it until it is dismissed. Every sheet is one frame in one of three sizes, by what it holds (a quick decision,
+// a form or a list, a view to read), with one layout: its title, its body (the only part that scrolls), and a foot
+// with the way out and the answer at the right, the answer last and in metal when Return gives it, and anything else
+// at the left. Return is the metal key, ⌘⌫ the destructive choice, Esc the way out, and so is a click on the dimmed
+// window. A sheet comes down plainly: a short drop from behind the bar. None sheds glyphs: a wake lies only where
+// there are no words (wake.ts), and a sheet is all words.
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Capture, cap } from '../capture.tsx';
 import { uuid7 } from '../client.ts';
 import { type Review, Told, lost, next, pending, review, running, settle } from '../changes.tsx';
 import { Ask } from '../question.tsx';
-import { Answer, Diffstat, I, Ring } from '../ui.tsx';
+import { Answer, Diffstat, I, Key } from '../ui.tsx';
 import * as L from './layout.ts';
 import {
-  LOOSE, agent, agentName, call, dismiss, fail, finishClose, focus, focusTerminal, keepInBackground, label, layout, newTerminal, open, openWorkspace,
+  agentName, call, dismiss, fail, finishClose, focus, focusTerminal, keepInBackground, label, layout, open, openWorkspace,
   pickFolder, projectName, projects, records, setLayout, stop, title, ui,
 } from './model.ts';
 import { PlacingSheet, SpeechSheet } from './consent.tsx';
-import { wakeLook } from './light.tsx';
 import { SessionSheet } from './session.tsx';
 import { Settings } from './settings.tsx';
 
 /** A sheet replaced by another (Review, then Discard) is not dropped again. */
 let wasOpen = false;
+const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 import { engines } from './terminal.ts';
-import { wake } from './wake.ts';
 
 export type Act = { k: string; label: string; do: () => void; kind?: 'primary' | 'danger' };
 
-/** The sheet's frame: title, words, and its choices as rows of key cap and label. `bare`: the choices have their keys,
- *  and the sheet shows them itself. */
-export function Frame({ title: name, children, acts = [], wide, bare }: { title: ComponentChildren; children?: ComponentChildren; acts?: Act[]; wide?: 'list' | 'capture' | 'review'; bare?: boolean }) {
-  const ref = useRef<HTMLDivElement>(null);
+/** The frame of every sheet. `size`: a quick decision (the default), a form or a list (`md`), a view to read (`lg`).
+ *  `choices`: answers that are a list of their own (where to move, where to send), each a row of the body with its
+ *  key. `acts`: the foot. The way out (Esc) is always there, "Close" unless the sheet names it. `bare`: the body is
+ *  the Composer, which has its own key, so there is no title to read and no foot. */
+export function Frame({ title: name, aside, children, choices = [], acts = [], size = 'sm', bare }: {
+  title: ComponentChildren; aside?: ComponentChildren; children?: ComponentChildren; choices?: Act[]; acts?: Act[]; size?: 'sm' | 'md' | 'lg'; bare?: boolean;
+}) {
+  const out = acts.find((x) => x.k === 'esc') ?? { k: 'esc', label: 'Close', do: dismiss };
+  const rest = acts.filter((x) => x.k !== 'esc');
+  // The answer: the one Return gives, else the only one there is, unless the answers are a list of their own.
+  const main = rest.find((x) => x.kind === 'primary') ?? (rest.length === 1 && !choices.length ? rest[0] : undefined);
   const keys = (e: KeyboardEvent) => {
     const typing = (e.target as HTMLElement).matches('input, textarea');
-    const act = acts.find((a) => matches(a.k, e, typing));
-    if (e.key === 'Escape' && !act) return (e.preventDefault(), dismiss());
+    const act = [...choices, ...rest, out].find((x) => matches(x.k, e, typing));
     if (!act) return;
     e.preventDefault();
     e.stopPropagation();
     act.do();
   };
+  const answer = (x: Act) => <Answer cls="act" k={x.k} label={x.label} danger={x.kind === 'danger'} onClick={x.do} />;
   return (
-    <div class={`sheet${wide ? ' ' + wide : ''}`} role="dialog" aria-modal="true" aria-labelledby="sheet-title" ref={ref} tabIndex={-1} onKeyDown={keys}>
-      <header><h2 id="sheet-title">{name}</h2>{wide && wide !== 'capture' && <kbd class="esc">esc</kbd>}</header>
-      {children}
-      {acts.length > 0 && !bare && (
-        <div class="acts">
-          {acts.map((a) => <Answer cls="act" k={a.k} label={a.label} primary={a.kind === 'primary'} danger={a.kind === 'danger'} onClick={a.do} />)}
-        </div>
+    <div class={`sheet ${size}${bare ? ' bare' : ''}`} role="dialog" aria-modal="true" aria-labelledby="sheet-title" tabIndex={-1} onKeyDown={keys}>
+      <header class="sh-h"><h2 id="sheet-title">{name}</h2>{aside}</header>
+      <div class="sh-b">
+        {children}
+        {choices.length > 0 && <div class="choices">{choices.map(answer)}</div>}
+      </div>
+      {!bare && (
+        <footer class="sh-f">
+          {rest.filter((x) => x !== main).map(answer)}
+          <span class="sh-r">
+            {answer(out)}
+            {main && (main.kind !== 'primary' ? answer(main)
+              : <button type="button" class="key" onClick={main.do}>{main.k === '↩' && <I n="ret" />}<span>{main.label}</span>{main.k !== '↩' && <Key k={main.k} />}</button>)}
+          </span>
+        </footer>
       )}
     </div>
   );
@@ -91,7 +110,7 @@ function Picker() {
   const all = [...records.projects.values()].filter((p) => !p.open && p.kind === 'folder');
   const closed = all.filter((p) => words.every((w) => `${p.name} ${p.folder}`.toLocaleLowerCase().includes(w)));
   return (
-    <Frame wide="list" title="Open a folder" acts={[{ k: '↩', label: 'Choose a folder…', do: () => void pickFolder(), kind: 'primary' }, cancel]}>
+    <Frame size="md" title="Open a folder" acts={[{ k: '↩', label: 'Choose a folder…', do: () => void pickFolder(), kind: 'primary' }, cancel]}>
       <p>It becomes a workspace. A thought goes to the folder it belongs to.</p>
       {all.length > 0 && (
         <>
@@ -131,7 +150,7 @@ function ReviewSheet({ id }: { id: string }) {
     { k: 'esc', label: 'Close', do: dismiss },
   ];
   return (
-    <Frame wide="review" title={<>{title(t)} {changes && <Diffstat w={changes.workdir} />}</>} acts={acts}>
+    <Frame size="lg" title={title(t)} aside={changes && <Diffstat w={changes.workdir} />} acts={acts}>
       <div class="review">
         {changes && <Told t={changes} />}
         {error && <p class="said">{error}</p>}
@@ -212,26 +231,21 @@ function Body() {
       const from = L.paneOf(l, d.id);
       const others = L.panes(l).filter((p) => p !== from);
       return (
-        <Frame title={`Move ${quote(label(d.id))} to`} acts={[
-          ...others.slice(0, 9).map((p, i) => ({ k: String(i + 1), label: p.active ? `Beside ${label(p.active)}` : 'An empty pane', do: () => {
-            setLayout(d.project, L.move(layout(d.project), d.id, p.id));
-            dismiss();
-            focusTerminal(d.id);
-          } })),
-          cancel,
-        ]} />
+        <Frame title={`Move ${quote(label(d.id))} to`} acts={[cancel]} choices={others.slice(0, 9).map((p, i) => ({ k: String(i + 1), label: p.active ? `Beside ${label(p.active)}` : 'An empty pane', do: () => {
+          setLayout(d.project, L.move(layout(d.project), d.id, p.id));
+          dismiss();
+          focusTerminal(d.id);
+        } }))} />
       );
     }
     case 'capture':
       return (
-        <Frame wide="capture" title="New task">
-          <Capture started={dismiss} agents={() => open({ kind: 'agents' })} speech={() => open({ kind: 'settings', at: 'speech' })} terms={() => open({ kind: 'placing' })} />
+        <Frame bare title="New task">
+          <Capture started={dismiss} agents={() => open({ kind: 'settings', at: 'agents' })} speech={() => open({ kind: 'settings', at: 'voice' })} terms={() => open({ kind: 'placing' })} />
         </Frame>
       );
     case 'settings':
-      return <Frame wide="list" title="Settings"><Settings /></Frame>;
-    case 'agents':
-      return <Frame wide="list" title="Agents"><Agents /></Frame>;
+      return <Frame size="lg" title="Settings"><Settings at={d.at ?? 'thoughts'} /></Frame>;
     case 'placing':
       return <PlacingSheet back={d.back} />;
     case 'speech':
@@ -274,8 +288,7 @@ function Body() {
         void call('thought.update', { id: d.thought, project_id: project }).catch(fail);
       };
       return (
-        <Frame title={t ? `Send ${quote(title(t))} to` : 'Send to'} acts={[
-          ...folders.slice(0, 9).map((p, i) => ({ k: String(i + 1), label: p.name, do: () => to(p.id) })),
+        <Frame title={t ? `Send ${quote(title(t))} to` : 'Send to'} choices={folders.slice(0, 9).map((p, i) => ({ k: String(i + 1), label: p.name, do: () => to(p.id) }))} acts={[
           { k: '⌘O', label: 'Open a folder…', do: async () => {
             const folder = await call('host.pick', { folder: true }).catch(fail);
             if (!folder) return;
@@ -289,53 +302,23 @@ function Body() {
   }
 }
 
-/** The agents this Mac has, with how each is signed in, and a terminal to sign in to one that is not. One of them is
- *  the default: it runs a thought unless another ring was picked for that thought in the Composer. Only here is the
- *  default changed (the `agent` preference). */
-const signIn: Record<string, string> = { claude: 'claude', codex: 'codex login' };
-export function Agents() {
-  const agents = [...records.agents.values()];
-  if (!agents.length) return <p>Looking for agents…</p>;
-  const usual = agent()?.id;
-  return (
-    <>
-    <p>The default runs your thoughts. For one thought, pick another by its ring where you write it.</p>
-    <div class="list">
-      {agents.map((a) => {
-        const off = a.installed && a.signed_in === false;
-        const state = !a.installed ? 'not installed' : a.signed_in === false ? 'not signed in' : a.signed_in ? 'signed in' : 'installed';
-        return (
-          <div class="line ag" data-s={off || !a.installed ? 'off' : undefined}>
-            <Ring agent={a.id} s={off || !a.installed ? 'off' : ''} />
-            <span class="t">{agentName(a.id)}</span>
-            <span class="x">{[a.version, state, a.identity].filter(Boolean).join(' · ')}</span>
-            {off && signIn[a.id] && (
-              <button type="button" class="btn" onClick={() => (dismiss(), newTerminal(LOOSE, { title: `Sign in to ${agentName(a.id)}`, type: signIn[a.id] }))}>Sign in</button>
-            )}
-            {a.id === usual ? <span class="x def">Default</span> : a.installed && !off && (
-              <button type="button" class="btn" onClick={() => void call('put', { c: 'prefs', id: 'agent', patch: a.id }).catch(fail)}>Make default</button>
-            )}
-          </div>
-        );
-      })}
-    </div>
-    </>
-  );
-}
-
 export function Sheets() {
   const d = ui.sheet;
-  const key = d ? JSON.stringify(d) : '';
+  // Settings is one sheet whichever of its sections is shown.
+  const key = !d ? '' : d.kind === 'settings' ? d.kind : JSON.stringify(d);
   useLayoutEffect(() => {
     if (!d) return;
-    // The sheet takes the keyboard at once, without the ring a key press would show.
     const sheet = document.querySelector<HTMLElement>('.sheet');
-    // As it drops, its edge sheds a short wake of glyphs on the sheet it reveals.
-    if (sheet && !wasOpen) wake(sheet, 'y', wakeLook());
+    // It comes down plainly, a short way from behind the bar, as the window dims; one that replaces another is there at once.
+    if (sheet && !wasOpen && !reduced.matches) {
+      const drop = { duration: 160, easing: 'cubic-bezier(.19,.76,.19,1)' };
+      sheet.animate({ opacity: [0, 1], transform: ['translate(-50%,-14px)', 'translate(-50%,0)'] }, drop);
+      sheet.previousElementSibling?.animate({ opacity: [0, 1] }, drop);
+    }
     wasOpen = true;
-    focus(sheet?.querySelector<HTMLElement>('#capture-input, #find-text, .field input, .ask-notch .ans, .reply input') ?? sheet);
-    // Settings opened at one of its parts shows that part.
-    if (d.kind === 'settings' && d.at) document.getElementById(`set-${d.at}`)?.scrollIntoView({ block: 'start' });
+    // The sheet takes the keyboard at once, without the ring a key press would show: the first thing a person would
+    // use where there is one (a field, the first answer, Settings' open section), else the sheet, whose keys then act.
+    focus(sheet?.querySelector<HTMLElement>('#capture-input, #find-text, .field input, .ask-notch .ans, .reply input, [role=tab][aria-selected=true]') ?? sheet);
   }, [key]);
   // Tab stays inside the sheet.
   useEffect(() => {
@@ -343,7 +326,7 @@ export function Sheets() {
     const trap = (e: KeyboardEvent) => {
       const sheet = document.querySelector<HTMLElement>('.sheet');
       if (e.key !== 'Tab' || !sheet) return;
-      const all = [...sheet.querySelectorAll<HTMLElement>('button, input, [tabindex="0"]')].filter((x) => !x.hidden);
+      const all = [...sheet.querySelectorAll<HTMLElement>('button, input, [tabindex="0"]')].filter((x) => !x.hidden && x.tabIndex >= 0);
       const at = all.indexOf(document.activeElement as HTMLElement);
       if (at === -1 || (e.shiftKey ? at === 0 : at === all.length - 1)) {
         e.preventDefault();

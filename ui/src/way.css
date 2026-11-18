@@ -33,7 +33,6 @@
 .mic{display:inline-flex;align-items:center;gap:5px;flex:none;height:var(--row-h);padding:0 6px;border-radius:var(--r1);color:var(--fg2);touch-action:none}
 .mic:hover{background:var(--hover);color:var(--fg)}
 .mic:active{background:var(--sel)}
-.mic kbd{font:var(--f-num);color:var(--fg3)}
 .mic[data-off] .i{opacity:.55}
 .capture.raised .mic{padding:0 9px;border-radius:var(--r-in)}
 .cap-to+.mic{margin-left:auto}

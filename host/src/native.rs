@@ -81,10 +81,21 @@ pub fn pointer() -> (f64, f64, bool) {
     let p = NSEvent::mouseLocation();
     (p.x, p.y, NSEvent::pressedMouseButtons() != 0)
 }
-pub fn frame(ptr: usize) -> Rect {
+/// A screen, as the notch is anchored to one. Every screen of a Mac is in one set of coordinates, the pointer's
+/// and the panel's too, so nothing here asks which screen; Windows does (edge.rs).
+pub type Screen = Retained<NSScreen>;
+pub fn within(_: &NSScreen, x: f64, y: f64) -> (f64, f64) {
+    (x, y)
+}
+/// What only the tab on Windows needs: its outline as a window's shape, a click that gives the open sheet the
+/// keyboard, and the pointer read while it is open. A panel has all three from AppKit.
+pub fn outline(_: usize, _: &NSScreen, _: &Geometry, _: &[(f64, f64)]) {}
+pub fn focusable(_: usize, _: bool) {}
+pub fn watching(_: usize, _: bool) {}
+pub fn frame(ptr: usize, _: &NSScreen) -> Rect {
     rect(panel(ptr).frame())
 }
-pub fn set_frame(ptr: usize, r: Rect) {
+pub fn set_frame(ptr: usize, _: &NSScreen, r: Rect) {
     let target = NSRect::new(NSPoint::new(r.x, r.y), NSSize::new(r.w, r.h));
     if panel(ptr).frame() != target {
         panel(ptr).setFrame_display(target, true)

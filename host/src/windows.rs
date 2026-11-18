@@ -1,9 +1,10 @@
 //! What `native.rs` is on the Mac, on Windows: the core's named pipe as a stream the bridge can
-//! read on one thread and write on another, the clipboard and the power state. The tab that
-//! stands for the notch has its arithmetic (`tab.rs`) and no window yet, so everything the notch
-//! asks of a panel is answered here as "there is none" (plan, "The notch on Windows").
-use crate::geometry::{Geometry, Rect};
-use crate::tab::Display;
+//! read on one thread and write on another, the clipboard and the power state, the folder dialog and what a
+//! web view is held to. What the notch asks of a panel is the tab's window, in `edge.rs`.
+pub use crate::edge::{
+    app_active, focusable, frame, geometry, give_back_key, home, ignore_mouse, is_key, make_key, outline, pointer,
+    screen_frame, screens, set_frame, show, watching, window_number, within, Screen,
+};
 use sha2::{Digest, Sha256};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -333,8 +334,7 @@ pub fn low_power() -> bool {
 pub fn watch_power(_changed: impl Fn() + 'static) {}
 
 // ---------------------------------------------------------------------------------------------
-// The tab: its place is known (`tab.rs`), its window is not built. `panel` stays 0, which
-// notch.rs takes as "no panel" before it asks for anything below.
+// The folder dialog, what a web view is held to, and a page's picture.
 
 /// The system's own folder dialog, modal to the window `owner`: the folder the person chose, as they know it (no
 /// `\\?\` in front), or none when they closed it without choosing, which is no error. It starts where Windows
@@ -476,37 +476,6 @@ pub fn snapshot(view: &tauri::webview::PlatformWebview, path: &Path, done: impl 
     if asked.is_err() {
         done(false);
     }
-}
-
-pub fn screens() -> Vec<Display> {
-    Vec::new()
-}
-pub fn screen_frame(d: &Display) -> Rect {
-    let [x, y, w, h] = d.area;
-    Rect { x, y, w, h }
-}
-pub fn geometry(d: &Display) -> Geometry {
-    d.geometry()
-}
-pub fn pointer() -> (f64, f64, bool) {
-    (0.0, 0.0, false)
-}
-pub fn frame(_panel: usize) -> Rect {
-    Rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 }
-}
-pub fn set_frame(_panel: usize, _frame: Rect) {}
-pub fn show(_panel: usize) {}
-pub fn ignore_mouse(_panel: usize, _ignore: bool) {}
-pub fn make_key(_panel: usize) {}
-pub fn is_key(_panel: usize) -> bool {
-    false
-}
-pub fn give_back_key(_panel: usize) {}
-pub fn window_number(_panel: usize) -> isize {
-    0
-}
-pub fn app_active() -> bool {
-    false
 }
 
 #[cfg(test)]

@@ -2,7 +2,7 @@
 //! housing, so every display is the Mac's display without one: the tab hangs from the top edge,
 //! centred, and opens into the same sheet. This is only the arithmetic between what Windows says
 //! about a display (pixels, origin at the primary display's top-left corner, y downwards) and
-//! the notch's own geometry (points, y upwards); the window itself is not built yet.
+//! the notch's own geometry (points, y upwards); the window that hangs there is `edge.rs`.
 use crate::geometry::{Geometry, Rect};
 
 /// A display as Windows describes it (`Monitor::position`, `size`, `work_area`, `scale_factor`).
@@ -56,19 +56,20 @@ impl Display {
         [x as i32, y as i32, (r.w * s).round() as i32, (r.h * s).round() as i32]
     }
 
-    /// Whether a point of the virtual screen, in pixels, is on this display.
-    pub fn contains(&self, x: f64, y: f64) -> bool {
-        let [left, top, w, h] = self.area;
-        x >= left && x < left + w && y >= top && y < top + h
+    /// A point of the virtual screen, in pixels, in that geometry: where the pointer is, as the notch reads it.
+    pub fn point(&self, x: f64, y: f64) -> (f64, f64) {
+        let s = self.scale();
+        let [left, top, _, h] = self.area;
+        ((x - left) / s, (top + h - y) / s)
     }
-}
 
-/// The display the tab belongs on: the one that holds the point (the pointer, when a shortcut
-/// asks for the tab where the person is), else the primary one, which Windows puts at the origin.
-pub fn anchor(displays: &[Display], at: Option<(f64, f64)>) -> Option<&Display> {
-    at.and_then(|(x, y)| displays.iter().find(|d| d.contains(x, y)))
-        .or_else(|| displays.iter().find(|d| d.contains(0.0, 0.0)))
-        .or(displays.first())
+    /// A window's rectangle as Windows has it (left, top, width, height in pixels) in that geometry: what
+    /// `place` is the reverse of.
+    pub fn rect(&self, [x, y, w, h]: [i32; 4]) -> Rect {
+        let s = self.scale();
+        let (left, top) = self.point(x as f64, y as f64);
+        Rect { x: left, y: top - h as f64 / s, w: w as f64 / s, h: h as f64 / s }
+    }
 }
 
 #[cfg(test)]
@@ -147,14 +148,33 @@ mod tests {
     }
 
     #[test]
-    fn the_tab_goes_to_the_display_under_the_pointer_else_to_the_primary_one() {
-        let left = display([-1920.0, 0.0, 1920.0, 1080.0], 48.0, 1.0);
-        let primary = display([0.0, 0.0, 2560.0, 1440.0], 72.0, 1.5);
-        let all = [left, primary];
-        assert_eq!(anchor(&all, Some((-10.0, 500.0))), Some(&left));
-        assert_eq!(anchor(&all, Some((10.0, 500.0))), Some(&primary));
-        assert_eq!(anchor(&all, Some((9000.0, 9000.0))), Some(&primary));
-        assert_eq!(anchor(&all, None), Some(&primary));
-        assert_eq!(anchor(&[], None), None);
+    fn a_window_s_pixels_read_back_as_the_rectangle_it_was_placed_from() {
+        for (area, top_bar, scale) in [
+            ([0.0, 0.0, 2560.0, 1440.0], 0.0, 1.0),
+            ([0.0, 0.0, 2560.0, 1440.0], 72.0, 1.5),
+            ([-1920.0, -200.0, 1920.0, 1080.0], 48.0, 1.25),
+            ([1920.0, 0.0, 3840.0, 2160.0], 0.0, 2.0),
+        ] {
+            let d = Display { area, work: [area[0], area[1] + top_bar, area[2], area[3] - top_bar - 48.0], scale };
+            let g = d.geometry();
+            for frame in [g.panel_frame(true, 0.0), g.panel_frame(false, 260.0)] {
+                let back = d.rect(d.place(frame));
+                for (was, is) in [(frame.x, back.x), (frame.y, back.y), (frame.w, back.w), (frame.h, back.h)] {
+                    assert!(
+                        (was - is).abs() <= 0.5 / scale + 1e-9,
+                        "{area:?} at {scale}: {frame:?} came back {back:?}"
+                    );
+                }
+                // The window's top is the tab's top exactly: the notch asks whether a frame still hangs there.
+                assert_eq!(back.max_y(), g.tab.max_y(), "{area:?} at {scale}");
+            }
+            // The pointer on the tab's first row of pixels, at its centre, is on the tab.
+            let [x, y, w, _] = d.place(g.tab);
+            let (px, py) = d.point(x as f64 + w as f64 / 2.0, y as f64 + 0.5);
+            assert!(g.tab.contains(px, py), "{area:?} at {scale}: {px} {py} in {:?}", g.tab);
+            // And one pixel above it, on a taskbar docked at the top or off the display, is not.
+            let (px, py) = d.point(x as f64 + w as f64 / 2.0, y as f64 - 1.0);
+            assert!(!g.tab.contains(px, py), "{area:?} at {scale}");
+        }
     }
 }

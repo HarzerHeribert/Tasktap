@@ -10,7 +10,7 @@ import { current, open } from './model.ts';
 import { engines } from './terminal.ts';
 
 type Run = (command: string) => void;
-type Does = 'minimize' | 'maximize' | 'close';
+type Does = 'minimize' | 'maximize' | 'close' | 'quit';
 const windowDoes = (what: Does) => void call('host.window', { do: what }).catch(fail);
 
 /** What the host says of the caption buttons: the one under the pointer, the one held down, and whether the window
@@ -36,7 +36,8 @@ export function menus(run: Run): Item[] {
   const does = (text: string, id: string): Item => ({ text, key: COMMANDS[id], do: () => run(id) });
   const edits = (text: string, key: string, what: Parameters<typeof edit>[0]): Item => ({ text, key, do: () => edit(what, run) });
   return [
-    { text: 'File', items: [does('New Task', 'new-task'), does('New Terminal', 'new-terminal'), does('Open Workspace…', 'open-workspace'), '-', does('Close Tab', 'close-tab')] },
+    { text: 'File', items: [does('New Task', 'new-task'), does('New Terminal', 'new-terminal'), does('Open Workspace…', 'open-workspace'), '-', does('Close Tab', 'close-tab'),
+      { text: 'Close Window', key: '⌥F4', do: () => windowDoes('close') }] },
     { text: 'Edit', items: [edits('Undo', '⌃Z', 'undo'), edits('Redo', '⌃Y', 'redo'), '-', edits('Cut', '⌃X', 'cut'), edits('Copy', '⌃C', 'copy'), edits('Paste', '⌃V', 'paste'),
       edits('Select All', '⌃A', 'selectAll'), '-', does('Find in Terminal…', 'find')] },
     { text: 'View', items: [does('Toggle Sidebar', 'sidebar'), does('Focus Surface', 'focus'), does('Split Right', 'split-right'), does('Split Down', 'split-down'), '-',
@@ -45,7 +46,8 @@ export function menus(run: Run): Item[] {
     { text: 'Window', items: [{ text: 'Minimize', do: () => windowDoes('minimize') }, { text: caption.max ? 'Restore' : 'Maximize', do: () => windowDoes('maximize') }] },
     '-',
     { text: 'About Tasktap', do: () => open({ kind: 'settings', at: 'about' }) },
-    { text: 'Exit', key: '⌥F4', do: () => windowDoes('close') },
+    // Closing the window leaves Tasktap in the notification area, with its tab at the top of the screen; this ends it.
+    { text: 'Exit', do: () => windowDoes('quit') },
   ];
 }
 

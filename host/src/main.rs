@@ -1,28 +1,32 @@
 // A window's program on Windows: started from the Start menu it opens no console.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
-//! Tasktap Next: the host, on the Mac and (without the notch's counterpart yet) on Windows. It starts the core, gives each page one pass-through to it
-//! (design §12), answers the page's `host.*` calls, places the notch panel and binds the global
-//! shortcuts. Everything else is the core's or the page's.
+//! Tasktap Next: the host, on the Mac and on Windows. It starts the core, gives each page one pass-through to it
+//! (design §12), answers the page's `host.*` calls, places the notch panel (on Windows the tab at the top edge,
+//! with its icon in the notification area) and binds the global shortcuts. Everything else is the core's or the
+//! page's.
 #[cfg(windows)]
 mod chrome;
 mod core;
+// The tab's window on Windows: what native.rs is to the Mac's notch panel.
+#[cfg(windows)]
+mod edge;
 // Windows shows no frame yet: what holds one to this machine there is not built, so its server is not called.
 #[cfg_attr(windows, allow(dead_code))]
 mod frames;
-// Windows has no window for the tab yet: what it will stand on is compiled and tested there,
-// and not yet called.
-#[cfg_attr(windows, allow(dead_code))]
 mod geometry;
 mod keys;
 #[cfg_attr(windows, path = "windows.rs")]
 mod native;
-#[cfg_attr(windows, allow(dead_code))]
 mod notch;
 mod open;
 mod speech;
+// Where the tab hangs on a Windows display: arithmetic, tested on every system.
 #[cfg(any(windows, test))]
-#[cfg_attr(windows, allow(dead_code))]
 mod tab;
+// The notification-area icon: its picture and its words are tested on every system.
+#[cfg(any(windows, test))]
+#[cfg_attr(not(windows), allow(dead_code))]
+mod tray;
 mod workspace;
 
 use crate::core::{Core, Link, Stream};
@@ -115,8 +119,8 @@ fn bridge_send(webview: tauri::Webview, request: tauri::ipc::Request, host: taur
 /// A `host.*` call from the page, answered here: the reply frame.
 #[cfg(not(windows))]
 #[tauri::command]
-fn bridge_host(app: AppHandle, frame: String) -> String {
-    host_call(&app, &frame)
+fn bridge_host(webview: tauri::Webview, app: AppHandle, frame: String) -> String {
+    host_call(&app, webview.label(), &frame)
 }
 
 /// On Windows a call is answered from the event loop, not from inside the web view's own callback, where Tauri
@@ -124,10 +128,10 @@ fn bridge_host(app: AppHandle, frame: String) -> String {
 /// inside one of its callbacks.
 #[cfg(windows)]
 #[tauri::command]
-async fn bridge_host(app: AppHandle, frame: String) -> String {
+async fn bridge_host(webview: tauri::Webview, app: AppHandle, frame: String) -> String {
     let (answer, mut answered) = tauri::async_runtime::channel(1);
-    let to = app.clone();
-    let asked = app.run_on_main_thread(move || drop(answer.try_send(host_call(&to, &frame))));
+    let (to, page) = (app.clone(), webview.label().to_owned());
+    let asked = app.run_on_main_thread(move || drop(answer.try_send(host_call(&to, &page, &frame))));
     match (asked, answered.recv().await) {
         (Ok(()), Some(reply)) => reply,
         _ => {
@@ -136,7 +140,9 @@ async fn bridge_host(app: AppHandle, frame: String) -> String {
     }
 }
 
-fn host_call(app: &AppHandle, frame: &str) -> String {
+/// `page` is the window whose page asks.
+#[cfg_attr(not(windows), allow(unused_variables))]
+fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
     let call: Value = serde_json::from_str(frame).unwrap_or_default();
     let (id, args) = (call["id"].clone(), &call["args"]);
     let outcome = match call["name"].as_str().unwrap_or_default() {
@@ -154,12 +160,15 @@ fn host_call(app: &AppHandle, frame: &str) -> String {
             Ok(folder) => Ok(json!(folder)),
             #[cfg(not(windows))]
             Err(_) => Ok(json!(native::pick_folder())),
-            // Modal to the workspace window, the only window there is to ask from.
+            // Modal to the window that asks: the workspace's, or the tab's, whose sheet stays open behind it.
             #[cfg(windows)]
-            Err(_) => native::pick_folder(
-                app.get_webview_window(workspace::LABEL).and_then(|w| w.hwnd().ok()).map(|w| w.0 as isize),
-            )
-            .map(|folder| json!(folder)),
+            Err(_) => {
+                edge::picking(true);
+                let chosen =
+                    native::pick_folder(app.get_webview_window(page).and_then(|w| w.hwnd().ok()).map(|w| w.0 as isize));
+                edge::picking(false);
+                chosen.map(|folder| json!(folder))
+            }
         },
         "host.window" => workspace::window(app, args["do"].as_str().unwrap_or_default()),
         "host.clipboard" => Ok(json!(native::clipboard(args["text"].as_str(), notch::NOTCH.lock().unwrap().passive))),
@@ -173,6 +182,18 @@ fn host_call(app: &AppHandle, frame: &str) -> String {
             open::open(args, &roots, notch::NOTCH.lock().unwrap().passive)
         }
         "host.capture_key" => keys::call(app, args),
+        // The capture key was pressed with the workspace in front and it has no field of its own in view: what
+        // the key opens from another app. Without a notch or a tab that is New Task.
+        "host.capture" => {
+            match notch::NOTCH.lock().unwrap().panel {
+                0 => workspace::on_menu(app, "new-task"),
+                _ => notch::capture(app),
+            }
+            Ok(Value::Null)
+        }
+        // Windows: which display the tab hangs on, or none.
+        #[cfg(windows)]
+        "host.tab" => edge::setting(app, args),
         // Where a preview's frame loads a file from (frames.rs): given only once the web view is held to this
         // machine's own addresses.
         "host.frame" if !workspace::CONFINED.load(std::sync::atomic::Ordering::Relaxed) => {
@@ -217,8 +238,11 @@ fn input(app: &AppHandle, action: &str) {
 }
 
 /// The answer shortcuts exist only while a question waits, so they take no keys from other
-/// apps the rest of the time.
-fn glance(app: &AppHandle, question: Option<QuestionId>) {
+/// apps the rest of the time. On Windows the icon in the notification area follows the counts.
+fn glance(app: &AppHandle, g: tasktap_proto::Glance) {
+    #[cfg(windows)]
+    tray::set(Some([g.working, g.needs_you, g.done, g.failed]));
+    let question = g.question;
     let host = app.state::<Host>();
     let before = std::mem::replace(&mut *host.question.lock().unwrap(), question);
     if before.is_some() == question.is_some() {
@@ -232,14 +256,24 @@ fn glance(app: &AppHandle, question: Option<QuestionId>) {
     log(json!({"event": "answer-keys", "on": question.is_some(), "ok": done.is_ok()}));
 }
 
+/// A thought from anywhere: the notch opens with the keyboard in its field, on Windows the tab. Where there is
+/// neither (Windows, with the tab switched off) the workspace comes in front with a field for it.
+pub(crate) fn capture(app: &AppHandle) {
+    match notch::NOTCH.lock().unwrap().panel {
+        0 => workspace::capture(app),
+        _ => notch::capture(app),
+    }
+}
+
 fn shortcut(app: &AppHandle, shortcut: &Shortcut) {
-    let capture = keys::CAPTURE.lock().unwrap().as_ref().and_then(keys::system);
+    let capture_key = keys::CAPTURE.lock().unwrap().as_ref().and_then(keys::system);
+    let panel = notch::NOTCH.lock().unwrap().panel;
     match shortcut.key {
-        // Windows has no tab yet (plan, "The notch on Windows"): until it has, the capture
-        // shortcut opens the workspace's New Task and the answer shortcut the workspace.
-        _ if capture.as_ref() == Some(shortcut) && cfg!(windows) => workspace::on_menu(app, "new-task"),
-        _ if capture.as_ref() == Some(shortcut) => notch::capture(app),
-        Code::KeyJ if cfg!(windows) => drop(workspace::show(app, None)),
+        // The capture key puts the caret where a thought is typed (plan, "The capture key on Home"). With the
+        // workspace in front that is its page's to say: Home has a field of its own.
+        _ if capture_key.as_ref() == Some(shortcut) && workspace::in_front(app) => workspace::capture(app),
+        _ if capture_key.as_ref() == Some(shortcut) => capture(app),
+        Code::KeyJ if panel == 0 => drop(workspace::show(app, None)),
         Code::KeyJ => notch::answer(app),
         Code::KeyY => input(app, "answer.affirm"),
         Code::KeyN => input(app, "answer.deny"),
@@ -276,6 +310,24 @@ fn command(app: &AppHandle, line: &str) {
             }
         }
         "menu" => workspace::on_menu(app, rest),
+        // `shortcut`: the capture key, as the system tells of it.
+        "shortcut" => {
+            if let Some(key) = keys::CAPTURE.lock().unwrap().as_ref().and_then(keys::system) {
+                shortcut(app, &key)
+            }
+        }
+        // `tab`: what the tab's windows and the icon are now. `tab <display>`: the setting, as Settings sets it.
+        // `fullscreen on|off`: the workspace window over the whole display, as a film or a game is.
+        #[cfg(windows)]
+        "tab" if rest.is_empty() => log(edge::state()),
+        #[cfg(windows)]
+        "tab" => log(json!({"event": "tab", "set": edge::setting(app, &json!({"display": rest}))})),
+        #[cfg(windows)]
+        "fullscreen" => {
+            if let Some(window) = app.get_webview_window(workspace::LABEL) {
+                let _ = window.set_fullscreen(rest == "on");
+            }
+        }
         "close" => {
             if let Some(window) = app.get_webview_window(rest) {
                 let _ = window.close();
@@ -384,7 +436,7 @@ fn main() {
             core.clone(),
             |g| {
                 let app = APP.wait();
-                let _ = app.run_on_main_thread(move || glance(app, g.question));
+                let _ = app.run_on_main_thread(move || glance(app, g));
             },
             // The capture key is registered once the core's records say which it is, and again
             // whenever they change. A key the system refuses leaves the app running without it,
@@ -473,6 +525,11 @@ fn main() {
                 native::watch_pointer(move || notch::moved(&handle));
             }
 
+            // Windows: the helper window, the icon in the notification area and what says when to hide the tab.
+            // The tab's own window is made once the workspace has drawn (workspace::ready).
+            #[cfg(windows)]
+            edge::start(passive);
+
             // The workspace's effects rest while the Mac is in Low Power Mode.
             let handle = app.handle().clone();
             native::watch_power(move || {
@@ -498,16 +555,24 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("Tasktap Next failed to start");
     // Closing the workspace never quits: the notch's own (hidden) Tauri window stays open. The
-    // Dock icon brings the workspace back; Quit in the menu ends the app.
+    // Dock icon brings the workspace back; Quit in the menu ends the app. On Windows the app stays in the
+    // notification area, with or without the tab: its icon brings the workspace back, and Quit in the icon's menu
+    // or Exit in the window's ends it. A check's run has no icon and ends with its last window, as before.
     #[cfg_attr(windows, allow(unused_variables))]
     app.run(|app, event| match event {
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => drop(workspace::show(app, None)),
+        #[cfg(windows)]
+        RunEvent::ExitRequested { code: None, api, .. } if !notch::NOTCH.lock().unwrap().passive => api.prevent_exit(),
         RunEvent::ExitRequested { .. } => {
             workspace::quit();
             log(json!({"event": "quitting"}))
         }
-        RunEvent::Exit => log(json!({"event": "quit"})),
+        RunEvent::Exit => {
+            #[cfg(windows)]
+            edge::end();
+            log(json!({"event": "quit"}))
+        }
         _ => {}
     });
 }

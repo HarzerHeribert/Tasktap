@@ -11,10 +11,7 @@ use std::time::Duration;
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::utils::config::{BackgroundThrottlingPolicy, WindowEffectsConfig};
 use tauri::utils::{WindowEffect, WindowEffectState};
-use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, TitleBarStyle, WebviewUrl, WebviewWindowBuilder,
-    WindowEvent, Wry,
-};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent, Wry};
 
 pub const LABEL: &str = "workspace";
 
@@ -72,16 +69,19 @@ pub fn show(app: &AppHandle, at: Option<&str>) -> tauri::Result<()> {
         None => "workspace.html".to_owned(),
     };
     let effects = WindowEffectsConfig {
-        effects: vec![WindowEffect::UnderWindowBackground],
+        // Each system's own backdrop: the Mac's under-window material, Windows 11's Mica.
+        effects: vec![
+            #[cfg(target_os = "macos")]
+            WindowEffect::UnderWindowBackground,
+            #[cfg(windows)]
+            WindowEffect::Mica,
+        ],
         state: Some(WindowEffectState::FollowsWindowActiveState),
         ..Default::default()
     };
     let frame = with(|st| st.settings.frame).filter(|f| on_screen(app, f));
     let mut builder = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App(path.into()))
         .title("Tasktap")
-        .title_bar_style(TitleBarStyle::Overlay)
-        .hidden_title(true)
-        .traffic_light_position(LogicalPosition::new(16.0, 18.0))
         .min_inner_size(640.0, 400.0)
         .transparent(true)
         .effects(effects)
@@ -94,6 +94,19 @@ pub fn show(app: &AppHandle, at: Option<&str>) -> tauri::Result<()> {
         } else {
             BackgroundThrottlingPolicy::Suspend
         });
+    // The Mac's buttons sit over the page's own top row; Windows keeps its title bar, and the
+    // menu, which on the Mac is the application's, is the window's.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true)
+            .traffic_light_position(tauri::LogicalPosition::new(16.0, 18.0));
+    }
+    #[cfg(windows)]
+    {
+        builder = builder.menu(menu(app)?);
+    }
     builder = match frame {
         Some([x, y, w, h]) => builder.position(x, y).inner_size(w, h),
         None => builder.inner_size(1180.0, 760.0).center(),
@@ -166,6 +179,7 @@ fn about() -> AboutMetadata<'static> {
     AboutMetadata {
         credits: Some(
             "Terminal text is set in Hack 3.003 (MIT and Bitstream Vera licences), with symbols from Nerd Fonts 3.4.0 (MIT). \
+             Speech on this Mac is written down by whisper.cpp 1.9.5 (MIT) with OpenAI's Whisper model (MIT). \
              Their licences are in the app, under licenses/."
                 .to_owned(),
         ),
@@ -176,7 +190,11 @@ fn about() -> AboutMetadata<'static> {
 /// The application menu: Quit, the Edit commands a web view needs for ⌘C and ⌘V, and the
 /// workspace's own commands, which go to its page (`command` in ui/src/workspace/main.tsx).
 pub fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
-    let item = |id: &str, text: &str, keys: Option<&str>| MenuItem::with_id(app, id, text, true, keys);
+    // On Windows the commands have no keys yet: Ctrl with a letter belongs to the program in
+    // the terminal, and which keys the workspace takes there is not decided.
+    let item = |id: &str, text: &str, keys: Option<&str>| {
+        MenuItem::with_id(app, id, text, true, keys.filter(|_| cfg!(target_os = "macos")))
+    };
     let sep = || PredefinedMenuItem::separator(app);
     Menu::with_items(
         app,
@@ -188,9 +206,13 @@ pub fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
                 &[
                     &PredefinedMenuItem::about(app, Some("About Tasktap"), Some(about()))?,
                     &sep()?,
+                    #[cfg(target_os = "macos")]
                     &PredefinedMenuItem::hide(app, None)?,
+                    #[cfg(target_os = "macos")]
                     &PredefinedMenuItem::hide_others(app, None)?,
+                    #[cfg(target_os = "macos")]
                     &PredefinedMenuItem::show_all(app, None)?,
+                    #[cfg(target_os = "macos")]
                     &sep()?,
                     &PredefinedMenuItem::quit(app, Some("Quit Tasktap"))?,
                 ],

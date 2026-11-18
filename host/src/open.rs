@@ -155,8 +155,11 @@ mod tests {
         assert!(at("src/timer.css", None, false).is_err());
         assert!(at("src/timer.css", Some("project"), false).is_err());
         // A link inside the folder that leads out of it is followed first, and so refused.
-        std::os::unix::fs::symlink(outside.join("secret.txt"), project.join("link.txt")).unwrap();
-        assert!(at("link.txt", project.to_str(), false).unwrap_err().contains("outside the folders"));
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(outside.join("secret.txt"), project.join("link.txt")).unwrap();
+            assert!(at("link.txt", project.to_str(), false).unwrap_err().contains("outside the folders"));
+        }
         // With no folder opened nothing on disk is.
         assert!(target("src/timer.css", project.to_str(), false, &[], None).is_err());
         let _ = fs::remove_dir_all(base);

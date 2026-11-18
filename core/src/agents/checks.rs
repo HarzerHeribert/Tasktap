@@ -102,13 +102,14 @@ pub fn probe(mut probe: Probe, cwd: &Path) -> Result<Vec<String>, String> {
     };
     let program =
         program.ok_or_else(|| format!("{name} is not installed: no folder of the PATH has it"))?;
-    let mut child = command(&program, args)
-        .current_dir(cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("{name} could not run: {e}"))?;
+    let spawned = crate::sys::Tree::spawn(
+        command(&program, args)
+            .current_dir(cwd)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null()),
+    );
+    let (mut child, tree) = spawned.map_err(|e| format!("{name} could not run: {e}"))?;
     // Kept open until the end: a server may take its input's end as the
     // sign to stop before it answered.
     let mut input = child.stdin.take();
@@ -145,7 +146,7 @@ pub fn probe(mut probe: Probe, cwd: &Path) -> Result<Vec<String>, String> {
         }
     };
     drop(input);
-    end(&mut child);
+    end(&mut child, &tree);
     result
 }
 
@@ -178,13 +179,14 @@ pub fn ask(
         text: schema,
         file: &file,
     };
-    let mut child = command(&program, &(how.args)(&schema))
-        .current_dir(folder)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("{name} could not run: {e}"))?;
+    let spawned = crate::sys::Tree::spawn(
+        command(&program, &(how.args)(&schema))
+            .current_dir(folder)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    );
+    let (mut child, tree) = spawned.map_err(|e| format!("{name} could not run: {e}"))?;
     let (input, mut out, err) = (child.stdin.take(), child.stdout.take(), child.stderr.take());
     // The question is written beside the reading, so a tool that prints
     // before it has read everything never stops both.
@@ -234,7 +236,7 @@ pub fn ask(
         )),
     };
     // It has printed everything or is no longer wanted: either way it ends.
-    end(&mut child);
+    end(&mut child, &tree);
     let printed = printed?;
     if printed.len() as u64 > MAX_ANSWER {
         return Err("its answer is too large".to_owned().into());
@@ -263,12 +265,13 @@ fn command(program: &Path, args: &[impl AsRef<std::ffi::OsStr>]) -> Command {
 /// Runs `program` with `args`, and returns its exit code and what it
 /// printed on either output, within [`LIMIT`].
 fn output(program: &Path, args: &[&str]) -> Result<(Option<i32>, String), String> {
-    let mut child = command(program, args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| e.to_string())?;
+    let spawned = crate::sys::Tree::spawn(
+        command(program, args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    );
+    let (mut child, tree) = spawned.map_err(|e| e.to_string())?;
     let (done, ended) = mpsc::channel();
     for out in [
         child
@@ -298,7 +301,7 @@ fn output(program: &Path, args: &[&str]) -> Result<(Option<i32>, String), String
             Ok(part) => text.extend(part),
             Err(RecvTimeoutError::Disconnected) => break,
             Err(RecvTimeoutError::Timeout) => {
-                end(&mut child);
+                end(&mut child, &tree);
                 return Err(format!("it did not answer within {} s", LIMIT.as_secs()));
             }
         }
@@ -308,7 +311,7 @@ fn output(program: &Path, args: &[&str]) -> Result<(Option<i32>, String), String
             Ok(Some(status)) => break status.code(),
             Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
             _ => {
-                end(&mut child);
+                end(&mut child, &tree);
                 break None;
             }
         }
@@ -316,7 +319,10 @@ fn output(program: &Path, args: &[&str]) -> Result<(Option<i32>, String), String
     Ok((code, String::from_utf8_lossy(&text).into_owned()))
 }
 
-fn end(child: &mut Child) {
+/// Ends the program and, on Windows, what it started: a tool installed as
+/// a batch file is the command prompt running the tool.
+fn end(child: &mut Child, tree: &crate::sys::Tree) {
+    tree.kill();
     let _ = child.kill();
     let _ = child.wait();
 }

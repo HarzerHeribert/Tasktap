@@ -11,6 +11,7 @@ import { routing } from '../capture.tsx';
 import { setVoice } from '../motion/engine.ts';
 import { Motion, lookOf } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
+import { ready as hearsHere } from '../speech/local.ts';
 import { motionState } from '../motion/state.ts';
 import { Voice } from '../motion/voice.ts';
 import { I, Key, Ring } from '../ui.tsx';
@@ -213,7 +214,7 @@ function AboutPane() {
       <Row name="Placing" hint={places ? `Each thought that names no folder, with the names of your folders and sessions, is read by ${agentName(by!.agent)}'s ${by!.model}.` : 'Thoughts are placed by name, on this Mac.'}>
         <span class="v">{places ? `To ${agentName(by!.agent)}` : 'Nothing'}</span><To at="thoughts">Thoughts</To>
       </Row>
-      <Row name="Voice" hint={speech ? 'Each recording, when you let go. Tasktap keeps none.' : 'Voice is off.'}>
+      <Row name="Voice" hint={speech ? 'Each recording, when you let go. Tasktap keeps none.' : hearsHere() ? 'What you say is turned into text on this Mac. Its model was downloaded once, from huggingface.co.' : 'Voice is not set up.'}>
         <span class="v">{speech ? `To ${serviceName(speech.server)}` : 'Nothing'}</span><To at="voice">Voice</To>
       </Row>
       <Row name="Anything else" hint="Tasktap has no account and reports nothing about what you do."><span class="v">Nothing</span></Row>
@@ -223,6 +224,8 @@ function AboutPane() {
       <h3>Licences</h3>
       <Licence name="Hack" what="The terminal's font · MIT and Bitstream Vera" file="Hack-3.003-LICENSE.md" />
       <Licence name="Nerd Fonts symbols" what="Prompt symbols · MIT" file="NerdFonts-3.4.0-LICENSE.txt" />
+      <Licence name="Whisper" what="The model for speech on this Mac · MIT" file="Whisper-model-LICENSE.txt" />
+      <Licence name="whisper.cpp" what="What runs that model · MIT" file="whisper.cpp-1.9.5-LICENSE.txt" />
       <Row name="Libraries" hint="Open source, under the MIT and Apache 2.0 licences; SQLite is in the public domain."><span class="v">xterm.js, Preact, Tauri, Tokio, SQLite</span></Row>
     </>
   );

@@ -1,6 +1,6 @@
 # Tasktap Next (host)
 
-The rebuilt Tasktap that can be tried: the Mac host (Tauri v2) with the notch and the workspace window, running on the new core in `core/`. Its pages are in `ui/`.
+The rebuilt Tasktap that can be tried: the Mac host (Tauri v2) with the notch and the workspace window, running on the new core in `core/`. Its pages are in `ui/`. The same host builds for Windows, without the notch's counterpart yet: see "Windows" below.
 
 ## Build and run
 
@@ -24,11 +24,22 @@ Tasktap Next is in the Dock and has a menu. Closing the workspace window leaves 
   - Home, in layers: the capture line, what needs you (the first question open in full), changes waiting to be kept, what is running; Results and Ideas as lines that open in place; All results leads to Earlier. The rail at the window's foot says the same in words and opens Agents and Settings.
   - The arrangement is the project's `layouts` record; a terminal it does not mention (a run the core started) gets a place in the selected pane.
 - **The light.** Home's light is a few soft pools of the person's motion colour and one low band of the motion's chrome, drawn by `ui/src/motion/`; the sidebar's foot has the same light with a few large chrome glyphs, each a picture drawn once, there only where the rows leave room. At rest all of it is still and costs nothing. While something goes on in the window in use (agents thinking or working, a question waiting) it is a loop for as long as that lasts: the band drifts and pulses (the page draws keyframes of it and the compositor carries it between them, so the page is given no frames while the loop lasts), the pools breathe and the glyphs sway, slowly, on one clock (`--t-ambient`); a change of state blends into the next, a result or a region taking focus is a moment over it. The sidebar's edge and a dropping sheet shed a short wake of the same glyphs. Settings › Appearance chooses the form, the colour or a hue, Lumen, and Effects (Off, Still, Full: the one control over everything that moves by itself; Reduce Motion and Low Power Mode hold Full at Still), all the core's preferences, as are the terminal's font, size and line height; it can try the motion with the microphone while the sheet is open: macOS asks once, with the reason in `Info.plist`. The notch's sheet carries no form; its glow takes Lumen's colours.
+- **Speech on this Mac.** Settings › Speech › On this Mac downloads a model once (Whisper large-v3 turbo, 574 MB, from huggingface.co, checked against its checksum, kept in the data folder's `models/`, removable there). After that, with no speech service chosen, what you say while you hold ⌥Space or the microphone is turned into text on this Mac and sent nowhere: the words appear a sentence or two behind while you speak, and the rest well under a second after you let go. Nothing of it runs while you are not speaking. See design §8, "On this device".
 - **Keyboard.** A focus move by script never shows a focus ring.
+
+## Windows
+
+    pwsh host\scripts\build.ps1 [-Target x86_64|aarch64]
+
+It builds the pages, the core and the host and puts what runs into one folder, `host\target\<target>-pc-windows-msvc\release\Tasktap Next\`, and the same folder into a zip beside it: `Tasktap Next.exe`, the core (`tasktap.exe`), Microsoft's console (`conpty.dll`, `OpenConsole.exe`: the core's terminals run in it, `core/scripts/conpty.ps1`) and the licences. Needs Rust with the target, Visual Studio Build Tools and Node; to run, the WebView2 runtime that Windows 11 has. The app keeps everything in `%LOCALAPPDATA%\Tasktap Next`.
+
+Built, and checked as far as a machine without a signed-in desktop allows (`scripts/winvm/host.sh`, `host\scripts\smoke.ps1`): the host compiles and links for x64 and ARM64 with Clippy clean; it starts the core and talks to it over the core's named pipe, each page through its own connection (`src/windows.rs`); the workspace window with its menu, whose commands have no keys yet, since Ctrl with a letter belongs to the program in the terminal. Not built: the tab that stands for the notch (its place on a display is, `src/tab.rs`; the plan's "The notch on Windows" says what it will be), so the capture shortcut opens the workspace's New Task and closing the window quits the app; the folder panel (`TASKTAP_PICK` names a folder meanwhile); pictures of a page (`snapshot`); being told when battery saver begins or ends. `scripts/winvm/README.md`, "At the desktop", lists what a person has to look at.
+
+Nothing is signed. For a copy that leaves the owner's machines: an Authenticode certificate (or Microsoft's Trusted Signing) for `Tasktap Next.exe` and `tasktap.exe`, signed with a timestamp; Microsoft's two files keep Microsoft's signature; and an installer (`tauri build` makes NSIS or MSI ones, and downloads their tools to do so), signed too, which is also what gives the app the Start-menu shortcut that notifications need. Unsigned, a downloaded copy is stopped by SmartScreen until the person chooses to run it.
 
 ## Deliberately missing
 
-Document and web previews, Preferences, Notebook, Session history and Activity, speech, screen context, the updater, notifications, routing by a model, Windows, and terminal themes other than Default.
+Document and web previews, Preferences, Notebook, Session history and Activity, local voices, screen context, the updater, notifications, routing by a model, the notch's counterpart on Windows, and terminal themes other than Default.
 
 ## How it fits together
 
@@ -36,7 +47,9 @@ Document and web previews, Preferences, Notebook, Session history and Activity, 
 - `src/main.rs`: the bridge of design §12. Each page gets its own core connection, said hello to by the host with its device key; after that the bytes pass through untouched both ways (`bridge_open`, `bridge_send`) and `host.*` calls are answered here (`bridge_host`): `host.notch`, `host.show`, `host.ready`, `host.pick`, `host.clipboard` and `host.open`. Also the global shortcuts and the debug channel.
 - `src/open.rs`: `host.open` and its rule, which is the host's and not the page's: a web address (http or https), or something that exists inside a folder the person opened in Tasktap or a copy Tasktap made of one, with every link on the way followed first. A file of text opens in the default text editor; anything else, any folder, and anything on request is shown in Finder. Nothing is ever run, and everything else is refused in a sentence. The host knows the folders from the core (`projects`, on its own connection).
 - `src/workspace.rs`: the workspace window, its frame, the application menu with the About panel's notices, and Dock reopening.
+- `src/speech.rs`, `speech/engine.cpp`: speech on this Mac (on Windows the host says it is not available, and voice needs a speech service). The page records as it does for a speech service and hands the samples to the host, which starts `tasktap-speech` (whisper.cpp, built by `scripts/build-speech.sh`; needs cmake, or python3 to fetch one) for that one dictation and passes its lines back; and the model's download, check and removal.
 - `src/notch.rs`, `src/native.rs`, `src/geometry.rs`: the notch panel from `trials/tauri-notch`, with pointer events in place of the 80 ms poll; the folder panel and the clipboard.
+- `src/windows.rs`, `src/tab.rs`: on Windows `windows.rs` is compiled in place of `native.rs`, under the same names: the core's pipe, the clipboard, the power state, and "there is no panel" for what the notch asks; `tab.rs` is where the tab will sit.
 - `../ui/`: the pages (`npm run check` type-checks them and tests the shared client and the layout model).
 
 ## Checks
@@ -44,6 +57,8 @@ Document and web previews, Preferences, Notebook, Session history and Activity, 
     cd ui && npm run check
     cd host && cargo clippy -- -D warnings && cargo fmt --check && cargo test
     host/scripts/smoke.sh        # the notch and the workspace with the core's fixture agent; PASS or FAIL lines
+    SPEECH_MODEL=<ggml-large-v3-turbo-q5_0.bin> host/scripts/smoke.sh   # the same, and speech on this Mac with the real model, from a file you fetched
+    node scripts/speech-check.cjs && node scripts/speech-app-check.cjs   # speech on this Mac alone: the page (headless), then the app
     host/scripts/measure.sh      # idle cost with the workspace on one idle terminal, launch, typing delay, a burst; after build.sh
     MOTION=1 host/scripts/measure.sh   # what the effects cost, per process: at rest behind and in front, agents working and a question waiting on Home (carried, and drawn by the page), beside a terminal, each level's memory
     FLOW=1 host/scripts/measure.sh     # the capture flow, timed: frames and keys while a thought is typed, sent, placed, worked on and answered, at each level
@@ -52,4 +67,4 @@ Document and web previews, Preferences, Notebook, Session history and Activity, 
     node scripts/carry-check.cjs       # what the compositor carries is the picture the page would draw in every frame (headless, on the graphics card)
     node scripts/measure-all.cjs <folder> --front   # all four in the built app in one run, on every display the Mac has, kept in the folder
 
-`smoke.sh` and `measure.sh` drive the app only through its debug channel (`TASKTAP_DEBUG=1`: one command per line on standard input) and run it passive (`TASKTAP_PASSIVE=1`: no window ever takes the keyboard, the app stays out of the Dock and the menu bar, the person's pointer is not watched, and Copy and Paste use a pasteboard of their own), so they are safe to run while you work. The three measures above say which display their window is on and its refresh rate, put the window where the fewest others are (`DISPLAY_HZ=144` picks the display), and refuse a sleeping, locked or covered screen, on which nothing is drawn. A passive window opens behind the app in use; `--front` on any of the node scripts (the debug channel's `front`) puts it in front of the other apps' windows for the run, without taking the keyboard. `snapshot <page> <file>` on that channel writes a picture of a page as the app itself draws it, with no screen recording permission involved (`SHOTS=<folder> host/scripts/smoke.sh`).
+`smoke.sh` and `measure.sh` drive the app only through its debug channel (`TASKTAP_DEBUG=1`: one command per line on standard input) and run it passive (`TASKTAP_PASSIVE=1`: a passive run is never given the microphone, whatever a check asks for, so voice in a check is a tone or a recording handed to the page; no window ever takes the keyboard, the app stays out of the Dock and the menu bar, the person's pointer is not watched, and Copy and Paste use a pasteboard of their own), so they are safe to run while you work. The three measures above say which display their window is on and its refresh rate, put the window where the fewest others are (`DISPLAY_HZ=144` picks the display), and refuse a sleeping, locked or covered screen, on which nothing is drawn. A passive window opens behind the app in use; `--front` on any of the node scripts (the debug channel's `front`) puts it in front of the other apps' windows for the run, without taking the keyboard. `snapshot <page> <file>` on that channel writes a picture of a page as the app itself draws it, with no screen recording permission involved (`SHOTS=<folder> host/scripts/smoke.sh`).

@@ -1867,7 +1867,7 @@ impl Machine<'_, '_> {
     /// work in it. Found again unchanged, what was looked at still holds.
     fn prepared(&mut self, mut t: Thought, session: Option<Session>, w: Workdir) -> Result<()> {
         if !made(&w) {
-            return Err(Error::Invalid("that is no worktree Tasktap makes"));
+            return Err(Error::Invalid("that is no copy Tasktap makes"));
         }
         match &t.workdir {
             Some(old) if open(old) && old.branch != w.branch => {

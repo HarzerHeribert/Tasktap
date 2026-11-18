@@ -12,7 +12,9 @@
 # and into a question's reply, a failure and cancel, with a tone made in the page in place of a microphone
 # and a speech service of the check's own on this machine; a ring picked for one thought, a spoken thought ended as
 # words, what the host opens and refuses to (with an opener of the check's own: nothing is opened on this Mac), links in
-# a real terminal, a session's details, a terminal open in as many places as it may be; then quit and relaunch with the layout restored
+# a real terminal, a session's details, a terminal open in as many places as it may be; speech on this Mac: Settings, the download, a thought
+# and words for a field through the helper, in a short launch of its own, with the real helper and model too when
+# SPEECH_MODEL names the model's file; then quit and relaunch with the layout restored
 # and nothing rerun). It never sends keys or clicks to the system: every step is a line on the app's
 # standard input, and the app is passive (its windows never take the keyboard; no system menu is
 # ever opened). Prints PASS or FAIL per promise; exits non-zero on any FAIL. SHOTS=<folder> also
@@ -27,6 +29,7 @@ fail() { echo "FAIL  $1${2:+: $2}"; fails=$((fails + 1)); }
 echo "== Building the pages, the cores and the host"
 (cd "$root/ui" && npm run --silent build >/dev/null) || { echo "FAIL  ui build"; exit 1; }
 "$host/scripts/build-core.sh" >/dev/null && FIXTURES=1 "$host/scripts/build-core.sh" >/dev/null || { echo "FAIL  core build"; exit 1; }
+"$host/scripts/build-speech.sh" >/dev/null 2>&1 || { echo "FAIL  speech helper build"; exit 1; }
 cargo build --quiet --manifest-path "$host/Cargo.toml" || { echo "FAIL  host build"; exit 1; }
 
 echo "== Lists keep their columns (headless, fixture records)"
@@ -52,6 +55,13 @@ if out="$(node "$root/scripts/links-check.cjs" 2>&1)"; then pass "$(echo "$out" 
 
 echo "== Voice, recorded by the page (headless, a microphone that is a file)"
 if out="$(node "$root/scripts/voice-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "voice in the page"; fi
+
+echo "== Speech on this Mac, in the page (headless, a microphone that is a file, a helper the check plays)"
+if out="$(node "$root/scripts/speech-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "speech on this Mac in the page"; fi
+
+echo "== Speech on this Mac, in the app (a short launch of its own; a tone and generated recordings, never the microphone)"
+out="$(node "$root/scripts/speech-app-check.cjs" ${SPEECH_MODEL:+--model "$SPEECH_MODEL"} 2>&1)"
+if [ $? = 0 ]; then echo "$out" | grep -E '^(PASS|NOTE)' | sed '$d'; pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "speech on this Mac in the app"; fi
 
 tmp="$(mktemp -d)"
 log="$tmp/log"
@@ -190,11 +200,12 @@ else
   moving="$(js workspace "String($drawn - $was > 20) + ' ' + document.querySelector('.light').dataset.moves")"
   sleep 1.5
   frames=$(js workspace "__motion.stats.frames"); keys=$(js workspace "__motion.stats.keys"); sleep 1.5
-  carried="$(js workspace "String(__motion.stats.frames === $frames && __motion.stats.keys > $keys && document.querySelectorAll('.light .motion-layer canvas').length === 3)")"
+  # The loop is drawn in the page, frame by frame: carried by the compositor it flickered in the app (stats.carry is off).
+  carried="$(js workspace "String(__motion.stats.frames - $frames > 20 && __motion.stats.keys === $keys)")"
   js workspace "(Object.assign(__motion.debug, { state: null, active: null }), __motion.redraw(), 1)" >/dev/null; sleep 2.5
   was=$(js workspace "$drawn"); sleep 1
   [ "$moving" = "true true" ] && [ "$carried" = true ] && [ "$(js workspace "$drawn")" = "$was" ] \
-    && pass "while agents work in the window in use the band and the light move, and once the loop is at its pace the compositor carries it between keyframes while the page draws no frame; back at rest it is still within a moment" || fail "the loop while agents work" "$moving $carried"
+    && pass "while agents work in the window in use the band and the light move, and the loop goes on being drawn in the page for as long as they work; back at rest it is still within a moment" || fail "the loop while agents work" "$moving $carried"
 fi
 # The sidebar's glyphs: a few, large, each a picture drawn once (no view of the motion's own), still while idle.
 glyphs="[...document.querySelectorAll('.spark .glyph.in')]"
@@ -780,10 +791,10 @@ send 'call delete {"c":"prefs","id":"speech_by"}'
 until_has workspace "eval String(__ws.records.prefs.has('speech_by'))" 3 "false" || fail "no speech service is chosen"
 # Without a service the microphone says why in one line, and leads to where one is chosen.
 js workspace "(__ws.show('home'), document.querySelector('.home .mic').click(), 1)" >/dev/null
-until_has workspace "text .home .ways" 3 "Voice needs a speech service" && js workspace "(document.querySelector('.home .ways .btn').click(), 1)" >/dev/null \
-  && until_has workspace "eval __ws.ui.sheet?.kind + ' ' + __ws.ui.sheet?.at" 3 "settings voice" && ask workspace "text .settings" | grep -q "On this Mac is not built yet" \
-  && pass "without a speech service the microphone says so in one line and leads to Speech in Settings, which says plainly that on this Mac is not built yet" || fail "voice without a service"
-js workspace "([...document.querySelectorAll('.settings .btn')].find(b => b.textContent.startsWith('Use a speech service')).click(), 1)" >/dev/null
+until_has workspace "text .home .ways" 3 "Voice needs setting up first" && js workspace "(document.querySelector('.home .ways .btn').click(), 1)" >/dev/null \
+  && until_has workspace "eval __ws.ui.sheet?.kind + ' ' + __ws.ui.sheet?.at" 3 "settings voice" && ask workspace "text .settings" | grep -q "Needs a model first: Whisper large-v3 turbo, 574 MB" \
+  && pass "with nothing to turn speech into text the microphone says so in one line and leads to Voice in Settings, which says what on this Mac needs" || fail "voice with nothing set up"
+js workspace "([...document.querySelectorAll('.settings .seg button')].find(b => b.textContent === 'A speech service').click(), 1)" >/dev/null
 until_has workspace "text .sheet" 3 "What it is sent" || fail "the speech sheet opens"
 js workspace "(document.querySelectorAll('.terms .seg button')[2].click(), 1)" >/dev/null
 sleep 0.3

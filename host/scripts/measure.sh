@@ -53,7 +53,7 @@ for run in $(seq 1 "${1:-3}"); do
   sleep 1
   ask "(__ws.command('open-workspace'), 1)" >/dev/null
   sleep 0.5
-  echo "click workspace .sheet .act.primary" >&3
+  echo "click workspace .sheet .sh-f .key" >&3
   for _ in $(seq 1 100); do case "$(ask "__ws.text()")" in *project*) break ;; esac; sleep 0.2; done
   sleep 20
   core=$(pgrep -f "$tmp/data/bin/" | head -1)

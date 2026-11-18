@@ -56,7 +56,7 @@ More, each described at the top of its file: `host/scripts/measure.sh` (idle cos
 
 ## The public site
 
-`site/` is the product page and guide at <https://harzerheribert.github.io/Tasktap/>. It still describes the released 1.2 and is published from `main` only. `python3 scripts/build-site.py` assembles it into `build/pages/`, `node scripts/verify-pages.cjs` exercises the result, and `bash scripts/verify-installer.sh` checks the installer it serves (on a temporary folder). That build script is the only Python left; the app needs none.
+`site/` is the product page and a short guide at <https://harzerheribert.github.io/Tasktap/>, in the app's own look, published from `main` only. What it takes from the app is in `site/app/` and is committed: the notch page that plays at its top, the motion engine, the token file and the pictures, all made by `node scripts/render-site.cjs` on a Mac after `(cd ui && npm run build)`. `python3 scripts/build-site.py` assembles the site into `build/pages/` and refuses anything incomplete or private, and `node scripts/verify-pages.cjs` exercises the result. That build script is the only Python left; the app needs none.
 
 ## License
 

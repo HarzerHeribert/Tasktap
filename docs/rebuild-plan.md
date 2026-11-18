@@ -86,7 +86,7 @@ The core accepts three actions from any source: `capture.hold` (push to talk), `
 
 Speech sits behind one interface with two directions, dictation (speech to text) and narration (text to speech).
 
-- Local dictation (WhisperKit) and local voices stay in the Mac shell.
+- Local dictation and local voices stay in the Mac shell. The engine was decided by trial on 2026-11-18 (design §8, "On this device"): Whisper large-v3 turbo through whisper.cpp, not WhisperKit and not the system's own recognition, in a helper that lives for one dictation. It is C++ against a C interface, so it is no Swift, and it can be built for Windows later.
 - Cloud speech moves into the core. It then works on Windows unchanged, where it will be the main dictation path.
 
 ### Door left open: cores on other machines
@@ -151,6 +151,40 @@ A separate page with its own entry point. It subscribes to core events and share
 - The shortcut is the main way in. Hover stays as a second way.
 - Everything else opens the workspace at the right place: routing dialogs, the review sheet, setup, navigation, preferences.
 - Keep from today: no focus stealing on passive reveal, camera-aware geometry, the menu-bar fallback on displays without a notch, reduced motion.
+
+### The notch on Windows (proposal, 2026-11-18)
+
+Windows has no notch, and the three jobs are the same. The proposal is the Mac's form for a display without a camera housing, plus one anchor that Windows owns:
+
+- **The tab.** A small frameless, transparent, always-on-top window that hangs centred from the top edge of one display and opens downwards into the same sheet. It is the same page (`notch.html`) on the same geometry: 104 × 16 points on a large display, 120 × 20 on a smaller one, the sheet 420 points wide. Collapsed it shows the glance and lets every click through.
+- **The notification-area icon.** Always there, also while the tab is hidden: its tooltip says the counts, a click opens the sheet, its menu has Workspace, New Task and Quit. It is not the glance by itself, because Windows keeps a new icon in the overflow until the person drags it out.
+- **The shortcut.** As on the Mac it is the main way in: it opens the sheet with the keyboard, on the display the pointer is on.
+
+How it behaves:
+
+| Case | Behavior |
+| --- | --- |
+| Taskbar at the bottom or a side | Nothing to do: the tab is at the top, and the sheet ends 12 points above the work area's lower edge. |
+| Taskbar docked at the top | The tab hangs from the taskbar's lower edge, never over it. An auto-hidden one leaves the tab at the display's edge, where it covers the strip that reveals the taskbar for the tab's own width only. |
+| Several displays | Collapsed, the tab is on the primary display. The shortcut opens the sheet on the display under the pointer, and it folds back to where it was. |
+| Different scale factors | The geometry is in points per display; Windows reports pixels. The window is placed and sized again when its display's scale changes. |
+| Full-screen apps | The tab hides while Windows says a full-screen app, a presentation or an exclusive Direct3D app is running (`SHQueryUserNotificationState`, the documented rule for notification UI). The shortcut still opens the sheet, since the person asked. A question that arrives meanwhile changes the icon. |
+| Keyboard | A passive reveal never takes it: the window is made unfocused and not focusable. For capture and answer it is made focusable and focused, and the window that had the keyboard gets it back at fold. |
+| Pointer | Tauri's click-through is the whole window or nothing, so the host turns it on and off from a pointer watcher against the outline the page sends, as on the Mac (Raw Input with `RIDEV_INPUTSINK`, which Microsoft recommends over a low-level hook). |
+
+**What Tauri and WebView2 support, checked on 2026-11-18** against the sources this app builds with (tauri 2.12.6, tao 0.37.2, wry 0.57.2, global-hotkey 0.8.0, tray-icon 0.25.1) and Microsoft's documentation:
+
+- Transparent: `transparent(true)` sets WebView2's background to alpha 0 (it supports only 0 and 255) and the window behind it to DWM's blur with an empty region. `shadow(false)` is needed, or an undecorated window gets a 1-pixel border and, on Windows 11, rounded corners.
+- Always on top: `WS_EX_TOPMOST`, set without activating. Microsoft documents only "above all non-topmost windows".
+- Not taking the keyboard: `focused(false)` holds for the first show only; every later `show()` is `SW_SHOW`, which activates. So the window is shown once and never hidden by `hide()`, or shown by the host's own call. `focusable(false)` and `set_focusable` (`WS_EX_NOACTIVATE`, since tauri 2.8) keep clicks from activating it.
+- Click-through: `set_ignore_cursor_events` adds `WS_EX_TRANSPARENT | WS_EX_LAYERED` to the whole window.
+- Taskbar and task switcher: `skip_taskbar` removes the taskbar button (`ITaskbarList::DeleteTab`). `visible_on_all_workspaces` does nothing on Windows.
+- Displays: positions and sizes are pixels of the virtual screen with the primary display at the origin; `Monitor::work_area` is what the taskbar leaves; the app is per-monitor DPI aware (set by tao at run time).
+- Icon: tauri's `tray-icon` feature (not enabled yet) changes icon and tooltip at run time and reports clicks. A toast needs a Start-menu shortcut with an app id, so it comes with the installer.
+- Shortcuts: `RegisterHotKey`; a combination another program holds fails (the app then starts without it and says so in its log). Microsoft advises against Ctrl+Alt combinations, which some keyboard layouts read as AltGr. Today's keys (Ctrl+Alt+Space, J, Y, N) are kept until they are tried on the owner's layout; they should become a preference.
+- The microphone: the permission handler the Mac uses exists on Windows too (`PermissionRequested`), and WebView2 remembers the answer in the profile.
+
+**Built now:** the arithmetic (`host/src/tab.rs`: Windows' pixels to the notch's geometry and back, the taskbar and scale cases above, tested on every system) and a Windows host without the tab: the capture shortcut opens the workspace's New Task, Ctrl+Alt+Y and N answer the waiting question, closing the workspace window quits the app (the core and its sessions run on). **Not built, and only checkable at a desktop:** the tab's window, the pointer watcher, the icon, the full-screen rule, handing the keyboard back; whether `SW_SHOW` activates a window that is not focusable, whether a hot key lets the app take the foreground, how a topmost window sits over the taskbar and over full-screen video, whether `DeleteTab` also removes the window from Alt+Tab, and what the tab does across virtual desktops.
 
 ## Cut list
 
@@ -423,3 +457,13 @@ Done on 2026-11-17, on top of `rebuild-phase-2`. The repository now holds one pr
 **There are no 1.2 users** (owner, 2026-11-18): he was the only one. The old installer and update feed on the site (`site/install.sh`, `site/appcast.xml`) and their checks are removed with the site rebuild, and the new app simply replaces the old one at release; nothing has to keep working for an installed 1.2.
 
 **The installed 1.2 is gone** (owner, 2026-11-18): the old app, its data and its traces were removed from his Mac at his word. What remains before the new app takes the name: signing, an updater, and renaming "Tasktap Next" to "Tasktap".
+
+**The site as built** (2026-11-18): one product page and a short guide in `site/`, on the app's own token file. At the page's top the app's notch page itself plays one thought from start to result (the built page from `ui/dist`, answered by the stand-in for the host and the core that the page checks use), and the chrome beside it is the app's motion engine in the state the notch shows; the rest are pictures of Home and the workspace on fixture records, cut at the size they are shown, at 1x and 2x. All of that is made by `scripts/render-site.cjs` on a Mac and committed in `site/app/`, so what is published is what was looked at; `build-site.py` only assembles it and refuses anything incomplete or private, and `verify-pages.cjs` holds the pages to their sizes, their words, Reduce Motion, scripts off and the 4.5 : 1 floor. Removed: every capture of 1.2 (the one from the owner's Mac among them), its artwork, guide, installer, update feed and the installer's check and job. Open, and the owner's: the wording, the download area once there is a signed build, and whether Windows is named.
+
+**Windows phase, first pass (2026-11-18).** Done as far as a machine without a signed-in desktop allows; `scripts/winvm/README.md`, "At the desktop", lists what a person has to run and look at next.
+
+- **The host builds and starts.** It compiles and links for x64 and ARM64 with Clippy clean (`scripts/winvm/host.sh`), and `host/scripts/build.ps1` makes a folder that runs as it is, and its zip (about 7 MB): the app, the core, Microsoft's console and the licences. Nothing is signed. The Mac's native code, window chrome and notch panel are behind their platform; on Windows the host reaches the core over its named pipe, each page through a connection of its own. Started over SSH, with no desktop, the built app starts the core, runs the workspace page in WebView2, opens a folder as a workspace and a terminal in it, and `cmd.exe` there answers what is typed (`host/scripts/smoke.ps1`). It does not end when told to quit there; whether that is the missing desktop is the first thing to look at.
+- **The notch on Windows** is proposed in its section above. Only its arithmetic is built; the capture shortcut opens the workspace's New Task meanwhile.
+- **The console defect is closed by shipping Microsoft's console.** The typed line that the system's console holds back failed 9 runs of 10 with the system's console and none of 86 with Microsoft's (ConPTY 1.25.261109001), on both architectures, with no console host crash logged. The build bundles it with its licence; the core loads it from its own folder.
+- **Real tools' way of being installed is covered.** A tool installed as npm installs it, a batch file around a Node script, gets its arguments intact and none of them runs as a command; a line break in one is refused. A terminal's child is made in its job, so a stop ends everything it started, and so is every program the core runs for its output. The whole suite passes on both architectures with the tests' agents installed as batch files. No real tool has run there yet: that needs an account, which is the owner's to decide.
+- **Open.** Everything in the desktop checklist. The tab's window, its pointer watcher and the notification-area icon. A folder panel (`TASKTAP_PICK` meanwhile). The workspace's keys on Windows: the menu's commands have none, because Ctrl with a letter belongs to the program in the terminal. A proxy configured by script (`HTTPS_PROXY` from the system's settings) is not done. Signing and an installer. PowerShell as the default shell instead of `cmd.exe` is a choice not made.

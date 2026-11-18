@@ -57,6 +57,17 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     callbacks.get(channel)({ index: index++, message: out.buffer });
   };
   const calls = [];
+  // What a dictation was heard as: it failed, its words are for a field, or it is its thought.
+  const heardAs = (d, said) => {
+    const row = (x, del) => push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', ...(del ? { del: [x.id] } : { put: [{ ...x, rev }] }) }] });
+    if (said.error) return row({ ...d, phase: 'failed', level: 0, text: said.text || '', error: said.error });
+    if (d.target.kind === 'text') return row({ ...d, phase: 'heard', level: 0, text: said.text });
+    row(d, true);
+    const now = Date.now();
+    push({ t: 'change', rev: ++rev, sets: [{ c: 'thoughts', put: [{ id: d.target.id, rev, text: said.text, strokes: [], source: 'voice', mode: 'ask', phase: 'routed', status: 'routed', reason: null, live: false,
+      project_id: d.target.project_id || ((records.projects || [])[0] || {}).id || null, session_id: null, brief: said.brief || said.text, route: said.route || null, placed: said.placed || (d.target.project_id ? 'picked' : 'name'), agent: d.target.agent || 'claude', model: null, workdir: null,
+      hold_until: now + 5000, read: false, created: now, updated: now }] }] });
+  };
   const answer = (call) => {
     const { id, name, args } = call;
     calls.push(name);
@@ -93,6 +104,18 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     // sample is the row's level, as the core's is; then what `hears` says it was heard as.
     const row = (d, del) => push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', ...(del ? { del: [d.id] } : { put: [{ ...d, rev }] }) }] });
     const dictation = (i) => (records.dictations || []).find((d) => d.id === i);
+    // With no speech service chosen the recorder writes it down itself (`local`): no stream, and its reports are
+    // the row's level and words while it records, and the transcript once it has finished.
+    if (name === 'dictation.start' && args.local && !(records.prefs || []).some((p) => p.id === 'speech_by' && p.value)) {
+      row({ id: args.id, phase: 'recording', text: '', level: 0, target: args.target, error: null });
+      return reply(id, { stream: null, seconds: 300 });
+    }
+    if (name === 'dictation.report') {
+      const d = dictation(args.id);
+      if (d && d.phase === 'recording') row({ ...d, ...(args.text === undefined ? {} : { text: args.text }), ...(args.level === undefined ? {} : { level: args.level }) });
+      else if (d && d.phase === 'transcribing' && d.local && args.text !== undefined) heardAs(d, args.text ? { text: args.text } : { error: 'Nothing was heard' });
+      return reply(id, null);
+    }
     if (name === 'dictation.start') {
       const s = nextStream++;
       heard[s] = { id: args.id, bytes: [], peak: 0, since: 0 };
@@ -100,18 +123,13 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       return reply(id, { stream: { s, credit: 9600000 }, seconds: 300 });
     }
     if (name === 'dictation.finish') {
-      const d = dictation(args.id), said = records.hears || { text: 'Make the header stay on one line' };
-      row({ ...d, phase: 'transcribing', level: 0 });
-      setTimeout(() => {
-        if (!dictation(args.id)) return;
-        if (said.error) return row({ ...d, phase: 'failed', level: 0, text: said.text || '', error: said.error });
-        if (d.target.kind === 'text') return row({ ...d, phase: 'heard', level: 0, text: said.text });
-        row(d, true);
-        const now = Date.now();
-        push({ t: 'change', rev: ++rev, sets: [{ c: 'thoughts', put: [{ id: d.target.id, rev, text: said.text, strokes: [], source: 'voice', mode: 'ask', phase: 'routed', status: 'routed', reason: null, live: false,
-          project_id: d.target.project_id || ((records.projects || [])[0] || {}).id || null, session_id: null, brief: said.brief || said.text, route: said.route || null, placed: said.placed || (d.target.project_id ? 'picked' : 'name'), agent: d.target.agent || 'claude', model: null, workdir: null,
-          hold_until: now + 5000, read: false, created: now, updated: now }] }] });
-      }, said.ms || 600);
+      const was = dictation(args.id), said = records.hears || { text: 'Make the header stay on one line' };
+      // `as: "text"`: what was started for a thought is only heard.
+      const d = args.as === 'text' ? { ...was, target: { kind: 'text' } } : was;
+      const local = !Object.values(heard).some((h) => h.id === args.id);
+      row({ ...d, phase: 'transcribing', level: 0, local });
+      // The recorder's own transcript is waited for; a service's comes by itself.
+      if (!local) setTimeout(() => dictation(args.id) && heardAs(d, said), said.ms || 600);
       return reply(id, null);
     }
     if (name === 'dictation.cancel') return dictation(args.id) && row(dictation(args.id), true), reply(id, null);
@@ -195,6 +213,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     toCore({ t: 'close', s: Number(s), why: 'gone' });
   };
   window.__fake = { emit, push, records, heard, calls, close, opened };
+  window.__fake.speech = { acts: [], ended: [], fed: [], said(line) { callbacks.get(this.channel)?.({ index: this.n++, message: line }); } };
   window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
   window.__TAURI_INTERNALS__ = {
     metadata: { currentWindow: { label }, currentWebview: { windowLabel: label, label } },
@@ -229,6 +248,25 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       }
       if (cmd === 'plugin:window|is_focused') return true;
       if (cmd === 'plugin:app|version') return '0.1.0';
+      // The host's speech on this machine, when the check has one (`records.speech`, its status): `said` is the
+      // helper's line for the dictation it listens to, `fed` the samples it was given, `ended` how each ended.
+      if (cmd.startsWith('speech_') && records.speech) {
+        const sp = window.__fake.speech;
+        if (cmd === 'speech_model') {
+          if (args.act === 'install') Object.assign(records.speech, { model: 'fetching', error: null });
+          if (args.act === 'stop') records.speech.model = 'none';
+          if (args.act === 'remove') Object.assign(records.speech, { model: 'none', have: 0, error: null });
+          sp.acts.push(args.act || 'status');
+          return { ...records.speech };
+        }
+        if (cmd === 'speech_listen') {
+          if (records.speech.refuses) throw records.speech.refuses;
+          Object.assign(sp, { id: args.id, languages: args.languages, channel: args.heard.id, n: 0, fed: [] });
+          return null;
+        }
+        if (cmd === 'speech_audio') { sp.fed.push(...(args instanceof Uint8Array ? args : new Uint8Array(args))); return null; }
+        if (cmd === 'speech_end') { sp.ended.push({ id: args.id, cancel: args.cancel, bytes: sp.fed.length }); return null; }
+      }
       return null;
     },
   };

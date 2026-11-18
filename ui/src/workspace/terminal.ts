@@ -37,6 +37,9 @@ export class Engine {
   private reply = false;
   private asked = '';
   private scrollTimer = 0;
+  /** While it is scrolled back: how many lines are below, and the way to the end. */
+  private readonly more = document.createElement('button');
+  private below = 0;
   /** Typed once the stream is live. */
   private queued = '';
   size: number | null = null;
@@ -63,10 +66,25 @@ export class Engine {
     this.term.onBinary((data) => this.write(Uint8Array.from(data, (c) => c.charCodeAt(0))));
     // ⌘ shortcuts are the application menu's and the page's, never input.
     this.term.attachCustomKeyEventHandler((e) => !e.metaKey);
+    // No bar: while it is scrolled back a pill says how many lines are below and returns to the end (⌘↓ too), and
+    // the hair-thin mark of where the person is shows only while they scroll.
+    this.more.type = 'button';
+    this.more.className = 'btn term-more';
+    this.more.hidden = true;
+    this.more.innerHTML = '<span></span><kbd>⌘↓</kbd>';
+    this.more.onclick = () => (this.term.scrollToBottom(), this.term.focus());
+    this.element.append(this.more);
     this.term.onScroll(() => {
+      const b = this.term.buffer.active, below = b.baseY - b.viewportY;
+      if (below !== this.below) {
+        this.below = below;
+        this.more.hidden = !below;
+        this.more.firstElementChild!.textContent = `↓ ${below.toLocaleString()} ${below === 1 ? 'line' : 'lines'}`;
+      }
+      if (!below) return;
       this.element.classList.add('scrolling');
       clearTimeout(this.scrollTimer);
-      this.scrollTimer = window.setTimeout(() => this.element.classList.remove('scrolling'), 900);
+      this.scrollTimer = window.setTimeout(() => this.element.classList.remove('scrolling'), 500);
     });
     new ResizeObserver(() => queueFit(this)).observe(viewport);
   }

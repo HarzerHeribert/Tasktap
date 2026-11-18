@@ -6,6 +6,7 @@ import '@xterm/xterm/css/xterm.css';
 import '../motion/motion.css';
 import './fonts.css';
 import './window.css';
+import '../scroll.ts';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { render } from 'preact';
@@ -22,12 +23,12 @@ import * as L from './layout.ts';
 import { burst, echo } from './measure.ts';
 import { choose, shown as menu } from './menu.ts';
 import {
-  LOOSE, agentName, call, client, closeTab, copy, current, dismiss, fail, focusSession, layout, newTerminal, onRedraw, open, page, paste,
+  LOOSE, call, client, closeTab, copy, current, dismiss, fail, focusSession, layout, newTerminal, onRedraw, open, page, paste,
   pref, records, redraw, reconcile, sessionOf, setLayout, settleFocus, show, textSize, textSizeBy, ui,
 } from './model.ts';
 import { Sheets } from './sheets.tsx';
 import { Sidebar } from './sidebar.tsx';
-import { engines, setLook } from './terminal.ts';
+import { engines, flushFits, setLook } from './terminal.ts';
 import { wake } from './wake.ts';
 
 /** Below this width the sidebar hides, and its toggle and the window's buttons move into the title bar. */
@@ -75,31 +76,50 @@ export function command(id: string) {
   }
 }
 
-/** The sidebar slides in and out; its edge sheds a short wake of glyphs on the window it passes (wake.ts). */
+/** The sidebar slides in and out, and what is beside it moves with its edge the whole way, on one curve: it is the
+ *  window's own column that narrows or widens (window.css side-in, side-out), so nothing is left to jump at the end,
+ *  and the title makes room for the window's buttons as it goes. A terminal keeps its size while it slides and is
+ *  fitted once when the slide is over (terminal.ts queueFit). Its edge sheds a wake behind it as it goes (wake.ts). */
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-let sliding = false;
 function toggleSidebar() {
   if (ui.narrow) return void ((ui.peek = !ui.peek), redraw());
-  const side = document.querySelector<HTMLElement>('.side');
-  if (ui.sidebar && side && !reduced.matches) {
-    if (sliding) return;
-    sliding = true;
-    side.animate([{ transform: 'none' }, { transform: 'translateX(-100%)' }], { duration: 200, easing: 'cubic-bezier(.45,0,.5,1)' })
-      .finished.then(() => ((sliding = false), (ui.sidebar = false), redraw()), () => (sliding = false));
-    return wake(side, 'x', wakeLook());
-  }
-  ui.sidebar = !ui.sidebar;
+  if (ui.slide) return;
+  if (reduced.matches || document.hidden) return void ((ui.sidebar = !ui.sidebar), redraw());
+  ui.slide = ui.sidebar ? 'out' : 'in';
+  ui.sidebar = true;
   redraw();
-  if (!ui.sidebar || reduced.matches) return;
-  requestAnimationFrame(() => {
-    const s = document.querySelector<HTMLElement>('.side');
-    if (!s) return;
-    s.classList.add('opening');
-    s.animate([{ transform: 'translateX(-100%)' }, { transform: 'none' }], { duration: 240, easing: 'cubic-bezier(.19,.76,.19,1)' })
-      .finished.then(() => s.classList.remove('opening'), () => {});
-    wake(s, 'x', wakeLook());
-  });
 }
+function slid() {
+  ui.sidebar = ui.slide === 'in';
+  ui.slide = '';
+  redraw();
+  setTimeout(flushFits);
+}
+
+/** A region answers when it takes focus: the sidebar's glyphs step forward; on Home the light lifts and its chrome
+ *  stirs; among terminals a glint runs along the focused tab's lit edge (window.css data-greet; light.tsx). Once per
+ *  entry, by the pointer or the keyboard, and once for the region that has focus when the window comes back into
+ *  use: never for typing, scrolling or a click inside the region it is in, never restarted while it runs, at most
+ *  once a second for a region, and not at all under Reduce Motion or with the ambient light Still or Off. */
+type Region = 'side' | 'main';
+const greeted: Record<Region, number> = { side: 0, main: 0 };
+let region: Region | '' = '';
+function greet(r: Region) {
+  const now = performance.now();
+  if (ui.greet || now - greeted[r] < 1200 || reduced.matches || pref('motion_ambient') !== 'breathing') return;
+  greeted[r] = now;
+  ui.greet = r;
+  redraw();
+  setTimeout(() => ((ui.greet = ''), redraw()), 1100);
+}
+function enter(e: Event) {
+  const at = e.target instanceof Element ? e.target : null;
+  const r: Region | '' = at?.closest('.side') ? 'side' : at?.closest('.main') ? 'main' : '';
+  if (r && region && r !== region) greet(r);
+  region = r || region;
+}
+document.addEventListener('pointerdown', enter, true);
+document.addEventListener('focusin', enter, true);
 
 /** ⌘ shortcuts, handled before xterm.js or the web view can treat them as input or zoom. The application menu shows
  *  the same; a key the page handles never reaches it twice. While a sheet is open, the sheet has the keys. */
@@ -109,6 +129,8 @@ document.addEventListener('keydown', (e) => {
   if (!e.metaKey || e.ctrlKey || e.altKey || e.isComposing || ui.sheet) return;
   const k = e.key.toLowerCase();
   const inTerminal = !!(e.target as HTMLElement).closest?.('.xterm');
+  // ⌘↓ returns a terminal scrolled back to its end.
+  if (k === 'arrowdown' && inTerminal) return (e.preventDefault(), void engines.get(current()?.id ?? '')?.term.scrollToBottom());
   // ⌘C copies a terminal's selection; elsewhere the Edit menu copies as usual.
   if (k === 'c' && inTerminal && !e.shiftKey) {
     const id = current()?.id;
@@ -135,11 +157,11 @@ function loadLook() {
 /** The title bar: the workspace's name and folder, and Split right, Split down and New task; on Home, "Home". */
 function Bar({ project }: { project: string | null }) {
   const p = project ? records.projects.get(project) : undefined;
-  const side = ui.sidebar && !ui.narrow;
+  const side = ui.sidebar && !ui.narrow && !ui.slide;
   return (
     <header class="bar" data-tauri-drag-region>
-      {!side && <span class="lights" />}
-      {!side && <button type="button" class="ib" title="Show sidebar  ⌃⌘S" aria-label="Show sidebar" onClick={() => command('sidebar')}><I n="sidebar" /></button>}
+      {/* Room for the window's buttons, and the way back to the sidebar: there while it is away, and on its way. */}
+      {!side && <span class="lead"><button type="button" class="ib" title="Show sidebar  ⌃⌘S" aria-label="Show sidebar" onClick={() => command('sidebar')}><I n="sidebar" /></button></span>}
       {project ? (
         <span class="crumb" data-tauri-drag-region>
           <b>{p?.name ?? 'Sign-in terminals'}</b>{p && <span class="path">{p.folder.replace(/^\/Users\/[^/]+/, '~')}</span>}
@@ -161,10 +183,9 @@ function Bar({ project }: { project: string | null }) {
   );
 }
 
-/** The rail: the glance in words, at the left; the installed agents and Settings, at the right. */
+/** The rail: the glance in words, at the left; Agents and Settings, at the right. */
 function Rail() {
   const c = homeCounts();
-  const agents = [...records.agents.values()].filter((a) => a.installed);
   const words = [
     c.needs > 0 && <b>{plural(c.needs, 'needs you', 'need you')}</b>,
     c.working > 0 && <span>{c.working} working</span>,
@@ -178,11 +199,8 @@ function Rail() {
         {page.error ? <span class="err">{page.error}</span> : <><Mark s={mark} label="" />{words.length ? words : <span>Nothing running</span>}</>}
       </span>
       <span class="rail-r">
-        {agents.map((a) => (
-          <button type="button" class={a.signed_in === false ? 'off' : ''} title={`${agentName(a.id)}${a.version ? ` ${a.version}` : ''}, ${a.signed_in === false ? 'not signed in' : 'signed in'}`}
-            onClick={() => open({ kind: 'agents' })}>{agentName(a.id)}</button>
-        ))}
-        <button type="button" class="plain" title="Settings  ⌘," onClick={() => open({ kind: 'settings' })}>Settings</button>
+        <button type="button" onClick={() => open({ kind: 'agents' })}>Agents</button>
+        <button type="button" title="Settings  ⌘," onClick={() => open({ kind: 'settings' })}>Settings</button>
       </span>
     </footer>
   );
@@ -198,9 +216,15 @@ function App() {
   });
   // The terminals follow their preferences at once and as they change, from this window or another.
   useLayoutEffect(loadLook, [pref('terminal_font'), pref('terminal_size'), pref('terminal_line_height')]);
+  // As it slides the sidebar's edge sheds its wake along its foot, where no row is.
+  useLayoutEffect(() => {
+    const side = document.querySelector<HTMLElement>('.side'), foot = side?.querySelector('.spark')?.getBoundingClientRect();
+    if (ui.slide && side && foot) wake(side, 'x', wakeLook(), [foot.top + 28, foot.bottom]);
+  }, [ui.slide]);
   const side = ui.sidebar && !ui.narrow;
   return (
-    <div class={`win${side ? '' : ' solo'}${ui.sheet ? ' dimmed' : ''}${ui.narrow && ui.peek ? ' peek' : ''}`}>
+    <div class={`win${side ? '' : ' solo'}${ui.sheet ? ' dimmed' : ''}${ui.narrow && ui.peek ? ' peek' : ''}`} data-slide={ui.slide || undefined} data-greet={ui.greet || undefined}
+      onAnimationEnd={(e) => e.target === e.currentTarget && ui.slide && slid()}>
       {(side || (ui.narrow && ui.peek)) && <Sidebar />}
       <main class="main">
         <Bar project={project} />
@@ -232,7 +256,13 @@ render(<App />, document.body);
 // Whether the window is the one in use, from the host's own account of it.
 const win = getCurrentWindow();
 void win.isFocused().then((f) => ((ui.active = f), redraw()), () => {});
-void win.onFocusChanged(({ payload }) => ((ui.active = payload), document.documentElement.classList.toggle('inactive', !payload), redraw()));
+void win.onFocusChanged(({ payload }) => {
+  ui.active = payload;
+  document.documentElement.classList.toggle('inactive', !payload);
+  redraw();
+  // Back in use: the region that has the focus answers, as a greeting.
+  if (payload) greet(region || 'main');
+});
 // The window shows once the page has laid out its first frame (a hidden window draws nothing).
 setTimeout(() => void call('host.ready', {}).catch(() => {}));
 void client
@@ -254,9 +284,22 @@ const text = (id = current()?.id) => {
   const b = term.buffer.active;
   return Array.from({ length: b.length }, (_, i) => b.getLine(i)?.translateToString(true) ?? '').join('\n').trimEnd();
 };
+/** Slides the sidebar and says, frame by frame, where the content's left edge and the title stood, and where they
+ *  rest two frames after it ended: a slide with no jump ends where it rests. */
+const slide = () => new Promise((done) => {
+  const at = () => ['.main', '.crumb'].map((s) => Math.round(document.querySelector(s)!.getBoundingClientRect().left * 10) / 10);
+  const frames: number[][] = [];
+  command('sidebar');
+  const tick = () => {
+    frames.push(at());
+    if (ui.slide || frames.length < 2) requestAnimationFrame(tick);
+    else requestAnimationFrame(() => requestAnimationFrame(() => done({ frames, rest: at(), cols: [...engines.values()].map((e) => e.term.cols) })));
+  };
+  requestAnimationFrame(tick);
+});
 /** Types a line into the terminal shown, as the keyboard would. */
 const type = (line: string) => (engines.get(current()?.id ?? '')?.term.input(line + '\r', true), !!current()?.id);
 Object.assign(window, {
-  __ws: { ui, records, layout, command, engines, focusSession, show, newTerminal, startAgent, call, echo, burst, text, type, current, dismiss, menu, choose, LOOSE, L },
+  __ws: { ui, records, layout, command, greet, slide, engines, focusSession, show, newTerminal, startAgent, call, echo, burst, text, type, current, dismiss, menu, choose, LOOSE, L },
   __motion: { debug, stats, redraw },
 });

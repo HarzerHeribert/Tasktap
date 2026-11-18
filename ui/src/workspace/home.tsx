@@ -1,17 +1,17 @@
 // Home, a dashboard in layers ("Folds", design/ui-directions/NOTES.md §2). The first layer is what the person needs to
 // see or act on when the window opens: the capture line, what needs them (the first question open, the rest one line
-// each), changes waiting to be kept, what is running. Results and Ideas are one line each that opens in place; "All
-// results" leads to Earlier. It is never bare (with nothing asking or running, the last two results show) and never a
+// each), changes waiting to be kept, what is running. Results and For later are one line each that opens in place; "All
+// results" leads to Earlier. Before any folder is open it is one composition: the Composer a little above the middle
+// and, on its edges, the one thing to do first. It is never bare (with nothing asking or running, the last two results show) and never a
 // flood (four running rows, then a line that opens the rest).
 import type { Question, Thought } from '../../../core/proto/protocol.ts';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useState } from 'preact/hooks';
-import { Capture } from '../capture.tsx';
+import { Capture, cap } from '../capture.tsx';
 import { next, pending, running, settle, Status, Told } from '../changes.tsx';
 import { Ask } from '../question.tsx';
 import { Answer, I, Mark, type State, elapsed, plural, when } from '../ui.tsx';
 import { Light, useLight } from './light.tsx';
-import { Agents } from './sheets.tsx';
 import {
   agentName, call, fail, focus, focusSession, layout, open, openQuestions, page, projectName, projects, records, redraw, resultOf, show,
   title, ui, why, workspaces,
@@ -31,8 +31,8 @@ export function home() {
     .sort((a, b) => Number(inBackground(a)) - Number(inBackground(b)) || b.created - a.created);
   const waiting = thoughts.filter((t) => pending(t)).sort((a, b) => b.updated - a.updated);
   const results = thoughts.filter((t) => (t.status === 'done' || t.status === 'failed') && !pending(t)).sort((a, b) => b.updated - a.updated);
-  const ideas = all.filter((t) => t.mode === 'note' && t.phase === 'captured').sort((a, b) => b.created - a.created);
-  return { questions, running: runningRows, waiting, results, ideas, inBackground };
+  const later = all.filter((t) => t.mode === 'note' && t.phase === 'captured').sort((a, b) => b.created - a.created);
+  return { questions, running: runningRows, waiting, results, later, inBackground };
 }
 
 const stateOf = (t: Thought): State => (t.status === 'failed' ? 'failed' : !t.read ? 'ready' : 'ended');
@@ -119,21 +119,21 @@ const main = (t: Changed) => (next(t).keep && !running(t) ? void settle(t, true)
 export function ChangeActs({ t }: { t: Changed }) {
   return (
     <>
-      <button type="button" class="btn primary" onClick={() => main(t)}>{next(t).label}</button>
+      <button type="button" class="key" onClick={() => main(t)}>{next(t).label}</button>
       {next(t).keep && <button type="button" class="btn" onClick={() => open({ kind: 'settle', thought: t.id, keep: false })}>Discard</button>}
       {next(t).keep && <button type="button" class="btn" onClick={() => open({ kind: 'review', thought: t.id })}>Review changes</button>}
     </>
   );
 }
 
-function IdeaRow({ t }: { t: Thought }) {
-  const folders = projects().some((p) => p.kind === 'folder');
+/** A thought saved for later: where it waits, and the way on. The one just saved shows its actions without being asked. */
+function LaterRow({ t }: { t: Thought }) {
   const send = () => open({ kind: 'send', thought: t.id });
   return (
-    <div class="hr idea" data-nav tabIndex={0} title={t.text} onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && (e.preventDefault(), send())}>
-      <Mark s="idea" />
+    <div class={`hr later${t.id === cap.sent?.id ? ' new' : ''}`} data-nav tabIndex={0} title={t.text} onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && (e.preventDefault(), send())}>
+      <Mark s="later" />
       <span class="hr-t">{title(t)}</span>
-      <span class="hr-x">{folders ? 'No folder matched' : 'Kept until a folder is open'}</span>
+      <span class="hr-x">Not sent anywhere yet</span>
       <div class="hr-a">
         <button type="button" class="btn" onClick={send}>Send to a folder…</button>
         <button type="button" class="btn" onClick={() => void call('delete', { c: 'thoughts', id: t.id }).catch(fail)}>Drop</button>
@@ -165,7 +165,7 @@ function Fold({ name, open: isOpen, rows, toggle, children }: { name: string; op
         onKeyDown={(e) => {
           if ((e.key === 'ArrowRight' && !isOpen) || (e.key === 'ArrowLeft' && isOpen)) (e.preventDefault(), toggle());
         }}>
-        <I n="chev" /><b>{name}</b>{name === 'Ideas' ? <span class="fold-c"><i>{rows.length}</i></span> : <Counts rows={rows} />}
+        <I n="chev" /><b>{name}</b>{name === 'Results' ? <Counts rows={rows} /> : <span class="fold-c"><i>{rows.length}</i></span>}
         <span class="fold-p">{top ? title(top) : ''}</span><time>{top ? when(top.updated) : ''}</time>
       </button>
       {isOpen && <div class="fold-b">{children}</div>}
@@ -215,14 +215,15 @@ export function Home() {
   // Two columns where the window is wide and both have something: what is now at the left, Results and Ideas at the
   // right, open, since there is room. Otherwise one column, Results and Ideas as lines under what is now.
   const now = asks || h.waiting.length > 0 || h.running.length > 0 || first;
-  const later = (h.results.length > 0 || h.ideas.length > 0) && !first;
-  const two = wide && now && later;
+  const more_ = (h.results.length > 0 || h.later.length > 0) && !first;
+  const two = wide && now && more_;
   // Quiet: Results opens itself to its last two, so the proof of work and the way to the rest are one object.
-  const resultsOpen = fold === 'results' || ((idle || two) && fold !== 'shut' && fold !== 'ideas') || (two && fold === 'ideas');
-  const ideasOpen = fold === 'ideas' || (two && fold !== 'shut-ideas');
+  const resultsOpen = fold === 'results' || ((idle || two) && fold !== 'shut' && fold !== 'later') || (two && fold === 'later');
+  // A thought just saved for later opens the line it landed in.
+  const laterOpen = fold === 'later' || (two && fold !== 'shut-later') || (fold === '' && h.later.some((t) => t.id === cap.sent?.id));
   const results = h.results.slice(0, fold === 'results' || two ? 5 : 2);
-  const toggle = (name: 'results' | 'ideas') => () => {
-    ui.fold = name === 'results' ? (resultsOpen ? 'shut' : 'results') : ideasOpen ? (two ? 'shut-ideas' : '') : 'ideas';
+  const toggle = (name: 'results' | 'later') => () => {
+    ui.fold = name === 'results' ? (resultsOpen ? 'shut' : 'results') : laterOpen ? (two ? 'shut-later' : 'shut') : 'later';
     redraw();
   };
   const more = h.running.length > 4 && !ui.more;
@@ -231,8 +232,14 @@ export function Home() {
     <div class="room" style={light.vars}>
     <Light load={asks ? 'asks' : h.running.length ? 'busy' : 'quiet'} />
     <div class={`home${asks ? ' asks' : h.running.length ? ' busy' : ' quiet'}`} id="main" tabIndex={-1}>
-      <div class={`hx${two ? ' two' : ''}`} onKeyDown={nav}>
-        <Capture raised />
+      <div class={`hx${two ? ' two' : ''}${first ? ' first' : ''}`} onKeyDown={nav}>
+        <Capture raised agents={() => open({ kind: 'agents' })} />
+        {first && (
+          <p class="attach">
+            <span>A thought starts in a folder. Until one is open, it is saved for later.</span>
+            <button type="button" class={`${cap.draft.trim() ? 'btn' : 'key'} lg`} onClick={() => open({ kind: 'open-workspace' })}>Open a folder…<kbd>⌘O</kbd></button>
+          </p>
+        )}
         <div class="cols">
         <div class="col">
         {asks && (
@@ -254,21 +261,9 @@ export function Home() {
             {more && <button type="button" class="more" data-nav onClick={() => ((ui.more = true), redraw())}>{h.running.length - 4} more running<I n="chev" /></button>}
           </section>
         )}
-        {first && (
-          <>
-            <div class="start">
-              <button type="button" class="btn primary" onClick={() => open({ kind: 'open-workspace' })}>Open a folder…<kbd>⌘O</kbd></button>
-              <p>It becomes a workspace. A thought goes to the folder it belongs to.</p>
-            </div>
-            <section class="hsec first">
-              <h3><span>Agents</span></h3>
-              <Agents />
-            </section>
-          </>
-        )}
         </div>
         <div class="col">
-        {later && (
+        {more_ && (
           <section class="folds">
             {h.results.length > 0 && (
               <Fold name="Results" open={resultsOpen} rows={h.results} toggle={toggle('results')}>
@@ -276,17 +271,17 @@ export function Home() {
                 <button type="button" class="more" data-nav onClick={() => show('earlier')}>All results<I n="chev" /></button>
               </Fold>
             )}
-            {h.ideas.length > 0 && (
-              <Fold name="Ideas" open={ideasOpen} rows={h.ideas} toggle={toggle('ideas')}>
-                {h.ideas.slice(0, 5).map((t) => <IdeaRow key={t.id} t={t} />)}
+            {h.later.length > 0 && (
+              <Fold name="For later" open={laterOpen} rows={h.later} toggle={toggle('later')}>
+                {h.later.slice(0, 5).map((t) => <LaterRow key={t.id} t={t} />)}
               </Fold>
             )}
           </section>
         )}
-        {first && h.ideas.length > 0 && (
+        {first && h.later.length > 0 && (
           <section class="hsec">
-            <h3><span>Ideas</span><i>{h.ideas.length}</i></h3>
-            {h.ideas.map((t) => <IdeaRow key={t.id} t={t} />)}
+            <h3><span>For later</span><i>{h.later.length}</i></h3>
+            {h.later.map((t) => <LaterRow key={t.id} t={t} />)}
           </section>
         )}
         </div>
@@ -345,7 +340,7 @@ export function Earlier() {
   const match = (t: Thought) => words.every((w) => `${t.text} ${projectName(t.project_id)} ${resultOf(t)?.summary ?? ''}`.toLocaleLowerCase().includes(w));
   const seen = new Set<string>();
   const rows = [...h.waiting, ...h.results, ...earlier.pages].filter((t) => !seen.has(t.id) && (seen.add(t.id), true) && match(t)).sort((a, b) => b.updated - a.updated);
-  const ideas = h.ideas.filter(match);
+  const later = h.later.filter(match);
   const groups = new Map<string, Thought[]>();
   for (const t of rows) {
     const k = day(t.updated);
@@ -364,10 +359,10 @@ export function Earlier() {
           <input id="find-thought" type="search" placeholder="Find a thought" aria-label="Find a thought" autocomplete="off" spellcheck={false}
             value={earlier.query} onInput={(e) => ((earlier.query = e.currentTarget.value), redraw())} />
         </label>
-        {ideas.length > 0 && (
+        {later.length > 0 && (
           <section class="hsec">
-            <h3><span>Ideas</span><i>{ideas.length}</i></h3>
-            {ideas.map((t) => <IdeaRow key={t.id} t={t} />)}
+            <h3><span>For later</span><i>{later.length}</i></h3>
+            {later.map((t) => <LaterRow key={t.id} t={t} />)}
           </section>
         )}
         {[...groups].map(([name, ts]) => (
@@ -376,7 +371,7 @@ export function Earlier() {
             {ts.map((t) => <Row key={t.id} t={t} kind="res" />)}
           </section>
         ))}
-        {!rows.length && !ideas.length && words.length > 0 && <p class="none">Nothing matches “{earlier.query.trim()}”.</p>}
+        {!rows.length && !later.length && words.length > 0 && <p class="none">Nothing matches “{earlier.query.trim()}”.</p>}
         {earlier.more && h.results.length + earlier.pages.length >= 200 && (
           <button type="button" class="more" data-nav onClick={() => void older()}>{earlier.loading ? 'Reading…' : 'Earlier results'}<I n="chev" /></button>
         )}

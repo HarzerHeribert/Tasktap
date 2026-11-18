@@ -46,7 +46,7 @@ export function agent(): AgentHealth | undefined {
 
 const agents: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', fixture: 'Fixture agent' };
 export const agentName = (id: string | null | undefined) => (id ? (agents[id] ?? id) : 'Agent');
-export const projectName = (id: string | null | undefined) => (id && records.projects.get(id)?.name) || 'Idea';
+export const projectName = (id: string | null | undefined) => (id && records.projects.get(id)?.name) || 'For later';
 export const title = (t: Thought | undefined) => {
   const line = t?.text.trim().split('\n')[0] ?? '';
   return line.length > 90 ? line.slice(0, 89) + '…' : line;

@@ -45,6 +45,15 @@ export type Options = {
   seed?: number;
   /** At most this many frames a second, once its blend is over (ambient views, whose motion is slow). */
   fps?: number;
+  /** Home's band: how far it stands in the icon's S, its elements leaning with it (head.ts u_pose). 0 everywhere
+   *  else, which is the form as the lab draws it. */
+  pose?: number;
+  /** Home's band: the strength of the pulses that pass through it while this is above 0, each swelling its heights
+   *  from the centre outward and settling, at uneven intervals of about a breath and a quarter and uneven strengths.
+   *  It is drawn only while a pulse passes, as often as so slow a swell needs, and is a still frame between them. */
+  pulse?: number;
+  /** A pulse starts at once each time this changes (focus entering the panel). */
+  kick?: number;
 };
 
 // The lab's: the signal light of each state (amber, pale green, dull red), the studio's level, draws a second.
@@ -56,7 +65,11 @@ const RATE = [20, 60, 60, 30, 30, 60, 60];
 const MOMENT = [0, 0, 2.5, 2, 4.8, 3, 2];
 const VERT = '#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.-1.,0.,1.);}';
 const UNI = { res: 2, org: 2, n: 1, irid: 1, dim: 1, light: 1, hoff: 1, aux: 1, ph: '4fv', v: '4fv', w: '4fv', p: '1fv', st: '1fv',
-  sig: '3fv', ta: '3fv', tb: '3fv', bg: '3fv', lm: '4fv', holes: '4fv', hole: 2 } as const;
+  sig: '3fv', ta: '3fv', tb: '3fv', bg: '3fv', lm: '4fv', holes: '4fv', hole: 2, pose: '3fv' } as const;
+/** A pulse (head.ts pulse): the seconds one unit of its clock takes, and the units it lasts until it has settled.
+ *  It rises and travels outward in its first two units, drawn 12 times a second, which at its size is under a pixel
+ *  a frame, and settles through the rest, drawn 6 times. */
+const BEAT = 2, PULSE = 3.6;
 type Uniforms = { -readonly [K in keyof typeof UNI]: number | ArrayLike<number> };
 const HOLES = 24;
 /** The smallest view, in CSS pixels, that draws (View.shown). */
@@ -158,7 +171,7 @@ export function still(style: StyleId, look: Look, state: MotionState, size: numb
     // Half the palette's iridescence: an object this small in full colour reads as coloured, not as metal.
     render(style, size, size, {
       res: [0, 0], org: [0, 0], n: 1, irid: P.irid * 0.5, dim: DIM[s]!, light: 0, hoff: 0, aux, ph: [phase, 0, 0, 9], p: new Float32Array(8), st, sig: SIGNAL[s]!,
-      ta: P.a, tb: P.b, v: [0, 0, 0, 0.4], w: [0, 0, 0.4, 0], bg: [0, 0, 0], lm: [0, 0, 1, 0], holes: new Float32Array(HOLES * 4), hole: [0, 0],
+      ta: P.a, tb: P.b, v: [0, 0, 0, 0.4], w: [0, 0, 0.4, 0], bg: [0, 0, 0], lm: [0, 0, 1, 0], holes: new Float32Array(HOLES * 4), hole: [0, 0], pose: [0, 0, 0],
     });
     const px = new Uint8Array(size * size * 4);
     g.readPixels(0, 0, size, size, g.RGBA, g.UNSIGNED_BYTE, px);
@@ -208,6 +221,9 @@ export class View {
   private onz = 0;
   private lm = 0;
   private lph = 0;
+  /** The pulse passing through a posed view: when it began and when the next is due (the page's clock, ms), its
+   *  strength, how many there have been, and the kick last answered. */
+  private pulse = { began: -1e9, due: 0, strength: 0, n: 0, kick: 0, on: false };
   private p = new Float32Array(8);
   private moving = false;
   private slow = 0;
@@ -325,9 +341,10 @@ export class View {
     const s = STATES.indexOf(this.o.state), v = voice ?? SILENT, pace = this.o.pace ?? 'live';
     if (reduced.matches) return this.moving || (s === 1 && Math.abs(v.slow - this.slow) > 0.004) ? 20 : 0;
     if (this.moving) return 60;
-    if (s === 0 || (s >= 5 && this.stT > 3)) return 0;
+    const at = this.beat(), drift = at < PULSE ? (at < 2 ? 12 : 6) : 0;
+    if (s === 0 || (s >= 5 && this.stT > 3)) return drift;
     if (s === 1) return v.quiet > 1.5 ? 20 : 60;
-    if (pace !== 'live' && this.stT >= MOMENT[s]!) return this.breathing() ? Math.min(10, this.o.fps ?? 10) : 0;
+    if (pace !== 'live' && this.stT >= MOMENT[s]!) return this.breathing() ? Math.min(10, this.o.fps ?? 10) : drift;
     return Math.min(RATE[s]!, this.o.fps ?? RATE[s]!);
   }
 
@@ -335,6 +352,25 @@ export class View {
   private breathing() {
     const s = STATES.indexOf(this.o.state);
     return this.o.pace === 'breathe' && (s === 2 || s === 3) && this.stT >= MOMENT[s]!;
+  }
+
+  /** The clock of the view's pulse, in its units; the next begins when its time has come: about a breath and a
+   *  quarter after the last began, give or take a third, each of its own strength, so it is never a metronome. With
+   *  no pulse, past it. */
+  private beat() {
+    // A kick, or its pulses beginning again (the window back in use), starts one at once.
+    const P = this.pulse, now = performance.now(), kicked = (this.o.kick ?? 0) !== P.kick || (!!this.o.pulse && !P.on);
+    P.kick = this.o.kick ?? 0;
+    P.on = !!this.o.pulse;
+    if (this.o.pulse && !reduced.matches && (kicked || now >= P.due)) {
+      const r = (k: number) => Math.abs(Math.sin((++P.n + k) * 12.9898) * 43758.5453) % 1, breath = 3600 / (this.o.tempo ?? 0.3);
+      Object.assign(P, { began: now, strength: this.o.pulse * (kicked ? 0.8 : 0.6 + 0.4 * r(0.3)), due: now + breath * (0.9 + 0.7 * r(0.7)) });
+    }
+    return this.o.pulse ? (now - P.began) / 1000 / BEAT : PULSE;
+  }
+  /** When a view at rest is next due a frame, in ms from now: when its next pulse begins. Never, with none. */
+  rest() {
+    return this.o.pulse && !reduced.matches ? Math.max(0, this.pulse.due - performance.now()) : Infinity;
   }
 
   /** The lab's uniforms for this view, its phases moved on by `adv` seconds. */
@@ -374,7 +410,7 @@ export class View {
       res: [0, 0], org: [0, 0], n, irid: P.irid, dim, light: 0, hoff: V.hoff, aux: this.aux, ph: this.ph, p, st: w, sig, ta: P.a, tb: P.b,
       v: [r ? V.slow : V.level, r ? V.slow : V.fast, r ? 0 : V.onset, V.bright],
       w: [r ? V.slow : V.vowel, r ? 0 : V.sib, V.pitch, r ? V.slow : V.activity],
-      bg: [0, 0, 0], lm: [this.lm, this.lph, amb, 0], holes: this.holes, hole: this.hole,
+      bg: [0, 0, 0], lm: [this.lm, this.lph, amb, 0], holes: this.holes, hole: this.hole, pose: [this.o.pose ?? 0, (performance.now() - this.pulse.began) / 1000 / BEAT, this.pulse.strength],
     };
   }
 
@@ -468,13 +504,21 @@ function words(selector: string, pad: number): Box[] {
 let raf = 0;
 let timer = 0;
 let last = 0;
+/** When the next frame is due. Below the display's rate the loop is paced by counting the display's own frames, never
+ *  by a chain of timers: a web view slows such timers down the longer they run (the band fell from 8 frames a second
+ *  to under 2 within minutes), which no pace of a frame may depend on. A timer only ends a rest. */
+let next = 0;
 
 function wake() {
-  if (!raf && !timer && !document.hidden) raf = requestAnimationFrame(frame);
+  next = 0;
+  clearTimeout(timer);
+  timer = 0;
+  if (!raf && !document.hidden) raf = requestAnimationFrame(frame);
 }
 
 function frame(now: number) {
   raf = 0;
+  if (now < next) return void (raf = requestAnimationFrame(frame));
   const shown = [...views].filter((v) => v.shown());
   if (!shown.length || !context()) return void (last = 0);
   const step = last ? (now - last) / 1000 : 0.016, dt = Math.min(0.05, step), adv = reduced.matches ? 0 : Math.min(0.1, step);
@@ -513,13 +557,18 @@ function frame(now: number) {
     broken = true;
     return void (last = 0);
   }
-  if (!rate) return void (last = 0);
-  if (rate >= 60) raf = requestAnimationFrame(frame);
-  else
+  if (rate) {
+    next = rate >= 60 ? 0 : now + 1000 / rate - 4;
+    return void (raf = requestAnimationFrame(frame));
+  }
+  // Nothing moves: the loop sleeps, until the next pulse of a view that has them is due.
+  last = 0;
+  const rest = Math.min(...shown.map((v) => v.rest()));
+  if (rest !== Infinity)
     timer = window.setTimeout(() => {
       timer = 0;
       raf = requestAnimationFrame(frame);
-    }, 1000 / rate - 8);
+    }, rest);
 }
 
 document.addEventListener('visibilitychange', () => {

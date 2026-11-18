@@ -27,16 +27,21 @@
 //! its model asks the person. An extension the person added may do either
 //! with a dialog; such a dialog is heard and shown, and answered in Pi's
 //! terminal, since nothing lets another extension answer it.
+//!
+//! It places no thought (`headless` is none). `pi -p` answers one question
+//! with no tools and nothing saved, but it has no flag that holds the answer
+//! to a schema and no model of its own: asked that way on DeepSeek's small
+//! model it was right in 13 of the evaluation's 14 thoughts, where the
+//! agents that place were right in all (design §8).
 
 use std::ffi::OsString;
 use std::path::Path;
-use std::time::Duration;
 
 use serde_json::Value;
 use tasktap_proto::{Answer, Ask, Event, MAX_LINE, MAX_TEXT, QuestionKind, ReplyVia};
 
 use super::rules::Rules;
-use super::{Agent, Caps, Detect, Headless, Heard, Payload, Prompt, Run, WORDS, activity};
+use super::{Agent, Caps, Detect, Heard, Payload, Prompt, Run, WORDS, activity};
 use super::{fit, line, said};
 
 pub struct Pi;
@@ -100,30 +105,6 @@ export default function (pi) {
   pi.on("session_shutdown", () => sent);
 }
 "#;
-
-/// The model a headless question asks. Pi has no model of its own and no
-/// name for the smallest one of whoever the person signed in with, so this
-/// names one: DeepSeek's small fast model, which answers only for a person
-/// who has a DeepSeek key. The name will age.
-const SMALL: &str = "deepseek/deepseek-flash";
-
-/// The system prompt of a headless question, in place of Pi's own.
-const SYSTEM: &str = "You follow the instructions in the message exactly \
-     and answer only with the JSON they ask for.";
-
-/// Reads what `pi -p` printed: the model's last message as text and a line
-/// end. Pi holds no answer to a schema, so the answer is the JSON object
-/// that text is, or holds between other words.
-fn answer(out: &str) -> Result<String, String> {
-    let text = out.trim();
-    let object = (text.find('{').zip(text.rfind('}'))).and_then(|(from, to)| text.get(from..=to));
-    let whole = object.filter(|_| out.ends_with('\n'));
-    match whole.map(serde_json::from_str::<Value>) {
-        Some(Ok(answer @ Value::Object(_))) => Ok(answer.to_string()),
-        _ if text.is_empty() => Err("it printed no answer".into()),
-        _ => Err("what it printed is no JSON answer".into()),
-    }
-}
 
 /// The dialog an extension shows and waits on, as a question answered in
 /// the terminal: the payload has its title and kind, not its options.
@@ -201,41 +182,16 @@ impl Agent for Pi {
         vec![(FILE, EXTENSION.replace("EXE", &exe))]
     }
 
-    /// `pi -p` (1.5) with the question on standard input: no tools, no
-    /// extensions, skills, prompt templates, themes or context files, the
-    /// folder's own `.pi` passed over, no session saved, nothing fetched as
-    /// it starts, the model not thinking first, and a short system prompt in
-    /// place of Pi's own. It reads the person's settings and sign-in, as it
-    /// must. Nothing holds the answer to the schema: the instructions ask
-    /// for it, and the core takes only an answer that fits.
-    fn headless(&self) -> Option<Headless> {
-        Some(Headless {
-            model: SMALL,
-            limit: Duration::from_secs(12),
-            #[rustfmt::skip]
-            args: |_| {
-                ["-p", "--offline", "--model", SMALL, "--thinking", "off", "--no-session",
-                 "--no-tools", "--no-extensions", "--no-skills", "--no-prompt-templates",
-                 "--no-themes", "--no-context-files", "--no-approve", "--system-prompt", SYSTEM]
-                .map(Into::into)
-                .into()
-            },
-            stdin: str::to_owned,
-            answer,
-            // DeepSeek's own words for a model it does not have, which Pi
-            // passes on: "The supported API model names are …, but you passed …".
-            gone: |_, said| said.contains("supported API model names"),
-        })
-    }
-
     /// The person's words after a rule, as Codex is told them.
     fn told(&self, brief: &str, words: &str) -> String {
         format!("{brief}\n\n---\n{WORDS}\n\n{words}")
     }
 
     /// The keys Pi's help names for the providers that take one key, for a
-    /// person who signs it in that way and not with `/login`, and the two
-    /// folders it keeps its settings and its sessions in when moved.
+    /// person who signs it in that way and not with `/login`; the two
+    /// folders it keeps its settings and its sessions in when moved; and
+    /// the three with which a person keeps it from the network as it
+    /// starts, so that what they turned off is not on again in Tasktap.
     /// Providers that need several variables (Azure, Bedrock, Cloudflare)
     /// are signed in through its own files.
     #[rustfmt::skip]
@@ -249,7 +205,8 @@ impl Agent for Pi {
             "QWEN_TOKEN_PLAN_CN_API_KEY", "TOGETHER_API_KEY", "XAI_API_KEY", "XIAOMI_API_KEY",
             "XIAOMI_TOKEN_PLAN_AMS_API_KEY", "XIAOMI_TOKEN_PLAN_CN_API_KEY",
             "XIAOMI_TOKEN_PLAN_SGP_API_KEY", "ZAI_API_KEY", "ZAI_CODING_CN_API_KEY",
-            "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR",
+            "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR", "PI_OFFLINE",
+            "PI_SKIP_VERSION_CHECK", "PI_TELEMETRY",
         ]
     }
 

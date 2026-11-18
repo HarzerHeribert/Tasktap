@@ -12,7 +12,7 @@ use std::process::{Command, Stdio};
 
 use common::*;
 use serde_json::{Value, json};
-use tasktap_core::agents::{self, Agent, Heard, Run, Schema};
+use tasktap_core::agents::{self, Agent, Heard, Run};
 use tasktap_proto::{
     Answer, Event, QuestionKind, QuestionState, ReplyVia, Response, SessionEvent, SessionId,
     SessionState, Time,
@@ -290,8 +290,12 @@ fn its_runs_get_the_keys_it_is_signed_in_with_and_its_own_folders() {
         assert!(own.contains(&name), "{name}");
         assert!(agents::variables().contains(&name), "{name}");
     }
-    // What changes how it runs, or signs in a cloud account, is not passed on.
-    for name in ["PI_OFFLINE", "PI_PACKAGE_DIR", "AWS_SECRET_ACCESS_KEY"] {
+    // What a person turned off of its reporting stays off.
+    for name in ["PI_OFFLINE", "PI_TELEMETRY", "PI_SKIP_VERSION_CHECK"] {
+        assert!(own.contains(&name), "{name}");
+    }
+    // Where its program is, or a cloud account's sign-in, is not passed on.
+    for name in ["PI_PACKAGE_DIR", "AWS_SECRET_ACCESS_KEY"] {
         assert!(!own.contains(&name), "{name}");
     }
 }
@@ -332,60 +336,10 @@ fn pi_is_signed_in_when_it_lists_a_model() {
 }
 
 #[test]
-fn pi_is_asked_with_no_tools_nothing_saved_and_answers_in_plain_text() {
-    let how = pi().headless().unwrap();
-    assert_eq!(how.model, "deepseek/deepseek-flash");
-    let schema = Schema {
-        text: "{}",
-        file: Path::new("/data/route/schema.json"),
-    };
-    let args = (how.args)(&schema);
-    assert_eq!(args[..4], ["-p", "--offline", "--model", how.model]);
-    for flag in [
-        "--no-session",
-        "--no-tools",
-        "--no-extensions",
-        "--no-skills",
-        "--no-prompt-templates",
-        "--no-context-files",
-        "--no-approve",
-        "--system-prompt",
-    ] {
-        assert!(args.iter().any(|a| a == flag), "{flag}");
-    }
-    let thinking = args.iter().position(|a| a == "--thinking").unwrap();
-    assert_eq!(args[thinking + 1], "off");
-    // It has no flag for a schema: nothing of it is passed.
-    assert!(!args.iter().any(|a| a.contains("schema")));
-    assert_eq!((how.stdin)("Place this."), "Place this.");
-
-    // What 1.5.2 printed for one of the evaluation's thoughts.
-    let printed = String::from_utf8(fixture("headless-answer.txt")).unwrap();
-    let answer: Value = serde_json::from_str(&(how.answer)(&printed).unwrap()).unwrap();
-    assert_eq!(answer["to"], "p5");
-    assert_eq!(answer["confidence"], "clear");
-    // The object alone is taken where the model wrote around it.
-    let fenced = format!("```json\n{}```\n", printed);
-    assert_eq!(
-        (how.answer)(&fenced).unwrap(),
-        (how.answer)(&printed).unwrap()
-    );
-    // No answer in a part of one, in none, or in other words.
-    assert!((how.answer)(printed.trim_end()).is_err());
-    assert!((how.answer)(&printed[..printed.len() - 30]).is_err());
-    assert_eq!((how.answer)("").unwrap_err(), "it printed no answer");
-    assert!((how.answer)("I cannot place this.\n").is_err());
-    assert!((how.answer)("[1, 2]\n").is_err());
-
-    // DeepSeek's words for a model it does not have, as Pi passed them on;
-    // a wrong key and a missing one are failures, not a model that is gone.
-    let unknown = "400: {\"message\":\"The supported API model names are deepseek-flash, \
-                   deepseek-v4-pro, but you passed deepseek-gone. (request_id: 0)\",\
-                   \"type\":\"invalid_request_error\",\"param\":null,\"code\":\"invalid_request_error\"}";
-    assert!((how.gone)("", unknown));
-    let wrong = "401: {\"message\":\"Authentication Fails, Your api key: ****test is invalid\"}";
-    assert!(!(how.gone)("", wrong));
-    assert!(!(how.gone)("", "  /opt/pi/docs/models.md") && !(how.gone)(&printed, ""));
+fn pi_places_no_thought() {
+    // It has no flag that holds an answer to a schema, and was right in
+    // 13 of the evaluation's 14 thoughts: it is not asked.
+    assert!(pi().headless().is_none());
 }
 
 #[test]

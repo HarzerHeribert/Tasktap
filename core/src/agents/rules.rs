@@ -112,8 +112,9 @@ pub fn shimmed() -> impl Iterator<Item = &'static str> {
 mod tests {
     use super::*;
 
+    /// An agent's rules, whether or not it runs on this system.
     fn rules(agent: &str) -> &'static Rules {
-        named(OsStr::new(agent)).unwrap()
+        RULES.iter().copied().find(|r| r.agent == agent).unwrap()
     }
 
     fn words(args: &[&str]) -> Vec<String> {
@@ -160,6 +161,17 @@ mod tests {
         }
         for agent in shimmed() {
             assert!(crate::agents::find(agent).is_some(), "{agent}");
+        }
+        // Nor has one that does not run on this system yet: typed there, it
+        // runs as typed.
+        for rules in RULES {
+            let runs = crate::agents::find(rules.agent).unwrap().supported();
+            assert_eq!(
+                named(OsStr::new(rules.agent)).is_some(),
+                runs,
+                "{}",
+                rules.agent
+            );
         }
     }
 

@@ -116,7 +116,7 @@ const views = new Set<View>();
  *  the foot). `seen`, when a check sets it, is called with each view just drawn, the canvas that holds its picture
  *  and the view's clock. `carry`: a check may hold every view to the page's own frames; `step`: or set how far
  *  an edge may go between two keyframes. */
-export const stats = { frames: 0, keys: 0, late: 0, contexts: 0, ms: 0, rate: 60, carry: true, step: STEP, seen: null as ((view: View, picture: HTMLCanvasElement, now: number) => void) | null };
+export const stats = { frames: 0, keys: 0, late: 0, contexts: 0, ms: 0, rate: 60, carry: false, step: STEP, seen: null as ((view: View, picture: HTMLCanvasElement, now: number) => void) | null };
 let voice: VoiceSource | null = null;
 
 /** The page's voice source, or none: while one is open, every view's listening state hears it. */

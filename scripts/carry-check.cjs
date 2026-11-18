@@ -263,7 +263,9 @@ async function main() {
     const pages = await serve(path.join(root, 'ui/dist')), b = await chromium.launch({ headless: true, args: GPU });
     try {
       const page = await open(b, { label: 'workspace', records: scene('quiet'), url: pages.url, dpr: 1 });
-      await page.evaluate(() => (Object.assign(window.__motion.debug, { state: 'working', active: true }), window.__motion.redraw()));
+      // The app draws its loops in the page (stats.carry is off: carried, the band flickered in the app's web view); this
+      // part holds the carried path to its picture all the same, so it can be turned on again once that is solved.
+      await page.evaluate(() => (Object.assign(window.__motion.stats, { carry: true }), Object.assign(window.__motion.debug, { state: 'working', active: true }), window.__motion.redraw()));
       await page.waitForTimeout(2500);
       const r = await page.evaluate(ADD, 8);
       json.page = r;

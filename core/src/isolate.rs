@@ -51,7 +51,7 @@ pub const NAME: usize = 12;
 const AUTHOR: &str = "Tasktap";
 const EMAIL: &str = "tasktap@localhost";
 const NO_COMMITS: &str = "the repository has no commits yet, so the run cannot start from one \
-     in a worktree of its own: commit once, or set the project to never isolate";
+     in its own copy of the project: commit once, or set the project to never isolate";
 
 /// Set on every command: no program that could wait on the person or run
 /// for long, the answers in the form this module reads, and untracked
@@ -178,7 +178,7 @@ impl Git {
             ))
         });
         let (real, root, data) =
-            made.map_err(|e| format!("the worktrees' folder cannot be made: {e}"))?;
+            made.map_err(|e| format!("the folder for the copies cannot be made: {e}"))?;
         // A real folder of the data folder's own, not a link to elsewhere:
         // files are made and removed in it by name.
         if !real || root != data.join(FOLDER) {
@@ -201,12 +201,7 @@ impl Git {
     /// branch of that name. Anything else is refused before git runs.
     fn own(&self, w: &Workdir) -> Result<Own, String> {
         let path = PathBuf::from(&w.path);
-        let bad = || {
-            format!(
-                "{} is not a worktree Tasktap made, so it is left alone",
-                w.path
-            )
-        };
+        let bad = || format!("{} is not a copy Tasktap made, so it is left alone", w.path);
         let name = path
             .file_name()
             .and_then(OsStr::to_str)
@@ -241,7 +236,7 @@ impl Git {
     pub fn prepare(&self, repo: &Path, worktree: &Worktree) -> Result<Workdir, String> {
         match worktree {
             Worktree::New { name } if named(name) => self.make(repo, &self.mine(name)),
-            Worktree::New { name } => Err(format!("{name} is no name Tasktap gives a worktree")),
+            Worktree::New { name } => Err(format!("{name} is no name Tasktap gives a copy")),
             Worktree::Again { workdir, .. } => self.again(repo, workdir),
         }
     }
@@ -307,7 +302,7 @@ impl Git {
         *branched = Some(base.clone());
         let add = os(&["worktree", "add", "--quiet"], &own.path, &[&own.branch]);
         self.ok(repo, &add, WRITE)
-            .map_err(|e| format!("the worktree could not be made: {e}"))?;
+            .map_err(|e| format!("the copy could not be made: {e}"))?;
         Ok(Workdir {
             path: own.path.to_string_lossy().into_owned(),
             branch: own.branch.clone(),
@@ -331,7 +326,7 @@ impl Git {
                 return Ok(w.clone());
             }
             return Err(format!(
-                "{} is there but is no longer its worktree; keep or discard its changes first",
+                "{} is there but is no longer its copy; keep or discard its changes first",
                 own.path.display()
             ));
         }
@@ -345,7 +340,7 @@ impl Git {
         if let Err(e) = self.ok(repo, &add, WRITE) {
             let _ = std::fs::remove_dir_all(&own.path);
             self.forget(repo, &own);
-            return Err(format!("the worktree could not be made again: {e}"));
+            return Err(format!("the copy could not be made again: {e}"));
         }
         Ok(w.clone())
     }
@@ -577,7 +572,7 @@ impl Git {
         if own.path.symlink_metadata().is_ok() {
             let Some(status) = self.on_branch(&own) else {
                 return Err(format!(
-                    "{} is no longer the worktree of {}: its link to git is gone or changed. Discard it, or take what is in it yourself",
+                    "{} is no longer the copy on the branch {}: its link to git is gone or changed. Discard it, or take what is in it yourself",
                     own.path.display(),
                     own.branch
                 ));
@@ -616,7 +611,7 @@ impl Git {
         let removed = removed.and_then(|()| self.remove(repo, &own, false, &tip));
         removed.map_err(|why| {
             format!(
-                "The changes are in {to}. The worktree stays, since {why}: Keep again tidies up once that is over, and Discard removes what is left"
+                "The changes are in {to}. The copy stays, since {why}: Keep again tidies up once that is over, and Discard removes what is left"
             )
         })
     }
@@ -627,7 +622,7 @@ impl Git {
     fn commit_all(&self, own: &Own, record: &Path, title: &str) -> Result<(), String> {
         if let Some(what) = midway(record) {
             return Err(format!(
-                "the worktree is in the middle of {what}; finish or abort it in {} first",
+                "the copy is in the middle of {what}; finish or abort it in {} first",
                 own.path.display()
             ));
         }
@@ -644,7 +639,7 @@ impl Git {
         match ran.code {
             Some(0) => Ok(()),
             _ => Err(format!(
-                "the worktree's changes could not be committed: {}",
+                "the copy's changes could not be committed: {}",
                 failed("commit", &ran)
             )),
         }

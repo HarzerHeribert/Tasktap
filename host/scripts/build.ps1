@@ -34,16 +34,17 @@ try {
         cargo build --release --quiet --manifest-path "$root\core\Cargo.toml" --features fixtures --target $triple --target-dir "$hostDir\target\core-fixtures"
         New-Item -ItemType Directory -Force "$hostDir\binaries\fixtures" | Out-Null
         Copy-Item "$hostDir\target\core-fixtures\$triple\release\tasktap.exe" "$hostDir\binaries\fixtures\tasktap.exe" -Force
-        Set-Content -NoNewline "$hostDir\binaries\fixtures\build.txt" "$build.fixtures"
+        Set-Content -Path "$hostDir\binaries\fixtures\build.txt" -Value "$build.fixtures" -NoNewline
     }
 } finally { Remove-Item Env:TASKTAP_BUILD }
 Copy-Item "$hostDir\target\core\$triple\release\tasktap.exe" "$hostDir\binaries\tasktap-$triple.exe" -Force
-Set-Content -NoNewline "$hostDir\binaries\build.txt" $build
+Set-Content -Path "$hostDir\binaries\build.txt" -Value $build -NoNewline
 Write-Host "core $build"
 
 # The host. Its pages are embedded (the `custom-protocol` feature is always on), so cargo alone
-# builds what `tauri build` would, without an installer.
-cargo build --release --manifest-path "$hostDir\Cargo.toml" --target $triple
+# builds what `tauri build` would, without an installer. The build folder is named, since a
+# machine may keep one for everything (CARGO_TARGET_DIR).
+cargo build --release --manifest-path "$hostDir\Cargo.toml" --target $triple --target-dir "$hostDir\target"
 
 # The folder: the app, the core beside it, Microsoft's console beside the core (the core's
 # terminals run in it, design §9), and the licences of what is not Tasktap's own.

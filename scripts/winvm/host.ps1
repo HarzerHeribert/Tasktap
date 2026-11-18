@@ -22,6 +22,8 @@ try {
     Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments "-arch=$arch -host_arch=arm64"
     Write-Host "Building the host at $($Job.commit) for $triple"
     Set-Location host
+    # The VM keeps one build folder for the core's checks; the host's is its own, in the checkout.
+    $env:CARGO_TARGET_DIR = "$checkout\host\target"
     cargo fmt --check
     # The pages, the core and the release build; Clippy and the tests need the first two too.
     & "$checkout\host\scripts\build.ps1" -Target $Job.target -Fixtures

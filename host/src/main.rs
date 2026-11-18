@@ -5,6 +5,7 @@ mod core;
 mod geometry;
 mod native;
 mod notch;
+mod speech;
 mod workspace;
 
 use crate::core::{Core, Link};
@@ -283,7 +284,16 @@ fn main() {
                 })
                 .build(),
         )
-        .invoke_handler(tauri::generate_handler![bridge_open, bridge_send, bridge_host, debug_report])
+        .invoke_handler(tauri::generate_handler![
+            bridge_open,
+            bridge_send,
+            bridge_host,
+            debug_report,
+            speech::speech_model,
+            speech::speech_listen,
+            speech::speech_audio,
+            speech::speech_end
+        ])
         // The pages may hear the microphone (hold to talk, which the page records itself so it is the same on every
         // system, and the appearance panel's trial; the person starts both, and macOS then asks them once, with
         // Info.plist's reason), and nothing else a web view can ask for.

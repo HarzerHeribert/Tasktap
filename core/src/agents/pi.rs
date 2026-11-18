@@ -125,6 +125,16 @@ fn dialog(request: String, p: &Payload) -> Ask {
     }
 }
 
+/// An error as a provider words it, without the part of a key some name in
+/// it ("Incorrect API key provided: sk-…abcd"): no part of one is kept.
+fn unkeyed(error: &str) -> String {
+    let words = error.split(' ').map(|word| match word.contains("sk-") {
+        true => "(a key)",
+        false => word,
+    });
+    words.collect::<Vec<_>>().join(" ")
+}
+
 impl Agent for Pi {
     fn id(&self) -> &'static str {
         "pi"
@@ -287,7 +297,9 @@ impl Agent for Pi {
                 _ if p.get("aborted") == Some(&Value::Bool(true)) => Event::TurnInterrupted,
                 Some("aborted") => Event::TurnInterrupted,
                 Some("error") => Event::TurnFailed {
-                    error: p.str("error").map(|e| fit(&line(e, 500), MAX_LINE)),
+                    error: p
+                        .str("error")
+                        .map(|e| fit(&line(&unkeyed(e), 500), MAX_LINE)),
                 },
                 _ => Event::TurnFinished {
                     answer: p.str("text").map(|a| fit(a, 512 << 10)),

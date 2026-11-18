@@ -32,3 +32,12 @@ helper="$(ls "$here"/../../host/binaries/tasktap-speech-* | head -1)"
 # Both orders of the person's languages: the helper must write the same for either (design §8, "Languages").
 score helper-de-en "" python3 "$here/helper.py" "$helper" "$to/models/wcpp/ggml-large-v3-turbo-q5_0.bin" de,en {wav} fast
 score helper-en-de "" python3 "$here/helper.py" "$helper" "$to/models/wcpp/ggml-large-v3-turbo-q5_0.bin" en,de {wav} fast
+# What a rule for the language has to go on: every stretch's odds by window and its transcript told either language
+# (probe.cpp), and each rule scored from that (rules.py).
+speech="$here/../../host/target/speech"
+# shellcheck disable=SC2046
+c++ -std=c++17 -O2 -I "$speech/whisper.cpp-1.9.5/include" -I "$speech/whisper.cpp-1.9.5/ggml/include" "$here/probe.cpp" $(find "$speech/build" -name '*.a') \
+  -framework Accelerate -framework Metal -framework MetalKit -framework Foundation -o "$to/probe" 2>/dev/null
+mkdir -p "$to/probes"
+for f in "$to"/rec/*.wav; do "$to/probe" "$to/models/wcpp/ggml-large-v3-turbo-q5_0.bin" "$f" de en > "$to/probes/$(basename "$f" .wav).jsonl"; done
+python3 "$here/rules.py" "$to/probes"

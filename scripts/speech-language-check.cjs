@@ -19,7 +19,7 @@ if (!model || !fs.existsSync(model) || !helper) {
 }
 const plain = (text) => text.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, ' ').replace(/\s+/g, ' ').trim();
 
-/** What the helper writes for a recording, fed as the host feeds it, with the person's languages in this order. */
+/** What the helper writes for a recording, with the person's languages in this order. */
 const heard = (pcm, languages) => new Promise((ok, no) => {
   const engine = spawn(helper, [model, ...languages], { stdio: ['pipe', 'pipe', 'ignore'] });
   let out = '';
@@ -28,8 +28,7 @@ const heard = (pcm, languages) => new Promise((ok, no) => {
     const last = out.trim().split('\n').map((l) => JSON.parse(l)).pop() ?? {};
     last.final === undefined ? no(new Error(`the helper said ${JSON.stringify(last)}`)) : ok(last.final);
   });
-  for (let at = 0; at < pcm.length; at += 3200) engine.stdin.write(pcm.subarray(at, at + 3200));
-  engine.stdin.end();
+  engine.stdin.end(pcm);
 });
 
 (async () => {

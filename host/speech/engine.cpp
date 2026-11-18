@@ -15,8 +15,8 @@
 // given to the model at all, which would invent words for it.
 //
 // Languages: none given, the model decides; one, it is told. Several: each stretch is written in the one of them the
-// model finds likelier in its first four seconds, whatever their order, and a stretch that ends sooner than that
-// stays in the language of the stretch before it. Told the wrong language Whisper translates, both ways, so the
+// model finds likelier in the first four seconds of its speech, whatever their order, and a stretch that ends sooner
+// than that stays in the language of the stretch before it. Told the wrong language Whisper translates, both ways, so the
 // language is never fixed for a whole thought; told the language a stretch begins in, it writes down what follows
 // in the other as it was said. Four seconds, because three were too few for a German sentence that begins with an
 // English word, and all of a stretch too many for one that changes language on the way; and a few words at the end
@@ -142,7 +142,7 @@ int main(int argc, char **argv) {
     // The recording as it comes: its loudness frame by frame, and a cut wherever the person pauses.
     std::vector<float> loud;                    // each frame's level (RMS)
     size_t begun = 0, heard = 0, seen = 0;      // where the stretch under way began; samples read; frames looked at
-    size_t first = SIZE_MAX;                    // where the stretch under way has its first sound
+    size_t first = SIZE_MAX, speech = SIZE_MAX; // where the stretch under way has its first sound, and where its speech begins
     float top = 0;                              // the loudest frame yet
     bool told = languages.size() < 2;           // the stretch under way has its language, or is being told it
     // A pause is a tenth of the loudest (20 dB under it); a stretch with nothing above a thirtieth (30 dB) holds no words.
@@ -168,8 +168,13 @@ int main(int argc, char **argv) {
             }
         }
         carry.erase(carry.begin(), carry.begin() + 2 * samples);
-        for (; seen < loud.size(); seen++) if (first == SIZE_MAX && !under(seen, 0.03f)) first = seen * FRAME;
-        if (!told && first != SIZE_MAX && heard >= first + EARLY) told = true, post({first, first + EARLY, false, true});
+        // A stretch begins in the pause it was cut at: its language is told from where that pause ends.
+        auto look = [&](size_t f) {
+            if (first == SIZE_MAX && !under(f, 0.03f)) first = f * FRAME;
+            if (speech == SIZE_MAX && !under(f, 0.1f)) speech = f * FRAME;
+        };
+        for (; seen < loud.size(); seen++) look(seen);
+        if (!told && speech != SIZE_MAX && heard >= speech + EARLY) told = true, post({speech, speech + EARLY, false, true});
         size_t cut = 0;
         if (heard - begun >= LONGEST) {
             // No pause in 28 s: cut at the quietest frame of the last three seconds.
@@ -184,8 +189,8 @@ int main(int argc, char **argv) {
         }
         if (cut > begun) {
             if (first < cut) post({begun, cut, false, false});
-            begun = cut, first = SIZE_MAX, told = languages.size() < 2;
-            for (size_t f = cut / FRAME; f < loud.size() && first == SIZE_MAX; f++) if (!under(f, 0.03f)) first = f * FRAME;
+            begun = cut, first = speech = SIZE_MAX, told = languages.size() < 2;
+            for (size_t f = cut / FRAME; f < loud.size(); f++) look(f);
         }
     }
     // The person let go: what is left, if anything was said in it.

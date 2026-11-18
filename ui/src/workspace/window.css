@@ -59,6 +59,13 @@ button.row:active{background:var(--sel)}
 
 /* ——— title bar ——— */
 .bar{position:relative;z-index:22;display:flex;align-items:center;gap:var(--sp3);min-width:0;padding:0 var(--sp2) 0 14px;background:var(--bg);border-bottom:1px solid var(--line);white-space:nowrap}
+/* On Home the bar is no strip. Nothing under it is another thing than Home, so it draws no edge, and the room's light
+   dissolves into the window's black under it as a scroller's content does at an edge. It is the window's handle, and
+   holds the way back to the sidebar and the word Home while the sidebar is away. A sheet hangs from its edge, which
+   shows while one does. */
+.bar.bare{border-bottom-color:transparent}
+.win.dimmed .bar.bare{border-bottom-color:var(--line)}
+.main:has(>.bare)::before{content:"";position:absolute;z-index:2;inset:var(--bar-h) 0 auto;height:var(--fade);background:linear-gradient(var(--bg),#0000);pointer-events:none}
 .bar .lead{display:flex;justify-content:flex-end;flex:none;width:92px;overflow:hidden}
 .crumb{display:flex;align-items:center;min-width:0}
 .crumb b{font:var(--f-title)}

@@ -32,12 +32,12 @@ def window(w):
 
 
 def now(sts):
-    """engine.cpp: the likelier language in a stretch's first four seconds; a shorter stretch as the one before it,
-    the first by all of it."""
+    """engine.cpp: the first stretch by all of it; each later one by the first four seconds of its speech, a
+    shorter one as the stretch before it."""
     out = []
     for st in sts:
         long = st["to"] - st["from"] - st["lead"] >= 4
-        out.append(likelier(st, "p4") if long else out[-1] if out else likelier(st, "p0"))
+        out.append(likelier(st, "p0") if not out else likelier(st, "p4") if long else out[-1])
     return out
 
 

@@ -14,9 +14,9 @@
 // only the last stretch is left, however long they spoke. A stretch in which nothing rises above the noise is not
 // given to the model at all, which would invent words for it.
 //
-// Languages: none given, the model decides; one, it is told. Several: each stretch is written in the one of them the
-// model finds likelier in the first four seconds of its speech, whatever their order, and a stretch that ends sooner
-// than that stays in the language of the stretch before it. Told the wrong language Whisper translates, both ways, so the
+// Languages: none given, the model decides; one, it is told. Several: the first stretch is written in the one of
+// them the model finds likelier in all of it, each later one in the likelier in the first four seconds of its speech,
+// whatever their order, and a later stretch that ends sooner than that stays in the language of the one before it. Told the wrong language Whisper translates, both ways, so the
 // language is never fixed for a whole thought; told the language a stretch begins in, it writes down what follows
 // in the other as it was said. Four seconds, because three were too few for a German sentence that begins with an
 // English word, and all of a stretch too many for one that changes language on the way; and a few words at the end
@@ -112,8 +112,9 @@ int main(int argc, char **argv) {
             if (!job.detect && !part.empty()) {
                 // Whisper wants a second of sound at the least.
                 if (part.size() < (size_t)RATE + 1600) part.resize(RATE + 1600, 0.f);
-                // A thought that ends before four seconds has no language yet: it is written in the first of them,
-                // told by all of it, which the model has heard by then, and written again only if it was another.
+                // The first stretch has no language yet: it is written in the first of them, told by all of it,
+                // which the model has heard by then, and written again only if it was another. So a thought of one
+                // sentence never waits for its language to be told while the person has already let go.
                 for (bool guess = language.empty();; guess = false) {
                     if (guess) language = languages[0];
                     whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_BEAM_SEARCH);
@@ -144,7 +145,7 @@ int main(int argc, char **argv) {
     size_t begun = 0, heard = 0, seen = 0;      // where the stretch under way began; samples read; frames looked at
     size_t first = SIZE_MAX, speech = SIZE_MAX; // where the stretch under way has its first sound, and where its speech begins
     float top = 0;                              // the loudest frame yet
-    bool told = languages.size() < 2;           // the stretch under way has its language, or is being told it
+    bool told = true;                           // the stretch under way has its language, or is being told it; the first is told after it is written
     // A pause is a tenth of the loudest (20 dB under it); a stretch with nothing above a thirtieth (30 dB) holds no words.
     auto under = [&](size_t frame, float part) { return loud[frame] < std::max(top * part, 0.002f); };
     auto post = [&](Job job) {

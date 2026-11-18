@@ -32,6 +32,7 @@ try {
         cargo build --quiet
         & .\scripts\conpty.ps1 -Target $Job.target -Into $beside -Cache "$checkout\core\target\conpty"
     }
+    if ($Job.batch) { $env:TASKTAP_TEST_BATCH_AGENTS = '1' }
     $cargoArgs = @('test', '--workspace') + @($Job.args)
     if (-not $Job.repeat) {
         $PSNativeCommandUseErrorActionPreference = $false

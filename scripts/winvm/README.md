@@ -6,6 +6,7 @@ Run these commands from the worktree containing the commit you want to test. Unt
 scripts/winvm/up.sh
 scripts/winvm/test.sh
 scripts/winvm/test.sh --arm64
+scripts/winvm/test.sh --arm64 --batch-agents
 scripts/winvm/test.sh HEAD~1 -- --test launch
 scripts/winvm/test.sh --x64 --repeat 40 two_thoughts_launched_at_once_in_one_project_each_get_their_own_terminal -- --test launch
 scripts/winvm/host.sh --arm64
@@ -20,6 +21,8 @@ scripts/winvm/down.sh
 The checkout is `C:\tasktap\checkout`. Both architectures reuse `C:\tasktap\target`, with Cargo's target-specific subdirectories. Test runs and interactive shells acquire the same exclusive checkout lock. Close the active shell or finish the active test before starting another. Local edits on the Windows checkout block automated switches. Commit Mac worktree changes before testing. Plain `git push winvm my-branch` transfers a branch, and `test.sh my-branch` selects it for testing.
 
 `host.sh` does for the host what `test.sh` does for the core: format, the pages, the core and the host by `host/scripts/build.ps1`, Clippy, the host's tests, and the runnable folder `C:\tasktap\checkout\host\target\<target>-pc-windows-msvc\release\Tasktap Next` with its zip. It builds inside the checkout (`host\target`, `ui\node_modules`), not in `C:\tasktap\target`. With `--run` it then starts the app for a few seconds through `host/scripts/smoke.ps1`; see below for how far that gets over SSH.
+
+`--batch-agents` runs the core's suite with the tests' agents installed the way npm installs a tool on Windows, as a batch file around the program (`TASKTAP_TEST_BATCH_AGENTS`, `core/tests/common`): finding, launching, adopting, asking and stopping them then all go through the command prompt.
 
 Both scripts put Microsoft's console (`conpty.dll`, `OpenConsole.exe`; `core/scripts/conpty.ps1` downloads the pinned package from nuget.org into `core\target\conpty` and checks it) beside the core they test or bundle, and `test.sh` takes it out of the shared build folder again when it is done.
 

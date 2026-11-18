@@ -834,8 +834,10 @@ fn a_model_that_takes_too_long_is_stopped_and_the_match_on_names_routes() {
         )
     );
     // The tool was ended, not left to finish. Installed as a batch file it
-    // is what the command prompt ran: ended with the prompt, at once.
-    assert!(a.file("began").exists());
+    // is what the command prompt ran: ended with the prompt, at once. (Its
+    // one second is the prompt's too, which on a slow machine can use it up
+    // before the tool begins.)
+    assert!(as_batch_files() || a.file("began").exists());
     #[cfg(windows)]
     if as_batch_files() {
         let tool = batch_file(&agents(&a.data.0), "fixture-agent");

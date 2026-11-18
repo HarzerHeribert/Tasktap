@@ -152,6 +152,40 @@ A separate page with its own entry point. It subscribes to core events and share
 - Everything else opens the workspace at the right place: routing dialogs, the review sheet, setup, navigation, preferences.
 - Keep from today: no focus stealing on passive reveal, camera-aware geometry, the menu-bar fallback on displays without a notch, reduced motion.
 
+### The notch on Windows (proposal, 2026-11-18)
+
+Windows has no notch, and the three jobs are the same. The proposal is the Mac's form for a display without a camera housing, plus one anchor that Windows owns:
+
+- **The tab.** A small frameless, transparent, always-on-top window that hangs centred from the top edge of one display and opens downwards into the same sheet. It is the same page (`notch.html`) on the same geometry: 104 × 16 points on a large display, 120 × 20 on a smaller one, the sheet 420 points wide. Collapsed it shows the glance and lets every click through.
+- **The notification-area icon.** Always there, also while the tab is hidden: its tooltip says the counts, a click opens the sheet, its menu has Workspace, New Task and Quit. It is not the glance by itself, because Windows keeps a new icon in the overflow until the person drags it out.
+- **The shortcut.** As on the Mac it is the main way in: it opens the sheet with the keyboard, on the display the pointer is on.
+
+How it behaves:
+
+| Case | Behavior |
+| --- | --- |
+| Taskbar at the bottom or a side | Nothing to do: the tab is at the top, and the sheet ends 12 points above the work area's lower edge. |
+| Taskbar docked at the top | The tab hangs from the taskbar's lower edge, never over it. An auto-hidden one leaves the tab at the display's edge, where it covers the strip that reveals the taskbar for the tab's own width only. |
+| Several displays | Collapsed, the tab is on the primary display. The shortcut opens the sheet on the display under the pointer, and it folds back to where it was. |
+| Different scale factors | The geometry is in points per display; Windows reports pixels. The window is placed and sized again when its display's scale changes. |
+| Full-screen apps | The tab hides while Windows says a full-screen app, a presentation or an exclusive Direct3D app is running (`SHQueryUserNotificationState`, the documented rule for notification UI). The shortcut still opens the sheet, since the person asked. A question that arrives meanwhile changes the icon. |
+| Keyboard | A passive reveal never takes it: the window is made unfocused and not focusable. For capture and answer it is made focusable and focused, and the window that had the keyboard gets it back at fold. |
+| Pointer | Tauri's click-through is the whole window or nothing, so the host turns it on and off from a pointer watcher against the outline the page sends, as on the Mac (Raw Input with `RIDEV_INPUTSINK`, which Microsoft recommends over a low-level hook). |
+
+**What Tauri and WebView2 support, checked on 2026-11-18** against the sources this app builds with (tauri 2.12.6, tao 0.37.2, wry 0.57.2, global-hotkey 0.8.0, tray-icon 0.25.1) and Microsoft's documentation:
+
+- Transparent: `transparent(true)` sets WebView2's background to alpha 0 (it supports only 0 and 255) and the window behind it to DWM's blur with an empty region. `shadow(false)` is needed, or an undecorated window gets a 1-pixel border and, on Windows 11, rounded corners.
+- Always on top: `WS_EX_TOPMOST`, set without activating. Microsoft documents only "above all non-topmost windows".
+- Not taking the keyboard: `focused(false)` holds for the first show only; every later `show()` is `SW_SHOW`, which activates. So the window is shown once and never hidden by `hide()`, or shown by the host's own call. `focusable(false)` and `set_focusable` (`WS_EX_NOACTIVATE`, since tauri 2.8) keep clicks from activating it.
+- Click-through: `set_ignore_cursor_events` adds `WS_EX_TRANSPARENT | WS_EX_LAYERED` to the whole window.
+- Taskbar and task switcher: `skip_taskbar` removes the taskbar button (`ITaskbarList::DeleteTab`). `visible_on_all_workspaces` does nothing on Windows.
+- Displays: positions and sizes are pixels of the virtual screen with the primary display at the origin; `Monitor::work_area` is what the taskbar leaves; the app is per-monitor DPI aware (set by tao at run time).
+- Icon: tauri's `tray-icon` feature (not enabled yet) changes icon and tooltip at run time and reports clicks. A toast needs a Start-menu shortcut with an app id, so it comes with the installer.
+- Shortcuts: `RegisterHotKey`; a combination another program holds fails (the app then starts without it and says so in its log). Microsoft advises against Ctrl+Alt combinations, which some keyboard layouts read as AltGr. Today's keys (Ctrl+Alt+Space, J, Y, N) are kept until they are tried on the owner's layout; they should become a preference.
+- The microphone: the permission handler the Mac uses exists on Windows too (`PermissionRequested`), and WebView2 remembers the answer in the profile.
+
+**Built now:** the arithmetic (`host/src/tab.rs`: Windows' pixels to the notch's geometry and back, the taskbar and scale cases above, tested on every system) and a Windows host without the tab: the capture shortcut opens the workspace's New Task, Ctrl+Alt+Y and N answer the waiting question, closing the workspace window quits the app (the core and its sessions run on). **Not built, and only checkable at a desktop:** the tab's window, the pointer watcher, the icon, the full-screen rule, handing the keyboard back; whether `SW_SHOW` activates a window that is not focusable, whether a hot key lets the app take the foreground, how a topmost window sits over the taskbar and over full-screen video, whether `DeleteTab` also removes the window from Alt+Tab, and what the tab does across virtual desktops.
+
 ## Cut list
 
 Trace callers before deleting. Remove the matching preferences, setup steps, guide text and checks in the same change.

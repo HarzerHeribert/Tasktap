@@ -441,6 +441,36 @@ fn every_call_round_trips() {
         (),
         seen,
     );
+    for (unless, stream) in [
+        (None, Some(diff.stream)),
+        (Some("18a9c2f0-4d2".to_owned()), None),
+    ] {
+        let read = ReadFile {
+            path: "/work/app/report.html".into(),
+            credit: 1 << 20,
+            unless,
+        };
+        let file = FileRead {
+            stream,
+            size: 1234,
+            kind: FileKind::Html,
+            encoding: Some(Encoding::Utf8),
+            cut: false,
+            stamp: "18a9c2f0-4d2".into(),
+        };
+        round_trip::<call::FileRead>(read, file, seen);
+    }
+    for (terminal, target, cwd) in [
+        (Some(id(3)), "http://localhost:5173/", None),
+        (None, "out/report.html", Some("/work/app".to_owned())),
+    ] {
+        let open = OpenPreview {
+            terminal,
+            target: target.into(),
+            cwd,
+        };
+        round_trip::<call::PreviewOpen>(open, id(9), seen);
+    }
     for action in [Action::Affirm, Action::Deny] {
         round_trip::<call::Input>(
             Input {
@@ -588,7 +618,7 @@ fn every_call_round_trips() {
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 44);
+    assert_eq!(Name::ALL.len(), 46);
 }
 
 #[test]
@@ -623,12 +653,15 @@ fn access_follows_the_authorization_table() {
             "session.adopt"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 37);
+    assert_eq!(by(Access::Device).len(), 38);
+    // An agent shows a preview beside its own terminal, as a device does beside any.
+    assert_eq!(by(Access::Either), ["preview.open"]);
     assert_eq!(by(Access::Ability), ["shim.hold"]);
     for (access, allowed) in [
         (Access::Anyone, [true, true, true]),
         (Access::Device, [true, false, false]),
         (Access::Session, [false, true, false]),
+        (Access::Either, [true, true, false]),
         (Access::Ability, [false, false, false]),
     ] {
         let who = [Identity::Device, Identity::Session, Identity::Anonymous];
@@ -817,6 +850,299 @@ fn motion_preferences_put_as_the_wire_says() {
         json!({"c": "prefs", "id": "motion_hue", "patch": -1}),
     ] {
         assert!(serde_json::from_value::<PutTarget>(bad).is_err());
+    }
+}
+
+/// The rule of which web addresses a preview loads (design §12), as the
+/// table every side shares: `tests/addresses.json`, each address with what
+/// it is. A page that mirrors the rule runs the same table.
+#[test]
+fn only_this_machines_own_addresses_are_local_by_the_shared_table() {
+    let table: Vec<(String, Web)> = serde_json::from_str(include_str!("addresses.json")).unwrap();
+    assert!(table.len() > 60);
+    for (address, is) in &table {
+        assert_eq!(web(address), *is, "{address:?}");
+    }
+    // Every kind is in the table, and local only where the host is this machine.
+    for kind in [Web::Local, Web::Remote, Web::Broken, Web::No] {
+        assert!(table.iter().any(|(_, is)| *is == kind), "{kind:?}");
+    }
+    let long = format!("http://localhost/{}", "a".repeat(MAX_ADDRESS));
+    assert_eq!(web(&long), Web::Broken);
+    let fits = format!("http://localhost/{}", "a".repeat(MAX_ADDRESS - 17));
+    assert_eq!((fits.len(), web(&fits)), (MAX_ADDRESS, Web::Local));
+}
+
+/// The rule of what is read, shown and opened on disk (design §12): the
+/// whole path a target names, and whether it is inside a folder the person
+/// opened once every link is followed.
+#[test]
+fn a_path_is_inside_a_folder_the_person_opened_only_with_its_links_followed() {
+    use std::fs;
+    let base = std::env::temp_dir().join(format!("tasktap-rules-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    let (project, other) = (base.join("my project"), base.join("other"));
+    fs::create_dir_all(project.join("src")).unwrap();
+    fs::create_dir_all(&other).unwrap();
+    fs::write(project.join("src/größe.md"), "# Größe\n").unwrap();
+    fs::write(other.join("secret.txt"), "no").unwrap();
+    let real = project.canonicalize().unwrap();
+    let roots = [project.clone()];
+
+    let file = real.join("src/größe.md");
+    assert_eq!(
+        inside(&project.join("src/größe.md"), &roots),
+        Ok(file.clone())
+    );
+    assert_eq!(
+        inside(&project.join("src/../src/größe.md"), &roots),
+        Ok(file.clone())
+    );
+    assert_eq!(inside(&project, &roots), Ok(real.clone()));
+    assert_eq!(
+        inside(&project.join("src/none.md"), &roots),
+        Err(Outside::Missing)
+    );
+    let secret = other.join("secret.txt");
+    let out = Outside::Outside(secret.canonicalize().unwrap());
+    assert_eq!(inside(&secret, &roots), Err(out.clone()));
+    assert_eq!(
+        inside(&project.join("../other/secret.txt"), &roots),
+        Err(out.clone())
+    );
+    // A folder whose name only begins like the person's is another folder.
+    fs::create_dir_all(base.join("my project too")).unwrap();
+    assert!(inside(&base.join("my project too"), &roots).is_err());
+    // With no folder opened nothing is inside, and a root that is gone is none.
+    assert!(inside(&file, &[]).is_err());
+    assert!(inside(&file, &[base.join("gone")]).is_err());
+    #[cfg(unix)]
+    {
+        // A link out of the folder is followed first; one into it from outside is fine.
+        std::os::unix::fs::symlink(&secret, project.join("link.txt")).unwrap();
+        std::os::unix::fs::symlink(&other, project.join("away")).unwrap();
+        std::os::unix::fs::symlink(&project, other.join("back")).unwrap();
+        assert_eq!(inside(&project.join("link.txt"), &roots), Err(out.clone()));
+        assert_eq!(inside(&project.join("away/secret.txt"), &roots), Err(out));
+        assert_eq!(
+            inside(&other.join("back/src/größe.md"), &roots),
+            Ok(file.clone())
+        );
+        // A root given through a link is the folder it leads to.
+        assert_eq!(inside(&file, &[other.join("back")]), Ok(file.clone()));
+    }
+    assert!(Outside::Missing.sentence(&file).ends_with("does not exist"));
+    let said = Outside::Outside(secret.clone()).sentence(&file);
+    assert!(
+        said.ends_with("is outside the folders you opened in Tasktap"),
+        "{said}"
+    );
+
+    // The whole path a target names.
+    let home = Some(base.as_path());
+    let cwd = project.to_str();
+    assert_eq!(
+        whole(file.to_str().unwrap(), None, None),
+        Some(file.clone())
+    );
+    assert_eq!(
+        whole("src/größe.md", cwd, None),
+        Some(project.join("src/größe.md"))
+    );
+    assert_eq!(whole("~/other/secret.txt", None, home), Some(secret));
+    assert_eq!(whole("src/größe.md", None, home), None);
+    assert_eq!(whole("src/größe.md", Some("my project"), home), None);
+    // Without a home folder `~` is a folder's name like any other.
+    assert_eq!(whole("~/x", cwd, None), Some(project.join("~/x")));
+    let _ = fs::remove_dir_all(base);
+}
+
+/// The settings the redesigned Settings sheet lacked a preference for.
+#[test]
+fn the_keys_the_history_and_the_text_preferences_put_as_the_wire_says() {
+    let key = |control, alt, shift, meta, code: &str| Shortcut {
+        control,
+        alt,
+        shift,
+        meta,
+        code: code.into(),
+    };
+    let wire_key =
+        json!({"control": false, "alt": true, "shift": true, "meta": false, "code": "KeyK"});
+    let cases = [
+        (
+            json!({"c": "prefs", "id": "return_sends", "patch": false}),
+            PrefPatch::ReturnSends(false),
+            PrefKey::ReturnSends,
+        ),
+        (
+            json!({"c": "prefs", "id": "capture_key", "patch": wire_key}),
+            PrefPatch::CaptureKey(Some(key(false, true, true, false, "KeyK"))),
+            PrefKey::CaptureKey,
+        ),
+        (
+            json!({"c": "prefs", "id": "capture_key", "patch": null}),
+            PrefPatch::CaptureKey(None),
+            PrefKey::CaptureKey,
+        ),
+        (
+            json!({"c": "prefs", "id": "talk_key", "patch": wire_key}),
+            PrefPatch::TalkKey(Some(key(false, true, true, false, "KeyK"))),
+            PrefKey::TalkKey,
+        ),
+        (
+            json!({"c": "prefs", "id": "keep_days", "patch": 30}),
+            PrefPatch::KeepDays(30),
+            PrefKey::KeepDays,
+        ),
+        (
+            json!({"c": "prefs", "id": "terminal_bold_bright", "patch": false}),
+            PrefPatch::TerminalBoldBright(false),
+            PrefKey::TerminalBoldBright,
+        ),
+        (
+            json!({"c": "prefs", "id": "terminal_contrast", "patch": false}),
+            PrefPatch::TerminalContrast(false),
+            PrefKey::TerminalContrast,
+        ),
+        (
+            json!({"c": "prefs", "id": "text_size", "patch": "large"}),
+            PrefPatch::TextSize(TextSize::Large),
+            PrefKey::TextSize,
+        ),
+    ];
+    for (wire, patch, key) in cases {
+        let target: PutTarget = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(target, PutTarget::Prefs(patch.clone()));
+        assert_eq!(serde_json::to_value(&target).unwrap(), wire);
+        assert_eq!(PrefValue::from(patch).key(), key);
+    }
+    // Each default keeps what the app did before the preference existed.
+    for (key, default) in [
+        (PrefKey::ReturnSends, json!(true)),
+        (PrefKey::CaptureKey, json!(null)),
+        (PrefKey::TalkKey, json!(null)),
+        (PrefKey::KeepDays, json!(0)),
+        (PrefKey::TerminalBoldBright, json!(true)),
+        (PrefKey::TerminalContrast, json!(true)),
+        (PrefKey::TextSize, json!("default")),
+    ] {
+        assert_eq!(
+            serde_json::to_value(key.default()).unwrap()["value"],
+            default
+        );
+    }
+    for bad in [
+        json!({"c": "prefs", "id": "return_sends", "patch": "yes"}),
+        json!({"c": "prefs", "id": "capture_key", "patch": "Control+Space"}),
+        json!({"c": "prefs", "id": "capture_key", "patch": {"alt": true, "code": "Space"}}),
+        json!({"c": "prefs", "id": "talk_key", "patch":
+            {"control": true, "alt": false, "shift": false, "meta": false, "code": "Space", "hyper": true}}),
+        json!({"c": "prefs", "id": "talk_key", "patch":
+            {"control": true, "alt": false, "shift": false, "meta": false, "code": "x".repeat(40)}}),
+        json!({"c": "prefs", "id": "keep_days", "patch": 3651}),
+        json!({"c": "prefs", "id": "keep_days", "patch": -1}),
+        json!({"c": "prefs", "id": "keep_days", "patch": "forever"}),
+        json!({"c": "prefs", "id": "terminal_bold_bright", "patch": 1}),
+        json!({"c": "prefs", "id": "text_size", "patch": "huge"}),
+    ] {
+        assert!(
+            serde_json::from_value::<PutTarget>(bad.clone()).is_err(),
+            "{bad}"
+        );
+    }
+    let days = json!({"c": "prefs", "id": "keep_days", "patch": 4000});
+    let why = serde_json::from_value::<PutTarget>(days).unwrap_err();
+    assert_eq!(
+        why.to_string(),
+        "Finished thoughts are kept for 1 to 3650 days, or for ever with 0"
+    );
+
+    // The rule of a shortcut, as a table: the modifiers held, the key, and why not.
+    let rule = [
+        // Today's keys, and each system's default for capture.
+        ((true, true, false, false, "Space"), None),
+        ((false, true, true, false, "Space"), None),
+        ((false, true, false, false, "Space"), None),
+        ((false, false, false, true, "KeyK"), None),
+        ((true, false, true, false, "F5"), None),
+        ((true, false, false, false, "Digit1"), None),
+        ((true, true, true, true, "Slash"), None),
+        ((false, true, false, false, "F12"), None),
+        // Not a bare key, and Shift alone does not make one a shortcut.
+        ((false, false, false, false, "Space"), Some(Shortcut::BARE)),
+        ((false, false, true, false, "KeyA"), Some(Shortcut::BARE)),
+        ((false, false, false, false, "F5"), Some(Shortcut::BARE)),
+        // A key by its code, of the keys every host registers.
+        ((true, false, false, false, "space"), Some(Shortcut::NO_KEY)),
+        ((true, false, false, false, " "), Some(Shortcut::NO_KEY)),
+        ((true, false, false, false, ""), Some(Shortcut::NO_KEY)),
+        ((true, false, false, false, "KeyÄ"), Some(Shortcut::NO_KEY)),
+        ((true, false, false, false, "Keya"), Some(Shortcut::NO_KEY)),
+        ((true, false, false, false, "KeyAB"), Some(Shortcut::NO_KEY)),
+        (
+            (true, false, false, false, "Digit10"),
+            Some(Shortcut::NO_KEY),
+        ),
+        ((true, false, false, false, "F0"), Some(Shortcut::NO_KEY)),
+        ((true, false, false, false, "F01"), Some(Shortcut::NO_KEY)),
+        ((true, false, false, false, "F13"), Some(Shortcut::NO_KEY)),
+        (
+            (true, false, false, false, "ControlLeft"),
+            Some(Shortcut::NO_KEY),
+        ),
+        (
+            (true, false, false, false, "⌃Space"),
+            Some(Shortcut::NO_KEY),
+        ),
+        // What a system keeps, whichever system this is.
+        (
+            (false, false, false, true, "Space"),
+            Some(Shortcut::RESERVED),
+        ),
+        ((false, false, false, true, "Tab"), Some(Shortcut::RESERVED)),
+        ((false, true, false, false, "Tab"), Some(Shortcut::RESERVED)),
+        (
+            (false, false, false, true, "KeyQ"),
+            Some(Shortcut::RESERVED),
+        ),
+        ((false, true, false, false, "F4"), Some(Shortcut::RESERVED)),
+        (
+            (true, true, false, false, "Delete"),
+            Some(Shortcut::RESERVED),
+        ),
+        (
+            (true, false, true, false, "Escape"),
+            Some(Shortcut::RESERVED),
+        ),
+        (
+            (false, false, true, true, "Digit4"),
+            Some(Shortcut::RESERVED),
+        ),
+        // With one more modifier it is another combination.
+        ((true, false, false, true, "Space"), None),
+        // The keys that answer a waiting question.
+        ((true, true, false, false, "KeyY"), Some(Shortcut::ANSWERS)),
+        ((true, true, false, false, "KeyN"), Some(Shortcut::ANSWERS)),
+        ((true, true, false, false, "KeyJ"), Some(Shortcut::ANSWERS)),
+        ((true, true, true, false, "KeyJ"), None),
+    ];
+    for ((control, alt, shift, meta, code), why) in rule {
+        let shortcut = key(control, alt, shift, meta, code);
+        assert_eq!(shortcut.refused(), why, "{shortcut:?}");
+    }
+    // The default is a shortcut by its own rule on each system, and never
+    // Control-Alt off the Mac, which is AltGr on many keyboards.
+    assert_eq!(
+        Shortcut::capture(true),
+        key(true, true, false, false, "Space")
+    );
+    assert_eq!(
+        Shortcut::capture(false),
+        key(false, true, true, false, "Space")
+    );
+    for mac in [true, false] {
+        assert_eq!(Shortcut::capture(mac).refused(), None);
     }
 }
 

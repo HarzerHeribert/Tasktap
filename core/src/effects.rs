@@ -24,8 +24,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
-    AttemptId, CallId, Change, Offset, Outcome, QuestionId, RouteBy, Routing, Secret, SessionEvent,
-    SessionId, Settle, TerminalId, TerminalState, Thought, ThoughtId, Time, Workdir,
+    AttemptId, CallId, Change, Offset, Outcome, PrefKey, PrefValue, QuestionId, RouteBy, Routing,
+    Secret, SessionEvent, SessionId, Settle, TerminalId, TerminalState, Thought, ThoughtId, Time,
+    Workdir,
 };
 use tokio::task::AbortHandle;
 
@@ -110,8 +111,13 @@ pub fn stored(e: store::Error) -> Error {
 /// fixture router, launcher and host.
 #[derive(Default)]
 pub struct Seams {
-    /// One one-shot timer per held thought; nothing else is ever armed here.
+    /// One one-shot timer per held thought; nothing else is ever armed here
+    /// but `prune`.
     timers: HashMap<ThoughtId, Timer>,
+    /// The one-shot timer of the next pruning, a day after the last one;
+    /// none while finished thoughts are kept for ever (`keep`). It keeps
+    /// no core alive: one that idles out prunes when it next starts.
+    prune: Option<Timer>,
     /// The core is shutting down: no hold is armed or ends any more.
     closing: bool,
     /// Set by `fixture.clock`: the time stands still until it is called again.
@@ -1098,6 +1104,91 @@ fn fire(core: &mut Core, thought: ThoughtId, until: Time) {
     report(core, Event::HoldEnded { thought, attempt }, |_| Ok(()));
 }
 
+/// Days finished thoughts are kept: the `keep_days` preference, 0 for ever.
+fn kept(core: &mut Core) -> u16 {
+    match read(core, |tx| tx.pref(PrefKey::KeepDays)) {
+        Ok(Some(tasktap_proto::Pref {
+            value: PrefValue::KeepDays(days),
+            ..
+        })) => days,
+        _ => 0,
+    }
+}
+
+/// Carries out the `keep_days` preference (design §5, row "pruned"): what
+/// is older goes once as the core starts and then once a day while it
+/// runs, by a one-shot timer armed anew after each pruning. With the
+/// preference at for ever nothing is armed. A change of the preference
+/// removes nothing in that moment, so a number half typed deletes nothing:
+/// it takes effect at the next pruning, a day on where none was due.
+pub fn keep(core: &mut Core, start: bool) {
+    if kept(core) == 0 {
+        if let Some(Timer {
+            task: Some(task), ..
+        }) = core.seams.prune.take()
+        {
+            task.abort();
+        }
+        core.seams.prune = None;
+    } else if start {
+        prune(core);
+    } else if core.seams.prune.is_none() {
+        arm_prune(core);
+    }
+}
+
+/// One pruning, in bounded steps (`state::prune`): each is one transaction,
+/// and the next waits until whatever else wants the core's thread had its
+/// turn. Then the timer of the next pruning is armed.
+fn prune(core: &mut Core) {
+    core.seams.prune = None;
+    loop {
+        if core.seams.closing {
+            return;
+        }
+        let (now, days) = (core.seams.now(), kept(core));
+        let step = write(core, |tx| state::prune(tx, now, days).map_err(stored));
+        // A step the store refused is tried again with the next pruning.
+        let pruned = step.unwrap_or_default();
+        for &terminal in &pruned.terminals {
+            crate::terminal::forget(core, terminal);
+        }
+        if !pruned.more {
+            break;
+        }
+        if core.seams.manual().is_none() {
+            let me = core.me.clone();
+            tokio::task::spawn_local(async move {
+                tokio::task::yield_now().await;
+                if let Some(core) = me.upgrade() {
+                    prune(&mut core.borrow_mut());
+                }
+            });
+            return;
+        }
+    }
+    if kept(core) > 0 {
+        arm_prune(core);
+    }
+}
+
+fn arm_prune(core: &mut Core) {
+    let day = Duration::from_millis(state::DAY);
+    let now = core.seams.now();
+    let until = Time::new(now.get() + state::DAY).unwrap_or(now);
+    let task = core.seams.manual().is_none().then(|| {
+        let me = core.me.clone();
+        let task = tokio::task::spawn_local(async move {
+            tokio::time::sleep(day).await;
+            if let Some(core) = me.upgrade() {
+                prune(&mut core.borrow_mut());
+            }
+        });
+        task.abort_handle()
+    });
+    core.seams.prune = Some(Timer { until, task });
+}
+
 /// The core is shutting down: every hold timer ends without firing, and
 /// none is armed again, so a held thought stays routed with no timer, as a
 /// restart leaves it (design §3), and nothing launches while the core goes.
@@ -1107,7 +1198,8 @@ pub fn close(core: &mut Core) {
     for (_, (_, hear)) in core.seams.routes.drain() {
         let _ = hear.send(Asked::Stop);
     }
-    for (_, timer) in core.seams.timers.drain() {
+    let timers = core.seams.timers.drain().map(|(_, timer)| timer);
+    for timer in timers.chain(core.seams.prune.take()) {
         if let Some(task) = timer.task {
             task.abort();
         }
@@ -1182,6 +1274,15 @@ pub fn clock(cx: &mut Cx, args: tasktap_proto::FixtureClock) -> Result<(), Error
             .is_some_and(|t| t.until == until)
         {
             fire(core, thought, until);
+        }
+    }
+    // The next pruning, as its timer would have it.
+    if let Some(timer) = &mut core.seams.prune {
+        if let Some(task) = timer.task.take() {
+            task.abort();
+        }
+        if timer.until <= args.now {
+            prune(core);
         }
     }
     Ok(())

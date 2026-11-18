@@ -134,6 +134,8 @@ fn handler(name: Name) -> Option<Handler> {
         Name::TerminalOpen => |cx, args| now::<call::TerminalOpen>(cx, args, terminal::open),
         Name::TerminalResize => |cx, args| now::<call::TerminalResize>(cx, args, terminal::resize),
         Name::TerminalStop => |cx, args| now::<call::TerminalStop>(cx, args, terminal::stop_call),
+        Name::FileRead => |cx, args| later::<call::FileRead>(cx, args, read_file),
+        Name::PreviewOpen => |cx, args| later::<call::PreviewOpen>(cx, args, open_preview),
         #[cfg(feature = "fixtures")]
         Name::FixtureStream => {
             |cx, args| now::<call::FixtureStream>(cx, args, crate::stream::fixture)
@@ -539,6 +541,138 @@ fn changes(cx: &mut Cx, args: tasktap_proto::ReadChanges) -> Option<Control> {
             more,
             size: listed.size,
             cut,
+        })
+    })
+}
+
+/// Files `file.read` holds at once, each at most `MAX_FILE` bytes: those
+/// being read and those a stream still has to send.
+const FILES: usize = 4;
+
+/// Where Tasktap reads files, shows them and opens them: the folders the
+/// person opened, and the copies Tasktap made of them for its runs.
+fn roots(core: &mut Core) -> Result<Vec<PathBuf>, Error> {
+    let folders = effects::read(core, |tx| tx.folders())?;
+    let mut roots: Vec<PathBuf> = folders.into_iter().map(PathBuf::from).collect();
+    roots.push(core.terminals.data().join(crate::isolate::FOLDER));
+    Ok(roots)
+}
+
+/// `file.read`: a file's bytes as a stream, read off the core's thread as
+/// a folder check is, under the one rule of what may be read (design §12).
+fn read_file(cx: &mut Cx, args: tasktap_proto::ReadFile) -> Option<Control> {
+    let refuse = |e| Some(call::FileRead::reply(cx.id, Err(e)));
+    if cx.core.files.get() >= FILES {
+        let busy = "too many files are being sent; try again soon";
+        return refuse(Error::new(Code::Failed, busy));
+    }
+    let roots = match roots(cx.core) {
+        Ok(roots) => roots,
+        Err(e) => return refuse(e),
+    };
+    let files = cx.core.files.clone();
+    files.set(files.get() + 1);
+    let (link, credit) = (cx.link.clone(), args.credit);
+    let look = move || crate::files::read(&args.path, &roots, args.unless.as_deref());
+    let refused = off_thread::<call::FileRead, _>(cx, look, move |core, found| {
+        // The read is over: from here its stream counts what it holds.
+        core.files.set(core.files.get() - 1);
+        let found = found?;
+        let bytes = |bytes| crate::stream::bytes(&link, credit, bytes, &core.files);
+        Ok(tasktap_proto::FileRead {
+            stream: found.bytes.map(bytes).transpose()?,
+            size: found.size,
+            kind: found.kind,
+            encoding: found.encoding,
+            cut: found.cut,
+            stamp: found.stamp,
+        })
+    });
+    // Nothing was read: too many checks were running.
+    if refused.is_some() {
+        files.set(files.get() - 1);
+    }
+    refused
+}
+
+/// `preview.open`: a file or a web address of this machine shown beside
+/// a terminal, the device's choice or the agent's own. What may be shown
+/// is decided here, never by the caller: a web address only when it is
+/// this machine's, a path only when it is a file inside a folder the
+/// person opened (design §12).
+fn open_preview(cx: &mut Cx, args: tasktap_proto::OpenPreview) -> Option<Control> {
+    use tasktap_proto::{PreviewBy, PreviewKind, Web};
+    let refuse =
+        |code, why: &str| Some(call::PreviewOpen::reply(cx.id, Err(Error::new(code, why))));
+    let (terminal, by) = match (cx.who, args.terminal) {
+        (Caller::Session(own), None) => (own, PreviewBy::Agent),
+        (Caller::Session(own), Some(named)) if named == own => (own, PreviewBy::Agent),
+        (Caller::Session(_), Some(_)) => {
+            let why = "an agent shows a preview beside its own terminal only";
+            return refuse(Code::Denied, why);
+        }
+        (_, Some(named)) => (named, PreviewBy::Person),
+        (_, None) => {
+            let why = "preview.open needs the terminal the preview is shown beside";
+            return refuse(Code::Invalid, why);
+        }
+    };
+    let target = args.target;
+    match tasktap_proto::web(&target) {
+        Web::No => {}
+        Web::Local => {
+            // Its host and port: what stands between the scheme and the path.
+            let from = target.find("://").map_or(0, |at| at + 3);
+            let title = target[from..]
+                .split(['/', '?', '#'])
+                .next()
+                .unwrap_or_default();
+            let shown = (PreviewKind::Web, target.clone(), title.to_owned());
+            let opened = opened(cx.core, terminal, shown, by);
+            return Some(call::PreviewOpen::reply(cx.id, opened));
+        }
+        Web::Remote => {
+            let why =
+                "A preview shows web addresses of this machine only: this one opens in the browser";
+            return refuse(Code::Invalid, why);
+        }
+        Web::Broken => return refuse(Code::Invalid, "That is not a web address Tasktap can show"),
+    }
+    let found = effects::read(cx.core, |tx| tx.terminal(terminal));
+    let cwd = match found {
+        Ok(Some(t)) => args.cwd.unwrap_or(t.cwd),
+        Ok(None) => return refuse(Code::Gone, "no such terminal"),
+        Err(e) => return Some(call::PreviewOpen::reply(cx.id, Err(e))),
+    };
+    let roots = match roots(cx.core) {
+        Ok(roots) => roots,
+        Err(e) => return Some(call::PreviewOpen::reply(cx.id, Err(e))),
+    };
+    let look = move || crate::files::resolve(&target, Some(&cwd), &roots);
+    off_thread::<call::PreviewOpen, _>(cx, look, move |core, found| {
+        let path = found?;
+        let text = |path: &std::ffi::OsStr| path.to_str().map(str::to_owned);
+        let named = text(path.as_os_str()).zip(path.file_name().and_then(text));
+        let (target, title) =
+            named.ok_or_else(|| Error::new(Code::Invalid, "the file's path is not text"))?;
+        opened(core, terminal, (PreviewKind::File, target, title), by)
+    })
+}
+
+/// Writes the preview once its target is one that may be shown.
+fn opened(
+    core: &mut Core,
+    terminal: TerminalId,
+    shown: (tasktap_proto::PreviewKind, String, String),
+    by: tasktap_proto::PreviewBy,
+) -> Result<tasktap_proto::PreviewId, Error> {
+    let now = core.seams.now();
+    effects::write(core, |tx| {
+        state::preview(tx, now, terminal, shown, by).map_err(|e| match e {
+            state::Error::Store(e) => stored(e),
+            state::Error::Gone => Error::new(Code::Gone, "no such terminal"),
+            state::Error::Conflict(why) => Error::new(Code::Conflict, why),
+            e => Error::new(Code::Failed, e.to_string()),
         })
     })
 }

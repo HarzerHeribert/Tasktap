@@ -8,6 +8,7 @@ mod core;
 // and not yet called.
 #[cfg_attr(windows, allow(dead_code))]
 mod geometry;
+mod keys;
 #[cfg_attr(windows, path = "windows.rs")]
 mod native;
 #[cfg_attr(windows, allow(dead_code))]
@@ -43,7 +44,8 @@ struct Host {
     question: Mutex<Option<QuestionId>>,
 }
 
-/// Control-Option and a key, as in 1.2: Space captures; J, Y and N answer while a question waits.
+/// Control-Option and a key, as in 1.2: J, Y and N answer while a question waits. The capture key is
+/// a preference (keys.rs), by default Space with the same two on a Mac.
 fn keys(code: Code) -> Shortcut {
     Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), code)
 }
@@ -139,6 +141,7 @@ fn bridge_host(app: AppHandle, frame: String) -> String {
             roots.push(host.core.data.join("worktrees"));
             open::open(args, &roots, notch::NOTCH.lock().unwrap().passive)
         }
+        "host.capture_key" => keys::call(&app, args),
         name => Err(format!("this host has no {name}")),
     };
     match outcome {
@@ -180,12 +183,13 @@ fn glance(app: &AppHandle, question: Option<QuestionId>) {
 }
 
 fn shortcut(app: &AppHandle, shortcut: &Shortcut) {
+    let capture = keys::CAPTURE.lock().unwrap().as_ref().and_then(keys::system);
     match shortcut.key {
         // Windows has no tab yet (plan, "The notch on Windows"): until it has, the capture
         // shortcut opens the workspace's New Task and the answer shortcut the workspace.
-        Code::Space if cfg!(windows) => workspace::on_menu(app, "new-task"),
+        _ if capture.as_ref() == Some(shortcut) && cfg!(windows) => workspace::on_menu(app, "new-task"),
+        _ if capture.as_ref() == Some(shortcut) => notch::capture(app),
         Code::KeyJ if cfg!(windows) => drop(workspace::show(app, None)),
-        Code::Space => notch::capture(app),
         Code::KeyJ => notch::answer(app),
         Code::KeyY => input(app, "answer.affirm"),
         Code::KeyN => input(app, "answer.deny"),
@@ -318,10 +322,20 @@ fn main() {
             ),
         };
         let core = Arc::new(Core::prepare(data_folder(), &exe, build)?);
-        let link = Link::start(core.clone(), |g| {
-            let app = APP.wait();
-            let _ = app.run_on_main_thread(move || glance(app, g.question));
-        })?;
+        let link = Link::start(
+            core.clone(),
+            |g| {
+                let app = APP.wait();
+                let _ = app.run_on_main_thread(move || glance(app, g.question));
+            },
+            // The capture key is registered once the core's records say which it is, and again
+            // whenever they change. A key the system refuses leaves the app running without it,
+            // so that the person can choose another in Settings.
+            |key| {
+                let app = APP.wait();
+                let _ = app.run_on_main_thread(move || keys::prefer(app, key));
+            },
+        )?;
         Ok((core, link))
     });
     let builder = tauri::Builder::default();
@@ -366,16 +380,9 @@ fn main() {
                 tauri::ActivationPolicy::Regular
             });
             workspace::start(data_folder());
-            // On Windows the menu belongs to the workspace window (workspace::show), and a
-            // shortcut another program holds already is not this app's to take.
+            // On Windows the menu belongs to the workspace window (workspace::show).
             #[cfg(target_os = "macos")]
             app.set_menu(workspace::menu(app.handle())?)?;
-            let capture = app.global_shortcut().register(keys(Code::Space));
-            if cfg!(windows) {
-                log(json!({"event": "capture-key", "ok": capture.is_ok()}));
-            } else {
-                capture?;
-            }
 
             // Tauri's own window stays hidden; its web view moves into a real non-activating panel,
             // shown once the page asks: tao makes every window visible at launch key. Windows has no

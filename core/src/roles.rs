@@ -220,6 +220,31 @@ pub fn session(role: &str, abilities: Vec<String>) -> Result<Client, Fail> {
     }
 }
 
+/// `tasktap preview <file or address>`: shows a file, or a web address of
+/// this machine, beside the terminal it is run in (design §9, "Previews").
+/// An agent says so what it made; what may be shown is the core's to
+/// decide, and its refusal is printed.
+pub fn preview(args: Vec<OsString>) -> ExitCode {
+    exit((|| {
+        let words = words(args)?;
+        let [target] = words.as_slice() else {
+            return Err(usage("preview <file or web address of this machine>"));
+        };
+        let cwd = std::env::current_dir().ok();
+        let open = tasktap_proto::OpenPreview {
+            terminal: None,
+            target: target.clone(),
+            cwd: cwd.and_then(|cwd| cwd.into_os_string().into_string().ok()),
+        };
+        let _bound = Bound::new(UNREACHABLE.into());
+        match session("preview", Vec::new())?.call::<call::PreviewOpen>(&open) {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(Fail(FAILED, e.message)),
+            Err(e) => Err(ended(e)),
+        }
+    })())
+}
+
 /// This program under its own name. A shim is it named after an agent, so
 /// running it under that name would run the shim again: the shim folder
 /// holds it as `tasktap` too.

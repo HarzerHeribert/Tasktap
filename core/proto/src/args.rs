@@ -8,8 +8,8 @@ use crate::ids::{
 };
 use crate::records::{
     Collection, Isolate, Mode, MotionAmbient, MotionPalette, MotionStyle, PrefKey, PrefValue,
-    Question, QuestionKind, QuestionSource, Response, RouteBy, Set, Source, Stroke, Thought,
-    TurnResult,
+    Question, QuestionKind, QuestionSource, Response, RouteBy, Set, Shortcut, Source, Stroke,
+    TextSize, Thought, TurnResult,
 };
 use crate::{MAX_LINE, MAX_TEXT};
 use serde::{Deserialize, Serialize};
@@ -92,10 +92,32 @@ pub enum PrefPatch {
     TerminalLineHeight(#[serde(deserialize_with = "ranged::<100, 200, _, _>")] u16),
     SpeechBy(Option<crate::records::SpeechBy>),
     SpeechLanguages(#[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")] Vec<String>),
+    ReturnSends(bool),
+    /// Refused by the core with the sentence of [`Shortcut::refused`].
+    CaptureKey(Option<Shortcut>),
+    TalkKey(Option<Shortcut>),
+    KeepDays(#[serde(deserialize_with = "kept")] u16),
+    TerminalBoldBright(bool),
+    TerminalContrast(bool),
+    TextSize(TextSize),
 }
 
 /// A font family's name, as JSON, is at most this many bytes.
 const MAX_FONT: usize = 128;
+
+/// The longest `keep_days`: ten years.
+pub const MAX_KEEP_DAYS: u16 = 3650;
+
+/// For `deserialize_with`: days to keep what is finished, 0 for ever.
+fn kept<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u16, D::Error> {
+    let days = <u16 as serde::Deserialize>::deserialize(d)?;
+    match days <= MAX_KEEP_DAYS {
+        true => Ok(days),
+        false => Err(serde::de::Error::custom(format_args!(
+            "Finished thoughts are kept for 1 to {MAX_KEEP_DAYS} days, or for ever with 0"
+        ))),
+    }
+}
 
 /// For `deserialize_with`: a whole number from `LO` to `HI`.
 fn ranged<'de, const LO: u16, const HI: u16, D, T>(d: D) -> Result<T, D::Error>
@@ -129,6 +151,13 @@ impl From<PrefPatch> for PrefValue {
             PrefPatch::TerminalLineHeight(v) => PrefValue::TerminalLineHeight(v),
             PrefPatch::SpeechBy(v) => PrefValue::SpeechBy(v),
             PrefPatch::SpeechLanguages(v) => PrefValue::SpeechLanguages(v),
+            PrefPatch::ReturnSends(v) => PrefValue::ReturnSends(v),
+            PrefPatch::CaptureKey(v) => PrefValue::CaptureKey(v),
+            PrefPatch::TalkKey(v) => PrefValue::TalkKey(v),
+            PrefPatch::KeepDays(v) => PrefValue::KeepDays(v),
+            PrefPatch::TerminalBoldBright(v) => PrefValue::TerminalBoldBright(v),
+            PrefPatch::TerminalContrast(v) => PrefValue::TerminalContrast(v),
+            PrefPatch::TextSize(v) => PrefValue::TextSize(v),
         }
     }
 }
@@ -166,17 +195,30 @@ pub struct NotePatch {
     pub strokes: Option<Vec<Stroke>>,
 }
 
-/// `delete`: removes plain data, and a terminal that is not running with its
-/// history, the only way history is removed; one a session refers to is
-/// `conflict`. Deleting a preference restores its default.
+/// `delete`: removes plain data, a preview, and a terminal that is not
+/// running with its history and its previews, the only way history is
+/// removed by hand; one a session refers to is `conflict`. Deleting a
+/// preference restores its default.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "c", rename_all = "snake_case")]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub enum Delete {
-    Prefs { id: PrefKey },
-    Layouts { id: ProjectId },
-    Thoughts { id: ThoughtId },
-    Terminals { id: TerminalId },
+    Prefs {
+        id: PrefKey,
+    },
+    Layouts {
+        id: ProjectId,
+    },
+    Thoughts {
+        id: ThoughtId,
+    },
+    Terminals {
+        id: TerminalId,
+    },
+    /// Closes a preview.
+    Previews {
+        id: crate::ids::PreviewId,
+    },
 }
 
 /// `history`: finished thoughts older than `before`, newest first; with
@@ -788,6 +830,76 @@ pub struct Diff {
 
 /// Most bytes of a diff `thought.changes` streams.
 pub const MAX_DIFF: usize = 4 << 20;
+
+/// `file.read`: the bytes of a file inside a folder the person opened in
+/// Tasktap, or inside a copy Tasktap made of one, as a stream.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct ReadFile {
+    /// The file's whole path. Links on the way to it are followed before
+    /// the rule is applied.
+    #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub path: String,
+    /// What the caller grants the core on the stream at once.
+    pub credit: u32,
+    /// The `stamp` of an earlier reply: when the file still has it, nothing
+    /// is read and the reply has no stream. How a preview asks whether its
+    /// file changed.
+    #[serde(default, deserialize_with = "crate::within::<64, _, _>")]
+    pub unless: Option<String>,
+}
+
+/// The reply of `file.read`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct FileRead {
+    /// The file's bytes from its first, which ends once all of them are
+    /// sent, or at the cut. None when there is nothing to send: the file
+    /// still has the stamp `unless` named, or it is of the kind `other`.
+    pub stream: Option<crate::frame::Opened>,
+    /// Bytes in the file.
+    #[cfg_attr(test, ts(type = "number"))]
+    pub size: u64,
+    pub kind: crate::records::FileKind,
+    /// For text of every kind (text, markdown, html, svg): how to decode it.
+    pub encoding: Option<crate::records::Encoding>,
+    /// The stream ends before the file does: text of more than
+    /// [`MAX_FILE_TEXT`] bytes is cut there, between two characters.
+    pub cut: bool,
+    /// Changes whenever the file does: its size and when it was last
+    /// written. To be handed back as `unless`.
+    pub stamp: String,
+}
+
+/// The largest file `file.read` streams whole: an image or a PDF. A
+/// larger one is refused, since half of one shows nothing. The core holds a
+/// file it streams in memory until the client took it, four at a time at
+/// most, so this bounds what previews can cost: 64 MiB. Screenshots, the
+/// reports and the PDFs agents write are well below it; films are not, and
+/// are opened in their own app.
+pub const MAX_FILE: usize = 16 << 20;
+/// Most bytes of a text file `file.read` streams, as 1.2 read: the rest is
+/// cut, and the reply says so.
+pub const MAX_FILE_TEXT: usize = 2 << 20;
+
+/// `preview.open`: shows a file, or a web address of this machine, beside
+/// a terminal. The same target beside the same terminal again is the
+/// preview it already has.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct OpenPreview {
+    /// The terminal it is shown beside. A device names it; an agent's is
+    /// the terminal of its token, and it may name no other.
+    pub terminal: Option<TerminalId>,
+    /// A path, whole, from `cwd` or from the home folder with `~/`; or a
+    /// web address.
+    #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub target: String,
+    /// The folder a path that is not whole is taken from; without it, the
+    /// folder the terminal started in.
+    #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub cwd: Option<String>,
+}
 
 /// One file of a worktree's changes. A binary file counts no lines.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

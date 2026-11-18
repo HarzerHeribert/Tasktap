@@ -1714,6 +1714,437 @@ fn row_settle_keeps_or_discards_pending_changes_once_the_session_ended() {
     }
 }
 
+// Pruning (the row "pruned"), on the rule alone, with the test's own clock.
+
+const DAY: u64 = state::DAY;
+
+/// A thought that is finished, last changed at `updated`: done and read.
+fn finished(project: ProjectId, updated: u64) -> Thought {
+    Thought {
+        id: ThoughtId::mint(),
+        rev: Rev::ZERO,
+        text: "fix the build".into(),
+        strokes: Vec::new(),
+        source: Source::Typed,
+        mode: Mode::Ask,
+        phase: Phase::Done,
+        status: Status::Done,
+        reason: None,
+        live: true,
+        project_id: Some(project),
+        session_id: None,
+        brief: None,
+        route: None,
+        placed: None,
+        agent: Some(AGENT.into()),
+        model: None,
+        workdir: None,
+        hold_until: None,
+        read: true,
+        created: time(updated),
+        updated: time(updated),
+    }
+}
+
+/// A session at `turn` as its turn, in a terminal of its own of the kind.
+fn session_in(
+    tx: &mut Tx,
+    project: ProjectId,
+    kind: TerminalKind,
+    turn: Option<ThoughtId>,
+) -> Session {
+    let terminal = shell(tx, project);
+    let mut t = tx.terminal(terminal).unwrap().unwrap();
+    (t.kind, t.state) = (kind, TerminalState::Exited);
+    tx.update_terminal(&t).unwrap();
+    let s = Session {
+        id: SessionId::mint(),
+        rev: Rev::ZERO,
+        project_id: project,
+        agent: AGENT.into(),
+        terminal_id: Some(terminal),
+        adopted: kind == TerminalKind::Shell,
+        state: SessionState::Ended,
+        thought_id: turn,
+        turn: 1,
+        resume: None,
+        name: None,
+        named_at: None,
+        model: None,
+        cwd: FOLDER.into(),
+        exit: Some(0),
+        error: None,
+        activity: Vec::new(),
+    };
+    tx.insert_session(&s).unwrap();
+    s
+}
+
+fn prune(w: &mut World, days: u16) -> state::Pruned {
+    let now = w.now();
+    let mut tx = w.store.begin().unwrap();
+    let pruned = state::prune(&mut tx, now, days).unwrap();
+    w.change = tx.commit().unwrap();
+    pruned
+}
+
+fn nothing() -> state::Pruned {
+    state::Pruned::default()
+}
+
+#[test]
+fn row_pruned_removes_what_a_real_turn_left_at_the_limit_and_not_a_millisecond_before() {
+    let mut w = World::new("pruned-turn");
+    let (t, s) = w.turn();
+    let q = w.ask(s, ReplyVia::Terminal);
+    let answer = Some("All green.".to_owned());
+    w.say(s, Said::TurnFinished { answer }).unwrap();
+    w.tick(1000);
+    w.ok(Event::Read { thought: t });
+    let read_at = w.thought(t).updated.get();
+    assert_eq!(read_at, w.now);
+    let terminal = w.session(s).terminal_id.unwrap();
+    let launch = w.read(|tx| tx.launch_names().unwrap());
+    assert_eq!(launch.len(), 1);
+
+    // Finished, and a hundred days old: its session is still there, idle,
+    // and at it as its turn, so it stays.
+    w.tick(100 * DAY);
+    assert_eq!(prune(&mut w, 7), nothing());
+    let exit = Event::Exited {
+        session: s,
+        code: Some(0),
+        silent: false,
+    };
+    w.ok(exit);
+    w.write(|tx| {
+        let t = tx.terminal(terminal).unwrap().unwrap();
+        let state = TerminalState::Exited;
+        tx.update_terminal(&Terminal { state, ..t }).unwrap();
+    });
+    assert_eq!(w.thought(t).updated.get(), read_at, "an exit is no change");
+
+    // For ever keeps it, whatever the time.
+    assert_eq!(prune(&mut w, 0), nothing());
+    // Kept for 100 days it goes once it is older than that, by one millisecond.
+    w.now = read_at + 100 * DAY;
+    assert_eq!(prune(&mut w, 100), nothing());
+    assert_eq!(prune(&mut w, 101), nothing());
+    w.now += 1;
+    let pruned = prune(&mut w, 100);
+    let gone = state::Pruned {
+        thoughts: 1,
+        sessions: 1,
+        terminals: vec![terminal],
+        more: false,
+    };
+    assert_eq!(pruned, gone);
+    // Its question, its result, its session, its terminal and its attempt went with it,
+    // and a client that saw them is told.
+    w.read(|tx| {
+        assert_eq!(tx.thought(t).unwrap(), None);
+        assert_eq!(tx.session(s).unwrap(), None);
+        assert_eq!(tx.question(q).unwrap(), None);
+        assert_eq!(tx.terminal(terminal).unwrap(), None);
+        assert!(tx.launch_names().unwrap().is_empty());
+        for c in [Collection::Results, Collection::Questions] {
+            let rows = serde_json::to_value(tx.live(c).unwrap()).unwrap();
+            assert!(rows.get("put").is_none(), "{c:?}: {rows}");
+        }
+    });
+    let told = serde_json::to_value(w.change.take().unwrap().sets).unwrap();
+    let dels: Vec<_> = told.as_array().unwrap().iter().collect();
+    let of = |c: &str| dels.iter().find(|set| set["c"] == c).map(|set| &set["del"]);
+    assert_eq!(of("thoughts"), Some(&serde_json::json!([t])));
+    assert_eq!(of("questions"), Some(&serde_json::json!([q])));
+    assert_eq!(of("terminals"), Some(&serde_json::json!([terminal])));
+    assert_eq!(of("results").map(|d| d.as_array().unwrap().len()), Some(1));
+    // Nothing is left to prune.
+    assert_eq!(prune(&mut w, 100), nothing());
+}
+
+#[test]
+fn row_pruned_never_touches_what_is_live_unread_pending_or_the_persons_own() {
+    let mut w = World::new("pruned-kept");
+    let p = w.project;
+    let old = START;
+    // Each of these is a hundred days old and not finished, or not settled.
+    let idea = w.capture("an idea for later");
+    let routed = w.routed("wait for me");
+    let (working, _) = w.turn();
+    let unread = Thought {
+        read: false,
+        ..finished(p, old)
+    };
+    let failed_unread = Thought {
+        phase: Phase::Failed,
+        status: Status::Failed,
+        reason: Some(Reason::Stopped),
+        read: false,
+        ..finished(p, old)
+    };
+    let pending = Thought {
+        workdir: Some(workdir(Changes::Pending)),
+        ..finished(p, old)
+    };
+    let unsettled = Thought {
+        workdir: Some(workdir(Changes::Clean)),
+        ..finished(p, old)
+    };
+    // Settled ones, and one with no copy at all, are finished for good.
+    let kept = Thought {
+        workdir: Some(workdir(Changes::Kept)),
+        ..finished(p, old)
+    };
+    let discarded = Thought {
+        phase: Phase::Failed,
+        status: Status::Failed,
+        reason: Some(Reason::TurnFailed),
+        workdir: Some(workdir(Changes::Discarded)),
+        ..finished(p, old)
+    };
+    let plain = finished(p, old);
+    let stay = [&unread, &failed_unread, &pending, &unsettled];
+    let go = [&kept, &discarded, &plain];
+    let mut person = None;
+    w.write(|tx| {
+        for t in stay.iter().chain(&go) {
+            tx.insert_thought(t).unwrap();
+        }
+        // A shell the person opened and left, with no session in it.
+        person = Some(shell(tx, p));
+    });
+    w.tick(100 * DAY);
+    let pruned = prune(&mut w, 1);
+    assert_eq!((pruned.thoughts, pruned.more), (3, false));
+    w.read(|tx| {
+        for id in [idea, routed, working] {
+            assert!(tx.thought(id).unwrap().is_some());
+        }
+        for t in stay {
+            assert!(tx.thought(t.id).unwrap().is_some(), "{t:?}");
+        }
+        for t in go {
+            assert_eq!(tx.thought(t.id).unwrap(), None, "{t:?}");
+        }
+        assert!(tx.terminal(person.unwrap()).unwrap().is_some());
+    });
+    // Once read, the unread one is a day's change old, not a hundred.
+    w.ok(Event::Read { thought: unread.id });
+    assert_eq!(prune(&mut w, 1), nothing());
+    w.tick(DAY + 1);
+    assert_eq!(prune(&mut w, 1).thoughts, 1);
+    assert_eq!(w.read(|tx| tx.thought(unread.id).unwrap()), None);
+}
+
+#[test]
+fn row_pruned_takes_an_ended_session_with_its_last_thought_and_an_agents_terminal_with_it() {
+    let mut w = World::new("pruned-sessions");
+    let p = w.project;
+    let (first, last) = (finished(p, START), finished(p, START + 10 * DAY));
+    let (mut agent, mut adopted, mut bare) = (None, None, None);
+    let typed = finished(p, START);
+    w.write(|tx| {
+        for t in [&first, &last, &typed] {
+            tx.insert_thought(t).unwrap();
+        }
+        // An agent's session of two turns, at the later one.
+        let s = session_in(tx, p, TerminalKind::Agent, Some(last.id));
+        for t in [&first, &last] {
+            let session_id = Some(s.id);
+            let t = Thought {
+                session_id,
+                ..(*t).clone()
+            };
+            tx.update_thought(&t).unwrap();
+            let r = TurnResult {
+                id: tasktap_proto::ResultId::mint(),
+                rev: Rev::ZERO,
+                thought_id: t.id,
+                session_id,
+                turn: Some(1),
+                kind: ResultKind::Answer,
+                summary: "Done.".into(),
+            };
+            tx.insert_result(&r, "Done.").unwrap();
+        }
+        agent = Some(s);
+        // An agent the person ran in a shell of their own, and one that never had a turn.
+        let s = session_in(tx, p, TerminalKind::Shell, Some(typed.id));
+        let session_id = Some(s.id);
+        let t = Thought {
+            session_id,
+            ..typed.clone()
+        };
+        tx.update_thought(&t).unwrap();
+        adopted = Some(s);
+        bare = Some(session_in(tx, p, TerminalKind::Agent, None));
+    });
+    let (agent, adopted, bare) = (agent.unwrap(), adopted.unwrap(), bare.unwrap());
+
+    // Five days after the later turn: the first turn and the shell's are
+    // older than three days, the later turn is not.
+    w.now = START + 13 * DAY - 1;
+    let pruned = prune(&mut w, 3);
+    assert_eq!((pruned.thoughts, pruned.sessions), (2, 2));
+    // The agent's terminal with no turn went with its session; the shell stayed.
+    assert_eq!(pruned.terminals, [bare.terminal_id.unwrap()]);
+    w.read(|tx| {
+        assert_eq!(tx.thought(first.id).unwrap(), None);
+        assert!(tx.thought(last.id).unwrap().is_some());
+        assert_eq!(
+            tx.session(agent.id).unwrap().unwrap().thought_id,
+            Some(last.id)
+        );
+        assert!(tx.terminal(agent.terminal_id.unwrap()).unwrap().is_some());
+        assert_eq!(tx.session(adopted.id).unwrap(), None);
+        assert!(tx.terminal(adopted.terminal_id.unwrap()).unwrap().is_some());
+        assert_eq!(tx.session(bare.id).unwrap(), None);
+    });
+    // Then the later turn, and with it the session and the terminal it ran in.
+    w.now += 2;
+    let pruned = prune(&mut w, 3);
+    assert_eq!((pruned.thoughts, pruned.sessions), (1, 1));
+    assert_eq!(pruned.terminals, [agent.terminal_id.unwrap()]);
+    w.read(|tx| {
+        assert_eq!(tx.session(agent.id).unwrap(), None);
+        assert_eq!(tx.terminal(agent.terminal_id.unwrap()).unwrap(), None);
+    });
+
+    // A terminal still running, whatever its session's record says, is never removed.
+    let mut left = None;
+    w.write(|tx| {
+        let s = session_in(tx, p, TerminalKind::Agent, None);
+        let t = tx.terminal(s.terminal_id.unwrap()).unwrap().unwrap();
+        let state = TerminalState::Running;
+        tx.update_terminal(&Terminal { state, ..t }).unwrap();
+        left = s.terminal_id;
+    });
+    let pruned = prune(&mut w, 3);
+    assert_eq!((pruned.sessions, pruned.terminals.len()), (1, 0));
+    assert!(w.read(|tx| tx.terminal(left.unwrap()).unwrap()).is_some());
+}
+
+#[test]
+fn row_pruned_goes_in_steps_of_fifty_oldest_first_and_says_when_more_is_left() {
+    let mut w = World::new("pruned-steps");
+    let p = w.project;
+    let all: Vec<Thought> = (0..state::PRUNE_STEP as u64 + 3)
+        .map(|n| Thought {
+            id: uuid_at(START + n),
+            ..finished(p, START + n)
+        })
+        .collect();
+    w.write(|tx| {
+        for t in &all {
+            tx.insert_thought(t).unwrap();
+        }
+    });
+    w.now = START + 2 * DAY;
+    let step = prune(&mut w, 1);
+    assert_eq!((step.thoughts, step.more), (state::PRUNE_STEP, true));
+    w.read(|tx| {
+        let left = all.iter().filter(|t| tx.thought(t.id).unwrap().is_some());
+        let left: Vec<_> = left.map(|t| t.id).collect();
+        let newest: Vec<_> = all[state::PRUNE_STEP..].iter().map(|t| t.id).collect();
+        assert_eq!(left, newest);
+    });
+    let step = prune(&mut w, 1);
+    assert_eq!((step.thoughts, step.more), (3, false));
+    assert_eq!(prune(&mut w, 1), nothing());
+}
+
+// Previews (design §9), on the rule alone.
+
+#[test]
+fn a_preview_is_one_per_target_beside_a_terminal_and_goes_with_the_terminals_record() {
+    use tasktap_proto::{MAX_PREVIEWS, PreviewBy, PreviewKind};
+    let mut w = World::new("previews");
+    let p = w.project;
+    let (mut person, mut agent) = (None, None);
+    w.write(|tx| {
+        person = Some(shell(tx, p));
+        agent = Some(session_in(tx, p, TerminalKind::Agent, None));
+    });
+    let (person, agent) = (person.unwrap(), agent.unwrap().terminal_id.unwrap());
+    let open = |w: &mut World, terminal, target: &str, by| {
+        let now = w.now();
+        let mut tx = w.store.begin().unwrap();
+        let shown = (PreviewKind::Web, target.to_owned(), "localhost".to_owned());
+        let opened = state::preview(&mut tx, now, terminal, shown, by);
+        if opened.is_ok() {
+            w.change = tx.commit().unwrap();
+        }
+        opened
+    };
+    // Beside a terminal the store knows, running or ended.
+    let unknown = open(
+        &mut w,
+        TerminalId::mint(),
+        "http://localhost:1/",
+        PreviewBy::Person,
+    );
+    assert!(matches!(unknown, Err(Error::Gone)), "{unknown:?}");
+    let first = open(&mut w, person, "http://localhost:1/", PreviewBy::Person).unwrap();
+    let row = w.read(|tx| tx.previews_of(person).unwrap());
+    assert_eq!(row.len(), 1);
+    assert_eq!(
+        (row[0].id, row[0].terminal_id, row[0].by),
+        (first, person, PreviewBy::Person)
+    );
+    // The same target again is that preview, whoever asks, and writes nothing.
+    w.change = None;
+    let again = open(&mut w, person, "http://localhost:1/", PreviewBy::Agent).unwrap();
+    assert_eq!((again, w.change.take()), (first, None));
+    // Beside another terminal it is another preview.
+    let beside = open(&mut w, agent, "http://localhost:1/", PreviewBy::Agent).unwrap();
+    assert_ne!(beside, first);
+    // Eight beside one terminal; the ninth is refused, and one of the eight is still found.
+    for n in 2..=MAX_PREVIEWS {
+        open(
+            &mut w,
+            person,
+            &format!("http://localhost:{n}/"),
+            PreviewBy::Person,
+        )
+        .unwrap();
+    }
+    let ninth = open(&mut w, person, "http://localhost:9/", PreviewBy::Person);
+    assert!(matches!(ninth, Err(Error::Conflict(_))), "{ninth:?}");
+    assert_eq!(
+        open(&mut w, person, "http://localhost:8/", PreviewBy::Agent)
+            .ok()
+            .map(|_| ()),
+        Some(())
+    );
+    assert_eq!(
+        w.read(|tx| tx.previews_of(person).unwrap()).len(),
+        MAX_PREVIEWS
+    );
+
+    // Pruning takes the agent's terminal, whose session is spent, and its preview with it.
+    let pruned = prune(&mut w, 1);
+    assert_eq!(pruned.terminals, [agent]);
+    let told = serde_json::to_value(w.change.take().unwrap().sets).unwrap();
+    let closed = told
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|set| set["c"] == "previews");
+    assert_eq!(
+        closed.map(|set| &set["del"]),
+        Some(&serde_json::json!([beside]))
+    );
+    // Deleting the person's terminal closes all of its.
+    w.write(|tx| assert!(tx.delete_terminal(person).unwrap()));
+    assert!(w.read(|tx| tx.previews_of(person).unwrap()).is_empty());
+}
+
+/// An id minted at `ms`, so that ids order as their thoughts were made.
+fn uuid_at(ms: u64) -> ThoughtId {
+    state::fresh(time(ms)).unwrap()
+}
+
 // Guards.
 
 #[test]

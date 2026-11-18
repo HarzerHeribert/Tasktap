@@ -9,7 +9,7 @@ use tasktap_core::roles::{self, shim};
 use tasktap_core::serve::{self, Options};
 
 const USAGE: &str = "usage: tasktap serve --data <folder> | event <kind> [TEXT] | \
-                     hook <agent> | ask [PROMPT...]";
+                     hook <agent> | ask [PROMPT...] | preview <file or address>";
 
 fn main() -> ExitCode {
     let mut args = std::env::args_os();
@@ -29,6 +29,7 @@ fn main() -> ExitCode {
         Some("event") => return roles::event(args.collect()),
         Some("hook") => return roles::hook(args.collect()),
         Some("ask") => return roles::ask(args.collect()),
+        Some("preview") => return roles::preview(args.collect()),
         #[cfg(feature = "fixtures")]
         Some("fixture-agent") => return roles::fixture::run(args.collect()),
         _ => {

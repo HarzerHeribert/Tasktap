@@ -1,4 +1,4 @@
-//! The one table of calls (design §1, §2): the 39 of the 47 core calls built
+//! The one table of calls (design §1, §2): the 41 of the 47 core calls built
 //! so far, the shim's ability, and the test fixtures.
 //!
 //! Each call is a type here, named for the call (`thought.capture` is
@@ -97,6 +97,9 @@ table! {
     ProjectAdd "project.add" Device (AddProject) -> ProjectId;
     ProjectScan "project.scan" Device (Empty) -> ();
     ProjectClose "project.close" Device (CloseProject) -> ();
+    // Files and previews (design §9)
+    FileRead "file.read" Device (crate::args::ReadFile) -> crate::args::FileRead;
+    PreviewOpen "preview.open" Either (crate::args::OpenPreview) -> crate::ids::PreviewId;
     // Input
     Input "input" Device (crate::args::Input) -> ();
     // Speech (design §8)
@@ -131,6 +134,8 @@ pub enum Access {
     Device,
     /// A session token, acting only for its own session.
     Session,
+    /// A device, or a session token acting only for its own terminal.
+    Either,
     /// A call the core makes on a client that offered it in `hello`; no
     /// client may make it.
     Ability,
@@ -142,6 +147,7 @@ impl Access {
             Access::Anyone => true,
             Access::Device => who == Identity::Device,
             Access::Session => who == Identity::Session,
+            Access::Either => who != Identity::Anonymous,
             Access::Ability => false,
         }
     }

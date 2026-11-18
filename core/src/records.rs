@@ -68,6 +68,7 @@ fn collection(set: &Set) -> Collection {
         Set::Layouts(_) => Collection::Layouts,
         Set::Prefs(_) => Collection::Prefs,
         Set::Devices(_) => Collection::Devices,
+        Set::Previews(_) => Collection::Previews,
         Set::Glance { .. } => Collection::Glance,
         Set::Agents(_) => Collection::Agents,
         Set::Dictations(_) => Collection::Dictations,
@@ -379,7 +380,7 @@ fn chunks(rev: Rev, snap: bool, sets: Vec<Set>) -> Vec<Change> {
     for set in sets {
         split!(
             set, Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs,
-            Devices, Agents, Dictations
+            Devices, Previews, Agents, Dictations
         );
     }
     if !chunk.sets.is_empty() || chunk.done.is_empty() {
@@ -445,9 +446,11 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
     };
     let core = &mut *cx.core;
     let mut tx = core.store.begin().map_err(fail)?;
+    let mut kept = false;
     match target {
         PutTarget::Prefs(patch) => {
             let value = PrefValue::from(patch);
+            kept = value.key() == PrefKey::KeepDays;
             // A consent names what this core would really ask (design §8).
             if let PrefValue::RouteBy(Some(by)) = &value {
                 crate::route::consented(by).map_err(|why| Error::new(Code::Invalid, why))?;
@@ -456,6 +459,10 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
             match &value {
                 PrefValue::SpeechBy(Some(by)) => crate::speech::consented(by),
                 PrefValue::SpeechLanguages(languages) => crate::speech::spoken(languages),
+                // One rule for both keys, which the host shares (design §12).
+                PrefValue::CaptureKey(Some(key)) | PrefValue::TalkKey(Some(key)) => {
+                    key.refused().map_or(Ok(()), |why| Err(why.into()))
+                }
                 _ => Ok(()),
             }
             .map_err(invalid)?;
@@ -503,7 +510,11 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
     }
     .map_err(fail)?;
     let change = tx.commit().map_err(fail)?;
-    Ok(published(core, change))
+    let revision = published(core, change);
+    if kept {
+        crate::effects::keep(core, false);
+    }
+    Ok(revision)
 }
 
 /// `delete`: removes plain data, and a terminal that is not running with
@@ -519,6 +530,8 @@ pub fn delete(cx: &mut Cx, args: Delete) -> Result<Revision, Error> {
         }
         Delete::Prefs { id } => tx.delete_pref(id),
         Delete::Layouts { id } => tx.delete_layout(id),
+        // Closed already, a preview is closed: nothing changes.
+        Delete::Previews { id } => tx.delete_preview(id),
         Delete::Thoughts { id } => {
             plain(&tx, id)?;
             match tx.delete_thought(id) {
@@ -548,7 +561,16 @@ pub fn delete(cx: &mut Cx, args: Delete) -> Result<Revision, Error> {
     if let Delete::Terminals { id } = args {
         crate::terminal::forget(core, id);
     }
-    Ok(published(core, change))
+    let revision = published(core, change);
+    if matches!(
+        args,
+        Delete::Prefs {
+            id: PrefKey::KeepDays
+        }
+    ) {
+        crate::effects::keep(core, false);
+    }
+    Ok(revision)
 }
 
 /// `history`: finished thoughts that left the live set, newest first, with

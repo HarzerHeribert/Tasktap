@@ -11,6 +11,7 @@ pub mod client;
 mod command;
 mod conn;
 mod effects;
+pub mod files;
 mod handshake;
 mod http;
 mod isolate;

@@ -9,9 +9,14 @@
 //!
 //! Everything else is refused in a sentence. Nothing is ever run: a file is opened as text or
 //! shown, never handed to the application that would launch it.
+//!
+//! What a web address is, which whole path a target names and whether that is inside a folder the
+//! person opened are the protocol crate's rules (`rules.rs`), the same ones the core applies to what
+//! it reads and shows beside a terminal (design §12).
 use serde_json::{json, Value};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use tasktap_proto::{inside, web, whole, Web};
 
 #[derive(Debug, PartialEq)]
 pub enum Target {
@@ -29,31 +34,17 @@ pub fn target(
     roots: &[PathBuf],
     home: Option<&Path>,
 ) -> Result<Target, String> {
-    let lower = target.to_ascii_lowercase();
-    if let Some(rest) = lower.strip_prefix("https://").or_else(|| lower.strip_prefix("http://")) {
-        let whole = target.len() <= 2048 && !rest.is_empty() && !rest.starts_with('/');
-        return match whole && !target.chars().any(|c| c.is_whitespace() || c.is_control()) {
-            true => Ok(Target::Web(target.to_owned())),
-            false => Err("That is not a web address Tasktap can open".into()),
-        };
+    match web(target) {
+        Web::Local | Web::Remote => return Ok(Target::Web(target.to_owned())),
+        Web::Broken => return Err("That is not a web address Tasktap can open".into()),
+        Web::No => {}
     }
     if target.is_empty() || target.contains("://") || target.chars().any(char::is_control) {
         return Err("Tasktap opens web addresses and what is in a folder you opened: this is neither".into());
     }
-    let named = match (target.strip_prefix("~/"), home) {
-        (Some(rest), Some(home)) => home.join(rest),
-        _ => PathBuf::from(target),
-    };
-    let whole = match (named.is_absolute(), cwd.map(Path::new)) {
-        (true, _) => named,
-        (false, Some(cwd)) if cwd.is_absolute() => cwd.join(named),
-        _ => return Err(format!("{target} is not a whole path, and its terminal's folder is not known")),
-    };
-    let found = whole.canonicalize().map_err(|_| format!("{} does not exist", whole.display()))?;
-    let inside = roots.iter().filter_map(|r| r.canonicalize().ok()).any(|r| found.starts_with(r));
-    if !inside {
-        return Err(format!("{} is outside the folders you opened in Tasktap", found.display()));
-    }
+    let asked = whole(target, cwd, home)
+        .ok_or_else(|| format!("{target} is not a whole path, and its terminal's folder is not known"))?;
+    let found = inside(&asked, roots).map_err(|why| why.sentence(&asked))?;
     Ok(if reveal || found.is_dir() || !text(&found) { Target::Show(found) } else { Target::Text(found) })
 }
 

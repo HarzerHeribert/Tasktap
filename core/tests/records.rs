@@ -663,6 +663,188 @@ fn put_refuses_what_is_not_plain_data_and_writes_nothing() {
     assert_eq!((after.rev, after.model), (before.rev, before.model));
 }
 
+/// The settings the redesigned Settings sheet needed a preference for,
+/// through the binary: each takes a value, shows it to a subscriber, keeps
+/// it across a restart, refuses what is not one in a sentence and leaves the
+/// row as it was, and is at its default again once deleted.
+#[test]
+fn the_settings_preferences_are_stored_refused_in_a_sentence_and_restored_by_delete() {
+    let data = Folder::new("tr");
+    let core = Core::start(&data);
+    let mut w = core.device();
+    let key = json!({"control": false, "alt": true, "shift": true, "meta": false, "code": "KeyK"});
+    let held = |control: bool, code: &str| json!({"control": control, "alt": false, "shift": false, "meta": false, "code": code});
+    let settings = [
+        ("return_sends", json!(false)),
+        ("capture_key", key.clone()),
+        ("talk_key", held(true, "Space")),
+        ("keep_days", json!(30)),
+        ("terminal_bold_bright", json!(false)),
+        ("terminal_contrast", json!(false)),
+        ("text_size", json!("small")),
+    ];
+    for (id, value) in &settings {
+        let args = json!({"c": "prefs", "id": id, "patch": value});
+        assert!(
+            matches!(raw(&mut w, "put", args), tasktap_proto::Outcome::Ok(_)),
+            "{id}"
+        );
+    }
+    let stored = |c: &mut Client| {
+        let snap = subscribe(c, &[Collection::Prefs]);
+        let value = |id: &str| snap.model.get("prefs", id).map(|row| row["value"].clone());
+        settings.clone().map(|(id, _)| value(id))
+    };
+    let wanted = settings.clone().map(|(_, value)| Some(value));
+    assert_eq!(stored(&mut w), wanted);
+
+    // What is refused, with the sentence the interface shows.
+    let said = |c: &mut Client, id: &str, patch: Value| match raw(
+        c,
+        "put",
+        json!({"c": "prefs", "id": id, "patch": patch}),
+    ) {
+        tasktap_proto::Outcome::Err(e) => (e.code, e.message),
+        ok => panic!("{id} took {ok:?}"),
+    };
+    let invalid = |why: &str| (Code::Invalid, why.to_owned());
+    for id in ["capture_key", "talk_key"] {
+        for (patch, why) in [
+            (held(false, "Space"), tasktap_proto::Shortcut::BARE),
+            (held(true, "Hyper"), tasktap_proto::Shortcut::NO_KEY),
+            (held(true, "Escape"), tasktap_proto::Shortcut::RESERVED),
+            (
+                json!({"control": true, "alt": true, "shift": false, "meta": false, "code": "KeyY"}),
+                tasktap_proto::Shortcut::ANSWERS,
+            ),
+        ] {
+            assert_eq!(said(&mut w, id, patch), invalid(why), "{id}");
+        }
+        assert_eq!(said(&mut w, id, json!("Control+Space")).0, Code::Invalid);
+    }
+    assert_eq!(
+        said(&mut w, "keep_days", json!(3651)),
+        invalid("Finished thoughts are kept for 1 to 3650 days, or for ever with 0")
+    );
+    for (id, patch) in [
+        ("return_sends", json!("always")),
+        ("keep_days", json!(-1)),
+        ("terminal_bold_bright", json!(1)),
+        ("terminal_contrast", json!(null)),
+        ("text_size", json!("huge")),
+    ] {
+        assert_eq!(said(&mut w, id, patch).0, Code::Invalid, "{id}");
+    }
+    assert_eq!(stored(&mut w), wanted, "a refused value changed a row");
+
+    // None is a value: the system's own key again.
+    let unset = json!({"c": "prefs", "id": "capture_key", "patch": null});
+    assert!(matches!(
+        raw(&mut w, "put", unset),
+        tasktap_proto::Outcome::Ok(_)
+    ));
+    let restored = json!({"c": "prefs", "id": "capture_key", "patch": key});
+    assert!(matches!(
+        raw(&mut w, "put", restored),
+        tasktap_proto::Outcome::Ok(_)
+    ));
+
+    drop(w);
+    core.stop();
+    let core = Core::start(&data);
+    let mut w = core.device();
+    assert_eq!(stored(&mut w), wanted, "after a restart");
+    for (id, _) in &settings {
+        let deleted = raw(&mut w, "delete", json!({"c": "prefs", "id": id}));
+        assert!(matches!(deleted, tasktap_proto::Outcome::Ok(_)), "{id}");
+    }
+    assert_eq!(stored(&mut w), settings.clone().map(|_| None));
+}
+
+/// `keep_days` as the core starts: what is older than the person keeps it
+/// goes before the first client is answered, with its results; what is
+/// newer, unread or kept for ever stays. Setting the limit removed nothing.
+#[test]
+fn a_core_that_starts_prunes_what_is_older_than_the_limit_before_anyone_sees_it() {
+    const DAY: u64 = 24 * 60 * 60 * 1000;
+    let data = Folder::new("tr");
+    let core = Core::start(&data);
+    let mut w = core.device();
+    let aged = |days: u64, read: bool| Thought {
+        read,
+        updated: Time::new(wall_ms() - days * DAY).unwrap(),
+        ..finished(ThoughtId::mint(), "long ago")
+    };
+    let (old, edge, new, unread) = (
+        aged(40, true),
+        aged(29, true),
+        aged(1, true),
+        aged(40, false),
+    );
+    let result = TurnResult {
+        id: ResultId::mint(),
+        rev: Rev::ZERO,
+        thought_id: old.id,
+        session_id: None,
+        turn: None,
+        kind: ResultKind::Answer,
+        summary: "Done.".into(),
+    };
+    let all = vec![old.clone(), edge.clone(), new.clone(), unread.clone()];
+    let results = Set::Results(Rows {
+        put: vec![result.clone()],
+        del: Vec::new(),
+    });
+    fixture(&mut w, vec![thoughts(all), results]);
+    let keep = |days| PutTarget::Prefs(PrefPatch::KeepDays(days));
+    put(&mut w, keep(30), None).unwrap();
+    let there = |c: &mut Client| {
+        let snap = subscribe(c, &ALL);
+        let has = |t: &Thought| snap.model.get("thoughts", t.id).is_some();
+        let result = snap.model.get("results", result.id).is_some();
+        ([&old, &edge, &new, &unread].map(has), result)
+    };
+    assert_eq!(
+        there(&mut w),
+        ([true; 4], true),
+        "nothing goes when the limit is set"
+    );
+
+    drop(w);
+    core.stop();
+    let core = Core::start(&data);
+    let mut w = core.device();
+    assert_eq!(there(&mut w), ([false, true, true, true], false));
+    let page = History {
+        before: None,
+        after: None,
+        limit: Limit::MAX,
+    };
+    let history = w.call::<call::History>(&page).unwrap().unwrap();
+    assert!(history.thoughts.is_empty() && history.results.is_empty());
+
+    // Kept for ever again, a start removes nothing, however old.
+    delete(
+        &mut w,
+        Delete::Prefs {
+            id: PrefKey::KeepDays,
+        },
+    )
+    .unwrap();
+    drop(w);
+    core.stop();
+    let core = Core::start(&data);
+    let mut w = core.device();
+    assert_eq!(there(&mut w), ([false, true, true, true], false));
+    // With 28 days kept, the next start takes the one of 29 days ago too.
+    put(&mut w, keep(28), None).unwrap();
+    drop(w);
+    core.stop();
+    let core = Core::start(&data);
+    let mut w = core.device();
+    assert_eq!(there(&mut w), ([false, false, true, true], false));
+}
+
 #[test]
 fn if_rev_writes_only_over_the_revision_the_caller_saw() {
     let data = Folder::new("tr");

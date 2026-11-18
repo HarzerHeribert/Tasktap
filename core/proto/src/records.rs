@@ -6,14 +6,14 @@
 //! on the wire. Every row is keyed by `id`, so one client loop merges them all.
 
 use crate::ids::{
-    DeviceId, DictationId, Offset, ProjectId, QuestionId, ResultId, Rev, SessionId, TerminalId,
-    ThoughtId, Time,
+    DeviceId, DictationId, Offset, PreviewId, ProjectId, QuestionId, ResultId, Rev, SessionId,
+    TerminalId, ThoughtId, Time,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 words! {
-    pub enum Collection { Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices, Glance, Agents, Dictations }
+    pub enum Collection { Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices, Previews, Glance, Agents, Dictations }
 }
 
 /// The rows of one collection that one change touches.
@@ -30,6 +30,7 @@ pub enum Set {
     Layouts(Rows<Layout, ProjectId>),
     Prefs(Rows<Pref, PrefKey>),
     Devices(Rows<Device, DeviceId>),
+    Previews(Rows<Preview, PreviewId>),
     /// One row that always exists, so it is only ever put.
     Glance {
         put: Vec<Glance>,
@@ -424,6 +425,60 @@ pub struct Layout {
     pub tree: Value,
 }
 
+/// Something shown beside a terminal (design §9, "Previews"): a file, or a
+/// web address of this machine. `preview.open` writes it, under the rules
+/// of what may be shown, and `delete` closes it; it goes with its
+/// terminal's record. Where it stands is the layout's.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Preview {
+    pub id: PreviewId,
+    pub rev: Rev,
+    /// The terminal it is shown beside, a session's or a shell's.
+    pub terminal_id: TerminalId,
+    pub kind: PreviewKind,
+    /// A file's whole path with every link followed, as `file.read` takes
+    /// it; or the web address, as it was given.
+    pub target: String,
+    /// The file's name, or the address's host and port.
+    pub title: String,
+    /// Who opened it: the person at a device, or the agent in the
+    /// terminal with `tasktap preview`.
+    pub by: PreviewBy,
+}
+
+words! {
+    pub enum PreviewKind { File, Web }
+}
+
+words! {
+    pub enum PreviewBy { Person, Agent }
+}
+
+/// Previews one terminal has open at once; `preview.open` of one more is
+/// `conflict`.
+pub const MAX_PREVIEWS: usize = 8;
+
+words! {
+    /// What a file is, by its first bytes and then by its name
+    /// (`file.read`): the formats a web view draws, text, and everything
+    /// else, which no preview shows.
+    pub enum FileKind { Text, Markdown, Html, Svg, Png, Jpeg, Gif, Webp, Pdf, Other }
+}
+
+/// How a file of text is encoded, in the words a page's `TextDecoder`
+/// takes. UTF-16 only where the file says so with its first bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub enum Encoding {
+    #[serde(rename = "utf-8")]
+    Utf8,
+    #[serde(rename = "utf-16le")]
+    Utf16le,
+    #[serde(rename = "utf-16be")]
+    Utf16be,
+}
+
 /// A preference row: `{id, value, rev}`, where the key fixes the value's type.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -475,6 +530,154 @@ pub enum PrefValue {
     /// Only the core writes it, with `key.set` and `key.remove`; the
     /// keys themselves are in no record.
     Keys(Vec<String>),
+    /// What Return does in the Composer. True: Return sends and
+    /// Shift-Return makes a new line. False: Command-Return (Control-Return
+    /// off the Mac) sends and Return makes a new line. The pages read it.
+    ReturnSends(bool),
+    /// The key that opens capture from any app, which the host registers
+    /// (design §12). None: the system's own, [`Shortcut::capture`].
+    CaptureKey(Option<Shortcut>),
+    /// The key held to talk in the Composer, which the pages read. None:
+    /// the pages' own, Option-Space.
+    TalkKey(Option<Shortcut>),
+    /// Days a finished thought is kept after it last changed, with its
+    /// questions and results and what its session left (design §5,
+    /// "pruned"). 0: forever.
+    KeepDays(u16),
+    /// The terminals draw bold text in the bright colours, as most
+    /// terminals do. False: bold text keeps its colour.
+    TerminalBoldBright(bool),
+    /// The terminals lift a colour a program painted until it reads on what
+    /// is behind it (4.5 : 1). False: colours are drawn as painted.
+    TerminalContrast(bool),
+    /// The size of the interface's text: a scale the pages apply to their
+    /// type roles.
+    TextSize(TextSize),
+}
+
+/// A key combination in a portable form: the modifiers held, and the key
+/// by its place on the keyboard, the `code` of a keyboard event in a page
+/// (`Space`, `KeyJ`, `F5`). Never a display string: each side writes it
+/// out in its system's own words.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Shortcut {
+    pub control: bool,
+    /// Option on a Mac.
+    pub alt: bool,
+    pub shift: bool,
+    /// Command on a Mac, the Windows key elsewhere.
+    pub meta: bool,
+    #[serde(deserialize_with = "crate::within::<32, _, _>")]
+    pub code: String,
+}
+
+/// The keys a shortcut can end in beside a letter (`KeyA`), a digit
+/// (`Digit1`) and `F1` to `F12`: those every host can register.
+const KEYS: [&str; 25] = [
+    "Space",
+    "Enter",
+    "Tab",
+    "Escape",
+    "Backspace",
+    "Delete",
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+    "Home",
+    "End",
+    "PageUp",
+    "PageDown",
+    "Minus",
+    "Equal",
+    "BracketLeft",
+    "BracketRight",
+    "Backslash",
+    "Semicolon",
+    "Quote",
+    "Backquote",
+    "Comma",
+    "Period",
+    "Slash",
+];
+
+/// Combinations a system keeps for itself, as control, alt, shift, meta
+/// and the key: switching apps and windows, Spotlight and the input
+/// menu, quitting, locking, closing, the screenshots of a Mac, Force
+/// Quit, and the Task Manager and secure screen of Windows. A system
+/// refuses more than these when asked to register them; these are refused
+/// before it is asked, on every system, so a preference means the same
+/// wherever it is read.
+const RESERVED: [(bool, bool, bool, bool, &str); 18] = [
+    (false, false, false, true, "Space"),
+    (false, false, false, true, "Tab"),
+    (false, false, true, true, "Tab"),
+    (false, true, false, false, "Tab"),
+    (false, true, true, false, "Tab"),
+    (false, false, false, true, "Backquote"),
+    (false, false, false, true, "KeyQ"),
+    (true, false, false, true, "KeyQ"),
+    (false, false, false, true, "KeyL"),
+    (false, false, false, true, "KeyW"),
+    (false, true, false, false, "F4"),
+    (false, true, false, true, "Escape"),
+    (true, false, false, false, "Escape"),
+    (true, false, true, false, "Escape"),
+    (true, true, false, false, "Delete"),
+    (false, false, true, true, "Digit3"),
+    (false, false, true, true, "Digit4"),
+    (false, false, true, true, "Digit5"),
+];
+
+impl Shortcut {
+    pub const NO_KEY: &'static str = "That is not a key a shortcut can end in";
+    pub const BARE: &'static str =
+        "A shortcut needs Control, Option (Alt) or Command (the Windows key) held with its key";
+    pub const RESERVED: &'static str = "The system keeps that combination for itself";
+    pub const ANSWERS: &'static str = "Tasktap answers a question with that combination";
+
+    /// Why this combination cannot be a shortcut, in a sentence the
+    /// interface shows as it is; none when it can. The one rule of the
+    /// `capture_key` and `talk_key` preferences, which the core applies
+    /// to a `put` and the host before it asks the system.
+    pub fn refused(&self) -> Option<&'static str> {
+        let code = self.code.as_str();
+        let after = |prefix: &str| code.strip_prefix(prefix).map(str::as_bytes);
+        let function = code.strip_prefix('F').filter(|n| !n.starts_with('0'));
+        let keyed = matches!(after("Key"), Some([b'A'..=b'Z']))
+            || matches!(after("Digit"), Some([b'0'..=b'9']))
+            || function.is_some_and(|n| n.parse().is_ok_and(|n: u8| (1..=12).contains(&n)))
+            || KEYS.contains(&code);
+        let held = (self.control, self.alt, self.shift, self.meta);
+        if !keyed {
+            Some(Self::NO_KEY)
+        } else if !(self.control || self.alt || self.meta) {
+            Some(Self::BARE)
+        } else if RESERVED.contains(&(held.0, held.1, held.2, held.3, code)) {
+            Some(Self::RESERVED)
+        } else if held == (true, true, false, false) && ["KeyY", "KeyN", "KeyJ"].contains(&code) {
+            // The host binds these while a question waits (design §12).
+            Some(Self::ANSWERS)
+        } else {
+            None
+        }
+    }
+
+    /// The capture key while the `capture_key` preference is unset:
+    /// Control-Option-Space on a Mac, as in 1.2. Elsewhere Alt-Shift-Space:
+    /// Control-Alt is AltGr on a German keyboard, among others, and the
+    /// Windows key's combinations are the system's.
+    pub fn capture(mac: bool) -> Shortcut {
+        Shortcut {
+            control: mac,
+            alt: true,
+            shift: !mac,
+            meta: false,
+            code: "Space".into(),
+        }
+    }
 }
 
 /// What the `speech_by` preference names: a server that speaks the
@@ -506,8 +709,13 @@ pub struct RouteBy {
 words! {
     pub enum PrefKey {
         Hold, Agent, RouteBy, MotionStyle, MotionPalette, MotionHue, MotionLumen, MotionAmbient,
-        TerminalFont, TerminalSize, TerminalLineHeight, SpeechBy, SpeechLanguages, Keys
+        TerminalFont, TerminalSize, TerminalLineHeight, SpeechBy, SpeechLanguages, Keys,
+        ReturnSends, CaptureKey, TalkKey, KeepDays, TerminalBoldBright, TerminalContrast, TextSize
     }
+}
+
+words! {
+    pub enum TextSize { Small, Default, Large }
 }
 
 words! {
@@ -548,6 +756,13 @@ impl PrefKey {
             PrefKey::SpeechBy => PrefValue::SpeechBy(None),
             PrefKey::SpeechLanguages => PrefValue::SpeechLanguages(Vec::new()),
             PrefKey::Keys => PrefValue::Keys(Vec::new()),
+            PrefKey::ReturnSends => PrefValue::ReturnSends(true),
+            PrefKey::CaptureKey => PrefValue::CaptureKey(None),
+            PrefKey::TalkKey => PrefValue::TalkKey(None),
+            PrefKey::KeepDays => PrefValue::KeepDays(0),
+            PrefKey::TerminalBoldBright => PrefValue::TerminalBoldBright(true),
+            PrefKey::TerminalContrast => PrefValue::TerminalContrast(true),
+            PrefKey::TextSize => PrefValue::TextSize(TextSize::Default),
         }
     }
 }
@@ -569,6 +784,13 @@ impl PrefValue {
             PrefValue::SpeechBy(_) => PrefKey::SpeechBy,
             PrefValue::SpeechLanguages(_) => PrefKey::SpeechLanguages,
             PrefValue::Keys(_) => PrefKey::Keys,
+            PrefValue::ReturnSends(_) => PrefKey::ReturnSends,
+            PrefValue::CaptureKey(_) => PrefKey::CaptureKey,
+            PrefValue::TalkKey(_) => PrefKey::TalkKey,
+            PrefValue::KeepDays(_) => PrefKey::KeepDays,
+            PrefValue::TerminalBoldBright(_) => PrefKey::TerminalBoldBright,
+            PrefValue::TerminalContrast(_) => PrefKey::TerminalContrast,
+            PrefValue::TextSize(_) => PrefKey::TextSize,
         }
     }
 }

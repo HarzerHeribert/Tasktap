@@ -29,6 +29,7 @@ mod codec;
 mod frame;
 mod ids;
 mod records;
+mod rules;
 #[cfg(test)]
 mod typescript;
 
@@ -39,6 +40,7 @@ pub use codec::*;
 pub use frame::*;
 pub use ids::*;
 pub use records::*;
+pub use rules::*;
 pub use uuid::Uuid;
 
 /// The protocol version this crate speaks.

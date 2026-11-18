@@ -32,22 +32,29 @@ html,body{background:transparent!important}
 @keyframes glow-breathe{from{opacity:.55}}
 
 /* The collapsed tab: the glance in its wings, and with a cutout the line under the camera that says who asks. */
+/* One rule for where its content sits: whatever the tab shows is one line, centred as a whole on the tab's centre line
+   and on its height. Nothing in it has a margin that takes a share of the room, and a wing with nothing in it is not
+   there, so it never shifts what is. With a cutout the camera has the centre: the line is split about it, each half
+   from the tab's outer edge, in two equal columns. */
 .tab{position:fixed;z-index:5;top:0;left:calc(50% + var(--tab-x,0px));transform:translateX(-50%);width:var(--tab-w,190px);height:var(--tab-h,32px);
-  display:flex;align-items:center;gap:var(--sp2);padding:0 14px;font:var(--f-num);color:var(--fg);white-space:nowrap}
-.cutout .tab{align-items:flex-start;flex-wrap:wrap;height:auto}
+  display:flex;align-items:center;justify-content:center;gap:var(--sp2);padding:0 14px;font:var(--f-num);color:var(--fg);white-space:nowrap}
+.cutout .tab{display:grid;grid-template-columns:1fr 1fr;gap:0;align-items:start;height:auto}
 .cutout .tab .wing{height:var(--tab-h,32px)}
+.cutout .wing.l{justify-self:start}
+.cutout .wing.r{grid-column:2;justify-self:end}
 .open .tab:focus-visible{outline:0}
 .wing{display:inline-flex;align-items:center;gap:6px;flex:none}
-.wing.r{margin-left:auto}
+.wing:empty{display:none}
 .wing b,.wing .n b{font-weight:500}
 .wing .n{display:inline-flex;align-items:center;gap:5px}
 .wing .n+.n{margin-left:var(--sp2)}
 .wing .asks b{color:var(--asks)}.wing .fail b{color:var(--fail)}
-.tab .wave{--wh:12px;--ww:1.5px;--wg:1.5px;margin:0 auto}
+/* Whole pixels, so the dots at rest are even on a display that has one pixel to a point. */
+.tab .wave{--wh:12px;--ww:2px;--wg:2px}
 .peek{min-width:0;overflow:hidden;text-overflow:ellipsis;font:var(--f-cap);color:var(--fg2)}
 .peek b{margin-right:3px;font-weight:600;color:var(--asks)}
-.tab>.peek{flex:1;text-align:center}
-.line{flex:1 0 100%;display:flex;justify-content:center;height:24px;padding:0 4px 5px;min-width:0}
+.tab>.peek{flex:0 1 auto;max-width:260px}
+.line{grid-column:1/-1;grid-row:2;display:flex;justify-content:center;height:24px;padding:0 4px 5px;min-width:0}
 @media(prefers-reduced-motion:no-preference){
   .wing,.line{transition:opacity 180ms ease-out 150ms}
   @starting-style{.wing,.line{opacity:0}}

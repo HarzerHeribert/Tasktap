@@ -5,7 +5,10 @@
 // It also holds the page to what else is promised of its composition: the Composer centred over the lists under it
 // (and, before a folder is open, a little above the middle with its one action on its own edges), a key's label at
 // 7 : 1 or better on its face, the agents' rings in each of their states, no scroller showing a bar, and a wake that
-// lies behind the edge that sheds it.
+// lies behind the edge that sheds it. And the collapsed notch: on a display without a camera cutout whatever its tab
+// draws is centred on the tab's own centre line and height, in every state; with a cutout its two halves keep the same
+// distance from the tab's outer edges and stay clear of the camera, and the line under it is centred. The open notch's
+// head row keeps equal insets and one centre line.
 // usage: node scripts/align-check.cjs   (exit status 1 on a failure; ui/dist must be built)
 const path = require('node:path');
 const { serve, open } = require('./motion-pages.cjs');
@@ -92,6 +95,52 @@ function audit(LISTS) {
   return { bad, seen: [...seen] };
 }
 
+/** The collapsed notch's tab, from the tight boxes of what it draws (bars, figures, the words of who asks), never from
+ *  a box with room in it. `own` is the tab's width before its wings. */
+function glance(own) {
+  const bad = [], box = (el) => el.getBoundingClientRect(), tab = box(document.querySelector('#tab'));
+  const drawn = (root) => [...root.querySelectorAll('.st b, .wave b, .wing > b, .wing .n > b, .peek')].map(box).filter((b) => b.width > 0 && b.height > 0);
+  const around = (bs) => ({ left: Math.min(...bs.map((b) => b.left)), right: Math.max(...bs.map((b) => b.right)), top: Math.min(...bs.map((b) => b.top)), bottom: Math.max(...bs.map((b) => b.bottom)) });
+  const off = (n) => `${n > 0 ? '+' : ''}${n.toFixed(2)} px`;
+  if (!document.body.classList.contains('cutout')) {
+    const all = drawn(document.querySelector('#tab'));
+    if (!all.length) return ['the tab draws nothing'];
+    const c = around(all), dx = (c.left + c.right) / 2 - (tab.left + tab.width / 2), dy = (c.top + c.bottom) / 2 - (tab.top + tab.height / 2);
+    if (Math.abs(dx) > 0.5) bad.push(`its content is ${off(dx)} off the tab's centre line`);
+    if (Math.abs(dy) > 0.5) bad.push(`its content is ${off(dy)} off the middle of the tab's height`);
+    if (c.left < tab.left + 13.5 || c.right > tab.right - 13.5) bad.push('its content reaches the tab\'s sloped sides');
+    return bad;
+  }
+  const wing = (tab.width - own) / 2, depth = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--tab-h'));
+  const [l, r] = ['.wing.l', '.wing.r'].map((s) => drawn(document.querySelector(`#tab ${s}`) ?? document.createElement('i')));
+  const [L, Rr] = [l.length ? around(l) : null, r.length ? around(r) : null];
+  for (const [name, c, inset, reach] of [['left', L, L && L.left - tab.left, L && L.right - (tab.left + wing)], ['right', Rr, Rr && tab.right - Rr.right, Rr && tab.right - wing - Rr.left]]) {
+    if (!c) continue;
+    if (Math.abs(inset - 14) > 0.5) bad.push(`the ${name} wing's content is ${inset.toFixed(2)} px from the tab's outer edge, not 14`);
+    if (reach > 0.5) bad.push(`the ${name} wing's content reaches ${reach.toFixed(2)} px under the camera`);
+    const dy = (c.top + c.bottom) / 2 - (tab.top + depth / 2);
+    if (Math.abs(dy) > 0.5) bad.push(`the ${name} wing's content is ${off(dy)} off the middle of the camera's height`);
+  }
+  const line = document.querySelector('#tab .line .peek');
+  if (line) {
+    const dx = box(line).left + box(line).width / 2 - (tab.left + tab.width / 2);
+    if (Math.abs(dx) > 0.5) bad.push(`the line under the camera is ${off(dx)} off the tab's centre line`);
+  }
+  return bad;
+}
+
+/** The open notch's head row: its two ends keep the same distance from the sheet's sides and sit on one centre line. */
+function band() {
+  const row = document.querySelector('#sheet .band');
+  if (!row) return ['the open notch has no head row'];
+  const box = (el) => el.getBoundingClientRect(), b = box(row), ends = [...row.children].filter((x) => box(x).width > 0), bad = [];
+  if (ends.length < 2) return bad;
+  const [first, last] = [box(ends[0]), box(ends.at(-1))];
+  if (Math.abs(first.left - b.left - (b.right - last.right)) > 0.5) bad.push(`its ends are ${(first.left - b.left).toFixed(1)} and ${(b.right - last.right).toFixed(1)} px from the sheet's sides`);
+  if (Math.abs(first.top + first.height / 2 - (last.top + last.height / 2)) > 0.5) bad.push('its two ends are not on one centre line');
+  return bad;
+}
+
 /** The agents' rings in a scene: each agent's state, and whether it is the one that runs the next thought. */
 const rings = () => [...document.querySelectorAll('.home .ring')].map((r) => `${r.dataset.agent}:${r.dataset.s ?? 'ready'}${r.getAttribute('aria-checked') === 'true' ? ':runs' : ''}${r.querySelector('.turn') ? ':turns' : ''}${r.querySelector('b')?.textContent ?? ''}${r.querySelector('.fix') ? ':fix' : ''}`).join(' ');
 const RINGS = { busy: 'claude:asks:runs:turns5 codex:asks:turns2', quiet: 'claude:ready:runs codex:ready', first: 'claude:ready:runs codex:off:fix' };
@@ -169,16 +218,39 @@ async function main() {
       await page.waitForTimeout(900);
       const r = await page.evaluate(audit, LISTS);
       r.seen.forEach((x) => measured.add(x.replace(/ ×\d+/, '')));
-      for (const b of r.bad) failures.push(`notch ${a} ${sc}: ${b}`);
+      for (const b of [...r.bad, ...(await page.evaluate(band)).map((x) => `the head row: ${x}`)]) failures.push(`notch ${a} ${sc}: ${b}`);
+      measured.add('the open notch\'s head row');
       await page.context().close();
     }
+    // The collapsed tab, on both kinds of display (the two sizes of tab a display without a cutout gets, at one pixel
+    // to a point, where half a pixel shows), in each state.
+    const states = {
+      idle: (g) => ({ ...g, working: 0, needs_you: 0, done: 0, failed: 0, question: null }), working: (g) => ({ ...g, done: 0, failed: 0 }),
+      asks: (g) => ({ ...g, working: 0, done: 0, failed: 0 }), 'asks, working and results': (g) => g,
+    };
+    for (const [display, geo] of [['no cutout', { width: 120, height: 20, cutout: false }], ['no cutout, large', { width: 104, height: 16, cutout: false }], ['cutout', { width: 185, height: 32, cutout: true }]])
+      for (const [state, counts] of Object.entries(states)) {
+        const records = scene(state === 'idle' ? 'first' : state === 'working' ? 'normal' : 'busy');
+        if (state === 'idle') records.questions = [];
+        records.glance = counts(records.glance);
+        const page = await open(browser, { label: 'notch', records, url: server.url, dpr: 1, viewport: { width: 701, height: 120 } });
+        await page.evaluate((g) => window.__fake.emit({ do: 'geometry', surfaceWidth: 420, surfaceOffset: 0, span: 560, pixel: 1, corner: 10, offset: 0, available: 700, collapsed: true, ...g }), geo);
+        // A question opens the notch by itself; folded again, its tab says who asks.
+        await page.waitForTimeout(400);
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(900);
+        const bad = geo.cutout && state === 'idle' ? [] : await page.evaluate(glance, geo.width);
+        measured.add('the collapsed notch');
+        for (const b of bad) failures.push(`collapsed notch, ${display}, ${state}: ${b}`);
+        await page.context().close();
+      }
   } finally {
     await browser.close();
     await server.close();
   }
   console.log(`measured: ${[...measured].join('; ')}`);
   for (const f of [...new Set(failures)]) console.log('FAIL  ' + f);
-  console.log(failures.length ? `FAIL  alignment: ${new Set(failures).size} things out of line` : 'PASS  every list keeps its columns, marks centred, labels and secondary text on shared edges; the Composer is centred on what is under it; keys read at 7 : 1; the rings show each state; no scroller shows a bar; a wake lies behind its edge');
+  console.log(failures.length ? `FAIL  alignment: ${new Set(failures).size} things out of line` : 'PASS  every list keeps its columns, marks centred, labels and secondary text on shared edges; the Composer is centred on what is under it; keys read at 7 : 1; the rings show each state; no scroller shows a bar; a wake lies behind its edge; the collapsed notch is centred in every state on both kinds of display');
   process.exitCode = failures.length ? 1 : 0;
 }
 main().catch((e) => (console.error(e), process.exit(1)));

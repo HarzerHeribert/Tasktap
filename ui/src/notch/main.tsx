@@ -81,8 +81,12 @@ records.onchange = () => {
   redraw();
 };
 
-/** The glance on the collapsed tab: working in the left wing; needs you, new and failed in the right; with a cutout,
- *  a line under the camera that says who asks and what. Without one, all of it on the tab's one row. */
+/** The glance on the collapsed tab. Without a camera cutout it is one line, centred as a whole on the tab's centre line
+ *  in every state: the wave at rest when idle; else working, who asks and what, then needs you, new and failed. The tab
+ *  is as wide as that line needs and widens evenly about its centre. With a cutout the centre is the camera's, so the
+ *  line is split about it: working in the left wing from its outer edge, the rest in the right wing from its outer edge,
+ *  each wing as wide as the wider side, and a line under the camera that says who asks and what. */
+const PAD = 14, GAP = 8, CLEAR = 6;
 function Glance() {
   const g = records.glance;
   const left = useRef<HTMLSpanElement>(null);
@@ -94,8 +98,13 @@ function Glance() {
   const t = q?.thought_id ? records.thoughts.get(q.thought_id) : undefined;
   const asks = q && <span class="peek"><b>{q.source === 'router' ? 'Where to?' : `${agentName(s?.agent ?? t?.agent)} asks`}</b> {q.prompt}</span>;
   useLayoutEffect(() => {
-    const peek = !cutout && asks ? Math.min(260, (document.querySelector('.tab .peek') as HTMLElement | null)?.scrollWidth ?? 0) / 2 : 0;
-    const wing = any ? Math.ceil(Math.max(left.current?.scrollWidth ?? 0, right.current?.scrollWidth ?? 0) + peek) + 6 : 0;
+    // Asked once the host has said what the tab is: its width here is the tab's own, without the wings.
+    if (!ui.geometry) return;
+    const [l, r] = [left.current?.scrollWidth ?? 0, right.current?.scrollWidth ?? 0];
+    const parts = [l, r, !cutout && asks ? Math.min(260, document.querySelector<HTMLElement>('.tab .peek')?.scrollWidth ?? 0) : 0].filter(Boolean);
+    const needs = parts.reduce((sum, w) => sum + w, 0) + GAP * Math.max(0, parts.length - 1) + 2 * PAD;
+    const own = Number(ui.geometry.width) - 2 * ui.wing;
+    const wing = !any ? 0 : cutout ? Math.ceil(Math.max(l, r)) + PAD + CLEAR : Math.max(0, Math.ceil((needs - own) / 2));
     const line = cutout && asks ? LINE : 0;
     if (wing === ui.wing && line === ui.line) return;
     [ui.wing, ui.line] = [wing, line];

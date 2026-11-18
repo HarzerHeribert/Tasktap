@@ -185,15 +185,22 @@ $rows['4'] = 'Starts the app with its debug channel on a data folder of its own 
         $notepad = [Tasktap.Desk]::Windows() | Where-Object { $_.Title -like "*$marker*" } | Select-Object -First 1
     }
     if (-not $notepad) { Say 'FAIL' 4 'the shortcut brings Tasktap to the front' 'Notepad did not open, so no other program was in front'; return }
-    $null = [Tasktap.Desk]::SetForegroundWindow($notepad.Handle)
-    Start-Sleep -Milliseconds 500
-    $infront = [Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle
-    [Tasktap.Desk]::Chord([byte[]](0x12, 0x10, 0x20))
-    $front = $false
-    for ($i = 0; $i -lt 30 -and -not $front; $i++) { Start-Sleep -Milliseconds 100; $front = [Tasktap.Desk]::GetForegroundWindow() -eq $workspace }
-    $caret = Js "(e => e ? e.tagName + ' ' + (e.getAttribute('placeholder') ?? e.className) : 'nothing')(document.activeElement)"
-    Check 4 'Alt-Shift-Space pressed over Notepad brings the Tasktap window to the front' $front "Notepad was in front before: $infront; the caret is in: $caret"
-    Say 'LOOK' 4 'New Task open with the caret in its field' (Capture $workspace 'row4-shortcut')
+    # Windows lets a program in the background bring a window forward only after a key press.
+    if ([Tasktap.Desk]::GetForegroundWindow() -ne $notepad.Handle) {
+        [Tasktap.Desk]::Chord([byte[]](0x12))
+        $null = [Tasktap.Desk]::SetForegroundWindow($notepad.Handle)
+        Start-Sleep -Milliseconds 500
+    }
+    if ([Tasktap.Desk]::GetForegroundWindow() -ne $notepad.Handle) {
+        Say 'INFO' 4 'the shortcut was not pressed: Notepad could not be put in front of the app, so a press would prove nothing'
+    } else {
+        [Tasktap.Desk]::Chord([byte[]](0x12, 0x10, 0x20))
+        $front = $false
+        for ($i = 0; $i -lt 30 -and -not $front; $i++) { Start-Sleep -Milliseconds 100; $front = [Tasktap.Desk]::GetForegroundWindow() -eq $workspace }
+        $caret = Js "(e => e ? e.tagName + ' ' + (e.getAttribute('placeholder') ?? e.className) : 'nothing')(document.activeElement)"
+        Check 4 'Alt-Shift-Space pressed over Notepad brings the Tasktap window to the front' $front "the caret is in: $caret"
+        Say 'LOOK' 4 'New Task open with the caret in its field' (Capture $workspace 'row4-shortcut')
+    }
     [Tasktap.Desk]::Close($notepad.Handle)
 }
 

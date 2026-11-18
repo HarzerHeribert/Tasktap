@@ -9,7 +9,8 @@ import json, os, sys
 
 RUNS = [("the system's SpeechTranscriber", ["apple-speech-de", "apple-speech-en"]), ("the same, German and English listening at once", ["apple-speech-both"]),
         ("the system's DictationTranscriber", ["apple-dictation-de", "apple-dictation-en"]), ("WhisperKit, language told", ["whisper-de", "whisper-en"]),
-        ("WhisperKit, language detected", ["whisper-auto"]), ("whisper.cpp, whole recording", ["wcpp-de", "wcpp-en"]), ("the app's helper (whisper.cpp), German then English", ["helper-de-en"])]
+        ("WhisperKit, language detected", ["whisper-auto"]), ("whisper.cpp, whole recording", ["wcpp-de", "wcpp-en"]), ("the app's helper (whisper.cpp), German then English", ["helper-de-en"]),
+        ("the app's helper, English then German", ["helper-en-de"])]
 NATURAL = {"anna", "samantha", "daniel"}
 
 

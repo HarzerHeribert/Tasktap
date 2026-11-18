@@ -29,4 +29,6 @@ score whisper-en "$english" "$whisper" "$model/model" "$model/tokenizer" en {wav
 "$here/../../host/scripts/build-speech.sh" >/dev/null 2>&1
 python3 "$here/fetch.py" whispercpp "$to/models/wcpp" >/dev/null
 helper="$(ls "$here"/../../host/binaries/tasktap-speech-* | head -1)"
+# Both orders of the person's languages: the helper must write the same for either (design §8, "Languages").
 score helper-de-en "" python3 "$here/helper.py" "$helper" "$to/models/wcpp/ggml-large-v3-turbo-q5_0.bin" de,en {wav} fast
+score helper-en-de "" python3 "$here/helper.py" "$helper" "$to/models/wcpp/ggml-large-v3-turbo-q5_0.bin" en,de {wav} fast

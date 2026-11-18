@@ -67,6 +67,11 @@ echo "== Speech on this Mac, in the app (a short launch of its own; a tone and g
 out="$(node "$root/scripts/speech-app-check.cjs" ${SPEECH_MODEL:+--model "$SPEECH_MODEL"} 2>&1)"
 if [ $? = 0 ]; then echo "$out" | grep -E '^(PASS|NOTE)' | sed '$d'; pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "speech on this Mac in the app"; fi
 
+if [ -n "${SPEECH_MODEL:-}" ]; then
+  echo "== Speech on this Mac is written in the language it is said in (the real helper and model; the Mac's voices in files)"
+  if out="$(node "$root/scripts/speech-language-check.cjs" "$SPEECH_MODEL" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "the language of speech on this Mac"; fi
+fi
+
 tmp="$(mktemp -d)"
 log="$tmp/log"
 mkdir -p "$tmp/agents" "$tmp/project"

@@ -12,6 +12,12 @@ import { call, client, fail, records, redraw } from '../page.ts';
 import { type Look, look as ownLook, terminalOptions } from './appearance.ts';
 import { type Found, find, lineAt, pointsAt, range } from './links.ts';
 
+/** The fewest columns and rows a terminal is ever asked to have. A pane that cannot be measured is no size: one not
+ *  laid out yet, hidden, or squeezed to nothing on its way somewhere has no room at all, and xterm.js's fit answers
+ *  2 columns by 1 row for it. A shell started at that, or told it, draws its prompt two characters to a line, and on
+ *  Windows the console keeps what it drew. Below the floor the terminal keeps the size it has and its pane shows a
+ *  part of it. */
+export const FLOOR = { cols: 20, rows: 4 };
 /** Bytes the core may send ahead of what xterm.js has parsed. */
 const WINDOW = 1 << 20;
 const encoder = new TextEncoder();
@@ -233,6 +239,8 @@ export class Engine {
     } finally {
       this.opening = false;
     }
+    // The pane may have changed while the stream opened, or had no size to measure before.
+    queueFit(this);
   }
 
   /** Closes the stream; the process runs on and this engine keeps its screen. */
@@ -283,16 +291,19 @@ export class Engine {
     if (this.stream) this.term.paste(text);
   }
 
+  /** The columns and rows the pane has room for; nothing where it cannot be measured or is below the floor. */
   private measure() {
     if (!this.element.isConnected || !this.element.getClientRects().length) return undefined;
-    return this.fit.proposeDimensions();
+    const d = this.fit.proposeDimensions();
+    return d && d.cols >= FLOOR.cols && d.rows >= FLOOR.rows ? d : undefined;
   }
 
   /** Asks for the size the pane has room for; xterm.js takes it when the mark comes back. A
    *  terminal that ended has no process to ask, so its screen is sized here. */
   fitNow() {
     const d = this.measure();
-    if (!d || !d.cols || !d.rows) return;
+    // While its stream opens the terminal has the size it was opened at; attach asks again once it is open.
+    if (!d || this.opening) return;
     const want = `${d.cols}x${d.rows}`;
     if (records.terminals.get(this.id)?.state !== 'running' || !this.stream) {
       if (this.term.cols !== d.cols || this.term.rows !== d.rows) this.term.resize(d.cols, d.rows);

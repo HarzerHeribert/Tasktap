@@ -57,14 +57,18 @@ function tabMenu(project: string, id: string): Item[] {
 export function Deck({ project }: { project: string }) {
   const l = layout(project);
   const area = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ w: 0, h: 0 });
+  // Measured before a pane is drawn: a terminal is opened at the size its pane has, and a pane with no size yet
+  // would be measured as no room at all (terminal.ts FLOOR).
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   useLayoutEffect(() => {
-    const observer = new ResizeObserver(([entry]) => entry && setSize({ w: entry.contentRect.width, h: entry.contentRect.height }));
+    const take = (w: number, h: number) => setSize((s) => (s && s.w === w && s.h === h ? s : { w, h }));
+    take(area.current!.clientWidth, area.current!.clientHeight);
+    const observer = new ResizeObserver(([entry]) => entry && take(entry.contentRect.width, entry.contentRect.height));
     observer.observe(area.current!);
     return () => observer.disconnect();
   }, []);
-  const g = L.geometry(l, size.w, size.h);
-  const all = L.panes(l);
+  const g = L.geometry(l, size?.w ?? 0, size?.h ?? 0);
+  const all = size ? L.panes(l) : [];
   return (
     <div class="deck" ref={area}>
       {!l.tree && (

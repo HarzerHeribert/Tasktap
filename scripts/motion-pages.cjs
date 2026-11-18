@@ -57,6 +57,8 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     callbacks.get(channel)({ index: index++, message: out.buffer });
   };
   const calls = [];
+  // The sizes terminals were opened at and asked to take, in order (terminal-size-check.cjs).
+  const sizes = [];
   // The rule of a shortcut (core/proto Shortcut::refused), in small: what a scene needs of it.
   const refused = (k) => (!/^(Key[A-Z]|Digit\d|F\d+|Space|Enter|Tab|Escape|Backspace|Delete|Arrow\w+|Minus|Equal|Comma|Period|Slash)$/.test(k.code) ? 'That is not a key a shortcut can end in'
     : !(k.control || k.alt || k.meta) ? 'A shortcut needs Control, Option (Alt) or Command (the Windows key) held with its key'
@@ -75,6 +77,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
   const answer = (call) => {
     const { id, name, args } = call;
     calls.push(name);
+    if (name === 'terminal.open' || name === 'terminal.resize') sizes.push({ call: name, id: args.id, cols: args.cols, rows: args.rows });
     // A terminal's screen from `screens`, a diff from `diffs`; the page's own history call gets an empty page.
     if (name === 'terminal.open') {
       const s = nextStream++;
@@ -266,7 +269,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     if (d) push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', del: [d.id] }] });
     toCore({ t: 'close', s: Number(s), why: 'gone' });
   };
-  window.__fake = { emit, push, records, heard, calls, close, opened };
+  window.__fake = { emit, push, records, heard, calls, sizes, close, opened };
   window.__fake.speech = { acts: [], ended: [], fed: [], said(line) { callbacks.get(this.channel)?.({ index: this.n++, message: line }); } };
   window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
   window.__TAURI_INTERNALS__ = {

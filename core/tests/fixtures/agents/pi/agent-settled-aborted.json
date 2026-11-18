@@ -1,0 +1,9 @@
+{
+  "event": "agent_settled",
+  "session": "01930000-0000-7000-8000-000000000001",
+  "at": "m0000000.10",
+  "aborted": true,
+  "stop": "aborted",
+  "error": "Operation aborted",
+  "text": ""
+}

@@ -1,0 +1,9 @@
+{
+  "event": "agent_settled",
+  "session": "01930000-0000-7000-8000-000000000003",
+  "at": "m0000000.3",
+  "aborted": false,
+  "stop": "error",
+  "error": "401: {\"message\":\"Authentication Fails, Your api key: ****test is invalid (request_id: 00000000-0000-4000-8000-000000000000)\",\"type\":\"authentication_error\",\"param\":null,\"code\":\"invalid_request_error\"}",
+  "text": ""
+}

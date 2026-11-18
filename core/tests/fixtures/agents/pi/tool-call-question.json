@@ -1,0 +1,13 @@
+{
+  "event": "tool_call",
+  "session": "01930000-0000-7000-8000-000000000001",
+  "at": "m0000000.3",
+  "tool": "ask_person",
+  "input": {
+    "question": "Tea or coffee?",
+    "options": [
+      "Tea",
+      "Coffee"
+    ]
+  }
+}

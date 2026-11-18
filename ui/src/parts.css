@@ -135,8 +135,7 @@ kbd .i{width:12px;height:12px;stroke-width:1.6px}
    a thought. Choosing where it goes turns the row into the choice: a list on a sheet, a line of options on Home. */
 .cap{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;column-gap:14px;min-width:0;cursor:text}
 .cap .wave{--wh:30px;--ww:3px;--wg:2.5px}
-.cap textarea{grid-column:2;min-width:0;max-height:92px;padding:10px 0;resize:none;overflow:auto;font:var(--f-question);letter-spacing:var(--ls-question);caret-color:var(--accent)}
-.cap textarea:read-only{color:var(--fg2)}
+.cap textarea{grid-column:2;min-width:0;max-height:86px;padding:10px 0;resize:none;overflow:auto;font:var(--f-question);letter-spacing:var(--ls-question);caret-color:var(--accent)}
 .cap-row{grid-column:1/-1;display:flex;align-items:center;gap:var(--sp2);min-width:0;padding-top:var(--sp2);border-top:1px solid var(--line);cursor:default}
 .capture:is(:focus-within,.has) .cap-row{border-image:var(--lit) 1}
 .cap-to,.cap-list button{display:inline-flex;align-items:center;gap:6px;height:var(--row-h);padding:0 var(--sp2) 0 6px;border-radius:var(--r1);font:var(--f-small);color:var(--fg2);white-space:nowrap}

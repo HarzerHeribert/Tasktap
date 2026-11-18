@@ -167,7 +167,7 @@ function Bar({ project }: { project: string | null }) {
   const p = project ? records.projects.get(project) : undefined;
   const side = ui.sidebar && !ui.narrow && !ui.slide;
   return (
-    <header class="bar" data-tauri-drag-region>
+    <header class={`bar${project || ui.view === 'earlier' ? '' : ' bare'}`} data-tauri-drag-region>
       {/* Room for the window's buttons, and the way back to the sidebar: there while it is away, and on its way. */}
       {!side && <span class="lead"><button type="button" class="ib" title="Show sidebar  ⌃⌘S" aria-label="Show sidebar" onClick={() => command('sidebar')}><I n="sidebar" /></button></span>}
       {project ? (

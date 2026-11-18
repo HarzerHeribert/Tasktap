@@ -1,7 +1,7 @@
 /* What both pages draw of a thought on its way and of voice (capture.tsx, question.tsx, way.ts): the microphone, the
    wave as loud as the voice, the row while the person speaks, the thought that is being placed or held with its brief,
-   and the seat of the agent that runs the next thought. Quiet controls on the ground they stand on; the one metal key
-   is Start, while the Composer's own key has nothing to do. */
+   and the seat of the agent that runs the next thought. Quiet controls on the ground they stand on: the one metal key
+   is the Composer's own. */
 
 /* The agent that runs the next thought is seated, as a chosen segment is in Settings: the selected fill and its
    hairline, the ring lit and a little heavier, the agent's name beside it where the row has room. The seat is where
@@ -47,7 +47,7 @@
 .capture.raised .cap-row.hear{padding:0 0 0 10px}
 
 /* On its way. Each thought is one block under the Composer's row: its first line says where it goes and what the work
-   is called, with Undo and Start; the newest shows its brief in full and the person's own words under it. Its top
+   is called, with Undo; the newest shows its brief in full and the person's own words under it. Its top
    edge is the hold: a lit line that runs out with the time that is left, and stands whole while that is still open. */
 .ways{display:grid;min-width:0}
 .capture.raised .ways{padding:0 var(--sp3) 0 22px}
@@ -63,7 +63,7 @@
 .way-h>b{font:var(--f-label);color:var(--fg)}
 .way-h em{flex:none;font-style:normal;color:var(--fg3)}
 .way-h .act{flex:none;height:22px;margin-left:auto}
-.way-h :is(.key,.btn){flex:none}
+.way-h .btn{flex:none}
 .way-h .btn .i{width:14px;height:14px}
 .way-b,.way-w{margin-top:6px;font:var(--f-text);color:var(--fg);text-wrap:pretty;overflow-wrap:anywhere;white-space:pre-wrap;-webkit-user-select:text;user-select:text}
 .way-w{padding-left:10px;border-left:1px solid var(--line2);font:var(--f-small);color:var(--fg2)}

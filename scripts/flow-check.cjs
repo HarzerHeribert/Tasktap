@@ -6,7 +6,8 @@
 // (the core's `motion_ambient`: full, still, off), so the light's part in a hitch can be told from the page's.
 // It fails when, during the flow, the 95th percentile of the frame intervals is over 1.2 of the frames the page is
 // given (20 ms where it is given 60 a second, less where it is given more) or one is over 50 ms, when the 95th
-// percentile of the key delays is over 1.8 frames (30 ms) or one is over 100 ms, or when a key is lost. In
+// percentile of the key delays is over 1.8 frames (30 ms) or one is over 100 ms, or when a key is lost or the field
+// refuses one: headless the stand-in answers the capture after 600 ms, so keys fall while it is on its way. In
 // the app at Full it also watches the band through the flow, as cadence-check.cjs does: it fails when the band
 // waits more than two of its intervals between drawings while it moves, or one of its clocks jumps.
 // In the app the worst frame may take 33 ms and the worst key 67, so that no frame is missed outright. A frame that
@@ -81,6 +82,7 @@ function judge(level, quiet, flow, failures) {
   if (s.kp95 > frame * 1.8) failures.push(`${level}: the 95th percentile of the delay from a key to its frame is ${r1(s.kp95)} ms (${r1(frame * 1.8)} at most)`);
   if (s.kworst > hitch * key) failures.push(`${level}: a key took ${r1(s.kworst)} ms to show (${r1(hitch * key)} at most)`);
   if (s.lost) failures.push(`${level}: ${flow.lost} keys were lost and ${flow.caret} moved the caret from the end`);
+  if (quiet.refused + flow.refused) failures.push(`${level}: the field refused ${quiet.refused + flow.refused} keys (${flow.refused} of them during the flow)`);
 }
 
 // ---- the real app, its real core, the fixture agent ----
@@ -125,6 +127,7 @@ async function headless(levels) {
     for (const level of levels) {
       const records = scene('quiet');
       records.prefs = [{ id: 'motion_ambient', value: LEVELS[level], rev: 1 }];
+      records.slow = 600;
       const page = await open(browser, { label: 'workspace', records, url: server.url, dpr: 1 });
       await page.evaluate(() => (Object.assign(window.__motion.debug, { active: true }), window.__motion.redraw()));
       await page.waitForTimeout(1500);
@@ -214,7 +217,7 @@ async function main() {
   }
   console.log('');
   for (const f of failures) console.log('FAIL  ' + f);
-  console.log(failures.length ? 'FAIL  the capture flow hitches' : 'PASS  typing through a capture, its placing, a session starting, an agent\'s output and a result: frames keep their pace (95th percentile within 1.2 of the frames given, 20 ms at 60 a second, none over 50 ms), keys show within a frame or two (95th percentile within 1.8 frames, 30 ms, none over 100 ms), and none is lost');
+  console.log(failures.length ? 'FAIL  the capture flow hitches' : 'PASS  typing through a capture, its placing, a session starting, an agent\'s output and a result: frames keep their pace (95th percentile within 1.2 of the frames given, 20 ms at 60 a second, none over 50 ms), keys show within a frame or two (95th percentile within 1.8 frames, 30 ms, none over 100 ms), and none is lost or refused');
   process.exitCode = failures.length ? 1 : 0;
 }
 if (require.main === module) main().catch((e) => (console.error(e), process.exit(1)));

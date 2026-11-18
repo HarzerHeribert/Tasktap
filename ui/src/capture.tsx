@@ -5,7 +5,8 @@
 //
 // Under the row is what is on its way, by one mechanism for typing and for voice (way.ts): speech being heard and
 // written down, then the thought being placed, then where it goes with its brief, readable for the length of its hold,
-// with Undo and Start. Every Composer shows every thought on its way, whoever captured it.
+// with Undo. Every Composer shows every thought on its way, whoever captured it. Return on an empty field starts the
+// newest of them now, and the Composer's key says so: it is the one key that says Start.
 import type { Capture as CaptureArgs, Dictation, DictationTarget, Route, Thought } from '../../core/proto/protocol.ts';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'preact/hooks';
@@ -13,7 +14,7 @@ import { uuid7 } from './client.ts';
 import { cancel, control, end, follow, mine, place, setAim, talk } from './speech/record.ts';
 import { I, Level, Mark, Ring, Wave, madeAt } from './ui.tsx';
 import { agent, agentName, call, fail, focus, openQuestions, page, placers, pref, projectName, projects, records, redraw, title, why } from './page.ts';
-import { briefOf, clock, hold, laterWhy, onWay, placed, ring, step } from './way.ts';
+import { back, briefOf, clock, hold, laterWhy, leave, onWay, placed, ring, step } from './way.ts';
 
 /** What was just sent, for what is said of it once it is no longer on its way. `picked`: it named its place itself;
  *  `pick`: the place the person chose for it, which Undo gives back with its words. */
@@ -31,8 +32,8 @@ export const cap = {
   /** The session the person is in, which the router may send a follow-up to. */
   current: null as string | null,
   choosing: false,
-  /** The thought is on its way to the core: the field waits. */
-  sending: false,
+  /** How many thoughts are on their way to the core, their call not back yet. The field is free for the next. */
+  sending: 0,
   sent: null as Sent | null,
   undone: null as Sent | null,
   /** The thought a dictation is to become, until it has. */
@@ -117,22 +118,27 @@ async function addProject(hooks: Hooks): Promise<string | undefined> {
 }
 
 const start = (t: Thought) => void call('thought.start', { id: t.id, attempt: uuid7() }).catch(fail);
+/** The thought Return on an empty field starts now: the newest on its way, once it has its place. None while one is
+ *  still on its way to the core, so a second Return after the one that sent it starts nothing by surprise. */
+const waiting = () => {
+  const t = going()[0];
+  return !cap.sending && t && step(t) !== 'placing' ? t : undefined;
+};
+/** The sends whose calls are not back yet, for Undo, which takes back what they bring. */
+let flights: Promise<unknown> = Promise.resolve();
 
+/** Return. The thought leaves the field at once (way.ts leave), and with it the place picked for it and the thought it
+ *  was before Undo gave it back, so the next can be typed while it is on its way to the core. One the core refuses is
+ *  back in the field with both. */
 async function send(e: Event, hooks: Hooks) {
   e.preventDefault();
-  const text = cap.draft.trim();
-  if (cap.sending) return;
-  if (!text) {
-    // Return on an empty field starts the thought that waits, now.
-    const t = going()[0];
-    return void (t && step(t) !== 'placing' && start(t));
+  if (!cap.draft.trim()) {
+    const t = waiting();
+    return void (t && start(t));
   }
-  cap.sending = true;
-  redraw();
-  const w = where();
-  try {
+  const w = where(), pick = picked(), { dest, undone } = cap;
+  const gone = leave(cap, async (text) => {
     let id = uuid7();
-    const undone = cap.undone;
     if (undone && w.to && w.to !== 'later') {
       // The thought Undo returned to the person goes out again, with what they changed, rather
       // than a copy of it that would stay behind.
@@ -144,31 +150,41 @@ async function send(e: Event, hooks: Hooks) {
       await call('thought.capture', { id, text, strokes: [], source: 'typed', ...named(w) });
     }
     // A thought that named no place and went to the usual one: the moment to offer placing by a model, once.
-    const offer = w.by === 'pick' && !picked() && !cap.offered && !!hooks.terms && offerable();
-    Object.assign(cap, { sent: { id, text, to: w.to, picked: w.by === 'pick', pick: picked() }, undone: null, draft: '', hint: null, dest: undefined, offer, offered: cap.offered || offer });
+    const offer = w.by === 'pick' && !pick && !cap.offered && !!hooks.terms && offerable();
+    Object.assign(cap, { sent: { id, text, to: w.to, picked: w.by === 'pick', pick }, offer, offered: cap.offered || offer });
     page.error = '';
-  } catch (err) {
+  });
+  Object.assign(cap, { hint: null, dest: undefined, undone: null });
+  flights = Promise.allSettled([flights, gone]);
+  redraw();
+  await gone.catch((err) => {
+    Object.assign(cap, { dest: cap.dest ?? dest, undone: cap.undone ?? undone });
+    askRoute();
     fail(err);
-  }
-  cap.sending = false;
+  });
   redraw();
 }
 
 /** Takes a thought back before it starts: the core stops asking about it and holding it, and its words return to the
- *  field, with the place the person had picked, if they had, still picked. `later`: the one just saved for later is
- *  removed instead. */
-export async function undo(t: Thought | 'later' | undefined = going()[0] ?? (cap.sent?.to === 'later' ? 'later' : undefined)) {
+ *  field, before what was typed since, with the place the person had picked, if they had, still picked. `later`: the
+ *  one just saved for later is removed instead. With none named it is the newest, once what is on its way to the
+ *  core has arrived there. */
+export async function undo(t?: Thought | 'later') {
+  if (!t) {
+    await flights;
+    t = going()[0] ?? (cap.sent?.to === 'later' ? 'later' : undefined);
+  }
   const sent = cap.sent;
   try {
     if (t === 'later' && sent) {
       const text = records.thoughts.get(sent.id)?.text ?? sent.text;
       await call('delete', { c: 'thoughts', id: sent.id });
-      Object.assign(cap, { sent: null, draft: text, dest: sent.pick });
+      Object.assign(cap, { sent: null, draft: back(text, cap.draft), dest: sent.pick });
     } else if (t && t !== 'later') {
       await call('thought.stop', { id: t.id });
       Object.assign(cap, {
         undone: { id: t.id, text: t.text, to: t.project_id ?? '' }, sent: sent?.id === t.id ? null : sent, offer: false, dest: sent?.id === t.id ? sent.pick : cap.dest,
-        draft: cap.draft.trim() ? `${t.text}\n${cap.draft}` : t.text,
+        draft: back(t.text, cap.draft),
       });
       // Where it goes is asked again for the words that are back, as it was while they were typed.
       askRoute();
@@ -293,9 +309,10 @@ function Hold({ t }: { t: Thought }) {
   return <i class="way-hold" key={t.hold_until ?? 0} data-open={!h || undefined} style={h ? { '--from': String(h.share), '--ms': `${Math.round(h.ms)}ms` } : undefined} />;
 }
 
-/** A thought on its way. The newest is `open`: where it goes and what the work is called, the brief in full when it
- *  says the words differently, the person's own words under it, and how it was placed. Any other is its first line. */
-function Going({ t, open, main }: { t: Thought; open: boolean; main: boolean }) {
+/** A thought on its way, with the way to take it back. The newest is `open`: where it goes and what the work is
+ *  called, the brief in full when it says the words differently, the person's own words under it, and how it was
+ *  placed. Any other is its first line. */
+function Going({ t, open }: { t: Thought; open: boolean }) {
   const at = step(t), brief = briefOf(t);
   const mineToo = cap.sent?.id === t.id && cap.sent.picked;
   const note = placed(t, agentName, mineToo);
@@ -308,7 +325,6 @@ function Going({ t, open, main }: { t: Thought; open: boolean; main: boolean }) 
         )}
         {at === 'briefing' && <em>Writing the brief…</em>}
         <button type="button" class="act" onClick={() => void undo(t)}><kbd>⌘Z</kbd><span>Undo</span></button>
-        {at !== 'placing' && <button type="button" class={main ? 'key' : 'btn'} title="Start it now" onClick={() => start(t)}><I n="ret" /><span>Start</span></button>}
       </p>
       {open && brief && <p class="way-b"><span>Brief{t.route?.title && <b>{t.route.title}</b>}</span>{brief}</p>}
       {open && (brief || t.source === 'voice') && <p class="way-w"><span>You said</span>{t.text}</p>}
@@ -366,7 +382,7 @@ function Way({ hooks, raised, offer }: { hooks: Hooks; raised: boolean; offer: b
       {failed.map((d) => <Failed key={d.id} d={d} />)}
       {talk.said === 'service' && line('Voice needs a speech service to turn it into text.', hooks.speech && <button type="button" class="btn" onClick={() => (cancel(), hooks.speech!())}>Choose one…</button>)}
       {talk.said && talk.said !== 'service' && line(talk.said)}
-      {all.map((x, i) => <Going key={x.id} t={x} open={i === 0} main={i === 0 && !cap.draft.trim()} />)}
+      {all.map((x, i) => <Going key={x.id} t={x} open={i === 0} />)}
       {sent?.to === 'later' && t && line(projects().some((p) => p.kind === 'folder') ? 'Saved for later' : 'Saved for later, until a folder is open',
         <button type="button" class="act" onClick={() => void undo('later')}><kbd>⌘Z</kbd><span>Undo</span></button>)}
       {sent && sent.to !== 'later' && t && !onWay(t) && (
@@ -420,35 +436,50 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
   const folders = projects().filter((p) => p.kind === 'folder');
   const later = w.by === 'later', model = w.by === 'router' && !route;
   const session = route?.confidence === 'clear' && 'session' in route.to;
-  const does = later ? 'Save for later' : session ? 'Send' : 'Start';
+  // What Return does, which the key says: with a thought in the field it sends that; with none it starts the one that
+  // waits, if one does; and while the last is still on its way to the core and nothing new is typed, it shows the wave.
+  const has = !!cap.draft.trim(), now = !has && !!waiting(), busy = !has && cap.sending > 0;
+  const does = now ? 'Start' : later ? 'Save for later' : session ? 'Send' : 'Start';
   const d = mine(), service = !!pref('speech_by');
   const hearing = here() && (talk.asking || d?.phase === 'recording' || d?.phase === 'transcribing');
-  const area = useRef<HTMLTextAreaElement>(null);
-  // The field grows with the thought, a line at a time.
-  useLayoutEffect(() => {
-    const el = area.current;
-    if (!el) return;
+  // The field is as high as its words, a line at a time. It is measured when they change, typed or put there, or its
+  // width does, and on no other render: a measure makes the page lay itself out there and then.
+  const area = useRef<HTMLTextAreaElement>(null), fitted = useRef({ text: '', width: -1 });
+  const fit = (width = fitted.current.width) => {
+    const el = area.current!;
+    if (el.value === fitted.current.text && width === fitted.current.width) return;
+    fitted.current = { text: el.value, width };
     el.style.height = '0';
     el.style.height = `${el.scrollHeight}px`;
-  });
+  };
+  useLayoutEffect(() => fit());
+  useLayoutEffect(() => {
+    const watch = new ResizeObserver(([e]) => fit(e!.contentRect.width));
+    watch.observe(area.current!);
+    return () => watch.disconnect();
+  }, []);
   const option = (id: string, on: boolean, mark: ComponentChildren, name: string) => (
     <button type="button" role="option" aria-selected={on} onClick={() => pick(id)}>{mark}<span>{name}</span></button>
   );
   return (
-    <form class={`capture${raised ? ' raised' : ''}${cap.draft ? ' has' : ''}`} aria-busy={cap.sending} onSubmit={(e) => send(e, hooks)}>
+    <form class={`capture${raised ? ' raised' : ''}${cap.draft ? ' has' : ''}`} aria-busy={cap.sending > 0} onSubmit={(e) => send(e, hooks)}>
       <div class="cap" onPointerDown={(e) => e.target === e.currentTarget && (e.preventDefault(), focus('#capture-input'))}>
         {!raised && (hearing && d?.phase === 'recording' ? <Level n={13} l={d.level / 100} /> : <Wave n={13} live={!!cap.draft} />)}
         <textarea id="capture-input" ref={area} rows={1} autocomplete="off" spellcheck={false} aria-label="New task" placeholder={service && !raised ? 'Type, or hold ⌥Space and talk' : 'Put a thought in'}
-          value={cap.draft} readOnly={cap.sending}
+          value={cap.draft}
           onInput={(e) => {
+            const first = !cap.draft.trim();
             cap.draft = e.currentTarget.value;
+            fit();
             if (cap.undone && !cap.draft.trim()) drop();
             askRoute();
+            // The first of a thought: the key says at once what Return now does.
+            if (first) redraw();
           }}
           onKeyDown={(e) => {
-            // Return sends; Shift-Return starts a new line.
-            if (e.key === 'Enter' && !e.isComposing && !e.shiftKey) void send(e, hooks);
-            else if (e.key === 'z' && e.metaKey && !cap.draft && (going().length || cap.sent?.to === 'later')) {
+            // Return sends, once however long it is held; Shift-Return starts a new line.
+            if (e.key === 'Enter' && !e.isComposing && !e.shiftKey) e.repeat ? e.preventDefault() : void send(e, hooks);
+            else if (e.key === 'z' && e.metaKey && !cap.draft && (cap.sending || going().length || cap.sent?.to === 'later')) {
               e.preventDefault();
               void undo();
             }
@@ -481,8 +512,8 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
               onPointerDown={(e) => control.down(e, area.current)} onClick={(e) => control.key(e, area.current)}>
               <I n="mic" /><kbd>⌥Space</kbd>
             </button>
-            <button type="submit" class={`key${raised ? ' lg' : ''}`} disabled={!cap.draft.trim()} aria-busy={cap.sending || undefined}>
-              {cap.sending ? <Mark s="working" label="" /> : <I n="ret" />}<span>{does}</span>
+            <button type="submit" class={`key${raised ? ' lg' : ''}`} disabled={!has && !now && !busy} aria-busy={busy || undefined} title={now ? 'Start it now' : undefined}>
+              {busy ? <Mark s="working" label="" /> : <I n="ret" />}<span>{does}</span>
             </button>
           </div>
         )}

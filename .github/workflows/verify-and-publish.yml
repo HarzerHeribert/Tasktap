@@ -119,16 +119,16 @@ jobs:
       - name: Notch geometry
         run: cargo test
         working-directory: host
-      - name: The app carries its core and its own identity, apart from an installed Tasktap
+      - name: The app carries its core and its identity, and seals with every program in it signed
         run: |
           app="host/target/release/bundle/macos/Tasktap.app"
           test -x "$app/Contents/MacOS/tasktap-app"
           codesign --verify --strict "$app/Contents/MacOS/tasktap"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = io.github.harzerheribert.tasktap
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$app/Contents/Info.plist")" = "Tasktap"
-          # Not checked, because it is not true yet: the bundle is not sealed. Its executables carry
-          # the linker's ad-hoc signature only; signing is release work (docs/rebuild-plan.md).
-          codesign -dv "$app" 2>&1 | grep -E 'Signature|flags' || true
+          # Sealed ad hoc as a release seals it with the Developer ID (release.yml): the hardened runtime and each
+          # program's own entitlements, no program left unsigned.
+          host/scripts/sign-mac.sh "$app"
       - name: Install the headless browser
         run: |
           npm ci --ignore-scripts --no-audit --no-fund

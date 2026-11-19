@@ -1031,11 +1031,13 @@ quiet() { until_has "${1:-workspace}" "eval String(__speech.live()) + ' ' + __re
 js workspace "(window.__records_size = () => __ws.records.dictations.size, 1)" >/dev/null
 send 'call delete {"c":"prefs","id":"speech_by"}'
 until_has workspace "eval String(__ws.records.prefs.has('speech_by'))" 3 "false" || fail "no speech service is chosen"
-# Without a service the microphone says why in one line, and leads to where one is chosen.
+# Without a service the microphone brings down Setup's speech step (NOTES §13: nothing of it under the Composer), which
+# says what on this Mac needs, as Voice in Settings does.
 js workspace "(__ws.show('home'), document.querySelector('.home .mic').click(), 1)" >/dev/null
-until_has workspace "text .home .ways" 3 "Voice needs setting up first" && js workspace "(document.querySelector('.home .ways .btn').click(), 1)" >/dev/null \
+until_has workspace "eval __ws.ui.sheet?.kind + ' ' + __ws.ui.sheet?.step" 3 "setup speech" && ask workspace "text .sheet" | grep -q "Needs 574 MB, downloaded once" \
+  && ! ask workspace "text .home .ways" | grep -q "Voice needs" && js workspace "(__ws.open({ kind: 'settings', at: 'voice' }), 1)" >/dev/null \
   && until_has workspace "eval __ws.ui.sheet?.kind + ' ' + __ws.ui.sheet?.at" 3 "settings voice" && ask workspace "text .settings" | grep -q "Needs a model first: Whisper large-v3 turbo, 574 MB" \
-  && pass "with nothing to turn speech into text the microphone says so in one line and leads to Voice in Settings, which says what on this Mac needs" || fail "voice with nothing set up"
+  && pass "with nothing to turn speech into text the microphone brings down Setup's speech step, which says what on this Mac needs, as Voice in Settings does" || fail "voice with nothing set up"
 js workspace "([...document.querySelectorAll('.settings .seg button')].find(b => b.textContent === 'A speech service').click(), 1)" >/dev/null
 until_has workspace "text .sheet" 3 "What it is sent" || fail "the speech sheet opens"
 js workspace "(document.querySelectorAll('.terms .seg button')[2].click(), 1)" >/dev/null

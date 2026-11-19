@@ -183,11 +183,25 @@ fn install(app: &AppHandle) -> Result<(), String> {
             .await;
         match installed {
             // The new version starts in this one's place; the core and its sessions run on.
-            Ok(()) => app.restart(),
+            Ok(()) => restart(&app),
             Err(e) => set(&app, State::Failed { why: plain(&e), version: Some(version) }),
         }
     });
     Ok(())
+}
+
+/// Starts the version just installed in this one's place. Tauri starts it through LaunchServices on a Mac, which gives
+/// it none of this run's environment: right for a person, wrong for a check (`TASKTAP_PASSIVE`), whose run would then
+/// start on the person's own data folder, in front. A check's run is started again as it was started.
+fn restart(app: &AppHandle) {
+    if std::env::var_os("TASKTAP_PASSIVE").is_none() {
+        app.restart();
+    }
+    crate::log(json!({"event": "updated"}));
+    match std::env::current_exe().and_then(|exe| std::process::Command::new(exe).spawn()) {
+        Ok(_) => std::process::exit(0),
+        Err(e) => set(app, State::Failed { why: format!("The new version could not be started: {e}"), version: None }),
+    }
 }
 
 /// What went wrong, as a person would say it.

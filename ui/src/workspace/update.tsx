@@ -10,7 +10,9 @@ import { call, fail, redraw } from './model.ts';
 export const update = { now: { state: 'unknown' } as HostUpdate };
 
 /** What the host said, by its `ui` event or a reply. */
-export function heard(said: HostUpdate) {
+export function heard(said: HostUpdate | null) {
+  // A host without the call (a check's stand-in) answers nothing: nothing changes.
+  if (!said?.state) return;
   update.now = said;
   redraw();
 }

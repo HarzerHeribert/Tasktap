@@ -41,12 +41,14 @@ const AGAIN: &str =
     "then open Tasktap again. Tasktap then moves Tasktap Next's thoughts, sessions and settings over, once.";
 
 /// The folder to take over, if there is one to take over now: Tasktap Next's, beside this app's own, while this app's
-/// does not exist yet.
+/// does not exist yet. Only Tasktap's own folder takes over: a build of another identity (one made for review, with a
+/// folder of its own) never does.
 fn old_folder(data: &Path) -> Option<(PathBuf, bool)> {
     let (old, check) = match std::env::var_os("TASKTAP_TAKEOVER_FROM") {
         Some(from) => (PathBuf::from(from), true),
         // A folder a check named is its own, with nothing to take over.
         None if std::env::var_os("TASKTAP_DATA").is_some() => return None,
+        None if data.file_name().is_none_or(|name| name != "Tasktap") => return None,
         None => (data.with_file_name(OLD), false),
     };
     (old.is_dir() && data.symlink_metadata().is_err()).then_some((old, check))

@@ -653,7 +653,7 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
       // A reason squeezed to its dot says nothing: it goes whole.
       row.removeAttribute('data-bare');
       if (reason.getBoundingClientRect().width < 18) row.setAttribute('data-bare', '');
-      if (!row.hasAttribute('data-bare') && !cut(place) && !cut(who)) return;
+      if (!row.hasAttribute('data-bare') && !cut(place)) return;
       const was = wide();
       row.setAttribute('data-short', '');
       if (wide() <= was) row.removeAttribute('data-short');

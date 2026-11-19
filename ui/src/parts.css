@@ -113,7 +113,7 @@ kbd .i{width:12px;height:12px}
    sessions work; the attention colour when one of them asks. */
 /* Who runs the thought (rings.tsx): one control in the Composer's foot, the ring of the agent that runs it, its name
    and a chevron, quiet as the chip beside it is; its name gives way where the foot is short of room. */
-.cap-agent{display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0;height:var(--row-h);padding:0 6px 0 4px;border-radius:var(--r1);font:var(--f-small);color:var(--fg);white-space:nowrap}
+.cap-agent{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;min-width:0;height:var(--row-h);padding:0 6px 0 4px;border-radius:var(--r1);font:var(--f-small);color:var(--fg);white-space:nowrap}
 .cap-agent .nm{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .cap-agent .ring-o{--ring:url(#ring-lit)}
 .cap-agent>.i{flex:none;width:12px;height:12px;color:var(--fg3);transform:rotate(90deg)}
@@ -193,6 +193,8 @@ kbd .i{width:12px;height:12px}
 .cap-to .i{flex:none}
 .cap-row[data-short]>.mic>kbd{display:none}
 .cap-row[data-bare] #dest-chip>span{display:none}
+/* The names are cut last, the place's and the agent's alike: the agent's only once the key hint is gone. */
+.cap-row[data-short]>.cap-agent{flex-shrink:1}
 :is(.cap-to,.cap-list) .i{width:14px;height:14px;color:var(--fg3)}
 .cap-to .i:last-child{width:12px;height:12px;transform:rotate(90deg)}
 .cap-list{display:grid;gap:0}

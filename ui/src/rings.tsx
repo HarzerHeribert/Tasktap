@@ -56,7 +56,7 @@ export function Rings({ hooks, session }: { hooks: { agents?: () => void }; sess
         })}
       </span>
       {more.length > 0 && (
-        <label class="ring more" title={`${more.length} more: ${more.map((a) => agentName(a.id)).join(', ')}`}>
+        <label class="more" title={`${more.length} more: ${more.map((a) => agentName(a.id)).join(', ')}`}>
           +{more.length}
           <select aria-label={`${more.length} more agents: use one for this thought`} value="" onChange={(e) => (pick(e.currentTarget.value), (e.currentTarget.value = ''))}>
             <option value="" disabled>Use for this thought</option>

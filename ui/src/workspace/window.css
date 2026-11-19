@@ -283,7 +283,7 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .capture.raised textarea{grid-column:1/-1;max-height:calc(6*round(28px*var(--ts),1px) + 14px);padding:6px 10px 8px;font:var(--f-thought);letter-spacing:var(--ls-thought);color:var(--fg)}
 .capture.raised textarea::placeholder{color:var(--fg-field)}
 .capture.raised .cap-row{gap:6px;padding:0;border:0}
-.capture.raised :is(.cap-to,.cap-list button,.ring){border-radius:var(--r-in)}
+.capture.raised :is(.cap-to,.cap-list button,.ring,.rings .more){border-radius:var(--r-in)}
 .capture.raised :is(.cap-to,.cap-list button){gap:7px;padding:0 10px;margin:0;font:var(--f-text)}
 .capture.raised .cap-list{display:flex;flex-wrap:wrap;gap:2px}
 .capture.raised .ring{padding:0 5px}

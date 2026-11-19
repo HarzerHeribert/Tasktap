@@ -366,9 +366,15 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         assert!(listens(&format!("http://127.0.0.1:{port}/rehearsal?x=1")));
         assert!(listens(&format!("http://localhost:{port}")));
-        drop(listener);
-        assert!(!listens(&format!("http://127.0.0.1:{port}/")));
-        assert!(!listens(&format!("http://[::1]:{port}/")));
+        // A port nothing listens on, and that stays so while it is asked: the one a connection of this test leaves
+        // from, which the system gives to nobody else meanwhile. The port a listener has just let go of is no such
+        // port: the system hands it to the next that asks for any, and on a busy machine another test or program was
+        // listening there before the look (72 of 312 runs, beside processes that bind ports).
+        let held = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let quiet = held.local_addr().unwrap().port();
+        assert!(!listens(&format!("http://127.0.0.1:{quiet}/")));
+        assert!(!listens(&format!("http://[::1]:{quiet}/")));
+        drop((held, listener));
         for remote in ["https://example.com/", "http://192.168.1.10:80/", "http://localhost.:80/", "not an address"] {
             assert!(!listens(remote), "{remote}");
         }

@@ -189,8 +189,7 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 /* A preview (preview.tsx): beside its terminal, in the terminals' place under the tabs. A line that says what is shown
    and holds what can be done with it; then the thing itself, which scrolls without a bar like everything else. Its
    tab carries the mark of who opened it: the agent's own, or an eye. */
-.st.by :is(.i,.ring-o){width:14px;height:14px}
-.st.by .ring-o circle{stroke-width:calc(var(--i-w) * 24 / 14)}
+.st.by .i{width:14px;height:14px}
 .st.by[data-by=person]{color:var(--fg3)}
 .pv{display:grid;grid-template-rows:auto minmax(0,1fr) auto;min-width:0;min-height:0;background:var(--bg)}
 .pv-h{display:flex;flex-wrap:wrap;align-items:center;gap:2px var(--sp2);min-width:0;min-height:var(--tab-h);padding:3px 6px 3px var(--sp3);border-bottom:1px solid var(--line)}
@@ -288,7 +287,7 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .capture.raised :is(.cap-to,.cap-list button){gap:7px;padding:0 10px;margin:0;font:var(--f-text)}
 .capture.raised .cap-list{display:flex;flex-wrap:wrap;gap:2px}
 .capture.raised .ring{padding:0 5px}
-.capture.raised .ring-o{width:24px;height:24px}
+.capture.raised .ring-o{--ring-px:24}
 .capture.raised .cap-said{margin-top:var(--sp2);padding:0 var(--sp3) 0 22px}
 /* First run: under the Composer, on its own edges, the one thing to do first, said in one line. It is the key until
    the Composer holds a thought; then that one's key is, and this is quiet. */
@@ -306,7 +305,7 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .needs h3{color:var(--asks);border-image:var(--lit) 1}
 /* a question: the first open, in full, with its answers; the rest a row each */
 .hq{display:grid;grid-template-columns:var(--lead) minmax(0,1fr) 48px;align-items:baseline;padding:12px 0 13px;border-bottom:1px solid var(--line);text-align:left}
-.hq>.st{--seat:20;align-self:center;justify-self:center;margin-block:-3px}
+.hq>.st{align-self:center;justify-self:center;margin-block:-3px}
 .hq-m{display:flex;gap:var(--sp2);min-width:0;font:var(--f-small);color:var(--fg2);white-space:nowrap}
 .hq-m>span::before{content:"·";margin-right:var(--sp2);color:var(--fg3)}
 .hq-t{overflow:hidden;text-overflow:ellipsis}
@@ -327,7 +326,7 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .hr{display:grid;grid-template-columns:var(--lead) minmax(0,1fr) auto 48px;align-items:baseline;align-content:start;min-width:0;padding:8px 0 9px;border-bottom:1px solid var(--line);font:var(--f-small);color:var(--fg2);text-align:left}
 .hr:hover{background:var(--hover)}
 .hr:active{background:var(--sel)}
-.hr>.st{--seat:20;grid-area:1/1;align-self:center;justify-self:center;margin-block:-3px}
+.hr>.st{grid-area:1/1;align-self:center;justify-self:center;margin-block:-3px}
 .hr-t{grid-area:1/2/auto/4;min-width:0;padding-right:var(--sp3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:var(--f-label);color:var(--fg)}
 .hr time{grid-area:1/4;font:var(--f-num);color:var(--fg3);text-align:right}
 .hr-m{grid-area:2/2/auto/5;display:flex;min-width:0;white-space:nowrap;color:var(--fg3)}

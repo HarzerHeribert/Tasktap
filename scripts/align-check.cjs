@@ -197,15 +197,15 @@ const hung = () => new Promise((done) => {
 });
 
 /** What stands in a row: one weight, one centre line, one baseline, figures on one edge (the rule at the head of this
- *  file). The Composer's and Settings' rings are left out of the weight: they are the agents' own component, drawn at
- *  1.25 px of their 24 px grid whatever the text size. */
+ *  file). Every ring is held to the weight too, wherever it stands and at whatever size; the ring chosen in the
+ *  Composer is the one heavier circle, 1.4 of the weight, so that the choice is seen. */
 function weights() {
   const bad = [], seen = new Set(), box = (el) => el.getBoundingClientRect();
   const ts = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ts')) || 1, rule = 1.2 * ts;
   const shown = (el) => el && el.getClientRects().length > 0 && box(el).width > 0 && getComputedStyle(el).visibility !== 'hidden';
   const name = (el) => { const r = el.closest('.hr, .hq, .row, .tab, .fold-h, .cap-to, .mic, .key, .more, .ib, .btn, kbd, h3, .rail-l, [class]'); return `.${(r?.className?.baseVal ?? r?.className ?? '').split(' ').filter(Boolean).slice(0, 2).join('.')}`; };
   // One weight.
-  for (const svg of document.querySelectorAll('svg.i, .st .ring-o')) {
+  for (const svg of document.querySelectorAll('svg.i, .ring-o')) {
     if (!shown(svg) || !svg.viewBox.baseVal.width) continue;
     const k = box(svg).width / svg.viewBox.baseVal.width;
     for (const shape of svg.querySelectorAll('path, rect, circle, line')) {
@@ -214,7 +214,8 @@ function weights() {
       const w = parseFloat(s.strokeWidth) * (s.vectorEffect === 'non-scaling-stroke' ? 1 : k);
       seen.add('strokes at one weight');
       // Return's arrow on the metal key stands beside a word in 600 and is the one heavier stroke (--i-w-key).
-      if (Math.abs(w - (svg.closest('.key') ? 1.35 * ts : rule)) > 0.06) bad.push(`a stroke ${w.toFixed(2)} px wide where every stroke is ${rule.toFixed(2)}: ${svg.classList.contains('i') ? 'an icon' : 'a seat'} ${Math.round(box(svg).width)} px wide in ${name(svg)}`);
+      const chosen = svg.closest('.ring[aria-checked=true]') && !shape.classList.contains('turn');
+      if (Math.abs(w - (svg.closest('.key') ? 1.35 * ts : chosen ? 1.4 * rule : rule)) > 0.06) bad.push(`a stroke ${w.toFixed(2)} px wide where every stroke is ${rule.toFixed(2)}: ${svg.classList.contains('i') ? 'an icon' : 'a seat'} ${Math.round(box(svg).width)} px wide in ${name(svg)}`);
     }
   }
   // Where an element's first words stand: their baseline (their box's top and the face's ascent, in whole pixels as the

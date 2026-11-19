@@ -11,6 +11,9 @@ test('the two letters of a ring are no two agents alike', () => {
   // Where a later one's are taken, it keeps its first letter and takes its next letter that is free.
   assert.deepEqual([...lettersOf(['copilot', 'codex', 'cody', 'co']).entries()], [['copilot', 'Co'], ['codex', 'Cd'], ['cody', 'Cy'], ['co', 'Co']]);
   assert.deepEqual([...lettersOf(['crush', 'cline', 'crow']).values()], ['Cr', 'Cl', 'Co']);
+  // A ring too small for two letters shows one, and still no two agents the same.
+  assert.deepEqual([...lettersOf(['agy', 'pi', 'opencode'], true).values()], ['A', 'P', 'O']);
+  assert.deepEqual([...lettersOf(['agy', 'aider', 'amp'], true).values()], ['A', 'I', 'M']);
 });
 
 const route = (o: Partial<Routing> = {}): Routing => ({ by: 'claude', model: 'haiku', pending: false, fallback: null, quote: null, title: null, ms: 2100, ...o });

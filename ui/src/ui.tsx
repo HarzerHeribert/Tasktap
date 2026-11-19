@@ -54,11 +54,12 @@ export function Mark({ s, bg = false, label }: { s: State; bg?: boolean; label?:
  *  sidebar, a tab), so that a session looks like itself everywhere. The ring turns while it works, is the attention
  *  colour while it asks, lit while its result is new, the failure colour when it failed, and quiet once seen (parts.css
  *  .st.of). A terminal with no agent, and a thought no agent has run, keep the mark. */
-export function Seat({ agent, s, bg = false, label }: { agent?: string | null; s: State; bg?: boolean; label?: string }) {
+const TONES: Partial<Record<State, RingTone>> = { asks: 'asks', ready: 'lit', failed: 'fail' };
+export function Seat({ agent, s, bg = false, label, size = 16 }: { agent?: string | null; s: State; bg?: boolean; label?: string; size?: number }) {
   if (!agent || s === 'shell' || s === 'later') return <Mark s={s} bg={bg} label={label} />;
   const words = label ?? said(s, bg);
   const named = words ? { role: 'img' as const, 'aria-label': words, title: words } : { 'aria-hidden': true };
-  return <i class={`st of${bg ? ' bgd' : ''}`} data-s={s} {...named}><Ring agent={agent} s={s === 'working' ? 'working' : ''} /></i>;
+  return <i class={`st of${bg ? ' bgd' : ''}`} data-s={s} style={{ '--seat': size }} {...named}><Ring agent={agent} s={s === 'working' ? 'working' : ''} size={size} tone={TONES[s]} /></i>;
 }
 
 /** The brand's wave: chrome bars, a few copper and graphite among the silver, as the icon has them. */
@@ -101,16 +102,24 @@ const MARKS: Record<string, string> = {
 export type RingState = '' | 'off' | 'working' | 'asks';
 /** An agent's ring: its mark in a fine circle on a 24 px grid. The circle is whole when the agent can run and open
  *  when it is not signed in; a second arc turns on it while its sessions work. The circle is `--arc` of a turn, so it
- *  can show a share of something later. */
-export function Ring({ agent, s, turns = s === 'working' }: { agent: string; s: RingState; turns?: boolean }) {
+ *  can show a share of something later.
+ *  What stands around a ring gives it these and reaches for nothing inside it: `size`, its width in px (22 where none
+ *  is given; a place may also set `--ring-px`), at which its circle is drawn at the icons' weight; `tone`, what its
+ *  circle says of a session (it asks, its result is new, it failed); and whether its mark is `one` letter, which a
+ *  ring under 20 px shows, since two are cramped there. */
+export type RingTone = 'asks' | 'lit' | 'fail';
+export function Ring({ agent, s, turns = s === 'working', size, tone, one = (size ?? 22) < 20 }: {
+  agent: string; s: RingState; turns?: boolean; size?: number; tone?: RingTone; one?: boolean;
+}) {
+  const lettered = [...records.agents.keys()].filter((id) => !MARKS[id]);
   return (
-    <svg class="ring-o" viewBox="0 0 24 24" aria-hidden="true">
+    <svg class="ring-o" viewBox="0 0 24 24" aria-hidden="true" data-tone={tone} style={size ? { '--ring-px': size } : undefined}>
       <linearGradient id="ring-lit" x1="0" y1="1" x2="1" y2="0">
         <stop offset="0" stop-color="#b98a5e" /><stop offset=".3" stop-color="#edcda6" /><stop offset=".5" stop-color="#f7f8fa" /><stop offset=".72" stop-color="#a9c0df" /><stop offset="1" stop-color="#7b92c4" />
       </linearGradient>
       <circle cx="12" cy="12" r="11" pathLength="100" />
       {turns && <circle class="turn" cx="12" cy="12" r="11" pathLength="100" />}
-      {MARKS[agent] ? <path d={MARKS[agent]} transform="translate(5.5 5.5) scale(.542)" /> : <text x="12" y="15.6" text-anchor="middle">{lettersOf([...records.agents.keys()].filter((id) => !MARKS[id])).get(agent) ?? letters(agent)}</text>}
+      {MARKS[agent] ? <path d={MARKS[agent]} transform="translate(5.5 5.5) scale(.542)" /> : <text class={one ? 'one' : undefined} x="12" y={one ? 17 : 15.6} text-anchor="middle">{lettersOf(lettered, one).get(agent) ?? letters(agent).slice(0, one ? 1 : 2)}</text>}
     </svg>
   );
 }

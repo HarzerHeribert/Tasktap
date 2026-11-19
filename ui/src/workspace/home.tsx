@@ -57,7 +57,7 @@ function QuestionRow({ q, open: isOpen, choose }: { q: Question; open: boolean; 
   const agent = router ? null : (s?.agent ?? t?.agent);
   const who = router ? 'A thought with no place yet' : agentName(agent ?? undefined);
   const where = router ? 'No place yet' : projectName(t?.project_id ?? s?.project_id);
-  const seat = <Seat agent={agent} s="asks" label={router ? 'Needs your answer' : `${who} asks`} />;
+  const seat = <Seat agent={agent} s="asks" size={20} label={router ? 'Needs your answer' : `${who} asks`} />;
   const time = <time>{elapsed(t?.updated ?? Date.now())}</time>;
   if (!isOpen)
     return (
@@ -118,7 +118,7 @@ function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean })
         else return;
         e.preventDefault();
       }}>
-      <Seat agent={agent} s={k} bg={bg} label={`${who}: ${said(k, bg)}`} />
+      <Seat agent={agent} s={k} bg={bg} size={20} label={`${who}: ${said(k, bg)}`} />
       <span class="hr-t">{title(t)}</span>
       <time>{kind === 'run' ? elapsed(t.created) : when(t.updated)}</time>
       <Meta where={projectName(t.project_id)} who={who} fact={fact} />

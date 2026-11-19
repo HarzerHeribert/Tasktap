@@ -281,8 +281,9 @@ try {
         if ([Diagnostics.Process]::GetCurrentProcess().SessionId -ne 0) {
             if ("$key" -match '"alt":true' -and "$key" -match '"shift":true' -and "$key" -match '"code":"Space"') { Pass 'the capture key registers: Alt-Shift-Space' } else { Fail "the capture key registers (the host said: $key)" }
         } else {
-            $asked = Js "__ws.call('host.capture_key', { key: { control: true, alt: true, shift: false, meta: false, code: 'KeyT' } }).then(JSON.stringify, $refused)"
-            if ($key -eq '{"key":null}' -and "$asked" -match '^refused: .*taken') { Pass 'no desktop here (session 0): the host holds no capture key and says that one asked for is taken' } else { Fail "the capture key without a desktop (the host said: $key, then: $asked)" }
+            # (Not $asked: that is app.ps1's count of the questions asked of a page.)
+            $taken = Js "__ws.call('host.capture_key', { key: { control: true, alt: true, shift: false, meta: false, code: 'KeyT' } }).then(JSON.stringify, $refused)"
+            if ($key -eq '{"key":null}' -and "$taken" -match '^refused: .*taken') { Pass 'no desktop here (session 0): the host holds no capture key and says that one asked for is taken' } else { Fail "the capture key without a desktop (the host said: $key, then: $taken)" }
         }
     }
     # The tab at the top edge (host\src\edge.rs): the notch's own page in a window of its own. A passive run's tab
@@ -307,10 +308,10 @@ try {
         Send 'call core.retire {"when":"now"}'
         $null = Until '"event":"reply","name":"core.retire"' 3
         Send 'quit'
-        $asked = Get-Date
+        $told = Get-Date
         $heard = Until '"event":"quitting"' 5
         if ($proc.WaitForExit(10000)) {
-            Pass "the app quits when told ($([int]((Get-Date) - $asked).TotalMilliseconds) ms)"
+            Pass "the app quits when told ($([int]((Get-Date) - $told).TotalMilliseconds) ms)"
         } else {
             $proc.Kill($true)
             # Seen over SSH on 2026-11-18: the app takes the request ("quitting") and its event

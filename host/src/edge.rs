@@ -15,7 +15,8 @@
 //! - **The keyboard.** The capture key, the answer key and the icon open the sheet with the keyboard: the window
 //!   is made the one in front, which Windows allows after a hot key or a click on the icon, and the window that was
 //!   in front gets the keyboard back at the fold. Open, a click on the sheet gives it the keyboard as a click on any
-//!   window does; collapsed, nothing ever does. When the keyboard goes elsewhere the page is told (`away`).
+//!   window does; collapsed, nothing ever does. When the keyboard goes elsewhere the page is told (`away`): the
+//!   timer that reads the pointer for an open sheet also looks at which window is in front.
 //! - **Staying out of the way.** While Windows says a full-screen window, a presentation or an exclusive Direct3D
 //!   program is in front, or nobody is at the desktop (`SHQueryUserNotificationState`), the tab is hidden; a sheet
 //!   the person asked for with the key still shows. The state is asked for when the window in front changes and when
@@ -474,9 +475,8 @@ unsafe extern "system" fn helper_proc(window: HWND, message: u32, w: WPARAM, l: 
         AWAY => {
             let tab = TAB.load(Relaxed) as HWND;
             let open = NOTCH.try_lock().is_ok_and(|st| st.panel != 0 && !st.is_collapsed());
-            let front = GetForegroundWindow();
-            crate::log(json!({"event": "tab", "away": open && front != tab, "open": open, "front": front as isize}));
-            if open && !PICKING.load(Relaxed) && !tab.is_null() && front != tab {
+            if open && !PICKING.load(Relaxed) && !tab.is_null() && GetForegroundWindow() != tab {
+                crate::log(json!({"event": "tab", "away": true}));
                 notch::tell(app, json!({"do": "away"}));
             }
             0

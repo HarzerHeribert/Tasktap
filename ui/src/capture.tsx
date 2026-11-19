@@ -125,7 +125,7 @@ function says(w: ReturnType<typeof where>, route: Route | undefined): [string, s
     case 'in':
       return [projectName(w.to), 'you are in it'];
     case 'only':
-      return [projectName(w.to), `the only project${fresh}`];
+      return [projectName(w.to), 'the only folder open'];
     case 'named':
       return [label, `named in it${fresh}`];
     case 'said':
@@ -217,7 +217,7 @@ async function send(e: Event, hooks: Hooks) {
     }
     // A thought that went where nobody chose, to the workspace's folder or wherever its words lead: the moment to offer
     // placing by a model, once.
-    const offer = (w.why === 'in' || w.why === 'only' || w.why === 'words') && !cap.offered && !!hooks.terms && offerable();
+    const offer = (w.why === 'in' || w.why === 'only' || w.why === 'words' || w.why === 'ask') && !cap.offered && !!hooks.terms && offerable();
     Object.assign(cap, { sent: { id, text, to: w.to, pick, agent: by }, offer, offered: cap.offered || offer });
     page.error = '';
   });
@@ -588,7 +588,7 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
   const later = w.by === 'later', model = w.why === 'model';
   const session = route?.confidence === 'clear' && 'session' in route.to ? route.to.session : undefined;
   // After a thought with a place of its own is sent, the next goes where nobody chose, and the chip says it is back.
-  const [name, why] = says(w, route), back = cap.back !== undefined && !!cap.sent && cap.back !== w.to && (model || w.why === 'in' || w.why === 'only' || w.why === 'words');
+  const [name, why] = says(w, route), back = cap.back !== undefined && !!cap.sent && cap.back !== w.to && (model || w.why === 'in' || w.why === 'only' || w.why === 'words' || w.why === 'ask');
   // What Return does, which the key says: with a thought in the field it sends that; with none it starts the one that
   // waits, if one does; and while the last is still on its way to the core and nothing new is typed, it shows that it works.
   const has = !!cap.draft.trim(), now = !has && !!waiting(), busy = !has && cap.sending > 0;
@@ -680,7 +680,7 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
               title={`${back ? 'Your choice was for the thought before. ' : ''}${!all ? 'No project is known yet: a thought is saved for later until a folder is open. Click to open one' : later ? 'Saved for later: nothing starts. Click to change'
                 : model ? `${agentName(pref('route_by')?.agent)} reads the thought and places it. Click to choose the place yourself`
                   : w.why === 'words' || w.why === 'ask' ? 'Tasktap places it in the project its words name, and asks you where when they name none. Click (or ⌘K) to choose the place yourself'
-                    : w.why === 'only' ? 'The one project Tasktap knows, so a thought that names no other place goes there. Click to change' : 'Where it goes. Click (or ⌘K) to change'}`}
+                    : w.why === 'only' ? 'The one folder open, so a thought that names no other place goes there. Click to change' : 'Where it goes. Click (or ⌘K) to change'}`}
               onClick={() => choose(true)}
               onKeyDown={(e) => (e.key === 'ArrowDown' || e.key === 'ArrowUp') && (e.preventDefault(), e.stopPropagation(), choose(true))}>
               {!later ? <I n={session ? 'term' : 'arrow'} /> : all ? <Mark s="later" label="" /> : <I n="folder" />}

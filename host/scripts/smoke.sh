@@ -112,6 +112,7 @@ launch() {
   rm -f "$tmp/in"
   mkfifo "$tmp/in"
   env PATH="$tmp/agents:$PATH" TASKTAP_DEBUG=1 TASKTAP_PASSIVE=1 TASKTAP_DATA="$tmp/data" TASKTAP_PICK="$tmp/project" TASKTAP_OPEN="$tmp/opener" \
+    CLAUDE_CONFIG_DIR="$tmp/no-history/claude" CODEX_HOME="$tmp/no-history/codex" \
     TASKTAP_CORE_EXE="$host/binaries/fixtures/tasktap" TASKTAP_CORE_BUILD="$(cat "$host/binaries/fixtures/build.txt")" \
     "$host/target/debug/tasktap-app" < "$tmp/in" >> "$log" 2>&1 &
   app=$!
@@ -180,14 +181,21 @@ js workspace "(__ws.menu.dry = true)" >/dev/null
 sleep 1
 shot collapsed-idle
 shot home workspace
-# First run is one composition: the Composer a little above the middle of the content, and on its own edges the one
-# thing to do first, which is the key while the Composer is empty.
+# First run (docs/projects-design.md): with no agent's history to offer (the app is given empty folders for Claude
+# Code's and Codex's, so this is the same on every machine), Tasktap asks under the Composer where the projects are,
+# saying what it would read; Not now is an answer, and Home is then one composition: the Composer a little above the
+# middle of the content, and on its own edges the one thing to do first, which is the key while the Composer is empty.
+until_has workspace "text .begin" 5 "Where are your projects?" && begin="$(ask workspace "text .begin")" \
+  && echo "$begin" | grep -q "first lines of its README" && echo "$begin" | grep -q "asks Git for its first commit" && echo "$begin" | grep -q "up to 8 likely projects" \
+  && [ "$(js workspace "[...document.querySelectorAll('#dest-chip > b, #dest-chip > span')].map(e => e.textContent).join(' · ')")" = "No projects yet · saved for later" ] \
+  && pass "with no agent's history, the first run asks under the Composer where the projects are, and says all it would read and what a model would get" || fail "the first run's question" "$(echo "${begin:-}" | tr '\n' '|' | cut -c1-200)"
+js workspace "([...document.querySelectorAll('.begin .btn')].find(b => b.textContent === 'Not now').click(), 1)" >/dev/null
 edges="((c, a, k, h) => [Math.abs(c.left + c.width / 2 - (h.left + h.width / 2)) < 1, a.left >= c.left && a.right <= c.right, Math.abs(k.right - document.querySelector('.home .cap-row .key').getBoundingClientRect().right) < 1, c.top + c.height / 2 < h.top + h.height / 2 && c.top > h.top + h.height * 0.2].join(' '))(document.querySelector('.home .cap').getBoundingClientRect(), document.querySelector('.attach').getBoundingClientRect(), document.querySelector('.attach .key').getBoundingClientRect(), document.querySelector('#main').getBoundingClientRect())"
 until_has workspace "text .attach" 5 "Open a folder" && ! ask workspace "text .hx" | grep -q "Agents" \
-  && [ "$(js workspace "[...document.querySelectorAll('#dest-chip > b, #dest-chip > span')].map(e => e.textContent).join(' · ')")" = "No folder yet · saved for later" ] \
+  && [ "$(js workspace "[...document.querySelectorAll('#dest-chip > b, #dest-chip > span')].map(e => e.textContent).join(' · ')")" = "No projects yet · saved for later" ] \
   && [ "$(js workspace "(b => b.textContent + ' ' + b.disabled)(document.querySelector('.home .cap-row .key'))")" = "Save for later true" ] \
   && [ "$(js workspace "$edges")" = "true true true true" ] \
-  && pass "with no folder open, Home is one composition: the Composer centred a little above the middle, its place saying No folder yet, saved for later, and its key that Return saves for later; under it, on its edges, Open a folder as the one key" || fail "Home on first run" "$(js workspace "$edges")"
+  && pass "with no folder open, Home is one composition: the Composer centred a little above the middle, its place saying No projects yet, saved for later, and its key that Return saves for later; under it, on its edges, Open a folder as the one key" || fail "Home on first run" "$(js workspace "$edges")"
 # The light: Home's chrome is drawn once and then nothing while nothing happens, the notch draws no form at all, and
 # the person's choice reaches both pages at once.
 # A window the person has covered draws nothing (WebKit reports it hidden), so a covered window is said, not failed.
@@ -273,8 +281,8 @@ fi
 
 echo "== A thought saved for later before a folder is open, then sent to one"
 send capture
-until_has notch "text #sheet" 5 "Save for later" && [ "$(js notch "[...document.querySelectorAll('#dest-chip > b, #dest-chip > span')].map(e => e.textContent).join(' · ')")" = "No folder yet · saved for later" ] \
-  && pass "the capture shortcut opens the field; with no folder yet its place says No folder yet, saved for later, and its key that Return saves for later" \
+until_has notch "text #sheet" 5 "Save for later" && [ "$(js notch "[...document.querySelectorAll('#dest-chip > b, #dest-chip > span')].map(e => e.textContent).join(' · ')")" = "No projects yet · saved for later" ] \
+  && pass "the capture shortcut opens the field; with no folder yet its place says No projects yet, saved for later, and its key that Return saves for later" \
   || fail "capture opens"
 send "type notch Hello from the smoke" "key notch Enter"
 until_has notch "text .cap-said" 5 "Saved for later" && [ "$(js notch "[...__records.thoughts.values()].find(t=>t.text==='Hello from the smoke')?.mode")" = note ] \
@@ -675,11 +683,11 @@ more="document.querySelector('.set-pane').dataset.more"
 # Settings is one sheet with its sections at its left: a section by its key, the arrows in the list, and it is the
 # window's: on the window's centre with the sidebar open. ⌘W closes it, as it closes whatever is in front.
 at="__ws.ui.sheet?.at + ' ' + document.querySelector('.set-nav [aria-selected=true]')?.textContent.replace(/[^A-Za-z]/g, '') + ' ' + document.activeElement?.id"
-press workspace ".sheet" 3 true >/dev/null
+press workspace ".sheet" 4 true >/dev/null
 until_has workspace "eval $at" 3 "agents Agents" && js workspace "(document.querySelector('#set-tab-agents').focus(), 1)" >/dev/null && press workspace "#set-tab-agents" ArrowDown >/dev/null \
   && until_has workspace "eval $at" 3 "appearance Appearance set-tab-appearance" \
   && [ "$(js workspace "(s => String(__ws.ui.sidebar && Math.abs((s.left + s.right) / 2 - innerWidth / 2) <= 0.5 && !document.querySelector('.wake canvas')))(document.querySelector('.sheet').getBoundingClientRect())")" = true ] \
-  && pass "Settings is one sheet on the window's centre, the sidebar open: ⌘3 shows Agents, the arrows move through its sections with the keyboard, and no glyphs are shed as it comes" || fail "Settings' sections" "$(js workspace "$at")"
+  && pass "Settings is one sheet on the window's centre, the sidebar open: ⌘4 shows Agents, the arrows move through its sections with the keyboard, and no glyphs are shed as it comes" || fail "Settings' sections" "$(js workspace "$at")"
 shot settings-appearance workspace
 js workspace "(__ws.command('close-tab'), 1)" >/dev/null
 until_has workspace "eval String(__ws.ui.sheet)" 3 "null" && pass "⌘W closes the sheet in front" || fail "⌘W with a sheet open"
@@ -889,14 +897,14 @@ thoughts() { js workspace "__ws.records.thoughts.size"; }
 send 'call put {"c":"prefs","id":"hold","patch":10}'
 js workspace "(__ws.call('project.add', { id: __ws.uuid7(), folder: '$tmp/other' }), __ws.show('home'), 1)" >/dev/null
 until_has workspace "eval String([...__ws.records.projects.values()].filter(p => p.open && p.kind === 'folder').length) + ' ' + __ws.records.prefs.get('hold')?.value" 5 "2 10" || fail "a second folder is open"
-# Not allowed yet: Tasktap decides by a thought's words, so one that names no folder is saved for later, and that is
-# the moment placing by a model is offered, once.
+# Not allowed yet: Tasktap decides by a thought's words, so one that names no folder is asked about (never a guess),
+# and that is the moment placing by a model is offered, once.
 chip="[...document.querySelectorAll('.home #dest-chip > b, .home #dest-chip > span')].map(e => e.textContent).join(' · ')"
 [ "$(js workspace "String(__ws.records.prefs.has('route_by'))")" = false ] && [ "$(js workspace "$chip")" = "Tasktap decides · by its words" ] \
   || fail "before it is allowed, Tasktap decides by a thought's words" "$(js workspace "$chip")"
 home_says "Tidy the changelog a little"
-until_has workspace "text .home .offer" 5 "Thoughts can find their own folder" && ask workspace "text .home .ways" | grep -q "It named no folder; saved for later" \
-  && pass "the first thought that names no folder is saved for later, and placing by a model is offered under it, in one line" || fail "placing is offered"
+until_has workspace "text .home .offer" 5 "Thoughts can find their own folder" && ask workspace "text .home .ways" | grep -q "Where should it go? Its question is open." \
+  && pass "the first thought that names no folder is asked about, and placing by a model is offered under it, in one line" || fail "placing is offered" "$(ask workspace "text .home .ways" | tr '\n' '|' | cut -c1-200)"
 js workspace "(document.querySelector('.home .offer .btn').click(), 1)" >/dev/null
 terms="$(ask workspace "text .sheet")"
 until_has workspace "text .sheet" 5 "Who reads them" && terms="$(ask workspace "text .sheet")" \
@@ -910,7 +918,9 @@ shot placing-terms workspace
 press workspace ".sheet" Enter >/dev/null
 until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.value) + String(!!__ws.ui.sheet)" 5 '{"agent":"fixture","model":"fixture-small"}false' \
   && pass "Allow writes the preference for that agent and its model, and the sheet goes" || fail "Allow"
-# The thought it was offered under waits in For later; it is dropped.
+# The thought it was offered under is asked about: kept for later (L), then dropped.
+press workspace ".home .hq.open [data-question]" l >/dev/null
+until_has workspace "eval String([...__ws.records.questions.values()].some(q => q.state === 'open'))" 3 "false" || fail "the offered thought is kept for later"
 js workspace "(__ws.call('delete', { c: 'thoughts', id: [...__ws.records.thoughts.values()].find(t => t.text === 'Tidy the changelog a little').id }), 1)" >/dev/null
 until_has workspace "eval String([...__ws.records.thoughts.values()].some(t => t.text === 'Tidy the changelog a little'))" 3 "false" || fail "the offered thought is dropped"
 [ "$(js workspace "document.querySelector('.home #dest-chip b').textContent")" = "Tasktap decides" ] \

@@ -228,7 +228,7 @@ async function main() {
       // and in the notch.
       const one = { ...structuredClone(r), projects: r.projects.map((p) => ({ ...p, open: p.kind === 'scratch' || p.id === P.cuegrid })) };
       page = await open(browser, { label: 'workspace', records: structuredClone(one), url: server.url, dpr: 1 });
-      await says(page, 'cuegrid · the only project', 'Home, one folder open');
+      await says(page, 'cuegrid · the only folder open', 'Home, one folder open');
       await page.focus(FIELD);
       await typed(page, 'buy milk');
       await page.keyboard.press('Enter');
@@ -239,7 +239,7 @@ async function main() {
       await page.evaluate((g) => window.__fake.emit(g), GEO);
       await page.evaluate(() => window.__fake.emit({ do: 'capture' }));
       await page.waitForTimeout(600);
-      await says(page, 'cuegrid · the only project', 'the notch, one folder open');
+      await says(page, 'cuegrid · the only folder open', 'the notch, one folder open');
       await page.context().close();
       // One project Tasktap knows and no folder open: never a default; a thought that names none is asked about.
       {

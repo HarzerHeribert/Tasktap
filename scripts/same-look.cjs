@@ -220,35 +220,47 @@ async function picture(browser, url, s, file) {
   }
 }
 
-/** Pixels that differ between two pictures, and by how much at most (8-bit levels); a picture of where. */
+/** Pixels that differ between two pictures in any channel, and by how many 8-bit levels at most; where they lie, and
+ *  a picture of where (every such pixel white). Counted from the pictures' difference itself: ImageMagick's own AE
+ *  metric was seen to count a band of thousands of pixels one or two levels apart as 21. */
 function compare(a, b, diff) {
-  const ae = spawnSync('magick', ['compare', '-metric', 'AE', a, b, diff], { encoding: 'utf8' });
-  const n = parseFloat(ae.stderr);
-  if (!Number.isFinite(n)) return { error: ae.stderr.trim() };
-  if (n === 0) {
+  if (!fs.existsSync(a) || !fs.existsSync(b)) return { error: `missing ${fs.existsSync(a) ? b : a}` };
+  const d = ['(', a, b, '-compose', 'difference', '-composite', '-alpha', 'off', '-separate', '-evaluate-sequence', 'max', ')'];
+  const said = spawnSync('magick', [...d, '-format', '%[fx:round(maxima*255)]', 'info:'], { encoding: 'utf8' });
+  const where = spawnSync('magick', [...d, '-threshold', '0', '-format', '%[fx:round(mean*w*h)] %@', 'info:'], { encoding: 'utf8' });
+  const peak = said.stdout.trim(), [pixels, box] = where.stdout.trim().split(/\s+/);
+  if (said.status !== 0 || where.status !== 0 || !Number.isFinite(Number(pixels))) return { error: (said.stderr + where.stderr).trim() };
+  if (Number(pixels) === 0) {
     fs.rmSync(diff, { force: true });
     return { pixels: 0, peak: 0 };
   }
-  const pae = spawnSync('magick', ['compare', '-metric', 'PAE', a, b, 'null:'], { encoding: 'utf8' });
-  const box = spawnSync('magick', [a, b, '-compose', 'difference', '-composite', '-threshold', '0', '-format', '%@', 'info:'], { encoding: 'utf8' }).stdout.trim();
-  return { pixels: Math.round(n), peak: Math.round(parseFloat(/\(([\d.e-]+)\)/.exec(pae.stderr)?.[1] ?? 'NaN') * 255), box };
+  spawnSync('magick', [...d, '-threshold', '0', diff]);
+  return { pixels: Number(pixels), peak: Number(peak), box };
 }
 
+/** Runs `f` over `items`, `jobs` at a time, each job in a browser of its own: one browser draws every page's WebGL in
+ *  one process, and in software several pages' programs at once held each other up past a screenshot's patience. */
 async function pool(items, jobs, f) {
+  const { chromium } = require('playwright');
   let i = 0;
   await Promise.all(Array.from({ length: jobs }, async () => {
-    while (i < items.length) await f(items[i++]);
+    const browser = await chromium.launch({ headless: true, ...(has('--gpu') ? { args: GPU } : {}) });
+    try {
+      while (i < items.length) await f(items[i++], browser);
+    } finally {
+      await browser.close();
+    }
   }));
 }
 
-async function runStills(browser, report) {
+async function runStills(report) {
   const list = stills();
   const out = { total: list.length, same: 0, differ: [], errors: [] };
   for (const [tag, dist] of Object.entries(BUILDS)) {
     const server = await serve(path.resolve(dist));
     fs.mkdirSync(path.join(OUT, tag, 'stills'), { recursive: true });
     let done = 0;
-    await pool(list, JOBS, async (s) => {
+    await pool(list, JOBS, async (s, browser) => {
       const file = path.join(OUT, tag, 'stills', `${s.name}.png`);
       if (has('--reuse') && tag === 'before' && fs.existsSync(file)) return;
       // Once more where it failed (a page held up under load); the second failure is the run's.
@@ -259,13 +271,25 @@ async function runStills(browser, report) {
     await server.close();
   }
   fs.mkdirSync(path.join(OUT, 'diff', 'stills'), { recursive: true });
+  const file = (tag, s, again = '') => path.join(OUT, tag, 'stills', `${s.name}${again}.png`), pair = (s, a = '', b = '') => compare(file('before', s, a), file('after', s, b), path.join(OUT, 'diff', 'stills', `${s.name}.png`));
+  const odd = list.filter((s) => pair(s).pixels !== 0);
+  // A picture that differs is drawn once more in each build: the band's clearing under the words follows their places
+  // to fractions of a pixel, and a page can come to rest one level apart from where the same build came to rest before
+  // (seen in a build against itself). It counts as the same when any of the four pairs is.
+  for (const [tag, dist] of Object.entries(BUILDS)) {
+    if (!odd.length) break;
+    const server = await serve(path.resolve(dist));
+    await pool(odd, JOBS, async (s, browser) => void (await picture(browser, server.url, s, file(tag, s, '-again'))));
+    await server.close();
+  }
   for (const s of list) {
-    const r = compare(path.join(OUT, 'before', 'stills', `${s.name}.png`), path.join(OUT, 'after', 'stills', `${s.name}.png`), path.join(OUT, 'diff', 'stills', `${s.name}.png`));
+    const r = odd.includes(s) ? [pair(s, '-again', '-again'), pair(s, '', '-again'), pair(s, '-again', ''), pair(s)].sort((a, b) => (a.pixels ?? 1e9) - (b.pixels ?? 1e9))[0] : { pixels: 0, peak: 0 };
     if (r.pixels === 0) out.same++;
     else out.differ.push({ name: s.name, ...r, expected: expected(s.name) });
   }
+  out.again = odd.length;
   report.stills = out;
-  console.log(`stills: ${out.same} of ${out.total} identical${out.differ.length ? `; differ: ${out.differ.map((d) => `${d.name} (${d.pixels} px, at most ${d.peak}${d.expected ? ', expected' : ''})`).join(', ')}` : ''}`);
+  console.log(`stills: ${out.same} of ${out.total} identical (${out.again} drawn again)${out.differ.length ? `; differ: ${out.differ.map((d) => `${d.name} (${d.pixels} px, at most ${d.peak}${d.expected ? ', expected' : ''})`).join(', ')}` : ''}`);
 }
 
 // ——— The band's frames ———
@@ -489,14 +513,14 @@ async function runGlow(browser, report) {
   report.glow = out;
 }
 
-module.exports = { init, picture, quiet, settle, freeze, scene, prefs, FIXED };
+module.exports = { init, picture, quiet, settle, freeze, compare, scene, prefs, FIXED };
 if (require.main === module) (async () => {
   const { chromium } = require('playwright');
   fs.mkdirSync(OUT, { recursive: true });
   const browser = await chromium.launch({ headless: true, ...(has('--gpu') ? { args: GPU } : {}) });
   const report = { builds: BUILDS, hz: HZ, quick: QUICK };
   try {
-    if (ONLY.includes('stills')) await runStills(browser, report);
+    if (ONLY.includes('stills')) await runStills(report);
     if (ONLY.includes('motion')) await runMotion(browser, report);
     if (ONLY.includes('slide')) await runSlide(browser, report);
     if (ONLY.includes('glow')) await runGlow(browser, report);

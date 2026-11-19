@@ -35,8 +35,8 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use windows_sys::core::BOOL;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{
-    DwmGetWindowAttribute, DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_CLOAKED, DWMWA_TRANSITIONS_FORCEDISABLED,
-    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
+    DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_TRANSITIONS_FORCEDISABLED, DWMWA_WINDOW_CORNER_PREFERENCE,
+    DWMWCP_DONOTROUND,
 };
 use windows_sys::Win32::Graphics::Gdi::{
     CreatePolygonRgn, EnumDisplayMonitors, GetMonitorInfoW, GetStockObject, SetWindowRgn, ALTERNATE, BLACK_BRUSH, HDC,
@@ -439,17 +439,12 @@ unsafe extern "system" fn minimised(_: HWINEVENTHOOK, _: u32, _: HWND, _: i32, _
     post(FRONT);
 }
 
-/// Whether a window can be seen at all: shown, not minimised, and not cloaked (on another of the person's desktops).
+/// Whether a window can be seen at all: shown and not minimised. (Not whether the compositor cloaks it: it cloaks a
+/// window that has just been shown until its first picture, which is the moment Windows says it came in front, and
+/// nothing says so again; a window on another of the person's desktops is not the one in front anyway.)
 fn seen(window: HWND) -> bool {
-    let mut cloaked = 0u32;
-    // SAFETY: asks about a window; the attribute is written into a number of its own size.
-    unsafe {
-        IsWindowVisible(window) != 0
-            && IsIconic(window) == 0
-            && (DwmGetWindowAttribute(window, DWMWA_CLOAKED as u32, (&raw mut cloaked).cast(), size_of::<u32>() as u32)
-                != 0
-                || cloaked == 0)
-    }
+    // SAFETY: asks about a window.
+    unsafe { IsWindowVisible(window) != 0 && IsIconic(window) == 0 }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -544,6 +539,8 @@ unsafe extern "system" fn helper_proc(window: HWND, message: u32, w: WPARAM, l: 
         WM_TIMER if w == AGAIN => {
             KillTimer(window, AGAIN);
             rule();
+            // And the window in front asked again: a window that has just come in front may not be shown yet then.
+            post(FRONT);
             0
         }
         WM_TIMER if w == MAKE => {

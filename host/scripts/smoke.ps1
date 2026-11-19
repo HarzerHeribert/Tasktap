@@ -38,8 +38,10 @@ function Note($what) { Write-Host "NOTE  $what" }
 Copy-Item $Core "$tmp\agents\fixture-agent.exe"
 Copy-Item $Core "$tmp\agents\fixture.exe"
 # The project is a git repository with one commit, so a run can work in a copy of it (Keep and Discard). git reads
-# no configuration but the check's own.
+# no configuration but the check's own, for as long as the check runs: whoever called it has their own back after
+# (scripts\winvm\host.ps1 asks git about the checkout next, whose line endings the machine's configuration says).
 $git = [bool](Get-Command git -ErrorAction SilentlyContinue)
+$gitWas = $env:GIT_CONFIG_GLOBAL, $env:GIT_CONFIG_NOSYSTEM
 $env:GIT_CONFIG_GLOBAL = "$tmp\gitconfig"
 $env:GIT_CONFIG_NOSYSTEM = '1'
 if ($git) {
@@ -333,6 +335,7 @@ try {
     if ($left.Count) { Fail "left running: $(($left | ForEach-Object Name) -join ', ')"; $left | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500 } else { Pass 'nothing is left running' }
     if ($failed) { Write-Host '--- what the app said'; $seen | Where-Object { $_ -notmatch '"event":"report"' } | Select-Object -Last 40 | ForEach-Object { Write-Host "  $($_.Substring(0, [Math]::Min(300, $_.Length)))" } }
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    $env:GIT_CONFIG_GLOBAL, $env:GIT_CONFIG_NOSYSTEM = $gitWas
 }
 Write-Host $(if ($failed) { "$failed FAILED" } else { 'all passed' })
 exit $failed

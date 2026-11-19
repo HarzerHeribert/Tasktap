@@ -10,7 +10,7 @@
 /* The chosen ring's circle is the one heavier one: 1.4 of the icons' weight (scripts/align-check.cjs knows it). */
 .ring[aria-checked=true] .ring-o circle:not(.turn){stroke-width:calc(var(--i-w) * 1.4 * 24 / var(--ring-px,22))}
 .ring:not([aria-checked=true],[data-s=off]):hover{background:var(--hover);color:var(--fg)}
-.ring .nm{padding-right:5px;font:var(--f-small);color:var(--fg)}
+.ring .nm{max-width:12ch;padding-right:5px;overflow:hidden;text-overflow:ellipsis;font:var(--f-small);color:var(--fg)}
 /* Where the Composer is narrow (the notch, the capture sheet, Home in a narrow window) its row is two lines, so that
    nothing in it is squeezed, cut or left unsaid: where the thought goes and the key that sends it; under them who runs
    it, by name, and the microphone with its key. */

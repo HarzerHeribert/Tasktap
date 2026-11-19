@@ -22,7 +22,7 @@ test('an agent\'s row says what its own commands said, and when, and never more'
   assert.equal(says({ checks: false, checked: 9 }, true), 'sign-in not checked');
 });
 
-test('the Composer offers the agents that can run a thought, a ring for at most four and the rest behind it', () => {
+test('the Composer offers the agents that can run a thought, a ring for as many as its row has and the rest behind it', () => {
   const a = (id: string, o: object = {}) => ({ id, installed: true, supported: true, signed_in: true as boolean | null, ...o });
   const ids = (x: { rings: { id: string }[]; more: { id: string }[] }) => [x.rings.map((r) => r.id).join(' '), x.more.map((r) => r.id).join(' ')];
   const idle = () => false;

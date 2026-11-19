@@ -159,6 +159,12 @@ impl Core {
         let data = data.as_ref();
         let mut serve = client::serve_command(Path::new(EXE), data);
         serve.args(["--idle-ms", "600000"]).args(extra);
+        // Every shell a test's core starts, also the one that follows an
+        // agent's end, is `sh` in a home of the test's own: never the
+        // person's shell with their files, whose history it would write.
+        let home = data.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        serve.env("HOME", &home).env("SHELL", "/bin/sh");
         serve.envs(env.iter().copied());
         let child = client::start(serve).unwrap();
         note(&format!("core {} started", child.id()));
@@ -954,6 +960,11 @@ impl Screen {
     /// Sends `bytes` as they are, as a terminal answers its program.
     pub fn write(&mut self, bytes: &[u8]) {
         self.c.write(self.s, bytes).unwrap();
+    }
+
+    /// What it received, escapes and all.
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
     }
 
     pub fn text(&self) -> String {

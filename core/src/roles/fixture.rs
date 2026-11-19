@@ -24,6 +24,8 @@
 //! | `detach:MS` | prints `detaching`, lets go of its terminal (its standard input, output and error become the null device) and sleeps; Mac and Linux |
 //! | `stall:MS` | makes its terminal raw, so input it does not read fills the terminal, then prints `stalling`, sleeps and exits with 0, having read none; exits with 1 if `stty` cannot make it raw (Mac and Linux) |
 //! | `query` | asks its terminal what it is, where the cursor is and its two colors, as a program that waits for the answers does, and prints `answered:` and the answers, escaped (Mac and Linux) |
+//! | `emit:TEXT` | writes the text as it is, with no line break of its own; `\e` in it is ESC, `\a` BEL, `\r` and `\n` themselves: the modes an agent sets, and what it asks its terminal without waiting for the answer |
+//! | `raw` | makes its terminal raw with no echo, as a full-screen agent does, and leaves it so (Mac and Linux) |
 //! | `exit:CODE` | exits with the code; after the last step it exits with 0 |
 //!
 //! A line of standard input that is no step, or that was pasted as a
@@ -51,9 +53,9 @@ pub const REAL: &str = "TASKTAP_FIXTURE_AGENT";
 /// Set by a test: a shim takes pipes for a terminal a person types in.
 pub const TTY: &str = "TASKTAP_FIXTURE_TTY";
 
-const STEPS: [&str; 14] = [
+const STEPS: [&str; 16] = [
     "print", "event", "ask", "wait", "sleep", "nohup", "detach", "stall", "query", "write", "exit",
-    "keep", "script", "env",
+    "keep", "script", "env", "emit", "raw",
 ];
 /// What `query` asks: primary and secondary device attributes, the cursor
 /// position, and the foreground and background colors, one ended with ST
@@ -182,6 +184,19 @@ pub fn run(args: Vec<OsString>) -> ExitCode {
                 std::thread::sleep(Duration::from_millis(rest.parse().unwrap_or(0)));
             }
             "query" => println!("answered:{}", query(&mut input).escape_ascii()),
+            "emit" => {
+                let text = (rest.replace("\\e", "\x1b").replace("\\a", "\x07"))
+                    .replace("\\r", "\r")
+                    .replace("\\n", "\n");
+                print!("{text}");
+            }
+            "raw" => {
+                let raw = Command::new("stty").args(["raw", "-echo"]).status();
+                if !raw.is_ok_and(|status| status.success()) {
+                    eprintln!("fixture-agent: stty could not make the terminal raw");
+                    return ExitCode::FAILURE;
+                }
+            }
             "exit" => return ExitCode::from(rest.parse::<u8>().unwrap_or(0)),
             "" if !scripted => {}
             _ => {

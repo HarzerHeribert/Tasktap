@@ -70,6 +70,11 @@ pub struct Term {
     /// How many of them are the core's answers to what the program asked.
     answering: u32,
     input: Option<plain::Sender<Input>>,
+    /// The input of a child that took the place of one that ended, until
+    /// it has shown something ([`Term::switch`]), and what clients typed
+    /// for it meanwhile.
+    waiting: Option<plain::Sender<Input>>,
+    typeahead: Vec<(Handle, Vec<u8>)>,
     /// Input handed to the input thread and not yet written, in order.
     owed: VecDeque<(Owner, u32)>,
     /// Why the input thread stopped writing, once it did.
@@ -90,6 +95,8 @@ impl Term {
             queued: 0,
             answering: 0,
             input: Some(input),
+            waiting: None,
+            typeahead: Vec::new(),
             owed: VecDeque::new(),
             unwritable: None,
             queries: Queries::new(),
@@ -126,6 +133,12 @@ impl Term {
     /// answers what it asks the terminal while no client is attached to
     /// answer it (`queries`), within [`ANSWERS`] not yet written.
     pub fn push(&mut self, bytes: &[u8]) {
+        if let Some(input) = self.waiting.take() {
+            self.input = Some(input);
+            for (from, typed) in std::mem::take(&mut self.typeahead) {
+                self.hand(Owner::Client(from), &typed, None);
+            }
+        }
         self.readers.retain(|r| r.handle.is_open());
         let room = ANSWERS.saturating_sub(self.answering) as usize;
         let found = self.queries.scan(bytes, !self.readers.is_empty(), room);
@@ -180,8 +193,31 @@ impl Term {
     pub fn ended(&mut self, exit: Option<u32>) {
         self.exit = Some(exit);
         self.input = None;
+        self.waiting = None;
+        self.typeahead.clear();
         self.unwritten("the terminal has ended");
         self.wake();
+    }
+
+    /// The child ended and another takes its place, in a pseudo-terminal of
+    /// its own (an agent's shell, design §7): `reset` turns off in the
+    /// clients' terminals what the first left on, nothing on its way to the
+    /// first is written, and input reaches the next only once it has shown
+    /// something, so nothing meant for the first reaches it, not even a late
+    /// answer to what the first asked its terminal as it ended. What a
+    /// client types until then waits for it, unless it has an escape in it
+    /// ([`Term::take`]).
+    pub fn switch(&mut self, input: plain::Sender<Input>, reset: &[u8]) {
+        self.push(reset);
+        self.queries = Queries::new();
+        self.input = None;
+        self.unwritten("its program has ended");
+        self.unwritable = None;
+        for r in &mut self.readers {
+            r.sent = 0;
+        }
+        self.top_up();
+        self.waiting = Some(input);
     }
 
     /// The input thread could not write and stopped: no more input. Nothing
@@ -210,7 +246,23 @@ impl Term {
             r.unused = r.unused.saturating_sub(n);
             r.sent += n;
         }
-        self.hand(Owner::Client(from.clone()), bytes, None);
+        if self.waiting.is_none() {
+            self.hand(Owner::Client(from.clone()), bytes, None);
+            return;
+        }
+        // Between two children: what is typed waits for the next, but
+        // nothing with an escape in it, which the one that ended asked for
+        // or left on (an answer to its question, a mouse or focus report, a
+        // key in a keyboard mode of its own) and the next would take as
+        // typed. That is dropped, and the client may send as much again.
+        if !bytes.contains(&0x1b) {
+            self.typeahead.push((from.clone(), bytes.to_vec()));
+            return;
+        }
+        if let Some(r) = self.readers.iter_mut().find(|r| r.handle.same(from)) {
+            r.sent = r.sent.saturating_sub(n);
+        }
+        self.top_up();
     }
 
     /// Text the core types, as the launcher types a follow-up, and how its
@@ -666,6 +718,36 @@ mod tests {
             assert_eq!(handed(&inputs), [ANSWERED]);
             term.wrote(true);
         }
+    }
+
+    #[test]
+    fn the_child_that_follows_an_ended_one_gets_input_once_it_has_shown_something() {
+        let (mut term, old) = term();
+        term.push(ASKS);
+        assert_eq!(handed(&old), [ANSWERED]);
+        let (input, new) = plain::channel();
+        term.switch(input, b"\x1b[?25h");
+        assert!(term.history().ends_with(b"\x1b[?25h"));
+        assert_eq!((term.queued, term.answering), (0, 0));
+        // Nothing reaches either child before the new one shows something:
+        // not what the core types, nor anything meant for the one that ended.
+        let typed = term.type_text(b"rm -rf build\r", Arc::new(AtomicBool::new(false)));
+        assert!(typed.is_err());
+        assert!(handed(&old).is_empty() && handed(&new).is_empty());
+        // What a client types meanwhile waits for it, but not the answer to
+        // what the first asked as it ended, nor anything else with an
+        // escape: that is dropped and granted back.
+        let client = Handle::detached(tasktap_proto::StreamId(1));
+        term.attach(client.clone(), INPUT);
+        term.take(&client, b"ls\r");
+        term.take(&client, b"\x1b[?62;22c");
+        assert_eq!(term.readers[0].sent, 3);
+        // Its first output opens its input.
+        term.push(&[b' '; 64]);
+        assert_eq!(handed(&new), [b"ls\r"]);
+        assert!(handed(&old).is_empty());
+        term.wrote(true);
+        assert_eq!(term.readers[0].sent, 0);
     }
 
     #[test]

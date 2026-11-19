@@ -11,9 +11,15 @@ use std::path::Path;
 use tasktap_proto::call;
 use tasktap_proto::{
     Capture, Empty, Place, QuestionSource, QuestionState, Reason, Ref, ReplyVia, Response,
-    ResultKind, Route, SessionId, SessionState, Status, TerminalId, TerminalKind, TerminalState,
-    ThoughtId,
+    ResultKind, Route, RunState, SessionId, SessionState, Status, TerminalId, TerminalKind,
+    TerminalState, ThoughtId,
 };
+
+/// A command the shell runs, and what only running it prints.
+#[cfg(unix)]
+const SUM: (&str, &str) = ("echo tasktap-$((6*7))", "tasktap-42");
+#[cfg(windows)]
+const SUM: (&str, &str) = ("set /a 6*7+1300", "1342");
 
 /// Waits until a thought's run has started in its terminal, or failed: the
 /// launcher finds the program and runs its check off the core's thread.
@@ -231,27 +237,191 @@ fn a_run_finds_its_agents_own_files_and_variables() {
     }
 }
 
+/// The session ends with its agent's code; the terminal goes on as the
+/// person's shell (design §7), which a stop ends.
 #[test]
-fn the_agents_exit_code_ends_its_session_and_terminal() {
+fn the_agents_exit_code_ends_its_session_and_its_terminal_goes_on_as_a_shell() {
     let mut s = Scene::real("lx", "fixture");
     // An agent that reports events has not finished by exiting, even with 0.
     for code in [3, 0] {
         brief(&mut s, &format!("exit:{code}"));
         let (t, session, terminal) = started(&mut s, "fix the build");
-        s.w.until("the terminal ends", |m| {
-            m.terminals[&terminal].state == TerminalState::Exited
+        s.w.until("the session ends", |m| {
+            m.session(session).state == SessionState::Ended
+        });
+        s.w.until("the terminal goes on as a shell", |m| {
+            m.terminals[&terminal].kind == TerminalKind::Shell
         });
         let m = &s.w.model;
-        let ended = m.session(session);
-        assert_eq!((ended.state, ended.exit), (SessionState::Ended, Some(code)));
-        assert_eq!(m.terminals[&terminal].exit, Some(code));
+        assert_eq!(m.session(session).exit, Some(code));
+        let shell = &m.terminals[&terminal];
+        assert_eq!((shell.state, shell.exit), (TerminalState::Running, None));
+        #[cfg(unix)]
+        assert_eq!(shell.argv, ["/bin/sh"]);
         let th = m.thought(t);
         assert_eq!(
             (th.status, th.reason),
             (Status::Failed, Some(Reason::Exited))
         );
+        s.w.ok::<call::TerminalStop>(&Ref { id: terminal });
+        s.w.until("a stop ends the shell", |m| {
+            m.terminals[&terminal].state == TerminalState::Exited
+        });
     }
     assert_eq!(running(&mut s), 0);
+}
+
+/// How each agent Tasktap starts in a terminal that stays ends, as the
+/// real tool does when the person quits it (measured on Claude Code 2.1.328,
+/// Codex 0.169, Antigravity 1.5.12, OpenCode 2.3.0 and Copilot 1.0.83 in a
+/// terminal of their own; Pi and Qwen Code, not installed here, as the
+/// terminal libraries they draw with leave it): the modes it turns on, the
+/// teardown it writes, what it asks the terminal as it goes, its closing
+/// lines and its code. Then one that crashes and restores nothing, as Codex
+/// does when it is killed, and one of the agents that run one task and end,
+/// whose terminal goes on as a shell too. `\e` is ESC, `\a` BEL (the
+/// fixture agent's `emit`); `raw` leaves its terminal raw.
+#[cfg(unix)]
+const ENDINGS: &[(&str, &[&str])] = &[
+    (
+        "Claude Code",
+        &[
+            "emit:\\e[?2004h\\e[?2031h\\e[?1004h\\e[?1049h\\e[?1000h\\e[?1002h\\e[?1003h\\e[?1006h\\e[<u\\e[>5u\\e[>4;2m",
+            "emit:\\e[?1006l\\e[?1003l\\e[?1002l\\e[?1000l\\e[?25h\\e[?1004l\\e[<u\\e[?1049l\\e[>4m\\e[>4m\\e[<u\\e[?2031l\\e[?2004l\\e[?1016l\\e[?7h\\e[?25h\\e7\\e[r\\e8\\e]0;\\a\\e[?25h",
+            "exit:0",
+        ],
+    ),
+    (
+        "Codex",
+        &[
+            "emit:\\e[?2004h\\e[>4;0m\\e[>7u\\e[?1004h\\e[?1049h\\e[>4;0m\\e[>7u\\e[?1007l\\e[?1000h\\e[?1002h\\e[?1003h\\e[?1006h\\e[0 q",
+            "emit:\\e[1;1H\\e[J\\e]0;\\a\\e[?1006l\\e[?1015l\\e[?1003l\\e[?1002l\\e[?1000l\\e[<1u\\e[?1007l\\e[?1049l\\e[<1u\\e[<u\\e[>4;0m\\e[?2004l\\e[?1004l",
+            // What it asks its terminal as it ends, waiting for the answer.
+            "query",
+            "emit:\\e[0 q\\e[?25h\\e]7501;state=clear\\a\\e[0 q\\e[?25h",
+            "print:Token usage: total=12,480 input=11,902 (+ 9,344 cached) output=578",
+            "print:To continue this session, run codex resume 019a7c2e-5b3f-7d10-9e4a-2f6c8b1d0e37",
+            "exit:0",
+        ],
+    ),
+    (
+        "Antigravity",
+        &[
+            "emit:\\e[>4m\\e[?1049h\\e[?25l\\e[?2004h\\e[>4;2m\\e[>5u",
+            "emit:\\r\\n\\e[90mpress ctrl+c again to exit\\e[m",
+            "emit:\\e[>4m\\e[<1u\\r\\e[30d\\e[?1049l\\e[?25h\\e[?2004l",
+            "exit:0",
+        ],
+    ),
+    (
+        "OpenCode",
+        &[
+            "print:Starting background server...",
+            "emit:\\e[?2031h\\e[?1049h\\e[>4;1m\\e[?2027h\\e[?2004h\\e[?1000h\\e[?1002h\\e[?1003h\\e[?1006h\\e[>4;0m\\e[>5u\\e[1 q",
+            // It never turns 2027 off.
+            "emit:\\e]0;\\a\\e]7501;state=clear\\a\\e[?25h\\e[0m\\e]22;\\a\\e[<u\\e[?1003l\\e[?1002l\\e[?1000l\\e[?1006l\\e[?2004l\\e[?1049l\\e[?2031l\\e]0;\\a\\e]12;default\\a\\e]112\\a\\e[0 q\\e[?25h\\e[?25h",
+            "exit:0",
+        ],
+    ),
+    (
+        "Pi",
+        &[
+            "emit:\\e[?2004h\\e[>1u\\e[?25l",
+            "print:",
+            "emit:\\e[?2004l\\e[<u\\e[?25h",
+            "exit:0",
+        ],
+    ),
+    (
+        "Qwen Code",
+        &[
+            "emit:\\e[?2004h\\e[?1004h\\e[?25l",
+            "print:Agent powering down. Goodbye!",
+            "print:Interaction Summary  Tool Calls: 0  Success Rate: 0.0%",
+            "emit:\\e[?2004l\\e[?1004l\\e[?25h",
+            "exit:0",
+        ],
+    ),
+    (
+        "Copilot",
+        &[
+            "emit:\\e[>4;2m\\e[?1049h\\e[?2004h\\e[?1004h\\e[?1003h\\e[?1006h\\e[=1;1u\\e[22;0t",
+            "emit:\\e]111;\\a\\e]110;\\a\\e[23;0t\\e[?1006l\\e[?1003l\\e[?1002l\\e[?1004l\\e[?2004l\\e[=0;1u\\e[>4;0m\\e[?1049l\\e[?25h\\e]111;\\a\\e]110;\\a",
+            "exit:0",
+        ],
+    ),
+    (
+        "a crash",
+        &[
+            "emit:\\e[?2004h\\e[>7u\\e[?1004h\\e[?1049h\\e[>7u\\e[?1000h\\e[?1002h\\e[?1003h\\e[?1006h\\e[?1h\\e=\\e[?25l",
+            "raw",
+            "print:thread 'main' panicked",
+            "exit:101",
+        ],
+    ),
+    (
+        "a one-task agent",
+        &[
+            "print:Applied edit to src/app.js",
+            "print:Commit 3f2a1c9 fix: the header of the shop",
+            "exit:0",
+        ],
+    ),
+];
+
+/// When any agent ends by itself, its terminal is a usable shell again: the
+/// modes it left on are turned off after what it wrote, the shell's prompt
+/// is drawn, what is typed is echoed and runs, and closing it asks nothing.
+#[cfg(unix)]
+#[test]
+fn when_any_agent_ends_its_terminal_is_a_usable_shell_again() {
+    // The turning off the core writes, which no agent here writes itself.
+    const RESET: &[u8] = b"\x1b[?9;1000;1002;1003;1004;1005;1006;1015;1016;2004;2026l";
+    let mut s = Scene::real("lsh", "fixture");
+    let folder = s.data.0.join("app");
+    for (agent, steps) in ENDINGS {
+        let script = format!("{}.steps", agent.replace(' ', "-"));
+        std::fs::write(folder.join(&script), steps.join("\n")).unwrap();
+        brief(&mut s, &format!("script:{script}"));
+        let (_, session, terminal) = started(&mut s, &format!("try {agent}"));
+        s.w.until(&format!("{agent}'s session ends"), |m| {
+            m.session(session).state == SessionState::Ended
+        });
+        s.w.until(&format!("{agent}'s terminal goes on as a shell"), |m| {
+            m.terminals[&terminal].kind == TerminalKind::Shell
+        });
+        let mut screen = Screen::open(&s.core, terminal);
+        screen.until_after(RESET);
+        screen.line("echo tasktap-$((6*7))");
+        screen.until("tasktap-42");
+        let bytes = screen.bytes();
+        let reset = bytes.windows(RESET.len()).position(|w| w == RESET).unwrap();
+        // What the agent printed last comes before the reset, and the
+        // command, echoed as typed, after it.
+        let printed = steps.iter().rev().find_map(|s| s.strip_prefix("print:"));
+        if let Some(last) = printed.filter(|p| !p.is_empty()) {
+            assert!(plain(&bytes[..reset]).contains(last), "{agent}");
+        }
+        let after = plain(&bytes[reset..]);
+        assert!(
+            after.contains("echo tasktap-$((6*7))"),
+            "{agent}: {after:?}"
+        );
+        let m = &s.w.model;
+        assert_eq!(m.terminals[&terminal].state, TerminalState::Running);
+        // Its session has ended, and nothing runs in the shell: closing it
+        // asks nothing.
+        let runs = s.w.ok::<call::TerminalRuns>(&Ref { id: terminal });
+        assert_eq!(
+            (runs.state, runs.session),
+            (RunState::Idle, None),
+            "{agent}"
+        );
+        s.w.ok::<call::TerminalStop>(&Ref { id: terminal });
+        screen.ended();
+        let runs = s.w.ok::<call::TerminalRuns>(&Ref { id: terminal });
+        assert_eq!(runs.state, RunState::Ended, "{agent}");
+    }
 }
 
 #[test]
@@ -404,6 +574,16 @@ fn a_follow_up_whose_agent_exits_before_it_is_typed_is_never_typed() {
     s.w.until("the session is ready", |m| {
         m.session(session).state == SessionState::Idle
     });
+    // A run's live session runs in its terminal, also while it waits.
+    let runs = s.w.ok::<call::TerminalRuns>(&Ref { id: terminal });
+    assert_eq!(
+        (runs.state, runs.what, runs.session),
+        (
+            RunState::Running,
+            vec!["Fixture agent".into()],
+            Some(session)
+        )
+    );
     // The follow-up is handed to the launcher while the agent runs, and
     // held back untyped...
     s.pause = true;
@@ -422,8 +602,16 @@ fn a_follow_up_whose_agent_exits_before_it_is_typed_is_never_typed() {
         (th.status, th.reason),
         (Status::Failed, Some(Reason::Exited))
     );
-    agent.ended();
+    // Its terminal goes on as a shell in a terminal of its own, which
+    // never gets the follow-up either.
+    s.w.until("the terminal goes on as a shell", |m| {
+        m.terminals[&terminal].kind == TerminalKind::Shell
+    });
+    agent.line(SUM.0);
+    agent.until(SUM.1);
     assert!(!agent.text().contains("rm -rf"), "{}", agent.text());
+    s.w.ok::<call::TerminalStop>(&Ref { id: terminal });
+    agent.ended();
     // The row says exited once the history is on disk, which happens off
     // the core's thread after the stream has ended.
     s.w.until("the terminal's row says it exited", |m| {
@@ -462,6 +650,16 @@ fn a_follow_up_to_an_agent_adopted_in_a_shell_is_typed_while_its_shim_holds_it()
     s.w.until("the session is ready", |m| {
         m.session(session).state == SessionState::Idle
     });
+    // An agent's live session runs in its shell, also while it waits.
+    let runs = s.w.ok::<call::TerminalRuns>(&Ref { id: shell });
+    assert_eq!(
+        (runs.state, runs.what, runs.session),
+        (
+            RunState::Running,
+            vec!["Fixture agent".into()],
+            Some(session)
+        )
+    );
 
     let f = follow_up(&mut s, session, "and the tests");
     screen.until("prompt:and the tests");
@@ -488,6 +686,9 @@ fn a_follow_up_to_an_agent_adopted_in_a_shell_is_typed_while_its_shim_holds_it()
     screen.until("shell-5");
     assert!(!screen.text().contains("prompt:echo shell"));
     assert_eq!(s.w.model.terminals[&shell].state, TerminalState::Running);
+    // Its session ended: the shell has nothing running in it.
+    let runs = s.w.ok::<call::TerminalRuns>(&Ref { id: shell });
+    assert_eq!((runs.state, runs.session), (RunState::Idle, None));
     screen.line("exit");
 }
 

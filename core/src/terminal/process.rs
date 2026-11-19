@@ -197,6 +197,48 @@ impl Process {
         None
     }
 
+    /// What runs in the terminal beside its child, by name, what has the
+    /// foreground first; None where the system does not say, or before the
+    /// child runs. Asked, never watched. On Mac and Linux it is the process
+    /// groups of the child's session but the child's own, each named by its
+    /// leader's command line: a program run in front, a job left in the
+    /// background, stopped or not. On Windows, which has no foreground, it
+    /// is the processes of the job but the child and the consoles' hosts.
+    pub fn others(&self) -> Option<Vec<String>> {
+        #[cfg(unix)]
+        {
+            let (fg, own) = self.foreground()?;
+            let mut jobs = sys::session_jobs(own);
+            if !jobs.iter().any(|&(group, _)| group == own) {
+                return None;
+            }
+            jobs.retain(|&(group, _)| group != own);
+            jobs.sort_by_key(|&(group, _)| (group != fg, group));
+            let named = |(_, pid): (u32, u32)| {
+                sys::command_line(pid).unwrap_or_else(|| format!("process {pid}"))
+            };
+            Some(jobs.into_iter().map(named).collect())
+        }
+        #[cfg(windows)]
+        {
+            let core = std::process::id();
+            let hosts = ["conhost.exe", "openconsole.exe"];
+            let all = self.group.as_deref()?.processes()?;
+            let others = (all.into_iter())
+                .filter(|(_, parent, name)| {
+                    *parent != core && !hosts.contains(&name.to_ascii_lowercase().as_str())
+                })
+                .map(|(_, _, name)| {
+                    // `PING.EXE` is `PING`, as a person types it.
+                    let program = name.len().checked_sub(4).filter(|&at| {
+                        name.is_char_boundary(at) && name[at..].eq_ignore_ascii_case(".exe")
+                    });
+                    program.map_or(name.clone(), |at| name[..at].to_owned())
+                });
+            Some(others.collect())
+        }
+    }
+
     /// Hangs up on every process group of the child's session, the
     /// foreground group among them, or on Windows closes the console, which
     /// asks its processes to end. Returns what to kill if they have not

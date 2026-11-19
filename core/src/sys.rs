@@ -287,6 +287,128 @@ mod unix {
         groups
     }
 
+    /// The process groups of session `session`, each with the process it is
+    /// known by: its leader while that runs, else its oldest. Empty where
+    /// the processes cannot be listed.
+    #[allow(unsafe_code)]
+    pub fn session_jobs(session: u32) -> Vec<(u32, u32)> {
+        // SAFETY: as in `session_groups`.
+        unsafe extern "C" {
+            safe fn getsid(pid: i32) -> i32;
+            safe fn getpgid(pid: i32) -> i32;
+        }
+        let Ok(sid) = i32::try_from(session) else {
+            return Vec::new();
+        };
+        if blind("processes") {
+            return Vec::new();
+        }
+        let mut pids = processes();
+        pids.sort_unstable();
+        let mut jobs: Vec<(u32, u32)> = Vec::new();
+        for pid in pids
+            .into_iter()
+            .filter(|&pid| pid > 1 && getsid(pid) == sid)
+        {
+            let (Ok(group), Ok(pid)) = (u32::try_from(getpgid(pid)), u32::try_from(pid)) else {
+                continue;
+            };
+            match jobs.iter_mut().find(|(g, _)| *g == group) {
+                Some(job) if pid == group => job.1 = pid,
+                Some(_) => {}
+                None => jobs.push((group, pid)),
+            }
+        }
+        jobs
+    }
+
+    /// What process `pid` runs, as `ps` shows it: its arguments, the
+    /// program's without its folder. None where the system does not say.
+    pub fn command_line(pid: u32) -> Option<String> {
+        let args = arguments(i32::try_from(pid).ok()?)?;
+        let (program, rest) = args.split_first()?;
+        let name = Path::new(program).file_name();
+        let program = name.map_or_else(|| program.clone(), |n| n.to_string_lossy().into_owned());
+        let words: Vec<&str> = std::iter::once(program.as_str())
+            .chain(rest.iter().map(String::as_str))
+            .collect();
+        Some(words.join(" "))
+    }
+
+    #[cfg(target_os = "linux")]
+    fn arguments(pid: i32) -> Option<Vec<String>> {
+        let line = fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+        let args: Vec<String> = (line.split(|&b| b == 0))
+            .filter(|arg| !arg.is_empty())
+            .map(|arg| String::from_utf8_lossy(arg).into_owned())
+            .collect();
+        (!args.is_empty()).then_some(args)
+    }
+
+    /// The arguments as the process holds them now, which is what a
+    /// program that renames itself (as Node's `process.title` does) shows.
+    #[cfg(target_os = "macos")]
+    #[allow(unsafe_code)]
+    fn arguments(pid: i32) -> Option<Vec<String>> {
+        use std::ffi::{c_int, c_uint, c_void};
+        // SAFETY: the signature of sysctl(3): it writes at most `*size`
+        // bytes into `old` and says in `*size` how many it wrote.
+        unsafe extern "C" {
+            fn sysctl(
+                name: *mut c_int,
+                len: c_uint,
+                old: *mut c_void,
+                size: *mut usize,
+                new: *mut c_void,
+                new_size: usize,
+            ) -> c_int;
+        }
+        // CTL_KERN with KERN_ARGMAX, then with KERN_PROCARGS2: the count of
+        // arguments, the program's path, padding, then the arguments, each
+        // ending in a NUL, and the environment after them.
+        let (mut max, mut size): (c_int, usize) = (0, size_of::<c_int>());
+        let mut name = [1, 8];
+        // SAFETY: `max` holds `size` bytes and lives through the call.
+        let read = unsafe {
+            sysctl(
+                name.as_mut_ptr(),
+                2,
+                (&raw mut max).cast(),
+                &mut size,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if read != 0 {
+            return None;
+        }
+        let mut buffer = vec![0u8; usize::try_from(max).ok()?];
+        let mut size = buffer.len();
+        let mut name = [1, 49, pid];
+        // SAFETY: `buffer` holds `size` bytes and lives through the call.
+        let read = unsafe {
+            let at = buffer.as_mut_ptr().cast();
+            sysctl(name.as_mut_ptr(), 3, at, &mut size, std::ptr::null_mut(), 0)
+        };
+        if read != 0 {
+            return None;
+        }
+        buffer.truncate(size);
+        let count = i32::from_ne_bytes(buffer.get(..4)?.try_into().ok()?);
+        let mut parts = buffer[4..].split(|&b| b == 0);
+        parts.next()?;
+        let args: Vec<String> = (parts.filter(|arg| !arg.is_empty()))
+            .take(usize::try_from(count).ok()?)
+            .map(|arg| String::from_utf8_lossy(arg).into_owned())
+            .collect();
+        (!args.is_empty()).then_some(args)
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    fn arguments(_: i32) -> Option<Vec<String>> {
+        None
+    }
+
     /// Whether a process works in `folder` or below it. A process of one of
     /// `sessions`, those of the core's terminals, whose working folder the
     /// system does not show counts as working there. None where the
@@ -695,6 +817,74 @@ mod windows {
         pub fn kill(&self) {
             // SAFETY: the handle is open while `self` lives.
             unsafe { TerminateJobObject(self.0, 1) };
+        }
+
+        /// The processes in the job, each with the process that started it
+        /// and its program's file name. None where the system does not say,
+        /// or the job holds more than it lists.
+        pub fn processes(&self) -> Option<Vec<(u32, u32, String)>> {
+            use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+            use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+                CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+                TH32CS_SNAPPROCESS,
+            };
+            use windows_sys::Win32::System::JobObjects::{
+                JobObjectBasicProcessIdList, QueryInformationJobObject,
+            };
+            const ROOM: usize = 256;
+            // JOBOBJECT_BASIC_PROCESS_ID_LIST with room for ROOM ids.
+            #[repr(C)]
+            struct List {
+                assigned: u32,
+                listed: u32,
+                ids: [usize; ROOM],
+            }
+            let mut list = List {
+                assigned: 0,
+                listed: 0,
+                ids: [0; ROOM],
+            };
+            // SAFETY: `list` is laid out as the class's structure with more
+            // room, its size is given, and it lives through the call.
+            let read = unsafe {
+                QueryInformationJobObject(
+                    self.0,
+                    JobObjectBasicProcessIdList,
+                    (&raw mut list).cast(),
+                    size_of::<List>() as u32,
+                    null_mut(),
+                )
+            };
+            if read == 0 || list.listed < list.assigned {
+                return None;
+            }
+            let ids: Vec<u32> = (list.ids.iter().take(list.listed as usize))
+                .filter_map(|&id| u32::try_from(id).ok())
+                .collect();
+            let mut found = Vec::new();
+            // SAFETY: the snapshot is a handle checked and closed below;
+            // `entry` is a valid PROCESSENTRY32W with its size set, as the
+            // calls require.
+            unsafe {
+                let all = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+                if all == INVALID_HANDLE_VALUE {
+                    return None;
+                }
+                let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+                entry.dwSize = size_of::<PROCESSENTRY32W>() as u32;
+                let mut more = Process32FirstW(all, &mut entry) != 0;
+                while more {
+                    if ids.contains(&entry.th32ProcessID) {
+                        let file = &entry.szExeFile;
+                        let len = file.iter().position(|&c| c == 0).unwrap_or(file.len());
+                        let name = String::from_utf16_lossy(&file[..len]);
+                        found.push((entry.th32ProcessID, entry.th32ParentProcessID, name));
+                    }
+                    more = Process32NextW(all, &mut entry) != 0;
+                }
+                CloseHandle(all);
+            }
+            Some(found)
         }
     }
 

@@ -59,6 +59,16 @@ button.row:active{background:var(--sel)}
 .row.s.bg .lbl{color:var(--fg3)}
 .bgi{display:inline-grid;color:var(--fg3)}.bgi .i{width:14px;height:14px}
 .row.s.shl .lbl{font:var(--f-code)}
+/* A session's cross (sidebar.tsx Session): in the row's trailing place while the pointer or keyboard focus is on the
+   row, where the time and the background glyph stood, which give way to it. The words end before it, from where
+   they start; nothing moves. The row's own target is everything left of it, 8 px off. */
+.srow{position:relative}
+.srow>.x{position:absolute;right:8px;top:calc((var(--row-h) - 20px) / 2);display:inline-grid;place-items:center;width:20px;height:20px;border-radius:2px;color:var(--fg2);opacity:0;pointer-events:none}
+.srow>.x .i{width:12px;height:12px}
+.srow:is(:hover,:focus-within)>.x{opacity:.75;pointer-events:auto}
+.srow>.x:hover{opacity:1;background:var(--line2);color:var(--fg)}
+.srow:is(:hover,:focus-within)>.row.s{padding-right:36px}
+.srow:is(:hover,:focus-within)>.row.s>:is(.meta,.bgi){display:none}
 
 /* ——— title bar ——— */
 .bar{position:relative;z-index:22;display:flex;align-items:center;gap:var(--sp3);min-width:0;padding:0 var(--sp2) 0 14px;background:var(--bg);border-bottom:1px solid var(--line);white-space:nowrap}

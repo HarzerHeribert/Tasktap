@@ -1,7 +1,7 @@
 // The workspace page: what it holds while it runs, and what the person does in it. Every record
 // is the core's. Each workspace's arrangement is its project's `layouts` record: kept here as a
 // copy that changes at once and is written back a moment later, never as the page's own data.
-import type { Session, StartTerminal, Thought } from '../../../core/proto/protocol.ts';
+import type { Runs, Session, StartTerminal, Thought } from '../../../core/proto/protocol.ts';
 import { cap } from '../capture.tsx';
 import { CallError, uuid7 } from '../client.ts';
 import { agentName, call, endedSays, fail, focus, openQuestions, page, records, redraw, sentence, title, unheard, why } from '../page.ts';
@@ -16,9 +16,9 @@ export * from '../page.ts';
 export const LOOSE = 'loose';
 
 export type Sheet =
-  | { kind: 'close-tab'; project: string; id: string }
-  | { kind: 'stop'; project: string; id: string }
-  | { kind: 'close-workspace'; project: string; count: number }
+  | { kind: 'close-tab'; project: string; id: string; runs: Runs }
+  | { kind: 'stop'; project: string; id: string; runs?: Runs }
+  | { kind: 'close-workspace'; project: string; busy: { id: string; runs: Runs }[] }
   | { kind: 'open-workspace' }
   | { kind: 'find'; id: string }
   | { kind: 'move'; project: string; id: string }
@@ -204,7 +204,8 @@ export function cue(id: string): Cue {
   const activity = s?.activity.at(-1);
   if (s?.state === 'working' || s?.state === 'starting') return { s: 'working', words: s.state === 'starting' ? 'Starting' : 'Working', activity };
   if (s?.state === 'idle') return { s: 'ended', words: 'Waiting for a prompt' };
-  if (t.kind === 'shell' && !s) return { s: 'shell', words: 'Shell' };
+  // A shell whose agent has ended, typed there or the one a run's terminal goes on as, is a shell again.
+  if (t.kind === 'shell' && (!s || s.state === 'ended')) return { s: 'shell', words: 'Shell' };
   return { s: 'working', words: 'Running', activity };
 }
 
@@ -294,22 +295,55 @@ export async function attach(id: string, again = false) {
   redraw();
 }
 
-/** Closing a tab: a live terminal asks first (README, Arrange your workspace); an ended one closes. A preview is
- *  closed for good: its record goes, and the keyboard is its terminal's again. */
+/** Closing a tab: a terminal closes as `closeTerminal` says. A preview is closed for good: its record goes, and the
+ *  keyboard is its terminal's again. */
 export function closeTab(project: string, id: string) {
-  if (records.terminals.get(id)?.state === 'running' && !ui.stopping.has(id)) return open({ kind: 'close-tab', project, id });
   const shows = records.previews.get(id);
-  if (shows) {
-    void call('delete', { c: 'previews', id }).catch(fail);
-    records.previews.delete(id);
-    setLayout(project, L.close(layout(project), id));
-    return focusTerminal(shows.terminal_id);
+  if (!shows) return void closeTerminal(project, id);
+  void call('delete', { c: 'previews', id }).catch(fail);
+  records.previews.delete(id);
+  setLayout(project, L.close(layout(project), id));
+  focusTerminal(shows.terminal_id);
+}
+
+const ENDED: Runs = { state: 'ended', what: [], session: null };
+
+/** What runs in a terminal, as the core says when asked: never guessed here. One the page is stopping, or whose row
+ *  says it is not running, has ended; one the core cannot answer for runs something it cannot name. */
+export async function runsIn(id: string): Promise<Runs> {
+  const t = records.terminals.get(id);
+  if (!t || t.state !== 'running' || ui.stopping.has(id)) return ENDED;
+  try {
+    return await call('terminal.runs', { id });
+  } catch (e) {
+    return e instanceof CallError && e.code === 'gone' ? ENDED : { state: 'unknown', what: [], session: null };
   }
+}
+
+/** Terminals whose close waits for the core's answer: closing one again meanwhile does nothing more. */
+const closing = new Set<string>();
+
+/** Closing a terminal, from wherever it is closed: its key (⌘W), its tab's cross, its row in the sidebar, their menus
+ *  (README, Arrange your workspace). One that has ended, and a shell with nothing running in it, close at once, the
+ *  shell stopped; one where something runs asks first, by what runs: an agent's live session, idle or not, whether
+ *  to keep it running in the background, as does a program; in the background already, whether to stop it. */
+export async function closeTerminal(project: string, id: string) {
+  if (closing.has(id)) return;
+  closing.add(id);
+  const runs = await runsIn(id).finally(() => closing.delete(id));
+  if (runs.state === 'idle') return stop(project, id);
+  if (runs.state === 'ended') return closed(project, id);
+  open({ kind: layout(project).background.includes(id) ? 'stop' : 'close-tab', project, id, runs });
+}
+
+/** A terminal out of its workspace: its tab, or its row in the background, and its surface. The keyboard goes to the
+ *  tab now in front. */
+function closed(project: string, id: string) {
   setLayout(project, L.close(layout(project), id));
   engines.get(id)?.dispose();
   engines.delete(id);
   const next = L.selectedPane(layout(project))?.active;
-  if (next) focusTerminal(next);
+  if (next && project === ui.view) focusTerminal(next);
 }
 
 export function keepInBackground(project: string, id: string) {
@@ -321,10 +355,8 @@ export function keepInBackground(project: string, id: string) {
 /** Ends a terminal's process; its record and history stay. A run's own stop names its thought. */
 export function stop(project: string, id: string) {
   ui.stopping.add(id);
-  setLayout(project, L.close(layout(project), id));
-  engines.get(id)?.dispose();
-  engines.delete(id);
-  dismiss();
+  if (ui.sheet && 'id' in ui.sheet && ui.sheet.id === id) dismiss();
+  closed(project, id);
   const s = sessionOf(id);
   const th = thoughtOf(s);
   const done = () => {
@@ -363,10 +395,17 @@ export function details(at: string | undefined) {
   return !!s;
 }
 
-export function closeWorkspace(project: string) {
-  const count = running(project).length;
-  if (count) return open({ kind: 'close-workspace', project, count });
-  void finishClose(project, false);
+/** Closing a workspace stops its terminals, those in the background too, by the rule of `closeTerminal`, asked once
+ *  for all: shells with nothing running in them and what has ended close at once; if anything runs, the one
+ *  question names what runs where. */
+export async function closeWorkspace(project: string) {
+  if (closing.has(project)) return;
+  closing.add(project);
+  const all = await Promise.all(running(project).map(async (t) => ({ id: t.id, runs: await runsIn(t.id) })))
+    .finally(() => closing.delete(project));
+  const busy = all.filter((t) => t.runs.state === 'running' || t.runs.state === 'unknown');
+  if (busy.length) return open({ kind: 'close-workspace', project, busy });
+  void finishClose(project, all.some((t) => t.runs.state === 'idle'));
 }
 
 export async function finishClose(project: string, stopAll: boolean) {

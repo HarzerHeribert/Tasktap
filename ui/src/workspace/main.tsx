@@ -31,7 +31,7 @@ import * as L from './layout.ts';
 import { burst, echo } from './measure.ts';
 import { choose, shown as menu } from './menu.ts';
 import {
-  LOOSE, agentName, call, client, closeTab, copy, current, details, dismiss, fail, focusSession, heardWhere, layout, loadTerms, newTerminal, onRedraw,
+  LOOSE, agentName, call, client, closeTab, copy, current, details, dismiss, fail, focus, focusSession, heardWhere, layout, loadTerms, newTerminal, onRedraw,
   open, openQuestions, page, paste, pref, records, redraw, reconcile, sessionOf, setLayout, settleFocus, show, textSize, textSizeBy, title, ui, where,
 } from './model.ts';
 import type { Where } from '../client.ts';
@@ -351,7 +351,12 @@ function toQuestion(id: string) {
   const q = records.questions.get(id);
   if (ui.sheet) dismiss();
   if (q?.session_id && focusSession(q.session_id)) {
-    if (q.reply_via !== 'terminal') page.focus = `[data-question="${id}"]`;
+    if (q.reply_via !== 'terminal') {
+      const answers = `[data-question="${id}"]`;
+      page.focus = answers;
+      // The terminal takes the keyboard at its next frame (focusTerminal); the question's answers take it after that.
+      requestAnimationFrame(() => focus(answers));
+    }
     return redraw();
   }
   show('home');

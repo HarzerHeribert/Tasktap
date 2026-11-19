@@ -457,6 +457,8 @@ send "where behind" back
 send "hotkey y"
 until_has notch "$(open_q 'Rule one?')" 10 "0" && until_has workspace "$(screen)" 5 "answer:yes" \
   && pass "rule 5: ⌃⌥Y from another app answers a yes-or-no question through the core" || fail "Yes from another app"
+# The pointer is not on the notch: the check's own hover above left it there as far as the page knows.
+send "hover out"
 term_line "ask:Rule four?"
 until_has notch "text #sheet" 10 "Rule four?" && pass "rule 2: with the window behind a question opens the notch by itself" || fail "a question opens the notch"
 sleep 8

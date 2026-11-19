@@ -865,22 +865,45 @@ pub struct SpeechBy {
     pub model: String,
 }
 
-/// What the `route_by` preference names: a tool and the model it asks.
+/// What the `route_by` preference holds (design §8): the person's one
+/// agreement that Tasktap may place thoughts with their own agents, and
+/// which of them, in the order they are asked. A consent to one agent that
+/// a core before this one kept reads as a list of that agent alone (the
+/// store's fourth migration).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct RouteBy {
-    /// The agent, by the id `agents.detect` lists.
+    /// The agents, the first asked first, each once. One switched off is
+    /// never asked.
     #[serde(deserialize_with = "crate::within::<{ crate::MAX_LINE }, _, _>")]
-    pub agent: String,
-    /// The model its tool is asked for, as `route.terms` names it.
-    #[serde(deserialize_with = "crate::within::<{ crate::MAX_LINE }, _, _>")]
-    pub model: String,
+    pub agents: Vec<Placer>,
     /// The version of what is sent that the person saw, as `route.terms`
-    /// names it; 0 in a consent older than the field. A consent to another
-    /// version than the core's covers nothing.
-    #[serde(default)]
+    /// names it. An agreement to another version than the core's covers
+    /// nothing.
     pub terms: u32,
+}
+
+/// One agent of an agreement to place thoughts.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Placer {
+    /// The agent, by the id `agents.detect` lists.
+    pub agent: String,
+    /// The model its tool is asked for, as `route.terms` names it: the
+    /// agreement covers that model alone.
+    pub model: String,
+    /// The person lets it place thoughts.
+    pub on: bool,
+}
+
+words! {
+    /// What placing a thought with an agent costs the person (design §8):
+    /// nothing more than they pay already, as a subscription's small model
+    /// is included in it (`plan`), or what their provider bills for each
+    /// use, as with a key, or where Tasktap cannot know (`billed`).
+    pub enum Pays { Plan, Billed }
 }
 
 words! {

@@ -126,6 +126,12 @@ identity: string | null,
  */
 stale: boolean,
 /**
+ * Its tool said, asked to place a thought, that the person's plan or
+ * key has reached its usage limit: it is not asked again before this
+ * time (design §8). Kept for the next core.
+ */
+limited: Time | null,
+/**
  * Its runs report through hooks; one that does not reports by exiting.
  */
 events: boolean,
@@ -1102,6 +1108,14 @@ command: string,
 removed?: boolean, };
 
 /**
+ * What placing a thought with an agent costs the person (design §8):
+ * nothing more than they pay already, as a subscription's small model
+ * is included in it (`plan`), or what their provider bills for each
+ * use, as with a key, or where Tasktap cannot know (`billed`).
+ */
+export type Pays = "plan" | "billed";
+
+/**
  * Written only by the state machine.
  */
 export type Phase = "captured" | "routed" | "working" | "done" | "failed";
@@ -1112,12 +1126,52 @@ export type Phase = "captured" | "routed" | "working" | "done" | "failed";
 export type Place = { "project": ProjectId } | { "session": SessionId } | { "card": CardId };
 
 /**
+ * An agent that can place thoughts, as `route.terms` lists it.
+ */
+export type PlaceTool = {
+/**
+ * The agent, by the id `agents.detect` lists.
+ */
+agent: string,
+/**
+ * The model its tool is asked for.
+ */
+model: string,
+/**
+ * What a placing costs the person, as far as Tasktap can tell.
+ */
+pays: Pays,
+/**
+ * About how long it takes to place a spoken thought, in milliseconds,
+ * as measured; none where it was not.
+ */
+ms: number | null, };
+
+/**
  * How a thought's place came about (design §5): who decided where it
  * goes, or that it waits for later. The last decision counts: a
  * thought kept for later that the person then sends somewhere is
  * `picked`.
  */
 export type Placed = "picked" | "name" | "model" | "follow_up" | "answer" | "kept" | "kept_answer" | "kept_name" | "kept_model";
+
+/**
+ * One agent of an agreement to place thoughts.
+ */
+export type Placer = {
+/**
+ * The agent, by the id `agents.detect` lists.
+ */
+agent: string,
+/**
+ * The model its tool is asked for, as `route.terms` names it: the
+ * agreement covers that model alone.
+ */
+model: string,
+/**
+ * The person lets it place thoughts.
+ */
+on: boolean, };
 
 /**
  * A preference row: `{id, value, rev}`, where the key fixes the value's type.
@@ -1334,27 +1388,28 @@ export type Role = "page" | "host" | "cli";
 export type Route = { "confidence": "clear", to: Place, brief: string, said: string | null, } | { "confidence": "ambiguous", prompt: string, candidates: Array<Candidate>, } | { "confidence": "unknown" };
 
 /**
- * What the `route_by` preference names: a tool and the model it asks.
+ * What the `route_by` preference holds (design §8): the person's one
+ * agreement that Tasktap may place thoughts with their own agents, and
+ * which of them, in the order they are asked. A consent to one agent that
+ * a core before this one kept reads as a list of that agent alone (the
+ * store's fourth migration).
  */
 export type RouteBy = {
 /**
- * The agent, by the id `agents.detect` lists.
+ * The agents, the first asked first, each once. One switched off is
+ * never asked.
  */
-agent: string,
-/**
- * The model its tool is asked for, as `route.terms` names it.
- */
-model: string,
+agents: Array<Placer>,
 /**
  * The version of what is sent that the person saw, as `route.terms`
- * names it; 0 in a consent older than the field. A consent to another
- * version than the core's covers nothing.
+ * names it. An agreement to another version than the core's covers
+ * nothing.
  */
 terms: number, };
 
 /**
- * `route.terms`: what routing by a model sends and to whom (design §8),
- * for the person to read before they consent with the `route_by`
+ * `route.terms`: what placing by a model sends and to whom (design §8),
+ * for the person to read before they agree with the `route_by`
  * preference.
  */
 export type RouteTerms = {
@@ -1367,11 +1422,15 @@ instructions: string,
  */
 sends: Array<string>,
 /**
- * The agents whose tool can be asked, each with the model it asks,
- * in the order the core lists its agents. Each names these terms by
- * their version: a consent to an older version covers nothing.
+ * The version of these terms, which an agreement names: one to an
+ * older version covers nothing.
  */
-tools: Array<RouteBy>, };
+terms: number,
+/**
+ * The agents whose tool can be asked, in the order Tasktap proposes:
+ * those that cost the person nothing more first, then the fastest.
+ */
+tools: Array<PlaceTool>, };
 
 /**
  * How a thought found its destination and its brief (design §8).

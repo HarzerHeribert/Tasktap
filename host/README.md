@@ -79,6 +79,7 @@ Previews of a folder, of sound and of film, Notebook, Session history and Activi
     host/scripts/smoke.sh        # the notch and the workspace with the core's fixture agent; PASS or FAIL lines
     SPEECH_MODEL=<ggml-large-v3-turbo-q5_0.bin> host/scripts/smoke.sh   # the same, and speech on this Mac with the real model, from a file you fetched
     node scripts/speech-check.cjs && node scripts/speech-app-check.cjs   # speech on this Mac alone: the page (headless), then the app
+    node scripts/placing-check.cjs <folder>   # the Placing sheet and its group in Settings by the keyboard (headless, fixture records), pictures in the folder
     host/scripts/measure.sh      # idle cost with the workspace on one idle terminal, launch, typing delay, a burst; after build.sh
     MOTION=1 host/scripts/measure.sh   # what the effects cost, per process: at rest behind and in front, agents working and a question waiting on Home (carried, and drawn by the page), beside a terminal, each level's memory
     FLOW=1 host/scripts/measure.sh     # the capture flow, timed: frames and keys while a thought is typed, sent, placed, worked on and answered, at each level

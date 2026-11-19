@@ -23,6 +23,7 @@ pub mod dialect;
 pub mod opencode;
 pub mod pi;
 pub mod plain;
+pub mod quota;
 pub mod rules;
 
 use std::ffi::OsString;
@@ -159,6 +160,7 @@ pub struct Probe {
 /// the command provider): [`checks::ask`] runs it in an empty folder with
 /// the question on its standard input. It gets no tools, saves nothing and
 /// reads none of the person's instructions or settings.
+#[derive(Clone, Copy)]
 pub struct Headless {
     /// The model it asks, the smallest fast one its tool offers. The
     /// person's consent names it.
@@ -176,6 +178,10 @@ pub struct Headless {
     /// Whether what it printed, and the last line it said beside that,
     /// when it gave no answer, mean it no longer offers the model.
     pub gone: fn(&str, &str) -> bool,
+    /// Whether the same say that the person's plan or key has reached its
+    /// usage limit, and when it is back, in the tool's own words as its
+    /// program writes them; never learned from a run of it.
+    pub quota: fn(&str, &str) -> Option<quota::Back>,
 }
 
 /// The JSON schema an answer must fit: as text, and as a file that holds it.
@@ -446,12 +452,17 @@ pub fn usable(agent: &dyn Agent, health: Option<&AgentHealth>) -> Result<(), Str
 /// could not say this time whether it is signed in, as with no network, or
 /// have not run at all, as when a core starts, what they last said stands,
 /// marked as such (`stale`), with the time they said it and the version
-/// they named; otherwise the new look, as of `now`.
+/// they named; otherwise the new look, as of `now`. A limit its tool spoke
+/// of stands either way: a look at the sign-in says nothing of it.
 pub fn merged(
     last: Option<&AgentHealth>,
     found: AgentHealth,
     now: tasktap_proto::Time,
 ) -> AgentHealth {
+    let found = AgentHealth {
+        limited: last.and_then(|last| last.limited).or(found.limited),
+        ..found
+    };
     match last.filter(|last| last.signed_in.is_some()) {
         Some(last) if found.installed && found.supported && found.signed_in.is_none() => {
             AgentHealth {
@@ -833,14 +844,21 @@ impl Agent for Fixture {
     }
 
     /// Asked a question, it keeps what it was asked as `asked` in its
-    /// folder and runs the steps a test wrote there as `ask`; the last
-    /// line it prints is its answer. The silent one is given a second, so
-    /// that a test of the time limit is short.
+    /// folder and runs the steps a test wrote there as `ask` (the silent
+    /// one `asked-silent` and `ask-silent`, the probed one `…-probed`, so
+    /// that a test can have each answer its own way); the last line it
+    /// prints is its answer. The silent one is given a second, so that a
+    /// test of the time limit is short.
     fn headless(&self) -> Option<Headless> {
+        let args: fn(&Schema) -> Vec<String> = match (self.events, self.probed) {
+            (_, true) => |_| vec!["keep:asked-probed".into(), "script:ask-probed".into()],
+            (true, false) => |_| vec!["keep:asked".into(), "script:ask".into()],
+            (false, false) => |_| vec!["keep:asked-silent".into(), "script:ask-silent".into()],
+        };
         Some(Headless {
             model: "fixture-small",
             limit: Duration::from_secs(if self.events { 20 } else { 1 }),
-            args: |_| vec!["keep:asked".into(), "script:ask".into()],
+            args,
             stdin: str::to_owned,
             answer: |out| {
                 let last = out.lines().last().unwrap_or_default().trim();
@@ -854,6 +872,11 @@ impl Agent for Fixture {
                 }
             },
             gone: |printed, _| printed.trim_end().ends_with("error:no such model"),
+            // An error that speaks of a limit, with its time as any tool writes it.
+            quota: |printed, _| {
+                let last = printed.lines().last()?.trim().strip_prefix("error:")?;
+                last.contains("limit").then(|| quota::back(last))
+            },
         })
     }
 

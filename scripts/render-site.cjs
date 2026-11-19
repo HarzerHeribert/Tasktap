@@ -30,7 +30,7 @@ function embed() {
   const runtime = pages.slice(start, pages.indexOf('\n}\n', start) + 2);
   const version = Number(/export const VERSION = (\d+)/.exec(read('core/proto/protocol.ts'))[1]);
   const calls = /const CALLS = (\[[^\]]*\]);/.exec(pages)[1];
-  const terms = "{ route: { instructions: '', sends: [], tools: [{ agent: 'claude', model: 'haiku' }] }, speech: { sent: [], path: '/v1/audio/transcriptions', seconds: 300 } }";
+  const terms = "{ route: { instructions: '', sends: [], terms: 3, tools: [{ agent: 'claude', model: 'haiku', pays: 'plan', ms: 3700 }] }, speech: { sent: [], path: '/v1/audio/transcriptions', seconds: 300 } }";
   const stage = read('site/src/stage.js').replace('/*FAKE_RUNTIME*/', `(${runtime})({ label: 'notch', records, welcome: { v: ${version}, calls: ${calls} }, terms: ${terms} });`);
   if (!stage.includes('__TAURI_INTERNALS__')) throw new Error('fakeRuntime was not found in scripts/motion-pages.cjs');
   fs.writeFileSync(path.join(out, 'stage.js'), stage);

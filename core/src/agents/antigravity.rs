@@ -38,7 +38,7 @@ use tasktap_proto::{Ask, Event, MAX_LINE, QuestionKind, QuestionSource, ReplyVia
 use super::rules::Rules;
 use super::{
     Agent, Caps, Detect, Headless, Heard, Payload, Prompt, Run, WORDS, fit, line, permission,
-    quoted, said,
+    quota, quoted, said,
 };
 
 pub struct Antigravity;
@@ -230,6 +230,28 @@ fn answer(out: &str) -> Result<String, String> {
     }
 }
 
+/// Whether its result says the person's plan has reached its usage limit:
+/// "You have exhausted your quota on this model." in the words of its
+/// program (1.5), or the words of Google's service behind it
+/// (`RESOURCE_EXHAUSTED`, a 429). It names no time there, so it is passed
+/// over for an hour unless it says "reset after …".
+fn spent(printed: &str, said: &str) -> Option<quota::Back> {
+    let last = printed.trim_end().lines().last().unwrap_or_default();
+    let result: Value = serde_json::from_str(last).unwrap_or_default();
+    let error = result.pointer("/result/error").and_then(Value::as_str);
+    let text = error.unwrap_or(said);
+    let words = [
+        "exhausted your quota",
+        "exhausted your capacity",
+        "RESOURCE_EXHAUSTED",
+        "Quota exceeded",
+    ];
+    words
+        .iter()
+        .any(|w| text.contains(w))
+        .then(|| quota::back(text))
+}
+
 impl Agent for Antigravity {
     fn id(&self) -> &'static str {
         "agy"
@@ -306,6 +328,7 @@ impl Agent for Antigravity {
             answer,
             // Its result says so, and lists the models it does have.
             gone: |printed, _| printed.contains("is not recognized as a known model"),
+            quota: spent,
         })
     }
 

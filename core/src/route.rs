@@ -12,12 +12,14 @@
 //! the model gives no answer the core accepts (a build with its test
 //! fixtures has `fixture.script` script it).
 //!
-//! The model is the one behind the person's own agent, asked headless
-//! (`agents::Headless`): one question, [`question`], carries the
-//! [`INSTRUCTIONS`] and what the core's records offer, and its answer is
-//! taken only as [`accept`] allows. Nothing here runs a tool or waits:
-//! `effects.rs` runs the tool off the core's thread, and `state.rs` holds
-//! the rules of when a thought is asked about and when it launches.
+//! The models are those behind the person's own agents, asked headless
+//! (`agents::Headless`) one after another in the order the person agreed
+//! to ([`agreed`]; Tasktap proposes one, [`proposed`]), within [`BUDGET`]:
+//! one question, [`question`], carries the [`INSTRUCTIONS`] and what the
+//! core's records offer, and an answer is taken only as [`accept`] allows.
+//! Nothing here runs a tool or waits: `effects.rs` runs the tools off the
+//! core's thread, one at a time, and `state.rs` holds the rules of when a
+//! thought is asked about and when it launches.
 //!
 //! The rules, simplest first (a destination the person picked never reaches
 //! a router: the state machine routes it at capture):
@@ -61,8 +63,8 @@ use std::ops::Range;
 
 use serde_json::{Value, json};
 use tasktap_proto::{
-    Collection, Error, Hint, ProjectId, ProjectKind, RouteBy, RouteTerms, Routing, SessionId,
-    SessionState, Set, Status, ThoughtId, Time,
+    Collection, Error, Hint, Pays, PlaceTool, Placer, ProjectId, ProjectKind, RouteBy, RouteTerms,
+    Routing, SessionId, SessionState, Set, Status, ThoughtId, Time,
 };
 
 use crate::agents::{self, Agent, Headless};
@@ -101,10 +103,12 @@ const SENDS: &[&str] = &[
     "of up to 3 recent exchanges: the request (320 characters), how it ended and the first line of the result (160 characters)",
 ];
 
-/// The version of what is sent, which a consent names (`RouteBy::terms`):
-/// 2 since a model is given a line about each project, and projects that
-/// are not open. A consent to another version covers nothing.
-pub const TERMS: u32 = 2;
+/// The version of what is sent and to whom, which an agreement names
+/// (`RouteBy::terms`): 3 since it lists the person's agents, asked one
+/// after another until one answers; 2 since a model is given a line about
+/// each project, and projects that are not open. An agreement to another
+/// version covers nothing.
+pub const TERMS: u32 = 3;
 
 /// Most projects, sessions and recent exchanges a model is given (design §8).
 const OFFERED: usize = 8;
@@ -1285,41 +1289,138 @@ pub fn askable(text: &str) -> Result<(), String> {
     }
 }
 
-/// The agent a consent names and how its tool is asked, when the consent
-/// covers what this core would ask: that tool, with that model.
-pub fn consented(by: &RouteBy) -> Result<(&'static dyn Agent, Headless), String> {
+/// Whether an agreement names what this core would ask: these terms, and
+/// each agent once, one this core has, whose tool it would ask for the
+/// model agreed to.
+pub fn valid(by: &RouteBy) -> Result<(), String> {
     if by.terms != TERMS {
-        return Err("the agreement was to what was sent before: placing by a model now sends a line about each project, and asks again".into());
+        return Err(AGAIN.into());
     }
-    let agent = agents::live(&by.agent).ok_or(format!("Tasktap has no agent {}", by.agent))?;
-    let how = agent
-        .headless()
-        .ok_or(format!("{} cannot be asked to place thoughts", by.agent))?;
-    match how.model == by.model {
+    for (i, placer) in by.agents.iter().enumerate() {
+        if by.agents[..i].iter().any(|p| p.agent == placer.agent) {
+            return Err(format!("{} is listed twice", placer.agent));
+        }
+        covered(placer)?;
+    }
+    Ok(())
+}
+
+/// Why an agreement to the terms before these covers nothing.
+const AGAIN: &str = "the agreement was to what was sent before: \
+     placing now asks your agents one after another, and asks you again";
+
+/// The agent an agreement names and how its tool is asked, when the
+/// agreement covers what this core would ask: that tool, with that model.
+fn covered(placer: &Placer) -> Result<(&'static dyn Agent, Headless), String> {
+    let agent = agents::live(&placer.agent);
+    let agent = agent.ok_or(format!("Tasktap has no agent {}", placer.agent))?;
+    let how = agent.headless().ok_or(format!(
+        "{} cannot be asked to place thoughts",
+        agent.name()
+    ))?;
+    match how.model == placer.model {
         true => Ok((agent, how)),
         false => Err(format!(
-            "the consent is for {}, and {} is now asked as {}",
-            by.model, by.agent, how.model
+            "the agreement is for {} with {}, and Tasktap now asks {}",
+            agent.name(),
+            placer.model,
+            how.model
         )),
     }
 }
 
-/// `route.terms`: what routing by a model sends and to whom. A tool that
-/// was found not to offer its model any more is not among them.
+/// The agents an agreement lets Tasktap ask about a thought, in the
+/// person's order, each with how its tool is asked: those switched on that
+/// the agreement covers. Why there are none, where there are none.
+pub fn agreed(by: &RouteBy) -> Result<Vec<(&'static dyn Agent, Headless)>, String> {
+    if by.terms != TERMS {
+        return Err(AGAIN.into());
+    }
+    let mut why = Vec::new();
+    let on = by.agents.iter().filter(|p| p.on);
+    let tools: Vec<_> = on
+        .filter_map(|p| covered(p).map_err(|e| why.push(e)).ok())
+        .collect();
+    match (tools.is_empty(), why.is_empty()) {
+        (false, _) => Ok(tools),
+        (true, true) => Err("no agent is switched on for placing".into()),
+        (true, false) => Err(why.join("; ")),
+    }
+}
+
+/// What Tasktap proposes its order by (design §8, the owner's decision of
+/// 2026-11-19), for each agent that can place: what placing a thought with
+/// it costs the person when it is signed in as it usually is, and how long
+/// it took to place a spoken thought (the median of 14, measured on
+/// 2026-11-17 and 18). The model each asks is its adapter's
+/// (`Headless::model`). An agent not here is billed by its provider, its
+/// time unknown.
+const COSTS: &[(&str, Pays, u32)] = &[
+    // Haiku is included in a Claude subscription's usage.
+    ("claude", Pays::Plan, 3700),
+    // gpt-6-luna is included in a ChatGPT plan's Codex usage.
+    ("codex", Pays::Plan, 4700),
+    // Its flash model is included with the Google account it signs in with.
+    ("agy", Pays::Plan, 5600),
+    #[cfg(feature = "fixtures")]
+    ("fixture", Pays::Plan, 900),
+    #[cfg(feature = "fixtures")]
+    ("fixture-silent", Pays::Plan, 600),
+    #[cfg(feature = "fixtures")]
+    ("fixture-probed", Pays::Billed, 500),
+];
+
+/// How long placing waits for the person's agents, asked one after another,
+/// before the thought is placed by name, or asked about (design §8): the
+/// slowest of the three placed a spoken thought in 6.7 s at most.
+pub const BUDGET: std::time::Duration = std::time::Duration::from_secs(8);
+
+/// About how long `agent` takes to place a thought, in milliseconds.
+pub fn typical(agent: &str) -> Option<u32> {
+    COSTS.iter().find(|c| c.0 == agent).map(|c| c.2)
+}
+
+/// What placing a thought with `agent` costs the person, signed in as
+/// `identity` says: as the table says, unless it is signed in with a key,
+/// which its provider bills for each use.
+pub fn pays(agent: &str, identity: Option<&str>) -> Pays {
+    let who = identity.unwrap_or_default().to_ascii_lowercase();
+    let keyed = ["api key", "api_key", "apikey"]
+        .iter()
+        .any(|k| who.contains(k));
+    match COSTS.iter().find(|c| c.0 == agent) {
+        Some(&(_, pays, _)) if !keyed => pays,
+        _ => Pays::Billed,
+    }
+}
+
+/// Tasktap's order: what costs the person nothing more first, then the
+/// fastest, one whose time is unknown last; else in the order given.
+pub fn proposed(mut tools: Vec<PlaceTool>) -> Vec<PlaceTool> {
+    tools.sort_by_key(|t| (t.pays != Pays::Plan, t.ms.unwrap_or(u32::MAX)));
+    tools
+}
+
+/// `route.terms`: what placing by a model sends and to whom, the agents
+/// that can be asked in Tasktap's order. A tool that was found not to
+/// offer its model any more is not among them.
 pub fn terms(cx: &mut Cx, _: tasktap_proto::Empty) -> Result<RouteTerms, Error> {
     let offered = |a: &&&dyn Agent| !cx.core.seams.gone(a.id());
     let all = agents::all();
     let tools = all.iter().filter(offered).filter_map(|a| {
-        Some(RouteBy {
+        let identity = cx.core.detected(a.id()).and_then(|h| h.identity.as_deref());
+        Some(PlaceTool {
             agent: a.id().into(),
             model: a.headless()?.model.into(),
-            terms: TERMS,
+            pays: pays(a.id(), identity),
+            ms: typical(a.id()),
         })
     });
     Ok(RouteTerms {
         instructions: INSTRUCTIONS.into(),
         sends: SENDS.iter().map(|s| (*s).into()).collect(),
-        tools: tools.collect(),
+        terms: TERMS,
+        tools: proposed(tools.collect()),
     })
 }
 
@@ -1368,8 +1469,8 @@ pub fn hint(cx: &mut Cx, args: Hint) -> Result<tasktap_proto::Route, Error> {
         Ok((request(tx, &args.text, args.current)?, by))
     })?;
     // A question the names ask only because a name may not be meant goes
-    // to the model the person agreed to: the chip says it decides.
-    let model = by.is_some_and(|by| by.terms == TERMS) && !sure(&request);
+    // to the models the person agreed to: the chip says it decides.
+    let model = by.is_some_and(|by| agreed(&by).is_ok()) && !sure(&request);
     Ok(match model {
         true => tasktap_proto::Route::Unknown,
         false => wire(by_names(&request).unwrap_or(Route::Unknown)),

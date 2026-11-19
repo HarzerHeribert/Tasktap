@@ -97,8 +97,11 @@ BIN=$tmp/tasktap
 FBIN=$tmp/tasktap-fixtures
 EX=$core/target/release/examples/measure
 
-grep -aq "fixture.stream" "$BIN" && die "the normal release binary contains the test fixtures"
-grep -aq "fixture.stream" "$FBIN" || die "the fixtures binary lacks fixture.stream"
+# A build without the test fixtures has no fixture role, and refuses one as a usage error; the fixtures build runs it.
+# (The probe was once the text of a fixture call's name, but whether such a text stays in a binary is the
+# optimizer's to decide: it compares short names as numbers.)
+"$BIN" fixture-terminal </dev/null >/dev/null 2>&1 && die "the normal release binary contains the test fixtures"
+"$FBIN" fixture-terminal </dev/null >/dev/null 2>&1 || die "the fixtures binary lacks its fixtures"
 
 size=$(wc -c <"$BIN" | tr -d ' ')
 

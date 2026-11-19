@@ -395,7 +395,7 @@ function Places({ w, later, raised, hooks }: { w: ReturnType<typeof where>; late
           }} />
         <Key k="esc" cap />
       </label>
-      {shown.map((f) => option(id(f), !cap.moving && id(f) === w.to, <I n={'card' in f.to ? 'plus' : 'folder'} />, f.name,
+      {shown.map((f) => option(id(f), !cap.moving && id(f) === w.to, <I n="folder" />, f.name,
         [f.why, 'card' in f.to ? 'not open yet' : ''].filter(Boolean).join(' · ')))}
       {typed && !shown.length && <p class="cap-none">{cap.found?.text === typed ? 'No project by that name.' : 'Looking…'}</p>}
       {!typed && !cap.moving && known().length > 0 && option('', w.by === 'router' && !w.to, <I n="arrow" />, 'Tasktap decides')}

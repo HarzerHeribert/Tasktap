@@ -108,7 +108,13 @@ async function main(out, dprs, only, check) {
   const [, weight, floor, size] = /--f-key:(\d+) (?:max\(([\d.]+)px,)?round\(([\d.]+)px/.exec(fs.readFileSync(path.join(__dirname, '../ui/src/tokens.css'), 'utf8'));
   const KEY = { size: Math.max(Number(floor ?? 0), scaled(Number(size))), weight: Number(weight) };
   const all = type && type.roles();
-  const role = (key) => { const [face, sz, w, sp] = key.split(' '); return all.find((r) => r.name !== 'term' && r.face === face && r.size === Number(sz) && r.weight === w && Math.abs(r.spacing - Number(sp)) < 0.01); };
+  // Where two roles compute alike (at the small text size a label comes to the key's 12 px and weight), a key is taken
+  // as the key's and the rest as the other's, as type-check.cjs takes them.
+  const role = (key, isKey) => {
+    const [face, sz, w, sp] = key.split(' ');
+    const alike = all.filter((r) => r.name !== 'term' && r.face === face && r.size === Number(sz) && r.weight === w && Math.abs(r.spacing - Number(sp)) < 0.01);
+    return alike.find((r) => (r.name === 'key') === isKey) ?? alike[0];
+  };
   const failures = [], notes = [];
   try {
     for (const dpr of dprs) {
@@ -128,10 +134,10 @@ async function main(out, dprs, only, check) {
           const own = [...await page.evaluate(begins), ...await page.evaluate(promises)];
           for (const b of [...r.bad, ...w.bad, ...own]) failures.push(`${name} (${TEXT}): ${b}`);
           for (const [key, where] of Object.entries(await page.evaluate(type.fonts))) {
-            const rl = role(key), width = key.split(' ')[4];
+            const rl = role(key, where.some((w) => /\bkbd\b/.test(w))), width = key.split(' ')[4];
             if (width !== '100%') failures.push(`${name} (${TEXT}): text at width ${width} (${where.slice(0, 3).join(', ')})`);
             else if (!rl) failures.push(`${name} (${TEXT}): "${key.split(' ').slice(0, 4).join(' ')}" is no role's (${where.slice(0, 3).join(', ')})`);
-            for (const at of where) if (/\bkbd\b/.test(at) !== (rl?.name === 'key') && !/ring-o text/.test(at)) failures.push(`${name} (${TEXT}): ${/\bkbd\b/.test(at) ? 'a key outside the key role' : 'the key role on what is no key'} (${at})`);
+            for (const at of where) if (/\bkbd\b/.test(at) !== (role(key, /\bkbd\b/.test(at))?.name === 'key') && !/ring-o text/.test(at)) failures.push(`${name} (${TEXT}): ${/\bkbd\b/.test(at) ? 'a key outside the key role' : 'the key role on what is no key'} (${at})`);
           }
           for (const c of await page.evaluate(cut)) notes.push(`${name} (${TEXT}): cut short ${c}`);
         }

@@ -65,7 +65,10 @@ fn main() {
             }
         }
         let derived: Vec<_> = by.into_iter().filter(|(_, n)| *n >= 2).collect();
-        println!("Folders suggested from the histories (holding two projects or more): {}", derived.len());
+        println!(
+            "Folders suggested from the histories (holding two projects or more): {}",
+            derived.len()
+        );
         for (p, _) in derived {
             looks.push(look(None, Some(p.to_string_lossy().into_owned())));
         }

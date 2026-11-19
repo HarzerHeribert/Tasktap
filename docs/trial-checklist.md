@@ -55,6 +55,13 @@ What the owner found when he first tried the build with the project map (2026-11
 | 32 | [ ] | "From any app" does not say what it sets; Settings in general do not say what a setting does for the person | Every setting has a label that can be read by itself and one sentence saying what changes for the person | |
 | 33 | [ ] | (follows) The same words in the guide's Settings chapter and wherever a sheet or Setup names a setting | | |
 
+## Graphics cost (owner, same evening)
+
+| # | Done | Finding | Decided fix | Proof |
+| --- | --- | --- | --- | --- |
+| 34 | [ ] | What the app costs the graphics processor was never measured; only the main processor, memory and wake-ups were | Measure it in every state (at rest, agents working, listening, the sidebar moving, effects Off, Still and Full) with the window on screen, on the Mac and on the Windows tower, and set a limit for each | |
+| 35 | [ ] | (follows) At rest the figure is zero, and a check keeps it so | | |
+
 ## Proposed by Claude
 
 | # | Done | Proposal | The owner's answer |

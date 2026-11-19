@@ -280,7 +280,7 @@ const PANES: Record<Section, () => ComponentChildren> = {
 export function Settings({ at }: { at: Section }) {
   shown.at = at;
   useEffect(() => void loadTerms(), []);
-  // A section by its key, ⌘1 to ⌘6, from anywhere in the sheet.
+  // A section by its key, ⌘1 to ⌘7, from anywhere in the sheet.
   useEffect(() => {
     const keys = (e: KeyboardEvent) => {
       // While a key is recorded every combination is the recorder's.

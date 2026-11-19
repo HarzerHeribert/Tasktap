@@ -4,7 +4,7 @@
 // after anything is drawn, as they scroll, and when the window is resized.
 import { options } from 'preact';
 
-const SCROLLERS = '.room > .home, .tree, .sh-b, .set-pane, .tabs, .cap textarea, .pv-b, .md-t';
+const SCROLLERS = '.room > .home, .tree, .sh-b, .set-pane, .tabs, .cap textarea, .pv-b, .md-t, .found > .fr-s';
 function mark(el: Element) {
   const more = [
     el.scrollTop > 1 && 'up', el.scrollTop + el.clientHeight < el.scrollHeight - 1 && 'down',

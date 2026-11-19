@@ -5,7 +5,7 @@
 // aside), at 1x and 2x, Home also 720 px wide. With --check it also holds every state to the align and type checks'
 // own measures (scripts/align-check.cjs, scripts/type-check.cjs), and says where a word is cut short.
 // The text size is TEXT's (small, default, large; as scripts/text-sizes.sh sets it); --sizes renders all three.
-// usage: node scripts/projects-shots.cjs <outdir> [dpr...] [--only a,b] [--check] [--sizes]
+// usage: node scripts/projects-shots.cjs <outdir> [dpr...] [--only a,b] [--check] [--sizes] [--dist <folder>]
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
@@ -35,6 +35,8 @@ function shots() {
     'first-found': { records: projects('first-found'), act: both(allow, wait(1400)) },
     'first-found-narrow': { records: projects('first-found'), act: both(allow, wait(1400)), viewport: NARROW },
     'first-many': { records: projects('first-many'), act: both(allow, wait(4000)) },
+    // The list of all of them, scrolled by the wheel: it dissolves at both edges, and Home stays where it is.
+    'first-many-scrolled': { records: projects('first-many'), act: both(allow, wait(4000), (p) => p.hover('.found > .fr-s'), (p) => p.mouse.wheel(0, 100)) },
     'first-many-narrow': { records: projects('first-many'), act: both(allow, wait(4000)), viewport: NARROW },
     'first-folders': { records: projects('first-folders') },
     'first-folders-narrow': { records: projects('first-folders'), viewport: NARROW },
@@ -72,6 +74,24 @@ function begins() {
   } else if (Math.abs(box(block).left - box(cap).left) > 0.5 || Math.abs(box(block).right - box(cap).right) > 0.5) bad.push('first run: what was found is not on the Composer\'s edges');
   return bad;
 }
+// In the page: the owner's decisions of 2026-11-19 (docs/projects-design.md): every project found is a row, at the
+// first run and in Settings, and nothing says "and N more"; the first run's list scrolls inside itself and Home does
+// not; and what Tasktap says it reads says all it reads, and what may go to a model.
+function promises() {
+  const bad = [], cards = [...window.__ws.records.cards.values()].filter((c) => !c.copy_of && !c.inside && !c.hidden);
+  const text = (sel) => [...document.querySelectorAll(sel)].map((e) => e.textContent).join(' ');
+  if (/\band \d+ more\b/i.test(text('.found, .set-pane'))) bad.push('a list of projects says "and N more"');
+  const found = document.querySelector('.hx.first > .found .fr-s'), home = document.querySelector('.room > .home');
+  if (found && document.querySelectorAll('.found .fr').length !== cards.length) bad.push(`the first run shows ${document.querySelectorAll('.found .fr').length} of ${cards.length} projects found`);
+  // (Unless the window is too short for its least, three rows.)
+  const row = found?.querySelector('.fr')?.getBoundingClientRect().height ?? 0;
+  if (found && home && home.scrollHeight > home.clientHeight + 1 && found.clientHeight > 3 * row + 1) bad.push('Home scrolls under what was found, not the list');
+  const rows = document.querySelectorAll('.pjs > .line.pj');
+  if (document.querySelector('.pjs') && !document.querySelector('.set-pane .field input')?.value && rows.length !== cards.length) bad.push(`Settings › Projects shows ${rows.length} of ${cards.length} projects`);
+  for (const p of document.querySelectorAll('.begin > p, .set-pane .note'))
+    if (/reads/.test(p.textContent) && !['README', 'package file', 'Git remote', 'first commit', 'model', 'up to 8'].every((w) => p.textContent.includes(w))) bad.push(`what it reads leaves something out: "${p.textContent.slice(0, 60)}…"`);
+  return bad;
+}
 // In the page: words cut short with an ellipsis, in what these pages draw.
 function cut() {
   return [...document.querySelectorAll('.begin *, .found *, .set-pane *')]
@@ -82,7 +102,8 @@ function cut() {
 async function main(out, dprs, only, check) {
   const { chromium } = require('playwright');
   fs.mkdirSync(out, { recursive: true });
-  const server = await serve(path.resolve(__dirname, '../ui/dist'));
+  const dist = process.argv.includes('--dist') ? process.argv[process.argv.indexOf('--dist') + 1] : path.join(__dirname, '../ui/dist');
+  const server = await serve(path.resolve(dist));
   const browser = await chromium.launch({ headless: true });
   const align = check && from('align-check.cjs', ['audit', 'weights', 'LISTS']);
   const type = check && from('type-check.cjs', ['roles', 'fonts']);
@@ -106,7 +127,7 @@ async function main(out, dprs, only, check) {
         if (check && dpr === dprs[0]) {
           const r = await page.evaluate(align.audit, [align.LISTS, KEY]);
           const w = await page.evaluate(align.weights);
-          const own = await page.evaluate(begins), mine = await page.evaluate(() => !!document.querySelector('.hx.first > :is(.begin, .found)'));
+          const own = [...await page.evaluate(begins), ...await page.evaluate(promises)], mine = await page.evaluate(() => !!document.querySelector('.hx.first > :is(.begin, .found)'));
           for (const b of [...r.bad.filter((x) => !(mine && /^first run: Open a folder/.test(x))), ...w.bad, ...own]) failures.push(`${name} (${TEXT}): ${b}`);
           for (const [key, where] of Object.entries(await page.evaluate(type.fonts))) {
             const rl = role(key), width = key.split(' ')[4];
@@ -137,12 +158,14 @@ if (require.main === module) {
   const check = flag('--check'), sizes = flag('--sizes');
   const at = args.indexOf('--only');
   const only = at >= 0 ? args.splice(at, 2)[1].split(',') : null;
+  // --dist <folder>: the pages built elsewhere than ui/dist (read in main, from the process's own arguments).
+  const di = args.indexOf('--dist'), dist = di >= 0 ? args.splice(di, 2) : [];
   const [out, ...d] = args;
   if (!out) (console.error('usage: node scripts/projects-shots.cjs <outdir> [dpr...] [--only a,b] [--check] [--sizes]'), process.exit(2));
   if (sizes) {
     // The three text sizes side by side, each in a process of its own: the size is read once, when a page module loads.
     const runs = ['small', 'default', 'large'].map((text) => new Promise((done) => {
-      const p = spawn(process.execPath, [__filename, out, ...d, ...(only ? ['--only', only.join(',')] : []), ...(check ? ['--check'] : [])], { env: { ...process.env, TEXT: text }, stdio: 'inherit' });
+      const p = spawn(process.execPath, [__filename, out, ...d, ...(only ? ['--only', only.join(',')] : []), ...(check ? ['--check'] : []), ...dist], { env: { ...process.env, TEXT: text }, stdio: 'inherit' });
       p.on('exit', (code) => done(code));
     }));
     Promise.all(runs).then((codes) => (process.exitCode = codes.some(Boolean) ? 1 : 0));

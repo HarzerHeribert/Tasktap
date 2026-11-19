@@ -646,10 +646,11 @@ button.line.fold-l{grid-template-columns:28px 190px minmax(0,1fr)}
 .tick[aria-checked=true]>i::after{content:"";position:absolute;left:4px;top:1.5px;width:3px;height:6.5px;border:solid var(--ink);border-width:0 var(--i-w) var(--i-w) 0;transform:rotate(45deg)}
 .tick.add{font:var(--f-small)}
 .tick.add .i{width:12px;height:12px;color:var(--fg3)}
-/* What was found: a list of Home's kind, on the Composer's edges, one line a project: the name, its folder, why. */
+/* What was found: a list of Home's kind, on the Composer's edges, one line a project: the name, its folder, why. Every
+   one, in a list that scrolls in the room under the Composer (its height is measured: projects.tsx useRoom). */
 .hx.first>.found{width:min(100%,var(--cap-w));margin-inline:auto}
 /* The rows share one set of columns (each a subgrid of the list), so the reasons, which give way last, stand on one edge. */
-.fr-s{display:grid;grid-template-columns:var(--lead) calc(140px * var(--ts)) minmax(0,1fr) fit-content(calc(290px * var(--ts)))}
+.fr-s{display:grid;grid-template-columns:var(--lead) calc(140px * var(--ts)) minmax(0,1fr) fit-content(calc(290px * var(--ts)));align-content:start;overflow-y:auto}
 .fr{grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--line);font:var(--f-small);color:var(--fg2)}
 .fr>.i{align-self:center;justify-self:center;width:14px;height:14px;color:var(--fg3)}
 .fr>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -689,6 +690,8 @@ button.line.pj{grid-template-columns:28px 190px minmax(0,1fr) auto}
 .line.pj[aria-expanded=true] .i{transform:rotate(90deg)}
 .line.pj[aria-expanded=true]{border-bottom-color:transparent}
 .line.pj time{padding-left:var(--sp3);font:var(--f-num);color:var(--fg3)}
+/* Every project is a row, however many: one far off the screen is not laid out or painted until it comes near. */
+.pjs>.line.pj{content-visibility:auto;contain-intrinsic-block-size:auto var(--home-row)}
 .pj-c{display:grid;padding:0 18px 14px 46px;border-bottom:1px solid var(--line)}
 .pj-k{display:grid;grid-template-columns:178px minmax(0,1fr);column-gap:var(--sp3);align-items:baseline;padding:4px 0}
 .pj-k>.k{font:var(--f-small);color:var(--fg3)}

@@ -8,7 +8,7 @@
 // what could be looked at, found by `stat` alone with nothing inside read (`projects.offer`). The page keeps only what
 // the person did here a moment ago.
 import type { AddLook, Card, Look, Offer } from '../../../core/proto/protocol.ts';
-import type { ComponentChildren } from 'preact';
+import { Component, type ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useState } from 'preact/hooks';
 import { cap } from '../capture.tsx';
 import { uuid7 } from '../client.ts';
@@ -50,10 +50,11 @@ function reasons(c: Card): string[] {
 /** The one reason a row on Home gives: an agent's work, else what it says it is, else the strongest sign. */
 const reason = (c: Card) => (c.why.includes('agent') && c.agents.length ? worked(c) : c.about ? `${file(c.about_from) || 'It says'}: ${c.about}` : (reasons(c)[0] ?? ''));
 
-/** What Tasktap reads, said before it reads it: of an agent's history, and of a folder. */
+/** What Tasktap reads, said before it reads it: of an agent's history, and of a folder; and what of it goes anywhere. */
+const MODEL = 'Only if you let a model place your thoughts does that model get the name and one-line description of up to 8 likely projects.';
 const READS_AGENTS = (names: string[]) =>
-  `Tasktap reads which folders ${and(names) || 'your agents'} ${names.length === 1 ? 'was' : 'were'} started in, and when; never what was said there. It keeps that on ${HERE} and sends none of it anywhere.`;
-const READS_FOLDERS = `Tasktap reads the names of the folders in there and, of each project, its name, the first lines of its README and of its package file, and when it last changed. It keeps that on ${HERE} and sends none of it anywhere. It opens nothing until a thought goes there.`;
+  `Tasktap reads which folders ${and(names) || 'your agents'} ${names.length === 1 ? 'was' : 'were'} started in, and when; never what was said there. Of each folder that is a project it reads the first lines of its README and its package file and its Git remote, and asks Git for its first commit. It keeps all of that on ${HERE}. ${MODEL}`;
+const READS_FOLDERS = `Tasktap reads the names of the folders in there and, of each project, the first lines of its README and its package file and its Git remote, and asks Git for its first commit. It keeps all of that on ${HERE}. ${MODEL} It opens nothing until a thought goes there.`;
 
 // ——— What Tasktap knows ———
 
@@ -126,20 +127,21 @@ export function beginKey(e: KeyboardEvent) {
   return true;
 }
 
-/** How many rows of what was found fit under the Composer without Home scrolling, measured as it stands: at most
- *  eight, at least three; the rest are in Settings. While more may come in under the rows (the line to the rest, the
- *  folder most are in), its room is kept, so no row goes again once it is shown. */
+/** How tall the list of what was found may be, in pixels, so that Home does not scroll: as many whole rows as fit
+ *  between where it begins and Home's foot, less what stands under it, and at least three; the list scrolls inside
+ *  that. Measured as it stands. While more may come in under it (the folder most are in), that room is kept, so the
+ *  list does not shrink once it is shown. 0 until measured. */
 function useRoom(coming: boolean) {
-  const [room, setRoom] = useState(8);
+  const [room, setRoom] = useState(0);
   useLayoutEffect(() => {
-    const home = document.querySelector<HTMLElement>('.room > .home'), el = home?.querySelector<HTMLElement>('.found');
-    if (!home || !el) return;
-    const rows = el.querySelectorAll('.fr'), row = rows[0]?.getBoundingClientRect().height || 29;
+    const home = document.querySelector<HTMLElement>('.room > .home'), el = home?.querySelector<HTMLElement>('.found'), list = el?.querySelector<HTMLElement>('.fr-s');
+    if (!home || !el || !list) return;
+    const row = list.querySelector('.fr')?.getBoundingClientRect().height || 29, at = list.getBoundingClientRect();
     const foot = parseFloat(getComputedStyle(el.parentElement ?? el).paddingBottom) || 0;
-    const top = el.getBoundingClientRect().top - home.getBoundingClientRect().top + home.scrollTop;
-    const rest = el.getBoundingClientRect().height - rows.length * row + (coming && !el.querySelector('.more') ? 32 : 0) + (coming && !el.querySelector('.found-s') ? 44 : 0);
-    const fits = Math.max(3, Math.min(8, Math.floor((home.clientHeight - foot - top - rest) / row)));
-    if (fits !== room) setRoom(fits);
+    const top = at.top - home.getBoundingClientRect().top + home.scrollTop;
+    const under = el.getBoundingClientRect().bottom - at.bottom + (coming && !el.querySelector('.found-s') ? 44 : 0);
+    const fits = Math.max(3, Math.floor((home.clientHeight - foot - top - under) / row)) * row;
+    if (Math.abs(fits - room) > 0.5) setRoom(fits);
   });
   return room;
 }
@@ -149,7 +151,7 @@ function useRoom(coming: boolean) {
 export function Begin({ quiet, children }: { quiet: boolean; children?: ComponentChildren }) {
   const o = useOffer();
   const at = step(o);
-  // A short window shows fewer rows; the count follows it.
+  // A short window has less room for what was found; the list's height follows it.
   useEffect(() => {
     addEventListener('resize', redraw);
     return () => removeEventListener('resize', redraw);
@@ -204,27 +206,25 @@ export function Begin({ quiet, children }: { quiet: boolean; children?: Componen
   return <Found o={o} other={other} />;
 }
 
-/** What was found, filling in as the looks read: the most recently worked on first, each with its folder and why;
- *  the rest in Settings. Under it, where most of them are, if Tasktap has not looked there. */
+/** What was found, filling in as the looks read: every project, the most recently worked on first, each with its
+ *  folder and why, in a list that scrolls in the room under the Composer. Under it, where most of them are, if
+ *  Tasktap has not looked there. */
 function Found({ o, other }: { o: Offer; other: ComponentChildren }) {
   const all = known(), coming = settling(), busy = begun.asking > 0 || looks().some(reading);
   const place = derived(o), most = place && place.projects * 2 >= all.length;
-  const shown = all.slice(0, useRoom(coming));
+  const room = useRoom(coming);
   const close = () => ((begun.closed = true), (begun.looked = false), redraw());
   return (
     <section class="hsec found" aria-labelledby="begin-h" aria-busy={busy}>
       <h3 id="begin-h">{busy && <Mark s="working" label="Looking" />}<span>{busy && !all.length ? 'Looking…' : all.length ? `Found ${plural(all.length, 'project', 'projects')}` : 'Found no projects'}</span></h3>
-      {shown.length > 0 && (
-        <div class="fr-s">
-          {shown.map((c) => (
+      {all.length > 0 && (
+        <div class="fr-s" style={room ? { maxHeight: `${room}px` } : undefined}>
+          {all.map((c) => (
             <div class="fr" key={c.id} title={[c.name, shownPath(c.folder), c.about].filter(Boolean).join('\n')}>
               <I n="folder" /><span class="fr-n">{c.name}</span><span class="fr-f">{shownPath(c.folder)}</span><span class="fr-w">{reason(c)}</span>
             </div>
           ))}
         </div>
-      )}
-      {all.length > shown.length && (
-        <button type="button" class="more" onClick={() => open({ kind: 'settings', at: 'projects' })}>and {all.length - shown.length} more, in Settings › Projects<I n="chev" /></button>
       )}
       {!busy && !all.length && <p class="found-n">A folder counts when an agent worked there, or when it has Git or a package file in it.</p>}
       {place && !coming && (
@@ -262,7 +262,7 @@ export function ProjectsPane() {
   const projects = known();
   const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
   const match = (c: Card) => words.every((w) => [c.name, ...c.names, c.folder.split(/[\\/]/).pop() ?? ''].some((n) => n.toLocaleLowerCase().includes(w)));
-  const found = projects.filter(match), list = found.slice(0, words.length ? 50 : 100);
+  const found = projects.filter(match);
   const hidden = cards.filter((c) => c.hidden).sort(recent);
   const lookAgain = () => {
     setAgain('looking');
@@ -312,11 +312,10 @@ export function ProjectsPane() {
         </label>
       )}
       <div class="list pjs">
-        {list.map((c) => <ProjectRow key={c.id} c={c} open={shown === c.id} toggle={() => show(shown === c.id ? null : c.id)} cards={cards} />)}
+        {found.map((c) => <Row key={c.id} c={c} open={shown === c.id} show={show} cards={shown === c.id ? cards : NONE} />)}
       </div>
       {!projects.length && <p class="note">None yet. Tasktap learns of them where your agents have worked and in the folders it looks in.</p>}
       {projects.length > 0 && !found.length && <p class="note">No project is called “{query.trim()}”.</p>}
-      {found.length > list.length && <p class="note">And {found.length - list.length} more. Type to find one.</p>}
       {hidden.length > 0 && (
         <div class="list">
           <button type="button" class="line fold-l" aria-expanded={aside} onClick={() => setAside(!aside)}>
@@ -384,14 +383,27 @@ function FolderLook({ look, cards }: { look: Look; cards: Card[] }) {
   );
 }
 
+type RowProps = { c: Card; open: boolean; show: (id: string | null) => void; cards: Card[] };
+const NONE: Card[] = [];
+/** A project's row is drawn again only when its card changes or it opens or closes: there may be thousands of them,
+ *  and the page is drawn again often. Only the open one is given every card, to find its copies and what is inside it. */
+class Row extends Component<RowProps> {
+  override shouldComponentUpdate(n: RowProps) {
+    return n.c !== this.props.c || n.open !== this.props.open || n.cards !== this.props.cards;
+  }
+  override render() {
+    return <ProjectRow {...this.props} />;
+  }
+}
+
 /** One project: its name, folder and when it was last worked on; opened, everything Tasktap knows of it, and the two
  *  corrections a person makes: it is no project, or forget it. */
-function ProjectRow({ c, open: isOpen, toggle, cards }: { c: Card; open: boolean; toggle: () => void; cards: Card[] }) {
+function ProjectRow({ c, open: isOpen, show, cards }: RowProps) {
   const copies = cards.filter((x) => x.copy_of === c.id), inside = cards.filter((x) => x.inside === c.id);
   const ws = c.project_id ? records.projects.get(c.project_id) : undefined;
   return (
     <>
-      <button type="button" class="line pj" aria-expanded={isOpen} data-s={c.available ? undefined : 'none'} onClick={toggle}>
+      <button type="button" class="line pj" aria-expanded={isOpen} data-s={c.available ? undefined : 'none'} onClick={() => show(isOpen ? null : c.id)}>
         <I n="chev" />
         <span class="t">{c.name}</span>
         <span class="x mono" title={shownPath(c.folder)}>{shownPath(c.folder)}</span>

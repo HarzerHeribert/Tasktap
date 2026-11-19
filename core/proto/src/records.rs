@@ -703,6 +703,10 @@ pub enum PrefValue {
     /// and a command line. They follow the core's own in the `agents`
     /// collection.
     OwnAgents(Vec<OwnAgent>),
+    /// The person put Setup away on Home (design/ui-directions/NOTES.md §13):
+    /// its one-time offers stay in Settings, and Home shows it no more.
+    /// False: Home shows it while one of its steps is not done.
+    SetupHidden(bool),
 }
 
 /// An agent the person added (design §7): any program that takes what it is
@@ -888,7 +892,7 @@ words! {
         Hold, Agent, RouteBy, MotionStyle, MotionPalette, MotionHue, MotionLumen, MotionAmbient,
         TerminalFont, TerminalSize, TerminalLineHeight, SpeechBy, SpeechLanguages, Keys,
         ReturnSends, CaptureKey, TalkKey, KeepDays, TerminalBoldBright, TerminalContrast, TextSize,
-        AgentOptions, OwnAgents
+        AgentOptions, OwnAgents, SetupHidden
     }
 }
 
@@ -943,6 +947,7 @@ impl PrefKey {
             PrefKey::TextSize => PrefValue::TextSize(TextSize::Default),
             PrefKey::AgentOptions => PrefValue::AgentOptions(Vec::new()),
             PrefKey::OwnAgents => PrefValue::OwnAgents(Vec::new()),
+            PrefKey::SetupHidden => PrefValue::SetupHidden(false),
         }
     }
 }
@@ -973,6 +978,7 @@ impl PrefValue {
             PrefValue::TextSize(_) => PrefKey::TextSize,
             PrefValue::AgentOptions(_) => PrefKey::AgentOptions,
             PrefValue::OwnAgents(_) => PrefKey::OwnAgents,
+            PrefValue::SetupHidden(_) => PrefKey::SetupHidden,
         }
     }
 }

@@ -2,8 +2,8 @@
 //! the real code: `scripts/place-eval.sh` runs it. Every project of
 //! `scripts/place-eval.json` is a project Tasktap knows (a card, with its
 //! line and how long ago it was worked on); every thought goes through
-//! `route::local`, as a capture does with no model agreed to, at 30, 100
-//! and 300 projects. Nothing is asked of anyone and nothing is written.
+//! `route::local`, as a capture does with no model agreed to, at 36, 100
+//! and 306 projects. Nothing is asked of anyone and nothing is written.
 //!
 //!     place-eval <fixture.json> [--each]
 //!
@@ -62,6 +62,15 @@ const KINDS: &[(&str, &str)] = &[
         "describe work in a project whose card says nothing",
     ),
     ("none", "name and mean no project"),
+    (
+        "everyday",
+        "use an everyday-word project's name as a name (held out)",
+    ),
+    (
+        "decoy",
+        "mean no project, with an everyday name or a name's sound or words in them (held out)",
+    ),
+    ("seen", "the review found placed wrongly (in-sample)"),
 ];
 
 fn main() {
@@ -80,7 +89,7 @@ fn main() {
             used: Time::new(now - p.quiet * 86_400_000),
         })
         .collect();
-    let sizes = [30, 100, 300];
+    let sizes = [36, 100, 306];
     let mut tallies = vec![vec![Tally::default(); KINDS.len()]; sizes.len()];
     let mut ms = vec![0f64; sizes.len()];
     for (s, size) in sizes.iter().enumerate() {
@@ -138,7 +147,7 @@ fn main() {
                     "kept"
                 }
             };
-            if each && *size == 300 {
+            if each && *size == 306 {
                 let label = |r: &Route| match r {
                     Route::Ambiguous { candidates, .. } => {
                         let c: Vec<String> = candidates
@@ -201,7 +210,7 @@ fn main() {
     let per: Vec<String> = ms.iter().map(|m| format!("{:.2}", m / thoughts)).collect();
     println!();
     println!(
-        "Where figures differ: at 30 / 100 / 300 projects. Milliseconds a thought: {}.",
+        "Where figures differ: at 36 / 100 / 306 projects. Milliseconds a thought: {}.",
         per.join(" / ")
     );
 }

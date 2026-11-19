@@ -160,7 +160,7 @@ impl Core {
             auth: Some(Auth::Device {
                 device: self.device,
                 key: self.key.clone(),
-                register: Some(Register { name: "Tasktap Next".into() }),
+                register: Some(Register { name: crate::NAME.into() }),
             }),
             abilities: Vec::new(),
         };

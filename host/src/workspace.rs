@@ -76,10 +76,12 @@ pub fn start(data: PathBuf) {
     *STATE.lock().unwrap() = Some(State { path, settings, shown: false });
 }
 
-/// Windows: where the tab hangs, as the person chose it ("main" until they do).
+/// Windows: where the tab hangs, as the person chose it ("main" until they do; in a review build "off", since the
+/// person's own Tasktap has its tab there).
 #[cfg(windows)]
 pub fn tab() -> String {
-    STATE.lock().unwrap().as_ref().and_then(|st| st.settings.tab.clone()).unwrap_or_else(|| "main".into())
+    let default = if crate::REVIEW { "off" } else { "main" };
+    STATE.lock().unwrap().as_ref().and_then(|st| st.settings.tab.clone()).unwrap_or_else(|| default.into())
 }
 #[cfg(windows)]
 pub fn set_tab(display: &str) {

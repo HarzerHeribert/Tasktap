@@ -22,6 +22,7 @@ import { placing } from '../way.ts';
 import { AgentsPane } from './agents.tsx';
 import { ProjectsPane } from './projects.tsx';
 import { UpdateRow } from './update.tsx';
+import { SetupRow } from './setup.tsx';
 import { Speech, Thoughts, serviceName } from './consent.tsx';
 import { Choice, Recorder, Row, Switch, setPref } from './form.tsx';
 import { agent, agentName, call, fail, focus, loadTerms, openQuestions, placers, pref, records, redraw, ui } from './model.ts';
@@ -249,6 +250,7 @@ function AboutPane() {
     <>
       <Row name="Tasktap"><span class="v">{version ? `Version ${version}` : 'This build has no version number'}</span></Row>
       <UpdateRow />
+      <SetupRow />
       <h3>What leaves {HERE}</h3>
       <Row name="Your thoughts" hint={`Each goes to the agent that runs it${usual ? `, ${agentName(usual.id)} unless you pick another` : ''}, in a terminal on ${HERE}, under that agent's own sign-in.`}>
         <span class="v">To the agent</span><To at="agents">Agents</To>

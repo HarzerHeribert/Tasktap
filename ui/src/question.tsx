@@ -22,12 +22,25 @@ export function answers(q: Question): string[] {
 const choose = (q: Question, k: number) =>
   q.kind === 'confirm' ? reply(q, { kind: k === 0 ? 'affirm' : 'deny' }) : reply(q, { kind: 'choice', choice: k });
 
-/** The keys of a question with the keyboard: 1 to 9, Y and N for a yes or no, T to reply, Return for its terminal. */
-export function keys(q: Question, e: KeyboardEvent, terminal?: () => void): boolean {
+/** The keys of a question with the keyboard: 1 to 9, Y and N for a yes or no, T to reply, Return for its terminal;
+ *  the arrows from one answer to the next (past the first or the last they are the page's again), and Return on one
+ *  answers with it. `leave`: Escape and Tab give the keyboard back to where it came from (the Composer's field). */
+export function keys(q: Question, e: KeyboardEvent, terminal?: () => void, leave?: () => void): boolean {
   const target = e.target as HTMLElement;
+  if (leave && (e.key === 'Escape' || e.key === 'Tab') && !e.isComposing && !e.metaKey && !e.ctrlKey && !e.altKey && !target.matches('input, textarea')) {
+    e.preventDefault();
+    e.stopPropagation();
+    leave();
+    return true;
+  }
   if (target.matches('input, textarea') || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return false;
   const k = e.key.toLowerCase(), all = answers(q), n = Number(k);
-  if (q.reply_via === 'terminal') {
+  if (k === 'arrowdown' || k === 'arrowup') {
+    const rows = [...(e.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('.qa > .ans')];
+    const at = rows.indexOf(document.activeElement as HTMLElement), to = k === 'arrowdown' ? (at < 0 ? 0 : at + 1) : at - 1;
+    if (to < 0 || to >= rows.length) return false;
+    rows[to]!.focus({ focusVisible: true });
+  } else if (q.reply_via === 'terminal') {
     if (k !== 'enter' || !terminal || target.closest('button')) return false;
     terminal();
   } else if (n >= 1 && n <= Math.min(9, all.length)) void choose(q, n - 1);
@@ -73,8 +86,9 @@ export function Answers({ q, terminal, who }: { q: Question; terminal?: () => vo
     const elsewhere = q.thought_id ? () => ((other.thought = q.thought_id!), redraw()) : undefined;
     // "Another project…" turns the choices into a field that finds any project, which sends the thought there.
     if (q.thought_id && other.thought === q.thought_id) return <Elsewhere q={q} thought={q.thought_id} />;
+    // One under another, each whole: a row of places wrapped and cut at the window's edge (the owner, 2026-11-19).
     return (
-      <div class="qa">
+      <div class="qa rows">
         {answers(q).map((label, i) => (i < 9 ? <Answer k={String(i + 1)} {...place(label, i)} onClick={() => void choose(q, i)} /> : null))}
         {elsewhere && <Answer k="O" label="Another project…" lead={<I n="search" />} onClick={elsewhere} />}
         <Answer k="L" label="Keep for later" lead={<I n="later" />} onClick={() => void reply(q, { kind: 'deny' })} />
@@ -156,15 +170,19 @@ function Elsewhere({ q, thought }: { q: Question; thought: string }) {
 /** The thought whose router question shows "Another project…" as a field, while it does. */
 const other = { thought: '' };
 
-/** The question in full and its answers, inside an element that takes the keyboard for them. */
-export function Ask({ q, size, terminal, who, class: cls = '' }: { q: Question; size: 'home' | 'notch' | 'pane'; terminal?: () => void; who?: string; class?: string }) {
+/** The question in full and its answers, inside an element that takes the keyboard for them; their key caps show
+ *  while it has it (page.ts markHeld). `cap`: asked at the Composer about the thought just sent (capture.tsx), in the
+ *  colour of what needs the person, the thought quoted in one line; `leave` gives the keyboard back to its field. */
+export function Ask({ q, size, terminal, who, class: cls = '', leave }: { q: Question; size: 'home' | 'notch' | 'pane' | 'cap'; terminal?: () => void; who?: string; class?: string; leave?: () => void }) {
   // The router's question is about a thought that has no place yet: the thought in full, and its brief so far.
   const said = q.source === 'router' && q.thought_id ? records.thoughts.get(q.thought_id) : undefined;
+  const line = said?.text.trim().split('\n')[0] ?? '';
   return (
-    <div class={`ask-${size} ${cls}`} data-question={q.id} tabIndex={-1} onKeyDown={(e) => keys(q, e, terminal)}>
-      <p class="qp">{q.prompt}</p>
-      {said && <p class="way-w"><span>You said</span>{said.text}</p>}
-      {said && briefOf(said) && <p class="way-b"><span>Brief so far</span>{briefOf(said)}</p>}
+    <div class={`ask-${size} ${cls}`} data-question={q.id} data-keys tabIndex={-1} onKeyDown={(e) => keys(q, e, terminal, leave)}>
+      {size === 'cap' ? <p class="qp"><Mark s="asks" label="" />{q.prompt}</p> : <p class="qp">{q.prompt}</p>}
+      {size === 'cap' && said && <p class="q-quote" title={said.text}>“{line}”</p>}
+      {size !== 'cap' && said && <p class="way-w"><span>You said</span>{said.text}</p>}
+      {size !== 'cap' && said && briefOf(said) && <p class="way-b"><span>Brief so far</span>{briefOf(said)}</p>}
       {q.detail && <p class="q-detail">{q.detail}</p>}
       <Answers q={q} terminal={terminal} who={who} />
     </div>

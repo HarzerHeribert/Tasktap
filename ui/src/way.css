@@ -3,32 +3,14 @@
    and the seat of the agent that runs the next thought. Quiet controls on the ground they stand on: the one metal key
    is the Composer's own. */
 
-/* The agent that runs the next thought is seated, as a chosen segment is in Settings: the selected fill and its
-   hairline, the ring lit and a little heavier, the agent's name beside it where the row has room. The seat is where
-   the click landed, and the ring that takes it settles into it, so the choice is seen made. */
-.ring[aria-checked=true]{background:var(--sel);box-shadow:inset 0 0 0 1px var(--line2)}
-/* The chosen ring's circle is the one heavier one: 1.4 of the icons' weight (scripts/align-check.cjs knows it). */
-.ring[aria-checked=true] .ring-o circle:not(.turn){stroke-width:calc(var(--i-w) * 1.4 * 24 / var(--ring-px,22))}
-.ring:not([aria-checked=true],[data-s=off]):hover{background:var(--hover);color:var(--fg)}
-.ring .nm{max-width:12ch;padding-right:5px;overflow:hidden;text-overflow:ellipsis;font:var(--f-small);color:var(--fg)}
-/* Where the Composer is narrow (the notch, the capture sheet, Home in a narrow window) its row is two lines, so that
-   nothing in it is squeezed, cut or left unsaid: where the thought goes and the key that sends it; under them who runs
-   it, by name, and the microphone with its key. */
+/* The Composer's foot is one line wherever it is (NOTES §13): where it goes, who runs it, the microphone, the key, in
+   that order. Short of room, the chip's reason gives way, then the microphone's key hint, then the names are cut short;
+   nothing wraps, and the key stays where it is. Where the Composer is narrow (the notch, the capture sheet) the agent
+   shows its ring and chevron alone. */
 .cap{container:cap/inline-size}
 @container cap (max-width:540px){
-  .cap-row:not(.hear,.cap-list){flex-wrap:wrap;row-gap:0}
-  .cap-row:not(.hear,.cap-list)::after{content:"";order:3;flex-basis:100%}
-  .cap-row>.cap-to{order:1}
-  .cap .cap-row>.cap-to~.key{order:2;margin-left:auto}
-  .cap-row>.rings{order:4;margin:2px 0 0 -3px}
-  .cap .cap-row>.cap-to~.mic{order:5;margin:2px -6px 0 auto}
+  .cap-agent .nm{display:none}
 }
-@media(prefers-reduced-motion:no-preference){
-  .ring[aria-checked=true]{animation:ring-seat 420ms var(--ease)}
-  .ring[aria-checked=true] .ring-o{animation:ring-take 420ms var(--ease)}
-}
-@keyframes ring-seat{from{background:var(--fill-hover);box-shadow:inset 0 0 0 1px var(--fg3)}}
-@keyframes ring-take{from{transform:scale(1.24)}}
 
 /* The microphone: quiet, its key beside it. Without a speech service it is dimmer, and says why when pressed. */
 .mic{display:inline-flex;align-items:center;gap:5px;flex:none;height:var(--row-h);padding:0 6px;border-radius:var(--r1);color:var(--fg2);touch-action:none}
@@ -36,7 +18,7 @@
 .mic:active{background:var(--sel)}
 .mic[data-off] .i{opacity:.55}
 .capture.raised .mic{padding:0 9px;border-radius:var(--r-in)}
-.cap-to+.mic{margin-left:auto}
+:is(.cap-to,.cap-agent)+.mic{margin-left:auto}
 .cap-row .mic+.key{margin-left:var(--sp1)}
 .reply .mic{height:22px;padding:0 4px;margin-right:-2px;color:var(--fg3)}
 

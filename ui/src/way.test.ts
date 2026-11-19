@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Routing, Thought } from '../../core/proto/protocol.ts';
-import { agentState, back, briefOf, clock, hold, into, laterWhy, leave, letters, lettersOf, offered, onWay, ownAgentLacks, placed, placing, ring, step } from './way.ts';
+import { agentState, back, briefOf, clock, hold, into, laterWhy, leave, letters, lettersOf, listed, onWay, ownAgentLacks, placed, placing, ring, step } from './way.ts';
 
 test('an agent\'s row says what its own commands said, and when, and never more', () => {
   const row = (o: object = {}) => ({ supported: true, installed: true, checks: true, signed_in: null as boolean | null, stale: false, checked: 0, ...o });
@@ -22,24 +22,18 @@ test('an agent\'s row says what its own commands said, and when, and never more'
   assert.equal(says({ checks: false, checked: 9 }, true), 'sign-in not checked');
 });
 
-test('the Composer offers the agents that can run a thought, a ring for as many as its row has and the rest behind it', () => {
-  const a = (id: string, o: object = {}) => ({ id, installed: true, supported: true, signed_in: true as boolean | null, ...o });
-  const ids = (x: { rings: { id: string }[]; more: { id: string }[] }) => [x.rings.map((r) => r.id).join(' '), x.more.map((r) => r.id).join(' ')];
-  const idle = () => false;
-  const ten = ['claude', 'codex', 'agy', 'pi', 'opencode', 'aider', 'qwen', 'goose', 'crush', 'own-1'].map((id) => a(id));
-  // The first four in the core's order, the usual one among them.
-  assert.deepEqual(ids(offered(ten, 'claude', undefined, idle, 4)), ['claude codex agy pi', 'opencode aider qwen goose crush own-1']);
-  // The usual one has a ring wherever it stands, and so has the one picked for this thought: none of the others moves.
-  assert.deepEqual(ids(offered(ten, 'goose', undefined, idle, 4)), ['claude codex agy goose', 'pi opencode aider qwen crush own-1']);
-  assert.deepEqual(ids(offered(ten, 'claude', 'crush', idle, 4)), ['claude codex agy crush', 'pi opencode aider qwen goose own-1']);
-  // One that works or asks is seen before one that does nothing.
-  assert.deepEqual(ids(offered(ten, 'claude', 'crush', (id) => id === 'qwen', 4)), ['claude codex qwen crush', 'agy pi opencode aider goose own-1']);
-  // Not offered: one that is not here, one this system cannot run, one known to be signed out. One never asked is.
-  const some = [a('claude'), a('codex', { signed_in: false }), a('agy', { installed: false }), a('pi', { supported: false }), a('aider', { signed_in: null })];
-  assert.deepEqual(ids(offered(some, 'claude', undefined, idle, 4)), ['claude aider', '']);
-  // The usual one signed out keeps its ring, which says so: it is the one that runs the next thought.
-  assert.deepEqual(ids(offered(some, 'codex', undefined, idle, 4)), ['claude codex aider', '']);
-  assert.deepEqual(ids(offered([], undefined, undefined, idle, 4)), ['', '']);
+test('the Composer\'s list offers every agent that is here and runs on this system, in the core\'s order, and narrows by what is typed', () => {
+  const a = (id: string, name: string, o: object = {}) => ({ id, name, installed: true, supported: true, signed_in: true as boolean | null, ...o });
+  const ids = (x: { id: string }[]) => x.map((r) => r.id).join(' ');
+  const all = [a('claude', 'Claude Code'), a('codex', 'Codex', { signed_in: false }), a('agy', 'Antigravity', { installed: false }), a('pi', 'Pi', { supported: false }), a('aider', 'Aider', { signed_in: null }),
+    a('opencode', 'OpenCode'), a('qwen', 'Qwen Code'), a('gemini', 'Gemini CLI')];
+  // Signed out is listed (its row leads to where it is signed in); not here, or not for this system, is not.
+  assert.equal(ids(listed(all, (x) => x.name)), 'claude codex aider opencode qwen gemini');
+  // Typing narrows by name or id, whatever the case.
+  assert.equal(ids(listed(all, (x) => x.name, 'CODE')), 'claude codex opencode qwen');
+  assert.equal(ids(listed(all, (x) => x.name, 'gem')), 'gemini');
+  assert.equal(ids(listed(all, (x) => x.name, 'nothing')), '');
+  assert.equal(ids(listed([], (x: { id: string; name: string; installed: boolean; supported: boolean }) => x.name)), '');
 });
 
 test('the form for an agent of the person\'s own says what its command lacks, in the core\'s words', () => {

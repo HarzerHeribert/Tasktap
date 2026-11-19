@@ -7,16 +7,17 @@
 // written down, then the thought being placed, then where it goes with its brief, readable for the length of its hold,
 // with Undo. Every Composer shows every thought on its way, whoever captured it. Return on an empty field starts the
 // newest of them now, and the Composer's key says so: it is the one key that says Start.
-import type { Capture as CaptureArgs, Card, Dictation, DictationTarget, Found, Route, Thought } from '../../core/proto/protocol.ts';
+import type { Capture as CaptureArgs, Card, Dictation, DictationTarget, Found, Question, Route, Thought } from '../../core/proto/protocol.ts';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'preact/hooks';
 import { uuid7 } from './client.ts';
 import { hit, keyName, spell } from './keys.ts';
 import { talkKey } from './page.ts';
-import { Rings } from './rings.tsx';
+import { Ask } from './question.tsx';
+import { AgentControl, AgentList, chosen } from './rings.tsx';
 import { cancel, control, end, follow, mine, needs, place, setAim, talk, voiced } from './speech/record.ts';
 import { Brand, I, Key, Level, Mark, madeAt } from './ui.tsx';
-import { agent, agentName, call, fail, focus, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
+import { agent, agentName, call, fail, focus, openQuestions, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
 import { back, briefOf, clock, hold, laterWhy, leave, onWay, placed, placing, step } from './way.ts';
 
 /** What was just sent, for what is said of it once it is no longer on its way. `pick`: the place the person chose for
@@ -43,6 +44,9 @@ export const cap = {
   /** The session the person is in, which the router may send a follow-up to. */
   current: null as string | null,
   choosing: false,
+  /** The list of who runs the thought is open in the foot (rings.tsx), and what is typed in its field. */
+  agents: false,
+  findAgent: '',
   /** A thought kept for later that the list, while open, sends to a folder, rather than choosing where the next goes. */
   moving: null as string | null,
   /** What is typed in the list's field to find a project, and what the core found for a text (projects.find). */
@@ -56,9 +60,8 @@ export const cap = {
   refused: '',
   /** The thought a dictation is to become, until it has. */
   spoken: '',
-  /** Placing by a model is offered under what was just sent; and it was, once, in this run. */
+  /** No longer offered under the Composer (NOTES §13: offers are Setup's); kept for the placing sheet, which clears it. */
   offer: false,
-  offered: false,
 };
 
 const folder = (dest: string | undefined) => (dest && dest !== 'later' ? dest : undefined);
@@ -159,10 +162,8 @@ type Hooks = {
   started?: () => void;
   /** An agent that cannot run was chosen: the page shows where it is signed in. */
   agents?: () => void;
-  /** Voice has no speech service yet: the page leads to where one is chosen. */
+  /** Voice is not set up yet: the page leads to where it is (Setup's step in the window, Settings from the notch). */
   speech?: () => void;
-  /** Shows what placing by a model sends, where the person can allow it. Without it the page never offers it. */
-  terms?: () => void;
 };
 
 async function addProject(hooks: Hooks): Promise<string | undefined> {
@@ -215,13 +216,10 @@ async function send(e: Event, hooks: Hooks) {
       if (undone) await call('delete', { c: 'thoughts', id: undone.id });
       await call('thought.capture', { id, text, strokes: [], source: 'typed', ...named(w), ...(by ? { agent: by } : {}) });
     }
-    // A thought that went where nobody chose, to the workspace's folder or wherever its words lead: the moment to offer
-    // placing by a model, once.
-    const offer = (w.why === 'in' || w.why === 'only' || w.why === 'words' || w.why === 'ask') && !cap.offered && !!hooks.terms && offerable();
-    Object.assign(cap, { sent: { id, text, to: w.to, pick, agent: by }, offer, offered: cap.offered || offer });
+    Object.assign(cap, { sent: { id, text, to: w.to, pick, agent: by } });
     page.error = '';
   });
-  Object.assign(cap, { hint: null, dest: undefined, agent: undefined, undone: null, refused: '', back: pick });
+  Object.assign(cap, { hint: null, dest: undefined, agent: undefined, agents: false, undone: null, refused: '', back: pick });
   flights = Promise.allSettled([flights, gone]);
   redraw();
   // Refused: the words are back with their place and their agent, and the core's sentence is under them.
@@ -252,7 +250,7 @@ export async function undo(t?: Thought | 'later') {
       // The agent picked for it alone comes back with it, as the thought itself says.
       const by = t.agent && t.agent !== agent()?.id ? t.agent : undefined;
       Object.assign(cap, {
-        undone: { id: t.id, text: t.text, to: t.project_id ?? t.card_id ?? '', agent: by }, sent: sent?.id === t.id ? null : sent, offer: false, dest: sent?.id === t.id ? sent.pick : cap.dest,
+        undone: { id: t.id, text: t.text, to: t.project_id ?? t.card_id ?? '', agent: by }, sent: sent?.id === t.id ? null : sent, dest: sent?.id === t.id ? sent.pick : cap.dest,
         agent: by, draft: back(t.text, cap.draft),
       });
       // Where it goes is asked again for the words that are back, as it was while they were typed.
@@ -304,6 +302,7 @@ function routeLabel(r: Route) {
 
 export function choose(open: boolean) {
   cap.choosing = open;
+  if (open) cap.agents = false;
   cap.find = '';
   if (!open) cap.moving = null;
   // The field to find a project has the keyboard; the arrows reach the rows under it.
@@ -387,7 +386,10 @@ function Places({ w, later, raised, hooks }: { w: ReturnType<typeof where>; late
     <button type="button" role="option" aria-selected={on} data-to={to} onClick={() => pick(to)}>{mark}<span>{name}</span>{why && <em>{why}</em>}</button>
   );
   return (
-    <div key="list" class="cap-row cap-list" role="listbox" aria-label={cap.moving ? 'Send it to' : 'Where it goes'} onKeyDown={arrows}
+    <div key="list" class="cap-row cap-list" role="listbox" aria-label={cap.moving ? 'Send it to' : 'Where it goes'} data-keys onKeyDown={arrows}
+      // A row pressed keeps the keyboard in the field. A button takes none in WebKit (the Mac's web view): the field lost
+      // it, the list closed under the pointer, and the click on "Open another folder…" or a project never landed.
+      onMouseDown={(e) => !(e.target as HTMLElement).closest('input') && e.preventDefault()}
       onFocusOut={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && cap.choosing && ((cap.choosing = false), (cap.moving = null), redraw())}>
       <label class="cap-find">
         <I n="search" />
@@ -419,7 +421,7 @@ setAim((field): DictationTarget => {
   if (field?.id !== 'capture-input' || field.value.trim() || cap.undone) return { kind: 'text' };
   const w = where(), id = uuid7();
   const by = cap.agent;
-  Object.assign(cap, { sent: { id, text: '', to: w.to, pick: picked(), agent: by }, spoken: id, offer: false, dest: undefined, agent: undefined, refused: '', back: picked() });
+  Object.assign(cap, { sent: { id, text: '', to: w.to, pick: picked(), agent: by }, spoken: id, dest: undefined, agent: undefined, refused: '', back: picked() });
   return { kind: 'thought', id, text: '', strokes: [], source: 'voice', ...named(w), ...(by ? { agent: by } : {}) };
 });
 
@@ -491,7 +493,8 @@ function Going({ t, open }: { t: Thought; open: boolean }) {
           <><I n={t.session_id ? 'term' : 'arrow'} /><b>{t.session_id ? `Follow-up: ${sessionName(t.session_id)}` : projectName(t.project_id ?? t.card_id)}</b>{t.card_id && <em class="way-new">new here</em>}</>
         )}
         {at === 'briefing' && <em>Writing the brief…</em>}
-        <button type="button" class="act" onClick={() => void undo(t)}><Key k="⌘Z" cap /><span>Undo</span></button>
+        {/* ⌘Z is the field's own undo while it holds words: then the cap is not shown. */}
+        <button type="button" class="act" onClick={() => void undo(t)}>{!cap.draft && <Key k="⌘Z" cap />}<span>Undo</span></button>
       </p>
       {open && brief && <p class="way-b"><span>Brief{t.route?.title && <b>{t.route.title}</b>}</span>{brief}</p>}
       {open && (brief || t.source === 'voice') && <p class="way-w"><span>You said</span>{t.text}</p>}
@@ -516,26 +519,18 @@ function Failed({ d }: { d: Dictation }) {
 
 /** Whether placing by a model can be offered: nobody was asked yet, and a signed-in agent could do it. */
 export const offerable = () => !records.prefs.has('route_by') && placers().length > 0;
-/** The offer, one quiet line: what it gives, the way to what it sends, and No. */
-export function Offer({ terms }: { terms: () => void }) {
-  const no = () => {
-    cap.offer = false;
-    void call('put', { c: 'prefs', id: 'route_by', patch: null }).catch(fail);
-  };
-  return (
-    <p class="cap-said offer">
-      <span>Thoughts can find their own folder, and get a brief, with your own agent.</span>
-      <button type="button" class="btn" onClick={terms}>See what it sends…</button>
-      <button type="button" class="act" onClick={no}><span>Not now</span></button>
-    </p>
-  );
-}
-
 /** How long the Composer says where a thought started, and which thought it last said it of. */
 const SAID_FOR = 6000;
 let told = { id: '', at: 0 };
-function Way({ hooks, raised, offer }: { hooks: Hooks; raised: boolean; offer: boolean }) {
+function Way({ hooks, raised }: { hooks: Hooks; raised: boolean }) {
   const sent = cap.sent?.id === cap.spoken ? null : cap.sent;
+  // Voice that is not set up yet: the microphone leads to where it is set up (Setup's step on Home), rather than a
+  // sentence under the Composer, which is the thought's alone.
+  useEffect(() => {
+    if (talk.said !== 'service' || !hooks.speech) return;
+    talk.said = '';
+    hooks.speech();
+  });
   const t = sent ? records.thoughts.get(sent.id) : undefined;
   const all = going();
   const failed = [...records.dictations.values()].filter((d) => d.phase === 'failed');
@@ -561,28 +556,61 @@ function Way({ hooks, raised, offer }: { hooks: Hooks; raised: boolean; offer: b
     <div class={`ways${raised ? ' under' : ''}`}>
       {failed.map((d) => <Failed key={d.id} d={d} />)}
       {cap.refused && <section class="way failed" role="alert"><p class="way-h"><Mark s="failed" label="" /><b>{cap.refused}</b></p></section>}
-      {talk.said === 'service' && line(needs(), hooks.speech && <button type="button" class="btn" onClick={() => (cancel(), hooks.speech!())}>Set up…</button>)}
+      {talk.said === 'service' && !hooks.speech && line(needs())}
       {talk.said && talk.said !== 'service' && line(talk.said)}
       {all.map((x, i) => <Going key={x.id} t={x} open={i === 0} />)}
       {sent?.to === 'later' && t && line(raised || projects().some((p) => p.kind === 'folder') ? 'Saved for later' : 'Saved for later, until a folder is open',
-        <button type="button" class="act" onClick={() => void undo('later')}><Key k="⌘Z" cap /><span>Undo</span></button>)}
+        <button type="button" class="act" onClick={() => void undo('later')}>{!cap.draft && <Key k="⌘Z" cap />}<span>Undo</span></button>)}
+      {/* Its question, where one is asked, stands at the Composer itself (Asked) or waits in Needs you: nothing here. */}
       {sent && sent.to !== 'later' && t && !onWay(t) && (
-        at === 'asked' ? line('Where should it go? Its question is open.')
+        at === 'asked' ? null
           : at === 'later' ? line(later, <>
             <button type="button" class="btn" onClick={() => sendOn(t.id)}>Send to a folder…</button>
-            <button type="button" class="act" onClick={() => void undo('later')}><Key k="⌘Z" cap /><span>Undo</span></button>
+            <button type="button" class="act" onClick={() => void undo('later')}>{!cap.draft && <Key k="⌘Z" cap />}<span>Undo</span></button>
           </>)
             : at === 'failed' ? line(`${why(t)} in ${projectName(t.project_id)}.`)
               : fresh ? line(<>Started in <b>{projectName(t.project_id)}</b>{t.card_id && <i>new here</i>}{note && <i>{note}</i>}</>) : null
       )}
-      {(cap.offer || offer) && hooks.terms && offerable() && !talk.id && !talk.asking && <Offer terms={hooks.terms} />}
     </div>
   );
 }
 
+/** The router's question about the thought this Composer sent last, as it was first seen (NOTES §13): asked at the
+ *  Composer with the keyboard (`held`: the field was empty and had it, or nothing had it), at the Composer without it
+ *  (`here`: the keyboard was on something else, a row of Home), or waiting in Needs you (`away`: the next thought was
+ *  begun when it came, or the person gave the field back with Escape or Tab). Decided once for each question, so a
+ *  key typed into the next thought is never taken for an answer. */
+const asked = new Map<string, 'held' | 'here' | 'away'>();
+/** The question asked at a Composer of this page now, if one is (Home's Needs you then leaves it out). */
+let held = '';
+export function askedHere(): Question | undefined {
+  const sent = cap.sent;
+  const q = sent && openQuestions().find((x) => x.source === 'router' && x.thought_id === sent.id);
+  // Answered while it had the keyboard: the keyboard is the field's again, for the next thought (and ⌘Z).
+  const now = document.activeElement;
+  if (held && held !== q?.id && (!now || now === document.body || now.closest(`[data-question="${held}"]`))) page.focus = '#capture-input';
+  held = q && asked.get(q.id) !== 'away' ? q.id : '';
+  if (!q) return undefined;
+  let at = asked.get(q.id);
+  if (!at) {
+    const now = document.activeElement;
+    at = cap.draft.trim() ? 'away' : !now || now === document.body || now.closest('.capture') ? 'held' : 'here';
+    asked.set(q.id, at);
+    if (at === 'held') page.focus = `[data-question="${q.id}"]`;
+  }
+  return at === 'away' ? undefined : q;
+}
+/** Gives the field its keyboard back: the question waits in Needs you. */
+function giveBack(q: Question) {
+  asked.set(q.id, 'away');
+  page.focus = '#capture-input';
+  redraw();
+}
+
 /** The Composer. `raised` is Home's: a surface of its own, the thought at 20 px, up to six lines; elsewhere it sits on
- *  its sheet with Tasktap's mark beside the thought, up to three lines. */
-export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { raised?: boolean; offer?: boolean }) {
+ *  its sheet with Tasktap's mark beside the thought, up to three lines. `asks`: the router's question about the thought
+ *  just sent is asked here, under the field and on the same surface (Home's or the capture sheet's, never both). */
+export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { raised?: boolean; asks?: boolean }) {
   const route = hinted(), w = where();
   const all = known().length;
   const later = w.by === 'later', model = w.why === 'model';
@@ -598,6 +626,7 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
   // In the notch and the sheet the row is narrow, and a spoken new thought's own line is empty: that line says what
   // the dictation is doing, beside the mark that follows the voice, and the row keeps the time, the keys and the way out.
   const said = hearing && !raised && talk.kind === 'thought' && !cap.draft;
+  const q = asks ? askedHere() : undefined;
   // The field is as high as its words, a line at a time. It is measured when they change, typed or put there, or its
   // width does, and on no other render: a measure makes the page lay itself out there and then.
   const area = useRef<HTMLTextAreaElement>(null), fitted = useRef({ text: '', width: -1 });
@@ -609,19 +638,24 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
     el.style.height = `${el.scrollHeight}px`;
   };
   useLayoutEffect(() => fit());
-  // The foot where it is short of room: the chip's reason gives way first, by itself (parts.css); then the microphone's
-  // key hint is dropped, once the reason is gone and only where that gives the chip's place room; then the place is cut
-  // short. Measured when the foot's width, the rings or what the chip and the key say change, and on no other render.
-  const foot = useRef<HTMLDivElement>(null);
+  // The foot where it is short of room, in this order (NOTES §13): the chip's reason gives way first, by itself
+  // (parts.css); then the microphone's key hint is dropped, once the reason is gone and only where that gives the
+  // names room; then the names are cut short, the place's and the agent's. Nothing wraps; the key never moves.
+  // Measured when the foot's width or what the chip, the agent and the key say change, and on no other render.
+  const foot = useRef<HTMLDivElement>(null), runs = chosen(session).a?.id;
   useLayoutEffect(() => {
     const row = foot.current;
     if (!row) return undefined;
     const room = () => {
-      const place = row.querySelector<HTMLElement>('#dest-chip b'), reason = row.querySelector<HTMLElement>('#dest-chip span');
+      const place = row.querySelector<HTMLElement>('#dest-chip b'), reason = row.querySelector<HTMLElement>('#dest-chip span'), who = row.querySelector<HTMLElement>('.cap-agent .nm');
       if (!place || !reason || !row.querySelector('.mic kbd')) return;
-      const wide = () => place.getBoundingClientRect().width + reason.getBoundingClientRect().width;
+      const cut = (el: HTMLElement | null) => !!el && el.scrollWidth > el.clientWidth + 0.5;
+      const wide = () => place.getBoundingClientRect().width + reason.getBoundingClientRect().width + (who?.getBoundingClientRect().width ?? 0);
       row.removeAttribute('data-short');
-      if (reason.getBoundingClientRect().width >= 1) return;
+      // A reason squeezed to its dot says nothing: it goes whole.
+      row.removeAttribute('data-bare');
+      if (reason.getBoundingClientRect().width < 18) row.setAttribute('data-bare', '');
+      if (!row.hasAttribute('data-bare') && !cut(place) && !cut(who)) return;
       const was = wide();
       row.setAttribute('data-short', '');
       if (wide() <= was) row.removeAttribute('data-short');
@@ -629,17 +663,24 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
     room();
     const watch = new ResizeObserver(room);
     watch.observe(row);
-    const rings = row.querySelector('.rings');
-    if (rings) watch.observe(rings);
     return () => watch.disconnect();
-  }, [name, why, back, does, busy, hearing, cap.choosing]);
+  }, [name, why, back, does, busy, hearing, cap.choosing, cap.agents, runs]);
   useLayoutEffect(() => {
     const watch = new ResizeObserver(([e]) => fit(e!.contentRect.width));
     watch.observe(area.current!);
     return () => watch.disconnect();
   }, []);
   return (
-    <form class={`capture${raised ? ' raised' : ''}${cap.draft ? ' has' : ''}`} aria-busy={cap.sending > 0} onSubmit={(e) => send(e, hooks)}>
+    <form class={`capture${raised ? ' raised' : ''}${cap.draft ? ' has' : ''}${q ? ' asks' : ''}`} aria-busy={cap.sending > 0} data-keys onSubmit={(e) => send(e, hooks)}
+      onKeyDown={(e) => {
+        // ⌘Z takes back what this Composer sent, wherever the keyboard is in it, unless a field with words has it:
+        // then it is that field's own undo (and Undo shows no cap).
+        const target = e.target as HTMLElement;
+        if (hit('⌘Z', e) && !cap.draft && (!target.matches('input, textarea') || target.id === 'capture-input') && (cap.sending || going().length || kept())) {
+          e.preventDefault();
+          void undo();
+        }
+      }}>
       <div class="cap" onPointerDown={(e) => e.target === e.currentTarget && (e.preventDefault(), focus('#capture-input'))}>
         {!raised && (hearing && d?.phase === 'recording' ? <Level size={28} l={d.level / 100} /> : <Brand size={28} live={cap.sending > 0} />)}
         <textarea id="capture-input" ref={area} rows={1} autocomplete="off" spellcheck={false} aria-label="New task" placeholder={said ? hears(d) : service && !raised ? `Type, or hold ${keyName(talkKey())} and talk` : 'Put a thought in'}
@@ -658,10 +699,7 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
             // Return sends, once however long it is held, and Shift-Return starts a new line; or, as the person set it
             // (`return_sends`), Return starts a new line and Command-Return sends (Control-Return off the Mac).
             if (e.key === 'Enter' && !e.isComposing && (pref('return_sends') ? !e.shiftKey : e.metaKey || e.ctrlKey)) e.repeat ? e.preventDefault() : void send(e, hooks);
-            else if (hit('⌘Z', e) && !cap.draft && (cap.sending || going().length || kept())) {
-              e.preventDefault();
-              void undo();
-            } else if (hit('⌘K', e)) {
+            else if (hit('⌘K', e)) {
               // The list, from the field: where it goes, chosen without the pointer.
               e.preventDefault();
               choose(true);
@@ -674,7 +712,8 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
           // engine says so (Chromium, so Windows). The list takes the keyboard; Escape and a choice give it back to the
           // field. Opened from a kept thought's line, it sends that one.
           <Places w={w} later={later} raised={raised} hooks={hooks} />
-        ) : hearing ? <Hearing d={d} raised={raised} said={said} /> : (
+        ) : cap.agents ? <AgentList signIn={hooks.agents} /> : hearing ? <Hearing d={d} raised={raised} said={said} /> : (
+          // The foot: where it goes, who runs it, the microphone, and the key that says what Return does, in that order.
           <div key="foot" class="cap-row" ref={foot}>
             <button type="button" class="cap-to" id="dest-chip" aria-haspopup="listbox" aria-expanded={false}
               title={`${back ? 'Your choice was for the thought before. ' : ''}${!all ? 'No project is known yet: a thought is saved for later until a folder is open. Click to open one' : later ? 'Saved for later: nothing starts. Click to change'
@@ -688,19 +727,23 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
               <span>{why}</span>
               <I n="chev" />
             </button>
-            <Rings hooks={hooks} session={session} />
+            <AgentControl session={session} signIn={hooks.agents} />
             <button type="button" class="mic" data-off={!service || undefined} aria-label="Talk"
               title={service ? `Hold to talk, or hold ${keyName(talkKey())}. A click keeps it on until the next` : 'Voice needs setting up first'}
               onPointerDown={(e) => control.down(e, area.current)} onClick={(e) => control.key(e, area.current)}>
               <span><I n="mic" /></span><Key k={keyName(talkKey())} />
             </button>
+            {/* The metal key always, also with nothing to do (NOTES §13): Home's one key, and the Composer's in the notch
+                and the capture sheet. Its arrow is in the key's own ink (its class was `sends` once, which the placing
+                sheet's list of what it sends also is, and took that list's pale colour). */}
             <button type="submit" class={`key${raised ? ' lg' : ''}`} disabled={!has && !now && !busy} aria-busy={busy || undefined} title={now ? 'Start it now' : undefined}>
-              {busy ? <Mark s="working" label="" /> : <i class="sends">{!pref('return_sends') && spell('⌘↩').replace('↩', '')}<I n="ret" /></i>}<span>{does}</span>
+              {busy ? <Mark s="working" label="" /> : <i class="key-ret">{!pref('return_sends') && spell('⌘↩').replace('↩', '')}<I n="ret" /></i>}<span>{does}</span>
             </button>
           </div>
         )}
+        {q && <Ask q={q} size="cap" class="cap-ask" leave={() => giveBack(q)} />}
       </div>
-      <Way hooks={hooks} raised={raised} offer={offer} />
+      <Way hooks={hooks} raised={raised} />
     </form>
   );
 }

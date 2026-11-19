@@ -69,7 +69,7 @@ function Result({ t }: { t: Thought }) {
     e.stopPropagation();
   };
   return (
-    <section class="result" tabIndex={-1} data-result={t.id} onKeyDown={keys}>
+    <section class="result" tabIndex={-1} data-result={t.id} data-keys onKeyDown={keys}>
       <p class="ctx">{t.status === 'failed' ? 'Failed' : unheard(t) ? 'Ended' : 'Result'}</p>
       <p class="qp">{title(t)}</p>
       {(t.status === 'failed' || unheard(t) || r?.summary) && <p class="sum">{t.status === 'failed' ? `${why(t)}${r?.summary ? `: ${r.summary}` : ''}` : unheard(t) ? endedSays(t) : r!.summary}</p>}

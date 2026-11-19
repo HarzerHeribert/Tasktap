@@ -83,7 +83,7 @@ kbd .i{width:12px;height:12px}
 .key{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;height:var(--ctl-h);padding:0 10px 0 var(--sp2);border-radius:var(--r1);font:var(--f-title);white-space:nowrap}
 .key .i{width:14px;height:14px;stroke-width:var(--i-w-key)}
 /* What sends: Return, with Command before it where the person set Return to start a new line. */
-.key .sends{display:inline-flex;align-items:center;gap:1px}
+.key .key-ret{display:inline-flex;align-items:center;gap:1px}
 .key kbd{color:rgb(13 13 14/.7)}
 .key:hover{filter:brightness(1.07)}
 .key:active,:is(.ans,.act):active>kbd.keycap{transform:translateY(1px);box-shadow:var(--key-down);filter:brightness(.93)}
@@ -92,8 +92,8 @@ kbd .i{width:12px;height:12px}
 .lg:is(.key,.btn){height:var(--ctl-l);gap:var(--sp2);padding:0 14px 0 var(--sp3);border-radius:var(--r-in);font:var(--f-title)}
 /* Quiet: every other control. Text, with a fill only under the pointer, deeper while pressed. An answer is a cap and
    its label; a button among words has a hairline round it. */
-:is(.btn,.ans,.act,.reply,.ib,.ring,.cap-to,.cap-list button):hover{background:var(--hover);color:var(--fg)}
-:is(.btn,.ans,.act,.ib,.ring,.cap-to,.cap-list button):active{background:var(--sel)}
+:is(.btn,.ans,.act,.reply,.ib,.cap-to,.cap-list button):hover{background:var(--hover);color:var(--fg)}
+:is(.btn,.ans,.act,.ib,.cap-to,.cap-list button):active{background:var(--sel)}
 .ans,.act{display:inline-flex;align-items:center;gap:var(--sp2);height:var(--row-h);padding:0 var(--sp2) 0 6px;border-radius:var(--r1);font:var(--f-text);color:var(--fg);white-space:nowrap;flex:none}
 .ans.primary span,.act.primary span{font:var(--f-title)}
 .act.danger span{color:var(--fail)}
@@ -109,18 +109,23 @@ kbd .i{width:12px;height:12px}
 .reply:focus-within{background:var(--lit) 0 100%/100% 1px no-repeat,var(--hover)}
 
 /* An agent's ring (ui.tsx Ring): its mark in a fine circle. Whole when the agent can run; open, in the attention
-   colour, when it is not signed in, with the way to fix it beside it under the pointer or the keyboard; lit for the
-   one that runs the next thought; a short arc turns on it while its sessions work, their count beside it; the
-   attention colour when one of them asks. */
-.rings{display:flex;align-items:center;flex:none;margin-left:auto}
-.rings>[role=radiogroup]{display:contents}
-/* The agents beyond the rings: their number, with the system's own menu over it (rings.tsx). Not a ring: it stands
-   as one does, and names no agent. */
-.rings .more{position:relative;display:inline-flex;align-items:center;flex:none;height:var(--row-h);padding:0 6px;border-radius:var(--r1);font:var(--f-num);color:var(--fg2);white-space:nowrap}
-.rings .more:hover{background:var(--hover);color:var(--fg)}
-.rings .more select{position:absolute;inset:0;width:100%;height:100%;opacity:0;appearance:none;-webkit-appearance:none}
-.rings .more:has(select:focus-visible){outline:1.5px solid var(--accent);outline-offset:1px}
-.ring{display:inline-flex;align-items:center;gap:5px;flex:none;height:var(--row-h);padding:0 3px;border-radius:var(--r1);font:var(--f-num);color:var(--fg3);white-space:nowrap}
+   colour, when it is not signed in; lit for the one that runs the next thought; a short arc turns on it while its
+   sessions work; the attention colour when one of them asks. */
+/* Who runs the thought (rings.tsx): one control in the Composer's foot, the ring of the agent that runs it, its name
+   and a chevron, quiet as the chip beside it is; its name gives way where the foot is short of room. */
+.cap-agent{display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:0;height:var(--row-h);padding:0 6px 0 4px;border-radius:var(--r1);font:var(--f-small);color:var(--fg);white-space:nowrap}
+.cap-agent .nm{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.cap-agent .ring-o{--ring:url(#ring-lit)}
+.cap-agent>.i{flex:none;width:12px;height:12px;color:var(--fg3);transform:rotate(90deg)}
+.cap-agent[data-s=off]{color:var(--asks)}
+.cap-agent[data-s=off] .ring-o{--ring:var(--asks)}
+.cap-agent[data-s=asks] .ring-o{--ring:var(--asks)}
+.cap-agent .fix{flex:none;font:var(--f-small);color:var(--asks)}
+.cap-agent[aria-disabled]{pointer-events:none}
+.cap-agent:not([aria-disabled]):hover{background:var(--hover)}
+.cap-agent:not([aria-disabled]):active{background:var(--sel)}
+.agent-list .ring-o{flex:none}
+.agent-list [data-s=off] span{color:var(--asks)}
 /* A ring is as wide as it is told (--ring-px: ui.tsx Ring's size, or set by the place it stands in; 22 where neither
    says), and its circle is the icons' weight on screen at any size and text size, as every icon's stroke is. */
 .ring-o{width:calc(var(--ring-px,22) * 1px);height:calc(var(--ring-px,22) * 1px);flex:none;overflow:visible}
@@ -132,17 +137,13 @@ kbd .i{width:12px;height:12px}
 .ring-o text{font:var(--f-key)}
 /* One letter, in a ring too small for two: larger, so that it reads at 16 px on a plain display. */
 .ring-o text.one{font-size:calc(15px * var(--ts));font-weight:600}
-.ring[aria-checked=true]{--ring:url(#ring-lit);color:var(--fg)}
-.ring b{color:var(--fg2)}
 .ring-o .turn{stroke:var(--fg);stroke-dasharray:14 100;animation:ring-turn 1.8s linear infinite}
 @keyframes ring-turn{from{transform:rotate(-50deg)}to{transform:rotate(310deg)}}
-.ring:not([aria-checked=true]) path{opacity:.62}
-.ring[data-s=asks],.ring[data-s=off],[data-s=off]>.ring-o{--ring:var(--asks)}
+.agent-list [aria-selected=false] .ring-o path{opacity:.62}
+.agent-list [aria-selected=true] .ring-o{--ring:url(#ring-lit)}
 [data-s=asks] .turn{stroke:#ffe6c8}
-[data-s=asks]>b,.ring[data-s=off]{color:var(--asks)}
 [data-s=off]{--arc:.72}
-.ring .fix{display:none;padding-left:3px;font:var(--f-small)}
-.ring:is(:hover,:focus-visible,[aria-checked=true]) .fix{display:inline}
+[data-s=off]>.ring-o,[data-s=off] .ring-o{--ring:var(--asks)}
 
 /* a diffstat: "3 files +14 −3" */
 .diff{font:var(--f-num);color:var(--fg3);white-space:nowrap}
@@ -177,7 +178,7 @@ kbd .i{width:12px;height:12px}
 .capture:not(.raised):is(:focus-within,.has) .cap::after{opacity:.9}
 .capture:not(.raised) .cap-row{padding-top:2px;border-top:0}
 .capture:not(.raised) textarea::placeholder{color:var(--fg-field)}
-.capture:not(.raised) :is(.cap-to,.cap-list button,.ring,.rings .more,.mic){border-radius:var(--r-in)}
+.capture:not(.raised) :is(.cap-to,.cap-list button,.cap-agent,.mic){border-radius:var(--r-in)}
 .cap-to,.cap-list button{display:inline-flex;align-items:center;gap:6px;height:var(--row-h);padding:0 var(--sp2) 0 6px;border-radius:var(--r1);font:var(--f-small);color:var(--fg2);white-space:nowrap}
 .cap-to{min-width:0;margin-left:-6px;padding-right:5px}
 .cap-to b{overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
@@ -191,6 +192,7 @@ kbd .i{width:12px;height:12px}
 .cap-row>.mic{flex:none;flex-wrap:nowrap}
 .cap-to .i{flex:none}
 .cap-row[data-short]>.mic>kbd{display:none}
+.cap-row[data-bare] #dest-chip>span{display:none}
 :is(.cap-to,.cap-list) .i{width:14px;height:14px;color:var(--fg3)}
 .cap-to .i:last-child{width:12px;height:12px;transform:rotate(90deg)}
 .cap-list{display:grid;gap:0}
@@ -212,14 +214,35 @@ kbd .i{width:12px;height:12px}
 .way-new::before{content:"·";margin:0 6px}
 .qa.elsewhere{display:grid;gap:0}
 .cap-row .key{margin-left:auto}
-.rings+.key{margin-left:var(--sp1)}
+/* The Composer's key is metal in every state (NOTES §13): Home's one key, and the notch's and the capture sheet's.
+   With nothing to do it is the same key; it only does nothing. */
+.capture .cap-row .key:disabled{background:var(--lit) 0 100%/100% 1px no-repeat,var(--key);color:var(--ink);box-shadow:var(--key-edge)}
+.capture .cap-row .key:disabled:hover{filter:none}
 .cap-said{display:flex;align-items:center;gap:var(--sp2);min-height:var(--row-h);font:var(--f-small);color:var(--fg2)}
 .cap-said b{color:var(--fg)}
 .cap-said .act{height:22px;margin-left:auto}
+
+/* A key cap shows only where pressing its key does something now (page.ts markHeld; NOTES §13): inside an element
+   whose keys act while it has the keyboard, only while it has it. */
+[data-keys]:not([data-held]) kbd.keycap{display:none}
 
 /* a question: in full, its answers as key caps, a reply in the person's own words */
 .qp{font:var(--f-question);letter-spacing:var(--ls-question);text-wrap:pretty;overflow-wrap:anywhere;-webkit-user-select:text;user-select:text}
 .qa{display:flex;flex-wrap:wrap;align-items:center;gap:2px 14px;margin-left:-6px}
 .q-detail{margin-top:var(--sp1);font:var(--f-small);color:var(--fg2);text-wrap:pretty;overflow-wrap:anywhere}
 
-@media(prefers-reduced-motion:reduce){*,::before,::after{animation:none!important;transition:none!important}}
+@media(prefers-reduced-motion:reduce){*,::before,::after{animation:none!important;transition:none!important}}/* Where a thought should go: its places one under another, each whole; what a place is wraps under its name rather
+   than being cut at the window's edge (the owner, 2026-11-19). */
+.qa.rows{display:grid;gap:0;justify-items:start}
+.qa.rows>.ans{flex:none;max-width:100%;height:auto;min-height:var(--row-h);padding-block:3px;white-space:normal}
+.qa.rows>.ans>span{flex:none}
+.qa.rows>.ans>i{min-width:0;text-wrap:pretty}
+/* Asked at the Composer about the thought just sent (capture.tsx, NOTES §13): under the field, on the same surface,
+   in the colour of what needs the person: the question with its mark, the thought in one line, the places. */
+.cap-ask{grid-column:1/-1;margin-top:var(--sp1);padding:var(--sp2) 0 2px;border-top:1px solid rgb(234 182 118/.45);cursor:default}
+.cap-ask .qp{display:flex;align-items:center;gap:var(--sp2);color:var(--asks)}
+.cap-ask .qp .st{flex:none}
+.q-quote{margin:2px 0 var(--sp1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:var(--f-small);color:var(--fg2)}
+.cap-ask .qa{margin-top:var(--sp1)}
+.cap-ask:focus-visible{outline:0}
+.capture.asks .cap::after{--edge:linear-gradient(90deg,var(--asks),#f3d3a6 40%,var(--asks));opacity:.9}

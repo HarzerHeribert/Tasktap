@@ -21,6 +21,7 @@ import {
   pickFolder, projectName, projects, records, setLayout, stop, title, ui,
 } from './model.ts';
 import { PlacingSheet, SpeechSheet } from './consent.tsx';
+import { SetupSheet } from './setup.tsx';
 import { SessionSheet } from './session.tsx';
 import { Settings } from './settings.tsx';
 
@@ -34,15 +35,19 @@ export type Act = { k: string; label: string; do: () => void; kind?: 'primary' |
 /** The frame of every sheet. `size`: a quick decision (the default), a form or a list (`md`), a view to read (`lg`).
  *  `choices`: answers that are a list of their own (where to move, where to send), each a row of the body with its
  *  key. `acts`: the foot. The way out (Esc) is always there, "Close" unless the sheet names it. `bare`: the body is
- *  the Composer, which has its own key, so there is no title to read and no foot. */
-export function Frame({ title: name, aside, children, choices = [], acts = [], size = 'sm', bare }: {
-  title: ComponentChildren; aside?: ComponentChildren; children?: ComponentChildren; choices?: Act[]; acts?: Act[]; size?: 'sm' | 'md' | 'lg'; bare?: boolean;
+ *  the Composer, which has its own key, so there is no title to read and no foot. `guard`: a sheet that came down by
+ *  itself takes no key for this many milliseconds, and never a key held down since before, so nothing the person was
+ *  typing lands on its answer (NOTES §13); a click is the person's at once. */
+export function Frame({ title: name, aside, children, choices = [], acts = [], size = 'sm', bare, guard = 0 }: {
+  title: ComponentChildren; aside?: ComponentChildren; children?: ComponentChildren; choices?: Act[]; acts?: Act[]; size?: 'sm' | 'md' | 'lg'; bare?: boolean; guard?: number;
 }) {
+  const [since] = useState(() => performance.now());
   const out = acts.find((x) => x.k === 'esc') ?? { k: 'esc', label: 'Close', do: dismiss };
   const rest = acts.filter((x) => x.k !== 'esc');
   // The answer: the one Return gives, else the only one there is, unless the answers are a list of their own.
   const main = rest.find((x) => x.kind === 'primary') ?? (rest.length === 1 && !choices.length ? rest[0] : undefined);
   const keys = (e: KeyboardEvent) => {
+    if (guard && (e.repeat || performance.now() - since < guard)) return (e.preventDefault(), e.stopPropagation());
     const typing = (e.target as HTMLElement).matches('input, textarea');
     const act = [...choices, ...rest, out].find((x) => matches(x.k, e, typing));
     if (!act) return;
@@ -52,7 +57,7 @@ export function Frame({ title: name, aside, children, choices = [], acts = [], s
   };
   const answer = (x: Act) => <Answer cls="act" k={x.k} label={x.label} danger={x.kind === 'danger'} onClick={x.do} />;
   return (
-    <div class={`sheet ${size}${bare ? ' bare' : ''}`} role="dialog" aria-modal="true" aria-labelledby="sheet-title" tabIndex={-1} onKeyDown={keys}>
+    <div class={`sheet ${size}${bare ? ' bare' : ''}`} role="dialog" aria-modal="true" aria-labelledby="sheet-title" tabIndex={-1} data-keys onKeyDown={keys}>
       <header class="sh-h"><h2 id="sheet-title">{name}</h2>{aside}</header>
       <div class="sh-b">
         {children}
@@ -244,7 +249,7 @@ function Body() {
     case 'capture':
       return (
         <Frame bare title="New task">
-          <Capture started={dismiss} agents={() => open({ kind: 'settings', at: 'agents' })} speech={() => open({ kind: 'settings', at: 'voice' })} terms={() => open({ kind: 'placing' })} />
+          <Capture asks started={dismiss} agents={() => open({ kind: 'settings', at: 'agents' })} speech={() => open({ kind: 'setup', step: 'speech' })} />
         </Frame>
       );
     case 'settings':
@@ -253,6 +258,8 @@ function Body() {
       return <PlacingSheet back={d.back} />;
     case 'speech':
       return <SpeechSheet />;
+    case 'setup':
+      return <SetupSheet step={d.step} auto={d.auto} />;
     case 'reply': {
       const q = records.questions.get(d.question);
       if (!q || q.state !== 'open') return <Frame title="Answered" acts={[{ k: 'esc', label: 'Close', do: dismiss }]} />;

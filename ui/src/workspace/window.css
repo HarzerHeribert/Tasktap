@@ -233,30 +233,30 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .pv-t pre{margin:0;padding:var(--sp3) var(--sp4);font:var(--f-code);color:var(--deck-fg);white-space:pre-wrap;overflow-wrap:anywhere;tab-size:4}
 .pv-cut{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp2);margin:0 var(--sp4) var(--sp4);padding-top:var(--sp2);border-top:1px solid var(--line);font:var(--f-small);color:var(--fg2);-webkit-user-select:none;user-select:none}
 /* Markdown, in the type roles: a title is a question's size, a heading the title's weight, the rest running text. */
-.md{padding:var(--sp4) var(--sp5) var(--sp5);font:var(--f-text);color:var(--fg)}
-.md>*{max-width:76ch}
-.md :is(p,ul,pre,blockquote,hr,.md-t){margin:0 0 var(--sp3)}
-.md h1{margin:var(--sp2) 0 var(--sp3);font:var(--f-question);letter-spacing:var(--ls-question)}
-.md h2{margin:var(--sp5) 0 var(--sp2);font:var(--f-title)}
-.md h3{margin:var(--sp4) 0 var(--sp1);font:var(--f-label);color:var(--fg2)}
-.md>:first-child{margin-top:0}
-.md :is(p,li,td,th,blockquote){text-wrap:pretty;overflow-wrap:anywhere}
-.md b{font:var(--f-title)}
-.md i{font-style:italic}
-.md a{color:var(--fg);text-decoration:underline;text-decoration-color:var(--fg3);text-underline-offset:2px;cursor:pointer}
-.md a:hover{text-decoration-color:var(--fg)}
-.md code{font:var(--f-code);color:var(--fg2)}
-.md pre{padding:var(--sp2) var(--sp3);border-radius:var(--r1);background:var(--fill);font:var(--f-code);color:var(--deck-fg);white-space:pre-wrap;overflow-wrap:anywhere;max-width:none}
-.md ul{padding:0;list-style:none}
-.md li{display:flex;gap:var(--sp2);padding:1px 0}
+.pv-b.md{padding:var(--sp4) var(--sp5) var(--sp5);font:var(--f-text);color:var(--fg)}
+.pv-b.md>*{max-width:76ch}
+.pv-b.md :is(p,ul,pre,blockquote,hr,.md-t){margin:0 0 var(--sp3)}
+.pv-b.md h1{margin:var(--sp2) 0 var(--sp3);font:var(--f-question);letter-spacing:var(--ls-question)}
+.pv-b.md h2{margin:var(--sp5) 0 var(--sp2);font:var(--f-title)}
+.pv-b.md h3{margin:var(--sp4) 0 var(--sp1);font:var(--f-label);color:var(--fg2)}
+.pv-b.md>:first-child{margin-top:0}
+.pv-b.md :is(p,li,td,th,blockquote){text-wrap:pretty;overflow-wrap:anywhere}
+.pv-b.md b{font:var(--f-title)}
+.pv-b.md i{font-style:italic}
+.pv-b.md a{color:var(--fg);text-decoration:underline;text-decoration-color:var(--fg3);text-underline-offset:2px;cursor:pointer}
+.pv-b.md a:hover{text-decoration-color:var(--fg)}
+.pv-b.md code{font:var(--f-code);color:var(--fg2)}
+.pv-b.md pre{padding:var(--sp2) var(--sp3);border-radius:var(--r1);background:var(--fill);font:var(--f-code);color:var(--deck-fg);white-space:pre-wrap;overflow-wrap:anywhere;max-width:none}
+.pv-b.md ul{padding:0;list-style:none}
+.pv-b.md li{display:flex;gap:var(--sp2);padding:1px 0}
 .md-m{flex:none;min-width:14px;font:var(--f-num);line-height:inherit;color:var(--fg3);text-align:right}
-.md blockquote{padding-left:var(--sp3);border-left:2px solid var(--line2);color:var(--fg2)}
-.md blockquote>:last-child{margin-bottom:0}
-.md hr{height:1px;border:0;background:var(--line)}
+.pv-b.md blockquote{padding-left:var(--sp3);border-left:2px solid var(--line2);color:var(--fg2)}
+.pv-b.md blockquote>:last-child{margin-bottom:0}
+.pv-b.md hr{height:1px;border:0;background:var(--line)}
 .md-t{overflow-x:auto;max-width:none}
-.md table{border-collapse:collapse}
-.md :is(th,td){padding:var(--sp1) var(--sp3) var(--sp1) 0;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
-.md th{font:var(--f-section);color:var(--fg2);white-space:nowrap}
+.pv-b.md table{border-collapse:collapse}
+.pv-b.md :is(th,td){padding:var(--sp1) var(--sp3) var(--sp1) 0;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.pv-b.md th{font:var(--f-section);color:var(--fg2);white-space:nowrap}
 .said code,.sheet code{font:var(--f-num);color:var(--fg);-webkit-user-select:text;user-select:text}
 
 /* ——— rail ——— */
@@ -302,18 +302,33 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .capture.raised textarea{grid-column:1/-1;max-height:calc(6*round(28px*var(--ts),1px) + 14px);padding:6px 10px 8px;font:var(--f-thought);letter-spacing:var(--ls-thought);color:var(--fg)}
 .capture.raised textarea::placeholder{color:var(--fg-field)}
 .capture.raised .cap-row{gap:6px;padding:0;border:0}
-.capture.raised :is(.cap-to,.cap-list button,.ring,.rings .more){border-radius:var(--r-in)}
+.capture.raised :is(.cap-to,.cap-list button,.cap-agent){border-radius:var(--r-in)}
 .capture.raised :is(.cap-to,.cap-list button){gap:7px;padding:0 10px;margin:0;font:var(--f-text)}
 .capture.raised .cap-list{display:grid;gap:2px}
 .capture.raised .cap-find{gap:7px;padding:0 10px;margin:0;border-radius:var(--r-in)}
 .capture.raised .cap-find input{font:var(--f-text)}
-.capture.raised .ring{padding:0 5px}
-.capture.raised .ring-o{--ring-px:24}
+.capture.raised .cap-agent{gap:7px;padding:0 10px 0 7px;font:var(--f-text)}
+.capture.raised .cap-agent .ring-o{--ring-px:24}
+.capture.raised .agent-list .ring-o{--ring-px:22}
 .capture.raised .cap-said{margin-top:var(--sp2);padding:0 var(--sp3) 0 22px}
-/* First run: under the Composer, on its own edges, the one thing to do first, said in one line. It is the key until
-   the Composer holds a thought; then that one's key is, and this is quiet. */
-.attach{display:flex;align-items:center;justify-content:space-between;gap:var(--sp4);width:min(100%,var(--cap-w));margin:0 auto;padding:0 var(--sp3) 0 22px;font:var(--f-text);color:var(--fg2)}
-.attach span{min-width:0;text-wrap:balance}
+/* Setup (setup.tsx, NOTES §13): one quiet fold under the Composer, on its edges, "Setup · 1 of 3"; open, a line a
+   step: whether it is done, what it is, what it says now, and its one quiet action. Hide is beside its name. */
+.setup{width:min(100%,var(--cap-w));margin:0 auto 6px}
+.setup-h{display:flex;align-items:center;gap:var(--sp2);border-top:1px solid var(--line)}
+.setup:not(.open) .setup-h{border-bottom:1px solid var(--line)}
+.setup .fold-h{flex:1;width:auto;border-top:0;grid-template-columns:var(--lead) auto auto minmax(0,1fr)}
+.setup .fold-c{padding:0 var(--sp4) 0 var(--sp2)}
+.setup.open .fold-h .i{transform:rotate(90deg)}
+.setup.open .fold-h b{color:var(--fg)}
+.setup-h .act{height:var(--ctl-h);margin-right:6px;font:var(--f-small);color:var(--fg3)}
+.setup-b{display:grid;grid-template-columns:var(--lead) max-content minmax(0,1fr) auto;border-top:1px solid var(--line)}
+.setup-b>.line.st{grid-column:1/-1;grid-template-columns:subgrid;padding:0 6px 0 0}
+.line.st>:is(.i,.todo){justify-self:center}
+.line.st>.i{width:14px;height:14px;color:var(--fg2)}
+.line.st>.todo{width:10px;height:10px;border-radius:50%;box-shadow:inset 0 0 0 var(--i-w) var(--fg3)}
+.line.st .x{padding-left:var(--sp4)}
+.line.st[data-done] .t{color:var(--fg2)}
+.line.st[data-done] .x{color:var(--fg3)}
 .hx.first{padding-top:max(22px,calc(44vh - 118px))}
 .hx.first .cols{width:min(100%,var(--cap-w));margin-inline:auto}
 .hsec{margin-top:26px}
@@ -402,8 +417,7 @@ body.dragging,body.dragging *{cursor:grabbing!important}
   .fold-p{display:none}
   .later .hr-a{grid-area:3/2/auto/5;display:none;padding:8px 0 1px}
   .later:is(:hover,:focus-within,.new) .hr-a{display:flex}
-  .attach span{display:none}
-  .attach{justify-content:flex-end}
+  .line.st .x{display:none}
 }
 
 /* ——— sheets: panels of the same instrument, let down from the title bar ———
@@ -649,15 +663,7 @@ button.line.fold-l{grid-template-columns:28px 190px minmax(0,1fr)}
 :root:is([data-effects=still],[data-effects=off]) :is(.brand-m>img,.ring-o .turn){animation:none}
 :root:is([data-effects=still],[data-effects=off]) :is(.capture.raised::before,.capture.raised .cap,.capture.raised .cap::after,.pool,.glyph,.turn canvas){transition:none}
 
-/* ——— Projects (projects.tsx): the first run under the Composer, and Settings › Projects ———
-   The first run stands under the Composer on its edges, as the line it replaces did: its words on the edge of the
-   Composer's text, its answer on the edge of the Composer's key, and what is not the answer at the left. One honest
-   sentence says what is read before anything is. */
-.begin{width:min(100%,var(--cap-w));margin:0 auto;padding:0 var(--sp3) 0 22px;font:var(--f-text);color:var(--fg2)}
-.begin>h3{margin:0 0 var(--sp1);font:var(--f-label);color:var(--fg)}
-.begin>p{margin:0;text-wrap:pretty}
-.begin-f{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:var(--sp2);margin-top:var(--sp4)}
-.begin-f>:first-child{margin-right:auto}
+/* ——— Projects (projects.tsx): Setup's first step, a sheet, and Settings › Projects ——— */
 /* The folders a person may keep projects in: each a choice that is ticked or not, and one more by the system's dialog. */
 .ticks{display:flex;flex-wrap:wrap;gap:var(--sp2);margin:var(--sp2) 0 var(--sp3)}
 .tick{display:inline-flex;align-items:center;gap:var(--sp2);height:var(--ctl-h);padding:0 10px 0 var(--sp2);border-radius:var(--r1);box-shadow:inset 0 0 0 1px var(--line2);font:var(--f-num);color:var(--fg2)}
@@ -670,7 +676,6 @@ button.line.fold-l{grid-template-columns:28px 190px minmax(0,1fr)}
 .tick.add .i{width:12px;height:12px;color:var(--fg3)}
 /* What was found: a list of Home's kind, on the Composer's edges, one line a project: the name, its folder, why. Every
    one, in a list that scrolls in the room under the Composer (its height is measured: projects.tsx useRoom). */
-.hx.first>.found{width:min(100%,var(--cap-w));margin-inline:auto}
 /* The rows share one set of columns (each a subgrid of the list), so the reasons, which give way last, stand on one edge. */
 .fr-s{display:grid;grid-template-columns:var(--lead) calc(140px * var(--ts)) minmax(0,1fr) fit-content(calc(290px * var(--ts)));align-content:start;overflow-y:auto}
 .fr{grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--line);font:var(--f-small);color:var(--fg2)}
@@ -682,12 +687,29 @@ button.line.fold-l{grid-template-columns:28px 190px minmax(0,1fr)}
 .found-n{margin:var(--sp2) 0 0;padding-left:var(--lead);font:var(--f-small);color:var(--fg3)}
 .found-s{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--sp2) var(--sp3);margin:var(--sp2) 0 0;padding-left:var(--lead);font:var(--f-text);color:var(--fg2)}
 .found-s b{font:var(--f-num);color:var(--fg)}
-.found .begin-f{margin-top:var(--sp2);padding-left:var(--lead)}
-.found-o{font:var(--f-small);color:var(--fg3)}
+.found-o{margin:0 var(--pad) var(--sp2);font:var(--f-small);color:var(--fg3)}
+/* In the sheet the list is the sheet's body: it scrolls with it, and dissolves at its foot as the body does. */
+.sheet .found{padding:0 var(--pad) var(--sp3)}
+.sheet .found .found-o{margin-inline:0}
+.sheet .fr-s{overflow:visible;border-top:1px solid var(--line)}
+.sheet h2 .st{margin-right:var(--sp2);vertical-align:-1px}
+/* Setup's sheets: three facts a person takes in at a glance, then the full sentence behind one quiet line. */
+.facts{display:grid;gap:6px;margin:2px var(--pad) var(--sp3);padding:0;list-style:none;font:var(--f-text);color:var(--fg)}
+.facts li{display:grid;grid-template-columns:16px minmax(0,1fr);text-wrap:pretty}
+.facts li::before{content:"";width:6px;height:1px;margin-top:9px;background:var(--fg3)}
+.facts-n{color:var(--fg2)}
+.more-l{display:flex;align-items:center;gap:6px;height:var(--row-h);margin:0 calc(var(--pad) - 6px) var(--sp2);padding:0 6px;border-radius:var(--r1);font:var(--f-small);color:var(--fg2)}
+.more-l:hover{background:var(--hover);color:var(--fg)}
+.more-l .i{width:12px;height:12px;transition:transform var(--t-fast)}
+.more-l[aria-expanded=true] .i{transform:rotate(90deg)}
+.sh-b>.facts-all{margin:0 var(--pad) var(--sp3);font:var(--f-small);color:var(--fg2);text-wrap:pretty;-webkit-user-select:text;user-select:text}
+.sh-b>.ticks{margin:var(--sp1) var(--pad) var(--sp3)}
+.got-l{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp2);margin:0 var(--pad) var(--sp3);font:var(--f-small);color:var(--fg)}
+.got-l .i{width:14px;height:14px}
+.got-l .got{flex-basis:100%;width:100%}
 @container (max-width:640px){
   .fr-s{grid-template-columns:var(--lead) calc(120px * var(--ts)) 0 minmax(0,1fr)}
   .fr-f{display:none}
-  .found-o{display:none}
 }
 /* Settings › Projects: where Tasktap learns of projects, as the Agents list is drawn (a mark, a name, what it found,
    what can be done); then every project, a row that opens to what Tasktap knows of it. A path is in the figures'

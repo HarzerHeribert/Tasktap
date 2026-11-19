@@ -120,19 +120,12 @@ export function agentState(
   return `${a.signed_in ? 'signed in' : 'not signed in'}${a.stale ? ` when last checked, ${ago}` : ''}`;
 }
 
-/** The agents the Composer offers for a thought, and which of them have a ring. Offered are those that can run one
- *  now: installed, on this system, and not known to be signed out (one never asked counts: the core asks it the
- *  first time it is picked or runs); and the usual one even when it is signed out, since it runs the next thought
- *  and its ring says what is wrong. At most `cap` have a ring: the usual one, the one picked for this thought,
- *  those that work or ask, then the others in the core's order. The rest are behind "+n", from where each can be
- *  picked, which gives it a ring. Rings stand in the core's order, so none moves when another is picked. */
-export function offered<A extends { id: string; installed: boolean; supported: boolean; signed_in: boolean | null }>(
-  agents: A[], usual: string | undefined, chosen: string | undefined, busy: (id: string) => boolean, cap: number,
-): { rings: A[]; more: A[] } {
-  const all = agents.filter((a) => a.installed && a.supported && (a.signed_in !== false || a.id === usual));
-  const rank = (a: A) => (a.id === usual ? 0 : a.id === chosen ? 1 : busy(a.id) ? 2 : 3);
-  const first = new Set(all.map((a, i) => [rank(a), i, a] as const).sort((x, y) => x[0] - y[0] || x[1] - y[1]).slice(0, cap).map((x) => x[2]));
-  return { rings: all.filter((a) => first.has(a)), more: all.filter((a) => !first.has(a)) };
+/** The agents the Composer's list offers for a thought (rings.tsx), in the core's order: every one installed and on
+ *  this system, also one signed out (its row says so and leads to where it is signed in); with `find`, those whose
+ *  name or id has what is typed in it. No row of rings and no "+n": every agent is a row of one list. */
+export function listed<A extends { id: string; installed: boolean; supported: boolean }>(agents: A[], name: (a: A) => string, find = ''): A[] {
+  const words = find.trim().toLocaleLowerCase();
+  return agents.filter((a) => a.installed && a.supported && (!words || name(a).toLocaleLowerCase().includes(words) || a.id.includes(words)));
 }
 
 /** The command line of an agent the person adds, checked as the core checks it, so the form can say what is missing

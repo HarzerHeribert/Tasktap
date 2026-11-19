@@ -428,7 +428,8 @@ async function main() {
       else if (field !== FIELD) await page.evaluate(() => (window.__ws.ui.sheet = { kind: 'capture' }, window.__motion.redraw()));
       await page.waitForTimeout(800);
       await page.focus(field);
-      const height = () => page.evaluate((f) => document.querySelector(f).getBoundingClientRect().height, field);
+      // To a hundredth of a pixel: a sheet still settling under its transform reads 39.999996 for 40.
+      const height = () => page.evaluate((f) => Math.round(document.querySelector(f).getBoundingClientRect().height * 100) / 100, field);
       const up = [await height()];
       for (let line = 1; line <= most + 2; line++) {
         if (line > 1) await page.keyboard.press('Shift+Enter');

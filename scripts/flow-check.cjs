@@ -21,7 +21,7 @@
 //   --short: one level (full) and a shorter quiet part, for smoke.sh.
 const fs = require('node:fs');
 const path = require('node:path');
-const { launch, sleep, table, root, THOUGHT, DEBUG, RELEASE } = require('./app-driver.cjs');
+const { launch, sleep, table, root, THOUGHT, AIM, DEBUG, RELEASE } = require('./app-driver.cjs');
 const { FLOW, CADENCE } = require('./motion-probe.cjs');
 const cadence = require('./cadence-check.cjs');
 const has = (name) => process.argv.includes(name);
@@ -103,6 +103,7 @@ async function app(levels) {
       await ws(`(document.querySelector('.home #capture-input').focus(), document.execCommand('selectAll'), document.execCommand('delete'), 1)`);
       // At Full the band is watched through the flow as well: its cadence, its steps and its clocks.
       const band = level === 'full' ? ws(CADENCE, { seconds: RUN + 0.5 }) : null;
+      await ws(AIM);
       const flow = await ws(FLOW, { seconds: RUN, every: KEY, send: THOUGHT });
       a.seen();
       out[level] = { quiet, flow, band: await band };

@@ -11,7 +11,7 @@
 //   in one short launch, the capture run by its real core with the fixture agent. Exit status 1 on a failure.
 const fs = require('node:fs');
 const path = require('node:path');
-const { launch, sleep, table, root, THOUGHT } = require('./app-driver.cjs');
+const { launch, sleep, table, root, THOUGHT, AIM } = require('./app-driver.cjs');
 const { CADENCE, FLOW, STREAM } = require('./motion-probe.cjs');
 const has = (name) => process.argv.includes(name);
 const arg = (name, or) => (has(name) ? process.argv[process.argv.indexOf(name) + 1] : or);
@@ -99,6 +99,7 @@ async function main() {
       console.log(out.display.said + ' The built app, passive, on a temporary data folder, with the fixture agent.');
       await ws(use(null));
       await sleep(2500);
+      await ws(AIM);
       const flow = ws(FLOW, { seconds: 10.5, every: 90, send: THOUGHT });
       out.capture = await ws(CADENCE, capture);
       out.flow = await flow;

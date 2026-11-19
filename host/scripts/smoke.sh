@@ -179,10 +179,10 @@ shot home workspace
 # thing to do first, which is the key while the Composer is empty.
 edges="((c, a, k, h) => [Math.abs(c.left + c.width / 2 - (h.left + h.width / 2)) < 1, a.left >= c.left && a.right <= c.right, Math.abs(k.right - document.querySelector('.home .cap-row .key').getBoundingClientRect().right) < 1, c.top + c.height / 2 < h.top + h.height / 2 && c.top > h.top + h.height * 0.2].join(' '))(document.querySelector('.home .cap').getBoundingClientRect(), document.querySelector('.attach').getBoundingClientRect(), document.querySelector('.attach .key').getBoundingClientRect(), document.querySelector('#main').getBoundingClientRect())"
 until_has workspace "text .attach" 5 "Open a folder" && ! ask workspace "text .hx" | grep -q "Agents" \
-  && [ "$(js workspace "document.querySelector('#dest-chip')?.textContent")" = "No folder yet" ] \
+  && [ "$(js workspace "[...document.querySelectorAll('#dest-chip > b, #dest-chip > span')].map(e => e.textContent).join(' · ')")" = "No folder yet · saved for later" ] \
   && [ "$(js workspace "(b => b.textContent + ' ' + b.disabled)(document.querySelector('.home .cap-row .key'))")" = "Save for later true" ] \
   && [ "$(js workspace "$edges")" = "true true true true" ] \
-  && pass "with no folder open, Home is one composition: the Composer centred a little above the middle, its place saying No folder yet and its key that Return saves for later; under it, on its edges, Open a folder as the one key" || fail "Home on first run" "$(js workspace "$edges")"
+  && pass "with no folder open, Home is one composition: the Composer centred a little above the middle, its place saying No folder yet, saved for later, and its key that Return saves for later; under it, on its edges, Open a folder as the one key" || fail "Home on first run" "$(js workspace "$edges")"
 # The light: Home's chrome is drawn once and then nothing while nothing happens, the notch draws no form at all, and
 # the person's choice reaches both pages at once.
 # A window the person has covered draws nothing (WebKit reports it hidden), so a covered window is said, not failed.
@@ -268,8 +268,8 @@ fi
 
 echo "== A thought saved for later before a folder is open, then sent to one"
 send capture
-until_has notch "text #sheet" 5 "Save for later" && [ "$(js notch "document.querySelector('#dest-chip').textContent")" = "No folder yet" ] \
-  && pass "the capture shortcut opens the field; with no folder yet its place says No folder yet and its key that Return saves for later" \
+until_has notch "text #sheet" 5 "Save for later" && [ "$(js notch "[...document.querySelectorAll('#dest-chip > b, #dest-chip > span')].map(e => e.textContent).join(' · ')")" = "No folder yet · saved for later" ] \
+  && pass "the capture shortcut opens the field; with no folder yet its place says No folder yet, saved for later, and its key that Return saves for later" \
   || fail "capture opens"
 send "type notch Hello from the smoke" "key notch Enter"
 until_has notch "text .cap-said" 5 "Saved for later" && [ "$(js notch "[...__records.thoughts.values()].find(t=>t.text==='Hello from the smoke')?.mode")" = note ] \
@@ -300,8 +300,9 @@ send capture
 until_has notch "eval document.activeElement?.id" 5 "capture-input" || fail "capture opens again"
 until_has notch "eval (r => r?.dataset.s + ' ' + r?.querySelector('b')?.textContent + ' ' + !!r?.querySelector('.turn'))(document.querySelector('.ring[data-agent=fixture]'))" 5 "working 1 true" \
   && pass "while its session works an agent's ring turns, with the count beside it" || fail "a working agent's ring"
-send "type notch Undo me" "key notch Enter"
-until_has notch "text .way" 5 "project" && pass "with a folder open, Enter sends the thought there, and it shows on its way" || fail "Enter sends"
+# (Its words name the folder: with no model, Tasktap places a thought by the folder its words name.)
+send "type notch Undo me in project" "key notch Enter"
+until_has notch "text .way" 5 "project" && pass "with a folder open, Enter sends a thought that names it there, and it shows on its way" || fail "Enter sends"
 ask notch "text .way" | grep -q "Undo" && [ "$(js notch "(b => b.textContent + ' ' + b.disabled)(document.querySelector('.cap-row .key'))")" = "Start false" ] \
   && [ "$(js notch "String((h => !!h && !h.hasAttribute('data-open') && parseFloat(getComputedStyle(h).getPropertyValue('--ms')) > 500)(document.querySelector('.way-hold')))")" = true ] \
   && pass "while it is held it offers Undo, the Composer's key says that Return starts it, and its hold is a line that runs out by the clock" || fail "the thought on its way offers Undo" "$(ask notch "text .way")"
@@ -801,12 +802,14 @@ thoughts() { js workspace "__ws.records.thoughts.size"; }
 send 'call put {"c":"prefs","id":"hold","patch":10}'
 js workspace "(__ws.call('project.add', { id: __ws.uuid7(), folder: '$tmp/other' }), __ws.show('home'), 1)" >/dev/null
 until_has workspace "eval String([...__ws.records.projects.values()].filter(p => p.open && p.kind === 'folder').length) + ' ' + __ws.records.prefs.get('hold')?.value" 5 "2 10" || fail "a second folder is open"
-# Not allowed yet: a thought that names no folder goes to the usual one, and that is the moment it is offered, once.
-usual="$(js workspace "document.querySelector('.home #dest-chip b').textContent")"
-[ "$(js workspace "String(__ws.records.prefs.has('route_by'))")" = false ] && [ -n "$usual" ] || fail "before it is allowed, the usual folder is where a thought goes"
+# Not allowed yet: Tasktap decides by a thought's words, so one that names no folder is saved for later, and that is
+# the moment placing by a model is offered, once.
+chip="[...document.querySelectorAll('.home #dest-chip > b, .home #dest-chip > span')].map(e => e.textContent).join(' · ')"
+[ "$(js workspace "String(__ws.records.prefs.has('route_by'))")" = false ] && [ "$(js workspace "$chip")" = "Tasktap decides · by its words" ] \
+  || fail "before it is allowed, Tasktap decides by a thought's words" "$(js workspace "$chip")"
 home_says "Tidy the changelog a little"
-until_has workspace "text .home .offer" 5 "Thoughts can find their own folder" && ask workspace "text .home .way" | grep -q "$usual" \
-  && pass "the first thought that names no folder goes to the usual one, and placing by a model is offered under it, in one line" || fail "placing is offered"
+until_has workspace "text .home .offer" 5 "Thoughts can find their own folder" && ask workspace "text .home .ways" | grep -q "It named no folder; saved for later" \
+  && pass "the first thought that names no folder is saved for later, and placing by a model is offered under it, in one line" || fail "placing is offered"
 js workspace "(document.querySelector('.home .offer .btn').click(), 1)" >/dev/null
 terms="$(ask workspace "text .sheet")"
 until_has workspace "text .sheet" 5 "Who reads them" && terms="$(ask workspace "text .sheet")" \
@@ -820,10 +823,9 @@ shot placing-terms workspace
 press workspace ".sheet" Enter >/dev/null
 until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.value) + String(!!__ws.ui.sheet)" 5 '{"agent":"fixture","model":"fixture-small"}false' \
   && pass "Allow writes the preference for that agent and its model, and the sheet goes" || fail "Allow"
-# The thought that was on its way is taken back, and its words return to the field.
-ask workspace "click .home .way .act" >/dev/null
-until_has workspace "eval $field.value" 3 "Tidy the changelog a little" && clear_field \
-  && until_has workspace "eval String([...__ws.records.thoughts.values()].some(t => t.text === 'Tidy the changelog a little'))" 3 "false" || fail "the offered thought is taken back"
+# The thought it was offered under waits in For later; it is dropped.
+js workspace "(__ws.call('delete', { c: 'thoughts', id: [...__ws.records.thoughts.values()].find(t => t.text === 'Tidy the changelog a little').id }), 1)" >/dev/null
+until_has workspace "eval String([...__ws.records.thoughts.values()].some(t => t.text === 'Tidy the changelog a little'))" 3 "false" || fail "the offered thought is dropped"
 [ "$(js workspace "document.querySelector('.home #dest-chip b').textContent")" = "Tasktap decides" ] \
   && pass "once allowed, a thought with no folder named goes where it belongs: the Composer says so before Return" || fail "the Composer's place once allowed"
 # The model cannot decide between two folders: it asks, first and in full, on Home and in the notch.

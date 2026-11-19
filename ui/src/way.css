@@ -40,11 +40,13 @@
 .cap-row .mic+.key{margin-left:var(--sp1)}
 .reply .mic{height:22px;padding:0 4px;margin-right:-2px;color:var(--fg3)}
 
-/* The wave as loud as the voice: each bar its own share of the level, eased between the core's ten reports a second
-   by the clock. */
-.lvl b{height:calc(var(--h) * (.12 + .88 * var(--l,0)));min-height:2px;transition:height 110ms linear}
-.hear .lvl{--wh:24px;--ww:3px;--wg:2.5px;margin-right:2px}
-.reply .lvl{--wh:14px;--ww:2px;--wg:1.5px;min-width:18px;justify-content:center}
+/* The mark as loud as the voice (ui.tsx Level): the light behind the slab, the palette's two lights, swells and
+   brightens with the level, and the slab's face turns into it; eased between the core's ten reports a second by the
+   clock, and only opacity and scale, which the compositor carries. */
+.lvl>.glow{grid-area:1/1;width:170%;height:170%;border-radius:50%;background:radial-gradient(closest-side,rgb(214 228 255/.55),rgb(255 214 186/.22) 55%,transparent);opacity:calc(.1 + .9 * var(--l,0));transform:scale(calc(.45 + .55 * var(--l,0)));transition:opacity 110ms linear,transform 110ms linear}
+.lvl>.lit{opacity:var(--l,0);transition:opacity 110ms linear}
+.hear .lvl{margin-right:2px}
+.reply .lvl{min-width:18px}
 
 /* The row while the person speaks, and while their words are written down. */
 .cap-row.hear{gap:10px;min-height:var(--row-h)}

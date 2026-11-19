@@ -15,7 +15,7 @@ import { cap, followSpeech } from '../capture.tsx';
 import { live, talk } from '../speech/record.ts';
 import { lookOf } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
-import { Mark, Wave } from '../ui.tsx';
+import { Brand, Mark } from '../ui.tsx';
 import { agentName, call, client, fail, onRedraw, openQuestions, page, pref, records, redraw, settleFocus, title, ui, unheard } from './model.ts';
 import { fold, reveal } from './panel.ts';
 
@@ -90,7 +90,7 @@ records.onchange = () => {
 };
 
 /** The glance on the collapsed tab. Without a camera cutout it is one line, centred as a whole on the tab's centre line
- *  in every state: the wave at rest when idle; else working, who asks and what, then needs you, new and failed. The tab
+ *  in every state: Tasktap's mark when idle; else working, who asks and what, then needs you, new and failed. The tab
  *  is as wide as that line needs and widens evenly about its centre. With a cutout the centre is the camera's, so the
  *  line is split about it: working in the left wing from its outer edge, the rest in the right wing from its outer edge,
  *  each wing as wide as the wider side, and a line under the camera that says who asks and what. */
@@ -125,7 +125,7 @@ function Glance() {
   return (
     <>
       <span class="wing l" ref={left}>{g.working > 0 && <><Mark s="working" label="" /><b>{g.working}</b></>}</span>
-      {!cutout && (asks || (!any && <Wave n={7} rest />))}
+      {!cutout && (asks || (!any && <Brand />))}
       <span class="wing r" ref={right}>
         {g.needs_you > 0 && <span class="n asks"><Mark s="asks" label="" /><b>{g.needs_you}</b></span>}
         {g.done - ended > 0 && <span class="n"><Mark s="ready" label="" /><b>{g.done - ended}</b></span>}

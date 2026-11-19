@@ -48,8 +48,6 @@ html,body{background:transparent!important}
 .wing .n{display:inline-flex;align-items:center;gap:5px}
 .wing .n+.n{margin-left:var(--sp2)}
 .wing .asks b{color:var(--asks)}.wing .fail b{color:var(--fail)}
-/* Whole pixels, so the dots at rest are even on a display that has one pixel to a point. */
-.tab .wave{--wh:12px;--ww:2px;--wg:2px}
 .peek{min-width:0;overflow:hidden;text-overflow:ellipsis;font:var(--f-cap);color:var(--fg2)}
 .peek b{margin-right:3px;font:var(--f-section);color:var(--asks)}
 .tab>.peek{flex:0 1 auto;max-width:260px}

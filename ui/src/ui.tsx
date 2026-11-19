@@ -1,8 +1,14 @@
-// The small parts both pages draw (parts.css): the icon set, the state mark with its words, the wave, key caps, an
-// answer, a diffstat, and the words for times.
+// The small parts both pages draw (parts.css): the icon set, the state mark with its words, Tasktap's mark, key caps,
+// an answer, a diffstat, and the words for times.
 import type { Workdir } from '../../core/proto/protocol.ts';
 import type { ComponentChildren } from 'preact';
 import { spell } from './keys.ts';
+import mark14 from './mark/mark-14.png';
+import lit14 from './mark/mark-14-lit.png';
+import mark24 from './mark/mark-24.png';
+import lit24 from './mark/mark-24-lit.png';
+import mark28 from './mark/mark-28.png';
+import lit28 from './mark/mark-28-lit.png';
 import { ownName, records } from './page.ts';
 import { letters, lettersOf } from './way.ts';
 
@@ -41,13 +47,22 @@ const WORDS: Record<State, string> = {
 };
 export const said = (s: State, bg = false) => `${WORDS[s]}${bg ? ', in background' : ''}`;
 
-/** The state mark: five bars of the wave; its tooltip and accessible name say the state in words. */
+/** The state mark: a seat with no agent in it (Seat), its ring in the same colours: it turns while it works, and
+ *  otherwise holds a pip of the state's colour. Its tooltip and accessible name say the state in words. */
 export function Mark({ s, bg = false, label }: { s: State; bg?: boolean; label?: string }) {
   const words = label ?? said(s, bg);
   const named = words ? { role: 'img' as const, 'aria-label': words, title: words } : { 'aria-hidden': true };
   if (s === 'shell') return <i class="st" data-s="shell" {...named}><I n="term" /></i>;
   if (s === 'later') return <i class="st" data-s={s} {...named} />;
-  return <i class={`st${bg ? ' bgd' : ''}`} data-s={s} {...named}><b /><b /><b /><b /><b /></i>;
+  return (
+    <i class={`st${bg ? ' bgd' : ''}`} data-s={s} {...named}>
+      <svg class="ring-o" viewBox="0 0 24 24" aria-hidden="true" data-tone={TONES[s]}>
+        {s === 'ready' && lit()}
+        <circle cx="12" cy="12" r="11" pathLength="100" />
+        {s === 'working' ? <circle class="turn" cx="12" cy="12" r="11" pathLength="100" /> : <circle class="pip" cx="12" cy="12" r="4" />}
+      </svg>
+    </i>
+  );
 }
 
 /** A session's seat: its agent's ring carrying the state it is in, wherever a session is shown (a row on Home, in the
@@ -62,24 +77,31 @@ export function Seat({ agent, s, bg = false, label, size = 16 }: { agent?: strin
   return <i class={`st of${bg ? ' bgd' : ''}`} data-s={s} style={{ '--seat': size }} {...named}><Ring agent={agent} s={s === 'working' ? 'working' : ''} size={size} tone={TONES[s]} /></i>;
 }
 
-/** The brand's wave: chrome bars, a few copper and graphite among the silver, as the icon has them. */
-export function Wave({ n = 9, live = false, rest = false, style }: { n?: number; live?: boolean; rest?: boolean; style?: Record<string, string> }) {
-  const bars = Array.from({ length: n }, (_, i) => {
-    const x = n > 1 ? i / (n - 1) : 0.5;
-    const tint = [3, 4, 11].includes(i % 14) ? 'cu' : [7, 12].includes(i % 14) ? 'gr' : '';
-    return <b class={tint} style={{ '--h': `${Math.round(34 + 66 * Math.sin(Math.PI * x))}%`, '--d': `${(i * 70) % 900}ms` }} />;
-  });
-  return <span class={`wave${live ? ' live' : ''}${rest ? ' rest' : ''}`} style={style} aria-hidden="true">{bars}</span>;
+/** Tasktap's mark: a slab of the chrome set (motion/mark.ts) in the app's own metal and light, as pictures drawn once
+ *  from the motion engine (scripts/mark-pictures.cjs) at each size it is shown at, so that nothing draws it here. At
+ *  rest it is still. `live` while what it stands beside is at work: the light slides down its face and back, the
+ *  picture of its face turned fading in and out, which the compositor carries (parts.css). */
+const PICTURES = { 14: [mark14, lit14], 24: [mark24, lit24], 28: [mark28, lit28] } as const;
+export type MarkSize = keyof typeof PICTURES;
+export function Brand({ size = 14, live = false }: { size?: MarkSize; live?: boolean }) {
+  const [rest, turned] = PICTURES[size];
+  return (
+    <span class={`brand-m${live ? ' live' : ''}`} style={{ '--m': `${size}px` }} aria-hidden="true">
+      <img src={rest} alt="" /><img class="lit" src={turned} alt="" />
+    </span>
+  );
 }
 
-/** The wave as loud as a voice: its bars' heights follow `l`, 0 to 1, the level of the dictation that records. Five
- *  bars, or as many as the wave it stands in for. */
-export function Level({ l, n = 5 }: { l: number; n?: number }) {
-  const bars = Array.from({ length: n }, (_, i) => {
-    const tint = [3, 4, 11].includes(i % 14) ? 'cu' : [7, 12].includes(i % 14) ? 'gr' : '';
-    return <b class={n === 5 ? (i === 1 ? 'cu' : i === 3 ? 'gr' : '') : tint} style={{ '--h': `${Math.round(34 + 66 * Math.sin((Math.PI * (i + 0.5)) / n))}%` }} />;
-  });
-  return <span class="wave lvl" style={{ '--l': String(Math.max(0, Math.min(1, l))) }} aria-hidden="true">{bars}</span>;
+/** The mark as loud as a voice: `l`, 0 to 1, the level of the dictation that records. The light behind the slab
+ *  swells and brightens with it, and the slab's face turns into that light, eased between the core's ten reports a
+ *  second (way.css). */
+export function Level({ l, size = 24 }: { l: number; size?: MarkSize }) {
+  const [rest, turned] = PICTURES[size];
+  return (
+    <span class="brand-m lvl" style={{ '--m': `${size}px`, '--l': String(Math.max(0, Math.min(1, l))) }} aria-hidden="true">
+      <i class="glow" /><img src={rest} alt="" /><img class="lit" src={turned} alt="" />
+    </span>
+  );
 }
 
 /** A key, wherever one is shown: on a metal cap (`cap`: the key that answers) or as a hint after a label, written as
@@ -108,6 +130,12 @@ export type RingState = '' | 'off' | 'working' | 'asks';
  *  circle says of a session (it asks, its result is new, it failed); and whether its mark is `one` letter, which a
  *  ring under 20 px shows, since two are cramped there. */
 export type RingTone = 'asks' | 'lit' | 'fail';
+/** The lit ring's colours, as the metal's light has them. */
+const lit = () => (
+  <linearGradient id="ring-lit" x1="0" y1="1" x2="1" y2="0">
+    <stop offset="0" stop-color="#b98a5e" /><stop offset=".3" stop-color="#edcda6" /><stop offset=".5" stop-color="#f7f8fa" /><stop offset=".72" stop-color="#a9c0df" /><stop offset="1" stop-color="#7b92c4" />
+  </linearGradient>
+);
 export function Ring({ agent, s, turns = s === 'working', size, tone, one = (size ?? 22) < 20 }: {
   agent: string; s: RingState; turns?: boolean; size?: number; tone?: RingTone; one?: boolean;
 }) {
@@ -116,9 +144,7 @@ export function Ring({ agent, s, turns = s === 'working', size, tone, one = (siz
   const lettered = [...records.agents.keys()].filter((id) => !MARKS[id]).map(word);
   return (
     <svg class="ring-o" viewBox="0 0 24 24" aria-hidden="true" data-tone={tone} style={size ? { '--ring-px': size } : undefined}>
-      <linearGradient id="ring-lit" x1="0" y1="1" x2="1" y2="0">
-        <stop offset="0" stop-color="#b98a5e" /><stop offset=".3" stop-color="#edcda6" /><stop offset=".5" stop-color="#f7f8fa" /><stop offset=".72" stop-color="#a9c0df" /><stop offset="1" stop-color="#7b92c4" />
-      </linearGradient>
+      {lit()}
       <circle cx="12" cy="12" r="11" pathLength="100" />
       {turns && <circle class="turn" cx="12" cy="12" r="11" pathLength="100" />}
       {MARKS[agent] ? <path d={MARKS[agent]} transform="translate(5.5 5.5) scale(.542)" /> : <text class={one ? 'one' : undefined} x="12" y={one ? 17 : 15.6} text-anchor="middle">{lettersOf(lettered, one).get(word(agent)) ?? letters(word(agent)).slice(0, one ? 1 : 2)}</text>}

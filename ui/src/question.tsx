@@ -78,7 +78,7 @@ export function Answers({ q, terminal, who }: { q: Question; terminal?: () => vo
     <div class="qa">
       {answers(q).map((label, i) => (i < 9 ? <Answer k={String(i + 1)} label={label} onClick={() => void choose(q, i)} /> : null))}
       <label class="reply" data-hears={hears || undefined}>
-        {d?.phase === 'recording' ? <Level l={d.level / 100} /> : <Key k="T" cap />}
+        {d?.phase === 'recording' ? <Level size={14} l={d.level / 100} /> : <Key k="T" cap />}
         <input aria-label="Reply" placeholder={d?.phase === 'recording' ? 'Listening' : hears ? 'Writing it down…' : q.kind === 'text' ? 'Your answer' : 'Reply in your own words'} autocomplete="off" spellcheck={false}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.isComposing) {

@@ -17,7 +17,7 @@ import { cap, followSpeech } from '../capture.tsx';
 import { uuid7 } from '../client.ts';
 import { LevelVoice } from '../speech/level.ts';
 import { live, loudness, recording, talk } from '../speech/record.ts';
-import { I, Key, Mark, Wave, plural } from '../ui.tsx';
+import { Brand, I, Key, Mark, plural } from '../ui.tsx';
 import { COMMANDS, commands, hit, recorder, tip } from '../keys.ts';
 import { mac, shownPath, titled } from '../system.ts';
 import { Caps, MenuButton, heard as captionSaid, openMenu } from './chrome.tsx';
@@ -223,7 +223,7 @@ function Bar({ project }: { project: string | null }) {
         <span class="bar-r">
           <button type="button" class="ib" title={tip('Split right', '⌘D')} aria-label="Split right" onClick={() => command('split-right')}><I n="splitr" /></button>
           <button type="button" class="ib" title={tip('Split down', '⇧⌘D')} aria-label="Split down" onClick={() => command('split-down')}><I n="splitd" /></button>
-          <button type="button" class="newt" title={tip('New task', '⌘N')} onClick={() => command('new-task')}><span><Wave n={5} />New task</span><Key k="⌘N" /></button>
+          <button type="button" class="newt" title={tip('New task', '⌘N')} onClick={() => command('new-task')}><span><Brand />New task</span><Key k="⌘N" /></button>
         </span>
       )}
       {titled && <Caps />}

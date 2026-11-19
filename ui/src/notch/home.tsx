@@ -6,7 +6,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { Capture, cap, going } from '../capture.tsx';
 import { talk } from '../speech/record.ts';
 import { lost, next, pending, running, settle, settling, Status, Told } from '../changes.tsx';
-import { Answer as Act, Mark, type State, elapsed, plural, when } from '../ui.tsx';
+import { Answer as Act, Seat, type State, elapsed, plural, when } from '../ui.tsx';
 import { agentName, call, endedSays, fail, openQuestions, projectName, records, redraw, resultOf, title, ui, unheard, why } from './model.ts';
 import { fold, peek } from './panel.ts';
 
@@ -32,7 +32,7 @@ function Row({ t }: { t: Thought }) {
   return (
     <button type="button" class="row" data-status={t.status} title={[t.text, fact].filter(Boolean).join('\n')} disabled={!t.session_id}
       onClick={() => t.session_id && peek(t.session_id)}>
-      <Mark s={stateOf(t)} />
+      <Seat agent={t.agent} s={stateOf(t)} />
       <span class="t">{title(t)}</span>
       <span class="x">{fact}</span>
       <time>{live ? elapsed(t.created) : when(t.updated)}</time>

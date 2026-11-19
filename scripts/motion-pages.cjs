@@ -168,6 +168,8 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       return reply(id, null);
     }
     if (name === 'dictation.cancel') return dictation(args.id) && row(dictation(args.id), true), reply(id, null);
+    // `hints`: where the router would send a text typed, by the text; else nothing is said.
+    if (name === 'route.hint') return reply(id, (records.hints || {})[args.text] ?? null);
     // `hold`: a capture is never answered, so the field stays as it is while a thought is on its way.
     if (name === 'thought.capture') window.__fake.sent = args;
     if (name === 'thought.capture' && records.hold) return;

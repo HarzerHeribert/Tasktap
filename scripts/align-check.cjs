@@ -352,13 +352,26 @@ const settle = () => {
 
 /** Starts a motion and watches it to its end: every glyph of the wake must lie behind the moving edge of `sel` (its
  *  right edge across the window, or its lower edge down it), on the side the edge goes from (`way`: +1 rightward or
- *  downward, -1 leftward). A glyph is counted as it is shed, so one is seen however few frames a loaded machine draws
- *  while it shows, and each that shows is held to the edge frame by frame. It ends once the edge has been still for
- *  five frames, at least a slide's length after it began, and the wake it shed has gone; or after `limit` ms, which
- *  it says. */
+ *  downward, -1 leftward). The motion keeps a clock of its own: every animation in the page (the slide, each glyph's
+ *  drift and fade) is held and moved on by a sixtieth of a second at each frame the page draws, so the edge and the
+ *  wake keep the pace and the order they have at sixty frames a second, however few frames a loaded machine draws;
+ *  what is watched is the product at its own pace, not the machine's. A glyph is counted as it is shed, and each that
+ *  shows is held to the edge frame by frame. It ends once the edge has been still for five frames, at least a slide's
+ *  length after it began, and the wake it shed has gone; or after `limit` ms of the machine's time, which it says. */
 const trail = ([start, sel, axis, way, limit]) => new Promise((done) => {
   document.querySelectorAll('.wake').forEach((w) => w.remove());
   const out = { glyphs: 0, ahead: 0, frames: 0, late: false }, began = performance.now();
+  const clock = new Map();
+  let at = 0;
+  const step = () => {
+    for (const a of document.getAnimations()) {
+      if (!clock.has(a)) clock.set(a, [at, Number(a.currentTime) || 0]);
+      const [from, was] = clock.get(a);
+      a.pause();
+      a.currentTime = was + (at - from);
+    }
+    at += 1000 / 60;
+  };
   const edgeOf = () => document.querySelector(sel)?.getBoundingClientRect()[axis === 'x' ? 'right' : 'bottom'];
   const ahead = (g, edge) => {
     const b = g.getBoundingClientRect();
@@ -376,6 +389,7 @@ const trail = ([start, sel, axis, way, limit]) => new Promise((done) => {
   const end = () => (shed.disconnect(), done(out));
   new Function(start)();
   const tick = () => {
+    step();
     const edge = edgeOf();
     if (edge === undefined) return end();
     still = edge === last ? still + 1 : 0;
@@ -383,9 +397,8 @@ const trail = ([start, sel, axis, way, limit]) => new Promise((done) => {
     for (const g of document.querySelectorAll('.wake canvas'))
       if (Number(getComputedStyle(g).opacity) >= 0.05 && ahead(g, edge)) out.ahead++;
     out.frames++;
-    const now = performance.now() - began;
-    if (now > limit) return ((out.late = true), end());
-    if (still >= 5 && now > 450 && !document.querySelector('.wake')) return end();
+    if (performance.now() - began > limit) return ((out.late = true), end());
+    if (still >= 5 && at > 450 && !document.querySelector('.wake')) return end();
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
@@ -474,9 +487,9 @@ async function main() {
       ['Settings coming down', "__ws.dismiss(); __ws.command('settings')", '.sheet', 'y', 1, true],
     ]) {
       if (!drawn) break;
-      const r = await moving.evaluate(trail, [start, sel, axis, way, 8000]);
+      const r = await moving.evaluate(trail, [start, sel, axis, way, 30000]);
       measured.add(none ? 'no wake from a sheet' : 'wake');
-      if (r.late) failures.push(`${name}: it had not come to rest, its wake gone, within 8 s`);
+      if (r.late) failures.push(`${name}: it had not come to rest, its wake gone, within 30 s`);
       if (none ? r.glyphs : !r.glyphs || r.ahead) failures.push(`${name}: ${none ? 'it shed a wake' : r.glyphs ? `${r.ahead} sightings of a wake glyph ahead of the edge` : 'no wake was shed'}`);
     }
     await moving.context().close();

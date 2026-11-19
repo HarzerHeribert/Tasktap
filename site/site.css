@@ -51,12 +51,14 @@ kbd{display:inline-grid;place-items:center;min-width:var(--key-h);height:var(--k
 /* A finger needs more than a pointer does: the same key, a larger place to land. */
 :is(.key,.btn).lg::after{content:"";position:absolute;inset:-6px -2px}
 /* Tasktap's mark: the app's (ui/src/parts.css .brand-m), a slab of the chrome set drawn once from the app's motion
-   engine (scripts/mark-pictures.cjs). Still; at work while something is shown working, the picture of its face
-   turned fades in and out, so the light slides down the face and back. */
+   engine (scripts/mark-pictures.cjs), at rest and with the light three steps further down its face. Still; while
+   something is shown working the light passes slowly down the face and back, each step fading into the next. */
 .mark{display:inline-grid;flex:none;width:22px;height:22px}
 .mark img{grid-area:1/1;width:100%;height:100%}
-.mark .lit{opacity:0}
-@keyframes mark-lit{to{opacity:1}}
+.mark img:not(.p0){opacity:0}
+@keyframes pass-1{0%{opacity:0}33.3%,100%{opacity:1}}
+@keyframes pass-2{0%,33.3%{opacity:0}66.7%,100%{opacity:1}}
+@keyframes pass-3{0%,66.7%{opacity:0}100%{opacity:1}}
 
 /* ——— the bar: the name at the left, as a menu bar has it; the notch hangs from the same edge ——— */
 .bar{position:absolute;z-index:1;top:0;left:0;right:0;display:flex;align-items:center;gap:var(--sp5);height:52px;padding-inline:var(--gut);max-width:calc(var(--site-w) + 2 * var(--gut));margin-inline:auto}
@@ -253,7 +255,7 @@ h3{font:var(--f-sub);letter-spacing:var(--ls-thought);padding-top:6px}
 }
 @media(prefers-reduced-motion:no-preference){
   html{scroll-behavior:smooth}
-  .mark.live .lit{animation:mark-lit 1.6s ease-in-out infinite alternate}
+  .mark.live img{animation:2.4s ease-in-out infinite alternate}.mark.live .p1{animation-name:pass-1}.mark.live .p2{animation-name:pass-2}.mark.live .p3{animation-name:pass-3}
   .pool{animation:breath var(--t-ambient) ease-in-out calc(-.5 * var(--t-ambient)) infinite alternate paused}
   .pool.b{animation-duration:calc(1.23 * var(--t-ambient));animation-delay:calc(-.615 * var(--t-ambient))}
   .pool.c{animation-duration:calc(1.47 * var(--t-ambient));animation-delay:calc(-.735 * var(--t-ambient))}

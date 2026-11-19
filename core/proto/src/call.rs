@@ -1,4 +1,4 @@
-//! The one table of calls (design §1, §2): the 45 of the 51 core calls built
+//! The one table of calls (design §1, §2): the 46 of the 52 core calls built
 //! so far, the shim's ability, and the test fixtures.
 //!
 //! Each call is a type here, named for the call (`thought.capture` is
@@ -93,6 +93,7 @@ table! {
     TerminalOpen "terminal.open" Device (OpenTerminal) -> crate::frame::Opened;
     TerminalResize "terminal.resize" Device (ResizeTerminal) -> ();
     TerminalStop "terminal.stop" Device (Ref<TerminalId>) -> ();
+    TerminalRuns "terminal.runs" Device (Ref<TerminalId>) -> crate::args::Runs;
     // Projects
     ProjectAdd "project.add" Device (AddProject) -> ProjectId;
     ProjectScan "project.scan" Device (Empty) -> ();

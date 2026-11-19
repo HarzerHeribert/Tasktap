@@ -22,7 +22,8 @@ use std::path::{Path, PathBuf};
 use common::*;
 use tasktap_proto::{
     AddProject, AnswerQuestion, Capture, PrefPatch, ProjectId, Put, PutTarget, QuestionId, Ref,
-    Response, SessionState, StartTerminal, Status, TerminalId, TerminalState, ThoughtId, call,
+    Response, SessionState, StartTerminal, Status, TerminalId, TerminalKind, TerminalState,
+    ThoughtId, call,
 };
 
 /// A file, folder or link of the home, as it is on disk.
@@ -207,6 +208,20 @@ done
 struct Run {
     thought: ThoughtId,
     screen: Screen,
+    terminal: TerminalId,
+}
+
+impl Run {
+    /// Its agent ended by itself: the terminal goes on as a shell (design
+    /// §7), which a stop ends.
+    fn ended(mut self, w: &mut Watch) {
+        let terminal = self.terminal;
+        w.until("the terminal goes on as a shell", |m| {
+            m.terminals[&terminal].kind == TerminalKind::Shell
+        });
+        w.ok::<call::TerminalStop>(&Ref { id: terminal });
+        self.screen.ended();
+    }
 }
 
 /// A thought for `agent` that names the project, routed there by its name
@@ -239,7 +254,11 @@ fn launch(core: &Core, w: &mut Watch, project: ProjectId, agent: &str, shows: &s
     let terminal = w.model.session(th.session_id.unwrap()).terminal_id.unwrap();
     let mut screen = Screen::open(core, terminal);
     screen.until(shows);
-    Run { thought, screen }
+    Run {
+        thought,
+        screen,
+        terminal,
+    }
 }
 
 /// Types `hook:NAME` into a stand-in, which runs its hook on that payload.
@@ -308,7 +327,7 @@ fn nothing_of_the_persons_home_changes_outside_the_cores_data_folder() {
         m.status(run.thought) == Status::Done
     });
     run.screen.line("quit");
-    run.screen.ended();
+    run.ended(&mut w);
 
     // Codex: its hooks checked first, launched, a question refused, and
     // stopped while it works.
@@ -338,7 +357,7 @@ fn nothing_of_the_persons_home_changes_outside_the_cores_data_folder() {
         m.status(run.thought) == Status::Done
     });
     run.screen.line("exit:0");
-    run.screen.ended();
+    run.ended(&mut w);
 
     // A shell in the home, as a person opens one, where typing an agent's
     // name runs it through its shim, which attaches the hooks and adopts

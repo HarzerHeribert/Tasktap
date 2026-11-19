@@ -144,6 +144,16 @@ impl Handle {
         !self.shared.closed.get()
     }
 
+    /// A hold on no connection, for the tests of what holds one.
+    #[cfg(test)]
+    pub fn detached(s: StreamId) -> Handle {
+        Handle {
+            s,
+            shared: Rc::default(),
+            link: Weak::new(),
+        }
+    }
+
     /// Whether both are the hold on one stream.
     pub fn same(&self, other: &Handle) -> bool {
         Rc::ptr_eq(&self.shared, &other.shared)

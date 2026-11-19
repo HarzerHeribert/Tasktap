@@ -334,7 +334,7 @@ fn observe(
 }
 
 /// Mouse, focus, paste, keyboard and screen modes off, the cursor shown.
-const RELEASE: &[u8] = b"\x1b[?9;1000;1002;1003;1004;1005;1006;1015;1016;2004;2026l\x1b[?1l\x1b>\x1b[<u\x1b[=0u\x1b[>4;0m\x1b[?47l\x1b[0m\x1b[?25h";
+pub(crate) const RELEASE: &[u8] = b"\x1b[?9;1000;1002;1003;1004;1005;1006;1015;1016;2004;2026l\x1b[?1l\x1b>\x1b[<u\x1b[=0u\x1b[>4;0m\x1b[?47l\x1b[0m\x1b[?25h";
 
 #[cfg(unix)]
 fn code(status: &std::process::ExitStatus) -> i32 {

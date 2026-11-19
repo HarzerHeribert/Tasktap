@@ -1039,6 +1039,27 @@ words! {
     pub enum FileChange { Added, Modified, Deleted, Type }
 }
 
+/// `terminal.runs`: what runs in a terminal, as the core sees it when asked,
+/// which is when the person closes it; nothing watches it meanwhile.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Runs {
+    pub state: RunState,
+    /// What runs, by name, what has the terminal's foreground first: an
+    /// agent's live session by its agent's name, a program by its command
+    /// line, a job left in the background by its own.
+    pub what: Vec<String>,
+    /// The live session of an agent in it, idle or not.
+    pub session: Option<SessionId>,
+}
+
+words! {
+    /// `idle`: a shell with nothing running in it, waiting for a command;
+    /// `running`: a program, a job or an agent's session (`what`); `ended`:
+    /// its program exited; `unknown`: the system does not say.
+    pub enum RunState { Idle, Running, Ended, Unknown }
+}
+
 /// `project.close`: no terminal starts in the project until `project.add`
 /// names its folder again. With `stop`, its running terminals are stopped in
 /// the same step, as `terminal.stop` does; without, they keep running.

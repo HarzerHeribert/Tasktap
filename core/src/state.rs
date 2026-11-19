@@ -2227,9 +2227,10 @@ pub struct Pruned {
 /// `days` days before `now`, has no worktree left to settle, and no
 /// session that has not ended is at it as its turn. An ended session goes
 /// once no thought, question or result refers to it, and the terminal an
-/// agent ran in goes with its last session, with its history. Nothing that
-/// is captured, routed, working, unread or pending is ever touched, nor a
-/// shell, which is the person's own. With 0 days nothing goes at all.
+/// agent ran in goes with its last session, with its history, also when it
+/// went on as a shell once the agent ended. Nothing that is captured,
+/// routed, working, unread or pending is ever touched, nor a shell the
+/// person opened, which is their own. With 0 days nothing goes at all.
 pub fn prune(tx: &mut Tx<'_>, now: Time, days: u16) -> store::Result<Pruned> {
     let mut pruned = Pruned::default();
     if days == 0 {
@@ -2262,8 +2263,10 @@ pub fn prune(tx: &mut Tx<'_>, now: Time, days: u16) -> store::Result<Pruned> {
         let Some(terminal) = terminal.flatten() else {
             continue;
         };
-        let ended = terminal.state != TerminalState::Running;
-        if terminal.kind != TerminalKind::Agent || !ended {
+        // A run's terminal is the run's also once it went on as a shell
+        // (design §7): a session the core launched is in no other.
+        let run = terminal.kind == TerminalKind::Agent || !s.adopted;
+        if !run || terminal.state == TerminalState::Running {
             continue;
         }
         match tx.delete_terminal(terminal.id) {

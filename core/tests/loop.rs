@@ -21,7 +21,8 @@ use common::*;
 use tasktap_proto::call;
 use tasktap_proto::{
     Answer, AnswerQuestion, AttemptId, Candidate, Control, Empty, FixtureScript, Frame, Place,
-    QuestionState, Ref, Response, Route, SessionId, SessionState, Start, Status, TerminalState,
+    QuestionState, Ref, Response, Route, SessionId, SessionState, Start, Status, TerminalKind,
+    TerminalState,
 };
 
 /// The agent of the loop: the fixture agent in the terminal the launch
@@ -222,6 +223,11 @@ fn what_a_run_left_goes_once_it_is_older_than_the_person_keeps_it() {
     assert!(s.w.model.thoughts.contains_key(&t), "its session lives");
     agent.0.line("exit:0");
     let terminal = s.w.model.session(session).terminal_id.unwrap();
+    // It goes on as a shell, which ends when it is stopped.
+    s.w.until("the terminal is a shell", |m| {
+        m.terminals[&terminal].kind == TerminalKind::Shell
+    });
+    s.w.ok::<call::TerminalStop>(&Ref { id: terminal });
     s.w.until("the terminal ended", |m| {
         m.terminals[&terminal].state == TerminalState::Exited
     });

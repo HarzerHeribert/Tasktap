@@ -15,8 +15,8 @@ use tasktap_core::{fixture_fold, fixture_line as line};
 use tasktap_proto::call::{self, Code};
 use tasktap_proto::{
     CloseProject, CloseWhy, Control, Data, Delete, Empty, Frame, Mark, Offset, OpenTerminal,
-    ProjectId, Ref, ResizeTerminal, Retire, Size, StartTerminal, StreamId, TerminalId,
-    TerminalKind, TerminalState, When,
+    ProjectId, Ref, ResizeTerminal, Retire, RunState, Runs, Size, StartTerminal, StreamId,
+    TerminalId, TerminalKind, TerminalState, When,
 };
 
 mod common;
@@ -696,6 +696,127 @@ fn control_c_ends_what_runs_in_a_shell_and_the_shell_reads_on() {
     screen.until("1337");
 }
 
+fn runs_of(c: &mut Client, id: TerminalId) -> Result<Runs, tasktap_proto::Error> {
+    c.call::<call::TerminalRuns>(&Ref { id }).unwrap()
+}
+
+/// What the core says runs in a terminal, asked until it says `want` or
+/// [`PATIENCE`] has passed: a shell starts its program a moment after the
+/// line is typed.
+#[cfg(unix)]
+fn runs_until(c: &mut Client, id: TerminalId, want: impl Fn(&Runs) -> bool) -> Runs {
+    let deadline = Instant::now() + PATIENCE;
+    loop {
+        let runs = runs_of(c, id).unwrap();
+        if want(&runs) || Instant::now() >= deadline {
+            return runs;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// What runs in a person's shell, as the core says when it is closed
+/// (`terminal.runs`): nothing while it waits for a command; a program in
+/// front, and jobs left in the background, running or stopped, each by its
+/// command line, what has the foreground first; once it exited, it ended.
+#[cfg(unix)]
+#[test]
+fn a_shell_says_what_runs_in_it_and_nothing_when_it_waits_for_a_command() {
+    let data = Folder::new("tt-runs");
+    let core = Core::start(&data);
+    let mut c = core.device();
+    let id = TerminalId::mint();
+    let start = StartTerminal {
+        project: None,
+        argv: Vec::new(),
+        title: None,
+    };
+    let mut screen = Screen::start(&core, id, Some(start));
+    screen.line("echo $((3*271))");
+    screen.until("813");
+    let idle = |r: &Runs| r.state == RunState::Idle;
+    let runs = runs_until(&mut c, id, idle);
+    assert_eq!(
+        (runs.state, runs.what, runs.session),
+        (RunState::Idle, vec![], None)
+    );
+
+    screen.line("sleep 30");
+    // Named once its process runs the program, a moment after the fork.
+    let runs = runs_until(&mut c, id, |r| r.what == ["sleep 30"]);
+    assert_eq!(
+        (runs.state, runs.what),
+        (RunState::Running, vec!["sleep 30".into()])
+    );
+    screen.write(b"\x03");
+    assert!(idle(&runs_until(&mut c, id, idle)));
+
+    // Left in the background, and one stopped there: both run.
+    screen.line("sleep 31 &");
+    screen.line("echo $((7*191))");
+    screen.until("1337");
+    let runs = runs_until(&mut c, id, |r| r.what == ["sleep 31"]);
+    assert_eq!(runs.state, RunState::Running);
+    screen.line("sleep 32");
+    let two = |r: &Runs| r.what == ["sleep 32", "sleep 31"];
+    assert!(two(&runs_until(&mut c, id, two)));
+    screen.write(b"\x1a");
+    screen.until("Stopped");
+    let runs = runs_until(&mut c, id, |r| r.what.len() == 2);
+    assert_eq!(runs.state, RunState::Running);
+    assert_eq!(
+        BTreeSet::from_iter(runs.what),
+        BTreeSet::from(["sleep 31".into(), "sleep 32".into()])
+    );
+    screen.line("kill -9 %1 %2");
+    assert!(idle(&runs_until(&mut c, id, idle)));
+
+    screen.line("exit");
+    screen.ended();
+    assert_eq!(runs_of(&mut c, id).unwrap().state, RunState::Ended);
+    let gone = runs_of(&mut c, TerminalId::mint());
+    assert_eq!(gone.unwrap_err().code, Code::Gone);
+}
+
+/// Where the system does not list processes, the core does not guess: it
+/// cannot tell, and closing the terminal asks.
+#[cfg(unix)]
+#[test]
+fn a_shell_whose_processes_the_system_does_not_list_cannot_tell() {
+    let data = Folder::new("tt-runs-blind");
+    let core = Core::start_env(&data, &[], &[("TASKTAP_FIXTURE_BLIND", "processes")]);
+    let mut c = core.device();
+    let id = TerminalId::mint();
+    let start = StartTerminal {
+        project: None,
+        argv: Vec::new(),
+        title: None,
+    };
+    let mut screen = Screen::start(&core, id, Some(start));
+    screen.line("echo $((3*271))");
+    screen.until("813");
+    let runs = runs_of(&mut c, id).unwrap();
+    assert_eq!((runs.state, runs.what), (RunState::Unknown, vec![]));
+}
+
+/// A program a terminal runs with no shell around it runs until it exits.
+#[test]
+fn a_program_runs_until_it_exits() {
+    let data = Folder::new("tt-runs-program");
+    let core = Core::start(&data);
+    let mut c = core.device();
+    let id = TerminalId::mint();
+    let mut screen = Screen::start(&core, id, Some(fixture(&["serve"])));
+    let running = runs_of(&mut c, id).unwrap();
+    assert_eq!(
+        (running.state, running.what),
+        (RunState::Running, vec!["tasktap".into()])
+    );
+    screen.line("exit 0");
+    screen.ended();
+    assert_eq!(runs_of(&mut c, id).unwrap().state, RunState::Ended);
+}
+
 #[cfg(unix)]
 #[test]
 fn input_a_process_does_not_read_stays_bounded_however_often_clients_reattach() {
@@ -1363,8 +1484,12 @@ fn a_terminal_may_belong_to_no_project_and_a_closed_project_starts_none() {
     w.sync();
     let t = &w.model.terminals[&loose];
     assert_eq!((t.project_id, t.kind), (None, TerminalKind::Task));
-    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).unwrap();
-    assert_eq!(Path::new(&t.cwd), Path::new(&home));
+    // The core's home, which on Mac and Linux the tests give it.
+    let home = match cfg!(windows) {
+        true => std::env::var_os("USERPROFILE").unwrap().into(),
+        false => data.0.join("home"),
+    };
+    assert_eq!(Path::new(&t.cwd), home);
     // In a project: its folder, until the project is closed.
     let folder = Folder::new("tt-proj-folder");
     let p = ProjectId::mint();

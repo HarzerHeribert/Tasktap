@@ -135,6 +135,7 @@ fn handler(name: Name) -> Option<Handler> {
         Name::TerminalOpen => |cx, args| now::<call::TerminalOpen>(cx, args, terminal::open),
         Name::TerminalResize => |cx, args| now::<call::TerminalResize>(cx, args, terminal::resize),
         Name::TerminalStop => |cx, args| now::<call::TerminalStop>(cx, args, terminal::stop_call),
+        Name::TerminalRuns => |cx, args| now::<call::TerminalRuns>(cx, args, terminal::runs_call),
         Name::FileRead => |cx, args| later::<call::FileRead>(cx, args, read_file),
         Name::PreviewOpen => |cx, args| later::<call::PreviewOpen>(cx, args, open_preview),
         #[cfg(feature = "fixtures")]

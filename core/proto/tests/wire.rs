@@ -438,6 +438,12 @@ fn every_call_round_trips() {
     };
     round_trip::<call::TerminalResize>(resize, (), seen);
     round_trip::<call::TerminalStop>(Ref { id: id(4) }, (), seen);
+    let runs = Runs {
+        state: RunState::Running,
+        what: vec!["npm run dev".into(), "sleep 100".into()],
+        session: None,
+    };
+    round_trip::<call::TerminalRuns>(Ref { id: id(4) }, runs, seen);
     let add = AddProject {
         id: id(2),
         folder: "/Users/someone/tasktap".into(),
@@ -680,7 +686,7 @@ fn every_call_round_trips() {
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 51);
+    assert_eq!(Name::ALL.len(), 52);
 }
 
 #[test]
@@ -715,7 +721,7 @@ fn access_follows_the_authorization_table() {
             "session.adopt"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 42);
+    assert_eq!(by(Access::Device).len(), 43);
     // An agent shows a preview beside its own terminal, as a device does beside any.
     assert_eq!(by(Access::Either), ["preview.open"]);
     assert_eq!(by(Access::Ability), ["shim.hold", "host.notify"]);

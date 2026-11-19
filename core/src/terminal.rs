@@ -31,8 +31,8 @@ use std::rc::{Rc, Weak};
 use std::time::Duration;
 use tasktap_proto::{
     CloseProject, Code, Error, MAX_TERMINAL_CLIENTS, MAX_TERMINAL_SIZE, Offset, OpenTerminal,
-    Opened, ProjectId, Ref, ResizeTerminal, Rev, Secret, Size, StartTerminal, Terminal, TerminalId,
-    TerminalKind, TerminalState,
+    Opened, ProjectId, Ref, ResizeTerminal, Rev, RunState, Runs, Secret, Size, StartTerminal,
+    Terminal, TerminalId, TerminalKind, TerminalState,
 };
 use tokio::sync::mpsc;
 
@@ -116,6 +116,9 @@ struct Live {
     closed: bool,
     /// Reads the output for what its agent waits on before it is ready.
     watch: Option<crate::agents::Watch>,
+    /// An agent's terminal: its token, which the shell that follows the
+    /// agent's end gets ([`shell_after`]).
+    shell_after: Option<Secret>,
 }
 
 impl Terminals {
@@ -296,25 +299,8 @@ pub fn spawn_with(
     if terminals.closing {
         return Err(std::io::Error::other("Tasktap is shutting down"));
     }
-    let shell = t.kind == TerminalKind::Shell;
     let size = Size(t.cols, t.rows);
-    // A shell finds the shims first, so that an agent typed there is
-    // adopted; any other child finds `tasktap`, for `tasktap ask`, in the
-    // core's own folder, last, with no shim on its PATH at all.
-    let own = crate::roles::program().ok();
-    let own = own.as_deref().and_then(Path::parent);
-    let path = match shell {
-        true => process::path(terminals.shims(), None),
-        false => process::path(None, own),
-    };
-    let mut env = process::environment(&terminals.data, token, path);
-    env.extend(more);
-    let plan = Plan {
-        argv: if shell { Vec::new() } else { t.argv.clone() },
-        cwd: PathBuf::from(&t.cwd),
-        env,
-        size,
-    };
+    let plan = terminals.plan(t, token, more, size);
     let (process, input, reports) = Process::start(plan)?;
     let live = Live {
         term: Rc::new(RefCell::new(Term::new(size, input))),
@@ -325,11 +311,112 @@ pub fn spawn_with(
         exited: None,
         closed: false,
         watch: None,
+        shell_after: (t.kind == TerminalKind::Agent).then(|| token.clone()),
     };
     terminals.live.insert(t.id, live);
     tokio::task::spawn_local(run(core.me.clone(), t.id, reports));
     core.events.notify_one();
     Ok(())
+}
+
+impl Terminals {
+    /// What `t`'s child runs, with `token` and `more` in its environment.
+    fn plan(
+        &self,
+        t: &Terminal,
+        token: &Secret,
+        more: Vec<(String, std::ffi::OsString)>,
+        size: Size,
+    ) -> Plan {
+        let shell = t.kind == TerminalKind::Shell;
+        // A shell finds the shims first, so that an agent typed there is
+        // adopted; any other child finds `tasktap`, for `tasktap ask`, in the
+        // core's own folder, last, with no shim on its PATH at all.
+        let own = crate::roles::program().ok();
+        let own = own.as_deref().and_then(Path::parent);
+        let path = match shell {
+            true => process::path(self.shims(), None),
+            false => process::path(None, own),
+        };
+        let mut env = process::environment(&self.data, token, path);
+        env.extend(more);
+        Plan {
+            argv: if shell { Vec::new() } else { t.argv.clone() },
+            cwd: PathBuf::from(&t.cwd),
+            env,
+            size,
+        }
+    }
+}
+
+/// What the shell after an agent turns off beside what a shim does
+/// ([`crate::roles::shim::RELEASE`]): two modes OpenCode sets, one of which
+/// it leaves on, and the cursor's shape.
+const MORE: &[u8] = b"\x1b[?2027;2031l\x1b[0 q";
+
+/// An agent's terminal goes on as the person's shell once its agent has
+/// ended by itself (design §7), as a terminal does when an agent typed into
+/// a shell ends: the agent's leftovers are hung up on, the modes it left on
+/// in the clients' terminals are turned off ([`Term::switch`]), and the shell
+/// starts in a pseudo-terminal of its own, whose modes are fresh and which
+/// holds nothing typed for the agent, so no follow-up can reach it. It runs
+/// in the agent's folder, or for a run in a worktree of the core's in the
+/// project's own, so it never keeps a worktree from going; its row becomes
+/// a shell's, in which an agent typed is adopted with the terminal's token.
+/// Not after a stop, before the agent ran, or while the core shuts down:
+/// then the terminal ends. False when it did not go on.
+fn shell_after(core: &mut Core, id: TerminalId) -> bool {
+    let closing = core.terminals.closing;
+    let Some(live) = core.terminals.live.get_mut(&id) else {
+        return false;
+    };
+    if live.stopping || closing || live.exited.is_none() {
+        return false;
+    }
+    let Some(token) = live.shell_after.take() else {
+        return false;
+    };
+    let found = effects::read(core, |tx| {
+        let Some(t) = tx.terminal(id)? else {
+            return Ok(None);
+        };
+        let project = t.project_id.map(|p| tx.project(p)).transpose()?.flatten();
+        Ok(Some((t, project.map(|p| p.folder))))
+    });
+    let Ok(Some((mut t, folder))) = found else {
+        return false;
+    };
+    // Each side as the system names it: a temporary folder may be reached
+    // through a link (`/var` and `/private/var` on a Mac).
+    let real = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let worktrees = real(&core.terminals.data.join(crate::isolate::FOLDER));
+    let cwd = match (real(Path::new(&t.cwd)).starts_with(&worktrees), folder) {
+        (true, Some(folder)) => folder,
+        (true, None) => process::home().to_string_lossy().into_owned(),
+        (false, _) => t.cwd.clone(),
+    };
+    let shell = process::shell();
+    (t.kind, t.title, t.argv, t.cwd) = (TerminalKind::Shell, name(&shell), vec![shell], cwd);
+    let live = core.terminals.live.get_mut(&id).expect("looked up above");
+    let size = live.term.borrow().size();
+    let plan = core.terminals.plan(&t, &token, Vec::new(), size);
+    let Ok((process, input, reports)) = Process::start(plan) else {
+        return false;
+    };
+    let live = core.terminals.live.get_mut(&id).expect("looked up above");
+    live.hang_up();
+    std::mem::replace(&mut live.process, process).end();
+    (live.exited, live.closed, live.watch) = (None, false, None);
+    live.term
+        .borrow_mut()
+        .switch(input, &[crate::roles::shim::RELEASE, MORE].concat());
+    let written = effects::write(core, |tx| tx.update_terminal(&t).map_err(stored));
+    if written.is_err() {
+        stop(core, id);
+    }
+    tokio::task::spawn_local(run(core.me.clone(), id, reports));
+    core.events.notify_one();
+    true
 }
 
 /// Takes in what a terminal's threads report until the terminal ends.
@@ -398,7 +485,9 @@ async fn run(core: Weak<RefCell<Core>>, id: TerminalId, mut reports: mpsc::Recei
             // Lingered long enough, or every thread is gone.
             None => live.exited.flatten(),
         };
-        end(&mut core, id, exit);
+        if !shell_after(&mut core, id) {
+            end(&mut core, id, exit);
+        }
         return;
     }
 }
@@ -598,6 +687,44 @@ pub fn stop_call(cx: &mut Cx, args: Ref<TerminalId>) -> Result<(), Error> {
     known(cx.core, args.id)?;
     stop(cx.core, args.id);
     Ok(())
+}
+
+/// `terminal.runs`: what runs in a terminal, so that closing one with
+/// nothing running in it asks nothing. The live session of an agent in it
+/// runs, idle or not; a child other than a shell runs while it has not
+/// exited; a shell runs what the system says runs beside it. Nothing is
+/// watched for this: the processes are listed when asked.
+pub fn runs_call(cx: &mut Cx, args: Ref<TerminalId>) -> Result<Runs, Error> {
+    let (t, session) = effects::read(cx.core, |tx| {
+        Ok((tx.terminal(args.id)?, tx.terminal_session(args.id)?))
+    })?;
+    let t = t.ok_or_else(|| gone(args.id))?;
+    let says = |state, what| Runs {
+        state,
+        what,
+        session: None,
+    };
+    let live = cx.core.terminals.live.get(&t.id);
+    let Some(live) = live.filter(|live| live.exited.is_none() && !live.stopping) else {
+        return Ok(says(RunState::Ended, Vec::new()));
+    };
+    if let Some(s) = session {
+        let name =
+            crate::agents::find(&s.agent).map_or_else(|| s.agent.clone(), |a| a.name().into());
+        return Ok(Runs {
+            state: RunState::Running,
+            what: vec![name],
+            session: Some(s.id),
+        });
+    }
+    if t.kind != TerminalKind::Shell {
+        return Ok(says(RunState::Running, vec![t.title]));
+    }
+    Ok(match live.process.others() {
+        None => says(RunState::Unknown, Vec::new()),
+        Some(others) if others.is_empty() => says(RunState::Idle, others),
+        Some(others) => says(RunState::Running, others),
+    })
 }
 
 /// Ends a terminal's process tree: hang-up to its process group and its

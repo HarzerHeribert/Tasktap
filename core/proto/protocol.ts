@@ -1416,6 +1416,29 @@ ms: number | null, };
 export type Rows<R, I> = { put?: Array<R>, del?: Array<I>, };
 
 /**
+ * `idle`: a shell with nothing running in it, waiting for a command;
+ * `running`: a program, a job or an agent's session (`what`); `ended`:
+ * its program exited; `unknown`: the system does not say.
+ */
+export type RunState = "idle" | "running" | "ended" | "unknown";
+
+/**
+ * `terminal.runs`: what runs in a terminal, as the core sees it when asked,
+ * which is when the person closes it; nothing watches it meanwhile.
+ */
+export type Runs = { state: RunState,
+/**
+ * What runs, by name, what has the terminal's foreground first: an
+ * agent's live session by its agent's name, a program by its command
+ * line, a job left in the background by its own.
+ */
+what: Array<string>,
+/**
+ * The live session of an agent in it, idle or not.
+ */
+session: SessionId | null, };
+
+/**
  * 32 random bytes as 64 hex digits: a device key or a session token.
  */
 export type Secret = string;
@@ -1742,6 +1765,7 @@ export type Calls = {
   "terminal.open": { args: OpenTerminal; result: Opened; access: "device" };
   "terminal.resize": { args: ResizeTerminal; result: null; access: "device" };
   "terminal.stop": { args: Ref<TerminalId>; result: null; access: "device" };
+  "terminal.runs": { args: Ref<TerminalId>; result: Runs; access: "device" };
   "project.add": { args: AddProject; result: ProjectId; access: "device" };
   "project.scan": { args: Empty; result: null; access: "device" };
   "project.close": { args: CloseProject; result: null; access: "device" };

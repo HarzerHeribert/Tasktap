@@ -663,11 +663,18 @@ fn keep_and_discard_wait_until_nothing_runs_in_the_worktree() {
     s.w.until("its session ended", |m| {
         m.sessions[&session].state == SessionState::Ended
     });
-    // Until its terminal has gone too, a process may still be in the worktree.
+    // Until its terminal has gone on as a shell, in the project's folder
+    // and not the worktree, a process may still be in the worktree.
     let e = settle(&mut s, t, false);
-    s.w.until("its terminal ended", |m| {
-        m.terminals[&terminal].state != tasktap_proto::TerminalState::Running
+    s.w.until("its terminal went on as a shell", |m| {
+        m.terminals[&terminal].kind == tasktap_proto::TerminalKind::Shell
     });
+    assert_eq!(
+        Path::new(&s.w.model.terminals[&terminal].cwd)
+            .canonicalize()
+            .unwrap(),
+        repo.canonicalize().unwrap()
+    );
     if let Err(e) = e {
         assert_eq!(e.code, Code::Conflict, "{e}");
         settle(&mut s, t, false).unwrap();
@@ -2055,6 +2062,17 @@ fn review2_8_a_process_the_core_cannot_see_holds_a_worktree() {
     isolate(&mut s, Isolate::Always);
     let t = pending(&mut s, "write:a.txt:x");
     let wt = PathBuf::from(workdir(&s, t).path);
+    // The run's terminal goes on as a shell, which holds it as any does
+    // here: it is stopped, and a shell of the person's started.
+    let session = s.w.model.thought(t).session_id.unwrap();
+    let run = s.w.model.session(session).terminal_id.unwrap();
+    s.w.until("the run's terminal went on as a shell", |m| {
+        m.terminals[&run].kind == tasktap_proto::TerminalKind::Shell
+    });
+    s.w.ok::<call::TerminalStop>(&Ref { id: run });
+    s.w.until("the run's shell ended", |m| {
+        m.terminals[&run].state != tasktap_proto::TerminalState::Running
+    });
     let start = StartTerminal {
         project: Some(s.project),
         argv: Vec::new(),

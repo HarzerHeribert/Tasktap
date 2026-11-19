@@ -381,16 +381,9 @@ const EVERYDAY: &[&str] = &[
 
 /// Words before a name that say it is one: "in app", "to docs".
 const BEFORE_NAME: &[&str] = &["in", "into", "to", "for", "from", "inside", "at"];
-/// Words after a name that say it is one: "the app project".
-const AFTER_NAME: &[&str] = &[
-    "project",
-    "repo",
-    "repository",
-    "folder",
-    "workspace",
-    "codebase",
-    "directory",
-];
+/// Words after a name that say it is one: "the app project". ("folder" is
+/// not: "the scripts folder" is as often a folder in a project.)
+const AFTER_NAME: &[&str] = &["project", "repo", "repository", "workspace", "codebase"];
 
 /// Whether a project's name is everyday words alone.
 fn everyday(name: &str) -> bool {
@@ -440,7 +433,7 @@ fn hits(r: &Request) -> Vec<Hit<'_>> {
             let w = &w;
             names.flat_map(move |n| {
                 said(w, n).into_iter().map(move |said| {
-                    let plain = everyday(n) && !as_name(r, w, &said, n);
+                    let plain = (everyday(n) || apart(r, w, &said)) && !as_name(r, w, &said, n);
                     Hit { p, said, plain }
                 })
             })
@@ -464,13 +457,15 @@ fn hits(r: &Request) -> Vec<Hit<'_>> {
             ..h
         })
         .collect();
+    // By how each is said, whether used as a name or not: "tidepool mobile"
+    // is never `tidepool`, though it asks about `tidepool-mobile`.
     let inside = |h: &Hit| {
         all.iter().any(|o| {
             o.p.to != h.p.to
                 && o.said.at.start <= h.said.at.start
                 && h.said.at.end <= o.said.at.end
                 && (o.said.len > h.said.len || o.said.at.len() > h.said.at.len())
-                && strength(o) >= strength(h)
+                && said_as(o.said.how) >= said_as(h.said.how)
         })
     };
     let kept: Vec<&Hit> = all.iter().filter(|h| !inside(h)).collect();
@@ -483,25 +478,51 @@ fn hits(r: &Request) -> Vec<Hit<'_>> {
             None => out.push(h.clone()),
         }
     }
-    out.sort_by_key(|h| std::cmp::Reverse((h.said.how, h.said.len, h.p.used)));
+    out.sort_by_key(|h| std::cmp::Reverse((h.said.len, h.said.how, h.p.used)));
     out
 }
 
-/// A name written or joined is as strong as another: both are what the
-/// person meant to say. One said as it sounds is weaker; one a letter off,
-/// or an everyday word said as that word, the weakest.
-fn strength(h: &Hit) -> u8 {
-    match h.said.how {
-        _ if h.plain => 0,
+/// How strongly the words say a name, by how alone: written or joined, as
+/// it sounds, a letter off.
+fn said_as(how: How) -> u8 {
+    match how {
         How::Near => 0,
         How::Sounds => 1,
         How::Joined | How::Written => 2,
     }
 }
 
+/// A name written or joined is as strong as another: both are what the
+/// person meant to say. One said as it sounds is weaker; one a letter off,
+/// or words that are a name but not used as one, the weakest.
+fn strength(h: &Hit) -> u8 {
+    match h.plain {
+        true => 0,
+        false => said_as(h.said.how),
+    }
+}
+
+/// Whether the words that say a name are words of their own, with spaces
+/// between, each of two letters or more: "harbor master" for
+/// `harbormaster`, "snow line" for `snow-line`. Such words are as likely to
+/// be meant as words. Not letters said one by one ("ledger A P I"), a
+/// number, or the name written with what joins its parts (`snow-line`,
+/// `snow_line`).
+fn apart(r: &Request, w: &Words, said: &Said) -> bool {
+    let at = said.at.clone();
+    let spaced = (at.start..at.end - 1).all(|i| {
+        let between = &r.text[w.spans[i].end..w.spans[i + 1].start];
+        between.chars().all(char::is_whitespace)
+    });
+    at.len() >= 2
+        && spaced
+        && (w.words[at].iter())
+            .all(|x| x.chars().count() >= 2 && x.chars().all(char::is_alphabetic))
+}
+
 /// Whether a name said decides alone where a thought goes: written or
-/// joined, and no everyday word said as that word. A name said only as it
-/// sounds is proposed and asked about.
+/// joined and used as a name, where it is everyday words or words written
+/// apart. A name said only as it sounds is proposed and asked about.
 fn decides(h: &Hit) -> bool {
     strength(h) == 2
 }
@@ -516,7 +537,8 @@ fn quoted(r: &Request, h: &Hit) -> Option<String> {
 fn why_named(r: &Request, h: &Hit) -> String {
     let words = &r.text[h.said.span.clone()];
     match h.said.how {
-        _ if h.plain => format!("you wrote “{words}”"),
+        _ if h.plain && h.said.at.len() == 1 => format!("you wrote “{words}”"),
+        _ if h.plain => format!("said as “{words}”"),
         How::Written => "named in it".into(),
         How::Joined | How::Sounds => format!("said as “{words}”"),
         How::Near => format!("you wrote “{words}”"),
@@ -660,15 +682,16 @@ pub fn ranked(r: &Request, most: usize) -> Vec<(&Named, String)> {
 }
 
 /// The projects a capture points at by its own words, at most `most`,
-/// each with why: those it names; then those whose line about them shares
-/// its rarer words; a name a letter off, or an everyday word said as that
-/// word, after the lines that share two words or more. Nothing else: none
-/// when its words point at none.
+/// each with why: those it names, also those whose name its words are
+/// without using them as one (asked about with it first); then those whose
+/// line about them shares its rarer words; a name a letter off after the
+/// lines that share two words or more. Nothing else: none when its words
+/// point at none.
 pub fn likely(r: &Request, most: usize) -> Vec<(&Named, String)> {
     let mut out: Vec<(&Named, String)> = Vec::new();
     let add = |p, why: String, out: &mut Vec<_>| push(out, most, p, why);
     let named = hits(r);
-    let (near, said): (Vec<&Hit>, Vec<&Hit>) = named.iter().partition(|h| strength(h) == 0);
+    let (near, said): (Vec<&Hit>, Vec<&Hit>) = named.iter().partition(|h| h.said.how == How::Near);
     for h in said {
         add(h.p, why_named(r, h), &mut out);
     }

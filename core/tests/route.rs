@@ -358,30 +358,36 @@ fn the_longest_name_said_wins_and_names_said_alike_are_a_choice() {
     };
     // (text, where it goes: Ok for clear, the choices otherwise)
     let table: Vec<(&str, Result<&str, Vec<&str>>)> = vec![
-        // The longest name said wins, its words written apart, joined as
-        // the name joins them, or joined otherwise; whatever the case.
+        // The longest name said wins, written as the name joins its parts
+        // or joined otherwise, whatever the case; its words written apart
+        // are words as well: the name is asked about first, unless they
+        // are used as a name ("to kiln themes").
         (
             "tidepool mobile drains the battery while uploading",
-            Ok("tidepool-mobile"),
+            Err(vec!["tidepool-mobile"]),
         ),
         ("tidepool-mobile drains the battery", Ok("tidepool-mobile")),
-        ("Tidepool  Mobile drains the battery", Ok("tidepool-mobile")),
+        (
+            "Tidepool  Mobile drains the battery",
+            Err(vec!["tidepool-mobile"]),
+        ),
         (
             "the tidepool mobile api returns 500",
-            Ok("tidepool-mobile-api"),
+            Err(vec!["tidepool-mobile-api"]),
         ),
         ("In Tidepool the face grouping merges twins", Ok("tidepool")),
         (
             "ledger api should return 404 for a customer",
-            Ok("ledger-api"),
+            Err(vec!["ledger-api"]),
         ),
+        ("in ledger api the invoices return 404", Ok("ledger-api")),
         (
             "ledgerline: the reminder mails go out twice",
             Ok("ledgerline"),
         ),
         (
             "the lumenbox firmware drops frames at 44 hertz",
-            Ok("lumenbox_firmware"),
+            Err(vec!["lumenbox_firmware"]),
         ),
         ("lumenbox_firmware drops frames", Ok("lumenbox_firmware")),
         ("lumenbox-firmware drops frames", Ok("lumenbox_firmware")),
@@ -426,6 +432,11 @@ fn the_longest_name_said_wins_and_names_said_alike_are_a_choice() {
                 brief: None,
             },
         };
+        // The choices it begins with: those named, first.
+        let first = match &wanted {
+            Route::Ambiguous { candidates, .. } => candidates.len(),
+            _ => 0,
+        };
         let route = match by_names(&request).unwrap_or(Route::Unknown) {
             Route::Ambiguous {
                 prompt,
@@ -434,8 +445,7 @@ fn the_longest_name_said_wins_and_names_said_alike_are_a_choice() {
             } => Route::Ambiguous {
                 prompt,
                 brief,
-                candidates: candidates
-                    .into_iter()
+                candidates: (candidates.into_iter().take(first))
                     .map(|c| Candidate {
                         why: String::new(),
                         ..c
@@ -499,7 +509,7 @@ fn a_normal_build_places_by_the_longest_name_and_never_in_scratch_unless_picked(
     };
 
     // The longest name said wins.
-    let text = "tidepool mobile drains the battery while uploading";
+    let text = "tidepool-mobile drains the battery while uploading";
     let clear = tasktap_proto::Route::Clear {
         said: None,
         to: tasktap_proto::Place::Project(mobile),

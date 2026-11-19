@@ -120,7 +120,11 @@ fn the_root_rule_says_which_folder_is_a_project() {
     repo(&p(".dotfiles"), "My settings.", None);
     mkdir(&p("Desktop"));
     mkdir(&p("Downloads"));
-    repo(&t.0.join("scratch/run"), "A temporary folder's repository.", None);
+    repo(
+        &t.0.join("scratch/run"),
+        "A temporary folder's repository.",
+        None,
+    );
     repo(
         &p(".cache/bench/run-1/cuegrid"),
         "A benchmark's copy.",
@@ -1029,6 +1033,9 @@ fn a_name_said_only_as_it_sounds_or_an_everyday_word_is_asked_about() {
         card("app", "The phone app"),
         card("notes", ""),
         card("my-app", ""),
+        card("harbormaster", "Deploys containers to a small fleet"),
+        card("snow-line", ""),
+        card("scripts", ""),
     ];
     let place = |text: &str| {
         route::local(&Request {
@@ -1038,12 +1045,23 @@ fn a_name_said_only_as_it_sounds_or_an_everyday_word_is_asked_about() {
         })
     };
     let to = |name: &str| projects.iter().find(|p| p.name == name).unwrap().to;
-    // Asked, with the one it sounds like or the everyday word first.
+    // Asked, with the one it sounds like or the everyday word first; also
+    // words that are a name written apart, used as words.
     for (text, first) in [
         ("today pool party list", "tidepool"),
         ("queue grid timer is off by a second", "cuegrid"),
         ("write a test for the parser", "test"),
         ("make the app icon bigger", "app"),
+        (
+            "the harbor master called about the mooring fee",
+            "harbormaster",
+        ),
+        ("the snow line is lower than last winter", "snow-line"),
+        ("cue grid needs a bigger font", "cuegrid"),
+        (
+            "the scripts folder has two copies of the backup job",
+            "scripts",
+        ),
     ] {
         match place(text) {
             Route::Ambiguous { candidates, .. } => {
@@ -1052,13 +1070,21 @@ fn a_name_said_only_as_it_sounds_or_an_everyday_word_is_asked_about() {
             other => panic!("{text}: {other:?}"),
         }
     }
-    // Placed: a name written, and an everyday word used as a name.
+    // Placed: a name written, and everyday words used as a name.
     for (text, want) in [
         ("add notes to the readme of pyrite", "pyrite"),
         ("fix the login screen in app", "app"),
         ("the test project needs a new fixture", "test"),
         ("bump the version in `notes`", "notes"),
         ("my-app crashes at launch", "my-app"),
+        ("in harbor master roll back the last deploy", "harbormaster"),
+        (
+            "the harbor master project needs a dry run flag",
+            "harbormaster",
+        ),
+        ("`snow line` shows the wrong peak", "snow-line"),
+        ("harbormaster needs a dry run flag", "harbormaster"),
+        ("snow-line shows the wrong peak", "snow-line"),
     ] {
         match place(text) {
             Route::Clear { to: at, .. } => assert_eq!(at, to(want), "{text}"),

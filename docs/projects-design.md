@@ -340,3 +340,15 @@ Sizes: S about a day of one worker, M two to three days, L a week.
 - The folder names in `~/.claude/projects` and Codex's `config.toml`, on the owner's agreement and his own machine, before stage 5 is built.
 - Names in other scripts and languages: the sound key is English. German names matched as written and joined; "as it sounds" was not tried on German.
 - The ranker on the owner's real project names, by him, before the thresholds are fixed.
+
+## The owner's decisions, 2026-11-19
+
+These override anything above that says otherwise.
+
+- **The app does the housekeeping, not the person.** The map is what Tasktap knows; it is not a list to read. Normally no list is shown: the chip says where a thought goes and why.
+- **The picker shows only what is in use** ("Tasktap decides", the folders open, "For later") and a field to find a project. Projects not open appear only as answers: to what is typed, or as two to four candidates when Tasktap asks. No "Not open yet" section, no "n more". A row of every folder, wrapped over several lines, is forbidden (today's chip list goes).
+- **The question "Where should this go?" is right** when Tasktap is unsure: at most three candidates, "Another project…", "Keep for later". Tasktap never guesses to avoid asking.
+- **"Where your agents have worked" is the preferred way in.** The folders Claude Code and Codex list, and when each was last used, are offered first at first run (asked once, since they are another tool's files; never what was said). The folders a person keeps projects in are derived from them and suggested, rather than asked for.
+- **The central question is whether a folder is a project's root**, answered by evidence in this order: an agent was started there (the agents' lists, Tasktap's own history); it is the top of a Git repository (not a worktree, not a submodule, not Tasktap's own copy); it has a package file and no project above it. A folder with none of these is not a project until the person opens it. A folder inside a project is its own entry only when an agent was started there. The home folder, Desktop, Downloads and Documents are never projects by themselves.
+- **The full list is in Settings › Projects only**, to see and correct what Tasktap knows; and once at first run, as the sign that looking worked.
+- Open: the shapes of the agents' lists are from documentation; verify them on runs in a home of their own before building.

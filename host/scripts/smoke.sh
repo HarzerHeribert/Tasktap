@@ -276,14 +276,18 @@ agentc="document.querySelector('.home .cap-agent')"
 until_has workspace "eval String($agentc?.dataset.agent === 'fixture' && !!$agentc.querySelector('.ring-o circle') && /Fixture agent.*runs the next thought/.test($agentc.title) && !document.querySelector('.hx .list, .rail .off, .home .rings, .home .cap-row select'))" 5 "true" \
   && pass "who runs a thought is one control: the agent's ring and name with a chevron, named in its tooltip and for VoiceOver; no row of rings, no list of agents on Home, no names in the rail" || fail "the agent control" "$(js workspace "$agentc?.outerHTML.slice(0, 200)")"
 js workspace "($agentc.click(), 1)" >/dev/null
+until_has workspace "eval String(!!document.querySelector('.home .agent-list'))" 3 "true" || fail "the agent control opens its list"
 other="$(js workspace "document.querySelector('.home .agent-list [role=option]:not([data-agent=fixture]):not([data-s=off])')?.dataset.agent ?? ''")"
 if [ -n "$other" ]; then
   js workspace "(document.querySelector('.home .agent-list [data-agent=$other]').click(), 1)" >/dev/null
   until_has workspace "eval $agentc.dataset.agent" 3 "$other" \
     && [ "$(js workspace "__ws.records.prefs.get('agent').value + ' ' + __speech.cap.agent")" = "fixture $other" ] \
     && pass "the control's list picks another agent for the thought being written; the default, the core's preference, stays as it was" || fail "picking an agent from the list"
-  js workspace "($agentc.click(), document.querySelector('.home .agent-list [data-agent=fixture]').click(), 1)" >/dev/null
-  until_has workspace "eval $agentc.dataset.agent + ' ' + __speech.cap.agent" 3 "fixture undefined" || fail "the usual agent is chosen again"
+  # The list comes in the page's next frame: the row is clicked once it is there.
+  js workspace "($agentc.click(), 1)" >/dev/null
+  until_has workspace "eval String(!!document.querySelector('.home .agent-list [data-agent=fixture]'))" 3 "true" \
+    && js workspace "(document.querySelector('.home .agent-list [data-agent=fixture]').click(), 1)" >/dev/null
+  until_has workspace "eval $agentc?.dataset.agent + ' ' + __speech.cap.agent" 3 "fixture undefined" || fail "the usual agent is chosen again"
 else
   js workspace "(document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })), 1)" >/dev/null
 fi
@@ -727,7 +731,7 @@ js workspace "(__ws.show('home'), __ws.open({ kind: 'settings', at: 'thoughts' }
 until_has workspace "text .set-pane" 5 "Return in a thought" || fail "the Thoughts section shows its rows"
 # Return: as set, the Composer's key says what sends, and the field does it.
 choose_in "Return in a thought" "Starts a new line"
-until_has workspace "$(pref return_sends)" 3 "false" && until_has workspace "eval document.querySelector('.home .capture .key .sends').textContent + ' ' + $(setting "Return in a thought").querySelector('.hint').textContent" 3 "⌘ Command-Return sends it." \
+until_has workspace "$(pref return_sends)" 3 "false" && until_has workspace "eval document.querySelector('.home .capture .key .key-ret').textContent + ' ' + $(setting "Return in a thought").querySelector('.hint').textContent" 3 "⌘ Command-Return sends it." \
   || fail "Return starts a new line, once chosen"
 # (Saved for later, so that nothing is placed or started by the check of a key.)
 js workspace "(__ws.dismiss(), __speech.cap.dest = 'later', __motion.redraw(), document.querySelector('.home #capture-input').focus(), document.execCommand('insertText', false, 'see whether return sends'), 1)" >/dev/null
@@ -739,7 +743,7 @@ press workspace ".home #capture-input" Enter true >/dev/null
 until_has workspace "eval document.querySelector('.home #capture-input').value + '|' + (__ws.records.thoughts.size - $before)" 5 "|1" && [ "$held" = "see whether return sends 0" ] \
   && pass "with Return set to start a new line, Return sends nothing and ⌘Return sends the thought; the Composer's key shows ⌘ with Return" || fail "Return as a preference" "$held"
 send 'call delete {"c":"prefs","id":"return_sends"}'
-until_has workspace "eval String(document.querySelector('.home .capture .key .sends').textContent)" 3 "" || fail "Return sends again"
+until_has workspace "eval String(document.querySelector('.home .capture .key .key-ret').textContent)" 3 "" || fail "Return sends again"
 js workspace "(__speech.cap.dest = undefined, (t => t && __ws.call('delete', { c: 'thoughts', id: t.id }).catch(() => 0))([...__ws.records.thoughts.values()].find((t) => t.text === 'see whether return sends')))" >/dev/null
 # The keyboard's own names: a Mac's web view cannot say what a key prints, so the host does, from the layout in use.
 layout="$(js workspace "__ws.call('host.layout', {}).then((m) => [[...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].every((c) => [...(m['Key' + c] ?? '')].length === 1), [...'0123456789'].every((d) => m['Digit' + d]), Object.keys(m).length].join(' '))")"
@@ -826,7 +830,7 @@ js workspace "(__ws.show('home'), 1)" >/dev/null
 until_has workspace "text .waiting" 5 "1 file +1 −0" && ask workspace "text .waiting" | grep -q "Keep" \
   && pass "Home lists a result whose changes wait under Changes waiting, with its diffstat and Keep, Discard and Review changes" || fail "Changes waiting on Home"
 shot changes-waiting workspace
-ask workspace "click .waiting .key" >/dev/null
+ask workspace "click .waiting .hr-a .btn" >/dev/null
 until_has workspace "$(thought 'write:kept.txt:hello' 'workdir?.changes')" 30 "kept" && [ -f "$tmp/project/kept.txt" ] \
   && pass "Keep brings the changes into the project's branch" || fail "Keep"
 # A run whose agent is still running when its changes come back: Discard stops it first, once confirmed.
@@ -857,7 +861,7 @@ until_has workspace "$(thought 'write:kept.txt:theirs' 'workdir?.changes')" 30 "
 echo "mine" > "$tmp/project/kept.txt" && git -C "$tmp/project" commit -qam "Mine"
 js workspace "(__ws.show('home'), 1)" >/dev/null
 until_has workspace "text .waiting" 5 "Keep" || fail "the third run waits"
-ask workspace "click .waiting .key" >/dev/null
+ask workspace "click .waiting .hr-a .btn" >/dev/null
 until_has workspace "text .waiting .told" 30 "Not kept" && ask workspace "text .waiting .told" | grep -q "conflict with this thought's in kept.txt" && ask workspace "text .waiting .told" | grep -q "tasktap/" \
   && pass "a refused Keep says the branch is as it was and shows the core's reason in full: the file in conflict and the branch to merge by hand" || fail "Keep refused" "$(ask workspace "text .waiting")"
 # What the core says when it stops short is shown as what it is. A file of the person's in the way: git's own words
@@ -1120,6 +1124,7 @@ send 'call delete {"c":"prefs","id":"speech_by"}' 'call delete {"c":"prefs","id"
 echo "== An agent for one thought; what the host opens; links in a terminal; a session's details; a terminal open in 8 places"
 # The agent picked goes with the thought written under it, and with no other: the next is the default's again.
 js workspace "(document.querySelector('.home .cap-agent').click(), 1)" >/dev/null
+until_has workspace "eval String(!!document.querySelector('.home .agent-list'))" 3 "true" || fail "the agent control opens its list"
 other="$(js workspace "document.querySelector('.home .agent-list [data-agent^=fixture-]:not([data-s=off])')?.dataset.agent ?? ''")"
 if [ -n "$other" ]; then
   js workspace "(document.querySelector('.home .agent-list [data-agent=$other]').click(), __speech.cap.dest = 'later', 1)" >/dev/null

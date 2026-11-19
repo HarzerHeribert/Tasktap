@@ -120,15 +120,15 @@ async function main() {
     for (const e of page.errors) failures.push(`the page said: ${e}`);
     await page.context().close();
 
-    // ——— Nothing set up: the microphone says so and leads to Settings; no microphone is asked for ———
+    // ——— Nothing set up: the microphone brings down Setup's speech step, which says what voice needs and offers the
+    // download on Return (design/ui-directions/NOTES.md §13: nothing of it under the Composer); no microphone is asked for ———
     page = await start({ supported: true, model: 'none', have: 0, of: OF, error: null });
     await page.mouse.click(...(await centre(page, '.home .mic')));
-    await page.waitForTimeout(300);
-    await hold(page.evaluate(() => /Voice needs setting up first: on this Mac, or with a speech service\./.test(document.querySelector('.home .ways')?.textContent ?? '') && !!document.querySelector('.home .ways .btn')), 'with nothing set up the microphone does not say what voice needs');
+    await page.waitForTimeout(400);
+    await hold(page.evaluate(() => window.__ws.ui.sheet?.kind === 'setup' && window.__ws.ui.sheet.step === 'speech' && /downloaded once/.test(document.querySelector('.sheet')?.textContent ?? '')
+      && /Download/.test(document.querySelector('.sheet .sh-f .key')?.textContent ?? '') && !/Voice needs/.test(document.querySelector('.home .ways')?.textContent ?? '')), 'with nothing set up the microphone does not bring down Setup\'s speech step with its download');
     await hold(state(page).then((s) => s.asked === 0 && s.rows === 0), 'the microphone was asked for with nothing to write it down');
-    await shot(page, 'voice-needs', '.capture');
-    await page.locator('.home .ways .btn').click();
-    await hold(page.evaluate(() => window.__ws.ui.sheet?.kind === 'settings' && window.__ws.ui.sheet.at === 'voice'), 'Set up does not lead to Voice in Settings');
+    await shot(page, 'voice-needs', '.sheet');
     await page.context().close();
 
     // ——— A thought spoken, written down on this Mac ———

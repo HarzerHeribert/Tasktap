@@ -571,6 +571,15 @@ fn every_call_round_trips() {
     for (hold, stop) in [(true, false), (false, false), (false, true)] {
         round_trip::<call::ShimHold>(ShimHold { hold, stop }, (), seen);
     }
+    for session in [Some(SessionId::mint()), None] {
+        let notify = HostNotify {
+            question: QuestionId::mint(),
+            title: "Fixture agent asks".into(),
+            body: "Go on?".into(),
+            session,
+        };
+        round_trip::<call::HostNotify>(notify, (), seen);
+    }
     let fixture = FixtureStream {
         credit: 7,
         send: Offset::new(1 << 40).unwrap(),
@@ -626,7 +635,7 @@ fn every_call_round_trips() {
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 46);
+    assert_eq!(Name::ALL.len(), 47);
 }
 
 #[test]
@@ -664,7 +673,7 @@ fn access_follows_the_authorization_table() {
     assert_eq!(by(Access::Device).len(), 38);
     // An agent shows a preview beside its own terminal, as a device does beside any.
     assert_eq!(by(Access::Either), ["preview.open"]);
-    assert_eq!(by(Access::Ability), ["shim.hold"]);
+    assert_eq!(by(Access::Ability), ["shim.hold", "host.notify"]);
     for (access, allowed) in [
         (Access::Anyone, [true, true, true]),
         (Access::Device, [true, false, false]),

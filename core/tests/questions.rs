@@ -9,14 +9,15 @@ use common::*;
 use serde_json::{Value, json};
 use std::fmt::Debug;
 use std::time::{Duration, Instant};
-use tasktap_core::client::Client;
+use tasktap_core::client::{self, Client};
 use tasktap_proto::call::{self, Call, Code, Error};
 use tasktap_proto::{
     Action, AddProject, AnswerQuestion, Ask, Assign, AttemptId, CallId, Candidate, Capture,
     Changes, Control, Event as Said, FixtureClock, Frame, History, Input, Limit, Mode, Outcome,
     Phase, Place, PrefPatch, ProjectId, Put, PutTarget, QuestionId, QuestionKind, QuestionSource,
-    QuestionState, Reason, Ref, ReplyVia, Response, ResultKind, Retire, Rev, Route, Secret,
-    SessionState, Settle, Source, Start, Status, TerminalState, Thought, ThoughtId, When, Workdir,
+    QuestionState, Reason, Ref, ReplyVia, Response, ResultKind, Retire, Rev, Role, Route, Secret,
+    SessionState, Settle, Source, Start, Status, TerminalState, Thought, ThoughtId, VERSION,
+    Versions, When, Workdir,
 };
 
 fn code<T: Debug>(result: Result<T, Error>) -> Code {
@@ -1518,4 +1519,100 @@ fn projects_are_added_once_per_folder_and_scanned_when_asked() {
     let rev = w.model.rev;
     w.ok::<call::ProjectScan>(&tasktap_proto::Empty {});
     assert_eq!(w.model.rev, rev);
+}
+
+// Telling the person (design §12).
+
+/// A connection that says hello as `role`, offering `abilities`.
+fn offering(s: &Scene, role: Role, abilities: &[&str]) -> Client {
+    let stream = client::connect(&s.core.data).unwrap();
+    #[cfg(unix)]
+    stream
+        .set_read_timeout(Some(Duration::from_secs(20)))
+        .unwrap();
+    let hello = tasktap_proto::Hello {
+        v: Versions(VERSION, VERSION),
+        role,
+        client: "test host".into(),
+        auth: None,
+        abilities: abilities.iter().map(|a| a.to_string()).collect(),
+    };
+    Client::hello(stream, hello).unwrap().unwrap()
+}
+
+/// The calls the core made on `c` before it answers a call of its own.
+fn calls_before_reply(c: &mut Client) -> Vec<tasktap_proto::Request> {
+    let id = CallId(7000);
+    let name = "core.status".to_owned();
+    let args = json!({});
+    c.send(&Control::Call(tasktap_proto::Request { id, name, args }))
+        .unwrap();
+    let mut made = Vec::new();
+    loop {
+        match c.recv().unwrap() {
+            Frame::Control(Control::Reply(reply)) if reply.id == id => return made,
+            Frame::Control(Control::Call(request)) => made.push(request),
+            _ => {}
+        }
+    }
+}
+
+#[test]
+fn a_host_that_offered_it_is_told_when_a_question_opens() {
+    let mut s = Scene::new("qn");
+    let mut host = offering(&s, Role::Host, &["host.notify"]);
+    let mut page = offering(&s, Role::Page, &["host.notify"]);
+    let mut bare = offering(&s, Role::Host, &[]);
+    let (_t, session, mut agent) = s.launch("deploy");
+    agent.ask_with(confirm("deploy", "Deploy to staging?"));
+    let q = s.shown();
+
+    let Frame::Control(Control::Call(request)) = host.recv().unwrap() else {
+        panic!("expected host.notify");
+    };
+    assert_eq!(request.name, "host.notify");
+    let told = call::HostNotify::args(request.args).unwrap();
+    assert_eq!(
+        (told.question, told.title.as_str(), told.body.as_str()),
+        (q, "Claude Code asks", "Deploy to staging?")
+    );
+    assert_eq!(told.session, Some(session));
+    // The host answers late or never; neither matters.
+    host.send(&call::HostNotify::reply(request.id, Ok(())))
+        .unwrap();
+    assert!(calls_before_reply(&mut host).is_empty());
+
+    // Whoever did not offer it as a host is told nothing.
+    assert!(calls_before_reply(&mut page).is_empty());
+    assert!(calls_before_reply(&mut bare).is_empty());
+    assert_eq!(s.log().notified, [q]);
+}
+
+#[test]
+fn the_routers_question_tells_the_host_where_it_should_go() {
+    let mut s = Scene::new("qrn");
+    let site = s.project("site");
+    let candidates = vec![
+        Candidate {
+            label: "app".into(),
+            to: Place::Project(s.project),
+        },
+        Candidate {
+            label: "site".into(),
+            to: Place::Project(site),
+        },
+    ];
+    let prompt = "Which project?".into();
+    s.script(Route::Ambiguous { prompt, candidates }, None);
+    let mut host = offering(&s, Role::Host, &["host.notify"]);
+    let t = s.capture("update the docs");
+    let q = s.shown();
+    let Frame::Control(Control::Call(request)) = host.recv().unwrap() else {
+        panic!("expected host.notify");
+    };
+    let told = call::HostNotify::args(request.args).unwrap();
+    assert_eq!(told.question, q);
+    assert_eq!(told.title, "Where should this go?");
+    assert_eq!(told.body, s.w.model.thought(t).text);
+    assert_eq!(told.session, None);
 }

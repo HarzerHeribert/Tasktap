@@ -117,6 +117,8 @@ table! {
     CoreRetire "core.retire" Device (Retire) -> ();
     // The shim's ability (design §7): the core calls it on a shim.
     ShimHold "shim.hold" Ability (crate::args::ShimHold) -> ();
+    // The host's ability (design §12): the core tells it a question opened.
+    HostNotify "host.notify" Ability (crate::args::HostNotify) -> ();
     // Fixtures (design §13): only a core built with its test fixtures answers these.
     FixtureStream "fixture.stream" Device (crate::args::FixtureStream) -> crate::frame::Opened;
     FixtureScript "fixture.script" Device (crate::args::FixtureScript) -> FixtureLog;

@@ -145,6 +145,16 @@ impl Tty {
     /// Types `keys` once the screen shows `marker` in what arrives from now.
     fn when(&self, marker: &str, keys: &[u8]) {
         let after = self.seen.lock().unwrap().len();
+        self.rule(after, marker, keys);
+    }
+
+    /// The same for what it has shown since it was attached too, for words
+    /// that may be there already.
+    fn when_shown(&self, marker: &str, keys: &[u8]) {
+        self.rule(0, marker, keys);
+    }
+
+    fn rule(&self, after: usize, marker: &str, keys: &[u8]) {
         self.rules.lock().unwrap().push(Rule {
             after,
             marker: marker.into(),
@@ -911,6 +921,144 @@ fn qwen_runs_asks_follows_up_and_resumes() {
         "Tasktap test: now say only this word and nothing else: resumed",
     );
     let (again, tty) = s.started(r);
+    assert_ne!(again, session, "a resume is a new session");
+    let result = s.done(r, &tty);
+    assert!(result.to_lowercase().contains("resumed"), "{result}");
+    assert_eq!(
+        s.w.model.session(again).resume,
+        handle,
+        "the same conversation"
+    );
+    s.end(again, &tty);
+    s.core.stop();
+}
+
+/// The variables of Copilot's that a live run passes on from this test's
+/// environment: a person's own endpoint, and where its downloaded versions
+/// are kept.
+const COPILOT_OWN: &[&str] = &[
+    "COPILOT_PROVIDER_BASE_URL",
+    "COPILOT_PROVIDER_TYPE",
+    "COPILOT_PROVIDER_API_KEY",
+    "COPILOT_MODEL",
+    "COPILOT_OFFLINE",
+    "COPILOT_CACHE_HOME",
+];
+
+/// The question glance shows once one opens that is answered `via`.
+fn asked_via(s: &mut Live, tty: &Tty, via: ReplyVia) -> QuestionId {
+    until(
+        &s.core,
+        &mut s.w,
+        Some(tty),
+        &format!("a question answered via {via:?} opened"),
+        Duration::from_secs(150),
+        |m| {
+            let q = m.glance.as_ref().and_then(|g| g.question);
+            q.is_some_and(|q| m.question(q).reply_via == via)
+        },
+    );
+    s.w.model.glance().question.unwrap()
+}
+
+/// Copilot, with the plugin of Tasktap's in its terminal interface: its
+/// request to run a command is answered from the core, a follow-up typed
+/// into its terminal asks with its question tool and is answered there, and
+/// a resume goes on with the same session. It runs in a home of its own,
+/// its state there too (`COPILOT_HOME`): TASKTAP_LIVE_COPILOT names its
+/// program, and the test's environment either a person's own endpoint
+/// (`COPILOT_PROVIDER_BASE_URL`, `COPILOT_PROVIDER_API_KEY`, `COPILOT_MODEL`,
+/// `COPILOT_OFFLINE=true`) or nothing, for the GitHub sign-in its home has.
+/// Each new run asks in its terminal whether to trust the project, which
+/// the test answers there as a person would.
+#[test]
+#[ignore = "runs Copilot for three turns on its endpoint in the environment"]
+fn copilot_runs_asks_follows_up_and_resumes() {
+    let home = own_home("live-copilot-home", "TASKTAP_LIVE_COPILOT", "copilot");
+    let state = home.0.join(".copilot");
+    let mut env = vec![
+        ("HOME", home.0.to_str().unwrap().to_owned()),
+        ("COPILOT_HOME", state.to_str().unwrap().to_owned()),
+    ];
+    for name in COPILOT_OWN {
+        env.extend(std::env::var(name).ok().map(|value| (*name, value)));
+    }
+    let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let data = Folder::new("live-copilot");
+    let core = Core::start_patient(&data.0, &[], &env, PATIENCE);
+    let folder = project();
+    let mut s = Live::on(core, data, folder.clone());
+    let trust = "Do you trust the files in this folder?";
+
+    let text = "Tasktap test: use your shell tool to run the command `touch tasktap-live.txt`, \
+                then reply with only this word and nothing else: started";
+    let t = ask_on(&mut s, "copilot", None, text);
+    let (session, tty) = s.started(t);
+    tty.when_shown(trust, b"\r");
+    let q = asked_via(&mut s, &tty, ReplyVia::Core);
+    let asked = s.w.model.question(q).clone();
+    say(&format!(
+        "question: {:?} {:?}; allowing it from the core",
+        asked.prompt, asked.kind
+    ));
+    assert!(
+        asked.prompt.starts_with("Copilot asks to run touch"),
+        "{}",
+        asked.prompt
+    );
+    let answer = AnswerQuestion {
+        id: q,
+        response: Response::Affirm,
+    };
+    s.w.ok::<call::QuestionAnswer>(&answer);
+    let result = s.done(t, &tty);
+    assert!(result.to_lowercase().contains("started"), "{result}");
+    assert!(folder.join("tasktap-live.txt").is_file(), "the command ran");
+    let receipt = s.w.model.question(q).answer.clone().unwrap();
+    assert!(receipt.delivered.is_some(), "the hook confirmed the answer");
+    let handle = s.w.model.session(session).resume.clone();
+    say(&format!("resume handle (its session id): {handle:?}"));
+    assert!(handle.is_some());
+    // Its hooks are a plugin in Tasktap's folder; the project got only what
+    // the command made.
+    assert!(
+        (s._data.0)
+            .join("agents/copilot/plugin/hooks/hooks.json")
+            .is_file()
+    );
+    let made: Vec<_> = std::fs::read_dir(&folder).unwrap().flatten().collect();
+    let mut names: Vec<_> = made.iter().map(|entry| entry.file_name()).collect();
+    names.sort();
+    assert_eq!(names, [".git", "tasktap-live.txt"]);
+
+    // A follow-up typed into the live session; its question is answered in
+    // the terminal, as a person there would: its form's foot, then Return
+    // on the first choice.
+    tty.when("enter accept", b"\r");
+    let f = s.nudge(
+        session,
+        "Tasktap test: use the ask_user tool to ask me 'Tea or coffee?' with the choices Tea \
+         and Coffee. Then reply with only my choice.",
+    );
+    let q2 = asked_via(&mut s, &tty, ReplyVia::Terminal);
+    let asked = s.w.model.question(q2).clone();
+    say(&format!(
+        "question: {:?}, offering {:?}; answering it in the terminal",
+        asked.prompt, asked.detail
+    ));
+    assert_eq!(asked.prompt, "Tea or coffee?");
+    let result = s.done(f, &tty);
+    assert_ne!(s.w.model.question(q2).state, QuestionState::Open);
+    assert!(result.to_lowercase().contains("tea"), "{result}");
+
+    // The session ends; a follow-up resumes its conversation in a new run.
+    s.end(session, &tty);
+    let r = s.nudge(
+        session,
+        "Tasktap test: now say only this word and nothing else: resumed",
+    );
+    let (again, tty) = s.started(r);
+    tty.when_shown(trust, b"\r");
     assert_ne!(again, session, "a resume is a new session");
     let result = s.done(r, &tty);
     assert!(result.to_lowercase().contains("resumed"), "{result}");

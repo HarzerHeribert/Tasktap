@@ -1,0 +1,9 @@
+{
+  "sessionId": "e4af4090-8156-45c1-9003-6e53a49e3f8e",
+  "timestamp": 1795077330917,
+  "cwd": "/private/tmp/tt-live/project",
+  "message": "Information requested",
+  "title": "Information requested",
+  "hook_event_name": "Notification",
+  "notification_type": "elicitation_dialog"
+}

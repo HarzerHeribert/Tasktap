@@ -30,6 +30,7 @@ const RULES: &[&Rules] = &[
     &super::antigravity::RULES,
     &super::pi::RULES,
     &super::opencode::RULES,
+    &super::copilot::RULES,
     #[cfg(feature = "fixtures")]
     &FIXTURE,
 ];
@@ -61,7 +62,11 @@ const VALUE_OPTIONS: &[&str] = &[
     "-n", "--models", "--tools", "-t", "--exclude-tools", "-xt", "--system-prompt",
     "--append-system-prompt", "--skill", "--prompt-template", "--theme", "--use-theme", "--tui-mode",
     "--server", "--prompt", "--log-level",
-    "--plugin-dir", "--workspace", "-H", "--header", "--endpoint", "--worktree-base",
+    "--plugin-dir", "--workspace", "-H", "--header", "--endpoint", "--worktree-base", "--log-dir",
+    "--reasoning-effort", "--context", "--max-ai-credits", "--max-autopilot-continues", "--stream",
+    "--usage-output-file", "--attachment", "--additional-mcp-config", "--disable-mcp-server",
+    "--enable-mcp-server", "--extension-sdk-path", "--auto-tier", "--dynamic-retrieval",
+    "--mcp-github-auth", "--add-github-mcp-tool", "--add-github-mcp-toolset",
 ];
 
 impl Rules {
@@ -190,6 +195,20 @@ mod tests {
             ("opencode", &["mini"], false),
             ("opencode", &["-v"], false),
             ("opencode", &["--completions", "zsh"], false),
+            ("copilot", &[], true),
+            ("copilot", &["-i", "fix the bug"], true),
+            ("copilot", &["--resume=abc", "--plugin-dir", "/x"], true),
+            (
+                "copilot",
+                &["--model", "gpt-5.4-mini", "--log-dir", "/x", "login"],
+                false,
+            ),
+            ("copilot", &["-p", "hi"], false),
+            ("copilot", &["--prompt=hi"], false),
+            ("copilot", &["--acp"], false),
+            ("copilot", &["-v"], false),
+            ("copilot", &["plugin", "list"], false),
+            ("copilot", &["sessions"], false),
             ("cursor-agent", &[], true),
             ("cursor-agent", &["fix", "the", "bug"], true),
             ("cursor-agent", &["--resume", "abc"], true),
@@ -250,6 +269,9 @@ mod tests {
             // OpenCode keeps the permissions the person configured.
             ("opencode", &[], &[]),
             ("opencode", &["--auto"], &[]),
+            // So does Copilot.
+            ("copilot", &[], &[]),
+            ("copilot", &["--yolo"], &[]),
             // So does Cursor.
             ("cursor-agent", &[], &[]),
             ("cursor-agent", &["--yolo"], &[]),

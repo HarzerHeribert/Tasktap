@@ -1,6 +1,6 @@
 # Tasktap
 
-Tasktap is a Mac app for working with coding agents: Claude Code and Codex first, and with them Antigravity, Pi, OpenCode, Qwen Code, Goose, Crush, Droid and Aider, ten in all, and any command-line agent you add yourself. Put a thought in: Tasktap works out where it belongs, starts the work, and comes back only when it needs you or has a result. Its main record is the thought (what was said, where it went, what is running, what it asked, what came back); a terminal is where a thought happens to be running.
+Tasktap is a Mac app for working with coding agents: Claude Code and Codex first, and with them Antigravity, Copilot, Pi, OpenCode, Qwen Code, Goose, Crush, Droid and Aider, eleven in all, and any command-line agent you add yourself. Put a thought in: Tasktap works out where it belongs, starts the work, and comes back only when it needs you or has a result. Its main record is the thought (what was said, where it went, what is running, what it asked, what came back); a terminal is where a thought happens to be running.
 
 That is the idea this code is built to. What works today, and what is deliberately missing, is listed in [host/README.md](host/README.md).
 

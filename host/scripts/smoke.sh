@@ -415,14 +415,14 @@ until_has workspace "$(screen)" 10 "answer:yes" && [ "$(ask workspace "$(screen)
 
 echo "== Where Tasktap shows itself: the window or the notch, one place at a time"
 # The system never puts a passive run's window in front, so the check says where it is as the system would
-# (`where front|behind`, `where full on|off`), and brings the window forward for those steps (`front`, `back`) so that
-# it is drawn; the keyboard stays where it is throughout. `hotkey` is a key from any app as the system tells of it.
+# (`where front|behind`, `where full on|off`); nothing here needs the window drawn, so it stays where it is, behind,
+# and the keyboard stays where it is throughout. `hotkey` is a key from any app as the system tells of it.
 hstate() { send state; sleep 0.5; grep '"event":"state"' "$log" | tail -1 | python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 closed="String(document.querySelector('#sheet').inert)"
 glows="String(!!document.querySelector('#notch-art .glow-set'))"
 open_q() { echo "eval [...__records.questions.values()].filter(q=>q.state==='open'&&q.prompt==='$1').length"; }
 js workspace "(__ws.show('$project'), 1)" >/dev/null
-send front "where front"
+send "where front"
 until_has notch "eval __where.front + ' ' + __where.notch" 3 "true false" && [ "$(hstate 'd["notch"]["hidden"]')" = True ] \
   && until_has workspace "eval String(__ws.ui.active)" 3 "true" \
   && pass "rule 1: with Tasktap's window in front the notch is put away, and both pages hear it from the host at once" || fail "the window in front puts the notch away" "$(hstate 'd["where"]')"
@@ -444,16 +444,16 @@ until_has workspace "eval document.activeElement?.id + ' ' + __ws.ui.sheet" 3 "c
 send "hotkey j"
 until_has workspace "eval __ws.ui.view + ' ' + !!document.activeElement?.closest('.strip [data-question]')" 5 "$project true" \
   && pass "rule 5: ⌃⌥J with the window in front goes to the question under its terminal, with the keyboard on its answers" || fail "the answer key in the window"
-send "where behind" back
+send "where behind"
 until_has notch "eval String(__where.notch)" 3 "true" && [ "$(hstate 'd["notch"]["hidden"]')" = False ] && sleep 1 \
   && [ "$(js notch "$closed")" = true ] && [ "$(js notch "$glows")" = true ] \
   && pass "rule 3: the window going behind with the question unanswered brings the glance back, glowing, and opens nothing" || fail "the window behind with a question waiting"
 send answer
 until_has notch "text #sheet" 5 "Rule one?" || fail "the answer key opens the notch on the question"
-send front "where front"
+send "where front"
 until_has notch "eval $closed" 3 "true" && [ "$(hstate 'd["notch"]["hidden"]')" = True ] \
   && pass "rule 3: the window coming in front folds the open notch: the question is in one place" || fail "the window in front folds the notch"
-send "where behind" back
+send "where behind"
 send "hotkey y"
 until_has notch "$(open_q 'Rule one?')" 10 "0" && until_has workspace "$(screen)" 5 "answer:yes" \
   && pass "rule 5: ⌃⌥Y from another app answers a yes-or-no question through the core" || fail "Yes from another app"

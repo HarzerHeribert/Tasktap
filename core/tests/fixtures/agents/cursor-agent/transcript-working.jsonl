@@ -1,0 +1,4 @@
+{"role": "user", "message": {"content": [{"type": "text", "text": "Earlier: say hello."}]}}
+{"role": "assistant", "message": {"content": [{"type": "text", "text": "Hello."}]}}
+{"type": "turn_ended", "status": "success"}
+{"role": "user", "message": {"content": [{"type": "text", "text": "Tasktap test: run git status and say what it shows."}]}}

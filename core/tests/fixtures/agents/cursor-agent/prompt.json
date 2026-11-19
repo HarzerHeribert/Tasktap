@@ -1,0 +1,15 @@
+{
+  "conversation_id": "5d0c7c1e-1c64-4c7b-9f0a-6f2a3b1d9e01",
+  "generation_id": "9a4e2f77-0b1d-4e55-8c3a-1e7d5b6c2f02",
+  "model": "auto",
+  "prompt": "Tasktap test: run git status and say what it shows.",
+  "attachments": [],
+  "session_id": "5d0c7c1e-1c64-4c7b-9f0a-6f2a3b1d9e01",
+  "hook_event_name": "beforeSubmitPrompt",
+  "cursor_version": "2026.09.28-64d2043",
+  "workspace_roots": [
+    "/tmp/project"
+  ],
+  "user_email": "person@example.com",
+  "transcript_path": null
+}

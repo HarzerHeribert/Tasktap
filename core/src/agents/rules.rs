@@ -30,6 +30,7 @@ const RULES: &[&Rules] = &[
     &super::antigravity::RULES,
     &super::pi::RULES,
     &super::opencode::RULES,
+    &super::cursor::RULES,
     #[cfg(feature = "fixtures")]
     &FIXTURE,
 ];
@@ -61,6 +62,7 @@ const VALUE_OPTIONS: &[&str] = &[
     "-n", "--models", "--tools", "-t", "--exclude-tools", "-xt", "--system-prompt",
     "--append-system-prompt", "--skill", "--prompt-template", "--theme", "--use-theme", "--tui-mode",
     "--server", "--prompt", "--log-level",
+    "--plugin-dir", "--workspace", "-H", "--header", "--endpoint", "--worktree-base",
 ];
 
 impl Rules {
@@ -187,6 +189,18 @@ mod tests {
             ("opencode", &["mini"], false),
             ("opencode", &["-v"], false),
             ("opencode", &["--completions", "zsh"], false),
+            ("cursor-agent", &[], true),
+            ("cursor-agent", &["fix", "the", "bug"], true),
+            ("cursor-agent", &["--resume", "abc"], true),
+            ("cursor-agent", &["--plugin-dir", "/x", "ls"], true),
+            ("cursor-agent", &["agent", "fix it"], true),
+            ("cursor-agent", &["--workspace", "mcp"], true),
+            ("cursor-agent", &["-p", "hi"], false),
+            ("cursor-agent", &["--list-models"], false),
+            ("cursor-agent", &["-v"], false),
+            ("cursor-agent", &["status"], false),
+            ("cursor-agent", &["--model", "auto", "login"], false),
+            ("cursor-agent", &["--plugin-dir", "/x", "update"], false),
         ] {
             assert_eq!(
                 rules(agent).interactive(&words(args)),
@@ -235,6 +249,9 @@ mod tests {
             // OpenCode keeps the permissions the person configured.
             ("opencode", &[], &[]),
             ("opencode", &["--auto"], &[]),
+            // So does Cursor.
+            ("cursor-agent", &[], &[]),
+            ("cursor-agent", &["--yolo"], &[]),
         ] {
             assert_eq!(
                 rules(agent).approval(&words(args)),

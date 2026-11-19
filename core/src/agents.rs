@@ -17,6 +17,7 @@ pub mod antigravity;
 pub mod checks;
 pub mod claude;
 pub mod codex;
+pub mod cursor;
 pub mod dialect;
 pub mod opencode;
 pub mod pi;
@@ -537,6 +538,7 @@ const AGENTS: &[&dyn Agent] = &[
     &dialect::GOOSE,
     &dialect::CRUSH,
     &dialect::DROID,
+    &cursor::Cursor,
     &plain::AIDER,
     #[cfg(feature = "fixtures")]
     &Fixture {

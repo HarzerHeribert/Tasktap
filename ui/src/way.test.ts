@@ -2,7 +2,55 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Routing, Thought } from '../../core/proto/protocol.ts';
-import { back, briefOf, clock, hold, into, laterWhy, leave, letters, lettersOf, onWay, placed, placing, ring, step } from './way.ts';
+import { agentState, back, briefOf, clock, hold, into, laterWhy, leave, letters, lettersOf, offered, onWay, ownAgentLacks, placed, placing, ring, step } from './way.ts';
+
+test('an agent\'s row says what its own commands said, and when, and never more', () => {
+  const row = (o: object = {}) => ({ supported: true, installed: true, checks: true, signed_in: null as boolean | null, stale: false, checked: 0, ...o });
+  const says = (o: object, looking = false) => agentState(row(o), looking, '2 h ago');
+  assert.equal(says({ supported: false, installed: false }), 'does not run on this system yet');
+  assert.equal(says({ installed: false, signed_in: true }), 'not installed');
+  // Nothing of it runs as the app starts: until it is asked, nothing is known, and the row says so.
+  assert.equal(says({}), 'not checked yet');
+  assert.equal(says({}, true), 'checking…');
+  assert.equal(says({ signed_in: true, checked: 9 }), 'signed in');
+  assert.equal(says({ signed_in: false, checked: 9 }), 'not signed in');
+  // What a core before this one kept, or what stands because it could not say this time, has its age.
+  assert.equal(says({ signed_in: true, checked: 9, stale: true }), 'signed in when last checked, 2 h ago');
+  assert.equal(says({ signed_in: false, checked: 9, stale: true }, true), 'not signed in when last checked, 2 h ago');
+  assert.equal(says({ checked: 9 }), 'sign-in could not be checked');
+  // One with no command that says whether it has a key is never asked, and never shown as signed in or out.
+  assert.equal(says({ checks: false, checked: 9 }, true), 'sign-in not checked');
+});
+
+test('the Composer offers the agents that can run a thought, a ring for at most four and the rest behind it', () => {
+  const a = (id: string, o: object = {}) => ({ id, installed: true, supported: true, signed_in: true as boolean | null, ...o });
+  const ids = (x: { rings: { id: string }[]; more: { id: string }[] }) => [x.rings.map((r) => r.id).join(' '), x.more.map((r) => r.id).join(' ')];
+  const idle = () => false;
+  const ten = ['claude', 'codex', 'agy', 'pi', 'opencode', 'aider', 'qwen', 'goose', 'crush', 'own-1'].map((id) => a(id));
+  // The first four in the core's order, the usual one among them.
+  assert.deepEqual(ids(offered(ten, 'claude', undefined, idle, 4)), ['claude codex agy pi', 'opencode aider qwen goose crush own-1']);
+  // The usual one has a ring wherever it stands, and so has the one picked for this thought: none of the others moves.
+  assert.deepEqual(ids(offered(ten, 'goose', undefined, idle, 4)), ['claude codex agy goose', 'pi opencode aider qwen crush own-1']);
+  assert.deepEqual(ids(offered(ten, 'claude', 'crush', idle, 4)), ['claude codex agy crush', 'pi opencode aider qwen goose own-1']);
+  // One that works or asks is seen before one that does nothing.
+  assert.deepEqual(ids(offered(ten, 'claude', 'crush', (id) => id === 'qwen', 4)), ['claude codex qwen crush', 'agy pi opencode aider goose own-1']);
+  // Not offered: one that is not here, one this system cannot run, one known to be signed out. One never asked is.
+  const some = [a('claude'), a('codex', { signed_in: false }), a('agy', { installed: false }), a('pi', { supported: false }), a('aider', { signed_in: null })];
+  assert.deepEqual(ids(offered(some, 'claude', undefined, idle, 4)), ['claude aider', '']);
+  // The usual one signed out keeps its ring, which says so: it is the one that runs the next thought.
+  assert.deepEqual(ids(offered(some, 'codex', undefined, idle, 4)), ['claude codex aider', '']);
+  assert.deepEqual(ids(offered([], undefined, undefined, idle, 4)), ['', '']);
+});
+
+test('the form for an agent of the person\'s own says what its command lacks, in the core\'s words', () => {
+  assert.equal(ownAgentLacks('Goose', 'goose run -t {prompt}'), '');
+  assert.equal(ownAgentLacks('Goose', '"/Applications/My Tool/run" \'do: {prompt}\''), '');
+  assert.equal(ownAgentLacks(' ', 'goose {prompt}'), 'Give the agent a name of up to 40 characters');
+  assert.equal(ownAgentLacks('x'.repeat(41), 'goose {prompt}'), 'Give the agent a name of up to 40 characters');
+  assert.equal(ownAgentLacks('Goose', '  '), 'Goose needs a command');
+  assert.equal(ownAgentLacks('Goose', '{prompt}'), 'The command of Goose needs a program before {prompt}');
+  assert.equal(ownAgentLacks('Goose', 'goose run'), 'The command of Goose needs {prompt} where the thought goes');
+});
 
 test('the two letters of a ring are no two agents alike', () => {
   assert.deepEqual(['agy', 'pi', 'opencode', 'cursor-agent', 'x'].map(letters), ['Ag', 'Pi', 'Op', 'CA', 'X']);

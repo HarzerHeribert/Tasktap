@@ -428,7 +428,7 @@ function fixtures({ question = true } = {}) {
     { id: id(402), rev: 43, thought_id: id(7), session_id: id(207), turn: 1, kind: 'failure', summary: 'The upgrade stopped: two plugins still require the old major and no compatible release exists.' },
   ];
   const agent = (n, version) => ({
-    id: n, name: { claude: 'Claude Code', codex: 'Codex' }[n] ?? n, supported: true, stale: false, rev: 5, checked: NOW, installed: true, version, signed_in: true, identity: 'person@example.com', events: true, resume: true,
+    id: n, name: { claude: 'Claude Code', codex: 'Codex' }[n] ?? n, supported: true, own: false, note: null, checks: true, options: [], stale: false, rev: 5, checked: NOW, installed: true, version, signed_in: true, identity: 'person@example.com', events: true, resume: true,
     permissions: 'core', questions: 'core',
   });
   return {

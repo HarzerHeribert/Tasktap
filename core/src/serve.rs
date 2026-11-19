@@ -75,6 +75,9 @@ pub struct Core {
     /// whether it runs them by itself at all (`Options::detect`).
     pub looked: Vec<&'static str>,
     pub looks: bool,
+    /// What the agents' commands said that is still to be written to the
+    /// data folder (`Core::put_agents`).
+    pub said: crate::agents::checks::ToKeep,
     pub terminals: crate::terminal::Terminals,
     /// The agents adopted by shims, each with the connection it belongs to.
     pub shims: crate::shim::Shims,
@@ -193,6 +196,7 @@ async fn serve(opts: Options) -> io::Result<()> {
             checks: 0,
             looked: Vec::new(),
             looks: opts.detect,
+            said: Default::default(),
             terminals,
             shims: Default::default(),
             diffs: Default::default(),

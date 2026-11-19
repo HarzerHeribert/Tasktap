@@ -1439,6 +1439,16 @@ fn a_core_lists_its_agents_as_it_starts_and_runs_their_commands_only_when_asked(
     });
     assert_eq!(w.model.agents["fixture"], agents[0]);
     let said = agents[0].clone();
+    // Kept off the core's thread, a moment after the reply.
+    let kept = || std::fs::read_to_string(data.0.join("agents.json")).unwrap_or_default();
+    let now = format!("\"checked\":{}", said.checked.get());
+    for _ in 0..200 {
+        if kept().contains(&now) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(kept().contains(&now), "{}", kept());
     drop(w);
     drop(core);
 

@@ -150,6 +150,9 @@ impl Said {
     }
 }
 
+/// What is to be kept next: the newest rows, until a write has taken them.
+pub type ToKeep = std::sync::Arc<std::sync::Mutex<Option<Vec<Said>>>>;
+
 /// The file of [`Said`] in the data folder.
 fn said_file(data: &Path) -> std::path::PathBuf {
     data.join("agents.json")

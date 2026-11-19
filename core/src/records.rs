@@ -222,9 +222,18 @@ impl Core {
             use crate::agents::checks::{Said, keep_said};
             let said: Vec<Said> = agents.iter().filter_map(Said::of).collect();
             let data = self.terminals.data().to_owned();
-            // Off this thread, as every write to a file is. One that fails
-            // costs the next core what this one learned, and nothing else.
-            crate::calls::aside(self, move || keep_said(&data, &said), |_, _| {});
+            // Off this thread, as every write to a file is, and always the
+            // newest: a write takes what is to be kept when it gets its
+            // turn, so one that waited for another never puts older rows
+            // over newer ones. One that fails costs the next core what
+            // this one learned, and nothing else.
+            let newest = self.said.clone();
+            *newest.lock().unwrap_or_else(|e| e.into_inner()) = Some(said);
+            let keep = move || {
+                let mut newest = newest.lock().unwrap_or_else(|e| e.into_inner());
+                newest.take().map(|said| keep_said(&data, &said))
+            };
+            crate::calls::aside(self, keep, |_, _| {});
         }
         let sets = vec![Set::Agents(Rows {
             put: found.clone(),

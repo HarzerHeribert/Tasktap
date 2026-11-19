@@ -846,17 +846,20 @@ fn why_led(r: &Request, e: &[names::Evidence]) -> String {
     }
 }
 
-/// Where no name is said for certain, the project that clearly leads: at
-/// least 3 by [`score`], from two words of the thought or more, something
-/// of its name among them: its whole name nearly said and one thing more
-/// only it has, or a word only its name has and two things more. Of every
-/// other project nothing is said but words several share, but for one
-/// word only one other's line has ("snippets", where `vexa-snippets` says
-/// it): never anything of another's name, and never a name the thought
-/// says in any way, but an everyday word's. It starts there, held to be
-/// undone as any thought; its line says why. A name said only as it
-/// sounds, a letter off or in ordinary words alone ("harbor master") is
-/// no evidence of its own: never a lead.
+/// Where no name is said for certain, the project that clearly leads: its
+/// whole name nearly said, with a word made up for it, and one thing more
+/// only it has (at least 3 by [`score`], from two words of the thought or
+/// more). A word of its name alone never leads, however much else fits: a
+/// project named after a tool ("jira-bot") is not meant whenever the tool
+/// is. Of every other project nothing is said but words several share,
+/// but for one word only one other's line has ("snippets", where
+/// `vexa-snippets` says it): never anything of another's name, and never a
+/// name the thought says in any way, but an everyday word's. It starts
+/// there, held to be undone as any thought; its line says why. A name said
+/// only as it sounds, a letter off or in ordinary words alone ("harbor
+/// master"), or in a tool's name and ordinary words ("tmux layout"), is no
+/// evidence of its own: never a lead. With no dictionary to read (on
+/// Windows) every word is ordinary, so nothing leads.
 fn lead(r: &Request) -> Option<Route> {
     if !LEAD {
         return None;
@@ -873,7 +876,8 @@ fn lead(r: &Request) -> Option<Route> {
         [one] => matches!(one.as_slice(), [e] if e.piece == names::Piece::About),
         _ => false,
     };
-    if score(e) < 3 || e.len() < 2 || !little {
+    let whole = e.iter().any(|e| e.piece == names::Piece::Name);
+    if !whole || score(e) < 3 || e.len() < 2 || !little {
         return None;
     }
     let w = name_words(&r.text);

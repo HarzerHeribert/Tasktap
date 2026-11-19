@@ -8,6 +8,7 @@ friday
 grid
 harbor
 kiln
+layout
 ledger
 line
 login
@@ -20,3 +21,4 @@ snow
 test
 theme
 web
+window

@@ -199,6 +199,7 @@ fn one_project_that_clearly_leads_starts_the_thought_and_a_near_miss_asks_with_i
         card("harbormaster", "Deploys containers to a small fleet"),
         card("cuegrid", "Cue sheets and a rehearsal timer"),
         card("notes", ""),
+        card("tmux-layouts", "Window layouts and key bindings for tmux"),
     ];
     let words = tasktap_core::route::Lexicon(vec![
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/words.txt"),
@@ -211,9 +212,9 @@ fn one_project_that_clearly_leads_starts_the_thought_and_a_near_miss_asks_with_i
     };
     let to = |name: &str| projects.iter().find(|p| p.name == name).unwrap().to;
     // No name said for certain, and one project has what no other has:
-    // its whole name nearly said and one thing more, or a word only its
-    // name has and two things more. It starts there, saying why; a model
-    // the person agreed to is still asked first.
+    // its whole name nearly said, with a word made up for it, and one thing
+    // more. It starts there, saying why; a model the person agreed to is
+    // still asked first.
     for (text, name, why, words) in [
         (
             "research a new vexa widget to add to the vexa widgetpack",
@@ -226,12 +227,6 @@ fn one_project_that_clearly_leads_starts_the_thought_and_a_near_miss_asks_with_i
             "vexa-notes",
             "its name and “prompts”",
             Some("vexa note"),
-        ),
-        (
-            "the zentrix boards show up twice in the calendar",
-            "zentrix-sync",
-            "“zentrix”, “boards” and “calendar”",
-            None,
         ),
         // One other project's line has one word of it ("snippets"), and no
         // more: the person's own trial had such a word.
@@ -279,8 +274,18 @@ fn one_project_that_clearly_leads_starts_the_thought_and_a_near_miss_asks_with_i
             "the harbor master wants a new vexa widget for the widgetpack",
             "vexa-widgets",
         ),
-        // A word only its name has and only one more.
+        // A word only its name has, however much else fits: never a lead.
         ("the zentrix calendar is wrong", "zentrix-sync"),
+        (
+            "the zentrix boards show up twice in the calendar",
+            "zentrix-sync",
+        ),
+        // A tool's name is no word made up for a name: "tmux layout" is
+        // ordinary words, as a thought about tmux says them.
+        (
+            "the tmux layout keeps resetting the window splits",
+            "tmux-layouts",
+        ),
         // A name said in ordinary words only, or only as it sounds.
         ("the harbor masters want the fleet list", "harbormaster"),
         ("in queue grid the rehearsal timer is off", "cuegrid"),

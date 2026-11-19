@@ -362,8 +362,10 @@ $catalogue = [ordered]@{
     'rest'         = @{ what = 'at rest on Home, nothing running'; window = $true; settle = 10; enter = { Up; Show 'home' } }
     'rest-unfocused' = @{ what = 'at rest on Home, nothing running, the caret taken out of its field'; window = $true; settle = 10; enter = { Up; Show 'home'; $null = Js '(document.activeElement?.blur(), 1)' } }
     'tab-rest'     = @{ what = 'the tab at the top edge at rest, the window minimised'; settle = 6; enter = { Down } }
-    'tab-open'     = @{ what = 'the tab open, as the pointer on it opens it, the window minimised'; settle = 3; leave = { Send 'hover out' }
-        enter = { Down; Send 'hover in'; Start-Sleep -Seconds 1; if (-not (Tab-Open)) { $script:noted = 'the tab DID NOT OPEN' } } }
+    # Opened as the capture key opens it: told `hover in`, the tab of an app that is not passive folds again at once,
+    # since the real pointer is not on it (the tower's round, 2026-11-19).
+    'tab-open'     = @{ what = 'the tab open with the caret in its field, as the capture key opens it, the window minimised'; settle = 3; leave = { Send 'key notch Escape' }
+        enter = { Down; Send 'capture'; Start-Sleep -Seconds 1; if (-not (Tab-Open)) { $script:noted = 'the tab DID NOT OPEN' } } }
     'sidebar'      = @{ what = 'Home, the sidebar opening and closing: one slide a second'; window = $true; lumen = $true; settle = 3
         enter = { Up; Show 'home'; $script:slides = 0 }
         tick = { Send "eval workspace (__ws.command('sidebar'), 1)"; $script:slides++ }
@@ -557,7 +559,7 @@ function Wait($seconds, $tick) { for ($i = 0; $i -lt $seconds; $i++) { Second; i
 # ——— One state measured: settled, then $Seconds of it, with what the page drew. (Not named
 # `Measure`: that is Measure-Object's alias, and an alias goes before a function.)
 $rows = [Collections.Generic.List[object]]::new()
-function Page-Now { if ($proc) { Js "[__motion.stats.frames, document.querySelector('.light')?.dataset.state ?? 'none', (c => c ? c.width + 'x' + c.height : 'none')(document.querySelector('.band canvas')), document.querySelectorAll('canvas').length, document.activeElement?.id || document.activeElement?.tagName || 'none']" 3 } }
+function Page-Now { if ($proc -and -not $proc.HasExited) { Js "[__motion.stats.frames, document.querySelector('.light')?.dataset.state ?? 'none', (c => c ? c.width + 'x' + c.height : 'none')(document.querySelector('.band canvas')), document.querySelectorAll('canvas').length, document.activeElement?.id || document.activeElement?.tagName || 'none']" 3 } }
 function Measure-State($state, $effects, $lumen, $settle, $length = $Seconds) {
     $spec = if ($state -eq 'floor') { @{ settle = 0 } } else { $catalogue[$state] }
     $script:name = "$state $effects$(if ($lumen) { " lumen $lumen" })"

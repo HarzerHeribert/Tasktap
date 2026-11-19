@@ -756,6 +756,71 @@ fn a_name_said_only_as_it_sounds_or_an_everyday_word_is_asked_about() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn a_fifo_is_never_read_and_a_look_that_hangs_is_let_go() {
+    let t = Folder::new("stuck");
+    let (home, data) = (t.0.join("home"), t.0.join("data"));
+    mkdir(&data);
+    let fifo = |p: &Path| {
+        mkdir(p.parent().unwrap());
+        assert!(Command::new("mkfifo").arg(p).status().unwrap().success());
+    };
+    // Named as an agent's session, and as a project's package file and README.
+    fifo(&home.join(".claude/projects/-x/s.jsonl"));
+    fifo(&home.join("projects/app/package.json"));
+    fifo(&home.join("projects/app/README.md"));
+    let within = |what: &str, work: Box<dyn FnOnce() -> String + Send>| {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || tx.send(work()));
+        rx.recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap_or_else(|_| panic!("{what} waits on a FIFO"))
+    };
+    let h = home.clone();
+    let read = within(
+        "reading the agent's history",
+        Box::new(move || {
+            let claude = tasktap_core::agents::find("claude").unwrap();
+            let mut within = Within::new(map::HISTORY_TIME, map::HISTORY_FILES);
+            format!("{:?}", claude.history().unwrap().read(&h, &mut within))
+        }),
+    );
+    assert_eq!(read, "Ok([])");
+    let app = home.join("projects/app");
+    let facts = within(
+        "reading a project's facts",
+        Box::new(move || format!("{:?}", map::facts(&app, false).names)),
+    );
+    assert_eq!(facts, "[]");
+
+    // A look that does not end in time (here every look waits a minute) is
+    // let go: whoever waits for it is told, and the core idles out.
+    let home_text = real(&home).to_str().unwrap().to_owned();
+    let extra = [
+        "--check-ms",
+        "60000",
+        "--second-ms",
+        "10",
+        "--idle-ms",
+        "300",
+    ];
+    let mut core = Core::start_env(&data, &extra, &[("HOME", &home_text)]);
+    let mut w = core.watch();
+    let started = std::time::Instant::now();
+    let e = w.refused::<call::ProjectsLook>(&Empty {});
+    assert_eq!(e.code, Code::Failed, "{e}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    drop(w);
+    let gone = std::time::Instant::now();
+    while core.running() {
+        assert!(
+            gone.elapsed() < std::time::Duration::from_secs(10),
+            "a look that hangs keeps the core"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
 #[test]
 fn a_known_project_gives_no_right_until_a_thought_starts_there() {
     let t = Folder::new("rights");

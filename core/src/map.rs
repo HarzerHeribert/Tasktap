@@ -1356,19 +1356,55 @@ pub fn unlook(tx: &mut Tx, look: LookId) -> store::Result<()> {
 
 // ——— The core's side: when to look, and the calls ———
 
+/// Longest a look may take, in seconds of the core's clock (`second`): one
+/// that has not ended by then waits on a folder or a file that does not
+/// answer (a network volume gone stale), and is let go.
+pub const LOOK_MOST: u32 = 30;
+
 /// The core's state of looking: one look at a time, and the calls waiting
 /// for it. In memory only; the modified times are those the last look saw.
-#[derive(Default)]
 pub struct Map {
-    looking: bool,
+    /// The look that runs, by its number, and what lets it go when it runs
+    /// too long.
+    looking: Option<(u64, tokio::task::JoinHandle<()>)>,
+    looks: u64,
     again: bool,
     waiting: Vec<(Rc<Link>, CallId)>,
     stamps: Option<Vec<u64>>,
+    /// How long a look may take.
+    most: Duration,
 }
 
 impl Map {
+    /// `second`: how long a second lasts (shorter in tests).
+    pub fn new(second: Duration) -> Map {
+        Map {
+            looking: None,
+            looks: 0,
+            again: false,
+            waiting: Vec::new(),
+            stamps: None,
+            most: second * LOOK_MOST,
+        }
+    }
+
+    /// A look runs, and is not let go yet: the core stays for it.
     pub fn busy(&self) -> bool {
-        self.looking
+        self.looking.is_some()
+    }
+
+    /// Whether look `n` is the one that runs; it ends if it is.
+    fn end(&mut self, n: u64) -> bool {
+        match self.looking.take() {
+            Some((at, timer)) if at == n => {
+                timer.abort();
+                true
+            }
+            other => {
+                self.looking = other;
+                false
+            }
+        }
     }
 }
 
@@ -1445,7 +1481,7 @@ fn input(core: &mut Core) -> Result<Input, Error> {
 /// once more after it. `link` and `id`, when given, are answered when done.
 pub fn look(core: &mut Core, waiting: Option<(Rc<Link>, CallId)>) {
     core.map.waiting.extend(waiting);
-    if core.map.looking {
+    if core.map.busy() {
         core.map.again = true;
         return;
     }
@@ -1453,7 +1489,26 @@ pub fn look(core: &mut Core, waiting: Option<(Rc<Link>, CallId)>) {
         Ok(input) => input,
         Err(e) => return answer(core, Err(e)),
     };
-    core.map.looking = true;
+    core.map.looks += 1;
+    let n = core.map.looks;
+    // Let go when it runs too long: the core neither waits on it nor stays
+    // for it. What it finds after that is not used.
+    let (me, most) = (core.me.clone(), core.map.most);
+    let timer = tokio::task::spawn_local(async move {
+        tokio::time::sleep(most).await;
+        let Some(core) = me.upgrade() else { return };
+        let mut core = core.borrow_mut();
+        if core.map.end(n) {
+            core.map.again = false;
+            let why = format!(
+                "the look took longer than {} s: a folder or a file there did not answer",
+                most.as_secs()
+            );
+            answer(&mut core, Err(Error::new(Code::Failed, why)));
+            core.events.notify_one();
+        }
+    });
+    core.map.looking = Some((n, timer));
     let read: Vec<LookId> = input.looks.iter().filter(|l| l.on).map(|l| l.id).collect();
     let paths = watched(&input.rule, &input.looks);
     let started = Instant::now();
@@ -1464,8 +1519,11 @@ pub fn look(core: &mut Core, waiting: Option<(Rc<Link>, CallId)>) {
             (out, stamps(&paths))
         },
         move |core, found| {
-            core.map.looking = false;
+            if !core.map.end(n) {
+                return;
+            }
             let Some((out, stamps)) = found else {
+                core.map.again = false;
                 let lost = Error::new(Code::Failed, "the look ended without an answer");
                 return answer(core, Err(lost));
             };
@@ -1493,7 +1551,7 @@ fn answer(core: &mut Core, result: Result<Looked, Error>) {
 /// thread, and a look when any changed since the last. Nothing when no
 /// look is on.
 pub fn freshen(core: &mut Core) {
-    if core.map.looking {
+    if core.map.busy() {
         return;
     }
     let Some(home) = home() else { return };

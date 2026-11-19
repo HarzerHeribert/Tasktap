@@ -205,7 +205,7 @@ async fn serve(opts: Options) -> io::Result<()> {
             diffs: Default::default(),
             files: Default::default(),
             speech: crate::speech::Speech::new(second),
-            map: Default::default(),
+            map: crate::map::Map::new(second),
             #[cfg(feature = "fixtures")]
             fixture_check: opts.check,
         })

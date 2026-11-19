@@ -450,9 +450,9 @@ async function main() {
     // Previews beside a terminal: what the person opened and what the agent did, text that is cut, a file that is gone.
     ...['previews', 'preview-text', 'preview-gone', 'preview-web'].map((kind) => ['workspace', (w) => w.__ws.show(w.__fake.records.ids.projects.cuegrid), kind]),
   ];
-  // The key role, from the token file: no key is set smaller or lighter.
-  const [, weight, size] = /--f-key:(\d+) round\(([\d.]+)px/.exec(require('node:fs').readFileSync(path.resolve(__dirname, '../ui/src/tokens.css'), 'utf8'));
-  const KEY = { size: scaled(Number(size)), weight: Number(weight) };
+  // The key role, from the token file: no key is set smaller or lighter. It has a floor no text size goes under.
+  const [, weight, floor, size] = /--f-key:(\d+) (?:max\(([\d.]+)px,)?round\(([\d.]+)px/.exec(require('node:fs').readFileSync(path.resolve(__dirname, '../ui/src/tokens.css'), 'utf8'));
+  const KEY = { size: Math.max(Number(floor ?? 0), scaled(Number(size))), weight: Number(weight) };
   // In the page: this page's dictation is the fixture's; and a thought typed into the Composer.
   const helpers = `const mine = (w, kind = 'thought', latched = false, field = '') => Object.assign(w.__speech.talk, { id: w.__fake.records.dictations[0].id, kind, latched, field: field ? w.document.querySelector(field) : null });
     const typeIn = (w, text) => (w.document.querySelector('#capture-input').focus(), w.document.execCommand('insertText', false, text));`;

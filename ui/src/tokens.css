@@ -47,7 +47,9 @@
      and code only. Hierarchy is size, weight and colour. Each role is one size, weight, line height and letter
      spacing, and nothing in either page sets a font outside these (scripts/type-check.cjs holds both pages to it).
      --ts is the person's text size (the core's `text_size`: small, default, large): every role's size and line
-     height is its own times it, in whole pixels, and so is every measure that holds one line of text. */
+     height is its own times it, in whole pixels, and so is every measure that holds one line of text. The key is the
+     one role with a floor: no text size sets a key under 12 px on an 18 px line, and a key a row has no room for at
+     that size is dropped, never shrunk (scripts/type-check.cjs measures every key at the three sizes). */
   --ts:1;
   --ui:system-ui,-apple-system,"Segoe UI Variable","Segoe UI",sans-serif;
   --mono:ui-monospace,"SF Mono",Menlo,"Cascadia Mono",Consolas,monospace;
@@ -60,13 +62,13 @@
   --f-section:600 round(11px*var(--ts),1px)/round(14px*var(--ts),1px) var(--ui);   /* a section's label: Workspaces, Running, Results, For later, Terminal */
   --f-cap:400 round(11px*var(--ts),1px)/round(14px*var(--ts),1px) var(--ui);       /* fine print: a hint, the word over a brief */
   --f-num:400 round(11px*var(--ts),1px)/round(14px*var(--ts),1px) var(--mono);     /* figures: times, counts, key hints, paths, a diffstat */
-  --f-key:500 round(12px*var(--ts),1px)/round(18px*var(--ts),1px) var(--ui);       /* a key, on a cap or as a hint beside a label: never smaller (ui.tsx Key) */
+  --f-key:500 max(12px,round(12px*var(--ts),1px))/max(18px,round(18px*var(--ts),1px)) var(--ui);  /* a key, on a cap or as a hint beside a label: never smaller (ui.tsx Key) */
   --f-code:400 round(12px*var(--ts),1px)/round(18px*var(--ts),1px) var(--mono);    /* code, and a shell's name */
   --f-term:400 13px/18px var(--mono);    /* a terminal's default; the person's terminal settings win */
   --ls-thought:-.014em; --ls-question:-.008em;  /* the two large roles are set a hair tighter; every other role at 0 */
   /* measure: a 4 px grid */
   --sp1:4px; --sp2:8px; --sp3:12px; --sp4:16px; --sp5:24px; --sp6:32px;
-  --side-w:224px; --bar-h:38px; --tab-h:30px; --row-h:28px; --rail-h:26px; --ctl-h:24px; --ctl-l:34px; --key-h:round(18px*var(--ts),1px);
+  --side-w:224px; --bar-h:38px; --tab-h:30px; --row-h:28px; --rail-h:26px; --ctl-h:24px; --ctl-l:34px; --key-h:max(18px,round(18px*var(--ts),1px));
   --fade:24px;         /* how far content dissolves at an edge it scrolls beyond */
   --home-w:1040px; --home-wide:1520px; --home-row:36px; --home-gutter:36px; --cap-w:720px;
   --lead:32px;         /* what leads a row on Home (a seat, a mark, a chevron): one column, one centre line; every word starts after it */

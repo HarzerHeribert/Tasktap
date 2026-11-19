@@ -176,6 +176,92 @@ const QWEN_EVENTS: &[(&str, Says)] = &[
     ("Stop", Says::Finished),
     ("StopFailure", Says::Failed),
 ];
+const GOOSE_EVENTS: &[(&str, Says)] = &[
+    ("SessionStart", Says::Ready),
+    ("UserPromptSubmit", Says::Started),
+    ("PreToolUse", Says::Tool),
+    ("Stop", Says::Finished),
+];
+
+/// Goose, as `goose` 1.60.1 runs one task (`goose run --text=`). Its hooks
+/// come only from a plugin folder below its root, so a run is given a root
+/// of Tasktap's (`GOOSE_PATH_ROOT`) with the person's own configuration
+/// read beside it (`GOOSE_ADDITIONAL_CONFIG_FILES`): its sessions and logs
+/// are then in Tasktap's folder, apart from the person's own Goose's. A run
+/// is started in its mode that asks for no approval, the only one its
+/// one-task form runs in, and with its telemetry off, since the root has no
+/// answer of the person's to its question about it.
+pub const GOOSE: Dialect = Dialect {
+    id: "goose",
+    name: "Goose",
+    program: "goose",
+    events: GOOSE_EVENTS,
+    prompt: "message",
+    call: "tool_call_id",
+    question: "",
+    args: |run| {
+        let mut args = vec!["run".to_owned()];
+        if let Some(handle) = run.resume {
+            args.extend(["--resume".into(), "--session-id".into(), handle.into()]);
+        }
+        if let Some(model) = run.model {
+            args.extend(["--model".into(), model.into()]);
+        }
+        args.push(format!("--text={}", run.told));
+        args
+    },
+    files: |command| {
+        let hook = json!([{ "hooks": [{ "type": "command", "command": command }] }]);
+        let hooks: serde_json::Map<String, Value> = (GOOSE_EVENTS.iter())
+            .map(|(event, _)| ((*event).to_owned(), hook.clone()))
+            .collect();
+        let plugin = json!({
+            "name": "tasktap", "version": "1.0.0",
+            "description": "Tells Tasktap what this run does",
+        });
+        vec![
+            (".agents/plugins/tasktap/plugin.json", plugin.to_string()),
+            (
+                ".agents/plugins/tasktap/hooks/hooks.json",
+                json!({ "hooks": hooks }).to_string(),
+            ),
+        ]
+    },
+    environment: |home| {
+        // Where the person's own Goose keeps what they chose: read, never written.
+        let config = std::env::var_os("XDG_CONFIG_HOME")
+            .filter(|folder| !folder.is_empty())
+            .map(std::path::PathBuf::from)
+            .or_else(|| Some(Path::new(&std::env::var_os("HOME")?).join(".config")));
+        let own = config.map(|folder| folder.join("goose/config.yaml"));
+        let mut all = vec![
+            ("GOOSE_PATH_ROOT", home.to_string_lossy().into_owned()),
+            ("GOOSE_MODE", "auto".to_owned()),
+            ("GOOSE_TELEMETRY_OFF", "1".to_owned()),
+        ];
+        all.extend(own.map(|file| {
+            (
+                "GOOSE_ADDITIONAL_CONFIG_FILES",
+                file.to_string_lossy().into_owned(),
+            )
+        }));
+        all
+    },
+    // `!` runs the rest in a shell at once, `/` begins a command of its own.
+    commands: "!/",
+    stays: false,
+    version: &["--version"],
+    #[rustfmt::skip]
+    variables: &[
+        "GOOSE_PROVIDER", "GOOSE_MODEL", "GOOSE_DISABLE_KEYRING", "ANTHROPIC_API_KEY",
+        "DEEPSEEK_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "OPENAI_HOST", "OPENAI_BASE_PATH",
+        "OPENROUTER_API_KEY", "XAI_API_KEY",
+    ],
+    note: Some(
+        "It runs one task and ends; a follow-up goes on in a new run. \
+         Its sessions are kept in Tasktap's folder, apart from your own Goose's.",
+    ),
+};
 
 impl Dialect {
     /// The question its question tool asks, as one answered in its terminal.

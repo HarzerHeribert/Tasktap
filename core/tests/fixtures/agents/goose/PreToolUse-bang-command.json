@@ -1,0 +1,1 @@
+{"event":"PreToolUse","session_id":"20261119_17","matcher_context":"shell","tool_call_id":"bang_command_58811e8b-b048-463d-9126-f231dc2b4528","tool_name":"shell","tool_input":{"command":"touch bang-ran.txt"},"working_dir":"/work/repo"}

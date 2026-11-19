@@ -690,6 +690,93 @@ fn ask_on(s: &mut Live, agent: &str, model: Option<&str>, text: &str) -> Thought
     id
 }
 
+/// A run of one task, heard through its hooks, and a follow-up that goes on
+/// in a new run: what Goose and Crush are (`agents/dialect.rs`). The tool
+/// runs in a home of its own on the key in the environment.
+fn one_task_and_another(agent: &str, home: &Folder, env: &[(&str, &str)], model: Option<&str>) {
+    let data = Folder::new(&format!("live-{agent}"));
+    let mut all = vec![("HOME", home.0.to_str().unwrap())];
+    all.extend_from_slice(env);
+    let core = Core::start_patient(&data.0, &[], &all, PATIENCE);
+    let folder = project();
+    let mut s = Live::on(core, data, folder.clone());
+
+    let text = format!(
+        "Tasktap test: use your shell tool to run the command `echo tasktap-{agent}`, \
+         then reply with only this word and nothing else: started"
+    );
+    let t = ask_on(&mut s, agent, model, &text);
+    let (session, tty) = s.started(t);
+    let result = s.done(t, &tty);
+    assert!(result.to_lowercase().contains("started"), "{result}");
+    let ran = s.w.model.session(session).clone();
+    say(&format!(
+        "activity heard: {:?}; resume handle: {:?}",
+        ran.activity, ran.resume
+    ));
+    assert!(
+        (ran.activity.iter()).any(|line| line.to_lowercase().contains("echo")),
+        "its use of the shell is heard: {:?}",
+        ran.activity
+    );
+    assert!(ran.resume.is_some());
+    // It ends by itself: one task.
+    until(
+        &s.core,
+        &mut s.w,
+        Some(&tty),
+        "the run ended by itself",
+        Duration::from_secs(60),
+        |m| m.session(session).state == SessionState::Ended,
+    );
+    say(&format!("exit: {:?}", s.w.model.session(session).exit));
+    assert_eq!(s.w.model.session(session).exit, Some(0));
+    // Its hooks are in Tasktap's folder, and the project got no file.
+    let made: Vec<_> = std::fs::read_dir(&folder).unwrap().flatten().collect();
+    let names: Vec<_> = made.iter().map(|entry| entry.file_name()).collect();
+    assert_eq!(names, [".git"], "nothing is written to the project");
+    assert!(s._data.0.join("agents").join(agent).is_dir());
+
+    let r = s.nudge(
+        session,
+        "Tasktap test: what was the word I asked you to reply with before? \
+         Reply with only that word and then the word again, as in: word again",
+    );
+    let (again, tty) = s.started(r);
+    assert_ne!(again, session, "a follow-up is a new run");
+    let result = s.done(r, &tty);
+    assert!(
+        result.to_lowercase().contains("started"),
+        "it goes on with the same conversation: {result}"
+    );
+    assert_eq!(
+        s.w.model.session(again).resume,
+        ran.resume,
+        "the same conversation"
+    );
+    s.core.stop();
+}
+
+/// Goose, in a root of Tasktap's: `live-agents.sh` says where its program
+/// is (TASKTAP_LIVE_GOOSE) and gives it a provider's key in the environment.
+#[test]
+#[ignore = "runs Goose for two turns on a key in the environment"]
+fn goose_runs_one_task_and_goes_on_in_a_new_run() {
+    let home = own_home("live-goose-home", "TASKTAP_LIVE_GOOSE", "goose");
+    let provider = std::env::var("GOOSE_PROVIDER").expect("GOOSE_PROVIDER names its provider");
+    let model = std::env::var("GOOSE_MODEL").expect("GOOSE_MODEL names its model");
+    let env = [
+        ("GOOSE_PROVIDER", provider.as_str()),
+        ("GOOSE_MODEL", model.as_str()),
+        // Never the system's keyring: the key is in the environment.
+        ("GOOSE_DISABLE_KEYRING", "1"),
+    ];
+    one_task_and_another("goose", &home, &env, None);
+    // Its own folders are Tasktap's root: the home got none of them.
+    assert!(!home.0.join(".config/goose").exists());
+    assert!(!home.0.join(".local/share/goose").exists());
+}
+
 /// Qwen Code, with the settings file of Tasktap's that a variable names: it
 /// asks to be let run a command, which is shown and answered in its
 /// terminal; a follow-up is typed there; a resume goes on with the same

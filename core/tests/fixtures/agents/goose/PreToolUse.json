@@ -1,0 +1,1 @@
+{"event":"PreToolUse","session_id":"20261119_1","matcher_context":"shell","tool_call_id":"call_00_1yOWbbvVhdUVT2JBSAaj6448","tool_name":"shell","tool_input":{"command":"ls -la hello.py 2>&1; cat hello.py 2>&1"},"working_dir":"/work/repo"}

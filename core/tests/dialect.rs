@@ -198,3 +198,95 @@ fn a_qwen_code_run_is_pointed_at_tasktaps_settings_and_given_its_id() {
     assert!(qwen.variables().contains(&"OPENAI_BASE_URL"));
     assert_eq!(qwen.supported(), !cfg!(windows));
 }
+
+#[test]
+fn goose_runs_one_task_in_a_root_of_tasktaps_and_its_hooks_say_what_it_does() {
+    let goose = agent("goose");
+    // Its payloads carry no time and nothing that numbers a turn: the id is
+    // left open for the hook that reports it (it ends in `:`).
+    let ready = event("goose", "SessionStart-headless");
+    assert_eq!(
+        (ready.event, ready.id.as_str()),
+        (Event::Ready, "SessionStart:")
+    );
+    assert_eq!(ready.resume.as_deref(), Some("20261119_1"));
+    let prompt = "Tasktap test: add the comment line # hello as the first line of hello.py";
+    assert_eq!(
+        event("goose", "UserPromptSubmit").event,
+        Event::TurnStarted {
+            prompt: Some(prompt.into())
+        }
+    );
+    let used = event("goose", "PreToolUse");
+    let text = "shell: ls -la hello.py 2>&1; cat hello.py 2>&1".to_owned();
+    assert_eq!(used.event, Event::Activity { text });
+    assert_eq!(used.id, "PreToolUse:call_00_1yOWbbvVhdUVT2JBSAaj6448");
+    let Event::TurnFinished { answer } = event("goose", "Stop").event else {
+        panic!("the turn's end");
+    };
+    assert!(
+        answer
+            .unwrap()
+            .starts_with("Done. `hello.py` now starts with:")
+    );
+    for nothing in ["PreToolUseResult-allow", "PostToolUse", "SessionEnd"] {
+        assert!(heard("goose", nothing).is_none(), "{nothing}");
+    }
+    // It asks for nothing in this form, and reads nothing that is typed.
+    let caps = goose.caps();
+    assert!(caps.events && caps.resume);
+    assert_eq!((caps.permissions, caps.questions), (None, None));
+    assert!(!goose.typed());
+    assert!(goose.note().unwrap().contains("in Tasktap's folder"));
+
+    assert_eq!(
+        goose.launch(&run("Fix it", None, None)),
+        ["goose", "run", "--text=Fix it"]
+    );
+    #[rustfmt::skip]
+    assert_eq!(
+        goose.launch(&run("Go on", Some("deepseek-chat"), Some("20261119_1"))),
+        ["goose", "run", "--resume", "--session-id", "20261119_1", "--model", "deepseek-chat",
+         "--text=Go on"]
+    );
+    // `!` would run the rest in a shell at once, `/` is a command of its own.
+    let last = |told: &str| goose.launch(&run(told, None, None)).pop().unwrap();
+    assert_eq!(last("!rm -rf build"), "--text=Task: !rm -rf build");
+    assert_eq!(
+        last("  /status of the build"),
+        "--text=Task:   /status of the build"
+    );
+    assert_eq!(last("-x"), "--text=-x");
+    // Its hooks are a plugin below a root of Tasktap's.
+    let files = goose.files(Path::new("/opt/tasktap/tasktap"));
+    let names: Vec<_> = files.iter().map(|(name, _)| *name).collect();
+    assert_eq!(
+        names,
+        [
+            ".agents/plugins/tasktap/plugin.json",
+            ".agents/plugins/tasktap/hooks/hooks.json"
+        ]
+    );
+    let hooks: Value = serde_json::from_str(&files[1].1).unwrap();
+    let stop = &hooks["hooks"]["Stop"][0]["hooks"][0];
+    assert_eq!(stop["type"], "command");
+    #[cfg(unix)]
+    assert_eq!(stop["command"], "'/opt/tasktap/tasktap' hook goose");
+    assert_eq!(hooks["hooks"].as_object().unwrap().len(), 4);
+    // The root, its mode that asks nothing, no telemetry, and the person's
+    // own configuration read beside it.
+    let home = Path::new("/data/agents/goose");
+    let env = goose.environment(Path::new("/x"), home);
+    let value = |name: &str| {
+        env.iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, v)| v.as_str())
+    };
+    assert_eq!(value("GOOSE_PATH_ROOT"), home.to_str());
+    assert_eq!(value("GOOSE_MODE"), Some("auto"));
+    assert_eq!(value("GOOSE_TELEMETRY_OFF"), Some("1"));
+    let own = value("GOOSE_ADDITIONAL_CONFIG_FILES").unwrap();
+    assert!(Path::new(own).ends_with("goose/config.yaml"), "{own}");
+    let detect = goose.detect();
+    assert_eq!((detect.version_of)(" 1.60.1\n").as_deref(), Some("1.60.1"));
+}

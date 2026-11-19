@@ -45,6 +45,8 @@ What the owner found when he first tried the build with the project map (2026-11
 | 27 | [ ] | Panels in the sidebar have no close button | Every session and terminal row in the sidebar has one | |
 | 28 | [ ] | (follows) The same rule wherever a terminal is closed: its key, its tab, the sidebar, closing a workspace | | |
 | 29 | [ ] | (follows) A session that has ended closes without a question | | |
+| 30 | [ ] | After `/exit` in Codex the shell's prompt does not come back; after Claude Code it does | Find the cause and fix it; when any agent ends, its terminal is a usable shell again | |
+| 31 | [ ] | (follows) The same proved for every agent Tasktap starts, with a stand-in that ends as each tool does | | |
 
 ## Proposed by Claude, waiting for the owner's yes
 

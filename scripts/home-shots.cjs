@@ -88,6 +88,9 @@ function shots() {
     'key-typed': { records: answered(looked(scene('normal'))), act: both(type('tidy the export menu'), wait(300)), clip: near('.home .cap-row .key', 16), dpr: 4 },
     'key-later': { records: { ...projects('first-agents'), looks: [{ id: 'x', rev: 1, kind: 'agent', agent: 'claude', folder: null, on: false, state: 'ready', found: 0, looked: null, note: null }] }, act: both(type('tidy the export menu'), wait(300)), clip: near('.home .cap-row .key', 16), dpr: 4 },
     'home-busy': { records: answered(looked(scene('busy'))), act: wait(400) },
+    // On Windows (the page told so: its keys are Windows' words), the foot and its key up close.
+    'foot-windows': { system: 'windows', records: agents(answered(looked(scene('normal'))), 6), act: both(type('tidy the export menu'), wait(300)), clip: near('.home .capture') },
+    'key-windows': { system: 'windows', records: answered(looked(scene('normal'))), act: both(type('tidy the export menu'), wait(300)), clip: near('.home .cap-row .key', 16), dpr: 4 },
     // ——— 6. "Open another folder…", clicked ———
     'folder-list': { records: { ...answered(looked(scene('normal'))), pick: '/Users/example/projects/inkwell' }, act: both(click('#capture-input'), click('#dest-chip'), wait(300)) },
     'folder-clicked': { records: { ...answered(looked(scene('normal'))), pick: '/Users/example/projects/inkwell' }, act: both(click('#capture-input'), click('#dest-chip'), wait(300), async (p) => {
@@ -129,7 +132,7 @@ async function main(out, dprs, only, engine) {
       for (const [name, s] of Object.entries(shots())) {
         if (only && !only.some((o) => name === o || (o.endsWith('*') && name.startsWith(o.slice(0, -1))))) continue;
         const dpr = s.dpr ?? dpr0;
-        const page = await open(browser, { label: s.label ?? 'workspace', records: structuredClone(s.records), url: server.url, dpr, viewport: s.viewport });
+        const page = await open(browser, { label: s.label ?? 'workspace', records: structuredClone(s.records), url: server.url, dpr, viewport: s.viewport, system: s.system });
         if ((s.label ?? 'workspace') === 'workspace')
           await page.addStyleTag({ content: 'body::after{content:"";position:fixed;z-index:99;left:14px;top:13px;width:12px;height:12px;border-radius:50%;background:#ff5f57;box-shadow:20px 0 #febc2e,40px 0 #28c840;pointer-events:none}' });
         try {

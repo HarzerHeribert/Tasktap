@@ -517,8 +517,6 @@ function Failed({ d }: { d: Dictation }) {
   );
 }
 
-/** Whether placing by a model can be offered: nobody was asked yet, and a signed-in agent could do it. */
-export const offerable = () => !records.prefs.has('route_by') && placers().length > 0;
 /** How long the Composer says where a thought started, and which thought it last said it of. */
 const SAID_FOR = 6000;
 let told = { id: '', at: 0 };

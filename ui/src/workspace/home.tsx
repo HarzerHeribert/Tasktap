@@ -10,7 +10,7 @@ import { useEffect, useLayoutEffect, useState } from 'preact/hooks';
 import { Capture, askedHere, cap } from '../capture.tsx';
 import { next, pending, running, settle, Status, Told } from '../changes.tsx';
 import { Ask } from '../question.tsx';
-import { Answer, I, Key, Mark, Seat, type State, elapsed, plural, said, when } from '../ui.tsx';
+import { I, Mark, Seat, type State, elapsed, said, when } from '../ui.tsx';
 import { laterWhy, placed } from '../way.ts';
 import { Light, useLight } from './light.tsx';
 import { popup } from './menu.ts';

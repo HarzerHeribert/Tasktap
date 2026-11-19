@@ -594,28 +594,58 @@ async function main() {
         await page.context().close();
       }
 
-      // Nothing typed lands on Allow. The first step comes down by itself into a still page, and takes no key for 600 ms.
-      page = await open(browser, { label: 'workspace', records: { ...projects('first-agents'), offerMs: 700 }, url: server.url, dpr: 1 });
-      const allowed = () => page.evaluate(() => window.__fake.records.looks?.some((l) => l.on) ?? false);
-      await page.waitForFunction(() => window.__ws.ui.sheet, null, { timeout: 3000 }).catch(() => {});
-      expect(await page.evaluate(() => window.__ws.ui.sheet?.kind === 'setup' && window.__ws.ui.sheet.auto === true), 'the first start: the projects step did not come down by itself');
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(100);
-      expect(!(await allowed()), 'the first start: Return within 600 ms of the sheet coming down allowed it');
-      await page.waitForTimeout(700);
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(300);
-      expect(await allowed(), 'the first start: Return after 600 ms did not allow it');
-      await page.context().close();
+      // Nothing typed lands on Allow. The first step comes down by itself into a still page, and takes no key for 600 ms:
+      // Return pressed as it comes down (the page notes when the sheet came and when the key reached it, so a machine
+      // too busy to press within 600 ms is tried again rather than taken for a pass or a failure).
+      const allowed = (page) => page.evaluate(() => window.__fake.records.looks?.some((l) => l.on) ?? false);
+      let guarded = false;
+      for (let attempt = 0; attempt < 3 && !guarded; attempt++) {
+        page = await open(browser, { label: 'workspace', records: { ...projects('first-agents'), offerHeld: true }, url: server.url, dpr: 1 });
+        await page.waitForTimeout(1100);
+        await page.evaluate(() => {
+          window.__came = 0;
+          new MutationObserver(() => window.__came ||= document.querySelector('.sheet') ? performance.now() : 0).observe(document.body, { childList: true, subtree: true });
+          document.addEventListener('keydown', (e) => e.key === 'Enter' && (window.__pressed ??= performance.now()), true);
+          window.__fake.offer();
+        });
+        await page.waitForFunction(() => window.__came > 0, null, { timeout: 3000 }).catch(() => {});
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(100);
+        const at = await page.evaluate(() => window.__pressed - window.__came);
+        expect(await page.evaluate(() => window.__ws.ui.sheet?.kind === 'setup' && window.__ws.ui.sheet.auto === true), 'the first start: the projects step did not come down by itself');
+        if (at >= 0 && at < 600) {
+          guarded = true;
+          expect(!(await allowed(page)), `the first start: Return ${Math.round(at)} ms after the sheet came down allowed it`);
+          await page.waitForTimeout(700);
+          await page.keyboard.press('Enter');
+          await page.waitForTimeout(300);
+          expect(await allowed(page), 'the first start: Return after 600 ms did not allow it');
+        }
+        await page.context().close();
+      }
+      if (!guarded) console.log('NOTE  the first start: this machine could not press Return within 600 ms of the sheet coming down, three times; the guard was not measured');
       // Typing before it would come down: it does not come down, and Return sends the thought.
-      page = await open(browser, { label: 'workspace', records: { ...projects('first-agents'), offerMs: 900 }, url: server.url, dpr: 1 });
+      page = await open(browser, { label: 'workspace', records: { ...projects('first-agents'), offerHeld: true }, url: server.url, dpr: 1 });
       await page.focus(FIELD);
       await page.keyboard.type('a thought');
+      await page.evaluate(() => window.__fake.offer());
       await page.waitForTimeout(1300);
       expect(!(await page.evaluate(() => window.__ws.ui.sheet)), 'typing at the first start: the projects step came down over what was typed');
       await page.keyboard.press('Enter');
       await page.waitForTimeout(300);
-      expect(!(await page.evaluate(() => window.__fake.records.looks?.some((l) => l.on) ?? false)) && (await calls(page, 'thought.capture')) === 1, 'typing at the first start: Return did not send the thought, or allowed reading');
+      expect(!(await allowed(page)) && (await calls(page, 'thought.capture')) === 1, 'typing at the first start: Return did not send the thought, or allowed reading');
+      await page.context().close();
+
+      // On Windows (the page told so), the same key: metal, its arrow in its ink, and its keys in Windows' words.
+      page = await open(browser, { label: 'workspace', records: scene('normal'), url: server.url, dpr: 1, system: 'windows' });
+      await page.focus(FIELD);
+      await page.keyboard.type('a thought');
+      const win = await page.evaluate(() => {
+        const k = document.querySelector('.home .cap-row > .key'), arrow = k?.querySelector('svg.i');
+        return [getComputedStyle(k).color, arrow && getComputedStyle(arrow).stroke, /linear-gradient/.test(getComputedStyle(k).backgroundImage), document.querySelector('.home .mic kbd')?.textContent].join(' | ');
+      });
+      const [ink, arrow, face, talkWords] = win.split(' | ');
+      expect(ink === 'rgb(13, 13, 14)' && arrow === ink && face === 'true' && !!talkWords && !/[⌥⌘⌃⇧]/.test(talkWords), `on Windows the Composer's key, its arrow and the microphone's key say "${win}": not metal with its arrow in its ink, or a key in a Mac's signs`);
       await page.context().close();
 
       // "Open another folder…" in the chip's list, clicked with a real pointer, asks for the folder panel and the chip

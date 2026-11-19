@@ -57,7 +57,7 @@ function useSteps(): Step[] {
 
 /** What Setup knows of itself in this page's life: it opened its first step by itself once; it was finished here (so it
  *  stays, all done, until the page is opened again); the person folded it. */
-const setup = { opened: false, unfinished: false, shut: false as boolean | null };
+const setup = { opened: false, unfinished: false, shut: null as boolean | null };
 /** When a key was last pressed in the page: a sheet never comes down by itself while the person types. */
 let typed = -Infinity;
 addEventListener('keydown', () => (typed = performance.now()), true);
@@ -104,7 +104,6 @@ export function Setup({ quiet }: { quiet: boolean }) {
     </section>
   );
 }
-setup.shut = null;
 
 /** Settings › About: where Setup stays once it is hidden or done. */
 export function SetupRow() {

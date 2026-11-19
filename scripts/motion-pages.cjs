@@ -226,6 +226,8 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     // What Tasktap knows of the person's projects (docs/projects-design.md): `offer` is what `projects.offer` finds;
     // a look added or switched on puts its row and then, one by one as a look fills in, the cards of `found`;
     // `projects.find` is the core's own answer (`FIND` below), or `finds` by its text where a picture wants one.
+    // `offerHeld`: the answer waits until the check calls window.__fake.offer() (the first start, at a moment it chooses).
+    if (name === 'projects.offer' && records.offerHeld) return void (window.__fake.offer = () => reply(id, records.offer || { agents: [], places: [] }));
     if (name === 'projects.offer') return void setTimeout(() => reply(id, records.offer || { agents: [], places: [] }), records.offerMs || 0);
     if (name === 'projects.look') return reply(id, { projects: (records.cards || []).filter((c) => !c.copy_of && !c.inside && !c.hidden).length, ms: 40 });
     const look = (row) => {

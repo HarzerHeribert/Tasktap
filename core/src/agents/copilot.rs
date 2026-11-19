@@ -281,10 +281,26 @@ impl Agent for Copilot {
         ]
     }
 
+    /// It asks whether to trust every folder it has not been told is
+    /// trusted for good, and so every copy of the project a thought runs in
+    /// alone, which is a new folder each time. Neither its `--help` (1.0.83)
+    /// nor its documentation ("Configuring GitHub Copilot CLI", 2026-11)
+    /// names a flag or a variable that trusts a folder for one interactive
+    /// run: only the `trustedFolders` list in its own `config.json`, which
+    /// is the person's and which Tasktap does not write, and `COPILOT_HOME`,
+    /// which would move their sign-in and sessions with it. So its row in
+    /// Settings says so.
+    fn note(&self) -> Option<&'static str> {
+        Some(
+            "It asks to trust each copy of the project a thought runs in: \
+             Copilot has no way to be told so for one run, and Tasktap leaves its settings as they are.",
+        )
+    }
+
     /// What it stops at in its terminal before any hook runs: a folder it
-    /// does not trust (it has no way to trust one for one interactive run;
-    /// `--trust-folder` is for its one-prompt form), and, signed out, its
-    /// notice, after which it drops the prompt.
+    /// does not trust (it has no way to trust one for one interactive run:
+    /// `note`), and, signed out, its notice, after which it drops the
+    /// prompt.
     fn prompts(&self) -> &'static [Prompt] {
         &[
             Prompt {

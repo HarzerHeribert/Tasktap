@@ -454,6 +454,24 @@ fn its_hook_commands_are_told_where_its_sessions_are_and_never_fail() {
 }
 
 #[test]
+fn its_row_says_it_asks_to_trust_each_copy_of_the_project() {
+    // It is told no folder is trusted for a run (it has no way to be), so a
+    // thought run in a copy of the project stops at its trust question each
+    // time, and its row in Settings › Agents says so before that surprises.
+    let launched = copilot().launch(&run("Fix the bug", None, None)).join(" ");
+    assert!(!launched.contains("trust"), "{launched}");
+    let trusts = copilot()
+        .prompts()
+        .iter()
+        .any(|p| p.asks.contains("trust this folder"));
+    let note = copilot().note().unwrap_or_default();
+    assert!(
+        trusts && note.contains("asks to trust each copy of the project"),
+        "{note}"
+    );
+}
+
+#[test]
 fn what_it_waits_on_before_any_hook_is_read_from_its_terminal_once() {
     // Recorded: a folder it does not trust; and signed out, the same, then
     // its notice, after which it drops the prompt.

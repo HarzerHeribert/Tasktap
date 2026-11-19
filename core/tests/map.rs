@@ -399,11 +399,10 @@ fn a_repository_is_one_project_whatever_its_copies() {
         note: None,
     };
     let looks = vec![look(home.join("projects")), look(home.join("work"))];
-    let read: Vec<LookId> = looks.iter().map(|l| l.id).collect();
     let input = Input {
         rule: Rule::new(&home, &data),
         data: data.clone(),
-        looks,
+        looks: looks.clone(),
         opened: Vec::new(),
         known: Default::default(),
     };
@@ -429,7 +428,10 @@ fn a_repository_is_one_project_whatever_its_copies() {
 
     let (mut store, _) = Store::open(&t.0.join("core.db"), time(wall_ms())).unwrap();
     let mut tx = store.begin().unwrap();
-    let projects = map::merge(&mut tx, out, &read, time(wall_ms())).unwrap();
+    for l in &looks {
+        tx.put_look(l).unwrap();
+    }
+    let projects = map::merge(&mut tx, out, time(wall_ms())).unwrap();
     tx.commit().unwrap();
     let cards = store.begin().unwrap().cards().unwrap();
     let by = |rel: &str| {
@@ -460,6 +462,114 @@ fn a_repository_is_one_project_whatever_its_copies() {
     // other under it, until the person chooses (`main`).
     let (a, b) = (by("work/cuegrid"), by("projects/cuegrid"));
     assert_eq!((a.copy_of, b.copy_of), (None, Some(a.id)));
+}
+
+/// A look in `folder`, on.
+fn folder_look(folder: &Path) -> Look {
+    Look {
+        id: LookId::mint(),
+        rev: Rev::ZERO,
+        kind: LookKind::Folder,
+        agent: None,
+        folder: Some(folder.to_str().unwrap().into()),
+        on: true,
+        state: LookState::New,
+        found: 0,
+        looked: None,
+        note: None,
+    }
+}
+
+/// What a look at `looks` reads, as the core would give it from `store`.
+fn reads(store: &mut Store, home: &Path, data: &Path, looks: &[Look]) -> map::Output {
+    let known = store.begin().unwrap().cards().unwrap();
+    map::read(Input {
+        rule: Rule::new(home, data),
+        data: data.to_owned(),
+        looks: looks.to_vec(),
+        opened: Vec::new(),
+        known: known.into_iter().map(|c| (c.folder, c.repo)).collect(),
+    })
+}
+
+/// Writes what a look read, as the core does when it ends.
+fn merged(store: &mut Store, out: map::Output) -> u32 {
+    let mut tx = store.begin().unwrap();
+    let projects = map::merge(&mut tx, out, time(wall_ms())).unwrap();
+    tx.commit().unwrap();
+    projects
+}
+
+#[test]
+fn a_look_that_cannot_read_keeps_its_projects_and_one_taken_away_while_it_reads_keeps_none() {
+    let t = Folder::new("merge");
+    let (home, data) = (t.0.join("home"), t.0.join("data"));
+    mkdir(&data);
+    repo(&home.join("disk/harbor"), "Ships.", None);
+    repo(&home.join("disk/kiln"), "Sites.", None);
+    repo(&home.join("code/tidepool"), "Photos.", None);
+    let home = real(&home);
+    let (disk, code) = (
+        folder_look(&home.join("disk")),
+        folder_look(&home.join("code")),
+    );
+    let looks = [disk.clone(), code.clone()];
+    let (mut store, _) = Store::open(&t.0.join("core.db"), time(wall_ms())).unwrap();
+    let mut tx = store.begin().unwrap();
+    for l in &looks {
+        tx.put_look(l).unwrap();
+    }
+    tx.commit().unwrap();
+    let out = reads(&mut store, &home, &data, &looks);
+    assert_eq!(merged(&mut store, out), 3);
+    let card = |store: &mut Store, name: &str| {
+        let cards = store.begin().unwrap().cards().unwrap();
+        cards.into_iter().find(|c| c.name == name)
+    };
+    let harbor = card(&mut store, "harbor").unwrap();
+
+    // The folder looked in is gone (a volume unplugged): its projects stay,
+    // marked not there, and are there again when it is back.
+    std::fs::rename(home.join("disk"), home.join("away")).unwrap();
+    let out = reads(&mut store, &home, &data, &looks);
+    assert_eq!(out.looks[0].1, LookState::Gone);
+    assert_eq!(merged(&mut store, out), 1, "tidepool alone is offered");
+    let away = card(&mut store, "harbor").expect("kept while its folder is gone");
+    assert_eq!(
+        (away.id, away.available, away.looks),
+        (harbor.id, false, vec![disk.id])
+    );
+    std::fs::rename(home.join("away"), home.join("disk")).unwrap();
+    let out = reads(&mut store, &home, &data, &looks);
+    assert_eq!(merged(&mut store, out), 3);
+    let back = card(&mut store, "harbor").unwrap();
+    assert_eq!((back.id, back.available), (harbor.id, true));
+
+    // A look removed while it reads: what only it found is not kept, now
+    // or when that read ends; one switched off alike.
+    repo(&home.join("code/pyrite"), "Testing helpers.", None);
+    let out = reads(&mut store, &home, &data, &looks);
+    let mut tx = store.begin().unwrap();
+    tx.delete_look(code.id).unwrap();
+    map::unlook(&mut tx, code.id).unwrap();
+    tx.commit().unwrap();
+    assert_eq!(merged(&mut store, out), 2, "harbor and kiln");
+    assert!(card(&mut store, "pyrite").is_none());
+    assert!(card(&mut store, "tidepool").is_none());
+    let mut tx = store.begin().unwrap();
+    tx.put_look(&code).unwrap();
+    tx.commit().unwrap();
+    let out = reads(&mut store, &home, &data, &looks);
+    let mut tx = store.begin().unwrap();
+    tx.put_look(&Look {
+        on: false,
+        ..code.clone()
+    })
+    .unwrap();
+    map::unlook(&mut tx, code.id).unwrap();
+    tx.commit().unwrap();
+    assert_eq!(merged(&mut store, out), 2);
+    assert!(card(&mut store, "pyrite").is_none());
 }
 
 #[test]

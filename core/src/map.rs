@@ -1181,7 +1181,19 @@ fn list(rule: &Rule, folder: &Path) -> Result<Vec<(PathBuf, Kind)>, LookState> {
 /// the person gave it; the copies of one repository under the one taken as
 /// the project. A card no look finds any more goes, unless it is a
 /// workspace or the person gave it something.
-pub fn merge(tx: &mut Tx, out: Output, read: &[LookId], now: Time) -> store::Result<u32> {
+pub fn merge(tx: &mut Tx, out: Output, now: Time) -> store::Result<u32> {
+    // The looks as they are now: one removed or switched off while it read
+    // counts for nothing. Only a look that read all it names drops a card
+    // it no longer finds: one whose folder is gone, or that failed, keeps
+    // its cards (marked not there when their folders are not).
+    let live: BTreeSet<LookId> = (tx.looks()?.into_iter())
+        .filter(|l| l.on)
+        .map(|l| l.id)
+        .collect();
+    let read: BTreeSet<LookId> = (out.looks.iter())
+        .filter(|(id, state, ..)| *state == LookState::Ready && live.contains(id))
+        .map(|(id, ..)| *id)
+        .collect();
     let mut cards: BTreeMap<String, Card> = (tx.cards()?.into_iter())
         .map(|c| (c.folder.clone(), c))
         .collect();
@@ -1231,9 +1243,16 @@ pub fn merge(tx: &mut Tx, out: Output, read: &[LookId], now: Time) -> store::Res
             (Some(a), Some(b)) => Some(a.max(Time::new(b).unwrap_or(a))),
             (a, b) => a.or(b.and_then(Time::new)),
         };
-        c.looks = m.looks;
+        c.looks = m.looks.into_iter().filter(|l| live.contains(l)).collect();
         c.project_id = m.project.or(c.project_id);
         c.available = true;
+        // Found only by a look that is gone or off now: not made, or forgotten.
+        if !kept(&c) && !tx.bound(c.id)? {
+            if before.rev != Rev::ZERO {
+                tx.delete_card(c.id)?;
+            }
+            continue;
+        }
         if let Some(top) = m.inside {
             inside.push((m.folder.clone(), top));
         }
@@ -1249,10 +1268,9 @@ pub fn merge(tx: &mut Tx, out: Output, read: &[LookId], now: Time) -> store::Res
             continue;
         }
         let before = c.clone();
-        c.looks.retain(|l| !read.contains(l));
+        c.looks.retain(|l| live.contains(l) && !read.contains(l));
         c.available = !gone.contains(folder);
-        let kept = c.project_id.is_some() || c.hidden || c.main || !c.looks.is_empty();
-        if !kept && !tx.bound(c.id)? {
+        if !kept(c) && !tx.bound(c.id)? {
             tx.delete_card(c.id)?;
             forgotten.push(folder.clone());
         } else if *c != before {
@@ -1273,13 +1291,19 @@ pub fn merge(tx: &mut Tx, out: Output, read: &[LookId], now: Time) -> store::Res
     }
     copies(tx)?;
     for (id, state, found, note) in out.looks {
-        if let Some(mut l) = tx.look(id)? {
+        if let Some(mut l) = tx.look(id)?.filter(|l| l.on) {
             (l.state, l.found, l.note, l.looked) = (state, found, note, Some(now));
             tx.put_look(&l)?;
         }
     }
     let projects = tx.cards()?.iter().filter(|c| offered(c)).count();
     Ok(projects as u32)
+}
+
+/// Whether a card stays when no look finds it: it is a workspace, the
+/// person said something of it, or a look that is on found it.
+fn kept(c: &Card) -> bool {
+    c.project_id.is_some() || c.hidden || c.main || !c.looks.is_empty()
 }
 
 /// Whether a card is a project of its own that placing may offer: not a
@@ -1344,8 +1368,7 @@ pub fn unlook(tx: &mut Tx, look: LookId) -> store::Result<()> {
             continue;
         }
         c.looks.retain(|l| *l != look);
-        let kept = c.project_id.is_some() || c.hidden || c.main || !c.looks.is_empty();
-        if kept || tx.bound(c.id)? {
+        if kept(&c) || tx.bound(c.id)? {
             tx.put_card(&c)?;
         } else {
             tx.delete_card(c.id)?;
@@ -1509,7 +1532,6 @@ pub fn look(core: &mut Core, waiting: Option<(Rc<Link>, CallId)>) {
         }
     });
     core.map.looking = Some((n, timer));
-    let read: Vec<LookId> = input.looks.iter().filter(|l| l.on).map(|l| l.id).collect();
     let paths = watched(&input.rule, &input.looks);
     let started = Instant::now();
     crate::calls::aside(
@@ -1529,7 +1551,7 @@ pub fn look(core: &mut Core, waiting: Option<(Rc<Link>, CallId)>) {
             };
             core.map.stamps = Some(stamps);
             let now = core.seams.now();
-            let merged = effects::write(core, |tx| merge(tx, out, &read, now).map_err(stored));
+            let merged = effects::write(core, |tx| merge(tx, out, now).map_err(stored));
             let ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
             if std::mem::take(&mut core.map.again) {
                 return look(core, None);

@@ -38,9 +38,10 @@ i{font-style:normal}
 .i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:var(--i-w);stroke-linecap:var(--i-cap);stroke-linejoin:var(--i-join)}
 .ib{display:inline-grid;place-items:center;flex:none;width:28px;height:var(--ctl-h);border-radius:var(--r1);color:var(--fg3)}
 
-/* the state mark (ui.tsx Mark) in 14 × 14: a seat with no agent in it, the ring in the state's colours (.ring-o, below),
-   turning while it works and otherwise holding a pip of the state's colour. The words are its tooltip and accessible
-   name. --ring-px is the box it is shown in, so that its circle is drawn at the icons' weight. */
+/* the state mark (ui.tsx Mark) in 14 × 14: while something works, Tasktap's mark with its light passing (.brand-m);
+   otherwise a seat with no agent in it, the ring in the state's colours (.ring-o, below) holding a pip of the state's
+   colour. The words are its tooltip and accessible name. --ring-px is the box it is shown in, so that its circle is
+   drawn at the icons' weight. */
 /* One weight: an icon's strokes are --i-w on the screen at whatever size its box is shown. */
 .i>*{vector-effect:non-scaling-stroke}
 .st{display:inline-flex;align-items:center;justify-content:center;flex:none;width:14px;height:14px;color:var(--fg3);--ring-px:14}
@@ -57,14 +58,19 @@ i{font-style:normal}
 .st.of{width:calc(var(--seat,16) * 1px);height:calc(var(--seat,16) * 1px);gap:0}
 .st[data-s=later]::before{content:"";width:5px;height:5px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--fg2)}
 
-/* Tasktap's mark (ui.tsx Brand): a slab of the chrome set, two pictures drawn once from the motion engine, --m square.
-   Still at rest; at work the picture of its face turned fades in and out, so the light slides down the face and
-   back, which the compositor carries. It is a picture, not an icon: no stroke of it is held to the icons' weight. */
+/* Tasktap's mark (ui.tsx Brand): a slab of the chrome set, four pictures drawn once from the motion engine (at rest,
+   and the light three steps further down its face), --m square. Still at rest. It is a picture, not an icon: no
+   stroke of it is held to the icons' weight. */
 .brand-m{position:relative;isolation:isolate;display:inline-grid;place-items:center;flex:none;width:var(--m,14px);height:var(--m,14px)}
 .brand-m>img{grid-area:1/1;width:var(--m,14px);height:var(--m,14px)}
-.brand-m>.lit{opacity:0}
-.brand-m.live>.lit{animation:brand-lit 1.6s ease-in-out infinite alternate}
-@keyframes brand-lit{to{opacity:1}}
+.brand-m>img:not(.p0){opacity:0}
+/* At work the light passes down the face and back: each step fades in over the one before it, the whole way down in
+   2.4 s and back up in as long. Only opacity moves. */
+.brand-m.live>img{animation:2.4s ease-in-out infinite alternate}
+.brand-m.live>.p1{animation-name:pass-1}.brand-m.live>.p2{animation-name:pass-2}.brand-m.live>.p3{animation-name:pass-3}
+@keyframes pass-1{0%{opacity:0}33.3%,100%{opacity:1}}
+@keyframes pass-2{0%,33.3%{opacity:0}66.7%,100%{opacity:1}}
+@keyframes pass-3{0%,66.7%{opacity:0}100%{opacity:1}}
 
 /* ——— Materials (tokens.css; NOTES §5). Every control is one of these ———
    Metal: the key and the caps that show a key. Two sizes of key: 24 px, and 34 px on Home's surface. Its face is flat;
@@ -78,8 +84,6 @@ kbd .i{width:12px;height:12px}
 /* What sends: Return, with Command before it where the person set Return to start a new line. */
 .key .sends{display:inline-flex;align-items:center;gap:1px}
 .key kbd{color:rgb(13 13 14/.7)}
-.key .st{color:var(--ink);--ring:rgb(13 13 14/.25)}.key .st .turn{stroke:var(--ink)}
-.key .st circle{stroke-width:calc(var(--i-w-key) * 24 / var(--ring-px,14))}
 .key:hover{filter:brightness(1.07)}
 .key:active,:is(.ans,.act):active>kbd.keycap{transform:translateY(1px);box-shadow:var(--key-down);filter:brightness(.93)}
 .key:disabled{opacity:1;background:var(--fill);color:var(--fg3);box-shadow:none}
@@ -160,6 +164,19 @@ kbd .i{width:12px;height:12px}
 .cap textarea{grid-column:2;min-width:0;max-height:calc(3*round(22px*var(--ts),1px) + 20px);padding:10px 0;resize:none;overflow:auto;font:var(--f-question);letter-spacing:var(--ls-question);caret-color:var(--accent)}
 .cap-row{grid-column:1/-1;display:flex;align-items:center;gap:var(--sp2);min-width:0;padding-top:var(--sp2);border-top:1px solid var(--line);cursor:default}
 .capture:is(:focus-within,.has) .cap-row{border-image:var(--lit) 1}
+/* On a sheet and in the notch the Composer is Home's surface at the sheet's size (window.css .capture.raised): opaque
+   graphite with a hairline round it, its secondary words on it at the surface's own colour; while it has the keyboard
+   or holds a thought it is a shade brighter and its rim is the lit edge, brightest along the top. The mark stands
+   beside the thought and the row is inside it, with no rule between them. */
+.capture:not(.raised){--hover:rgb(255 255 255/.07);--sel:rgb(255 255 255/.11);--fill:rgb(255 255 255/.06);--fg2:var(--fg-field);--fg3:var(--fg-field);--line2:rgb(255 255 255/.22)}
+.capture:not(.raised) .cap{position:relative;padding:4px 12px 8px;border-radius:var(--r4);background:var(--surface);box-shadow:var(--surface-edge);transition:background var(--t-fast)}
+.capture:not(.raised) .cap::after{content:"";position:absolute;inset:0;padding:1px;border-radius:inherit;background:var(--edge,var(--lit));opacity:0;transition:opacity var(--t-sheet);pointer-events:none;
+  mask:linear-gradient(#000,rgb(0 0 0/.4) 22px,transparent 70%),linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:intersect,exclude}
+.capture:not(.raised):is(:focus-within,.has) .cap{background:var(--surface-lit)}
+.capture:not(.raised):is(:focus-within,.has) .cap::after{opacity:.9}
+.capture:not(.raised) .cap-row{padding-top:2px;border-top:0}
+.capture:not(.raised) textarea::placeholder{color:var(--fg-field)}
+.capture:not(.raised) :is(.cap-to,.cap-list button,.ring,.rings .more,.mic){border-radius:var(--r-in)}
 .cap-to,.cap-list button{display:inline-flex;align-items:center;gap:6px;height:var(--row-h);padding:0 var(--sp2) 0 6px;border-radius:var(--r1);font:var(--f-small);color:var(--fg2);white-space:nowrap}
 .cap-to{min-width:0;margin-left:-6px;padding-right:5px}
 .cap-to b{overflow:hidden;text-overflow:ellipsis;color:var(--fg)}

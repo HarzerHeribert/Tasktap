@@ -3,12 +3,6 @@
 import type { Workdir } from '../../core/proto/protocol.ts';
 import type { ComponentChildren } from 'preact';
 import { spell } from './keys.ts';
-import mark14 from './mark/mark-14.png';
-import lit14 from './mark/mark-14-lit.png';
-import mark24 from './mark/mark-24.png';
-import lit24 from './mark/mark-24-lit.png';
-import mark28 from './mark/mark-28.png';
-import lit28 from './mark/mark-28-lit.png';
 import { ownName, records } from './page.ts';
 import { letters, lettersOf } from './way.ts';
 
@@ -47,19 +41,21 @@ const WORDS: Record<State, string> = {
 };
 export const said = (s: State, bg = false) => `${WORDS[s]}${bg ? ', in background' : ''}`;
 
-/** The state mark: a seat with no agent in it (Seat), its ring in the same colours: it turns while it works, and
- *  otherwise holds a pip of the state's colour. Its tooltip and accessible name say the state in words. */
+/** The state mark. While something works it is Tasktap's mark with its light passing (Brand `live`); otherwise a
+ *  seat with no agent in it (Seat), its ring in the same colours holding a pip of the state's colour. Its tooltip and
+ *  accessible name say the state in words. */
 export function Mark({ s, bg = false, label }: { s: State; bg?: boolean; label?: string }) {
   const words = label ?? said(s, bg);
   const named = words ? { role: 'img' as const, 'aria-label': words, title: words } : { 'aria-hidden': true };
   if (s === 'shell') return <i class="st" data-s="shell" {...named}><I n="term" /></i>;
   if (s === 'later') return <i class="st" data-s={s} {...named} />;
+  if (s === 'working') return <i class={`st${bg ? ' bgd' : ''}`} data-s={s} {...named}><Brand live /></i>;
   return (
     <i class={`st${bg ? ' bgd' : ''}`} data-s={s} {...named}>
       <svg class="ring-o" viewBox="0 0 24 24" aria-hidden="true" data-tone={TONES[s]}>
         {s === 'ready' && lit()}
         <circle cx="12" cy="12" r="11" pathLength="100" />
-        {s === 'working' ? <circle class="turn" cx="12" cy="12" r="11" pathLength="100" /> : <circle class="pip" cx="12" cy="12" r="4" />}
+        <circle class="pip" cx="12" cy="12" r="4" />
       </svg>
     </i>
   );
@@ -78,28 +74,24 @@ export function Seat({ agent, s, bg = false, label, size = 16 }: { agent?: strin
 }
 
 /** Tasktap's mark: a slab of the chrome set (motion/mark.ts) in the app's own metal and light, as pictures drawn once
- *  from the motion engine (scripts/mark-pictures.cjs) at each size it is shown at, so that nothing draws it here. At
- *  rest it is still. `live` while what it stands beside is at work: the light slides down its face and back, the
- *  picture of its face turned fading in and out, which the compositor carries (parts.css). */
-const PICTURES = { 14: [mark14, lit14], 24: [mark24, lit24], 28: [mark28, lit28] } as const;
-export type MarkSize = keyof typeof PICTURES;
+ *  from the motion engine (scripts/mark-pictures.cjs) at each size it is shown at, so that nothing draws it here: at
+ *  rest, and with the light three steps further down its face. At rest it is still. `live` while something works:
+ *  the light passes slowly down the face and back, each step fading into the next, which the compositor carries
+ *  (parts.css). */
+export type MarkSize = 14 | 24 | 28;
+const files = import.meta.glob<string>('./mark/mark-*.png', { eager: true, import: 'default' });
+const Steps = ({ size }: { size: MarkSize }) => <>{[0, 1, 2, 3].map((k) => <img class={`p${k}`} src={files[`./mark/mark-${size}-${k}.png`]} alt="" />)}</>;
 export function Brand({ size = 14, live = false }: { size?: MarkSize; live?: boolean }) {
-  const [rest, turned] = PICTURES[size];
-  return (
-    <span class={`brand-m${live ? ' live' : ''}`} style={{ '--m': `${size}px` }} aria-hidden="true">
-      <img src={rest} alt="" /><img class="lit" src={turned} alt="" />
-    </span>
-  );
+  return <span class={`brand-m${live ? ' live' : ''}`} style={{ '--m': `${size}px` }} aria-hidden="true"><Steps size={size} /></span>;
 }
 
-/** The mark as loud as a voice: `l`, 0 to 1, the level of the dictation that records. The light behind the slab
- *  swells and brightens with it, and the slab's face turns into that light, eased between the core's ten reports a
- *  second (way.css). */
+/** The mark as loud as a voice: `l`, 0 to 1, the level of the dictation that records. The louder, the further down
+ *  its face the light stands, and the light behind the slab swells and brightens with it; eased between the core's
+ *  ten reports a second (way.css). */
 export function Level({ l, size = 24 }: { l: number; size?: MarkSize }) {
-  const [rest, turned] = PICTURES[size];
   return (
     <span class="brand-m lvl" style={{ '--m': `${size}px`, '--l': String(Math.max(0, Math.min(1, l))) }} aria-hidden="true">
-      <i class="halo" /><img src={rest} alt="" /><img class="lit" src={turned} alt="" />
+      <i class="halo" /><Steps size={size} />
     </span>
   );
 }

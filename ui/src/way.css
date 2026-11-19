@@ -44,7 +44,8 @@
    brightens with the level, and the slab's face turns into it; eased between the core's ten reports a second by the
    clock, and only opacity and scale, which the compositor carries. */
 .lvl>.halo{position:absolute;z-index:-1;inset:-35%;border-radius:50%;background:radial-gradient(closest-side,rgb(214 228 255/.55),rgb(255 214 186/.22) 55%,transparent);opacity:calc(.1 + .9 * var(--l,0));transform:scale(calc(.45 + .55 * var(--l,0)));transition:opacity 110ms linear,transform 110ms linear}
-.lvl>.lit{opacity:var(--l,0);transition:opacity 110ms linear}
+.lvl>img:not(.p0){transition:opacity 110ms linear}
+.lvl>.p1{opacity:clamp(0,calc(3 * var(--l,0)),1)}.lvl>.p2{opacity:clamp(0,calc(3 * var(--l,0) - 1),1)}.lvl>.p3{opacity:clamp(0,calc(3 * var(--l,0) - 2),1)}
 .hear .lvl{margin-right:2px}
 .reply .lvl{min-width:18px}
 

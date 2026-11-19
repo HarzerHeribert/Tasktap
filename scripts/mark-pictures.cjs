@@ -3,9 +3,10 @@
 // draws it where it is shown. Each picture is drawn at sixteen times its size and halved four times, so its edges and
 // its reflections are the average of what lies under each pixel; at 20 pixels and under the halved picture is then
 // sharpened a little, by hand, so the slab's edges stay whole on a display with one pixel to a point.
-//   ui/src/mark/       the pages' (ui.tsx Brand): at 14, 24 and 28 CSS pixels, drawn at 2x; at rest, and lit (the light
-//                      moved along its face), which the pages fade to and back while the mark is at work
-//   site/assets/       the site's header, at 1x and 2x, at rest and lit; and its favicon
+//   ui/src/mark/       the pages' (ui.tsx Brand, Level, Mark): at 14, 24 and 28 CSS pixels, drawn at 2x; at rest
+//                      (mark-N-0) and with the light three steps further down its face (1, 2, 3), which the pages fade
+//                      through and back while the mark is at work, and which the voice's level chooses between
+//   site/assets/       the site's header, at 1x and 2x, the same four; and its favicon
 //   host/icons/tray/   the notification area on Windows (host/src/tray.rs): 16, 20, 24 and 32 pixels, for a dark
 //                      taskbar and a light one
 // Its palette is the app's default (chromatic). Run on a Mac: node scripts/mark-pictures.cjs [--out folder] [--all]
@@ -16,22 +17,18 @@ const os = require('node:os');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 
-/** Where the light lies on the face: at rest the upper part of the slab is lit and a coloured horizon crosses it; lit,
- *  the face has turned and the horizon has gone down it. Over a light ground the face stands turned from the light,
- *  so the slab reads by its darker face rather than by its rim. */
-const REST = -1.3, LIT = -0.5, PALE = -0.6;
+/** Where the light lies on the face: at rest the upper part of the slab is lit and a coloured horizon crosses it; as
+ *  the face turns (PASS, in four steps) the horizon goes down it. Over a light ground the face stands turned from the
+ *  light, so the slab reads by its darker face rather than by its rim. */
+const PASS = [-1.3, -1.03, -0.77, -0.5], REST = PASS[0], PALE = -0.6;
 const LOOK = { style: 'slats', palette: 'chromatic', hue: 265, lumen: false };
 
 function pictures() {
   const out = [];
-  for (const size of [14, 24, 28]) {
-    out.push({ file: `ui/src/mark/mark-${size}.png`, px: size * 2, phase: REST });
-    out.push({ file: `ui/src/mark/mark-${size}-lit.png`, px: size * 2, phase: LIT });
-  }
-  for (const [k, sfx] of [[1, ''], [2, '@2x']]) {
-    out.push({ file: `site/assets/mark${sfx}.png`, px: 22 * k, phase: REST });
-    out.push({ file: `site/assets/mark-lit${sfx}.png`, px: 22 * k, phase: LIT });
-  }
+  PASS.forEach((phase, k) => {
+    for (const size of [14, 24, 28]) out.push({ file: `ui/src/mark/mark-${size}-${k}.png`, px: size * 2, phase });
+    for (const [n, sfx] of [[1, ''], [2, '@2x']]) out.push({ file: `site/assets/mark-${k}${sfx}.png`, px: 22 * n, phase });
+  });
   out.push({ file: 'site/assets/favicon.png', px: 32, phase: (REST + PALE) / 2 });
   for (const px of [16, 20, 24, 32]) {
     out.push({ file: `host/icons/tray/dark-${px}.png`, px, phase: REST });

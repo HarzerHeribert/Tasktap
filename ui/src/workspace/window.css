@@ -622,5 +622,5 @@ button.line.fold-l{grid-template-columns:28px 190px minmax(0,1fr)}
 /* The effects control (Settings; light.tsx effects). Below Full nothing moves by itself: the marks of work hold a
    pose, the Composer's lit rim and its glow come and go at once, and the light, where it is shown, is a picture.
    What the interface does to show a change of its own (a sheet dropping, the sidebar sliding) stays. */
-:root:is([data-effects=still],[data-effects=off]) :is(.brand-m>.lit,.ring-o .turn){animation:none}
+:root:is([data-effects=still],[data-effects=off]) :is(.brand-m>img,.ring-o .turn){animation:none}
 :root:is([data-effects=still],[data-effects=off]) :is(.capture.raised::before,.capture.raised .cap,.capture.raised .cap::after,.pool,.glyph,.turn canvas){transition:none}

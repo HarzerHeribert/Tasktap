@@ -26,22 +26,29 @@ function Session({ project, id, bg }: { project: string; id: string; bg: boolean
   const selected = ui.view === project && L.selectedPane(layout(project))?.active === id;
   const q = questionOf(s);
   const time = shell ? '' : q ? elapsed(madeAt(q.id)) : c.s === 'working' ? elapsed(t?.created ?? Date.now()) : when(t?.updated ?? Date.now());
+  // ⌘W closes the terminal in front, which is this row's when it is selected.
+  const shut = selected ? tip('Close', '⌘W') : 'Close';
   const menu: Item[] = [
     { text: 'Show', do: () => focusSession(id) },
     ...(s ? [{ text: 'Session Details…', do: () => void details(id) }] : []),
     ...(term?.state === 'running' && !bg ? [{ text: 'Keep Running in Background', do: () => keepInBackground(project, id) }] : []),
     ...(term?.state === 'running' ? [{ text: 'Stop Session…', do: () => open({ kind: 'stop', project, id }) }] : []),
-    ...(!bg ? ['-' as const, { text: 'Close Tab', do: () => closeTab(project, id) }] : []),
+    '-' as const, { text: bg ? 'Close' : 'Close Tab', ...(selected ? { key: '⌘W' } : {}), do: () => closeTab(project, id) },
   ];
+  // The cross stands in the row's trailing place, over its time, on hover and focus: a sibling of the row's button,
+  // so neither holds the other, and the row's words and mark stay where they are.
   return (
-    <button type="button" class={`row s${selected ? ' sel' : ''}${bg ? ' bg' : ''}${shell ? ' shl' : ''}`} data-s={c.s} data-id={id}
-      title={`${name}\n${c.words}${bg ? ', in background' : ''}${c.activity ? `\n${c.activity}` : ''}`} onClick={() => focusSession(id)}
-      onContextMenu={(e) => popup(e, menu)} onKeyDown={(e) => e.key.toLowerCase() === 'i' && !e.metaKey && !e.ctrlKey && details(id) && e.preventDefault()}>
-      <Seat agent={s?.agent} s={c.s} bg={bg} label={`${c.words}${bg ? ', in background' : ''}`} />
-      <span class="lbl">{name}</span>
-      {bg && <span class="bgi" title="Running in background"><I n="bg" /></span>}
-      {time && <span class="meta">{time}</span>}
-    </button>
+    <div class="srow" data-id={id}>
+      <button type="button" class={`row s${selected ? ' sel' : ''}${bg ? ' bg' : ''}${shell ? ' shl' : ''}`} data-s={c.s} data-id={id}
+        title={`${name}\n${c.words}${bg ? ', in background' : ''}${c.activity ? `\n${c.activity}` : ''}`} onClick={() => focusSession(id)}
+        onContextMenu={(e) => popup(e, menu)} onKeyDown={(e) => e.key.toLowerCase() === 'i' && !e.metaKey && !e.ctrlKey && details(id) && e.preventDefault()}>
+        <Seat agent={s?.agent} s={c.s} bg={bg} label={`${c.words}${bg ? ', in background' : ''}`} />
+        <span class="lbl">{name}</span>
+        {bg && <span class="bgi" title="Running in background"><I n="bg" /></span>}
+        {time && <span class="meta">{time}</span>}
+      </button>
+      <button type="button" class="x" title={shut} aria-label={`Close ${name}`} onClick={() => closeTab(project, id)}><I n="x" /></button>
+    </div>
   );
 }
 

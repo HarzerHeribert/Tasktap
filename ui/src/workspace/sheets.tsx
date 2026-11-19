@@ -7,6 +7,7 @@
 // window. A sheet comes down plainly: a short drop from behind the bar. None sheds glyphs: a wake lies only where
 // there are no words (wake.ts), and a sheet is all words.
 import type { ComponentChildren } from 'preact';
+import type { Runs } from '../../../core/proto/protocol.ts';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Capture, cap } from '../capture.tsx';
 import { uuid7 } from '../client.ts';
@@ -86,6 +87,26 @@ function matches(k: string, e: KeyboardEvent, typing: boolean) {
   return !typing && !e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === k.toLowerCase();
 }
 const quote = (s: string) => `“${s.length > 60 ? s.slice(0, 59) + '…' : s}”`;
+
+/** Names in a sentence: "a", "a and b", "a, b and c". */
+const and = (names: string[]) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
+/** A program's command line, cut where a sentence would lose it. */
+const program = (what: string) => (what.length > 48 ? what.slice(0, 47) + '…' : what);
+
+/** What the core says runs in one terminal, as the sentence a close begins with. */
+function runsWords(runs: Runs) {
+  if (runs.state === 'unknown') return 'Tasktap cannot tell what runs in it.';
+  const what = runs.what.map(program);
+  return `${and(what)} ${what.length > 1 ? 'are' : 'is'} running in it.`;
+}
+
+/** What runs where in a workspace, in one sentence: "Still running: npm run dev in “zsh”, and Claude Code in “Fix
+ *  the login”." */
+function runsWhere(busy: { id: string; runs: Runs }[]) {
+  const parts = busy.map(({ id, runs }) => `${runs.state === 'unknown' ? 'what Tasktap cannot name' : and(runs.what.map(program))} in ${quote(label(id))}`);
+  const last = parts.length > 1 ? `, and ${parts.pop()}` : '';
+  return `Still running: ${parts.join(', ')}${last}.`;
+}
 
 function Find({ id }: { id: string }) {
   const [said, say] = useState('');
@@ -201,28 +222,27 @@ function Body() {
   if (!d) return null;
   switch (d.kind) {
     case 'close-tab': {
-      const name = label(d.id);
-      const words = records.terminals.get(d.id)?.kind === 'shell' ? 'It can keep running in the sidebar, under its workspace, or stop now.'
-        : 'It can keep running under its workspace in the sidebar, or stop now. Its history stays either way.';
+      const words = d.runs.session ? 'It can keep running under its workspace in the sidebar, or stop now. Its history stays either way.'
+        : 'It can keep running in the sidebar, under its workspace, or stop now.';
       return (
-        <Frame title={`Close ${quote(name)}?`} acts={[
+        <Frame title={`Close ${quote(label(d.id))}?`} acts={[
           { k: '↩', label: 'Keep running in background', kind: 'primary', do: () => keepInBackground(d.project, d.id) },
           { k: '⌘⌫', label: 'Stop session', kind: 'danger', do: () => stop(d.project, d.id) },
           cancel,
-        ]}><p>{words}</p></Frame>
+        ]}><p>{runsWords(d.runs)} {words}</p></Frame>
       );
     }
     case 'stop':
       return (
         <Frame title={`Stop ${quote(label(d.id))}?`} acts={[{ k: '⌘⌫', label: 'Stop session', kind: 'danger', do: () => stop(d.project, d.id) }, cancel]}>
-          <p>This ends its process. Its history stays in the terminal.</p>
+          <p>{d.runs ? `${runsWords(d.runs)} ` : ''}This ends its process. Its history stays in the terminal.</p>
         </Frame>
       );
     case 'close-workspace':
       return (
-        <Frame title={`Close ${projectName(d.project)} and stop ${d.count === 1 ? 'its session' : `${d.count} sessions`}?`}
+        <Frame title={`Close ${projectName(d.project)}?`}
           acts={[{ k: '⌘⌫', label: 'Stop and close', kind: 'danger', do: () => void finishClose(d.project, true) }, cancel]}>
-          <p>Its terminals end, those in the background too. The files, the history and the layout stay.</p>
+          <p>{runsWhere(d.busy)} Closing it stops its terminals, those in the background too. The files, the history and the layout stay.</p>
         </Frame>
       );
     case 'open-workspace':

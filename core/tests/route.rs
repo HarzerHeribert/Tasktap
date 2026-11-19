@@ -949,6 +949,39 @@ impl Asking {
 }
 
 #[test]
+fn a_name_that_may_not_be_meant_goes_to_the_model_agreed_to_first_among_its_projects() {
+    let mut a = Asking::new("maybe");
+    a.consent("fixture");
+    // "app" is an everyday word here, not used as a name: the names alone
+    // would ask. The model the person agreed to is asked, with it first;
+    // the chip says so (the hint names no place).
+    let hint = Hint {
+        text: "make the app icon bigger".into(),
+        current: None,
+    };
+    let said = a.w.ok::<call::RouteHint>(&hint);
+    assert_eq!(said, tasktap_proto::Route::Unknown);
+    a.answers(&answer("clear", "p1", "Make the app icon bigger."));
+    let t = a.capture("make the app icon bigger", None);
+    let th = a.settled(t);
+    let asked = a.asked().expect("the model was asked");
+    assert_eq!(
+        (&asked["projects"][0]["id"], &asked["projects"][0]["name"]),
+        (&json!("p1"), &json!("app"))
+    );
+    assert_eq!(
+        (th.project_id, th.placed),
+        (Some(a.app), Some(Placed::Model))
+    );
+    // Unsure too, it asks the person.
+    a.answers(&json!({ "quote": "", "confidence": "ambiguous", "to": "",
+        "candidates": ["p1", "p2"], "brief": "Make the app icon bigger.", "title": "" }));
+    let t = a.capture("make the app icon bigger", None);
+    a.w.until("asked", |m| m.thought(t).status == Status::NeedsYou);
+    assert!(a.asked().is_some());
+}
+
+#[test]
 fn a_model_routes_a_thought_and_writes_its_brief() {
     let mut a = Asking::new("model");
     a.consent("fixture");

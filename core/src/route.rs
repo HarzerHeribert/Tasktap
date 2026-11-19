@@ -654,9 +654,21 @@ pub fn local(r: &Request) -> Route {
 }
 
 /// Whether the names the capture says, or the session it was made in,
-/// decide where it goes: then the match is sure and no model is asked.
+/// decide where it goes: then the match is sure and no model is asked. A
+/// question the names alone would ask (two projects named alike) is sure
+/// too; one they ask only because a name may not be meant (said only as it
+/// sounds, a letter off, an everyday word, words written apart) is not: a
+/// model the person agreed to is asked first, given those projects first.
 pub fn sure(r: &Request) -> bool {
-    by_names(r).is_some()
+    match by_names(r) {
+        Some(Route::Ambiguous { .. }) => {
+            let named = hits(r);
+            let sessions = r.sessions.iter().any(|s| follows(&r.text, s));
+            sessions || named.iter().any(decides)
+        }
+        Some(_) => true,
+        None => false,
+    }
 }
 
 /// The route the names the capture says decide, or the session it was
@@ -1348,8 +1360,20 @@ fn spans(text: &str, name: &str) -> Vec<Range<usize>> {
 /// nothing (the capture then asks, or a model places it). It stores
 /// nothing and starts nothing.
 pub fn hint(cx: &mut Cx, args: Hint) -> Result<tasktap_proto::Route, Error> {
-    let request = effects::read(cx.core, |tx| request(tx, &args.text, args.current))?;
-    Ok(wire(by_names(&request).unwrap_or(Route::Unknown)))
+    let (request, by) = effects::read(cx.core, |tx| {
+        let by = match tx.pref(tasktap_proto::PrefKey::RouteBy)?.map(|p| p.value) {
+            Some(tasktap_proto::PrefValue::RouteBy(by)) => by,
+            _ => None,
+        };
+        Ok((request(tx, &args.text, args.current)?, by))
+    })?;
+    // A question the names ask only because a name may not be meant goes
+    // to the model the person agreed to: the chip says it decides.
+    let model = by.is_some_and(|by| by.terms == TERMS) && !sure(&request);
+    Ok(match model {
+        true => tasktap_proto::Route::Unknown,
+        false => wire(by_names(&request).unwrap_or(Route::Unknown)),
+    })
 }
 
 /// A route as the protocol says it.

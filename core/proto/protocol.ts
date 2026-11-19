@@ -291,6 +291,14 @@ name: string,
  */
 names: Array<string>,
 /**
+ * Of `names`, those the person gave it: kept whatever a look finds.
+ */
+given: Array<string>,
+/**
+ * Names a look found that the person took away: not given it again.
+ */
+dropped: Array<string>,
+/**
  * One line about it, from its README or its package file; empty when none says.
  */
 about: string,

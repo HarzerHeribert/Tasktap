@@ -538,6 +538,21 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
                     let why = format!("a project goes by at most {} names", crate::map::NAMES);
                     return Err(invalid(why));
                 }
+                // A name added is the person's; one taken away stays away,
+                // also when a look finds it again in a package file.
+                for n in names.iter().filter(|n| !c.names.contains(n)) {
+                    c.dropped.retain(|d| d != n);
+                    if !c.given.contains(n) {
+                        c.given.push(n.clone());
+                    }
+                }
+                for n in c.names.iter().filter(|n| !names.contains(n)) {
+                    match c.given.contains(n) {
+                        true => c.given.retain(|g| g != n),
+                        false if !c.dropped.contains(n) => c.dropped.push(n.clone()),
+                        false => {}
+                    }
+                }
                 c.names = names;
             }
             c.hidden = hidden.unwrap_or(c.hidden);

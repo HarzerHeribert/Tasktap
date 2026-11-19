@@ -1208,6 +1208,8 @@ pub fn merge(tx: &mut Tx, out: Output, now: Time) -> store::Result<u32> {
                 folder: m.folder.clone(),
                 name: String::new(),
                 names: Vec::new(),
+                given: Vec::new(),
+                dropped: Vec::new(),
                 about: String::new(),
                 about_from: None,
                 why: Vec::new(),
@@ -1229,11 +1231,18 @@ pub fn merge(tx: &mut Tx, out: Output, now: Time) -> store::Result<u32> {
         };
         let before = c.clone();
         c.name = m.name;
-        for n in m.facts.names {
-            if n != c.name && !c.names.contains(&n) {
-                c.names.push(n);
+        // What its files call it now, less what the person took away; then
+        // what the person gave it.
+        let mut names: Vec<String> = Vec::new();
+        for n in m.facts.names.into_iter().chain(c.given.iter().cloned()) {
+            if n != c.name
+                && !names.contains(&n)
+                && !(c.dropped.contains(&n) && !c.given.contains(&n))
+            {
+                names.push(n);
             }
         }
+        c.names = names;
         c.about = m.facts.about;
         c.about_from = m.facts.about_from;
         c.why = m.why;
@@ -1301,9 +1310,11 @@ pub fn merge(tx: &mut Tx, out: Output, now: Time) -> store::Result<u32> {
 }
 
 /// Whether a card stays when no look finds it: it is a workspace, the
-/// person said something of it, or a look that is on found it.
+/// person said something of it (it is none, it is the copy that counts,
+/// a name), or a look that is on found it.
 fn kept(c: &Card) -> bool {
-    c.project_id.is_some() || c.hidden || c.main || !c.looks.is_empty()
+    let said = c.hidden || c.main || !c.given.is_empty() || !c.dropped.is_empty();
+    c.project_id.is_some() || said || !c.looks.is_empty()
 }
 
 /// Whether a card is a project of its own that placing may offer: not a

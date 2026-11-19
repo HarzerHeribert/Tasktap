@@ -573,6 +573,64 @@ fn a_look_that_cannot_read_keeps_its_projects_and_one_taken_away_while_it_reads_
 }
 
 #[test]
+fn a_name_the_person_gives_keeps_its_project_and_one_taken_away_stays_away() {
+    let t = Folder::new("names");
+    let (home, data) = (t.0.join("home"), t.0.join("data"));
+    mkdir(&data);
+    repo(&home.join("projects/cuegrid"), "Cue sheets.", None);
+    write(
+        &home.join("projects/cuegrid/package.json"),
+        r#"{"name": "@acme/cue-sheets"}"#,
+    );
+    let home_text = real(&home).to_str().unwrap().to_owned();
+    let core = Core::start_env(&data, &[], &[("HOME", &home_text)]);
+    let mut w = core.watch();
+    let look = w.ok::<call::LookAdd>(&AddLook {
+        id: LookId::mint(),
+        folder: Some(format!("{home_text}/projects")),
+        agent: None,
+        on: None,
+    });
+    w.ok::<call::ProjectsLook>(&Empty {});
+    w.sync();
+    let card = w.model.cards.values().next().unwrap().clone();
+    assert_eq!(card.names, ["cue-sheets"]);
+    let name = |w: &mut Watch, names: &[&str]| {
+        let patch = CardPatch {
+            names: Some(names.iter().map(|n| (*n).into()).collect()),
+            hidden: None,
+            main: None,
+        };
+        let target = PutTarget::Cards { id: card.id, patch };
+        w.ok::<call::Put>(&Put {
+            target,
+            if_rev: None,
+        });
+        w.ok::<call::ProjectsLook>(&Empty {});
+        w.sync();
+        w.model.cards.get(&card.id).map(|c| c.names.clone())
+    };
+    // Its package's name taken away, another given: a look keeps both so.
+    assert_eq!(name(&mut w, &["rehearsal"]), Some(vec!["rehearsal".into()]));
+    // The look that found it switched off: the name the person gave keeps it.
+    let off = PutTarget::Looks {
+        id: look,
+        patch: LookPatch { on: Some(false) },
+    };
+    w.ok::<call::Put>(&Put {
+        target: off,
+        if_rev: None,
+    });
+    w.sync();
+    let kept = w
+        .model
+        .cards
+        .get(&card.id)
+        .expect("a project the person named is kept");
+    assert_eq!(kept.names, ["rehearsal"]);
+}
+
+#[test]
 fn an_agents_history_says_where_and_when_and_nothing_more_is_read() {
     let t = Folder::new("history");
     let home = t.0.join("home");

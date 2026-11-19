@@ -278,6 +278,12 @@ pub struct Card {
     /// Other names it goes by: the one its package file gives, when that
     /// differs, and those the person gave it.
     pub names: Vec<String>,
+    /// Of `names`, those the person gave it: kept whatever a look finds.
+    #[serde(default)]
+    pub given: Vec<String>,
+    /// Names a look found that the person took away: not given it again.
+    #[serde(default)]
+    pub dropped: Vec<String>,
     /// One line about it, from its README or its package file; empty when none says.
     pub about: String,
     /// The file the line is from.

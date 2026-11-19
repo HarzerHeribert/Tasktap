@@ -255,25 +255,59 @@ fn main() {
             ..Request::default()
         })
     };
-    let (mut typed, mut spoken, mut split_names, mut asked_twins) = (0, 0, 0, 0);
-    let mut wrong = 0;
-    for p in &named {
-        match place(format!("in {} fix the failing build", p.name)) {
-            Route::Clear { to, .. } if to == p.to => typed += 1,
-            Route::Ambiguous { candidates, .. } if candidates.iter().any(|c| c.to == p.to) => {
-                asked_twins += 1
+    // Each name in the review's sentences, as typed and, for a name of
+    // several words, said as separate words; how each ends.
+    #[derive(Default)]
+    struct Ends {
+        right: usize,
+        first: usize,
+        among: usize,
+        without: usize,
+        wrong: usize,
+        n: usize,
+    }
+    type Say = fn(&str) -> String;
+    let forms: [(&str, Say); 3] = [
+        ("fix the login in <name>", |n| {
+            format!("fix the login in {n}")
+        }),
+        ("<name>: fix the login", |n| format!("{n}: fix the login")),
+        ("the <name> login is broken", |n| {
+            format!("the {n} login is broken")
+        }),
+    ];
+    let mut ends: Vec<(String, Ends)> = Vec::new();
+    for apart in [false, true] {
+        for (form, say) in &forms {
+            let mut e = Ends::default();
+            for p in &named {
+                let parts = route::parts(&p.name);
+                if apart && parts.len() < 2 {
+                    continue;
+                }
+                let name = match apart {
+                    true => parts.join(" "),
+                    false => p.name.clone(),
+                };
+                e.n += 1;
+                match place(say(&name)) {
+                    Route::Clear { to, .. } if to == p.to => e.right += 1,
+                    Route::Clear { .. } => e.wrong += 1,
+                    Route::Ambiguous { candidates, .. } => {
+                        match candidates.iter().position(|c| c.to == p.to) {
+                            Some(0) => e.first += 1,
+                            Some(_) => e.among += 1,
+                            None => e.without += 1,
+                        }
+                    }
+                    Route::Unknown => e.without += 1,
+                }
             }
-            Route::Clear { .. } => wrong += 1,
-            _ => {}
-        }
-        let parts = route::parts(&p.name);
-        if parts.len() > 1 {
-            split_names += 1;
-            if let Route::Clear { to, .. } =
-                place(format!("{} needs a dry run flag", parts.join(" ")))
-            {
-                spoken += usize::from(to == p.to);
-            }
+            let how = match apart {
+                true => "said as separate words",
+                false => "as written",
+            };
+            ends.push((format!("\"{form}\", {how}"), e));
         }
     }
     let contained = (named.iter())
@@ -293,25 +327,14 @@ fn main() {
         })
         .count();
     println!("Placing by name over these {} projects:", named.len());
-    println!(
-        "  written as it is: {typed} placed right, {asked_twins} asked (a name two projects have), {wrong} placed wrong"
-    );
-    println!(
-        "  names of several words ({split_names}) said as separate words: {spoken} placed right"
-    );
+    for (what, e) in &ends {
+        println!(
+            "  {what} ({}): {} placed right, {} asked with it first, {} asked with it among, {} asked without it, {} placed wrong",
+            e.n, e.right, e.first, e.among, e.without, e.wrong
+        );
+    }
     println!(
         "  names another project's name contains as a word: {contained}; names two projects share: {same_name}"
-    );
-    let common = (named.iter())
-        .filter(|p| {
-            matches!(
-                place(format!("the {} is broken", p.name.to_lowercase())),
-                Route::Clear { .. }
-            )
-        })
-        .count();
-    println!(
-        "  (a thought 'the <name> is broken' is placed for {common} of them: names that are also common words would be placed by such a sentence)"
     );
 }
 

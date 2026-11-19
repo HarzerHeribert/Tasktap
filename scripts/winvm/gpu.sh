@@ -6,8 +6,9 @@
 # second-by-second samples into a folder outside the repository.
 #   scripts/winvm/gpu.sh [ref] [--out DIR] [--no-build] [--size window|full] [--effects full,still,off]
 #                        [--lumen on,off] [--states rest,working,...] [--seconds 60]
-#   scripts/winvm/gpu.sh --rest        the proof alone: the floor and the app at rest, a minute each; fails
-#                                      when the app at rest uses the graphics processor at all
+#   scripts/winvm/gpu.sh --rest        the proof alone (checklist item 35): the floor and the app at rest, a minute
+#                                      each; fails when the app uses the graphics processor at all with no caret or
+#                                      with Tasktap not in front, or more than 0.01 % with the caret in Home's field
 #   scripts/winvm/gpu.sh --dry-run     over SSH alone: whether the screen shows the test account's unlocked desktop,
 #                                      whether the card and the counters can be read, what the round would measure;
 #                                      starts nothing
@@ -26,7 +27,7 @@ while (($#)); do
     --lumen) [[ $# -ge 2 && $2 =~ ^(on|off)(,(on|off))?$ ]] || usage; args+=" -Lumen ${2//,/:}"; shift ;;
     --states) [[ $# -ge 2 && $2 =~ ^[a-z,-]+$ ]] || usage; args+=" -States ${2//,/:}"; shift ;;
     --seconds) [[ $# -ge 2 && $2 =~ ^[0-9]+$ ]] || usage; args+=" -Seconds $2"; shift ;;
-    --rest) args+=' -States rest:rest-unfocused:tab-rest' ;;
+    --rest) args+=' -States rest:rest-unfocused:rest-behind:tab-rest' ;;
     --no-build) build=0 ;;
     --dry-run) dry=1 ;;
     --rehearse) rehearse=1 ;;

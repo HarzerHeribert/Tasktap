@@ -146,6 +146,24 @@ public static Tick Sample(HashSet<int> app, int compositor) {
 [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
 [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int how);
 [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr window);
+[DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int w, int h, uint flags);
+[DllImport("user32.dll")] static extern bool PostMessage(IntPtr window, uint message, IntPtr w, IntPtr l);
+public static void Close(IntPtr window) { PostMessage(window, 0x0010, IntPtr.Zero, IntPtr.Zero); }
+delegate bool EachWindow(IntPtr window, IntPtr data);
+[DllImport("user32.dll")] static extern bool EnumWindows(EachWindow each, IntPtr data);
+[DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowTextW(IntPtr window, StringBuilder text, int size);
+[DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr window);
+// The first shown window whose title holds `part`.
+public static IntPtr Titled(string part) {
+    var found = IntPtr.Zero;
+    EnumWindows((w, _) => {
+        var t = new StringBuilder(512);
+        GetWindowTextW(w, t, 512);
+        if (IsWindowVisible(w) && t.ToString().Contains(part)) { found = w; return false; }
+        return true;
+    }, IntPtr.Zero);
+    return found;
+}
 [DllImport("user32.dll")] static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
 public static void Alt() { keybd_event(0x12, 0, 0, UIntPtr.Zero); keybd_event(0x12, 0, 2, UIntPtr.Zero); }
 [DllImport("user32.dll")] public static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
@@ -361,6 +379,8 @@ function Card-Read { $v = [Tasktap.Meter]::Last; if ($v -and [Tasktap.Meter]::Ag
 $catalogue = [ordered]@{
     'rest'         = @{ what = 'at rest on Home, nothing running'; window = $true; settle = 10; enter = { Up; Show 'home' } }
     'rest-unfocused' = @{ what = 'at rest on Home, nothing running, the caret taken out of its field'; window = $true; settle = 10; enter = { Up; Show 'home'; $null = Js '(document.activeElement?.blur(), 1)' } }
+    # Tasktap not in front: the round's own Notepad, small in the display's corner beside the app's window, is.
+    'rest-behind'  = @{ what = 'at rest on Home, the caret in its field, another program in front beside the window'; window = $true; settle = 6; enter = { Up; Show 'home'; Behind }; leave = { Unbehind } }
     'tab-rest'     = @{ what = 'the tab at the top edge at rest, the window minimised'; settle = 6; enter = { Down } }
     # Opened as the capture key opens it: told `hover in`, the tab of an app that is not passive folds again at once,
     # since the real pointer is not on it (the tower's round, 2026-11-19).
@@ -417,6 +437,25 @@ function Down {
     if ($said -and -not (ConvertFrom-Json $said).where.front) { return }
     $script:noted = 'the host DID NOT KNOW the minimised window was not in front, and was told'
     Send 'where behind'
+}
+# Another program in front, the window still on the screen: the round's own Notepad on an empty file of the round's,
+# small, in the display's lower left corner (the window is centred and does not reach it), brought in front as a click
+# would; nothing is typed into it. Unbehind closes it.
+$notepad = [IntPtr]::Zero
+function Behind {
+    if ($Rehearse) { return }
+    $marker = "tasktap-gpu-behind-$PID"
+    Set-Content "$Out\$marker.txt" ''
+    Start-Process notepad.exe -ArgumentList "$Out\$marker.txt"
+    for ($i = 0; $i -lt 50 -and $notepad -eq [IntPtr]::Zero; $i++) { Start-Sleep -Milliseconds 200; $script:notepad = [Tasktap.Meter]::Titled($marker) }
+    if ($notepad -eq [IntPtr]::Zero) { throw 'the round''s Notepad does not show' }
+    $null = [Tasktap.Meter]::SetWindowPos($notepad, [IntPtr]::Zero, 16, 900, 480, 300, 0x0014)
+    [Tasktap.Meter]::Alt(); $null = [Tasktap.Meter]::SetForegroundWindow($notepad); Start-Sleep -Milliseconds 500
+    if ([Tasktap.Meter]::GetForegroundWindow() -ne $notepad) { throw 'the round''s Notepad cannot be brought in front' }
+}
+function Unbehind {
+    if ($notepad -ne [IntPtr]::Zero) { [Tasktap.Meter]::Close($notepad); $script:notepad = [IntPtr]::Zero; Start-Sleep -Milliseconds 500 }
+    Remove-Item "$Out\tasktap-gpu-behind-$PID.txt" -ErrorAction SilentlyContinue
 }
 # Whether the tab is open, as the app says; and the tab folded, as Escape folds it: a question may open it by itself.
 function Tab-Open {
@@ -606,16 +645,20 @@ function Measure-State($state, $effects, $lumen, $settle, $length = $Seconds) {
     }
     $rows.Add($row)
     Say 'ROW' $name "app 3D $(F $row.app3d 3) % (most $(F $row.max3d 3)), other engines $(F $row.other 3) %, $(F $row.mb) MB; compositor $(F $row.comp 3) %; card $(F $util) %, $(F $power) W; page $(F $frames) frames/s; card P$(F $row.pstate 0), memory $(F $row.memclock 0) MHz; processor $(F $row.cpu 2) % of a core$(if ($row.notes) { "; $($row.notes)" })"
-    if ($state -in 'rest', 'rest-unfocused', 'tab-rest') {
-        Check-Rest $row "$($spec.what), effects $effects"
+    if ($state -in 'rest', 'rest-unfocused', 'rest-behind', 'tab-rest') {
+        Check-Rest $row $state "$($spec.what), effects $effects"
     }
     $row
 }
-# Item 35 of the trial checklist: at rest the app's figure is zero.
-function Check-Rest($row, $what) {
-    $zero = $row.nonzero -eq 0 -and (-not $row.frames)
-    $evidence = "in $($row.s) one-second samples the app's processes used $(if ($row.nonzero) { "some engine in $($row.nonzero) (at most $(F $row.maxall 3) % of one)" } else { 'no engine at all: 0.000 % each second' }); the page drew $(F $row.frames) frames a second; the compositor $(F $row.comp 3) % against the floor's $(F $rows[0].comp 3) %"
-    Say $(if ($zero) { 'PASS' } else { 'FAIL' }) "at rest the app uses no graphics processor: $what" $evidence
+# Item 35 of the trial checklist: at rest, with Tasktap not in front or with no caret, the app's figure is exactly zero;
+# with the caret in Home's field and Tasktap in front, its blink costs at most 0.01 % of the 3D engine. The page draws
+# no frame of its light in any of them.
+function Check-Rest($row, $state, $what) {
+    $caret = $state -eq 'rest'
+    $ok = (-not $row.frames) -and $(if ($caret) { $row.app3d -le 0.01 } else { $row.nonzero -eq 0 })
+    $evidence = "in $($row.s) one-second samples the app's processes used $(if ($row.nonzero) { "some engine in $($row.nonzero) (at most $(F $row.maxall 3) % of one; 3D $(F $row.app3d 3) % on average)" } else { 'no engine at all: 0.000 % each second' }); the page drew $(F $row.frames) frames a second; the compositor $(F $row.comp 3) % against the floor's $(F $rows[0].comp 3) %"
+    $claim = if ($caret) { 'at rest with the caret blinking in Home''s field the app uses at most 0.01 % of the graphics processor' } else { 'at rest the app uses no graphics processor' }
+    Say $(if ($ok) { 'PASS' } else { 'FAIL' }) "$($claim): $what" $evidence
 }
 
 # ——— The table: one row a state, the floor first.

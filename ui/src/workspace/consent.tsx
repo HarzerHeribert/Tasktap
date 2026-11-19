@@ -11,15 +11,13 @@
 import type { RouteBy } from '../../../core/proto/protocol.ts';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { cap } from '../capture.tsx';
-import { keyName } from '../keys.ts';
-import { talkKey } from '../page.ts';
 import { type Local, local, model, watch } from '../speech/local.ts';
 import { I, Ring } from '../ui.tsx';
 import { type Rank, agreement, moved, placeWhy, places, placing, proposed, ranked } from '../way.ts';
 import { agentName, call, dismiss, fail, loadTerms, open, placers, pref, records, redraw, terms } from './model.ts';
 import { Row } from './form.tsx';
 import { type Act, Frame } from './sheets.tsx';
-import { HERE, mac } from '../system.ts';
+import { HERE, KEYS_KEPT, mac } from '../system.ts';
 
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -67,7 +65,7 @@ function Ranks({ rows, set }: { rows: Rank[]; set: (rows: Rank[]) => void }) {
   };
   const drop = () => held !== null && (row(held)?.focus(), hold(null));
   return (
-    <div class="ranks" role="list" aria-label="Who places them, the first asked first" ref={list}>
+    <div class="ranks" role="list" aria-label="Who finds the project, the first asked first" ref={list}>
       {rows.map((r, i) => {
         const t = tools.find((x) => x.agent === r.agent);
         const limited = records.agents.get(r.agent)?.limited;
@@ -80,7 +78,7 @@ function Ranks({ rows, set }: { rows: Rank[]; set: (rows: Rank[]) => void }) {
             <Ring agent={r.agent} s="" />
             <span class="t">{agentName(r.agent)}</span>
             <span class={`x${limited && limited > Date.now() ? ' warn' : ''}`} title={`${r.model} · ${why}`}>{r.model} · {why}</span>
-            <button type="button" role="switch" class="switch" tabIndex={-1} aria-checked={r.on} aria-label={`${agentName(r.agent)} places thoughts`} onClick={() => toggle(i)}><span /></button>
+            <button type="button" role="switch" class="switch" tabIndex={-1} aria-checked={r.on} aria-label={`${agentName(r.agent)} helps find the project`} onClick={() => toggle(i)}><span /></button>
           </div>
         );
       })}
@@ -104,25 +102,32 @@ function useRanks() {
 /** What a row-moving list is moved by, said once under it. */
 const MOVES = `${mac ? '⌥↑ ⌥↓' : 'Alt+↑ Alt+↓'} or a drag moves a row, Space switches it.`;
 
-/** Settings, "Thoughts": while placing is agreed to, the same group as its sheet, changed in place, and the way to
- *  what is sent; else whether thoughts go by name, and the way to agree. */
-export function Thoughts() {
-  const { tools, by, agreed, rows, set, reset, state } = useRanks();
+/** What the group is called, in Settings › Projects, in About and on its sheet. */
+export const FINDING = 'Finding the project for a thought';
+
+/** Settings › Projects, first: while placing is agreed to, the same group as its sheet, changed in place, and the way
+ *  to what is sent; else that only thoughts naming their project are placed, and the way to agree. What it says is
+ *  what the core does: names first, on this machine; a model, once agreed to, for a thought that names no single
+ *  project, and for every long one, which it summarises for the agent (state.rs `routed`, `wordy`). */
+export function Finding() {
+  const { tools, agreed, rows, set, reset, state } = useRanks();
   const sheet = () => open({ kind: 'placing', back: true });
   const on = rows.filter((r) => r.on).map((r) => agentName(r.agent));
   if (agreed && tools.length)
     return (
-      <Row name="Placing" hint={`${on.length ? `A thought that names no folder goes to ${on.length > 1 ? 'the first of these that answers' : on[0]}.` : 'Every agent is switched off, so thoughts go by name.'} ${MOVES}`}>
+      <Row name={FINDING} hint={on.length ? `Names in your words come first; ${on.length > 1 ? 'the first of these to answer' : on[0]} places the rest, and reads every long thought for its summary.`
+        : 'Every agent here is switched off, so only thoughts that name their project are placed; Tasktap asks you about the rest.'}>
         <Ranks rows={rows} set={set} />
         <button type="button" class="btn" onClick={reset}>Tasktap’s order</button>
-        <button type="button" class="btn" onClick={sheet}>What it is sent…</button>
+        <button type="button" class="btn" onClick={sheet}>What is sent…</button>
+        <span class="v dim">{MOVES}</span>
       </Row>
     );
   return (
-    <Row name="Placing" hint={state === 'again' ? 'Placing now asks your agents one after another. Until you agree again, thoughts go by name.'
-      : `A thought goes to the folder or session it names.${!tools.length && terms.route ? ' Your agents can place them once one is signed in.' : ''}`}>
-      {state === 'again' ? <span class="v warn">Needs agreeing again</span> : <span class="v">By name</span>}
-      {tools.length > 0 && <button type="button" class="btn" onClick={sheet}>{state === 'again' ? 'Look again…' : 'Let your agents place them…'}</button>}
+    <Row name={FINDING} hint={state === 'again' ? 'Until you agree again, only thoughts that name their project are placed; Tasktap asks you about the rest.'
+      : `A thought that names its project goes there; for the rest Tasktap asks you${tools.length ? ', unless you let your agents help' : terms.route ? ' until an agent is signed in under Agents' : ''}.`}>
+      {state === 'again' ? <span class="v warn">The terms changed. Agree again to keep it on.</span> : <span class="v">Off: only thoughts that name their project</span>}
+      {tools.length > 0 && <button type="button" class="btn" onClick={sheet}>{state === 'again' ? 'Agree again…' : 'Let your agents help…'}</button>}
     </Row>
   );
 }
@@ -135,7 +140,7 @@ export function PlacingSheet({ back }: { back?: boolean }) {
   const { t, tools, by, agreed, rows, set, write, reset, state } = useRanks();
   const [reads, setReads] = useState(false);
   useEffect(() => void loadTerms(), []);
-  const done = () => (back ? open({ kind: 'settings', at: 'thoughts' }) : dismiss());
+  const done = () => (back ? open({ kind: 'settings', at: 'projects' }) : dismiss());
   const put = (patch: RouteBy | null) => void call('put', { c: 'prefs', id: 'route_by', patch }).then(done, fail);
   const no = () => {
     cap.offer = false;
@@ -151,11 +156,11 @@ export function PlacingSheet({ back }: { back?: boolean }) {
         { k: 'esc', label: records.prefs.has('route_by') ? 'Close' : 'Not now', do: no }];
   const before = by?.agents.filter((p) => p.on).map((p) => agentName(p.agent)) ?? [];
   return (
-    <Frame size="md" title="Placing" acts={acts}>
+    <Frame size="md" title={FINDING} acts={acts}>
       <div class="terms">
-        {state === 'again' && <p class="warn">You agreed before to {before.join(' and ') || 'one agent'} alone. Placing now asks your agents one after another, so until you agree again, thoughts go by name.</p>}
-        <p>Say a thought without naming a folder, and one of your own agents places it where it belongs, with a brief written from what you said. Your own words always go along.</p>
-        {!t ? <p>Asking what is sent…</p> : !tools.length ? <p>No agent that can do this is signed in yet. Sign one in under Settings, Agents, then come back.</p> : (
+        {state === 'again' && <p class="warn">You agreed before to {before.join(' and ') || 'one agent'} alone. Now your agents are asked one after another, so until you agree again, only thoughts that name their project are placed.</p>}
+        <p>Say a thought without naming its project, and one of your own agents finds where it belongs; for a long thought it also writes a summary for the agent that runs it. Your own words always go along.</p>
+        {!t ? <p>Asking what is sent…</p> : !tools.length ? <p>No agent that can do this is signed in yet. Sign one in under Settings › Agents, then come back.</p> : (
           <>
             <p>Each such thought goes to the first agent below that answers, one at a time, under the sign-in it already has. It is sent:</p>
             <ul class="sends">{t.sends.map((s) => <li>{s}</li>)}</ul>
@@ -164,7 +169,7 @@ export function PlacingSheet({ back }: { back?: boolean }) {
               <button type="button" class="btn" onClick={reset}>Tasktap’s order</button>
               <span class="hint">{MOVES}</span>
             </div>
-            <p class="hint">A short thought that names its folder is placed on {HERE} and sent nowhere.{rows.some((r) => r.agent === 'agy' && r.on) && ' Antigravity keeps each thought it is asked as a conversation in its history.'}</p>
+            <p class="hint">A short thought that names its project is placed on {HERE} and sent nowhere; a long one is sent too, for its summary.{rows.some((r) => r.agent === 'agy' && r.on) && ' Antigravity keeps each thought it is asked as a conversation in its history.'}</p>
             <button type="button" class="disc" aria-expanded={reads} onClick={() => setReads(!reads)}><I n="chev" /><span>The instructions they follow</span></button>
             {reads && <pre class="instr" tabIndex={0}>{t.instructions}</pre>}
           </>
@@ -188,10 +193,10 @@ const setKey = (server: string, key: string) => call('key.set', { server, key })
 function Key({ server, value, onInput }: { server: string; value?: string; onInput?: (v: string) => void }) {
   const [err, say] = useState('');
   if (pref('keys').includes(server))
-    return <><span class="v">A key is stored</span><button type="button" class="btn" onClick={() => void call('key.remove', { server }).catch(fail)}>Remove</button></>;
+    return <><span class="v">Saved {KEYS_KEPT[0]!.toLowerCase()}{KEYS_KEPT.slice(1)}</span><button type="button" class="btn" onClick={() => void call('key.remove', { server }).catch(fail)}>Remove</button></>;
   return (
     <>
-      <input class="text" type="password" aria-label="Key" autocomplete="off" spellcheck={false} maxLength={512} placeholder={onInput ? 'Paste a key, if the service wants one' : `Paste a key, then ${mac ? 'Return' : 'Enter'}`}
+      <input class="text" type="password" aria-label="Key" autocomplete="off" spellcheck={false} maxLength={512} placeholder={onInput ? 'Paste a key, if the service wants one' : `Paste the key, then press ${mac ? 'Return' : 'Enter'}`}
         value={value} onInput={(e) => (say(''), onInput?.(e.currentTarget.value))}
         onKeyDown={(e) => {
           if (e.key !== 'Enter' || onInput || !e.currentTarget.value.trim()) return;
@@ -210,12 +215,13 @@ watch((now, was) => was?.model === 'fetching' && now.model === 'ready' && pref('
 let shown: 'local' | '' = '';
 const mb = (bytes: number) => `${Math.round(bytes / 1e6)} MB`;
 const MODEL = 'Whisper large-v3 turbo';
+const WHERE = 'Where your speech becomes text', SPOKEN = 'Languages you speak';
 
 /** "On this Mac": what it needs, how far that is, that it is ready and what it takes, or why it failed. */
 function OnThisMac({ l, used }: { l: Local | null; used: boolean }) {
   const [err, say] = useState('');
   const act = (what: 'install' | 'stop' | 'remove') => (say(''), void model(what).catch((e) => say(said(e))));
-  if (!l) return <span class="v dim">Asking…</span>;
+  if (!l) return <span class="v dim">Checking…</span>;
   if (!l.supported) return <span class="v dim">Not available on this system. Voice needs a speech service here.</span>;
   const part = l.have > 0 && l.have < l.of;
   return (
@@ -265,22 +271,27 @@ export function Speech() {
     else if (where === 'local' && by && fetched) useLocal();
     else redraw();
   };
-  const hold = `Hold ${keyName(talkKey())} in a thought or a reply, or hold the microphone.`;
-  const hint = !here ? `${hold} A recording is sent when you let go.`
-    : fetched ? `${hold} What you say is turned into text on ${HERE} and sent nowhere.`
-      : l?.supported ? `Downloaded once from huggingface.co and kept in Tasktap’s data folder. After that, what you say is turned into text on ${HERE} and sent nowhere.${by ? ` Until it is here, ${serviceName(by.server)} stays in use.` : ''}` : undefined;
+  // What changes for the person, in the state they are in: where their speech goes, or what it waits for.
+  const svc = by ? serviceName(by.server) : '';
+  const hint = !here ? `Each recording goes to ${svc} when you let go, and comes back as text.`
+    : fetched ? `What you say becomes text on ${HERE} and is sent nowhere.`
+      : l?.model === 'failed' ? `The download did not finish: try again${by ? `; until then ${svc} goes on turning your speech into text` : ', or choose a speech service meanwhile'}.`
+        : l?.supported ? `Its model is downloaded once from huggingface.co; ${by ? `until it is here, ${svc} goes on turning your speech into text` : `after that, what you say becomes text on ${HERE} and is sent nowhere`}.`
+          : l ? 'Choose At a speech service to use your voice; it is sent a recording only while you hold the key.'
+            : `Tasktap is checking what ${HERE} needs to turn your speech into text.`;
   return (
     <>
-      <Row name="Turned into text" hint={hint}>
-        <div class="seg" role="radiogroup" aria-label="Turned into text">
+      <Row name={WHERE} hint={hint}>
+        <div class="seg" role="radiogroup" aria-label={WHERE}>
           <button type="button" role="radio" aria-checked={here} onClick={() => choose('local')}>On {HERE}</button>
-          <button type="button" role="radio" aria-checked={!here} onClick={() => choose('service')}>A speech service</button>
+          <button type="button" role="radio" aria-checked={!here} onClick={() => choose('service')}>At a speech service</button>
         </div>
-        {here ? <OnThisMac l={l} used={!by} /> : <><span class="v">By {serviceName(by.server)} · {by.model}</span><button type="button" class="btn" onClick={() => open({ kind: 'speech' })}>Change…</button></>}
+        {here ? <OnThisMac l={l} used={!by} /> : <><span class="v">By {svc} · {by.model}</span><button type="button" class="btn" onClick={() => open({ kind: 'speech' })}>Change…</button></>}
       </Row>
-      {by && !here && <Row name="Key"><Key server={by.server} /></Row>}
-      <Row name="Languages you speak" hint="Up to four, in any order: what you say is written in the language you say it in. With none chosen, any language is listened for.">
-        <div class="seg" role="group" aria-label="Languages you speak">
+      {by && !here && <Row name={`Key for ${svc}`} hint={`Sent only to ${svc}, with each recording, and never shown again.`}><Key server={by.server} /></Row>}
+      <Row name={SPOKEN} hint={!languages.length ? 'Any language is listened for; choosing yours, up to four, helps Tasktap write down the right words.'
+        : `What you say is written in whichever of these you speak${languages.length >= 4 ? '; turn one off to choose another' : ', up to four'}.`}>
+        <div class="seg" role="group" aria-label={SPOKEN}>
           {LANGUAGES.map(([code, name]) => <button type="button" role="checkbox" aria-checked={languages.includes(code)} disabled={!languages.includes(code) && languages.length >= 4} onClick={() => toggle(code)}>{name}</button>)}
         </div>
       </Row>

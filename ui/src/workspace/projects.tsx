@@ -54,6 +54,9 @@ const reason = (c: Card) => (c.why.includes('agent') && c.agents.length ? worked
 const MODEL = 'Only if you let a model place your thoughts does that model get the name and one-line description of up to 8 likely projects.';
 const READS_AGENTS = (names: string[]) =>
   `Tasktap reads which folders ${and(names) || 'your agents'} ${names.length === 1 ? 'was' : 'were'} started in, and when; never what was said there. Of each folder that is a project it reads the first lines of its README and its package file and its Git remote, and asks Git for its first commit. It keeps all of that on ${HERE}. ${MODEL}`;
+/** The same, in one sentence each, for Settings › Projects, with the full sentences behind one quiet line. */
+const SAYS_AGENTS = (names: string[]) => `Tasktap reads which folders ${and(names) || 'your agents'} worked in and when, never what was said there, and keeps what it learns on ${HERE}.`;
+const SAYS_FOLDERS = `Tasktap reads the names of the folders inside and each project’s README, package file and Git details, and keeps them on ${HERE}.`;
 const READS_FOLDERS = `Tasktap reads the names of the folders in there and, of each project, the first lines of its README and its package file and its Git remote, and asks Git for its first commit. It keeps all of that on ${HERE}. ${MODEL} It opens nothing until a thought goes there.`;
 
 // ——— What Tasktap knows ———
@@ -242,6 +245,7 @@ export function ProjectsPane() {
   const [shown, show] = useState<string | null>(null);
   const [aside, setAside] = useState(false);
   const [again, setAgain] = useState<'' | 'looking' | string>('');
+  const [reads, setReads] = useState(false);
   const all = looks(), cards = [...records.cards.values()];
   // Every agent whose history is here, and any Tasktap was told about before.
   const agentIds = [...new Set([...(o?.agents.map((a) => a.agent) ?? []), ...all.filter((l) => l.kind === 'agent' && l.agent).map((l) => l.agent!)])];
@@ -258,7 +262,7 @@ export function ProjectsPane() {
   const hidden = cards.filter((c) => c.hidden).sort(recent);
   const lookAgain = () => {
     setAgain('looking');
-    call('projects.look', {}).then((r) => setAgain(`Tasktap knows ${plural(r.projects, 'project', 'projects')} now. Looking took ${r.ms < 1000 ? `${Math.max(1, Math.round(r.ms))} ms` : `${(r.ms / 1000).toFixed(1)} s`}.`),
+    call('projects.look', {}).then((r) => setAgain(`Tasktap knows ${plural(r.projects, 'project', 'projects')} now; the search took ${r.ms < 1000 ? `${Math.max(1, Math.round(r.ms))} ms` : `${(r.ms / 1000).toFixed(1)} s`}.`),
       (e: unknown) => (setAgain(''), fail(e)));
   };
   const lastLooked = Math.max(0, ...all.filter((l) => l.on).map((l) => l.looked ?? 0));
@@ -268,36 +272,38 @@ export function ProjectsPane() {
   };
   return (
     <>
-      <h3>Where your agents have worked</h3>
+      <h3>Find projects in your agents’ history</h3>
       <div class="list">
         {agentIds.map((id) => <AgentLook key={id} agent={id} name={nameOf(id)} look={all.find((l) => l.kind === 'agent' && l.agent === id)} />)}
         {!agentIds.length && <p class="line-n solo">No agent's history is on {HERE}.</p>}
       </div>
-      {agentIds.length > 0 && <p class="note">{READS_AGENTS(agentIds.map(nameOf))}</p>}
-      <h3>Folders Tasktap looks in</h3>
+      {agentIds.length > 0 && <p class="note">{SAYS_AGENTS(agentIds.map(nameOf))}</p>}
+      <h3>Folders to search for projects</h3>
       <div class="list lk">
         {folders.map((l) => <FolderLook key={l.id} look={l} cards={cards} />)}
         {suggested.map((s) => (
           <div class="line pl sug" key={s.folder}>
             <I n="folder" />
             <span class="t path">{shownPath(s.folder)}</span>
-            <span class="x">{s.projects >= 2 ? `${s.projects} of your projects are in it` : 'Not looked in'}</span>
-            <span class="acts"><button type="button" class="btn" onClick={() => void (s.look ? call('put', { c: 'looks', id: s.look.id, patch: { on: true } }).catch(fail) : lookIn([s.folder]))}>Look there</button></span>
+            <span class="x">{s.projects >= 2 ? `${s.projects} of your projects are in it` : 'Not searched yet'}</span>
+            <span class="acts"><button type="button" class="btn" onClick={() => void (s.look ? call('put', { c: 'looks', id: s.look.id, patch: { on: true } }).catch(fail) : lookIn([s.folder]))}>Search it</button></span>
           </div>
         ))}
-        <button type="button" class="line fold-l" onClick={() => void addFolder()}><I n="plus" /><span class="t">Add a folder…</span><span class="x">Where you keep projects</span></button>
+        <button type="button" class="line fold-l" onClick={() => void addFolder()}><I n="plus" /><span class="t">Add a folder…</span><span class="x">Tasktap finds the projects inside it</span></button>
       </div>
-      <p class="note">{READS_FOLDERS}</p>
+      <p class="note">{SAYS_FOLDERS}</p>
+      <button type="button" class="more-l" aria-expanded={reads} onClick={() => setReads(!reads)}><I n="chev" /><span>What exactly is read</span></button>
+      {reads && <p class="note">{agentIds.length > 0 && `${READS_AGENTS(agentIds.map(nameOf))} `}{READS_FOLDERS}</p>}
       <div class="list">
         <div class="line pl">
           <span />
-          <span class="t">Looked</span>
+          <span class="t">Last search for projects</span>
           <span class="x">{lastLooked ? ago(lastLooked) : 'Not yet'}</span>
-          <span class="acts"><button type="button" class="btn" disabled={again === 'looking' || !all.some((l) => l.on)} onClick={lookAgain}>{again === 'looking' ? 'Looking…' : 'Look again'}</button></span>
+          <span class="acts"><button type="button" class="btn" disabled={again === 'looking' || !all.some((l) => l.on)} onClick={lookAgain}>{again === 'looking' ? 'Searching…' : 'Search again'}</button></span>
         </div>
         {again && again !== 'looking' && <p class="line-n" role="status">{again}</p>}
       </div>
-      <h3>{projects.length ? plural(projects.length, 'project', 'projects') : 'Projects'}</h3>
+      <h3>{projects.length ? `Your projects (${projects.length})` : 'Your projects'}</h3>
       {projects.length > 0 && (
         <label class="field"><I n="search" />
           <input type="search" placeholder="Find a project" aria-label="Find a project" autocomplete="off" spellcheck={false} value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
@@ -306,12 +312,12 @@ export function ProjectsPane() {
       <div class="list pjs">
         {found.map((c) => <Row key={c.id} c={c} open={shown === c.id} show={show} cards={shown === c.id ? cards : NONE} />)}
       </div>
-      {!projects.length && <p class="note">None yet. Tasktap learns of them where your agents have worked and in the folders it looks in.</p>}
-      {projects.length > 0 && !found.length && <p class="note">No project is called “{query.trim()}”.</p>}
+      {!projects.length && <p class="note">No projects yet: turn on an agent’s history or add a folder above.</p>}
+      {projects.length > 0 && !found.length && <p class="note">No project’s name contains “{query.trim()}”.</p>}
       {hidden.length > 0 && (
         <div class="list">
           <button type="button" class="line fold-l" aria-expanded={aside} onClick={() => setAside(!aside)}>
-            <I n="chev" /><span class="t">Not projects ({hidden.length})</span><span class="x">You said these are none</span>
+            <I n="chev" /><span class="t">Not projects ({hidden.length})</span><span class="x">You said these are not projects, so Tasktap never suggests them</span>
           </button>
           {aside && hidden.map((c) => (
             <div class="line pl" key={c.id} data-s="none">
@@ -329,8 +335,8 @@ export function ProjectsPane() {
 function AgentLook({ agent, name, look }: { agent: string; name: string; look: Look | undefined }) {
   const on = !!look?.on;
   const set = (to: boolean) => void (look ? call('put', { c: 'looks', id: look.id, patch: { on: to } }) : call('look.add', { id: uuid7(), agent, on: to })).catch(fail);
-  const says = !look || !on ? 'Off' : reading(look) ? 'Looking…' : look.state === 'gone' ? `Not on ${HERE} now`
-    : look.state === 'failed' ? (look.note ?? 'Could not be read') : `${plural(look.found, 'project', 'projects')}${look.looked ? ` · looked ${ago(look.looked)}` : ''}`;
+  const says = !look || !on ? 'Off' : reading(look) ? 'Reading…' : look.state === 'gone' ? `Not on ${HERE} now`
+    : look.state === 'failed' ? (look.note ?? 'Could not be read') : `${plural(look.found, 'project', 'projects')}${look.looked ? ` · read ${ago(look.looked)}` : ''}`;
   return (
     <div class="line pl" data-s={on ? undefined : 'none'} data-agent={agent}>
       <Ring agent={agent} s="" />
@@ -348,13 +354,13 @@ function FolderLook({ look, cards }: { look: Look; cards: Card[] }) {
   const kept = cards.filter((c) => c.looks.includes(look.id));
   // What goes with it: what only this folder found, unless it is open or the person chose it.
   const goes = kept.filter((c) => c.looks.length === 1 && !c.project_id && !c.main && !c.hidden).length;
-  const state = reading(look) ? 'Looking…' : look.state === 'gone' ? 'Not there now' : look.state === 'many' ? 'Too many folders in it'
-    : look.state === 'failed' ? 'Could not be read' : look.found ? `${plural(look.found, 'project', 'projects')}${look.looked ? ` · looked ${ago(look.looked)}` : ''}` : 'No project in it';
+  const state = reading(look) ? 'Reading…' : look.state === 'gone' ? 'Not there now' : look.state === 'many' ? 'Too many folders in it'
+    : look.state === 'failed' ? 'Could not be read' : look.found ? `${plural(look.found, 'project', 'projects')}${look.looked ? ` · read ${ago(look.looked)}` : ''}` : 'No projects in it';
   // The row says what happened in a few words; the line under it says the rest.
   const note = look.state === 'gone' ? `${kept.length ? `Its ${plural(kept.length, 'project is', 'projects are')}` : 'What it held is'} kept for when it is back.`
-    : look.state === 'many' ? 'More than 2,000 folders in it: too many to be a folder of projects. Name the folder inside it that holds them.'
+    : look.state === 'many' ? 'It holds over 2,000 folders, too many for a folder of projects; add the folder inside it that holds them instead.'
       : look.state === 'failed' ? (look.note ?? 'Tasktap could not read it.')
-        : look.state === 'ready' && !look.found ? 'A folder counts when it has Git or a package file in it.' : '';
+        : look.state === 'ready' && !look.found ? 'A folder counts as a project when it has Git or a package file in it.' : '';
   return (
     <>
       <div class="line pl" data-s={look.state === 'gone' || look.state === 'many' || look.state === 'failed' ? 'off' : undefined}>
@@ -366,7 +372,7 @@ function FolderLook({ look, cards }: { look: Look; cards: Card[] }) {
       {note && !asks && <p class="line-n">{note}</p>}
       {asks && (
         <div class="line-n ask">
-          <span>{goes ? `Tasktap stops looking there and forgets the ${plural(goes, 'project', 'projects')} only this folder showed it. Open ones stay.` : 'Tasktap stops looking there. Every project it showed there is known otherwise, and stays.'}</span>
+          <span>{goes ? `Tasktap stops searching there and forgets the ${plural(goes, 'project', 'projects')} only this folder found; open ones stay.` : 'Tasktap stops searching there; every project it found there is known from elsewhere too, and stays.'}</span>
           <button type="button" class="btn" onClick={() => ask(false)}>Cancel</button>
           <button type="button" class="btn warn" onClick={() => void call('delete', { c: 'looks', id: look.id }).catch(fail)}>Remove</button>
         </div>
@@ -412,7 +418,7 @@ function ProjectRow({ c, open: isOpen, show, cards }: RowProps) {
             <Fact k={copies.length === 1 ? 'Another copy' : 'Other copies'}>
               {copies.map((x) => (
                 <span class="pj-l" key={x.id}><span class="mono">{shownPath(x.folder)}</span>{x.used && <span class="dim">{since(x.used)}</span>}
-                  <button type="button" class="btn" onClick={() => void call('put', { c: 'cards', id: x.id, patch: { main: true } }).catch(fail)}>Use this copy</button></span>
+                  <button type="button" class="btn" onClick={() => void call('put', { c: 'cards', id: x.id, patch: { main: true } }).catch(fail)}>Send thoughts to this copy</button></span>
               ))}
             </Fact>
           )}
@@ -421,11 +427,11 @@ function ProjectRow({ c, open: isOpen, show, cards }: RowProps) {
               {inside.map((x) => <span class="pj-l" key={x.id}><span class="mono">{shownPath(x.folder)}</span>{x.agents.length > 0 && <span class="dim">{worked(x, 'there')}</span>}</span>)}
             </Fact>
           )}
-          <Fact k="Workspace"><span>{ws?.open ? 'Open, in the sidebar' : ws ? 'Closed. A thought that goes there opens it again.' : 'Not open. A thought that goes there opens it.'}</span></Fact>
+          <Fact k="In the sidebar"><span>{ws?.open ? 'Yes, open' : ws ? 'Closed; a thought for it opens it again' : 'Not yet; a thought for it adds it'}</span></Fact>
           <div class="pj-a">
             <button type="button" class="btn" onClick={() => void call('put', { c: 'cards', id: c.id, patch: { hidden: true } }).catch(fail)}>Not a project</button>
             <button type="button" class="btn" onClick={() => void call('delete', { c: 'cards', id: c.id }).catch(fail)}>Forget</button>
-            <span class="dim">Forgotten, it comes back if Tasktap finds it again.</span>
+            <span class="dim">Not a project keeps it out for good; Forget removes it until Tasktap finds it again.</span>
           </div>
         </div>
       )}

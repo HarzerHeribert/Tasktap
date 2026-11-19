@@ -44,7 +44,7 @@ const plain = (text) => text.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, '').repla
 /** The page's part, the same for both helpers. */
 function page(app) {
   const ask = (expr, a) => app.ask('workspace', expr, a);
-  const row = () => ask(`[...document.querySelectorAll('.settings .set')].find((r) => r.querySelector('.t')?.textContent === 'Turned into text')?.innerText.replace(/\\s+/g, ' ') ?? ''`);
+  const row = () => ask(`[...document.querySelectorAll('.settings .set')].find((r) => r.querySelector('.t')?.textContent === 'Where your speech becomes text')?.innerText.replace(/\\s+/g, ' ') ?? ''`);
   const press = (label) => ask(`([...document.querySelectorAll('.settings .set button')].find((b) => b.textContent === ${JSON.stringify(label)})?.click(), 1)`);
   const settings = async () => (await ask(`(__ws.ui.sheet = { kind: 'settings', at: 'voice' }, __motion.redraw(), 1)`), sleep(400));
   const home = async () => (await ask(`(__ws.dismiss(), __ws.show('home'), 1)`), sleep(300));
@@ -170,7 +170,7 @@ async function withFixture(shots) {
     await p.home();
     await p.type('');
     await p.down(), await p.up();
-    const told = await app.until('workspace', `__speech.talk.said`, 'The speech model on this Mac is missing or damaged. Download it again in Settings, Speech.', 6);
+    const told = await app.until('workspace', `__speech.talk.said`, 'The speech model on this Mac is missing or damaged. Download it again in Settings › Voice.', 6);
     await p.settings();
     check(told && (await p.quiet()) && !fs.existsSync(file) && /Needs a model first/.test(await p.row()),
       'a model the helper cannot read is said in words, with what to do; it is removed, Settings offers it again and nothing is left listening', await p.ask(`__speech.talk.said`));

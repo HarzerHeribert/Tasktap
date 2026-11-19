@@ -1,4 +1,4 @@
-// The two Node modules the client tests use, declared here rather than adding @types/node.
+// The Node modules the client tests use, declared here rather than adding @types/node.
 declare module 'node:test' {
   export default function test(name: string, body: () => void | Promise<void>): void;
 }
@@ -10,4 +10,7 @@ declare module 'node:assert/strict' {
     rejects(promise: Promise<unknown>, expected?: object): Promise<void>;
   };
   export default assert;
+}
+declare module 'node:fs' {
+  export function readFileSync(path: URL, encoding: 'utf8'): string;
 }

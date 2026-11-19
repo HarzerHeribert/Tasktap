@@ -19,8 +19,10 @@ const ID: &str = "cursor-agent";
 const CHAT: &str = "5d0c7c1e-1c64-4c7b-9f0a-6f2a3b1d9e01";
 const TURN: &str = "9a4e2f77-0b1d-4e55-8c3a-1e7d5b6c2f02";
 
+/// The adapter, which is not in the registry: Cursor is not offered until a
+/// run signed in has shown that it can be heard (design §7).
 fn cursor() -> &'static dyn Agent {
-    agents::find(ID).unwrap()
+    &agents::cursor::Cursor
 }
 
 fn fixture(name: &str) -> Vec<u8> {
@@ -400,8 +402,6 @@ fn every_sentence_names_it_as_people_know_it() {
         );
     }
     assert_eq!(cfg!(windows), !cursor().supported());
-    // After Antigravity in the registry, and never the default.
-    let ids: Vec<&str> = agents::all().iter().map(|a| a.id()).collect();
-    let at = |id: &str| ids.iter().position(|i| *i == id).unwrap();
-    assert!(at(ID) > at("agy") && at("claude") == 0);
+    // Not offered: no agent of the registry is it.
+    assert!(agents::find(ID).is_none());
 }

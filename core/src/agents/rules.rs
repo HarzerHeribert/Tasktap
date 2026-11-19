@@ -30,7 +30,6 @@ const RULES: &[&Rules] = &[
     &super::antigravity::RULES,
     &super::pi::RULES,
     &super::opencode::RULES,
-    &super::cursor::RULES,
     #[cfg(feature = "fixtures")]
     &FIXTURE,
 ];
@@ -121,7 +120,9 @@ mod tests {
 
     /// An agent's rules, whether or not it runs on this system.
     fn rules(agent: &str) -> &'static Rules {
-        RULES.iter().copied().find(|r| r.agent == agent).unwrap()
+        // Cursor is not offered yet (design §7); its rules are kept and tested.
+        let all = RULES.iter().copied().chain([&super::super::cursor::RULES]);
+        all.into_iter().find(|r| r.agent == agent).unwrap()
     }
 
     fn words(args: &[&str]) -> Vec<String> {

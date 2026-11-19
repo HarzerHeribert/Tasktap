@@ -17,7 +17,7 @@ import { Row, Switch, setPref } from './form.tsx';
 import { LOOSE, agent, call, dismiss, fail, newTerminal, pref, records, redraw, runs, sentence } from './model.ts';
 
 /** What is typed into a terminal to sign an agent in. */
-const signIn: Record<string, string> = { claude: 'claude', codex: 'codex login', agy: 'agy', pi: 'pi', opencode: 'opencode auth login', 'cursor-agent': 'cursor-agent login' };
+const signIn: Record<string, string> = { claude: 'claude', codex: 'codex login', agy: 'agy', pi: 'pi', opencode: 'opencode auth login' };
 /** What a row adds about its agent: whose models it runs, where its name does not say, and what of it the notch
  *  cannot do, in the words of what the core says its runs can (its row's `events`, `permissions`, `questions`): of
  *  one that reports nothing Tasktap hears only when it ends, and what one asks where nothing outside its terminal

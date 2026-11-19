@@ -122,6 +122,11 @@ impl Agent for Plain {
         self.note
     }
 
+    /// It runs one task and ends.
+    fn typed(&self) -> bool {
+        false
+    }
+
     fn program(&self) -> &'static str {
         self.command[0]
     }

@@ -355,3 +355,36 @@ fn what_the_person_lets_an_agent_do_reaches_its_runs_and_nothing_else_does() {
     put(&mut s.w, PrefPatch::AgentOptions(Vec::new())).unwrap();
     assert!(!started(&mut s).contains(&"--more".to_owned()));
 }
+
+#[test]
+fn a_follow_up_to_a_run_that_reads_nothing_typed_says_to_send_it_when_the_run_has_ended() {
+    let mut s = Scene::real("pf", "own-slow");
+    // It prints what it is told and then works for a while, reading nothing.
+    let slow = own(
+        "own-slow",
+        "Slow",
+        "fixture-agent 'print:{prompt}' sleep:4000",
+    );
+    put(&mut s.w, PrefPatch::OwnAgents(vec![slow])).unwrap();
+    s.w.until("the agent is listed", |m| m.agents.contains_key("own-slow"));
+    let t = s.capture("tidy up");
+    s.tick(HOLD_MS);
+    launched(&mut s, t);
+    let session = s.w.model.thought(t).session_id.unwrap();
+    // A run of one task takes nothing that is typed: a follow-up while it
+    // works is not typed into its terminal, where it would be lost.
+    let f = ThoughtId::mint();
+    let follow = Capture {
+        session_id: Some(session),
+        ..typed(f, "and the tests")
+    };
+    s.w.ok::<call::ThoughtCapture>(&follow);
+    s.tick(HOLD_MS);
+    s.w.until("the follow-up fails", |m| m.status(f) == Status::Failed);
+    assert_eq!(
+        s.w.model.results_of(f)[0].summary,
+        "Slow runs one task at a time: send this again when it has ended"
+    );
+    assert_eq!(s.w.model.status(t), Status::Working);
+    assert!(!agents::find("aider").unwrap().typed() && agents::find("claude").unwrap().typed());
+}

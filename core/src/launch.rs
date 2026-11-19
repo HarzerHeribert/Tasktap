@@ -197,6 +197,13 @@ pub fn deliver(
         }
         (false, _, kind) if kind != TerminalKind::Agent => Err(INDIRECT.into()),
         _ if s.state == SessionState::Ended => Err(EXITED.into()),
+        // One that runs one task and ends reads nothing that is typed.
+        (false, ..) if agents::find(&s.agent).is_some_and(|agent| !agent.typed()) => {
+            let name = agents::find(&s.agent).map_or(s.agent.as_str(), |agent| agent.name());
+            Err(format!(
+                "{name} runs one task at a time: send this again when it has ended"
+            ))
+        }
         _ => match terminal::paste(core, t.id, &told(&s.agent, d)) {
             None => Err(EXITED.into()),
             Some(Err(why)) => Err(unwritten(why)),

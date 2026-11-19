@@ -658,6 +658,123 @@ fn pi_runs_asks_follows_up_and_resumes() {
     s.core.stop();
 }
 
+/// A home of its own for a tool that is not the person's: an empty folder
+/// with the tool, named by `variable`, on the PATH of its terminals as
+/// `program`. Nothing of the person's home is read or written by its runs.
+fn own_home(prefix: &str, variable: &str, program: &str) -> Folder {
+    let tool = std::env::var(variable)
+        .unwrap_or_else(|_| panic!("{variable} names the {program} program to run"));
+    let home = Folder::new(prefix);
+    let bin = home.0.join(".local/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&tool, bin.join(program)).unwrap();
+    #[cfg(not(unix))]
+    std::fs::copy(&tool, bin.join(program)).unwrap();
+    home
+}
+
+/// A thought for `agent` on `model`, captured in the project.
+fn ask_on(s: &mut Live, agent: &str, model: Option<&str>, text: &str) -> ThoughtId {
+    let id = ThoughtId::mint();
+    let capture = Capture {
+        project_id: Some(s.project),
+        agent: Some(agent.into()),
+        model: model.map(Into::into),
+        ..typed(id, text)
+    };
+    s.w.ok::<call::ThoughtCapture>(&capture);
+    say(&format!(
+        "captured a thought for {agent} on {model:?}: {text:?}"
+    ));
+    id
+}
+
+/// Qwen Code, with the settings file of Tasktap's that a variable names: it
+/// asks to be let run a command, which is shown and answered in its
+/// terminal; a follow-up is typed there; a resume goes on with the same
+/// conversation. TASKTAP_LIVE_QWEN names its program, TASKTAP_LIVE_QWEN_MODEL
+/// its model; the key and the address of an OpenAI-compatible service are in
+/// the environment.
+#[test]
+#[ignore = "runs Qwen Code for three turns on a key in the environment"]
+fn qwen_runs_asks_follows_up_and_resumes() {
+    let home = own_home("live-qwen-home", "TASKTAP_LIVE_QWEN", "qwen");
+    let model =
+        std::env::var("TASKTAP_LIVE_QWEN_MODEL").expect("TASKTAP_LIVE_QWEN_MODEL names the model");
+    // The stand-in person's own settings: the service of the key in the
+    // environment, asked before a command, and nothing sent to its maker.
+    let own = r#"{"$version":4,"security":{"auth":{"selectedType":"openai"}},"tools":{"approvalMode":"default"},"general":{"enableAutoUpdate":false},"privacy":{"usageStatisticsEnabled":false},"telemetry":{"enabled":false},"model":{"catalogRefresh":false},"ui":{"autoModeAcknowledged":true,"enableFollowupSuggestions":false},"memory":{"enableManagedAutoMemory":false,"enableManagedAutoDream":false}}"#;
+    std::fs::create_dir_all(home.0.join(".qwen")).unwrap();
+    std::fs::write(home.0.join(".qwen/settings.json"), own).unwrap();
+    let data = Folder::new("live-qwen");
+    let env = [("HOME", home.0.to_str().unwrap())];
+    let core = Core::start_patient(&data.0, &[], &env, PATIENCE);
+    let folder = project();
+    let mut s = Live::on(core, data, folder.clone());
+
+    let text = "Tasktap test: use your shell tool to run the command `touch tasktap-live.txt`, \
+                then reply with only this word and nothing else: started";
+    let t = ask_on(&mut s, "qwen", Some(&model), text);
+    let (session, tty) = s.started(t);
+    let q = s.question(&tty);
+    let asked = s.w.model.question(q).clone();
+    say(&format!(
+        "question: {:?} {:?} via {:?}; answering it in the terminal",
+        asked.prompt, asked.kind, asked.reply_via
+    ));
+    assert!(
+        asked.prompt.starts_with("Qwen Code asks to run touch"),
+        "{}",
+        asked.prompt
+    );
+    assert_eq!(asked.reply_via, ReplyVia::Terminal);
+    // Its dialog: the first option allows it once.
+    tty.when("allow once", b"\r");
+    let result = s.done(t, &tty);
+    let q = s.w.model.question(q).clone();
+    say(&format!("the question ended {:?}", q.state));
+    assert_ne!(q.state, QuestionState::Open);
+    assert!(result.to_lowercase().contains("started"), "{result}");
+    assert!(folder.join("tasktap-live.txt").is_file(), "the command ran");
+    let handle = s.w.model.session(session).resume.clone();
+    say(&format!("resume handle (its session id): {handle:?}"));
+    assert!(handle.is_some());
+    // Its hooks are a file of Tasktap's, as Tasktap wrote it; its own
+    // settings are as they were.
+    let settings = s._data.0.join("agents/qwen/system-defaults.json");
+    let kept = std::fs::read_to_string(&settings).unwrap();
+    assert!(kept.starts_with(r#"{"$version":4,"hooks":{"#), "{kept}");
+    assert_eq!(
+        std::fs::read_to_string(home.0.join(".qwen/settings.json")).unwrap(),
+        own
+    );
+
+    let f = s.nudge(
+        session,
+        "Tasktap test: now say only this word and nothing else: followed",
+    );
+    let result = s.done(f, &tty);
+    assert!(result.to_lowercase().contains("followed"), "{result}");
+
+    s.end(session, &tty);
+    let r = s.nudge(
+        session,
+        "Tasktap test: now say only this word and nothing else: resumed",
+    );
+    let (again, tty) = s.started(r);
+    assert_ne!(again, session, "a resume is a new session");
+    let result = s.done(r, &tty);
+    assert!(result.to_lowercase().contains("resumed"), "{result}");
+    assert_eq!(
+        s.w.model.session(again).resume,
+        handle,
+        "the same conversation"
+    );
+    s.end(again, &tty);
+    s.core.stop();
+}
+
 /// OpenCode, with the plugin of Tasktap's in its terminal interface: its
 /// question and its approval are answered from the core, and an approval in
 /// its terminal settles the one the core shows. The run's own server must

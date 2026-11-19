@@ -17,6 +17,7 @@ pub mod antigravity;
 pub mod checks;
 pub mod claude;
 pub mod codex;
+pub mod dialect;
 pub mod opencode;
 pub mod pi;
 pub mod plain;
@@ -297,6 +298,14 @@ pub trait Agent: Sync {
         None
     }
 
+    /// Whether a run reads what is typed into its terminal while it is
+    /// there, so that a follow-up to it is typed. One that runs one task
+    /// and ends does not: a follow-up waits until it has ended, and then
+    /// goes on in a new run.
+    fn typed(&self) -> bool {
+        true
+    }
+
     /// What it does only when the person lets it; nothing for most agents.
     fn options(&self) -> &'static [Choice] {
         &[]
@@ -524,6 +533,7 @@ const AGENTS: &[&dyn Agent] = &[
     &antigravity::Antigravity,
     &pi::Pi,
     &opencode::OpenCode,
+    &dialect::QWEN,
     &plain::AIDER,
     #[cfg(feature = "fixtures")]
     &Fixture {

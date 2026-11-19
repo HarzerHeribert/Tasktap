@@ -88,14 +88,14 @@ html,body{background:transparent!important}
 .said code{font:var(--f-num);color:var(--fg);-webkit-user-select:text;user-select:text}
 .rows{display:grid;margin-top:12px;border-top:1px solid var(--line)}
 /* One set of columns for every row: mark, thought, its one fact, the time. */
-.rows .row{display:grid;grid-template-columns:22px minmax(0,1.6fr) minmax(0,1fr) 40px;align-items:center;gap:0 8px;height:32px;padding:0 4px 0 2px;border-bottom:1px solid var(--line);
+.rows .row{display:grid;grid-template-columns:22px minmax(0,1.6fr) minmax(0,1fr) 40px;align-items:baseline;align-content:center;gap:0 8px;height:32px;padding:0 4px 0 2px;border-bottom:1px solid var(--line);
   font:var(--f-small);color:var(--fg2);white-space:nowrap;text-align:left}
 .rows .row:hover{background:var(--hover);color:var(--fg)}
 .rows .row:disabled{opacity:1}
 .rows .t{overflow:hidden;text-overflow:ellipsis;font:var(--f-label);color:var(--fg)}
 .rows .x{overflow:hidden;text-overflow:ellipsis;color:var(--fg3)}
 .rows time{font:var(--f-num);color:var(--fg3);text-align:right}
-.rows .row>.st{justify-self:center}
+.rows .row>.st{justify-self:center;align-self:center}
 .result+.rows{margin-top:16px}
 .capture-block{margin-top:4px}
 .rows+.capture-block{margin-top:14px}

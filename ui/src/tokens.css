@@ -72,6 +72,7 @@
   --side-w:224px; --bar-h:38px; --tab-h:30px; --row-h:28px; --rail-h:26px; --ctl-h:24px; --ctl-l:34px; --key-h:round(18px*var(--ts),1px);
   --fade:24px;         /* how far content dissolves at an edge it scrolls beyond */
   --home-w:1040px; --home-wide:1520px; --home-row:36px; --home-gutter:36px; --cap-w:720px;
+  --lead:32px;         /* what leads a row on Home (a seat, a mark, a chevron): one column, one centre line; every word starts after it */
   --notch-w:420px;
   --sheet-s:480px; --sheet-m:640px; --sheet-l:900px;  /* a sheet: a quick decision, a form or a list, a view to read */
   /* radii */
@@ -80,8 +81,10 @@
   --r3:10px;  /* bottom corners of sheets and of the notch */
   --r4:20px;  /* the Composer's surface */
   --r-in:8px; /* a control standing 12 px inside that surface */
-  /* icons: one owned set on a 16 px grid */
-  --i-w:1.2px; --i-cap:butt; --i-join:miter;
+  /* icons: one owned set on a 16 px grid, and one weight: every stroke of an icon and of an agent's ring is this wide on
+     the screen whatever size it is shown at (parts.css), which is the weight of the text beside it at each text size */
+  --i-w:calc(1.2px * var(--ts));
+  --i-w-key:calc(1.35px * var(--ts));  /* the one heavier stroke: Return's arrow on the metal key, beside its word in 600 */ --i-cap:butt; --i-join:miter;
   /* time */
   --t-fast:120ms; --t-sheet:220ms; --t-side:280ms; --t-notch-open:510ms; --t-notch-fold:320ms; --t-wave:900ms; --t-bloom:12s;
   --t-ambient:12s;     /* one breath of the ambient light; its glyphs sway and its chrome drifts in the same time */

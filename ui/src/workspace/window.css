@@ -34,6 +34,8 @@ button.row:hover,.row.w:hover{background:var(--hover);color:var(--fg)}
 button.row:active{background:var(--sel)}
 .row.sel{background:var(--lit-v) left/2px 100% no-repeat,var(--sel);color:var(--fg)}
 :is(.row,.hr,.hq,.fold-h,.tab,.line,.file):focus-visible{outline-offset:-2px}
+.row:is(.home,.s){display:grid;grid-template-columns:auto minmax(0,1fr);grid-auto-flow:column;grid-auto-columns:auto;align-items:baseline;align-content:center}
+.row:is(.home,.s)>:is(.i,.st,.bgi){align-self:center}
 .row.home{gap:10px;font:var(--f-label);color:var(--fg)}
 .row.home .i{color:var(--fg2)}
 .row.home .cnt{font:var(--f-num);color:var(--asks)}
@@ -46,11 +48,12 @@ button.row:active{background:var(--sel)}
 .row.w .fold{display:inline-grid;place-items:center;width:24px;height:var(--row-h);margin-right:6px;color:var(--fg3)}
 .row.w .fold .i{width:14px;height:14px;transition:transform var(--t-fast)}
 .row.w .fold[aria-expanded=true] .i{transform:rotate(90deg)}
-.row.w .name{display:flex;align-items:center;flex:1;min-width:0;height:100%;font:var(--f-label)}
+.row.w .name{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:baseline;align-content:center;flex:1;min-width:0;height:100%;font:var(--f-label);text-align:left}
 .row.w .cnt{font:var(--f-num);color:var(--fg3);opacity:0}
 .row.w:hover .cnt{opacity:1}
 .row.w.on .name{color:var(--fg)}
-.row.s{padding-left:32px}
+.row.s{padding-left:31px}
+.row.s>.st{width:16px;height:16px}
 .row.s .meta{font:var(--f-num);color:var(--fg3)}
 .row.s[data-s=ended]{color:var(--fg3)}
 .row.s.bg .lbl{color:var(--fg3)}
@@ -187,6 +190,7 @@ body.dragging,body.dragging *{cursor:grabbing!important}
    and holds what can be done with it; then the thing itself, which scrolls without a bar like everything else. Its
    tab carries the mark of who opened it: the agent's own, or an eye. */
 .st.by :is(.i,.ring-o){width:14px;height:14px}
+.st.by .ring-o circle{stroke-width:calc(var(--i-w) * 24 / 14)}
 .st.by[data-by=person]{color:var(--fg3)}
 .pv{display:grid;grid-template-rows:auto minmax(0,1fr) auto;min-width:0;min-height:0;background:var(--bg)}
 .pv-h{display:flex;flex-wrap:wrap;align-items:center;gap:2px var(--sp2);min-width:0;min-height:var(--tab-h);padding:3px 6px 3px var(--sp3);border-bottom:1px solid var(--line)}
@@ -259,7 +263,7 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .hx.two .cols{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:0 var(--sp6);align-items:start}
 .hx.two .folds{margin-top:26px}
 .col{min-width:0;container-type:inline-size}
-.hx :is(button.hq,.fold-h){width:100%}
+.hx .fold-h{width:100%}
 /* The Composer on Home: the surface material: opaque graphite with a hairline, so the room's light stands around it
    and never tints it; the thought at 20 px, growing a line at a time; under it, inside the surface, where it goes, the
    agents' rings and the key. Centred, as wide as a thought needs rather than as wide as the page. While it has the
@@ -293,12 +297,16 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .hx.first{padding-top:max(22px,calc(44vh - 118px))}
 .hx.first .cols{width:min(100%,var(--cap-w));margin-inline:auto}
 .hsec{margin-top:26px}
-.hsec h3{display:flex;align-items:center;gap:var(--sp2);padding-bottom:var(--sp2);border-bottom:1px solid var(--line);font:var(--f-section);color:var(--fg2)}
-.hsec h3 i{font:var(--f-num);color:var(--fg3)}
+/* A section's heading stands on the edge its rows' words stand on. What leads a row (a seat, a mark, a chevron) has the
+   column before that edge (--lead), and all of them one centre line down the page. */
+.hsec h3{display:grid;grid-template-columns:var(--lead) auto minmax(0,1fr);align-items:baseline;padding-bottom:var(--sp2);border-bottom:1px solid var(--line);font:var(--f-section);color:var(--fg2)}
+.hsec h3>span{grid-column:2}
+.hsec h3 i{grid-column:3;margin-left:var(--sp2);font:var(--f-num);color:var(--fg3)}
+.hsec h3 .st{grid-area:1/1;align-self:center;justify-self:center;margin:0}
 .needs h3{color:var(--asks);border-image:var(--lit) 1}
-.needs h3 .st{margin:0 6px 0 4px}
-/* a question: the first open, in full, with its answers; the rest one line each */
-.hq{display:grid;grid-template-columns:28px minmax(0,1fr) 48px;align-items:baseline;padding:12px 0 13px;border-bottom:1px solid var(--line);text-align:left}
+/* a question: the first open, in full, with its answers; the rest a row each */
+.hq{display:grid;grid-template-columns:var(--lead) minmax(0,1fr) 48px;align-items:baseline;padding:12px 0 13px;border-bottom:1px solid var(--line);text-align:left}
+.hq>.st{--seat:20;align-self:center;justify-self:center;margin-block:-3px}
 .hq-m{display:flex;gap:var(--sp2);min-width:0;font:var(--f-small);color:var(--fg2);white-space:nowrap}
 .hq-m>span::before{content:"·";margin-right:var(--sp2);color:var(--fg3)}
 .hq-t{overflow:hidden;text-overflow:ellipsis}
@@ -308,42 +316,44 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .ask-home .qa{margin-top:10px}
 .ask-home .q-detail{max-width:62ch}
 .ask-home:focus-visible{outline-offset:6px}
-button.hq{grid-template-columns:28px 96px minmax(0,1fr) minmax(0,1.3fr) 48px;align-items:center;width:calc(100% - 2 * var(--home-gutter));height:var(--home-row);padding:0;font:var(--f-small);color:var(--fg2)}
-button.hq .st{justify-self:center}
-button.hq :is(.hr-w,.hq-w,.hq-q){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.hq-w{padding-right:20px}
-.hq-q{padding-right:14px;color:var(--fg)}
-button.hq:hover{background:var(--hover)}
-/* one row, one thought: state, folder, the thought, the one fact, the time */
-.hr{display:grid;grid-template-columns:28px 96px minmax(0,1.3fr) minmax(0,1fr) 48px;grid-template-rows:var(--home-row);align-items:center;border-bottom:1px solid var(--line);font:var(--f-small);color:var(--fg2)}
+/* One row, one thought: an object that keeps its shape at every width. On its first line the agent's seat in the state
+   the thought is in, the thought in the person's words, and the time; under it, quietly, where it is, who works on it
+   and the one fact, in that order, so that what gives way where there is no room is the end of the fact. Words of
+   different sizes stand on one baseline; the seat is centred on the first line. Rows share their columns, and stand
+   two abreast where the column is wide enough for both to be read. A question that is not open is such a row, the
+   question where the thought would be. */
+.hrs{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr));column-gap:var(--sp6)}
+.hrs>.hr:only-child{grid-column:1/-1}
+.hr{display:grid;grid-template-columns:var(--lead) minmax(0,1fr) auto 48px;align-items:baseline;align-content:start;min-width:0;padding:8px 0 9px;border-bottom:1px solid var(--line);font:var(--f-small);color:var(--fg2);text-align:left}
 .hr:hover{background:var(--hover)}
 .hr:active{background:var(--sel)}
-.hr>.st{justify-self:center}
-.hr :is(.hr-w,.hr-t,.hr-x){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.hr-t{padding-right:20px;font:var(--f-label);color:var(--fg)}
-.hr-x{padding-right:14px}
-.hr time{grid-column:-2;grid-row:1;font:var(--f-num);color:var(--fg3);text-align:right}
+.hr>.st{--seat:20;grid-area:1/1;align-self:center;justify-self:center;margin-block:-3px}
+.hr-t{grid-area:1/2/auto/4;min-width:0;padding-right:var(--sp3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:var(--f-label);color:var(--fg)}
+.hr time{grid-area:1/4;font:var(--f-num);color:var(--fg3);text-align:right}
+.hr-m{grid-area:2/2/auto/5;display:flex;min-width:0;white-space:nowrap;color:var(--fg3)}
+.hr-m>*{flex:none}
+.hr-m>*+*::before{content:"·";margin:0 6px;color:var(--fg3)}
+.hr-m>.hr-x{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--fg2)}
+.hr:has(>.hr-d) .hr-m{grid-column:2/3}
+.hr-d{grid-area:2/3/auto/5;display:flex;gap:var(--sp3);justify-content:flex-end;min-width:0;padding-left:var(--sp3);font:var(--f-num);white-space:nowrap}
 .hr.bgd .hr-t{color:var(--fg2)}
-/* Changes to keep have a column of their own, as wide in every row of the list, there only when one row has some. */
-.hr.res{grid-template-columns:28px 96px minmax(0,1.3fr) minmax(0,1fr) 0 48px}
-:is(.hsec,.fold-b,.col):has(.hr-d>*)>.hr.res{grid-template-columns:28px 96px minmax(0,1.3fr) minmax(0,1fr) 136px 48px}
-.hr-d{display:flex;gap:var(--sp3);justify-content:flex-end;min-width:0;overflow:hidden;padding-right:var(--sp2);font:var(--f-num);white-space:nowrap}
 .hr.seen .hr-t{font:var(--f-text);color:var(--fg2)}
 .hr.seen .hr-x{color:var(--fg3)}
-.hr-a{grid-column:3/-1;display:flex;gap:6px;padding:0 0 10px}
-.hr>.told{grid-column:3/-1;margin:0 0 10px}
+.hr-a{grid-column:2/-1;display:flex;gap:6px;padding:8px 0 1px}
+.hr>.told{grid-column:2/-1;margin:6px 0 0}
 .hr .said{font:var(--f-small);color:var(--fg2);white-space:normal}
 .hr .said.refused{color:var(--fg)}
-.hr.later{grid-template-columns:28px minmax(0,1fr) auto auto 48px}
-.hr.later .hr-x{padding-left:var(--sp3)}
-.later .hr-a{grid-area:1/4;padding:0 6px 0 0;visibility:hidden}
+/* Saved for later: no agent has it, so its mark leads it. What to do with it stands beside its words, there when the
+   row is pointed at, has the keyboard or was just saved. */
+.hr.later :is(.hr-t,.hr-m){grid-column:2/3}
+.later .hr-a{grid-area:1/3/3/4;align-self:center;padding:0 6px 0 var(--sp3);visibility:hidden}
 .later:is(:hover,:focus-within,.new) .hr-a{visibility:visible}
 /* the second layer, in place: a single line that opens */
 .folds{margin-top:34px}
-.fold-h{display:grid;grid-template-columns:28px 96px auto minmax(0,1fr) 48px;align-items:center;width:calc(100% - 2 * var(--home-gutter));height:var(--home-row);
+.fold-h{display:grid;grid-template-columns:var(--lead) round(72px * var(--ts),1px) auto minmax(0,1fr) 48px;align-items:baseline;align-content:center;width:calc(100% - 2 * var(--home-gutter));height:var(--home-row);
   border-top:1px solid var(--line);font:var(--f-small);color:var(--fg2);white-space:nowrap;text-align:left}
 .fold:last-child:not(.open) .fold-h{border-bottom:1px solid var(--line)}
-.fold-h .i{justify-self:center;width:14px;height:14px;color:var(--fg3);transition:transform var(--t-fast)}
+.fold-h .i{align-self:center;justify-self:center;width:14px;height:14px;color:var(--fg3);transition:transform var(--t-fast)}
 .fold.open .fold-h .i{transform:rotate(90deg)}
 .fold-h b{font:var(--f-section);color:var(--fg2)}
 .fold-h:hover b,.fold.open .fold-h b{color:var(--fg)}
@@ -357,11 +367,10 @@ button.hq:hover{background:var(--hover)}
 .fold-h:active{background:var(--sel)}
 .fold.open .fold-h{border-bottom:1px solid var(--line)}
 .fold.open :is(.fold-p,.fold-h time){visibility:hidden}
-.more{display:flex;align-items:center;gap:2px;height:32px;padding-left:124px;font:var(--f-cap);color:var(--fg3)}
+.more{display:flex;align-items:center;gap:2px;height:32px;padding-left:var(--lead);font:var(--f-cap);color:var(--fg3)}
 .more .i{width:12px;height:12px}
 .more:hover{color:var(--fg)}
-.run>.more{padding-left:28px}
-/* the second page: Earlier */
+/* Earlier: a find field, then every result by day */
 .find{display:flex;align-items:center;gap:var(--sp3);height:52px;border-bottom:1px solid var(--line2);color:var(--fg3)}
 .find input{flex:1;font:var(--f-question);letter-spacing:var(--ls-question)}
 .find:focus-within{border-image:var(--lit) 1}
@@ -369,20 +378,12 @@ button.hq:hover{background:var(--hover)}
 /* A narrow column: the rows keep their mark, thought and time. */
 @media(max-width:799px){.hx{padding-inline:18px}}
 @container (max-width:640px){
-  button.hq,.fold-h{width:calc(100% - 36px)}
-  .hr:not(.later),:is(.hsec,.fold-b,.col):has(.hr-d>*)>.hr.res{grid-template-columns:28px minmax(0,1fr) 48px}
-  button.hq{grid-template-columns:28px minmax(0,1fr) 48px}
-  button.hq :is(.hr-w,.hq-w){display:none}
-  .hr :is(.hr-w,.hr-x,.hr-d){display:none}
-  .hr-a{grid-column:2/-1}
-  .hr.later{grid-template-columns:28px minmax(0,1fr) auto 48px}
-  .hr.later .hr-x{display:none}
-  .later .hr-a{grid-area:1/3}
+  .fold-h{width:calc(100% - 36px);grid-template-columns:var(--lead) round(72px * var(--ts),1px) minmax(0,1fr) 48px}
+  .fold-p{display:none}
+  .later .hr-a{grid-area:3/2/auto/5;display:none;padding:8px 0 1px}
+  .later:is(:hover,:focus-within,.new) .hr-a{display:flex}
   .attach span{display:none}
   .attach{justify-content:flex-end}
-  .fold-h{grid-template-columns:28px 80px minmax(0,1fr) 48px}
-  .fold-p{display:none}
-  .more{padding-left:28px}
 }
 
 /* ——— sheets: panels of the same instrument, let down from the title bar ———

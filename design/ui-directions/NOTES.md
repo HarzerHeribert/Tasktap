@@ -37,6 +37,7 @@ Grafts from the directions not chosen:
 | Close on the left of a tab, on hover, where a Mac hand expects it | Yes | The cross replaces the state mark while the pointer or keyboard focus is on the tab |
 | Unfocused panes step back, as Ghostty | Yes | Their terminal draws at 84 % |
 | The system's own context menus | Yes | Menus are drawn by the host, not the page. The menu styles and the specimen's menu are removed |
+| What stands in a row is on one weight, one centre line and one baseline (2026-11-19) | Yes | Every stroke of an icon or a seat is `--i-w` on the screen at any size (1.2 px, times the text size); what leads a row is centred on the capitals of its words; words of different sizes on a line share a baseline; figures are monospace, right edges on one line. `scripts/align-check.cjs` measures all four in every state at 1x and 2x, and `scripts/text-sizes.sh` at the three text sizes |
 | State in words wherever there is room | Yes | The rail ("2 need you", "4 working", "2 new results"), Home's section names, every state mark's tooltip and accessible name |
 | Sentence-first wording | Yes | "2 need you", "Saved for later, until a folder is open", "No folder matched; saved for later" |
 | New York for question text | **No** | The owner does not like the other styles; Instrument stays one family plus mono |
@@ -87,7 +88,7 @@ Everything else is second layer and appears on the first only as one quiet line,
 | Busy day | Capture (quiet). Needs you 2: one open, one line. Running 4. Entry to results (1 new, 1 failed) and For later (2) |
 | Normal | Capture (invitation). Running 1. Entry to results (1 new) and For later (1) |
 | Quiet | Capture (invitation). The last two finished thoughts. Entry to the rest |
-| First run | One composition, centred in the content: the Composer a little above the middle, its place reading "No folder yet", its key "Save for later", the agents as its rings. Under it, on its own edges, one line: "A thought starts in a folder. Until one is open, it is saved for later." and Open a folder… (⌘O), which is the key while the Composer is empty and quiet once it holds a thought (then the Composer's key is the one key). What is saved lands under it in For later, on the same edges, with Send to a folder… showing on the one just saved |
+| First run | One composition, centred in the content: the Composer a little above the middle, its place reading "No folder yet", its key "Save for later", the agents as its rings. Under it, on its own edges, one line: "A thought starts in a folder. Until one is open, it is saved for later." and Open a folder… (⌘O), which is the key while the Composer is empty and quiet once it holds a thought (then the Composer's key is the one key). What is saved lands under it in For later, on the same edges, with Send to a folder… showing on the one just saved. The composition is for a Home with nothing on it yet (no folder open, nothing asked, running or done), and the line speaks only while it is true: while no folder is open and the next thought has nowhere to start. Once a thought runs in Scratch, Home is the usual page and says nothing under the Composer (the owner's picture of 2026-11-19 showed the line beside a thought that had started in Scratch). Where a thought started is said under the Composer for six seconds and then by its row alone |
 
 **Three layerings** (`X`, all twelve on `G`). The first layer is the same in all three; they differ in how finished and unplaced thoughts are reached.
 
@@ -191,8 +192,11 @@ The app's one design-token file, `ui/src/tokens.css`, as built. Nothing else in 
   --r3:10px;  /* bottom corners of sheets and of the notch */
   --r4:20px;  /* the Composer's surface */
   --r-in:8px; /* a control standing 12 px inside that surface */
-  /* icons: one owned set on a 16 px grid */
-  --i-w:1.2px; --i-cap:butt; --i-join:miter;
+  /* icons: one owned set on a 16 px grid, and one weight: every stroke of an icon and of an agent's ring is this wide on
+     the screen whatever size it is shown at (parts.css), which is the weight of the text beside it at each text size */
+  --i-w:calc(1.2px * var(--ts));
+  --i-w-key:calc(1.35px * var(--ts));  /* the one heavier stroke: Return's arrow on the metal key, beside its word in 600 */
+  --i-cap:butt; --i-join:miter;
   /* time */
   --t-fast:120ms; --t-sheet:220ms; --t-side:280ms; --t-notch-open:510ms; --t-notch-fold:320ms; --t-wave:900ms; --t-bloom:12s;
   --t-ambient:12s;     /* one breath of the ambient light; its glyphs sway and its chrome drifts in the same time */
@@ -251,7 +255,7 @@ Every interactive component has: rest, hover, pressed, keyboard focus (a 1.5 px 
 | Component | What it is | States beyond the five |
 | --- | --- | --- |
 | **State mark** | Five 2 px bars in 14 × 14 | working (moving), asks (tall, copper, lit), ready (bright dotted line), failed (red line with one spike), ended (dim dotted line), any of them in background (45 %). A shell shows a prompt glyph instead. Tooltip and accessible name say the state in words |
-| **Sidebar row** | 28 px, full-bleed. Workspace: chevron, name in 600. Session: mark, title, time in mono | selected (fill plus a 2 px lit edge at the left), ended and background (dimmed), shell (title in mono) |
+| **Sidebar row** | 28 px, full-bleed. Workspace: chevron, name in 600. Session: its seat (below), title, time in mono, the words on one baseline | selected (fill plus a 2 px lit edge at the left), ended and background (dimmed), shell (title in mono) |
 | **Tab** | 30 px, flat text on `--bg`, hairline at the right | active (bright text, 2 px grey edge on top), active in the focused pane (the edge is `--lit`), hover or focus (the cross replaces the mark, at the left), shell (mono) |
 | **Divider** | 1 px `--seam`; 7 px hit area | hover (a 35 % `--accent` band) |
 | **Question strip** | Under its terminal, on `--bg`: lit hairline, "Codex asks", the question at 15/21, answers | with attention (the hairline is `--lit`, a faint bloom rises 28 px into the terminal), result (plain hairline, Keep as default) |
@@ -267,7 +271,8 @@ Every interactive component has: rest, hover, pressed, keyboard focus (a 1.5 px 
 | **Sheet** | Hangs from the title bar: `--sheet`, `--lit` top edge, 10 px bottom corners, hairline outline, the window dimmed 50 % behind it | dialog (420 px; three rows of key cap and label: ↩ default, ⌘⌫ destructive in `--fail`, esc cancel), capture (460 px), list (640 px: Agents, each line led by its ring; Settings) |
 | **Rail** | 26 px at the window's foot, mono | left: the glance in words. Right: Agents, Settings |
 | **Home question** | See section 2 | open, collapsed (one 36 px line) |
-| **Home row** | 36 px: mark, folder (96 px), thought (13/500), fact, time | running, background, result new, result failed, result seen (dimmed), with actions (a second line of buttons), saved for later (actions appear on hover or focus, and on the one just saved) |
+| **Seat** | A session's leading mark wherever a session is shown (a row on Home, a sidebar row, a tab): its agent's ring, 20 px on Home and 16 px elsewhere, its circle at the icons' weight | working (the ring's arc turns), asks (the attention colour, glowing), result new (the ring is the lit edge), failed (the failure colour), seen or ended (quiet), in background (dimmed). A shell keeps the terminal icon, a thought saved for later its small circle |
+| **Home row** | An object of two lines that keeps its shape at every width (the owner, 2026-11-19: the table's parts drifted apart, and the mark was heavier than the words beside it): the seat, the thought (13/500) and the time on one baseline; under them, quietly, folder · agent · the one fact, in that order, so that what gives way is the end of the fact. A question that is not open is the same row with the question where the thought would be. Rows stand two abreast where the column is at least 872 px wide, a lone row takes the whole width; every word in a section, its heading included, starts on one edge (`--lead`, 32 px), and what leads a row (a seat, a mark, a chevron) is centred in the column before it | running, background, result new, result failed, result seen (dimmed), with actions (a line of buttons under it), with changes (the diffstat at the right of the second line), saved for later (actions beside its words on hover or focus, and on the one just saved) |
 | **Fold** | A 36 px line: chevron, name, count, newest title, time | closed, open (chevron turned, peek hidden, rows below, "All results" last) |
 | **Notch** | Section 3 | collapsed idle, collapsed with counts, collapsed with attention (bloom and the line that says what), open on a question, on capture, on a result |
 | **Wave** | Chrome bars; the brand mark at work | resting, live (the voice-reactive version from `design/motion-lab` replaces the bars), backdrop |

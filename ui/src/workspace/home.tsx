@@ -7,10 +7,10 @@
 import type { Question, Thought } from '../../../core/proto/protocol.ts';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useState } from 'preact/hooks';
-import { Capture, cap, offerable } from '../capture.tsx';
+import { Capture, cap, destination, offerable } from '../capture.tsx';
 import { next, pending, running, settle, Status, Told } from '../changes.tsx';
 import { Ask } from '../question.tsx';
-import { Answer, I, Key, Mark, type State, elapsed, plural, when } from '../ui.tsx';
+import { Answer, I, Key, Mark, Seat, type State, elapsed, plural, said, when } from '../ui.tsx';
 import { laterWhy, placed } from '../way.ts';
 import { Light, useLight } from './light.tsx';
 import { popup } from './menu.ts';
@@ -41,36 +41,46 @@ export function home() {
 
 const stateOf = (t: Thought): State => (t.status === 'failed' ? 'failed' : !t.read ? 'ready' : 'ended');
 
-/** A question: open, in full with its answers; or one line that opens it. */
+/** What a row says under its title, quietly: where, who, and the one fact, in that order, so that what gives way where
+ *  there is no room is the end of the fact, never where it is or who works on it. */
+function Meta({ where, who, fact }: { where?: string; who?: string; fact?: ComponentChildren }) {
+  return <span class="hr-m">{where && <span class="hr-w">{where}</span>}{who && <span class="hr-by">{who}</span>}{fact && <span class="hr-x">{fact}</span>}</span>;
+}
+
+/** A question: open, in full with its answers; or a row that opens it, the question where a thought's row has its
+ *  title. Its seat is the agent that asks, in the attention colour. */
 function QuestionRow({ q, open: isOpen, choose }: { q: Question; open: boolean; choose: () => void }) {
   const t = q.thought_id ? records.thoughts.get(q.thought_id) : undefined;
   const s = q.session_id ? records.sessions.get(q.session_id) : undefined;
   // Where a thought should go is Tasktap's own question, about a thought that has no folder yet.
   const router = q.source === 'router';
-  const who = router ? 'A thought with no place yet' : agentName(s?.agent ?? t?.agent);
-  const meta = (
-    <span class="hq-m">
-      {router ? <b>{who}</b> : <><b>{projectName(t?.project_id ?? s?.project_id)}</b><span>{who}</span>{t && <span class="hq-t">{title(t)}</span>}</>}
-    </span>
-  );
+  const agent = router ? null : (s?.agent ?? t?.agent);
+  const who = router ? 'A thought with no place yet' : agentName(agent ?? undefined);
+  const where = router ? 'No place yet' : projectName(t?.project_id ?? s?.project_id);
+  const seat = <Seat agent={agent} s="asks" label={router ? 'Needs your answer' : `${who} asks`} />;
   const time = <time>{elapsed(t?.updated ?? Date.now())}</time>;
-  // One line: the columns of every row on Home (mark, folder, who and what for, the question, the time).
   if (!isOpen)
     return (
-      <button type="button" class="hq" data-nav onClick={choose} title={q.prompt}>
-        <Mark s="asks" /><span class="hr-w">{router ? 'No place yet' : projectName(t?.project_id ?? s?.project_id)}</span>
-        <span class="hq-w">{router ? title(t) : t ? `${who} · ${title(t)}` : who}</span><span class="hq-q">{q.prompt}</span>{time}
+      <button type="button" class="hr ask" data-nav onClick={choose} title={q.prompt}>
+        {seat}<span class="hr-t">{q.prompt}</span>{time}
+        <Meta where={where} who={router ? undefined : who} fact={t ? title(t) : undefined} />
       </button>
     );
   return (
     <article class="hq open">
-      <span />{meta}{time}
+      {seat}
+      <span class="hq-m">
+        {router ? <b>{who}</b> : <><b>{where}</b><span>{who}</span>{t && <span class="hq-t">{title(t)}</span>}</>}
+      </span>
+      {time}
       <Ask q={q} size="home" who={who} class="hq-a" terminal={q.reply_via === 'terminal' && s ? () => focusSession(s.id) : undefined} />
     </article>
   );
 }
 
-/** One thought: its mark, folder, words, the one fact, and the time; the row opens its terminal. */
+/** One thought, as an object that keeps its shape at every width: its agent's seat in the state it is in, the thought
+ *  in the person's words, and the time; under that where it is, who works on it and the one fact. The row opens its
+ *  terminal. */
 function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean }) {
   const s = t.session_id ? records.sessions.get(t.session_id) : undefined;
   const r = resultOf(t);
@@ -91,6 +101,7 @@ function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean })
     </div>
   ) : null;
   const k = kind === 'run' ? 'working' : stateOf(t);
+  const agent = s?.agent ?? t.agent, who = agentName(agent ?? undefined);
   return (
     <div class={`hr ${kind}${bg ? ' bgd' : ''}${kind === 'res' && t.read && !changes ? ' seen' : ''}`} data-nav tabIndex={0} data-thought={t.id}
       title={[t.text, fact, placed(t, agentName)].filter(Boolean).join('\n')}
@@ -107,12 +118,11 @@ function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean })
         else return;
         e.preventDefault();
       }}>
-      <Mark s={k} bg={bg} />
-      <span class="hr-w">{projectName(t.project_id)}</span>
+      <Seat agent={agent} s={k} bg={bg} label={`${who}: ${said(k, bg)}`} />
       <span class="hr-t">{title(t)}</span>
-      <span class="hr-x">{fact}</span>
-      {kind === 'res' && <span class="hr-d">{t.workdir ? <Status t={{ ...t, workdir: t.workdir }} /> : null}</span>}
       <time>{kind === 'run' ? elapsed(t.created) : when(t.updated)}</time>
+      <Meta where={projectName(t.project_id)} who={who} fact={fact} />
+      {kind === 'res' && t.workdir && <span class="hr-d"><Status t={{ ...t, workdir: t.workdir }} /></span>}
       {changes && <Told t={changes} />}
       {t.route?.fallback && <p class="hr-n">{placed(t, agentName)}</p>}
       {acts}
@@ -135,19 +145,19 @@ export function ChangeActs({ t }: { t: Changed }) {
   );
 }
 
-/** A thought saved for later: where it waits, and the way on. The one just saved shows its actions without being asked. */
+/** A thought saved for later: why it waits, and the way on. The one just saved shows its actions without being asked. */
 function LaterRow({ t }: { t: Thought }) {
   const send = () => open({ kind: 'send', thought: t.id });
   return (
     <div class={`hr later${t.id === cap.sent?.id ? ' new' : ''}`} data-nav tabIndex={0} title={[t.text, t.route?.fallback].filter(Boolean).join('\n')} onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && (e.preventDefault(), send())}>
       <Mark s="later" />
       <span class="hr-t">{title(t)}</span>
-      <span class="hr-x">{laterWhy(t, agentName)}</span>
+      <time>{when(t.created)}</time>
+      <Meta fact={laterWhy(t, agentName)} />
       <div class="hr-a">
         <button type="button" class="btn" onClick={send}>Send to a folder…</button>
         <button type="button" class="btn" onClick={() => void call('delete', { c: 'thoughts', id: t.id }).catch(fail)}>Drop</button>
       </div>
-      <time>{when(t.created)}</time>
       {t.route?.fallback && <p class="hr-n">{t.route.fallback}</p>}
     </div>
   );
@@ -215,7 +225,11 @@ export function Home() {
   const h = home();
   const [openQ, setOpenQ] = useState('');
   const folders = projects().some((p) => p.kind === 'folder');
-  const first = !folders;
+  // The first-run composition is for a Home with nothing on it yet: no folder open, and nothing asked, running or done.
+  const first = !folders && !h.questions.length && !h.waiting.length && !h.running.length && !h.results.length;
+  // The line under the Composer speaks only while it is true: no folder is open and the next thought has nowhere to
+  // start. A thought that runs in Scratch has a place, and so has the next one.
+  const to = destination(), nowhere = !folders && (!to || to === 'later');
   const asks = h.questions.length > 0;
   const idle = !asks && !h.running.length;
   const shownQ = h.questions.find((q) => q.id === openQ) ?? h.questions[0];
@@ -246,7 +260,7 @@ export function Home() {
         <Capture raised agents={() => open({ kind: 'settings', at: 'agents' })} speech={() => open({ kind: 'settings', at: 'voice' })} terms={() => open({ kind: 'placing' })}
           // Once a folder is open and an agent signed in, before the first thought: the one moment placing is offered unasked.
           offer={folders && !records.thoughts.size && offerable()} />
-        {first && (
+        {nowhere && (
           <p class="attach">
             <span>A thought starts in a folder. Until one is open, it is saved for later.</span>
             <button type="button" class={`${cap.draft.trim() ? 'btn' : 'key'} lg`} onClick={() => open({ kind: 'open-workspace' })}><span>Open a folder…</span><Key k="⌘O" /></button>
@@ -257,19 +271,20 @@ export function Home() {
         {asks && (
           <section class="hsec needs">
             <h3><Mark s="asks" label="" /><span>Needs you</span><i>{h.questions.length}</i></h3>
-            {h.questions.map((q) => <QuestionRow key={q.id} q={q} open={q === shownQ} choose={() => (setOpenQ(q.id), (page.focus = `[data-question="${q.id}"]`))} />)}
+            {shownQ && <QuestionRow key={shownQ.id} q={shownQ} open choose={() => undefined} />}
+            <div class="hrs">{h.questions.filter((q) => q !== shownQ).map((q) => <QuestionRow key={q.id} q={q} open={false} choose={() => (setOpenQ(q.id), (page.focus = `[data-question="${q.id}"]`))} />)}</div>
           </section>
         )}
         {h.waiting.length > 0 && (
           <section class="hsec waiting">
             <h3><span>Changes waiting</span><i>{h.waiting.length}</i></h3>
-            {h.waiting.map((t) => <Row key={t.id} t={t} kind="res" />)}
+            <div class="hrs">{h.waiting.map((t) => <Row key={t.id} t={t} kind="res" />)}</div>
           </section>
         )}
         {h.running.length > 0 && (
           <section class="hsec run">
             <h3><span>Running</span><i>{h.running.length}</i></h3>
-            {(more ? h.running.slice(0, 4) : h.running).map((t) => <Row key={t.id} t={t} kind="run" bg={h.inBackground(t)} />)}
+            <div class="hrs">{(more ? h.running.slice(0, 4) : h.running).map((t) => <Row key={t.id} t={t} kind="run" bg={h.inBackground(t)} />)}</div>
             {more && <button type="button" class="more" data-nav onClick={() => ((ui.more = true), redraw())}>{h.running.length - 4} more running<I n="chev" /></button>}
           </section>
         )}
@@ -279,13 +294,13 @@ export function Home() {
           <section class="folds">
             {h.results.length > 0 && (
               <Fold name="Results" open={resultsOpen} rows={h.results} toggle={toggle('results')}>
-                {results.map((t) => <Row key={t.id} t={t} kind="res" />)}
+                <div class="hrs">{results.map((t) => <Row key={t.id} t={t} kind="res" />)}</div>
                 <button type="button" class="more" data-nav onClick={() => show('earlier')}>All results<I n="chev" /></button>
               </Fold>
             )}
             {h.later.length > 0 && (
               <Fold name="For later" open={laterOpen} rows={h.later} toggle={toggle('later')}>
-                {h.later.slice(0, 5).map((t) => <LaterRow key={t.id} t={t} />)}
+                <div class="hrs">{h.later.slice(0, 5).map((t) => <LaterRow key={t.id} t={t} />)}</div>
               </Fold>
             )}
           </section>
@@ -293,7 +308,7 @@ export function Home() {
         {first && h.later.length > 0 && (
           <section class="hsec">
             <h3><span>For later</span><i>{h.later.length}</i></h3>
-            {h.later.map((t) => <LaterRow key={t.id} t={t} />)}
+            <div class="hrs">{h.later.map((t) => <LaterRow key={t.id} t={t} />)}</div>
           </section>
         )}
         </div>
@@ -361,13 +376,13 @@ export function Earlier() {
         {later.length > 0 && (
           <section class="hsec">
             <h3><span>For later</span><i>{later.length}</i></h3>
-            {later.map((t) => <LaterRow key={t.id} t={t} />)}
+            <div class="hrs">{later.map((t) => <LaterRow key={t.id} t={t} />)}</div>
           </section>
         )}
         {[...groups].map(([name, ts]) => (
           <section class="hsec">
             <h3><span>{name}</span><i>{ts.length}</i></h3>
-            {ts.map((t) => <Row key={t.id} t={t} kind="res" />)}
+            <div class="hrs">{ts.map((t) => <Row key={t.id} t={t} kind="res" />)}</div>
           </section>
         ))}
         {!rows.length && !later.length && words.length > 0 && <p class="none">Nothing matches “{earlier.query.trim()}”.</p>}

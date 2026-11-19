@@ -44,7 +44,7 @@ i{font-style:normal}
 /* One weight: an icon's strokes are --i-w on the screen at whatever size its box is shown. */
 .i>*{vector-effect:non-scaling-stroke}
 .st{display:inline-flex;align-items:center;justify-content:center;flex:none;width:14px;height:14px;color:var(--fg3);--ring-px:14}
-.st:not(.of)>.ring-o{width:100%;height:100%}
+.st:not(.of)>svg.ring-o{width:100%;height:100%;--ring-px:inherit}
 .ring-o .pip{fill:currentColor;stroke:none}
 .st[data-s=asks]{color:var(--asks);filter:drop-shadow(0 0 3px rgb(234 182 118/.75))}
 .st[data-s=ready]{color:#fff;filter:drop-shadow(0 0 2px rgb(255 255 255/.6))}
@@ -60,8 +60,8 @@ i{font-style:normal}
 /* Tasktap's mark (ui.tsx Brand): a slab of the chrome set, two pictures drawn once from the motion engine, --m square.
    Still at rest; at work the picture of its face turned fades in and out, so the light slides down the face and
    back, which the compositor carries. It is a picture, not an icon: no stroke of it is held to the icons' weight. */
-.brand-m{position:relative;display:inline-grid;place-items:center;flex:none;width:var(--m,14px);height:var(--m,14px)}
-.brand-m>img{grid-area:1/1;width:100%;height:100%}
+.brand-m{position:relative;isolation:isolate;display:inline-grid;place-items:center;flex:none;width:var(--m,14px);height:var(--m,14px)}
+.brand-m>img{grid-area:1/1;width:var(--m,14px);height:var(--m,14px)}
 .brand-m>.lit{opacity:0}
 .brand-m.live>.lit{animation:brand-lit 1.6s ease-in-out infinite alternate}
 @keyframes brand-lit{to{opacity:1}}
@@ -79,6 +79,7 @@ kbd .i{width:12px;height:12px}
 .key .sends{display:inline-flex;align-items:center;gap:1px}
 .key kbd{color:rgb(13 13 14/.7)}
 .key .st{color:var(--ink);--ring:rgb(13 13 14/.25)}.key .st .turn{stroke:var(--ink)}
+.key .st circle{stroke-width:calc(var(--i-w-key) * 24 / var(--ring-px,14))}
 .key:hover{filter:brightness(1.07)}
 .key:active,:is(.ans,.act):active>kbd.keycap{transform:translateY(1px);box-shadow:var(--key-down);filter:brightness(.93)}
 .key:disabled{opacity:1;background:var(--fill);color:var(--fg3);box-shadow:none}

@@ -245,7 +245,8 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .rail{position:relative;z-index:3;grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:var(--sp4);min-width:0;padding:0 var(--sp2) 0 14px;
   background:var(--bg);border-top:1px solid var(--line);font:var(--f-num);color:var(--fg3);white-space:nowrap}
 .rail-l{display:flex;align-items:center;gap:var(--sp4);min-width:0;overflow:hidden}
-.rail-l .st{margin-right:-8px}
+/* Its mark on the capitals' middle, which stands a pixel above the middle of the rail's line. */
+.rail-l .st{margin-right:-8px;margin-top:-2px}
 .rail-l b{color:var(--asks)}
 .rail-l span{color:var(--fg2)}
 .rail-l .err{overflow:hidden;text-overflow:ellipsis;color:var(--fail)}

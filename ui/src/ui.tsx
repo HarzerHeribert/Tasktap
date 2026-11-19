@@ -99,7 +99,7 @@ export function Level({ l, size = 24 }: { l: number; size?: MarkSize }) {
   const [rest, turned] = PICTURES[size];
   return (
     <span class="brand-m lvl" style={{ '--m': `${size}px`, '--l': String(Math.max(0, Math.min(1, l))) }} aria-hidden="true">
-      <i class="glow" /><img src={rest} alt="" /><img class="lit" src={turned} alt="" />
+      <i class="halo" /><img src={rest} alt="" /><img class="lit" src={turned} alt="" />
     </span>
   );
 }

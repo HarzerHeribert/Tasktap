@@ -66,8 +66,9 @@ i{font-style:normal}
 .brand-m>img:not(.p0){opacity:0}
 /* At work the light passes down the face and back: each step fades in over the one before it, the whole way down in
    2.4 s and back up in as long. Only opacity moves. */
-.brand-m.live>img{animation:2.4s ease-in-out infinite alternate}
-.brand-m.live>.p1{animation-name:pass-1}.brand-m.live>.p2{animation-name:pass-2}.brand-m.live>.p3{animation-name:pass-3}
+.brand-m.live>.p1{animation:pass-1 2.4s ease-in-out infinite alternate}
+.brand-m.live>.p2{animation:pass-2 2.4s ease-in-out infinite alternate}
+.brand-m.live>.p3{animation:pass-3 2.4s ease-in-out infinite alternate}
 @keyframes pass-1{0%{opacity:0}33.3%,100%{opacity:1}}
 @keyframes pass-2{0%,33.3%{opacity:0}66.7%,100%{opacity:1}}
 @keyframes pass-3{0%,66.7%{opacity:0}100%{opacity:1}}

@@ -255,7 +255,7 @@ h3{font:var(--f-sub);letter-spacing:var(--ls-thought);padding-top:6px}
 }
 @media(prefers-reduced-motion:no-preference){
   html{scroll-behavior:smooth}
-  .mark.live img{animation:2.4s ease-in-out infinite alternate}.mark.live .p1{animation-name:pass-1}.mark.live .p2{animation-name:pass-2}.mark.live .p3{animation-name:pass-3}
+  .mark.live .p1{animation:pass-1 2.4s ease-in-out infinite alternate}.mark.live .p2{animation:pass-2 2.4s ease-in-out infinite alternate}.mark.live .p3{animation:pass-3 2.4s ease-in-out infinite alternate}
   .pool{animation:breath var(--t-ambient) ease-in-out calc(-.5 * var(--t-ambient)) infinite alternate paused}
   .pool.b{animation-duration:calc(1.23 * var(--t-ambient));animation-delay:calc(-.615 * var(--t-ambient))}
   .pool.c{animation-duration:calc(1.47 * var(--t-ambient));animation-delay:calc(-.735 * var(--t-ambient))}

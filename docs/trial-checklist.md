@@ -48,6 +48,13 @@ What the owner found when he first tried the build with the project map (2026-11
 | 30 | [ ] | After `/exit` in Codex the shell's prompt does not come back; after Claude Code it does | Find the cause and fix it; when any agent ends, its terminal is a usable shell again | |
 | 31 | [ ] | (follows) The same proved for every agent Tasktap starts, with a stand-in that ends as each tool does | | |
 
+## Settings' words (owner, same evening)
+
+| # | Done | Finding | Decided fix | Proof |
+| --- | --- | --- | --- | --- |
+| 32 | [ ] | "From any app" does not say what it sets; Settings in general do not say what a setting does for the person | Every setting has a label that can be read by itself and one sentence saying what changes for the person | |
+| 33 | [ ] | (follows) The same words in the guide's Settings chapter and wherever a sheet or Setup names a setting | | |
+
 ## Proposed by Claude
 
 | # | Done | Proposal | The owner's answer |

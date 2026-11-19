@@ -57,6 +57,8 @@ elif ((build)); then
   # One job builds and then runs the round, holding the checkout throughout: other worktrees send jobs there too.
   "$here/host.sh" ${ref:+"$ref"} --tower --gpu "$stamp" ${args:+--gpu-args "$args"} || status=$?
 else
+  # The app the checkout last built, and the round's own lock; it refuses a checkout another job has moved meanwhile.
+  run+=" -Commit $(git rev-parse --verify --end-of-options "${ref:-HEAD}^{commit}")"
   ssh -T -o BatchMode=yes "$host" "C:\\tasktap\\desk.ps1 -TimeoutSeconds 1200 -CommandLine '$run'" || status=$?
 fi
 mkdir -p "$out"

@@ -5,7 +5,8 @@
 #   <Out>\table.txt     one row per state: the app's own use of the graphics processor (Windows' counters for each
 #                       process, summed over the app, its web views and its core, by kind of engine), its memory on
 #                       the card, the compositor's use beside it, the card's utilisation and power against the floor,
-#                       the frames the page drew, the desktop's composed frames, and the main processor's use
+#                       the frames the page drew, the card's performance state and memory clock, and the main
+#                       processor's use
 #   <Out>\samples.csv   every second of the round
 #   <Out>\results.txt   what was done, PASS or FAIL for the proof at rest, and why a round was stopped
 # The floor is measured first, with no app: the card idle, and what the measurement shows when nothing of the app runs.
@@ -15,7 +16,9 @@
 # app's use (or the card's above the floor) stays over 40 % for ten seconds. Nothing is measured while another program
 # already uses the card (a game). A round stays under a quarter of an hour: one that would not is refused before
 # anything starts. The round makes no sound (sounds.ps1). Listening is shown with the level the checks' tone makes,
-# never with the microphone, and the app runs passive, which refuses it the microphone whatever happens.
+# never with the microphone: before anything else the round takes the microphone away from both of the app's pages.
+# The app runs as a person runs it, not passive: a passive window is never the one in front (its host does not watch
+# for it), so its light rests whatever it shows (the tower's first round, 2026-11-19).
 #
 # -DryRun starts nothing and shows no window: it says whether this account's desktop is the one on the screen and
 # unlocked, whether the card and the counters answer, and what the round would measure. -Rehearse runs every state
@@ -33,6 +36,8 @@ param(
     [string]$States = '',
     [int]$Seconds = 60,
     [string]$Checkout = '',
+    # The commit the checkout must be at (gpu.sh --no-build): another worktree's job may have moved it since the build.
+    [string]$Commit = '',
     [switch]$Locked,
     [switch]$DryRun,
     [switch]$Rehearse
@@ -100,7 +105,7 @@ public class Tick {
     public double AppMemory, CompositorMemory;
     // The other process that used the card most this second, and how much (its busiest engine).
     public int TopPid; public double TopUse; public string TopKind = "";
-    public int Instances; public string Adapters = "";
+    public int Instances, Invalid; public string Adapters = "";
 }
 static void Add(Dictionary<string, double> to, string kind, double value) { double was; to[kind] = (to.TryGetValue(kind, out was) ? was : 0) + value; }
 public static Tick Sample(HashSet<int> app, int compositor) {
@@ -111,6 +116,9 @@ public static Tick Sample(HashSet<int> app, int compositor) {
     foreach (var e in Values(engines)) {
         var m = Engine.Match(e.Key);
         if (!m.Success) continue;
+        // A process that came in the last moment can read nonsense once (seen on the tower: 10^14 %); no share of a
+        // second is outside 0 to 100.
+        if (double.IsNaN(e.Value) || e.Value < 0 || e.Value > 100) { t.Invalid++; continue; }
         t.Instances++;
         int pid = int.Parse(m.Groups[1].Value);
         string kind = m.Groups[3].Value;
@@ -132,15 +140,6 @@ public static Tick Sample(HashSet<int> app, int compositor) {
     }
     t.Adapters = string.Join(" ", adapters);
     return t;
-}
-
-// The frames the compositor composed for the whole desktop so far (DWM_TIMING_INFO.cFrame, packed to one byte):
-// it composes only when something on the screen changed. -1 when the system does not say.
-[DllImport("dwmapi.dll")] static extern int DwmGetCompositionTimingInfo(IntPtr window, byte[] info);
-public static long Composed() {
-    var info = new byte[292];
-    BitConverter.GetBytes(292).CopyTo(info, 0);
-    return DwmGetCompositionTimingInfo(IntPtr.Zero, info) == 0 ? BitConverter.ToInt64(info, 56) : -1;
 }
 
 [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
@@ -189,6 +188,7 @@ public struct Rates { public uint Gpu, Memory; }
 [DllImport("nvml.dll")] static extern int nvmlDeviceGetUtilizationRates(IntPtr device, out Rates rates);
 [DllImport("nvml.dll")] static extern int nvmlDeviceGetFanSpeed(IntPtr device, out uint percent);
 [DllImport("nvml.dll")] static extern int nvmlDeviceGetClockInfo(IntPtr device, int type, out uint mhz);
+[DllImport("nvml.dll")] static extern int nvmlDeviceGetPerformanceState(IntPtr device, out int state);
 static IntPtr card;
 public static string CardName = "";
 public static string CardOpen() {
@@ -205,29 +205,32 @@ public static string CardOpen() {
 // Or nvidia-smi, asked each time, where the library does not answer.
 static string smi;
 public static void UseSmi(string path) { smi = path; }
-// Its utilisation (% of the last moment in which it ran any work), power (W), temperature (°C), fan (%) and graphics
-// clock (MHz); NaN for what it does not say; null when it does not answer.
+// Its utilisation (% of the last moment in which it ran any work), power (W), temperature (°C), fan (%), graphics
+// and memory clocks (MHz) and performance state (0 the fastest, 8 the idle one); NaN for what it does not say; null
+// when it does not answer.
 public static double[] CardRead() {
     if (smi != null) return Smi();
-    uint v; Rates rates;
+    uint v; int ps; Rates rates;
     return new[] {
         nvmlDeviceGetUtilizationRates(card, out rates) == 0 ? rates.Gpu : double.NaN,
         nvmlDeviceGetPowerUsage(card, out v) == 0 ? v / 1000.0 : double.NaN,
         nvmlDeviceGetTemperature(card, 0, out v) == 0 ? v : double.NaN,
         nvmlDeviceGetFanSpeed(card, out v) == 0 ? v : double.NaN,
         nvmlDeviceGetClockInfo(card, 0, out v) == 0 ? v : double.NaN,
+        nvmlDeviceGetClockInfo(card, 2, out v) == 0 ? v : double.NaN,
+        nvmlDeviceGetPerformanceState(card, out ps) == 0 && ps < 32 ? ps : double.NaN,
     };
 }
 static double[] Smi() {
-    var start = new System.Diagnostics.ProcessStartInfo(smi, "--query-gpu=utilization.gpu,power.draw,temperature.gpu,fan.speed,clocks.gr --format=csv,noheader,nounits") { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true };
+    var start = new System.Diagnostics.ProcessStartInfo(smi, "--query-gpu=utilization.gpu,power.draw,temperature.gpu,fan.speed,clocks.gr,clocks.mem,pstate --format=csv,noheader,nounits") { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true };
     using (var p = System.Diagnostics.Process.Start(start)) {
         var line = p.StandardOutput.ReadLine();
         p.WaitForExit(3000);
         if (line == null) return null;
         var parts = line.Split(',');
-        if (parts.Length < 5) return null;
-        var v = new double[5];
-        for (int i = 0; i < 5; i++) if (!double.TryParse(parts[i].Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v[i])) v[i] = double.NaN;
+        if (parts.Length < 7) return null;
+        var v = new double[7];
+        for (int i = 0; i < 7; i++) if (!double.TryParse(parts[i].Trim().TrimStart('P'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v[i])) v[i] = double.NaN;
         return v;
     }
 }
@@ -316,6 +319,7 @@ function Say($verdict, $what, $evidence = '') {
 function F($x, $digits = 1) { if ($null -eq $x -or [double]::IsNaN([double]$x)) { '-' } else { ([double]$x).ToString("F$digits", [Globalization.CultureInfo]::InvariantCulture) } }
 function Kind($use, $kind) { $v = 0.0; if ($use.TryGetValue($kind, [ref]$v)) { $v } else { 0.0 } }
 function Total($use) { $s = 0.0; foreach ($v in $use.Values) { $s += $v }; $s }
+function Lower($was, $now) { if ([double]::IsNaN($now) -or (-not [double]::IsNaN($was) -and $was -le $now)) { $was } else { $now } }
 function Higher($was, $now) { if ([double]::IsNaN($now) -or (-not [double]::IsNaN($was) -and $was -ge $now)) { $was } else { $now } }
 function Most($use) { $m = 0.0; foreach ($v in $use.Values) { if ($v -gt $m) { $m = $v } }; $m }
 function Under($folder) { @(Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($folder, [StringComparison]::OrdinalIgnoreCase) }) }
@@ -345,7 +349,8 @@ function Card-Open {
     $script:cardWhy = "the library: $why; nvidia-smi: $(if ($path) { 'no temperature from it' } else { 'not found' })"
     $null
 }
-# Utilisation %, power W, temperature °C, fan %, graphics clock MHz (NaN for what the card does not say), as the watch
+# Utilisation %, power W, temperature °C, fan %, graphics and memory clock MHz, performance state (NaN for what the
+# card does not say), as the watch
 # read them in the last two seconds; nothing when it did not.
 function Card-Read { $v = [Tasktap.Meter]::Last; if ($v -and [Tasktap.Meter]::Age() -lt 2) { , $v } }
 
@@ -355,6 +360,7 @@ function Card-Read { $v = [Tasktap.Meter]::Last; if ($v -and [Tasktap.Meter]::Ag
 # both ends of the measure, said a second (not `count`, which a table answers with its own number of keys).
 $catalogue = [ordered]@{
     'rest'         = @{ what = 'at rest on Home, nothing running'; window = $true; settle = 10; enter = { Up; Show 'home' } }
+    'rest-unfocused' = @{ what = 'at rest on Home, nothing running, the caret taken out of its field'; window = $true; settle = 10; enter = { Up; Show 'home'; $null = Js '(document.activeElement?.blur(), 1)' } }
     'tab-rest'     = @{ what = 'the tab at the top edge at rest, the window minimised'; settle = 6; enter = { Down } }
     'tab-open'     = @{ what = 'the tab open, as the pointer on it opens it, the window minimised'; settle = 3; leave = { Send 'hover out' }
         enter = { Down; Send 'hover in'; Start-Sleep -Seconds 1; if (-not (Tab-Open)) { $script:noted = 'the tab DID NOT OPEN' } } }
@@ -491,7 +497,7 @@ function Refresh-Ids {
 # app's processor time, keeps them, and applies the rules for the card. A rule that trips ends the app at once.
 $clock = [Diagnostics.Stopwatch]::StartNew()
 $samples = [Collections.Generic.List[string]]::new()
-$samples.Add('second,cell,app 3D %,app other engines %,app GPU MB,compositor 3D %,others busiest %,busiest other,card %,card W,card C,card fan %,card MHz,app CPU ms')
+$samples.Add('second,cell,app 3D %,app other engines %,app GPU MB,compositor 3D %,others busiest %,busiest other,card %,card W,card C,card fan %,card MHz,card memory MHz,card P-state,app CPU ms,invalid counter values')
 $cell = $null
 $name = 'setup'
 $over = 0; $busy = 0
@@ -539,29 +545,30 @@ function Second {
             $cell.util += $c[0]; $cell.utilsq += $c[0] * $c[0]
             $cell.power += $c[1]; $cell.powersq += $c[1] * $c[1]
             $cell.temp = Higher $cell.temp $c[2]; $cell.fan = Higher $cell.fan $c[3]
+            $cell.memclock = Higher $cell.memclock $c[5]; $cell.pstate = Lower $cell.pstate $c[6]
         }
         $cell.others = [Math]::Max($cell.others, $t.TopUse)
     }
     $samples.Add((@([int]$clock.Elapsed.TotalSeconds, $name, (F $app3d 3), (F ($all - $app3d) 3), (F ($t.AppMemory / 1MB) 1), (F $comp 3), (F $t.TopUse 2), $(if ($t.TopUse -gt 0) { "$($t.TopPid) $($t.TopKind)" } else { '' }),
-        $(if ($c) { (F $c[0] 0), (F $c[1] 1), (F $c[2] 0), (F $c[3] 0), (F $c[4] 0) } else { '', '', '', '', '' }), (F $cpu 0)) | ForEach-Object { $_ }) -join ',')
+        $(if ($c) { (F $c[0] 0), (F $c[1] 1), (F $c[2] 0), (F $c[3] 0), (F $c[4] 0), (F $c[5] 0), (F $c[6] 0) } else { '', '', '', '', '', '', '' }), (F $cpu 0), $t.Invalid) | ForEach-Object { $_ }) -join ',')
 }
 function Wait($seconds, $tick) { for ($i = 0; $i -lt $seconds; $i++) { Second; if ($tick) { & $tick } } }
 
-# ——— One state measured: settled, then $Seconds of it, with what the page drew and the desktop composed. (Not named
+# ——— One state measured: settled, then $Seconds of it, with what the page drew. (Not named
 # `Measure`: that is Measure-Object's alias, and an alias goes before a function.)
 $rows = [Collections.Generic.List[object]]::new()
-function Page-Now { if ($proc) { Js "[__motion.stats.frames, document.querySelector('.light')?.dataset.state ?? 'none', (c => c ? c.width + 'x' + c.height : 'none')(document.querySelector('.band canvas')), document.querySelectorAll('canvas').length]" 3 } }
-function Measure-State($state, $effects, $lumen) {
+function Page-Now { if ($proc) { Js "[__motion.stats.frames, document.querySelector('.light')?.dataset.state ?? 'none', (c => c ? c.width + 'x' + c.height : 'none')(document.querySelector('.band canvas')), document.querySelectorAll('canvas').length, document.activeElement?.id || document.activeElement?.tagName || 'none']" 3 } }
+function Measure-State($state, $effects, $lumen, $settle, $length = $Seconds) {
     $spec = if ($state -eq 'floor') { @{ settle = 0 } } else { $catalogue[$state] }
     $script:name = "$state $effects$(if ($lumen) { " lumen $lumen" })"
-    Wait $spec.settle $spec.tick
+    Wait $settle $spec.tick
     $window = $spec.window -and -not $Rehearse
     $visible = if ($window) { [Tasktap.Meter]::Seen($workspace) } else { 9 }
-    $before = Page-Now; $composed = [Tasktap.Meter]::Composed(); $count = if ($spec.read) { & $spec.read }
-    $script:cell = @{ n = 0; app3d = 0.0; max3d = 0.0; other = 0.0; maxall = 0.0; nonzero = 0; memory = 0.0; comp = 0.0; cpu = 0.0; cards = 0; util = 0.0; utilsq = 0.0; power = 0.0; powersq = 0.0; temp = [double]::NaN; fan = [double]::NaN; others = 0.0 }
-    Wait $Seconds $spec.tick
+    $before = Page-Now; $count = if ($spec.read) { & $spec.read }
+    $script:cell = @{ n = 0; app3d = 0.0; max3d = 0.0; other = 0.0; maxall = 0.0; nonzero = 0; memory = 0.0; comp = 0.0; cpu = 0.0; cards = 0; util = 0.0; utilsq = 0.0; power = 0.0; powersq = 0.0; temp = [double]::NaN; fan = [double]::NaN; memclock = [double]::NaN; pstate = [double]::NaN; others = 0.0 }
+    Wait $length $spec.tick
     $c = $cell; $script:cell = $null
-    $after = Page-Now; $composedAfter = [Tasktap.Meter]::Composed()
+    $after = Page-Now
     $counted = if ($spec.read) { & $spec.read }
     $visibleAfter = if ($window) { [Tasktap.Meter]::Seen($workspace) } else { 9 }
     $n = [Math]::Max(1, $c.n)
@@ -569,7 +576,7 @@ function Measure-State($state, $effects, $lumen) {
     $power = if ($c.cards) { $c.power / $c.cards } else { [double]::NaN }
     $frames = if ($before -and $after) { ($after[0] - $before[0]) / $n } else { $null }
     $notes = @()
-    if ($after) { $notes += "light $($after[1]), band canvas $($after[2]), canvases $($after[3])" }
+    if ($after) { $notes += "light $($after[1]), band canvas $($after[2]), canvases $($after[3]), focus $($after[4])" }
     if ($null -ne $count -and $null -ne $counted) { $notes += "$(F (($counted - $count) / $n) 0) lines/s" }
     if ($state -eq 'sidebar') { $notes += "$slides slides" }
     if ($noted) { $notes += $noted; $script:noted = '' }
@@ -580,13 +587,13 @@ function Measure-State($state, $effects, $lumen) {
         app3d = $c.app3d / $n; max3d = $c.max3d; other = $c.other / $n; mb = $c.memory / 1MB; comp = $c.comp / $n
         util = $util; utilsd = $(if ($c.cards) { [Math]::Sqrt([Math]::Max(0, $c.utilsq / $c.cards - $util * $util)) } else { [double]::NaN })
         power = $power; powersd = $(if ($c.cards) { [Math]::Sqrt([Math]::Max(0, $c.powersq / $c.cards - $power * $power)) } else { [double]::NaN })
-        temp = $c.temp; fan = $c.fan
-        frames = $frames; composed = $(if ($composed -ge 0 -and $composedAfter -ge $composed) { ($composedAfter - $composed) / $n } else { $null })
+        temp = $c.temp; fan = $c.fan; memclock = $c.memclock; pstate = $c.pstate
+        frames = $frames
         cpu = $c.cpu / ($n * 1000) * 100; nonzero = $c.nonzero; maxall = $c.maxall; notes = $notes -join '; '
     }
     $rows.Add($row)
-    Say 'ROW' $name "app 3D $(F $row.app3d 3) % (most $(F $row.max3d 3)), other engines $(F $row.other 3) %, $(F $row.mb) MB; compositor $(F $row.comp 3) %; card $(F $util) %, $(F $power) W; page $(F $frames) frames/s; desktop $(F $row.composed) frames/s; processor $(F $row.cpu 2) % of a core$(if ($row.notes) { "; $($row.notes)" })"
-    if ($state -in 'rest', 'tab-rest') {
+    Say 'ROW' $name "app 3D $(F $row.app3d 3) % (most $(F $row.max3d 3)), other engines $(F $row.other 3) %, $(F $row.mb) MB; compositor $(F $row.comp 3) %; card $(F $util) %, $(F $power) W; page $(F $frames) frames/s; card P$(F $row.pstate 0), memory $(F $row.memclock 0) MHz; processor $(F $row.cpu 2) % of a core$(if ($row.notes) { "; $($row.notes)" })"
+    if ($state -in 'rest', 'rest-unfocused', 'tab-rest') {
         Check-Rest $row "$($spec.what), effects $effects"
     }
     $row
@@ -600,7 +607,7 @@ function Check-Rest($row, $what) {
 
 # ——— The table: one row a state, the floor first.
 function Table {
-    $head = '{0,-13} {1,-6} {2,-5} {3,4} {4,8} {5,8} {6,8} {7,7} {8,8} {9,12} {10,14} {11,8} {12,8} {13,7}  {14}' -f 'state', 'effect', 'lumen', 's', 'app 3D%', 'max 3D%', 'other%', 'app MB', 'dwm 3D%', 'card % (+fl)', 'card W (+fl)', 'page f/s', 'desk f/s', 'CPU %', 'notes'
+    $head = '{0,-13} {1,-6} {2,-5} {3,4} {4,8} {5,8} {6,8} {7,7} {8,8} {9,12} {10,14} {11,8} {12,8} {13,7}  {14}' -f 'state', 'effect', 'lumen', 's', 'app 3D%', 'max 3D%', 'other%', 'app MB', 'dwm 3D%', 'card % (+fl)', 'card W (+fl)', 'page f/s', 'P/mem', 'CPU %', 'notes'
     $text = @($head, ('-' * $head.Length))
     foreach ($r in $rows) {
         $floor = $r.state -eq 'floor'
@@ -608,10 +615,10 @@ function Table {
         $watt = if ($floor) { "$(F $r.power)±$(F $r.powersd)" } else { "$(F $r.power) ($(if ($idle) { F ($r.power - $idle.power) } else { '-' }))" }
         $text += '{0,-13} {1,-6} {2,-5} {3,4} {4,8} {5,8} {6,8} {7,7} {8,8} {9,12} {10,14} {11,8} {12,8} {13,7}  {14}' -f $r.state, $r.effects, $r.lumen, $r.s,
             $(if ($floor) { '-' } else { F $r.app3d 3 }), $(if ($floor) { '-' } else { F $r.max3d 3 }), $(if ($floor) { '-' } else { F $r.other 3 }), $(if ($floor) { '-' } else { F $r.mb 0 }),
-            (F $r.comp 3), $card, $watt, (F $r.frames), (F $r.composed), $(if ($floor) { '-' } else { F $r.cpu 2 }), $r.notes
+            (F $r.comp 3), $card, $watt, (F $r.frames), "P$(F $r.pstate 0)/$(F $r.memclock 0)", $(if ($floor) { '-' } else { F $r.cpu 2 }), $r.notes
     }
     $text += ''
-    $text += "app 3D% and max 3D%: the share of each second in which the card's 3D engine ran the app's work (its processes summed: the app, its web views, its core), mean and busiest second; other%: every other engine (copy, video, compute) summed; app MB: the app's memory on the card; dwm 3D%: the compositor's, which draws every window; card %: the card busy at all, with (+fl) above the floor; card W: its power, with (+fl) over the floor; page f/s: frames the page's light drew; desk f/s: frames the compositor composed for the whole desktop; CPU %: the app's processes, of one core."
+    $text += "app 3D% and max 3D%: the share of each second in which the card's 3D engine ran the app's work (its processes summed: the app, its web views, its core), mean and busiest second; other%: every other engine (copy, video, compute) summed; app MB: the app's memory on the card; dwm 3D%: the compositor's, which draws every window; card %: the card busy at all, with (+fl) above the floor; card W: its power, with (+fl) over the floor; page f/s: frames the page's light drew; P/mem: the card's fastest performance state and highest memory clock (MHz) in the minute (P8 is its idle one); CPU %: the app's processes, of one core."
     $text += "Highest during the round: the card at $(F ([Tasktap.Meter]::PeakTemp) 0) °C, $(F ([Tasktap.Meter]::PeakPower)) W, fan $(F ([Tasktap.Meter]::PeakFan) 0) %, $(F ([Tasktap.Meter]::PeakUtil) 0) % busy$(if ($idle) { "; at the floor $(F $idle.temp 0) °C, $(F $idle.power) W, fan $(F $idle.fan 0) %, $(F $idle.util) % busy" })."
     if ($stopped) { $text += "The round was stopped: $stopped" }
     $text | Set-Content "$Out\table.txt"
@@ -632,10 +639,12 @@ foreach ($state in $catalogue.Keys) {
     if ($Size -eq 'full' -and -not $catalogue[$state].window) { $skipped += $state; continue }
     foreach ($level in $levels) {
         $applies = $catalogue[$state].lumen -and ($level -ne 'off' -or $state -eq 'tab-question')
-        foreach ($l in $(if ($lumens -and $applies) { $lumens } else { @('') })) { $plan.Add(@{ state = $state; effects = $level; lumen = $l }) }
+        # The focus' pulse is settled once, at the state's first level; a later one needs a moment for the change.
+        foreach ($l in $(if ($lumens -and $applies) { $lumens } else { @('') })) { $plan.Add(@{ state = $state; effects = $level; lumen = $l; settle = $(if ($plan.Count -and $plan[$plan.Count - 1].state -eq $state) { [Math]::Min(3, $catalogue[$state].settle) } else { $catalogue[$state].settle }) }) }
     }
 }
-$estimate = $Seconds + 30 + ($plan | ForEach-Object { $Seconds + $catalogue[$_.state].settle + 3 } | Measure-Object -Sum).Sum + 8 * @($plan.state | Select-Object -Unique).Count
+# As the tower's rounds take it: the floor, the app's start, each state's minute and settling, and entering each state.
+$estimate = $Seconds + 20 + ($plan | ForEach-Object { $Seconds + $_.settle + 1 } | Measure-Object -Sum).Sum + 4 * @($plan.state | Select-Object -Unique).Count
 $needs = [ordered]@{ 'the built app' = $exe; 'the fixture core' = $core; 'its build stamp' = "$(Split-Path $core -Parent)\build.txt" }
 $missing = @($needs.Keys | Where-Object { -not (Test-Path $needs[$_]) })
 $session = (Get-Process -Id $PID).SessionId
@@ -650,7 +659,7 @@ if ($DryRun) {
     $source = Card-Open
     if ($source) {
         $now = [Tasktap.Meter]::CardRead()
-        Tell "The card answers through $source; now: $(F $now[0] 0) % busy, $(F $now[1]) W, $(F $now[2] 0) °C, fan $(F $now[3] 0) %, $(F $now[4] 0) MHz."
+        Tell "The card answers through $source; now: $(F $now[0] 0) % busy, $(F $now[1]) W, $(F $now[2] 0) °C, fan $(F $now[3] 0) %, $(F $now[4] 0) MHz, memory $(F $now[5] 0) MHz, P$(F $now[6] 0)."
     } else { Tell "The card does not answer ($cardWhy): a round would refuse to start." }
     # A standard account signed in over SSH may not read the counters' names (they are the interactive account's:
     # PDH_CANNOT_READ_NAME_STRINGS); at the desktop it may (seen on the tower, 2026-11-19).
@@ -697,8 +706,10 @@ for ($tries = 0; -not $lock -and -not $Locked; $tries++) {
     }
 }
 try {
+    $at = "$(git -C $checkout rev-parse HEAD)"
+    if ($Commit -and $at -ne $Commit) { throw "the checkout is at $at, not ${Commit}: another job has moved it since the build (gpu.sh without --no-build builds it again)" }
     Add-Type -AssemblyName System.Windows.Forms
-    Say 'INFO' "commit $(git -C $checkout rev-parse HEAD), $triple, $([Environment]::OSVersion.VersionString), session $session$(if ($Rehearse) { ', a REHEARSAL: no desktop and no card, every figure meaningless' })"
+    Say 'INFO' "commit $at, $triple, $([Environment]::OSVersion.VersionString), session $session$(if ($Rehearse) { ', a REHEARSAL: no desktop and no card, every figure meaningless' })"
     Say 'INFO' "no sound for as long as the round runs: $(Sounds-Off) sounds of this account's for the system's events are off, and its warning beep; both are put back at the end"
     $screen = [Windows.Forms.Screen]::PrimaryScreen
     Say 'INFO' "the main display: $($screen.Bounds.Width) x $($screen.Bounds.Height) at $([Tasktap.Meter]::Refresh()) Hz; the card read through $(if ($source) { $source } else { 'nothing' }); the compositor is process $dwm; $(if ($lumens) { "Lumen $($lumens -join ', ') where it applies; " })about $([Math]::Ceiling($estimate / 60)) minutes"
@@ -714,28 +725,33 @@ try {
     }
     # Until the floor is known, the first seconds stand in for it in the watch's rules.
     if ($now) { [Tasktap.Meter]::IdleUtil = $now[0]; [Tasktap.Meter]::IdlePower = $now[1] }
-    $null = Measure-State 'floor' '' ''
+    $null = Measure-State 'floor' '' '' 0
     $floor = $rows[0]
     if ($floor.s -and -not [double]::IsNaN($floor.power)) {
         $idle = @{ util = $floor.util; power = $floor.power; temp = $floor.temp; fan = $floor.fan }
         [Tasktap.Meter]::IdleUtil = $idle.util; [Tasktap.Meter]::IdlePower = $idle.power
     }
-    Say 'INFO' "the floor, with no app: the card $(F $floor.util) ± $(F $floor.utilsd) % busy, $(F $floor.power) ± $(F $floor.powersd) W, $(F $floor.temp 0) °C, fan $(F $floor.fan 0) %; the compositor $(F $floor.comp 3) % of its 3D engine; the desktop composed $(F $floor.composed) frames a second. A process that gives the card no work reads 0.000 % in Windows' counters, which count its engines' time to the tenth of a microsecond."
+    Say 'INFO' "the floor, with no app: the card $(F $floor.util) ± $(F $floor.utilsd) % busy, $(F $floor.power) ± $(F $floor.powersd) W, $(F $floor.temp 0) °C, fan $(F $floor.fan 0) %; P$(F $floor.pstate 0), memory clock up to $(F $floor.memclock 0) MHz; the compositor $(F $floor.comp 3) % of its 3D engine. A process that gives the card no work reads 0.000 % in Windows' counters, which count its engines' time to the tenth of a microsecond."
 
-    # The app, as the smoke script starts it: passive (the microphone is refused it, whatever happens), on a data
-    # folder of the round's own, with the core that has the fixture agent.
+    # The app as a person runs it (not passive: see the top), on a data folder of the round's own, with the core that
+    # has the fixture agent, as the smoke script starts it.
     Copy-Item $core "$tmp\agents\fixture-agent.exe"
     Copy-Item $core "$tmp\agents\fixture.exe"
     Set-Content "$tmp\opener.cmd" "@echo %* >> `"$tmp\opened`""
     $name = 'start'
     Start-App $exe @{
-        TASKTAP_PASSIVE = '1'; TASKTAP_DATA = "$tmp\data"; TASKTAP_OPEN = "$tmp\opener.cmd"
+        TASKTAP_DATA = "$tmp\data"; TASKTAP_OPEN = "$tmp\opener.cmd"
         TASKTAP_CORE_EXE = $core; TASKTAP_CORE_BUILD = (Get-Content "$(Split-Path $core -Parent)\build.txt" -Raw).Trim()
         PATH = "$tmp\agents;$env:PATH"
     } 1500
     [Tasktap.Meter]::App = $proc.Id
     if (-not (Until '"event":"ready"' 45)) { throw 'the app did not start' }
     if (-not (Has 'typeof __ws' 'object' 20)) { throw 'the workspace page does not run' }
+    # No microphone, whatever happens: in both pages asking for one fails before the system is asked, and the recorder's
+    # source is the checks' tone. Nothing in the round asks; this makes sure nothing can.
+    $deaf = "(Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { value: () => Promise.reject(new DOMException('The graphics round never opens the microphone.', 'NotAllowedError')) }), typeof __speech === 'object' && (__speech.talk.source = 'tone'), String(navigator.mediaDevices.getUserMedia).includes('graphics round'))"
+    if (-not (Has 'typeof __records' 'object' 20 'notch')) { throw 'the tab''s page does not run' }
+    if ("$(Js $deaf 3)" -ne 'true' -or "$(Js $deaf 3 'notch')" -ne 'true') { throw 'the microphone could not be taken away from the app''s pages: nothing is measured' }
     Send 'state'
     $state = Until '"event":"state"' 5
     $workspace = if ($state) { [IntPtr][long](ConvertFrom-Json $state).workspace } else { [IntPtr]::Zero }
@@ -764,9 +780,22 @@ try {
         }
         Call 'put' "{`"c`":`"prefs`",`"id`":`"motion_ambient`",`"patch`":`"$(@{ full = 'breathing'; still = 'still'; off = 'off' }[$p.effects])`"}"
         if ($p.lumen) { Call 'put' "{`"c`":`"prefs`",`"id`":`"motion_lumen`",`"patch`":$(if ($p.lumen -eq 'on') { 'true' } else { 'false' })}" }
-        $null = Measure-State $p.state $p.effects $p.lumen
+        $null = Measure-State $p.state $p.effects $p.lumen $p.settle
     }
     if ($was -and $catalogue[$was].leave) { & $catalogue[$was].leave }
+    # The floor once more, the app gone: the card's idle power is not one figure (on the tower it sat at 13 W before a
+    # round and at 30 W, in the same P8, after one), so a round says whether its floor held.
+    $script:name = 'quit'
+    Send 'call core.retire {"when":"now"}'
+    $null = Until '"event":"reply"' 3
+    Send 'quit'
+    if (-not $proc.WaitForExit(10000)) { $proc.Kill($true) }
+    Refresh-Ids
+    if ($clock.Elapsed.TotalSeconds -lt 860 -or $Rehearse) {
+        $null = Measure-State 'floor' 'after' '' 5 ([Math]::Min(30, $Seconds))
+        $after = $rows[$rows.Count - 1]
+        Say 'INFO' "the floor again, the app gone: the card $(F $after.util) % busy, $(F $after.power) ± $(F $after.powersd) W, P$(F $after.pstate 0), memory clock up to $(F $after.memclock 0) MHz, against $(F $floor.power) W and P$(F $floor.pstate 0), $(F $floor.memclock 0) MHz before"
+    }
 } catch {
     # A rule of the watch's that tripped meanwhile (it has ended the app) is why whatever was waiting for it failed.
     if (-not $stopped -and [Tasktap.Meter]::Tripped) { $stopped = [Tasktap.Meter]::Tripped; Say 'STOP' $stopped }

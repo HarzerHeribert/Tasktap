@@ -916,7 +916,7 @@ js workspace "(document.querySelector('.sheet .disc').click(), 1)" >/dev/null
 until_has workspace "text .sheet .instr" 3 "You are the router of Tasktap" && pass "the instructions the model follows are there to read in full, behind one quiet line" || fail "the instructions"
 shot placing-terms workspace
 press workspace ".sheet" Enter >/dev/null
-until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.value) + String(!!__ws.ui.sheet)" 5 '{"agent":"fixture","model":"fixture-small"}false' \
+until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.value) + String(!!__ws.ui.sheet)" 5 '{"agent":"fixture","model":"fixture-small","terms":2}false' \
   && pass "Allow writes the preference for that agent and its model, and the sheet goes" || fail "Allow"
 # The thought it was offered under is asked about: kept for later (L), then dropped.
 press workspace ".home .hq.open [data-question]" l >/dev/null

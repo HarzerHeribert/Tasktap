@@ -1,8 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Tasktap Next",
-  "version": "0.1.0",
-  "identifier": "io.github.harzerheribert.tasktap.next",
+  "productName": "Tasktap",
+  "mainBinaryName": "tasktap-app",
+  "version": "2.0.0",
+  "identifier": "io.github.harzerheribert.tasktap",
   "build": { "frontendDist": "../ui/dist" },
   "app": {
     "macOSPrivateApi": true,
@@ -15,5 +16,12 @@
     "icon": ["icons/Tasktap.icns", "icons/icon.png", "icons/icon.ico"],
     "externalBin": ["binaries/tasktap"],
     "macOS": { "minimumSystemVersion": "13.0" }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": ["https://github.com/HarzerHeribert/Tasktap/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
   }
 }

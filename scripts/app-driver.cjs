@@ -9,8 +9,8 @@ const os = require('node:os');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const host = path.join(root, 'host');
-const RELEASE = path.join(host, 'target/release/bundle/macos/Tasktap Next.app/Contents/MacOS/tasktap-next');
-const DEBUG = path.join(host, 'target/debug/tasktap-next');
+const RELEASE = path.join(host, 'target/release/bundle/macos/Tasktap.app/Contents/MacOS/tasktap-app');
+const DEBUG = path.join(host, 'target/debug/tasktap-app');
 
 /** The displays (displays.swift): whether the main one is asleep, whether the screen is locked, and each one's frame
  *  in the desktop, scale and refresh rate. */

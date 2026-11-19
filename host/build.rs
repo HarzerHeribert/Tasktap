@@ -4,7 +4,8 @@ fn main() {
     println!("cargo:rerun-if-changed=binaries/build.txt");
     let build = std::fs::read_to_string("binaries/build.txt").unwrap_or_else(|_| "unbuilt".into());
     println!("cargo:rustc-env=TASKTAP_CORE_BUILD={}", build.trim());
-    // The updater's public key, which the release workflow gives (src/update.rs); a build without it never updates.
+    // Whether this build updates itself, and a key in place of tauri.conf.json's: the release workflow's (src/update.rs).
+    println!("cargo:rerun-if-env-changed=TASKTAP_UPDATES");
     println!("cargo:rerun-if-env-changed=TASKTAP_UPDATE_KEY");
     tauri_build::build()
 }

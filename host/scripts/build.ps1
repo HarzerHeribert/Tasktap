@@ -62,7 +62,7 @@ Copy-Item "$root\ui\dist\licenses\*" "$stage\licenses\" -ErrorAction SilentlyCon
 # machine may keep one for everything (CARGO_TARGET_DIR).
 $conf = Get-Content "$hostDir\tauri.conf.json" -Raw | ConvertFrom-Json
 $product = $conf.productName
-$bin = 'tasktap-next'
+$bin = $conf.mainBinaryName
 if ($Installer) {
     $extra = @()
     if ($env:TASKTAP_VERSION) {

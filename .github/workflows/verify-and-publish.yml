@@ -121,11 +121,11 @@ jobs:
         working-directory: host
       - name: The app carries its core and its own identity, apart from an installed Tasktap
         run: |
-          app="host/target/release/bundle/macos/Tasktap Next.app"
-          test -x "$app/Contents/MacOS/tasktap-next"
+          app="host/target/release/bundle/macos/Tasktap.app"
+          test -x "$app/Contents/MacOS/tasktap-app"
           codesign --verify --strict "$app/Contents/MacOS/tasktap"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = io.github.harzerheribert.tasktap.next
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$app/Contents/Info.plist")" = "Tasktap Next"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = io.github.harzerheribert.tasktap
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$app/Contents/Info.plist")" = "Tasktap"
           # Not checked, because it is not true yet: the bundle is not sealed. Its executables carry
           # the linker's ad-hoc signature only; signing is release work (docs/rebuild-plan.md).
           codesign -dv "$app" 2>&1 | grep -E 'Signature|flags' || true

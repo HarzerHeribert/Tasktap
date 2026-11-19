@@ -4,21 +4,28 @@
 //!
 //! When it looks: when About is shown, and at the first capture of a day (the capture key, or the notch taking the
 //! keyboard). Never at start, so the window waits for nothing, and never on a timer: at rest the app wakes for
-//! nothing, and after a look nothing of it is left running. A build without the key (every build made on a person's
-//! own machine) never looks at all.
+//! nothing, and after a look nothing of it is left running. Only a build of the release workflow looks at all
+//! (`TASKTAP_UPDATES`); every build made on a person's own machine, and every check's, never does.
+//!
+//! The public key is in one place: tauri.conf.json, `plugins.updater.pubkey` (the content of the `.pub` file Tauri's
+//! signer writes). The release workflow's dry run builds with a key pair made for the run (`TASKTAP_UPDATE_KEY`).
 //!
 //! What it says goes to every page as the `ui` event `update`, and is the reply to `host.update`; the pages put it
 //! in words (About, and one quiet line in the workspace's rail while a new version waits).
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_updater::{Error, Update, UpdaterExt};
 
-/// The updater's public key, given to the build by the release workflow (`TASKTAP_UPDATE_KEY`).
+/// Whether this build updates itself: the release workflow's builds do.
+const RELEASED: bool = option_env!("TASKTAP_UPDATES").is_some();
+/// A key in place of the one in tauri.conf.json: the dry run's own.
 const KEY: Option<&str> = option_env!("TASKTAP_UPDATE_KEY");
-const FEED: &str = "https://github.com/HarzerHeribert/Tasktap/releases/latest/download/latest.json";
+/// Whether the updater is on in this run (`configure`).
+static ON: AtomicBool = AtomicBool::new(false);
 /// "Once a day": a capture this long after the last look looks again.
 const DAY: Duration = Duration::from_secs(20 * 60 * 60);
 /// The longest a look or a download may stall before it is given up.
@@ -62,27 +69,25 @@ struct Updates {
 
 static UPDATES: Mutex<Updates> = Mutex::new(Updates { state: State::Unknown, looked: None, found: None });
 
-/// The feed: a check's own (`TASKTAP_UPDATE_FEED`, read at start), else the newest release's.
-fn feed() -> String {
-    std::env::var("TASKTAP_UPDATE_FEED").unwrap_or_else(|_| FEED.into())
-}
-
-/// The updater's configuration, put into the app's before it is built; none without a key.
+/// Whether the updater is on, its configuration (tauri.conf.json's `plugins.updater`) made final before the app is
+/// built: a key in place of the file's when the build was given one, and a check's own feed
+/// (`TASKTAP_UPDATE_FEED`, on this machine) in place of the release's.
 pub fn configure(config: &mut tauri::Config) -> bool {
-    let Some(key) = KEY.filter(|k| !k.trim().is_empty()) else {
+    let Some(updater) = config.plugins.0.get_mut("updater").filter(|_| RELEASED) else {
         return false;
     };
-    let feed = feed();
-    config.plugins.0.insert(
-        "updater".into(),
-        json!({
-            "pubkey": key.trim(),
-            "endpoints": [feed],
-            // A check's feed on this machine is plain http; the download is still checked against the key.
-            "dangerousInsecureTransportProtocol": feed.starts_with("http://127.0.0.1:"),
-            "windows": {"installMode": "passive"},
-        }),
-    );
+    if let Some(key) = KEY.map(str::trim).filter(|k| !k.is_empty()) {
+        updater["pubkey"] = json!(key);
+    }
+    if updater["pubkey"].as_str().is_none_or(|k| k.trim().is_empty()) {
+        return false;
+    }
+    if let Ok(feed) = std::env::var("TASKTAP_UPDATE_FEED") {
+        // Plain http on this machine only; what it names is still checked against the key.
+        updater["dangerousInsecureTransportProtocol"] = json!(feed.starts_with("http://127.0.0.1:"));
+        updater["endpoints"] = json!([feed]);
+    }
+    ON.store(true, Ordering::Relaxed);
     true
 }
 
@@ -96,7 +101,7 @@ fn set(app: &AppHandle, state: State) {
 /// The state, for `host.update`; with `look`, a look begins unless one is under way. With `install`, the version
 /// found is downloaded and installed: the person said so.
 pub fn call(app: &AppHandle, args: &Value) -> Result<Value, String> {
-    if KEY.is_none() {
+    if !ON.load(Ordering::Relaxed) {
         return Ok(serde_json::to_value(State::Off).unwrap_or_default());
     }
     if args["install"].as_bool() == Some(true) {
@@ -110,7 +115,7 @@ pub fn call(app: &AppHandle, args: &Value) -> Result<Value, String> {
 /// At a capture: a look, if none was made in the last day.
 pub fn daily(app: &AppHandle) {
     let due = UPDATES.lock().unwrap().looked.is_none_or(|at| at.elapsed() >= DAY);
-    if KEY.is_some() && due {
+    if ON.load(Ordering::Relaxed) && due {
         look(app);
     }
 }

@@ -21,7 +21,7 @@
 # scripts\winvm\README.md, "The smoke script".
 param(
     [string]$Target = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64' } else { 'x86_64' }),
-    [string]$App = (Join-Path (Split-Path $PSScriptRoot -Parent) "target\$Target-pc-windows-msvc\release\Tasktap Next"),
+    [string]$App = (Join-Path (Split-Path $PSScriptRoot -Parent) "target\$Target-pc-windows-msvc\release\Tasktap"),
     [string]$Core = (Join-Path (Split-Path $PSScriptRoot -Parent) 'binaries\fixtures\tasktap.exe'),
     [int]$Seconds = 420
 )
@@ -56,7 +56,7 @@ Set-Content "$tmp\opener.cmd" "@echo %* >> `"$tmp\opened`""
 Set-Content "$tmp\opened" '' -NoNewline
 
 . (Join-Path $PSScriptRoot 'app.ps1')
-Start-App (Join-Path $App 'Tasktap Next.exe') @{
+Start-App (Join-Path $App 'tasktap-app.exe') @{
     TASKTAP_PASSIVE = '1'
     TASKTAP_DATA = "$tmp\data"
     TASKTAP_PICK = "$tmp\project"

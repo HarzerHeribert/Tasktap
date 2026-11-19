@@ -90,7 +90,7 @@ async function toggleTrial() {
     }
   } catch (e) {
     said = e instanceof DOMException && e.name === 'NotAllowedError'
-      ? `The microphone was not allowed. Tasktap Next can be allowed in ${MICROPHONE}.`
+      ? `The microphone was not allowed. Tasktap can be allowed in ${MICROPHONE}.`
       : e instanceof Error ? e.message : String(e);
   }
   asking = false;
@@ -246,7 +246,7 @@ function AboutPane() {
   const by = pref('route_by'), places = placing(by, placers()) === 'on', speech = pref('speech_by'), usual = agent();
   return (
     <>
-      <Row name="Tasktap Next"><span class="v">{version ? `Version ${version}` : 'This build has no version number'}</span></Row>
+      <Row name="Tasktap"><span class="v">{version ? `Version ${version}` : 'This build has no version number'}</span></Row>
       <UpdateRow />
       <h3>What leaves {HERE}</h3>
       <Row name="Your thoughts" hint={`Each goes to the agent that runs it${usual ? `, ${agentName(usual.id)} unless you pick another` : ''}, in a terminal on ${HERE}, under that agent's own sign-in.`}>

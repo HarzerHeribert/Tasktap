@@ -1,6 +1,6 @@
 // A window's program on Windows: started from the Start menu it opens no console.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
-//! Tasktap Next: the host, on the Mac and on Windows. It starts the core, gives each page one pass-through to it
+//! Tasktap: the host, on the Mac and on Windows. It starts the core, gives each page one pass-through to it
 //! (design §12), answers the page's `host.*` calls, places the notch panel (on Windows the tab at the top edge,
 //! with its icon in the notification area) and binds the global shortcuts. Everything else is the core's or the
 //! page's.
@@ -83,7 +83,7 @@ fn bridge_open(
     host: tauri::State<Host>,
 ) -> Result<(), String> {
     let label = webview.label().to_owned();
-    let (stream, first) = host.core.connect(Role::Page, &format!("tasktap-next {label}")).map_err(|e| e.to_string())?;
+    let (stream, first) = host.core.connect(Role::Page, &format!("tasktap-app {label}")).map_err(|e| e.to_string())?;
     let mut reader = stream.try_clone().map_err(|e| e.to_string())?;
     if let Some(old) = host.pages.lock().unwrap().insert(label, stream) {
         let _ = old.shutdown(Shutdown::Both);
@@ -427,10 +427,10 @@ fn data_folder() -> std::path::PathBuf {
         Some(dir) => dir.into(),
         #[cfg(target_os = "macos")]
         None => std::path::Path::new(&std::env::var_os("HOME").unwrap_or_default())
-            .join("Library/Application Support/Tasktap Next"),
+            .join("Library/Application Support/Tasktap"),
         // The person's own, never roaming: the core's database and its pipe belong to this machine.
         #[cfg(windows)]
-        None => std::path::Path::new(&std::env::var_os("LOCALAPPDATA").unwrap_or_default()).join("Tasktap Next"),
+        None => std::path::Path::new(&std::env::var_os("LOCALAPPDATA").unwrap_or_default()).join("Tasktap"),
     }
 }
 
@@ -606,7 +606,7 @@ fn main() {
             Ok(())
         })
         .build(context)
-        .expect("Tasktap Next failed to start");
+        .expect("Tasktap failed to start");
     // Closing the workspace never quits: the notch's own (hidden) Tauri window stays open. The
     // Dock icon brings the workspace back; Quit in the menu ends the app. On Windows the app stays in the
     // notification area, with or without the tab: its icon brings the workspace back, and Quit in the icon's menu

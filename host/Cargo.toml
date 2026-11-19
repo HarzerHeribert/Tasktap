@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [[bin]]
-name = "tasktap-next"
+name = "tasktap-app"
 path = "src/main.rs"
 
 [dependencies]

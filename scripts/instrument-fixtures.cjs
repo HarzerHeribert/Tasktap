@@ -206,7 +206,7 @@ function scene(name, { now = Date.now(), changes = false } = {}) {
   };
   const idea = (text, age) => thoughts.push({ id: uid(now - age * MIN), rev: 4, text, strokes: [], source: 'typed', mode: 'note', phase: 'captured', status: 'captured',
     reason: null, live: false, project_id: null, session_id: null, brief: null, route: null, placed: 'kept', agent: 'claude', model: null, workdir: null, hold_until: null, read: false, created: now - age * MIN, updated: now - age * MIN });
-  const workdir = (files, insertions, deletions) => ({ path: '/Users/example/Library/Application Support/Tasktap Next/worktrees/cuegrid-export-pdf', branch: 'tasktap/cuegrid-export-pdf',
+  const workdir = (files, insertions, deletions) => ({ path: '/Users/example/Library/Application Support/Tasktap/worktrees/cuegrid-export-pdf', branch: 'tasktap/cuegrid-export-pdf',
     destination: 'main', base: '4f2a91c', left_out: false, changes: 'pending', files, insertions, deletions });
 
   const busy = name === 'busy' || name === 'workspace', normal = name === 'normal', quiet = name === 'quiet';

@@ -91,7 +91,9 @@ echo "== The updater's pack"
 # The updater unpacks <Name>.app from it in place of the running app (Tauri's own layout); no AppleDouble files.
 COPYFILE_DISABLE=1 tar -czf "$base.app.tar.gz" -C "$(dirname "$app")" "$name.app"
 if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
-  "$root/ui/node_modules/.bin/tauri" signer sign "$base.app.tar.gz" >/dev/null
+  # A line break after the key, as a secret set from a file may have, makes Tauri's signer refuse it.
+  TAURI_SIGNING_PRIVATE_KEY="$(printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" | tr -d '[:space:]')" \
+    "$root/ui/node_modules/.bin/tauri" signer sign "$base.app.tar.gz" >/dev/null
   test -s "$base.app.tar.gz.sig"
   echo "signed for the updater"
 else

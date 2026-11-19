@@ -9,7 +9,7 @@
 # Needs the host built for debugging (cargo build in host/) and the core (build-core.sh).
 set -u
 host="$(cd "$(dirname "$0")/.." && pwd)"
-exe="$host/target/debug/tasktap-next"
+exe="$host/target/debug/tasktap-app"
 triple="$(rustc -vV | sed -n 's/^host: //p')"
 core="$host/binaries/tasktap-$triple"
 [ -x "$exe" ] && [ -x "$core" ] || { echo "Build first: (cd host && cargo build) and host/scripts/build-core.sh"; exit 1; }

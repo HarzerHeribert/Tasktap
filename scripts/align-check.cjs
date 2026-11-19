@@ -224,6 +224,20 @@ function weights() {
       if (Math.abs(w - (svg.closest('.key') ? 1.35 * ts : chosen ? 1.4 * rule : rule)) > 0.06) bad.push(`a stroke ${w.toFixed(2)} px wide where every stroke is ${rule.toFixed(2)}: ${svg.classList.contains('i') ? 'an icon' : 'a seat'} ${Math.round(box(svg).width)} px wide in ${name(svg)}`);
     }
   }
+  // Tasktap's mark is not a line icon: it is a picture of the chrome (ui.tsx Brand, Level), drawn once from the motion
+  // engine, with no stroke to hold to the weight and nothing inside it that is drawn as a line. It is held instead to
+  // the size it was drawn for: its pictures are drawn at twice the size they are shown at, so the page never scales one
+  // except by the display's own density.
+  for (const mark of document.querySelectorAll('.brand-m')) {
+    if (!shown(mark)) continue;
+    seen.add('the mark a picture at its own size');
+    if (mark.querySelector('svg, [style*=stroke]')) bad.push(`the mark in ${name(mark)} holds a drawing of lines, where it is a picture`);
+    for (const img of mark.querySelectorAll(':scope > img')) {
+      const w = box(img).width;
+      if (!img.complete || !img.naturalWidth) bad.push(`the mark in ${name(mark)} has no picture`);
+      else if (Math.abs(img.naturalWidth - 2 * w) > 0.5 || img.naturalWidth !== img.naturalHeight) bad.push(`the mark in ${name(mark)} is shown ${w.toFixed(1)} px wide, its picture drawn for ${img.naturalWidth / 2}`);
+    }
+  }
   // Where an element's first words stand: their baseline (their box's top and the face's ascent, in whole pixels as the
   // page lays text out), the middle of their capital letters, and their right edge.
   const pen = document.createElement('canvas').getContext('2d');
@@ -244,7 +258,7 @@ function weights() {
   // One centre line: what leads a row, on the capital letters of the words it leads.
   for (const [row, lead, label] of [
     ['.hr', ':scope > .st', ':scope > .hr-t'], ['.hq.open', ':scope > .st', '.hq-m > b'], ['.hsec h3', '.st', 'span'], ['.fold-h', '.i', 'b'], ['.row.s', '.st', '.lbl'], ['.row.home', '.i', '.lbl'],
-    ['.row.w', '.fold .i', '.lbl'], ['.tab', '.st', '.lbl'], ['.cap-to', '.i', 'b'], ['.mic', '.i', 'kbd'], ['.rail-l', '.st', 'b, span'], ['.rows .row', '.st', '.t'], ['.line', ':scope > .ring-o, :scope > .i', '.t'],
+    ['.row.w', '.fold .i', '.lbl'], ['.tab', '.st', '.lbl'], ['.cap-to', '.i', 'b'], ['.mic', '.i', 'kbd'], ['.rail-l', '.st', 'b, span'], ['.rows .row', '.st', '.t'], ['.newt', '.brand-m', ':scope > span'], ['.line', ':scope > .ring-o, :scope > .i', '.t'],
   ])
     for (const r of document.querySelectorAll(row)) {
       const m = r.querySelector(lead), w = words(r.querySelector(label));
@@ -286,11 +300,11 @@ function weights() {
   return { bad, seen: [...seen] };
 }
 
-/** The collapsed notch's tab, from the tight boxes of what it draws (bars, figures, the words of who asks), never from
+/** The collapsed notch's tab, from the tight boxes of what it draws (marks, figures, the words of who asks), never from
  *  a box with room in it. `own` is the tab's width before its wings. */
 function glance(own) {
   const bad = [], box = (el) => el.getBoundingClientRect(), tab = box(document.querySelector('#tab'));
-  const drawn = (root) => [...root.querySelectorAll('.st b, .wave b, .wing > b, .wing .n > b, .peek')].map(box).filter((b) => b.width > 0 && b.height > 0);
+  const drawn = (root) => [...root.querySelectorAll('.st .ring-o, .brand-m > img:not(.lit), .wing > b, .wing .n > b, .peek')].map(box).filter((b) => b.width > 0 && b.height > 0);
   const around = (bs) => ({ left: Math.min(...bs.map((b) => b.left)), right: Math.max(...bs.map((b) => b.right)), top: Math.min(...bs.map((b) => b.top)), bottom: Math.max(...bs.map((b) => b.bottom)) });
   const off = (n) => `${n > 0 ? '+' : ''}${n.toFixed(2)} px`;
   if (!document.body.classList.contains('cutout')) {

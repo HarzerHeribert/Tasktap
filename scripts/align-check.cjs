@@ -304,7 +304,7 @@ function weights() {
  *  a box with room in it. `own` is the tab's width before its wings. */
 function glance(own) {
   const bad = [], box = (el) => el.getBoundingClientRect(), tab = box(document.querySelector('#tab'));
-  const drawn = (root) => [...root.querySelectorAll('.st .ring-o, .brand-m > img:not(.lit), .wing > b, .wing .n > b, .peek')].map(box).filter((b) => b.width > 0 && b.height > 0);
+  const drawn = (root) => [...root.querySelectorAll('.st .ring-o, .brand-m > img.p0, .wing > b, .wing .n > b, .peek')].map(box).filter((b) => b.width > 0 && b.height > 0);
   const around = (bs) => ({ left: Math.min(...bs.map((b) => b.left)), right: Math.max(...bs.map((b) => b.right)), top: Math.min(...bs.map((b) => b.top)), bottom: Math.max(...bs.map((b) => b.bottom)) });
   const off = (n) => `${n > 0 ? '+' : ''}${n.toFixed(2)} px`;
   if (!document.body.classList.contains('cutout')) {

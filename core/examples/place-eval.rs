@@ -11,10 +11,17 @@
 //! asked with the right one first, asked with it among the choices, asked
 //! without it, and kept for later; and how many times the right one is
 //! among the 8 a model would be given, and how many a clear leader
-//! started. `--each` prints every thought's outcome too, at each size.
+//! started; then how many wrong starts were by a project's whole name that
+//! is an ordinary word. `--each` prints every thought's outcome too, at
+//! each size, and every wrong start is listed.
+//!
+//! It fails (exit 1) when a clear leader starts any thought of a kind that
+//! means no project, or one meant for a project in another. A start where
+//! more than one may be meant, not on a careful pick, is counted wrong and
+//! listed as debatable, and does not fail it.
 
 use serde::Deserialize;
-use tasktap_core::route::{self, Named, Request};
+use tasktap_core::route::{self, Lexicon, Named, Request};
 use tasktap_core::state::{Destination, Route, Said};
 use tasktap_proto::{CardId, Time};
 
@@ -22,9 +29,13 @@ use tasktap_proto::{CardId, Time};
 struct Fixture {
     projects: Vec<Project>,
     /// Projects only the rows of a clear leader are meant for: among the
-    /// others at every size, for those rows alone.
+    /// others at every size, for those rows (and the review's set B) alone.
     #[serde(default)]
     more: Vec<Project>,
+    /// Projects named after well-known tools: among the others, with
+    /// `more`, for the review's set B alone.
+    #[serde(default)]
+    tools: Vec<Project>,
     thoughts: Vec<Thought>,
 }
 
@@ -42,6 +53,10 @@ struct Thought {
     #[serde(default)]
     to: String,
     text: String,
+    /// For a thought that may be meant for more than one: the projects a
+    /// start in would be no mistake.
+    #[serde(default)]
+    careful: Vec<String>,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -84,10 +99,32 @@ const KINDS: &[(&str, &str)] = &[
         "near-miss",
         "come near a lead and must be asked; any start is wrong (in-sample)",
     ),
+    (
+        "blind-a",
+        "mean one project without its exact name (held out: the review's blind set, a)",
+    ),
+    (
+        "blind-b",
+        "may mean more than one; a start is right only on a careful pick (held out: blind, b)",
+    ),
+    ("blind-c", "mean no project (held out: blind, c)"),
+    (
+        "setb-a",
+        "mean one project, many named after a tool (held out: the review's set B, a)",
+    ),
+    ("setb-b", "may mean more than one (held out: set B, b)"),
+    (
+        "setb-c",
+        "mean no project, with a tool's name or a project's words in them (held out: set B, c)",
+    ),
 ];
 
 /// The kinds of thought whose projects include the fixture's `more`.
-const LEADS: &[&str] = &["lead", "near-miss"];
+const MORE: &[&str] = &["lead", "near-miss", "setb-a", "setb-b", "setb-c"];
+/// The kinds whose projects include the fixture's `tools` too.
+const TOOLS: &[&str] = &["setb-a", "setb-b", "setb-c"];
+/// The kinds where any start is wrong.
+const NOWHERE: &[&str] = &["none", "decoy", "near-miss", "blind-c", "setb-c"];
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -105,20 +142,31 @@ fn main() {
     };
     let all: Vec<Named> = fixture.projects.iter().map(card).collect();
     let more: Vec<Named> = fixture.more.iter().map(card).collect();
+    let tools: Vec<Named> = fixture.tools.iter().map(card).collect();
+    let words = Lexicon::default();
     let sizes = [36, 100, 306];
     let mut tallies = vec![vec![Tally::default(); KINDS.len()]; sizes.len()];
+    let mut ordinary = vec![0u32; sizes.len()];
     let mut ms = vec![0f64; sizes.len()];
+    let mut wrong: Vec<String> = Vec::new();
+    let mut failed = 0;
     for (s, size) in sizes.iter().enumerate() {
         for t in &fixture.thoughts {
-            let lead = LEADS.contains(&t.kind.as_str());
+            let kind = t.kind.as_str();
             let projects: Vec<Named> = (all.iter().take(*size))
-                .chain(more.iter().filter(|_| lead))
+                .chain(more.iter().filter(|_| MORE.contains(&kind)))
+                .chain(tools.iter().filter(|_| TOOLS.contains(&kind)))
                 .cloned()
                 .collect();
             let request = Request {
                 text: t.text.clone(),
                 projects: projects.clone(),
                 ..Request::default()
+            };
+            let name_of = |to: &Destination| {
+                (projects.iter())
+                    .find(|p| p.to == *to)
+                    .map_or("?", |p| p.name.as_str())
             };
             let target = projects.iter().find(|p| p.name == t.to).map(|p| p.to);
             let began = std::time::Instant::now();
@@ -130,28 +178,57 @@ fn main() {
                 .collect();
             let k = KINDS
                 .iter()
-                .position(|(kind, _)| *kind == t.kind)
+                .position(|(known, _)| *known == kind)
                 .expect("a known kind");
             let tally = &mut tallies[s][k];
             tally.n += 1;
             if target.is_some_and(|to| eight.contains(&to)) {
                 tally.in_eight += 1;
             }
-            if let Route::Clear {
-                said: Some(Said::Leads { .. }),
-                ..
-            } = &route
-            {
-                tally.led += 1;
-            }
-            let ask = t.kind == "near-miss";
+            let led = matches!(
+                &route,
+                Route::Clear {
+                    said: Some(Said::Leads { .. }),
+                    ..
+                }
+            );
+            tally.led += u32::from(led);
+            let nowhere = NOWHERE.contains(&kind);
             let outcome = match (&route, target) {
-                (Route::Clear { to, .. }, Some(want)) if *to == want && !ask => {
+                (Route::Clear { to, .. }, Some(want)) if *to == want && !nowhere => {
                     tally.right += 1;
                     "right"
                 }
-                (Route::Clear { .. }, _) => {
+                (Route::Clear { to, .. }, None)
+                    if !nowhere && t.careful.iter().any(|c| c == name_of(to)) =>
+                {
+                    tally.right += 1;
+                    "right, a careful pick"
+                }
+                (Route::Clear { to, .. }, _) => {
                     tally.wrong += 1;
+                    let name = name_of(to);
+                    let by = if led { "a lead" } else { "a name" };
+                    let parts = route::parts(name);
+                    let parts: Vec<&str> = parts.iter().map(String::as_str).collect();
+                    if !led && words.ordinary(&parts) {
+                        ordinary[s] += 1;
+                    }
+                    // Where more than one may be meant and none is named
+                    // careful, a start is open to debate: told, not failed.
+                    let debatable = !nowhere && target.is_none();
+                    if led && !debatable {
+                        failed += 1;
+                    }
+                    let note = if debatable {
+                        " (more than one may be meant: debatable)"
+                    } else {
+                        ""
+                    };
+                    wrong.push(format!(
+                        "{size:3} {kind:16} started in {name} by {by}{note}  ← {}",
+                        t.text
+                    ));
                     "WRONG"
                 }
                 (Route::Ambiguous { candidates, .. }, Some(want))
@@ -185,16 +262,12 @@ fn main() {
                         c.join(", ")
                     }
                     Route::Clear { to, said, .. } => {
-                        let name = projects
-                            .iter()
-                            .find(|p| p.to == *to)
-                            .map_or("?", |p| p.name.as_str());
                         let how = match said {
                             Some(Said::As(words)) => format!(" said as “{words}”"),
                             Some(Said::Leads { why, .. }) => format!(" by a lead: {why}"),
                             None => String::new(),
                         };
-                        format!("{name}{how}")
+                        format!("{}{how}", name_of(to))
                     }
                     Route::Unknown => String::new(),
                 };
@@ -215,27 +288,32 @@ fn main() {
         "| Thoughts | Right | Wrong | Asked, right one first | Asked, it among the choices | Asked without it | Kept | Right one in the 8 a model gets | Started by a lead |"
     );
     println!("| --- | --- | --- | --- | --- | --- | --- | --- | --- |");
+    let cell = |v: Vec<u32>| match v.iter().all(|x| *x == v[0]) {
+        true => v[0].to_string(),
+        false => v.iter().map(u32::to_string).collect::<Vec<_>>().join(" / "),
+    };
     for (k, (_, what)) in KINDS.iter().enumerate() {
         let n = tallies[0][k].n;
-        let cell = |f: fn(&Tally) -> u32| {
-            let v: Vec<u32> = (0..sizes.len()).map(|s| f(&tallies[s][k])).collect();
-            match v.iter().all(|x| *x == v[0]) {
-                true => v[0].to_string(),
-                false => v.iter().map(u32::to_string).collect::<Vec<_>>().join(" / "),
-            }
-        };
+        if n == 0 {
+            continue;
+        }
+        let of = |f: fn(&Tally) -> u32| cell((0..sizes.len()).map(|s| f(&tallies[s][k])).collect());
         println!(
             "| {n} that {what} | {} | {} | {} | {} | {} | {} | {} | {} |",
-            cell(|t| t.right),
-            cell(|t| t.wrong),
-            cell(|t| t.first),
-            cell(|t| t.among),
-            cell(|t| t.without),
-            cell(|t| t.kept),
-            cell(|t| t.in_eight),
-            cell(|t| t.led),
+            of(|t| t.right),
+            of(|t| t.wrong),
+            of(|t| t.first),
+            of(|t| t.among),
+            of(|t| t.without),
+            of(|t| t.kept),
+            of(|t| t.in_eight),
+            of(|t| t.led),
         );
     }
+    println!(
+        "| Of the wrong starts above: by a project's whole name that is an ordinary word (\"buy a new kiln\" in `kiln`; the owner's open question) | – | {} | – | – | – | – | – | – |",
+        cell(ordinary.clone())
+    );
     let thoughts = fixture.thoughts.len() as f64;
     let per: Vec<String> = ms.iter().map(|m| format!("{:.2}", m / thoughts)).collect();
     println!();
@@ -243,4 +321,18 @@ fn main() {
         "Where figures differ: at 36 / 100 / 306 projects. Milliseconds a thought: {}.",
         per.join(" / ")
     );
+    if !wrong.is_empty() {
+        println!();
+        println!("Wrong starts:");
+        for w in &wrong {
+            println!("  {w}");
+        }
+    }
+    if failed > 0 {
+        println!();
+        println!(
+            "FAIL: a clear leader started {failed} thoughts where no project is meant, or in a wrong one."
+        );
+        std::process::exit(1);
+    }
 }

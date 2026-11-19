@@ -389,11 +389,17 @@ const TERMS = {
   route: {
     instructions: fs.readFileSync(path.join(root, 'core/src/route/instructions.md'), 'utf8'),
     sends: [
-      'the thought, as you said or typed it', 'the names and aliases of up to 8 of your open projects',
+      'the thought, as you said or typed it',
+      'of up to 8 of your projects, those this Mac ranks likeliest: the name, the other names it goes by and one line about it',
       'of up to 8 sessions in them: the name, the last request (180 characters), the agent and whether it is working',
       'of up to 3 recent exchanges: the request (320 characters), how it ended and the first line of the result (160 characters)',
     ],
-    tools: [{ agent: 'claude', model: 'haiku' }, { agent: 'codex', model: 'gpt-6-luna' }],
+    // In Tasktap's order, as core/src/route.rs proposes it (`COSTS`).
+    terms: 3,
+    tools: [
+      { agent: 'claude', model: 'haiku', pays: 'plan', ms: 3700 }, { agent: 'codex', model: 'gpt-6-luna', pays: 'plan', ms: 4700 },
+      { agent: 'agy', model: 'gemini-3.8-flash-low', pays: 'plan', ms: 5600 },
+    ],
   },
   speech: {
     sent: [

@@ -301,7 +301,7 @@ const BRIEF_MORE = {
 function flow(records, kind, { lang = 'en', long = false, voice = true, now = Date.now() } = {}) {
   const P = records.ids.projects, text = SAID[lang] + (long ? MORE[lang] : ''), brief = BRIEF[lang] + (long ? BRIEF_MORE[lang] : '');
   const pref = (id, value) => (records.prefs = records.prefs.filter((p) => p.id !== id).concat({ id, value, rev: 50 }));
-  const by = { agent: 'claude', model: 'haiku' }, model = { by: 'claude', model: 'haiku', pending: false, fallback: null, quote: null, title: TITLE[lang], ms: 2300 };
+  const by = { agents: [{ agent: 'claude', model: 'haiku', on: true }, { agent: 'codex', model: 'gpt-6-luna', on: true }], terms: 3 }, model = { by: 'claude', model: 'haiku', pending: false, fallback: null, quote: null, title: TITLE[lang], ms: 2300 };
   const local = { by: 'local', model: null, pending: false, fallback: null, quote: null, title: null, ms: 1 };
   const speech = () => (pref('speech_by', { server: 'https://api.openai.com', model: 'gpt-transcribe' }), pref('keys', ['https://api.openai.com']), pref('speech_languages', ['de', 'en']));
   const id = uid(now, 1600);

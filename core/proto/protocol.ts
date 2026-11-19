@@ -1406,6 +1406,12 @@ quote: string | null,
  */
 title: string | null,
 /**
+ * Why the match on names started it where it did when no name was
+ * said for certain, in a few words: what only that project has
+ * ("its name and “widgetpack”").
+ */
+lead: string | null,
+/**
  * Milliseconds the answer took.
  */
 ms: number | null, };

@@ -15,6 +15,7 @@ master
 mobile
 recipe
 site
+snippet
 snow
 test
 theme

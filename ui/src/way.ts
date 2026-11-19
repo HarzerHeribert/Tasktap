@@ -62,6 +62,8 @@ export function placed(t: Pick<Thought, 'placed' | 'route'>, agent: (id: string)
   const r = t.route, who = r && r.by !== 'local' ? `${agent(r.by)}${r.model ? ` · ${r.model}` : ''}` : '';
   switch (t.placed) {
     case 'name':
+      // No name was said for certain and one project clearly led: what only it has ("its name and “widgetpack”").
+      if (r?.lead) return `${r.lead}${r.fallback ? `. ${r.fallback}` : ''}`;
       return `Placed by name${r?.quote ? `: you said “${r.quote}”` : ''}${r?.fallback ? `. ${r.fallback}` : ''}`;
     case 'model':
       return `Placed by ${who || 'a model'}${r?.quote ? `, because you said “${r.quote}”` : ''}`;

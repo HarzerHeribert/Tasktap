@@ -117,6 +117,11 @@ pub struct Routing {
     /// session a new run of the thought starts.
     #[serde(default)]
     pub title: Option<String>,
+    /// Why the match on names started it where it did when no name was
+    /// said for certain, in a few words: what only that project has
+    /// ("its name and “widgetpack”").
+    #[serde(default)]
+    pub lead: Option<String>,
     /// Milliseconds the answer took.
     pub ms: Option<u32>,
 }

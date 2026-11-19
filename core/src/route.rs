@@ -28,7 +28,8 @@
 //! | names no session, was made in a current session, and names no project but that session's | `clear`: a follow-up to the current session |
 //! | names one project, as written or with its parts said apart, and no session | `clear`: a new run in that project, opened there if it is a known project and not a workspace |
 //! | names several projects or sessions, or one name two projects have; or says a name only as it sounds, one letter off, or an everyday word that is a project's name ("test", "app") not used as a name | `ambiguous`: those are the choices first, at most three |
-//! | names nothing, and projects are known | `ambiguous`: at most three, those whose line about them shares the rarest words first, then where the last thought went, then the most recently worked on |
+//! | names no session and no project for certain, and one project clearly leads by what only it has ([`LEAD`]: its whole name nearly said, "vexa widget" for `vexa-widgets`, and a word only its line has, "widgetpack") | `clear`: a new run there, held to be undone as any; its line says why; with a model agreed to, the model is asked first, given it first |
+//! | names nothing, and projects are known | `ambiguous`: at most three, the one its words point at most by what only it has first, then those whose line about them shares the rarest words, then where the last thought went, then the most recently worked on |
 //! | names nothing, and no project is known | `unknown`: it stays an idea |
 //!
 //! A name is said as `names.rs` finds it. Where one project's name is said
@@ -666,6 +667,11 @@ pub fn sure(r: &Request) -> bool {
             let sessions = r.sessions.iter().any(|s| follows(&r.text, s));
             sessions || named.iter().any(decides)
         }
+        // One project only leads: a model is asked first, given it first.
+        Some(Route::Clear {
+            said: Some(state::Said::Leads { .. }),
+            ..
+        }) => false,
         Some(_) => true,
         None => false,
     }
@@ -691,13 +697,19 @@ pub fn by_names(r: &Request) -> Option<Route> {
     match (sessions.as_slice(), current, named.as_slice()) {
         ([s], ..) if only_in(s.project) => Some(clear(Destination::Session(s.id), None)),
         ([], Some(c), _) if only_in(c.project) => Some(clear(Destination::Session(c.id), None)),
-        ([], _, [h]) if decides(h) => Some(clear(h.p.to, quoted(r, h))),
-        ([], _, []) => None,
+        ([], _, [h]) if decides(h) => Some(clear(h.p.to, quoted(r, h).map(state::Said::As))),
+        // Where no name is said for certain, the project that clearly
+        // leads; else nothing decides.
+        ([], _, []) => lead(r),
         _ => {
             // A name said as it sounds ("queue grid" for `cuegrid`), a letter
             // off ("carrier" for `farrier`), or an everyday word ("write a
-            // test") is asked about, first among what else fits.
+            // test") is asked about, first among what else fits; unless one
+            // project clearly leads.
             let near = sessions.is_empty() && !named.iter().any(decides);
+            if let Some(lead) = lead(r).filter(|_| near) {
+                return Some(lead);
+            }
             let projects = named.iter().map(|h| Candidate {
                 label: h.p.name.clone(),
                 to: h.p.to,
@@ -726,6 +738,126 @@ pub fn by_names(r: &Request) -> Option<Route> {
             })
         }
     }
+}
+
+/// Whether a thought no name places for certain starts in the project that
+/// clearly leads ([`lead`]). `false` asks, as before there was the rule.
+pub const LEAD: bool = true;
+
+/// What a thought's words give each project and no other
+/// ([`names::evidence`]). An everyday word, one or many ("note" as
+/// "notes"), and the name of an agent (a thought names the agent it is for
+/// as often as its project), count for nothing.
+fn weigh(r: &Request) -> Vec<Vec<names::Evidence>> {
+    let agents: Vec<String> = (agents::all().into_iter())
+        .flat_map(|a| [parts(a.id()), parts(a.name())].concat())
+        .collect();
+    let none = |x: &str| {
+        let many = format!("{x}s");
+        EVERYDAY.contains(&x) || EVERYDAY.contains(&many.as_str()) || agents.iter().any(|a| a == x)
+    };
+    let known: Vec<names::Known> = (r.projects.iter())
+        .map(|p| names::Known {
+            names: (std::iter::once(&p.name).chain(&p.aliases))
+                .map(String::as_str)
+                .collect(),
+            about: &p.about,
+        })
+        .collect();
+    names::evidence(&name_words(&r.text), &known, &r.words, &none)
+}
+
+/// How much a project's evidence weighs: its whole name nearly said 2, a
+/// word only its name has 1, a word only its line has 1.
+fn score(e: &[names::Evidence]) -> usize {
+    (e.iter())
+        .map(|e| match e.piece {
+            names::Piece::Name => 2,
+            names::Piece::Word | names::Piece::About => 1,
+        })
+        .sum()
+}
+
+/// The project the thought's words point at more than at any other, by
+/// what only it has, something of its name among it; none where two tie.
+fn top(weighed: &[Vec<names::Evidence>]) -> Option<usize> {
+    let scores: Vec<usize> = weighed.iter().map(|e| score(e)).collect();
+    let best = (0..scores.len()).max_by_key(|k| scores[*k])?;
+    let alone = scores.iter().filter(|s| **s == scores[best]).count() == 1;
+    let named = weighed[best].iter().any(|e| e.piece != names::Piece::About);
+    (alone && named).then_some(best)
+}
+
+/// Why a project leads, in a few words: "its name and “widgetpack”".
+fn why_led(r: &Request, e: &[names::Evidence]) -> String {
+    let w = name_words(&r.text);
+    let all: Vec<String> = (e.iter())
+        .map(|e| match e.piece {
+            names::Piece::Name => "its name".to_owned(),
+            _ => format!(
+                "“{}”",
+                &r.text[w.spans[e.at.start].start..w.spans[e.at.end - 1].end]
+            ),
+        })
+        .collect();
+    match all.split_last() {
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+        None => String::new(),
+    }
+}
+
+/// Where no name is said for certain, the project that clearly leads: at
+/// least 3 by [`score`], from two words of the thought or more, something
+/// of its name among them: its whole name nearly said and one thing more
+/// only it has, or a word only its name has and two things more. Of every
+/// other project nothing is said but words several share, but for one
+/// word only one other's line has ("snippets", where `vexa-snippets` says
+/// it): never anything of another's name, and never a name the thought
+/// says in any way, but an everyday word's. It starts there, held to be
+/// undone as any thought; its line says why. A name said only as it
+/// sounds, a letter off or in ordinary words alone ("harbor master") is
+/// no evidence of its own: never a lead.
+fn lead(r: &Request) -> Option<Route> {
+    if !LEAD {
+        return None;
+    }
+    let weighed = weigh(r);
+    let k = top(&weighed)?;
+    let (p, e) = (&r.projects[k], &weighed[k]);
+    let others: Vec<&Vec<names::Evidence>> = (weighed.iter().enumerate())
+        .filter(|(o, e)| *o != k && !e.is_empty())
+        .map(|(_, e)| e)
+        .collect();
+    let little = match others.as_slice() {
+        [] => true,
+        [one] => matches!(one.as_slice(), [e] if e.piece == names::Piece::About),
+        _ => false,
+    };
+    if score(e) < 3 || e.len() < 2 || !little {
+        return None;
+    }
+    let w = name_words(&r.text);
+    let said = |q: &Named| {
+        let names = std::iter::once(&q.name).chain(&q.aliases);
+        names
+            .filter(|n| !everyday(n))
+            .any(|n| !said(&w, n).is_empty())
+    };
+    if r.projects.iter().any(|q| q.to != p.to && said(q)) {
+        return None;
+    }
+    let words = (e.iter())
+        .find(|e| e.piece == names::Piece::Name)
+        .map(|e| r.text[w.spans[e.at.start].start..w.spans[e.at.end - 1].end].to_owned());
+    Some(Route::Clear {
+        to: p.to,
+        brief: r.text.clone(),
+        said: Some(state::Said::Leads {
+            why: why_led(r, e),
+            words,
+        }),
+    })
 }
 
 /// Where a capture that names nothing may go: asked about, with at most
@@ -785,18 +917,31 @@ pub fn ranked(r: &Request, most: usize) -> Vec<(&Named, String)> {
 }
 
 /// The projects a capture points at by its own words, at most `most`,
-/// each with why: those it names, also those whose name its words are
-/// without using them as one (asked about with it first); then those whose
-/// line about them shares its rarer words; a name a letter off after the
-/// lines that share two words or more. Nothing else: none when its words
-/// point at none.
+/// each with why: the one it points at most by what only that one has
+/// ([`top`]); those it names, also those whose name its words are without
+/// using them as one (asked about with it first); those it gives something
+/// of their name only they have, the most first; then those whose line
+/// about them shares its rarer words; a name a letter off after the lines
+/// that share two words or more. Nothing else: none when its words point
+/// at none.
 pub fn likely(r: &Request, most: usize) -> Vec<(&Named, String)> {
     let mut out: Vec<(&Named, String)> = Vec::new();
     let add = |p, why: String, out: &mut Vec<_>| push(out, most, p, why);
+    let weighed = weigh(r);
+    if let Some(k) = top(&weighed) {
+        add(&r.projects[k], why_led(r, &weighed[k]), &mut out);
+    }
     let named = hits(r);
     let (near, said): (Vec<&Hit>, Vec<&Hit>) = named.iter().partition(|h| h.said.how == How::Near);
     for h in said {
         add(h.p, why_named(r, h), &mut out);
+    }
+    let mut of_name: Vec<usize> = (0..weighed.len())
+        .filter(|k| weighed[*k].iter().any(|e| e.piece != names::Piece::About))
+        .collect();
+    of_name.sort_by_key(|k| std::cmp::Reverse((score(&weighed[*k]), r.projects[*k].used)));
+    for k in of_name {
+        add(&r.projects[k], why_led(r, &weighed[k]), &mut out);
     }
     let lines: Vec<String> = (r.projects.iter())
         .map(|p| {
@@ -1382,7 +1527,10 @@ pub fn wire(route: Route) -> tasktap_proto::Route {
         Route::Clear { to, brief, said } => tasktap_proto::Route::Clear {
             to: to.into(),
             brief,
-            said,
+            said: said.and_then(|said| match said {
+                state::Said::As(words) => Some(words),
+                state::Said::Leads { words, .. } => words,
+            }),
         },
         Route::Ambiguous {
             prompt, candidates, ..
@@ -1416,7 +1564,7 @@ pub fn unwire(route: tasktap_proto::Route) -> Route {
         } => Route::Clear {
             to: to(place),
             brief,
-            said,
+            said: said.map(state::Said::As),
         },
         tasktap_proto::Route::Ambiguous { prompt, candidates } => Route::Ambiguous {
             brief: None,

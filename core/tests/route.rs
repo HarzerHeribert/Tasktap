@@ -175,6 +175,136 @@ fn the_local_router_follows_its_table() {
 }
 
 #[test]
+fn one_project_that_clearly_leads_starts_the_thought_and_a_near_miss_asks_with_it_first() {
+    let card = |name: &str, about: &str| Named {
+        to: Destination::Card(tasktap_proto::CardId::mint()),
+        name: name.into(),
+        aliases: Vec::new(),
+        about: about.into(),
+        folder: format!("/home/someone/projects/{name}"),
+        used: None,
+    };
+    let projects = vec![
+        card(
+            "vexa-widgets",
+            "The vexa widgetpack: the widgets we ship and their settings",
+        ),
+        card("vexa-notes", "Notes on vexa prompts and sessions"),
+        card(
+            "vexa-snippets",
+            "Snippets and slash commands for the vexa agent",
+        ),
+        card("zentrix-sync", "Syncs zentrix boards to a shared calendar"),
+        card("codex-relay", "Relays codex sessions into a tmux pane"),
+        card("harbormaster", "Deploys containers to a small fleet"),
+        card("cuegrid", "Cue sheets and a rehearsal timer"),
+        card("notes", ""),
+    ];
+    let words = tasktap_core::route::Lexicon(vec![
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/words.txt"),
+    ]);
+    let request = |text: &str| Request {
+        text: text.into(),
+        projects: projects.clone(),
+        words: words.clone(),
+        ..Request::default()
+    };
+    let to = |name: &str| projects.iter().find(|p| p.name == name).unwrap().to;
+    // No name said for certain, and one project has what no other has:
+    // its whole name nearly said and one thing more, or a word only its
+    // name has and two things more. It starts there, saying why; a model
+    // the person agreed to is still asked first.
+    for (text, name, why, words) in [
+        (
+            "research a new vexa widget to add to the vexa widgetpack",
+            "vexa-widgets",
+            "its name and “widgetpack”",
+            Some("vexa widget"),
+        ),
+        (
+            "the vexa note about prompts is out of date",
+            "vexa-notes",
+            "its name and “prompts”",
+            Some("vexa note"),
+        ),
+        (
+            "the zentrix boards show up twice in the calendar",
+            "zentrix-sync",
+            "“zentrix”, “boards” and “calendar”",
+            None,
+        ),
+        // One other project's line has one word of it ("snippets"), and no
+        // more: the person's own trial had such a word.
+        (
+            "write a new vexa widget for the widgetpack that adds snippets",
+            "vexa-widgets",
+            "its name and “widgetpack”",
+            Some("vexa widget"),
+        ),
+    ] {
+        let r = request(text);
+        let led = tasktap_core::state::Said::Leads {
+            why: why.into(),
+            words: words.map(Into::into),
+        };
+        let wanted = Route::Clear {
+            to: to(name),
+            brief: text.into(),
+            said: Some(led),
+        };
+        assert_eq!(local(&r), wanted, "{text}");
+        assert!(!tasktap_core::route::sure(&r), "{text}");
+    }
+    // A near miss asks, with the one most pointed at first.
+    for (text, first) in [
+        // Its name alone; its line alone.
+        ("look into the vexa widget list", "vexa-widgets"),
+        ("the vexa widgetpack crashes on start", "vexa-widgets"),
+        // Another project has more: two words only its line has, or a word
+        // only its name has; or two others have one each.
+        (
+            "research a new vexa widget for the widgetpack and the slash commands",
+            "vexa-widgets",
+        ),
+        (
+            "research a new vexa widget for the widgetpack and the zentrix one",
+            "vexa-widgets",
+        ),
+        (
+            "research a new vexa widget for the widgetpack, its snippets and the tmux pane",
+            "vexa-widgets",
+        ),
+        // Another project's name is said, in whatever way.
+        (
+            "the harbor master wants a new vexa widget for the widgetpack",
+            "vexa-widgets",
+        ),
+        // A word only its name has and only one more.
+        ("the zentrix calendar is wrong", "zentrix-sync"),
+        // A name said in ordinary words only, or only as it sounds.
+        ("the harbor masters want the fleet list", "harbormaster"),
+        ("in queue grid the rehearsal timer is off", "cuegrid"),
+        // An agent's name counts for nothing: the thought may be for it.
+        ("ask codex to fix the tmux pane resize", "codex-relay"),
+    ] {
+        match local(&request(text)) {
+            Route::Ambiguous { candidates, .. } => {
+                assert_eq!(candidates[0].to, to(first), "{text}: {candidates:?}")
+            }
+            other => panic!("{text}: {other:?}"),
+        }
+    }
+    // Two projects with something only each has: both are asked about.
+    let Route::Ambiguous { candidates, .. } =
+        local(&request("a vexa widget for the zentrix calendar"))
+    else {
+        panic!("asked")
+    };
+    let first: Vec<Destination> = candidates.iter().take(2).map(|c| c.to).collect();
+    assert!(first.contains(&to("vexa-widgets")) && first.contains(&to("zentrix-sync")));
+}
+
+#[test]
 fn a_normal_build_routes_by_name_and_hints_the_same() {
     let data = Folder::new("route");
     let core = Core::with_agents(&data.0);

@@ -12,6 +12,12 @@ The app's identity is `io.github.harzerheribert.tasktap`, and it keeps everythin
 
 Tasktap is in the Dock and has a menu. Closing the workspace window leaves the notch; the Dock icon brings the workspace back. Quit it with ⌘Q. The core keeps running a minute after the last window is gone, or as long as a terminal runs: quitting never stops a session.
 
+### A review copy beside it
+
+    host/scripts/build-review.sh [--open]
+
+builds `host/target/review/release/bundle/macos/Tasktap Review.app`: the same app, with the host's `review` feature and `tauri.review.conf.json` over `tauri.conf.json`, to try a change while Tasktap runs. Its identity is `io.github.harzerheribert.tasktap.review`, and everything of it is in `~/Library/Application Support/Tasktap Review` (Windows: `%LOCALAPPDATA%\Tasktap Review`): its own core and database, socket or pipe, copy of the core and device key. It has no notch (on Windows no tab until a display is chosen in its Settings); it takes no global key until a capture key is recorded in its Settings, which then opens its workspace's capture, and never the answer keys; closing its window leaves it in the Dock. It never updates itself and never takes over another folder. Its core keeps a speech service's key in the Keychain under a service of its own, `Tasktap Review` (`TASKTAP_KEY_SERVICE`, `core/src/secrets.rs`), so the two apps' keys never meet.
+
 ## What works
 
 - **The notch.** Glance, capture with its destination chip (your pick, else where the core's router would send the words, else the default project), Undo, the answer card, results. See the notch section of `docs/rebuild-plan.md`. Its Open shows the session in the workspace.

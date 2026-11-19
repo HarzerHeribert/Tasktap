@@ -142,12 +142,14 @@ test('why a thought waits in For later: the four reasons, whatever its route say
 });
 
 test('placing by a model is on only for what this Tasktap would ask', () => {
-  const tools = [{ agent: 'claude', model: 'haiku' }, { agent: 'codex', model: 'gpt-6-luna' }];
+  const tools = [{ agent: 'claude', model: 'haiku', terms: 2 }, { agent: 'codex', model: 'gpt-6-luna', terms: 2 }];
   assert.equal(placing(null, tools), 'off');
   assert.equal(placing(undefined, tools), 'off');
-  assert.equal(placing({ agent: 'claude', model: 'haiku' }, tools), 'on');
-  assert.equal(placing({ agent: 'codex', model: 'gpt-5-mini' }, tools), 'again');
-  assert.equal(placing({ agent: 'codex', model: 'gpt-6-luna' }, [tools[0]!]), 'again');
+  assert.equal(placing({ agent: 'claude', model: 'haiku', terms: 2 }, tools), 'on');
+  // Agreed to what was sent before projects had a line each: asked again.
+  assert.equal(placing({ agent: 'claude', model: 'haiku', terms: 0 }, tools), 'again');
+  assert.equal(placing({ agent: 'codex', model: 'gpt-5-mini', terms: 2 }, tools), 'again');
+  assert.equal(placing({ agent: 'codex', model: 'gpt-6-luna', terms: 2 }, [tools[0]!]), 'again');
 });
 
 test('a ring counts what its agent works on, and asking is its state, not part of the count', () => {

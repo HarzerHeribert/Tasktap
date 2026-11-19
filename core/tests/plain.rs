@@ -232,7 +232,14 @@ fn an_agent_the_person_added_is_listed_runs_its_command_and_goes_when_removed() 
     // the end of the work: done with 0, failed with anything else.
     let to = Place::Project(s.project);
     let brief = "Tidy the folder.".into();
-    s.script(Route::Clear { to, brief }, None);
+    s.script(
+        Route::Clear {
+            said: None,
+            to,
+            brief,
+        },
+        None,
+    );
     for (agent, exit, status) in [
         ("own-tidy", "exit:0", Status::Done),
         ("own-fails", "exit:3", Status::Failed),

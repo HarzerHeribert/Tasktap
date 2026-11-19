@@ -84,15 +84,36 @@ fn register(app: &AppHandle) -> impl FnMut(&Key, bool) -> Result<(), String> + '
     }
 }
 
-/// The preference as the core's records have it now: `None` is this system's own key.
+/// The key with none chosen: this system's own; in a review build none, so that it never takes the key of the
+/// person's own Tasktap, which it runs beside.
+fn usual() -> Option<Key> {
+    (!crate::REVIEW).then(|| Key::capture(cfg!(target_os = "macos")))
+}
+
+/// Makes `wanted` the registered key as `follow` does, or with none lets the registered one go.
+fn hold(
+    held: &mut Option<Key>,
+    wanted: Option<Key>,
+    set: impl FnMut(&Key, bool) -> Result<(), String>,
+) -> Result<(), String> {
+    match wanted {
+        Some(wanted) => follow(held, wanted, set),
+        None => {
+            back(held, None, set);
+            Ok(())
+        }
+    }
+}
+
+/// The preference as the core's records have it now: `None` is the usual key.
 pub fn prefer(app: &AppHandle, key: Option<Key>) {
-    let wanted = key.unwrap_or_else(|| Key::capture(cfg!(target_os = "macos")));
-    if follow(&mut CAPTURE.lock().unwrap(), wanted.clone(), register(app)).is_ok() {
+    let wanted = key.or_else(usual);
+    if hold(&mut CAPTURE.lock().unwrap(), wanted.clone(), register(app)).is_ok() {
         crate::log(json!({"event": "capture-key", "ok": true, "key": wanted}));
     }
 }
 
-/// `host.capture_key {key?}`. With `key`, a shortcut or null for this system's own: the system is
+/// `host.capture_key {key?}`. With `key`, a shortcut or null for the usual key (`usual`): the system is
 /// asked for it, and only when it took it the preference is stored (or deleted, for null); the core's
 /// refusal, or its silence, puts back what was registered before. The reply is `{key}`, the key
 /// registered now, or null when none is.
@@ -101,9 +122,9 @@ pub fn call(app: &AppHandle, args: &Value) -> Result<Value, String> {
         return Ok(json!({"key": *CAPTURE.lock().unwrap()}));
     };
     let key: Option<Key> = serde_json::from_value(key.clone()).map_err(|e| e.to_string())?;
-    let wanted = key.clone().unwrap_or_else(|| Key::capture(cfg!(target_os = "macos")));
+    let wanted = key.clone().or_else(usual);
     let before = CAPTURE.lock().unwrap().clone();
-    follow(&mut CAPTURE.lock().unwrap(), wanted.clone(), register(app))?;
+    hold(&mut CAPTURE.lock().unwrap(), wanted.clone(), register(app))?;
     let (name, stored) = match &key {
         Some(key) => ("put", json!({"c": "prefs", "id": "capture_key", "patch": key})),
         None => ("delete", json!({"c": "prefs", "id": "capture_key"})),
@@ -195,6 +216,21 @@ mod tests {
         follow(&mut held, other, system.set()).unwrap();
         back(&mut held, None, system.set());
         assert_eq!((held, system.registered.len()), (None, 0));
+    }
+
+    #[test]
+    fn a_review_build_takes_no_key_until_one_is_chosen() {
+        let other = key(true, false, "KeyK");
+        assert_eq!(usual(), (!crate::REVIEW).then(|| Key::capture(cfg!(target_os = "macos"))));
+        let mut system = System { taken: Vec::new(), registered: Vec::new() };
+        let mut held = None;
+        hold(&mut held, usual(), system.set()).unwrap();
+        assert_eq!(system.registered.len(), usize::from(!crate::REVIEW));
+        // A key chosen is registered in either build, and the usual one asked for again lets it go in a review build.
+        hold(&mut held, Some(other.clone()), system.set()).unwrap();
+        assert_eq!((held.clone(), system.registered.clone()), (Some(other.clone()), vec![other]));
+        hold(&mut held, usual(), system.set()).unwrap();
+        assert_eq!((held.clone(), system.registered.clone()), (usual(), usual().into_iter().collect::<Vec<_>>()));
     }
 
     #[test]

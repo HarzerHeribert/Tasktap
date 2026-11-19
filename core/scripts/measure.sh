@@ -97,8 +97,13 @@ BIN=$tmp/tasktap
 FBIN=$tmp/tasktap-fixtures
 EX=$core/target/release/examples/measure
 
-grep -aq "fixture.stream" "$BIN" && die "the normal release binary contains the test fixtures"
-grep -aq "fixture.stream" "$FBIN" || die "the fixtures binary lacks fixture.stream"
+# A build without the test fixtures has no fixture role, and refuses one as a usage error; the fixtures build runs it.
+# (The probe was once the text of a fixture call's name, but whether such a text stays in a binary is the
+# optimizer's to decide: it compares short names as numbers.)
+code=0
+"$BIN" fixture-terminal </dev/null >/dev/null 2>&1 || code=$?
+[ "$code" -eq 64 ] || die "the normal release binary does not refuse the fixture role as a usage error (exit $code, not 64)"
+"$FBIN" fixture-terminal </dev/null >/dev/null 2>&1 || die "the fixtures binary lacks its fixtures"
 
 size=$(wc -c <"$BIN" | tr -d ' ')
 
@@ -119,6 +124,9 @@ done
 # with no program of theirs run; that is start-up work too, not part of the window.
 wait_for "$tmp/hold1.log" '^detected$' || die "the agents were not listed: $(cat "$tmp/hold1.log")"
 sleep 2 # let the start-up work end; it is not part of the window
+# And over the socket: the release core refuses a fixture call as one it does not have.
+said=$("$EX" fixtures "$tmp/data") || die "the fixture call client failed"
+[ "$said" = "refused unknown" ] || die "the normal release core answers a fixture call: $said"
 
 # --- memory, with the same two clients connected and no terminal ----------------
 
@@ -187,6 +195,8 @@ mkdir "$tmp/fdata"
 "$FBIN" serve --data "$tmp/fdata" --idle-ms 600000 >"$tmp/fserve.log" 2>&1 </dev/null &
 pids=$!
 wait_for "$tmp/fserve.log" '^ready$' || die "the fixtures service did not report ready"
+said=$("$EX" fixtures "$tmp/fdata") || die "the fixture call client failed"
+[ "$said" = "answered" ] || die "the fixtures core refuses a fixture call: $said"
 "$EX" stream "$tmp/fdata" "$STREAM_MIB" "$STREAM_RUNS" >"$tmp/stream.out" || die "the stream client failed"
 down=$(awk '$1 == "down" { print $2 }' "$tmp/stream.out" | median)
 up=$(awk '$1 == "up" { print $2 }' "$tmp/stream.out" | median)

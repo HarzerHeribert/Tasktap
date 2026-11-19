@@ -67,7 +67,7 @@ const mine = `(w) => Object.assign(w.__speech.talk, { id: w.__fake.records.dicta
 const VIEWS = [
   ['busy'], ['normal'], ['quiet'], ['first'], ['busy', `(w) => (w.__ws.ui.fold = 'results')`], ['busy', `(w) => (w.__ws.ui.fold = 'later')`], ['busy', `(w) => w.__ws.show('earlier')`],
   ['workspace', `(w) => w.__ws.show(Object.values(w.__fake.records.ids.projects)[0])`], ['busy', `(w) => w.__ws.show(Object.values(w.__fake.records.ids.projects)[2])`], ['busy', `(w) => w.__ws.command('sidebar')`],
-  ...['thoughts', 'voice', 'agents', 'appearance', 'terminal', 'about'].map((at) => ['busy', sheet({ kind: 'settings', at })]), ['normal', sheet({ kind: 'settings', at: 'about' }), 'plain'], ['busy', sheet({ kind: 'close-tab', project: '', id: '' })], ['busy', sheet({ kind: 'capture' })], ['busy', sheet({ kind: 'open-workspace' })],
+  ...['thoughts', 'projects', 'voice', 'agents', 'appearance', 'terminal', 'about'].map((at) => ['busy', sheet({ kind: 'settings', at })]), ['normal', sheet({ kind: 'settings', at: 'about' }), 'plain'], ['busy', sheet({ kind: 'close-tab', project: '', id: '' })], ['busy', sheet({ kind: 'capture' })], ['busy', sheet({ kind: 'open-workspace' })],
   ['workspace', `(w) => (w.__ws.ui.sheet = { kind: 'review', thought: [...w.__ws.records.thoughts.values()].find((t) => t.workdir?.changes === 'pending').id })`],
   ['busy', `(w) => (w.__ws.ui.sheet = { kind: 'send', thought: [...w.__ws.records.thoughts.values()].find((t) => t.mode === 'note').id })`], ['busy', `(w) => w.document.querySelector('#dest-chip').click()`],
   ['normal', '', 'held'], ['normal', '', 'two'], ['normal', '', 'placing'], ['normal', '', 'gone'], ['busy', '', 'asked'], ['normal', `(w) => (w.__ws.ui.fold = 'later')`, 'later-gone'],

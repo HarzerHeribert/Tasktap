@@ -83,7 +83,10 @@ export const endedSays = (t: Pick<Thought, 'agent'>) =>
   records.agents.get(t.agent ?? '')?.note ?? 'Its terminal says what it did: Tasktap heard only that it ended.';
 /** Whether an agent can be picked to run something: its program is here, and it runs on this system. */
 export const runs = (a: AgentHealth | undefined) => !!a?.installed && a.supported;
-export const projectName = (id: string | null | undefined) => (id && records.projects.get(id)?.name) || 'For later';
+/** What a project is called: a workspace, or a project Tasktap knows that is not open (ids never meet). */
+export const projectName = (id: string | null | undefined) => (id && (records.projects.get(id)?.name ?? records.cards.get(id)?.name)) || 'For later';
+/** How a capture or a move names a destination: a workspace by `project_id`, a project Tasktap knows by `card_id`. */
+export const placeArgs = (id: string) => (records.projects.has(id) ? { project_id: id } : { card_id: id });
 export const title = (t: Thought | undefined) => {
   const line = t?.text.trim().split('\n')[0] ?? '';
   return line.length > 90 ? line.slice(0, 89) + '…' : line;

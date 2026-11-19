@@ -73,7 +73,8 @@ static UPDATES: Mutex<Updates> = Mutex::new(Updates { state: State::Unknown, loo
 /// built: a key in place of the file's when the build was given one, and a check's own feed
 /// (`TASKTAP_UPDATE_FEED`, on this machine) in place of the release's.
 pub fn configure(config: &mut tauri::Config) -> bool {
-    let Some(updater) = config.plugins.0.get_mut("updater").filter(|_| RELEASED) else {
+    // A review build (`crate::REVIEW`) never updates: it is tried beside the person's own Tasktap, which does.
+    let Some(updater) = config.plugins.0.get_mut("updater").filter(|_| RELEASED && !crate::REVIEW) else {
         return false;
     };
     if let Some(key) = KEY.map(str::trim).filter(|k| !k.is_empty()) {

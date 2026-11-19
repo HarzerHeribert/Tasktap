@@ -1,4 +1,4 @@
-//! The one table of calls (design §1, §2): the 41 of the 47 core calls built
+//! The one table of calls (design §1, §2): the 45 of the 51 core calls built
 //! so far, the shim's ability, and the test fixtures.
 //!
 //! Each call is a type here, named for the call (`thought.capture` is
@@ -97,6 +97,11 @@ table! {
     ProjectAdd "project.add" Device (AddProject) -> ProjectId;
     ProjectScan "project.scan" Device (Empty) -> ();
     ProjectClose "project.close" Device (CloseProject) -> ();
+    // What Tasktap knows of the person's projects (docs/projects-design.md)
+    LookAdd "look.add" Device (crate::args::AddLook) -> crate::ids::LookId;
+    ProjectsOffer "projects.offer" Device (Empty) -> crate::args::Offer;
+    ProjectsLook "projects.look" Device (Empty) -> crate::args::Looked;
+    ProjectsFind "projects.find" Device (crate::args::Find) -> crate::args::Finds;
     // Files and previews (design §9)
     FileRead "file.read" Device (crate::args::ReadFile) -> crate::args::FileRead;
     PreviewOpen "preview.open" Either (crate::args::OpenPreview) -> crate::ids::PreviewId;

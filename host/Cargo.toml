@@ -8,6 +8,11 @@ publish = false
 name = "tasktap-app"
 path = "src/main.rs"
 
+[features]
+# Tasktap Review: the same app under another name, data folder and core, to try beside Tasktap Next (main.rs, REVIEW).
+# Set only by scripts/build-review.sh.
+review = []
+
 [dependencies]
 # The pages are always the built ones in ../ui/dist, embedded at compile time.
 tauri = { version = "2.12", features = ["macos-private-api", "custom-protocol"] }

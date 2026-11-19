@@ -10,8 +10,13 @@
 
 use std::sync::Arc;
 
-/// The service the core's keys are stored under.
-pub const SERVICE: &str = "Tasktap";
+/// The service the core's keys are stored under: another for a build made
+/// to try beside the person's own app (`host/scripts/build-review.sh`), so
+/// that it never reads or replaces that app's keys.
+pub const SERVICE: &str = match option_env!("TASKTAP_KEY_SERVICE") {
+    Some(service) => service,
+    None => "Tasktap",
+};
 
 /// A store of keys by name.
 pub trait Vault: Send + Sync {

@@ -67,6 +67,10 @@ ids! {
     DeviceId,
     DictationId,
     PreviewId,
+    /// What Tasktap knows of one folder that is, or holds a copy of, a project.
+    CardId,
+    /// One place Tasktap learns of projects from: an agent's history, or a folder to look in.
+    LookId,
     /// Names one attempt to start a process, so a repeated call never starts it twice.
     AttemptId,
 }

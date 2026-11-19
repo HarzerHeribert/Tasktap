@@ -201,6 +201,16 @@ impl Seams {
         crate::route::Local.route(request)
     }
 
+    /// Whether the router's answer settles where the thought goes: the
+    /// names it says decide, or the fixture router answered.
+    fn sure(&self, request: &crate::route::Request) -> bool {
+        #[cfg(feature = "fixtures")]
+        if self.fixture.is_some() {
+            return true;
+        }
+        crate::route::sure(request)
+    }
+
     /// The fixture launcher, where it stands in for the real one.
     #[cfg(feature = "fixtures")]
     fn launcher(&mut self) -> Option<&mut dyn Launcher> {
@@ -435,12 +445,16 @@ fn route(
         Some(to) => Route::Clear {
             to,
             brief: asked.text.clone(),
+            said: None,
         },
         None => core.seams.route(&asked),
     };
+    // Sure: the names the thought says decide (or, scripted, the fixture
+    // router did). A question the match would ask by the lines about the
+    // projects is no reason not to ask a model the person agreed to.
     let sure = match picked {
         Some(_) => short(&asked.text),
-        None => !matches!(local, Route::Unknown),
+        None => !matches!(local, Route::Unknown) && core.seams.sure(&asked),
     };
     let tool = match by.filter(|_| !sure) {
         Some(by) => consented(&by).and_then(|tool| askable(&asked.text).map(|()| tool)),

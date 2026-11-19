@@ -168,8 +168,9 @@ fn undo_cancels_the_hold_and_start_launches_at_once_and_only_once() {
 
     // The person picks the project again: held again.
     let pick = Assign {
+        card_id: None,
         id: t,
-        project_id: s.project,
+        project_id: Some(s.project),
     };
     s.w.ok::<call::ThoughtUpdate>(&pick);
     let th = s.w.model.thought(t);
@@ -325,10 +326,12 @@ fn an_ambiguous_route_asks_and_an_unknown_one_keeps_an_idea() {
     let site = s.project("site");
     let candidates = vec![
         Candidate {
+            why: String::new(),
             label: "app".into(),
             to: Place::Project(s.project),
         },
         Candidate {
+            why: String::new(),
             label: "site".into(),
             to: Place::Project(site),
         },
@@ -361,8 +364,9 @@ fn an_ambiguous_route_asks_and_an_unknown_one_keeps_an_idea() {
     assert_eq!((th.status, th.mode), (Status::Captured, Mode::Note));
     // Assigning the idea to a project starts it.
     let pick = Assign {
+        card_id: None,
         id: idea,
-        project_id: s.project,
+        project_id: Some(s.project),
     };
     s.w.ok::<call::ThoughtUpdate>(&pick);
     let th = s.w.model.thought(idea);
@@ -411,13 +415,15 @@ fn a_capture_repeats_by_id_and_calls_that_do_not_fit_are_refused() {
     s.tick(HOLD_MS);
     assert_eq!(s.w.model.status(id), Status::Working);
     let pick = Assign {
+        card_id: None,
         id,
-        project_id: s.project,
+        project_id: Some(s.project),
     };
     assert_eq!(code(s.w.call::<call::ThoughtUpdate>(&pick)), Code::Conflict);
     let nowhere = Assign {
+        card_id: None,
         id: idea,
-        project_id: ProjectId::mint(),
+        project_id: Some(ProjectId::mint()),
     };
     assert_eq!(code(s.w.call::<call::ThoughtUpdate>(&nowhere)), Code::Gone);
 }
@@ -530,6 +536,7 @@ fn follow_ups_are_bound_in_the_order_they_were_delivered_whatever_their_ids() {
 fn settling_keeps_or_discards_pending_changes_through_the_launcher() {
     let mut s = Scene::new("qe");
     let pending = |s: &Scene, text: &str| Thought {
+        card_id: None,
         id: ThoughtId::mint(),
         rev: Rev::ZERO,
         text: text.into(),
@@ -663,12 +670,12 @@ fn without_its_fixtures_a_build_routes_by_name_and_runs_only_agents_it_has() {
     };
     let project = w.ok::<call::ProjectAdd>(&add);
 
-    // The local router routes it: naming no project, it stays an idea
-    // (`tests/route.rs` proves the rest).
+    // The local router routes it: naming no project, it is asked where it
+    // goes, with the one folder open (`tests/route.rs` proves the rest).
     let t = ThoughtId::mint();
     w.ok::<call::ThoughtCapture>(&typed(t, "fix it"));
     let th = w.model.thought(t);
-    assert_eq!((th.status, th.mode), (Status::Captured, Mode::Note));
+    assert_eq!((th.status, th.mode), (Status::NeedsYou, Mode::Ask));
 
     // A pick needs no router: with no hold it launches at once, for real.
     // The agent it names is not installed here, so the run fails and says
@@ -1380,6 +1387,7 @@ fn glance_shows_the_oldest_open_question_whichever_clock_runs() {
     let route = Route::Ambiguous {
         prompt: "Which project?".into(),
         candidates: vec![Candidate {
+            why: String::new(),
             label: "app".into(),
             to: Place::Project(s.project),
         }],
@@ -1594,10 +1602,12 @@ fn the_routers_question_tells_the_host_where_it_should_go() {
     let site = s.project("site");
     let candidates = vec![
         Candidate {
+            why: String::new(),
             label: "app".into(),
             to: Place::Project(s.project),
         },
         Candidate {
+            why: String::new(),
             label: "site".into(),
             to: Place::Project(site),
         },

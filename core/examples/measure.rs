@@ -13,6 +13,8 @@
 //!     measure pty <n>                  the same n keys through a bare pseudo-terminal, no core
 //!     measure terminals <data> <n>     starts n terminals that each write 2.5 MB, so their history is
 //!                                      full, and then wait; prints `filled` and holds until killed
+//!     measure fixtures <data>          asks for `fixture.records` (writing nothing); prints `answered`, or
+//!                                      `refused <code>` as a core without its test fixtures refuses it
 //!     measure commits <folder> <n> <fullfsync>
 //!                                      n small SQLite commits as the store makes them (WAL,
 //!                                      synchronous=FULL), with F_FULLFSYNC when <fullfsync> is 1;
@@ -69,10 +71,28 @@ fn main() -> io::Result<()> {
         "pty" => pty(number(1)?),
         "terminals" => terminals(Path::new(arg(1)), number(2)?),
         "commits" => commits(Path::new(arg(1)), number(2)?, arg(3) == "1"),
+        "fixtures" => fixtures(Path::new(arg(1))),
         _ => Err(io::Error::other(
             "usage: see the top of examples/measure.rs",
         )),
     }
+}
+
+/// Whether the core answers a fixture call: one that writes nothing.
+fn fixtures(data: &Path) -> io::Result<()> {
+    let mut c = device(data)?;
+    let none = tasktap_proto::FixtureRecords { sets: Vec::new() };
+    match c.call::<call::FixtureRecords>(&none)? {
+        Ok(_) => println!("answered"),
+        Err(e) => println!(
+            "refused {}",
+            serde_json::to_value(e.code)
+                .unwrap_or_default()
+                .as_str()
+                .unwrap_or("?")
+        ),
+    }
+    Ok(())
 }
 
 /// A new connection as a newly registered device.

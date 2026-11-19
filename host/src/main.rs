@@ -65,6 +65,14 @@ fn keys(code: Code) -> Shortcut {
 }
 const ANSWER_KEYS: [Code; 3] = [Code::KeyY, Code::KeyN, Code::KeyJ];
 
+/// Which app this is. A build with the `review` feature (only `scripts/build-review.sh` sets it, with
+/// `tauri.review.conf.json` for the bundle's name and identifier) is Tasktap Review: the same app, to try beside the
+/// person's own Tasktap while it runs. It has a data folder of its own, and with it its own core, socket or pipe,
+/// copy of the core and device key; no notch (on Windows no tab until one is chosen in its Settings), since the
+/// person's own is in the same place; and no global keys until the person records a capture key in its Settings.
+pub(crate) const REVIEW: bool = cfg!(feature = "review");
+pub(crate) const NAME: &str = if REVIEW { "Tasktap Review" } else { "Tasktap" };
+
 fn log(value: Value) {
     println!("{value}");
 }
@@ -284,7 +292,8 @@ fn glance(app: &AppHandle, g: tasktap_proto::Glance) {
     let host = app.state::<Host>();
     let before = std::mem::replace(&mut *host.question.lock().unwrap(), question);
     presence::question(app, asks(app));
-    if before.is_some() == question.is_some() {
+    // A review build takes none of them: they are the person's own app's, and its questions are answered in its window.
+    if REVIEW || before.is_some() == question.is_some() {
         return;
     }
     let answer = ANSWER_KEYS.map(keys);
@@ -505,10 +514,11 @@ fn data_folder() -> std::path::PathBuf {
         Some(dir) => dir.into(),
         #[cfg(target_os = "macos")]
         None => std::path::Path::new(&std::env::var_os("HOME").unwrap_or_default())
-            .join("Library/Application Support/Tasktap"),
+            .join("Library/Application Support")
+            .join(NAME),
         // The person's own, never roaming: the core's database and its pipe belong to this machine.
         #[cfg(windows)]
-        None => std::path::Path::new(&std::env::var_os("LOCALAPPDATA").unwrap_or_default()).join("Tasktap"),
+        None => std::path::Path::new(&std::env::var_os("LOCALAPPDATA").unwrap_or_default()).join(NAME),
     }
 }
 
@@ -627,44 +637,50 @@ fn main() {
 
             // Tauri's own window stays hidden; its web view moves into a real non-activating panel,
             // shown once the page asks: tao makes every window visible at launch key. Windows has no
-            // counterpart yet, and so no notch page either: there the workspace window is the app.
+            // counterpart yet, and so no notch page either: there the workspace window is the app. A review
+            // build has none either, as on Windows: the person's own Tasktap has its notch in the same place, and
+            // the capture key, once one is chosen, opens the workspace's.
             #[cfg(target_os = "macos")]
-            let window = WebviewWindowBuilder::new(app, "notch", WebviewUrl::App("notch.html".into()))
-                .decorations(false)
-                .transparent(true)
-                .shadow(false)
-                .resizable(false)
-                .focused(false)
-                .visible(false)
-                .accept_first_mouse(true)
-                .visible_on_all_workspaces(true)
-                .inner_size(246.0, 54.0)
-                .build()?;
-            #[cfg(target_os = "macos")]
-            let handle = app.handle().clone();
-            #[cfg(target_os = "macos")]
-            window.with_webview(move |webview| {
-                let mut st = notch::NOTCH.lock().unwrap();
-                st.panel = native::make_panel(webview.inner() as usize);
-                notch::position(&handle, &mut st);
-            })?;
-            // A passive run (the checks) is driven by its debug channel alone: the person's own
-            // pointer passing the notch must not open or hold it while a check reads it.
-            // What the system says of where the person is, which decides where Tasktap shows itself (presence.rs): this
-            // app becoming the active one or not, a full-screen app or a presentation coming or going, a click outside
-            // the app or the panel losing the keyboard. A passive run hears none of it and is told by its check.
+            if !REVIEW {
+                let window = WebviewWindowBuilder::new(app, "notch", WebviewUrl::App("notch.html".into()))
+                    .decorations(false)
+                    .transparent(true)
+                    .shadow(false)
+                    .resizable(false)
+                    .focused(false)
+                    .visible(false)
+                    .accept_first_mouse(true)
+                    .visible_on_all_workspaces(true)
+                    .inner_size(246.0, 54.0)
+                    .build()?;
+                let handle = app.handle().clone();
+                window.with_webview(move |webview| {
+                    let mut st = notch::NOTCH.lock().unwrap();
+                    st.panel = native::make_panel(webview.inner() as usize);
+                    notch::position(&handle, &mut st);
+                })?;
+                // A passive run (the checks) is driven by its debug channel alone: the person's own
+                // pointer passing the notch must not open or hold it while a check reads it.
+                // What the system says of where the person is, which decides where Tasktap shows itself
+                // (presence.rs): a full-screen app or a presentation coming or going, a click outside the app or
+                // the panel losing the keyboard. A passive run hears none of it and is told by its check.
+                if !notch::NOTCH.lock().unwrap().passive {
+                    let handle = app.handle().clone();
+                    native::watch_pointer(move || notch::moved(&handle));
+                    let handle = app.handle().clone();
+                    native::watch_spaces(move || full_screen(&handle, true));
+                    full_screen(app.handle(), false);
+                    let (handle, panel) = (app.handle().clone(), notch::NOTCH.lock().unwrap().panel);
+                    native::watch_elsewhere(panel, move || notch::elsewhere(&handle));
+                }
+            }
+            // This app becoming the active one or not (a review build's too, which has no notch: its window is
+            // where it shows itself).
             #[cfg(target_os = "macos")]
             if !notch::NOTCH.lock().unwrap().passive {
                 let handle = app.handle().clone();
-                native::watch_pointer(move || notch::moved(&handle));
-                let handle = app.handle().clone();
                 native::watch_active(move |active| presence::told(&handle, Some(active), None));
                 presence::told(app.handle(), Some(native::app_active()), None);
-                let handle = app.handle().clone();
-                native::watch_spaces(move || full_screen(&handle, true));
-                full_screen(app.handle(), false);
-                let (handle, panel) = (app.handle().clone(), notch::NOTCH.lock().unwrap().panel);
-                native::watch_elsewhere(panel, move || notch::elsewhere(&handle));
             }
 
             // Windows: the helper window, the icon in the notification area and what says when to hide the tab.
@@ -703,13 +719,17 @@ fn main() {
     // Closing the workspace never quits: the notch's own (hidden) Tauri window stays open. The
     // Dock icon brings the workspace back; Quit in the menu ends the app. On Windows the app stays in the
     // notification area, with or without the tab: its icon brings the workspace back, and Quit in the icon's menu
-    // or Exit in the window's ends it. A check's run has no icon and ends with its last window, as before.
+    // or Exit in the window's ends it. A check's run has no icon and ends with its last window, as before. A review
+    // build on the Mac has no notch window, so closing the workspace leaves it in the Dock in the same way.
     #[cfg_attr(windows, allow(unused_variables))]
     app.run(|app, event| match event {
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => drop(workspace::show(app, None)),
-        #[cfg(windows)]
-        RunEvent::ExitRequested { code: None, api, .. } if !notch::NOTCH.lock().unwrap().passive => api.prevent_exit(),
+        RunEvent::ExitRequested { code: None, api, .. }
+            if (cfg!(windows) || REVIEW) && !notch::NOTCH.lock().unwrap().passive =>
+        {
+            api.prevent_exit()
+        }
         RunEvent::ExitRequested { .. } => {
             workspace::quit();
             log(json!({"event": "quitting"}))

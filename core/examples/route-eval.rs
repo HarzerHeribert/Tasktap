@@ -201,13 +201,24 @@ struct Row {
     brief: String,
 }
 
+/// The project a named project is, by its destination.
+fn project_id(p: &Named) -> ProjectId {
+    match p.to {
+        Destination::New(id) => id,
+        _ => unreachable!("a project is a new destination"),
+    }
+}
+
 impl World {
     fn new(f: &Fixture) -> World {
         let projects: Vec<Named> = (f.projects.iter())
             .map(|p| Named {
-                id: ProjectId::mint(),
+                to: Destination::New(ProjectId::mint()),
                 name: p.name.clone(),
                 aliases: p.aliases.clone(),
+                about: String::new(),
+                folder: String::new(),
+                used: None,
             })
             .collect();
         let project = |name: &str| projects.iter().find(|p| p.name == name).expect("project");
@@ -217,7 +228,7 @@ impl World {
                 let followed = Followed {
                     id: SessionId::mint(),
                     name: s.name.clone(),
-                    project: p.id,
+                    project: project_id(p),
                     label: format!("The {} session in {}", s.agent, p.name),
                     agent: s.agent.clone(),
                     state: s.state,
@@ -256,7 +267,7 @@ impl World {
         let project = self.projects.iter().find(|p| p.name == name);
         match (session, project) {
             (Some((_, s)), _) => Destination::Session(s.id),
-            (_, Some(p)) => Destination::New(p.id),
+            (_, Some(p)) => Destination::New(project_id(p)),
             _ => panic!("the fixture names {name}, which it does not have"),
         }
     }
@@ -264,27 +275,30 @@ impl World {
     fn named(&self, to: Destination) -> String {
         match to {
             Destination::New(id) => {
-                let p = self.projects.iter().find(|p| p.id == id);
+                let p = self.projects.iter().find(|p| project_id(p) == id);
                 p.map(|p| p.name.clone()).unwrap_or_default()
             }
             Destination::Session(id) => {
                 let s = self.sessions.iter().find(|(_, s)| s.id == id);
                 s.map(|(key, _)| key.clone()).unwrap_or_default()
             }
+            Destination::Card(_) => String::new(),
         }
     }
 
     fn request(&self, t: &Thought) -> Request {
         Request {
+            last: None,
             text: t.text.clone(),
             current: t.current.as_deref().map(|key| match self.place(key) {
                 Destination::Session(id) => id,
-                Destination::New(_) => panic!("current is a session"),
+                Destination::New(_) | Destination::Card(_) => panic!("current is a session"),
             }),
             picked: t.picked.as_deref().map(|name| self.place(name)),
             projects: self.projects.clone(),
             sessions: self.sessions.iter().map(|(_, s)| s.clone()).collect(),
             recent: self.recent.clone(),
+            words: Default::default(),
         }
     }
 
@@ -302,11 +316,11 @@ impl World {
             }
         };
         let (right, went, brief) = match (route, &t.expect) {
-            (Route::Clear { to, brief }, Expect::Clear { to: wanted }) => {
+            (Route::Clear { to, brief, .. }, Expect::Clear { to: wanted }) => {
                 let right = wanted.iter().any(|name| self.place(name) == *to);
                 (right, self.named(*to), brief.clone())
             }
-            (Route::Clear { to, brief }, _) => (false, self.named(*to), brief.clone()),
+            (Route::Clear { to, brief, .. }, _) => (false, self.named(*to), brief.clone()),
             (
                 Route::Ambiguous {
                     candidates, brief, ..

@@ -204,6 +204,7 @@ fn every_call_round_trips() {
         source: Source::Typed,
         mode: Some(Mode::Note),
         project_id: None,
+        card_id: None,
         session_id: Some(id(3)),
         agent: None,
         model: Some("sonnet".into()),
@@ -213,7 +214,8 @@ fn every_call_round_trips() {
     round_trip::<call::ThoughtUpdate>(
         Assign {
             id: id(1),
-            project_id: id(2),
+            project_id: Some(id(2)),
+            card_id: None,
         },
         (),
         seen,
@@ -362,6 +364,7 @@ fn every_call_round_trips() {
     let route = Route::Clear {
         to: Place::Project(id(2)),
         brief: "fix the header in folio".into(),
+        said: None,
     };
     round_trip::<call::RouteHint>(hint, route, seen);
     let terms = RouteTerms {
@@ -370,6 +373,7 @@ fn every_call_round_trips() {
         tools: vec![RouteBy {
             agent: "claude".into(),
             model: "haiku".into(),
+            terms: 2,
         }],
     };
     round_trip::<call::RouteTerms>(Empty {}, terms, seen);
@@ -449,6 +453,44 @@ fn every_call_round_trips() {
         (),
         seen,
     );
+    // What Tasktap knows of the person's projects (docs/projects-design.md).
+    let look = AddLook {
+        id: id(9),
+        folder: None,
+        agent: Some("claude".into()),
+        on: Some(true),
+    };
+    round_trip::<call::LookAdd>(look, id(9), seen);
+    let offer = Offer {
+        agents: vec![OfferedAgent {
+            agent: "codex".into(),
+            name: "Codex".into(),
+        }],
+        places: vec![OfferedPlace {
+            folder: "/Users/someone/projects".into(),
+            projects: 9,
+        }],
+    };
+    round_trip::<call::ProjectsOffer>(Empty {}, offer, seen);
+    let looked = Looked {
+        projects: 14,
+        ms: 47,
+    };
+    round_trip::<call::ProjectsLook>(Empty {}, looked, seen);
+    let find = Find {
+        text: "queue grid".into(),
+        limit: Some(3),
+        thought: true,
+    };
+    let found = Finds {
+        found: vec![Found {
+            to: Place::Card(id(7)),
+            name: "cuegrid".into(),
+            folder: "~/projects/cuegrid".into(),
+            why: "said as “queue grid”".into(),
+        }],
+    };
+    round_trip::<call::ProjectsFind>(find, found, seen);
     for (unless, stream) in [
         (None, Some(diff.stream)),
         (Some("18a9c2f0-4d2".to_owned()), None),
@@ -496,6 +538,7 @@ fn every_call_round_trips() {
         source: Source::Voice,
         mode: None,
         project_id: Some(id(2)),
+        card_id: None,
         session_id: None,
         agent: None,
         model: None,
@@ -598,12 +641,14 @@ fn every_call_round_trips() {
         Route::Clear {
             to,
             brief: "Fix it".into(),
+            said: None,
         },
         Route::Ambiguous {
             prompt: "Where?".into(),
             candidates: vec![Candidate {
                 label: "app".into(),
                 to: Place::Session(id(3)),
+                why: String::new(),
             }],
         },
         Route::Unknown,
@@ -635,7 +680,7 @@ fn every_call_round_trips() {
 
     seen.dedup();
     assert_eq!(seen.as_slice(), Name::ALL, "every call in table order");
-    assert_eq!(Name::ALL.len(), 47);
+    assert_eq!(Name::ALL.len(), 51);
 }
 
 #[test]
@@ -670,7 +715,7 @@ fn access_follows_the_authorization_table() {
             "session.adopt"
         ]
     );
-    assert_eq!(by(Access::Device).len(), 38);
+    assert_eq!(by(Access::Device).len(), 42);
     // An agent shows a preview beside its own terminal, as a device does beside any.
     assert_eq!(by(Access::Either), ["preview.open"]);
     assert_eq!(by(Access::Ability), ["shim.hold", "host.notify"]);
@@ -1238,9 +1283,17 @@ fn the_consent_to_route_by_a_model_and_a_thoughts_route_are_as_the_wire_says() {
     let by = RouteBy {
         agent: "claude".into(),
         model: "haiku".into(),
+        terms: 0,
     };
-    let wire =
+    // A consent older than the version of what is sent reads as version 0,
+    // which covers nothing (route::consented).
+    let old =
         json!({"c": "prefs", "id": "route_by", "patch": {"agent": "claude", "model": "haiku"}});
+    let old: PutTarget = serde_json::from_value(old).unwrap();
+    assert_eq!(old, PutTarget::Prefs(PrefPatch::RouteBy(Some(by.clone()))));
+    let by = RouteBy { terms: 2, ..by };
+    let wire = json!({"c": "prefs", "id": "route_by",
+                      "patch": {"agent": "claude", "model": "haiku", "terms": 2}});
     let target: PutTarget = serde_json::from_value(wire.clone()).unwrap();
     assert_eq!(
         target,
@@ -1257,7 +1310,7 @@ fn the_consent_to_route_by_a_model_and_a_thoughts_route_are_as_the_wire_says() {
     let row = Pref { value, rev: rev(3) };
     assert_eq!(
         serde_json::to_value(&row).unwrap(),
-        json!({"id": "route_by", "value": {"agent": "claude", "model": "haiku"}, "rev": 3})
+        json!({"id": "route_by", "value": {"agent": "claude", "model": "haiku", "terms": 2}, "rev": 3})
     );
     // A consent names a tool and a model and nothing else.
     for patch in [

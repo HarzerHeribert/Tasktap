@@ -50,6 +50,12 @@ panic = "abort"
 
 # Without its symbol table the binary is 1.3 MB smaller (design §10). A
 # panic still names its file and line, which is all the core ever printed.
+# One unit of code generation, optimised across crates as a whole, makes it
+# 0.53 MB smaller again (5.94 to 5.41 MB), and no slower by
+# `scripts/measure.sh` (one unit alone was, at streaming); it costs only the
+# release build's time.
 [profile.release]
 panic = "abort"
 strip = true
+codegen-units = 1
+lto = "fat"

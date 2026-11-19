@@ -170,7 +170,7 @@ impl Core {
             auth: Some(Auth::Device {
                 device: self.device,
                 key: self.key.clone(),
-                register: Some(Register { name: "Tasktap".into() }),
+                register: Some(Register { name: crate::NAME.into() }),
             }),
             // The host's own connection answers `host.notify`; a page's answers nothing.
             abilities: match role {

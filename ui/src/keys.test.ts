@@ -62,7 +62,7 @@ test('a key without Command is the same key, in the words Windows prints', () =>
 });
 
 test('no two commands share a key on either system', () => {
-  const all = ['⌘N', '⌘T', '⌘O', '⌘W', '⌘F', '⌘D', '⇧⌘D', '⌃⌘S', '⌘I', '⌘R', '⌘P', '⌘C', '⌘V', '⌘,', '⌘=', '⌘-', '⌘0', '⌘[', '⌘↓', '⌘Z', '⌘⌫', '⌘1', '⌘2', '⌘3', '⌘4', '⌘5', '⌘6'];
+  const all = ['⌘N', '⌘T', '⌘O', '⌘W', '⌘F', '⌘D', '⇧⌘D', '⌃⌘S', '⌘I', '⌘R', '⌘P', '⌘C', '⌘V', '⌘,', '⌘=', '⌘-', '⌘0', '⌘[', '⌘↓', '⌘Z', '⌘⌫', '⌘1', '⌘2', '⌘3', '⌘4', '⌘5', '⌘6', '⌘7'];
   for (const onMac of [true, false]) assert.equal(new Set(all.map((k) => spell(k, onMac))).size, all.length);
 });
 

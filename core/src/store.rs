@@ -36,18 +36,18 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use tasktap_proto::{
-    Answer, AttemptId, Change, Collection, CoreId, Device, DeviceId, HistoryPage, Isolate, Layout,
-    Limit, Outcome, Phase, Pref, PrefKey, PrefValue, Preview, PreviewId, Project, ProjectId,
-    ProjectKind, Question, QuestionId, QuestionState, Reason, ResultId, Rev, Rows, Session,
-    SessionId, SessionState, Set, Status, Terminal, TerminalId, TerminalState, Thought, ThoughtId,
-    Time, TurnResult, Uuid, json_len,
+    Answer, AttemptId, Card, CardId, Change, Collection, CoreId, Device, DeviceId, HistoryPage,
+    Isolate, Layout, Limit, Look, LookId, Outcome, Phase, Pref, PrefKey, PrefValue, Preview,
+    PreviewId, Project, ProjectId, ProjectKind, Question, QuestionId, QuestionState, Reason,
+    ResultId, Rev, Rows, Session, SessionId, SessionState, Set, Status, Terminal, TerminalId,
+    TerminalState, Thought, ThoughtId, Time, TurnResult, Uuid, json_len,
 };
 
 /// Finished thoughts kept live, newest first; older ones leave for history.
 pub const LIVE_FINISHED: u32 = 200;
 
 /// The schema, oldest first: entry `n` brings `user_version` from `n` to `n + 1`.
-pub const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2];
+pub const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2, SCHEMA_V3];
 
 /// A SHA-256 digest: of a device key, a session token or a call's arguments.
 pub type Hash = [u8; 32];
@@ -388,6 +388,8 @@ enum Table {
     Prefs,
     Devices,
     Previews,
+    Looks,
+    Cards,
 }
 
 impl Table {
@@ -403,6 +405,8 @@ impl Table {
             Table::Prefs => "prefs",
             Table::Devices => "devices",
             Table::Previews => "previews",
+            Table::Looks => "looks",
+            Table::Cards => "cards",
         }
     }
 }
@@ -469,7 +473,7 @@ impl<'s> Tx<'s> {
         }
         emit!(
             Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices,
-            Previews
+            Previews, Looks, Cards
         );
         self.db
             .execute("UPDATE meta SET rev = ?1", [self.rev as i64])?;
@@ -1018,7 +1022,7 @@ impl Tx<'_> {
         }
         Ok(Some(live!(
             Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices,
-            Previews
+            Previews, Looks, Cards
         )))
     }
 
@@ -1193,6 +1197,85 @@ impl Tx<'_> {
     /// False when there is no such preview.
     pub fn delete_preview(&mut self, id: PreviewId) -> Result<bool> {
         self.delete(Table::Previews, &id)
+    }
+
+    // What Tasktap knows of the person's projects (docs/projects-design.md).
+
+    pub fn projects(&self) -> Result<Vec<Project>> {
+        self.all(Table::Projects, "ORDER BY id", [])
+    }
+
+    /// When a thought last started in each project: the newest thought
+    /// placed there that was launched.
+    pub fn last_started(&self) -> Result<BTreeMap<ProjectId, Time>> {
+        let sql = "SELECT project_id, max(data ->> 'updated') FROM thoughts \
+                   WHERE project_id IS NOT NULL AND phase IN ('working', 'done', 'failed') \
+                   GROUP BY project_id";
+        let mut statement = self.db.prepare_cached(sql)?;
+        let rows =
+            statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        let mut last = BTreeMap::new();
+        for row in rows {
+            let (id, at) = row?;
+            if let (Ok(id), Some(at)) = (parse::<ProjectId>(&id), Time::new(at as u64)) {
+                last.insert(id, at);
+            }
+        }
+        Ok(last)
+    }
+
+    /// The newest thought that has a place: where the last one went.
+    pub fn last_placed(&self) -> Result<Option<Thought>> {
+        let clause = "WHERE project_id IS NOT NULL OR data ->> 'card_id' IS NOT NULL \
+                      ORDER BY id DESC LIMIT 1";
+        self.one(Table::Thoughts, clause, [])
+    }
+
+    pub fn looks(&self) -> Result<Vec<Look>> {
+        self.all(Table::Looks, "ORDER BY id", [])
+    }
+
+    pub fn look(&self, id: LookId) -> Result<Option<Look>> {
+        self.one(Table::Looks, "WHERE id = ?1", [key(&id)?])
+    }
+
+    pub fn put_look(&mut self, l: &Look) -> Result<()> {
+        self.upsert(Table::Looks, l)
+    }
+
+    /// False when there is no such look.
+    pub fn delete_look(&mut self, id: LookId) -> Result<bool> {
+        self.delete(Table::Looks, &id)
+    }
+
+    pub fn cards(&self) -> Result<Vec<Card>> {
+        self.all(Table::Cards, "ORDER BY id", [])
+    }
+
+    pub fn card(&self, id: CardId) -> Result<Option<Card>> {
+        self.one(Table::Cards, "WHERE id = ?1", [key(&id)?])
+    }
+
+    pub fn card_by_folder(&self, folder: &str) -> Result<Option<Card>> {
+        self.one(Table::Cards, "WHERE folder = ?1", [folder])
+    }
+
+    /// Writes a card, inserting or replacing it.
+    pub fn put_card(&mut self, c: &Card) -> Result<()> {
+        self.upsert(Table::Cards, c)
+    }
+
+    /// False when there is no such card.
+    pub fn delete_card(&mut self, id: CardId) -> Result<bool> {
+        self.delete(Table::Cards, &id)
+    }
+
+    /// Whether a thought not yet started goes to the card.
+    pub fn bound(&self, card: CardId) -> Result<bool> {
+        let id = key(&card)?;
+        let sql = "SELECT 1 FROM thoughts WHERE data ->> 'card_id' = ?1 \
+                   AND data ->> 'project_id' IS NULL AND phase IN ('captured', 'routed')";
+        Ok(self.db.prepare_cached(sql)?.exists([id])?)
     }
 
     /// Every project's folder: what the person opened in Tasktap.
@@ -1657,5 +1740,28 @@ CREATE TABLE previews (
     terminal_id TEXT NOT NULL AS (data ->> 'terminal_id') REFERENCES terminals (id),
     target TEXT NOT NULL AS (data ->> 'target'),
     UNIQUE (terminal_id, target)
+) STRICT;
+"#;
+
+/// What Tasktap knows of the person's projects (docs/projects-design.md):
+/// the places it looks, and one card per folder. Neither is a project: no
+/// right to read, show or open anything comes from them. Only new tables,
+/// so every record of schema 2 is kept as it was.
+const SCHEMA_V3: &str = r#"
+CREATE TABLE looks (
+    id TEXT PRIMARY KEY,
+    rev INTEGER NOT NULL,
+    live INTEGER NOT NULL AS (1),
+    data TEXT NOT NULL,
+    folder TEXT UNIQUE AS (data ->> 'folder'),
+    agent TEXT UNIQUE AS (data ->> 'agent')
+) STRICT;
+
+CREATE TABLE cards (
+    id TEXT PRIMARY KEY,
+    rev INTEGER NOT NULL,
+    live INTEGER NOT NULL AS (1),
+    data TEXT NOT NULL,
+    folder TEXT NOT NULL UNIQUE AS (data ->> 'folder')
 ) STRICT;
 "#;

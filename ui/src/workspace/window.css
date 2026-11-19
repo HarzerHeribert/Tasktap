@@ -304,7 +304,9 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .capture.raised .cap-row{gap:6px;padding:0;border:0}
 .capture.raised :is(.cap-to,.cap-list button,.ring,.rings .more){border-radius:var(--r-in)}
 .capture.raised :is(.cap-to,.cap-list button){gap:7px;padding:0 10px;margin:0;font:var(--f-text)}
-.capture.raised .cap-list{display:flex;flex-wrap:wrap;gap:2px}
+.capture.raised .cap-list{display:grid;gap:2px}
+.capture.raised .cap-find{gap:7px;padding:0 10px;margin:0;border-radius:var(--r-in)}
+.capture.raised .cap-find input{font:var(--f-text)}
 .capture.raised .ring{padding:0 5px}
 .capture.raised .ring-o{--ring-px:24}
 .capture.raised .cap-said{margin-top:var(--sp2);padding:0 var(--sp3) 0 22px}
@@ -646,3 +648,93 @@ button.line.fold-l{grid-template-columns:28px 190px minmax(0,1fr)}
    What the interface does to show a change of its own (a sheet dropping, the sidebar sliding) stays. */
 :root:is([data-effects=still],[data-effects=off]) :is(.brand-m>img,.ring-o .turn){animation:none}
 :root:is([data-effects=still],[data-effects=off]) :is(.capture.raised::before,.capture.raised .cap,.capture.raised .cap::after,.pool,.glyph,.turn canvas){transition:none}
+
+/* ——— Projects (projects.tsx): the first run under the Composer, and Settings › Projects ———
+   The first run stands under the Composer on its edges, as the line it replaces did: its words on the edge of the
+   Composer's text, its answer on the edge of the Composer's key, and what is not the answer at the left. One honest
+   sentence says what is read before anything is. */
+.begin{width:min(100%,var(--cap-w));margin:0 auto;padding:0 var(--sp3) 0 22px;font:var(--f-text);color:var(--fg2)}
+.begin>h3{margin:0 0 var(--sp1);font:var(--f-label);color:var(--fg)}
+.begin>p{margin:0;text-wrap:pretty}
+.begin-f{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:var(--sp2);margin-top:var(--sp4)}
+.begin-f>:first-child{margin-right:auto}
+/* The folders a person may keep projects in: each a choice that is ticked or not, and one more by the system's dialog. */
+.ticks{display:flex;flex-wrap:wrap;gap:var(--sp2);margin:var(--sp2) 0 var(--sp3)}
+.tick{display:inline-flex;align-items:center;gap:var(--sp2);height:var(--ctl-h);padding:0 10px 0 var(--sp2);border-radius:var(--r1);box-shadow:inset 0 0 0 1px var(--line2);font:var(--f-num);color:var(--fg2)}
+.tick:hover{background:var(--hover);color:var(--fg)}
+.tick>i{position:relative;flex:none;width:12px;height:12px;border-radius:2px;box-shadow:inset 0 0 0 var(--i-w) var(--fg3)}
+.tick[aria-checked=true]{color:var(--fg)}
+.tick[aria-checked=true]>i{background:var(--key);box-shadow:none}
+.tick[aria-checked=true]>i::after{content:"";position:absolute;left:4px;top:1.5px;width:3px;height:6.5px;border:solid var(--ink);border-width:0 var(--i-w) var(--i-w) 0;transform:rotate(45deg)}
+.tick.add{font:var(--f-small)}
+.tick.add .i{width:12px;height:12px;color:var(--fg3)}
+/* What was found: a list of Home's kind, on the Composer's edges, one line a project: the name, its folder, why. Every
+   one, in a list that scrolls in the room under the Composer (its height is measured: projects.tsx useRoom). */
+.hx.first>.found{width:min(100%,var(--cap-w));margin-inline:auto}
+/* The rows share one set of columns (each a subgrid of the list), so the reasons, which give way last, stand on one edge. */
+.fr-s{display:grid;grid-template-columns:var(--lead) calc(140px * var(--ts)) minmax(0,1fr) fit-content(calc(290px * var(--ts)));align-content:start;overflow-y:auto}
+.fr{grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--line);font:var(--f-small);color:var(--fg2)}
+.fr>.i{align-self:center;justify-self:center;width:14px;height:14px;color:var(--fg3)}
+.fr>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fr-n{font:var(--f-label);color:var(--fg)}
+.fr-f{padding-left:var(--sp3);font:var(--f-num);color:var(--fg3)}
+.fr-w{grid-column:4;padding-left:var(--sp3)}
+.found-n{margin:var(--sp2) 0 0;padding-left:var(--lead);font:var(--f-small);color:var(--fg3)}
+.found-s{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--sp2) var(--sp3);margin:var(--sp2) 0 0;padding-left:var(--lead);font:var(--f-text);color:var(--fg2)}
+.found-s b{font:var(--f-num);color:var(--fg)}
+.found .begin-f{margin-top:var(--sp2);padding-left:var(--lead)}
+.found-o{font:var(--f-small);color:var(--fg3)}
+@container (max-width:640px){
+  .fr-s{grid-template-columns:var(--lead) calc(120px * var(--ts)) 0 minmax(0,1fr)}
+  .fr-f{display:none}
+  .found-o{display:none}
+}
+/* Settings › Projects: where Tasktap learns of projects, as the Agents list is drawn (a mark, a name, what it found,
+   what can be done); then every project, a row that opens to what Tasktap knows of it. A path is in the figures'
+   face; a sentence under a row wraps on the name's edge and belongs to the row above. */
+.line.pl:has(+ .line-n){border-bottom-color:transparent}
+/* The folders: their paths are their names, so the name column is as wide as the longest of them, from the usual
+   190 px, in every row alike (each row a subgrid of the list, its sides two columns of the list's); what was found
+   gives way first. */
+.list.lk{grid-template-columns:18px 28px minmax(190px,max-content) minmax(0,1fr) auto 18px}
+.list.lk>*{grid-column:1/-1}
+.list.lk>.line{grid-template-columns:subgrid;padding:0}
+.list.lk>.line>:first-child{grid-column:2}
+.list.lk .acts{justify-content:flex-end}
+.line .t.path{position:relative;top:1px;font:var(--f-num);color:var(--fg)}
+.line.sug .t.path{color:var(--fg2)}
+.line-n.solo{padding:10px 18px;border-bottom:1px solid var(--line)}
+.line-n.ask{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp2)}
+.line-n.ask>span{flex:1 1 240px;min-width:0}
+.btn.warn{color:var(--fail)}
+button.line.pj{grid-template-columns:28px 190px minmax(0,1fr) auto}
+.line.pj .i{transition:transform var(--t-fast)}
+.line.pj[aria-expanded=true] .i{transform:rotate(90deg)}
+.line.pj[aria-expanded=true]{border-bottom-color:transparent}
+.line.pj time{padding-left:var(--sp3);font:var(--f-num);color:var(--fg3)}
+/* Every project is a row, however many: one far off the screen is not laid out or painted until it comes near. */
+.pjs>.line.pj{content-visibility:auto;contain-intrinsic-block-size:auto var(--home-row)}
+.pj-c{display:grid;padding:0 18px 14px 46px;border-bottom:1px solid var(--line)}
+.pj-k{display:grid;grid-template-columns:178px minmax(0,1fr);column-gap:var(--sp3);align-items:baseline;padding:4px 0}
+.pj-k>.k{font:var(--f-small);color:var(--fg3)}
+.pj-k>.v{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--sp1) var(--sp2);min-width:0;font:var(--f-small);color:var(--fg);text-wrap:pretty}
+.pj-k .mono{color:var(--fg2);overflow-wrap:anywhere}
+.pj-c .dim{color:var(--fg3)}
+.pj-l{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--sp1) var(--sp2);width:100%}
+.pj-n{display:inline-flex;align-items:center;gap:2px;height:20px;padding:0 6px;border-radius:var(--r1);background:var(--fill)}
+.pj-n button{display:grid;place-items:center;width:16px;height:16px;margin-right:-4px;border-radius:var(--r1);color:var(--fg3)}
+.pj-n button:hover{background:var(--fill-hover);color:var(--fg)}
+.pj-n .i{width:10px;height:10px}
+.pj-k .text{width:220px;height:var(--ctl-h);padding:0 var(--sp2);border-radius:var(--r1);background:var(--fill);font:var(--f-small);color:var(--fg)}
+.pj-k .text:focus{box-shadow:inset 0 -1px 0 var(--accent)}
+.pj-k .hint{flex-basis:100%;font:var(--f-cap);color:var(--fail)}
+.pj-a{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp2);margin-top:var(--sp2)}
+.pj-a .dim{font:var(--f-cap)}
+/* A narrow window: the name column gives way, and a project's row drops its time, which its card says. */
+@media(max-width:860px){
+  .list.lk{grid-template-columns:18px 28px minmax(140px,max-content) minmax(0,1fr) auto 18px}
+  button.line.pj{grid-template-columns:28px 140px minmax(0,1fr)}
+  .line.pj time{display:none}
+  .pj-k{grid-template-columns:128px minmax(0,1fr)}
+}
+/* ——— end of Projects ——— */

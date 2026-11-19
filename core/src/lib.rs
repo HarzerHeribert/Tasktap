@@ -16,6 +16,7 @@ mod handshake;
 mod http;
 mod isolate;
 mod launch;
+pub mod map;
 mod questions;
 mod records;
 pub mod relocate;

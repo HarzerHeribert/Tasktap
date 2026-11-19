@@ -283,6 +283,7 @@ fn a_restart_with_a_router_question_open_keeps_it_answerable() {
     let route = Route::Ambiguous {
         prompt: "Which project?".into(),
         candidates: vec![Candidate {
+            why: String::new(),
             label: "app".into(),
             to: Place::Project(other),
         }],

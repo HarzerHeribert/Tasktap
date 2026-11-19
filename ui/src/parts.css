@@ -196,6 +196,21 @@ kbd .i{width:12px;height:12px}
 .cap-list{display:grid;gap:0}
 .cap-list button{margin-left:-6px}
 .cap-list [aria-selected=true]{background:var(--sel);color:var(--fg)}
+/* The list's field to find a project, and what a row says of why it is there: one line each, cut, never wrapped. */
+.cap-find{display:flex;align-items:center;gap:6px;height:var(--row-h);margin-left:-6px;padding:0 6px;border-radius:var(--r1);color:var(--fg)}
+.cap-find:focus-within{background:var(--lit) 0 100%/100% 1px no-repeat,var(--hover)}
+.cap-find input{flex:1;min-width:0;width:0;font:var(--f-small);color:var(--fg)}
+.cap-find input::placeholder{color:var(--fg3)}
+.cap-find .i{width:14px;height:14px;color:var(--fg3);flex:none}
+.cap-list button{min-width:0;max-width:calc(100% + 6px)}
+.cap-list button span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.cap-list button em{min-width:0;overflow:hidden;text-overflow:ellipsis;font-style:normal;color:var(--fg3);flex-shrink:1000}
+.cap-list button em::before{content:"·";margin-right:6px}
+.cap-none{margin:0;height:var(--row-h);display:flex;align-items:center;font:var(--f-small);color:var(--fg3)}
+/* A thought on its way to a project Tasktap knows and opens when it starts. */
+.way-new{font-style:normal;color:var(--fg3);white-space:nowrap}
+.way-new::before{content:"·";margin:0 6px}
+.qa.elsewhere{display:grid;gap:0}
 .cap-row .key{margin-left:auto}
 .rings+.key{margin-left:var(--sp1)}
 .cap-said{display:flex;align-items:center;gap:var(--sp2);min-height:var(--row-h);font:var(--f-small);color:var(--fg2)}

@@ -62,7 +62,7 @@ export function placed(t: Pick<Thought, 'placed' | 'route'>, agent: (id: string)
   const r = t.route, who = r && r.by !== 'local' ? `${agent(r.by)}${r.model ? ` · ${r.model}` : ''}` : '';
   switch (t.placed) {
     case 'name':
-      return `Placed by name${r?.fallback ? `. ${r.fallback}` : ''}`;
+      return `Placed by name${r?.quote ? `: you said “${r.quote}”` : ''}${r?.fallback ? `. ${r.fallback}` : ''}`;
     case 'model':
       return `Placed by ${who || 'a model'}${r?.quote ? `, because you said “${r.quote}”` : ''}`;
     case 'picked':
@@ -93,7 +93,8 @@ export function laterWhy(t: Pick<Thought, 'placed' | 'route'>, agent: (id: strin
 /** Placing by a model: off, on, or agreed to once for something this Tasktap no longer asks (`again`). */
 export function placing(by: RouteBy | null | undefined, tools: RouteBy[]): 'off' | 'on' | 'again' {
   if (!by) return 'off';
-  return tools.some((t) => t.agent === by.agent && t.model === by.model) ? 'on' : 'again';
+  // A consent to what was sent before (`terms`, the version of what is sent) is asked for again.
+  return tools.some((t) => t.agent === by.agent && t.model === by.model && t.terms === by.terms) ? 'on' : 'again';
 }
 
 /** What an agent's ring says: how many of its thoughts are being worked on, and its state: not signed in, one of

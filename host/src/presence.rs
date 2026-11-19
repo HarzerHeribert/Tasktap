@@ -25,8 +25,12 @@ impl System {
         self != System::Windows { tab: false }
     }
 
-    /// This system, with the tab's setting as it is now.
+    /// This system, with the tab's setting as it is now. A review build (`crate::REVIEW`) has no notch and no tab
+    /// (the person's own Tasktap's is in their place): the rule is then the one for a system without either.
     pub fn this() -> System {
+        if crate::REVIEW {
+            return System::Windows { tab: false };
+        }
         #[cfg(windows)]
         return System::Windows { tab: crate::workspace::tab() != "off" };
         #[cfg(not(windows))]

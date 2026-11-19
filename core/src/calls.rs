@@ -69,12 +69,7 @@ fn handler(name: Name) -> Option<Handler> {
         Name::ThoughtCapture => {
             |cx, args| now::<call::ThoughtCapture>(cx, args, |cx, c| capture(cx.core, c))
         }
-        Name::ThoughtUpdate => |cx, args| {
-            event::<call::ThoughtUpdate>(cx, args, |a| Event::Pick {
-                thought: a.id,
-                to: Destination::New(a.project_id),
-            })
-        },
+        Name::ThoughtUpdate => |cx, args| now::<call::ThoughtUpdate>(cx, args, update),
         Name::ThoughtStart => |cx, args| {
             event::<call::ThoughtStart>(cx, args, |s| Event::Start {
                 thought: s.id,
@@ -131,6 +126,12 @@ fn handler(name: Name) -> Option<Handler> {
         Name::ProjectClose => {
             |cx, args| now::<call::ProjectClose>(cx, args, terminal::close_project)
         }
+        Name::LookAdd => |cx, args| later::<call::LookAdd>(cx, args, crate::map::add_look),
+        Name::ProjectsOffer => |cx, args| later::<call::ProjectsOffer>(cx, args, crate::map::offer),
+        Name::ProjectsLook => {
+            |cx, args| later::<call::ProjectsLook>(cx, args, crate::map::look_call)
+        }
+        Name::ProjectsFind => |cx, args| now::<call::ProjectsFind>(cx, args, crate::map::find),
         Name::TerminalOpen => |cx, args| now::<call::TerminalOpen>(cx, args, terminal::open),
         Name::TerminalResize => |cx, args| now::<call::TerminalResize>(cx, args, terminal::resize),
         Name::TerminalStop => |cx, args| now::<call::TerminalStop>(cx, args, terminal::stop_call),
@@ -311,7 +312,10 @@ pub fn capture(core: &mut Core, capture: tasktap_proto::Capture) -> Result<(), E
         .or(preferred)
         .unwrap_or_else(|| crate::agents::all()[0].id().into());
     look(core, &agent);
-    effects::call(core, "thought.capture", Event::Capture { capture, agent })
+    let captured = effects::call(core, "thought.capture", Event::Capture { capture, agent });
+    // What is kept placed it; whether a look is due is found out after (map.rs).
+    crate::map::freshen(core);
+    captured
 }
 
 /// Whether a capture names an agent this core has, which is neither
@@ -349,6 +353,21 @@ fn event<C: Call<Result = ()>>(
     let name = C::NAME.as_str();
     let result = C::args(args).and_then(|args| effects::call(cx.core, name, event(args)));
     Some(C::reply(cx.id, result))
+}
+
+/// `thought.update`: sends a thought to a workspace, or to a project
+/// Tasktap knows that opens when the thought starts there.
+fn update(cx: &mut Cx, a: tasktap_proto::Assign) -> Result<(), Error> {
+    let to = match (a.project_id, a.card_id) {
+        (Some(project), None) => Destination::New(project),
+        (None, Some(card)) => Destination::Card(card),
+        _ => {
+            let why = "a thought goes to one project: a workspace or one Tasktap knows";
+            return Err(Error::new(Code::Invalid, why));
+        }
+    };
+    let pick = Event::Pick { thought: a.id, to };
+    effects::call(cx.core, "thought.update", pick)
 }
 
 fn status(cx: &mut Cx, _: Empty) -> Result<CoreStatus, Error> {

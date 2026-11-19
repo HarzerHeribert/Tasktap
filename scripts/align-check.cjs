@@ -437,7 +437,7 @@ async function main() {
     ['busy', (w) => w.__ws.show('earlier')], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'close-tab', project: '', id: '' })], ['busy', (w) => w.document.querySelector('#dest-chip').click()],
     // Settings, section by section, and the sheets that are a list of answers, a field, or the Composer.
     // (At the usual width and the narrowest: `TWO`.)
-    ...['thoughts', 'voice', 'agents', 'appearance', 'terminal', 'about'].map((at) => ['busy', `(w) => (w.__ws.ui.sheet = { kind: 'settings', at: '${at}' })`, '', TWO]), ['first', (w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'agents' }), '', TWO],
+    ...['thoughts', 'projects', 'voice', 'agents', 'appearance', 'terminal', 'about'].map((at) => ['busy', `(w) => (w.__ws.ui.sheet = { kind: 'settings', at: '${at}' })`, '', TWO]), ['first', (w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'agents' }), '', TWO],
     ['busy', (w) => (w.__ws.ui.sheet = { kind: 'send', thought: [...w.__ws.records.thoughts.values()].find((t) => t.mode === 'note').id }), '', TWO], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'open-workspace' }), '', TWO],
     ['busy', (w) => (w.__ws.ui.sheet = { kind: 'reply', question: [...w.__ws.records.questions.values()].find((q) => q.state === 'open' && q.kind === 'choice').id }), '', TWO], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'capture' }), '', TWO],
     ['workspace', (w) => (w.__ws.show(w.__fake.records.ids.projects.cuegrid), (w.__ws.ui.sheet = { kind: 'find', id: w.__fake.records.ids.export.terminal })), '', TWO],

@@ -182,21 +182,25 @@ js workspace "(__ws.menu.dry = true)" >/dev/null
 sleep 1
 shot collapsed-idle
 shot home workspace
-# First run (docs/projects-design.md): with no agent's history to offer (the app is given empty folders for Claude
-# Code's and Codex's, so this is the same on every machine), Tasktap asks under the Composer where the projects are,
-# saying what it would read; Not now is an answer, and Home is then one composition: the Composer a little above the
-# middle of the content, and on its own edges the one thing to do first, which is the key while the Composer is empty.
-until_has workspace "text .begin" 5 "Where are your projects?" && begin="$(ask workspace "text .begin")" \
-  && echo "$begin" | grep -q "first lines of its README" && echo "$begin" | grep -q "asks Git for its first commit" && echo "$begin" | grep -q "up to 8 likely projects" \
+# First start (design/ui-directions/NOTES.md §13): with no agent's history to offer (the app is given empty folders
+# for Claude Code's and Codex's, so this is the same on every machine), Setup's first step comes down by itself as a
+# sheet: "Where are your projects?", three facts, and behind "What exactly is read" all it would read and what a model
+# would get. Not now is an answer; Home is then one composition: the Composer a little above the middle of the
+# content, its key the metal one, and under it on its own edges Setup, with nothing loose under the Composer.
+until_has workspace "text .sheet" 5 "Where are your projects?" && [ "$(js workspace "String(__ws.ui.sheet?.kind === 'setup' && __ws.ui.sheet.auto === true && document.querySelectorAll('.sheet .facts > li').length <= 3)")" = true ] \
+  && js workspace "(document.querySelector('.sheet .more-l').click(), 1)" >/dev/null && until_has workspace "text .sheet .facts-all" 3 "first lines of its README" && begin="$(ask workspace "text .sheet .facts-all")" \
+  && echo "$begin" | grep -q "asks Git for its first commit" && echo "$begin" | grep -q "up to 8 likely projects" \
   && [ "$(js workspace "[...document.querySelectorAll('#dest-chip > b, #dest-chip > span')].map(e => e.textContent).join(' · ')")" = "No projects yet · saved for later" ] \
-  && pass "with no agent's history, the first run asks under the Composer where the projects are, and says all it would read and what a model would get" || fail "the first run's question" "$(echo "${begin:-}" | tr '\n' '|' | cut -c1-200)"
-js workspace "([...document.querySelectorAll('.begin .btn')].find(b => b.textContent === 'Not now').click(), 1)" >/dev/null
-edges="((c, a, k, h) => [Math.abs(c.left + c.width / 2 - (h.left + h.width / 2)) < 1, a.left >= c.left && a.right <= c.right, Math.abs(k.right - document.querySelector('.home .cap-row .key').getBoundingClientRect().right) < 1, c.top + c.height / 2 < h.top + h.height / 2 && c.top > h.top + h.height * 0.2].join(' '))(document.querySelector('.home .cap').getBoundingClientRect(), document.querySelector('.attach').getBoundingClientRect(), document.querySelector('.attach .key').getBoundingClientRect(), document.querySelector('#main').getBoundingClientRect())"
-until_has workspace "text .attach" 5 "Open a folder" && ! ask workspace "text .hx" | grep -q "Agents" \
+  && pass "with no agent's history, the first start brings down Setup's first sheet by itself: where the projects are, in three facts, and behind one line all it would read and what a model would get" || fail "the first start's sheet" "$(echo "${begin:-}" | tr '\n' '|' | cut -c1-200)"
+js workspace "([...document.querySelectorAll('.sheet .sh-f .act')].find(b => b.textContent.includes('Not now')).click(), 1)" >/dev/null
+edges="((c, a, h) => [Math.abs(c.left + c.width / 2 - (h.left + h.width / 2)) < 1, Math.abs(a.left - c.left) < 1 && Math.abs(a.right - c.right) < 1, c.top + c.height / 2 < h.top + h.height / 2 && c.top > h.top + h.height * 0.2].join(' '))(document.querySelector('.home .cap').getBoundingClientRect(), document.querySelector('.home .setup').getBoundingClientRect(), document.querySelector('#main').getBoundingClientRect())"
+metal="(k => /linear-gradient/.test(getComputedStyle(k).backgroundImage) && getComputedStyle(k).color === 'rgb(13, 13, 14)')(document.querySelector('.home .cap-row .key'))"
+until_has workspace "eval String(!__ws.ui.sheet && !!document.querySelector('.home .setup'))" 5 "true" && ! ask workspace "text .hx" | grep -q "Agents" \
   && [ "$(js workspace "[...document.querySelectorAll('#dest-chip > b, #dest-chip > span')].map(e => e.textContent).join(' · ')")" = "No projects yet · saved for later" ] \
-  && [ "$(js workspace "(b => b.textContent + ' ' + b.disabled)(document.querySelector('.home .cap-row .key'))")" = "Save for later true" ] \
-  && [ "$(js workspace "$edges")" = "true true true true" ] \
-  && pass "with no folder open, Home is one composition: the Composer centred a little above the middle, its place saying No projects yet, saved for later, and its key that Return saves for later; under it, on its edges, Open a folder as the one key" || fail "Home on first run" "$(js workspace "$edges")"
+  && [ "$(js workspace "(b => b.textContent + ' ' + b.disabled)(document.querySelector('.home .cap-row .key'))")" = "Save for later true" ] && [ "$(js workspace "String($metal)")" = true ] \
+  && [ "$(js workspace "String(!document.querySelector('.hx.first > :not(.capture, .setup, .cols)') && /0 of [23]/.test(document.querySelector('.setup .fold-c').textContent))")" = true ] \
+  && [ "$(js workspace "$edges")" = "true true true" ] \
+  && pass "after Not now, Home is one composition: the Composer centred a little above the middle, its place saying No projects yet, saved for later, its key the metal key that Return saves for later with; under it, on its edges, Setup with none of its steps done, and nothing else loose" || fail "Home on first start" "$(js workspace "$edges")"
 # The light: Home's chrome is drawn once and then nothing while nothing happens, the notch draws no form at all, and
 # the person's choice reaches both pages at once.
 # A window the person has covered draws nothing (WebKit reports it hidden), so a covered window is said, not failed.
@@ -266,18 +270,22 @@ send 'call delete {"c":"prefs","id":"motion_style"}' 'call delete {"c":"prefs","
 [ "$(js workspace "String(isSecureContext && typeof navigator.mediaDevices?.getUserMedia === 'function')")" = true ] \
   && pass "the workspace page may ask for the microphone (secure, with getUserMedia)" || fail "the workspace page offers getUserMedia"
 
-# The agents are rings in the Composer, not a list: each its mark in a circle, the one that runs the next thought lit.
-ring="document.querySelector('.home .ring[data-agent=fixture]')"
-until_has workspace "eval String($ring?.getAttribute('aria-checked') === 'true' && !!$ring.querySelector('.ring-o circle') && /Fixture agent.*runs the next thought/.test($ring.title) && !document.querySelector('.hx .list, .rail .off'))" 5 "true" \
-  && pass "the agents are rings in the Composer: each its mark in a circle, named in its tooltip and for VoiceOver, the one that runs the next thought lit; no list of agents on Home, no names in the rail" || fail "the agents' rings" "$(js workspace "$ring?.outerHTML.slice(0, 200)")"
-other="$(js workspace "document.querySelector('.home .ring:not([data-agent=fixture]):not([data-s=off])')?.dataset.agent ?? ''")"
+# Who runs a thought is one control in the Composer's foot: the ring and name of the agent that runs it and a chevron,
+# which opens a list in the chip's style; no row of rings, no system menu (NOTES §13).
+agentc="document.querySelector('.home .cap-agent')"
+until_has workspace "eval String($agentc?.dataset.agent === 'fixture' && !!$agentc.querySelector('.ring-o circle') && /Fixture agent.*runs the next thought/.test($agentc.title) && !document.querySelector('.hx .list, .rail .off, .home .rings, .home .cap-row select'))" 5 "true" \
+  && pass "who runs a thought is one control: the agent's ring and name with a chevron, named in its tooltip and for VoiceOver; no row of rings, no list of agents on Home, no names in the rail" || fail "the agent control" "$(js workspace "$agentc?.outerHTML.slice(0, 200)")"
+js workspace "($agentc.click(), 1)" >/dev/null
+other="$(js workspace "document.querySelector('.home .agent-list [role=option]:not([data-agent=fixture]):not([data-s=off])')?.dataset.agent ?? ''")"
 if [ -n "$other" ]; then
-  js workspace "(document.querySelector('.home .ring[data-agent=$other]').click(), 1)" >/dev/null
-  until_has workspace "eval document.querySelector('.home .ring[aria-checked=true]').dataset.agent" 3 "$other" \
+  js workspace "(document.querySelector('.home .agent-list [data-agent=$other]').click(), 1)" >/dev/null
+  until_has workspace "eval $agentc.dataset.agent" 3 "$other" \
     && [ "$(js workspace "__ws.records.prefs.get('agent').value + ' ' + __speech.cap.agent")" = "fixture $other" ] \
-    && pass "a click on another ring picks that agent for the thought being written; the default, the core's preference, stays as it was" || fail "picking an agent by its ring"
-  js workspace "(document.querySelector('.home .ring[data-agent=fixture]').click(), 1)" >/dev/null
-  until_has workspace "eval document.querySelector('.home .ring[aria-checked=true]').dataset.agent + ' ' + __speech.cap.agent" 3 "fixture undefined" || fail "the usual agent is chosen again"
+    && pass "the control's list picks another agent for the thought being written; the default, the core's preference, stays as it was" || fail "picking an agent from the list"
+  js workspace "($agentc.click(), document.querySelector('.home .agent-list [data-agent=fixture]').click(), 1)" >/dev/null
+  until_has workspace "eval $agentc.dataset.agent + ' ' + __speech.cap.agent" 3 "fixture undefined" || fail "the usual agent is chosen again"
+else
+  js workspace "(document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })), 1)" >/dev/null
 fi
 
 echo "== A thought saved for later before a folder is open, then sent to one"
@@ -291,12 +299,13 @@ until_has notch "text .cap-said" 5 "Saved for later" && [ "$(js notch "[...__rec
 send "key notch Escape"
 until_has workspace "text .hx .hsec" 5 "Hello from the smoke" && ask workspace "text .hx .hsec" | grep -q "For later" && js workspace "document.querySelector('.hr.later').textContent" | grep -q "Send to a folder" \
   && pass "it lands on Home in a For later line of its own, with Send to a folder on it" || fail "Home lists what was saved for later"
-# Typed on Home instead: the Composer's key becomes the one key, and what is saved lands under it with its way on shown.
+# Typed on Home instead: the Composer's key does something now, still the metal one, and what is saved lands under it
+# with its way on shown.
 js workspace "(document.querySelector('.home #capture-input').focus(), document.execCommand('insertText', false, 'Later, from Home'), 1)" >/dev/null
-until_has workspace "eval document.querySelector('.home .cap-row .key').disabled + ' ' + document.querySelector('.attach button').className" 3 "false btn lg" \
+until_has workspace "eval document.querySelector('.home .cap-row .key').disabled + ' ' + $metal" 3 "false true" \
   && send "key workspace Enter" && until_has workspace "text .home .cap-said" 5 "Saved for later" \
   && until_has workspace "eval getComputedStyle(document.querySelector('.hr.later.new .hr-a')).visibility" 3 "visible" \
-  && pass "typed on Home, Return saves it for later: the Composer's key is then the one key, the receipt says so, and the thought lands in For later with Send to a folder showing" || fail "save for later on Home"
+  && pass "typed on Home, Return saves it for later: the Composer's key is the metal key, the receipt says so, and the thought lands in For later with Send to a folder showing" || fail "save for later on Home"
 js workspace "([...document.querySelectorAll('.hr.later')].find(r=>r.textContent.includes('Later, from Home')).querySelectorAll('.btn')[1].click(), 1)" >/dev/null
 until_has workspace "eval String(document.querySelectorAll('.hr.later').length)" 3 "1" || fail "the thought saved on Home is dropped"
 ask workspace "click .hr.later .btn" >/dev/null
@@ -312,8 +321,8 @@ shot collapsed-working
 echo "== Capture and Undo"
 send capture
 until_has notch "eval document.activeElement?.id" 5 "capture-input" || fail "capture opens again"
-until_has notch "eval (r => r?.dataset.s + ' ' + r?.querySelector('b')?.textContent + ' ' + !!r?.querySelector('.turn'))(document.querySelector('.ring[data-agent=fixture]'))" 5 "working 1 true" \
-  && pass "while its session works an agent's ring turns, with the count beside it" || fail "a working agent's ring"
+until_has notch "eval (r => r?.dataset.s + ' ' + !!r?.querySelector('.turn'))(document.querySelector('.cap-agent[data-agent=fixture]'))" 5 "working true" \
+  && pass "while its session works the agent control's ring turns" || fail "a working agent's ring"
 until_has notch "eval [...document.querySelectorAll('#dest-chip > b, #dest-chip > span')].map(e => e.textContent).join(' · ')" 3 "project · the only folder open" \
   || fail "with one folder open, the chip says it is where a thought goes"
 send "type notch Undo me" "key notch Enter"
@@ -384,8 +393,8 @@ until_has notch "eval document.activeElement?.id" 5 "capture-input" && ask notch
   && ! ask notch "eval document.body.innerText" | grep -qi "question needs you\|questions need you" \
   && pass "with a question open, the capture shortcut opens the field under the question, which stays first" \
   || fail "capture with a question open"
-[ "$(js notch "document.querySelector('.ring[data-agent=fixture]')?.dataset.s")" = asks ] \
-  && pass "while one of its sessions asks, the agent's ring takes the attention colour" || fail "an asking agent's ring"
+[ "$(js notch "document.querySelector('.cap-agent[data-agent=fixture]')?.dataset.s")" = asks ] \
+  && pass "while one of its sessions asks, the agent control's ring takes the attention colour" || fail "an asking agent's ring"
 send "key notch Escape"
 until_has notch "eval String(!!document.activeElement?.closest('[data-question]'))" 3 "true" && [ "$(js notch "String(!!document.querySelector('#sheet [data-question]'))")" = true ] \
   && pass "Escape leaves the capture line and keeps the question open" || fail "Escape from capture under a question"
@@ -596,6 +605,16 @@ until_has workspace "text .home .cap-list" 3 "project" && [ "$(js workspace "Str
   && press workspace ".home .cap-list [aria-selected=true]" Escape >/dev/null \
   && until_has workspace "eval String(!document.querySelector('.cap-list') && document.activeElement.id === 'capture-input')" 3 "true" \
   && pass "the destinations open inside the field, covering no row, and Escape returns to the thought" || fail "choosing a destination on Home"
+# "Open another folder…" in that list, pressed as WebKit presses a button (design/ui-directions/NOTES.md §13): the
+# press takes no keyboard, and before, the field lost it, the list closed under the pointer and the click never
+# landed. Here the press is the app's web view's own event (not a real pointer, which this check never moves): the list
+# keeps the keyboard where it is, the click reaches the row, and the folder panel's answer (TASKTAP_PICK) is chosen.
+js workspace "(document.querySelector('.home #dest-chip').click(), 1)" >/dev/null
+pressed="(b => { const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true }); b.dispatchEvent(down); if (!down.defaultPrevented) document.activeElement?.blur(); return new Promise(r => setTimeout(() => { const row = [...document.querySelectorAll('.home .cap-list button')].find(x => x.textContent.includes('Open another folder')); if (row) (row.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })), row.click()); r(String(down.defaultPrevented) + ' ' + !!row); }, 50)); })([...document.querySelectorAll('.home .cap-list button')].find(x => x.textContent.includes('Open another folder')))"
+until_has workspace "text .home .cap-list" 3 "Open another folder" && [ "$(js workspace "$pressed")" = "true true" ] \
+  && until_has workspace "eval document.querySelector('.home #dest-chip b')?.textContent + ' ' + document.activeElement?.id" 5 "project capture-input" \
+  && pass "a press on Open another folder… in the chip's list keeps the keyboard, its click lands, and the folder the panel gives is where the thought goes" || fail "Open another folder… from the chip's list" "$(js workspace "document.querySelector('.home #dest-chip')?.textContent")"
+js workspace "(__speech.cap.dest = undefined, __motion.redraw(), 1)" >/dev/null
 js workspace "(document.execCommand('selectAll'), document.execCommand('delete'), 1)" >/dev/null
 js workspace "(document.querySelector('.fold-b') || document.querySelector('.folds .fold-h').click(), 1)" >/dev/null
 ask workspace "click .fold-b .hr" >/dev/null
@@ -902,14 +921,16 @@ send 'call put {"c":"prefs","id":"hold","patch":10}'
 js workspace "(__ws.call('project.add', { id: __ws.uuid7(), folder: '$tmp/other' }), __ws.show('home'), 1)" >/dev/null
 until_has workspace "eval String([...__ws.records.projects.values()].filter(p => p.open && p.kind === 'folder').length) + ' ' + __ws.records.prefs.get('hold')?.value" 5 "2 10" || fail "a second folder is open"
 # Not allowed yet: Tasktap decides by a thought's words, so one that names no folder is asked about (never a guess),
-# and that is the moment placing by a model is offered, once.
+# at the Composer, where it was typed, holding the keyboard; nothing else stands under the Composer, and placing by a
+# model is one of Setup's steps (NOTES §13).
 chip="[...document.querySelectorAll('.home #dest-chip > b, .home #dest-chip > span')].map(e => e.textContent).join(' · ')"
 [ "$(js workspace "String(__ws.records.prefs.has('route_by'))")" = false ] && [ "$(js workspace "$chip")" = "Tasktap decides · by its words" ] \
   || fail "before it is allowed, Tasktap decides by a thought's words" "$(js workspace "$chip")"
 home_says "Tidy the changelog a little"
-until_has workspace "text .home .offer" 5 "Thoughts can find their own folder" && ask workspace "text .home .ways" | grep -q "Where should it go? Its question is open." \
-  && pass "the first thought that names no folder is asked about, and placing by a model is offered under it, in one line" || fail "placing is offered" "$(ask workspace "text .home .ways" | tr '\n' '|' | cut -c1-200)"
-js workspace "(document.querySelector('.home .offer .btn').click(), 1)" >/dev/null
+until_has workspace "text .home .cap-ask" 5 "Where should this go?" && [ "$(js workspace "String(!!document.activeElement?.closest('.home .cap-ask') && !document.querySelector('.home .needs [data-question]') && !/Thoughts can find|Its question is open/.test(document.querySelector('.home .ways').textContent))")" = true ] \
+  && pass "the first thought that names no folder is asked about at the Composer, holding the keyboard, not also in Needs you, and nothing else stands under the Composer" || fail "the question at the Composer" "$(ask workspace "text .home .capture" | tr '\n' '|' | cut -c1-200)"
+js workspace "((s => s.classList.contains('open') || s.querySelector('.fold-h').click())(document.querySelector('.home .setup')), 1)" >/dev/null
+js workspace "(document.querySelector('.home .setup [data-step=placing] .btn').click(), 1)" >/dev/null
 terms="$(ask workspace "text .sheet")"
 until_has workspace "text .sheet" 5 "Who reads them" && terms="$(ask workspace "text .sheet")" \
   && echo "$terms" | grep -q "the thought, as you said or typed it" && echo "$terms" | grep -q "of up to 8 of your projects" \
@@ -922,8 +943,8 @@ shot placing-terms workspace
 press workspace ".sheet" Enter >/dev/null
 until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.value) + String(!!__ws.ui.sheet)" 5 '{"agent":"fixture","model":"fixture-small","terms":2}false' \
   && pass "Allow writes the preference for that agent and its model, and the sheet goes" || fail "Allow"
-# The thought it was offered under is asked about: kept for later (L), then dropped.
-press workspace ".home .hq.open [data-question]" l >/dev/null
+# The thought sent before is asked about at the Composer: kept for later (L), then dropped.
+press workspace ".home .cap-ask[data-question]" l >/dev/null
 until_has workspace "eval String([...__ws.records.questions.values()].some(q => q.state === 'open'))" 3 "false" || fail "the offered thought is kept for later"
 js workspace "(__ws.call('delete', { c: 'thoughts', id: [...__ws.records.thoughts.values()].find(t => t.text === 'Tidy the changelog a little').id }), 1)" >/dev/null
 until_has workspace "eval String([...__ws.records.thoughts.values()].some(t => t.text === 'Tidy the changelog a little'))" 3 "false" || fail "the offered thought is dropped"
@@ -933,16 +954,17 @@ until_has workspace "eval String([...__ws.records.thoughts.values()].some(t => t
 before=$(thoughts)
 says 'print:{"quote":"","confidence":"ambiguous","to":"","candidates":["p1","p2"],"brief":"Keep the header on one line.","title":""}'
 home_says "so the header thing, I think it should stay on one line"
-until_has workspace "text .home .needs .hq.open" 10 "Where should this go?" && asked="$(ask workspace "text .home .needs .hq.open")" \
-  && echo "$asked" | grep -q "so the header thing, I think it should stay on one line" && echo "$asked" | grep -q "Brief so far" && echo "$asked" | grep -q "Keep the header on one line." \
-  && echo "$asked" | grep -q "Keep for later" && [ "$(js workspace "[...document.querySelectorAll('.hq.open .ans span')].map(s => s.textContent).sort().join('|')")" = "Another project…|Keep for later|other|project" ] \
-  && pass "a thought the model could not place is a question, first on Home and in full: the thought, its brief so far, the folders it could mean on their keys, and Keep for later" || fail "the router's question on Home" "$(echo "${asked:-}" | tr '\n' '|' | cut -c1-240)"
+until_has workspace "text .home .cap-ask" 10 "Where should this go?" && asked="$(ask workspace "text .home .cap-ask")" \
+  && echo "$asked" | grep -q "so the header thing, I think it should stay on one line" \
+  && echo "$asked" | grep -q "Keep for later" && [ "$(js workspace "[...document.querySelectorAll('.cap-ask .ans span')].map(s => s.textContent).sort().join('|')")" = "Another project…|Keep for later|other|project" ] \
+  && [ "$(js workspace "[...document.querySelectorAll('.cap-ask kbd.keycap')].filter(k => k.offsetParent).map(k => k.textContent).join(' ')")" = "1 2 O L" ] \
+  && pass "a thought the model could not place is asked about at the Composer, holding the keyboard: the thought in a line, the folders it could mean one under another on their keys, and Keep for later" || fail "the router's question on Home" "$(echo "${asked:-}" | tr '\n' '|' | cut -c1-240)"
 until_has notch "text #sheet" 5 "Where should this go?" && ask notch "text #sheet" | grep -q "so the header thing" && ask notch "text #sheet" | grep -q "Keep for later" \
   && pass "the notch opens on the same question by itself, in full" || fail "the router's question in the notch"
 shot router-question
 shot router-question-home workspace
 key="$(route_key project)"
-js workspace "([...document.querySelectorAll('.hq.open .ans')].find(b => b.querySelector('span').textContent === 'project').click(), 1)" >/dev/null
+js workspace "([...document.querySelectorAll('.cap-ask .ans')].find(b => b.querySelector('span').textContent === 'project').click(), 1)" >/dev/null
 until_has workspace "text .home .way" 5 "Keep the header on one line." && going="$(ask workspace "text .home .way")" \
   && echo "$going" | grep -q "project" && echo "$going" | grep -q "You said" && echo "$going" | grep -q "so the header thing" && echo "$going" | grep -q "Brief by Fixture agent · fixture-small" && ! echo "$going" | grep -q "Placed by" \
   && [ "$(js workspace "(b => b.textContent + ' ' + b.disabled)(document.querySelector('.home .cap-row .key'))")" = "Start false" ] \
@@ -1088,13 +1110,14 @@ quiet && [ "$(thoughts)" = "$before" ] && pass "Dismiss removes it, and nothing 
 send 'call delete {"c":"prefs","id":"speech_by"}' 'call delete {"c":"prefs","id":"speech_languages"}' 'call put {"c":"prefs","id":"hold","patch":2}'
 
 echo "== An agent for one thought; what the host opens; links in a terminal; a session's details; a terminal open in 8 places"
-# The ring picked goes with the thought written under it, and with no other: the next is the default's again.
-other="$(js workspace "document.querySelector('.home .ring[data-agent^=fixture-]:not([data-s=off])')?.dataset.agent ?? ''")"
+# The agent picked goes with the thought written under it, and with no other: the next is the default's again.
+js workspace "(document.querySelector('.home .cap-agent').click(), 1)" >/dev/null
+other="$(js workspace "document.querySelector('.home .agent-list [data-agent^=fixture-]:not([data-s=off])')?.dataset.agent ?? ''")"
 if [ -n "$other" ]; then
-  js workspace "(document.querySelector('.home .ring[data-agent=$other]').click(), __speech.cap.dest = 'later', 1)" >/dev/null
+  js workspace "(document.querySelector('.home .agent-list [data-agent=$other]').click(), __speech.cap.dest = 'later', 1)" >/dev/null
   home_says "Let the other agent have this one"
-  until_has workspace "$(thought 'Let the other agent have this one' agent) + ' ' + __ws.records.prefs.get('agent').value + ' ' + __speech.cap.agent + ' ' + document.querySelector('.home .ring[aria-checked=true]').dataset.agent" 5 "$other fixture undefined fixture" \
-    && pass "a thought sent under a picked ring is that agent's ($other); the default stays, and the ring of the next thought is the default's again" || fail "an agent picked for one thought" "$(js workspace "JSON.stringify([__speech.cap.agent, __speech.cap.refused])")"
+  until_has workspace "$(thought 'Let the other agent have this one' agent) + ' ' + __ws.records.prefs.get('agent').value + ' ' + __speech.cap.agent + ' ' + document.querySelector('.home .cap-agent').dataset.agent" 5 "$other fixture undefined fixture" \
+    && pass "a thought sent with an agent picked from the list is that agent's ($other); the default stays, and the control shows the default again for the next thought" || fail "an agent picked for one thought" "$(js workspace "JSON.stringify([__speech.cap.agent, __speech.cap.refused])")"
   js workspace "(__ws.call('delete', { c: 'thoughts', id: [...__ws.records.thoughts.values()].find(t => t.text === 'Let the other agent have this one').id }), 1)" >/dev/null
 else
   fail "an agent picked for one thought" "the fixture core lists no second agent"

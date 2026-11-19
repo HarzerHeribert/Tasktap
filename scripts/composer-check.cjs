@@ -15,7 +15,15 @@
 //   was opened in holds after that sheet is put away, or on Home's own Composer; the newest thought's folder, or
 //   Scratch, is a default anywhere; the chip does not say where the thought goes and why in its few words, or its list
 //   has no Scratch, or marks no row or another than the chip says; a pick holds for more than its thought, or the chip
-//   goes back from it without saying so; or what is sent is not what the chip said.
+//   goes back from it without saying so; or what is sent is not what the chip said;
+// - after the owner's first trial (design/ui-directions/NOTES.md §13): the question about a thought just sent is not
+//   asked at the Composer with the keyboard when the field was empty and had it, or is also in Needs you, or 1, the
+//   arrows with Return, or Escape do not answer it or give the field back; a 1 typed into the next thought begun as it
+//   came is not text; a question in Needs you without the keyboard shows caps; the Composer's key is not the metal key
+//   on Home, empty, typed, asked or on its way; the agent control's list is not reached, narrowed and picked from by
+//   keyboard; the first start's sheet takes a Return in its first 600 ms, or comes down over a thought being typed;
+//   or a real pointer's click on "Open another folder…" or a project in the chip's list does not land (also in
+//   WebKit, the Mac's engine, where Playwright's WebKit is installed).
 // usage: node scripts/composer-check.cjs [--dist folder]   (ui/dist must be built)
 const path = require('node:path');
 const { serve, open, findCore } = require('./motion-pages.cjs');
@@ -463,12 +471,188 @@ async function main() {
       for (const e of page.errors) failures.push(`${where}: ${e}`);
       await page.context().close();
     }
+    // ——— After the owner's first trial (NOTES §13) ———
+    // The question about a thought just sent is asked at the Composer and holds the keyboard; what is typed into the
+    // next thought is never an answer; a cap shows only where its key works; the Composer's key is metal in every state
+    // on Home; the agent control by keyboard; nothing typed lands on Allow; "Open another folder…" opens the panel.
+    {
+      const { projects } = require('./projects-fixtures.cjs');
+      const NOTES = ['named in it', 'where your last thought went', 'worked on last'];
+      const asking = async (o = {}) => {
+        const page = await open(browser, { label: 'workspace', records: { ...scene('normal'), asks: { notes: NOTES, ...o } }, url: server.url, dpr: 1 });
+        await page.focus(FIELD);
+        return page;
+      };
+      const held = (page) => page.evaluate(() => !!document.activeElement?.closest('.capture .cap-ask[data-question]'));
+      const caps = (page, sel) => page.evaluate((s) => [...document.querySelectorAll(`${s} kbd.keycap`)].filter((k) => k.offsetParent).map((k) => k.textContent.trim()).join(' '), sel);
+      const answered = (page) => page.evaluate(() => window.__fake.answered ?? null);
+      const metal = (page) => page.evaluate(() => {
+        const k = document.querySelector('.home .capture .cap-row:not(.hear) > .key');
+        return !!k && /linear-gradient/.test(getComputedStyle(k).backgroundImage) && getComputedStyle(k).color === 'rgb(13, 13, 14)';
+      });
+      const inNeeds = (page) => page.evaluate(() => !!document.querySelector('.needs [data-question]'));
+
+      // Answered by 1: the question came while the field was empty and had the keyboard, so the keyboard is its.
+      let page = await asking();
+      expect(await metal(page), 'Home, empty: the Composer\'s key is not the metal key');
+      await page.keyboard.type('make the export faster');
+      expect(await metal(page), 'Home, typed: the Composer\'s key is not the metal key');
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(700);
+      expect(await held(page), 'a question about the thought just sent, the field empty: it is not asked at the Composer with the keyboard');
+      expect(!(await inNeeds(page)), 'a question asked at the Composer is also in Needs you');
+      expect((await caps(page, '.cap-ask')) === '1 2 3 O L', `the question at the Composer shows the caps "${await caps(page, '.cap-ask')}", not 1 2 3 O L`);
+      expect(await metal(page), 'Home, a question at the Composer: the Composer\'s key is not the metal key');
+      expect(await page.evaluate(() => [...document.querySelectorAll('.cap-ask .qa > .ans')].every((a, i, all) => !i || a.getBoundingClientRect().top >= all[i - 1].getBoundingClientRect().bottom - 0.5)), 'the question\'s places are not one under another');
+      expect(!(await page.evaluate(() => document.querySelector('.ways')?.textContent ?? '')).includes('Its question is open'), 'under the Composer a sentence still says where the question is');
+      await page.keyboard.press('1');
+      await page.waitForTimeout(400);
+      expect(JSON.stringify(await answered(page)) === JSON.stringify({ id: (await page.evaluate(() => window.__fake.asked.id)), kind: 'choice', choice: 0 }), `1 at the Composer's question did not answer with its first place (${JSON.stringify(await answered(page))})`);
+      expect((await value(page)) === '', `1 at the Composer's question typed into the field ("${await value(page)}")`);
+      expect(await page.evaluate(() => document.activeElement?.id === 'capture-input'), 'once answered, the field does not have the keyboard back');
+      expect(await metal(page), 'Home, a thought on its way: the Composer\'s key is not the metal key');
+      await page.context().close();
+
+      // Answered by the arrows and Return.
+      page = await asking();
+      await page.keyboard.type('make the export faster');
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(700);
+      await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(400);
+      expect((await answered(page))?.choice === 1, `↓ ↓ Return at the Composer's question did not answer with its second place (${JSON.stringify(await answered(page))})`);
+      await page.context().close();
+
+      // Given back by Escape: the field has the keyboard, the question waits in Needs you without caps, and 1 is text.
+      page = await asking();
+      await page.keyboard.type('make the export faster');
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(700);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(200);
+      expect(await page.evaluate(() => document.activeElement?.id === 'capture-input'), 'Escape at the Composer\'s question did not give the field its keyboard back');
+      expect(await inNeeds(page) && !(await page.evaluate(() => !!document.querySelector('.cap-ask'))), 'given back, the question does not wait in Needs you (or is still at the Composer)');
+      expect((await caps(page, '.needs')) === '', `a question in Needs you without the keyboard shows the caps "${await caps(page, '.needs')}"`);
+      await page.keyboard.type('1');
+      await page.waitForTimeout(200);
+      expect((await value(page)) === '1' && !(await answered(page)), `given back, 1 is not text in the field ("${await value(page)}", ${JSON.stringify(await answered(page))})`);
+      // Reached from the list by the arrows it holds the keyboard, and shows its caps.
+      await page.keyboard.press('Backspace');
+      await page.keyboard.press('ArrowDown');
+      await page.waitForTimeout(100);
+      await page.keyboard.press('ArrowDown');
+      await page.waitForTimeout(100);
+      expect((await caps(page, '.needs')).startsWith('1 2 3'), `a question in Needs you reached by the arrows shows the caps "${await caps(page, '.needs')}"`);
+      await page.context().close();
+
+      // The next thought begun when the question comes: it never takes the keyboard, and 1 stays text.
+      page = await asking({ ms: 900 });
+      await page.keyboard.type('make the export faster');
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(150);
+      await page.keyboard.type('1 more thing');
+      await page.waitForTimeout(1200);
+      await page.keyboard.type(' and 2');
+      expect((await value(page)) === '1 more thing and 2', `typing the next thought as the question came: the field holds "${await value(page)}"`);
+      expect(!(await answered(page)) && !(await held(page)), 'typing the next thought as the question came: a key answered it or it took the keyboard');
+      expect(await inNeeds(page) && (await caps(page, '.needs')) === '', 'typing the next thought as the question came: it does not wait in Needs you without caps');
+      await page.context().close();
+
+      // The agent control by keyboard: six agents, no field; eleven, a field that narrows them.
+      const { agents } = require('./home-shots.cjs');
+      for (const n of [6, 11]) {
+        page = await open(browser, { label: 'workspace', records: agents(scene('normal'), n), url: server.url, dpr: 1 });
+        await page.focus('.cap-agent');
+        await page.keyboard.press('ArrowDown');
+        await page.waitForTimeout(200);
+        const rows = await page.evaluate(() => [...document.querySelectorAll('.agent-list [role=option]')].map((b) => b.dataset.agent));
+        expect(rows.length === n, `${n} agents: the list has ${rows.length} rows`);
+        expect(!(await page.evaluate(() => !!document.querySelector('.cap-row select, .rings'))), `${n} agents: a row of rings or a system menu is still there`);
+        if (n > 6) {
+          expect(await page.evaluate(() => document.activeElement?.id === 'agent-find'), `${n} agents: the list's field does not have the keyboard`);
+          await page.keyboard.type('gem');
+          await page.waitForTimeout(150);
+          expect((await page.evaluate(() => [...document.querySelectorAll('.agent-list [role=option]')].map((b) => b.dataset.agent).join(' '))) === 'gemini', `${n} agents: typing "gem" does not narrow the list to Gemini CLI`);
+          await page.keyboard.press('Enter');
+        } else {
+          expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-selected') === 'true'), `${n} agents: the chosen agent's row does not have the keyboard`);
+          await page.keyboard.press('ArrowDown');
+          await page.keyboard.press('ArrowDown');
+          await page.keyboard.press('Enter');
+        }
+        await page.waitForTimeout(200);
+        const now = await page.evaluate(() => document.querySelector('.cap-agent')?.dataset.agent);
+        expect(now === (n > 6 ? 'gemini' : rows[2]), `${n} agents: the agent picked by keyboard is ${now}, not ${n > 6 ? 'gemini' : rows[2]}`);
+        expect(await page.evaluate(() => document.activeElement?.id === 'capture-input'), `${n} agents: once picked, the field does not have the keyboard back`);
+        await page.focus('.cap-agent');
+        await page.keyboard.press('ArrowDown');
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(150);
+        expect(!(await page.evaluate(() => !!document.querySelector('.agent-list'))) && (await page.evaluate(() => document.querySelector('.cap-agent')?.dataset.agent)) === now, `${n} agents: Escape did not leave the list as it was`);
+        await page.context().close();
+      }
+
+      // Nothing typed lands on Allow. The first step comes down by itself into a still page, and takes no key for 600 ms.
+      page = await open(browser, { label: 'workspace', records: { ...projects('first-agents'), offerMs: 700 }, url: server.url, dpr: 1 });
+      const allowed = () => page.evaluate(() => window.__fake.records.looks?.some((l) => l.on) ?? false);
+      await page.waitForFunction(() => window.__ws.ui.sheet, null, { timeout: 3000 }).catch(() => {});
+      expect(await page.evaluate(() => window.__ws.ui.sheet?.kind === 'setup' && window.__ws.ui.sheet.auto === true), 'the first start: the projects step did not come down by itself');
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(100);
+      expect(!(await allowed()), 'the first start: Return within 600 ms of the sheet coming down allowed it');
+      await page.waitForTimeout(700);
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(300);
+      expect(await allowed(), 'the first start: Return after 600 ms did not allow it');
+      await page.context().close();
+      // Typing before it would come down: it does not come down, and Return sends the thought.
+      page = await open(browser, { label: 'workspace', records: { ...projects('first-agents'), offerMs: 900 }, url: server.url, dpr: 1 });
+      await page.focus(FIELD);
+      await page.keyboard.type('a thought');
+      await page.waitForTimeout(1300);
+      expect(!(await page.evaluate(() => window.__ws.ui.sheet)), 'typing at the first start: the projects step came down over what was typed');
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(300);
+      expect(!(await page.evaluate(() => window.__fake.records.looks?.some((l) => l.on) ?? false)) && (await calls(page, 'thought.capture')) === 1, 'typing at the first start: Return did not send the thought, or allowed reading');
+      await page.context().close();
+
+      // "Open another folder…" in the chip's list, clicked with a real pointer, asks for the folder panel and the chip
+      // takes what was chosen. In WebKit (the Mac's engine) where it is installed: there a button takes no keyboard on
+      // a click, and the list closed under the pointer before.
+      const engines = [['chromium', browser]];
+      try {
+        engines.push(['webkit', await require('playwright').webkit.launch({ headless: true })]);
+      } catch {
+        console.log('NOTE  WebKit is not installed for Playwright: "Open another folder…" is clicked in Chromium only');
+      }
+      for (const [name, b] of engines) {
+        page = await open(b, { label: 'workspace', records: { ...scene('normal'), pick: '/Users/example/projects/inkwell' }, url: server.url, dpr: 1 });
+        await page.click(FIELD);
+        await page.click('#dest-chip');
+        await page.waitForTimeout(200);
+        const box = await page.locator('.cap-list button:has-text("Open another folder")').boundingBox();
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+        await page.waitForTimeout(400);
+        expect((await page.evaluate(() => window.__fake.picked.length)) === 1, `${name}: a click on "Open another folder…" did not ask for the folder panel`);
+        // A project row of the list, clicked: it is chosen.
+        await page.click('#dest-chip');
+        await page.waitForTimeout(200);
+        const row = await page.locator('.cap-list [role=option]:has-text("fieldnotes")').boundingBox();
+        await page.mouse.click(row.x + row.width / 2, row.y + row.height / 2);
+        await page.waitForTimeout(200);
+        expect((await page.evaluate(() => document.querySelector('#dest-chip b')?.textContent)) === 'fieldnotes', `${name}: a click on a project in the chip's list did not choose it`);
+        await page.context().close();
+        if (b !== browser) await b.close();
+      }
+    }
   } finally {
     await browser.close();
     await server.close();
   }
   for (const f of failures) console.log('FAIL  ' + f);
-  console.log(failures.length ? `FAIL  the Composer's field: ${failures.length} things wrong` : 'PASS  the Composer\'s field takes every key while a capture is on its way, keeps what was typed for the next thought, sends a thought once, takes one back with ⌘Z, gets a refused one\'s words back, and is measured only when its words or its width change, growing and shrinking a line at a time; its chip says where a thought goes and why, never defaults to Scratch or the newest thought\'s folder, keeps a workspace\'s folder to the sheet opened there, marks its choice in a list that has Scratch and that a click or the keyboard opens and leaves with the field\'s keyboard back, says when a choice has gone with its thought, places by a name before the workspace and by the one folder open, gives a thought kept for later by its words Undo and Send to a folder, and keeps the microphone\'s key hint whole on its line or drops it before the chip\'s place is cut');
+  console.log(failures.length ? `FAIL  the Composer's field: ${failures.length} things wrong` : 'PASS  the Composer\'s field takes every key while a capture is on its way, keeps what was typed for the next thought, sends a thought once, takes one back with ⌘Z, gets a refused one\'s words back, and is measured only when its words or its width change, growing and shrinking a line at a time; its chip says where a thought goes and why, never defaults to Scratch or the newest thought\'s folder, keeps a workspace\'s folder to the sheet opened there, marks its choice in a list that has Scratch and that a click or the keyboard opens and leaves with the field\'s keyboard back, says when a choice has gone with its thought, places by a name before the workspace and by the one folder open, gives a thought kept for later by its words Undo and Send to a folder, and keeps the microphone\'s key hint whole on its line or drops it before the chip\'s place is cut; asks a just-sent thought\'s question at the Composer with the keyboard (1, the arrows and Return answer, Escape gives the field back), never takes a key of the next thought for an answer, shows no cap where its key does nothing, keeps its key metal, picks an agent from one list by keyboard, lets nothing typed land on Allow, and lands a click on Open another folder…');
   process.exitCode = failures.length ? 1 : 0;
 }
 main().catch((e) => (console.error(e), process.exit(1)));

@@ -760,3 +760,6 @@ button.line.pj{grid-template-columns:28px 190px minmax(0,1fr) auto}
   .pj-k{grid-template-columns:128px minmax(0,1fr)}
 }
 /* ——— end of Projects ——— */
+/* In the projects step's sheet a found project is its name and why: its folder is in its tooltip, so neither is cut. */
+.sheet .fr-s{grid-template-columns:var(--lead) calc(140px * var(--ts)) 0 minmax(0,1fr)}
+.sheet .fr-f{display:none}

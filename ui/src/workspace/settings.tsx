@@ -99,8 +99,8 @@ async function toggleTrial() {
 function ThoughtsPane() {
   const hold = records.prefs.get('hold');
   const sends = pref('return_sends'), days = pref('keep_days'), stored = pref('capture_key');
-  useEffect(() => void askCapture(), []);
-  useEffect(() => void (mac || askTab()), []);
+  // (One effect, as before the tab: the sections are called inside Settings, so their hooks are its own, in order.)
+  useEffect(() => void (askCapture(), mac || askTab()), []);
   const places: [string, string][] = !tab ? [] : [['main', 'Main display'], ['pointer', 'Where it was last opened'],
     ...(tab.displays.length > 1 || !['main', 'pointer', 'off'].includes(tab.display)
       ? [...new Set([...tab.displays.map((d) => d.name), ...(['main', 'pointer', 'off'].includes(tab.display) ? [] : [tab.display])])].map((name): [string, string] => [name, displayName(name)])

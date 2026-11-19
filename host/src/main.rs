@@ -20,6 +20,8 @@ mod native;
 mod notch;
 mod open;
 mod speech;
+mod takeover;
+mod update;
 // Where the tab hangs on a Windows display: arithmetic, tested on every system.
 #[cfg(any(windows, test))]
 mod tab;
@@ -147,6 +149,10 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
     let (id, args) = (call["id"].clone(), &call["args"]);
     let outcome = match call["name"].as_str().unwrap_or_default() {
         "host.notch" => {
+            // The notch takes the keyboard for a thought: a capture, at which the updater looks once a day.
+            if args["key"].as_bool() == Some(true) {
+                update::daily(app);
+            }
             notch::request(app, args);
             Ok(Value::Null)
         }
@@ -182,9 +188,12 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
             open::open(args, &roots, notch::NOTCH.lock().unwrap().passive)
         }
         "host.capture_key" => keys::call(app, args),
+        // New versions: what is known, a look (About is shown), or the install the person asked for (update.rs).
+        "host.update" => update::call(app, args),
         // The capture key was pressed with the workspace in front and it has no field of its own in view: what
         // the key opens from another app. Without a notch or a tab that is New Task.
         "host.capture" => {
+            update::daily(app);
             // (The lock is let go before the notch is asked: it takes it itself.)
             let panel = notch::NOTCH.lock().unwrap().panel;
             match panel {
@@ -272,6 +281,9 @@ pub(crate) fn capture(app: &AppHandle) {
 fn shortcut(app: &AppHandle, shortcut: &Shortcut) {
     let capture_key = keys::CAPTURE.lock().unwrap().as_ref().and_then(keys::system);
     let panel = notch::NOTCH.lock().unwrap().panel;
+    if capture_key.as_ref() == Some(shortcut) {
+        update::daily(app);
+    }
     match shortcut.key {
         // The capture key puts the caret where a thought is typed (plan, "The capture key on Home"). With the
         // workspace in front that is its page's to say: Home has a field of its own.
@@ -431,17 +443,37 @@ fn granted(passive: bool, kind: PermissionKind) -> bool {
 
 fn main() {
     START.get_or_init(Instant::now);
-    // The core starts while the app and its windows are made: macOS takes a tenth of a second over the first run of
-    // a new copy of it, and nothing needs it before a page asks.
-    let starting = std::thread::spawn(|| -> std::io::Result<(Arc<Core>, Arc<Link>)> {
-        // The core this app bundles, next to its own program; a check may name another.
-        let (exe, build) = match (std::env::var_os("TASKTAP_CORE_EXE"), std::env::var("TASKTAP_CORE_BUILD")) {
+    let passive = std::env::var_os("TASKTAP_PASSIVE").is_some();
+    // The core this app bundles, next to its own program; a check may name another.
+    let (exe, build): (std::path::PathBuf, String) =
+        match (std::env::var_os("TASKTAP_CORE_EXE"), std::env::var("TASKTAP_CORE_BUILD")) {
             (Some(exe), Ok(build)) => (exe.into(), build),
             _ => (
-                std::env::current_exe()?.with_file_name(format!("tasktap{}", std::env::consts::EXE_SUFFIX)),
+                std::env::current_exe()
+                    .unwrap_or_default()
+                    .with_file_name(format!("tasktap{}", std::env::consts::EXE_SUFFIX)),
                 env!("TASKTAP_CORE_BUILD").to_owned(),
             ),
         };
+    // The first start after the rename takes over Tasktap Next's folder, before anything is made in this app's own
+    // (two looks at the disk when there is nothing to take over). While Tasktap Next runs, the app does not start.
+    let moved = match takeover::before_start(&data_folder(), &exe) {
+        takeover::Outcome::Nothing => None,
+        takeover::Outcome::Moved(words) => {
+            log(json!({"event": "takeover", "moved": words.body}));
+            Some(words)
+        }
+        takeover::Outcome::Stopped(words) => {
+            log(json!({"event": "takeover", "stopped": words.title, "why": words.body}));
+            if !passive {
+                takeover::tell(&words);
+            }
+            return;
+        }
+    };
+    // The core starts while the app and its windows are made: macOS takes a tenth of a second over the first run of
+    // a new copy of it, and nothing needs it before a page asks.
+    let starting = std::thread::spawn(move || -> std::io::Result<(Arc<Core>, Arc<Link>)> {
         let core = Arc::new(Core::prepare(data_folder(), &exe, build)?);
         let link = Link::start(
             core.clone(),
@@ -462,6 +494,12 @@ fn main() {
     let builder = tauri::Builder::default();
     #[cfg(target_os = "macos")]
     let builder = builder.activate_ignoring_other_apps(false);
+    // The updater, in a build that has its key (update.rs).
+    let mut context = tauri::generate_context!();
+    let builder = match update::configure(context.config_mut()) {
+        true => builder.plugin(tauri_plugin_updater::Builder::new().build()),
+        false => builder,
+    };
     let app = builder
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -561,9 +599,13 @@ fn main() {
             log(json!({"event": "ready", "data": core.data}));
             app.manage(Host { core, link, pages: Mutex::default(), question: Mutex::default() });
             let _ = APP.set(app.handle().clone());
+            // Said once the window is there: what the first start did with Tasktap Next's folder.
+            if let Some(words) = moved.filter(|_| !passive) {
+                let _ = app.run_on_main_thread(move || takeover::tell(&words));
+            }
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("Tasktap Next failed to start");
     // Closing the workspace never quits: the notch's own (hidden) Tauri window stays open. The
     // Dock icon brings the workspace back; Quit in the menu ends the app. On Windows the app stays in the

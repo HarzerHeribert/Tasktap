@@ -4,18 +4,22 @@
 //! that folder as a place to look; it reads only within the map's bounds,
 //! writes nothing outside a temporary folder of its own, and keeps nothing.
 //!
-//!     map-count [--in <folder>]...
+//!     map-count [--in <folder>]... [--thought <text>]...
 //!
 //! Then, over the projects found, how placing by name does: a thought that
 //! writes each name, one that says it as separate words, and how many
-//! names another name contains or a word of a thought could be mistaken for.
+//! names another name contains or a word of a thought could be mistaken for;
+//! how many a clear leader starts, and a thought that nearly says each name
+//! with a word only its own line has, or only another's. `--thought` says
+//! how one thought of the person's ends: started or asked, and whether by
+//! its name; never where.
 
 use std::collections::BTreeMap;
 use std::time::Instant;
 
 use tasktap_core::map::{self, Input, Rule};
 use tasktap_core::route::{self, Named, Request};
-use tasktap_core::state::{Destination, Route};
+use tasktap_core::state::{Destination, Route, Said};
 use tasktap_proto::{CardId, Evidence, Look, LookId, LookKind, LookState, Rev, Time};
 
 fn main() {
@@ -264,7 +268,32 @@ fn main() {
         among: usize,
         without: usize,
         wrong: usize,
+        led: usize,
+        led_wrong: usize,
         n: usize,
+    }
+    impl Ends {
+        fn add(&mut self, route: Route, want: Destination) {
+            self.n += 1;
+            match route {
+                Route::Clear { to, said, .. } if to == want => {
+                    self.right += 1;
+                    self.led += usize::from(matches!(said, Some(Said::Leads { .. })));
+                }
+                Route::Clear { said, .. } => {
+                    self.wrong += 1;
+                    self.led_wrong += usize::from(matches!(said, Some(Said::Leads { .. })));
+                }
+                Route::Ambiguous { candidates, .. } => {
+                    match candidates.iter().position(|c| c.to == want) {
+                        Some(0) => self.first += 1,
+                        Some(_) => self.among += 1,
+                        None => self.without += 1,
+                    }
+                }
+                Route::Unknown => self.without += 1,
+            }
+        }
     }
     type Say = fn(&str) -> String;
     let forms: [(&str, Say); 3] = [
@@ -289,19 +318,7 @@ fn main() {
                     true => parts.join(" "),
                     false => p.name.clone(),
                 };
-                e.n += 1;
-                match place(say(&name)) {
-                    Route::Clear { to, .. } if to == p.to => e.right += 1,
-                    Route::Clear { .. } => e.wrong += 1,
-                    Route::Ambiguous { candidates, .. } => {
-                        match candidates.iter().position(|c| c.to == p.to) {
-                            Some(0) => e.first += 1,
-                            Some(_) => e.among += 1,
-                            None => e.without += 1,
-                        }
-                    }
-                    Route::Unknown => e.without += 1,
-                }
+                e.add(place(say(&name)), p.to);
             }
             let how = match apart {
                 true => "said as separate words",
@@ -310,6 +327,71 @@ fn main() {
             ends.push((format!("\"{form}\", {how}"), e));
         }
     }
+    // Each name nearly said (its last word one for many, or many for one),
+    // with a word only its own line has: started there or asked, never
+    // started elsewhere; and with a word only another's line has: asked.
+    let words = |text: &str| -> Vec<String> {
+        (text.split(|c: char| !c.is_alphanumeric()))
+            .filter(|w| w.chars().count() >= 5 && w.chars().all(char::is_alphabetic))
+            .map(str::to_lowercase)
+            .collect()
+    };
+    let theirs: Vec<Vec<String>> = (named.iter())
+        .map(|p| [words(&p.about), route::parts(&p.name)].concat())
+        .collect();
+    let own: Vec<Option<String>> = (0..named.len())
+        .map(|k| {
+            // Not its own name either: that would name it.
+            let mine = route::parts(&named[k].name);
+            let only = |w: &String| {
+                !mine.contains(w) && (0..named.len()).all(|o| o == k || !theirs[o].contains(w))
+            };
+            words(&named[k].about).into_iter().find(only)
+        })
+        .collect();
+    let near = |name: &str| {
+        let mut parts = route::parts(name);
+        let last = parts.pop()?;
+        let flipped = match last.strip_suffix('s') {
+            Some(one) if one.chars().count() >= 3 => one.to_owned(),
+            _ => format!("{last}s"),
+        };
+        parts.push(flipped);
+        Some(parts.join(" "))
+    };
+    let (mut mine, mut other) = (Ends::default(), Ends::default());
+    for (k, p) in named.iter().enumerate() {
+        let (Some(near), Some(word)) = (near(&p.name), own[k].as_ref()) else {
+            continue;
+        };
+        mine.add(place(format!("look into the {near} {word}")), p.to);
+        let next = (1..named.len())
+            .map(|i| (k + i) % named.len())
+            .find(|o| own[*o].is_some());
+        if let Some(o) = next {
+            let word = own[o].as_ref().unwrap();
+            let route = place(format!("look into the {near} {word}"));
+            // Any start is wrong here: another's line has a word of it.
+            if let Route::Clear { to, said, .. } = &route
+                && *to == p.to
+            {
+                other.n += 1;
+                other.wrong += 1;
+                other.led_wrong += usize::from(matches!(said, Some(Said::Leads { .. })));
+                continue;
+            }
+            other.add(route, p.to);
+        }
+    }
+    ends.push((
+        "\"look into the <name, nearly> <a word only its line has>\"".into(),
+        mine,
+    ));
+    ends.push((
+        "\"look into the <name, nearly> <a word only another's line has>\" (any start is wrong)"
+            .into(),
+        other,
+    ));
     let contained = (named.iter())
         .filter(|a| {
             named.iter().any(|b| {
@@ -329,9 +411,37 @@ fn main() {
     println!("Placing by name over these {} projects:", named.len());
     for (what, e) in &ends {
         println!(
-            "  {what} ({}): {} placed right, {} asked with it first, {} asked with it among, {} asked without it, {} placed wrong",
-            e.n, e.right, e.first, e.among, e.without, e.wrong
+            "  {what} ({}): {} placed right, {} asked with it first, {} asked with it among, {} asked without it, {} placed wrong; started by a clear leader: {} right, {} wrong",
+            e.n, e.right, e.first, e.among, e.without, e.wrong, e.led, e.led_wrong
         );
+    }
+    // The person's own thoughts, given on the command line: how each ends,
+    // never where.
+    let thoughts: Vec<String> = (args.windows(2))
+        .filter(|w| w[0] == "--thought")
+        .map(|w| w[1].clone())
+        .collect();
+    for (i, text) in thoughts.iter().enumerate() {
+        let ends = match place(text.clone()) {
+            Route::Clear {
+                said: Some(Said::Leads { why, words }),
+                ..
+            } => format!(
+                "started by a clear leader, by {} pieces, its name among them: {}",
+                why.matches(" and ").count() + why.matches(", ").count() + 1,
+                words.is_some()
+            ),
+            Route::Clear { .. } => "started by a name said".into(),
+            Route::Ambiguous { candidates, .. } => format!(
+                "asked, {} choices, the first by its name nearly said: {}",
+                candidates.len(),
+                candidates
+                    .first()
+                    .is_some_and(|c| c.why.starts_with("its name"))
+            ),
+            Route::Unknown => "kept for later".into(),
+        };
+        println!("  thought {}: {ends}", i + 1);
     }
     println!(
         "  names another project's name contains as a word: {contained}; names two projects share: {same_name}"

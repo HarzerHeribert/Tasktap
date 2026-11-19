@@ -67,7 +67,7 @@ test('the two letters of a ring are no two agents alike', () => {
   assert.deepEqual([...lettersOf(['agy', 'aider', 'amp'], true).values()], ['A', 'I', 'M']);
 });
 
-const route = (o: Partial<Routing> = {}): Routing => ({ by: 'claude', model: 'haiku', pending: false, fallback: null, quote: null, title: null, ms: 2100, ...o });
+const route = (o: Partial<Routing> = {}): Routing => ({ by: 'claude', model: 'haiku', pending: false, fallback: null, quote: null, title: null, lead: null, ms: 2100, ...o });
 const thought = (o: Partial<Thought> = {}) => ({
   phase: 'captured', status: 'captured', mode: 'ask', route: null, placed: null, project_id: null, text: 'make the header stay on one line', brief: null, hold_until: null, created: 1000, ...o,
 }) as Thought;
@@ -114,6 +114,9 @@ test('how it came by its place is told from the core\'s word for it, never from 
   assert.equal(says('name', local), 'Placed by name');
   assert.equal(says('name', route({ ...local, fallback: slow })), `Placed by name. ${slow}`);
   assert.equal(says('name', route({ ...local, fallback: gone })), `Placed by name. ${gone}`);
+  // No name was said for certain and one project clearly led: the line says what only it has.
+  assert.equal(says('name', route({ ...local, lead: 'its name and “widgetpack”' })), 'its name and “widgetpack”');
+  assert.equal(says('name', route({ ...local, lead: 'its name and “widgetpack”', fallback: slow })), `its name and “widgetpack”. ${slow}`);
   assert.equal(says('model', route()), 'Placed by Claude Code · haiku');
   assert.equal(says('model', route({ quote: 'the header again' })), 'Placed by Claude Code · haiku, because you said “the header again”');
   // The person decided: a pick, a follow-up to the session they were in, an answer to where it should go. A model

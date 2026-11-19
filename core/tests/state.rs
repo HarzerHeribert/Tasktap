@@ -924,6 +924,40 @@ fn a_follow_up_to_an_ended_session_continues_it_in_a_new_one() {
 }
 
 #[test]
+fn a_thought_one_project_clearly_led_to_says_why_and_is_held_to_undo() {
+    let mut w = World::new("lead");
+    let text = "research a new vexa widget to add to the vexa widgetpack";
+    let t = w.capture(text);
+    let route = Route::Clear {
+        said: Some(state::Said::Leads {
+            why: "its name and “widgetpack”".into(),
+            words: Some("vexa widget".into()),
+        }),
+        to: Destination::New(w.project),
+        brief: text.into(),
+    };
+    let effects = w.ok(Event::Routed {
+        thought: t,
+        route,
+        how: locally(None),
+        current: None,
+    });
+    assert!(
+        matches!(effects.as_slice(), [Effect::Hold { .. }]),
+        "{effects:?}"
+    );
+    let th = w.thought(t);
+    let how = th.route.clone().unwrap();
+    assert_eq!(
+        (how.lead.as_deref(), how.quote, th.placed),
+        (Some("its name and “widgetpack”"), None, Some(Placed::Name))
+    );
+    // Undone as any thought held.
+    assert_eq!(w.ok(Event::Stop { thought: t }), [Effect::Unhold(t)]);
+    assert_eq!(w.thought(t).phase, Phase::Captured);
+}
+
+#[test]
 fn row_stop_before_launch_is_undo() {
     let mut w = World::new("undo");
     let t = w.routed("fix the build");

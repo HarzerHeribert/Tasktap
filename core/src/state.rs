@@ -197,11 +197,12 @@ impl From<Destination> for tasktap_proto::Place {
 /// What the router found, after the acceptance rules of design §8.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Route {
-    /// `said`: the words that named the project, when not as it is written.
+    /// `said`: the words that named the project, when not as it is
+    /// written; or why it led the others, when no name was said for certain.
     Clear {
         to: Destination,
         brief: String,
-        said: Option<String>,
+        said: Option<Said>,
     },
     /// The person chooses in a router question. `brief` is the one a
     /// model wrote already, which holds wherever the thought goes.
@@ -212,6 +213,18 @@ pub enum Route {
     },
     /// Nowhere to send it, or a note: it stays captured as an idea.
     Unknown,
+}
+
+/// What the match on names says of how it found a project.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Said {
+    /// The words that named it, otherwise than as its name is written:
+    /// "cue grid".
+    As(String),
+    /// No name was said for certain, and it clearly led every other: why,
+    /// in a few words ("its name and “widgetpack”"), and the words that nearly
+    /// said its name, when some did ("vexa widget").
+    Leads { why: String, words: Option<String> },
 }
 
 /// One choice of a router question.
@@ -586,9 +599,12 @@ impl Machine<'_, '_> {
                 Some(P::Captured),
                 ..,
             ) if routing(&thought) => {
-                // The words that named the project, for what is said of it.
-                if how.by == LOCAL && said.is_some() {
-                    how.quote = said;
+                // The words that named the project, or why it led the
+                // others, for what is said of it.
+                match said.filter(|_| how.by == LOCAL) {
+                    Some(Said::As(words)) => how.quote = Some(words),
+                    Some(Said::Leads { why, .. }) => how.lead = Some(why),
+                    None => {}
                 }
                 self.routed(some(thought)?, to, brief, how, current)
             }

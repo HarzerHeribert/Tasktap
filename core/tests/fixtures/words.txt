@@ -8,6 +8,7 @@ friday
 grid
 harbor
 kiln
+layout
 ledger
 line
 login
@@ -15,7 +16,9 @@ master
 mobile
 recipe
 site
+snippet
 snow
 test
 theme
 web
+window

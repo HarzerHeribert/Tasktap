@@ -1347,6 +1347,7 @@ fn the_agreement_to_place_by_models_and_a_thoughts_route_are_as_the_wire_says() 
         fallback: None,
         quote: Some("that thing from before".into()),
         title: Some("Login redirect".into()),
+        lead: None,
         ms: Some(2300),
     };
     let routed = Thought {
@@ -1357,13 +1358,19 @@ fn the_agreement_to_place_by_models_and_a_thoughts_route_are_as_the_wire_says() 
     assert_eq!(
         wire["route"],
         json!({"by": "claude", "model": "haiku", "pending": false, "fallback": null,
-               "quote": "that thing from before", "title": "Login redirect", "ms": 2300})
+               "quote": "that thing from before", "title": "Login redirect", "lead": null,
+               "ms": 2300})
     );
     // A route stored before a model gave titles reads with none.
     let mut untitled = wire["route"].clone();
     untitled.as_object_mut().unwrap().remove("title");
     let untitled: Routing = serde_json::from_value(untitled).unwrap();
     assert_eq!(untitled.title, None);
+    // And one stored before a clear leader started thoughts, with no lead.
+    let mut unled = wire["route"].clone();
+    unled.as_object_mut().unwrap().remove("lead");
+    let unled: Routing = serde_json::from_value(unled).unwrap();
+    assert_eq!(unled.lead, None);
     assert_eq!(
         serde_json::from_value::<Thought>(wire.clone()).unwrap(),
         routed

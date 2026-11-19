@@ -14,6 +14,11 @@
 //!
 //! A near name is never a start: it is asked about. Nothing here knows
 //! the projects; `route.rs` decides with what it finds.
+//!
+//! Where no name is said for certain, [`evidence`] gives each project what
+//! only it has of a thought's words: its whole name nearly said ("vexa widget"
+//! for `vexa-widgets`), a word only its name has, a word only its line has;
+//! `route.rs` starts in one that clearly leads.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
@@ -244,8 +249,10 @@ pub fn said(w: &Words, name: &str) -> Vec<Said> {
 /// Where the words of the language are: the system's dictionary (on a Mac
 /// Webster's word list and its list of word groups, elsewhere
 /// `/usr/share/dict/words`), or the files `TASKTAP_WORDS` names (`:`
-/// between them). Read when a name written apart asks whether its words are
-/// ordinary words, never kept: a few milliseconds, no memory held.
+/// between them). Read when a name written apart, or a word of a name a
+/// thought nearly says, asks whether its words are ordinary words: a few
+/// milliseconds, and never kept; only its answers for the words asked are,
+/// a few thousand at most.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Lexicon(pub Vec<std::path::PathBuf>);
 
@@ -262,6 +269,196 @@ impl Default for Lexicon {
         Lexicon(paths.into_iter().map(std::path::PathBuf::from).collect())
     }
 }
+
+/// Names of well-known tools, services and agents: ordinary words of a
+/// person's work, which a thought says of the tool as often as of a
+/// project named after it ("jira tickets", "the figma file", "tmux key
+/// bindings"). Never made up for a name, whatever an old dictionary lacks.
+const TOOLS: &[&str] = &[
+    "ableton",
+    "aider",
+    "airtable",
+    "alacritty",
+    "android",
+    "angular",
+    "ansible",
+    "anthropic",
+    "antigravity",
+    "arduino",
+    "asana",
+    "aws",
+    "azure",
+    "bitbucket",
+    "bitwarden",
+    "blender",
+    "bluesky",
+    "chatgpt",
+    "chromium",
+    "claude",
+    "cline",
+    "cloudflare",
+    "codex",
+    "confluence",
+    "copilot",
+    "cursor",
+    "cypress",
+    "datadog",
+    "davinci",
+    "debian",
+    "deepseek",
+    "deno",
+    "devin",
+    "discord",
+    "django",
+    "docker",
+    "dropbox",
+    "eslint",
+    "evernote",
+    "facebook",
+    "fastapi",
+    "fedora",
+    "figma",
+    "firebase",
+    "firefox",
+    "flutter",
+    "framer",
+    "gcp",
+    "gemini",
+    "ghostty",
+    "github",
+    "gitlab",
+    "gmail",
+    "godot",
+    "golang",
+    "goodreads",
+    "grafana",
+    "grok",
+    "heroku",
+    "homebrew",
+    "homekit",
+    "hubspot",
+    "icloud",
+    "instagram",
+    "intellij",
+    "ios",
+    "ipados",
+    "iterm",
+    "javascript",
+    "jellyfin",
+    "jenkins",
+    "jira",
+    "jupyter",
+    "kafka",
+    "keynote",
+    "kibana",
+    "kotlin",
+    "kubectl",
+    "kubernetes",
+    "laravel",
+    "lastfm",
+    "lastpass",
+    "letterboxd",
+    "lightroom",
+    "linkedin",
+    "linux",
+    "llama",
+    "macos",
+    "mailchimp",
+    "mastodon",
+    "minecraft",
+    "miro",
+    "mistral",
+    "mongodb",
+    "mysql",
+    "netflix",
+    "netlify",
+    "neovim",
+    "nextjs",
+    "nginx",
+    "nixos",
+    "nodejs",
+    "notion",
+    "npm",
+    "nuxt",
+    "nvim",
+    "obsidian",
+    "ollama",
+    "onenote",
+    "openai",
+    "opencode",
+    "openvpn",
+    "outlook",
+    "paypal",
+    "perplexity",
+    "photoshop",
+    "playwright",
+    "plex",
+    "pnpm",
+    "postgres",
+    "postgresql",
+    "postman",
+    "powerpoint",
+    "prettier",
+    "prometheus",
+    "puppeteer",
+    "pycharm",
+    "python",
+    "qwen",
+    "raycast",
+    "redis",
+    "reddit",
+    "retool",
+    "roblox",
+    "rustc",
+    "safari",
+    "salesforce",
+    "sentry",
+    "shopify",
+    "slack",
+    "soundcloud",
+    "spotify",
+    "sqlite",
+    "steam",
+    "storybook",
+    "strava",
+    "stripe",
+    "substack",
+    "supabase",
+    "svelte",
+    "sveltekit",
+    "swiftui",
+    "synology",
+    "tailscale",
+    "tailwind",
+    "tauri",
+    "telegram",
+    "terraform",
+    "tiktok",
+    "tmux",
+    "todoist",
+    "traefik",
+    "trello",
+    "twitch",
+    "twitter",
+    "typescript",
+    "ubuntu",
+    "vercel",
+    "vim",
+    "vite",
+    "vscode",
+    "webflow",
+    "webpack",
+    "webstorm",
+    "whatsapp",
+    "windsurf",
+    "wireguard",
+    "wordpress",
+    "xcode",
+    "youtube",
+    "zapier",
+    "zendesk",
+    "zsh",
+];
 
 /// Ordinary words an old dictionary lacks.
 const NEWER: &[&str] = &[
@@ -323,11 +520,27 @@ impl Lexicon {
             all
         };
         let mut found: Vec<bool> = (words.iter())
-            .map(|w| NEWER.contains(w) || COMMON.contains(w))
+            .map(|w| NEWER.contains(w) || COMMON.contains(w) || TOOLS.contains(w))
             .collect();
+        // What was read for these files already answers.
+        let open: Vec<usize> = ANSWERED.with(|a| {
+            let mut a = a.borrow_mut();
+            if a.0 != self.0 || a.1.len() > 4096 {
+                *a = (self.0.clone(), Default::default());
+            }
+            let mut open = Vec::new();
+            for i in 0..words.len() {
+                match a.1.get(words[i]) {
+                    _ if found[i] => {}
+                    Some(known) => found[i] = *known,
+                    None => open.push(i),
+                }
+            }
+            open
+        });
         let mut wanted: std::collections::HashMap<String, Vec<usize>> = Default::default();
-        for (i, w) in words.iter().enumerate().filter(|(i, _)| !found[*i]) {
-            for f in forms(w) {
+        for i in open.iter().copied() {
+            for f in forms(words[i]) {
                 wanted.entry(f).or_default().push(i);
             }
         }
@@ -349,11 +562,238 @@ impl Lexicon {
                 }
             }
         }
-        match read {
-            true => found,
-            false => vec![true; words.len()],
+        if !read {
+            return vec![true; words.len()];
+        }
+        ANSWERED.with(|a| {
+            let mut a = a.borrow_mut();
+            for i in open {
+                a.1.insert(words[i].to_owned(), found[i]);
+            }
+        });
+        found
+    }
+}
+
+thread_local! {
+    /// The answers the dictionary gave, for the files they were read from:
+    /// a thought is weighed several times while it is placed, and a field's
+    /// hint at every key. Words only, at most a few thousand; never the
+    /// dictionary.
+    static ANSWERED: std::cell::RefCell<(Vec<std::path::PathBuf>, std::collections::HashMap<String, bool>)> =
+        Default::default();
+}
+
+/// The forms a word may take as a name's near form: it, and it singular
+/// ("kits": kit, "boxes": box, "stories": story), never shorter than three
+/// letters.
+fn singulars(word: &str) -> Vec<String> {
+    let mut all = vec![word.to_owned()];
+    for (end, to) in [("ies", "y"), ("es", ""), ("s", "")] {
+        if let Some(head) = word.strip_suffix(end) {
+            let form = format!("{head}{to}");
+            if form.chars().count() >= 3 && !all.contains(&form) {
+                all.push(form);
+            }
         }
     }
+    all
+}
+
+/// Whether two words are one in a name's near form: the same, or one the
+/// other's plural ("kit" and "kits").
+pub fn alike(a: &str, b: &str) -> bool {
+    let fa = singulars(a);
+    singulars(b).iter().any(|f| fa.contains(f))
+}
+
+/// A project as a thought's evidence weighs it: its names and its line.
+pub struct Known<'a> {
+    pub names: Vec<&'a str>,
+    pub about: &'a str,
+}
+
+/// One piece of evidence a thought gives a project and no other.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Piece {
+    /// Its whole name, nearly: as written, joined, or a part singular for
+    /// plural ("vexa widget" for `vexa-widgets`), with a word made up for it.
+    Name,
+    /// A word of its name no other project's name has, made up for it
+    /// ("zentrix" for `zentrix-sync`).
+    Word,
+    /// A word of its line that no other project's line or name has
+    /// ("widgetpack").
+    About,
+}
+
+/// A piece of evidence, and the words of the thought that give it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Evidence {
+    pub piece: Piece,
+    pub at: Range<usize>,
+}
+
+/// Where the words say `name` whole, nearly: each word alike each of its
+/// parts, or the words joined alike its parts joined ([`alike`]: "vexa
+/// widget" and "vexawidget" for `vexa-widgets`); never part of one word of
+/// the text.
+pub fn nearly(w: &Words, name: &str) -> Vec<Range<usize>> {
+    let parts = parts(name);
+    let joined: String = parts.concat();
+    let n = w.words.len();
+    let mut found = Vec::new();
+    if joined.chars().count() < 3 {
+        return found;
+    }
+    for start in 0..n {
+        for len in 1..=5.min(n - start) {
+            if (start > 0 && w.glued[start - 1]) || w.glued[start + len - 1] {
+                continue;
+            }
+            let win = &w.words[start..start + len];
+            let each = len == parts.len() && win.iter().zip(&parts).all(|(a, b)| alike(a, b));
+            if each || alike(&win.concat(), &joined) {
+                found.push(start..start + len);
+            }
+        }
+    }
+    found
+}
+
+/// For each project, the pieces of evidence the thought's words give it and
+/// no other project: its whole name nearly said, words only its name has,
+/// words only its line has; each word of the thought in one piece at most,
+/// and each piece once however often it is said. A word for which `none`
+/// is true counts for nothing (an everyday word, an agent's name), and so
+/// does one that is in more than one project's names or lines. A name
+/// said only in ordinary words of the language ([`Lexicon`]) is no
+/// evidence: "harbor master" is as often meant as words.
+pub fn evidence(
+    w: &Words,
+    known: &[Known],
+    lexicon: &Lexicon,
+    none: &dyn Fn(&str) -> bool,
+) -> Vec<Vec<Evidence>> {
+    let n = w.words.len();
+    let word = |i: usize| w.words[i].as_str();
+    let alpha = |x: &str| x.chars().count() >= 3 && x.chars().all(char::is_alphabetic);
+    let counts = |x: &str| alpha(x) && !none(x) && !COMMON.contains(&x) && !SMALL.contains(&x);
+    let mut names: Vec<Vec<Range<usize>>> = (known.iter())
+        .map(|p| p.names.iter().flat_map(|name| nearly(w, name)).collect())
+        .collect();
+    // The words of each project's name, by the forms they take, and the
+    // projects whose names have each.
+    let mut by_part: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
+    for (k, p) in known.iter().enumerate() {
+        for part in p.names.iter().flat_map(|n| parts(n)) {
+            for f in singulars(&part) {
+                by_part.entry(f).or_default().insert(k);
+            }
+        }
+    }
+    let whose_part = |x: &str| -> BTreeSet<usize> {
+        (singulars(x).iter())
+            .filter_map(|f| by_part.get(f))
+            .flatten()
+            .copied()
+            .collect()
+    };
+    // Which words are made up: asked of the dictionary once.
+    let mut wanted: Vec<&str> = Vec::new();
+    for at in names.iter().flatten() {
+        wanted.extend(w.words[at.clone()].iter().map(String::as_str));
+    }
+    wanted.extend((0..n).map(word).filter(|x| whose_part(x).len() == 1));
+    wanted.retain(|x| counts(x));
+    wanted.sort_unstable();
+    wanted.dedup();
+    let known_words = match wanted.is_empty() {
+        true => Vec::new(),
+        false => lexicon.each(&wanted),
+    };
+    let made_up = |x: &str| {
+        counts(x) && (wanted.iter().position(|y| *y == x)).is_some_and(|i| !known_words[i])
+    };
+    // A name counts said with a word made up for it; one said in the same
+    // words as another's is neither's.
+    for at in names.iter_mut() {
+        at.retain(|at| w.words[at.clone()].iter().any(|x| made_up(x)));
+    }
+    let overlap = |a: &Range<usize>, b: &Range<usize>| a.start < b.end && b.start < a.end;
+    let shared = |k: usize, a: &Range<usize>| {
+        (0..known.len()).any(|o| o != k && names[o].iter().any(|b| overlap(a, b)))
+    };
+    // The stems of each project's line, and of its line and names together:
+    // a word of a line counts only where no other project has it.
+    let lines: Vec<BTreeSet<String>> = (known.iter())
+        .map(|p| telling(p.about).into_keys().collect())
+        .collect();
+    let mut owners: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
+    for (k, p) in known.iter().enumerate() {
+        let own = (p.names.iter())
+            .flat_map(|n| parts(n))
+            .map(|x| stem(&x))
+            .chain(lines[k].iter().cloned());
+        for s in own {
+            owners.entry(s).or_default().insert(k);
+        }
+    }
+    let mut out: Vec<Vec<Evidence>> = vec![Vec::new(); known.len()];
+    for k in 0..known.len() {
+        let mut used: Vec<usize> = Vec::new();
+        let mut said: Vec<String> = Vec::new();
+        let take = |at: &Range<usize>, used: &mut Vec<usize>, said: &mut Vec<String>| {
+            used.extend(at.clone());
+            said.extend(w.words[at.clone()].iter().map(|x| stem(x)));
+        };
+        // Its name, once: the first place it is said.
+        if let Some(at) = names[k].iter().find(|at| !shared(k, at)) {
+            take(at, &mut used, &mut said);
+            out[k].push(Evidence {
+                piece: Piece::Name,
+                at: at.clone(),
+            });
+        }
+        let mut parts_said: Vec<String> = Vec::new();
+        for i in 0..n {
+            let x = word(i);
+            let mine = whose_part(x);
+            if !used.contains(&i) && mine.len() == 1 && mine.contains(&k) && made_up(x) {
+                let one = singulars(x).pop().unwrap_or_default();
+                if !parts_said.contains(&one) {
+                    parts_said.push(one);
+                    take(&(i..i + 1), &mut used, &mut said);
+                    out[k].push(Evidence {
+                        piece: Piece::Word,
+                        at: i..i + 1,
+                    });
+                }
+            }
+        }
+        for i in 0..n {
+            let x = word(i);
+            let s = stem(x);
+            let only = owners
+                .get(&s)
+                .is_some_and(|o| o.len() == 1 && o.contains(&k));
+            if !used.contains(&i)
+                && x.chars().count() >= 4
+                && counts(x)
+                && lines[k].contains(&s)
+                && only
+                && !said.contains(&s)
+            {
+                take(&(i..i + 1), &mut used, &mut said);
+                out[k].push(Evidence {
+                    piece: Piece::About,
+                    at: i..i + 1,
+                });
+            }
+        }
+        out[k].sort_by_key(|e| e.at.start);
+    }
+    out
 }
 
 /// Common words that say nothing of where work belongs.
@@ -453,6 +893,37 @@ mod tests {
         ] {
             let found = said(&words(heard), name);
             assert!(found.is_empty(), "{heard} is not {name}: {found:?}");
+        }
+    }
+
+    #[test]
+    fn a_tools_name_is_an_ordinary_word() {
+        let fixture =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/words.txt");
+        let words = Lexicon(vec![fixture]);
+        // Neither is in the dictionary; the tool's name is still no word
+        // made up for a name.
+        assert_eq!(
+            words.each(&["jira", "tmux", "zentrix"]),
+            [true, true, false]
+        );
+        // With no dictionary to read, every word is ordinary: nothing leads.
+        let none = Lexicon(vec!["/nonexistent/words".into()]);
+        assert_eq!(none.each(&["zentrix", "vexa"]), [true, true]);
+    }
+
+    #[test]
+    fn a_near_form_of_a_name_is_it_one_or_many() {
+        for (a, b) in [
+            ("kit", "kits"),
+            ("boxes", "box"),
+            ("stories", "story"),
+            ("caches", "cache"),
+        ] {
+            assert!(alike(a, b) && alike(b, a), "{a} {b}");
+        }
+        for (a, b) in [("kit", "kite"), ("bus", "bu"), ("kiln", "kilt")] {
+            assert!(!alike(a, b), "{a} {b}");
         }
     }
 

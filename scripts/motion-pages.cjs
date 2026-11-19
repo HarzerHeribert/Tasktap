@@ -193,6 +193,40 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       if (t) push({ t: 'change', rev: ++rev, sets: [{ c: 'thoughts', put: [{ ...t, rev, workdir: { ...t.workdir, changes: args.keep || said ? 'kept' : 'discarded' } }] }] });
       return reply(id, null);
     }
+    // What Tasktap knows of the person's projects (docs/projects-design.md): `offer` is what `projects.offer` finds;
+    // a look added or switched on puts its row and then, one by one as a look fills in, the cards of `found`; `finds`
+    // answers `projects.find` by its text, else the cards and folders whose name has the text in it.
+    if (name === 'projects.offer') return reply(id, records.offer || { agents: [], places: [] });
+    if (name === 'projects.look') return reply(id, { projects: (records.cards || []).filter((c) => !c.copy_of && !c.inside && !c.hidden).length, ms: 40 });
+    const look = (row) => {
+      push({ t: 'change', rev: ++rev, sets: [{ c: 'looks', put: [{ ...row, rev }] }] });
+      if (!row.on) return;
+      const found = (records.found || []).filter((c) => !(records.cards || []).some((x) => x.id === c.id));
+      found.forEach((c, i) => setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'cards', put: [{ ...c, rev, looks: [row.id] }] }] }), 90 * (i + 1)));
+      setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'looks', put: [{ ...row, rev, state: 'ready', found: found.length, looked: Date.now() }] }] }), 90 * (found.length + 1));
+    };
+    if (name === 'look.add') {
+      const had = (records.looks || []).find((l) => (args.agent && l.agent === args.agent) || (args.folder && l.folder === args.folder));
+      look({ ...(had || { id: args.id, kind: args.agent ? 'agent' : 'folder', agent: args.agent || null, folder: args.folder || null, state: 'new', found: 0, looked: null, note: null }), on: args.on ?? true });
+      return reply(id, (had || args).id);
+    }
+    if (name === 'projects.find') {
+      const text = (args.text || '').trim().toLowerCase(), most = args.limit || 3;
+      if ((records.finds || {})[args.text]) return reply(id, { found: records.finds[args.text].slice(0, most) });
+      const open = (records.projects || []).filter((p) => p.open && p.kind === 'folder').map((p) => ({ to: { project: p.id }, name: p.name, folder: p.folder.replace(/^\/Users\/[^/]+/, '~'), why: '' }));
+      const known = (records.cards || []).filter((c) => !c.copy_of && !c.inside && !c.hidden && !c.project_id).map((c) => ({ to: { card: c.id }, name: c.name, folder: c.folder.replace(/^\/Users\/[^/]+/, '~'), why: c.about ? c.about.split(' ').slice(0, 3).join(' ') : '' }));
+      const all = [...open, ...known].filter((f) => !text || f.name.toLowerCase().includes(text.replace(/\s+/g, '')));
+      return reply(id, { found: all.slice(0, most) });
+    }
+    if (name === 'put' && (args.c === 'cards' || args.c === 'looks')) {
+      const row = (records[args.c] || []).find((r) => r.id === args.id);
+      if (!row) return toCore({ t: 'reply', id, err: { code: 'gone', message: `no row "${args.id}"` } });
+      const next = { ...row, ...Object.fromEntries(Object.entries(args.patch).filter(([, v]) => v !== null && v !== undefined)), rev: ++rev };
+      push({ t: 'change', rev, sets: [{ c: args.c, put: [next] }] });
+      if (args.c === 'looks' && next.on && !row.on) look(next);
+      return reply(id, { rev });
+    }
+    if (name === 'delete' && (args.c === 'cards' || args.c === 'looks')) return push({ t: 'change', rev: ++rev, sets: [{ c: args.c, del: [args.id] }] }), reply(id, { rev });
     if (name === 'put' && args.c !== 'prefs') return reply(id, { rev: ++rev });
     if (name === 'sub') {
       const sets = (args.collections || []).map((c) => c === 'glance' ? { c, put: records.glance ? [records.glance] : [] } : { c, put: records[c] || [] });

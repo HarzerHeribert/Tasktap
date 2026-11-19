@@ -312,7 +312,10 @@ pub fn capture(core: &mut Core, capture: tasktap_proto::Capture) -> Result<(), E
         .or(preferred)
         .unwrap_or_else(|| crate::agents::all()[0].id().into());
     look(core, &agent);
-    effects::call(core, "thought.capture", Event::Capture { capture, agent })
+    let captured = effects::call(core, "thought.capture", Event::Capture { capture, agent });
+    // What is kept placed it; whether a look is due is found out after (map.rs).
+    crate::map::freshen(core);
+    captured
 }
 
 /// Whether a capture names an agent this core has, which is neither

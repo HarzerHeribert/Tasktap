@@ -48,6 +48,28 @@ fn main() {
         let p = std::fs::canonicalize(p).unwrap();
         looks.push(look(None, Some(p.to_string_lossy().into_owned())));
     }
+    // With --derived, also the folders Tasktap would suggest from the histories: one that holds two projects or more.
+    if args.iter().any(|a| a == "--derived") {
+        let first = map::read(Input {
+            rule: Rule::new(&home, &data),
+            data: data.clone(),
+            looks: looks.clone(),
+            opened: Vec::new(),
+            known: BTreeMap::new(),
+        });
+        let mut by: BTreeMap<std::path::PathBuf, usize> = BTreeMap::new();
+        for m in first.cards.iter().filter(|m| m.inside.is_none()) {
+            let parent = std::path::Path::new(&m.folder).parent();
+            if let Some(p) = parent.filter(|p| *p != home && p.starts_with(&home)) {
+                *by.entry(p.to_owned()).or_default() += 1;
+            }
+        }
+        let derived: Vec<_> = by.into_iter().filter(|(_, n)| *n >= 2).collect();
+        println!("Folders suggested from the histories (holding two projects or more): {}", derived.len());
+        for (p, _) in derived {
+            looks.push(look(None, Some(p.to_string_lossy().into_owned())));
+        }
+    }
     let input = Input {
         rule: Rule::new(&home, &data),
         data: data.clone(),

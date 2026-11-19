@@ -2,8 +2,8 @@
 // calls, records kept from a snapshot and the ordered changes after it, and streams with
 // credit. It knows only the Bridge, so it runs the same in a page and in a test.
 import type {
-  AgentHealth, Calls, Change, Close, CloseWhy, Code, Collection, Control, Credit, Device, Dictation, Diff, FileRead, Glance, Layout, Listening, Mark, Opened,
-  Pref, Preview,
+  AgentHealth, Calls, Card, Change, Close, CloseWhy, Code, Collection, Control, Credit, Device, Dictation, Diff, FileRead, Glance, Layout, Listening, Mark, Opened,
+  Look, Pref, Preview,
   Project, Question, Session, SessionId, Set as RowSet, Shortcut, Terminal, Thought, TurnResult, Welcome,
 } from '../../core/proto/protocol.ts';
 import { MAX_DATA, VERSION } from '../../core/proto/protocol.ts';
@@ -79,6 +79,9 @@ export class Records {
   devices = new Map<string, Device>();
   /** What is shown beside a terminal (design §9, "Previews"). */
   previews = new Map<string, Preview>();
+  /** What Tasktap knows of the person's projects (docs/projects-design.md): one row per folder, and where it looks. */
+  cards = new Map<string, Card>();
+  looks = new Map<string, Look>();
   /** In the order the core lists its agents. */
   agents = new Map<string, AgentHealth>();
   /** Speech under way or failed; none is kept across a restart of the core. */
@@ -91,7 +94,7 @@ export class Records {
   apply(change: Change, sets: RowSet[]): void {
     if (change.snap) {
       for (const map of [this.thoughts, this.projects, this.sessions, this.terminals, this.questions, this.results,
-        this.layouts, this.prefs, this.devices, this.previews, this.agents, this.dictations]) map.clear();
+        this.layouts, this.prefs, this.devices, this.previews, this.cards, this.looks, this.agents, this.dictations]) map.clear();
     }
     for (const set of sets) {
       if (set.c === 'glance') {

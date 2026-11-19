@@ -356,7 +356,7 @@ void win.onFocusChanged(({ payload }) => {
 // The window shows once the page has laid out its first frame (a hidden window draws nothing).
 setTimeout(() => void call('host.ready', {}).catch(() => {}));
 void client
-  .sub(['thoughts', 'projects', 'sessions', 'terminals', 'questions', 'results', 'layouts', 'prefs', 'agents', 'dictations', 'previews'], records)
+  .sub(['thoughts', 'projects', 'cards', 'looks', 'sessions', 'terminals', 'questions', 'results', 'layouts', 'prefs', 'agents', 'dictations', 'previews'], records)
   .then(() => {
     ui.ready = true;
     reconcile();

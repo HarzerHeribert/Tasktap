@@ -124,7 +124,7 @@ export function Home() {
   return (
     <div class="view">
       <header class="band">
-        {first ? <span>New task</span> : <span><b>{projectName(top!.project_id)}</b>{agentName(top!.agent)}</span>}
+        {first ? <span>New task</span> : <span><b>{projectName(top!.project_id ?? top!.card_id)}</b>{agentName(top!.agent)}</span>}
         <time>{first ? words : when(top!.updated)}</time>
       </header>
       <div class="pad">

@@ -69,6 +69,7 @@ Decisions for 32 and 33 (Claude, 2026-11-19; applied once Home and the placing l
 | P4 | [ ] | The keys that answer a question from any app can be recorded (also ends the AltGr clash on German Windows keyboards) |
 | P5 | [ ] | Look for new versions: on or off |
 | later | | Which microphone; which display shows the notch; a switch for the one notification |
+| P6 | [ ] | The owner's idea: "Sign in with ChatGPT", so that finding the project is one direct call on the person's own subscription, with no agent's program started. Researched 2026-11-19 (a worker's reading of OpenAI's pages, not yet tried): it is an official preview, open to open-source apps that run on the person's own machine without an application; the app registers itself, the person signs in in the browser, and calls go to the Responses endpoint on their plan. Unknown until tried: how fast it is, whether a small model is offered, whether a fixed answer format works, what a call costs of the plan. Borrowing Codex's own sign-in is not the official way and is not used. Anthropic and Google do not allow the equivalent; GitHub Copilot has a kit for it. Next: a trial outside the product that measures those unknowns on the owner's own sign-in; then decide whether it becomes a row in the ranked list |
 
 ## Graphics cost (owner, same evening)
 

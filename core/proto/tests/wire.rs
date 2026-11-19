@@ -370,10 +370,12 @@ fn every_call_round_trips() {
     let terms = RouteTerms {
         instructions: "You are the router of Tasktap.".into(),
         sends: vec!["the thought, as you said or typed it".into()],
-        tools: vec![RouteBy {
+        terms: 3,
+        tools: vec![PlaceTool {
             agent: "claude".into(),
             model: "haiku".into(),
-            terms: 2,
+            pays: Pays::Plan,
+            ms: Some(3700),
         }],
     };
     round_trip::<call::RouteTerms>(Empty {}, terms, seen);
@@ -392,6 +394,7 @@ fn every_call_round_trips() {
         version: Some("0.169.0".into()),
         signed_in: Some(true),
         identity: Some("ChatGPT".into()),
+        limited: Some(time(3_600_042)),
         events: true,
         resume: true,
         permissions: Some(ReplyVia::Core),
@@ -1279,21 +1282,24 @@ fn ambient_and_terminal_preferences_put_as_the_wire_says_within_their_bounds() {
 }
 
 #[test]
-fn the_consent_to_route_by_a_model_and_a_thoughts_route_are_as_the_wire_says() {
-    let by = RouteBy {
-        agent: "claude".into(),
-        model: "haiku".into(),
-        terms: 0,
+fn the_agreement_to_place_by_models_and_a_thoughts_route_are_as_the_wire_says() {
+    let placer = |agent: &str, model: &str, on| Placer {
+        agent: agent.into(),
+        model: model.into(),
+        on,
     };
-    // A consent older than the version of what is sent reads as version 0,
-    // which covers nothing (route::consented).
-    let old =
-        json!({"c": "prefs", "id": "route_by", "patch": {"agent": "claude", "model": "haiku"}});
-    let old: PutTarget = serde_json::from_value(old).unwrap();
-    assert_eq!(old, PutTarget::Prefs(PrefPatch::RouteBy(Some(by.clone()))));
-    let by = RouteBy { terms: 2, ..by };
-    let wire = json!({"c": "prefs", "id": "route_by",
-                      "patch": {"agent": "claude", "model": "haiku", "terms": 2}});
+    let by = RouteBy {
+        agents: vec![
+            placer("codex", "gpt-6-luna", true),
+            placer("claude", "haiku", false),
+        ],
+        terms: 3,
+    };
+    let agents = json!([
+        {"agent": "codex", "model": "gpt-6-luna", "on": true},
+        {"agent": "claude", "model": "haiku", "on": false},
+    ]);
+    let wire = json!({"c": "prefs", "id": "route_by", "patch": {"agents": agents, "terms": 3}});
     let target: PutTarget = serde_json::from_value(wire.clone()).unwrap();
     assert_eq!(
         target,
@@ -1310,13 +1316,18 @@ fn the_consent_to_route_by_a_model_and_a_thoughts_route_are_as_the_wire_says() {
     let row = Pref { value, rev: rev(3) };
     assert_eq!(
         serde_json::to_value(&row).unwrap(),
-        json!({"id": "route_by", "value": {"agent": "claude", "model": "haiku", "terms": 2}, "rev": 3})
+        json!({"id": "route_by", "value": {"agents": agents, "terms": 3}, "rev": 3})
     );
-    // A consent names a tool and a model and nothing else.
+    // An agreement lists agents, each with its model and its switch, and
+    // nothing else; the wire takes no consent to one agent as a core
+    // before this one kept it (only the store reads that, as a list).
     for patch in [
         json!("claude"),
-        json!({"agent": "claude"}),
-        json!({"agent": "claude", "model": "haiku", "server": "example.com"}),
+        json!({"agent": "claude", "model": "haiku", "terms": 2}),
+        json!({"agents": [{"agent": "claude", "model": "haiku"}], "terms": 3}),
+        json!({"agents": [{"agent": "claude", "model": "haiku", "on": true, "server": "x"}], "terms": 3}),
+        json!({"agents": [], "terms": 3, "server": "example.com"}),
+        json!({"agents": []}),
     ] {
         let bad = json!({"c": "prefs", "id": "route_by", "patch": patch});
         assert!(serde_json::from_value::<PutTarget>(bad).is_err());

@@ -3531,11 +3531,21 @@ const SPOKEN: &str = "so, um, the build is broken again since this morning, I th
     changed, anyway please get it green again and do not touch the release profile, that one is fine as it is";
 const BRIEF: &str = "Get the build green again. Do not touch the release profile.";
 
+/// The person lets Claude Code place thoughts, then Codex; Antigravity is
+/// switched off.
 fn consent() -> RouteBy {
+    let placer = |agent: &str, model: &str, on| tasktap_proto::Placer {
+        agent: agent.into(),
+        model: model.into(),
+        on,
+    };
     RouteBy {
         terms: tasktap_core::route::TERMS,
-        agent: "claude".into(),
-        model: "haiku".into(),
+        agents: vec![
+            placer("agy", "gemini-3.8-flash-low", false),
+            placer("claude", "haiku", true),
+            placer("codex", "gpt-6-luna", true),
+        ],
     }
 }
 

@@ -29,6 +29,9 @@ const MAX_ANSWER: u64 = 64 << 10;
 pub enum Failed {
     /// Its tool no longer offers the model it is asked for.
     Gone,
+    /// Its tool said the person's plan or key has reached its usage limit,
+    /// and when it is back where it said; with its words.
+    Limit(super::quota::Back, String),
     Why(String),
 }
 
@@ -102,6 +105,7 @@ pub fn found(agent: &dyn Agent) -> AgentHealth {
         version: None,
         signed_in: None,
         identity: None,
+        limited: None,
         events: caps.events,
         resume: caps.resume,
         permissions: caps.permissions,
@@ -113,34 +117,45 @@ pub fn found(agent: &dyn Agent) -> AgentHealth {
 
 /// What an agent's commands said when a core last ran them, kept in the
 /// data folder so that the next core knows it without running them: whether
-/// it is signed in, and when that was said. Whom it is signed in as is not kept.
+/// it is signed in, and when that was said, and until when its tool said
+/// the person's plan or key is out of quota. Whom it is signed in as is not kept.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Said {
     pub id: String,
     pub checked: tasktap_proto::Time,
-    pub signed_in: bool,
+    /// None where only the limit is kept.
+    pub signed_in: Option<bool>,
     pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limited: Option<tasktap_proto::Time>,
 }
 
 impl Said {
     /// What `row` says that the next core should know: nothing while its
-    /// commands never said whether it is signed in.
+    /// commands never said whether it is signed in and its tool never
+    /// spoke of a limit.
     pub fn of(row: &AgentHealth) -> Option<Said> {
-        Some(Said {
+        let signed_in = row.signed_in.filter(|_| row.installed);
+        (signed_in.is_some() || row.limited.is_some()).then(|| Said {
             id: row.id.clone(),
             checked: row.checked,
-            signed_in: row.signed_in.filter(|_| row.installed)?,
+            signed_in,
             version: row.version.clone(),
+            limited: row.limited,
         })
     }
 
     /// `found` with what its agent's commands last said, marked as said
     /// then (`stale`); as it is for an agent that is not here any more.
     pub fn onto(&self, found: AgentHealth) -> AgentHealth {
-        match found.installed && found.supported {
+        let found = AgentHealth {
+            limited: self.limited,
+            ..found
+        };
+        match found.installed && found.supported && self.signed_in.is_some() {
             true => AgentHealth {
                 checked: self.checked,
-                signed_in: Some(self.signed_in),
+                signed_in: self.signed_in,
                 version: self.version.clone(),
                 stale: true,
                 ..found
@@ -353,9 +368,11 @@ pub fn ask(
         Ok(Asked::Stop) | Err(RecvTimeoutError::Disconnected) => {
             Err("it was not waited for".to_owned())
         }
+        // In whole seconds: what was left of the time placing waits is a
+        // moment short of them.
         Err(RecvTimeoutError::Timeout) => Err(format!(
             "it did not answer within {} s",
-            how.limit.as_secs()
+            how.limit.as_millis().div_ceil(1000)
         )),
     };
     // It has printed everything or is no longer wanted: either way it ends.
@@ -367,10 +384,13 @@ pub fn ask(
     let printed = String::from_utf8_lossy(&printed);
     (how.answer)(&printed).map_err(|why| {
         let said = said.join().unwrap_or_default();
-        match said.trim() {
+        // A limit is told in its own words, which say until when.
+        match (said.trim(), (how.quota)(&printed, &said)) {
             _ if (how.gone)(&printed, &said) => Failed::Gone,
-            "" => Failed::Why(why),
-            last => Failed::Why(format!("{why} ({})", line(last, 200))),
+            ("", Some(back)) => Failed::Limit(back, why),
+            (last, Some(back)) => Failed::Limit(back, line(last, 200)),
+            ("", None) => Failed::Why(why),
+            (last, None) => Failed::Why(format!("{why} ({})", line(last, 200))),
         }
     })
 }

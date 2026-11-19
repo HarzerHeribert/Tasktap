@@ -14,9 +14,9 @@ use tasktap_core::route::{
 use tasktap_core::state::{Candidate, Destination, Route};
 use tasktap_core::store::Store;
 use tasktap_proto::{
-    AddProject, Capture, FixtureClock, Hint, Mode, Placed, PrefPatch, ProjectId, ProjectKind,
-    ProjectPatch, Put, PutTarget, QuestionKind, QuestionSource, QuestionState, Response, RouteBy,
-    Routing, SessionId, SessionState, Status, Thought, ThoughtId, call,
+    AddProject, Capture, FixtureClock, Hint, Mode, Pays, Placed, Placer, PrefPatch, ProjectId,
+    ProjectKind, ProjectPatch, Put, PutTarget, QuestionKind, QuestionSource, QuestionState,
+    Response, RouteBy, Routing, SessionId, SessionState, Status, Thought, ThoughtId, call,
 };
 
 #[test]
@@ -983,6 +983,30 @@ fn a_short_thought_goes_on_as_it_is_and_a_brief_in_the_same_words_adds_nothing()
     assert!(!same("Fix the build", "the build fix"));
 }
 
+/// An agreement to these fixture agents, each switched on, the first asked
+/// first, to the terms of this core.
+fn agreement(agents: &[&str]) -> RouteBy {
+    RouteBy {
+        terms: tasktap_core::route::TERMS,
+        agents: (agents.iter())
+            .map(|agent| Placer {
+                agent: (*agent).into(),
+                model: "fixture-small".into(),
+                on: true,
+            })
+            .collect(),
+    }
+}
+
+/// The file of `agent`'s question in the route folder: as named for the
+/// fixture agent, with `-silent` or `-probed` after it for the others.
+fn of(agent: &str, name: &str) -> String {
+    match agent.strip_prefix("fixture-") {
+        Some(kind) => format!("{name}-{kind}"),
+        None => name.into(),
+    }
+}
+
 /// A core whose router may ask the fixture agent's tool, with two projects.
 struct Asking {
     core: Core,
@@ -1034,23 +1058,30 @@ impl Asking {
         })
     }
 
-    /// The person consents to routing by the fixture agent's model.
+    /// The person lets the fixture agent's model place their thoughts.
     fn consent(&mut self, agent: &str) {
-        let by = RouteBy {
-            terms: tasktap_core::route::TERMS,
-            agent: agent.into(),
-            model: "fixture-small".into(),
-        };
-        self.pref(PrefPatch::RouteBy(Some(by))).unwrap();
+        self.agree(&[agent]);
+    }
+
+    /// The person lets these fixture agents place their thoughts, the
+    /// first asked first.
+    fn agree(&mut self, agents: &[&str]) {
+        self.pref(PrefPatch::RouteBy(Some(agreement(agents))))
+            .unwrap();
     }
 
     fn file(&self, name: &str) -> std::path::PathBuf {
         self.data.0.join("route").join(name)
     }
 
-    /// The steps the tool runs when it is asked next.
+    /// The steps the fixture agent's tool runs when it is asked next.
     fn script(&self, steps: &[String]) {
-        std::fs::write(self.file("ask"), steps.join("\n")).unwrap();
+        self.script_of("fixture", steps);
+    }
+
+    /// The steps `agent`'s tool runs when it is asked next.
+    fn script_of(&self, agent: &str, steps: &[String]) {
+        std::fs::write(self.file(&of(agent, "ask")), steps.join("\n")).unwrap();
     }
 
     /// The tool answers with this.
@@ -1058,10 +1089,17 @@ impl Asking {
         self.script(&[format!("print:{answer}")]);
     }
 
-    /// The request the tool was last asked with, and forgets it.
+    /// The request the fixture agent's tool was last asked with, and
+    /// forgets it.
     fn asked(&self) -> Option<Value> {
-        let asked = std::fs::read_to_string(self.file("asked")).ok()?;
-        std::fs::remove_file(self.file("asked")).unwrap();
+        self.asked_of("fixture")
+    }
+
+    /// The request `agent`'s tool was last asked with, and forgets it.
+    fn asked_of(&self, agent: &str) -> Option<Value> {
+        let file = self.file(&of(agent, "asked"));
+        let asked = std::fs::read_to_string(&file).ok()?;
+        std::fs::remove_file(&file).unwrap();
         assert!(asked.starts_with(tasktap_core::route::INSTRUCTIONS));
         let request = asked.split("<request>\n").nth(1).unwrap();
         let request = request.trim_end().trim_end_matches("</request>");
@@ -1306,7 +1344,7 @@ fn a_model_that_takes_too_long_is_stopped_and_the_match_on_names_routes() {
         "write:ended:1".into(),
         format!("print:{}", answer("clear", "p2", "Brief.")),
     ]);
-    a.script(&steps);
+    a.script_of("fixture-silent", &steps);
     let text = format!("{SPOKEN}, that is in folio by the way");
     let began = std::time::Instant::now();
     let t = a.capture(&text, None);
@@ -1338,6 +1376,220 @@ fn a_model_that_takes_too_long_is_stopped_and_the_match_on_names_routes() {
     }
     std::thread::sleep(std::time::Duration::from_millis(3500));
     assert!(!a.file("ended").exists());
+}
+
+// The person's agents, one after another (design §8): the first that
+// answers places the thought; one that cannot is passed for the next; none
+// that can in the time placing waits, and the thought is asked about.
+
+#[test]
+fn when_the_first_agent_cannot_place_the_next_does_and_the_thought_says_who_placed_it() {
+    let mut a = Asking::new("chain");
+    a.agree(&["fixture", "fixture-silent"]);
+    // The first says it is signed out; it ends before the second begins.
+    a.script(&[
+        "sleep:200".into(),
+        "write:first-ended:1".into(),
+        "print:error:Not logged in · Please run /login".into(),
+    ]);
+    a.script_of(
+        "fixture-silent",
+        &[
+            "write:second-began:1".into(),
+            format!(
+                "print:{}",
+                answer("clear", "p2", "Keep the header on one line.")
+            ),
+        ],
+    );
+    let t = a.capture(SPOKEN, None);
+    // Until one answers, the first the person lets place them is named.
+    assert_eq!(a.w.model.thought(t).route.as_ref().unwrap().by, "fixture");
+    let th = a.settled(t);
+    assert_eq!(
+        (th.status, th.project_id, th.placed),
+        (Status::Routed, Some(a.app), Some(Placed::Model))
+    );
+    assert_eq!(th.brief.as_deref(), Some("Keep the header on one line."));
+    let route = th.route.unwrap();
+    assert_eq!(
+        (route.by.as_str(), route.model.as_deref(), route.fallback),
+        ("fixture-silent", Some("fixture-small"), None)
+    );
+    // Both were sent the same question, one at a time.
+    let (first, second) = (a.asked().unwrap(), a.asked_of("fixture-silent").unwrap());
+    assert_eq!(first, second);
+    let at = |name: &str| std::fs::metadata(a.file(name)).unwrap().modified().unwrap();
+    assert!(at("second-began") >= at("first-ended"));
+    // Switched off, an agent is not asked: the second places at once.
+    let mut by = agreement(&["fixture", "fixture-silent"]);
+    by.agents[0].on = false;
+    a.pref(PrefPatch::RouteBy(Some(by))).unwrap();
+    a.answers(&answer("clear", "p1", "Brief."));
+    a.script_of(
+        "fixture-silent",
+        &[format!("print:{}", answer("clear", "p1", "Brief."))],
+    );
+    let t = a.capture(SPOKEN, None);
+    assert_eq!(
+        a.w.model.thought(t).route.as_ref().unwrap().by,
+        "fixture-silent"
+    );
+    assert_eq!(a.settled(t).route.unwrap().by, "fixture-silent");
+    assert_eq!(a.asked(), None);
+    assert!(a.asked_of("fixture-silent").is_some());
+    // Every one switched off is no agreement: nobody is asked, and nothing
+    // is said of it.
+    let mut by = agreement(&["fixture", "fixture-silent"]);
+    by.agents.iter_mut().for_each(|p| p.on = false);
+    a.pref(PrefPatch::RouteBy(Some(by))).unwrap();
+    let t = a.capture(SPOKEN, None);
+    let th = a.settled(t);
+    let route = th.route.unwrap();
+    assert_eq!(
+        (th.status, route.by.as_str(), route.fallback),
+        (Status::NeedsYou, "local", None)
+    );
+    assert_eq!((a.asked(), a.asked_of("fixture-silent")), (None, None));
+}
+
+#[test]
+fn when_no_agent_can_place_the_thought_is_asked_about_and_says_why_each_could_not() {
+    let mut a = Asking::new("chain-none");
+    a.agree(&["fixture", "fixture-silent"]);
+    a.script(&["exit:1".into()]);
+    a.script_of(
+        "fixture-silent",
+        &["print:error:the model is overloaded".into()],
+    );
+    let t = a.capture(SPOKEN, None);
+    let th = a.settled(t);
+    assert_eq!((th.status, th.mode), (Status::NeedsYou, Mode::Ask));
+    let route = th.route.unwrap();
+    assert_eq!(route.by, "local");
+    assert_eq!(
+        route.fallback.as_deref(),
+        Some("fixture: it printed no answer; fixture-silent: the model is overloaded")
+    );
+    assert!(a.asked().is_some() && a.asked_of("fixture-silent").is_some());
+    // Naming its folder, a long thought goes there by name instead.
+    let text = format!("{SPOKEN}, that is in folio by the way");
+    let t = a.capture(&text, None);
+    let th = a.settled(t);
+    assert_eq!((th.status, th.project_id), (Status::Routed, Some(a.folio)));
+}
+
+#[test]
+fn an_agent_at_its_usage_limit_is_passed_over_until_the_time_it_named() {
+    let mut a = Asking::new("limit");
+    a.agree(&["fixture", "fixture-probed"]);
+    let start = wall_ms() / 1000 * 1000;
+    a.w.ok::<call::FixtureClock>(&FixtureClock { now: time(start) });
+    let back = start / 1000 + 1800;
+    a.script(&[format!("print:error:Claude AI usage limit reached|{back}")]);
+    let places = |a: &Asking, to: &str| {
+        a.script_of(
+            "fixture-probed",
+            &[format!("print:{}", answer("clear", to, "Brief."))],
+        );
+    };
+    places(&a, "p1");
+    let t = a.capture(SPOKEN, None);
+    let th = a.settled(t);
+    assert_eq!(
+        (th.project_id, th.route.unwrap().by.as_str()),
+        (Some(a.folio), "fixture-probed")
+    );
+    assert!(a.asked().is_some());
+    // Its row says until when, and so does what the next core reads.
+    let until = time(back * 1000);
+    a.w.until("the limit is in the agent's row", |m| {
+        m.agents.get("fixture").and_then(|h| h.limited) == Some(until)
+    });
+    let kept = a.data.0.join("agents.json");
+    let mut tries = 0;
+    while !std::fs::read_to_string(&kept)
+        .is_ok_and(|k| k.contains(&format!("\"limited\":{}", back * 1000)))
+    {
+        tries += 1;
+        assert!(tries < 300, "the limit is kept for the next core");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    // Until then it is not asked: the next places at once.
+    a.answers(&answer("clear", "p2", "Brief."));
+    places(&a, "p2");
+    let t = a.capture(SPOKEN, None);
+    assert_eq!(a.settled(t).route.unwrap().by, "fixture-probed");
+    assert_eq!(a.asked(), None);
+    assert!(a.asked_of("fixture-probed").is_some());
+    // Once its time has come, it is asked first again.
+    a.w.ok::<call::FixtureClock>(&FixtureClock {
+        now: time((back + 1) * 1000),
+    });
+    let t = a.capture(SPOKEN, None);
+    let th = a.settled(t);
+    assert_eq!(
+        (th.placed, th.route.unwrap().by.as_str()),
+        (Some(Placed::Model), "fixture")
+    );
+    assert!(a.asked().is_some() && a.asked_of("fixture-probed").is_none());
+    // A limit that names no time passes it over for an hour; with every
+    // agent at its limit, the thought is asked about.
+    let now = back + 1;
+    a.script(&["print:error:You've hit your limit".into()]);
+    a.script_of(
+        "fixture-probed",
+        &["print:error:You've hit your limit · resets in 2 hours".into()],
+    );
+    let t = a.capture(SPOKEN, None);
+    let th = a.settled(t);
+    assert_eq!(th.status, Status::NeedsYou);
+    a.w.until("both rows say until when", |m| {
+        let limited = |id: &str| m.agents.get(id).and_then(|h| h.limited);
+        limited("fixture") == Some(time((now + 3600) * 1000))
+            && limited("fixture-probed") == Some(time((now + 7200) * 1000))
+    });
+    let t = a.capture(SPOKEN, None);
+    let route = a.settled(t).route.unwrap();
+    assert_eq!(
+        route.fallback.as_deref(),
+        Some(
+            "fixture: its usage limit is reached for now; fixture-probed: its usage limit is reached for now"
+        )
+    );
+    assert!(a.asked().is_some() && a.asked_of("fixture-probed").is_some());
+}
+
+#[test]
+fn placing_waits_for_the_agents_no_longer_than_its_budget() {
+    let mut a = Asking::new("budget");
+    a.agree(&["fixture", "fixture-silent"]);
+    // The first takes longer than placing waits: it is stopped then, and
+    // no time is left to ask the second.
+    a.script(&[
+        "sleep:9500".into(),
+        format!("print:{}", answer("clear", "p1", "Brief.")),
+    ]);
+    a.script_of(
+        "fixture-silent",
+        &[format!("print:{}", answer("clear", "p1", "Brief."))],
+    );
+    let began = std::time::Instant::now();
+    let t = a.capture(SPOKEN, None);
+    let th = a.settled(t);
+    let took = began.elapsed();
+    assert!(took >= tasktap_core::route::BUDGET, "{took:?}");
+    assert!(
+        took < tasktap_core::route::BUDGET + std::time::Duration::from_millis(1500),
+        "{took:?}"
+    );
+    assert_eq!((th.status, th.mode), (Status::NeedsYou, Mode::Ask));
+    assert_eq!(
+        th.route.unwrap().fallback.as_deref(),
+        Some("fixture: it did not answer within 8 s; fixture-silent: no time was left to ask it")
+    );
+    assert!(a.asked().is_some());
+    assert_eq!(a.asked_of("fixture-silent"), None);
 }
 
 #[test]
@@ -1582,16 +1834,56 @@ fn no_model_is_asked_without_the_persons_consent_for_what_this_core_would_ask() 
     for word in ["folder", "repositor", "rout"] {
         assert!(!said.contains(word), "{word} in {said}");
     }
+    assert_eq!(terms.terms, tasktap_core::route::TERMS);
+    // Tasktap's order: what costs the person nothing more first, the
+    // fastest first among those; then what their provider bills.
+    let tools: Vec<_> = (terms.tools.iter())
+        .map(|t| (t.agent.as_str(), t.model.as_str(), t.pays, t.ms))
+        .collect();
+    assert_eq!(
+        tools,
+        [
+            ("fixture-silent", "fixture-small", Pays::Plan, Some(600)),
+            ("fixture", "fixture-small", Pays::Plan, Some(900)),
+            ("claude", "haiku", Pays::Plan, Some(3700)),
+            ("codex", "gpt-6-luna", Pays::Plan, Some(4700)),
+            ("agy", "gemini-3.8-flash-low", Pays::Plan, Some(5600)),
+            ("fixture-probed", "fixture-small", Pays::Billed, Some(500)),
+        ]
+    );
+    // Signed in with a key, an agent is billed by its provider, and goes
+    // after those included in a subscription, however fast it is.
+    use tasktap_core::route::{pays, proposed};
+    assert_eq!(pays("codex", Some("ChatGPT")), Pays::Plan);
+    assert_eq!(
+        pays("codex", Some("an API key - sk-proj-***")),
+        Pays::Billed
+    );
+    assert_eq!(pays("claude", Some("someone@example.com")), Pays::Plan);
+    assert_eq!(pays("claude", Some("api_key")), Pays::Billed);
+    assert_eq!(pays("an-agent-of-their-own", None), Pays::Billed);
+    let mut keyed = terms.tools.clone();
+    keyed[0].pays = pays(&keyed[0].agent, Some("an API key"));
+    let order: Vec<_> = proposed(keyed).into_iter().map(|t| t.agent).collect();
+    assert_eq!(
+        order,
+        [
+            "fixture",
+            "claude",
+            "codex",
+            "agy",
+            "fixture-probed",
+            "fixture-silent"
+        ]
+    );
     let tool = |agent: &str, model: &str| RouteBy {
         terms: tasktap_core::route::TERMS,
-        agent: agent.into(),
-        model: model.into(),
+        agents: vec![Placer {
+            agent: agent.into(),
+            model: model.into(),
+            on: true,
+        }],
     };
-    assert_eq!(
-        terms.tools[..2],
-        [tool("claude", "haiku"), tool("codex", "gpt-6-luna")]
-    );
-    assert!(terms.tools.contains(&tool("fixture", "fixture-small")));
 
     a.answers(&answer("clear", "p2", "Brief."));
     let text = format!("{SPOKEN}, that is in folio by the way");
@@ -1605,10 +1897,19 @@ fn no_model_is_asked_without_the_persons_consent_for_what_this_core_would_ask() 
     };
     // None given: the match on names, and nothing leaves the core.
     local(&mut a);
-    // A consent names an agent this core has and the model it would ask.
+    // An agreement names agents this core has, each once, the model it
+    // would ask of each, and the terms the person was shown.
+    let twice = agreement(&["fixture", "fixture-silent", "fixture"]);
+    let before = RouteBy {
+        terms: tasktap_core::route::TERMS - 1,
+        ..agreement(&["fixture"])
+    };
     for by in [
         tool("fixture", "another-model"),
         tool("nobody", "fixture-small"),
+        tool("copilot", "fixture-small"),
+        twice,
+        before,
     ] {
         let refused = a.pref(PrefPatch::RouteBy(Some(by))).unwrap_err();
         assert_eq!(refused.code, tasktap_proto::Code::Invalid);

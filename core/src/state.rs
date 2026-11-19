@@ -241,9 +241,9 @@ pub struct Candidate {
 pub enum Effect {
     /// Ask the router; its answer comes back as [`Event::Routed`].
     /// `current` is the session the capture was made in. `by` is the
-    /// person's consent to ask a model, without which the match on names
-    /// answers. With `picked`, the person chose the destination and only
-    /// the brief is asked for.
+    /// person's agreement to ask their agents' models, in their order,
+    /// without which the match on names answers. With `picked`, the person
+    /// chose the destination and only the brief is asked for.
     Route {
         thought: ThoughtId,
         current: Option<SessionId>,
@@ -1050,7 +1050,8 @@ impl Machine<'_, '_> {
         }
     }
 
-    /// The person's consent to route by a model: the tool and the model it covers.
+    /// The person's agreement to place by their agents' models: which, in
+    /// their order, and the model each is asked for.
     fn consent(&self) -> Result<Option<RouteBy>> {
         Ok(match self.tx.pref(PrefKey::RouteBy)?.map(|p| p.value) {
             Some(PrefValue::RouteBy(by)) => by,
@@ -1068,9 +1069,11 @@ impl Machine<'_, '_> {
         by: Option<RouteBy>,
         picked: Option<Destination>,
     ) {
+        // Until one answers, the first the person lets place them.
+        let first = by.as_ref().and_then(|by| by.agents.iter().find(|p| p.on));
         t.route = Some(Routing {
-            by: by.as_ref().map_or(LOCAL.into(), |by| by.agent.clone()),
-            model: by.as_ref().map(|by| by.model.clone()),
+            by: first.map_or(LOCAL.into(), |p| p.agent.clone()),
+            model: first.map(|p| p.model.clone()),
             pending: true,
             ..Routing::default()
         });

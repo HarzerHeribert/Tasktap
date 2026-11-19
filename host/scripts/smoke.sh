@@ -911,17 +911,24 @@ until_has workspace "text .home .offer" 5 "Thoughts can find their own folder" &
   && pass "the first thought that names no folder is asked about, and placing by a model is offered under it, in one line" || fail "placing is offered" "$(ask workspace "text .home .ways" | tr '\n' '|' | cut -c1-200)"
 js workspace "(document.querySelector('.home .offer .btn').click(), 1)" >/dev/null
 terms="$(ask workspace "text .sheet")"
-until_has workspace "text .sheet" 5 "Who reads them" && terms="$(ask workspace "text .sheet")" \
+# The signed-in agents in Tasktap's order: what costs nothing more first, the fastest first among those.
+ranks="[...document.querySelectorAll('.sheet .rank')].map(r => r.querySelector('.t').textContent + (r.querySelector('.switch').getAttribute('aria-checked') === 'true' ? '' : ' off')).join('|')"
+until_has workspace "text .sheet" 5 "goes to the first agent below that answers" && terms="$(ask workspace "text .sheet")" \
   && echo "$terms" | grep -q "the thought, as you said or typed it" && echo "$terms" | grep -q "of up to 8 of your projects" \
-  && [ "$(js workspace "(r => r.querySelector('.t').textContent + ' ' + /fixture-small/.test(r.querySelector('.x').textContent))(document.querySelector('.line.tool[aria-checked=true]'))")" = "Fixture agent true" ] \
-  && [ "$(js workspace "String(!document.querySelector('.instr'))")" = true ] \
-  && pass "its sheet says what the person gets, which signed-in agent would read the thoughts and with which model, and exactly what is sent; nothing is stored yet" || fail "the placing sheet" "$(echo "$terms" | tr '\n' '|' | cut -c1-200)"
+  && [ "$(js workspace "$ranks")" = "fixture-silent|Fixture agent|fixture-probed" ] \
+  && echo "$terms" | grep -q "fixture-small · included in your subscription · about 1 s" \
+  && [ "$(js workspace "String(!document.querySelector('.instr'))")" = true ] && [ "$(js workspace "String(__ws.records.prefs.has('route_by'))")" = false ] \
+  && pass "its sheet says what the person gets, which signed-in agents would place the thoughts in Tasktap's order and why, with which model, and exactly what is sent; nothing is stored yet" || fail "the placing sheet" "$(js workspace "$ranks") $(echo "$terms" | tr '\n' '|' | cut -c1-200)"
 js workspace "(document.querySelector('.sheet .disc').click(), 1)" >/dev/null
 until_has workspace "text .sheet .instr" 3 "You are the router of Tasktap" && pass "the instructions the model follows are there to read in full, behind one quiet line" || fail "the instructions"
 shot placing-terms workspace
+# The person's own order, by the keyboard: the fixture agent up to the first place, the two others switched off.
+row_key() { js workspace "(()=>{const r=[...document.querySelectorAll('.sheet .rank')].find(r=>r.querySelector('.t').textContent==='$1');r?.focus();r?.dispatchEvent(new KeyboardEvent('keydown',{key:'$2',altKey:${3:-false},bubbles:true,cancelable:true}));return !!r})()" >/dev/null; }
+row_key "Fixture agent" ArrowUp true && row_key fixture-silent " " && row_key fixture-probed " "
+until_has workspace "eval $ranks" 3 "Fixture agent|fixture-silent off|fixture-probed off" || fail "the order by the keyboard" "$(js workspace "$ranks")"
 press workspace ".sheet" Enter >/dev/null
-until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.value) + String(!!__ws.ui.sheet)" 5 '{"agent":"fixture","model":"fixture-small","terms":2}false' \
-  && pass "Allow writes the preference for that agent and its model, and the sheet goes" || fail "Allow"
+until_has workspace "eval JSON.stringify(__ws.records.prefs.get('route_by')?.value) + String(!!__ws.ui.sheet)" 5 '{"agents":[{"agent":"fixture","model":"fixture-small","on":true},{"agent":"fixture-silent","model":"fixture-small","on":false},{"agent":"fixture-probed","model":"fixture-small","on":false}],"terms":3}false' \
+  && pass "Allow writes the agreement for those agents in that order, each with its model and switch, and the sheet goes" || fail "Allow"
 # The thought it was offered under is asked about: kept for later (L), then dropped.
 press workspace ".home .hq.open [data-question]" l >/dev/null
 until_has workspace "eval String([...__ws.records.questions.values()].some(q => q.state === 'open'))" 3 "false" || fail "the offered thought is kept for later"
@@ -981,7 +988,8 @@ until_has workspace "eval $field.value" 3 "the footer in project" && clear_field
 js workspace "(__ws.command('settings'), 1)" >/dev/null
 # (A moment for the sheet to listen: behind a locked screen the page is hidden, and a hidden page takes its time.)
 until_has workspace "eval __ws.ui.sheet?.at" 3 "appearance" && sleep 1 && press workspace ".sheet" 1 true >/dev/null
-until_has workspace "text .settings" 3 "By Fixture agent · fixture-small" && pass "Settings opens where it was last shown, and under Thoughts says who places them" || fail "Settings, Thoughts"
+until_has workspace "text .settings" 3 "goes to Fixture agent." && ask workspace "text .settings .ranks" | grep -q "fixture-small · included in your subscription" \
+  && pass "Settings opens where it was last shown, and under Thoughts lists who places them, in the person's order" || fail "Settings, Thoughts"
 shot settings-flows workspace
 js workspace "([...document.querySelectorAll('.settings .btn')].find(b => b.textContent.startsWith('What it is sent')).click(), 1)" >/dev/null
 until_has workspace "text .sheet .sh-f" 3 "Turn off" && press workspace ".sheet" Backspace true >/dev/null

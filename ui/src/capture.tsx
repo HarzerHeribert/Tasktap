@@ -17,7 +17,7 @@ import { Rings } from './rings.tsx';
 import { cancel, control, end, follow, mine, needs, place, setAim, talk, voiced } from './speech/record.ts';
 import { Brand, I, Key, Level, Mark, madeAt } from './ui.tsx';
 import { agent, agentName, call, fail, focus, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
-import { back, briefOf, clock, hold, laterWhy, leave, onWay, placed, placing, step } from './way.ts';
+import { back, briefOf, clock, first, hold, laterWhy, leave, onWay, placed, placing, step } from './way.ts';
 
 /** What was just sent, for what is said of it once it is no longer on its way. `pick`: the place the person chose for
  *  it, which Undo gives back with its words. How it came by its place is the thought's own to say (`placed`). */
@@ -121,7 +121,7 @@ function says(w: ReturnType<typeof where>, route: Route | undefined): [string, s
     case 'follows':
       return [label, route?.confidence === 'clear' && 'session' in route.to && route.to.session === cap.current ? 'you are in it' : 'named in it'];
     case 'model':
-      return ['Tasktap decides', `${agentName(pref('route_by')?.agent)} reads it`];
+      return ['Tasktap decides', `${agentName(first(pref('route_by'), placers()))} reads it`];
     case 'in':
       return [projectName(w.to), 'you are in it'];
     case 'only':
@@ -678,7 +678,7 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
           <div key="foot" class="cap-row" ref={foot}>
             <button type="button" class="cap-to" id="dest-chip" aria-haspopup="listbox" aria-expanded={false}
               title={`${back ? 'Your choice was for the thought before. ' : ''}${!all ? 'No project is known yet: a thought is saved for later until a folder is open. Click to open one' : later ? 'Saved for later: nothing starts. Click to change'
-                : model ? `${agentName(pref('route_by')?.agent)} reads the thought and places it. Click to choose the place yourself`
+                : model ? `${agentName(first(pref('route_by'), placers()))} reads the thought and places it. Click to choose the place yourself`
                   : w.why === 'words' || w.why === 'ask' ? 'Tasktap places it in the project its words name, and asks you where when they name none. Click (or ⌘K) to choose the place yourself'
                     : w.why === 'only' ? 'The one folder open, so a thought that names no other place goes there. Click to change' : 'Where it goes. Click (or ⌘K) to change'}`}
               onClick={() => choose(true)}

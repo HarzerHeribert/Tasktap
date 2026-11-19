@@ -1,0 +1,13 @@
+: The response.failed payload of the streaming-events reference (https://developers.openai.com/api/reference/resources/responses/streaming-events), with the error code that
+: "Models and inference" (https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)
+: says can arrive mid-stream when the plan's limit is reached; the message is the reference's own.
+
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_67ccfcdd16748190a91872c75d38539e09e4d4aac714747c","object":"response","access_programs":null,"created_at":1741487325,"status":"in_progress","completed_at":null,"error":null,"incomplete_details":null,"instructions":null,"max_output_tokens":null,"model":"gpt-6.2-astra","output":[],"parallel_tool_calls":true,"previous_response_id":null,"reasoning":{"effort":null,"summary":null},"store":true,"temperature":1,"text":{"format":{"type":"text"}},"tool_choice":"auto","tools":[],"top_p":1,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":1}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","item_id":"msg_123","output_index":0,"content_index":0,"delta":"In","sequence_number":1,"logprobs":[]}
+
+event: response.failed
+data: {"type":"response.failed","response":{"id":"resp_123","object":"response","access_programs":null,"created_at":1740855869,"status":"failed","completed_at":null,"error":{"code":"subscription_sharing_usage_limit_exceeded","message":"The model failed to generate a response."},"incomplete_details":null,"instructions":null,"max_output_tokens":null,"model":"gpt-6.2-astra","output":[],"previous_response_id":null,"reasoning_effort":null,"store":false,"temperature":1,"text":{"format":{"type":"text"}},"tool_choice":"auto","tools":[],"top_p":1,"truncation":"disabled","usage":null,"user":null,"metadata":{},"parallel_tool_calls":true},"sequence_number":1}
+

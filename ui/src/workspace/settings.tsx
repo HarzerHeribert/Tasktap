@@ -244,7 +244,10 @@ const To = ({ at, children }: { at: Section; children: ComponentChildren }) => <
 let version = '';
 function AboutPane() {
   useEffect(() => void (version || getVersion().then((v) => ((version = v ?? ''), redraw()), () => {})), []);
-  const by = pref('route_by'), places = placing(by, placers()) === 'on', speech = pref('speech_by'), usual = agent();
+  const tools = placers(), by = pref('route_by'), speech = pref('speech_by'), usual = agent();
+  // The agents that place thoughts now, in the person's order.
+  const readers = placing(by, tools) !== 'on' ? [] : by!.agents.filter((p) => p.on && tools.some((t) => t.agent === p.agent && t.model === p.model));
+  const names = readers.map((p) => agentName(p.agent));
   return (
     <>
       <Row name="Tasktap"><span class="v">{version ? `Version ${version}` : 'This build has no version number'}</span></Row>
@@ -253,8 +256,8 @@ function AboutPane() {
       <Row name="Your thoughts" hint={`Each goes to the agent that runs it${usual ? `, ${agentName(usual.id)} unless you pick another` : ''}, in a terminal on ${HERE}, under that agent's own sign-in.`}>
         <span class="v">To the agent</span><To at="agents">Agents</To>
       </Row>
-      <Row name="Placing" hint={places ? `Each thought that names no folder, with the names of your folders and sessions, is read by ${agentName(by!.agent)}'s ${by!.model}.` : `Thoughts are placed by name, on ${HERE}.`}>
-        <span class="v">{places ? `To ${agentName(by!.agent)}` : 'Nothing'}</span><To at="thoughts">Thoughts</To>
+      <Row name="Placing" hint={names.length ? `Each thought that names no folder, with the names of your folders and sessions, is read by ${names[0]}'s small model${names.length > 1 ? `; when it cannot place it, by the next in your order: ${names.slice(1).join(', then ')}` : ''}.` : `Thoughts are placed by name, on ${HERE}.`}>
+        <span class="v">{names.length ? `To ${names.join(', ')}` : 'Nothing'}</span><To at="thoughts">Thoughts</To>
       </Row>
       <Row name="Voice" hint={speech ? 'Each recording, when you let go. Tasktap keeps none.' : hearsHere() ? `What you say is turned into text on ${HERE}. Its model was downloaded once, from huggingface.co.` : 'Voice is not set up.'}>
         <span class="v">{speech ? `To ${serviceName(speech.server)}` : 'Nothing'}</span><To at="voice">Voice</To>

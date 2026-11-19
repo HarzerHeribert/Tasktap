@@ -92,6 +92,10 @@ pub fn within(_: &NSScreen, x: f64, y: f64) -> (f64, f64) {
 pub fn outline(_: usize, _: &NSScreen, _: &Geometry, _: &[(f64, f64)]) {}
 pub fn focusable(_: usize, _: bool) {}
 pub fn watching(_: usize, _: bool) {}
+/// The tab is hidden while a window fills the whole display; the Mac's panel joins a full-screen space instead.
+pub fn hidden(_: usize) -> bool {
+    false
+}
 pub fn frame(ptr: usize, _: &NSScreen) -> Rect {
     rect(panel(ptr).frame())
 }

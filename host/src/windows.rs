@@ -2,8 +2,8 @@
 //! read on one thread and write on another, the clipboard and the power state, the folder dialog and what a
 //! web view is held to. What the notch asks of a panel is the tab's window, in `edge.rs`.
 pub use crate::edge::{
-    app_active, focusable, frame, geometry, give_back_key, home, ignore_mouse, is_key, make_key, outline, pointer,
-    screen_frame, screens, set_frame, show, watching, window_number, within, Screen,
+    app_active, focusable, frame, geometry, give_back_key, hidden, home, ignore_mouse, is_key, make_key, outline,
+    pointer, screen_frame, screens, set_frame, show, watching, window_number, within, Screen,
 };
 use sha2::{Digest, Sha256};
 use std::fs::{File, OpenOptions};

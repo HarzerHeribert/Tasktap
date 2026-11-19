@@ -246,7 +246,7 @@ pub fn show(panel: usize) {
     let shown = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW;
     // SAFETY: windows of this app, shown, hidden and ordered; none is activated.
     unsafe {
-        if BUSY.load(Relaxed) && GetForegroundWindow() != tab {
+        if hidden(panel) {
             if IsWindowVisible(tab) != 0 {
                 ShowWindow(tab, SW_HIDE);
             }
@@ -258,6 +258,13 @@ pub fn show(panel: usize) {
             SetWindowPos(strip, tab, 0, 0, 0, 0, shown);
         }
     }
+}
+
+/// Whether the tab is hidden now: Windows says not to show it, and it is not a sheet the person asked for with the
+/// key. Hidden, the pointer where the tab would be is on nothing.
+pub fn hidden(panel: usize) -> bool {
+    // SAFETY: asks which window is in front.
+    BUSY.load(Relaxed) && unsafe { GetForegroundWindow() } != panel as HWND
 }
 
 /// Whether a window is the taskbar or the notification area's overflow: in front for the moment of a click on the

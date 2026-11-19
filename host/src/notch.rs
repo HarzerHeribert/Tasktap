@@ -161,10 +161,11 @@ pub fn moved(app: &AppHandle) {
     let Some((screen, g)) = anchored(&mut st) else { return };
     let (x, y) = native::within(&screen, x, y);
     let top_band = y >= g.tab.y && y <= g.tab.max_y();
-    let hit = match st.hit.is_empty() {
-        true => g.tab.contains(x, y),
-        false => geometry::inside(&st.hit, x - g.tab.mid_x(), g.tab.max_y() - y),
-    };
+    let hit = !native::hidden(st.panel)
+        && match st.hit.is_empty() {
+            true => g.tab.contains(x, y),
+            false => geometry::inside(&st.hit, x - g.tab.mid_x(), g.tab.max_y() - y),
+        };
     // Open, the top edge beside the tab keeps the notch open; everywhere outside the outline,
     // and on the Mac's top edge beside the tab (its menu bar), the pointer and its clicks go to what is beneath.
     let inside = hit || (!st.collapsed && top_band && native::frame(st.panel, &screen).contains(x, y));

@@ -27,7 +27,7 @@ function shots() {
     'home-busy-narrow': { ...ws(S('busy')), viewport: { width: 720, height: 540 } },
     'home-quiet-narrow': { ...ws(S('quiet')), viewport: { width: 720, height: 540 } },
     'ws': ws(S('workspace'), show('cuegrid')),
-    'ws-dialog': ws(S('workspace'), both(show('cuegrid'), sheet((r) => ({ kind: 'close-tab', project: r.ids.projects.cuegrid, id: r.ids.export.terminal })))),
+    'ws-dialog': ws(S('workspace'), both(show('cuegrid'), sheet((r) => ({ kind: 'close-tab', project: r.ids.projects.cuegrid, id: r.ids.export.terminal, runs: { state: 'running', what: ['Claude Code'], session: r.ids.export.session } })))),
     'ws-capture': ws(S('workspace'), both(show('cuegrid'), sheet({ kind: 'capture' }))),
     'ws-review': ws(S('workspace'), both(show('cuegrid'), sheet((r) => ({ kind: 'review', thought: r.ids.pdf.thought })))),
     'ws-discard': ws(S('workspace'), both(show('cuegrid'), sheet((r) => ({ kind: 'settle', thought: r.ids.pdf.thought, keep: false })))),

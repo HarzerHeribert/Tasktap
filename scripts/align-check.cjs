@@ -434,7 +434,7 @@ async function main() {
   const measure = (page, fn, arg) => page.evaluate(`(${settle})(), (${fn})(${arg === undefined ? '' : JSON.stringify(arg)})`);
   const views = [
     ['busy', null], ['busy', (w) => (w.__ws.ui.fold = 'results')], ['busy', (w) => (w.__ws.ui.fold = 'later')], ['normal', null], ['quiet', null], ['first', null],
-    ['busy', (w) => w.__ws.show('earlier')], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'close-tab', project: '', id: '' })], ['busy', (w) => w.document.querySelector('#dest-chip').click()],
+    ['busy', (w) => w.__ws.show('earlier')], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'close-tab', project: '', id: '', runs: { state: 'running', what: ['npm run dev'], session: null } })], ['busy', (w) => w.document.querySelector('#dest-chip').click()],
     // Settings, section by section, and the sheets that are a list of answers, a field, or the Composer.
     // (At the usual width and the narrowest: `TWO`.)
     ...['thoughts', 'projects', 'voice', 'agents', 'appearance', 'terminal', 'about'].map((at) => ['busy', `(w) => (w.__ws.ui.sheet = { kind: 'settings', at: '${at}' })`, '', TWO]), ['first', (w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'agents' }), '', TWO],
@@ -504,7 +504,7 @@ async function main() {
     if (!drawn) failures.push('the sidebar\'s foot never drew its glyphs, of which a wake is made');
     for (const [name, start, sel, axis, way, none] of [
       ['the sidebar closing', "__ws.command('sidebar')", '.side', 'x', -1], ['the sidebar opening', "__ws.command('sidebar')", '.side', 'x', 1],
-      ['a decision coming down', "__ws.ui.sheet = { kind: 'close-tab', project: '', id: '' }; __motion.redraw()", '.sheet', 'y', 1, true],
+      ['a decision coming down', "__ws.ui.sheet = { kind: 'close-tab', project: '', id: '', runs: { state: 'running', what: ['npm run dev'], session: null } }; __motion.redraw()", '.sheet', 'y', 1, true],
       ['Settings coming down', "__ws.dismiss(); __ws.command('settings')", '.sheet', 'y', 1, true],
     ]) {
       if (!drawn) break;
@@ -518,7 +518,7 @@ async function main() {
     // under the title bar's edge. And behind one the ambient layer rests, though agents work in the window in use.
     const P = '__fake.records.ids.projects.cuegrid';
     for (const [name, sc, kind, sheet] of [
-      ['a decision', 'workspace', 'off', `(__ws.show(${P}), __ws.ui.sheet = { kind: 'close-tab', project: ${P}, id: __fake.records.ids.export.terminal })`],
+      ['a decision', 'workspace', 'off', `(__ws.show(${P}), __ws.ui.sheet = { kind: 'close-tab', project: ${P}, id: __fake.records.ids.export.terminal, runs: { state: 'running', what: ['Claude Code'], session: __fake.records.ids.export.session } })`],
       ['the Composer', 'busy', 'off', `(__ws.ui.sheet = { kind: 'capture' })`], ['a form', 'normal', 'off', `(__ws.ui.sheet = { kind: 'placing' })`],
       ['a session', 'busy', 'session', `(__ws.ui.sheet = { kind: 'session', id: [...__ws.records.sessions.values()].find((s) => s.turn > 1).id })`],
       ['a review', 'workspace', 'off', `(__ws.show(${P}), __ws.ui.sheet = { kind: 'review', thought: [...__ws.records.thoughts.values()].find((t) => t.workdir?.changes === 'pending').id })`],

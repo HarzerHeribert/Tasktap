@@ -1,6 +1,6 @@
 # Tasktap
 
-Tasktap is a Mac app for working with coding agents, Claude Code and Codex first. Put a thought in: Tasktap works out where it belongs, starts the work, and comes back only when it needs you or has a result. Its main record is the thought (what was said, where it went, what is running, what it asked, what came back); a terminal is where a thought happens to be running.
+Tasktap is a Mac app for working with coding agents: Claude Code and Codex first, and with them Antigravity, Pi, OpenCode, Qwen Code, Goose, Crush, Droid and Aider, ten in all, and any command-line agent you add yourself. Put a thought in: Tasktap works out where it belongs, starts the work, and comes back only when it needs you or has a result. Its main record is the thought (what was said, where it went, what is running, what it asked, what came back); a terminal is where a thought happens to be running.
 
 That is the idea this code is built to. What works today, and what is deliberately missing, is listed in [host/README.md](host/README.md).
 
@@ -44,7 +44,7 @@ Needs Rust (stable), Node 22 and macOS 13 or later.
 
 Quit an installed Tasktap 1.2 before opening the app: its notch sits in the same place and uses the same shortcuts. `smoke.sh` runs the app passive (no window takes the keyboard, nothing shows in the Dock), so it is safe to run while you work. It needs a desktop session and expects your shell to be zsh, the Mac's default. CI runs all of the above on every push except `open`.
 
-More, each described at the top of its file: `host/scripts/measure.sh` (idle cost, launch, typing delay), `core/scripts/measure.sh`, `core/scripts/live-agents.sh` and `core/scripts/route-eval.sh` (the real Claude Code and Codex, on your own accounts; never part of CI), and under `scripts/` the page renderers `motion-pages.cjs`, `instrument-shots.cjs`, `light-sheet.cjs` and `motion-fidelity.cjs`.
+More, each described at the top of its file: `host/scripts/measure.sh` (idle cost, launch, typing delay), `core/scripts/measure.sh`, `core/scripts/live-agents.sh` and `core/scripts/route-eval.sh` (the real agents, on your own accounts; never part of CI), and under `scripts/` the page renderers `motion-pages.cjs`, `instrument-shots.cjs`, `light-sheet.cjs` and `motion-fidelity.cjs`.
 
 ## Where things are decided
 

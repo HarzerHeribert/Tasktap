@@ -680,9 +680,10 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
     $measure = {
         $ids = @($proc.Id) + @((Children $proc 'msedgewebview2') | ForEach-Object { $_.Id; (Children $_ 'msedgewebview2').Id })
         $running = @($ids | Where-Object { $_ } | ForEach-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
-        $switches = $null
-        try { $switches = (@($running | ForEach-Object { Get-CimInstance Win32_PerfRawData_PerfProc_Thread -Filter "IDProcess=$($_.Id)" -ErrorAction Stop }) | Measure-Object ContextSwitchesPersec -Sum).Sum } catch { }
-        @{ cpu = ($running | ForEach-Object { $_.TotalProcessorTime.TotalMilliseconds } | Measure-Object -Sum).Sum; switches = $switches; memory = ($running | Measure-Object PrivateMemorySize64 -Sum).Sum; processes = $running.Count }
+        # Every thread's count of the times the system let it run, asked for once and read for these processes.
+        $switches = $null; $watch = [Diagnostics.Stopwatch]::StartNew()
+        try { $switches = (@(Get-CimInstance Win32_PerfRawData_PerfProc_Thread -Property IDProcess, ContextSwitchesPersec -ErrorAction Stop | Where-Object { $_.IDProcess -in $running.Id }) | Measure-Object ContextSwitchesPersec -Sum).Sum } catch { }
+        @{ cpu = ($running | ForEach-Object { $_.Refresh(); $_.TotalProcessorTime.TotalMilliseconds } | Measure-Object -Sum).Sum; switches = $switches; memory = ($running | Measure-Object PrivateMemorySize64 -Sum).Sum; processes = $running.Count; at = [DateTime]::UtcNow; took = $watch.Elapsed.TotalSeconds }
     }
     $rest = {
         param($seconds)
@@ -690,7 +691,8 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
         $a = & $measure; $before = Tab
         Start-Sleep -Seconds $seconds
         $b = & $measure; $after = Tab
-        @{ cpu = [int]($b.cpu - $a.cpu); switches = if ($null -ne $a.switches) { [int](($b.switches - $a.switches) / $seconds) }; memory = [int]($b.memory / 1MB); processes = $b.processes; moved = ($before.pixels -join ' ') -ne ($after.pixels -join ' ') -or $after.watching }
+        $over = ($b.at - $a.at).TotalSeconds
+        @{ cpu = [int]($b.cpu - $a.cpu); over = [int]$over; switches = if ($null -ne $a.switches -and $null -ne $b.switches) { [Math]::Round(($b.switches - $a.switches) / $over, 1) }; memory = [int]($b.memory / 1MB); processes = $b.processes; moved = ($before.pixels -join ' ') -ne ($after.pixels -join ' ') -or $after.watching }
     }
     $with = & $rest 30
     Send 'tab off'
@@ -700,7 +702,7 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
     Send 'tab main'
     $null = Until '"event":"tab","set"' 5
     $again = Tab-Soon { param($t) $t.shown }
-    Check 3 'at rest nothing moves: the tab''s window stays, the pointer is not read, and the app with the tab uses no more processor time than without it' (-not $with.moved -and $with.cpu -le $without.cpu + 150) "half a minute collapsed: $($with.cpu) ms of processor time in $($with.processes) processes$(if ($null -ne $with.switches) { ", $($with.switches) context switches a second" }), $($with.memory) MB of their own; with the tab switched off: $($without.cpu) ms in $($without.processes) processes$(if ($null -ne $without.switches) { ", $($without.switches) a second" }), $($without.memory) MB"
+    Check 3 'at rest nothing moves: the tab''s window stays, the pointer is not read, and the app with the tab uses no more processor time than without it' (-not $with.moved -and $with.cpu -le $without.cpu + 150) "collapsed, over $($with.over) s: $($with.cpu) ms of processor time in $($with.processes) processes$(if ($null -ne $with.switches) { ", $($with.switches) context switches a second" }), $($with.memory) MB of their own; with the tab switched off, over $($without.over) s: $($without.cpu) ms in $($without.processes) processes$(if ($null -ne $without.switches) { ", $($without.switches) a second" }), $($without.memory) MB"
     Check 3 'switched off the tab is gone, and switched on it is back where it was' ($again.shown -and ($again.pixels -join ' ') -eq ($want -join ' ')) "back: $($again.pixels -join ' ')"
     End-Own 'row3-app.txt'
     Start-Sleep -Milliseconds 500

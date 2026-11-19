@@ -325,8 +325,9 @@ void listen<{ do: string; at?: string; id?: string; low?: boolean; url?: string;
   // A preview's frame tried to leave this machine: the host stopped it, and the person is offered the address.
   else if (payload.do === 'stopped' && payload.url) stop(payload.url);
   else if (payload.do === 'menu' && payload.id) command(payload.id);
-  // The capture key, with this window in front or brought there: the caret goes where a thought is typed.
-  else if (payload.do === 'capture') captureKey();
+  // The capture key, with this window in front or brought there: the caret goes where a thought is typed. (Its own
+  // word: every page hears what the host says to any page, and `capture` is the notch's.)
+  else if (payload.do === 'capture-key') captureKey();
   // Low Power Mode began or ended: the effects follow it (light.tsx effects).
   else if (payload.do === 'power') (power.low = !!payload.low), redraw();
 });

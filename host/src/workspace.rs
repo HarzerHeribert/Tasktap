@@ -97,7 +97,8 @@ pub fn in_front(app: &AppHandle) -> bool {
 /// and otherwise asks for what the key opens from another app (`host.capture`).
 pub fn capture(app: &AppHandle) {
     let _ = show(app, None);
-    let _ = app.emit_to(LABEL, "ui", json!({"do": "capture"}));
+    // Not `capture`: that is what the notch's page is told, and a page hears what any page is told.
+    let _ = app.emit_to(LABEL, "ui", json!({"do": "capture-key"}));
 }
 
 /// Shows the workspace window, made the first time; with `at`, the page shows that session's or

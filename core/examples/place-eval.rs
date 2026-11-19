@@ -10,17 +10,21 @@
 //! Per kind of thought it prints how many were placed right, placed wrong,
 //! asked with the right one first, asked with it among the choices, asked
 //! without it, and kept for later; and how many times the right one is
-//! among the 8 a model would be given. `--each` prints every thought's
-//! outcome too.
+//! among the 8 a model would be given, and how many a clear leader
+//! started. `--each` prints every thought's outcome too, at each size.
 
 use serde::Deserialize;
 use tasktap_core::route::{self, Named, Request};
-use tasktap_core::state::{Destination, Route};
+use tasktap_core::state::{Destination, Route, Said};
 use tasktap_proto::{CardId, Time};
 
 #[derive(Deserialize)]
 struct Fixture {
     projects: Vec<Project>,
+    /// Projects only the rows of a clear leader are meant for: among the
+    /// others at every size, for those rows alone.
+    #[serde(default)]
+    more: Vec<Project>,
     thoughts: Vec<Thought>,
 }
 
@@ -49,6 +53,7 @@ struct Tally {
     without: u32,
     kept: u32,
     in_eight: u32,
+    led: u32,
     n: u32,
 }
 
@@ -71,7 +76,18 @@ const KINDS: &[(&str, &str)] = &[
         "mean no project, with an everyday name or a name's sound or words in them (held out)",
     ),
     ("seen", "the review found placed wrongly (in-sample)"),
+    (
+        "lead",
+        "name no project for certain, one clearly leading (in-sample)",
+    ),
+    (
+        "near-miss",
+        "come near a lead and must be asked; any start is wrong (in-sample)",
+    ),
 ];
+
+/// The kinds of thought whose projects include the fixture's `more`.
+const LEADS: &[&str] = &["lead", "near-miss"];
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -79,22 +95,26 @@ fn main() {
     let each = args.iter().any(|a| a == "--each");
     let fixture: Fixture = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let now: u64 = 1_800_000_000_000;
-    let all: Vec<Named> = (fixture.projects.iter())
-        .map(|p| Named {
-            to: Destination::Card(CardId::mint()),
-            name: p.name.clone(),
-            aliases: Vec::new(),
-            about: p.about.clone(),
-            folder: format!("/Users/someone/projects/{}", p.name),
-            used: Time::new(now - p.quiet * 86_400_000),
-        })
-        .collect();
+    let card = |p: &Project| Named {
+        to: Destination::Card(CardId::mint()),
+        name: p.name.clone(),
+        aliases: Vec::new(),
+        about: p.about.clone(),
+        folder: format!("/Users/someone/projects/{}", p.name),
+        used: Time::new(now - p.quiet * 86_400_000),
+    };
+    let all: Vec<Named> = fixture.projects.iter().map(card).collect();
+    let more: Vec<Named> = fixture.more.iter().map(card).collect();
     let sizes = [36, 100, 306];
     let mut tallies = vec![vec![Tally::default(); KINDS.len()]; sizes.len()];
     let mut ms = vec![0f64; sizes.len()];
     for (s, size) in sizes.iter().enumerate() {
-        let projects: Vec<Named> = all.iter().take(*size).cloned().collect();
         for t in &fixture.thoughts {
+            let lead = LEADS.contains(&t.kind.as_str());
+            let projects: Vec<Named> = (all.iter().take(*size))
+                .chain(more.iter().filter(|_| lead))
+                .cloned()
+                .collect();
             let request = Request {
                 text: t.text.clone(),
                 projects: projects.clone(),
@@ -117,8 +137,16 @@ fn main() {
             if target.is_some_and(|to| eight.contains(&to)) {
                 tally.in_eight += 1;
             }
+            if let Route::Clear {
+                said: Some(Said::Leads { .. }),
+                ..
+            } = &route
+            {
+                tally.led += 1;
+            }
+            let ask = t.kind == "near-miss";
             let outcome = match (&route, target) {
-                (Route::Clear { to, .. }, Some(want)) if *to == want => {
+                (Route::Clear { to, .. }, Some(want)) if *to == want && !ask => {
                     tally.right += 1;
                     "right"
                 }
@@ -147,7 +175,7 @@ fn main() {
                     "kept"
                 }
             };
-            if each && *size == 306 {
+            if each {
                 let label = |r: &Route| match r {
                     Route::Ambiguous { candidates, .. } => {
                         let c: Vec<String> = candidates
@@ -161,17 +189,18 @@ fn main() {
                             .iter()
                             .find(|p| p.to == *to)
                             .map_or("?", |p| p.name.as_str());
-                        format!(
-                            "{name}{}",
-                            said.as_ref()
-                                .map(|s| format!(" said as “{s}”"))
-                                .unwrap_or_default()
-                        )
+                        let how = match said {
+                            Some(Said::As(words)) => format!(" said as “{words}”"),
+                            Some(Said::Leads { why, .. }) => format!(" by a lead: {why}"),
+                            None => String::new(),
+                        };
+                        format!("{name}{how}")
                     }
                     Route::Unknown => String::new(),
                 };
                 println!(
-                    "{:16} {:20} {:22} {}  ← {}",
+                    "{:3} {:16} {:20} {:22} {}  ← {}",
+                    size,
                     t.kind,
                     t.to,
                     outcome,
@@ -183,9 +212,9 @@ fn main() {
     }
     println!();
     println!(
-        "| Thoughts | Right | Wrong | Asked, right one first | Asked, it among the choices | Asked without it | Kept | Right one in the 8 a model gets |"
+        "| Thoughts | Right | Wrong | Asked, right one first | Asked, it among the choices | Asked without it | Kept | Right one in the 8 a model gets | Started by a lead |"
     );
-    println!("| --- | --- | --- | --- | --- | --- | --- | --- |");
+    println!("| --- | --- | --- | --- | --- | --- | --- | --- | --- |");
     for (k, (_, what)) in KINDS.iter().enumerate() {
         let n = tallies[0][k].n;
         let cell = |f: fn(&Tally) -> u32| {
@@ -196,7 +225,7 @@ fn main() {
             }
         };
         println!(
-            "| {n} that {what} | {} | {} | {} | {} | {} | {} | {} |",
+            "| {n} that {what} | {} | {} | {} | {} | {} | {} | {} | {} |",
             cell(|t| t.right),
             cell(|t| t.wrong),
             cell(|t| t.first),
@@ -204,6 +233,7 @@ fn main() {
             cell(|t| t.without),
             cell(|t| t.kept),
             cell(|t| t.in_eight),
+            cell(|t| t.led),
         );
     }
     let thoughts = fixture.thoughts.len() as f64;

@@ -1,5 +1,5 @@
 {
-"about": "Invented projects and thoughts for placing among many (docs/projects-design.md, Experiments). The first 36 and the first 100 projects are the smaller sets; every thought's target is among the first 36, six of which are named with everyday words (app, test, notes, docs, site, scripts). quiet: days since something happened there. kind of a thought: named, spoken (as a recogniser writes the name), twin (the name has near-duplicates), described, described-blind (the target's card says nothing), none (no project is meant: it must not be placed). seen: the review's examples, which the rules were changed for (in-sample). decoy: no project is meant, though a word of it is an everyday-word project's name, sounds like one or is two words of one; written after the rules and not used to change them (held out); placed is wrong, asked or kept is right. everyday: an everyday-word project used as a name (held out).",
+"about": "Invented projects and thoughts for placing among many (docs/projects-design.md, Experiments). The first 36 and the first 100 projects are the smaller sets; every thought's target is among the first 36, six of which are named with everyday words (app, test, notes, docs, site, scripts). quiet: days since something happened there. kind of a thought: named, spoken (as a recogniser writes the name), twin (the name has near-duplicates), described, described-blind (the target's card says nothing), none (no project is meant: it must not be placed). seen: the review's examples, which the rules were changed for (in-sample). decoy: no project is meant, though a word of it is an everyday-word project's name, sounds like one or is two words of one; written after the rules and not used to change them (held out); placed is wrong, asked or kept is right. everyday: an everyday-word project used as a name (held out). lead: no name is said for certain and one project clearly leads, which it should start in; near-miss: comes near a lead and must be asked, any start counting as wrong; both written with the rule and used to tune it (in-sample), among the projects of more as well as the others.",
 "projects": [
 {"name":"cuegrid","about":"Cue sheets and a rehearsal timer for stage managers","lang":"TypeScript","kind":"web app","quiet":0},
 {"name":"ledgerline","about":"Invoicing for freelancers: invoices, reminders and PDF export","lang":"Rust","kind":"web app","quiet":1},
@@ -308,6 +308,13 @@
 {"name":"old-umbra","about":"","lang":"Swift","kind":"iOS app","quiet":286},
 {"name":"old-verdigris","about":"","lang":"TypeScript","kind":"library","quiet":323}
 ],
+"more": [
+{"name":"vexa-widgets","about":"The vexa widgetpack: the widgets we ship and their settings","lang":"Lua","kind":"widget pack","quiet":3},
+{"name":"vexa-notes","about":"Notes on vexa prompts and sessions","lang":"Markdown","kind":"notes","quiet":1},
+{"name":"vexa-snippets","about":"Snippets and slash commands for the vexa agent","lang":"Markdown","kind":"snippets","quiet":2},
+{"name":"zentrix-sync","about":"Syncs zentrix boards to a shared calendar","lang":"Go","kind":"service","quiet":5},
+{"name":"opencode-relay","about":"Relays opencode sessions into a tmux pane","lang":"Rust","kind":"tool","quiet":4}
+],
 "thoughts": [
 {"kind":"named","to":"cuegrid","text":"in cuegrid make the rehearsal timer readable on mobile"},
 {"kind":"named","to":"ledgerline","text":"ledgerline: the reminder mails go out twice, find out why"},
@@ -404,6 +411,26 @@
 {"kind":"everyday","to":"docs","text":"the docs repo needs a new landing page"},
 {"kind":"everyday","to":"site","text":"fix the broken links in `site`"},
 {"kind":"everyday","to":"scripts","text":"add a backup job to the scripts project"},
-{"kind":"everyday","to":"test","text":"move the shared fixtures into test"}
+{"kind":"everyday","to":"test","text":"move the shared fixtures into test"},
+{"kind":"lead","to":"vexa-widgets","text":"research a new vexa widget to add to the vexa widgetpack"},
+{"kind":"lead","to":"vexa-notes","text":"the vexa note about prompts is out of date"},
+{"kind":"lead","to":"vexa-snippets","text":"write a vexa snippet for slash commands that lists open tasks"},
+{"kind":"lead","to":"zentrix-sync","text":"the zentrix boards show up twice in the calendar"},
+{"kind":"lead","to":"tidepool","text":"the tidepools face grouping merges two people"},
+{"kind":"near-miss","to":"vexa-widgets","text":"look into the vexa widget list"},
+{"kind":"near-miss","to":"vexa-widgets","text":"the vexa widgetpack crashes on start"},
+{"kind":"near-miss","to":"vexa-widgets","text":"add the vexa widget to the snippets list"},
+{"kind":"near-miss","to":"","text":"a vexa widget for the zentrix calendar"},
+{"kind":"near-miss","to":"zentrix-sync","text":"the zentrix calendar is wrong"},
+{"kind":"near-miss","to":"","text":"the harbor masters want the fleet list by Friday"},
+{"kind":"near-miss","to":"cuegrid","text":"in queue grid the rehearsal timer is off"},
+{"kind":"near-miss","to":"","text":"ask opencode to fix the tmux resize bug"},
+{"kind":"near-miss","to":"vexa-notes","text":"add notes about vexa prompts"},
+{"kind":"near-miss","to":"","text":"research a new vexa widget for the face grouping"},
+{"kind":"lead","to":"vexa-widgets","text":"write a new vexa widget for the widgetpack that adds snippets"},
+{"kind":"near-miss","to":"vexa-widgets","text":"research a new vexa widget for the widgetpack and the slash commands"},
+{"kind":"near-miss","to":"vexa-widgets","text":"research a new vexa widget for the widgetpack and the zentrix one"},
+{"kind":"near-miss","to":"vexa-widgets","text":"research a new vexa widget for the widgetpack, its snippets and the tmux pane"},
+{"kind":"near-miss","to":"vexa-widgets","text":"the harbor master wants a new vexa widget for the widgetpack"}
 ]
 }

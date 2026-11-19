@@ -6,7 +6,7 @@
 # nothing.
 #
 #   core/scripts/place-eval.sh           the table
-#   core/scripts/place-eval.sh --each    every thought's outcome at 306 too
+#   core/scripts/place-eval.sh --each    every thought's outcome too, at each size
 set -euo pipefail
 cd "$(dirname "$0")/.."
 exec cargo run --quiet --release --example place-eval -- scripts/place-eval.json "$@"

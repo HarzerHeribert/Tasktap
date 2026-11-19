@@ -240,6 +240,32 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       push({ t: 'change', rev, snap: true, sets });
       return reply(id, { rev });
     }
+    // What runs in a terminal, as the core says when it is closed (`terminal.runs`): what `runs` holds for it, else
+    // the rule in small: an agent's live session runs, a shell with none is idle, one not running has ended.
+    // `terminal.stop` ends it a moment later; `project.close` closes the folder, its terminals stopped with `stop`.
+    if (name === 'terminal.runs') {
+      const t = (records.terminals || []).find((x) => x.id === args.id);
+      if (!t) return refuse('gone', `no terminal ${args.id}`);
+      if ((records.runs || {})[args.id]) return reply(id, records.runs[args.id]);
+      const s = (records.sessions || []).filter((x) => x.terminal_id === t.id && x.state !== 'ended').at(-1);
+      const names = { claude: 'Claude Code', codex: 'Codex' };
+      if (t.state !== 'running') return reply(id, { state: 'ended', what: [], session: null });
+      if (s) return reply(id, { state: 'running', what: [names[s.agent] || s.agent], session: s.id });
+      return reply(id, t.kind === 'shell' ? { state: 'idle', what: [], session: null } : { state: 'running', what: [t.title], session: null });
+    }
+    const end = (t) => setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'terminals', put: [{ ...t, rev, state: 'exited', exit: null }] }] }), 50);
+    if (name === 'terminal.stop') {
+      const t = (records.terminals || []).find((x) => x.id === args.id);
+      if (t && t.state === 'running') end(t);
+      return reply(id, null);
+    }
+    if (name === 'project.close') {
+      window.__fake.closed = [...(window.__fake.closed || []), args];
+      const p = (records.projects || []).find((x) => x.id === args.id);
+      if (p) push({ t: 'change', rev: ++rev, sets: [{ c: 'projects', put: [{ ...p, rev, open: false }] }] });
+      if (args.stop) (records.terminals || []).filter((t) => t.project_id === args.id && t.state === 'running').forEach(end);
+      return reply(id, null);
+    }
     // A key the rule of a shortcut refuses is refused in the core's sentence, and nothing is stored.
     if (name === 'put' && args.c === 'prefs' && args.id === 'talk_key' && args.patch && refused(args.patch)) return toCore({ t: 'reply', id, err: { code: 'invalid', message: refused(args.patch) } });
     if (name === 'put' && args.c === 'prefs') {

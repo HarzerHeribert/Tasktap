@@ -78,7 +78,10 @@ fi
 
 tmp="$(mktemp -d)"
 log="$tmp/log"
-mkdir -p "$tmp/agents" "$tmp/project"
+mkdir -p "$tmp/agents" "$tmp/project" "$tmp/home"
+# The shells the app starts, typed into here, are the person's shell in a home of the check's own (an empty
+# configuration, which zsh would otherwise offer to write): none of them reads or writes the person's files.
+: > "$tmp/home/.zshrc"
 # A speech service of the check's own, on this machine: it answers a recording with the words in $tmp/says.
 echo "nothing yet" > "$tmp/says"
 python3 "$host/scripts/speech-fixture.py" "$tmp/says" "$tmp/speech.log" > "$tmp/port" &
@@ -112,7 +115,7 @@ trap cleanup EXIT
 launch() {
   rm -f "$tmp/in"
   mkfifo "$tmp/in"
-  env PATH="$tmp/agents:$PATH" TASKTAP_DEBUG=1 TASKTAP_PASSIVE=1 TASKTAP_DATA="$tmp/data" TASKTAP_PICK="$tmp/project" TASKTAP_OPEN="$tmp/opener" \
+  env HOME="$tmp/home" PATH="$tmp/agents:$PATH" TASKTAP_DEBUG=1 TASKTAP_PASSIVE=1 TASKTAP_DATA="$tmp/data" TASKTAP_PICK="$tmp/project" TASKTAP_OPEN="$tmp/opener" \
     CLAUDE_CONFIG_DIR="$tmp/no-history/claude" CODEX_HOME="$tmp/no-history/codex" \
     TASKTAP_CORE_EXE="$host/binaries/fixtures/tasktap" TASKTAP_CORE_BUILD="$(cat "$host/binaries/fixtures/build.txt")" \
     "$host/target/debug/tasktap-app" < "$tmp/in" >> "$log" 2>&1 &
@@ -610,9 +613,13 @@ cell="(e => e.term.options.fontSize * 0.60205)(__ws.engines.get('$shell'))"
 until_has workspace "eval String(__ws.layout('$project').sizes['$shell'] === __ws.engines.get('$shell').size && __ws.layout('$project').sizes['$shell'] > 14 && Math.abs($cell - 10) < 0.01)" 3 "true" \
   && pass "⌘+ enlarges the terminal's text by a whole pixel of cell width each time (8 to 10 in Hack), remembered in its layout" \
   || fail "text size"
+# A program in front in the shell: closing its tab asks, naming it (the core's `terminal.runs`).
+js workspace "(__ws.engines.get('$shell').term.input('sleep 600\\r', true), 1)" >/dev/null
+until_has workspace "eval (await __ws.call('terminal.runs', {id: '$shell'})).what.join(',')" 5 "sleep 600" || fail "the core says what runs in the shell"
 js workspace "(__ws.command('close-tab'), 1)" >/dev/null
 until_has workspace "text .sheet" 3 "Keep running in background" && ask workspace "text .sheet" | grep -q "Stop session" \
-  && pass "closing a live terminal's tab offers Keep running, Stop and Cancel in a sheet" || fail "the close sheet"
+  && ask workspace "text .sheet" | grep -q "sleep 600 is running in it." \
+  && pass "closing the tab of a shell where a program runs offers Keep running, Stop and Cancel in a sheet that names the program" || fail "the close sheet" "$(ask workspace "text .sheet")"
 shot close-sheet workspace
 press workspace ".sheet" Enter >/dev/null
 until_has workspace "eval document.querySelector('.row.s.bg')?.innerText" 3 "zsh" && pass "Return keeps it running in the background, listed under its workspace" \
@@ -636,6 +643,17 @@ sleep 1.5
 gone="(l => !__ws.L.tabs(l).includes('$shell') && !l.background.includes('$shell'))"
 [ "$(js workspace "String($gone(__ws.layout('$project')) && $gone(__ws.records.layouts.get('$project').tree))")" = true ] \
   && pass "a stopped session leaves the layout, in the page and in the core's record" || fail "the stopped session left the layout"
+# A shell with nothing running in it closes at once, by its key and by its row's cross in the sidebar, and ends.
+for how in key cross; do
+  idle=$(js workspace "__ws.newTerminal('$project')")
+  until_has workspace "eval (await __ws.call('terminal.runs', {id: '$idle'})).state" 8 "idle" || fail "the core says a new shell is idle"
+  if [ "$how" = key ]; then js workspace "(__ws.focusSession('$idle'), __ws.command('close-tab'), 1)" >/dev/null
+  else ask workspace "click .srow[data-id='$idle'] > .x" >/dev/null; fi
+  sleep 0.5
+  [ "$(js workspace "String(!__ws.ui.sheet && !__ws.L.tabs(__ws.layout('$project')).includes('$idle') && !__ws.layout('$project').background.includes('$idle'))")" = true ] \
+    && until_has workspace "eval __ws.records.terminals.get('$idle').state" 5 "exited" \
+    && pass "closing a shell with nothing running in it by its $how asks nothing, takes its tab away and ends it" || fail "closing an idle shell by its $how" "$(ask workspace "text .sheet")"
+done
 terminals=$(ask workspace "eval __ws.records.terminals.size")
 
 # The terminal's font, size and line height are the core's preferences: every terminal takes them at once.

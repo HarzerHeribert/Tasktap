@@ -10,14 +10,13 @@ import '../way.css';
 import './consent.css';
 import '../scroll.ts';
 import { listen } from '@tauri-apps/api/event';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { render } from 'preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
 import { cap, followSpeech } from '../capture.tsx';
 import { type HostUpdate, uuid7 } from '../client.ts';
 import { LevelVoice } from '../speech/level.ts';
 import { live, loudness, recording, talk } from '../speech/record.ts';
-import { I, Key, Mark, Wave, plural } from '../ui.tsx';
+import { Brand, I, Key, Mark, plural } from '../ui.tsx';
 import { COMMANDS, commands, hit, recorder, tip } from '../keys.ts';
 import { mac, shownPath, titled } from '../system.ts';
 import { Caps, MenuButton, heard as captionSaid, openMenu } from './chrome.tsx';
@@ -32,9 +31,10 @@ import * as L from './layout.ts';
 import { burst, echo } from './measure.ts';
 import { choose, shown as menu } from './menu.ts';
 import {
-  LOOSE, call, client, closeTab, copy, current, details, dismiss, fail, focusSession, layout, loadTerms, newTerminal, onRedraw, open, page, paste,
-  pref, records, redraw, reconcile, sessionOf, setLayout, settleFocus, show, textSize, textSizeBy, ui,
+  LOOSE, agentName, call, client, closeTab, copy, current, details, dismiss, fail, focus, focusSession, heardWhere, layout, loadTerms, newTerminal, onRedraw,
+  open, openQuestions, page, paste, pref, records, redraw, reconcile, sessionOf, setLayout, settleFocus, show, textSize, textSizeBy, title, ui, where,
 } from './model.ts';
+import type { Where } from '../client.ts';
 import { SECTIONS, shown } from './settings.tsx';
 import { askUpdate, heard as updateSaid, waiting } from './update.tsx';
 import { Sheets } from './sheets.tsx';
@@ -220,15 +220,38 @@ function Bar({ project }: { project: string | null }) {
           <b class="sub">Earlier</b>
         </span>
       ) : <span class="crumb" data-tauri-drag-region>{!side && <b>Home</b>}</span>}
+      {where.place === 'line' && <AsksLine />}
       {project && (
         <span class="bar-r">
           <button type="button" class="ib" title={tip('Split right', '⌘D')} aria-label="Split right" onClick={() => command('split-right')}><I n="splitr" /></button>
           <button type="button" class="ib" title={tip('Split down', '⇧⌘D')} aria-label="Split down" onClick={() => command('split-down')}><I n="splitd" /></button>
-          <button type="button" class="newt" title={tip('New task', '⌘N')} onClick={() => command('new-task')}><span><Wave n={5} />New task</span><Key k="⌘N" /></button>
+          <button type="button" class="newt" title={tip('New task', '⌘N')} onClick={() => command('new-task')}><span><Brand />New task</span><Key k="⌘N" /></button>
         </span>
       )}
       {titled && <Caps />}
     </header>
+  );
+}
+
+/** A question waits and the window shows neither Home nor the terminal it is asked in: one quiet line in the title
+ *  bar leads to it (docs/rebuild-plan.md, "Where Tasktap shows itself", rule 1). Who asks and what, cut to fit, how
+ *  many more wait, and the key that goes there from anywhere. It is no key of metal: what the view is for keeps that. */
+function AsksLine() {
+  const q = where.question ? records.questions.get(where.question) : undefined;
+  if (!q || q.state !== 'open') return null;
+  const s = q.session_id ? records.sessions.get(q.session_id) : undefined;
+  const t = q.thought_id ? records.thoughts.get(q.thought_id) : undefined;
+  const router = q.source === 'router';
+  const who = router ? 'Where should this go?' : `${agentName(s?.agent ?? t?.agent)} asks`;
+  const more = openQuestions().length - 1;
+  return (
+    <button type="button" class="asks-line" title={tip(router ? 'Show the question on Home' : 'Show the question under its terminal', '⌃⌥J')} onClick={() => toQuestion(q.id)}>
+      <Mark s="asks" label="" />
+      <b>{who}</b>
+      <span class="what">{router ? title(t) : q.prompt}</span>
+      {more > 0 && <span class="more">{plural(more, 'more waits', 'more wait')}</span>}
+      <Key k="⌃⌥J" cap />
+    </button>
   );
 }
 
@@ -267,6 +290,7 @@ function App() {
     document.documentElement.dataset.effects = effects();
     document.documentElement.dataset.text = pref('text_size');
     settleFocus();
+    tellShows(project);
   });
   // The terminals follow their preferences at once and as they change, from this window or another.
   useLayoutEffect(loadLook, [pref('terminal_font'), pref('terminal_size'), pref('terminal_line_height'), pref('terminal_bold_bright'), pref('terminal_contrast')]);
@@ -308,21 +332,70 @@ records.onchange = () => {
   reconcile();
   redraw();
 };
-/** The capture key while this window is in front (docs/rebuild-plan.md, "The capture key on Home"). Home has a
- *  field for a thought already, and so has New Task while it is open: the caret goes there, and nothing opens over
- *  it. Anywhere else the key does what it does from another app, which is the host's to carry out. */
+/** The capture key while this window is in front, or brought there for it (docs/rebuild-plan.md, "Where Tasktap
+ *  shows itself", rule 1). Home has a field for a thought already, and so has New Task while it is open: the caret
+ *  goes there. Anywhere else New Task opens over what the window shows. The host chose the same by the same rule from
+ *  what this page told it the window shows (`tellShows`); what the page shows now decides a race between the two. */
 function captureKey() {
   if (ui.sheet?.kind === 'capture' || (ui.view === 'home' && !ui.sheet)) {
     page.focus = '#capture-input';
     return redraw();
   }
-  void call('host.capture', {}).catch(fail);
+  command('new-task');
 }
-/** Where the host, or the notch through it, sends the window: a session's terminal, or a part of Settings. */
+/** The window at a waiting question: ⌃⌥J with the window in front, J, Y or N on a question only its terminal
+ *  answers, a click on its notification or on the line that leads to it. Under its terminal where it has one, with
+ *  the keyboard in the terminal when only the terminal answers it and on its answers otherwise; on Home, in Needs
+ *  you, for the router's question or one whose terminal is gone. */
+function toQuestion(id: string) {
+  const q = records.questions.get(id);
+  if (ui.sheet) dismiss();
+  if (q?.session_id && focusSession(q.session_id)) {
+    if (q.reply_via !== 'terminal') {
+      const answers = `[data-question="${id}"]`;
+      page.focus = answers;
+      // The terminal takes the keyboard at its next frame (focusTerminal); the question's answers take it after that.
+      requestAnimationFrame(() => focus(answers));
+    }
+    return redraw();
+  }
+  show('home');
+  if (q) page.focus = `[data-question="${id}"]`;
+  redraw();
+}
+/** Where the host, or the notch through it, sends the window: a session's terminal, a part of Settings, a waiting
+ *  question, or the capture key's field for a window made for it. */
 function arrive(at: string) {
   const section = SECTIONS.find(([id]) => at === `settings:${id}`)?.[0];
   if (section) open({ kind: 'settings', at: section });
+  else if (at.startsWith('question:')) toQuestion(at.slice('question:'.length));
+  else if (at.startsWith('capture:')) captureKey();
   else focusSession(at);
+}
+/** What the window shows, for the host's rule of where Tasktap shows itself: Home with no sheet over it, the New Task
+ *  sheet, a workspace's terminals (by the sessions shown in its panes, each with its strip), or anything else. Said
+ *  to the host when it changes; the reply is where Tasktap is. */
+let told = '';
+function tellShows(project: string | null) {
+  const shows = ui.sheet ? (ui.sheet.kind === 'capture' ? 'new-task' : 'elsewhere') : ui.view === 'home' ? 'home' : project ? 'terminals' : 'elsewhere';
+  const terminals = shows === 'terminals' && project
+    ? L.panes(layout(project)).flatMap((p) => (p.active ? [sessionOf(p.active)?.id ?? p.active] : []))
+    : [];
+  const said = [shows, ...terminals].join(' ');
+  if (said === told) return;
+  told = said;
+  void call('host.where', { shows, terminals }).then(followWhere, () => {});
+}
+/** The host said where Tasktap is. The window is the one in use only while it is in front, as the host defines it for
+ *  both pages; back in use, the region that has the focus answers, as a greeting, and a preview asks whether its file
+ *  changed. */
+function followWhere(w: Partial<Where>) {
+  const was = ui.active;
+  if (!heardWhere(w)) return;
+  ui.active = where.front;
+  document.documentElement.classList.toggle('inactive', !where.front);
+  redraw();
+  if (where.front && !was) (greet(region || 'main'), refresh());
 }
 void listen<{ do: string; at?: string; id?: string; low?: boolean; url?: string; over?: string; down?: string; max?: boolean }>('ui', ({ payload }) => {
   if (payload.do === 'focus' && payload.at) arrive(payload.at);
@@ -334,6 +407,8 @@ void listen<{ do: string; at?: string; id?: string; low?: boolean; url?: string;
   // The capture key, with this window in front or brought there: the caret goes where a thought is typed. (Its own
   // word: every page hears what the host says to any page, and `capture` is the notch's.)
   else if (payload.do === 'capture-key') captureKey();
+  // Where Tasktap shows itself changed: the window came in front or went behind, or the question moved.
+  else if (payload.do === 'where') followWhere(payload as unknown as Partial<Where>);
   // Low Power Mode began or ended: the effects follow it (light.tsx effects).
   else if (payload.do === 'power') (power.low = !!payload.low), redraw();
   // What the host knows of new versions (update.tsx).
@@ -350,16 +425,8 @@ narrow();
 // The terminal's faces are loaded before the first terminal measures its cells.
 await fontsReady();
 render(<App />, document.body);
-// Whether the window is the one in use, from the host's own account of it.
-const win = getCurrentWindow();
-void win.isFocused().then((f) => ((ui.active = f), redraw()), () => {});
-void win.onFocusChanged(({ payload }) => {
-  ui.active = payload;
-  document.documentElement.classList.toggle('inactive', !payload);
-  redraw();
-  // Back in use: the region that has the focus answers, as a greeting, and a preview asks whether its file changed.
-  if (payload) (greet(region || 'main'), refresh());
-});
+// Whether the window is the one in use: in front, as the host says it to both pages (followWhere).
+void call('host.where', {}).then(followWhere, () => {});
 // The window shows once the page has laid out its first frame (a hidden window draws nothing).
 setTimeout(() => void call('host.ready', {}).catch(() => {}));
 void client
@@ -401,4 +468,5 @@ Object.assign(window, {
   __ws: { uuid7, ui, records, layout, command, greet, slide, engines, focusSession, show, newTerminal, startAgent, call, echo, burst, text, type, current, dismiss, open, menu, choose, LOOSE, L, follow, refresh },
   __motion: { debug, stats, redraw },
   __speech: { talk, live, cap },
+  __where: where,
 });

@@ -1,5 +1,5 @@
 /* The parts both pages share (ui.tsx, question.tsx, capture.tsx): the reset, the focus ring, icons, the state mark,
-   the wave, key caps, answers, buttons, the reply field, the capture field and a question. Values come from tokens.css. */
+   Tasktap's mark, key caps, answers, buttons, the reply field, the capture field and a question. Values come from tokens.css. */
 *,::before,::after{box-sizing:border-box}
 html,body{margin:0;height:100%;overflow:hidden}
 body{font:var(--f-text);color:var(--fg);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;-webkit-user-select:none;user-select:none;cursor:default}
@@ -38,23 +38,18 @@ i{font-style:normal}
 .i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:var(--i-w);stroke-linecap:var(--i-cap);stroke-linejoin:var(--i-join)}
 .ib{display:inline-grid;place-items:center;flex:none;width:28px;height:var(--ctl-h);border-radius:var(--r1);color:var(--fg3)}
 
-/* the state mark: five bars of the wave in 14 × 14. The words are its tooltip and accessible name */
+/* the state mark (ui.tsx Mark) in 14 × 14: while something works, Tasktap's mark with its light passing (.brand-m);
+   otherwise a seat with no agent in it, the ring in the state's colours (.ring-o, below) holding a pip of the state's
+   colour. The words are its tooltip and accessible name. --ring-px is the box it is shown in, so that its circle is
+   drawn at the icons' weight. */
 /* One weight: an icon's strokes are --i-w on the screen at whatever size its box is shown. */
 .i>*{vector-effect:non-scaling-stroke}
-.st{display:inline-flex;align-items:center;justify-content:center;gap:1px;flex:none;width:14px;height:14px;color:#e9ebee}
-.st b{display:block;width:2px;height:2px;border-radius:.5px;background:currentColor}
-.st[data-s=working] b{animation:st-w var(--t-wave) ease-in-out infinite alternate}
-.st[data-s=working] b:nth-child(1){height:5px;animation-delay:-200ms}
-.st[data-s=working] b:nth-child(2){height:10px;animation-delay:-650ms}
-.st[data-s=working] b:nth-child(3){height:13px;animation-delay:-100ms}
-.st[data-s=working] b:nth-child(4){height:8px;animation-delay:-480ms}
-.st[data-s=working] b:nth-child(5){height:4px;animation-delay:-820ms}
-@keyframes st-w{from{transform:scaleY(.35)}to{transform:scaleY(1)}}
+.st{display:inline-flex;align-items:center;justify-content:center;flex:none;width:14px;height:14px;color:var(--fg3);--ring-px:14}
+.st:not(.of)>svg.ring-o{width:100%;height:100%;--ring-px:inherit}
+.ring-o .pip{fill:currentColor;stroke:none}
 .st[data-s=asks]{color:var(--asks);filter:drop-shadow(0 0 3px rgb(234 182 118/.75))}
-.st[data-s=asks] b{height:8px}.st[data-s=asks] b:nth-child(even){height:12px}.st[data-s=asks] b:nth-child(3){height:14px}
-.st[data-s=ready]{color:#fff}.st[data-s=ready] b{box-shadow:0 0 3px rgb(255 255 255/.8)}
-.st[data-s=ended]{color:var(--fg3)}
-.st[data-s=failed]{color:var(--fail)}.st[data-s=failed] b:nth-child(3){height:10px}
+.st[data-s=ready]{color:#fff;filter:drop-shadow(0 0 2px rgb(255 255 255/.6))}
+.st[data-s=failed]{color:var(--fail)}
 .st.bgd{opacity:.45}
 .st[data-s=shell]{color:var(--fg3)}.st[data-s=shell] .i{width:14px;height:14px}
 /* A session's seat (ui.tsx Seat): its agent's ring where the mark would stand, in the mark's colours. Its circle is drawn
@@ -63,18 +58,25 @@ i{font-style:normal}
 .st.of{width:calc(var(--seat,16) * 1px);height:calc(var(--seat,16) * 1px);gap:0}
 .st[data-s=later]::before{content:"";width:5px;height:5px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--fg2)}
 
-/* the wave: chrome bars, the brand mark at work */
-.wave{display:inline-flex;align-items:center;gap:var(--wg,2px);height:var(--wh,16px);flex:none}
-.wave b{display:block;width:var(--ww,2px);height:var(--h);transform:translateY(var(--o,0));border-radius:1px;background:var(--bar-silver)}
-.wave b.cu{background:var(--bar-copper)}.wave b.gr{background:var(--bar-graphite)}
-.wave.live b{animation:wave 1.3s ease-in-out var(--d) infinite alternate}
-@keyframes wave{from{transform:translateY(var(--o,0)) scaleY(.5)}to{transform:translateY(var(--o,0)) scaleY(1)}}
-.wave.rest b{height:2px;transform:none}
+/* Tasktap's mark (ui.tsx Brand): a slab of the chrome set, four pictures drawn once from the motion engine (at rest,
+   and the light three steps further down its face), --m square. Still at rest. It is a picture, not an icon: no
+   stroke of it is held to the icons' weight. */
+.brand-m{position:relative;isolation:isolate;display:inline-grid;place-items:center;flex:none;width:var(--m,14px);height:var(--m,14px)}
+.brand-m>img{grid-area:1/1;width:var(--m,14px);height:var(--m,14px)}
+.brand-m>img:not(.p0){opacity:0}
+/* At work the light passes down the face and back: each step fades in over the one before it, the whole way down in
+   2.4 s and back up in as long. Only opacity moves. */
+.brand-m.live>.p1{animation:pass-1 2.4s ease-in-out infinite alternate}
+.brand-m.live>.p2{animation:pass-2 2.4s ease-in-out infinite alternate}
+.brand-m.live>.p3{animation:pass-3 2.4s ease-in-out infinite alternate}
+@keyframes pass-1{0%{opacity:0}33.3%,100%{opacity:1}}
+@keyframes pass-2{0%,33.3%{opacity:0}66.7%,100%{opacity:1}}
+@keyframes pass-3{0%,66.7%{opacity:0}100%{opacity:1}}
 
 /* ——— Materials (tokens.css; NOTES §5). Every control is one of these ———
    Metal: the key and the caps that show a key. Two sizes of key: 24 px, and 34 px on Home's surface. Its face is flat;
    under the pointer it brightens; pressed, it travels a pixel and its shadow goes; with nothing to do it is quiet;
-   while its work is on its way it shows the wave. */
+   while its work is on its way it shows that it works: the state mark, turning. */
 .key,kbd.keycap{background:var(--lit) 0 100%/100% 1px no-repeat,var(--key);color:var(--ink);box-shadow:var(--key-edge)}
 kbd.keycap{display:inline-grid;grid-auto-flow:column;place-items:center;min-width:var(--key-h);height:var(--key-h);padding:0 4px;border-radius:var(--r1)}
 kbd .i{width:12px;height:12px}
@@ -83,7 +85,6 @@ kbd .i{width:12px;height:12px}
 /* What sends: Return, with Command before it where the person set Return to start a new line. */
 .key .sends{display:inline-flex;align-items:center;gap:1px}
 .key kbd{color:rgb(13 13 14/.7)}
-.key .st{color:var(--ink)}
 .key:hover{filter:brightness(1.07)}
 .key:active,:is(.ans,.act):active>kbd.keycap{transform:translateY(1px);box-shadow:var(--key-down);filter:brightness(.93)}
 .key:disabled{opacity:1;background:var(--fill);color:var(--fg3);box-shadow:none}
@@ -157,14 +158,26 @@ kbd .i{width:12px;height:12px}
 .told .btn{display:flex;margin-top:var(--sp2);-webkit-user-select:none;user-select:none}
 
 /* The Composer (capture.tsx): the thought on lines of its own; under it one row: where it goes, the agents' rings, and
-   the key that says what Return does. On a sheet it sits bare, the wave beside the thought, over a rule; on Home it is
+   the key that says what Return does. On a sheet it sits bare, Tasktap's mark beside the thought, over a rule; on Home it is
    the raised surface (window.css). The rule, or the surface's rim, is the lit edge while it has the keyboard or holds
    a thought. Choosing where it goes turns the row into the choice: a list on a sheet, a line of options on Home. */
 .cap{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;column-gap:14px;min-width:0;cursor:text}
-.cap .wave{--wh:30px;--ww:3px;--wg:2.5px}
 .cap textarea{grid-column:2;min-width:0;max-height:calc(3*round(22px*var(--ts),1px) + 20px);padding:10px 0;resize:none;overflow:auto;font:var(--f-question);letter-spacing:var(--ls-question);caret-color:var(--accent)}
 .cap-row{grid-column:1/-1;display:flex;align-items:center;gap:var(--sp2);min-width:0;padding-top:var(--sp2);border-top:1px solid var(--line);cursor:default}
 .capture:is(:focus-within,.has) .cap-row{border-image:var(--lit) 1}
+/* On a sheet and in the notch the Composer is Home's surface at the sheet's size (window.css .capture.raised): opaque
+   graphite with a hairline round it, its secondary words on it at the surface's own colour; while it has the keyboard
+   or holds a thought it is a shade brighter and its rim is the lit edge, brightest along the top. The mark stands
+   beside the thought and the row is inside it, with no rule between them. */
+.capture:not(.raised){--hover:rgb(255 255 255/.07);--sel:rgb(255 255 255/.11);--fill:rgb(255 255 255/.06);--fg2:var(--fg-field);--fg3:var(--fg-field);--line2:rgb(255 255 255/.22)}
+.capture:not(.raised) .cap{position:relative;padding:4px 12px 8px;border-radius:var(--r4);background:var(--surface);box-shadow:var(--surface-edge);transition:background var(--t-fast)}
+.capture:not(.raised) .cap::after{content:"";position:absolute;inset:0;padding:1px;border-radius:inherit;background:var(--edge,var(--lit));opacity:0;transition:opacity var(--t-sheet);pointer-events:none;
+  mask:linear-gradient(#000,rgb(0 0 0/.4) 22px,transparent 70%),linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:intersect,exclude}
+.capture:not(.raised):is(:focus-within,.has) .cap{background:var(--surface-lit)}
+.capture:not(.raised):is(:focus-within,.has) .cap::after{opacity:.9}
+.capture:not(.raised) .cap-row{padding-top:2px;border-top:0}
+.capture:not(.raised) textarea::placeholder{color:var(--fg-field)}
+.capture:not(.raised) :is(.cap-to,.cap-list button,.ring,.rings .more,.mic){border-radius:var(--r-in)}
 .cap-to,.cap-list button{display:inline-flex;align-items:center;gap:6px;height:var(--row-h);padding:0 var(--sp2) 0 6px;border-radius:var(--r1);font:var(--f-small);color:var(--fg2);white-space:nowrap}
 .cap-to{min-width:0;margin-left:-6px;padding-right:5px}
 .cap-to b{overflow:hidden;text-overflow:ellipsis;color:var(--fg)}

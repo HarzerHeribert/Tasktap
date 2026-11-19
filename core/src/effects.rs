@@ -1071,15 +1071,98 @@ fn repeated(first: Option<AttemptOutcome>) -> Outcome {
     }
 }
 
-/// Tells the person a question opened: `host.notify` on the connected host
-/// (Phase 4). With no host connected, always so before then, there is
-/// nobody to tell; the fixtures note it.
-#[cfg_attr(not(feature = "fixtures"), expect(unused_variables))]
+/// Tells the person a question opened: `host.notify` to every connected
+/// host that offered it in `hello`, which decides whether to show anything.
+/// Fire and forget: nothing waits for the reply, and nothing is sent when no
+/// host offered the ability or the question cannot be read. The fixtures
+/// note it too.
 fn notify(core: &mut Core, question: QuestionId) {
     #[cfg(feature = "fixtures")]
     if let Some(f) = &mut core.seams.fixture {
         f.notified.push(question);
     }
+    if !core
+        .links
+        .iter()
+        .any(|l| l.peer().is_some_and(|p| p.notifies))
+    {
+        return;
+    }
+    let Some(args) = words(core, question) else {
+        return;
+    };
+    for link in &core.links {
+        if link.peer().is_some_and(|p| p.notifies) {
+            drop(link.call::<call::HostNotify>(&args));
+        }
+    }
+}
+
+/// What a system notification says of a question; `None` when the store
+/// lacks the question or what its words come from.
+fn words(core: &mut Core, question: QuestionId) -> Option<tasktap_proto::HostNotify> {
+    use tasktap_proto::{QuestionSource, ReplyVia};
+    let (q, session, thought) = read(core, |tx| {
+        let Some(q) = tx.question(question)? else {
+            return Ok(None);
+        };
+        let session = match q.session_id {
+            Some(id) => tx.session(id)?,
+            None => None,
+        };
+        let thought = match q.thought_id {
+            Some(id) => tx.thought(id)?,
+            None => None,
+        };
+        Ok(Some((q, session, thought)))
+    })
+    .ok()??;
+    let (title, body) = if q.source == QuestionSource::Router {
+        ("Where should this go?".to_owned(), cut(&thought?.text))
+    } else {
+        let agent = session.as_ref().and_then(|s| crate::agents::find(&s.agent));
+        let name = agent.map_or("An agent", |a| a.name());
+        let mut body = cut(&q.prompt);
+        if q.reply_via == ReplyVia::Terminal {
+            body.push_str("\nAnswer it in its terminal.");
+        }
+        (format!("{name} asks"), body)
+    };
+    Some(tasktap_proto::HostNotify {
+        question,
+        title,
+        body,
+        session: q.session_id,
+    })
+}
+
+/// Whitespace collapsed, cut to at most 140 characters at a word boundary,
+/// with "…" where it was cut.
+fn cut(text: &str) -> String {
+    const MOST: usize = 140;
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let all = words.join(" ");
+    if all.chars().count() <= MOST {
+        return all;
+    }
+    let mut out = String::new();
+    for word in words {
+        let len = out.chars().count() + usize::from(!out.is_empty()) + word.chars().count();
+        // Room is kept for the ellipsis.
+        if len + 1 > MOST {
+            break;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(word);
+    }
+    if out.is_empty() {
+        // A first word longer than the limit is cut inside.
+        out = all.chars().take(MOST - 1).collect();
+    }
+    out.push('…');
+    out
 }
 
 /// Arms the hold timer of a thought, replacing any it had. A hold that has

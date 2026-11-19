@@ -1,19 +1,21 @@
 //! The notification-area icon on Windows (plan, "The notch on Windows"): the anchor that is always there, also
 //! while the tab is hidden or switched off. Windows keeps a new icon in the overflow until the person drags it
 //! out, so it is not the glance by itself: its picture says what waits, its tooltip the counts, a click opens the
-//! sheet, and a right click a small menu the system draws. The picture is the app's own state mark, five bars,
-//! drawn here at the size the notification area asks for: nothing of the app's icon reads at 16 pixels.
+//! sheet, and a right click a small menu the system draws. The picture is Tasktap's mark, the chrome slab the pages
+//! show, drawn once from the app's motion engine at the four sizes the notification area asks for at 100, 125, 150
+//! and 200 percent, for a dark taskbar and a light one (icons/tray, scripts/mark-pictures.cjs); what waits is a dot
+//! beside it.
 //!
 //! The picture and the tooltip are plain arithmetic, tested on every system; what talks to the shell is below.
 
 /// What waits for the person, as the icon shows it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Waits {
-    /// Nothing: the wave at rest, in the taskbar's own text colour.
+    /// Nothing: the mark alone.
     Nothing,
-    /// A result not read yet, or a run that failed: the wave and a dot.
+    /// A result not read yet, or a run that failed: the mark and a dot in the taskbar's own text colour.
     Result,
-    /// A question: the wave risen, in the colour of "needs you".
+    /// A question: the mark and a larger dot in the colour of "needs you".
     Question,
 }
 
@@ -37,8 +39,8 @@ pub fn says(working: u32, needs_you: u32, done: u32, failed: u32) -> String {
     format!("Tasktap: {}", if parts.is_empty() { "nothing running".to_owned() } else { parts.join(", ") })
 }
 
-/// The colours, as red, green, blue: the pages' `--fg` and `--asks` on a dark taskbar; on a light one ink, and an
-/// amber dark enough to read there (5 : 1 on Windows' light taskbar).
+/// The dot's colour, as red, green, blue: the pages' `--fg` and `--asks` on a dark taskbar; on a light one ink, and
+/// an amber dark enough to read there (5 : 1 on Windows' light taskbar).
 fn colour(light: bool, waits: Waits) -> [u8; 3] {
     match (waits == Waits::Question, light) {
         (true, false) => [0xea, 0xb6, 0x76],
@@ -48,42 +50,105 @@ fn colour(light: bool, waits: Waits) -> [u8; 3] {
     }
 }
 
+/// The mark at each size it is drawn at: for a dark taskbar, and for a light one (its face turned from the light, so
+/// it reads by its darker face there rather than by its rim).
+const MARKS: [(usize, &[u8], &[u8]); 4] = [
+    (16, include_bytes!("../icons/tray/dark-16.png"), include_bytes!("../icons/tray/light-16.png")),
+    (20, include_bytes!("../icons/tray/dark-20.png"), include_bytes!("../icons/tray/light-20.png")),
+    (24, include_bytes!("../icons/tray/dark-24.png"), include_bytes!("../icons/tray/light-24.png")),
+    (32, include_bytes!("../icons/tray/dark-32.png"), include_bytes!("../icons/tray/light-32.png")),
+];
+
+/// One of the mark's pictures: its points as red, green, blue and alpha (not multiplied), top row first.
+fn decoded(file: &[u8], side: usize) -> Vec<u8> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(file));
+    decoder.set_transformations(png::Transformations::EXPAND);
+    let mut reader = decoder.read_info().expect("the mark's pictures are PNGs made by scripts/mark-pictures.cjs");
+    let mut points = vec![0; reader.output_buffer_size().expect("a small picture")];
+    let info = reader.next_frame(&mut points).expect("the mark's pictures are whole");
+    assert_eq!((info.width as usize, info.height as usize, info.color_type), (side, side, png::ColorType::Rgba));
+    points.truncate(info.buffer_size());
+    points
+}
+
+/// The mark for a taskbar, `size` points square, its colour multiplied by its alpha: the picture drawn at that size
+/// where there is one; otherwise the next larger (or the largest) resampled to it, each point the average of sixteen
+/// samples read between its points, so a size the notification area asks for between them (28 at 175 percent, 40
+/// and 48 above 200) is as even and as large in its square.
+fn mark(size: usize, light: bool) -> Vec<[u32; 4]> {
+    let (side, dark, pale) = MARKS.iter().find(|(side, ..)| *side >= size).unwrap_or(&MARKS[3]);
+    let points: Vec<[u32; 4]> = decoded(if light { pale } else { dark }, *side)
+        .chunks(4)
+        .map(|p| {
+            let a = u32::from(p[3]);
+            [u32::from(p[0]) * a / 255, u32::from(p[1]) * a / 255, u32::from(p[2]) * a / 255, a]
+        })
+        .collect();
+    if *side == size {
+        return points;
+    }
+    let (n, k) = (*side as isize, *side as f64 / size as f64);
+    let at = |x: isize, y: isize| {
+        if (0..n).contains(&x) && (0..n).contains(&y) {
+            points[(y * n + x) as usize]
+        } else {
+            [0; 4]
+        }
+    };
+    let mut out = Vec::with_capacity(size * size);
+    for py in 0..size {
+        for px in 0..size {
+            let mut sum = [0f64; 4];
+            for s in 0..16 {
+                let (u, v) = (
+                    (px as f64 + (f64::from(s % 4) + 0.5) / 4.0) * k - 0.5,
+                    (py as f64 + (f64::from(s / 4) + 0.5) / 4.0) * k - 0.5,
+                );
+                let (x, y) = (u.floor(), v.floor());
+                let (fx, fy) = (u - x, v - y);
+                for (dx, dy, w) in
+                    [(0, 0, (1.0 - fx) * (1.0 - fy)), (1, 0, fx * (1.0 - fy)), (0, 1, (1.0 - fx) * fy), (1, 1, fx * fy)]
+                {
+                    let p = at(x as isize + dx, y as isize + dy);
+                    for c in 0..4 {
+                        sum[c] += w * f64::from(p[c]) / 16.0;
+                    }
+                }
+            }
+            out.push(sum.map(|c| c.round() as u32));
+        }
+    }
+    out
+}
+
 /// The icon's picture: `size` by `size` points of four bytes (blue, green, red, alpha; colour already multiplied by
-/// alpha, as Windows wants an icon's), top row first. Drawn on a grid of sixteenths of the icon: five bars two wide
-/// with one between, centred on the middle line, and for a result a dot in the top right corner with a clear ring
-/// round it. Each point is sampled sixteen times, so the picture is as even at 20 and 24 pixels as at 16 and 32.
+/// alpha, as Windows wants an icon's), top row first. The mark; and for what waits a dot in the bottom right corner,
+/// which the slab leaves free, with a clear ring round it. The dot is drawn on a grid of sixteenths of the icon, each
+/// point sampled sixteen times, so it is as even at 20 and 24 pixels as at 16 and 32.
 pub fn picture(size: usize, light: bool, waits: Waits) -> Vec<u8> {
-    const BARS: [[f64; 5]; 2] = [[4.0, 8.0, 12.0, 8.0, 4.0], [8.0, 12.0, 14.0, 12.0, 8.0]];
-    let heights = BARS[usize::from(waits == Waits::Question)];
-    let dot = (waits == Waits::Result).then_some((13.0, 3.0, 2.5));
+    let points = mark(size, light);
+    let dot = (waits != Waits::Nothing).then_some((12.75, 12.75, if waits == Waits::Question { 3.0 } else { 2.5 }));
     let [r, g, b] = colour(light, waits);
     let unit = size as f64 / 16.0;
-    let inked = |x: f64, y: f64| {
-        if let Some((cx, cy, radius)) = dot {
-            let far = (x - cx).hypot(y - cy);
-            if far <= radius {
-                return true;
-            }
-            if far <= radius + 1.0 {
-                return false;
-            }
-        }
-        // Bar `i` spans x from 1 + 3i to 3 + 3i.
-        let i = ((x - 1.0) / 3.0).floor();
-        (0.0..5.0).contains(&i) && x - 1.0 - 3.0 * i < 2.0 && (y - 8.0).abs() <= heights[i as usize] / 2.0
-    };
     let mut out = Vec::with_capacity(size * size * 4);
     for py in 0..size {
         for px in 0..size {
-            let mut hits = 0u32;
-            for sy in 0..4 {
-                for sx in 0..4 {
-                    let at = |p: usize, s: usize| (p as f64 + (s as f64 + 0.5) / 4.0) / unit;
-                    hits += u32::from(inked(at(px, sx), at(py, sy)));
+            let (mut inked, mut clear) = (0u32, 0u32);
+            if let Some((cx, cy, radius)) = dot {
+                for sy in 0..4 {
+                    for sx in 0..4 {
+                        let at = |p: usize, s: usize| (p as f64 + (s as f64 + 0.5) / 4.0) / unit;
+                        let far = (at(px, sx) - cx).hypot(at(py, sy) - cy);
+                        inked += u32::from(far <= radius);
+                        clear += u32::from(far > radius && far <= radius + 1.0);
+                    }
                 }
             }
-            let part = |c: u8| (u32::from(c) * hits / 16) as u8;
-            out.extend([part(b), part(g), part(r), (255 * hits / 16) as u8]);
+            // The mark's own point, less what the dot and its clear ring take of it, and the dot.
+            let left = 16 - inked - clear;
+            let part = |dot: u8, mark: u32| ((u32::from(dot) * inked + mark * left) / 16).min(255) as u8;
+            let [mr, mg, mb, ma] = points[py * size + px];
+            out.extend([part(b, mb), part(g, mg), part(r, mr), part(255, ma)]);
         }
     }
     out
@@ -290,20 +355,24 @@ mod tests {
     }
 
     #[test]
-    fn at_sixteen_pixels_the_mark_is_five_whole_bars_and_nothing_between() {
-        let p = picture(16, false, Waits::Nothing);
-        assert_eq!(p.len(), 16 * 16 * 4);
-        // Five bars two wide: 4, 8, 12, 8 and 4 high.
-        assert_eq!(drawn(&p), (72, 72));
-        let at = |x: usize, y: usize| &p[(y * 16 + x) * 4..][..4];
-        assert_eq!(at(7, 8), [0xf3, 0xf2, 0xf2, 0xff], "the middle bar, in the pages' text colour");
-        assert_eq!(at(9, 8), [0, 0, 0, 0], "between two bars");
-        assert_eq!(at(0, 8), [0, 0, 0, 0], "the margin");
-        assert_eq!(at(7, 1), [0, 0, 0, 0], "above the tallest bar");
+    fn at_each_size_it_is_drawn_at_the_picture_is_the_mark_itself() {
+        for (side, dark, pale) in MARKS {
+            for light in [false, true] {
+                let points = decoded(if light { pale } else { dark }, side);
+                let p = picture(side, light, Waits::Nothing);
+                assert_eq!(p.len(), side * side * 4);
+                // Point for point the picture made from the engine, its colour multiplied by its alpha.
+                for (got, want) in p.chunks(4).zip(points.chunks(4)) {
+                    let a = u32::from(want[3]);
+                    let pre = |c: u8| (u32::from(c) * a / 255) as u8;
+                    assert_eq!(got, [pre(want[2]), pre(want[1]), pre(want[0]), want[3]]);
+                }
+            }
+        }
     }
 
     #[test]
-    fn what_waits_changes_the_picture_and_the_taskbar_its_colour() {
+    fn what_waits_is_a_dot_beside_the_mark_and_the_taskbar_chooses_its_colours() {
         let (rest, result, question) = (
             picture(16, false, Waits::Nothing),
             picture(16, false, Waits::Result),
@@ -312,32 +381,38 @@ mod tests {
         assert_ne!(rest, result);
         assert_ne!(rest, question);
         assert_ne!(result, question);
-        // A question's bars are taller, and amber.
-        assert_eq!(drawn(&question), (108, 108));
-        assert_eq!(&question[(8 * 16 + 7) * 4..][..4], [0x76, 0xb6, 0xea, 0xff]);
-        // A result's dot is in the top right corner, with nothing touching it.
-        let dot = &result[(3 * 16 + 13) * 4..][..4];
-        assert_eq!(dot[3], 255);
-        assert_eq!(rest[(6 * 16 + 11) * 4 + 3], 255);
-        assert!(result[(6 * 16 + 11) * 4 + 3] < 255, "the bar beside the dot is cut back: a clear ring round the dot");
-        // On a light taskbar the same shapes in ink.
-        let light = picture(16, true, Waits::Nothing);
-        assert_eq!(drawn(&light), drawn(&rest));
-        assert_eq!(&light[(8 * 16 + 7) * 4..][..4], [0x1c, 0x1a, 0x1a, 0xff]);
+        // The dot is in the bottom right corner, which the slab leaves free.
+        let at = |p: &[u8], x: usize, y: usize| -> [u8; 4] { p[(y * 16 + x) * 4..][..4].try_into().unwrap() };
+        for (x, y) in [(12, 12), (13, 13), (14, 12), (12, 14)] {
+            assert_eq!(at(&rest, x, y)[3], 0, "the slab leaves the corner free at {x},{y}");
+        }
+        assert_eq!(at(&result, 12, 12), [0xf3, 0xf2, 0xf2, 0xff], "a result's dot, in the pages' text colour");
+        assert_eq!(at(&question, 12, 12), [0x76, 0xb6, 0xea, 0xff], "a question's, in the colour of needs you");
+        // The mark itself is the same picture whatever waits.
+        assert_eq!(at(&rest, 8, 4), at(&question, 8, 4));
+        assert!(at(&rest, 8, 4)[3] > 0);
+        // On a light taskbar: the mark for it, and the dot in ink.
+        let light = picture(16, true, Waits::Result);
+        assert_ne!(light, result);
+        assert_eq!(at(&light, 12, 12), [0x1c, 0x1a, 0x1a, 0xff]);
     }
 
     #[test]
     fn the_picture_is_whole_at_every_size_the_notification_area_asks_for() {
         for size in [16, 20, 24, 32, 40, 48] {
             for waits in [Waits::Nothing, Waits::Result, Waits::Question] {
-                let p = picture(size, true, waits);
-                assert_eq!(p.len(), size * size * 4);
-                let (some, whole) = drawn(&p);
-                // About the same share of the icon at every size, and never a colour stronger than its alpha.
-                let share = some as f64 / (size * size) as f64;
-                assert!((0.25..0.6).contains(&share), "{size} {waits:?}: {share}");
-                assert!(whole > 0);
-                assert!(p.chunks(4).all(|p| p[0] <= p[3] && p[1] <= p[3] && p[2] <= p[3]), "{size} {waits:?}");
+                for light in [false, true] {
+                    let p = picture(size, light, waits);
+                    assert_eq!(p.len(), size * size * 4);
+                    let (some, whole) = drawn(&p);
+                    // The slab stands in the middle at every size, and no colour is stronger than its alpha.
+                    let share = some as f64 / (size * size) as f64;
+                    assert!((0.15..0.6).contains(&share), "{size} {waits:?}: {share}");
+                    assert!(whole > 0);
+                    assert!(p.chunks(4).all(|p| p[0] <= p[3] && p[1] <= p[3] && p[2] <= p[3]), "{size} {waits:?}");
+                    let middle = &p[((size / 2) * size + size / 2) * 4..][..4];
+                    assert!(middle[3] > 200, "{size}: the slab crosses the middle");
+                }
             }
         }
     }

@@ -7,8 +7,8 @@ use crate::serve::{BUILD, Core};
 use crate::store::Hash;
 use sha2::{Digest, Sha256};
 use tasktap_proto::{
-    Auth, Device, DeviceId, Hello, NO_SHARED_VERSION, RefuseWhy, Register, Rev, Secret, TerminalId,
-    VERSION, Versions, Welcome,
+    Auth, Device, DeviceId, Hello, NO_SHARED_VERSION, RefuseWhy, Register, Rev, Role, Secret,
+    TerminalId, VERSION, Versions, Welcome,
 };
 
 /// The protocol versions this build speaks.
@@ -45,7 +45,15 @@ pub fn hello(core: &mut Core, hello: Hello) -> Result<(Peer, Welcome), Option<Re
         calls: calls::supported(v),
     };
     let holds = (hello.abilities.iter()).any(|a| a == tasktap_proto::Name::ShimHold.as_str());
-    Ok((Peer { who, v, holds }, welcome))
+    let notifies = hello.role == Role::Host
+        && (hello.abilities.iter()).any(|a| a == tasktap_proto::Name::HostNotify.as_str());
+    let peer = Peer {
+        who,
+        v,
+        holds,
+        notifies,
+    };
+    Ok((peer, welcome))
 }
 
 /// Keys and tokens are stored as this digest only.

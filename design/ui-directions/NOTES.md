@@ -157,9 +157,6 @@ The app's one design-token file, `ui/src/tokens.css`, as built. Nothing else in 
   --lit:linear-gradient(90deg,#b98a5e,#edcda6 18%,#f7f8fa 40%,#a9c0df 62%,#7b92c4 82%,#a58aa6);
   --lit-v:linear-gradient(180deg,#f7f8fa,#a9c0df 55%,#b98a5e);
   --bloom:#c46f3c,#dc9a52 16%,#dfe4ec 33%,#8fb2d8 50%,#5f7fc0 66%,#a7789a 83%,#c46f3c;
-  --bar-silver:linear-gradient(90deg,#4a4d53,#eef0f3 38%,#fff 47%,#a2a7af 68%,#3c3f44);
-  --bar-copper:linear-gradient(90deg,#5a3a22,#e9b683 40%,#ffe6c8 48%,#b07a4c 70%,#4a2f1c);
-  --bar-graphite:linear-gradient(90deg,#26282c,#7b7f87 42%,#9a9ea6 48%,#4a4d53 70%,#1c1d20);
   --sheet-shadow:0 0 0 1px var(--line),0 30px 70px rgb(0 0 0/.7);
   /* type. One family at its normal width for everything said in words; the monospace face for figures, keys, counts
      and code only. Hierarchy is size, weight and colour. Each role is one size, weight, line height and letter
@@ -198,7 +195,7 @@ The app's one design-token file, `ui/src/tokens.css`, as built. Nothing else in 
   --i-w-key:calc(1.35px * var(--ts));  /* the one heavier stroke: Return's arrow on the metal key, beside its word in 600 */
   --i-cap:butt; --i-join:miter;
   /* time */
-  --t-fast:120ms; --t-sheet:220ms; --t-side:280ms; --t-notch-open:510ms; --t-notch-fold:320ms; --t-wave:900ms; --t-bloom:12s;
+  --t-fast:120ms; --t-sheet:220ms; --t-side:280ms; --t-notch-open:510ms; --t-notch-fold:320ms; --t-bloom:12s;
   --t-ambient:12s;     /* one breath of the ambient light; its glyphs sway and its chrome drifts in the same time */
   --ambient:1;         /* how far everything ambient travels: the owner's "calmer" (1.5 was calm, .6 calmest) */
   --ease:cubic-bezier(.19,.76,.19,1);
@@ -261,7 +258,7 @@ Every interactive component has: rest, hover, pressed, keyboard focus (a 1.5 px 
 | **Question strip** | Under its terminal, on `--bg`: lit hairline, "Codex asks", the question at 15/21, answers | with attention (the hairline is `--lit`, a faint bloom rises 28 px into the terminal), result (plain hairline, Keep as default) |
 | **Answer** | A key cap and a label, 28 px, no box | default action (label in 600) |
 | **Key cap** | 18 px high, metal, dark mono glyph; Return is the icon set's own arrow, as large as the letters beside it | pressed (travels 1 px) |
-| **Key** | The metal button: 24 px, or 34 px on Home's Composer; Return's arrow and what it does | under the pointer (brighter), pressed (travels), nothing to do (quiet), on its way (the wave) |
+| **Key** | The metal button: 24 px, or 34 px on Home's Composer; Return's arrow and what it does | under the pointer (brighter), pressed (travels), nothing to do (quiet), on its way (the state mark, turning) |
 | **Button** | Quiet: 24 px, 12 px text, a hairline round it | under the pointer (fill), pressed |
 | **Reply field** | Key cap `T`, placeholder, no box | hover (fill), focused (fill and the lit edge under it) |
 | **Ring** | An agent: its mark in a fine circle, 22 px (24 on Home). Whole when the agent can run; lit for the one that runs the next thought; open, in the attention colour, when it is not signed in, with "Sign in" beside it under the pointer or the keyboard, or always if it is the one chosen. Its name, version and state are its tooltip and its accessible name | working (a short arc turns, the count of its sessions beside it), asks (the attention colour). The circle is `--arc` of a turn, so it can show a share of something later; the core gives no usage, so nothing is shown |
@@ -275,7 +272,7 @@ Every interactive component has: rest, hover, pressed, keyboard focus (a 1.5 px 
 | **Home row** | An object of two lines that keeps its shape at every width (the owner, 2026-11-19: the table's parts drifted apart, and the mark was heavier than the words beside it): the seat, the thought (13/500) and the time on one baseline; under them, quietly, folder · agent · the one fact, in that order, so that what gives way is the end of the fact. A question that is not open is the same row with the question where the thought would be. Rows stand two abreast where the column is at least 872 px wide, a lone row takes the whole width; every word in a section, its heading included, starts on one edge (`--lead`, 32 px), and what leads a row (a seat, a mark, a chevron) is centred in the column before it | running, background, result new, result failed, result seen (dimmed), with actions (a line of buttons under it), with changes (the diffstat at the right of the second line), saved for later (actions beside its words on hover or focus, and on the one just saved) |
 | **Fold** | A 36 px line: chevron, name, count, newest title, time | closed, open (chevron turned, peek hidden, rows below, "All results" last) |
 | **Notch** | Section 3 | collapsed idle, collapsed with counts, collapsed with attention (bloom and the line that says what), open on a question, on capture, on a result |
-| **Wave** | Chrome bars; the brand mark at work | resting, live (the voice-reactive version from `design/motion-lab` replaces the bars), backdrop |
+| **Mark** | Tasktap's mark: a slab of the chrome set (`ui/src/motion/mark.ts`), pictures drawn once from the motion engine by `scripts/mark-pictures.cjs` (the pages at 14, 24 and 28 px, the site's header and favicon, the notification area on Windows). It replaced the chrome bars on 2026-11-19: the owner found them cheap beside the chromatic render | at rest (still), at work (the light slides down its face and back, a picture of its face turned fading in and out), as loud as the voice (the light behind it swells with the level and its face turns into it). The state mark is a seat with no agent in it: the ring, turning while it works, else a pip of the state's colour |
 
 ## 6. Implementation brief
 
@@ -398,7 +395,7 @@ The two things that make Tasktap what it is: a thought is spoken or typed, a mod
 
 **Voice** (`ui/src/speech/`). The page records, so it is the same on every system: the microphone is asked for when voice is first used and never before, heard through an audio worklet (`public/pcm-worklet.js`), turned into 16 kHz mono 16-bit little-endian samples (`pcm.ts`) and sent on the stream `dictation.start` opens, within its credit. It stops at once when the person lets go, cancels, the page loses the window, the core closes the stream, or the 300 seconds are up; the page keeps no audio.
 - **The gesture: hold ⌥Space** in the Composer or a reply field, or **press and hold the microphone control**; a hold shorter than 150 ms starts nothing. A short click on the control keeps it on until the next click or Return, for hands that cannot hold. The control shows the microphone and its key, ⌥Space, on Home; in the notch and the capture sheet the Composer's invitation says it instead: "Type, or hold ⌥Space and talk". The capture shortcut (⌃⌥Space) opens the Composer as before.
-- **While recording** the Composer's row is the recording: the wave as loud as the voice (five bars on Home; in the notch and the sheet the wave beside the thought, which was there already, follows the voice), "Listening", the time once it passes five seconds ("0:07"), the limit once it is half a minute away ("4:41 of 5:00"), "Let go to send" or "Let go to add it", and Esc Cancel; kept on by a click, the key reads ↩ Done. Then "Writing it down…". The wave's height is the `level` of the `dictations` row, eased between the core's ten reports a second by the clock.
+- **While recording** the Composer's row is the recording: Tasktap's mark as loud as the voice (on Home in the row; in the notch and the sheet the mark beside the thought, which was there already, follows the voice), "Listening", the time once it passes five seconds ("0:07"), the limit once it is half a minute away ("4:41 of 5:00"), "Let go to send" or "Let go to add it", and Esc Cancel; kept on by a click, the key reads ↩ Done. Then "Writing it down…". The light behind the mark follows the `level` of the `dictations` row, eased between the core's ten reports a second by the clock.
 - **Into an empty Composer** it is a new thought: captured as typing and Return would have, so it is placed, shows on its way with its words under You said, and has its hold and Undo. **Into a field that holds text, or a reply**, the words arrive at the caret and nothing is sent until Return.
 - **A failure** shows the core's sentence as it is, whatever was heard under "Heard" with Use these words, and Dismiss; Escape cancels at any point.
 - **Without a speech service** the control says so in one line, "Voice needs a speech service to turn it into text.", with Choose one…, which opens Settings at Speech.

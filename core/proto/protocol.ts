@@ -815,6 +815,14 @@ export type HistoryPage = { thoughts: Array<Thought>, questions: Array<Question>
 after?: string, };
 
 /**
+ * A question opened. `title` and `body` are the words a system
+ * notification says; `session` is the session whose terminal shows the
+ * question (a click brings the window there), none for the router's
+ * question, which Home shows.
+ */
+export type HostNotify = { question: QuestionId, title: string, body: string, session: SessionId | null, };
+
+/**
  * Who the core took the connection to be.
  */
 export type Identity = "device" | "session" | "none";
@@ -1755,6 +1763,7 @@ export type Calls = {
   "core.status": { args: Empty; result: CoreStatus; access: "anyone" };
   "core.retire": { args: Retire; result: null; access: "device" };
   "shim.hold": { args: ShimHold; result: null; access: "ability" };
+  "host.notify": { args: HostNotify; result: null; access: "ability" };
   "fixture.stream": { args: FixtureStream; result: Opened; access: "device" };
   "fixture.script": { args: FixtureScript; result: FixtureLog; access: "device" };
   "fixture.clock": { args: FixtureClock; result: null; access: "device" };

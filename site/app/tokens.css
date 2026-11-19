@@ -42,9 +42,6 @@
   --lit:linear-gradient(90deg,#b98a5e,#edcda6 18%,#f7f8fa 40%,#a9c0df 62%,#7b92c4 82%,#a58aa6);
   --lit-v:linear-gradient(180deg,#f7f8fa,#a9c0df 55%,#b98a5e);
   --bloom:#c46f3c,#dc9a52 16%,#dfe4ec 33%,#8fb2d8 50%,#5f7fc0 66%,#a7789a 83%,#c46f3c;
-  --bar-silver:linear-gradient(90deg,#4a4d53,#eef0f3 38%,#fff 47%,#a2a7af 68%,#3c3f44);
-  --bar-copper:linear-gradient(90deg,#5a3a22,#e9b683 40%,#ffe6c8 48%,#b07a4c 70%,#4a2f1c);
-  --bar-graphite:linear-gradient(90deg,#26282c,#7b7f87 42%,#9a9ea6 48%,#4a4d53 70%,#1c1d20);
   --sheet-shadow:0 0 0 1px var(--line),0 30px 70px rgb(0 0 0/.7);
   /* type. One family at its normal width for everything said in words; the monospace face for figures, keys, counts
      and code only. Hierarchy is size, weight and colour. Each role is one size, weight, line height and letter
@@ -86,7 +83,7 @@
   --i-w:calc(1.2px * var(--ts));
   --i-w-key:calc(1.35px * var(--ts));  /* the one heavier stroke: Return's arrow on the metal key, beside its word in 600 */ --i-cap:butt; --i-join:miter;
   /* time */
-  --t-fast:120ms; --t-sheet:220ms; --t-side:280ms; --t-notch-open:510ms; --t-notch-fold:320ms; --t-wave:900ms; --t-bloom:12s;
+  --t-fast:120ms; --t-sheet:220ms; --t-side:280ms; --t-notch-open:510ms; --t-notch-fold:320ms; --t-bloom:12s;
   --t-ambient:12s;     /* one breath of the ambient light; its glyphs sway and its chrome drifts in the same time */
   --ambient:1;         /* how far everything ambient travels: the owner's "calmer" (1.5 was calm, .6 calmest) */
   --ease:cubic-bezier(.19,.76,.19,1);

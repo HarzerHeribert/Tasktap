@@ -18,7 +18,7 @@ import { lights, type PaletteId } from './palette.ts';
 import { STATES, type MotionState } from './state.ts';
 import { STYLES, type Size, type StyleId } from './styles.ts';
 
-export type Look = { style: Exclude<StyleId, 'glyph'>; palette: PaletteId; hue: number; lumen: boolean };
+export type Look = { style: Exclude<StyleId, 'glyph' | 'mark'>; palette: PaletteId; hue: number; lumen: boolean };
 export type Options = {
   look: Look;
   state: MotionState;
@@ -211,9 +211,10 @@ function render(s: Surface, id: StyleId, w: number, h: number, U: Uniforms, wait
 }
 
 /** One frame of a style as a picture of its own, `size` device pixels square, drawn once and outside any view: what
- *  the glyphs at the sidebar's foot and in the wiper's wake are made of. Null where the page cannot draw. It waits
- *  for the style's program if that is not built yet (`built` says). */
-export function still(style: StyleId, look: Look, state: MotionState, size: number, aux: number, phase: number): HTMLCanvasElement | null {
+ *  the glyphs at the sidebar's foot and in the wiper's wake are made of, and the mark. Null where the page cannot
+ *  draw. It waits for the style's program if that is not built yet (`built` says). `light`: the studio as it is over
+ *  a light backdrop, where chrome is silver cut by dark reflections. */
+export function still(style: StyleId, look: Look, state: MotionState, size: number, aux: number, phase: number, light = 0): HTMLCanvasElement | null {
   const S = context(), g = S?.gl;
   if (!S || !g || g.isContextLost()) return null;
   const fb = g.createFramebuffer(), rb = g.createRenderbuffer();
@@ -226,7 +227,7 @@ export function still(style: StyleId, look: Look, state: MotionState, size: numb
     st[s] = 1;
     // Half the palette's iridescence: an object this small in full colour reads as coloured, not as metal.
     render(S, style, size, size, {
-      res: [0, 0], org: [0, 0], n: 1, irid: P.irid * 0.5, dim: DIM[s]!, light: 0, hoff: 0, aux, ph: [phase, 0, 0, 9], p: new Float32Array(8), st, sig: SIGNAL[s]!,
+      res: [0, 0], org: [0, 0], n: 1, irid: P.irid * 0.5, dim: DIM[s]!, light, hoff: 0, aux, ph: [phase, 0, 0, 9], p: new Float32Array(8), st, sig: SIGNAL[s]!,
       ta: P.a, tb: P.b, v: [0, 0, 0, 0.4], w: [0, 0, 0.4, 0], bg: [0, 0, 0], lm: [0, 0, 1, 0], holes: new Float32Array(HOLES * 4), gone: new Float32Array(HOLES * 4), hole: [0, 0, 0, 1], pose: [0, 0, 0], was: [9, 0],
     }, true);
     const px = new Uint8Array(size * size * 4);

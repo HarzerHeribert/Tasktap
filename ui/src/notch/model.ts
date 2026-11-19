@@ -17,6 +17,8 @@ export const ui = {
   line: 0,
   /** Opened by a question rather than by the person. */
   auto: false,
+  /** Clicked or typed in since it opened: a notch a question opened then no longer folds by itself. */
+  touched: false,
   question: null as string | null,
   seen: new Set<string>(),
   /** The capture line is open under the question card. */

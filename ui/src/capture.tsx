@@ -15,7 +15,7 @@ import { hit, keyName, spell } from './keys.ts';
 import { talkKey } from './page.ts';
 import { Rings } from './rings.tsx';
 import { cancel, control, end, follow, mine, needs, place, setAim, talk, voiced } from './speech/record.ts';
-import { I, Key, Level, Mark, Wave, madeAt } from './ui.tsx';
+import { Brand, I, Key, Level, Mark, madeAt } from './ui.tsx';
 import { agent, agentName, call, fail, focus, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
 import { back, briefOf, clock, hold, laterWhy, leave, onWay, placed, placing, step } from './way.ts';
 
@@ -442,7 +442,7 @@ const here = () => !talk.field || talk.field.id === 'capture-input';
 /** What a dictation is doing, in a word. */
 const hears = (d: Dictation | undefined) => (d?.phase === 'transcribing' ? 'Writing it down…' : d ? 'Listening' : 'Opening the microphone…');
 
-/** The row while the person speaks and while their words are written down: the wave as loud as the voice, how long it
+/** The row while the person speaks and while their words are written down: the mark as loud as the voice, how long it
  *  has run once that matters, what letting go does, the key that ends a new thought as words to edit first (E), the
  *  way out, and the key that ends a recording a click keeps on. */
 function Hearing({ d, raised, said }: { d: Dictation | undefined; raised: boolean; said: boolean }) {
@@ -581,7 +581,7 @@ function Way({ hooks, raised, offer }: { hooks: Hooks; raised: boolean; offer: b
 }
 
 /** The Composer. `raised` is Home's: a surface of its own, the thought at 20 px, up to six lines; elsewhere it sits on
- *  its sheet with the wave beside the thought, up to three lines. */
+ *  its sheet with Tasktap's mark beside the thought, up to three lines. */
 export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { raised?: boolean; offer?: boolean }) {
   const route = hinted(), w = where();
   const all = known().length;
@@ -590,13 +590,13 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
   // After a thought with a place of its own is sent, the next goes where nobody chose, and the chip says it is back.
   const [name, why] = says(w, route), back = cap.back !== undefined && !!cap.sent && cap.back !== w.to && (model || w.why === 'in' || w.why === 'only' || w.why === 'words');
   // What Return does, which the key says: with a thought in the field it sends that; with none it starts the one that
-  // waits, if one does; and while the last is still on its way to the core and nothing new is typed, it shows the wave.
+  // waits, if one does; and while the last is still on its way to the core and nothing new is typed, it shows that it works.
   const has = !!cap.draft.trim(), now = !has && !!waiting(), busy = !has && cap.sending > 0;
   const does = now ? 'Start' : later ? 'Save for later' : session ? 'Send' : 'Start';
   const d = mine(), service = voiced();
   const hearing = here() && (talk.asking || d?.phase === 'recording' || d?.phase === 'transcribing');
   // In the notch and the sheet the row is narrow, and a spoken new thought's own line is empty: that line says what
-  // the dictation is doing, beside the wave that follows the voice, and the row keeps the time, the keys and the way out.
+  // the dictation is doing, beside the mark that follows the voice, and the row keeps the time, the keys and the way out.
   const said = hearing && !raised && talk.kind === 'thought' && !cap.draft;
   // The field is as high as its words, a line at a time. It is measured when they change, typed or put there, or its
   // width does, and on no other render: a measure makes the page lay itself out there and then.
@@ -641,7 +641,7 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
   return (
     <form class={`capture${raised ? ' raised' : ''}${cap.draft ? ' has' : ''}`} aria-busy={cap.sending > 0} onSubmit={(e) => send(e, hooks)}>
       <div class="cap" onPointerDown={(e) => e.target === e.currentTarget && (e.preventDefault(), focus('#capture-input'))}>
-        {!raised && (hearing && d?.phase === 'recording' ? <Level n={13} l={d.level / 100} /> : <Wave n={13} live={!!cap.draft} />)}
+        {!raised && (hearing && d?.phase === 'recording' ? <Level size={28} l={d.level / 100} /> : <Brand size={28} live={cap.sending > 0} />)}
         <textarea id="capture-input" ref={area} rows={1} autocomplete="off" spellcheck={false} aria-label="New task" placeholder={said ? hears(d) : service && !raised ? `Type, or hold ${keyName(talkKey())} and talk` : 'Put a thought in'}
           value={cap.draft}
           onInput={(e) => {

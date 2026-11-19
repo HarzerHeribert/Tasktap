@@ -548,6 +548,19 @@ pub struct ShimHold {
     pub stop: bool,
 }
 
+/// A question opened. `title` and `body` are the words a system
+/// notification says; `session` is the session whose terminal shows the
+/// question (a click brings the window there), none for the router's
+/// question, which Home shows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct HostNotify {
+    pub question: QuestionId,
+    pub title: String,
+    pub body: String,
+    pub session: Option<SessionId>,
+}
+
 /// `question.withdraw` and `question.received`: the asker names its question
 /// by its own key, the only name it holds while it waits. The key reaches
 /// only its own session's questions.

@@ -444,6 +444,33 @@ pub struct Evidence {
     pub at: Range<usize>,
 }
 
+/// Where the words say `name` whole, nearly: each word alike each of its
+/// parts, or the words joined alike its parts joined ([`alike`]: "vexa
+/// widget" and "vexawidget" for `vexa-widgets`); never part of one word of
+/// the text.
+pub fn nearly(w: &Words, name: &str) -> Vec<Range<usize>> {
+    let parts = parts(name);
+    let joined: String = parts.concat();
+    let n = w.words.len();
+    let mut found = Vec::new();
+    if joined.chars().count() < 3 {
+        return found;
+    }
+    for start in 0..n {
+        for len in 1..=5.min(n - start) {
+            if (start > 0 && w.glued[start - 1]) || w.glued[start + len - 1] {
+                continue;
+            }
+            let win = &w.words[start..start + len];
+            let each = len == parts.len() && win.iter().zip(&parts).all(|(a, b)| alike(a, b));
+            if each || alike(&win.concat(), &joined) {
+                found.push(start..start + len);
+            }
+        }
+    }
+    found
+}
+
 /// For each project, the pieces of evidence the thought's words give it and
 /// no other project: its whole name nearly said, words only its name has,
 /// words only its line has; each word of the thought in one piece at most,
@@ -462,31 +489,9 @@ pub fn evidence(
     let word = |i: usize| w.words[i].as_str();
     let alpha = |x: &str| x.chars().count() >= 3 && x.chars().all(char::is_alphabetic);
     let counts = |x: &str| alpha(x) && !none(x) && !COMMON.contains(&x) && !SMALL.contains(&x);
-    // Its whole name, nearly: each word alike each part, or the words
-    // joined alike the parts joined. Never part of one word of the text.
-    let mut names: Vec<Vec<Range<usize>>> = vec![Vec::new(); known.len()];
-    for (k, p) in known.iter().enumerate() {
-        for name in &p.names {
-            let parts = parts(name);
-            let joined: String = parts.concat();
-            if joined.chars().count() < 3 {
-                continue;
-            }
-            for start in 0..n {
-                for len in 1..=5.min(n - start) {
-                    if (start > 0 && w.glued[start - 1]) || w.glued[start + len - 1] {
-                        continue;
-                    }
-                    let win = &w.words[start..start + len];
-                    let each =
-                        len == parts.len() && win.iter().zip(&parts).all(|(a, b)| alike(a, b));
-                    if each || alike(&win.concat(), &joined) {
-                        names[k].push(start..start + len);
-                    }
-                }
-            }
-        }
-    }
+    let mut names: Vec<Vec<Range<usize>>> = (known.iter())
+        .map(|p| p.names.iter().flat_map(|name| nearly(w, name)).collect())
+        .collect();
     // The words of each project's name, by the forms they take, and the
     // projects whose names have each.
     let mut by_part: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();

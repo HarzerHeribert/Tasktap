@@ -302,6 +302,16 @@ fn one_project_that_clearly_leads_starts_the_thought_and_a_near_miss_asks_with_i
     };
     let first: Vec<Destination> = candidates.iter().take(2).map(|c| c.to).collect();
     assert!(first.contains(&to("vexa-widgets")) && first.contains(&to("zentrix-sync")));
+    // A name written whole inside another's name nearly said decides
+    // nothing: both are asked about, the longer first.
+    let mut r = request("the zentrix syncs drop the last board");
+    r.projects.push(card("zentrix", ""));
+    let Route::Ambiguous { candidates, .. } = local(&r) else {
+        panic!("asked")
+    };
+    let zentrix = r.projects.last().unwrap().to;
+    let first: Vec<Destination> = candidates.iter().take(2).map(|c| c.to).collect();
+    assert_eq!(first, [to("zentrix-sync"), zentrix]);
 }
 
 #[test]

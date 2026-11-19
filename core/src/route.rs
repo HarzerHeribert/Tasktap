@@ -27,7 +27,7 @@
 //! | names one session, and no project but that session's | `clear`: a follow-up to it |
 //! | names no session, was made in a current session, and names no project but that session's | `clear`: a follow-up to the current session |
 //! | names one project, as written or with its parts said apart, and no session | `clear`: a new run in that project, opened there if it is a known project and not a workspace |
-//! | names several projects or sessions, or one name two projects have; or says a name only as it sounds, one letter off, or an everyday word that is a project's name ("test", "app") not used as a name | `ambiguous`: those are the choices first, at most three |
+//! | names several projects or sessions, or one name two projects have, or one inside another's name nearly said ("the zentrix syncs" with `zentrix` and `zentrix-sync`); or says a name only as it sounds, one letter off, or an everyday word that is a project's name ("test", "app") not used as a name | `ambiguous`: those are the choices first, at most three |
 //! | names no session and no project for certain, and one project clearly leads by what only it has ([`LEAD`]: its whole name nearly said, "vexa widget" for `vexa-widgets`, and a word only its line has, "widgetpack") | `clear`: a new run there, held to be undone as any; its line says why; with a model agreed to, the model is asked first, given it first |
 //! | names nothing, and projects are known | `ambiguous`: at most three, the one its words point at most by what only it has first, then those whose line about them shares the rarest words, then where the last thought went, then the most recently worked on |
 //! | names nothing, and no project is known | `unknown`: it stays an idea |
@@ -697,7 +697,27 @@ pub fn by_names(r: &Request) -> Option<Route> {
     match (sessions.as_slice(), current, named.as_slice()) {
         ([s], ..) if only_in(s.project) => Some(clear(Destination::Session(s.id), None)),
         ([], Some(c), _) if only_in(c.project) => Some(clear(Destination::Session(c.id), None)),
-        ([], _, [h]) if decides(h) => Some(clear(h.p.to, quoted(r, h).map(state::Said::As))),
+        ([], _, [h]) if decides(h) => match around(r, h) {
+            // A name written inside another's name nearly said decides
+            // nothing: both are asked about, the longer first.
+            Some(q) => Some(Route::Ambiguous {
+                prompt: WHERE.into(),
+                candidates: vec![
+                    Candidate {
+                        label: q.name.clone(),
+                        to: q.to,
+                        why: "its name, nearly".into(),
+                    },
+                    Candidate {
+                        label: h.p.name.clone(),
+                        to: h.p.to,
+                        why: why_named(r, h),
+                    },
+                ],
+                brief: None,
+            }),
+            None => Some(clear(h.p.to, quoted(r, h).map(state::Said::As))),
+        },
         // Where no name is said for certain, the project that clearly
         // leads; else nothing decides.
         ([], _, []) => lead(r),
@@ -738,6 +758,21 @@ pub fn by_names(r: &Request) -> Option<Route> {
             })
         }
     }
+}
+
+/// Another project whose name the words nearly say around a name said
+/// ([`names::nearly`]: "the zentrix syncs" around "zentrix", with
+/// `zentrix-sync`): the longer is as likely meant.
+fn around<'r>(r: &'r Request, h: &Hit) -> Option<&'r Named> {
+    let w = name_words(&r.text);
+    let at = &h.said.at;
+    let holds = |o: &Range<usize>| o.start <= at.start && at.end <= o.end && o.len() > at.len();
+    (r.projects.iter()).filter(|q| q.to != h.p.to).find(|q| {
+        let names = std::iter::once(&q.name).chain(&q.aliases);
+        names
+            .into_iter()
+            .any(|n| names::nearly(&w, n).iter().any(holds))
+    })
 }
 
 /// Whether a thought no name places for certain starts in the project that

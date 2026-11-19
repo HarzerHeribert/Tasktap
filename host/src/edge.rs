@@ -35,8 +35,8 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use windows_sys::core::BOOL;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{
-    DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_TRANSITIONS_FORCEDISABLED, DWMWA_WINDOW_CORNER_PREFERENCE,
-    DWMWCP_DONOTROUND,
+    DwmGetWindowAttribute, DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_CLOAKED, DWMWA_TRANSITIONS_FORCEDISABLED,
+    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
 };
 use windows_sys::Win32::Graphics::Gdi::{
     CreatePolygonRgn, EnumDisplayMonitors, GetMonitorInfoW, GetStockObject, SetWindowRgn, ALTERNATE, BLACK_BRUSH, HDC,
@@ -56,13 +56,13 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, GetClassNameW, GetCursorPos, GetForegroundWindow, GetMessageTime, GetShellWindow,
     GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, KillTimer,
     PostMessageW, RegisterClassExW, RegisterWindowMessageW, SetForegroundWindow, SetLayeredWindowAttributes, SetTimer,
-    SetWindowLongPtrW, SetWindowPos, ShowWindow, EVENT_SYSTEM_FOREGROUND, GWL_EXSTYLE, GWL_STYLE, HWND_TOPMOST,
-    LWA_ALPHA, MA_NOACTIVATE, MONITORINFOF_PRIMARY, SPI_SETWORKAREA, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, WA_INACTIVE, WINEVENT_OUTOFCONTEXT,
-    WM_ACTIVATE, WM_APP, WM_CLOSE, WM_CONTEXTMENU, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_LBUTTONDOWN, WM_MOUSEACTIVATE,
-    WM_MOUSEMOVE, WM_NCDESTROY, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSEXW, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
-    WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
-    WS_EX_WINDOWEDGE, WS_POPUP, WS_VISIBLE,
+    SetWindowLongPtrW, SetWindowPos, ShowWindow, EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_MINIMIZEEND,
+    EVENT_SYSTEM_MINIMIZESTART, GWL_EXSTYLE, GWL_STYLE, HWND_TOPMOST, LWA_ALPHA, MA_NOACTIVATE, MONITORINFOF_PRIMARY,
+    SPI_SETWORKAREA, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER, SWP_NOSIZE, SWP_NOZORDER,
+    SWP_SHOWWINDOW, SW_HIDE, WA_INACTIVE, WINEVENT_OUTOFCONTEXT, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_CONTEXTMENU,
+    WM_DISPLAYCHANGE, WM_DPICHANGED, WM_LBUTTONDOWN, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_NCDESTROY, WM_SETTINGCHANGE,
+    WM_TIMER, WNDCLASSEXW, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_EX_WINDOWEDGE, WS_POPUP, WS_VISIBLE,
 };
 
 /// The notch page's window, as Tauri knows it.
@@ -75,7 +75,8 @@ const TRAY: u32 = WM_APP + 1;
 const APPBAR: u32 = WM_APP + 2;
 const AWAY: u32 = WM_APP + 3;
 const PLACE: u32 = WM_APP + 4;
-/// Another window came in front: whether it is the workspace's (presence.rs).
+/// Another window came in front, or one of this app's was minimised or put back: whether the workspace's is the one in
+/// front (presence.rs).
 const FRONT: u32 = WM_APP + 5;
 /// The helper's timers: the pointer while it is on the tab or the sheet is open, one more look at what the
 /// shell says after the window in front changed,
@@ -431,6 +432,26 @@ unsafe extern "system" fn foreground(_: HWINEVENTHOOK, _: u32, window: HWND, _: 
     SetTimer(helper(), AGAIN, 700, None);
 }
 
+/// One of this app's windows was minimised or put back. Windows leaves a minimised window the one in front when no
+/// other takes its place (an empty desktop), and says nothing of it to the hook above: the window in front is asked
+/// again, and a minimised one does not count.
+unsafe extern "system" fn minimised(_: HWINEVENTHOOK, _: u32, _: HWND, _: i32, _: i32, _: u32, _: u32) {
+    post(FRONT);
+}
+
+/// Whether a window can be seen at all: shown, not minimised, and not cloaked (on another of the person's desktops).
+fn seen(window: HWND) -> bool {
+    let mut cloaked = 0u32;
+    // SAFETY: asks about a window; the attribute is written into a number of its own size.
+    unsafe {
+        IsWindowVisible(window) != 0
+            && IsIconic(window) == 0
+            && (DwmGetWindowAttribute(window, DWMWA_CLOAKED as u32, (&raw mut cloaked).cast(), size_of::<u32>() as u32)
+                != 0
+                || cloaked == 0)
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // The windows of this file.
 
@@ -496,10 +517,10 @@ unsafe extern "system" fn helper_proc(window: HWND, message: u32, w: WPARAM, l: 
             notch::place(app);
             0
         }
-        // Whether the window in front is the workspace's: the one notice of it on Windows.
+        // Whether the window in front is the workspace's, and seen: the one notice of it on Windows.
         FRONT => {
             let workspace = app.get_webview_window(workspace::LABEL).and_then(|w| w.hwnd().ok());
-            let front = workspace.is_some_and(|w| std::ptr::eq(GetForegroundWindow(), w.0));
+            let front = workspace.is_some_and(|w| std::ptr::eq(GetForegroundWindow(), w.0) && seen(w.0));
             crate::presence::told(app, Some(front), Some(front));
             0
         }
@@ -667,13 +688,23 @@ pub fn start(passive: bool) {
             0,
             WINEVENT_OUTOFCONTEXT,
         );
+        // This app's own windows minimised and put back, which the hook above does not hear of.
+        let shrink = SetWinEventHook(
+            EVENT_SYSTEM_MINIMIZESTART,
+            EVENT_SYSTEM_MINIMIZEEND,
+            null_mut(),
+            Some(minimised),
+            GetCurrentProcessId(),
+            0,
+            WINEVENT_OUTOFCONTEXT,
+        );
         let front = GetForegroundWindow();
         if !front.is_null() && !bar(front) {
             FOREIGN.store(front as isize, Relaxed);
         }
         BUSY.store(quiet(), Relaxed);
         crate::log(json!({"event": "tab", "icon": icon, "full-screen-told": told, "front-told": !hook.is_null(),
-            "hidden": BUSY.load(Relaxed)}));
+            "minimise-told": !shrink.is_null(), "hidden": BUSY.load(Relaxed)}));
     }
 }
 

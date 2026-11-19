@@ -225,9 +225,17 @@ pub fn show(app: &AppHandle, at: Option<&str>) -> tauri::Result<()> {
         })?;
     }
     let handle = app.clone();
+    #[cfg(windows)]
+    let view = window.clone();
     window.on_window_event(move |event| {
         if let WindowEvent::Moved(_) | WindowEvent::Resized(_) | WindowEvent::CloseRequested { .. } = event {
             remember();
+        }
+        // Minimised, its web view is out of sight as WebView2 knows it, which it does not learn from the window: the
+        // page is hidden and given no frames, whatever moves in it, until the window is put back.
+        #[cfg(windows)]
+        if let WindowEvent::Resized(_) = event {
+            crate::native::seen(&view, !view.is_minimized().unwrap_or(false));
         }
         // Whether the window is in front (presence.rs): on the Mac the window taking or losing the keyboard, beside the
         // app's own activation (main.rs); on Windows the window in front, as the foreground hook tells it (edge.rs).
@@ -236,12 +244,22 @@ pub fn show(app: &AppHandle, at: Option<&str>) -> tauri::Result<()> {
             crate::presence::told(&handle, None, Some(*key));
         }
         if let WindowEvent::Destroyed = event {
+            crate::presence::seen(&handle, true);
+        }
+        if let WindowEvent::Destroyed = event {
             save();
             with(|st| st.shown = false);
             crate::forget_page(&handle, LABEL);
             crate::presence::closed(&handle);
         }
     });
+    // And whether any of it can be seen: on the Mac a window on another Space can stay the key window of the active
+    // app (presence.rs `seen`); on Windows the window in front is asked as it is minimised and put back (edge.rs).
+    #[cfg(target_os = "macos")]
+    if let Ok(ptr) = window.ns_window() {
+        let handle = app.clone();
+        crate::native::watch_seen(ptr as usize, move |seen| crate::presence::seen(&handle, seen));
+    }
     // Shown once the page has drawn, or after 3 s if it never says so.
     let handle = app.clone();
     std::thread::spawn(move || {

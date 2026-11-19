@@ -403,14 +403,19 @@ function Up {
     if ([Tasktap.Meter]::GetForegroundWindow() -ne $workspace) { [Tasktap.Meter]::Alt(); $null = [Tasktap.Meter]::SetForegroundWindow($workspace); Start-Sleep -Milliseconds 500 }
     if ([Tasktap.Meter]::GetForegroundWindow() -ne $workspace) { throw 'the app''s window cannot be brought in front' }
 }
-# Minimised, the host is told that the window is not in front, as it learns when a person goes to another program: in
-# the test account's empty desktop no other window takes the front, and the host, which hears of the window in front
-# only when another comes there, went on taking the minimised window for the one in front, so its light went on
-# drawing unseen (the tower's round, 2026-11-19: a question waiting, 80 frames a second, 9.9 % of the 3D engine).
+# Minimised, the window is not in front, and the host must know it by itself: in the test account's empty desktop no
+# other window takes the front, and a host that heard of the window in front only when another came there went on
+# taking the minimised window for the one in front, so its light went on drawing unseen (the tower's round,
+# 2026-11-19: a question waiting, 80 frames a second, 9.9 % of the 3D engine; edge.rs now hears of minimising). Where
+# it does not know, the round says so and tells it, so that the states after are measured as a person would see them.
 function Down {
     $null = [Tasktap.Meter]::ShowWindow($workspace, 6)
     Start-Sleep -Milliseconds 500
     if (-not $Rehearse -and -not [Tasktap.Meter]::IsIconic($workspace)) { throw 'the app''s window does not minimise' }
+    Send 'state'
+    $said = Until '"event":"state"' 5
+    if ($said -and -not (ConvertFrom-Json $said).where.front) { return }
+    $script:noted = 'the host DID NOT KNOW the minimised window was not in front, and was told'
     Send 'where behind'
 }
 # Whether the tab is open, as the app says; and the tab folded, as Escape folds it: a question may open it by itself.

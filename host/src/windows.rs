@@ -445,6 +445,20 @@ pub fn confine(view: &tauri::webview::PlatformWebview, stopped: impl Fn(&str) + 
     done.is_ok()
 }
 
+/// Whether a window's web view is seen: WebView2 goes on drawing a page whose window is minimised, and makes it hidden
+/// (`document.hidden`, no frames, timers slowed) only when told. Told only when it changes.
+pub fn seen(window: &tauri::WebviewWindow, on: bool) {
+    static SEEN: AtomicBool = AtomicBool::new(true);
+    if SEEN.swap(on, Ordering::Relaxed) == on {
+        return;
+    }
+    // SAFETY: on the web view's own thread, where Tauri runs this, on a view that is open.
+    let _ = window.with_webview(move |view| unsafe {
+        let _ = view.controller().SetIsVisible(on);
+    });
+    crate::log(serde_json::json!({"event": "window", "seen": on}));
+}
+
 /// A page as its web view draws it, written to `path` as PNG; `done` is told whether it was.
 pub fn snapshot(view: &tauri::webview::PlatformWebview, path: &Path, done: impl Fn(bool) + 'static) {
     use webview2_com::CapturePreviewCompletedHandler;

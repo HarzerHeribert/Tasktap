@@ -4,9 +4,11 @@
 //! The local router matches the words of the capture against the names and
 //! aliases of the core's own projects and sessions, with no model call. It
 //! answers `route.hint`, the destination chip shown while typing, routes
-//! every capture until the person consents to a model, and is what a
-//! capture falls back to whenever the model gives no answer the core
-//! accepts (a build with its test fixtures has `fixture.script` script it).
+//! every capture until the person consents to a model and, after, every
+//! capture it finds a place for (a model then only writes the brief of one
+//! too long to go as it is), and is what a capture falls back to whenever
+//! the model gives no answer the core accepts (a build with its test
+//! fixtures has `fixture.script` script it).
 //!
 //! The model is the one behind the person's own agent, asked headless
 //! (`agents::Headless`): one question, [`question`], carries the

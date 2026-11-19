@@ -18,6 +18,9 @@ tauri-plugin-global-shortcut = "2"
 tasktap-proto = { path = "../core/proto" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The mark in the notification area on Windows is read from the pictures in icons/tray (src/tray.rs). In the tree
+# already through Tauri.
+png = "0.18"
 
 # The notch panel, the folder panel and the pasteboard are AppKit's (src/native.rs).
 [target.'cfg(target_os = "macos")'.dependencies]

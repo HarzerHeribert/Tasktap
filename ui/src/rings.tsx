@@ -1,69 +1,117 @@
-// The Composer's rings: the agents that can run the thought in the field (capture.tsx draws them in its row).
+// Who runs the thought in the Composer's field: one control in its foot, and the list it opens (capture.tsx draws
+// both). The owner, of the row of rings with "+3" and its system menu, 2026-11-19: "make this a dropdown maybe but
+// styled correctly" (design/ui-directions/NOTES.md §13).
+import type { AgentHealth } from '../../core/proto/protocol.ts';
 import { cap } from './capture.tsx';
-import { agent, agentName, call, openQuestions, records, redraw, runs } from './page.ts';
-import { Ring } from './ui.tsx';
-import { offered, ring } from './way.ts';
+import { agent, agentName, call, openQuestions, page, records, redraw, runs } from './page.ts';
+import { I, Ring } from './ui.tsx';
+import { listed, ring } from './way.ts';
 
-/** Most rings in the row. However many agents a person has, the row is this many rings and "+n" wide, so what
- *  stands beside it in the Composer's foot always has the same room. */
-export const RINGS = 3;
+/** More agents than this, and the list has a field that narrows it by what is typed. */
+export const FIND_FROM = 6;
 
-/** The agents that can run a thought, each its mark in a ring: those that are installed and not known to be signed
- *  out (way.ts `offered`). The one that runs the thought in the field is seated: on the selected fill, its ring lit,
- *  its name beside it. That is the usual agent (the `agent` preference) until a click on another ring picks that one
- *  for this thought alone; the seat moves there, the ring that takes it answers the click, and after the thought is
- *  sent the seat is the usual agent's again. With more agents than rings, the rest are behind "+n", the system's own
- *  menu, from where each can be picked; the one picked then has a ring. A follow-up (`session`) is its session's
- *  agent's: that ring alone, and no choice. The usual agent, when it is not signed in, is an open ring that says so
- *  and leads to where it is signed in. A ring turns while its agent works, beside the count of what it works on, and
- *  takes the attention colour when one of its sessions asks.
- *
- *  Picking an agent has the core ask it, once in the core's life, whether it is signed in: nothing asks it before. */
-export function Rings({ hooks, session }: { hooks: { agents?: () => void }; session?: string }) {
-  const agents = [...records.agents.values()];
-  const usual = agent()?.id, fixed = session ? records.sessions.get(session)?.agent : undefined;
+/** What every agent's ring says now: how many of its sessions work, and whether one asks or it is signed out. */
+function says() {
   const asking = new Set(openQuestions().map((q) => records.sessions.get(q.session_id ?? '')?.agent ?? records.thoughts.get(q.thought_id ?? '')?.agent));
-  const says = new Map(agents.map((a) => [a.id, ring(a, records.thoughts.values(), (id) => asking.has(id))]));
-  const picked = agents.some((a) => a.id === cap.agent && runs(a) && a.signed_in !== false) ? cap.agent : undefined;
-  const { rings, more } = fixed ? { rings: agents.filter((a) => runs(a) && a.id === fixed), more: [] } : offered(agents, usual, picked, (id) => !!says.get(id)?.s, RINGS);
-  const chosen = fixed ?? picked ?? usual;
-  if (!rings.length) return null;
-  const pick = (id: string) => {
-    cap.agent = id === usual ? undefined : id;
-    void call('agents.detect', { agents: [id], unchecked: true }).catch(() => {});
-    redraw();
-  };
+  return new Map([...records.agents.values()].map((a) => [a.id, ring(a, records.thoughts.values(), (id) => asking.has(id))]));
+}
+/** The agent that runs the thought in the field: a follow-up's session's, else the one picked for this thought, else
+ *  the usual one (the `agent` preference). */
+export function chosen(session?: string): { a: AgentHealth | undefined; fixed: boolean } {
+  const fixed = session ? records.sessions.get(session)?.agent : undefined;
+  if (fixed) return { a: records.agents.get(fixed), fixed: true };
+  const picked = cap.agent ? records.agents.get(cap.agent) : undefined;
+  return { a: picked && runs(picked) && picked.signed_in !== false ? picked : agent(), fixed: false };
+}
+/** What an agent's row says of it after its name, in a few words. */
+function facts(a: AgentHealth, s: { n: number; s: string }) {
+  return [s.n > 0 && `${s.n} working`, s.s === 'asks' && 'one needs you', a.questions === 'terminal' && 'answers in its terminal', a.signed_in === false && 'signed out'].filter(Boolean).join(' · ');
+}
+
+/** The control: the ring of the agent that runs the thought, its name and a chevron; a click (or ↓) opens the list.
+ *  A follow-up is its session's agent's, with no choice. The usual agent, signed out, is an open ring in the attention
+ *  colour that says so and leads to where it is signed in. Its name gives way where the foot is short of room. */
+export function AgentControl({ session, signIn }: { session?: string; signIn?: () => void }) {
+  const { a, fixed } = chosen(session);
+  if (!a) return null;
+  const s = says().get(a.id) ?? { n: 0, s: '' as const };
+  const off = s.s === 'off';
+  const words = `${agentName(a.id)}${a.version ? ` ${a.version}` : ''}, ${off ? 'not signed in: click to sign in' : fixed ? 'runs this follow-up, as it runs its session' : a.id === agent()?.id ? 'runs the next thought. Click to choose another for this one' : 'runs this thought only. Click to choose another'}`;
   return (
-    <span class="rings">
-      <span role="radiogroup" aria-label="Agent">
-        {rings.map((a) => {
-          const { n, s } = says.get(a.id)!;
-          const off = s === 'off', on = a.id === chosen;
-          const words = [
-            `${agentName(a.id)}${a.version ? ` ${a.version}` : ''}`,
-            off ? 'not signed in' : fixed ? 'runs this follow-up, as it runs its session' : !on ? 'click to use it for this thought' : a.id === usual ? 'runs the next thought' : 'runs this thought only',
-            n > 0 && `${n} working`, s === 'asks' && 'one needs you',
-          ].filter(Boolean).join(', ');
-          return (
-            <button type="button" class="ring" role="radio" aria-checked={on} data-s={s || undefined} data-agent={a.id} title={words} aria-label={words}
-              onClick={() => (off ? hooks.agents?.() : !fixed && pick(a.id))}>
-              {off && <span class="fix">Sign in</span>}
-              <Ring agent={a.id} s={s} turns={n > 0} />
-              {on && !off && <span class="nm">{agentName(a.id)}</span>}
-              {n > 0 && <b>{n}</b>}
-            </button>
-          );
-        })}
-      </span>
-      {more.length > 0 && (
-        <label class="more" title={`${more.length} more: ${more.map((a) => agentName(a.id)).join(', ')}`}>
-          +{more.length}
-          <select aria-label={`${more.length} more agents: use one for this thought`} value="" onChange={(e) => (pick(e.currentTarget.value), (e.currentTarget.value = ''))}>
-            <option value="" disabled>Use for this thought</option>
-            {more.map((a) => <option value={a.id}>{agentName(a.id)}{says.get(a.id)!.n > 0 ? ` · ${says.get(a.id)!.n} working` : ''}</option>)}
-          </select>
+    <button type="button" class="cap-agent" data-agent={a.id} data-s={s.s || undefined} aria-haspopup={fixed || off ? undefined : 'listbox'} aria-expanded={fixed || off ? undefined : false} aria-disabled={fixed || undefined}
+      title={words} aria-label={words}
+      onClick={() => (off ? signIn?.() : !fixed && open(true))}
+      onKeyDown={(e) => !fixed && !off && (e.key === 'ArrowDown' || e.key === 'ArrowUp') && (e.preventDefault(), e.stopPropagation(), open(true))}>
+      <Ring agent={a.id} s={s.s} turns={s.n > 0} />
+      <span class="nm">{agentName(a.id)}</span>
+      {off && <span class="fix">Sign in</span>}
+      {!fixed && !off && <I n="chev" />}
+    </button>
+  );
+}
+
+/** Opens or closes the list. Open, it has the keyboard: its field where it has one, else the row of the one chosen. */
+export function open(on: boolean) {
+  Object.assign(cap, { agents: on, findAgent: '' });
+  if (on) cap.choosing = false;
+  page.focus = on ? '#agent-find, .agent-list [aria-selected=true]' : '#capture-input';
+  redraw();
+}
+
+function pick(id: string) {
+  cap.agent = id === agent()?.id ? undefined : id;
+  // The core asks an agent once in its life whether it is signed in: picking it is that moment.
+  void call('agents.detect', { agents: [id], unchecked: true }).catch(() => {});
+  open(false);
+}
+
+/** The arrows move from the field through the rows and back; Return in the field takes the first, the browser's
+ *  Return and Space press a row; Escape leaves it as it was. */
+function arrows(e: KeyboardEvent) {
+  if (e.key === 'Escape') return (e.preventDefault(), e.stopPropagation(), open(false));
+  const list = e.currentTarget as HTMLElement, field = list.querySelector<HTMLInputElement>('#agent-find');
+  const rows = [...list.querySelectorAll<HTMLElement>('button')];
+  if (e.target === field && e.key === 'Enter' && !e.isComposing) return (e.preventDefault(), e.stopPropagation(), rows[0]?.click());
+  const step = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+  if (!step) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const all = field ? [field, ...rows] : rows, at = all.indexOf(document.activeElement as HTMLElement);
+  all[(at + step + all.length) % all.length]?.focus({ focusVisible: true });
+}
+
+/** The list, in the Composer's foot where the row was, in the family of the chip's list: every usable agent a row (its
+ *  ring, its name, what it is working on, that it answers in its terminal, that it is signed out), the one that runs
+ *  the thought selected. With more than six a field narrows them by what is typed. Picking one is for this thought
+ *  alone; one signed out leads to where it is signed in. */
+export function AgentList({ signIn }: { signIn?: () => void }) {
+  const agents = [...records.agents.values()], name = (a: AgentHealth) => agentName(a.id);
+  const all = listed(agents, name), shown = listed(agents, name, cap.findAgent), on = chosen().a?.id, said = says(), words = cap.findAgent.trim();
+  return (
+    <div key="agents" class="cap-row cap-list agent-list" role="listbox" aria-label="Who runs this thought" data-keys onKeyDown={arrows}
+      // A row pressed keeps the keyboard where it is: a WebKit button takes none, and the list would close under it.
+      onMouseDown={(e) => !(e.target as HTMLElement).closest('input') && e.preventDefault()}
+      onFocusOut={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && cap.agents && ((cap.agents = false), redraw())}>
+      {all.length > FIND_FROM && (
+        <label class="cap-find">
+          <I n="search" />
+          <input id="agent-find" autocomplete="off" spellcheck={false} aria-label="Find an agent" placeholder="Find an agent" value={cap.findAgent}
+            onInput={(e) => ((cap.findAgent = e.currentTarget.value), redraw())} />
         </label>
       )}
-    </span>
+      {shown.map((a) => {
+        const s = said.get(a.id) ?? { n: 0, s: '' as const }, more = facts(a, s), off = s.s === 'off';
+        return (
+          <button type="button" role="option" aria-selected={a.id === on} data-agent={a.id} data-s={s.s || undefined}
+            title={`${agentName(a.id)}${a.version ? ` ${a.version}` : ''}${more ? `: ${more}` : ''}`}
+            onClick={() => (off ? (open(false), signIn?.()) : pick(a.id))}>
+            <Ring agent={a.id} s={s.s} turns={s.n > 0} size={20} />
+            <span>{agentName(a.id)}</span>
+            {more && <em>{more}</em>}
+          </button>
+        );
+      })}
+      {words && !shown.length && <p class="cap-none">No agent by that name.</p>}
+    </div>
   );
 }

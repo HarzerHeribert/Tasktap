@@ -1,7 +1,7 @@
 // What Tasktap knows of the person's projects (docs/projects-design.md, and the owner's decisions of 2026-11-19 at its
-// end), in the two places a person sees it. At the first run, under the Composer: where it may learn of them, asked
-// once in one honest sentence, the folders its agents worked in first; then, once, what it found, as the sign that
-// looking worked. In Settings › Projects: where it learns of them, every project it knows, and what it knows of each,
+// end), in the two places a person sees it. At the first run, as Setup's first step (setup.tsx): a sheet that asks
+// where it may learn of them, in three short facts with the full sentence of what is read behind one line, the
+// folders its agents worked in first; then, in the same sheet, what it found, as the sign that looking worked. In Settings › Projects: where it learns of them, every project it knows, and what it knows of each,
 // to see and to correct. The app does the housekeeping; neither place is a list the person has to keep.
 //
 // Everything shown is the core's: where it looks (`records.looks`), what it knows of each folder (`records.cards`), and
@@ -9,13 +9,13 @@
 // the person did here a moment ago.
 import type { AddLook, Card, Look, Offer } from '../../../core/proto/protocol.ts';
 import { Component, type ComponentChildren } from 'preact';
-import { useEffect, useLayoutEffect, useState } from 'preact/hooks';
-import { cap } from '../capture.tsx';
+import { useEffect, useState } from 'preact/hooks';
 import { uuid7 } from '../client.ts';
 import { HERE, shownPath } from '../system.ts';
 import { I, Key, Mark, Ring, ago, plural } from '../ui.tsx';
 import { Switch } from './form.tsx';
-import { agentName, call, fail, open, records, redraw } from './model.ts';
+import { agentName, call, dismiss, fail, open, records, redraw } from './model.ts';
+import { type Act, Frame } from './sheets.tsx';
 
 // ——— Words ———
 
@@ -99,85 +99,71 @@ const add = (asked: AddLook[]) => {
 const lookAgents = (agents: string[], on: boolean) => add(agents.map((agent) => ({ id: uuid7(), agent, on })));
 const lookIn = (folders: string[], on = true) => add(folders.map((folder) => ({ id: uuid7(), folder, on })));
 
-// ——— The first run ———
+// ——— The first run: Setup's first step, as a sheet ———
 
-/** What the person did at the first run, in this page's life: looked from here (what was found shows until they close
- *  it or send a thought), or closed it; the folders ticked and added. Not kept: the list answers that moment, and what
- *  they said to Tasktap is in the looks. */
-const begun = { looked: false, closed: false, asking: 0, ticked: null as Set<string> | null, added: [] as string[], enter: null as (() => void) | null };
+/** What the person did here, in this page's life: looked from the sheet (what was found shows in it), and the folders
+ *  ticked and added. Not kept: what they said to Tasktap is in the looks. */
+const begun = { looked: false, asking: 0, ticked: null as Set<string> | null, added: [] as string[] };
 
-type Step = 'wait' | 'agents' | 'folders' | 'found' | null;
-/** Which part of the first run is due. The question about the agents' history first, asked once; for a person with
- *  none, where their projects are; after either, what was found, once. Nothing once a thought was sent. */
+type Step = 'wait' | 'agents' | 'folders' | 'found';
+/** What the projects step shows: the question about the agents' history first, asked once; for a person with none,
+ *  where their projects are; after either, what was found. */
 function step(o: Offer | undefined): Step {
-  if (records.thoughts.size || begun.closed || offered.failed) return null;
   if (begun.looked) return 'found';
   if (!o) return 'wait';
   if (unasked(o).length) return 'agents';
   if (!o.agents.length && !looks().length) return 'folders';
-  return null;
+  return 'found';
 }
 
-/** Return in the empty Composer, while the first run asks something: its answer. A thought in the field is sent instead. */
-export function beginKey(e: KeyboardEvent) {
-  if (e.key !== 'Enter' || e.isComposing || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return false;
-  if ((e.target as HTMLElement).id !== 'capture-input' || cap.draft.trim() || !begun.enter) return false;
-  e.preventDefault();
-  begun.enter();
-  return true;
+/** The projects step for Setup (setup.tsx): whether it was ever answered (a look exists, on or off: then it never opens
+ *  by itself again), whether it is done (Tasktap looks somewhere), and what its row says. */
+export function projectsStep() {
+  const o = useOffer(), all = looks(), n = known().length;
+  // Answered: a look was kept (on, or off for Not now), or Not now was said where there was nothing to keep (Setup's
+  // preference is then stored, as shown).
+  const asked = all.length > 0 || offered.failed || records.prefs.has('setup_hidden'), done = all.some((l) => l.on);
+  const says = done ? (n ? `Found ${plural(n, 'project', 'projects')}` : 'Found none yet') : asked ? 'Not looked for yet' : o?.agents.length ? `Where ${and(o.agents.map((a) => a.name))} worked` : 'Where you keep them';
+  return { due: !asked && !!o && !records.thoughts.size && step(o) !== 'wait', asked, done, says, ready: !!o };
 }
 
-/** How tall the list of what was found may be, in pixels, so that Home does not scroll: as many whole rows as fit
- *  between where it begins and Home's foot, less what stands under it, and at least three; the list scrolls inside
- *  that. Measured as it stands. While more may come in under it (the folder most are in), that room is kept, so the
- *  list does not shrink once it is shown. 0 until measured. */
-function useRoom(coming: boolean) {
-  const [room, setRoom] = useState(0);
-  useLayoutEffect(() => {
-    const home = document.querySelector<HTMLElement>('.room > .home'), el = home?.querySelector<HTMLElement>('.found'), list = el?.querySelector<HTMLElement>('.fr-s');
-    if (!home || !el || !list) return;
-    const row = list.querySelector('.fr')?.getBoundingClientRect().height || 29, at = list.getBoundingClientRect();
-    const foot = parseFloat(getComputedStyle(el.parentElement ?? el).paddingBottom) || 0;
-    const top = at.top - home.getBoundingClientRect().top + home.scrollTop;
-    const under = el.getBoundingClientRect().bottom - at.bottom + (coming && !el.querySelector('.found-s') ? 44 : 0);
-    const fits = Math.max(3, Math.floor((home.clientHeight - foot - top - under) / row)) * row;
-    if (Math.abs(fits - room) > 0.5) setRoom(fits);
-  });
-  return room;
+/** "What exactly is read": the full sentence, behind one quiet line (Setup's sheets). */
+export function Details({ text, label = 'What exactly is read' }: { text: string; label?: string }) {
+  const [shown, show] = useState(false);
+  return (
+    <>
+      <button type="button" class="more-l" aria-expanded={shown} onClick={() => show(!shown)}><I n="chev" /><span>{label}</span></button>
+      {shown && <p class="facts-all">{text}</p>}
+    </>
+  );
 }
 
-/** The first run, under the Composer and on its edges. `quiet`: the Composer holds a thought, so its key is the one
- *  that is metal and Return sends that. `children`: what Home says there otherwise. */
-export function Begin({ quiet, children }: { quiet: boolean; children?: ComponentChildren }) {
+/** Setup's first step (NOTES §13), a sheet from the sheet family: a headline, three facts a person takes in at a
+ *  glance, the full sentence of what is read behind "What exactly is read", and the keys. Allowed, the same sheet
+ *  shows what was found, filling in as the looks read, every project in a list that scrolls inside it; never on Home.
+ *  `auto`: it came down by itself at the first start, so it takes no key for its first 600 ms. */
+export function ProjectsSheet({ auto }: { auto?: boolean }) {
   const o = useOffer();
   const at = step(o);
-  // A short window has less room for what was found; the list's height follows it.
-  useEffect(() => {
-    addEventListener('resize', redraw);
-    return () => removeEventListener('resize', redraw);
-  }, []);
-  begun.enter = null;
-  if (at === 'wait') return null;
-  if (!at || !o) return <>{children}</>;
-  const other = <button type="button" class="btn lg" onClick={() => open({ kind: 'open-workspace' })}><span>Open another folder…</span><Key k="⌘O" /></button>;
-  const answer = (label: string, act: () => void, can = true) => {
-    if (!quiet && can) begun.enter = act;
-    return quiet ? <button type="button" class="btn lg" disabled={!can} onClick={act}>{label}</button>
-      : <button type="button" class="key lg" disabled={!can} onClick={act}><I n="ret" /><span>{label}</span></button>;
-  };
-  if (at === 'agents') {
-    const asks = unasked(o);
+  const other: Act = { k: '⌘O', label: 'Open a folder…', do: () => open({ kind: 'open-workspace' }) };
+  if (at === 'wait') return <Frame size="md" title="Find your projects" acts={[{ k: 'esc', label: 'Close', do: dismiss }]}><p class="facts-n">Looking at what is on {HERE}…</p></Frame>;
+  if (at === 'agents' && o) {
+    const asks = unasked(o), names = asks.map((a) => a.name);
     const allow = () => ((begun.looked = true), void lookAgents(asks.map((a) => a.agent), true), redraw());
-    const later = () => void lookAgents(asks.map((a) => a.agent), false);
+    const later = () => (void lookAgents(asks.map((a) => a.agent), false), answered(), dismiss());
     return (
-      <section class="begin" aria-labelledby="begin-h">
-        <h3 id="begin-h">Where your agents have worked</h3>
-        <p>{READS_AGENTS(asks.map((a) => a.name))}</p>
-        <div class="begin-f">{other}<button type="button" class="btn lg" onClick={later}>Not now</button>{answer('Allow', allow)}</div>
-      </section>
+      <Frame size="md" title="Find your projects" guard={auto ? GUARD : 0}
+        acts={[other, { k: 'esc', label: 'Not now', do: later }, { k: '↩', label: 'Allow', kind: 'primary', do: allow }]}>
+        <ul class="facts">
+          <li>Tasktap looks where {and(names)} {names.length === 1 ? 'was' : 'were'} started, and when.</li>
+          <li>Never what was said there.</li>
+          <li>All of it stays on {HERE}.</li>
+        </ul>
+        <Details text={READS_AGENTS(names)} />
+      </Frame>
     );
   }
-  if (at === 'folders') {
+  if (at === 'folders' && o) {
     const places = [...o.places.map((p) => p.folder), ...begun.added];
     const ticked = (begun.ticked ??= new Set(o.places.map((p) => p.folder)));
     const tick = (f: string) => (ticked.has(f) ? ticked.delete(f) : ticked.add(f), redraw());
@@ -188,56 +174,62 @@ export function Begin({ quiet, children }: { quiet: boolean; children?: Componen
       redraw();
     };
     const chosen = places.filter((f) => ticked.has(f));
-    const look = () => ((begun.looked = true), void lookIn(chosen), redraw());
+    const look = () => (chosen.length ? ((begun.looked = true), void lookIn(chosen), redraw()) : undefined);
     // Not now is an answer: each folder offered is kept as one not looked in, so it is not offered here again.
-    const later = () => ((begun.closed = true), void lookIn(o.places.map((p) => p.folder), false), redraw());
+    const later = () => (void lookIn(o.places.map((p) => p.folder), false), answered(), dismiss());
     return (
-      <section class="begin" aria-labelledby="begin-h">
-        <h3 id="begin-h">Where are your projects?</h3>
-        <div class="ticks" role="group" aria-labelledby="begin-h">
+      <Frame size="md" title="Where are your projects?" guard={auto ? GUARD : 0}
+        acts={[other, { k: 'esc', label: 'Not now', do: later }, { k: '↩', label: 'Look there', kind: 'primary', do: look }]}>
+        <div class="ticks" role="group" aria-label="Folders to look in">
           {places.map((f) => <button type="button" class="tick" role="checkbox" aria-checked={ticked.has(f)} onClick={() => tick(f)}><i /><span>{shownPath(f)}</span></button>)}
           <button type="button" class="tick add" onClick={() => void another()}><I n="plus" /><span>Another folder…</span></button>
         </div>
-        <p>{READS_FOLDERS}</p>
-        <div class="begin-f">{other}<button type="button" class="btn lg" onClick={later}>Not now</button>{answer('Look there', look, chosen.length > 0)}</div>
-      </section>
+        <ul class="facts">
+          <li>Tasktap reads the names of the folders in them.</li>
+          <li>Of each project, the first lines that say what it is.</li>
+          <li>All of it stays on {HERE}.</li>
+        </ul>
+        <Details text={READS_FOLDERS} />
+      </Frame>
     );
   }
-  return <Found o={o} other={other} />;
+  // Called, not mounted: the same Frame stays, and with it the keyboard, as the step turns into what was found.
+  return Found({ o, other });
 }
+const GUARD = 600;
+/** Not now is an answer, also where nothing was offered to keep as one: the first step does not come down by itself
+ *  again (Setup's preference, stored as it stands, says it was seen). */
+const answered = () => void (records.prefs.has('setup_hidden') || call('put', { c: 'prefs', id: 'setup_hidden', patch: false }).catch(fail));
 
 /** What was found, filling in as the looks read: every project, the most recently worked on first, each with its
- *  folder and why, in a list that scrolls in the room under the Composer. Under it, where most of them are, if
- *  Tasktap has not looked there. */
-function Found({ o, other }: { o: Offer; other: ComponentChildren }) {
+ *  folder and why, in a list that scrolls in the sheet. Under it, where most of them are, if Tasktap has not looked
+ *  there. */
+function Found({ o, other }: { o: Offer | undefined; other: Act }) {
   const all = known(), coming = settling(), busy = begun.asking > 0 || looks().some(reading);
   const place = derived(o), most = place && place.projects * 2 >= all.length;
-  const room = useRoom(coming);
-  const close = () => ((begun.closed = true), (begun.looked = false), redraw());
+  const title = busy && !all.length ? 'Looking…' : all.length ? `Found ${plural(all.length, 'project', 'projects')}` : 'Found no projects';
   return (
-    <section class="hsec found" aria-labelledby="begin-h" aria-busy={busy}>
-      <h3 id="begin-h">{busy && <Mark s="working" label="Looking" />}<span>{busy && !all.length ? 'Looking…' : all.length ? `Found ${plural(all.length, 'project', 'projects')}` : 'Found no projects'}</span></h3>
-      {all.length > 0 && (
-        <div class="fr-s" style={room ? { maxHeight: `${room}px` } : undefined}>
-          {all.map((c) => (
-            <div class="fr" key={c.id} title={[c.name, shownPath(c.folder), c.about].filter(Boolean).join('\n')}>
-              <I n="folder" /><span class="fr-n">{c.name}</span><span class="fr-f">{shownPath(c.folder)}</span><span class="fr-w">{reason(c)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      {!busy && !all.length && <p class="found-n">A folder counts when an agent worked there, or when it has Git or a package file in it.</p>}
-      {place && !coming && (
-        <p class="found-s">
-          <span>{most ? 'Most are' : `${place.projects} are`} in <b>{shownPath(place.folder)}</b>. Look there for the others too?</span>
-          <button type="button" class="btn" onClick={() => void lookIn([place.folder])}>Look there</button>
-        </p>
-      )}
-      <div class="begin-f">
-        {all.length > 0 && <span class="found-o">None is open yet. A thought that names one opens it.</span>}
-        {other}<button type="button" class="btn lg" onClick={close}>Close</button>
-      </div>
-    </section>
+    <Frame size="md" title={<>{busy && <Mark s="working" label="Looking" />}{title}</>} acts={[other, { k: 'esc', label: 'Close', do: dismiss }, { k: '↩', label: 'Done', kind: 'primary', do: dismiss }]}>
+      <section class="found" aria-busy={busy}>
+        {all.length > 0 && <p class="found-o">None is open yet. A thought that names one opens it.</p>}
+        {all.length > 0 && (
+          <div class="fr-s">
+            {all.map((c) => (
+              <div class="fr" key={c.id} title={[c.name, shownPath(c.folder), c.about].filter(Boolean).join('\n')}>
+                <I n="folder" /><span class="fr-n">{c.name}</span><span class="fr-f">{shownPath(c.folder)}</span><span class="fr-w">{reason(c)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {!busy && !all.length && <p class="found-n">A folder counts when an agent worked there, or when it has Git or a package file in it.</p>}
+        {place && !coming && (
+          <p class="found-s">
+            <span>{most ? 'Most are' : `${place.projects} are`} in <b>{shownPath(place.folder)}</b>. Look there for the others too?</span>
+            <button type="button" class="btn" onClick={() => void lookIn([place.folder])}>Look there</button>
+          </p>
+        )}
+      </section>
+    </Frame>
   );
 }
 

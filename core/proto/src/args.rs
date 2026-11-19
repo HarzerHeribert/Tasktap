@@ -116,6 +116,7 @@ pub enum PrefPatch {
         #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
         Vec<crate::records::OwnAgent>,
     ),
+    SetupHidden(bool),
 }
 
 /// A font family's name, as JSON, is at most this many bytes.
@@ -176,6 +177,7 @@ impl From<PrefPatch> for PrefValue {
             PrefPatch::TextSize(v) => PrefValue::TextSize(v),
             PrefPatch::AgentOptions(v) => PrefValue::AgentOptions(v),
             PrefPatch::OwnAgents(v) => PrefValue::OwnAgents(v),
+            PrefPatch::SetupHidden(v) => PrefValue::SetupHidden(v),
         }
     }
 }

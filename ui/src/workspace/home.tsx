@@ -7,14 +7,14 @@
 import type { Question, Thought } from '../../../core/proto/protocol.ts';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useState } from 'preact/hooks';
-import { Capture, cap, offerable, where } from '../capture.tsx';
+import { Capture, askedHere, cap } from '../capture.tsx';
 import { next, pending, running, settle, Status, Told } from '../changes.tsx';
 import { Ask } from '../question.tsx';
-import { Answer, I, Key, Mark, Seat, type State, elapsed, plural, said, when } from '../ui.tsx';
-import { laterWhy, placed } from '../way.ts';
+import { I, Mark, Seat, type State, elapsed, said, when } from '../ui.tsx';
+import { fallback, laterWhy, placed } from '../way.ts';
 import { Light, useLight } from './light.tsx';
-import { Begin, beginKey } from './projects.tsx';
 import { popup } from './menu.ts';
+import { Setup } from './setup.tsx';
 import { older, past } from './past.ts';
 import {
   agentName, call, details, endedSays, fail, focus, focusSession, layout, open, openQuestions, page, projectName, projects, records, redraw, resultOf, show,
@@ -126,7 +126,7 @@ function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean })
       <Meta where={projectName(t.project_id)} who={who} fact={fact} />
       {kind === 'res' && t.workdir && <span class="hr-d"><Status t={{ ...t, workdir: t.workdir }} /></span>}
       {changes && <Told t={changes} />}
-      {t.route?.fallback && <p class="hr-n">{placed(t, agentName)}</p>}
+      {fallback(t) && <p class="hr-n">{placed(t, agentName)}</p>}
       {acts}
     </div>
   );
@@ -140,7 +140,8 @@ const main = (t: Changed) => (next(t).keep && !running(t) ? void settle(t, true)
 export function ChangeActs({ t }: { t: Changed }) {
   return (
     <>
-      <button type="button" class="key" onClick={() => main(t)}>{next(t).label}</button>
+      {/* Quiet on Home: the Composer's key is Home's one metal key (NOTES §13). */}
+      <button type="button" class="btn" onClick={() => main(t)}>{next(t).label}</button>
       {next(t).keep && <button type="button" class="btn" onClick={() => open({ kind: 'settle', thought: t.id, keep: false })}>Discard</button>}
       {next(t).keep && <button type="button" class="btn" onClick={() => open({ kind: 'review', thought: t.id })}>Review changes</button>}
     </>
@@ -151,7 +152,7 @@ export function ChangeActs({ t }: { t: Changed }) {
 function LaterRow({ t }: { t: Thought }) {
   const send = () => open({ kind: 'send', thought: t.id });
   return (
-    <div class={`hr later${t.id === cap.sent?.id ? ' new' : ''}`} data-nav tabIndex={0} title={[t.text, t.route?.fallback].filter(Boolean).join('\n')} onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && (e.preventDefault(), send())}>
+    <div class={`hr later${t.id === cap.sent?.id ? ' new' : ''}`} data-nav tabIndex={0} title={[t.text, fallback(t)].filter(Boolean).join('\n')} onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && (e.preventDefault(), send())}>
       <Mark s="later" />
       <span class="hr-t">{title(t)}</span>
       <time>{when(t.created)}</time>
@@ -160,7 +161,7 @@ function LaterRow({ t }: { t: Thought }) {
         <button type="button" class="btn" onClick={send}>Send to a folder…</button>
         <button type="button" class="btn" onClick={() => void call('delete', { c: 'thoughts', id: t.id }).catch(fail)}>Drop</button>
       </div>
-      {t.route?.fallback && <p class="hr-n">{t.route.fallback}</p>}
+      {fallback(t) && <p class="hr-n">{fallback(t)}</p>}
     </div>
   );
 }
@@ -232,12 +233,12 @@ export function Home() {
   const folders = projects().some((p) => p.kind === 'folder');
   // The first-run composition is for a Home with nothing on it yet: no folder open, and nothing asked, running or done.
   const first = !folders && !h.questions.length && !h.waiting.length && !h.running.length && !h.results.length;
-  // The line under the Composer speaks only while it is true: no folder is open and the next thought has nowhere to
-  // start. A thought that runs in Scratch has a place, and so has the next one.
-  const nowhere = !folders && where().by === 'later';
+  // A question asked at the Composer, about the thought just sent, is there and not also in Needs you (NOTES §13).
+  const here = ui.sheet?.kind === 'capture' ? undefined : askedHere();
+  const waits = h.questions.filter((q) => q !== here);
   const asks = h.questions.length > 0;
   const idle = !asks && !h.running.length;
-  const shownQ = h.questions.find((q) => q.id === openQ) ?? h.questions[0];
+  const shownQ = waits.find((q) => q.id === openQ) ?? waits[0];
   const fold = ui.fold;
   const wide = useWide();
   useMinutes(h.running.length > 0);
@@ -257,30 +258,21 @@ export function Home() {
   };
   const more = h.running.length > 4 && !ui.more;
   const light = useLight();
-  const line = nowhere && (
-    <p class="attach">
-      <span>A thought starts in a folder. Until one is open, it is saved for later.</span>
-      <button type="button" class={`${cap.draft.trim() ? 'btn' : 'key'} lg`} onClick={() => open({ kind: 'open-workspace' })}><span>{records.cards.size ? 'Open another folder…' : 'Open a folder…'}</span><Key k="⌘O" /></button>
-    </p>
-  );
   return (
     <div class="room" style={light.vars}>
     <Light load={asks ? 'asks' : h.running.length ? 'busy' : 'quiet'} />
     <div class={`home${asks ? ' asks' : h.running.length ? ' busy' : ' quiet'}`} id="main" tabIndex={-1}>
-      <div class={`hx${two ? ' two' : ''}${first ? ' first' : ''}`} onKeyDown={(e) => (first && beginKey(e)) || nav(e)}>
-        <Capture raised agents={() => open({ kind: 'settings', at: 'agents' })} speech={() => open({ kind: 'settings', at: 'voice' })} terms={() => open({ kind: 'placing' })}
-          // Once a folder is open and an agent signed in, before the first thought: the one moment placing is offered unasked.
-          offer={folders && !records.thoughts.size && offerable()} />
-        {/* First, where Tasktap may learn of the person's projects, and once what it found (projects.tsx); once that
-            is answered, the line under the Composer. */}
-        {first ? <Begin quiet={!!cap.draft.trim()}>{line}</Begin> : line}
+      <div class={`hx${two ? ' two' : ''}${first ? ' first' : ''}`} onKeyDown={nav}>
+        <Capture raised asks={ui.sheet?.kind !== 'capture'} agents={() => open({ kind: 'settings', at: 'agents' })} speech={() => open({ kind: 'setup', step: 'speech' })} />
+        {/* Under the Composer only what was just sent (its Way, its question); everything offered once is Setup's. */}
+        <Setup quiet={!asks} />
         <div class="cols">
         <div class="col">
-        {asks && (
+        {waits.length > 0 && (
           <section class="hsec needs">
-            <h3><Mark s="asks" label="" /><span>Needs you</span><i>{h.questions.length}</i></h3>
+            <h3><Mark s="asks" label="" /><span>Needs you</span><i>{waits.length}</i></h3>
             {shownQ && <QuestionRow key={shownQ.id} q={shownQ} open choose={() => undefined} />}
-            <div class="hrs">{h.questions.filter((q) => q !== shownQ).map((q) => <QuestionRow key={q.id} q={q} open={false} choose={() => (setOpenQ(q.id), (page.focus = `[data-question="${q.id}"]`))} />)}</div>
+            <div class="hrs">{waits.filter((q) => q !== shownQ).map((q) => <QuestionRow key={q.id} q={q} open={false} choose={() => (setOpenQ(q.id), (page.focus = `[data-question="${q.id}"]`))} />)}</div>
           </section>
         )}
         {h.waiting.length > 0 && (

@@ -179,10 +179,40 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     // A thought saved for later is kept as the core keeps it, so the page can show where it landed; and with `keep`,
     // one left to the router that names no place, as the match on names keeps it.
     if (name === 'thought.update') window.__fake.updated = args;
+    // A folder the person chose in the panel becomes a workspace, as the core makes one: open, named by its folder.
+    if (name === 'project.add' && !(records.projects || []).some((p) => p.folder === args.folder)) {
+      push({ t: 'change', rev: ++rev, sets: [{ c: 'projects', put: [{ id: args.id, rev, name: args.folder.split('/').pop(), folder: args.folder, kind: 'folder', color: '#7aa2f7', aliases: [], git: true, isolate: 'busy', open: true, available: true }] }] });
+      return reply(id, args.id);
+    }
     if (name === 'thought.capture' && (args.mode === 'note' || (records.keep && !args.project_id))) {
       rev++;
       push({ t: 'change', rev, sets: [{ c: 'thoughts', put: [{ id: args.id, rev, text: args.text, strokes: [], source: 'typed', mode: 'note', phase: 'captured', status: 'captured',
         reason: null, live: false, project_id: null, session_id: null, brief: args.text, route: null, placed: args.mode === 'note' ? 'kept' : 'kept_name', agent: null, model: null, workdir: null, hold_until: null, read: false, created: Date.now(), updated: Date.now() }] }] });
+      return reply(id, null);
+    }
+    // `asks`: a thought left to the router is asked about, as the match on names asks when it is unsure: the thought,
+    // then (`asks.ms` later, 300 by default) "Where should this go?" with the folders `asks.choices` names. Answered by
+    // a choice it starts there; by Keep for later it is kept.
+    if (name === 'thought.capture' && records.asks && !args.project_id && !args.card_id && args.mode !== 'note') {
+      const now = Date.now(), thought = { id: args.id, rev: ++rev, text: args.text, strokes: [], source: args.source || 'typed', mode: 'ask', phase: 'captured', status: 'needs_you',
+        reason: null, live: false, project_id: null, session_id: null, brief: args.text, route: { by: 'local', model: null, pending: false, fallback: null, quote: null, title: null, ms: 1 },
+        placed: null, agent: args.agent || 'claude', model: null, workdir: null, hold_until: null, read: false, created: now, updated: now };
+      push({ t: 'change', rev, sets: [{ c: 'thoughts', put: [thought] }] });
+      reply(id, null);
+      const projects = (records.projects || []).filter((p) => p.open && p.kind === 'folder');
+      const choices = (records.asks.choices || projects.slice(0, 3).map((p) => p.name)).slice(0, 3);
+      const q = { id: `019a8b6c-7d10-7000-a000-${String(++rev).padStart(12, '0')}`, rev, thought_id: args.id, session_id: null, turn: null, source: 'router', prompt: 'Where should this go?', detail: null,
+        reply_via: 'core', state: 'open', answer: null, kind: 'choice', choices, places: choices.map((n) => ({ project: (projects.find((p) => p.name === n) || {}).id })), notes: records.asks.notes || choices.map(() => '') };
+      setTimeout(() => push({ t: 'change', rev: ++rev, sets: [{ c: 'questions', put: [{ ...q, rev }] }] }), records.asks.ms ?? 300);
+      window.__fake.asked = q;
+      return;
+    }
+    if (name === 'question.answer' && window.__fake.asked && args.id === window.__fake.asked.id) {
+      const q = window.__fake.asked, t = (records.thoughts || []).find((x) => x.id === q.thought_id), now = Date.now();
+      window.__fake.answered = args;
+      const to = args.kind === 'choice' ? q.places[args.choice] : null;
+      push({ t: 'change', rev: ++rev, sets: [{ c: 'questions', put: [{ ...q, rev, state: 'answered' }] },
+        { c: 'thoughts', put: [{ ...t, rev, ...(to ? { phase: 'routed', status: 'routed', project_id: to.project, placed: 'answer', hold_until: now + 3000 } : { mode: 'note', status: 'captured', placed: 'kept_answer' }) }] }] });
       return reply(id, null);
     }
     // Keep or Discard: what `settles` holds for the thought is the core's refusal in its own words; else it settles,
@@ -196,7 +226,9 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     // What Tasktap knows of the person's projects (docs/projects-design.md): `offer` is what `projects.offer` finds;
     // a look added or switched on puts its row and then, one by one as a look fills in, the cards of `found`;
     // `projects.find` is the core's own answer (`FIND` below), or `finds` by its text where a picture wants one.
-    if (name === 'projects.offer') return reply(id, records.offer || { agents: [], places: [] });
+    // `offerHeld`: the answer waits until the check calls window.__fake.offer() (the first start, at a moment it chooses).
+    if (name === 'projects.offer' && records.offerHeld) return void (window.__fake.offer = () => reply(id, records.offer || { agents: [], places: [] }));
+    if (name === 'projects.offer') return void setTimeout(() => reply(id, records.offer || { agents: [], places: [] }), records.offerMs || 0);
     if (name === 'projects.look') return reply(id, { projects: (records.cards || []).filter((c) => !c.copy_of && !c.inside && !c.hidden).length, ms: 40 });
     const look = (row) => {
       push({ t: 'change', rev: ++rev, sets: [{ c: 'looks', put: [{ ...row, rev }] }] });
@@ -323,6 +355,8 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       if (records.noframes) throw records.noframes;
       return { base: records.frames || 'http://127.0.0.1:9/none', ...(a.listens ? { listens: records.listens !== false } : {}) };
     }
+    // The system's folder panel: what was asked, in order, and the folder `pick` names (none: the person cancelled).
+    if (name === 'host.pick') return (window.__fake.picked.push(a), records.pick ?? null);
     if (name !== 'host.open') return null;
     const real = /^https?:\/\/[^/\s]/i.test(a.target) ? a.target : (records.files || {})[a.target] || null;
     if (real && !a.probe) opened.push({ ...a, real });
@@ -340,7 +374,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     if (d) push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', del: [d.id] }] });
     toCore({ t: 'close', s: Number(s), why: 'gone' });
   };
-  window.__fake = { emit, push, records, heard, calls, sizes, close, opened };
+  window.__fake = { emit, push, records, heard, calls, sizes, close, opened, picked: [] };
   // The keyboard's layout, as the web view says it (keys.ts watchLayout): the records' (`layout`, what each key
   // prints by its place), else a US keyboard's, so that a picture is the same on every machine the checks run on.
   const US = Object.fromEntries([...'abcdefghijklmnopqrstuvwxyz'].map((c) => [`Key${c.toUpperCase()}`, c]).concat([...'0123456789'].map((d) => [`Digit${d}`, d]),

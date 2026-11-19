@@ -57,6 +57,28 @@ export function focus(target: string | HTMLElement | null | undefined) {
 /** Focuses what `page.focus` names, once it has rendered. */
 export function settleFocus() {
   if (page.focus && focus(page.focus)) page.focus = '';
+  markHeld();
+}
+
+/** A key cap is shown only where pressing its key does something now (design/ui-directions/NOTES.md §13). An element
+ *  whose own keys act while the keyboard is inside it is marked `data-keys`, and is `data-held` while the keyboard is
+ *  in it; a cap inside one that is not held is not shown (parts.css). `data-keys="window"`: keys the window answers
+ *  wherever its keyboard is (⌃⌥J, ⌘T). `strict`: the page's own window must have the keyboard too, as the notch must,
+ *  which opens by itself without it. */
+let strict = false;
+export function markHeld() {
+  const on = !strict || document.hasFocus(), at = on ? document.activeElement : null;
+  for (const el of document.querySelectorAll<HTMLElement>('[data-keys]'))
+    el.toggleAttribute('data-held', el.dataset.keys === 'window' ? on : !!at && at !== document.body && el.contains(at));
+}
+/** Keeps `data-held` as the keyboard moves, in this page and between its window and others. */
+export function watchHeld(notch = false) {
+  strict = notch;
+  const soon = () => queueMicrotask(markHeld);
+  document.addEventListener('focusin', soon, true);
+  document.addEventListener('focusout', soon, true);
+  addEventListener('focus', soon);
+  addEventListener('blur', soon);
 }
 
 /** The agent a new run uses: the `agent` preference, else the first the core lists. */

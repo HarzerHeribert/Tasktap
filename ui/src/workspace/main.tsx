@@ -32,7 +32,7 @@ import { burst, echo } from './measure.ts';
 import { choose, shown as menu } from './menu.ts';
 import {
   LOOSE, agentName, call, client, closeTab, copy, current, details, dismiss, fail, focus, focusSession, heardWhere, layout, loadTerms, newTerminal, onRedraw,
-  open, openQuestions, page, paste, pref, records, redraw, reconcile, sessionOf, setLayout, settleFocus, show, textSize, textSizeBy, title, ui, where,
+  open, openQuestions, page, paste, pref, records, redraw, reconcile, sessionOf, setLayout, settleFocus, show, watchHeld, textSize, textSizeBy, title, ui, where,
 } from './model.ts';
 import type { Where } from '../client.ts';
 import { SECTIONS, shown } from './settings.tsx';
@@ -250,7 +250,7 @@ function AsksLine() {
       <b>{who}</b>
       <span class="what">{router ? title(t) : q.prompt}</span>
       {more > 0 && <span class="more">{plural(more, 'more waits', 'more wait')}</span>}
-      <Key k={keyName(ANSWER)} cap />
+      <span data-keys="window"><Key k={keyName(ANSWER)} cap /></span>
     </button>
   );
 }
@@ -426,6 +426,8 @@ addEventListener('resize', narrow);
 narrow();
 // The terminal's faces are loaded before the first terminal measures its cells.
 await fontsReady();
+// A key cap shows only where its keys act now (page.ts markHeld).
+watchHeld();
 render(<App />, document.body);
 // Whether the window is the one in use: in front, as the host says it to both pages (followWhere).
 void call('host.where', {}).then(followWhere, () => {});

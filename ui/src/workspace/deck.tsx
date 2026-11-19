@@ -75,7 +75,7 @@ export function Deck({ project }: { project: string }) {
     <div class="deck" ref={area}>
       {!l.tree && (
         <div class="deck-empty">
-          <Answer k="⌘T" label="New terminal" onClick={() => newTerminal(project)} />
+          <span data-keys="window"><Answer k="⌘T" label="New terminal" onClick={() => newTerminal(project)} /></span>
         </div>
       )}
       {all.map((pane, i) => <Pane key={pane.id} project={project} pane={pane} index={i} rect={g.panes.get(pane.id)} focused={pane.id === l.selected || all.length === 1} />)}
@@ -178,7 +178,7 @@ export function ResultStrip({ t }: { t: Thought & { workdir: NonNullable<Thought
   const keep = () => (!main.keep ? discard() : running(t) ? open({ kind: 'settle', thought: t.id, keep: true }) : void settle(t, true));
   const review = () => open({ kind: 'review', thought: t.id });
   return (
-    <div class="strip" data-result={t.id} tabIndex={-1} onKeyDown={(e) => {
+    <div class="strip" data-result={t.id} tabIndex={-1} data-keys onKeyDown={(e) => {
       if ((e.target as HTMLElement).matches('input') || e.metaKey || e.ctrlKey || e.altKey || busy) return;
       const k = e.key.toLowerCase();
       if (k === 'enter' && !(e.target as HTMLElement).closest('button')) keep();

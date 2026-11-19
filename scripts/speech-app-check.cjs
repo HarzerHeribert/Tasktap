@@ -90,10 +90,10 @@ async function withFixture(shots) {
     app.send('call put {"c":"prefs","id":"hold","patch":10}');
     app.send('call put {"c":"prefs","id":"speech_languages","patch":["de","en"]}');
     await sleep(400);
-    // Nothing is set up: the microphone says so, and nothing was started for it.
+    // Nothing is set up: the microphone brings down Setup's speech step (NOTES §13), and nothing was started for it.
     await p.down(), await p.up();
-    check(await app.until('workspace', `document.querySelector('.home .ways')?.innerText ?? ''`, 'Voice needs setting up first: on this Mac, or with a speech service.', 3) && !fs.existsSync(file),
-      'with nothing set up the microphone says what voice needs, and nothing was fetched');
+    check(await app.until('workspace', `__ws.ui.sheet?.kind === 'setup' && __ws.ui.sheet.step === 'speech' ? document.querySelector('.sheet')?.innerText ?? '' : ''`, 'Talk instead of typing', 3) && !fs.existsSync(file),
+      'with nothing set up the microphone brings down Setup\'s speech step, and nothing was fetched');
     await p.settings();
     check(/Needs a model first: Whisper large-v3 turbo/.test(await p.row()), 'Settings › Voice says what On this Mac needs', await p.row());
     if (shots) await app.snapshot('workspace', path.join(shots, 'app-settings-needs.png'));

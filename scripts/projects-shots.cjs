@@ -1,6 +1,7 @@
 // Renders what Tasktap knows of a person's projects (ui/src/workspace/projects.tsx) from ui/dist in headless Chromium,
-// on fixture records (projects-fixtures.cjs), no host: the first run on Home (the agents' history offered, what was
-// found filling in and done, the folder most of them are in suggested, a person with no agent history) and Settings ›
+// on fixture records (projects-fixtures.cjs), no host: the first run, Setup's first step as its sheet (the agents'
+// history offered, what exactly is read opened, what was found filling in and done, the folder most of them are in
+// suggested, a person with no agent history; design/ui-directions/NOTES.md §13) and Settings ›
 // Projects (as it opens, a project opened with its copies, folders that are gone, too full or empty, and the ones set
 // aside), at 1x and 2x, Home also 720 px wide. With --check it also holds every state to the align and type checks'
 // own measures (scripts/align-check.cjs, scripts/type-check.cjs), and says where a word is cut short.
@@ -15,8 +16,8 @@ const { projects } = require('./projects-fixtures.cjs');
 const settings = (page) => page.evaluate(() => ((window.__ws.ui.sheet = { kind: 'settings', at: 'projects' }), window.__motion.redraw()));
 const wait = (ms) => (page) => page.waitForTimeout(ms);
 const allow = async (page) => {
-  await page.waitForSelector('.begin .key');
-  await page.click('.begin .key');
+  await page.waitForSelector('.sheet .sh-f .key');
+  await page.click('.sheet .sh-f .key');
 };
 const both = (...fs) => async (page) => { for (const f of fs) await f(page); };
 /** Scrolls Settings' pane so that what `sel` names is at its top. */
@@ -31,6 +32,7 @@ function shots() {
   return {
     'first-agents': { records: projects('first-agents') },
     'first-agents-narrow': { records: projects('first-agents'), viewport: NARROW },
+    'first-details': { records: projects('first-agents'), act: both(wait(300), (p) => p.click('.sheet .more-l')) },
     'first-filling': { records: projects('first-found'), act: both(allow, wait(440)), settle: 0 },
     'first-found': { records: projects('first-found'), act: both(allow, wait(1400)) },
     'first-found-narrow': { records: projects('first-found'), act: both(allow, wait(1400)), viewport: NARROW },
@@ -59,19 +61,16 @@ function from(file, names) {
   new Function('require', 'module', '__dirname', '__filename', `${src}\nmodule.exports = { ${names.join(', ')} };`)(require, m, __dirname, path.join(__dirname, file));
   return m.exports;
 }
-// In the page: the first run's composition, held to what the align check holds the line it replaces to (whose own
-// selector, `.attach`, this composition does not have): its answer on the edge of the Composer's key, its words on the
-// edge of the Composer's text, and what was found on the Composer's edges, as For later is.
+// In the page: the first run is a sheet of the sheet family, never words loose under the Composer (NOTES §13): a
+// headline, at most three facts, the full sentence behind "What exactly is read", and the keys; nothing of it on Home.
 function begins() {
-  const bad = [], box = (e) => e.getBoundingClientRect();
-  const cap = document.querySelector('.home .capture.raised .cap'), block = document.querySelector('.hx.first > :is(.begin, .found)');
-  if (!cap || !block) return bad;
-  if (block.matches('.begin')) {
-    const answer = block.querySelector('.begin-f')?.lastElementChild, go = cap.querySelector('.cap-row .key');
-    if (!answer || !go || Math.abs(box(answer).right - box(go).right) > 0.5) bad.push('first run: its answer is not on the edge of the Composer\'s key');
-    for (const words of block.querySelectorAll(':scope > h3, :scope > p, :scope > .ticks, .begin-f > :first-child'))
-      if (Math.abs(box(words).left - box(cap.querySelector('textarea')).left - 10) > 0.5) bad.push(`first run: "${words.textContent.trim().slice(0, 30)}" is not on the edge of the Composer's text`);
-  } else if (Math.abs(box(block).left - box(cap).left) > 0.5 || Math.abs(box(block).right - box(cap).right) > 0.5) bad.push('first run: what was found is not on the Composer\'s edges');
+  const bad = [];
+  if (document.querySelector('.hx.first > :not(.capture, .setup, .cols)')) bad.push('first run: something stands loose under the Composer that is not Setup');
+  const sheet = document.querySelector('.sheet');
+  if (!sheet) return bad;
+  const facts = sheet.querySelectorAll('.facts > li');
+  if (facts.length > 3) bad.push(`first run: its sheet says ${facts.length} facts, not three at most`);
+  if (sheet.querySelector('.facts') && !sheet.querySelector('.more-l')) bad.push('first run: its sheet has no "What exactly is read"');
   return bad;
 }
 // In the page: the owner's decisions of 2026-11-19 (docs/projects-design.md): every project found is a row, at the
@@ -81,20 +80,18 @@ function promises() {
   const bad = [], cards = [...window.__ws.records.cards.values()].filter((c) => !c.copy_of && !c.inside && !c.hidden);
   const text = (sel) => [...document.querySelectorAll(sel)].map((e) => e.textContent).join(' ');
   if (/\band \d+ more\b/i.test(text('.found, .set-pane'))) bad.push('a list of projects says "and N more"');
-  const found = document.querySelector('.hx.first > .found .fr-s'), home = document.querySelector('.room > .home');
+  const found = document.querySelector('.sheet .found .fr-s');
   if (found && document.querySelectorAll('.found .fr').length !== cards.length) bad.push(`the first run shows ${document.querySelectorAll('.found .fr').length} of ${cards.length} projects found`);
-  // (Unless the window is too short for its least, three rows.)
-  const row = found?.querySelector('.fr')?.getBoundingClientRect().height ?? 0;
-  if (found && home && home.scrollHeight > home.clientHeight + 1 && found.clientHeight > 3 * row + 1) bad.push('Home scrolls under what was found, not the list');
+  if (document.querySelector('.home .found, .home .fr')) bad.push('what was found stands on Home, not in its sheet');
   const rows = document.querySelectorAll('.pjs > .line.pj');
   if (document.querySelector('.pjs') && !document.querySelector('.set-pane .field input')?.value && rows.length !== cards.length) bad.push(`Settings › Projects shows ${rows.length} of ${cards.length} projects`);
-  for (const p of document.querySelectorAll('.begin > p, .set-pane .note'))
+  for (const p of document.querySelectorAll('.sheet .facts-all, .set-pane .note'))
     if (/reads/.test(p.textContent) && !['README', 'package file', 'Git remote', 'first commit', 'model', 'up to 8'].every((w) => p.textContent.includes(w))) bad.push(`what it reads leaves something out: "${p.textContent.slice(0, 60)}…"`);
   return bad;
 }
 // In the page: words cut short with an ellipsis, in what these pages draw.
 function cut() {
-  return [...document.querySelectorAll('.begin *, .found *, .set-pane *')]
+  return [...document.querySelectorAll('.sheet *, .setup *, .set-pane *')]
     .filter((el) => el.offsetParent && el.children.length === 0 && el.textContent.trim() && el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).textOverflow === 'ellipsis')
     .map((el) => `"${el.textContent.trim().slice(0, 48)}" (.${String(el.className).split(' ')[0] || el.tagName.toLowerCase()})`);
 }
@@ -107,10 +104,17 @@ async function main(out, dprs, only, check) {
   const browser = await chromium.launch({ headless: true });
   const align = check && from('align-check.cjs', ['audit', 'weights', 'LISTS']);
   const type = check && from('type-check.cjs', ['roles', 'fonts']);
-  const [, weight, size] = /--f-key:(\d+) round\(([\d.]+)px/.exec(fs.readFileSync(path.join(__dirname, '../ui/src/tokens.css'), 'utf8'));
-  const KEY = { size: scaled(Number(size)), weight: Number(weight) };
+  // The key role, with the floor no text size takes it under (as align-check.cjs reads it).
+  const [, weight, floor, size] = /--f-key:(\d+) (?:max\(([\d.]+)px,)?round\(([\d.]+)px/.exec(fs.readFileSync(path.join(__dirname, '../ui/src/tokens.css'), 'utf8'));
+  const KEY = { size: Math.max(Number(floor ?? 0), scaled(Number(size))), weight: Number(weight) };
   const all = type && type.roles();
-  const role = (key) => { const [face, sz, w, sp] = key.split(' '); return all.find((r) => r.name !== 'term' && r.face === face && r.size === Number(sz) && r.weight === w && Math.abs(r.spacing - Number(sp)) < 0.01); };
+  // Where two roles compute alike (at the small text size a label comes to the key's 12 px and weight), a key is taken
+  // as the key's and the rest as the other's, as type-check.cjs takes them.
+  const role = (key, isKey) => {
+    const [face, sz, w, sp] = key.split(' ');
+    const alike = all.filter((r) => r.name !== 'term' && r.face === face && r.size === Number(sz) && r.weight === w && Math.abs(r.spacing - Number(sp)) < 0.01);
+    return alike.find((r) => (r.name === 'key') === isKey) ?? alike[0];
+  };
   const failures = [], notes = [];
   try {
     for (const dpr of dprs) {
@@ -127,13 +131,13 @@ async function main(out, dprs, only, check) {
         if (check && dpr === dprs[0]) {
           const r = await page.evaluate(align.audit, [align.LISTS, KEY]);
           const w = await page.evaluate(align.weights);
-          const own = [...await page.evaluate(begins), ...await page.evaluate(promises)], mine = await page.evaluate(() => !!document.querySelector('.hx.first > :is(.begin, .found)'));
-          for (const b of [...r.bad.filter((x) => !(mine && /^first run: Open a folder/.test(x))), ...w.bad, ...own]) failures.push(`${name} (${TEXT}): ${b}`);
+          const own = [...await page.evaluate(begins), ...await page.evaluate(promises)];
+          for (const b of [...r.bad, ...w.bad, ...own]) failures.push(`${name} (${TEXT}): ${b}`);
           for (const [key, where] of Object.entries(await page.evaluate(type.fonts))) {
-            const rl = role(key), width = key.split(' ')[4];
+            const rl = role(key, where.some((w) => /\bkbd\b/.test(w))), width = key.split(' ')[4];
             if (width !== '100%') failures.push(`${name} (${TEXT}): text at width ${width} (${where.slice(0, 3).join(', ')})`);
             else if (!rl) failures.push(`${name} (${TEXT}): "${key.split(' ').slice(0, 4).join(' ')}" is no role's (${where.slice(0, 3).join(', ')})`);
-            for (const at of where) if (/\bkbd\b/.test(at) !== (rl?.name === 'key') && !/ring-o text/.test(at)) failures.push(`${name} (${TEXT}): ${/\bkbd\b/.test(at) ? 'a key outside the key role' : 'the key role on what is no key'} (${at})`);
+            for (const at of where) if (/\bkbd\b/.test(at) !== (role(key, /\bkbd\b/.test(at))?.name === 'key') && !/ring-o text/.test(at)) failures.push(`${name} (${TEXT}): ${/\bkbd\b/.test(at) ? 'a key outside the key role' : 'the key role on what is no key'} (${at})`);
           }
           for (const c of await page.evaluate(cut)) notes.push(`${name} (${TEXT}): cut short ${c}`);
         }

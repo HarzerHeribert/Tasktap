@@ -4,7 +4,9 @@
 // state and with every list open, measures the parts of sibling rows, and fails on any difference over half a pixel.
 // It also holds the page to what else is promised of its composition: the Composer centred over the lists under it
 // (and, before a folder is open, a little above the middle with its one action on its own edges), a key's label at
-// 7 : 1 or better on its face, the agents' rings in each of their states, no scroller showing a bar, and a wake that
+// 7 : 1 or better on its face (its label and its arrow), the agent control in each of its states, no scroller showing a
+// bar, a key cap only where its key does something now (inside the element that has the keyboard and answers it, or the
+// window's own), on Home one metal key and that the Composer's, in every state, and a wake that
 // lies behind the edge that sheds it. Every key shown, on a cap or as a hint, in every state of both pages: at the
 // key role's size or larger, at 4.5 : 1 or better on what is behind it, its modifiers in a Mac's order, and whole
 // (a hint a row has no room for is gone, never cut). Every sheet: centred on the window and hung from the title bar's
@@ -42,7 +44,8 @@ const LISTS = [
   { list: '.set-pane, .terms', row: ':scope > .set', parts: { label: '.t', fact: '.c' } },
   { list: '.set-nav', row: ':scope > button', parts: { label: 'span', fact: 'kbd' } },
   { list: '.files', row: ':scope > .file', parts: { mark: '.ch', label: '.path' } },
-  { list: '.cap-list', row: ':scope > button', parts: { mark: '.i, .st', label: 'span' } },
+  { list: '.cap-list', row: ':scope > button', parts: { mark: '.i, .st, .ring-o', label: 'span' } },
+  { list: '.setup-b', row: ':scope > .line', parts: { mark: ':scope > .i, :scope > .todo', label: '.t', fact: '.x' } },
   { list: '.rows', row: ':scope > .row', parts: { mark: '.st', label: '.t', fact: '.x', time: 'time' } },
   { list: '.ask-notch .qa', row: ':scope > .ans', parts: { key: 'kbd', label: 'span' } },
   { list: '.ask-home .qa', row: ':scope > .ans', parts: { key: 'kbd' } },
@@ -52,6 +55,8 @@ const LISTS = [
 function audit([LISTS, KEY]) {
   const bad = [], seen = new Set();
   const box = (el) => el.getBoundingClientRect();
+  // Shown: laid out (an SVG element, a ring or an icon, has no offsetParent of its own to say so).
+  const on = (el) => !!el && (el instanceof SVGElement ? el.getClientRects().length > 0 && !!el.closest('svg')?.parentElement?.offsetParent : !!el.offsetParent);
   for (const L of LISTS)
     for (const list of document.querySelectorAll(L.list)) {
       const rows = [...list.querySelectorAll(L.row)].filter((r) => r.offsetParent);
@@ -60,7 +65,7 @@ function audit([LISTS, KEY]) {
       for (const [name, sel] of Object.entries(L.parts)) {
         const edges = rows.map((r) => {
           const p = r.querySelector(sel);
-          if (!p || !p.offsetParent) return null;
+          if (!on(p)) return null;
           const b = box(p), rb = box(r);
           // A mark or a key cap is placed by its centre; anything else by its left edge. Both against the row.
           return name === 'mark' || name === 'key' ? Math.round((b.left + b.width / 2 - rb.left) * 2) / 2 : Math.round((b.left - rb.left) * 2) / 2;
@@ -72,7 +77,7 @@ function audit([LISTS, KEY]) {
       // A mark and its label sit on one centred line.
       for (const r of rows) {
         const m = r.querySelector(L.parts.mark ?? L.parts.key ?? ':not(*)'), t = r.querySelector(L.parts.label ?? ':not(*)');
-        if (!m || !t || !m.offsetParent || !t.offsetParent) continue;
+        if (!on(m) || !on(t)) continue;
         const [a, b] = [box(m), box(t)];
         const d = Math.abs(a.top + a.height / 2 - (b.top + b.height / 2));
         if (d > 1.5) bad.push(`${L.row.replace(':scope > ', '')}: mark and label ${d.toFixed(1)} px off one line ("${t.textContent.trim().slice(0, 30)}")`);
@@ -81,14 +86,14 @@ function audit([LISTS, KEY]) {
   // An icon and its label, a key cap and its word, a wave and what it says: each pair on one centred line.
   // (A sheet's foot may wrap where it has no room for one line: its answer then stands a whole line under the rest.)
   for (const [within, a, b, wraps] of [
-    ['.mic', '.i', 'kbd'], ['.ring[aria-checked=true]', '.ring-o', '.nm'], ['.way-h', ':scope > .i, :scope > .st', ':scope > b'], ['.way-h', '.act kbd', '.act span'],
+    ['.mic', '.i', 'kbd'], ['.cap-agent', '.ring-o', '.nm'], ['.cap-ask', '.qp > .st', '.qp'], ['.way-h', ':scope > .i, :scope > .st', ':scope > b'], ['.way-h', '.act kbd', '.act span'],
     ['.way-h', ':scope > b', ':scope > .btn span'], ['.cap-row.hear', '.lvl, .st', 'b'], ['.cap-row.hear', 'b', '.act span'], ['.ans', '.i', 'span'], ['.disc', '.i', 'span'],
     ['.cap-said', ':scope > span', '.btn'], ['.reply', '.lvl', 'input'], ['.line.rank', '.ring-o', '.t'], ['.line.rank', '.n', '.t'], ['.line.rank', '.t', '.switch'],
-    ['.sh-f .act', 'kbd', 'span'], ['.sh-f .key', '.i', 'span'], ['.sh-f', '.act span', '.key span', true], ['.newt', 'span', 'kbd'], ['.attach .lg', 'span', 'kbd'], ['.set', 'kbd.keycap', '.t'],
+    ['.sh-f .act', 'kbd', 'span'], ['.sh-f .key', '.i', 'span'], ['.sh-f', '.act span', '.key span', true], ['.newt', 'span', 'kbd'], ['.set', 'kbd.keycap', '.t'],
   ])
     for (const el of document.querySelectorAll(within)) {
       const [m, t] = [el.querySelector(a), el.querySelector(b)];
-      if (!m || !t || !m.offsetParent || !t.offsetParent || box(t).height > 30) continue;
+      if (!on(m) || !on(t) || box(t).height > 30) continue;
       seen.add(`${within} pairs`);
       const d = Math.abs(box(m).top + box(m).height / 2 - (box(t).top + box(t).height / 2));
       if (d > 1.5 && !(wraps && box(t).top >= box(m).bottom)) bad.push(`${within}: ${a} and ${b} are ${d.toFixed(1)} px off one line`);
@@ -108,10 +113,29 @@ function audit([LISTS, KEY]) {
   }
   // In the Composer and what is under it, one key at most is metal, and one thing at most says Start.
   for (const c of document.querySelectorAll('.capture')) {
-    const keys = [...c.querySelectorAll('.key:not(:disabled)')].filter((k) => k.offsetParent);
+    const keys = [...c.querySelectorAll('.key')].filter((k) => k.offsetParent);
     if (keys.length > 1) bad.push(`${keys.length} metal keys in the Composer: ${keys.map((k) => k.textContent.trim()).join(', ')}`);
     const starts = [...c.querySelectorAll('button')].filter((b) => b.offsetParent && b.textContent.trim() === 'Start');
     if (starts.length > 1) bad.push(`Start is said ${starts.length} times in the Composer`);
+  }
+  // On Home the Composer's key is the metal key, in every state, also with nothing to do (NOTES §13); every other
+  // action on Home is quiet. (A sheet has its own, and Home is behind it.)
+  const metal = (k) => /linear-gradient/.test(getComputedStyle(k).backgroundImage) && getComputedStyle(k).color === 'rgb(13, 13, 14)';
+  const own = document.querySelector('.home .capture .cap-row:not(.hear) > .key');
+  if (document.querySelector('.home .capture .cap-row:not(.hear,.cap-list)')) {
+    seen.add('the Composer\'s key metal on Home');
+    if (!own || !metal(own)) bad.push(`Home's Composer key is not the metal key${own ? ` ("${own.textContent.trim()}", ${getComputedStyle(own).backgroundImage.slice(0, 30)})` : ''}`);
+  }
+  for (const k of document.querySelectorAll('.home .key')) if (k.offsetParent && !k.closest('.capture') && metal(k)) bad.push(`a second metal key on Home: "${k.textContent.trim()}"`);
+  // A key cap shows only where pressing its key does something now: inside the element whose keys act while it has the
+  // keyboard (\`data-keys\`), while it has it; or the window's own (\`data-keys="window"\`). Nothing else answers a key.
+  const at = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
+  for (const k of document.querySelectorAll('kbd.keycap')) {
+    if (!k.offsetParent) continue;
+    seen.add('key caps only where their keys work');
+    const scope = k.closest('[data-keys]');
+    if (!scope) bad.push(`the cap ${k.textContent.trim()} has nothing that answers its key (in .${(k.parentElement?.className || '').split(' ')[0]})`);
+    else if (scope.dataset.keys !== 'window' && !(at && scope.contains(at))) bad.push(`the cap ${k.textContent.trim()} shows where its key does nothing now: the keyboard is not in .${String(scope.className).split(' ')[0] || scope.tagName}`);
   }
   // The composition. The Composer is centred on the lists under it, in one column or two.
   const mid = (el) => box(el).left + box(el).width / 2, cap = document.querySelector('.home .capture.raised .cap'), cols = document.querySelector('.hx .cols');
@@ -121,18 +145,21 @@ function audit([LISTS, KEY]) {
   if (first && cap) {
     const c = box(cap), h = box(home), at = (c.top + c.height / 2 - h.top) / h.height;
     if (h.height >= 500 && (at < 0.3 || at > 0.5)) bad.push(`first run: the Composer's middle is at ${at.toFixed(2)} of the content's height`);
-    const key = first.querySelector('.attach .lg'), go = cap.querySelector('.cap-row .key'), words = first.querySelector('.attach span');
-    if (!key || Math.abs(box(key).right - box(go).right) > 0.5) bad.push('first run: Open a folder is not on the edge of the Composer\'s key');
-    if (words?.offsetParent && Math.abs(box(words).left - box(cap.querySelector('textarea')).left - 10) > 0.5) bad.push('first run: the line under the Composer is not on its text\'s edge');
+    // Under it, Setup, on the Composer's own edges; nothing else stands loose under the Composer.
+    const setup = first.querySelector('.setup');
+    if (setup && (Math.abs(box(setup).left - c.left) > 0.5 || Math.abs(box(setup).right - c.right) > 0.5)) bad.push('first run: Setup is not on the Composer\'s edges');
     for (const row of first.querySelectorAll('.hsec')) if (Math.abs(box(row).left - c.left) > 0.5 || Math.abs(box(row).right - c.right) > 0.5) bad.push('first run: For later is not on the Composer\'s edges');
   }
   // A key's label on its face: 7 : 1 or better against every stop of the face.
   const lum = (c) => { const [r, g, b] = c.match(/[\d.]+/g).slice(0, 3).map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
-  for (const k of document.querySelectorAll('.key:not(:disabled), kbd.keycap')) {
-    if (!k.offsetParent) continue;
-    const s = getComputedStyle(k), face = s.backgroundImage.slice(s.backgroundImage.lastIndexOf('linear-gradient')).match(/rgba?\([^)]+\)/g) ?? [], ink = lum(s.color);
-    const least = Math.min(...face.map((c) => { const l = lum(c); return (Math.max(l, ink) + 0.05) / (Math.min(l, ink) + 0.05); }));
-    if (!(least >= 7)) bad.push(`a key's label is at ${least.toFixed(1)} : 1 on its face ("${k.textContent.trim().slice(0, 20)}")`);
+  for (const k of document.querySelectorAll('.key, kbd.keycap')) {
+    if (!k.offsetParent || !/linear-gradient/.test(getComputedStyle(k).backgroundImage)) continue;
+    const s = getComputedStyle(k), face = s.backgroundImage.slice(s.backgroundImage.lastIndexOf('linear-gradient')).match(/rgba?\([^)]+\)/g) ?? [];
+    const least = (c) => { const ink = lum(c); return Math.min(...face.map((f) => { const l = lum(f); return (Math.max(l, ink) + 0.05) / (Math.min(l, ink) + 0.05); })); };
+    if (!(least(s.color) >= 7)) bad.push(`a key's label is at ${least(s.color).toFixed(1)} : 1 on its face ("${k.textContent.trim().slice(0, 20)}")`);
+    // Its arrow too, in the key's own ink (the owner, 2026-11-19: "The return key is white on white background").
+    for (const g of k.querySelectorAll(':scope > svg.i, :scope > .key-ret > svg.i, :scope > kbd > svg.i, :scope > svg.i'))
+      if (!g.closest('kbd:not(.keycap)') && !(least(getComputedStyle(g).stroke) >= 7)) bad.push(`a key's arrow is at ${least(getComputedStyle(g).stroke).toFixed(1)} : 1 on its face ("${k.textContent.trim().slice(0, 20)}")`);
     seen.add('keys');
   }
   // No scroller shows a bar; each that has more beyond an edge says which.
@@ -227,8 +254,7 @@ function weights() {
       const w = parseFloat(s.strokeWidth) * (s.vectorEffect === 'non-scaling-stroke' ? 1 : k);
       seen.add('strokes at one weight');
       // Return's arrow on the metal key stands beside a word in 600 and is the one heavier stroke (--i-w-key).
-      const chosen = svg.closest('.ring[aria-checked=true]') && !shape.classList.contains('turn');
-      if (Math.abs(w - (svg.closest('.key') ? 1.35 * ts : chosen ? 1.4 * rule : rule)) > 0.06) bad.push(`a stroke ${w.toFixed(2)} px wide where every stroke is ${rule.toFixed(2)}: ${svg.classList.contains('i') ? 'an icon' : 'a seat'} ${Math.round(box(svg).width)} px wide in ${name(svg)}`);
+      if (Math.abs(w - (svg.closest('.key') ? 1.35 * ts : rule)) > 0.06) bad.push(`a stroke ${w.toFixed(2)} px wide where every stroke is ${rule.toFixed(2)}: ${svg.classList.contains('i') ? 'an icon' : 'a seat'} ${Math.round(box(svg).width)} px wide in ${name(svg)}`);
     }
   }
   // Tasktap's mark is not a line icon: it is a picture of the chrome (ui.tsx Brand, Level), drawn once from the motion
@@ -353,10 +379,13 @@ function band() {
   return bad;
 }
 
-/** The agents' rings in a scene: each agent's state, and whether it is the one that runs the next thought. Only an
- *  agent that can run a thought has a ring: in the first-run scene Codex is signed out, and it is not the usual one. */
-const rings = () => [...document.querySelectorAll('.home .ring')].map((r) => `${r.dataset.agent}:${r.dataset.s ?? 'ready'}${r.getAttribute('aria-checked') === 'true' ? ':runs' : ''}${r.querySelector('.turn') ? ':turns' : ''}${r.querySelector('b')?.textContent ?? ''}${r.querySelector('.fix') ? ':fix' : ''}`).join(' ');
-const RINGS = { busy: 'claude:asks:runs:turns3 codex:working:turns1', quiet: 'claude:ready:runs codex:ready', first: 'claude:ready:runs' };
+/** The agent control in a scene: the agent that runs the next thought, its state, whether its ring turns, and the
+ *  agents its list offers with theirs. In the first-run scene Codex is signed out, and listed as such. */
+const rings = () => {
+  const a = document.querySelector('.home .cap-agent');
+  return a ? `${a.dataset.agent}:${a.dataset.s ?? 'ready'}${a.querySelector('.turn') ? ':turns' : ''}` : '';
+};
+const RINGS = { busy: 'claude:asks:turns', quiet: 'claude:ready', first: 'claude:ready' };
 
 /** Every animation and transition in the page held at a defined point before anything is measured: one that ends (a
  *  ring taking its seat, a sheet coming down, a row arriving) at its end, and one that runs on (a ring turning, the
@@ -435,6 +464,12 @@ async function main() {
   const views = [
     ['busy', null], ['busy', (w) => (w.__ws.ui.fold = 'results')], ['busy', (w) => (w.__ws.ui.fold = 'later')], ['normal', null], ['quiet', null], ['first', null],
     ['busy', (w) => w.__ws.show('earlier')], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'close-tab', project: '', id: '', runs: { state: 'running', what: ['npm run dev'], session: null } })], ['busy', (w) => w.document.querySelector('#dest-chip').click()],
+    // Who runs the thought, its list open; Setup's sheets; a question asked at the Composer, with the keyboard and
+    // given back to the field (NOTES §13).
+    ['busy', (w) => w.document.querySelector('.cap-agent').click()], ['first', (w) => w.document.querySelector('.cap-agent').click()],
+    ['first', (w) => (w.__ws.ui.sheet = { kind: 'setup', step: 'projects' })], ['normal', (w) => (w.__ws.ui.sheet = { kind: 'setup', step: 'speech' })],
+    ['normal', (w) => (w.__speech.cap.sent = { id: [...w.__ws.records.questions.values()].find((q) => q.source === 'router').thought_id, text: '', to: '' }), 'asked'],
+    ['normal', (w) => (w.__speech.cap.sent = { id: [...w.__ws.records.questions.values()].find((q) => q.source === 'router').thought_id, text: '', to: '' }, w.document.querySelector('#capture-input').focus(), w.document.execCommand('insertText', false, 'the next one')), 'asked'],
     // Settings, section by section, and the sheets that are a list of answers, a field, or the Composer.
     // (At the usual width and the narrowest: `TWO`.)
     ...['thoughts', 'projects', 'voice', 'agents', 'appearance', 'terminal', 'about'].map((at) => ['busy', `(w) => (w.__ws.ui.sheet = { kind: 'settings', at: '${at}' })`, '', TWO]), ['first', (w) => (w.__ws.ui.sheet = { kind: 'settings', at: 'agents' }), '', TWO],

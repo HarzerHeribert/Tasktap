@@ -27,6 +27,12 @@ try {
         & C:\tasktap\desk.ps1 -TimeoutSeconds 2400 -CommandLine $round
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
+    if ($Job.gpu) {
+        # The graphics processor's round at this commit (gpu.ps1), in the same way; its rehearsal runs here, in no desktop.
+        $round = "pwsh -NoProfile -File $checkout\scripts\winvm\gpu.ps1 -Out C:\tasktap\gpu-rounds\$($Job.gpu) -Locked $($Job.gpuargs)"
+        if ("$($Job.gpuargs)" -match '-Rehearse') { Invoke-Expression "& $round" } else { & C:\tasktap\desk.ps1 -TimeoutSeconds 1200 -CommandLine $round }
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
 } finally {
     $lock.Dispose()
 }

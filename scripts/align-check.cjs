@@ -88,7 +88,7 @@ function audit([LISTS, KEY]) {
   for (const [within, a, b, wraps] of [
     ['.mic', '.i', 'kbd'], ['.cap-agent', '.ring-o', '.nm'], ['.cap-ask', '.qp > .st', '.qp'], ['.way-h', ':scope > .i, :scope > .st', ':scope > b'], ['.way-h', '.act kbd', '.act span'],
     ['.way-h', ':scope > b', ':scope > .btn span'], ['.cap-row.hear', '.lvl, .st', 'b'], ['.cap-row.hear', 'b', '.act span'], ['.ans', '.i', 'span'], ['.disc', '.i', 'span'],
-    ['.cap-said', ':scope > span', '.btn'], ['.reply', '.lvl', 'input'], ['.line.tool', '.ring-o', '.t'],
+    ['.cap-said', ':scope > span', '.btn'], ['.reply', '.lvl', 'input'], ['.line.rank', '.ring-o', '.t'], ['.line.rank', '.n', '.t'], ['.line.rank', '.t', '.switch'],
     ['.sh-f .act', 'kbd', 'span'], ['.sh-f .key', '.i', 'span'], ['.sh-f', '.act span', '.key span', true], ['.newt', 'span', 'kbd'], ['.set', 'kbd.keycap', '.t'],
   ])
     for (const el of document.querySelectorAll(within)) {

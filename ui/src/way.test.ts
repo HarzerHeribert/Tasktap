@@ -2,7 +2,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Routing, Thought } from '../../core/proto/protocol.ts';
-import { agentState, back, briefOf, clock, hold, into, laterWhy, leave, letters, lettersOf, listed, onWay, ownAgentLacks, placed, placing, ring, step } from './way.ts';
+import {
+  agentState, agreement, back, briefOf, clock, first, hold, into, laterWhy, leave, letters, lettersOf, listed, moved, onWay, ownAgentLacks, fallback, placeWhy, placed, places,
+  placing, proposed, ranked, ring, step,
+} from './way.ts';
 
 test('an agent\'s row says what its own commands said, and when, and never more', () => {
   const row = (o: object = {}) => ({ supported: true, installed: true, checks: true, signed_in: null as boolean | null, stale: false, checked: 0, ...o });
@@ -135,15 +138,58 @@ test('why a thought waits in For later: the four reasons, whatever its route say
   assert.equal(why(null, route()), 'Saved for later');
 });
 
-test('placing by a model is on only for what this Tasktap would ask', () => {
-  const tools = [{ agent: 'claude', model: 'haiku', terms: 2 }, { agent: 'codex', model: 'gpt-6-luna', terms: 2 }];
-  assert.equal(placing(null, tools), 'off');
-  assert.equal(placing(undefined, tools), 'off');
-  assert.equal(placing({ agent: 'claude', model: 'haiku', terms: 2 }, tools), 'on');
-  // Agreed to what was sent before projects had a line each: asked again.
-  assert.equal(placing({ agent: 'claude', model: 'haiku', terms: 0 }, tools), 'again');
-  assert.equal(placing({ agent: 'codex', model: 'gpt-5-mini', terms: 2 }, tools), 'again');
-  assert.equal(placing({ agent: 'codex', model: 'gpt-6-luna', terms: 2 }, [tools[0]!]), 'again');
+const tool = (agent: string, model: string, pays: 'plan' | 'billed', ms: number | null) => ({ agent, model, pays, ms, terms: 3 });
+/** As `route.terms` proposes them: what costs nothing more first, the fastest first among those. */
+const TOOLS = [tool('claude', 'haiku', 'plan', 3700), tool('codex', 'gpt-6-luna', 'plan', 4700), tool('agy', 'gemini-3.8-flash-low', 'plan', 5600)];
+const by = (terms: number, ...agents: [string, string, boolean][]) => ({ terms, agents: agents.map(([agent, model, on]) => ({ agent, model, on })) });
+
+test('placing by the person\'s agents is on only for what this Tasktap would ask', () => {
+  assert.equal(placing(null, TOOLS), 'off');
+  assert.equal(placing(undefined, TOOLS), 'off');
+  assert.equal(placing(by(3, ['codex', 'gpt-6-luna', true], ['claude', 'haiku', false]), TOOLS), 'on');
+  assert.equal(first(by(3, ['codex', 'gpt-6-luna', true], ['claude', 'haiku', true]), TOOLS), 'codex');
+  // A consent to one agent that a core before this one kept reads as a list of it alone, to the terms then: asked again.
+  assert.equal(placing(by(2, ['claude', 'haiku', true]), TOOLS), 'again');
+  assert.equal(first(by(2, ['claude', 'haiku', true]), TOOLS), undefined);
+  // A model Tasktap asks no more is asked again; every one switched off, or none that can place now, is off.
+  assert.equal(placing(by(3, ['codex', 'gpt-5-mini', true]), TOOLS), 'again');
+  assert.equal(placing(by(3, ['claude', 'haiku', false]), TOOLS), 'off');
+  assert.equal(placing(by(3, ['codex', 'gpt-6-luna', true]), [TOOLS[0]!]), 'off');
+});
+
+test('the placing group lists the agreement in its order, then the others in Tasktap\'s, and moves by one', () => {
+  const rows = (b: Parameters<typeof ranked>[0], tools = TOOLS) => ranked(b, tools).map((r) => `${r.agent}${r.on ? '' : ' off'}`).join(', ');
+  // Nothing agreed yet: Tasktap's order, every one on.
+  assert.equal(rows(null), 'claude, codex, agy');
+  // The person's order; one not agreed to yet is off at the end; one that cannot place now is not shown.
+  assert.equal(rows(by(3, ['agy', 'gemini-3.8-flash-low', true], ['claude', 'haiku', false])), 'agy, claude off, codex off');
+  assert.equal(rows(by(3, ['codex', 'gpt-6-luna', true]), [TOOLS[0]!]), 'claude off');
+  // Each row's place among those on; one switched off has none.
+  assert.deepEqual(places(ranked(by(3, ['agy', 'x', true], ['claude', 'x', false], ['codex', 'x', true]), TOOLS)), [1, null, 2]);
+  const r = ranked(null, TOOLS);
+  assert.deepEqual(moved(r, 2, 0).map((x) => x.agent), ['agy', 'claude', 'codex']);
+  assert.deepEqual(moved(r, 0, 1).map((x) => x.agent), ['codex', 'claude', 'agy']);
+  // At either end it stays.
+  assert.deepEqual(moved(r, 0, -1).map((x) => x.agent), ['claude', 'codex', 'agy']);
+  assert.deepEqual(moved(r, 2, 3).map((x) => x.agent), ['claude', 'codex', 'agy']);
+  // Tasktap's order again, each as it was switched.
+  const mine = moved([...r.slice(0, 2), { ...r[2]!, on: false }], 2, 0);
+  assert.deepEqual(proposed(mine, TOOLS).map((x) => `${x.agent}${x.on ? '' : ' off'}`), ['claude', 'codex', 'agy off']);
+  // What is written: the rows, then what was agreed of one not shown now, with the model asked now; one Tasktap no
+  // longer asks at all is let go.
+  const kept = by(2, ['codex', 'gpt-5-mini', false], ['claude', 'haiku', true], ['gone', 'm', true]);
+  assert.deepEqual(agreement(ranked(kept, [TOOLS[0]!]), kept, TOOLS, 3), by(3, ['claude', 'haiku', true], ['codex', 'gpt-6-luna', false]));
+});
+
+test('each agent says why it stands where it does, or until when it is passed over', () => {
+  const at = (ms: number) => new Date(ms).toISOString().slice(11, 16);
+  assert.equal(placeWhy(TOOLS[0]!, null, 0, at), 'included in your subscription · about 4 s');
+  assert.equal(placeWhy(tool('codex', 'gpt-6-luna', 'billed', 4700), null, 0, at), 'billed by your provider · about 5 s');
+  assert.equal(placeWhy(tool('own', 'm', 'billed', null), null, 0, at), 'billed by your provider');
+  const four = Date.UTC(2026, 10, 19, 16);
+  assert.equal(placeWhy(TOOLS[0]!, four, four - 60_000, at), 'out of quota until 16:00');
+  // Once the time has come it stands as before.
+  assert.equal(placeWhy(TOOLS[0]!, four, four, at), 'included in your subscription · about 4 s');
 });
 
 test('a ring counts what its agent works on, and asking is its state, not part of the count', () => {
@@ -218,4 +264,14 @@ test('a thought the core refuses is back in the field, before what was typed sin
   // With nothing typed since, it is back as it was; so is a thought Undo takes back.
   assert.equal(back('fix the header', ' \n'), 'fix the header');
   assert.equal(back('fix the header', 'next'), 'fix the header\nnext');
+});
+test('an agreement to older terms is said once, in Setup, and on no thought; any other reason a model was not asked is', () => {
+  const route = (fallback: string | null) => ({ route: { by: 'local', model: null, pending: false, fallback, quote: null, title: null, ms: 1 } }) as Pick<Thought, 'route'>;
+  const again = 'the agreement was to what was sent before: placing now asks your agents one after another, and asks you again';
+  assert.equal(fallback(route(again)), null);
+  assert.equal(fallback(route('the agreement is for Codex with o4, and Tasktap now asks gpt-6-luna')), null);
+  assert.equal(fallback(route('claude: it did not answer within 12 s')), 'claude: it did not answer within 12 s');
+  assert.equal(fallback(route(null)), null);
+  assert.equal(placed({ placed: 'name', ...route(again) }, (id) => id), 'Placed by name');
+  assert.equal(placed({ placed: 'name', ...route('claude: it did not answer within 12 s') }, (id) => id), 'Placed by name. claude: it did not answer within 12 s');
 });

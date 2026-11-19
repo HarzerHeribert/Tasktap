@@ -42,7 +42,7 @@ use tasktap_proto::{Answer, Ask, Event, MAX_LINE, MAX_TEXT, QuestionKind, ReplyV
 use super::rules::Rules;
 use super::{
     Agent, Caps, Detect, Headless, Heard, Payload, Prompt, Run, WORDS, activity, digest, fit, line,
-    permission, quoted, said,
+    permission, quota, quoted, said,
 };
 
 pub struct Claude;
@@ -82,6 +82,37 @@ const SMALL: &str = "haiku";
 /// question itself, with its instructions, is on standard input.
 const SYSTEM: &str = "You follow the instructions in the message exactly \
      and answer only with the JSON they ask for.";
+
+/// Whether what `claude -p` printed says the person's plan or key has
+/// reached its usage limit: its one JSON object is an error whose result
+/// begins as Claude Code's own program (2.1.328) begins every such message
+/// ("You've hit your 5-hour limit · resets 4pm (Europe/Berlin)", "You've
+/// hit your weekly limit · resets Nov 21, 4pm (…)", "You've hit your
+/// monthly spend limit", "You're out of usage credits", "Your org is out of
+/// usage · …"), as versions before 2.1 wrote it ("Claude AI usage limit
+/// reached|1760000000"), or the provider's own 429.
+fn spent(printed: &str, _: &str) -> Option<quota::Back> {
+    const BEGINS: &[&str] = &[
+        "You've hit your",
+        "You’ve hit your",
+        "You've reached your",
+        "You’ve reached your",
+        "You're out of",
+        "You’re out of",
+        "Your org is out of usage",
+    ];
+    let said: Value = serde_json::from_str(printed.trim()).ok()?;
+    let result = said
+        .get("result")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let limited = BEGINS.iter().any(|b| result.starts_with(b))
+        || result.to_ascii_lowercase().contains("usage limit reached")
+        || said.get("api_error_status").and_then(Value::as_u64) == Some(429)
+        || said.get("api_error_type").and_then(Value::as_str) == Some("rate_limit_error");
+    let error = said.get("is_error") == Some(&Value::Bool(true));
+    (error && limited).then(|| quota::back(result))
+}
 
 /// Reads what `claude -p --output-format json` printed: one JSON object,
 /// whose `structured_output` is the answer that fits the schema.
@@ -266,6 +297,7 @@ impl Agent for Claude {
                 let said = serde_json::from_str::<Value>(printed.trim()).unwrap_or_default();
                 said.get("api_error_type").and_then(Value::as_str) == Some("not_found_error")
             },
+            quota: spent,
         })
     }
 

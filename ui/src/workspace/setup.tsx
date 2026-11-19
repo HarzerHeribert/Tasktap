@@ -16,7 +16,7 @@ import { local, model } from '../speech/local.ts';
 import { voiced } from '../speech/record.ts';
 import { HERE } from '../system.ts';
 import { I, Mark } from '../ui.tsx';
-import { placing } from '../way.ts';
+import { first, placing } from '../way.ts';
 import { Row } from './form.tsx';
 import { agentName, call, dismiss, fail, open, placers, pref, records, redraw, ui } from './model.ts';
 import { Details, ProjectsSheet, projectsStep } from './projects.tsx';
@@ -29,7 +29,8 @@ const size = (bytes: number) => (bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB`
 const share = (have: number, of: number) => `${Math.floor((100 * have) / Math.max(1, of))} %`;
 
 /** The steps, each with what its line says and the one thing it does. Placing is a step only where an agent that is
- *  signed in could place, or the person already answered. */
+ *  signed in could place, or the person already answered; an agreement to terms this Tasktap no longer asks under is
+ *  not done, and says so here, in the one place it is said ("Agree again"), and not on every thought. */
 function useSteps(): Step[] {
   const p = projectsStep();
   const by = pref('route_by'), answered = records.prefs.has('route_by'), placers_ = placers();
@@ -38,11 +39,13 @@ function useSteps(): Step[] {
     id: 'projects', label: 'Find your projects', says: p.says, done: p.done, act: p.done ? 'See…' : 'Look…',
     go: () => open({ kind: 'setup', step: 'projects' }),
   }];
+  const state = placing(by, placers_), asks = first(by, placers_), more = by ? by.agents.filter((x) => x.on).length - 1 : 0;
   if (placers_.length || answered)
     steps.push({
-      id: 'placing', label: 'Let a model place thoughts',
-      says: placing(by, placers_) === 'on' ? `By ${agentName(by!.agent)} · ${by!.model}` : answered ? 'By name only' : 'For thoughts that name no project',
-      done: answered, act: answered ? 'Change…' : 'Choose…',
+      id: 'placing', label: 'Let your agents place thoughts',
+      says: state === 'on' && asks ? `By ${agentName(asks)}${more > 0 ? `, then ${more} more` : ''}` : state === 'again' ? 'Agree again: placing now asks your agents one after another'
+        : answered ? 'By name only' : 'For thoughts that name no project',
+      done: answered && state !== 'again', act: state === 'again' ? 'Agree again…' : answered ? 'Change…' : 'Choose…',
       // The entry point placing has today (consent.tsx), as it is.
       go: () => open({ kind: 'placing' }),
     });

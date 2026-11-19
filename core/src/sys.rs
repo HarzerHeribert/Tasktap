@@ -178,6 +178,41 @@ mod unix {
     /// Only Windows opens a window for a program that has none to write in.
     pub fn no_window(_: &mut Command) {}
 
+    /// Seconds the person's clock is ahead of UTC at `at`, as the C
+    /// library's time zone says; none where it cannot say.
+    #[allow(unsafe_code)]
+    pub fn utc_offset(at: tasktap_proto::Time) -> Option<i64> {
+        use std::ffi::{c_char, c_int};
+        // The C library's broken-down time: nine numbers, then on macOS and
+        // on Linux (glibc and musl alike) the offset, a `long`, which is 64
+        // bits on every system this core builds for, and the zone's name.
+        #[repr(C)]
+        struct Tm {
+            fields: [c_int; 9],
+            gmtoff: i64,
+            zone: *const c_char,
+        }
+        unsafe extern "C" {
+            fn tzset();
+            fn localtime_r(time: *const i64, result: *mut Tm) -> *mut Tm;
+        }
+        let secs = i64::try_from(at.get() / 1000).ok()?;
+        let mut tm = Tm {
+            fields: [0; 9],
+            gmtoff: 0,
+            zone: std::ptr::null(),
+        };
+        // SAFETY: tzset reads the zone's settings and touches no memory of
+        // ours; localtime_r reads `secs` (time_t is 64 bits on every system
+        // this core builds for) and writes only into `tm`, both of which
+        // live through the call.
+        let done = unsafe {
+            tzset();
+            localtime_r(&secs, &mut tm)
+        };
+        (!done.is_null()).then_some(tm.gmtoff)
+    }
+
     /// The process at the other end of a connection, as the kernel says.
     pub fn peer_pid(stream: &Stream) -> Option<u32> {
         let pid = stream.peer_cred().ok()?.pid()?;
@@ -689,6 +724,28 @@ mod windows {
         let cols = window.Right - window.Left + 1;
         let rows = window.Bottom - window.Top + 1;
         Some((u16::try_from(cols).ok()?, u16::try_from(rows).ok()?))
+    }
+
+    /// Seconds the person's clock is ahead of UTC now, as the system's time
+    /// zone says (daylight saving time where it is in force); none where it
+    /// cannot say. Asked about a time near now only.
+    pub fn utc_offset(_: tasktap_proto::Time) -> Option<i64> {
+        use windows_sys::Win32::System::Time::{
+            GetTimeZoneInformation, TIME_ZONE_ID_INVALID, TIME_ZONE_INFORMATION,
+        };
+        // SAFETY: an all-zero TIME_ZONE_INFORMATION is a valid value, and
+        // the call writes only into `info`, which lives through it.
+        let (zone, info) = unsafe {
+            let mut info: TIME_ZONE_INFORMATION = std::mem::zeroed();
+            (GetTimeZoneInformation(&mut info), info)
+        };
+        // 2 is TIME_ZONE_ID_DAYLIGHT: the daylight bias is in force.
+        let bias = match zone {
+            TIME_ZONE_ID_INVALID => return None,
+            2 => info.Bias + info.DaylightBias,
+            _ => info.Bias + info.StandardBias,
+        };
+        Some(-i64::from(bias) * 60)
     }
 
     /// The folder lives in the user's profile, whose access list already

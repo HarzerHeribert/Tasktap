@@ -11,7 +11,7 @@ import { Capture, askedHere, cap } from '../capture.tsx';
 import { next, pending, running, settle, Status, Told } from '../changes.tsx';
 import { Ask } from '../question.tsx';
 import { I, Mark, Seat, type State, elapsed, said, when } from '../ui.tsx';
-import { laterWhy, placed } from '../way.ts';
+import { fallback, laterWhy, placed } from '../way.ts';
 import { Light, useLight } from './light.tsx';
 import { popup } from './menu.ts';
 import { Setup } from './setup.tsx';
@@ -126,7 +126,7 @@ function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean })
       <Meta where={projectName(t.project_id)} who={who} fact={fact} />
       {kind === 'res' && t.workdir && <span class="hr-d"><Status t={{ ...t, workdir: t.workdir }} /></span>}
       {changes && <Told t={changes} />}
-      {t.route?.fallback && <p class="hr-n">{placed(t, agentName)}</p>}
+      {fallback(t) && <p class="hr-n">{placed(t, agentName)}</p>}
       {acts}
     </div>
   );
@@ -152,7 +152,7 @@ export function ChangeActs({ t }: { t: Changed }) {
 function LaterRow({ t }: { t: Thought }) {
   const send = () => open({ kind: 'send', thought: t.id });
   return (
-    <div class={`hr later${t.id === cap.sent?.id ? ' new' : ''}`} data-nav tabIndex={0} title={[t.text, t.route?.fallback].filter(Boolean).join('\n')} onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && (e.preventDefault(), send())}>
+    <div class={`hr later${t.id === cap.sent?.id ? ' new' : ''}`} data-nav tabIndex={0} title={[t.text, fallback(t)].filter(Boolean).join('\n')} onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && (e.preventDefault(), send())}>
       <Mark s="later" />
       <span class="hr-t">{title(t)}</span>
       <time>{when(t.created)}</time>
@@ -161,7 +161,7 @@ function LaterRow({ t }: { t: Thought }) {
         <button type="button" class="btn" onClick={send}>Send to a folder…</button>
         <button type="button" class="btn" onClick={() => void call('delete', { c: 'thoughts', id: t.id }).catch(fail)}>Drop</button>
       </div>
-      {t.route?.fallback && <p class="hr-n">{t.route.fallback}</p>}
+      {fallback(t) && <p class="hr-n">{fallback(t)}</p>}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 // What every page has: its one connection to the core, the records it holds, one redraw, the
 // element to focus next, and the words the records are shown in. Each page's bundle has its own.
-import { type AgentHealth, PREF_DEFAULTS, type Question, type RouteTerms, type SpeechTerms, type Thought, type TurnResult } from '../../core/proto/protocol.ts';
+import { type AgentHealth, PREF_DEFAULTS, type PlaceTool, type Question, type RouteTerms, type SpeechTerms, type Thought, type TurnResult } from '../../core/proto/protocol.ts';
 import { tauriBridge } from './bridge.ts';
 import { Client, Records, type Where } from './client.ts';
 import { TALK } from './keys.ts';
@@ -119,12 +119,15 @@ export const title = (t: Thought | undefined) => {
 export const terms = { route: null as RouteTerms | null, speech: null as SpeechTerms | null };
 export const loadTerms = () =>
   Promise.all([call('route.terms', {}).then((t) => (terms.route = t)), call('speech.terms', {}).then((t) => (terms.speech = t))]).then(redraw, () => {});
-/** The agents whose model can place thoughts: those the core would ask that are installed and signed in. */
-export const placers = () =>
+/** An agent that can place thoughts, with the version of the terms it would be asked under. */
+export type Placeable = PlaceTool & { terms: number };
+/** The agents whose model can place thoughts, in Tasktap's order: those the core would ask that are installed and
+ *  signed in. */
+export const placers = (): Placeable[] =>
   (terms.route?.tools ?? []).filter((t) => {
     const a = records.agents.get(t.agent);
     return runs(a) && a!.signed_in !== false;
-  });
+  }).map((t) => ({ ...t, terms: terms.route!.terms }));
 
 /** Open questions, oldest first: their ids are time ordered. */
 export const openQuestions = (): Question[] =>

@@ -4,7 +4,7 @@
 // by a model is on, what a ring says of its agent,
 // the time a recording shows, where heard words go in a field, and what a field holds while its thought is sent. The
 // pages draw these and decide nothing themselves.
-import type { RouteBy, Thought } from '../../core/proto/protocol.ts';
+import type { PlaceTool, RouteBy, Thought } from '../../core/proto/protocol.ts';
 
 /** The two letters of an agent the app has no mark for, from its id, which is what a person types to start it: the
  *  initials of its first two words, or the first two letters of its one. */
@@ -54,12 +54,19 @@ export function hold(t: T, now: number): { share: number; ms: number } | null {
   return { share: Math.min(1, ms / all), ms };
 }
 
+/** Why a model was not asked about a thought, as the core said it; none where that was an agreement to older terms
+ *  (core route.rs `valid`): that is said once, in Setup's placing step ("Agree again"), not on every thought. */
+export const fallback = (t: Pick<Thought, 'route'>) => {
+  const f = t.route?.fallback ?? null;
+  return f && /^the agreement /.test(f) ? null : f;
+};
+
 /** How a thought came by its place, in a few words, from the core's word for it. "Placed by" only where the match on
  *  names or a model placed it. Where the person decided (a pick, a follow-up to the session they were in, an answer to
  *  where it should go) `route` only says who wrote the brief. Why a model was not used is the core's sentence, as it is;
  *  with no word (the asking was cut short) that sentence is all there is to say. */
 export function placed(t: Pick<Thought, 'placed' | 'route'>, agent: (id: string) => string): string | null {
-  const r = t.route, who = r && r.by !== 'local' ? `${agent(r.by)}${r.model ? ` · ${r.model}` : ''}` : '';
+  const r = t.route && { ...t.route, fallback: fallback(t) }, who = r && r.by !== 'local' ? `${agent(r.by)}${r.model ? ` · ${r.model}` : ''}` : '';
   switch (t.placed) {
     case 'name':
       return `Placed by name${r?.quote ? `: you said “${r.quote}”` : ''}${r?.fallback ? `. ${r.fallback}` : ''}`;
@@ -90,11 +97,73 @@ export function laterWhy(t: Pick<Thought, 'placed' | 'route'>, agent: (id: strin
   }
 }
 
-/** Placing by a model: off, on, or agreed to once for something this Tasktap no longer asks (`again`). */
-export function placing(by: RouteBy | null | undefined, tools: RouteBy[]): 'off' | 'on' | 'again' {
+/** An agent that can place thoughts, with the version of the terms it would be asked under (page.ts `placers`). */
+type Tool = PlaceTool & { terms: number };
+
+/** Placing by the person's agents: off (none agreed to, or every one switched off), on (one at least that can place
+ *  now is switched on), or agreed to once for something this Tasktap no longer asks (`again`): other terms, or only
+ *  models it asks no more. */
+export function placing(by: RouteBy | null | undefined, tools: Tool[]): 'off' | 'on' | 'again' {
   if (!by) return 'off';
-  // A consent to what was sent before (`terms`, the version of what is sent) is asked for again.
-  return tools.some((t) => t.agent === by.agent && t.model === by.model && t.terms === by.terms) ? 'on' : 'again';
+  // An agreement to what was sent before (`terms`, the version of what is sent and to whom) is asked for again.
+  if (tools.length && tools.some((t) => t.terms !== by.terms)) return 'again';
+  const on = by.agents.filter((p) => p.on);
+  if (!on.length) return 'off';
+  if (on.some((p) => tools.some((t) => t.agent === p.agent && t.model === p.model))) return 'on';
+  return on.some((p) => tools.some((t) => t.agent === p.agent)) ? 'again' : 'off';
+}
+
+/** The first agent the person lets place thoughts that can now: the one that is asked first. */
+export const first = (by: RouteBy | null | undefined, tools: Tool[]) =>
+  by?.agents.find((p) => p.on && tools.some((t) => t.agent === p.agent && t.model === p.model && t.terms === by.terms))?.agent;
+
+/** One row of the placing group: an agent that can place, and whether the person lets it. */
+export type Rank = { agent: string; model: string; on: boolean };
+
+/** The rows of the placing group: the agents of the agreement that can place now, in its order, each as it is
+ *  switched; then the others that can, in Tasktap's order, off where there is an agreement (it was not given for
+ *  them) and on where there is none yet (all of them are what is proposed). Each with the model Tasktap asks now. */
+export function ranked(by: RouteBy | null | undefined, tools: PlaceTool[]): Rank[] {
+  const tool = (agent: string) => tools.find((t) => t.agent === agent);
+  const listed = (by?.agents ?? []).filter((p) => tool(p.agent)).map((p) => ({ agent: p.agent, model: tool(p.agent)!.model, on: p.on }));
+  const rest = tools.filter((t) => !listed.some((p) => p.agent === t.agent)).map((t) => ({ agent: t.agent, model: t.model, on: !by }));
+  return [...listed, ...rest];
+}
+
+/** Tasktap's order for the rows: the order `route.terms` proposes, each kept as it is switched. */
+export const proposed = (rows: Rank[], tools: PlaceTool[]) =>
+  [...rows].sort((a, b) => tools.findIndex((t) => t.agent === a.agent) - tools.findIndex((t) => t.agent === b.agent));
+
+/** The rows with the one at `from` moved to `to`. */
+export function moved(rows: Rank[], from: number, to: number): Rank[] {
+  const next = [...rows], at = Math.max(0, Math.min(rows.length - 1, to));
+  const [row] = next.splice(from, 1);
+  if (row) next.splice(at, 0, row);
+  return next;
+}
+
+/** Each row's place among those switched on, from 1; none for one switched off. */
+export const places = (rows: Rank[]) => {
+  let n = 0;
+  return rows.map((r) => (r.on ? ++n : null));
+};
+
+/** The agreement the rows make, to `terms`: the rows in their order, then what was agreed of agents not shown now
+ *  (signed out, say) that Tasktap still asks, as it was, with the model it asks now. */
+export function agreement(rows: Rank[], by: RouteBy | null | undefined, all: PlaceTool[], terms: number): RouteBy {
+  const kept = (by?.agents ?? []).filter((p) => !rows.some((r) => r.agent === p.agent)).flatMap((p) => {
+    const t = all.find((x) => x.agent === p.agent);
+    return t ? [{ agent: p.agent, model: t.model, on: p.on }] : [];
+  });
+  return { agents: [...rows, ...kept], terms };
+}
+
+/** Why an agent stands where it does in Tasktap's order, or why it is passed over now: its plan at its usage limit
+ *  until a time (`limited`, as the core keeps it; `at` gives the time as the person's clock shows it). */
+export function placeWhy(t: PlaceTool, limited: number | null | undefined, now: number, at: (ms: number) => string): string {
+  if (limited && limited > now) return `out of quota until ${at(limited)}`;
+  const pays = t.pays === 'plan' ? 'included in your subscription' : 'billed by your provider';
+  return t.ms ? `${pays} · about ${Math.max(1, Math.round(t.ms / 1000))} s` : pays;
 }
 
 /** What an agent's ring says: how many of its thoughts are being worked on, and its state: not signed in, one of

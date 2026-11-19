@@ -10,8 +10,10 @@ here=$(cd "$(dirname "$0")" && pwd)
 source "$here/job.sh"
 # --desktop NAME (desktop.sh's, with --tower) then runs the desktop round into desktop-rounds\NAME there while the job
 # still holds the checkout, so that no other job changes it between the build and the round; --rows are its rows.
-ref='' target=x86_64 run=0 desktop='' rows=''
-usage() { echo 'usage: host.sh [ref] [--tower] [--no-polite|--polite] [--x64|--arm64] [--run] [--desktop NAME [--rows 3,14]]' >&2; exit 2; }
+# --gpu NAME (gpu.sh's) runs the graphics processor's round into gpu-rounds\NAME there in the same way, with
+# --gpu-args as gpu.ps1's own arguments (with -Rehearse over SSH, in no desktop: the VM's rehearsal).
+ref='' target=x86_64 run=0 desktop='' rows='' gpu='' gpu_args=''
+usage() { echo 'usage: host.sh [ref] [--tower] [--no-polite|--polite] [--x64|--arm64] [--run] [--desktop NAME [--rows 3,14]] [--gpu NAME [--gpu-args ARGS]]' >&2; exit 2; }
 while (($#)); do
   case $1 in
     --arm64) target=aarch64 ;;
@@ -19,10 +21,12 @@ while (($#)); do
     --run) run=1 ;;
     --desktop) [[ $# -ge 2 && $2 =~ ^[0-9-]+$ ]] || usage; desktop=$2; shift ;;
     --rows) [[ $# -ge 2 && $2 =~ ^[0-9+,]+$ ]] || usage; rows=$2; shift ;;
+    --gpu) [[ $# -ge 2 && $2 =~ ^[0-9-]+$ ]] || usage; gpu=$2; shift ;;
+    --gpu-args) [[ $# -ge 2 && $2 =~ ^[\ A-Za-z0-9_:-]*$ ]] || usage; gpu_args=$2; shift ;;
     -*) machine_option "$1" || usage ;;
     *) [[ -z $ref ]] || usage; ref=$1 ;;
   esac
   shift
 done
 sha=$(git rev-parse --verify --end-of-options "${ref:-HEAD}^{commit}")
-submit "$here/host.ps1" "$sha" "target=$target" "run=$run" "desktop=$desktop" "only=${rows//,/:}"
+submit "$here/host.ps1" "$sha" "target=$target" "run=$run" "desktop=$desktop" "only=${rows//,/:}" "gpu=$gpu" "gpuargs=$gpu_args"

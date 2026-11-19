@@ -471,6 +471,55 @@ fn a_migration_backs_up_first_and_applies() {
     assert!(old.begin().unwrap().project(p.id).unwrap().is_some());
 }
 
+/// The owner's real data holds a consent to one agent, as 1.2's successor
+/// before this one kept it: it reads as an agreement listing that agent
+/// alone, switched on, to the terms the person saw then, which cover
+/// nothing now, so the person is asked again (design §8). A No stays No.
+#[test]
+fn a_consent_to_one_agent_reads_as_an_agreement_that_lists_it_alone() {
+    use tasktap_proto::{Placer, RouteBy};
+    let kept = |name: &str, value: serde_json::Value| -> Option<RouteBy> {
+        let dir = Dir::new(name);
+        drop(Store::open_with(&dir.db(), &MIGRATIONS[..3], at(OPENED)).unwrap());
+        let db = rusqlite::Connection::open(dir.db()).unwrap();
+        let row = json!({"id": "route_by", "value": value});
+        db.execute(
+            "INSERT INTO prefs (id, rev, data) VALUES ('route_by', 3, ?1)",
+            [row.to_string()],
+        )
+        .unwrap();
+        drop(db);
+        let (mut store, _) = Store::open(&dir.db(), at(OPENED)).unwrap();
+        let tx = store.begin().unwrap();
+        match tx.pref(PrefKey::RouteBy).unwrap().unwrap().value {
+            PrefValue::RouteBy(by) => by,
+            other => panic!("{other:?}"),
+        }
+    };
+    let by = kept(
+        "consent",
+        json!({"agent": "claude", "model": "haiku", "terms": 2}),
+    );
+    let claude = Placer {
+        agent: "claude".into(),
+        model: "haiku".into(),
+        on: true,
+    };
+    assert_eq!(
+        by,
+        Some(RouteBy {
+            agents: vec![claude.clone()],
+            terms: 2,
+        })
+    );
+    let refused = tasktap_core::route::agreed(&by.unwrap()).err().unwrap();
+    assert!(refused.contains("asks you again"), "{refused}");
+    // Older still, with no version of the terms at all.
+    let by = kept("consent-0", json!({"agent": "claude", "model": "haiku"}));
+    assert_eq!(by.map(|by| (by.agents, by.terms)), Some((vec![claude], 0)));
+    assert_eq!(kept("consent-no", json!(null)), None);
+}
+
 #[test]
 fn a_migration_that_fails_halfway_changes_nothing() {
     let dir = Dir::new("migrate-fail");

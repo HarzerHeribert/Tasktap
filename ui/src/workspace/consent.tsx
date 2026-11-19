@@ -1,20 +1,22 @@
-// The two things that leave this Mac only once the person has allowed them, and where they allow them: a model that
-// places thoughts and writes their brief (the `route_by` preference), and a speech service that turns what they say
-// into text (`speech_by`). Each is a sheet that shows, in the core's own words (`route.terms`, `speech.terms`), what is
-// sent and to whom before anything is stored; Allow writes the preference, and its section of Settings says what is
-// on and turns it off. Nothing here is kept by the page.
+// The two things that leave this Mac only once the person has allowed them, and where they allow them: their own
+// agents' models, which place thoughts and write their brief (the `route_by` preference: which agents, in the order
+// they are asked), and a speech service that turns what they say into text (`speech_by`). Each is a sheet that shows,
+// in the core's own words (`route.terms`, `speech.terms`), what is sent and to whom before anything is stored; Allow
+// writes the preference, and its section of Settings says what is on, changes it and turns it off. Nothing here is
+// kept by the page.
 //
 // Speech has a second way that sends nothing: on this Mac, by a model the person downloads once (speech/local.ts).
 // Its row says what it needs, how far the download is, that it is ready and how large, or why it failed, and removes
 // it. Which of the two is in use is the `speech_by` preference alone: with it the service, without it this Mac.
-import { useEffect, useState } from 'preact/hooks';
+import type { RouteBy } from '../../../core/proto/protocol.ts';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { cap } from '../capture.tsx';
 import { keyName } from '../keys.ts';
 import { talkKey } from '../page.ts';
 import { type Local, local, model, watch } from '../speech/local.ts';
 import { I, Ring } from '../ui.tsx';
-import { placing } from '../way.ts';
-import { agent, agentName, call, dismiss, fail, focus, loadTerms, open, placers, pref, records, redraw, terms } from './model.ts';
+import { type Rank, agreement, moved, placeWhy, places, placing, proposed, ranked } from '../way.ts';
+import { agentName, call, dismiss, fail, loadTerms, open, placers, pref, records, redraw, terms } from './model.ts';
 import { Row } from './form.tsx';
 import { type Act, Frame } from './sheets.tsx';
 import { HERE, mac } from '../system.ts';
@@ -23,68 +25,147 @@ const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 // ——— Placing thoughts ———
 
-/** Settings, "Thoughts": whether a model places them, whose, and the way to what it is sent. */
-export function Thoughts() {
-  const tools = placers(), by = pref('route_by'), state = placing(by, tools);
-  const sheet = () => open({ kind: 'placing', back: true });
+/** A time as the person's clock shows it. */
+const at = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+/** The agents that place thoughts, in the person's order: a row each, with its place among those switched on, its
+ *  ring, its name, the model it is asked for and why it stands there (or until when it is passed over), and its
+ *  switch. ↑ ↓ go from row to row, ⌥↑ ⌥↓ move the one in focus, Space switches it; a row is dragged by any part but
+ *  its switch. `set` is given the rows after each change. */
+function Ranks({ rows, set }: { rows: Rank[]; set: (rows: Rank[]) => void }) {
+  const list = useRef<HTMLDivElement>(null);
+  const [held, hold] = useState<number | null>(null);
+  const n = places(rows), tools = terms.route?.tools ?? [];
+  const row = (i: number) => list.current?.querySelectorAll<HTMLElement>('.rank')[i];
+  const toggle = (i: number) => set(rows.map((r, j) => (j === i ? { ...r, on: !r.on } : r)));
+  const keys = (i: number) => (e: KeyboardEvent) => {
+    const step = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0, plain = !e.metaKey && !e.ctrlKey && !e.shiftKey;
+    if (step && plain && e.altKey) {
+      const to = i + step;
+      if (to < 0 || to >= rows.length) return e.preventDefault();
+      set(moved(rows, i, to));
+      requestAnimationFrame(() => row(to)?.focus());
+    } else if (step && plain) row(i + step)?.focus();
+    else if (e.key === ' ' && plain && !e.altKey) toggle(i);
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  // Picked up where it is pressed, it goes where the pointer is over another row, and stays where it is let go.
+  const press = (i: number) => (e: PointerEvent) => {
+    if (e.button !== 0 || (e.target as HTMLElement).closest('.switch')) return;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    hold(i);
+  };
+  const drag = (e: PointerEvent) => {
+    if (held === null) return;
+    const to = [...(list.current?.querySelectorAll<HTMLElement>('.rank') ?? [])].findIndex((el) => {
+      const b = el.getBoundingClientRect();
+      return e.clientY >= b.top && e.clientY < b.bottom;
+    });
+    if (to >= 0 && to !== held) (set(moved(rows, held, to)), hold(to));
+  };
+  const drop = () => held !== null && (row(held)?.focus(), hold(null));
   return (
-    <Row name="Placing" hint={state === 'on' ? 'It reads each thought that names no folder, and writes the brief from long ones. Your own words always go along.'
-      : state === 'again' ? 'What Tasktap asks has changed. Until you agree again, thoughts go by name.'
-        : `A thought goes to the folder or session it names.${!tools.length && terms.route ? ' A model can place them once an agent is signed in.' : ''}`}>
-      {state === 'on' && <><span class="v">By {agentName(by!.agent)} · {by!.model}</span><button type="button" class="btn" onClick={sheet}>What it is sent…</button></>}
-      {state === 'again' && <><span class="v warn">Needs agreeing again</span><button type="button" class="btn" onClick={sheet}>Look again…</button></>}
-      {state === 'off' && <span class="v">By name</span>}
-      {state === 'off' && tools.length > 0 && <button type="button" class="btn" onClick={sheet}>Let a model place them…</button>}
+    <div class="ranks" role="list" aria-label="Who places them, the first asked first" ref={list}>
+      {rows.map((r, i) => {
+        const t = tools.find((x) => x.agent === r.agent);
+        const limited = records.agents.get(r.agent)?.limited;
+        const why = t ? placeWhy(t, limited, Date.now(), at) : '';
+        return (
+          <div key={r.agent} class={`line rank${held === i ? ' held' : ''}${r.on ? '' : ' off'}`} role="listitem" tabIndex={0}
+            aria-label={`${n[i] ? `${n[i]}, ` : ''}${agentName(r.agent)}, ${r.on ? 'on' : 'off'}, ${why}`}
+            onKeyDown={keys(i)} onPointerDown={press(i)} onPointerMove={drag} onPointerUp={drop} onPointerCancel={drop}>
+            <span class="n">{n[i] ?? ''}</span>
+            <Ring agent={r.agent} s="" />
+            <span class="t">{agentName(r.agent)}</span>
+            <span class={`x${limited && limited > Date.now() ? ' warn' : ''}`} title={`${r.model} · ${why}`}>{r.model} · {why}</span>
+            <button type="button" role="switch" class="switch" tabIndex={-1} aria-checked={r.on} aria-label={`${agentName(r.agent)} places thoughts`} onClick={() => toggle(i)}><span /></button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The rows of the placing group and what changes them: with an agreement to these terms each change is written at
+ *  once; without one, the rows are Tasktap's proposal until the person allows them. */
+function useRanks() {
+  const t = terms.route, tools = placers(), by = pref('route_by');
+  const agreed = !!by && !!t && by.terms === t.terms;
+  const [draft, setDraft] = useState<Rank[] | null>(null);
+  const rows = draft ?? ranked(agreed ? by : null, tools);
+  const write = (next: Rank[]) => call('put', { c: 'prefs', id: 'route_by', patch: agreement(next, by, t?.tools ?? [], t?.terms ?? 0) });
+  const set = (next: Rank[]) => (setDraft(next), agreed && void write(next).catch(fail));
+  const reset = () => set(proposed(rows, t?.tools ?? []));
+  return { t, tools, by, agreed, rows, set, write, reset, state: placing(by, tools) };
+}
+
+/** What a row-moving list is moved by, said once under it. */
+const MOVES = `${mac ? '⌥↑ ⌥↓' : 'Alt+↑ Alt+↓'} or a drag moves a row, Space switches it.`;
+
+/** Settings, "Thoughts": while placing is agreed to, the same group as its sheet, changed in place, and the way to
+ *  what is sent; else whether thoughts go by name, and the way to agree. */
+export function Thoughts() {
+  const { tools, by, agreed, rows, set, reset, state } = useRanks();
+  const sheet = () => open({ kind: 'placing', back: true });
+  const on = rows.filter((r) => r.on).map((r) => agentName(r.agent));
+  if (agreed && tools.length)
+    return (
+      <Row name="Placing" hint={`${on.length ? `A thought that names no folder goes to ${on.length > 1 ? 'the first of these that answers' : on[0]}.` : 'Every agent is switched off, so thoughts go by name.'} ${MOVES}`}>
+        <Ranks rows={rows} set={set} />
+        <button type="button" class="btn" onClick={reset}>Tasktap’s order</button>
+        <button type="button" class="btn" onClick={sheet}>What it is sent…</button>
+      </Row>
+    );
+  return (
+    <Row name="Placing" hint={state === 'again' ? 'Placing now asks your agents one after another. Until you agree again, thoughts go by name.'
+      : `A thought goes to the folder or session it names.${!tools.length && terms.route ? ' Your agents can place them once one is signed in.' : ''}`}>
+      {state === 'again' ? <span class="v warn">Needs agreeing again</span> : <span class="v">By name</span>}
+      {tools.length > 0 && <button type="button" class="btn" onClick={sheet}>{state === 'again' ? 'Look again…' : 'Let your agents place them…'}</button>}
     </Row>
   );
 }
 
-/** What placing by a model gives, who would read the thoughts, exactly what is sent, and the instructions in full
- *  behind one quiet line. Allow writes the preference; while it is on, the same sheet turns it off. */
+/** Placing: what it gives, the one sentence of what is sent and to whom, the person's agents in the order they are
+ *  asked (Tasktap's proposal until the person changes it), and the instructions in full behind one quiet line.
+ *  Allow writes the agreement; while there is one, each change is written at once and the same sheet turns it off.
+ *  Opened as `open({ kind: 'placing' })`, from Settings with `back`. */
 export function PlacingSheet({ back }: { back?: boolean }) {
-  const t = terms.route, tools = placers(), by = pref('route_by'), state = placing(by, tools);
-  const [pick, setPick] = useState('');
+  const { t, tools, by, agreed, rows, set, write, reset, state } = useRanks();
   const [reads, setReads] = useState(false);
   useEffect(() => void loadTerms(), []);
-  // The agent already agreed to, else the one that runs the thoughts, else the first that can.
-  const chosen = tools.find((x) => x.agent === pick) ?? tools.find((x) => x.agent === (state === 'on' ? by!.agent : agent()?.id)) ?? tools[0];
   const done = () => (back ? open({ kind: 'settings', at: 'thoughts' }) : dismiss());
-  const put = (patch: typeof by) => void call('put', { c: 'prefs', id: 'route_by', patch }).then(done, fail);
+  const put = (patch: RouteBy | null) => void call('put', { c: 'prefs', id: 'route_by', patch }).then(done, fail);
   const no = () => {
     cap.offer = false;
     // Asked once: No is an answer, kept like Yes.
     if (records.prefs.has('route_by')) done();
     else put(null);
   };
-  const same = state === 'on' && chosen?.agent === by!.agent;
-  const acts: Act[] = !chosen ? [{ k: 'esc', label: 'Close', do: done }]
+  const ready = !!t && tools.length > 0;
+  const acts: Act[] = !ready ? [{ k: 'esc', label: 'Close', do: done }]
     // Turned off, the preference holds No rather than nothing, so what was answered is not offered again; to the core both are no consent.
-    : same ? [{ k: '⌘⌫', label: 'Turn off', kind: 'danger', do: () => put(null) }, { k: 'esc', label: 'Close', do: done }]
-      : [{ k: '↩', label: state === 'on' ? `Use ${agentName(chosen.agent)} instead` : 'Allow', kind: 'primary', do: () => put(chosen) }, { k: 'esc', label: state === 'off' ? 'Not now' : 'Close', do: state === 'off' ? no : done }];
+    : agreed ? [{ k: '⌘⌫', label: 'Turn off', kind: 'danger', do: () => put(null) }, { k: 'esc', label: 'Close', do: done }]
+      : [{ k: '↩', label: state === 'again' ? 'Agree again' : 'Allow', kind: 'primary', do: () => void write(rows).then(done, fail) },
+        { k: 'esc', label: records.prefs.has('route_by') ? 'Close' : 'Not now', do: no }];
+  const before = by?.agents.filter((p) => p.on).map((p) => agentName(p.agent)) ?? [];
   return (
-    <Frame size="md" title={state === 'on' ? 'A model places your thoughts' : state === 'again' ? 'Placing needs agreeing again' : 'Let a model place your thoughts'} acts={acts}>
+    <Frame size="md" title="Placing" acts={acts}>
       <div class="terms">
-        {state === 'again' && <p class="warn">You agreed to {agentName(by!.agent)} with {by!.model}. Tasktap now asks {tools.find((x) => x.agent === by!.agent)?.model ?? 'another agent'}, so thoughts go by name until you agree again.</p>}
-        <ul class="gets">
-          <li>Say a thought without naming a folder. It goes where it belongs.</li>
-          <li>Ramble. The agent gets a brief written from what you said, and nothing you did not say.</li>
-          <li>Your own words are always sent along with the brief.</li>
-        </ul>
-        {!t ? <p>Asking what is sent…</p> : !chosen ? <p>No agent that can do this is signed in yet. Sign one in under Settings, Agents, then come back.</p> : (
+        {state === 'again' && <p class="warn">You agreed before to {before.join(' and ') || 'one agent'} alone. Placing now asks your agents one after another, so until you agree again, thoughts go by name.</p>}
+        <p>Say a thought without naming a folder, and one of your own agents places it where it belongs, with a brief written from what you said. Your own words always go along.</p>
+        {!t ? <p>Asking what is sent…</p> : !tools.length ? <p>No agent that can do this is signed in yet. Sign one in under Settings, Agents, then come back.</p> : (
           <>
-            <h3>Who reads them</h3>
-            <div class="list" role="radiogroup" aria-label="Who reads them">
-              {tools.map((x) => (
-                <button type="button" class="line tool" role="radio" aria-checked={x === chosen}
-                  onClick={(e) => (setPick(x.agent), focus(e.currentTarget.closest<HTMLElement>('.sheet')))}>
-                  <Ring agent={x.agent} s="" /><span class="t">{agentName(x.agent)}</span><span class="x">its small model, {x.model}, under the sign-in it already has{x.agent === 'agy' && '; each placing stays in its history'}</span>
-                </button>
-              ))}
-            </div>
-            <h3>What it is sent with each thought</h3>
+            <p>Each such thought goes to the first agent below that answers, one at a time, under the sign-in it already has. It is sent:</p>
             <ul class="sends">{t.sends.map((s) => <li>{s}</li>)}</ul>
-            <p>A short thought that names its folder is placed on {HERE} and sent nowhere.</p>
-            <button type="button" class="disc" aria-expanded={reads} onClick={() => setReads(!reads)}><I n="chev" /><span>The instructions it follows</span></button>
+            <Ranks rows={rows} set={set} />
+            <div class="rank-f">
+              <button type="button" class="btn" onClick={reset}>Tasktap’s order</button>
+              <span class="hint">{MOVES}</span>
+            </div>
+            <p class="hint">A short thought that names its folder is placed on {HERE} and sent nowhere.{rows.some((r) => r.agent === 'agy' && r.on) && ' Antigravity keeps each thought it is asked as a conversation in its history.'}</p>
+            <button type="button" class="disc" aria-expanded={reads} onClick={() => setReads(!reads)}><I n="chev" /><span>The instructions they follow</span></button>
             {reads && <pre class="instr" tabIndex={0}>{t.instructions}</pre>}
           </>
         )}

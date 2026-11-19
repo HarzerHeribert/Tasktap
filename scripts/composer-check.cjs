@@ -224,7 +224,7 @@ async function main() {
       await page.context().close();
 
       // Placing by a model agreed to: Tasktap decides, and says who reads it.
-      page = await open(browser, { label: 'workspace', records: { ...structuredClone(r), prefs: [...(r.prefs || []), { id: 'route_by', value: { agent: 'claude', model: 'haiku' }, rev: 2 }] }, url: server.url, dpr: 1 });
+      page = await open(browser, { label: 'workspace', records: { ...structuredClone(r), prefs: [...(r.prefs || []), { id: 'route_by', value: { agents: [{ agent: 'claude', model: 'haiku', on: true }], terms: 3 }, rev: 2 }] }, url: server.url, dpr: 1 });
       const model = await chip(page);
       expect(/^Tasktap decides · .+ reads it$/.test(model), `Home, placing by a model agreed to: the chip says "${model}", not who reads the thought`);
       await page.focus(FIELD);

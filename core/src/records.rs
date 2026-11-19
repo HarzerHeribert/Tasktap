@@ -222,21 +222,7 @@ impl Core {
         let order = |id: &str| crate::agents::all().iter().position(|a| a.id() == id);
         agents.sort_by_key(|a| order(&a.id));
         if checked {
-            use crate::agents::checks::{Said, keep_said};
-            let said: Vec<Said> = agents.iter().filter_map(Said::of).collect();
-            let data = self.terminals.data().to_owned();
-            // Off this thread, as every write to a file is, and always the
-            // newest: a write takes what is to be kept when it gets its
-            // turn, so one that waited for another never puts older rows
-            // over newer ones. One that fails costs the next core what
-            // this one learned, and nothing else.
-            let newest = self.said.clone();
-            *newest.lock().unwrap_or_else(|e| e.into_inner()) = Some(said);
-            let keep = move || {
-                let mut newest = newest.lock().unwrap_or_else(|e| e.into_inner());
-                newest.take().map(|said| keep_said(&data, &said))
-            };
-            crate::calls::aside(self, keep, |_, _| {});
+            self.keep_agents();
         }
         let sets = vec![Set::Agents(Rows {
             put: found.clone(),
@@ -249,6 +235,62 @@ impl Core {
             sets,
         }));
         Ok(found)
+    }
+
+    /// The agent's tool said the person's plan or key has reached its
+    /// usage limit: it is not asked to place a thought before `until`
+    /// (design §8). Its row says so, and the next core knows it.
+    pub fn limit_agent(
+        &mut self,
+        agent: &'static dyn crate::agents::Agent,
+        until: tasktap_proto::Time,
+    ) -> store::Result<()> {
+        let rev = self.store.take_rev()?;
+        let agents = &mut self.memory.agents;
+        // One not listed yet is, as found with no command of its own run.
+        let row = match agents.iter_mut().find(|row| row.id == agent.id()) {
+            Some(row) => row,
+            None => {
+                agents.push(crate::agents::checks::found(agent));
+                let all = crate::agents::all();
+                agents.sort_by_key(|row| all.iter().position(|a| a.id() == row.id));
+                let at = agents.iter().position(|row| row.id == agent.id());
+                &mut agents[at.unwrap_or_default()]
+            }
+        };
+        row.limited = Some(until);
+        row.rev = rev;
+        let put = vec![row.clone()];
+        self.keep_agents();
+        self.publish(Some(Change {
+            rev,
+            snap: false,
+            more: false,
+            sets: vec![Set::Agents(Rows {
+                put,
+                del: Vec::new(),
+            })],
+        }));
+        Ok(())
+    }
+
+    /// Keeps what the agents' rows say that the next core should know.
+    fn keep_agents(&self) {
+        use crate::agents::checks::{Said, keep_said};
+        let said: Vec<Said> = self.memory.agents.iter().filter_map(Said::of).collect();
+        let data = self.terminals.data().to_owned();
+        // Off this thread, as every write to a file is, and always the
+        // newest: a write takes what is to be kept when it gets its turn,
+        // so one that waited for another never puts older rows over newer
+        // ones. One that fails costs the next core what this one learned,
+        // and nothing else.
+        let newest = self.said.clone();
+        *newest.lock().unwrap_or_else(|e| e.into_inner()) = Some(said);
+        let keep = move || {
+            let mut newest = newest.lock().unwrap_or_else(|e| e.into_inner());
+            newest.take().map(|said| keep_said(&data, &said))
+        };
+        crate::calls::aside(self, keep, |_, _| {});
     }
 
     /// Puts the rows of the agents the person added as they are now, in
@@ -597,9 +639,9 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
             let value = PrefValue::from(patch);
             kept = value.key() == PrefKey::KeepDays;
             own = value.key() == PrefKey::OwnAgents;
-            // A consent names what this core would really ask (design §8).
+            // An agreement names what this core would really ask (design §8).
             if let PrefValue::RouteBy(Some(by)) = &value {
-                crate::route::consented(by).map_err(|why| Error::new(Code::Invalid, why))?;
+                crate::route::valid(by).map_err(|why| Error::new(Code::Invalid, why))?;
             }
             // As is a consent to a speech service, and the languages spoken.
             match &value {

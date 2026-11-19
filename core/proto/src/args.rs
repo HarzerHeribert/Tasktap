@@ -513,6 +513,10 @@ pub struct AgentHealth {
     /// this core has not run them yet and a core before it kept their answer,
     /// or they could not say this time whether it is signed in.
     pub stale: bool,
+    /// Its tool said, asked to place a thought, that the person's plan or
+    /// key has reached its usage limit: it is not asked again before this
+    /// time (design §8). Kept for the next core.
+    pub limited: Option<crate::ids::Time>,
     /// Its runs report through hooks; one that does not reports by exiting.
     pub events: bool,
     /// A new run can continue an ended session's conversation.
@@ -739,8 +743,8 @@ pub struct FixtureScript {
     pub agent: Option<String>,
 }
 
-/// `route.terms`: what routing by a model sends and to whom (design §8),
-/// for the person to read before they consent with the `route_by`
+/// `route.terms`: what placing by a model sends and to whom (design §8),
+/// for the person to read before they agree with the `route_by`
 /// preference.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -749,10 +753,27 @@ pub struct RouteTerms {
     pub instructions: String,
     /// What is sent with them, one line for each kind of field.
     pub sends: Vec<String>,
-    /// The agents whose tool can be asked, each with the model it asks,
-    /// in the order the core lists its agents. Each names these terms by
-    /// their version: a consent to an older version covers nothing.
-    pub tools: Vec<RouteBy>,
+    /// The version of these terms, which an agreement names: one to an
+    /// older version covers nothing.
+    pub terms: u32,
+    /// The agents whose tool can be asked, in the order Tasktap proposes:
+    /// those that cost the person nothing more first, then the fastest.
+    pub tools: Vec<PlaceTool>,
+}
+
+/// An agent that can place thoughts, as `route.terms` lists it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct PlaceTool {
+    /// The agent, by the id `agents.detect` lists.
+    pub agent: String,
+    /// The model its tool is asked for.
+    pub model: String,
+    /// What a placing costs the person, as far as Tasktap can tell.
+    pub pays: crate::records::Pays,
+    /// About how long it takes to place a spoken thought, in milliseconds,
+    /// as measured; none where it was not.
+    pub ms: Option<u32>,
 }
 
 /// Where a router sends a thought (design §8): the answer of `route.hint`,

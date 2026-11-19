@@ -20,11 +20,12 @@ import { Voice } from '../motion/voice.ts';
 import { I, Key } from '../ui.tsx';
 import { placing } from '../way.ts';
 import { AgentsPane } from './agents.tsx';
+import { ProjectsPane } from './projects.tsx';
 import { Speech, Thoughts, serviceName } from './consent.tsx';
 import { Choice, Recorder, Row, Switch, setPref } from './form.tsx';
 import { agent, agentName, call, fail, focus, loadTerms, openQuestions, placers, pref, records, redraw, ui } from './model.ts';
 
-export const SECTIONS = [['thoughts', 'Thoughts'], ['voice', 'Voice'], ['agents', 'Agents'], ['appearance', 'Appearance'], ['terminal', 'Terminal'], ['about', 'About']] as const;
+export const SECTIONS = [['thoughts', 'Thoughts'], ['projects', 'Projects'], ['voice', 'Voice'], ['agents', 'Agents'], ['appearance', 'Appearance'], ['terminal', 'Terminal'], ['about', 'About']] as const;
 export type Section = (typeof SECTIONS)[number][0];
 /** The section last shown: Settings opens there again unless a link asks for another. */
 export const shown = { at: 'thoughts' as Section };
@@ -271,7 +272,7 @@ function AboutPane() {
 }
 
 const PANES: Record<Section, () => ComponentChildren> = {
-  thoughts: () => <ThoughtsPane />, voice: () => <VoicePane />, agents: () => <AgentsPane />, appearance: () => <AppearancePane />, terminal: () => <TerminalPane />, about: () => <AboutPane />,
+  thoughts: () => <ThoughtsPane />, projects: () => <ProjectsPane />, voice: () => <VoicePane />, agents: () => <AgentsPane />, appearance: () => <AppearancePane />, terminal: () => <TerminalPane />, about: () => <AboutPane />,
 };
 
 export function Settings({ at }: { at: Section }) {

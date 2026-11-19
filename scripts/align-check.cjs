@@ -19,6 +19,9 @@
 // leads a row is centred on the capital letters of the words it leads, within a pixel); one baseline (words of
 // different sizes on one line of a row stand on it); and figures in the monospace face or tabular, their right edges
 // on one line down a list.
+// It measures the page at rest, the same however loaded the machine is: every animation is first held at a defined
+// point (one that ends at its end, one that runs on where it begins), and what moves (a wake, a sheet while the sidebar
+// slides) is watched until it has ended, up to a limit, never for a fixed moment.
 // usage: node scripts/align-check.cjs [--dist folder]   (exit status 1 on a failure; ui/dist must be built)
 const path = require('node:path');
 const { serve, open, scaled } = require('./motion-pages.cjs');
@@ -184,14 +187,17 @@ const hung = () => new Promise((done) => {
   if (Math.abs(off()) > 0.5) bad.push(`it is ${off().toFixed(1)} px off the window's centre`);
   if (Math.abs(s.top - bar.bottom) > 0.5) bad.push(`its top is ${(s.top - bar.bottom).toFixed(1)} px from the title bar's lower edge`);
   if (s.left < 15.5 || s.right > innerWidth - 15.5 || s.bottom > innerHeight - 15.5) bad.push('it does not keep 16 px to the window\'s edges');
-  let worst = 0, slides = 0;
+  let worst = 0, slides = 0, back = 0;
   const began = performance.now();
   window.__ws.command('sidebar');
+  // Both slides watched to their end, the second begun once the first has ended; up to a limit.
   const tick = () => {
     worst = Math.max(worst, Math.abs(off()));
-    if (!window.__ws.ui.slide && slides < 1 && performance.now() - began > 450) (slides++, window.__ws.command('sidebar'));
-    if (performance.now() - began < 1100) requestAnimationFrame(tick);
-    else done(worst > 0.5 ? [...bad, `it moves ${worst.toFixed(1)} px off the window's centre while the sidebar slides`] : bad);
+    const t = performance.now() - began;
+    if (!window.__ws.ui.slide && slides < 1 && t > 450) (slides++, (back = t), window.__ws.command('sidebar'));
+    if (t < 8000 && (slides < 1 || window.__ws.ui.slide || t - back < 450)) return void requestAnimationFrame(tick);
+    if (t >= 8000) bad.push('the sidebar had not slid away and back within 8 s');
+    done(worst > 0.5 ? [...bad, `it moves ${worst.toFixed(1)} px off the window's centre while the sidebar slides`] : bad);
   };
   requestAnimationFrame(tick);
 });
@@ -331,28 +337,56 @@ function band() {
 const rings = () => [...document.querySelectorAll('.home .ring')].map((r) => `${r.dataset.agent}:${r.dataset.s ?? 'ready'}${r.getAttribute('aria-checked') === 'true' ? ':runs' : ''}${r.querySelector('.turn') ? ':turns' : ''}${r.querySelector('b')?.textContent ?? ''}${r.querySelector('.fix') ? ':fix' : ''}`).join(' ');
 const RINGS = { busy: 'claude:asks:runs:turns3 codex:working:turns1', quiet: 'claude:ready:runs codex:ready', first: 'claude:ready:runs' };
 
-/** Starts a motion and watches it frame by frame: every glyph of the wake that shows must lie behind the moving edge
- *  of `sel` (its right edge across the window, or its lower edge down it), on the side the edge has come from. */
-const trail = ([start, sel, axis]) => new Promise((done) => {
+/** Every animation and transition in the page held at a defined point before anything is measured: one that ends (a
+ *  ring taking its seat, a sheet coming down, a row arriving) at its end, and one that runs on (a ring turning, the
+ *  light breathing) where it begins. What is measured is then the page at rest, however few frames a loaded machine
+ *  has drawn of it by then; nothing that stays on screen is left out, since an animation that ends is finished, not
+ *  skipped. */
+const settle = () => {
+  for (const a of document.getAnimations()) {
+    const end = a.effect?.getComputedTiming().endTime;
+    if (typeof end === 'number' && Number.isFinite(end)) a.finish();
+    else (a.pause(), (a.currentTime = 0));
+  }
+};
+
+/** Starts a motion and watches it to its end: every glyph of the wake must lie behind the moving edge of `sel` (its
+ *  right edge across the window, or its lower edge down it), on the side the edge goes from (`way`: +1 rightward or
+ *  downward, -1 leftward). A glyph is counted as it is shed, so one is seen however few frames a loaded machine draws
+ *  while it shows, and each that shows is held to the edge frame by frame. It ends once the edge has been still for
+ *  five frames, at least a slide's length after it began, and the wake it shed has gone; or after `limit` ms, which
+ *  it says. */
+const trail = ([start, sel, axis, way, limit]) => new Promise((done) => {
   document.querySelectorAll('.wake').forEach((w) => w.remove());
-  const out = { glyphs: 0, ahead: 0, frames: 0 }, began = performance.now();
-  let from = null, way = 0;
+  const out = { glyphs: 0, ahead: 0, frames: 0, late: false }, began = performance.now();
+  const edgeOf = () => document.querySelector(sel)?.getBoundingClientRect()[axis === 'x' ? 'right' : 'bottom'];
+  const ahead = (g, edge) => {
+    const b = g.getBoundingClientRect();
+    return (axis === 'x' ? (way > 0 ? b.right - edge : edge - b.left) : way > 0 ? b.bottom - edge : edge - b.top) > 0.5;
+  };
+  const shed = new MutationObserver((changes) => {
+    for (const c of changes)
+      for (const n of c.addedNodes) {
+        const glyphs = n instanceof Element ? [...(n.matches('.wake canvas') ? [n] : []), ...n.querySelectorAll('.wake canvas')] : [];
+        for (const g of glyphs) (out.glyphs++, edgeOf() !== undefined && ahead(g, edgeOf()) && out.ahead++);
+      }
+  });
+  shed.observe(document.body, { childList: true, subtree: true });
+  let last = null, still = 0;
+  const end = () => (shed.disconnect(), done(out));
   new Function(start)();
   const tick = () => {
-    const el = document.querySelector(sel);
-    if (!el) return done(out);
-    const edge = el.getBoundingClientRect()[axis === 'x' ? 'right' : 'bottom'];
-    from ??= edge;
-    way = Math.sign(edge - from) || way;
-    for (const g of document.querySelectorAll('.wake canvas')) {
-      const b = g.getBoundingClientRect();
-      if (Number(getComputedStyle(g).opacity) < 0.05) continue;
-      out.glyphs++;
-      if ((axis === 'x' ? (way > 0 ? b.right - edge : edge - b.left) : way > 0 ? b.bottom - edge : edge - b.top) > 0.5) out.ahead++;
-    }
+    const edge = edgeOf();
+    if (edge === undefined) return end();
+    still = edge === last ? still + 1 : 0;
+    last = edge;
+    for (const g of document.querySelectorAll('.wake canvas'))
+      if (Number(getComputedStyle(g).opacity) >= 0.05 && ahead(g, edge)) out.ahead++;
     out.frames++;
-    if (performance.now() - began < 900) requestAnimationFrame(tick);
-    else done(out);
+    const now = performance.now() - began;
+    if (now > limit) return ((out.late = true), end());
+    if (still >= 5 && now > 450 && !document.querySelector('.wake')) return end();
+    requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
 });
@@ -362,6 +396,8 @@ async function main() {
   const server = await serve(path.resolve(process.argv.includes('--dist') ? process.argv[process.argv.indexOf('--dist') + 1] : path.join(__dirname, '../ui/dist')));
   const browser = await chromium.launch({ headless: true });
   const failures = [], measured = new Set(), TWO = { two: true };
+  /** Measures in the page with its animations settled first (settle). */
+  const measure = (page, fn, arg) => page.evaluate(`(${settle})(), (${fn})(${arg === undefined ? '' : JSON.stringify(arg)})`);
   const views = [
     ['busy', null], ['busy', (w) => (w.__ws.ui.fold = 'results')], ['busy', (w) => (w.__ws.ui.fold = 'later')], ['normal', null], ['quiet', null], ['first', null],
     ['busy', (w) => w.__ws.show('earlier')], ['busy', (w) => (w.__ws.ui.sheet = { kind: 'close-tab', project: '', id: '' })], ['busy', (w) => w.document.querySelector('#dest-chip').click()],
@@ -401,14 +437,14 @@ async function main() {
         const page = await open(browser, { label: 'workspace', records: kind ? flow(scene(state), kind, opts) : scene(state), url: server.url, dpr: 1, viewport: { width, height } });
         if (act) await page.evaluate(`${helpers}; (${act})(window); window.__motion.redraw()`);
         await page.waitForTimeout(500);
-        const r = await page.evaluate(audit, [LISTS, KEY]);
+        const r = await measure(page, audit, [LISTS, KEY]);
         if (kind) measured.add(`flow: ${kind}`);
         if (!act && !kind && RINGS[state] && width !== 720) {
-          const got = await page.evaluate(rings);
+          const got = await measure(page, rings);
           measured.add('rings');
           if (got !== RINGS[state]) failures.push(`workspace ${state}: the agents' rings are "${got}", not "${RINGS[state]}"`);
         }
-        const parts = await page.evaluate(weights);
+        const parts = await measure(page, weights);
         r.seen.push(...parts.seen);
         r.bad.push(...parts.bad);
         r.seen.forEach((x) => measured.add(x.replace(/ ×\d+/, '')));
@@ -421,22 +457,26 @@ async function main() {
       const page = await open(browser, { label: 'workspace', records: scene(state), url: server.url, dpr: 2, viewport: { width: 1180, height: 900 } });
       if (act) await page.evaluate(`(${act})(window); window.__motion.redraw()`);
       await page.waitForTimeout(500);
-      const parts = await page.evaluate(weights);
+      const parts = await measure(page, weights);
       parts.seen.forEach((x) => measured.add(`${x} at 2x`));
       for (const b of parts.bad) failures.push(`workspace ${state} at 2x: ${b}`);
       await page.context().close();
     }
-    // The wake: right of the sidebar's edge as it closes, left of it as it opens. No sheet sheds one.
+    // The wake: right of the sidebar's edge as it closes, left of it as it opens. No sheet sheds one. A wake is made of
+    // the glyphs the sidebar's foot shows, so it is watched once those are drawn (the web view builds their program
+    // aside), waiting for that up to a limit rather than for a fixed moment.
     const moving = await open(browser, { label: 'workspace', records: scene('normal'), url: server.url, dpr: 1 });
-    await moving.waitForTimeout(1500);
-    for (const [name, ...motion] of [
-      ['the sidebar closing', "__ws.command('sidebar')", '.side', 'x'], ['the sidebar opening', "__ws.command('sidebar')", '.side', 'x'],
-      ['a decision coming down', "__ws.ui.sheet = { kind: 'close-tab', project: '', id: '' }; __motion.redraw()", '.sheet', 'y', true],
-      ['Settings coming down', "__ws.dismiss(); __ws.command('settings')", '.sheet', 'y', true],
+    const drawn = await moving.waitForFunction(() => document.querySelector('.spark .glyph canvas'), null, { timeout: 15000 }).then(() => true, () => false);
+    if (!drawn) failures.push('the sidebar\'s foot never drew its glyphs, of which a wake is made');
+    for (const [name, start, sel, axis, way, none] of [
+      ['the sidebar closing', "__ws.command('sidebar')", '.side', 'x', -1], ['the sidebar opening', "__ws.command('sidebar')", '.side', 'x', 1],
+      ['a decision coming down', "__ws.ui.sheet = { kind: 'close-tab', project: '', id: '' }; __motion.redraw()", '.sheet', 'y', 1, true],
+      ['Settings coming down', "__ws.dismiss(); __ws.command('settings')", '.sheet', 'y', 1, true],
     ]) {
-      const [, , , none] = motion, r = await moving.evaluate(trail, motion);
-      await moving.waitForTimeout(700);
+      if (!drawn) break;
+      const r = await moving.evaluate(trail, [start, sel, axis, way, 8000]);
       measured.add(none ? 'no wake from a sheet' : 'wake');
+      if (r.late) failures.push(`${name}: it had not come to rest, its wake gone, within 8 s`);
       if (none ? r.glyphs : !r.glyphs || r.ahead) failures.push(`${name}: ${none ? 'it shed a wake' : r.glyphs ? `${r.ahead} sightings of a wake glyph ahead of the edge` : 'no wake was shed'}`);
     }
     await moving.context().close();
@@ -460,7 +500,7 @@ async function main() {
         const after = await page.evaluate(`[...document.querySelectorAll('.light, .spark')].map((e) => e.dataset.moves).join()`);
         if (before === 'true') measured.add('the ambient layer rests behind a sheet');
         if (after.includes('true')) failures.push(`${name}, ${width}px: the ambient layer moves behind the sheet`);
-        for (const b of await page.evaluate(hung)) failures.push(`${name}, ${width}px: ${b}`);
+        for (const b of await measure(page, hung)) failures.push(`${name}, ${width}px: ${b}`);
         measured.add('sheets on the window\'s centre');
         await page.context().close();
       }
@@ -473,9 +513,9 @@ async function main() {
       await page.evaluate((x) => window.__fake.emit({ do: x }), a);
       if (then) await page.evaluate(`${helpers}; (${then})(window); window.__look({})`);
       await page.waitForTimeout(900);
-      const r = await page.evaluate(audit, [LISTS, KEY]);
+      const r = await measure(page, audit, [LISTS, KEY]);
       r.seen.forEach((x) => measured.add(x.replace(/ ×\d+/, '')));
-      for (const b of [...r.bad, ...(await page.evaluate(weights)).bad, ...(await page.evaluate(band)).map((x) => `the head row: ${x}`)]) failures.push(`notch ${a} ${sc}: ${b}`);
+      for (const b of [...r.bad, ...(await measure(page, weights)).bad, ...(await measure(page, band)).map((x) => `the head row: ${x}`)]) failures.push(`notch ${a} ${sc}: ${b}`);
       measured.add('the open notch\'s head row');
       await page.context().close();
     }
@@ -496,7 +536,7 @@ async function main() {
         await page.waitForTimeout(400);
         await page.keyboard.press('Escape');
         await page.waitForTimeout(900);
-        const bad = geo.cutout && state === 'idle' ? [] : await page.evaluate(glance, geo.width);
+        const bad = geo.cutout && state === 'idle' ? [] : await measure(page, glance, geo.width);
         measured.add('the collapsed notch');
         for (const b of bad) failures.push(`collapsed notch, ${display}, ${state}: ${b}`);
         await page.context().close();

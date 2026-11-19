@@ -1,5 +1,4 @@
-# host\scripts\smoke.ps1: what smoke.sh proves on the Mac, as far as it applies on Windows without the tab at the
-# top edge. It starts the built app on a temporary data folder, passive (it takes no keyboard and uses a clipboard
+# host\scripts\smoke.ps1: what smoke.sh proves on the Mac, as far as it is built for Windows. It starts the built app on a temporary data folder, passive (it takes no keyboard and uses a clipboard
 # of its own), with a core that has the fixture agent, drives it only through its debug channel (one command per
 # line on standard input), and says PASS or FAIL for:
 #   - the core starting and the host reaching it over its pipe, the workspace page running and having the core's
@@ -11,11 +10,14 @@
 #     of their own: changes that wait, Keep bringing them in, Discard asked first and taking them away;
 #   - previews beside a terminal: a page of the project and a local web address in a frame, and what a frame is
 #     held to (host\src\frames.rs), tried by the page the Mac's check uses (frame-probe.html);
+#   - the tab at the top edge: its window made with the notch's own page in it, opened and folded as the pointer
+#     and the capture key would, told through the debug channel (a passive run's tab takes neither; what the real
+#     pointer and keys do is the desktop round's, scripts\winvm\desktop.ps1);
 #   - the capture key, and the app quitting with nothing left running.
 #   pwsh host\scripts\build.ps1 -Fixtures
 #   pwsh host\scripts\smoke.ps1
 # The runs need git, the previews Node (for the check's own web server); without one, that part is said and not
-# run. What smoke.sh checks beyond this (the notch, speech, splits, the sheets, Settings, pictures) is not here yet:
+# run. What smoke.sh checks beyond this (most of the notch, speech, splits, the sheets, Settings, pictures) is not here yet:
 # scripts\winvm\README.md, "The smoke script".
 param(
     [string]$Target = $(if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'aarch64' } else { 'x86_64' }),
@@ -36,8 +38,10 @@ function Note($what) { Write-Host "NOTE  $what" }
 Copy-Item $Core "$tmp\agents\fixture-agent.exe"
 Copy-Item $Core "$tmp\agents\fixture.exe"
 # The project is a git repository with one commit, so a run can work in a copy of it (Keep and Discard). git reads
-# no configuration but the check's own.
+# no configuration but the check's own, for as long as the check runs: whoever called it has their own back after
+# (scripts\winvm\host.ps1 asks git about the checkout next, whose line endings the machine's configuration says).
 $git = [bool](Get-Command git -ErrorAction SilentlyContinue)
+$gitWas = $env:GIT_CONFIG_GLOBAL, $env:GIT_CONFIG_NOSYSTEM
 $env:GIT_CONFIG_GLOBAL = "$tmp\gitconfig"
 $env:GIT_CONFIG_NOSYSTEM = '1'
 if ($git) {
@@ -65,10 +69,10 @@ Start-App (Join-Path $App 'Tasktap Next.exe') @{
 } $Seconds
 
 # Waits until a page expression's value contains $want; what it last was is kept for the failure's line.
-function Has($expr, $want, $seconds = 10) {
+function Has($expr, $want, $seconds = 10, $page = 'workspace') {
     $until = (Get-Date).AddSeconds($seconds)
     do {
-        $script:last = "$(Js $expr 3)"
+        $script:last = "$(Js $expr 3 $page)"
         if ($last.Contains($want)) { return $true }
         Start-Sleep -Milliseconds 300
     } while ((Get-Date) -lt $until)
@@ -279,10 +283,25 @@ try {
         if ([Diagnostics.Process]::GetCurrentProcess().SessionId -ne 0) {
             if ("$key" -match '"alt":true' -and "$key" -match '"shift":true' -and "$key" -match '"code":"Space"') { Pass 'the capture key registers: Alt-Shift-Space' } else { Fail "the capture key registers (the host said: $key)" }
         } else {
-            $asked = Js "__ws.call('host.capture_key', { key: { control: true, alt: true, shift: false, meta: false, code: 'KeyT' } }).then(JSON.stringify, $refused)"
-            if ($key -eq '{"key":null}' -and "$asked" -match '^refused: .*taken') { Pass 'no desktop here (session 0): the host holds no capture key and says that one asked for is taken' } else { Fail "the capture key without a desktop (the host said: $key, then: $asked)" }
+            # (Not $asked: that is app.ps1's count of the questions asked of a page.)
+            $taken = Js "__ws.call('host.capture_key', { key: { control: true, alt: true, shift: false, meta: false, code: 'KeyT' } }).then(JSON.stringify, $refused)"
+            if ($key -eq '{"key":null}' -and "$taken" -match '^refused: .*taken') { Pass 'no desktop here (session 0): the host holds no capture key and says that one asked for is taken' } else { Fail "the capture key without a desktop (the host said: $key, then: $taken)" }
         }
     }
+    # The tab at the top edge (host\src\edge.rs): the notch's own page in a window of its own. A passive run's tab
+    # takes neither the pointer nor the keyboard, so what they do is told to it here, as smoke.sh tells the notch.
+    $open = "String(document.body.classList.contains('open'))"
+    if ((Seen '"made":true' 20) -and (Has 'typeof __records' 'object' 20 'notch')) { Pass 'the tab''s window is made once the workspace has drawn, and the notch''s own page runs in it' } else { Fail "the tab's window and its page (the page said: $last)" }
+    Send 'hover in'
+    $opened = Has $open 'true' 6 'notch'
+    Send 'hover out'
+    if ($opened -and (Has $open 'false' 6 'notch')) { Pass 'the pointer on the tab opens its sheet and the pointer away folds it' } else { Fail "the tab opens under the pointer and folds (opened: $opened; open after: $last)" }
+    Send 'capture'
+    $ready = Has "document.activeElement?.id ?? ''" 'capture-input' 6 'notch'
+    Send 'type notch From the tab'
+    $typed = Has "document.querySelector('#capture-input')?.value ?? ''" 'From the tab' 5 'notch'
+    Send 'key notch Escape'
+    if ($ready -and $typed -and (Has $open 'false' 6 'notch')) { Pass 'the capture key opens the tab with the caret in its field, what is typed is there, and Escape folds it' } else { Fail "capture in the tab (the caret ready: $ready; typed: $typed; open after Escape: $last)" }
     Send 'state'
     if (Until '"event":"state"' 5) { Pass 'the app says its state' } else { Fail 'the app says its state' }
 } finally {
@@ -291,10 +310,10 @@ try {
         Send 'call core.retire {"when":"now"}'
         $null = Until '"event":"reply","name":"core.retire"' 3
         Send 'quit'
-        $asked = Get-Date
+        $told = Get-Date
         $heard = Until '"event":"quitting"' 5
         if ($proc.WaitForExit(10000)) {
-            Pass "the app quits when told ($([int]((Get-Date) - $asked).TotalMilliseconds) ms)"
+            Pass "the app quits when told ($([int]((Get-Date) - $told).TotalMilliseconds) ms)"
         } else {
             $proc.Kill($true)
             # Seen over SSH on 2026-11-18: the app takes the request ("quitting") and its event
@@ -316,6 +335,7 @@ try {
     if ($left.Count) { Fail "left running: $(($left | ForEach-Object Name) -join ', ')"; $left | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500 } else { Pass 'nothing is left running' }
     if ($failed) { Write-Host '--- what the app said'; $seen | Where-Object { $_ -notmatch '"event":"report"' } | Select-Object -Last 40 | ForEach-Object { Write-Host "  $($_.Substring(0, [Math]::Min(300, $_.Length)))" } }
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    $env:GIT_CONFIG_GLOBAL, $env:GIT_CONFIG_NOSYSTEM = $gitWas
 }
 Write-Host $(if ($failed) { "$failed FAILED" } else { 'all passed' })
 exit $failed

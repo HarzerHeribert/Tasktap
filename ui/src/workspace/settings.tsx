@@ -21,7 +21,7 @@ import { I, Key, Ring, ago } from '../ui.tsx';
 import { placing } from '../way.ts';
 import { Speech, Thoughts, serviceName } from './consent.tsx';
 import { Choice, Recorder, Row, Switch, setPref } from './form.tsx';
-import { LOOSE, agent, agentName, call, dismiss, focus, loadTerms, newTerminal, openQuestions, placers, pref, records, redraw, runs, ui } from './model.ts';
+import { LOOSE, agent, agentName, call, dismiss, fail, focus, loadTerms, newTerminal, openQuestions, placers, pref, records, redraw, runs, ui } from './model.ts';
 
 export const SECTIONS = [['thoughts', 'Thoughts'], ['voice', 'Voice'], ['agents', 'Agents'], ['appearance', 'Appearance'], ['terminal', 'Terminal'], ['about', 'About']] as const;
 export type Section = (typeof SECTIONS)[number][0];
@@ -51,6 +51,13 @@ const texts: [TextSize, string][] = [['small', 'Small'], ['default', 'Default'],
 let capture: Shortcut | null | undefined;
 const askCapture = () => call('host.capture_key', {}).then((r) => ((capture = r.key), redraw()), () => {});
 const setCapture = (key: Shortcut | null) => call('host.capture_key', { key }).then((r) => ((capture = r.key), redraw()));
+/** Windows: where the tab at the top of the screen hangs, as the host has it, and the displays there are. Kept by
+ *  the host: a display belongs to this machine. Undefined on a Mac, whose notch is where its camera is. */
+let tab: { display: string; displays: { name: string; primary: boolean; width: number; height: number }[] } | undefined;
+const askTab = () => call('host.tab', {}).then((r) => ((tab = r), redraw()), () => {});
+const setTab = (display: string) => call('host.tab', { display }).then((r) => ((tab = r), redraw()), fail);
+/** A display as Windows numbers it: its own name there is `\\.\DISPLAY2`. */
+const displayName = (name: string) => name.replace(/^\\\\\.\\DISPLAY(\d+)$/, 'Display $1');
 const same = (a: Shortcut | null, b: Shortcut | null) => JSON.stringify(a && [a.control, a.alt, a.shift, a.meta, a.code]) === JSON.stringify(b && [b.control, b.alt, b.shift, b.meta, b.code]);
 
 // The microphone, only between the person's two clicks and only while Appearance is shown. Nothing is recorded.
@@ -92,7 +99,13 @@ async function toggleTrial() {
 function ThoughtsPane() {
   const hold = records.prefs.get('hold');
   const sends = pref('return_sends'), days = pref('keep_days'), stored = pref('capture_key');
-  useEffect(() => void askCapture(), []);
+  // (One effect, as before the tab: the sections are called inside Settings, so their hooks are its own, in order.)
+  useEffect(() => void (askCapture(), mac || askTab()), []);
+  const places: [string, string][] = !tab ? [] : [['main', 'Main display'], ['pointer', 'Where it was last opened'],
+    ...(tab.displays.length > 1 || !['main', 'pointer', 'off'].includes(tab.display)
+      ? [...new Set([...tab.displays.map((d) => d.name), ...(['main', 'pointer', 'off'].includes(tab.display) ? [] : [tab.display])])].map((name): [string, string] => [name, displayName(name)])
+      : []),
+    ['off', 'Off']];
   // The stored key is not the one in use: the system refused it when the app started.
   const lost = capture !== undefined && stored && !same(stored, capture);
   return (
@@ -106,9 +119,18 @@ function ThoughtsPane() {
       </Row>
       <Row name="From any app" hint={lost ? `The key you chose is taken by the system or another app${capture ? ', so the one shown is in use' : ', so no key is in use'}. Choose another, or use the default.`
         : capture === null ? 'The usual key is taken by the system or another app, so no key is in use. Record one of your own.'
-          : mac ? 'Opens the notch for a thought, whatever is in front.' : 'Brings Tasktap forward with a new thought, whatever is in front.'}>
+          : mac ? 'Opens the notch for a thought, whatever is in front.'
+            : tab?.display === 'off' ? 'Brings Tasktap forward with a new thought, whatever is in front.' : 'Opens the tab at the top of the screen for a thought, whatever is in front.'}>
         {capture !== undefined && <Recorder name="From any app" value={capture} own={!!stored} set={setCapture} />}
       </Row>
+      {tab && (
+        <Row name="Tab at the top of the screen" hint={tab.display === 'off' ? 'No tab. The key above brings Tasktap forward instead, and its icon stays in the notification area.'
+          : tab.display === 'main' ? 'Shows what runs and what waits, and opens under the pointer. The key above opens it on the display the pointer is on.'
+            : tab.display === 'pointer' ? 'Stays on the display where the key above last opened it.'
+              : 'On the main display while that one is not connected.'}>
+          <Choice name="Tab at the top of the screen" value={tab.display} all={places} set={setTab} />
+        </Row>
+      )}
       <Row name="Finished thoughts are kept" hint={days ? 'Applies from the next start, or within a day. Nothing that waits for you is ever removed.' : undefined}>
         <Choice name="Finished thoughts are kept" value={days} all={keeps.some(([n]) => n === days) ? keeps : [...keeps, [days, `${days} days`]]} set={(v) => setPref({ id: 'keep_days', patch: v })} />
       </Row>

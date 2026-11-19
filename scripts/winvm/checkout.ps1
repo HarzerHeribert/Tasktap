@@ -11,14 +11,26 @@ if ($Job.polite) {
     (Get-Process -Id $PID).PriorityClass = 'BelowNormal'
     $env:CARGO_BUILD_JOBS = $env:RUST_TEST_THREADS = [Math]::Max(1, [Math]::Floor([Environment]::ProcessorCount / 2))
 }
-# Windows releases this handle if the SSH session or build terminates.
-$lock = [IO.File]::Open("$root\checkout.lock", 'OpenOrCreate', 'ReadWrite', 'None')
+# Windows releases this handle if the SSH session or build terminates. Another job may hold it: several worktrees
+# send their jobs to one machine. It is waited for, a quarter of an hour at most.
+$lock = $null
+for ($tries = 0; -not $lock; $tries++) {
+    try { $lock = [IO.File]::Open("$root\checkout.lock", 'OpenOrCreate', 'ReadWrite', 'None') } catch {
+        if ($tries -ge 180) { throw 'Another job has held the checkout for a quarter of an hour.' }
+        if ($tries -eq 0) { Write-Host 'Waiting for another job to let go of the checkout' }
+        Start-Sleep -Seconds 5
+    }
+}
 $PSNativeCommandUseErrorActionPreference = $true
 if (-not (Test-Path "$checkout\.git")) {
     git "--git-dir=$gitDir" worktree add --detach $checkout $Job.commit
 }
 Set-Location $checkout
-if (git status --porcelain) { throw 'Checkout contains local edits. Save them in shell.sh first.' }
+# A file that differs from its commit in its line endings alone is no edit: Git reports one so wherever a commit
+# holds a file with the endings the checkout does not write, and would then refuse to leave that commit.
+$edits = @(git status --porcelain)
+if ($edits -and (($edits -notmatch '^ M ') -or (git diff --stat))) { throw 'Checkout contains local edits. Save them in shell.sh first.' }
+if ($edits) { git checkout --quiet --force --detach HEAD }
 # A checkout that is a clone of the repository, not a worktree of it, has to be given the commit.
 if (Test-Path "$checkout\.git" -PathType Container) { git fetch --quiet $gitDir "refs/tasktap/tests/$($Job.commit)" }
 git switch --detach $Job.commit

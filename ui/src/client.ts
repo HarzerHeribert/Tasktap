@@ -25,8 +25,18 @@ export type HostCalls = {
   'host.clipboard': { args: { text?: string }; result: string | null };
   /** The workspace page has drawn: its window may show. */
   'host.ready': { args: Record<string, never>; result: null };
-  /** The window minimised, maximised or put back, or closed: for the page's own caption buttons and menu (Windows). */
-  'host.window': { args: { do: 'minimize' | 'maximize' | 'close' }; result: null };
+  /** The window minimised, maximised or put back, or closed: for the page's own caption buttons and menu (Windows);
+   *  `quit` ends the app, which closing its window does not. */
+  'host.window': { args: { do: 'minimize' | 'maximize' | 'close' | 'quit' }; result: null };
+  /** What the capture key opens from another app: the notch with the keyboard in its field, on Windows the tab,
+   *  and New Task where there is neither. The workspace asks for it when the key is pressed with its window in
+   *  front and no field for a thought in view. */
+  'host.capture': { args: Record<string, never>; result: null };
+  /** Windows: the display the tab at the top of the screen hangs on: `main`, `pointer` (where it was last
+   *  opened), a display's own name, or `off` for no tab. With `display` the host keeps the choice, in its own
+   *  file since a display belongs to this machine, and carries it out. The reply is the choice and the displays
+   *  there are. A Mac's host has no such call. */
+  'host.tab': { args: { display?: string }; result: { display: string; displays: { name: string; primary: boolean; width: number; height: number }[] } };
   /** Has the system open a web address, or a path inside a folder the person opened (a file of text in the default
    *  text editor; anything else, and with `reveal`, shown in Finder). The host refuses everything else. `probe`:
    *  nothing is opened, and the reply is what would be, or null. A path is taken from `cwd` unless it is whole. */

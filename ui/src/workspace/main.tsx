@@ -303,6 +303,16 @@ records.onchange = () => {
   reconcile();
   redraw();
 };
+/** The capture key while this window is in front (docs/rebuild-plan.md, "The capture key on Home"). Home has a
+ *  field for a thought already, and so has New Task while it is open: the caret goes there, and nothing opens over
+ *  it. Anywhere else the key does what it does from another app, which is the host's to carry out. */
+function captureKey() {
+  if (ui.sheet?.kind === 'capture' || (ui.view === 'home' && !ui.sheet)) {
+    page.focus = '#capture-input';
+    return redraw();
+  }
+  void call('host.capture', {}).catch(fail);
+}
 /** Where the host, or the notch through it, sends the window: a session's terminal, or a part of Settings. */
 function arrive(at: string) {
   const section = SECTIONS.find(([id]) => at === `settings:${id}`)?.[0];
@@ -316,6 +326,9 @@ void listen<{ do: string; at?: string; id?: string; low?: boolean; url?: string;
   // A preview's frame tried to leave this machine: the host stopped it, and the person is offered the address.
   else if (payload.do === 'stopped' && payload.url) stop(payload.url);
   else if (payload.do === 'menu' && payload.id) command(payload.id);
+  // The capture key, with this window in front or brought there: the caret goes where a thought is typed. (Its own
+  // word: every page hears what the host says to any page, and `capture` is the notch's.)
+  else if (payload.do === 'capture-key') captureKey();
   // Low Power Mode began or ended: the effects follow it (light.tsx effects).
   else if (payload.do === 'power') (power.low = !!payload.low), redraw();
 });

@@ -38,13 +38,14 @@ function Until($pattern, $seconds = 10) {
     }
 }
 function Send($line) { $proc.StandardInput.WriteLine($line); $proc.StandardInput.Flush() }
-# The value of an expression in the workspace page; $null when the page does not answer in time. Each question
-# carries a mark and only the answer with that mark is taken: one that came too late (the page cannot answer while a
-# menu of the system's is open) is never read as the answer to the next.
-function Js($expr, $seconds = 5) {
+# The value of an expression in the workspace page, or in another page of the app (`notch`: the tab's); $null when
+# the page does not answer in time. Each question carries a mark and only the answer with that mark is taken: one
+# that came too late (the page cannot answer while a menu of the system's is open) is never read as the answer to
+# the next.
+function Js($expr, $seconds = 5, $page = 'workspace') {
     $script:asked++
     $mark = "q$asked"
-    Send "eval workspace Promise.all(['$mark', ($expr)])"
+    Send "eval $page Promise.all(['$mark', ($expr)])"
     $until = (Get-Date).AddSeconds($seconds)
     while ((Get-Date) -lt $until) {
         $line = Until '"event":"report"' ([Math]::Max(0.2, ($until - (Get-Date)).TotalSeconds))

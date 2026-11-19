@@ -29,7 +29,8 @@ block2 = "0.6"
 
 # The core's named pipe, read and written from two threads, its name and whose it is; the
 # clipboard and the power state (src/windows.rs); the window's caption buttons, its colours and
-# dark menus (src/chrome.rs). Both are in the tree already through Tauri.
+# dark menus (src/chrome.rs); the tab's window and the icon in the notification area (src/edge.rs,
+# src/tray.rs). Both are in the tree already through Tauri.
 [target.'cfg(windows)'.dependencies]
 sha2 = "0.11"
 # The web view's own settings, for the browser's keys it must not act on (src/chrome.rs), and what it is held to
@@ -39,7 +40,7 @@ windows-core = "0.62"
 # The system's folder dialog and a file to write a page's picture to (src/windows.rs): interfaces, which
 # windows-sys does not have. In the tree already through Tauri.
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common"] }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_DataExchange", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_Power", "Win32_System_Threading", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_DataExchange", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_Power", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Accessibility", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

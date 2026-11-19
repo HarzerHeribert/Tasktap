@@ -8,7 +8,12 @@
 // - the words of a capture the core refuses are not back in the field, before what was typed since;
 // - on Home, in the capture sheet or in the notch, a render that changed neither the field's words nor its width
 //   measures the field (which makes the page lay itself out there and then), or the field does not grow and shrink a
-//   line at a time up to its most lines, or does not follow its width.
+//   line at a time up to its most lines, or does not follow its width;
+// - where a thought goes (docs/projects-design.md, "What is there today"): the folder of a workspace the capture sheet
+//   was opened in holds after that sheet is put away, or on Home's own Composer; the newest thought's folder, or
+//   Scratch, is a default anywhere; the chip does not say where the thought goes and why in its few words, or its list
+//   has no Scratch, or marks no row or another than the chip says; a pick holds for more than its thought, or the chip
+//   goes back from it without saying so; or what is sent is not what the chip said.
 // usage: node scripts/composer-check.cjs [--dist folder]   (ui/dist must be built)
 const path = require('node:path');
 const { serve, open } = require('./motion-pages.cjs');
@@ -67,6 +72,135 @@ async function main() {
     expect((await page.locator('.capture .way.failed').textContent().catch(() => '')).includes('could not take it'), 'a refused capture: the core\'s sentence is not shown under the field');
     await page.context().close();
 
+    // Where it goes: the chip's words, the row its list marks, and what is sent.
+    {
+      const r = scene('normal'), P = r.ids.projects, now = Date.now();
+      // Scratch is open, and the newest thought reached it: by hand, or by a router that offered it.
+      r.projects = r.projects.map((p) => (p.id === P.scratch ? { ...p, open: true } : p));
+      const last = r.thoughts.reduce((a, b) => (a.created > b.created ? a : b));
+      r.thoughts = [...r.thoughts, { ...last, id: '019a8b6c-7d10-7000-8000-00000000f00d', project_id: P.scratch, session_id: null, phase: 'done', status: 'done', live: false, created: now, updated: now }];
+      r.hints = {
+        'fix the export in ledger-api': { confidence: 'clear', to: { project: P.ledger }, brief: 'fix the export in ledger-api' },
+        'and the timer too': { confidence: 'clear', to: { session: r.ids.timer.session }, brief: 'and the timer too' },
+        'move the timer from cuegrid to fieldnotes': { confidence: 'ambiguous', prompt: 'Where should this go?', candidates: [{ label: 'cuegrid', to: { project: P.cuegrid } }, { label: 'fieldnotes', to: { project: P.fieldnotes } }] },
+      };
+      // (Clicked as the align and type checks click it: a click of Chromium's own focuses the chip, which the list
+      // then replaces, and that closes the list again; WebKit's does not focus a button.)
+      const click = (page, at, name) => page.evaluate(([s, n]) => [...document.querySelectorAll(s)].find((b) => !n || b.textContent === n)?.click(), [at, name]);
+      const chip = (page, at = '') => page.evaluate((s) => [...document.querySelectorAll(`${s}#dest-chip > b, ${s}#dest-chip > span`)].map((e) => e.textContent).join(' · '), at);
+      // The list's rows, the one marked with a star; the list is put away again.
+      const rows = async (page, at = '') => {
+        await click(page, `${at}#dest-chip`);
+        await page.waitForTimeout(100);
+        const all = await page.evaluate((s) => [...document.querySelectorAll(`${s}.cap-list > button`)].map((b) => (b.getAttribute('aria-selected') === 'true' ? '*' : '') + b.textContent), at);
+        await page.keyboard.press('Escape');
+        return all.join(', ');
+      };
+      const says = async (page, words, where, at = '') => {
+        const now = await chip(page, at);
+        expect(now === words, `${where}: the chip says "${now}", not "${words}"`);
+      };
+      const marks = async (page, row, where, at = '') => {
+        const all = await rows(page, at), marked = all.split(', ').filter((x) => x.startsWith('*'));
+        expect(marked.length === 1 && marked[0] === `*${row}`, `${where}: the list marks ${marked.join(' and ') || 'no row'}, not "${row}" (${all})`);
+        expect(all.split(', ').includes('Scratch') || all.split(', ').includes('*Scratch'), `${where}: the list has no Scratch to choose (${all})`);
+      };
+      const typed = async (page, text) => (await page.keyboard.type(text), await page.waitForTimeout(400));
+      const sent = (page) => page.evaluate(() => window.__fake.sent);
+
+      // Home: nothing chosen and no model agreed to; Scratch is not the default though the newest thought is there.
+      page = await open(browser, { label: 'workspace', records: structuredClone(r), url: server.url, dpr: 1 });
+      await says(page, 'Tasktap decides · by its words', 'Home, the newest thought in Scratch');
+      await marks(page, 'Tasktap decides', 'Home');
+      await page.focus(FIELD);
+      await typed(page, 'fix the export in ledger-api');
+      await says(page, 'ledger-api · named in it', 'Home, a thought that names ledger-api');
+      await marks(page, 'ledger-api', 'Home, a thought that names ledger-api');
+      await page.fill(FIELD, '');
+      await page.focus(FIELD);
+      await typed(page, 'move the timer from cuegrid to fieldnotes');
+      await says(page, 'cuegrid or fieldnotes · you will be asked which', 'Home, a thought that names two');
+      await marks(page, 'Tasktap decides', 'Home, a thought that names two');
+      await page.fill(FIELD, '');
+      await page.focus(FIELD);
+      await typed(page, 'and the timer too');
+      const follow = await chip(page);
+      expect(/^Follow-up: .+ · named in it$/.test(follow), `Home, a thought that names a session: the chip says "${follow}"`);
+      await page.fill(FIELD, '');
+      await page.focus(FIELD);
+      await typed(page, 'buy milk');
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(200);
+      const asked = await sent(page);
+      expect(asked && !asked.project_id && asked.mode !== 'note', `Home: a thought with the chip at "Tasktap decides" was sent ${JSON.stringify(asked && { project_id: asked.project_id, mode: asked.mode })}, not for the router to place`);
+      // A pick is for its thought alone, and the chip says it went back.
+      await click(page, '#dest-chip');
+      await page.waitForTimeout(100);
+      await click(page, '.cap-list > button', 'fieldnotes');
+      await says(page, 'fieldnotes · your choice', 'Home, fieldnotes chosen');
+      await marks(page, 'fieldnotes', 'Home, fieldnotes chosen');
+      await page.focus(FIELD);
+      await typed(page, 'a thought for fieldnotes');
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(300);
+      expect((await sent(page))?.project_id === P.fieldnotes, 'Home: the thought sent with fieldnotes chosen did not go to fieldnotes');
+      await says(page, 'Back to Tasktap decides · by its words', 'Home, after the thought with fieldnotes chosen was sent');
+      await typed(page, 'the next one');
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(300);
+      const next = (await sent(page))?.project_id;
+      expect(!next, `Home: the thought after a chosen one was sent to ${next === P.fieldnotes ? 'the folder chosen for that one' : 'a folder nobody chose'}`);
+      await says(page, 'Tasktap decides · by its words', 'Home, after a thought nobody chose a place for');
+      // Scratch, chosen.
+      await click(page, '#dest-chip');
+      await page.waitForTimeout(100);
+      await click(page, '.cap-list > button', 'Scratch');
+      await says(page, 'Scratch · your choice', 'Home, Scratch chosen');
+      await page.focus(FIELD);
+      await typed(page, 'try something');
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(300);
+      expect((await sent(page))?.project_id === P.scratch, 'Home: the thought sent with Scratch chosen did not go to Scratch');
+
+      // New Task in a workspace: its folder, for that sheet; put away, Home's Composer has none of it.
+      await page.evaluate((p) => (window.__ws.show(p), window.__ws.command('new-task')), P.cuegrid);
+      await page.waitForTimeout(400);
+      await says(page, 'cuegrid · you are in it', 'New Task in cuegrid', '.sheet ');
+      await marks(page, 'cuegrid', 'New Task in cuegrid', '.sheet ');
+      await page.evaluate(() => window.__ws.dismiss());
+      await page.evaluate(() => window.__ws.show('home'));
+      await page.waitForTimeout(300);
+      await says(page, 'Tasktap decides · by its words', 'Home, after New Task in cuegrid was put away');
+      await page.evaluate((p) => (window.__ws.show(p), window.__ws.command('new-task')), P.scratch);
+      await page.waitForTimeout(400);
+      await says(page, 'Tasktap decides · by its words', 'New Task in Scratch', '.sheet ');
+      await page.evaluate(() => (window.__ws.dismiss(), window.__ws.show('home')));
+      await page.waitForTimeout(300);
+      await says(page, 'Tasktap decides · by its words', 'Home, after New Task in Scratch was put away');
+      for (const e of page.errors) failures.push(`where it goes: ${e}`);
+      await page.context().close();
+
+      // Placing by a model agreed to: Tasktap decides, and says who reads it.
+      page = await open(browser, { label: 'workspace', records: { ...structuredClone(r), prefs: [...(r.prefs || []), { id: 'route_by', value: { agent: 'claude', model: 'haiku' }, rev: 2 }] }, url: server.url, dpr: 1 });
+      const model = await chip(page);
+      expect(/^Tasktap decides · .+ reads it$/.test(model), `Home, placing by a model agreed to: the chip says "${model}", not who reads the thought`);
+      await page.context().close();
+
+      // No folder open: saved for later, and the chip says so.
+      page = await open(browser, { label: 'workspace', records: { ...structuredClone(r), projects: r.projects.map((p) => ({ ...p, open: p.kind === 'scratch' })) }, url: server.url, dpr: 1 });
+      await says(page, 'No folder yet · saved for later', 'Home, no folder open');
+      await page.context().close();
+
+      // The notch: never the newest thought's folder.
+      page = await open(browser, { label: 'notch', records: structuredClone(r), url: server.url, dpr: 1 });
+      await page.evaluate((g) => window.__fake.emit(g), GEO);
+      await page.evaluate(() => window.__fake.emit({ do: 'capture' }));
+      await page.waitForTimeout(600);
+      await says(page, 'Tasktap decides · by its words', 'the notch, the newest thought in Scratch');
+      for (const e of page.errors) failures.push(`the notch: ${e}`);
+      await page.context().close();
+    }
+
     // The field's height: measured when its words or its width change, and at no other time.
     for (const where of ['Home', 'the capture sheet', 'the notch']) {
       const notch = where === 'the notch', field = where === 'the capture sheet' ? `.sheet ${FIELD}` : FIELD, most = where === 'Home' ? 6 : 3;
@@ -115,7 +249,7 @@ async function main() {
     await server.close();
   }
   for (const f of failures) console.log('FAIL  ' + f);
-  console.log(failures.length ? `FAIL  the Composer's field: ${failures.length} things wrong` : 'PASS  the Composer\'s field takes every key while a capture is on its way, keeps what was typed for the next thought, sends a thought once, takes one back with ⌘Z, gets a refused one\'s words back, and is measured only when its words or its width change, growing and shrinking a line at a time');
+  console.log(failures.length ? `FAIL  the Composer's field: ${failures.length} things wrong` : 'PASS  the Composer\'s field takes every key while a capture is on its way, keeps what was typed for the next thought, sends a thought once, takes one back with ⌘Z, gets a refused one\'s words back, and is measured only when its words or its width change, growing and shrinking a line at a time; its chip says where a thought goes and why, never defaults to Scratch or the newest thought\'s folder, keeps a workspace\'s folder to the sheet opened there, marks its choice in a list that has Scratch, and says when a choice has gone with its thought');
   process.exitCode = failures.length ? 1 : 0;
 }
 main().catch((e) => (console.error(e), process.exit(1)));

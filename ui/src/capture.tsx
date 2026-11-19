@@ -1,7 +1,6 @@
 // The Composer, the same in the notch, the capture sheet and on Home: the thought on lines of its own; under it, inside
-// the field, where it will go (the person's pick, else where the router says, else wherever a model places it or the
-// default), the agents as rings (the seated one runs this thought: the usual one, or another picked for it alone), the
-// microphone, and the key that says what Return does.
+// the field, where it will go and why (`where`), the agents as rings (the seated one runs this thought: the usual one,
+// or another picked for it alone), the microphone, and the key that says what Return does.
 // A thought with no folder to go to is saved for later: it waits on Home until it is sent to one.
 //
 // Under the row is what is on its way, by one mechanism for typing and for voice (way.ts): speech being heard and
@@ -25,14 +24,19 @@ export type Sent = { id: string; text: string; to: string | 'later'; pick?: stri
 
 export const cap = {
   draft: '',
-  /** The person's own pick of destination for the thought in the field: a project id or 'later'. It goes with that
-   *  thought, so one saved for later, or sent to a folder by hand, does not decide where the next goes. */
+  /** The person's own pick of destination for the thought in the field: a project id, 'later', or '' for Tasktap
+   *  decides. It goes with that thought, so one saved for later, or sent to a folder by hand, does not decide where the
+   *  next goes. */
   dest: undefined as string | undefined,
   /** The agent the person picked for the thought in the field, by its ring. It goes with that thought and no further:
    *  the next is the usual agent's again (the `agent` preference, which only the Agents sheet changes). */
   agent: undefined as string | undefined,
-  /** The folder the person was in when they began the thought: where it goes when nobody says otherwise. Not a pick. */
+  /** The folder of the workspace the capture sheet was opened in, for that opening only: the sheet clears it when it is
+   *  put away, and Home's and the notch's Composers never have it. Not a pick, and never Scratch. */
   usual: undefined as string | undefined,
+  /** The place chosen for the thought this Composer sent last: the chip says it is back from it, until a place is
+   *  chosen again or the Composer is opened anew. */
+  back: undefined as string | undefined,
   /** Where the router would send the text typed now (route.hint), for the chip. */
   hint: null as { text: string; route: Route } | null,
   /** The session the person is in, which the router may send a follow-up to. */
@@ -56,7 +60,7 @@ const folder = (dest: string | undefined) => (dest && dest !== 'later' ? dest : 
 const routedProject = (r: Route | undefined) => (r?.confidence === 'clear' && 'project' in r.to ? r.to.project : undefined);
 
 /** The person's pick, while it can still be used. */
-export const picked = () => (cap.dest === 'later' || (cap.dest && records.projects.get(cap.dest)?.open) ? cap.dest : undefined);
+export const picked = () => (cap.dest === '' || cap.dest === 'later' || (cap.dest && records.projects.get(cap.dest)?.open) ? cap.dest : undefined);
 
 /** Where the router would send the text typed now, when it knows (route.hint): then Enter
  *  leaves the routing to it rather than picking for the person. */
@@ -65,26 +69,44 @@ export function hinted(): Route | undefined {
   return !picked() && r && r.confidence !== 'unknown' ? r : undefined;
 }
 
-/** Where the next capture goes when neither the person nor the router says: the folder they were in,
- *  else the project of the newest thought, else their first project. None until they have one: the chip offers to add it. */
-export function destination(): string | undefined {
-  const pick = picked();
-  if (pick) return pick;
-  if (cap.usual && records.projects.get(cap.usual)?.open) return cap.usual;
-  const newest = [...records.thoughts.values()]
-    .filter((t) => t.project_id && records.projects.get(t.project_id)?.open)
-    .sort((a, b) => b.created - a.created)[0];
-  return newest?.project_id ?? projects().find((p) => p.kind === 'folder')?.id;
+/** Where the thought in the field goes, who places it (`to` '' is the router's to say), and why
+ *  (docs/projects-design.md, "The chip"). The person's choice, for this thought alone; else a follow-up to the session
+ *  its words name or the person is in; else Tasktap decides with a model, where placing by one is agreed to; else the
+ *  folder of the workspace this Composer was opened in; else the folder its words name, or a question when they name
+ *  several; else Tasktap decides by its words, and one that names no folder is saved for later. Scratch is never a
+ *  default: a thought goes there only when the person chooses it. */
+function where(): { to: string; by: 'router' | 'pick' | 'later'; why: 'chosen' | 'follows' | 'model' | 'in' | 'named' | 'asked' | 'words' | 'none' } {
+  const pick = picked(), route = hinted(), folders = projects().some((p) => p.kind === 'folder');
+  const usual = pick === undefined && cap.usual ? records.projects.get(cap.usual) : undefined;
+  if (pick === 'later') return { to: pick, by: 'later', why: 'chosen' };
+  if (pick) return { to: pick, by: 'pick', why: 'chosen' };
+  if (route?.confidence === 'clear' && 'session' in route.to) return { to: '', by: 'router', why: 'follows' };
+  if (folders && pref('route_by')) return { to: '', by: 'router', why: 'model' };
+  if (usual?.open && usual.kind === 'folder') return { to: usual.id, by: 'pick', why: 'in' };
+  if (route) return { to: routedProject(route) ?? '', by: 'router', why: route.confidence === 'clear' ? 'named' : 'asked' };
+  return folders ? { to: '', by: 'router', why: 'words' } : { to: 'later', by: 'later', why: 'none' };
 }
-
-/** Where the next capture goes, and who says so: the router (the text names its place, or the person allowed a model
- *  to place what names none), the person's pick or the default, or nowhere yet. */
-function where(): { to: string; by: 'router' | 'pick' | 'later' } {
-  const route = hinted();
-  if (route) return { to: routedProject(route) ?? '', by: 'router' };
-  if (!picked() && pref('route_by') && projects().some((p) => p.kind === 'folder')) return { to: '', by: 'router' };
-  const to = destination();
-  return !to || to === 'later' ? { to: 'later', by: 'later' } : { to, by: 'pick' };
+/** What the chip says: where the thought goes, and why, in a few words. */
+function says(w: ReturnType<typeof where>, route: Route | undefined): [string, string] {
+  const label = route ? routeLabel(route) : '';
+  switch (w.why) {
+    case 'chosen':
+      return [projectName(folder(w.to)), 'your choice'];
+    case 'follows':
+      return [label, route?.confidence === 'clear' && 'session' in route.to && route.to.session === cap.current ? 'you are in it' : 'named in it'];
+    case 'model':
+      return ['Tasktap decides', `${agentName(pref('route_by')?.agent)} reads it`];
+    case 'in':
+      return [projectName(w.to), 'you are in it'];
+    case 'named':
+      return [label, 'named in it'];
+    case 'asked':
+      return [label, 'you will be asked which'];
+    case 'words':
+      return ['Tasktap decides', 'by its words'];
+    case 'none':
+      return ['No folder yet', 'saved for later'];
+  }
 }
 const named = (w: ReturnType<typeof where>): Partial<CaptureArgs> => (w.by === 'router' ? { current: cap.current } : w.by === 'pick' ? { project_id: w.to } : { mode: 'note' });
 
@@ -158,12 +180,13 @@ async function send(e: Event, hooks: Hooks) {
       if (undone) await call('delete', { c: 'thoughts', id: undone.id });
       await call('thought.capture', { id, text, strokes: [], source: 'typed', ...named(w), ...(by ? { agent: by } : {}) });
     }
-    // A thought that named no place and went to the usual one: the moment to offer placing by a model, once.
-    const offer = w.by === 'pick' && !pick && !cap.offered && !!hooks.terms && offerable();
+    // A thought that went where nobody chose, to the workspace's folder or wherever its words lead: the moment to offer
+    // placing by a model, once.
+    const offer = (w.why === 'in' || w.why === 'words') && !cap.offered && !!hooks.terms && offerable();
     Object.assign(cap, { sent: { id, text, to: w.to, pick, agent: by }, offer, offered: cap.offered || offer });
     page.error = '';
   });
-  Object.assign(cap, { hint: null, dest: undefined, agent: undefined, undone: null, refused: '' });
+  Object.assign(cap, { hint: null, dest: undefined, agent: undefined, undone: null, refused: '', back: pick });
   flights = Promise.allSettled([flights, gone]);
   redraw();
   // Refused: the words are back with their place and their agent, and the core's sentence is under them.
@@ -245,7 +268,7 @@ export function choose(open: boolean) {
 }
 
 function pick(dest: string) {
-  Object.assign(cap, { dest: dest || undefined, choosing: false });
+  Object.assign(cap, { dest, choosing: false, back: undefined });
   page.focus = '#capture-input';
   redraw();
 }
@@ -270,7 +293,7 @@ setAim((field): DictationTarget => {
   if (field?.id !== 'capture-input' || field.value.trim() || cap.undone) return { kind: 'text' };
   const w = where(), id = uuid7();
   const by = cap.agent;
-  Object.assign(cap, { sent: { id, text: '', to: w.to, pick: picked(), agent: by }, spoken: id, offer: false, dest: undefined, agent: undefined, refused: '' });
+  Object.assign(cap, { sent: { id, text: '', to: w.to, pick: picked(), agent: by }, spoken: id, offer: false, dest: undefined, agent: undefined, refused: '', back: picked() });
   return { kind: 'thought', id, text: '', strokes: [], source: 'voice', ...named(w), ...(by ? { agent: by } : {}) };
 });
 
@@ -471,8 +494,10 @@ function Rings({ hooks, session }: { hooks: Hooks; session?: string }) {
 export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { raised?: boolean; offer?: boolean }) {
   const route = hinted(), w = where();
   const folders = projects().filter((p) => p.kind === 'folder');
-  const later = w.by === 'later', model = w.by === 'router' && !route;
+  const later = w.by === 'later', model = w.why === 'model';
   const session = route?.confidence === 'clear' && 'session' in route.to ? route.to.session : undefined;
+  // After a thought with a place of its own is sent, the next goes where nobody chose, and the chip says it is back.
+  const [name, why] = says(w, route), back = cap.back !== undefined && !!cap.sent && cap.back !== w.to && (model || w.why === 'in' || w.why === 'words');
   // What Return does, which the key says: with a thought in the field it sends that; with none it starts the one that
   // waits, if one does; and while the last is still on its way to the core and nothing new is typed, it shows the wave.
   const has = !!cap.draft.trim(), now = !has && !!waiting(), busy = !has && cap.sending > 0;
@@ -531,21 +556,22 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
           // one, and for later. Return then picks, so the key that sends is away until one is picked.
           <div class="cap-row cap-list" role="listbox" aria-label="Where it goes" onKeyDown={arrows}
             onFocusOut={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && cap.choosing && ((cap.choosing = false), redraw())}>
-            {pref('route_by') && folders.length > 0 && option('', model, <I n="arrow" />, 'Tasktap decides')}
-            {folders.map((p) => option(p.id, !model && p.id === (w.to || routedProject(route)), <I n="folder" />, p.name))}
+            {folders.length > 0 && option('', w.by === 'router' && !w.to, <I n="arrow" />, 'Tasktap decides')}
+            {projects().map((p) => option(p.id, p.id === w.to, <I n="folder" />, p.name))}
             <button type="button" onClick={() => void addProject(hooks)}><I n="plus" /><span>Open a folder…</span></button>
             {option('later', later, <Mark s="later" label="" />, 'For later')}
           </div>
         ) : hearing ? <Hearing d={d} raised={raised} said={said} /> : (
           <div class="cap-row">
             <button type="button" class="cap-to" id="dest-chip" aria-haspopup="listbox" aria-expanded={false}
-              title={!folders.length ? 'No folder is open yet: a thought is saved for later until one is. Click to open one' : later ? 'Saved for later: nothing starts. Click to change'
-                : model ? `${agentName(pref('route_by')?.agent)} reads the thought and places it. Click to choose the place yourself` : 'Where it goes. Click to change'}
+              title={`${back ? 'Your choice was for the thought before. ' : ''}${!folders.length ? 'No folder is open yet: a thought is saved for later until one is. Click to open one' : later ? 'Saved for later: nothing starts. Click to change'
+                : model ? `${agentName(pref('route_by')?.agent)} reads the thought and places it. Click to choose the place yourself`
+                  : w.why === 'words' ? 'Tasktap places it in the folder its words name, and saves it for later when they name none. Click to choose the place yourself' : 'Where it goes. Click to change'}`}
               onClick={() => choose(true)}
               onKeyDown={(e) => (e.key === 'ArrowDown' || e.key === 'ArrowUp') && (e.preventDefault(), e.stopPropagation(), choose(true))}>
               {!later ? <I n={session ? 'term' : 'arrow'} /> : folders.length ? <Mark s="later" label="" /> : <I n="folder" />}
-              <b>{route ? routeLabel(route) : model ? 'Tasktap decides' : !later ? projectName(folder(w.to)) : folders.length ? 'For later' : 'No folder yet'}</b>
-              {route?.confidence === 'ambiguous' && <span>you will be asked which</span>}
+              <b>{back ? `Back to ${name}` : name}</b>
+              <span>{why}</span>
               <I n="chev" />
             </button>
             <Rings hooks={hooks} session={session} />

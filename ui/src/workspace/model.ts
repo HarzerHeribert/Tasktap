@@ -75,12 +75,13 @@ export const open = (d: Sheet) => {
   ui.sheet = d;
   redraw();
 };
-/** Puts the sheet away. A thought begun in a session's pane was a follow-up to that session only while its sheet was up. */
+/** Puts the sheet away. A thought begun in a session's pane was a follow-up to that session, and one begun in a
+ *  workspace went to its folder, only while its sheet was up. */
 export const dismiss = () => {
   if (ui.sheet && opener instanceof HTMLElement && opener !== document.body && opener.isConnected) focus(opener);
   opener = null;
   ui.sheet = null;
-  cap.current = null;
+  Object.assign(cap, { current: null, usual: undefined, back: undefined });
   redraw();
 };
 

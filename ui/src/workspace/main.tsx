@@ -50,8 +50,9 @@ export function command(id: string) {
   const pane = c?.pane;
   switch (id) {
     case 'new-task':
-      // A thought begun in a workspace goes to its folder unless the person, its words or a model say otherwise.
-      cap.usual = c && c.project !== LOOSE ? c.project : cap.usual;
+      // A thought begun in a workspace goes to its folder unless the person, a session it follows or a model say
+      // otherwise: in this sheet, until it is put away.
+      Object.assign(cap, { usual: c && c.project !== LOOSE ? c.project : undefined, back: undefined });
       cap.current = c?.id ? (sessionOf(c.id)?.id ?? null) : null;
       page.focus = '#capture-input';
       return open({ kind: 'capture' });

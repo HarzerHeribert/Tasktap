@@ -53,6 +53,11 @@ const host = {
     if (openQuestions().length) reveal('pinned', 'answer', FIRST);
     else reveal('pinned', 'home', '#capture-input');
   },
+  /** The keyboard was in the open notch and has gone to another window, by a click there or a key (Windows): the
+   *  notch folds, as it does on Escape, and what was typed stays for the next time. */
+  away() {
+    fold();
+  },
 };
 
 /** Questions that were open at the last change: a new one opens the notch by itself. */

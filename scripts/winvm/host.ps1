@@ -20,6 +20,13 @@ try {
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
     if (git status --porcelain) { git status --short; throw 'The build changed files that are in git.' }
+    if ($Job.desktop) {
+        # The desktop round at this commit, in the signed-in desktop, while this job still holds the checkout.
+        $round = "pwsh -NoProfile -File $checkout\scripts\winvm\desktop.ps1 -Out C:\tasktap\desktop-rounds\$($Job.desktop) -Locked"
+        if ($Job.only) { $round += " -Only $($Job.only)" }
+        & C:\tasktap\desk.ps1 -TimeoutSeconds 2400 -CommandLine $round
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
 } finally {
     $lock.Dispose()
 }

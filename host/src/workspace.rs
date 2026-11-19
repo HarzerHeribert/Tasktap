@@ -25,6 +25,10 @@ pub const LABEL: &str = "workspace";
 struct Settings {
     /// The window's frame in points: x, y, width, height.
     frame: Option<[f64; 4]>,
+    /// Windows: the display the tab hangs on ("main", "pointer" or a display's own name), or "off" for no tab.
+    /// Kept here and not among the core's preferences: a display belongs to this machine. None is "main".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tab: Option<String>,
 }
 
 struct State {
@@ -65,9 +69,36 @@ fn save() {
 /// Reads the settings.
 pub fn start(data: PathBuf) {
     let path = data.join("host.json");
-    let settings =
-        std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Settings { frame: None });
+    let settings = std::fs::read(&path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or(Settings { frame: None, tab: None });
     *STATE.lock().unwrap() = Some(State { path, settings, shown: false });
+}
+
+/// Windows: where the tab hangs, as the person chose it ("main" until they do).
+#[cfg(windows)]
+pub fn tab() -> String {
+    STATE.lock().unwrap().as_ref().and_then(|st| st.settings.tab.clone()).unwrap_or_else(|| "main".into())
+}
+#[cfg(windows)]
+pub fn set_tab(display: &str) {
+    with(|st| st.settings.tab = Some(display.to_owned()));
+    save();
+}
+
+/// Whether the workspace window is the one the keyboard is in.
+pub fn in_front(app: &AppHandle) -> bool {
+    app.get_webview_window(LABEL).is_some_and(|w| w.is_focused().unwrap_or(false))
+}
+
+/// The capture key, for the workspace's page to carry out (plan, "The capture key on Home"): the window comes in
+/// front, and the page puts the caret in Home's own field where Home is showing, in New Task's where that is open,
+/// and otherwise asks for what the key opens from another app (`host.capture`).
+pub fn capture(app: &AppHandle) {
+    let _ = show(app, None);
+    // Not `capture`: that is what the notch's page is told, and a page hears what any page is told.
+    let _ = app.emit_to(LABEL, "ui", json!({"do": "capture-key"}));
 }
 
 /// Shows the workspace window, made the first time; with `at`, the page shows that session's or
@@ -222,6 +253,9 @@ pub fn ready(app: &AppHandle) {
         let _ = window.set_focus();
     }
     println!("{}", json!({"event": "window", "ms": crate::since_start()}));
+    // The tab's page is made after the window's first picture, not before it.
+    #[cfg(windows)]
+    crate::edge::ready(app);
 }
 
 /// The window's frame in points, kept in memory as it changes and written at close and at quit.
@@ -266,8 +300,14 @@ fn about() -> AboutMetadata<'static> {
 }
 
 /// `host.window`: the window minimised, maximised or put back, or closed, for the page's own caption buttons and
-/// its menu (Windows; the buttons' window in chrome.rs does the same for the pointer).
+/// its menu (Windows; the buttons' window in chrome.rs does the same for the pointer); and the app ended, for the
+/// menu's Exit: closing the window leaves the app in the notification area, as it leaves the notch on a Mac.
 pub fn window(app: &AppHandle, what: &str) -> Result<serde_json::Value, String> {
+    if what == "quit" {
+        quit();
+        app.exit(0);
+        return Ok(serde_json::Value::Null);
+    }
     let window = app.get_webview_window(LABEL).ok_or("the window is not open")?;
     match what {
         "minimize" => window.minimize(),

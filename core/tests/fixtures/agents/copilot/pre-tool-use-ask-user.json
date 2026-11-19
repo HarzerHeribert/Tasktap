@@ -1,0 +1,25 @@
+{
+  "sessionId": "e4af4090-8156-45c1-9003-6e53a49e3f8e",
+  "timestamp": 1795077330901,
+  "cwd": "/private/tmp/tt-live/project",
+  "toolCallId": "call_00_ET_mdd5LS0GCNGj6ULGNAIq0195",
+  "toolName": "ask_user",
+  "toolArgs": {
+    "message": "Tea or coffee?",
+    "requestedSchema": {
+      "properties": {
+        "choice": {
+          "type": "string",
+          "title": "Tea or coffee?",
+          "enum": [
+            "Tea",
+            "Coffee"
+          ]
+        }
+      },
+      "required": [
+        "choice"
+      ]
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "sessionId": "e4af4090-8156-45c1-9003-6e53a49e3f8e",
+  "timestamp": 1795077324802,
+  "cwd": "/private/tmp/tt-live/project",
+  "toolCallId": "call_00_ET_ZeYBfUA2xQ1fy5niJwYD3704",
+  "toolName": "bash",
+  "toolArgs": {
+    "command": "touch tasktap-live.txt",
+    "description": "Create tasktap-live.txt file"
+  },
+  "toolResult": {
+    "resultType": "success",
+    "textResultForLlm": "\n<shellId: 0 completed with exit code 0>"
+  }
+}

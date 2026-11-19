@@ -1,0 +1,58 @@
+  [2;90m│[m  Use the tabs above to explore your sessions and pull requests[15C[2;90m│
+│[m [35m █ [96m▘▝[35m █[m  Check for mistakes.[7;39H[2;90m│[m  /model — Switch models across providers, or use Auto[24C[2;90m│
+│[m [35m  ▔▔▔▔ [8;39H[2;90m│[78C│
+│[116C│
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[10B[0;90m╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│[m [1mConfirm folder trust[97C[0;90m│
+│[m [90m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[m [90m│
+│[m [90m╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮[m [90m│
+│[m [90m│[m /private/tmp/tt-live/project[85C[90m│[m [90m│
+│[m [90m╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯[m [90m│
+│[118C│
+│[m Copilot can read files in this folder and, with your permission, edit them or run code and shell commands. It will   [90m│
+│[m remember your permissions for the rest of this session.[62C[90m│
+│[118C│
+│[m Git commands run in this folder may use configuration from the enclosing repository and execute programs configured  [90m│
+│[m by that repository.[98C[90m│
+│[118C│
+│[m Do you trust the files in this folder?[79C[90m│
+│[118C│
+│[m [97;44m❯ 1. Yes[39m                                                                                                            [m [90m│
+│[m   2. Yes, and remember this folder for future sessions[63C[90m│
+│[m   3. No (Esc)[104C[90m│
+│[118C│
+│[m [1m↑/↓[m to navigate · [1menter[m to select · [1mesc[m to cancel[68C[90m│
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[?7l╯[?7h[
+[x: step 0 at 1.7s sends '\r']
+m[7;43Hinit — Initialize Copilot instructions for this repository[8;42H/model — Switch models across providers, or use Auto[4B [34m●[m No Copilot instructions found for this repository. Run /init to generate them.[7;6H[96m╴╶[35m [m[96m  [35m [m[96m╴╶[35m [m[96m▘▝[35m [m[13B[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[1;34mPlease use /login to sign in to use Copilot[m[K
+ /private/tmp/tt-live/project                           [36;73HRun on: This computer [1mctrl+e[m change environment 
+[2m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[m❯[K
+[2m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[m [1m←[m open sidebar · Interactive · Manual Approval · [1m/[m commands · [1m?[m help · [1mtab[m next tab[K[38;3H[?25h[?25l[36;31H[⎇ master%]
+
+❯ [?25h[?25l[24A[34m●[m MCP Servers reloaded: 0 servers connected[38;3H[?25h[?25l[7;6H[96m╴╶[35m [m[38;3H[?25h[?25l[7;6H[96m  [35m [m[38;3H[?25h[?25l[7;6H[96m╴╶[35m [m[38;3H[?25h[?25l[7;6H[96m▘▝[35m [m[38;3H[?25h[?25l[7;6H[96m╴╶[35m [m[38;3H[?25h[?25l[7;6H[96m  [35m [m[38;3H[?25h[?25l[7;6H[96m╴╶[35m [m[38;3H[?25h[?25l[7;6H[96m▘▝[35m [m[38;3H[?25h[?25l[5;6H[34m─╮╭╮
+[5C─╯╰╯
+[4C[35m█ [96m▘▝[35m▐
+[4C ▔[m[38;3H[?25h[?25l[5;6H[34m╮╭─╮
+[5C╯╰─╯
+[4C[35m [96m▘▝[35m █
+[4C▔▔[m[38;3H[?25h
+[x: step 1 at 12.1s sends '/exit\r']
+]111;]110;[?25l[3A[J[?25h[23;0t[?1006l[?1003l[?1002l[?1001l[?1000l[?9l[?1005l[?1015l[?1016l[?1004l[?2004l[>4;0m[?1049l[?25h]111;]110;[?25h
+[x: ended after 12.3s, steps 2/2, status 0]

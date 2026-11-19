@@ -1,0 +1,11 @@
+{
+  "hookName": "permissionRequest",
+  "sessionId": "e4af4090-8156-45c1-9003-6e53a49e3f8e",
+  "timestamp": 1795077324768,
+  "cwd": "/private/tmp/tt-live/project",
+  "toolName": "bash",
+  "toolInput": {
+    "command": "touch tasktap-live.txt"
+  },
+  "permissionSuggestions": []
+}

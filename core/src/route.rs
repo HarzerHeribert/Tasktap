@@ -12,12 +12,14 @@
 //! the model gives no answer the core accepts (a build with its test
 //! fixtures has `fixture.script` script it).
 //!
-//! The model is the one behind the person's own agent, asked headless
-//! (`agents::Headless`): one question, [`question`], carries the
-//! [`INSTRUCTIONS`] and what the core's records offer, and its answer is
-//! taken only as [`accept`] allows. Nothing here runs a tool or waits:
-//! `effects.rs` runs the tool off the core's thread, and `state.rs` holds
-//! the rules of when a thought is asked about and when it launches.
+//! The models are those behind the person's own agents, asked headless
+//! (`agents::Headless`) one after another in the order the person agreed
+//! to ([`agreed`]; Tasktap proposes one, [`proposed`]), within [`BUDGET`]:
+//! one question, [`question`], carries the [`INSTRUCTIONS`] and what the
+//! core's records offer, and an answer is taken only as [`accept`] allows.
+//! Nothing here runs a tool or waits: `effects.rs` runs the tools off the
+//! core's thread, one at a time, and `state.rs` holds the rules of when a
+//! thought is asked about and when it launches.
 //!
 //! The rules, simplest first (a destination the person picked never reaches
 //! a router: the state machine routes it at capture):

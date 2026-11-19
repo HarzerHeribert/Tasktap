@@ -457,7 +457,8 @@ fn route(
         Some(_) => short(&asked.text),
         None => !matches!(local, Route::Unknown) && core.seams.sure(&asked),
     };
-    let tools = match by.filter(|_| !sure) {
+    // An agreement with every agent switched off is none, and says nothing.
+    let tools = match by.filter(|by| !sure && by.agents.iter().any(|p| p.on)) {
         Some(by) => agreed(&by).and_then(|tools| askable(&asked.text).map(|()| tools)),
         None => return routed(core, id, local, state::locally(None), current),
     };

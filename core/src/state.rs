@@ -228,9 +228,9 @@ pub struct Candidate {
 pub enum Effect {
     /// Ask the router; its answer comes back as [`Event::Routed`].
     /// `current` is the session the capture was made in. `by` is the
-    /// person's consent to ask a model, without which the match on names
-    /// answers. With `picked`, the person chose the destination and only
-    /// the brief is asked for.
+    /// person's agreement to ask their agents' models, in their order,
+    /// without which the match on names answers. With `picked`, the person
+    /// chose the destination and only the brief is asked for.
     Route {
         thought: ThoughtId,
         current: Option<SessionId>,

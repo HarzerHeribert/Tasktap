@@ -1297,6 +1297,20 @@ fn when_the_first_agent_cannot_place_the_next_does_and_the_thought_says_who_plac
     );
     assert_eq!(a.settled(t).route.unwrap().by, "fixture-silent");
     assert_eq!(a.asked(), None);
+    assert!(a.asked_of("fixture-silent").is_some());
+    // Every one switched off is no agreement: nobody is asked, and nothing
+    // is said of it.
+    let mut by = agreement(&["fixture", "fixture-silent"]);
+    by.agents.iter_mut().for_each(|p| p.on = false);
+    a.pref(PrefPatch::RouteBy(Some(by))).unwrap();
+    let t = a.capture(SPOKEN, None);
+    let th = a.settled(t);
+    let route = th.route.unwrap();
+    assert_eq!(
+        (th.status, route.by.as_str(), route.fallback),
+        (Status::NeedsYou, "local", None)
+    );
+    assert_eq!((a.asked(), a.asked_of("fixture-silent")), (None, None));
 }
 
 #[test]

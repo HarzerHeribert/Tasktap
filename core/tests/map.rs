@@ -118,6 +118,9 @@ fn the_root_rule_says_which_folder_is_a_project() {
         "[package]\nname = \"recipes\"\n",
     );
     repo(&p(".dotfiles"), "My settings.", None);
+    mkdir(&p("Desktop"));
+    mkdir(&p("Downloads"));
+    repo(&t.0.join("scratch/run"), "A temporary folder's repository.", None);
     repo(
         &p(".cache/bench/run-1/cuegrid"),
         "A benchmark's copy.",
@@ -153,12 +156,16 @@ fn the_root_rule_says_which_folder_is_a_project() {
     for never in [
         "",
         "Documents",
+        "Desktop",
+        "Downloads",
         ".cache/bench/run-1/cuegrid",
         "projects/cuegrid/target/tmp/fixture",
     ] {
         assert_eq!(kind(never), Kind::Never, "{never}");
     }
     assert_eq!(rule.kind(&real(&data)), Kind::Never);
+    // A repository in a temporary folder, outside the home folder.
+    assert_eq!(rule.kind(&real(&t.0.join("scratch/run"))), Kind::Never);
     assert_eq!(rule.kind(&p("projects/gone")), Kind::Gone);
 }
 

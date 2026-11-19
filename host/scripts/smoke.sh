@@ -900,7 +900,7 @@ until_has workspace "text .home .offer" 5 "Thoughts can find their own folder" &
 js workspace "(document.querySelector('.home .offer .btn').click(), 1)" >/dev/null
 terms="$(ask workspace "text .sheet")"
 until_has workspace "text .sheet" 5 "Who reads them" && terms="$(ask workspace "text .sheet")" \
-  && echo "$terms" | grep -q "the thought, as you said or typed it" && echo "$terms" | grep -q "names and aliases of up to 8" \
+  && echo "$terms" | grep -q "the thought, as you said or typed it" && echo "$terms" | grep -q "of up to 8 of your projects" \
   && [ "$(js workspace "(r => r.querySelector('.t').textContent + ' ' + /fixture-small/.test(r.querySelector('.x').textContent))(document.querySelector('.line.tool[aria-checked=true]'))")" = "Fixture agent true" ] \
   && [ "$(js workspace "String(!document.querySelector('.instr'))")" = true ] \
   && pass "its sheet says what the person gets, which signed-in agent would read the thoughts and with which model, and exactly what is sent; nothing is stored yet" || fail "the placing sheet" "$(echo "$terms" | tr '\n' '|' | cut -c1-200)"
@@ -921,7 +921,7 @@ says 'print:{"quote":"","confidence":"ambiguous","to":"","candidates":["p1","p2"
 home_says "so the header thing, I think it should stay on one line"
 until_has workspace "text .home .needs .hq.open" 10 "Where should this go?" && asked="$(ask workspace "text .home .needs .hq.open")" \
   && echo "$asked" | grep -q "so the header thing, I think it should stay on one line" && echo "$asked" | grep -q "Brief so far" && echo "$asked" | grep -q "Keep the header on one line." \
-  && echo "$asked" | grep -q "Keep for later" && [ "$(js workspace "[...document.querySelectorAll('.hq.open .ans span')].map(s => s.textContent).sort().join('|')")" = "Keep for later|other|project" ] \
+  && echo "$asked" | grep -q "Keep for later" && [ "$(js workspace "[...document.querySelectorAll('.hq.open .ans span')].map(s => s.textContent).sort().join('|')")" = "Another project…|Keep for later|other|project" ] \
   && pass "a thought the model could not place is a question, first on Home and in full: the thought, its brief so far, the folders it could mean on their keys, and Keep for later" || fail "the router's question on Home" "$(echo "${asked:-}" | tr '\n' '|' | cut -c1-240)"
 until_has notch "text #sheet" 5 "Where should this go?" && ask notch "text #sheet" | grep -q "so the header thing" && ask notch "text #sheet" | grep -q "Keep for later" \
   && pass "the notch opens on the same question by itself, in full" || fail "the router's question in the notch"

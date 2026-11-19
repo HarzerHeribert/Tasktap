@@ -650,6 +650,36 @@ async function main() {
         await page.context().close();
       }
 
+      // Setup put away and found again: Hide stores it and it is gone from Home; Settings › About says where it is and
+      // Show on Home brings it back.
+      page = await open(browser, { label: 'workspace', records: scene('normal'), url: server.url, dpr: 1 });
+      await page.waitForTimeout(300);
+      const shown = () => page.evaluate(() => !!document.querySelector('.home .setup'));
+      expect(await shown(), 'Setup is not on Home while a step is not done');
+      await page.click('.home .setup-h .act');
+      await page.waitForTimeout(300);
+      expect(!(await shown()) && (await page.evaluate(() => window.__ws.records.prefs.get('setup_hidden')?.value)) === true, 'Hide does not put Setup away, or keeps nothing of it');
+      await page.evaluate(() => ((window.__ws.ui.sheet = { kind: 'settings', at: 'about' }), window.__motion.redraw()));
+      await page.waitForTimeout(300);
+      const about = await page.evaluate(() => [...document.querySelectorAll('.settings .set')].find((r) => r.querySelector('.t')?.textContent === 'Setup')?.textContent ?? '');
+      expect(/of \d done/.test(about) && /Show on Home/.test(about), `Settings › About does not say where Setup is ("${about}")`);
+      await page.locator('.settings .set button', { hasText: 'Show on Home' }).click();
+      await page.waitForTimeout(300);
+      expect(await shown(), 'Show on Home does not bring Setup back');
+      await page.context().close();
+
+      // The notch's capture row follows Home's rules: one agent control, and its key metal with nothing typed.
+      page = await open(browser, { label: 'notch', records: agents(scene('normal'), 6), url: server.url, dpr: 1 });
+      await page.evaluate((g) => window.__fake.emit(g), GEO);
+      await page.evaluate(() => window.__fake.emit({ do: 'capture' }));
+      await page.waitForTimeout(600);
+      const notch = await page.evaluate(() => {
+        const k = document.querySelector('.cap-row > .key');
+        return [!!k && /linear-gradient/.test(getComputedStyle(k).backgroundImage) && getComputedStyle(k).color === 'rgb(13, 13, 14)', !!document.querySelector('.cap-agent'), !document.querySelector('.rings, .cap-row select')].join(' ');
+      });
+      expect(notch === 'true true true', `the notch's capture row: its key metal, one agent control, no rings: ${notch}`);
+      await page.context().close();
+
       // On Windows (the page told so), the same key: metal, its arrow in its ink, and its keys in Windows' words.
       page = await open(browser, { label: 'workspace', records: scene('normal'), url: server.url, dpr: 1, system: 'windows' });
       await page.focus(FIELD);

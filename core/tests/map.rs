@@ -661,6 +661,34 @@ fn a_name_the_person_gives_keeps_its_project_and_one_taken_away_stays_away() {
         .get(&card.id)
         .expect("a project the person named is kept");
     assert_eq!(kept.names, ["rehearsal"]);
+
+    // Said to be no project after a thought was picked for it: the thought
+    // does not start there, and nothing is opened.
+    let id = ThoughtId::mint();
+    w.ok::<call::ThoughtCapture>(&Capture {
+        agent: Some("fixture".into()),
+        card_id: Some(card.id),
+        ..typed(id, "fix the countdown")
+    });
+    let hide = PutTarget::Cards {
+        id: card.id,
+        patch: CardPatch {
+            names: None,
+            hidden: Some(true),
+            main: None,
+        },
+    };
+    w.ok::<call::Put>(&Put {
+        target: hide,
+        if_rev: None,
+    });
+    let e = w.refused::<call::ThoughtStart>(&Start {
+        id,
+        attempt: AttemptId::mint(),
+    });
+    assert_eq!(e.code, Code::Invalid, "{e}");
+    w.sync();
+    assert!(!w.model.projects.values().any(|p| p.folder == card.folder));
 }
 
 #[test]

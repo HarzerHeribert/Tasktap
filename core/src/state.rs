@@ -1186,6 +1186,14 @@ impl Machine<'_, '_> {
     /// folder become one Tasktap may read, show and open (`rules::inside`).
     fn open_card(&mut self, id: CardId) -> Result<ProjectId> {
         let mut card = self.tx.card(id)?.ok_or(Error::Gone)?;
+        // Never a folder the person said is no project, or one not there
+        // when Tasktap last looked.
+        if card.hidden {
+            return Err(Error::Invalid("the person said that folder is no project"));
+        }
+        if !card.available {
+            return Err(Error::Gone);
+        }
         let known = match card.project_id {
             Some(p) => self.tx.project(p)?,
             None => None,

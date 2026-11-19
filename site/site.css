@@ -29,12 +29,16 @@ img,picture{display:block}
 .skip:focus{top:10px}
 .wrap{width:100%;max-width:calc(var(--site-w) + 2 * var(--gut));margin-inline:auto;padding-inline:var(--gut)}
 .i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:var(--i-w);stroke-linecap:var(--i-cap);stroke-linejoin:var(--i-join)}
+/* One weight, as in the app (parts.css): an icon's strokes are --i-w on the screen at whatever size it is shown. */
+.i>*{vector-effect:non-scaling-stroke}
+/* Code in a line of words; a block of it (the build's commands) keeps its own face, size and lines. */
+:not(pre)>code{font-family:var(--mono);font-size:.875em;white-space:nowrap}
 
 /* ——— the app's parts ——— */
 /* Metal: the key, the one primary action in view; and the caps that show a key. */
 .key,kbd{background:var(--lit) 0 100%/100% 1px no-repeat,var(--key);color:var(--ink);box-shadow:var(--key-edge)}
 .key{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;height:var(--ctl-h);padding:0 10px 0 var(--sp2);border-radius:var(--r1);font:var(--f-title);white-space:nowrap}
-.key .i{width:14px;height:14px;stroke-width:1.5px}
+.key .i{width:14px;height:14px;stroke-width:var(--i-w-key)}
 .key:hover{filter:brightness(1.07)}
 .key:active{transform:translateY(1px);box-shadow:var(--key-down);filter:brightness(.93)}
 kbd{display:inline-grid;place-items:center;min-width:var(--key-h);height:var(--key-h);padding:0 4px;margin:0 1px;border-radius:var(--r1);font:var(--f-key);vertical-align:2px}
@@ -159,7 +163,7 @@ h3{font:var(--f-sub);letter-spacing:var(--ls-thought);padding-top:6px}
 .figures thead :is(th,td){height:var(--row-h);border-top:0;font:var(--f-section);color:var(--fg2)}
 .figures tbody th{font:var(--f-label);color:var(--fg);white-space:normal}
 .figures td{font:var(--f-term);color:var(--fg)}
-.figures td:last-child{color:var(--fg2);padding-right:0}
+.figures td:last-child{padding-right:0}
 .figures tbody tr:last-child :is(th,td){border-bottom:1px solid var(--line)}
 .figures .fine{margin-top:var(--sp3);max-width:44em}
 
@@ -204,7 +208,7 @@ h3{font:var(--f-sub);letter-spacing:var(--ls-thought);padding-top:6px}
 .keys dd{font:var(--f-text);color:var(--fg)}
 .keys kbd{vertical-align:0}
 .doc .rows{border-bottom:1px solid var(--line)}
-.doc .rows>div{grid-template-columns:120px minmax(0,1fr);column-gap:var(--sp4);padding:var(--sp3) 0}
+.doc .rows>div{grid-template-columns:180px minmax(0,1fr);column-gap:var(--sp4);padding:var(--sp3) 0}
 .doc .rows>div:first-child{border-top:1px solid var(--line);padding-top:var(--sp3)}
 .doc .rows dt{padding-top:3px}
 

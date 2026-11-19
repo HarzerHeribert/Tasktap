@@ -19,6 +19,7 @@ mod launch;
 pub mod map;
 mod questions;
 mod records;
+pub mod relocate;
 pub mod roles;
 pub mod route;
 pub mod secrets;

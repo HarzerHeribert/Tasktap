@@ -329,7 +329,7 @@ function band() {
 /** The agents' rings in a scene: each agent's state, and whether it is the one that runs the next thought. Only an
  *  agent that can run a thought has a ring: in the first-run scene Codex is signed out, and it is not the usual one. */
 const rings = () => [...document.querySelectorAll('.home .ring')].map((r) => `${r.dataset.agent}:${r.dataset.s ?? 'ready'}${r.getAttribute('aria-checked') === 'true' ? ':runs' : ''}${r.querySelector('.turn') ? ':turns' : ''}${r.querySelector('b')?.textContent ?? ''}${r.querySelector('.fix') ? ':fix' : ''}`).join(' ');
-const RINGS = { busy: 'claude:asks:runs:turns3 codex:asks:turns1', quiet: 'claude:ready:runs codex:ready', first: 'claude:ready:runs' };
+const RINGS = { busy: 'claude:asks:runs:turns3 codex:working:turns1', quiet: 'claude:ready:runs codex:ready', first: 'claude:ready:runs' };
 
 /** Starts a motion and watches it frame by frame: every glyph of the wake that shows must lie behind the moving edge
  *  of `sel` (its right edge across the window, or its lower edge down it), on the side the edge has come from. */

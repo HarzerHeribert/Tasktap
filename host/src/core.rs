@@ -224,7 +224,7 @@ impl Link {
             decoder = Decoder::new();
             match Self::open(&core, &me, &mut decoder) {
                 Ok(s) => stream = s,
-                Err(e) => eprintln!("tasktap-next: cannot reach the core: {e}"),
+                Err(e) => eprintln!("tasktap-app: cannot reach the core: {e}"),
             }
         });
         Ok(link)
@@ -237,7 +237,7 @@ impl Link {
             // unanswered, so for a second after retiring a failed hello is tried again.
             let mut attempts = 0;
             let (stream, first) = loop {
-                match core.connect(Role::Host, "tasktap-next host") {
+                match core.connect(Role::Host, "tasktap-app host") {
                     Ok(connected) => break connected,
                     Err(_) if retired && attempts < 20 => {
                         attempts += 1;

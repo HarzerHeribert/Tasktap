@@ -1,0 +1,20 @@
+{
+  "conversation_id": "c1b2a3d4-0000-4000-8000-00000000000a",
+  "generation_id": "9a4e2f77-0b1d-4e55-8c3a-1e7d5b6c2f02",
+  "model": "auto",
+  "tool_name": "Grep",
+  "tool_input": {
+    "pattern": "TODO"
+  },
+  "tool_use_id": "tool_9d2e4f1b",
+  "cwd": "/tmp/project",
+  "session_id": "c1b2a3d4-0000-4000-8000-00000000000a",
+  "hook_event_name": "preToolUse",
+  "cursor_version": "2026.09.28-64d2043",
+  "workspace_roots": [
+    "/tmp/project"
+  ],
+  "user_email": "person@example.com",
+  "transcript_path": "/home/person/.cursor/projects/tmp-project/agent-transcripts/5d0c7c1e-1c64-4c7b-9f0a-6f2a3b1d9e01/5d0c7c1e-1c64-4c7b-9f0a-6f2a3b1d9e01.jsonl",
+  "parent_tool_call_id": "tool_77aa01"
+}

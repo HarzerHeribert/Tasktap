@@ -1,0 +1,18 @@
+{
+  "bundle": {
+    "resources": {
+      "binaries/windows/conpty.dll": "conpty.dll",
+      "binaries/windows/OpenConsole.exe": "OpenConsole.exe",
+      "binaries/windows/licenses/*": "licenses/"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
+    }
+  }
+}

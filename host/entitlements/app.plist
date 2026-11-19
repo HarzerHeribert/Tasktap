@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  What the app itself (Contents/MacOS/<main>) may ask macOS for under the hardened runtime, and nothing else.
+  host/scripts/sign-mac.sh signs the app with it; the core and the speech helper get no entitlements at all, and
+  host/scripts/check-signed.sh fails a bundle in which any program carries other than its own.
+
+  - The microphone: hold to talk and Appearance's trial record in the app's web view, and macOS counts that as the
+    app's. A program run in one of Tasktap's terminals is also counted as Tasktap's, as in any terminal app.
+  - Apple Events: a program or an agent run in one of Tasktap's terminals (osascript, `tell application …`) is counted
+    as Tasktap's too; without this, macOS refuses it without asking. Info.plist says why when macOS asks.
+
+  Left out on purpose: the camera, contacts, calendars, photos and location (a program in a terminal that asks for
+  one is refused), and every code-signing exception (JIT, unsigned memory, library validation, DYLD variables):
+  the web view's JIT runs in WebKit's own processes, and every program in the bundle is plain compiled code.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+</dict>
+</plist>

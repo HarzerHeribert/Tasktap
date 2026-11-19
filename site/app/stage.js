@@ -18,7 +18,7 @@
   };
   const P = { cuegrid: uid(), fieldnotes: uid(), ledger: uid(), scratch: uid() };
   const project = (id, name, folder) => ({ id, rev: 1, name, folder, kind: 'folder', color: '#7aa2f7', aliases: [], git: true, isolate: 'always', open: true, available: true });
-  const agent = (id, version) => ({ id, rev: 5, checked: t0, installed: true, version, signed_in: true, identity: 'person@example.com', events: true, resume: true, permissions: 'core', questions: 'core' });
+  const agent = (id, version) => ({ id, name: { claude: 'Claude Code', codex: 'Codex' }[id], supported: true, own: false, note: null, checks: true, options: [], stale: false, rev: 5, checked: t0, installed: true, version, signed_in: true, identity: 'person@example.com', events: true, resume: true, permissions: 'core', questions: 'core' });
   const GLANCE = { rev: 1, working: 0, needs_you: 0, done: 0, failed: 0, question: null, retiring: false };
   const records = {
     thoughts: [], sessions: [], terminals: [], questions: [], results: [], layouts: [], devices: [], dictations: [],
@@ -65,7 +65,7 @@
   let nextStream = 1;
   const heard = {};
   const toStream = (s, text) => {
-    const p = enc.encode(text), out = new Uint8Array(9 + p.length);
+    const p = typeof text === 'string' ? enc.encode(text) : text, out = new Uint8Array(9 + p.length);
     new DataView(out.buffer).setUint32(0, p.length + 5, true);
     out[4] = 1;
     new DataView(out.buffer).setUint32(5, s, true);
@@ -73,9 +73,27 @@
     callbacks.get(channel)({ index: index++, message: out.buffer });
   };
   const calls = [];
+  // The sizes terminals were opened at and asked to take, in order (terminal-size-check.cjs).
+  const sizes = [];
+  // The rule of a shortcut (core/proto Shortcut::refused), in small: what a scene needs of it.
+  const refused = (k) => (!/^(Key[A-Z]|Digit\d|F\d+|Space|Enter|Tab|Escape|Backspace|Delete|Arrow\w+|Minus|Equal|Comma|Period|Slash)$/.test(k.code) ? 'That is not a key a shortcut can end in'
+    : !(k.control || k.alt || k.meta) ? 'A shortcut needs Control, Option (Alt) or Command (the Windows key) held with its key'
+      : k.meta && !k.control && !k.alt && ['Space', 'Tab', 'KeyQ', 'KeyW', 'KeyL'].includes(k.code) ? 'The system keeps that combination for itself' : null);
+  // What a dictation was heard as: it failed, its words are for a field, or it is its thought.
+  const heardAs = (d, said) => {
+    const row = (x, del) => push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', ...(del ? { del: [x.id] } : { put: [{ ...x, rev }] }) }] });
+    if (said.error) return row({ ...d, phase: 'failed', level: 0, text: said.text || '', error: said.error });
+    if (d.target.kind === 'text') return row({ ...d, phase: 'heard', level: 0, text: said.text });
+    row(d, true);
+    const now = Date.now();
+    push({ t: 'change', rev: ++rev, sets: [{ c: 'thoughts', put: [{ id: d.target.id, rev, text: said.text, strokes: [], source: 'voice', mode: 'ask', phase: 'routed', status: 'routed', reason: null, live: false,
+      project_id: d.target.project_id || ((records.projects || [])[0] || {}).id || null, session_id: null, brief: said.brief || said.text, route: said.route || null, placed: said.placed || (d.target.project_id ? 'picked' : 'name'), agent: d.target.agent || 'claude', model: null, workdir: null,
+      hold_until: now + 5000, read: false, created: now, updated: now }] }] });
+  };
   const answer = (call) => {
     const { id, name, args } = call;
     calls.push(name);
+    if (name === 'terminal.open' || name === 'terminal.resize') sizes.push({ call: name, id: args.id, cols: args.cols, rows: args.rows });
     // A terminal's screen from `screens`, a diff from `diffs`; the page's own history call gets an empty page.
     if (name === 'terminal.open') {
       const s = nextStream++;
@@ -89,6 +107,34 @@
       reply(id, { stream: { s, credit: 0 }, files: d.files, more: 0, size: d.text.length, cut: false });
       setTimeout(() => (toStream(s, d.text), toCore({ t: 'close', s, why: 'done' })), 0);
       return;
+    }
+    // Previews (design §9): `preview.open` under the rule in small (a web address of this machine; a path `files` says
+    // exists; eight beside a terminal), and `file.read` from `reads`, by the file's whole path: what it is (`kind`),
+    // its `text` or its bytes in base64 (`b64`), whether it is `cut`, its `stamp`, or the refusal (`err`).
+    const refuse = (code, message) => toCore({ t: 'reply', id, err: { code, message } });
+    if (name === 'preview.open') {
+      const web = /^https?:\/\//i.test(args.target), local = /^https?:\/\/(localhost|127\.\d+\.\d+\.\d+|\[::1\])(:\d+)?([/?#]|$)/i.test(args.target);
+      if (web && !local) return refuse('invalid', 'A preview shows web addresses of this machine only: this one opens in the browser');
+      const real = web ? args.target : (records.files || {})[args.target];
+      if (!real) return refuse('gone', `${args.target} does not exist`);
+      const of = (records.previews || []).filter((p) => p.terminal_id === args.terminal), had = of.find((p) => p.target === real);
+      if (!had && of.length >= 8) return refuse('conflict', 'This terminal has 8 previews open already: close one first');
+      const row = had || { id: `019a8b6c-7d10-7000-9000-${String(++rev).padStart(12, '0')}`, rev, terminal_id: args.terminal, kind: web ? 'web' : 'file', target: real,
+        title: web ? new URL(real).host : real.split('/').pop(), by: 'person' };
+      if (!had) push({ t: 'change', rev, sets: [{ c: 'previews', put: [row] }] });
+      return reply(id, row.id);
+    }
+    if (name === 'delete' && args.c === 'previews') return push({ t: 'change', rev: ++rev, sets: [{ c: 'previews', del: [args.id] }] }), reply(id, null);
+    if (name === 'file.read') {
+      const f = (records.reads || {})[args.path];
+      if (!f) return refuse('gone', `${args.path} does not exist`);
+      if (f.err) return refuse(f.err.code, f.err.message);
+      const bytes = f.b64 ? Uint8Array.from(atob(f.b64), (c) => c.charCodeAt(0)) : enc.encode(f.text || ''), stamp = f.stamp || '1-' + bytes.length;
+      const said = { size: f.size || bytes.length, kind: f.kind, encoding: f.b64 ? null : 'utf-8', cut: !!f.cut, stamp };
+      if (args.unless === stamp || f.kind === 'other') return reply(id, { ...said, stream: null });
+      const s = nextStream++;
+      reply(id, { ...said, stream: { s, credit: 0 } });
+      return void setTimeout(() => (toStream(s, bytes), toCore({ t: 'close', s, why: 'done' })), f.ms || 0);
     }
     // The history the scene has (`history`), as one page; then, or with none, the empty page that is its end.
     if (name === 'history') return reply(id, (!args.before && records.history) || { thoughts: [], questions: [], results: [] });
@@ -109,6 +155,18 @@
     // sample is the row's level, as the core's is; then what `hears` says it was heard as.
     const row = (d, del) => push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', ...(del ? { del: [d.id] } : { put: [{ ...d, rev }] }) }] });
     const dictation = (i) => (records.dictations || []).find((d) => d.id === i);
+    // With no speech service chosen the recorder writes it down itself (`local`): no stream, and its reports are
+    // the row's level and words while it records, and the transcript once it has finished.
+    if (name === 'dictation.start' && args.local && !(records.prefs || []).some((p) => p.id === 'speech_by' && p.value)) {
+      row({ id: args.id, phase: 'recording', text: '', level: 0, target: args.target, error: null });
+      return reply(id, { stream: null, seconds: 300 });
+    }
+    if (name === 'dictation.report') {
+      const d = dictation(args.id);
+      if (d && d.phase === 'recording') row({ ...d, ...(args.text === undefined ? {} : { text: args.text }), ...(args.level === undefined ? {} : { level: args.level }) });
+      else if (d && d.phase === 'transcribing' && d.local && args.text !== undefined) heardAs(d, args.text ? { text: args.text } : { error: 'Nothing was heard' });
+      return reply(id, null);
+    }
     if (name === 'dictation.start') {
       const s = nextStream++;
       heard[s] = { id: args.id, bytes: [], peak: 0, since: 0 };
@@ -116,32 +174,31 @@
       return reply(id, { stream: { s, credit: 9600000 }, seconds: 300 });
     }
     if (name === 'dictation.finish') {
-      const d = dictation(args.id), said = records.hears || { text: 'Make the header stay on one line' };
-      row({ ...d, phase: 'transcribing', level: 0 });
-      setTimeout(() => {
-        if (!dictation(args.id)) return;
-        if (said.error) return row({ ...d, phase: 'failed', level: 0, text: said.text || '', error: said.error });
-        if (d.target.kind === 'text') return row({ ...d, phase: 'heard', level: 0, text: said.text });
-        row(d, true);
-        const now = Date.now();
-        push({ t: 'change', rev: ++rev, sets: [{ c: 'thoughts', put: [{ id: d.target.id, rev, text: said.text, strokes: [], source: 'voice', mode: 'ask', phase: 'routed', status: 'routed', reason: null, live: false,
-          project_id: d.target.project_id || ((records.projects || [])[0] || {}).id || null, session_id: null, brief: said.brief || said.text, route: said.route || null, placed: said.placed || (d.target.project_id ? 'picked' : 'name'), agent: d.target.agent || 'claude', model: null, workdir: null,
-          hold_until: now + 5000, read: false, created: now, updated: now }] }] });
-      }, said.ms || 600);
+      const was = dictation(args.id), said = records.hears || { text: 'Make the header stay on one line' };
+      // `as: "text"`: what was started for a thought is only heard.
+      const d = args.as === 'text' ? { ...was, target: { kind: 'text' } } : was;
+      const local = !Object.values(heard).some((h) => h.id === args.id);
+      row({ ...d, phase: 'transcribing', level: 0, local });
+      // The recorder's own transcript is waited for; a service's comes by itself.
+      if (!local) setTimeout(() => dictation(args.id) && heardAs(d, said), said.ms || 600);
       return reply(id, null);
     }
     if (name === 'dictation.cancel') return dictation(args.id) && row(dictation(args.id), true), reply(id, null);
+    // `hints`: where the router would send a text typed, by the text; else nothing is said.
+    if (name === 'route.hint') return reply(id, (records.hints || {})[args.text] ?? null);
     // `hold`: a capture is never answered, so the field stays as it is while a thought is on its way.
     if (name === 'thought.capture') window.__fake.sent = args;
     if (name === 'thought.capture' && records.hold) return;
     // `slow`: a capture is answered that many milliseconds later, as a core that is far away or busy answers;
     // `refuse`: with that refusal.
     if (name === 'thought.capture' && (records.slow || records.refuse)) return void setTimeout(() => (records.refuse ? toCore({ t: 'reply', id, err: { code: 'failed', message: records.refuse } }) : reply(id, null)), records.slow || 0);
-    // A thought saved for later is kept as the core keeps it, so the page can show where it landed.
-    if (name === 'thought.capture' && args.mode === 'note') {
+    // A thought saved for later is kept as the core keeps it, so the page can show where it landed; and with `keep`,
+    // one left to the router that names no place, as the match on names keeps it.
+    if (name === 'thought.update') window.__fake.updated = args;
+    if (name === 'thought.capture' && (args.mode === 'note' || (records.keep && !args.project_id))) {
       rev++;
       push({ t: 'change', rev, sets: [{ c: 'thoughts', put: [{ id: args.id, rev, text: args.text, strokes: [], source: 'typed', mode: 'note', phase: 'captured', status: 'captured',
-        reason: null, live: false, project_id: null, session_id: null, brief: args.text, route: null, placed: 'kept', agent: null, model: null, workdir: null, hold_until: null, read: false, created: Date.now(), updated: Date.now() }] }] });
+        reason: null, live: false, project_id: null, session_id: null, brief: args.text, route: null, placed: args.mode === 'note' ? 'kept' : 'kept_name', agent: null, model: null, workdir: null, hold_until: null, read: false, created: Date.now(), updated: Date.now() }] }] });
       return reply(id, null);
     }
     // Keep or Discard: what `settles` holds for the thought is the core's refusal in its own words; else it settles,
@@ -158,6 +215,8 @@
       push({ t: 'change', rev, snap: true, sets });
       return reply(id, { rev });
     }
+    // A key the rule of a shortcut refuses is refused in the core's sentence, and nothing is stored.
+    if (name === 'put' && args.c === 'prefs' && args.id === 'talk_key' && args.patch && refused(args.patch)) return toCore({ t: 'reply', id, err: { code: 'invalid', message: refused(args.patch) } });
     if (name === 'put' && args.c === 'prefs') {
       rev++;
       const row = { id: args.id, value: args.patch, rev };
@@ -192,7 +251,27 @@
   };
   // The host's rule for `host.open`, in small: a web address, or a path `files` says exists; what was opened is kept.
   const opened = [];
+  // The capture key: the one registered (`capture`, the system's own unless the scene says another, or none), which a
+  // call changes unless the rule refuses the key or the scene says another app holds it (`taken`, by its code).
+  const usual = { control: true, alt: true, shift: false, meta: false, code: 'Space' };
+  let capture = records.capture === undefined ? ((records.prefs || []).find((p) => p.id === 'capture_key') || { value: usual }).value : records.capture;
   const hostValue = (name, a) => {
+    if (name === 'host.capture_key') {
+      if (a.key === undefined) return { key: capture };
+      const key = a.key || usual, why = refused(key) || ((records.taken || []).includes(key.code) && 'That key is taken by the system or another app');
+      if (why) throw why;
+      capture = key;
+      rev++;
+      records.prefs = (records.prefs || []).filter((p) => p.id !== 'capture_key').concat(a.key ? [{ id: 'capture_key', value: key, rev }] : []);
+      push({ t: 'change', rev, sets: [{ c: 'prefs', ...(a.key ? { put: [{ id: 'capture_key', value: key, rev }] } : { del: ['capture_key'] }) }] });
+      return { key };
+    }
+    // A preview's frame: where it loads a file from (`frames`, a server of the check's own), whether a local address
+    // is answered (`listens`), or the host's refusal (`noframes`).
+    if (name === 'host.frame') {
+      if (records.noframes) throw records.noframes;
+      return { base: records.frames || 'http://127.0.0.1:9/none', ...(a.listens ? { listens: records.listens !== false } : {}) };
+    }
     if (name !== 'host.open') return null;
     const real = /^https?:\/\/[^/\s]/i.test(a.target) ? a.target : (records.files || {})[a.target] || null;
     if (real && !a.probe) opened.push({ ...a, real });
@@ -210,7 +289,8 @@
     if (d) push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', del: [d.id] }] });
     toCore({ t: 'close', s: Number(s), why: 'gone' });
   };
-  window.__fake = { emit, push, records, heard, calls, close, opened };
+  window.__fake = { emit, push, records, heard, calls, sizes, close, opened };
+  window.__fake.speech = { acts: [], ended: [], fed: [], said(line) { callbacks.get(this.channel)?.({ index: this.n++, message: line }); } };
   window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
   window.__TAURI_INTERNALS__ = {
     metadata: { currentWindow: { label }, currentWebview: { windowLabel: label, label } },
@@ -230,7 +310,11 @@
           wing = a.wing;
           if (geo) setTimeout(() => emit({ ...geo, width: tab }), 0);
         }
-        return JSON.stringify({ t: 'reply', id, ok: hostValue(name, a) });
+        try {
+          return JSON.stringify({ t: 'reply', id, ok: hostValue(name, a) });
+        } catch (message) {
+          return JSON.stringify({ t: 'reply', id, err: { code: 'unknown', message } });
+        }
       }
       if (cmd === 'plugin:event|listen') {
         const id = nextEvent++;
@@ -244,6 +328,26 @@
         return null;
       }
       if (cmd === 'plugin:window|is_focused') return true;
+      if (cmd === 'plugin:app|version') return '0.1.0';
+      // The host's speech on this machine, when the check has one (`records.speech`, its status): `said` is the
+      // helper's line for the dictation it listens to, `fed` the samples it was given, `ended` how each ended.
+      if (cmd.startsWith('speech_') && records.speech) {
+        const sp = window.__fake.speech;
+        if (cmd === 'speech_model') {
+          if (args.act === 'install') Object.assign(records.speech, { model: 'fetching', error: null });
+          if (args.act === 'stop') records.speech.model = 'none';
+          if (args.act === 'remove') Object.assign(records.speech, { model: 'none', have: 0, error: null });
+          sp.acts.push(args.act || 'status');
+          return { ...records.speech };
+        }
+        if (cmd === 'speech_listen') {
+          if (records.speech.refuses) throw records.speech.refuses;
+          Object.assign(sp, { id: args.id, languages: args.languages, channel: args.heard.id, n: 0, fed: [] });
+          return null;
+        }
+        if (cmd === 'speech_audio') { sp.fed.push(...(args instanceof Uint8Array ? args : new Uint8Array(args))); return null; }
+        if (cmd === 'speech_end') { sp.ended.push({ id: args.id, cancel: args.cancel, bytes: sp.fed.length }); return null; }
+      }
       return null;
     },
   };

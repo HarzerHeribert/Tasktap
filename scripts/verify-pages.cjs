@@ -96,6 +96,7 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
     assert.match(await page.locator('#get').innerText(), /In development/);
     assert.match(await page.locator('#get').innerText(), /There is no download yet/);
     assert.match(await page.locator('#get pre').innerText(), /host\/scripts\/build\.sh/);
+    assert.equal((await page.locator('#get pre').innerText()).trim().split('\n').length, 3, 'the build commands stand on three lines');
     assert.match(await page.locator('.foot .license').innerText(), /source-available under Apache License 2\.0 with the Commons Clause/);
     for (const gone of ['install.sh', 'appcast.xml']) assert.equal((await page.request.get(url + gone)).status(), 404, `${gone} is no longer published`);
     // One metal key in view: the page's two keys are further apart than any window is tall.
@@ -161,13 +162,13 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
     assert.ok(await bare.locator('.notch-ask img').evaluate(async (image) => (await image.decode(), image.naturalWidth > 0 && image.clientWidth > 0)), 'the notch is a picture');
     assert.ok(await bare.locator('.still-says').isVisible(), 'and its caption says what it shows');
     assert.equal(await bare.locator('.steps').isVisible(), false);
-    assert.equal(await bare.locator('main section:visible').count(), 7);
+    assert.equal(await bare.locator('main section:visible').count(), 9);
     assert.ok(await bare.locator('#get pre').isVisible());
     assert.ok(await fits(bare));
     if (shots) await bare.screenshot({ path: path.join(shots, 'home-noscript-390.png'), fullPage: true });
     await bare.goto(url + 'docs/');
     assert.ok(await bare.locator('.contents a[href="#results"]').isVisible());
-    assert.equal(await bare.locator('article section:visible').count(), 9);
+    assert.equal(await bare.locator('article section:visible').count(), 11);
     await plain.close();
 
     // ---- the live notch ----

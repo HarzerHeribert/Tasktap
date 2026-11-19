@@ -14,7 +14,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { render } from 'preact';
 import { useLayoutEffect, useState } from 'preact/hooks';
 import { cap, followSpeech } from '../capture.tsx';
-import { uuid7 } from '../client.ts';
+import { type HostUpdate, uuid7 } from '../client.ts';
 import { LevelVoice } from '../speech/level.ts';
 import { live, loudness, recording, talk } from '../speech/record.ts';
 import { I, Key, Mark, Wave, plural } from '../ui.tsx';
@@ -36,6 +36,7 @@ import {
   pref, records, redraw, reconcile, sessionOf, setLayout, settleFocus, show, textSize, textSizeBy, ui,
 } from './model.ts';
 import { SECTIONS, shown } from './settings.tsx';
+import { askUpdate, heard as updateSaid, waiting } from './update.tsx';
 import { Sheets } from './sheets.tsx';
 import { Sidebar } from './sidebar.tsx';
 import { engines, flushFits, setLook } from './terminal.ts';
@@ -242,12 +243,15 @@ function Rail() {
     c.ended > 0 && <span>{c.ended} ended</span>,
   ].filter(Boolean);
   const mark = c.needs ? 'asks' : c.working ? 'working' : c.fresh ? 'ready' : 'ended';
+  // A new version waiting for the person's word (update.tsx): one quiet line, which leads to About.
+  const newer = waiting();
   return (
     <footer class="rail">
       <span class="rail-l" role="status">
         {page.error ? <span class="err">{page.error}</span> : <><Mark s={mark} label="" />{words.length ? words : <span>Nothing running</span>}</>}
       </span>
       <span class="rail-r">
+        {newer && <button type="button" class="newer" onClick={() => arrive('settings:about')}>Version {newer} is ready</button>}
         <button type="button" title={tip('Settings', '⌘,')} onClick={() => command('settings')}>Settings</button>
       </span>
     </footer>
@@ -332,7 +336,10 @@ void listen<{ do: string; at?: string; id?: string; low?: boolean; url?: string;
   else if (payload.do === 'capture-key') captureKey();
   // Low Power Mode began or ended: the effects follow it (light.tsx effects).
   else if (payload.do === 'power') (power.low = !!payload.low), redraw();
+  // What the host knows of new versions (update.tsx).
+  else if (payload.do === 'update') updateSaid(payload as unknown as HostUpdate);
 });
+void askUpdate();
 void call('host.power', {}).then((low) => ((power.low = !!low), redraw()), () => {});
 const narrow = () => {
   const n = innerWidth < NARROW;

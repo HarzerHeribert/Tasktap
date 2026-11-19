@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0a0a0b">
 <title>How Tasktap works</title>
-<meta name="description" content="A short guide to Tasktap as it is built today: capture, placing and the brief, questions, results with Keep and Discard, the workspace, voice, settings and effects.">
+<meta name="description" content="A short guide to Tasktap as it is built today: capture, placing and the brief, questions, results with Keep and Discard, the workspace, the agents, voice, Windows, settings and effects.">
 <link rel="icon" href="../assets/favicon.png">
 <link rel="apple-touch-icon" href="../assets/apple-touch-icon.png">
 <link rel="stylesheet" href="../app/tokens.css">
@@ -37,7 +37,9 @@
       <a href="#questions">Questions</a>
       <a href="#results">Results, Keep and Discard</a>
       <a href="#workspace">The workspace</a>
+      <a href="#agents">Agents</a>
       <a href="#voice">Voice</a>
+      <a href="#windows">On Windows</a>
       <a href="#settings">Settings</a>
       <a href="#effects">Effects</a>
       <a href="#missing">Not covered yet</a>
@@ -52,7 +54,8 @@
 
       <section id="placing" aria-labelledby="placing-h">
         <h2 id="placing-h">Placing and the brief</h2>
-        <p>At first a thought goes to the folder or the session it names. You can let a model place the thoughts that name nothing. It is a model of your own agent, and the sheet that asks shows who reads your thoughts, what is sent with each one, and the instructions the model follows. <kbd>↩</kbd> allows it, <kbd>esc</kbd> declines, and Settings turns it off again.</p>
+        <p>At first a thought goes to the folder or the session it names. You can let a model place the thoughts that name nothing. It is the smallest model of your own Claude Code, Codex or Antigravity, and the sheet that asks shows who reads your thoughts, what is sent with each one, and the instructions the model follows. <kbd>↩</kbd> allows it, <kbd>esc</kbd> declines, and Settings turns it off again.</p>
+        <p>A thought is placed among the folders you have opened in Tasktap. A map of the projects on your Mac, so that a thought also finds one you have not opened yet, is designed and being built.</p>
         <p>The same model writes the brief, which is what the agent receives. It states the goal, the limits you gave, and what counts as done if you said it. It adds nothing you did not say. Your own words always travel with it. A short, clear thought goes on as it is.</p>
         <p>Once placed, the thought waits under the field for a few seconds, five unless you change it. You see where it goes, its brief, the words you said, and Undo on <kbd>⌘</kbd><kbd>Z</kbd>. The lit line above it runs out with the time that is left. <kbd>↩</kbd> on the empty field starts it at once.</p>
         <p>If the model cannot tell where a thought belongs, it asks you: “Where should this go?”, with the folders and sessions it could mean on keys, and <kbd>L</kbd> to keep it for later.</p>
@@ -62,13 +65,13 @@
         <h2 id="questions-h">Questions</h2>
         <p>While agents work, the folded notch shows counts: working, needing you, finished. When an agent needs an answer, the notch opens by itself and shows the question in full.</p>
         <p>Choices are on <kbd>1</kbd> to <kbd>9</kbd>. A yes or no is also on <kbd>Y</kbd> and <kbd>N</kbd>. <kbd>T</kbd> opens a reply in your own words. With several waiting the notch says which one you see, “2 of 3”, and <kbd>→</kbd> shows the next.</p>
-        <p>The same question stands first on Home and under its terminal in the workspace, so you answer it wherever you are. Some questions can only be answered in the agent’s own terminal; the card then leads there.</p>
+        <p>The same question stands first on Home and under its terminal in the workspace, so you answer it wherever you are. Some questions can only be answered in the agent’s own terminal; the card then leads there. Which agent asks where is listed under <a href="#agents">Agents</a>.</p>
       </section>
 
       <section id="results" aria-labelledby="results-h">
         <h2 id="results-h">Results, Keep and Discard</h2>
         <p>A finished thought comes back as a result: a summary, and its changes when it ran in its own copy of the project.</p>
-        <p>In a git project that already has work running, a new thought gets its own copy (a git worktree) and its own branch, so two runs cannot overwrite each other. Keep adds its commits to your branch by a fast-forward, the same one you would run yourself. Discard removes the copy. Review changes shows the diff first. In the notch they are on <kbd>↩</kbd>, <kbd>D</kbd> and, to open the session, <kbd>O</kbd>.</p>
+        <p>In a git project that already has work running, a new thought gets its own copy (a git worktree) and its own branch, so two runs cannot overwrite each other. Keep adds its commits to your branch by a fast-forward, the same one you would run yourself; if your branch has moved on meanwhile, by a merge commit, and if the two conflict Keep changes nothing and names the files. Discard removes the copy. Review changes shows the diff first. In the notch they are on <kbd>↩</kbd>, <kbd>D</kbd> and, to open the session, <kbd>O</kbd>.</p>
         <p>Tasktap never deletes or rewrites anything outside its own folder and its own branches. If something unexpected happens it stops and reports the real state. Folders without git run in place.</p>
       </section>
 
@@ -81,26 +84,50 @@
           <div><dt><kbd>⇧</kbd><kbd>⌘</kbd><kbd>D</kbd></dt><dd>Split down</dd></div>
           <div><dt><kbd>⌘</kbd><kbd>F</kbd></dt><dd>Find in the terminal</dd></div>
           <div><dt><kbd>⌘</kbd><kbd>N</kbd></dt><dd>New task</dd></div>
+          <div><dt><kbd>⌘</kbd><kbd>I</kbd></dt><dd>A session’s details</dd></div>
+          <div><dt><kbd>⌘</kbd><kbd>P</kbd></dt><dd>Between a terminal and its preview</dd></div>
           <div><dt><kbd>⌘</kbd><kbd>,</kbd></dt><dd>Settings</dd></div>
         </dl>
         <p>Drag a divider to resize panes and a tab to move it to another pane. A tab’s right-click menu has the rest, including Keep running in background: the session leaves the panes, stays in the sidebar, and a click brings its terminal back where it left off.</p>
+        <p>A link in a terminal is one while <kbd>⌘</kbd> is held. <kbd>⌘</kbd>-click on an address of this Mac, a picture, a PDF, a page or Markdown shows it in a preview at the terminal’s right, and an agent can show what it made there with <code>tasktap preview</code>. A preview reaches nothing of the app and loads nothing from the network.</p>
         <p>Quitting the app does not stop a session. The core keeps running for as long as a terminal runs.</p>
+      </section>
+
+      <section id="agents" aria-labelledby="agents-h">
+        <h2 id="agents-h">Agents</h2>
+        <p>Tasktap starts ten agents: Claude Code, Codex, Antigravity, OpenCode, Pi, Qwen Code, Goose, Crush, Droid and Aider. You install each and sign in to it yourself, on your own subscription; Settings, Agents shows which are installed and signed in, and which one a thought goes to by default. Any other agent that runs from a command line can be added there by its command, such as <code>goose run -t {prompt}</code>.</p>
+        <dl class="rows">
+          <div><dt>Claude Code, OpenCode</dt><dd>Questions, and requests to run a command or change a file, are answered from the notch, Home or the workspace.</dd></div>
+          <div><dt>Codex</dt><dd>Its requests are answered there too; its questions in its terminal.</dd></div>
+          <div><dt>Antigravity, Pi, Qwen Code</dt><dd>What they ask is shown, and answered in their terminal.</dd></div>
+          <div><dt>Goose, Crush, Droid, Aider</dt><dd>They run one thought to its end and ask nothing on the way. A follow-up waits for that end. Aider ends the same way whether it did the work or not; its terminal says which.</dd></div>
+        </dl>
+        <p>Tasktap never writes to an agent’s own settings: what it needs for a run is given to that run, from Tasktap’s own folder.</p>
       </section>
 
       <section id="voice" aria-labelledby="voice-h">
         <h2 id="voice-h">Voice</h2>
         <p>Hold <kbd>⌥</kbd><kbd>Space</kbd> in the capture field or in a reply, or press and hold the microphone. A short click on the microphone keeps it on until the next click. While it records, the wave follows your voice.</p>
-        <p>Speech is turned into text by a service you choose in Settings, under Speech: OpenAI, Groq or another server, with your own key. Before anything is stored, the sheet shows exactly what is sent and where. A recording is at most five minutes. You can name up to four languages you speak, as a hint.</p>
-        <p>Without a service, voice is off. Recognising speech on the Mac itself is not built yet.</p>
+        <p>Speech can be turned into text on the Mac itself. Settings, Voice downloads the model once: Whisper large-v3 turbo, 574 MB, checked before it is used. After that what you say is written while you speak, a sentence or two behind, and sent nowhere; nothing of it runs while you are not speaking. It was tried in German and English, and in both mixed in one dictation, as a developer speaks them.</p>
+        <p>Or speech is turned into text by a service you choose: OpenAI, Groq or another server, with your own key. Before anything is stored, the sheet shows exactly what is sent and where. A recording is at most five minutes. You can name the languages you speak, as a hint.</p>
+      </section>
+
+      <section id="windows" aria-labelledby="windows-h">
+        <h2 id="windows-h">On Windows</h2>
+        <p>Windows is being built, and can be built from source. Windows has no notch: a small tab hangs from the top edge of the screen and opens into the same sheet, and an icon by the clock says what waits and opens it too. The tab hides while a full-screen app or a presentation runs. Settings, Thoughts chooses its display, or turns it off.</p>
+        <p>Keys follow one rule: Ctrl stands where the Mac has <kbd>⌘</kbd>, and with a letter Shift is held too, so Ctrl and a letter alone stay the terminal’s. New terminal is Ctrl+Shift+T, and Find Ctrl+Shift+F. The capture key is Alt+Shift+Space; hold to talk is Ctrl+Space.</p>
+        <p>So far Claude Code, Codex and the agents you add run on Windows. Speech there goes through a speech service. Nothing is signed yet, so Windows asks before a copy built elsewhere runs.</p>
       </section>
 
       <section id="settings" aria-labelledby="settings-h">
         <h2 id="settings-h">Settings</h2>
         <dl class="rows">
-          <div><dt>Thoughts</dt><dd>When a sent thought starts: at once, or after 3, 5 or 10 seconds. The capture shortcut. Placing, by name or by a model.</dd></div>
-          <div><dt>Speech</dt><dd>The service that turns voice into text, its key, and the languages you speak.</dd></div>
+          <div><dt>Thoughts</dt><dd>When a sent thought starts: at once, or after 3, 5 or 10 seconds. What Return does in a thought. The capture shortcut. How long finished thoughts are kept.</dd></div>
+          <div><dt>Voice</dt><dd>The hold-to-talk key. Speech on this Mac, or the service that turns voice into text, its key, and the languages you speak.</dd></div>
+          <div><dt>Agents</dt><dd>Which agents are installed and signed in, the default one, and the ones you add.</dd></div>
+          <div><dt>Appearance</dt><dd>Text size. Effects, the form of the chrome (Slats, Glyphs or Resonator), its colour, and Lumen, the coloured light behind it.</dd></div>
           <div><dt>Terminal</dt><dd>The font, its size and the line height.</dd></div>
-          <div><dt>Appearance</dt><dd>Effects, the form of the chrome (Slats, Glyphs or Resonator), its colour, and Lumen, the coloured light behind it.</dd></div>
+          <div><dt>About</dt><dd>What Tasktap keeps and what it sends, and the licences of what it ships with.</dd></div>
         </dl>
       </section>
 
@@ -115,14 +142,14 @@
         <p>This page is not a manual. A full guide still needs:</p>
         <ul>
           <li>Installing and updating. There is no download, installer or updater yet; the app is <a href="../#get">built from source</a>.</li>
-          <li>Setting up Claude Code and Codex: installing them, signing in, and what Tasktap needs from each.</li>
+          <li>Setting up each agent: installing it, signing in, and what Tasktap needs from it.</li>
           <li>Every key and menu command in one table.</li>
           <li>The permissions macOS asks for, and why.</li>
           <li>Placing in depth: follow-ups to a running session, and examples of briefs.</li>
           <li>Runs in their own copy in depth: when one is made, and what Keep does when your branch has moved on.</li>
           <li>Results, Earlier and For later on Home.</li>
           <li>Where Tasktap keeps its data, and troubleshooting.</li>
-          <li>Windows, once it exists.</li>
+          <li>Windows in full, once it can be installed.</li>
         </ul>
       </section>
     </article>

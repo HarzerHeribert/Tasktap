@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds "Tasktap Review.app": the app build.sh makes, under another name and identity, to try beside Tasktap Next
+# Builds "Tasktap Review.app": the app build.sh makes, under another name and identity, to try beside Tasktap
 # while it runs. The same pages, core and speech helper; the host built with its `review` feature (src/main.rs, REVIEW:
 # its data, core and socket in ~/Library/Application Support/Tasktap Review, no notch, no global keys until one is
 # recorded in its Settings) and with tauri.review.conf.json over tauri.conf.json (its name and bundle identifier), in a
@@ -15,7 +15,7 @@ npm run --silent build
 TASKTAP_KEY_SERVICE="Tasktap Review" "$host/scripts/build-core.sh"
 "$host/scripts/build-speech.sh"
 cd "$host"
-CARGO_TARGET_DIR="$host/target/review" "$root/ui/node_modules/.bin/tauri" build --bundles app \
+CARGO_TARGET_DIR="$host/target/review" "$root/ui/node_modules/.bin/tauri" build --bundles app --no-sign \
   --config tauri.review.conf.json --features review
 app="$host/target/review/release/bundle/macos/Tasktap Review.app"
 echo "Built $app"

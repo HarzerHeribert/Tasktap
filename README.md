@@ -1,10 +1,10 @@
 # Tasktap
 
-Tasktap is a Mac app for working with coding agents: Claude Code and Codex first, and with them Antigravity, Pi, OpenCode, Qwen Code, Goose, Crush, Droid and Aider, ten in all, and any command-line agent you add yourself. Put a thought in: Tasktap works out where it belongs, starts the work, and comes back only when it needs you or has a result. Its main record is the thought (what was said, where it went, what is running, what it asked, what came back); a terminal is where a thought happens to be running.
+Tasktap is a Mac app for working with coding agents: Claude Code and Codex first, and with them Antigravity, Copilot, Pi, OpenCode, Qwen Code, Goose, Crush, Droid and Aider, eleven in all, and any command-line agent you add yourself. Put a thought in: Tasktap works out where it belongs, starts the work, and comes back only when it needs you or has a result. Its main record is the thought (what was said, where it went, what is running, what it asked, what came back); a terminal is where a thought happens to be running.
 
 That is the idea this code is built to. What works today, and what is deliberately missing, is listed in [host/README.md](host/README.md).
 
-**This branch is the rebuild.** The released Tasktap 1.2 is a different program (a Swift shell, web pages and a Python service). It is not in this tree: it lives on `main` until the cutover is merged, and at the tag `v1.2.0` afterwards. Nothing here reads, imports or stays compatible with 1.2's data. The app built here is called "Tasktap Next" for now, with its own identifier (`io.github.harzerheribert.tasktap.next`) and its own data folder (`~/Library/Application Support/Tasktap Next`), so it can run beside an installed 1.2 without touching it.
+**This branch is the rebuild.** The released Tasktap 1.2 is a different program (a Swift shell, web pages and a Python service). It is not in this tree: it lives on `main` until the cutover is merged, and at the tag `v1.2.0` afterwards. Nothing here reads, imports or stays compatible with 1.2's data. The app built here is Tasktap (`io.github.harzerheribert.tasktap`, data in `~/Library/Application Support/Tasktap`). Builds of it were called "Tasktap Next" until the release work; the first start of Tasktap takes over Tasktap Next's data folder once (host/README.md, "Release").
 
 ## The three parts
 
@@ -28,7 +28,7 @@ Needs Rust (stable), Node 22 and macOS 13 or later.
 
     # The app: builds the pages, the core and the host
     host/scripts/build.sh
-    open "host/target/release/bundle/macos/Tasktap Next.app"      # or: host/scripts/build.sh --open
+    open "host/target/release/bundle/macos/Tasktap.app"      # or: host/scripts/build.sh --open
 
     # The host: format, lint and the notch geometry tests (after a build, which makes what it embeds)
     (cd host && cargo fmt --check && cargo clippy -- -D warnings && cargo test)

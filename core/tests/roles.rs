@@ -646,7 +646,7 @@ fn an_agent_typed_in_a_shell_of_the_core_is_adopted() {
     assert_eq!(
         shims,
         [
-            "agy", "claude", "codex", "fixture", "opencode", "pi", "tasktap"
+            "agy", "claude", "codex", "copilot", "fixture", "opencode", "pi", "tasktap"
         ]
     );
     let typed = b"fixture event:ready event:turn_started:tidy exit:4\r";

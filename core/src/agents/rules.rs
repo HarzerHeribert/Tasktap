@@ -30,6 +30,7 @@ const RULES: &[&Rules] = &[
     &super::antigravity::RULES,
     &super::pi::RULES,
     &super::opencode::RULES,
+    &super::copilot::RULES,
     #[cfg(feature = "fixtures")]
     &FIXTURE,
 ];
@@ -61,6 +62,11 @@ const VALUE_OPTIONS: &[&str] = &[
     "-n", "--models", "--tools", "-t", "--exclude-tools", "-xt", "--system-prompt",
     "--append-system-prompt", "--skill", "--prompt-template", "--theme", "--use-theme", "--tui-mode",
     "--server", "--prompt", "--log-level",
+    "--plugin-dir", "--workspace", "-H", "--header", "--endpoint", "--worktree-base", "--log-dir",
+    "--reasoning-effort", "--context", "--max-ai-credits", "--max-autopilot-continues", "--stream",
+    "--usage-output-file", "--attachment", "--additional-mcp-config", "--disable-mcp-server",
+    "--enable-mcp-server", "--extension-sdk-path", "--auto-tier", "--dynamic-retrieval",
+    "--mcp-github-auth", "--add-github-mcp-tool", "--add-github-mcp-toolset",
 ];
 
 impl Rules {
@@ -119,7 +125,9 @@ mod tests {
 
     /// An agent's rules, whether or not it runs on this system.
     fn rules(agent: &str) -> &'static Rules {
-        RULES.iter().copied().find(|r| r.agent == agent).unwrap()
+        // Cursor is not offered yet (design §7); its rules are kept and tested.
+        let all = RULES.iter().copied().chain([&super::super::cursor::RULES]);
+        all.into_iter().find(|r| r.agent == agent).unwrap()
     }
 
     fn words(args: &[&str]) -> Vec<String> {
@@ -187,6 +195,32 @@ mod tests {
             ("opencode", &["mini"], false),
             ("opencode", &["-v"], false),
             ("opencode", &["--completions", "zsh"], false),
+            ("copilot", &[], true),
+            ("copilot", &["-i", "fix the bug"], true),
+            ("copilot", &["--resume=abc", "--plugin-dir", "/x"], true),
+            (
+                "copilot",
+                &["--model", "gpt-5.4-mini", "--log-dir", "/x", "login"],
+                false,
+            ),
+            ("copilot", &["-p", "hi"], false),
+            ("copilot", &["--prompt=hi"], false),
+            ("copilot", &["--acp"], false),
+            ("copilot", &["-v"], false),
+            ("copilot", &["plugin", "list"], false),
+            ("copilot", &["sessions"], false),
+            ("cursor-agent", &[], true),
+            ("cursor-agent", &["fix", "the", "bug"], true),
+            ("cursor-agent", &["--resume", "abc"], true),
+            ("cursor-agent", &["--plugin-dir", "/x", "ls"], true),
+            ("cursor-agent", &["agent", "fix it"], true),
+            ("cursor-agent", &["--workspace", "mcp"], true),
+            ("cursor-agent", &["-p", "hi"], false),
+            ("cursor-agent", &["--list-models"], false),
+            ("cursor-agent", &["-v"], false),
+            ("cursor-agent", &["status"], false),
+            ("cursor-agent", &["--model", "auto", "login"], false),
+            ("cursor-agent", &["--plugin-dir", "/x", "update"], false),
         ] {
             assert_eq!(
                 rules(agent).interactive(&words(args)),
@@ -235,6 +269,12 @@ mod tests {
             // OpenCode keeps the permissions the person configured.
             ("opencode", &[], &[]),
             ("opencode", &["--auto"], &[]),
+            // So does Copilot.
+            ("copilot", &[], &[]),
+            ("copilot", &["--yolo"], &[]),
+            // So does Cursor.
+            ("cursor-agent", &[], &[]),
+            ("cursor-agent", &["--yolo"], &[]),
         ] {
             assert_eq!(
                 rules(agent).approval(&words(args)),

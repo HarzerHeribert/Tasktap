@@ -194,8 +194,8 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       return reply(id, null);
     }
     // What Tasktap knows of the person's projects (docs/projects-design.md): `offer` is what `projects.offer` finds;
-    // a look added or switched on puts its row and then, one by one as a look fills in, the cards of `found`; `finds`
-    // answers `projects.find` by its text, else the cards and folders whose name has the text in it.
+    // a look added or switched on puts its row and then, one by one as a look fills in, the cards of `found`;
+    // `projects.find` is the core's own answer (`FIND` below), or `finds` by its text where a picture wants one.
     if (name === 'projects.offer') return reply(id, records.offer || { agents: [], places: [] });
     if (name === 'projects.look') return reply(id, { projects: (records.cards || []).filter((c) => !c.copy_of && !c.inside && !c.hidden).length, ms: 40 });
     const look = (row) => {
@@ -211,12 +211,19 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       return reply(id, (had || args).id);
     }
     if (name === 'projects.find') {
-      const text = (args.text || '').trim().toLowerCase(), most = args.limit || 3;
-      if ((records.finds || {})[args.text]) return reply(id, { found: records.finds[args.text].slice(0, most) });
-      const open = (records.projects || []).filter((p) => p.open && p.kind === 'folder').map((p) => ({ to: { project: p.id }, name: p.name, folder: p.folder.replace(/^\/Users\/[^/]+/, '~'), why: '' }));
-      const known = (records.cards || []).filter((c) => !c.copy_of && !c.inside && !c.hidden && !c.project_id).map((c) => ({ to: { card: c.id }, name: c.name, folder: c.folder.replace(/^\/Users\/[^/]+/, '~'), why: c.about ? c.about.split(' ').slice(0, 3).join(' ') : '' }));
-      const all = [...open, ...known].filter((f) => !text || f.name.toLowerCase().includes(text.replace(/\s+/g, '')));
-      return reply(id, { found: all.slice(0, most) });
+      if ((records.finds || {})[args.text]) return reply(id, { found: records.finds[args.text].slice(0, args.limit || 3) });
+      // Asked of the core's own code (core/examples/find.rs), with the projects a request gives it: the open folders
+      // with their cards' names and lines, then the projects known and not open. Nothing without it.
+      if (!window.__coreFind) return reply(id, { found: [] });
+      const cards = records.cards || [], short = (f) => f.replace(/^\/Users\/[^/]+/, '~');
+      const open = (records.projects || []).filter((p) => p.open && p.kind === 'folder' && p.available !== false).map((p) => {
+        const c = cards.find((x) => x.project_id === p.id || x.folder === p.folder);
+        return { to: { project: p.id }, name: p.name, aliases: [...(p.aliases || []), ...((c && c.names) || []).filter((n) => n !== p.name)], about: (c && c.about) || '', folder: short(p.folder), used: (c && c.used) || null };
+      });
+      const known = cards.filter((c) => !c.copy_of && !c.inside && !c.hidden && c.available !== false && !open.some((o) => o.to.project === c.project_id || o.folder === short(c.folder)))
+        .map((c) => ({ to: { card: c.id }, name: c.name, aliases: c.names || [], about: c.about || '', folder: short(c.folder), used: c.used || null }));
+      return void window.__coreFind(JSON.stringify({ text: args.text, limit: args.limit, thought: !!args.thought, projects: [...open, ...known] }))
+        .then((answer) => reply(id, JSON.parse(answer)));
     }
     if (name === 'put' && (args.c === 'cards' || args.c === 'looks')) {
       const row = (records[args.c] || []).find((r) => r.id === args.id);
@@ -403,6 +410,13 @@ const scaled = (px) => Math.round(px * SCALE);
 // TEXT gives every page that text size unless its records choose one; WIDTH, a workspace window that wide where the
 // caller names no size. `system: 'windows'`: the page is told it runs on Windows (ui/src/system.ts reads the browser's
 // own account of itself), so its keys and paths are Windows'.
+/** The core's own `projects.find` (core/examples/find.rs), which the pages' fake core asks. */
+const FIND = path.join(root, 'core/target/debug/examples/find');
+/** Builds it, for a check that asks the list's field to find a project: what the check sees found is the core's. */
+function findCore() {
+  require('node:child_process').execFileSync('cargo', ['build', '-q', '--example', 'find'], { cwd: path.join(root, 'core'), stdio: 'inherit' });
+  return FIND;
+}
 const WINDOWS = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0';
 async function open(browser, { label, records = {}, viewport, dpr = 2, url, video, clock, permissions, system }) {
   const size = viewport || (label === 'notch' ? { width: 560, height: 520 } : { width: Number(process.env.WIDTH) || 1180, height: 760 });
@@ -413,6 +427,8 @@ async function open(browser, { label, records = {}, viewport, dpr = 2, url, vide
   page.errors = [];
   page.on('pageerror', (e) => page.errors.push(String(e)));
   page.on('console', (m) => { if (m.type() === 'error') page.errors.push(m.text()); });
+  // `projects.find`, answered by the core's own code when it is built (`findCore`).
+  if (fs.existsSync(FIND)) await page.exposeFunction('__coreFind', (asked) => require('node:child_process').execFileSync(FIND, { input: `${asked}\n` }).toString());
   await page.addInitScript(fakeRuntime, { label, records, welcome: { v: VERSION, calls: CALLS }, terms: TERMS });
   await page.goto(`${url}/${label}.html`);
   if (label === 'notch') await page.evaluate(() => { document.documentElement.style.background = '#3a4048'; });
@@ -514,7 +530,7 @@ async function main(out) {
 /** Headless Chromium on the graphics card: the motion's checks time what the page does, and a software renderer's
  *  own time (a quarter of a second to build a program, milliseconds a frame) would be measured with it. */
 const GPU = ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'];
-module.exports = { serve, open, fixtures, GPU, TEXT, scaled, scene: (...a) => require('./instrument-fixtures.cjs').scene(...a) };
+module.exports = { serve, open, findCore, fixtures, GPU, TEXT, scaled, scene: (...a) => require('./instrument-fixtures.cjs').scene(...a) };
 if (require.main === module) {
   if (!process.argv[2]) { console.error('usage: node scripts/motion-pages.cjs <outdir>'); process.exit(2); }
   main(path.resolve(process.argv[2])).catch((e) => { console.error(e); process.exit(1); });

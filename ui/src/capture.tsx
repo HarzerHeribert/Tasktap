@@ -47,7 +47,7 @@ export const cap = {
   moving: null as string | null,
   /** What is typed in the list's field to find a project, and what the core found for a text (projects.find). */
   find: '',
-  found: null as { text: string; list: Found[] } | null,
+  found: null as { text: string; thought: boolean; list: Found[] } | null,
   /** How many thoughts are on their way to the core, their call not back yet. The field is free for the next. */
   sending: 0,
   sent: null as Sent | null,
@@ -90,11 +90,12 @@ export function hinted(): Route | undefined {
 /** Where the thought in the field goes, who places it (`to` '' is the router's to say), and why
  *  (docs/projects-design.md, "The chip", and the owner's decisions of 2026-11-19). The person's choice, for this
  *  thought alone; else a follow-up to the session its words name or the person is in; else the project its words
- *  name, as written or as speech writes it, open or only known (it opens when the thought starts there), or a
- *  question when they name several; else the folder of the workspace this Composer was opened in; else Tasktap
- *  decides with a model, where placing by one is agreed to; else the one project known, when only one is; else
- *  Tasktap decides by its words, and asks where a thought goes that names none. With no project known a thought is
- *  saved for later. Scratch is never a default: a thought goes there only when the person chooses it. */
+ *  name, as written or with its parts said apart, open or only known (it opens when the thought starts there), or a
+ *  question when they name several or only sound like one; else the folder of the workspace this Composer was opened
+ *  in; else Tasktap decides with a model, where placing by one is agreed to; else the one folder the person opened,
+ *  when it is the only place there is; else Tasktap decides by its words, and asks where a thought goes that names
+ *  none. With no project known a thought is saved for later. Scratch is never a default: a thought goes there only
+ *  when the person chooses it. */
 export function where(): { to: string; by: 'router' | 'pick' | 'later'; why: 'chosen' | 'follows' | 'named' | 'said' | 'asked' | 'in' | 'model' | 'only' | 'words' | 'ask' | 'none' } {
   const pick = picked(), route = hinted(), all = known();
   const usual = pick === undefined && cap.usual ? records.projects.get(cap.usual) : undefined;
@@ -105,7 +106,8 @@ export function where(): { to: string; by: 'router' | 'pick' | 'later'; why: 'ch
   if (route) return { to: '', by: 'router', why: 'asked' };
   if (usual?.open && usual.kind === 'folder') return { to: usual.id, by: 'pick', why: 'in' };
   if (all.length && modelPlaces()) return { to: '', by: 'router', why: 'model' };
-  if (pick === undefined && all.length === 1) return { to: all[0]!, by: 'pick', why: 'only' };
+  // The one place there is, when it is a folder the person opened: a project Tasktap only knows of is never a default.
+  if (pick === undefined && all.length === 1 && records.projects.get(all[0]!)?.kind === 'folder') return { to: all[0]!, by: 'pick', why: 'only' };
   if (!all.length) return { to: 'later', by: 'later', why: 'none' };
   return { to: '', by: 'router', why: cap.draft.trim() ? 'ask' : 'words' };
 }
@@ -306,19 +308,20 @@ export function choose(open: boolean) {
   if (!open) cap.moving = null;
   // The field to find a project has the keyboard; the arrows reach the rows under it.
   page.focus = open ? '#cap-find' : '#capture-input';
-  if (open) ask(cap.moving ? '' : cap.draft.trim(), 3);
+  if (open) ask(cap.moving ? '' : cap.draft.trim(), 3, true);
   redraw();
 }
 
-/** What the list found for a text: the projects it names or points at (projects.find), asked a moment after typing
- *  stops, and kept for that text only. */
+/** What the list found (projects.find), asked a moment after typing stops and kept for that text only: for what is
+ *  typed in its field, the projects whose names it matches; for the thought already written (`thought`), the places
+ *  its own words name or describe. Either may be none: then the list is what is in use. */
 let finding = 0;
-function ask(text: string, limit: number) {
+function ask(text: string, limit: number, thought: boolean) {
   clearTimeout(finding);
   if (!text) return void (cap.found = null);
   finding = window.setTimeout(() => {
-    void call('projects.find', { text, limit }).then((r) => {
-      cap.found = { text, list: r.found };
+    void call('projects.find', { text, limit, thought }).then((r) => {
+      cap.found = { text, thought, list: r.found };
       redraw();
     }, () => {});
   }, cap.found ? 120 : 0);
@@ -368,12 +371,13 @@ function recent() {
 
 /** The list the chip opens, in the Composer's row (docs/projects-design.md, the owner's decisions of 2026-11-19): only
  *  what is in use, Tasktap decides, the open folders and For later, under a field that finds any project Tasktap
- *  knows, by name, as it is said, or by the line about it. A project not open appears only as an answer: to what is
- *  typed in the field or, with a thought already written, as its three likeliest places, first. Never a row of every
+ *  knows, by its names or the line about it. A project not open appears only as an answer: to what is typed in the
+ *  field or, with a thought already written, as the places (three at most) its words name or describe, first; none
+ *  when they point at none, and never one only because it was worked on lately. Never a row of every
  *  folder, and nothing "more" to page through: the field reaches the rest. In the notch it is three rows of each. */
 function Places({ w, later, raised, hooks }: { w: ReturnType<typeof where>; later: boolean; raised: boolean; hooks: Hooks }) {
   const typed = cap.find.trim(), asked = typed || (cap.moving ? '' : cap.draft.trim());
-  const answers = asked && cap.found?.text === asked ? cap.found.list : [];
+  const answers = asked && cap.found?.text === asked && cap.found.thought === !typed ? cap.found.list : [];
   const rows = raised ? 6 : 3;
   const id = (f: Found) => ('project' in f.to ? f.to.project : 'card' in f.to ? f.to.card : '');
   const shown = answers.filter((f) => id(f)).slice(0, typed ? rows : 3);
@@ -390,14 +394,15 @@ function Places({ w, later, raised, hooks }: { w: ReturnType<typeof where>; late
         <input id="cap-find" autocomplete="off" spellcheck={false} aria-label="Find a project" placeholder="Find a project" value={cap.find}
           onInput={(e) => {
             cap.find = e.currentTarget.value;
-            ask(cap.find.trim() || (cap.moving ? '' : cap.draft.trim()), cap.find.trim() ? rows : 3);
+            const find = cap.find.trim();
+            ask(find || (cap.moving ? '' : cap.draft.trim()), find ? rows : 3, !find);
             redraw();
           }} />
         <Key k="esc" cap />
       </label>
       {shown.map((f) => option(id(f), !cap.moving && id(f) === w.to, <I n="folder" />, f.name,
         [f.why, 'card' in f.to ? 'not open yet' : ''].filter(Boolean).join(' · ')))}
-      {typed && !shown.length && <p class="cap-none">{cap.found?.text === typed ? 'No project by that name.' : 'Looking…'}</p>}
+      {typed && !shown.length && <p class="cap-none">{cap.found?.text === typed && !cap.found.thought ? 'No project by that name.' : 'Looking…'}</p>}
       {!typed && !cap.moving && known().length > 0 && option('', w.by === 'router' && !w.to, <I n="arrow" />, 'Tasktap decides')}
       {open.map((p) => option(p.id, !cap.moving && p.id === w.to, <I n="folder" />, p.name))}
       <button type="button" onClick={() => void addProject(hooks)}><I n="plus" /><span>Open another folder…</span></button>

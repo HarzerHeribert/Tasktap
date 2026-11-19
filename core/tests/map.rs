@@ -597,9 +597,11 @@ fn placing_finds_names_as_written_and_as_said_and_asks_when_unsure() {
         })
     };
     let to = |name: &str| projects.iter().find(|p| p.name == name).unwrap().to;
+    // As it sounds: proposed and asked about, never placed by itself.
     match place("write a shrinker for date ranges in pie right") {
-        Route::Clear { to: at, said, .. } => {
-            assert_eq!((at, said.as_deref()), (to("pyrite"), Some("pie right")))
+        Route::Ambiguous { candidates, .. } => {
+            assert_eq!(candidates[0].to, to("pyrite"));
+            assert_eq!(candidates[0].why, "said as “pie right”");
         }
         other => panic!("{other:?}"),
     }
@@ -627,6 +629,131 @@ fn placing_finds_names_as_written_and_as_said_and_asks_when_unsure() {
         ..Request::default()
     });
     assert_eq!(none, Route::Unknown);
+}
+
+#[test]
+fn a_field_finds_a_project_by_what_is_typed_and_a_thought_by_its_own_words() {
+    let t = Folder::new("find");
+    let (home, data) = (t.0.join("home"), t.0.join("data"));
+    mkdir(&data);
+    let made = [
+        (
+            "harbormaster",
+            "Deploys containers to a small fleet over SSH.",
+        ),
+        ("cuegrid", "Cue sheets and a rehearsal timer."),
+        ("tidepool", "A photo library."),
+        ("kiln", "A static site generator with incremental builds."),
+        ("pyrite", "Property-based testing helpers for Python."),
+        ("ledger-api", "The HTTP API of a ledger for freelancers."),
+    ];
+    for (name, about) in made {
+        repo(&home.join("projects").join(name), about, None);
+    }
+    let home_text = real(&home).to_str().unwrap().to_owned();
+    let core = Core::start_env(&data, &[], &[("HOME", &home_text)]);
+    let mut w = core.watch();
+    w.ok::<call::LookAdd>(&AddLook {
+        id: LookId::mint(),
+        folder: Some(format!("{home_text}/projects")),
+        agent: None,
+        on: None,
+    });
+    let looked = w.ok::<call::ProjectsLook>(&Empty {});
+    assert_eq!(looked.projects, 6);
+    let find = |w: &mut Watch, text: &str, thought: bool| -> Vec<String> {
+        let args = Find {
+            text: text.into(),
+            limit: Some(5),
+            thought,
+        };
+        let found = w.ok::<call::ProjectsFind>(&args).found;
+        found.into_iter().map(|f| f.name).collect()
+    };
+    // Typed into the field: what its names match, nothing else.
+    for (typed, want) in [
+        ("harbor", &["harbormaster"][..]),
+        ("cue", &["cuegrid"]),
+        ("tide", &["tidepool"]),
+        ("master", &["harbormaster"]),
+        ("led ap", &["ledger-api"]),
+        ("ledger api", &["ledger-api"]),
+        ("LedgerAPI", &["ledger-api"]),
+        ("freelan", &["ledger-api"]),
+        ("pirite", &["pyrite"]),
+        ("farr", &[]),
+        ("zebra", &[]),
+        ("", &[]),
+    ] {
+        assert_eq!(find(&mut w, typed, false), want, "typed {typed:?}");
+    }
+    // A thought: the places its own words name or describe, never one
+    // only because it was worked on lately.
+    assert_eq!(
+        find(&mut w, "the static site rebuilds every page", true),
+        ["kiln"]
+    );
+    assert_eq!(
+        find(&mut w, "ship the containers to the fleet tonight", true),
+        ["harbormaster"]
+    );
+    assert!(find(&mut w, "rename the variables", true).is_empty());
+}
+
+#[test]
+fn a_name_said_only_as_it_sounds_or_an_everyday_word_is_asked_about() {
+    let card = |name: &str, about: &str| Named {
+        to: Destination::Card(CardId::mint()),
+        name: name.into(),
+        aliases: Vec::new(),
+        about: about.into(),
+        folder: format!("/home/someone/projects/{name}"),
+        used: None,
+    };
+    let projects = vec![
+        card("tidepool", "A photo library"),
+        card("cuegrid", "Cue sheets and a rehearsal timer"),
+        card("pyrite", "Property-based testing helpers for Python"),
+        card("test", ""),
+        card("app", "The phone app"),
+        card("notes", ""),
+        card("my-app", ""),
+    ];
+    let place = |text: &str| {
+        route::local(&Request {
+            text: text.into(),
+            projects: projects.clone(),
+            ..Request::default()
+        })
+    };
+    let to = |name: &str| projects.iter().find(|p| p.name == name).unwrap().to;
+    // Asked, with the one it sounds like or the everyday word first.
+    for (text, first) in [
+        ("today pool party list", "tidepool"),
+        ("queue grid timer is off by a second", "cuegrid"),
+        ("write a test for the parser", "test"),
+        ("make the app icon bigger", "app"),
+    ] {
+        match place(text) {
+            Route::Ambiguous { candidates, .. } => {
+                assert_eq!(candidates[0].to, to(first), "{text}: {candidates:?}")
+            }
+            other => panic!("{text}: {other:?}"),
+        }
+    }
+    // Placed: a name written, and an everyday word used as a name.
+    for (text, want) in [
+        ("add notes to the readme of pyrite", "pyrite"),
+        ("fix the login screen in app", "app"),
+        ("the test project needs a new fixture", "test"),
+        ("bump the version in `notes`", "notes"),
+        ("my-app crashes at launch", "my-app"),
+    ] {
+        match place(text) {
+            Route::Clear { to: at, .. } => assert_eq!(at, to(want), "{text}"),
+            other => panic!("{text}: {other:?}"),
+        }
+    }
 }
 
 #[test]
@@ -709,7 +836,7 @@ fn a_known_project_gives_no_right_until_a_thought_starts_there() {
     let id = ThoughtId::mint();
     w.ok::<call::ThoughtCapture>(&Capture {
         agent: Some("fixture".into()),
-        ..typed(id, "in queue grid make the timer readable")
+        ..typed(id, "in cue grid make the timer readable")
     });
     w.until("placed", |m| m.thought(id).phase == Phase::Routed);
     let th = w.model.thought(id).clone();
@@ -717,7 +844,7 @@ fn a_known_project_gives_no_right_until_a_thought_starts_there() {
         (th.card_id, th.project_id, th.placed),
         (Some(card.id), None, Some(Placed::Name))
     );
-    assert_eq!(th.route.unwrap().quote.as_deref(), Some("queue grid"));
+    assert_eq!(th.route.unwrap().quote.as_deref(), Some("cue grid"));
     w.ok::<call::ThoughtStop>(&Ref { id });
     w.sync();
     assert!(

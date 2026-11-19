@@ -480,6 +480,7 @@ fn every_call_round_trips() {
     let find = Find {
         text: "queue grid".into(),
         limit: Some(3),
+        thought: true,
     };
     let found = Finds {
         found: vec![Found {

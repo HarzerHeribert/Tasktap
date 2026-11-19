@@ -26,8 +26,8 @@
 //! | --- | --- |
 //! | names one session, and no project but that session's | `clear`: a follow-up to it |
 //! | names no session, was made in a current session, and names no project but that session's | `clear`: a follow-up to the current session |
-//! | names one project and no session | `clear`: a new run in that project, opened there if it is a known project and not a workspace |
-//! | names several projects or sessions, or one name two projects have, or a name one letter off | `ambiguous`: those are the choices, at most three |
+//! | names one project, as written or with its parts said apart, and no session | `clear`: a new run in that project, opened there if it is a known project and not a workspace |
+//! | names several projects or sessions, or one name two projects have; or says a name only as it sounds, one letter off, or an everyday word that is a project's name ("test", "app") not used as a name | `ambiguous`: those are the choices first, at most three |
 //! | names nothing, and projects are known | `ambiguous`: at most three, those whose line about them shares the rarest words first, then where the last thought went, then the most recently worked on |
 //! | names nothing, and no project is known | `unknown`: it stays an idea |
 //!
@@ -35,8 +35,11 @@
 //! inside a longer name of another ("tidepool" in "tidepool mobile"), the
 //! longer is meant; two said alike are a choice. A name said as written
 //! or joined outweighs one said only as it sounds, which outweighs one a
-//! letter off. How recently a project was worked on orders the choices and
-//! never decides alone. Scratch is never offered: a thought goes there
+//! letter off or an everyday word said as that word. An everyday word is
+//! used as a name after "in" or "to", before "project" or "repo", in
+//! backticks or quotes, at the end of a path, or beside another project's
+//! name ("folio and app"). How recently a project was worked on orders the
+//! choices and never decides alone. Scratch is never offered: a thought goes there
 //! only when the person picks it. The brief is the person's text unchanged.
 //!
 //! What the core enforces on a model's answer, whatever the instructions
@@ -304,17 +307,162 @@ fn said_at(w: &Words, p: &Named) -> Vec<Said> {
 struct Hit<'r> {
     p: &'r Named,
     said: Said,
+    /// A name that is an everyday word ("app", "test", "notes"), said as
+    /// that word and not as a name: as weak as a name a letter off.
+    plain: bool,
+}
+
+/// Names that are everyday words of a person's work: a project called so
+/// is named by a thought only when the thought uses the word as a name.
+const EVERYDAY: &[&str] = &[
+    "admin",
+    "api",
+    "app",
+    "apps",
+    "assets",
+    "backend",
+    "blog",
+    "bot",
+    "build",
+    "cli",
+    "client",
+    "code",
+    "common",
+    "config",
+    "core",
+    "dashboard",
+    "data",
+    "demo",
+    "deploy",
+    "design",
+    "dev",
+    "doc",
+    "docs",
+    "dotfiles",
+    "example",
+    "examples",
+    "experiments",
+    "frontend",
+    "game",
+    "home",
+    "infra",
+    "lib",
+    "main",
+    "misc",
+    "mobile",
+    "notes",
+    "old",
+    "personal",
+    "playground",
+    "project",
+    "projects",
+    "prototype",
+    "sandbox",
+    "scripts",
+    "sdk",
+    "server",
+    "service",
+    "services",
+    "shared",
+    "site",
+    "src",
+    "temp",
+    "test",
+    "tests",
+    "tmp",
+    "todo",
+    "tools",
+    "ui",
+    "utils",
+    "web",
+    "website",
+    "www",
+];
+
+/// Words before a name that say it is one: "in app", "to docs".
+const BEFORE_NAME: &[&str] = &["in", "into", "to", "for", "from", "inside", "at"];
+/// Words after a name that say it is one: "the app project".
+const AFTER_NAME: &[&str] = &[
+    "project",
+    "repo",
+    "repository",
+    "folder",
+    "workspace",
+    "codebase",
+    "directory",
+];
+
+/// Whether a project's name is everyday words alone.
+fn everyday(name: &str) -> bool {
+    let p = parts(name);
+    !p.is_empty() && p.iter().all(|w| EVERYDAY.contains(&w.as_str()))
+}
+
+/// Whether the capture says `name` as a name where it says it: after "in"
+/// or "to", before "project" or "repo", in backticks or quotes, at the end
+/// of a path, or written whole with what joins its parts ("my-app").
+fn as_name(r: &Request, w: &Words, said: &Said, name: &str) -> bool {
+    let word = |i: usize| w.words.get(i).map(String::as_str);
+    let before = said.at.start.checked_sub(1).and_then(word);
+    let after = word(said.at.end);
+    if before.is_some_and(|b| BEFORE_NAME.contains(&b))
+        || after.is_some_and(|a| AFTER_NAME.contains(&a))
+    {
+        return true;
+    }
+    let (head, tail) = (&r.text[..said.span.start], &r.text[said.span.end..]);
+    let open = head.chars().next_back();
+    let close = tail.chars().next();
+    let quoted = matches!(
+        (open, close),
+        (Some('`'), Some('`'))
+            | (Some('"'), Some('"'))
+            | (Some('\''), Some('\''))
+            | (Some('“'), Some('”'))
+            | (Some('‘'), Some('’'))
+    );
+    let path = open == Some('/') || open == Some('\\');
+    let whole = parts(name).len() > 1 && r.text[said.span.clone()].eq_ignore_ascii_case(name);
+    quoted || path || whole
 }
 
 /// The projects the capture names, each once, at its strongest: a name
 /// said inside a longer name of another project is not; one said only
 /// as it sounds is not when another is written or joined; one a letter
-/// off is not when another is said otherwise. The strongest and longest
-/// first, then the most recently worked on.
+/// off, or an everyday word not said as a name, is not when another is
+/// said otherwise. The strongest and longest first, then the most
+/// recently worked on.
 fn hits(r: &Request) -> Vec<Hit<'_>> {
     let w = name_words(&r.text);
     let all: Vec<Hit> = (r.projects.iter())
-        .flat_map(|p| said_at(&w, p).into_iter().map(move |said| Hit { p, said }))
+        .flat_map(|p| {
+            let names = std::iter::once(&p.name).chain(&p.aliases);
+            let w = &w;
+            names.flat_map(move |n| {
+                said(w, n).into_iter().map(move |said| {
+                    let plain = everyday(n) && !as_name(r, w, &said, n);
+                    Hit { p, said, plain }
+                })
+            })
+        })
+        .collect();
+    // An everyday word beside another project's name, "and" or "or"
+    // between, is a name too: "folio and app".
+    let listed = |h: &Hit| {
+        let and = |i: usize| w.words.get(i).is_some_and(|x| x == "and" || x == "or");
+        all.iter().any(|o| {
+            o.p.to != h.p.to
+                && !o.plain
+                && ((o.said.at.end + 1 == h.said.at.start && and(o.said.at.end))
+                    || (h.said.at.end + 1 == o.said.at.start && and(h.said.at.end)))
+        })
+    };
+    let named: Vec<bool> = all.iter().map(|h| h.plain && listed(h)).collect();
+    let all: Vec<Hit> = (all.into_iter().zip(named))
+        .map(|(h, named)| Hit {
+            plain: h.plain && !named,
+            ..h
+        })
         .collect();
     let inside = |h: &Hit| {
         all.iter().any(|o| {
@@ -322,16 +470,13 @@ fn hits(r: &Request) -> Vec<Hit<'_>> {
                 && o.said.at.start <= h.said.at.start
                 && h.said.at.end <= o.said.at.end
                 && (o.said.len > h.said.len || o.said.at.len() > h.said.at.len())
-                && strength(o.said.how) >= strength(h.said.how)
+                && strength(o) >= strength(h)
         })
     };
     let kept: Vec<&Hit> = all.iter().filter(|h| !inside(h)).collect();
-    let best = kept.iter().map(|h| strength(h.said.how)).max();
+    let best = kept.iter().map(|h| strength(h)).max();
     let mut out: Vec<Hit> = Vec::new();
-    for h in kept
-        .into_iter()
-        .filter(|h| Some(strength(h.said.how)) == best)
-    {
+    for h in kept.into_iter().filter(|h| Some(strength(h)) == best) {
         match out.iter_mut().find(|o| o.p.to == h.p.to) {
             Some(o) if (h.said.how, h.said.len) > (o.said.how, o.said.len) => *o = h.clone(),
             Some(_) => {}
@@ -343,13 +488,22 @@ fn hits(r: &Request) -> Vec<Hit<'_>> {
 }
 
 /// A name written or joined is as strong as another: both are what the
-/// person meant to say.
-fn strength(how: How) -> u8 {
-    match how {
+/// person meant to say. One said as it sounds is weaker; one a letter off,
+/// or an everyday word said as that word, the weakest.
+fn strength(h: &Hit) -> u8 {
+    match h.said.how {
+        _ if h.plain => 0,
         How::Near => 0,
         How::Sounds => 1,
         How::Joined | How::Written => 2,
     }
+}
+
+/// Whether a name said decides alone where a thought goes: written or
+/// joined, and no everyday word said as that word. A name said only as it
+/// sounds is proposed and asked about.
+fn decides(h: &Hit) -> bool {
+    strength(h) == 2
 }
 
 /// What the person's words were, when they named a project otherwise
@@ -362,6 +516,7 @@ fn quoted(r: &Request, h: &Hit) -> Option<String> {
 fn why_named(r: &Request, h: &Hit) -> String {
     let words = &r.text[h.said.span.clone()];
     match h.said.how {
+        _ if h.plain => format!("you wrote “{words}”"),
         How::Written => "named in it".into(),
         How::Joined | How::Sounds => format!("said as “{words}”"),
         How::Near => format!("you wrote “{words}”"),
@@ -408,16 +563,16 @@ pub fn by_names(r: &Request) -> Option<Route> {
         brief: r.text.clone(),
         said,
     };
-    let sure = |h: &Hit| h.said.how != How::Near;
     match (sessions.as_slice(), current, named.as_slice()) {
         ([s], ..) if only_in(s.project) => Some(clear(Destination::Session(s.id), None)),
         ([], Some(c), _) if only_in(c.project) => Some(clear(Destination::Session(c.id), None)),
-        ([], _, [h]) if sure(h) => Some(clear(h.p.to, quoted(r, h))),
+        ([], _, [h]) if decides(h) => Some(clear(h.p.to, quoted(r, h))),
         ([], _, []) => None,
         _ => {
-            // A name a letter off ("carrier" for `farrier`) is asked about
-            // among what else fits, which a line that fits well comes before.
-            let near = sessions.is_empty() && named.iter().all(|h| h.said.how == How::Near);
+            // A name said as it sounds ("queue grid" for `cuegrid`), a letter
+            // off ("carrier" for `farrier`), or an everyday word ("write a
+            // test") is asked about, first among what else fits.
+            let near = sessions.is_empty() && !named.iter().any(decides);
             let projects = named.iter().map(|h| Candidate {
                 label: h.p.name.clone(),
                 to: h.p.to,
@@ -469,14 +624,51 @@ fn unsure(r: &Request) -> Route {
 }
 
 /// The projects likeliest for a capture, at most `most`, each with why:
-/// those it names; then those whose line about them shares its rarer
-/// words; then where the last thought went; then the most recently worked
-/// on. Recency orders and never adds a reason of its own beyond that.
+/// those it points at by its own words ([`likely`]); then where the last
+/// thought went; then the most recently worked on. Recency orders and
+/// never adds a reason of its own beyond that.
 pub fn ranked(r: &Request, most: usize) -> Vec<(&Named, String)> {
+    let mut out = likely(r, most);
+    let add = |p, why: String, out: &mut Vec<_>| push(out, most, p, why);
+    if let Some(last) = r.last
+        && let Some(p) = r.projects.iter().find(|p| p.to == last)
+    {
+        add(p, "where your last thought went".into(), &mut out);
+    }
+    let mut recent: Vec<&Named> = r.projects.iter().filter(|p| p.used.is_some()).collect();
+    recent.sort_by_key(|p| std::cmp::Reverse(p.used));
+    for (i, p) in recent.into_iter().enumerate() {
+        add(
+            p,
+            if i == 0 {
+                "worked on last".into()
+            } else {
+                String::new()
+            },
+            &mut out,
+        );
+    }
+    // Then the workspaces, the newest first, before the projects not open.
+    let open = |p: &&Named| matches!(p.to, Destination::New(_));
+    for p in r.projects.iter().rev().filter(open) {
+        add(p, String::new(), &mut out);
+    }
+    for p in r.projects.iter().rev() {
+        add(p, String::new(), &mut out);
+    }
+    out
+}
+
+/// The projects a capture points at by its own words, at most `most`,
+/// each with why: those it names; then those whose line about them shares
+/// its rarer words; a name a letter off, or an everyday word said as that
+/// word, after the lines that share two words or more. Nothing else: none
+/// when its words point at none.
+pub fn likely(r: &Request, most: usize) -> Vec<(&Named, String)> {
     let mut out: Vec<(&Named, String)> = Vec::new();
     let add = |p, why: String, out: &mut Vec<_>| push(out, most, p, why);
     let named = hits(r);
-    let (near, said): (Vec<&Hit>, Vec<&Hit>) = named.iter().partition(|h| h.said.how == How::Near);
+    let (near, said): (Vec<&Hit>, Vec<&Hit>) = named.iter().partition(|h| strength(h) == 0);
     for h in said {
         add(h.p, why_named(r, h), &mut out);
     }
@@ -519,32 +711,6 @@ pub fn ranked(r: &Request, most: usize) -> Vec<(&Named, String)> {
     for h in near {
         add(h.p, why_named(r, h), &mut out);
     }
-    if let Some(last) = r.last
-        && let Some(p) = r.projects.iter().find(|p| p.to == last)
-    {
-        add(p, "where your last thought went".into(), &mut out);
-    }
-    let mut recent: Vec<&Named> = r.projects.iter().filter(|p| p.used.is_some()).collect();
-    recent.sort_by_key(|p| std::cmp::Reverse(p.used));
-    for (i, p) in recent.into_iter().enumerate() {
-        add(
-            p,
-            if i == 0 {
-                "worked on last".into()
-            } else {
-                String::new()
-            },
-            &mut out,
-        );
-    }
-    // Then the workspaces, the newest first, before the projects not open.
-    let open = |p: &&Named| matches!(p.to, Destination::New(_));
-    for p in r.projects.iter().rev().filter(open) {
-        add(p, String::new(), &mut out);
-    }
-    for p in r.projects.iter().rev() {
-        add(p, String::new(), &mut out);
-    }
     out
 }
 
@@ -555,52 +721,105 @@ fn push<'r>(out: &mut Vec<(&'r Named, String)>, most: usize, p: &'r Named, why: 
     }
 }
 
-/// What a field to find a project finds for `r.text`: with nothing typed,
-/// the most recently worked on; with a few words, the projects whose name
-/// they say or begin, then those whose line about them they fit; with a
-/// whole thought, its likeliest places ([`ranked`]).
-pub fn find(r: &Request, most: usize) -> Vec<(&Named, String)> {
-    let typed = name_words(&r.text);
-    if typed.words.len() > 3 {
-        return ranked(r, most);
+/// How well what is typed in a field to find a project matches one of its
+/// names, the best first; none when it does not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Typed {
+    /// The name, its parts joined or split as typed: "cue grid", "cuegrid".
+    Whole,
+    /// The name's beginning: "harb" for `harbormaster`.
+    Begins,
+    /// The beginnings of its parts, each typed word one: "led ap" for
+    /// `ledger-api`, "api" for `ledger-api`.
+    Parts,
+    /// Somewhere in it, two letters or more: "master" for `harbormaster`.
+    Within,
+    /// The beginnings of words of the line about it, three letters or more
+    /// each: "invoic" for "Invoicing for freelancers".
+    About,
+    /// Only as it sounds, or a letter off: asked only when nothing else is.
+    Sounds,
+}
+
+/// What a field to find a project finds for the words typed in it
+/// (`r.text`): the projects whose names they match, by the beginning, the
+/// beginnings of its parts, joined or split, anywhere in it, or the line
+/// about it; only when none does, those it sounds like or is a letter off
+/// from. At most `most`, the best match first, then the most recently
+/// worked on. Nothing for nothing typed, and nothing when nothing matches:
+/// never a project only because it was worked on lately.
+pub fn typed(r: &Request, most: usize) -> Vec<(&Named, String)> {
+    let w = name_words(&r.text);
+    if w.words.is_empty() {
+        return Vec::new();
     }
-    let mut out: Vec<(&Named, String)> = Vec::new();
-    if typed.words.is_empty() {
-        let mut recent: Vec<&Named> = r.projects.iter().collect();
-        recent.sort_by(|a, b| b.used.cmp(&a.used).then_with(|| a.name.cmp(&b.name)));
-        return recent
-            .into_iter()
-            .take(most)
-            .map(|p| (p, String::new()))
+    let query: String = w.words.concat();
+    let long = query.chars().count();
+    let folder_name = |p: &Named| {
+        std::path::Path::new(&p.folder)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+    };
+    let mut found: Vec<(Typed, &Named, String)> = Vec::new();
+    for p in &r.projects {
+        let names: Vec<String> = std::iter::once(p.name.clone())
+            .chain(p.aliases.iter().cloned())
+            .chain(folder_name(p))
             .collect();
-    }
-    let query: String = typed.words.concat();
-    for h in hits(r) {
-        if out.len() < most && !out.iter().any(|(q, _)| q.to == h.p.to) {
-            out.push((h.p, why_named(r, &h)));
+        let by_name = names.iter().filter_map(|n| {
+            let parts = parts(n);
+            let joined = parts.concat();
+            match () {
+                _ if joined.is_empty() => None,
+                _ if joined == query => Some(Typed::Whole),
+                _ if joined.starts_with(&query) => Some(Typed::Begins),
+                _ if w
+                    .words
+                    .iter()
+                    .all(|t| parts.iter().any(|p| p.starts_with(t.as_str()))) =>
+                {
+                    Some(Typed::Parts)
+                }
+                _ if long >= 2 && joined.contains(&query) => Some(Typed::Within),
+                _ => None,
+            }
+        });
+        if let Some(best) = by_name.min() {
+            found.push((best, p, String::new()));
+            continue;
+        }
+        let about = name_words(&p.about).words;
+        let fits =
+            |t: &String| t.chars().count() >= 3 && about.iter().any(|a| a.starts_with(t.as_str()));
+        if !about.is_empty() && w.words.iter().all(fits) {
+            let shared = (about.iter())
+                .filter(|a| w.words.iter().any(|t| a.starts_with(t.as_str())))
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>();
+            found.push((Typed::About, p, shared.join(", ")));
         }
     }
-    let mut begun: Vec<&Named> = (r.projects.iter())
-        .filter(|p| {
+    if found.is_empty() && long >= 4 {
+        let key = sound(&query);
+        for p in &r.projects {
             let names = std::iter::once(&p.name).chain(&p.aliases);
-            names.map(|n| parts(n).concat()).any(|n| n.contains(&query))
-        })
-        .collect();
-    begun.sort_by(|a, b| b.used.cmp(&a.used).then_with(|| a.name.cmp(&b.name)));
-    for p in begun {
-        if out.len() < most && !out.iter().any(|(q, _)| q.to == p.to) {
-            out.push((p, String::new()));
+            let alike = names.map(|n| parts(n).concat()).any(|n| {
+                (key.chars().count() >= 3 && sound(&n) == key) || names::one_off(&n, &query)
+            });
+            if alike {
+                found.push((Typed::Sounds, p, "sounds like it".into()));
+            }
         }
     }
-    let lines: Vec<String> = r.projects.iter().map(|p| p.about.clone()).collect();
-    let fits = names::fit(&r.text, &lines);
-    let mut described: Vec<usize> = (0..fits.len()).filter(|i| fits[*i].0 > 0.0).collect();
-    described.sort_by(|a, b| fits[*b].0.total_cmp(&fits[*a].0));
-    for i in described {
-        let p = &r.projects[i];
-        if out.len() < most && !out.iter().any(|(q, _)| q.to == p.to) {
-            out.push((p, fits[i].1.join(", ")));
-        }
+    found.sort_by(|a, b| {
+        (a.0.cmp(&b.0))
+            .then_with(|| b.1.used.cmp(&a.1.used))
+            .then_with(|| a.1.name.cmp(&b.1.name))
+    });
+    let mut out = Vec::new();
+    for (_, p, why) in found {
+        push(&mut out, most, p, why);
     }
     out
 }

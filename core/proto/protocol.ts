@@ -589,7 +589,13 @@ export type Find = { text: string,
 /**
  * At most 8; 3 without.
  */
-limit?: number | null, };
+limit?: number | null,
+/**
+ * `text` is a whole thought: the places its own words name or
+ * describe. Otherwise it is typed into a field to find a project: the
+ * projects whose names it matches.
+ */
+thought: boolean, };
 
 export type Finds = { found: Array<Found>, };
 

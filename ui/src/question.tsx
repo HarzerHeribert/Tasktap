@@ -112,14 +112,17 @@ export function Answers({ q, terminal, who }: { q: Question; terminal?: () => vo
 }
 
 /** "Another project…" of a router question: the thought it asks about, sent where a field finds (projects.find: by
- *  name, as it is said, or by the line about each), which moots the question. Escape goes back to the choices. */
+ *  its names as typed; with nothing typed, the places the thought's own words name or describe), which moots the
+ *  question. Escape goes back to the choices. */
 function Elsewhere({ q, thought }: { q: Question; thought: string }) {
   const [text, setText] = useState('');
   const [found, setFound] = useState<Found[]>([]);
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const asked = text.trim() || records.thoughts.get(thought)?.text || '';
-      void call('projects.find', { text: asked, limit: 5 }).then((r) => setFound(r.found.filter((f) => !('session' in f.to))), () => {});
+      // What is typed finds by name; with nothing typed, the places the thought's own words name or describe.
+      const typed = text.trim(), asked = typed || records.thoughts.get(thought)?.text || '';
+      if (!asked) return setFound([]);
+      void call('projects.find', { text: asked, limit: 5, thought: !typed }).then((r) => setFound(r.found.filter((f) => !('session' in f.to))), () => {});
     }, text ? 120 : 0);
     return () => clearTimeout(timer);
   }, [text]);
@@ -145,7 +148,7 @@ function Elsewhere({ q, thought }: { q: Question; thought: string }) {
       {found.map((f, i) => (
         <Answer k={String(i + 1)} label={f.name} lead={<I n="folder" />} more={[f.why, 'card' in f.to ? 'not open yet' : f.folder].filter(Boolean).join(' · ')} onClick={() => send(f)} />
       ))}
-      {!found.length && <span class="q-detail">No project by that name.</span>}
+      {!found.length && text.trim() && <span class="q-detail">No project by that name.</span>}
     </div>
   );
 }

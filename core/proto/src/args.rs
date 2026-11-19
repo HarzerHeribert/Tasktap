@@ -1200,6 +1200,11 @@ pub struct Find {
     /// At most 8; 3 without.
     #[serde(default)]
     pub limit: Option<u32>,
+    /// `text` is a whole thought: the places its own words name or
+    /// describe. Otherwise it is typed into a field to find a project: the
+    /// projects whose names it matches.
+    #[serde(default)]
+    pub thought: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

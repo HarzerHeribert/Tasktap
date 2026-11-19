@@ -18,7 +18,7 @@
 //   goes back from it without saying so; or what is sent is not what the chip said.
 // usage: node scripts/composer-check.cjs [--dist folder]   (ui/dist must be built)
 const path = require('node:path');
-const { serve, open } = require('./motion-pages.cjs');
+const { serve, open, findCore } = require('./motion-pages.cjs');
 const { scene, flow } = require('./instrument-fixtures.cjs');
 const dist = path.resolve(process.argv.includes('--dist') ? process.argv[process.argv.indexOf('--dist') + 1] : path.join(__dirname, '../ui/dist'));
 const GEO = { do: 'geometry', width: 104, height: 16, cutout: false, surfaceWidth: 420, surfaceOffset: 0, span: 560, pixel: 1, corner: 10, offset: 0, available: 700, collapsed: false };
@@ -26,6 +26,8 @@ const FIELD = '#capture-input';
 
 async function main() {
   const { chromium } = require('playwright');
+  // The list's field finds what the core's own code finds (core/examples/find.rs), not a stand-in's.
+  findCore();
   const server = await serve(dist), browser = await chromium.launch({ headless: true }), failures = [];
   const expect = (ok, what) => ok || failures.push(what);
   // Home, with a thought that waits (held) and a core that answers as `core` says.
@@ -99,10 +101,10 @@ async function main() {
       };
       const focused = (page) => page.evaluate(() => (document.activeElement?.closest('.cap-list') ? 'the list' : document.activeElement?.id || document.activeElement?.tagName));
       const chip = (page, at = '') => page.evaluate((s) => [...document.querySelectorAll(`${s}#dest-chip > b, ${s}#dest-chip > span`)].map((e) => e.textContent).join(' · '), at);
-      // The list's rows, the one marked with a star; the list is put away again.
+      // The list's rows by their names, the one marked with a star; the list is put away again.
       const rows = async (page, at = '') => {
         await click(page, `${at}#dest-chip`);
-        const all = await page.evaluate((s) => [...document.querySelectorAll(`${s}.cap-list > button`)].map((b) => (b.getAttribute('aria-selected') === 'true' ? '*' : '') + b.textContent), at);
+        const all = await page.evaluate((s) => [...document.querySelectorAll(`${s}.cap-list > button`)].map((b) => (b.getAttribute('aria-selected') === 'true' ? '*' : '') + (b.querySelector('span')?.textContent ?? b.textContent)), at);
         const into = await focused(page);
         expect(all.length > 0 && into === 'the list', `${at || 'Home '}: a click on the chip leaves ${all.length ? 'the list without the keyboard' : 'no list open'} (the keyboard is on ${into})`);
         await page.keyboard.press('Escape');
@@ -239,6 +241,21 @@ async function main() {
       await page.waitForTimeout(600);
       await says(page, 'cuegrid · the only project', 'the notch, one folder open');
       await page.context().close();
+      // One project Tasktap knows and no folder open: never a default; a thought that names none is asked about.
+      {
+        const lone = { id: '019a8b6c-7d10-7000-8000-0000000c0009', rev: 1, folder: '/Users/someone/projects/tidepool', name: 'tidepool', names: [], about: 'A photo library', about_from: 'README.md',
+          why: ['agent', 'git'], agents: ['claude'], repo: null, copy_of: null, inside: null, project_id: null, used: now, looks: [], hidden: false, main: false, available: true };
+        page = await open(browser, { label: 'workspace', records: { ...structuredClone(r), projects: r.projects.map((p) => ({ ...p, open: p.kind === 'scratch' })), cards: [lone] }, url: server.url, dpr: 1 });
+        await says(page, 'Tasktap decides · by its words', 'Home, one project known and no folder open');
+        await page.focus(FIELD);
+        await typed(page, 'buy milk');
+        await says(page, 'Tasktap decides · asks you if unsure', 'Home, one project known, a thought that names none');
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(300);
+        const asked = await sent(page);
+        expect(asked && !asked.project_id && !asked.card_id && asked.mode !== 'note', `Home, one project known: a thought that names none was sent ${JSON.stringify(asked && { project_id: asked.project_id, card_id: asked.card_id })}, not for the router to ask`);
+        await page.context().close();
+      }
 
       // A thought kept for later because its words named no folder: Undo, as for one saved for later by choice, and
       // Send to a folder from its line.
@@ -310,24 +327,24 @@ async function main() {
 
       // Projects Tasktap knows and has not opened (docs/projects-design.md, the owner's decisions of 2026-11-19): never
       // rows of the list until something asks for them; a name said as speech writes it is placed with the words it was
-      // said in and the chip says it is not open yet; ⌘K opens the list from the field, whose own field finds a
-      // project by what is typed and Return takes the first; a pick of one is sent by its card, and opens at its start;
-      // with a thought already written the list's first rows are its three likeliest places.
+      // as written or joined (its parts said apart) is placed with the words it was said in and the chip says it is not
+      // open yet; ⌘K opens the list from the field, whose own field finds a project by what is typed (the core's own
+      // answer) and Return takes the first, or says none has that name; a pick of one is sent by its card, and opens at
+      // its start; with a thought already written the list's first rows are the places its words name or describe, and
+      // none when they point at none: never one only because it was worked on lately.
       {
         const k = structuredClone(r), day = 86400000;
         const card = (n, name, about, used, more = {}) => ({ id: `019a8b6c-7d10-7000-8000-0000000c000${n}`, rev: 1, folder: `/Users/someone/projects/${name}`, name, names: [], about, about_from: 'README.md',
           why: ['agent', 'git'], agents: ['claude'], repo: null, copy_of: null, inside: null, project_id: null, used: now - n * day, looks: [], hidden: false, main: false, available: true, ...more });
         const [pyrite, kiln, harbor] = [card(1, 'pyrite', 'Property-based testing helpers for Python'), card(2, 'kiln', 'A static site generator with incremental builds'), card(3, 'harbormaster', 'Deploys containers to a small fleet over SSH')];
         k.cards = [pyrite, kiln, harbor, card(4, 'pyrite-old', '', 0, { copy_of: pyrite.id }), card(5, 'secret-notes', '', 0, { hidden: true })];
-        k.hints = { ...k.hints, 'write a shrinker in pie right': { confidence: 'clear', to: { card: pyrite.id }, brief: 'write a shrinker in pie right', said: 'pie right' } };
-        const guesses = [{ to: { card: kiln.id }, name: 'kiln', folder: '~/projects/kiln', why: 'static, site' }, { to: { project: P.cuegrid }, name: 'cuegrid', folder: '~/projects/cuegrid', why: 'pages' }, { to: { card: harbor.id }, name: 'harbormaster', folder: '~/projects/harbormaster', why: '' }];
-        k.finds = { 'the static site rebuilds every page': guesses };
+        k.hints = { ...k.hints, 'roll back the deploy in harbor master': { confidence: 'clear', to: { card: harbor.id }, brief: 'roll back the deploy in harbor master', said: 'harbor master' } };
         page = await open(browser, { label: 'workspace', records: k, url: server.url, dpr: 1 });
         const all = await rows(page);
         expect(!/pyrite|kiln|harbormaster|secret/.test(all), `Home: the list shows a project that is not open, unasked (${all})`);
         await page.focus(FIELD);
-        await typed(page, 'write a shrinker in pie right');
-        await says(page, 'pyrite · said as “pie right” · not open yet', 'Home, a known project said as speech writes it');
+        await typed(page, 'roll back the deploy in harbor master');
+        await says(page, 'harbormaster · said as “harbor master” · not open yet', 'Home, a known project said with its parts apart');
         await page.keyboard.press('Enter');
         await page.waitForTimeout(300);
         const spoken = await sent(page);
@@ -344,6 +361,13 @@ async function main() {
         const found = await page.evaluate(() => [...document.querySelectorAll('.cap-list > button[role=option]')].map((b) => b.textContent));
         expect(found[0]?.startsWith('harbormaster') && found.every((f) => !/pyrite|kiln/.test(f)), `Home: "harbor" in the list's field finds ${JSON.stringify(found)}`);
         expect(found.every((f) => !/Tasktap decides|For later/.test(f)), `Home: while something is typed in the list's field it shows more than what it found (${found.join(', ')})`);
+        // A name no project has: none found, and the list says so; then the one that matches.
+        await page.fill('#cap-find', 'zebra');
+        await page.waitForTimeout(400);
+        const none = await page.evaluate(() => ({ rows: document.querySelectorAll('.cap-list > button[role=option]').length, said: document.querySelector('.cap-none')?.textContent }));
+        expect(none.rows === 0 && none.said === 'No project by that name.', `Home: "zebra" in the list's field finds ${none.rows} and says ${JSON.stringify(none.said)}`);
+        await page.fill('#cap-find', 'harb');
+        await page.waitForTimeout(400);
         await page.keyboard.press('Enter');
         await page.waitForTimeout(200);
         await says(page, 'harbormaster · your choice · opens it', 'Home, a known project chosen');
@@ -352,14 +376,23 @@ async function main() {
         await page.waitForTimeout(300);
         const picked = await sent(page);
         expect(picked?.card_id === harbor.id && !picked?.project_id, `Home: a known project chosen was sent ${JSON.stringify(picked && { project_id: picked.project_id, card_id: picked.card_id })}, not by its card`);
-        // A thought already written: its three likeliest places first, then what is in use.
+        // A thought already written: the places its words describe first, then what is in use; for one whose words
+        // point at no project, only what is in use.
         await page.focus(FIELD);
         await typed(page, 'the static site rebuilds every page');
         await click(page, '#dest-chip');
-        await page.waitForTimeout(300);
+        await page.waitForTimeout(400);
         const first = await page.evaluate(() => [...document.querySelectorAll('.cap-list > button[role=option]')].map((b) => b.querySelector('span')?.textContent));
-        expect(first.slice(0, 3).join(', ') === 'kiln, cuegrid, harbormaster' && first.filter((f) => f === 'cuegrid').length === 1,
-          `Home, a thought already written: the list begins ${first.slice(0, 4).join(', ')}, not with its three likeliest places once each`);
+        expect(first[0] === 'kiln' && !first.some((f) => /pyrite|harbormaster/.test(f)) && first.filter((f) => f === 'kiln').length === 1,
+          `Home, a thought already written: the list begins ${first.slice(0, 4).join(', ')}, not with the one place its words describe, once, and nothing unasked`);
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(150);
+        await page.fill(FIELD, '');
+        await typed(page, 'rename the variables before lunch');
+        await click(page, '#dest-chip');
+        await page.waitForTimeout(400);
+        const plain = await page.evaluate(() => [...document.querySelectorAll('.cap-list > button[role=option]')].map((b) => b.querySelector('span')?.textContent));
+        expect(!plain.some((f) => /pyrite|kiln|harbormaster/.test(f)), `Home, a thought that points at no project: the list shows a project not open (${plain.join(', ')})`);
         const rowsShown = await page.evaluate(() => document.querySelectorAll('.cap-list > *').length);
         expect(rowsShown <= 1 + 3 + 1 + 6 + 1 + 1 + 1, `Home: the list has ${rowsShown} rows: more than its field, three guesses, Tasktap decides, six open folders, Scratch, another folder and For later`);
         await page.keyboard.press('Escape');

@@ -1673,8 +1673,10 @@ pub fn offered_now(home: &Path, cards: &[Card], looks: &[Look]) -> Offer {
     Offer { agents, places }
 }
 
-/// `projects.find`: the projects a text names or points at, the likeliest
-/// first; and a cheap check whether a look is due.
+/// `projects.find`: the projects whose names what is typed matches
+/// ([`crate::route::typed`]), or, for a whole thought, those its own words
+/// name or describe ([`crate::route::likely`]); nothing when none does. And
+/// a cheap check whether a look is due.
 pub fn find(cx: &mut Cx, args: Find) -> Result<Finds, Error> {
     let limit = args.limit.unwrap_or(3).clamp(1, 8) as usize;
     let request = effects::read(cx.core, |tx| crate::route::request(tx, &args.text, None))?;
@@ -1686,8 +1688,11 @@ pub fn find(cx: &mut Cx, args: Find) -> Result<Finds, Error> {
         Some(rest) => format!("~/{}", rest.display()),
         None => folder.to_owned(),
     };
-    let found = crate::route::ranked(&request, limit)
-        .into_iter()
+    let found = match args.thought {
+        true => crate::route::likely(&request, limit),
+        false => crate::route::typed(&request, limit),
+    };
+    let found = (found.into_iter())
         .map(|(named, why)| Found {
             to: Place::from(named.to),
             name: named.name.clone(),

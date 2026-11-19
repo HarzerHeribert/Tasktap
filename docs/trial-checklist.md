@@ -36,3 +36,18 @@ What the owner found when he first tried the build with the project map (2026-11
 | 23 | [ ] | Each finding has a check that would have caught it | |
 | 24 | [ ] | An independent review of both pieces before the owner sees them | |
 | 25 | [ ] | A new review build, and the owner tries his six pictures again | |
+
+## Closing terminals (owner, same evening)
+
+| # | Done | Finding | Decided fix | Proof |
+| --- | --- | --- | --- | --- |
+| 26 | [ ] | Closing an empty shell asks "Close zsh?" | A shell with nothing running in it closes at once. Tasktap asks only when a program or an agent is running there | |
+| 27 | [ ] | Panels in the sidebar have no close button | Every session and terminal row in the sidebar has one | |
+| 28 | [ ] | (follows) The same rule wherever a terminal is closed: its key, its tab, the sidebar, closing a workspace | | |
+| 29 | [ ] | (follows) A session that has ended closes without a question | | |
+
+## Proposed by Claude, waiting for the owner's yes
+
+| # | Done | Proposal |
+| --- | --- | --- |
+| P1 | [ ] | When one project clearly leads (its name nearly said and a second word of its own matching, the others matching one common word), start there with Undo instead of asking. The owner's trial thought about a "claude mod" for the "modpack" was such a case |

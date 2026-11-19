@@ -48,6 +48,17 @@ export function Mark({ s, bg = false, label }: { s: State; bg?: boolean; label?:
   return <i class={`st${bg ? ' bgd' : ''}`} data-s={s} {...named}><b /><b /><b /><b /><b /></i>;
 }
 
+/** A session's seat: its agent's ring carrying the state it is in, wherever a session is shown (a row on Home, in the
+ *  sidebar, a tab), so that a session looks like itself everywhere. The ring turns while it works, is the attention
+ *  colour while it asks, lit while its result is new, the failure colour when it failed, and quiet once seen (parts.css
+ *  .st.of). A terminal with no agent, and a thought no agent has run, keep the mark. */
+export function Seat({ agent, s, bg = false, label }: { agent?: string | null; s: State; bg?: boolean; label?: string }) {
+  if (!agent || s === 'shell' || s === 'later') return <Mark s={s} bg={bg} label={label} />;
+  const words = label ?? said(s, bg);
+  const named = words ? { role: 'img' as const, 'aria-label': words, title: words } : { 'aria-hidden': true };
+  return <i class={`st of${bg ? ' bgd' : ''}`} data-s={s} {...named}><Ring agent={agent} s={s === 'working' ? 'working' : ''} /></i>;
+}
+
 /** The brand's wave: chrome bars, a few copper and graphite among the silver, as the icon has them. */
 export function Wave({ n = 9, live = false, rest = false, style }: { n?: number; live?: boolean; rest?: boolean; style?: Record<string, string> }) {
   const bars = Array.from({ length: n }, (_, i) => {

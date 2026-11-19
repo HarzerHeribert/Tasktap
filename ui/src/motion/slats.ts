@@ -24,7 +24,10 @@ void main(){ VIEW
     +u_pose.x*.25*cos(PI*xn)+.3*pulse(abs(xn))*(r>.5?1.:-1.);   // Home's band: the faces turn with the S they stand in, and a little as its pulse passes, so they flick
   turn=1.05*tanh(turn/1.05);                 // never so far round that the face shows only the wall behind
   n.xz=rot(turn)*n.xz; n.z=max(n.z,.05);
-  vec3 glow=lumen(q,span(asp)); beam(xn);
-  put(chrome(n,metal(r),m.w)*(.84+.16*smoothstep(-.5,.5,m.z))+sheen(n,glow),a,glow);
+  vec3 glow=lumen(q,span(asp)), c=vec3(0);
+  // The metal only where a slat covers the pixel: where none does, put() shows the light alone whatever c is, and the
+  // studio's reflections are most of what a pixel costs (the glyphs and the rings skip them the same way).
+  if(a>0.){ beam(xn); c=chrome(n,metal(r),m.w)*(.84+.16*smoothstep(-.5,.5,m.z))+sheen(n,glow); }
+  put(c,a,glow);
 }`,
 };

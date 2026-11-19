@@ -5,6 +5,7 @@ import '../parts.css';
 import './notch.css';
 import '../way.css';
 import '../scroll.ts';
+import '../motion/paced.ts';
 import { listen } from '@tauri-apps/api/event';
 import { render } from 'preact';
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';

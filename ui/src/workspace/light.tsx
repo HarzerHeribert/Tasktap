@@ -15,6 +15,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { routing } from '../capture.tsx';
 import { built, still } from '../motion/engine.ts';
 import { Motion, debug, lookOf } from '../motion/motion.tsx';
+import { wake as stir } from '../motion/paced.ts';
 import { type RGB, lights } from '../motion/palette.ts';
 import { type MotionState, motionState } from '../motion/state.ts';
 import { openQuestions, pref, records, redraw, ui } from './model.ts';
@@ -164,6 +165,8 @@ function noise() {
 export function Light({ load }: { load: 'quiet' | 'busy' | 'asks' | 'paged' }) {
   const l = useLight();
   useEffect(() => void document.documentElement.style.setProperty('--noise', noise()), []);
+  // Its pools breathe while it moves: the page moves them, at the motion's pace (paced.ts).
+  useLayoutEffect(() => stir(), [l.moves]);
   if (l.level === 'off') return null;
   // Its chrome stands in the icon's S, never on a level row (engine.ts pose), and stays there. While agents think or
   // work its form drifts in its own slow way and, every breath or so, a pulse swells its heights from the centre
@@ -238,6 +241,7 @@ export function Spark() {
     return () => watch.disconnect();
   }, []);
   useSway(ref, l.moves);
+  useLayoutEffect(() => stir(), [l.moves]);
   return (
     <div class="spark" ref={ref} data-state={l.state} data-moves={String(l.moves)} data-away={l.active ? undefined : ''} style={l.vars} aria-hidden="true">
       {l.level !== 'off' && <i class="pool s" />}

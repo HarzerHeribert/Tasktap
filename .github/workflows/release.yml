@@ -4,8 +4,8 @@ name: Release Tasktap
 # latest.json, with every package's signature checked against the updater's public key. All of it goes to a draft
 # GitHub Release of that tag, which the owner publishes; until then the app's updater does not see it.
 #
-# Run by hand (Actions › Release Tasktap › Run workflow, or `gh workflow run release.yml --ref <branch>`) it is a dry
-# run: every step that needs no secret runs as in a release, signed ad hoc, with a throwaway updater key made for the
+# Run by hand (Actions › Release Tasktap › Run workflow, or `gh workflow run release.yml --ref <branch>`), or by a push
+# to the branch release-dry-run, it is a dry run: every step that needs no secret runs as in a release, signed ad hoc, with a throwaway updater key made for the
 # run, not notarised, and nothing is published; what it made is kept as the run's artifacts for a week. With
 # "rehearse" it uses the secrets to sign and notarise, and still publishes nothing: a way to prove the secrets before
 # the first tag.
@@ -17,6 +17,9 @@ name: Release Tasktap
 on:
   push:
     tags: ['v*']
+    # A push to this branch is a dry run too: GitHub offers "Run workflow" only for a workflow on the default branch,
+    # so this is how the workflow is tried before it is there.
+    branches: [release-dry-run]
   workflow_dispatch:
     inputs:
       rehearse:

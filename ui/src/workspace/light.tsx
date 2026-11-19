@@ -14,7 +14,7 @@ import { type RefObject } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { routing } from '../capture.tsx';
 import { built, still } from '../motion/engine.ts';
-import { Motion, debug, lookOf } from '../motion/motion.tsx';
+import { Motion, debug, effectsOf, lookOf } from '../motion/motion.tsx';
 import { wake as stir } from '../motion/paced.ts';
 import { type RGB, lights } from '../motion/palette.ts';
 import { type MotionState, motionState } from '../motion/state.ts';
@@ -91,14 +91,9 @@ let settle = 0;
 // Out of sight it is still, and moves again when it is seen.
 document.addEventListener('visibilitychange', redraw);
 
-/** The level of the effects: the person's choice (the core's `motion_ambient`: off, still, breathing), with Full
- *  held at Still while the system asks for less: Reduce Motion, or Low Power Mode (which the host tells, main.tsx). */
-export type Effects = 'off' | 'still' | 'full';
-export const power = { low: false };
-export function effects(): Effects {
-  const chosen = pref('motion_ambient');
-  return chosen === 'off' ? 'off' : chosen === 'still' || reduce.matches || (debug.saving ?? power.low) ? 'still' : 'full';
-}
+/** The level of the effects (motion.tsx effectsOf), as this window's records have the person's choice. */
+export { power, type Effects } from '../motion/motion.tsx';
+export const effects = () => effectsOf(pref('motion_ambient'));
 reduce.addEventListener('change', redraw);
 
 /** The look the wake's glyphs take, or none below Full. */

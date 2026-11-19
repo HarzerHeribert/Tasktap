@@ -20,13 +20,16 @@ html,body{background:transparent!important}
 #notch-art[data-glow=warm]{--colors:#d98a43,#e8a65c 25%,#efc185 50%,#df9548 75%,#d98a43}
 #notch-art[data-glow=cool]{--colors:#6f8db1,#93adca 25%,#b9c6d6 50%,#8199bb 75%,#6f8db1}
 #notch-art[data-glow=cool] .glow-set{opacity:.7}
+/* It moves at Full (the page moves it, at most 60 times a second: motion/paced.ts); at Still it is a picture, as under
+   Reduce Motion, and at Off there is none (main.tsx). */
 @media(prefers-reduced-motion:no-preference){
-  .glow-set{animation:glow-in 1.1s ease-out both}
-  .glow i::before{animation:glow-drift 36s linear infinite}
-  .glow-halo{animation:glow-breathe 3.4s ease-in-out infinite alternate}
-  .glow-core{animation:glow-breathe 3.4s ease-in-out -1.1s infinite alternate}
+  :root:not([data-effects=still]) .glow-set{animation:glow-in 1.1s ease-out both}
+  :root:not([data-effects=still]) .glow i::before{animation:glow-drift 36s linear infinite}
+  :root:not([data-effects=still]) .glow-halo{animation:glow-breathe 3.4s ease-in-out infinite alternate}
+  :root:not([data-effects=still]) .glow-core{animation:glow-breathe 3.4s ease-in-out -1.1s infinite alternate}
 }
 @media(prefers-reduced-motion:reduce){.glow{opacity:.7}}
+:root[data-effects=still] .glow{opacity:.7}
 @keyframes glow-in{from{opacity:0}}
 @keyframes glow-drift{to{transform:translateX(-360px)}}
 @keyframes glow-breathe{from{opacity:.55}}

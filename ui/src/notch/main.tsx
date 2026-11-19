@@ -14,7 +14,7 @@ import { Art, look, place } from './art.tsx';
 import { Home } from './home.tsx';
 import { cap, followSpeech } from '../capture.tsx';
 import { live, talk } from '../speech/record.ts';
-import { lookOf } from '../motion/motion.tsx';
+import { effectsOf, lookOf, power } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
 import { Brand, Mark } from '../ui.tsx';
 import { agentName, asksHere, call, client, fail, heardWhere, onRedraw, openQuestions, page, pref, records, redraw, settleFocus, title, ui, unheard, watchHeld, where } from './model.ts';
@@ -181,9 +181,13 @@ function App() {
   const g = records.glance;
   // The sheet carries no chrome form; with Lumen on, the light behind the notch takes the motion's colours.
   const motion = lookOf(records.prefs);
+  // The effects control, as in the window: at Still the glow is a picture and the marks of work hold a pose (parts.css,
+  // notch.css); at Off there is no glow, and the tab's amber count says that a question waits.
+  const fx = effectsOf(pref('motion_ambient'));
 
   useLayoutEffect(() => {
     document.documentElement.dataset.text = pref('text_size');
+    document.documentElement.dataset.effects = fx;
     // The sheet's bottom sizes the panel and the black shape that grows out of the housing.
     const sheet = document.getElementById('sheet');
     if (open && sheet) {
@@ -200,7 +204,7 @@ function App() {
 
   return (
     <div onPointerDown={() => (touch(), ui.mode === 'hover' && (ui.mode = 'pinned'))}>
-      <Art glowing={!!g?.needs_you} tint={motion.lumen ? stops(motion.palette, motion.hue) : undefined} />
+      <Art glowing={!!g?.needs_you && fx !== 'off'} tint={motion.lumen ? stops(motion.palette, motion.hue) : undefined} />
       <button id="tab" class="tab" type="button" aria-expanded={open} aria-label={label()}
         onClick={() => (open ? fold() : reveal('pinned', questions.length ? 'answer' : 'home'))}>
         {!open && <Glance />}
@@ -231,12 +235,16 @@ document.addEventListener('keydown', (e) => {
     redraw();
   } else fold();
 });
-void listen<{ do: keyof typeof host | 'where' } & Record<string, number | boolean>>('ui', ({ payload }) => {
+void listen<{ do: keyof typeof host | 'where' | 'power' } & Record<string, number | boolean>>('ui', ({ payload }) => {
   if (payload.do === 'geometry') host.geometry(payload);
   else if (payload.do === 'where') followWhere(payload as unknown as Partial<Where>);
+  // Low Power Mode began or ended: the effects follow it, here as in the window.
+  else if (payload.do === 'power') (power.low = !!payload.low), redraw();
   else host[payload.do]?.();
 });
 void call('host.where', {}).then(followWhere, () => {});
+void call('host.power', {}).then((low) => ((power.low = !!low), redraw()), () => {});
+matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', redraw);
 // Keys bound by their place are named as the person's keyboard prints them (keys.ts).
 watchLayout(() => call('host.layout', {}), redraw);
 // A key cap shows only while its keys act: here, only while the notch itself has the keyboard (page.ts markHeld).

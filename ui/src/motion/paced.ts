@@ -1,7 +1,8 @@
 // The page's CSS loops, moved by the page at the motion's pace instead of by the compositor at the display's: the
 // light's pools breathing and its glyphs swaying (window.css), the mark at work and an agent's ring turning
-// (parts.css). The compositor moves an animation in every frame of the display, 240 a second on a fast one, and every
-// such frame costs the graphics processor whatever moved in it. Here each loop is held, and in each frame the
+// (parts.css), the notch's glow (notch.css). The compositor moves an animation in every frame of the display, 240 a
+// second on a fast one, and every such frame costs the graphics processor whatever moved in it: the tab's blurred glow
+// cost 4 to 5 % of the tower's card that way. Here each loop is held, and in each frame the
 // motion's pace allows (pace.ts: at most 60 a second, in the frames the motion draws in) it is set to exactly where it
 // would be at that moment: the frames that are drawn are the ones the compositor would have drawn then. A loop that
 // CSS holds (the light's, while it rests) stays where it is, and goes on from there when CSS lets it run again.
@@ -10,7 +11,7 @@
 import { pace } from './pace.ts';
 
 /** The loops, by their keyframes' names. */
-const LOOPS = new Set(['breath', 'sway', 'tilt', 'rock', 'pass-1', 'pass-2', 'pass-3', 'ring-turn']);
+const LOOPS = new Set(['breath', 'sway', 'tilt', 'rock', 'pass-1', 'pass-2', 'pass-3', 'ring-turn', 'glow-in', 'glow-drift', 'glow-breathe']);
 
 type Held = { el: Element; pseudo: string | null; name: string; time: number };
 const held = new Map<CSSAnimation, Held>();

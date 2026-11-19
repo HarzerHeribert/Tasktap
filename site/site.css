@@ -1,6 +1,6 @@
 /* The site is the app's look on a page that scrolls: Instrument (design/ui-directions/NOTES.md). Every colour, size,
    radius and duration comes from the app's own token file, copied beside this one as app/tokens.css; the parts drawn
-   here (the key, a key cap, the quiet button, the wave, the tab, the light) are the app's (ui/src/parts.css,
+   here (the key, a key cap, the quiet button, the mark, the tab, the light) are the app's (ui/src/parts.css,
    ui/src/workspace/window.css), restated because the app's stylesheets are written for a window that never scrolls.
    The page adds what a window has no use for: three larger type roles and a measure. */
 :root{
@@ -49,20 +49,17 @@ kbd{display:inline-grid;place-items:center;min-width:var(--key-h);height:var(--k
 .btn.lg{padding:0 14px;font:var(--f-label)}
 /* A finger needs more than a pointer does: the same key, a larger place to land. */
 :is(.key,.btn).lg::after{content:"";position:absolute;inset:-6px -2px}
-/* The wave: chrome bars, the brand mark; at work while something is shown working. */
-.wave{display:inline-flex;align-items:center;gap:var(--wg,2px);height:var(--wh,16px);flex:none}
-.wave b{display:block;width:var(--ww,2px);height:var(--h,100%);border-radius:1px;background:var(--bar-silver)}
-.wave b.cu{background:var(--bar-copper)}.wave b.gr{background:var(--bar-graphite)}
-.wave b:nth-child(1),.wave b:nth-child(13){--h:34%}.wave b:nth-child(2),.wave b:nth-child(12){--h:51%}.wave b:nth-child(3),.wave b:nth-child(11){--h:67%}
-.wave b:nth-child(4),.wave b:nth-child(10){--h:81%}.wave b:nth-child(5),.wave b:nth-child(9){--h:91%}.wave b:nth-child(6),.wave b:nth-child(8){--h:98%}
-.wave b:nth-child(2){--d:70ms}.wave b:nth-child(3){--d:140ms}.wave b:nth-child(4){--d:210ms}.wave b:nth-child(5){--d:280ms}.wave b:nth-child(6){--d:350ms}.wave b:nth-child(7){--d:420ms}
-.wave b:nth-child(8){--d:490ms}.wave b:nth-child(9){--d:560ms}.wave b:nth-child(10){--d:630ms}.wave b:nth-child(11){--d:700ms}.wave b:nth-child(12){--d:770ms}.wave b:nth-child(13){--d:840ms}
-@keyframes wave{from{transform:scaleY(.5)}to{transform:scaleY(1)}}
+/* Tasktap's mark: the app's (ui/src/parts.css .brand-m), a slab of the chrome set drawn once from the app's motion
+   engine (scripts/mark-pictures.cjs). Still; at work while something is shown working, the picture of its face
+   turned fades in and out, so the light slides down the face and back. */
+.mark{display:inline-grid;flex:none;width:22px;height:22px}
+.mark img{grid-area:1/1;width:100%;height:100%}
+.mark .lit{opacity:0}
+@keyframes mark-lit{to{opacity:1}}
 
 /* ——— the bar: the name at the left, as a menu bar has it; the notch hangs from the same edge ——— */
 .bar{position:absolute;z-index:1;top:0;left:0;right:0;display:flex;align-items:center;gap:var(--sp5);height:52px;padding-inline:var(--gut);max-width:calc(var(--site-w) + 2 * var(--gut));margin-inline:auto}
 .brand{display:inline-flex;align-items:center;gap:10px;height:var(--row-h);font:var(--f-title);color:var(--fg)}
-.brand .wave{--wh:20px;--ww:2px;--wg:1.5px}
 .bar-nav{display:flex;align-items:center;gap:var(--sp1)}
 .bar-nav a,.foot nav a{display:inline-flex;align-items:center;height:var(--row-h);padding:0 var(--sp2);border-radius:var(--r1);font:var(--f-small);color:var(--fg2)}
 :is(.bar-nav,.foot nav) a:hover{background:var(--hover);color:var(--fg)}
@@ -255,7 +252,7 @@ h3{font:var(--f-sub);letter-spacing:var(--ls-thought);padding-top:6px}
 }
 @media(prefers-reduced-motion:no-preference){
   html{scroll-behavior:smooth}
-  .wave.live b{animation:wave 1.3s ease-in-out var(--d,0ms) infinite alternate}
+  .mark.live .lit{animation:mark-lit 1.6s ease-in-out infinite alternate}
   .pool{animation:breath var(--t-ambient) ease-in-out calc(-.5 * var(--t-ambient)) infinite alternate paused}
   .pool.b{animation-duration:calc(1.23 * var(--t-ambient));animation-delay:calc(-.615 * var(--t-ambient))}
   .pool.c{animation-duration:calc(1.47 * var(--t-ambient));animation-delay:calc(-.735 * var(--t-ambient))}

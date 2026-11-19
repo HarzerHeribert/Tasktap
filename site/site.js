@@ -22,7 +22,7 @@
 
   const top = $('.top'), stage = $('#stage');
   if (!top || !stage) return;
-  const light = $('.light'), steps = $('.steps'), hold = $('.hold'), wave = $('.brand .wave'), bandEl = $('#band'), slot = $('.notch');
+  const light = $('.light'), steps = $('.steps'), hold = $('.hold'), mark = $('.brand .mark'), bandEl = $('#band'), slot = $('.notch');
   const ONGOING = ['thinking', 'working', 'needs'];
   let frame = null, ready = false, wanted = true, seen = true, shown = false, motion = 'idle', band = null;
 
@@ -42,7 +42,7 @@
     const moves = on && !reduce.matches && ONGOING.includes(motion);
     light.dataset.state = motion;
     light.dataset.moves = String(moves);
-    wave.classList.toggle('live', moves && motion !== 'needs');
+    mark.classList.toggle('live', moves && motion !== 'needs');
     hold.hidden = reduce.matches;
     if (band) band.set(chrome(on));
   }

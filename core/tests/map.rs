@@ -1169,10 +1169,41 @@ fn a_fifo_is_never_read_and_a_look_that_hangs_is_let_go() {
     ];
     let mut core = Core::start_env(&data, &extra, &[("HOME", &home_text)]);
     let mut w = core.watch();
+    let look = w.ok::<call::LookAdd>(&AddLook {
+        id: LookId::mint(),
+        folder: Some(format!("{home_text}/projects")),
+        agent: None,
+        on: None,
+    });
     let started = std::time::Instant::now();
     let e = w.refused::<call::ProjectsLook>(&Empty {});
     assert_eq!(e.code, Code::Failed, "{e}");
     assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    // The look that did not answer says so, rather than "Looking…".
+    w.until("the look says it did not answer", |m| {
+        m.looks[&look].state == LookState::Failed
+    });
+    let said = w.model.looks[&look].clone();
+    assert!(
+        said.note
+            .as_deref()
+            .unwrap_or_default()
+            .contains("did not answer")
+    );
+    // A capture's or the list's check starts no other look meanwhile, and
+    // the person asking is told rather than given a second waiting thread.
+    let find = Find {
+        text: "app".into(),
+        limit: None,
+        thought: false,
+    };
+    w.ok::<call::ProjectsFind>(&find);
+    w.ok::<call::ProjectsFind>(&find);
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    w.sync();
+    assert_eq!(w.model.looks[&look].rev, said.rev, "looked again");
+    let e = w.refused::<call::ProjectsLook>(&Empty {});
+    assert!(e.message.contains("still does not answer"), "{e}");
     drop(w);
     let gone = std::time::Instant::now();
     while core.running() {

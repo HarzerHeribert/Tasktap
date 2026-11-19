@@ -53,6 +53,7 @@ use std::ffi::OsStr;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use tasktap_proto::call::{self, Call, Code, Error};
@@ -978,6 +979,20 @@ impl Seen {
 
 /// Reads every look that is on and makes the cards: on a thread of its own.
 pub fn read(input: Input) -> Output {
+    read_telling(input, &Mutex::new(None))
+}
+
+/// The look being read now, and its stamp once it has one: what the core
+/// marks as not answering when a look is let go.
+type Reading = Mutex<Option<(LookId, Option<String>)>>;
+
+/// [`read`], saying in `now` which look it reads.
+fn read_telling(input: Input, now: &Reading) -> Output {
+    let tell = |at: Option<(LookId, Option<String>)>| {
+        if let Ok(mut now) = now.lock() {
+            *now = at;
+        }
+    };
     let Input {
         rule,
         data,
@@ -1009,7 +1024,9 @@ pub fn read(input: Input) -> Output {
     };
     for look in looks.iter().filter(|l| l.on) {
         // Before it is read: what changes while it reads is new to the next look.
+        tell(Some((look.id, None)));
         let stamp = stamp(&rule, look);
+        tell(Some((look.id, Some(stamp.clone()))));
         let mut found: BTreeSet<PathBuf> = BTreeSet::new();
         let (state, note) = match (look.kind, &look.agent, &look.folder) {
             (LookKind::Agent, Some(agent), _) => {
@@ -1090,6 +1107,7 @@ pub fn read(input: Input) -> Output {
         out.looks
             .push((look.id, state, found.len() as u32, note, stamp));
     }
+    tell(None);
     for (project, folder, used) in &opened {
         let s = seen.entry(PathBuf::from(folder)).or_default();
         s.add(Evidence::Opened);
@@ -1469,6 +1487,11 @@ pub struct Map {
     waiting: Vec<(Rc<Link>, CallId)>,
     /// How long a look may take.
     most: Duration,
+    /// A look let go whose thread still waits on what did not answer: no
+    /// other look starts until it ends, so no more than one thread waits.
+    stuck: Option<u64>,
+    /// A check of the stamps runs (or waits on a folder): no other starts.
+    checking: bool,
 }
 
 impl Map {
@@ -1480,6 +1503,8 @@ impl Map {
             again: false,
             waiting: Vec::new(),
             most: second * LOOK_MOST,
+            stuck: None,
+            checking: false,
         }
     }
 
@@ -1579,21 +1604,45 @@ pub fn look(core: &mut Core, waiting: Option<(Rc<Link>, CallId)>) {
         core.map.again = true;
         return;
     }
+    if core.map.stuck.is_some() {
+        let why = "a folder Tasktap looks in still does not answer: it looks again once that ends";
+        return answer(core, Err(Error::new(Code::Failed, why)));
+    }
     let input = match input(core) {
         Ok(input) => input,
         Err(e) => return answer(core, Err(e)),
     };
     core.map.looks += 1;
     let n = core.map.looks;
+    let first = input.looks.iter().find(|l| l.on).map(|l| l.id);
+    let reading: Arc<Reading> = Arc::default();
     // Let go when it runs too long: the core neither waits on it nor stays
-    // for it. What it finds after that is not used.
-    let (me, most) = (core.me.clone(), core.map.most);
+    // for it, and what it finds after that is not used. The look that did
+    // not answer says so, and is not read again until what it reads
+    // changes, or the person asks once the thread waiting on it ends.
+    let (me, most, read_now) = (core.me.clone(), core.map.most, reading.clone());
     let timer = tokio::task::spawn_local(async move {
         tokio::time::sleep(most).await;
         let Some(core) = me.upgrade() else { return };
         let mut core = core.borrow_mut();
         if core.map.end(n) {
             core.map.again = false;
+            core.map.stuck = Some(n);
+            let now = read_now.lock().ok().and_then(|r| r.clone());
+            let hung = now.or(first.map(|id| (id, None)));
+            let at = core.seams.now();
+            if let Some((id, stamp)) = hung {
+                let _ = effects::write(&mut core, |tx| {
+                    if let Some(mut l) = tx.look(id).map_err(stored)? {
+                        l.state = LookState::Failed;
+                        l.note = Some(UNANSWERED.into());
+                        l.looked = Some(at);
+                        l.stamp = Some(stamp.unwrap_or_else(|| UNANSWERED.into()));
+                        tx.put_look(&l).map_err(stored)?;
+                    }
+                    Ok(())
+                });
+            }
             let why = format!(
                 "the look took longer than {} s: a folder or a file there did not answer",
                 most.as_secs()
@@ -1606,9 +1655,13 @@ pub fn look(core: &mut Core, waiting: Option<(Rc<Link>, CallId)>) {
     let started = Instant::now();
     crate::calls::aside(
         core,
-        move || self::read(input),
+        move || self::read_telling(input, &reading),
         move |core, found| {
             if !core.map.end(n) {
+                // Let go before: its thread is free again.
+                if core.map.stuck == Some(n) {
+                    core.map.stuck = None;
+                }
                 return;
             }
             let Some(out) = found else {
@@ -1639,7 +1692,9 @@ fn answer(core: &mut Core, result: Result<Looked, Error>) {
 /// it was when that look last read, or it never read. Nothing when no look
 /// is on, and nothing new after the core starts again: the stamps are kept.
 pub fn freshen(core: &mut Core) {
-    if core.map.busy() {
+    // One check at a time, and none while a look runs or waits on what did
+    // not answer: a check that waits itself holds no more than its thread.
+    if core.map.busy() || core.map.checking || core.map.stuck.is_some() {
         return;
     }
     let Some(home) = home() else { return };
@@ -1649,6 +1704,7 @@ pub fn freshen(core: &mut Core) {
     if on.is_empty() {
         return;
     }
+    core.map.checking = true;
     crate::calls::aside(
         core,
         move || {
@@ -1656,12 +1712,16 @@ pub fn freshen(core: &mut Core) {
                 .any(|l| l.stamp.as_deref() != Some(stamp(&rule, l).as_str()))
         },
         move |core, changed| {
+            core.map.checking = false;
             if changed == Some(true) {
                 look(core, None);
             }
         },
     );
 }
+
+/// What a look that did not answer says, until it is read again.
+const UNANSWERED: &str = "It did not answer in 30 s. Tasktap reads it again when something in it changes, or when you ask.";
 
 /// `projects.look`: every look that is on, read again; answered when done.
 pub fn look_call(cx: &mut Cx, _: Empty) -> Option<Control> {

@@ -182,6 +182,14 @@ const GOOSE_EVENTS: &[(&str, Says)] = &[
     ("PreToolUse", Says::Tool),
     ("Stop", Says::Finished),
 ];
+const CRUSH_EVENTS: &[(&str, Says)] = &[
+    ("SessionStart", Says::Ready),
+    ("TurnStart", Says::Started),
+    ("PreToolUse", Says::Tool),
+    ("TurnEnd", Says::Finished),
+    ("StopFailure", Says::Failed),
+    ("Interrupt", Says::Interrupted),
+];
 
 /// Goose, as `goose` 1.60.1 runs one task (`goose run --text=`). Its hooks
 /// come only from a plugin folder below its root, so a run is given a root
@@ -260,6 +268,54 @@ pub const GOOSE: Dialect = Dialect {
     note: Some(
         "It runs one task and ends; a follow-up goes on in a new run. \
          Its sessions are kept in Tasktap's folder, apart from your own Goose's.",
+    ),
+};
+
+/// Crush, as `crush` 0.101.0 runs one task (`crush run`). A run's data
+/// folder is Tasktap's (`--data-dir`), whose `crush.json` carries the hooks
+/// and is read beside the person's own; its sessions are then kept there,
+/// apart from the person's own Crush's in the project. Its one-task form
+/// allows everything for its session.
+pub const CRUSH: Dialect = Dialect {
+    id: "crush",
+    name: "Crush",
+    program: "crush",
+    events: CRUSH_EVENTS,
+    prompt: "",
+    call: "tool_use_id",
+    question: "",
+    args: |run| {
+        let home = run.home.to_string_lossy().into_owned();
+        let mut args = vec!["run".to_owned(), "-q".into(), "--data-dir".into(), home];
+        if let Some(model) = run.model {
+            args.extend(["-m".into(), model.into()]);
+        }
+        if let Some(handle) = run.resume {
+            args.extend(["-s".into(), handle.into()]);
+        }
+        args.extend(["--".into(), run.told.into()]);
+        args
+    },
+    files: |command| {
+        let hook = json!([{ "name": "tasktap", "command": command }]);
+        let hooks: serde_json::Map<String, Value> = (CRUSH_EVENTS.iter())
+            .map(|(event, _)| ((*event).to_owned(), hook.clone()))
+            .collect();
+        vec![("crush.json", json!({ "hooks": hooks }).to_string())]
+    },
+    environment: |_| Vec::new(),
+    // In its terminal interface `!` runs the rest in a shell at once.
+    commands: "!",
+    stays: false,
+    version: &["--version"],
+    #[rustfmt::skip]
+    variables: &[
+        "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY",
+        "OPENAI_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY",
+    ],
+    note: Some(
+        "It runs one task and ends; a follow-up goes on in a new run. \
+         Its sessions are kept in Tasktap's folder, apart from your own Crush's.",
     ),
 };
 

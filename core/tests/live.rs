@@ -777,6 +777,33 @@ fn goose_runs_one_task_and_goes_on_in_a_new_run() {
     assert!(!home.0.join(".local/share/goose").exists());
 }
 
+/// Crush, with a data folder of Tasktap's (TASKTAP_LIVE_CRUSH names its
+/// program, TASKTAP_LIVE_CRUSH_MODEL its model as provider/model).
+#[test]
+#[ignore = "runs Crush for two turns on a key in the environment"]
+fn crush_runs_one_task_and_goes_on_in_a_new_run() {
+    let home = own_home("live-crush-home", "TASKTAP_LIVE_CRUSH", "crush");
+    let model = std::env::var("TASKTAP_LIVE_CRUSH_MODEL")
+        .expect("TASKTAP_LIVE_CRUSH_MODEL names the model, as provider/model");
+    // The stand-in person's own configuration: no metrics to its maker.
+    let config = home.0.join(".config/crush");
+    std::fs::create_dir_all(&config).unwrap();
+    let own = r#"{"options":{"disable_metrics":true}}"#;
+    std::fs::write(config.join("crush.json"), own).unwrap();
+    one_task_and_another("crush", &home, &[], Some(&model));
+    // The one thing it writes outside Tasktap's folder: its list of projects.
+    let projects = home.0.join(".local/share/crush/projects.json");
+    say(&format!(
+        "its list of projects is there: {}",
+        projects.is_file()
+    ));
+    assert!(!folder_has(&project(), ".crush"));
+}
+
+fn folder_has(folder: &std::path::Path, name: &str) -> bool {
+    folder.join(name).exists()
+}
+
 /// Qwen Code, with the settings file of Tasktap's that a variable names: it
 /// asks to be let run a command, which is shown and answered in its
 /// terminal; a follow-up is typed there; a resume goes on with the same

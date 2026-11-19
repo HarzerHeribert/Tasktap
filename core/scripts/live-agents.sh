@@ -19,12 +19,28 @@
 #   opencode  a new run whose question is answered from the core, a follow-up
 #           whose approval is given from the core, a resume whose approval is
 #           given in the terminal (3 turns, on a model that costs nothing)
+#   qwen    Qwen Code: a new run whose request to run a command is shown and
+#           answered in its terminal, a follow-up, a resume (3 turns)
+#   goose   Goose: a run of one task, and a follow-up that goes on in a new
+#           run (2 turns)
+#   crush   Crush: the same (2 turns)
+#           These three run in a home of their own that the test makes, never
+#           in the person's, and only when told where the program is and
+#           given a service's key in the environment; none is among the runs
+#           without a name:
+#             qwen   TASKTAP_LIVE_QWEN=<program> TASKTAP_LIVE_QWEN_MODEL=<model>
+#                    OPENAI_API_KEY and OPENAI_BASE_URL (an OpenAI-compatible service)
+#             goose  TASKTAP_LIVE_GOOSE=<program> GOOSE_PROVIDER GOOSE_MODEL and
+#                    that provider's key
+#             crush  TASKTAP_LIVE_CRUSH=<program> TASKTAP_LIVE_CRUSH_MODEL=<provider/model>
+#                    and that provider's key
 #   alone   a Codex run with no client attached to its terminal (1 turn)
 #   trust   Claude Code in a folder it has not seen asks, through the core, to be
 #           trusted there; left unanswered (no turn)
 #   loop    the loop check with Claude Code as its agent (1 turn)
 #
-# Usage: core/scripts/live-agents.sh [claude] [codex] [agy] [pi] [opencode] [alone] [trust] [loop]   (none: all eight)
+# Usage: core/scripts/live-agents.sh [claude] [codex] [agy] [pi] [opencode] [qwen] [goose] [crush] [alone] [trust] [loop]
+#        (none: the eight that run on this computer's own accounts)
 #
 # Tasktap writes nothing to ~/.claude, ~/.codex or ~/.gemini: hooks and
 # settings go on each run's command line. Antigravity keeps each run's
@@ -50,6 +66,9 @@ run_of() {
     agy) echo "antigravity_runs_asks_follows_up_and_resumes agy 3" ;;
     pi) echo "pi_runs_asks_follows_up_and_resumes pi 3" ;;
     opencode) echo "opencode_runs_asks_follows_up_and_resumes opencode 3" ;;
+    qwen) echo "qwen_runs_asks_follows_up_and_resumes qwen 3" ;;
+    goose) echo "goose_runs_one_task_and_goes_on_in_a_new_run goose 2" ;;
+    crush) echo "crush_runs_one_task_and_goes_on_in_a_new_run crush 2" ;;
     alone) echo "codex_runs_with_no_window codex 1" ;;
     trust) echo "claude_in_a_new_folder_asks_to_be_trusted_there claude 0" ;;
     loop) echo "the_loop_on_claude claude 1" ;;
@@ -59,7 +78,7 @@ run_of() {
 
 [ $# -eq 0 ] && set -- claude codex agy pi opencode alone trust loop
 for name in "$@"; do
-  run_of "$name" >/dev/null || { echo "live-agents: no run called $name (claude, codex, agy, pi, opencode, alone, trust, loop)" >&2; exit 64; }
+  run_of "$name" >/dev/null || { echo "live-agents: no run called $name (claude, codex, agy, pi, opencode, qwen, goose, crush, alone, trust, loop)" >&2; exit 64; }
 done
 
 echo "live-agents: the agents on this computer"
@@ -76,7 +95,18 @@ logs=$(mktemp -d "${TMPDIR:-/tmp}/tasktap-live-logs.XXXXXX")
 failed=0
 for name in "$@"; do
   read -r test agent turns <<<"$(run_of "$name")"
-  if ! command -v "$agent" >/dev/null; then
+  # A tool run in a home of its own is found where its variable says.
+  own=
+  case "$name" in
+    qwen) own=TASKTAP_LIVE_QWEN ;;
+    goose) own=TASKTAP_LIVE_GOOSE ;;
+    crush) own=TASKTAP_LIVE_CRUSH ;;
+  esac
+  if [ -n "$own" ] && [ -z "${!own:-}" ]; then
+    echo "live-agents: $name skipped, $own names no program"
+    continue
+  fi
+  if [ -z "$own" ] && ! command -v "$agent" >/dev/null; then
     echo "live-agents: $name skipped, $agent is not installed"
     continue
   fi

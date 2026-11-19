@@ -535,6 +535,7 @@ const AGENTS: &[&dyn Agent] = &[
     &opencode::OpenCode,
     &dialect::QWEN,
     &dialect::GOOSE,
+    &dialect::CRUSH,
     &plain::AIDER,
     #[cfg(feature = "fixtures")]
     &Fixture {

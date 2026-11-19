@@ -5,11 +5,16 @@
 
 mod common;
 
+use std::io::Write;
 use std::path::Path;
+use std::process::{Command, Stdio};
 
+use common::*;
 use serde_json::Value;
 use tasktap_core::agents::{self, Agent, Heard, Run};
-use tasktap_proto::{Event, QuestionKind, QuestionSource, ReplyVia, SessionEvent, SessionId};
+use tasktap_proto::{
+    Event, QuestionKind, QuestionSource, QuestionState, ReplyVia, SessionEvent, SessionId, Status,
+};
 
 const RUN: &str = "01930000-0000-7000-8000-0000000000aa";
 
@@ -289,4 +294,152 @@ fn goose_runs_one_task_in_a_root_of_tasktaps_and_its_hooks_say_what_it_does() {
     assert!(Path::new(own).ends_with("goose/config.yaml"), "{own}");
     let detect = goose.detect();
     assert_eq!((detect.version_of)(" 1.60.1\n").as_deref(), Some("1.60.1"));
+}
+
+#[test]
+fn crush_runs_one_task_with_a_data_folder_of_tasktaps_and_its_hooks_say_what_it_does() {
+    let crush = agent("crush");
+    const SESSION: &str = "2370ef69-c43c-4cd3-b3eb-e063cdded8dc";
+    let ready = event("crush", "SessionStart-startup");
+    assert_eq!(
+        (ready.event, ready.id.as_str()),
+        (Event::Ready, "SessionStart:")
+    );
+    assert_eq!(ready.resume.as_deref(), Some(SESSION));
+    // Its turn's start names no prompt: it is the one Tasktap gave.
+    let started = event("crush", "TurnStart");
+    assert_eq!(started.event, Event::TurnStarted { prompt: None });
+    assert_eq!(started.id, "TurnStart:");
+    assert!(matches!(
+        event("crush", "PreToolUse-edit").event,
+        Event::Activity { text } if text == "edit: /work/repo1/hello.py"
+    ));
+    let answer = Some("Done".into());
+    assert_eq!(
+        event("crush", "TurnEnd").event,
+        Event::TurnFinished { answer }
+    );
+    let Event::TurnFailed { error } = event("crush", "StopFailure-wrong-key").event else {
+        panic!("a failed turn");
+    };
+    assert!(
+        error
+            .unwrap()
+            .starts_with("unauthorized: Authentication Fails")
+    );
+    assert_eq!(
+        event("crush", "Interrupt-escape").event,
+        Event::TurnInterrupted
+    );
+    for nothing in ["PostToolUse-edit", "SessionEnd-run"] {
+        assert!(heard("crush", nothing).is_none(), "{nothing}");
+    }
+    let caps = crush.caps();
+    assert!(caps.events && caps.resume && !crush.typed());
+    assert_eq!((caps.permissions, caps.questions), (None, None));
+
+    #[rustfmt::skip]
+    assert_eq!(
+        crush.launch(&run("Fix it", None, None)),
+        ["crush", "run", "-q", "--data-dir", "/data/agents/x", "--", "Fix it"]
+    );
+    #[rustfmt::skip]
+    assert_eq!(
+        crush.launch(&run("-v is noisy", Some("deepseek/deepseek-v4-flash"), Some(SESSION))),
+        ["crush", "run", "-q", "--data-dir", "/data/agents/x", "-m", "deepseek/deepseek-v4-flash",
+         "-s", SESSION, "--", "-v is noisy"]
+    );
+    let last = |told: &str| crush.launch(&run(told, None, None)).pop().unwrap();
+    assert_eq!(last("!make clean"), "Task: !make clean");
+    let files = crush.files(Path::new("/opt/tasktap/tasktap"));
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].0, "crush.json");
+    let config: Value = serde_json::from_str(&files[0].1).unwrap();
+    let end = &config["hooks"]["TurnEnd"][0];
+    assert_eq!(end["name"], "tasktap");
+    #[cfg(unix)]
+    assert_eq!(end["command"], "'/opt/tasktap/tasktap' hook crush");
+    assert_eq!(config["hooks"].as_object().unwrap().len(), 6);
+    assert!(
+        crush
+            .environment(Path::new("/x"), Path::new("/y"))
+            .is_empty()
+    );
+    let detect = crush.detect();
+    let version = (detect.version_of)("crush version v0.101.0\n");
+    assert_eq!(version.as_deref(), Some("0.101.0"));
+    let row = agents::checks::found(crush);
+    assert!(row.events && row.resume && !row.checks);
+    assert!(row.note.unwrap().starts_with("It runs one task and ends"));
+}
+
+// Through the binary.
+
+#[test]
+fn a_crush_hook_tells_the_core_what_its_run_does() {
+    let mut s = Scene::new("dc");
+    let hook = |socket: &Path, token: &str, name: &str| {
+        let mut hook = Command::new(EXE);
+        hook.args(["hook", "crush"])
+            .env("TASKTAP_SOCKET", socket)
+            .env("TASKTAP_TOKEN", token)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+        let mut child = hook.spawn().unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(&payload("crush", name)).unwrap();
+        drop(stdin);
+        let out = child.wait_with_output().unwrap();
+        assert!(out.stdout.is_empty(), "{name}: it prints nothing");
+        assert_eq!(out.status.code(), Some(0), "{name}");
+    };
+    let socket = s.data.0.join("core.sock");
+    let (thought, session, _agent) = s.launch("tidy up");
+    let log = s.log();
+    let launched = log.launched.iter().find(|l| l.session == session);
+    let token = serde_json::to_value(&launched.unwrap().token).unwrap();
+    let token = token.as_str().unwrap();
+    for name in ["SessionStart-startup", "TurnStart", "PreToolUse-edit"] {
+        hook(&socket, token, name);
+    }
+    let edit = "edit: /work/repo1/hello.py";
+    s.w.until("the turn runs", |m| {
+        m.session(session).activity.last().map(String::as_str) == Some(edit)
+    });
+    // The end of a turn told twice is one end.
+    hook(&socket, token, "TurnEnd");
+    hook(&socket, token, "TurnEnd");
+    s.w.until("the turn is done", |m| m.status(thought) == Status::Done);
+    let said = s.w.model.results_of(thought);
+    assert_eq!((said.len(), said[0].summary.as_str()), (1, "Done"));
+    // The conversation's id, with which a follow-up goes on in a new run.
+    let handle = s.w.model.session(session).resume.clone();
+    assert_eq!(
+        handle.as_deref(),
+        Some("2370ef69-c43c-4cd3-b3eb-e063cdded8dc")
+    );
+
+    // Another run, whose turn fails: its hooks say what the first run's
+    // said, byte for byte, and are that run's own all the same.
+    let (failed, session, _agent) = s.launch("and the docs");
+    let log = s.log();
+    let launched = log.launched.iter().find(|l| l.session == session);
+    let token = serde_json::to_value(&launched.unwrap().token).unwrap();
+    let token = token.as_str().unwrap();
+    for name in ["SessionStart-startup", "TurnStart", "StopFailure-wrong-key"] {
+        hook(&socket, token, name);
+    }
+    s.w.until("the turn failed", |m| m.status(failed) == Status::Failed);
+    let why = s.w.model.session(session).error.clone().unwrap();
+    assert!(
+        why.starts_with("unauthorized: Authentication Fails"),
+        "{why}"
+    );
+    assert_eq!(
+        s.w.model.thought(failed).reason,
+        Some(tasktap_proto::Reason::TurnFailed)
+    );
+    assert_eq!(s.w.model.status(thought), Status::Done);
+    let open = |m: &Model| m.questions.values().any(|q| q.state == QuestionState::Open);
+    assert!(!open(&s.w.model));
 }

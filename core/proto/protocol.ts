@@ -72,7 +72,7 @@ supported: boolean,
  */
 rev: Rev,
 /**
- * When its commands last said what follows.
+ * When its commands last said what follows; zero while they never have.
  */
 checked: Time,
 /**
@@ -92,8 +92,9 @@ signed_in: boolean | null,
  */
 identity: string | null,
 /**
- * Its commands could not say this time whether it is signed in: what
- * they last said stands, as of `checked`.
+ * What follows is what its commands said at `checked` and not since:
+ * this core has not run them yet and a core before it kept their answer,
+ * or they could not say this time whether it is signed in.
  */
 stale: boolean,
 /**
@@ -114,7 +115,8 @@ permissions: ReplyVia | null,
 questions: ReplyVia | null, };
 
 /**
- * The reply of `agents.detect`, in the order the core lists its agents.
+ * The reply of `agents.detect`: the rows of the agents asked about, as
+ * they are now, in the order the core lists its agents.
  */
 export type Agents = { agents: Array<AgentHealth>, };
 
@@ -280,9 +282,14 @@ export type Delete = { "c": "prefs", id: PrefKey, } | { "c": "layouts", id: Proj
 /**
  * `agents.detect`: whether each agent this core can run is installed on the
  * PATH its terminals get and signed in, as the agent itself says. Without
- * `agents`, every one. Each check runs the agent's own command, at most 4 s.
+ * `agents`, every one. Each check runs the agent's own commands, each at
+ * most 4 s. A core runs them only here and the first time in its life that
+ * a thought is given to the agent, never as it starts: a client calls this
+ * when the person looks at their agents, picks one, or asks to check again.
+ * With `unchecked`, only the agents whose commands this core has not run
+ * yet are checked, so the call may be made each time the person looks.
  */
-export type DetectAgents = { agents?: Array<string> | null, };
+export type DetectAgents = { agents?: Array<string> | null, unchecked: boolean, };
 
 export type Device = { id: DeviceId, rev: Rev, name: string, last_seen: Time | null, revoked: boolean, };
 

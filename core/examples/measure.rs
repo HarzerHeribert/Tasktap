@@ -105,7 +105,7 @@ fn hold(data: &Path) -> io::Result<()> {
         .map_err(|e| io::Error::other(format!("sub: {e:?}")))?;
     println!("subscribed");
     io::stdout().flush()?;
-    // The agents the core detects as it starts come as one change.
+    // The agents the core lists as it starts come as one change.
     let mut detected = false;
     loop {
         if let Frame::Control(Control::Change(change)) = c.recv()? {

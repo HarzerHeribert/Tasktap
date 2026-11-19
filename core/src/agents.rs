@@ -356,15 +356,20 @@ pub fn usable(agent: &dyn Agent, health: Option<&AgentHealth>) -> Result<(), Str
     match health {
         _ if !agent.supported() => Err(format!("{name} does not run on this system yet")),
         Some(h) if !h.installed => Err(format!("{name} is not installed on this computer")),
-        Some(h) if h.signed_in == Some(false) => Err(format!("{name} is not signed in")),
+        // What was said before this look, and not since, refuses nothing:
+        // the person may have signed in meanwhile.
+        Some(h) if h.signed_in == Some(false) && !h.stale => {
+            Err(format!("{name} is not signed in"))
+        }
         _ => Ok(()),
     }
 }
 
 /// What a new look at an agent leaves of the last one. When its commands
-/// could not say this time whether it is signed in, as with no network,
-/// what they last said stands, marked as such (`stale`), with the time they
-/// said it; otherwise the new look, as of `now`.
+/// could not say this time whether it is signed in, as with no network, or
+/// have not run at all, as when a core starts, what they last said stands,
+/// marked as such (`stale`), with the time they said it and the version
+/// they named; otherwise the new look, as of `now`.
 pub fn merged(
     last: Option<&AgentHealth>,
     found: AgentHealth,
@@ -374,6 +379,7 @@ pub fn merged(
         Some(last) if found.installed && found.supported && found.signed_in.is_none() => {
             AgentHealth {
                 checked: last.checked,
+                version: found.version.or_else(|| last.version.clone()),
                 signed_in: last.signed_in,
                 identity: last.identity.clone(),
                 stale: true,
@@ -397,9 +403,10 @@ pub fn all() -> &'static [&'static dyn Agent] {
     AGENTS
 }
 
-/// The agents a core detects as it starts (`agents` collection, design §7):
-/// every one, except in a build with the test fixtures, where only the
-/// fixture agents, so that a test never runs a real agent's commands.
+/// The agents a core lists as it starts and looks at by itself, the first
+/// time it gives one a thought (`agents` collection, design §7): every
+/// one, except in a build with the test fixtures, where only the fixture
+/// agents, so that a test never runs a real agent's commands.
 pub fn at_start() -> Vec<&'static dyn Agent> {
     #[cfg(feature = "fixtures")]
     let detected = |a: &&dyn Agent| a.program() == crate::roles::fixture::PROGRAM;

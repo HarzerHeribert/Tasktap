@@ -184,8 +184,9 @@ impl Core {
     }
 
     /// The same for rows whose agents' commands have answered (`checked`),
-    /// or have not run yet: those keep the time zero, which says so, and
-    /// never replace a row that was checked.
+    /// which are then kept for the next core too, or have not run in this
+    /// core's life: those are put as they are, with the time their commands
+    /// last answered or zero, and never replace a row that is there.
     pub fn put_agents(
         &mut self,
         mut found: Vec<AgentHealth>,
@@ -197,15 +198,15 @@ impl Core {
             return Ok(found);
         }
         let rev = self.store.take_rev()?;
-        let checked = match checked {
-            true => self.seams.now(),
-            false => tasktap_proto::Time::ZERO,
-        };
+        let now = self.seams.now();
         let last = |id: &str| self.memory.agents.iter().find(|row| row.id == id).cloned();
         let found: Vec<AgentHealth> = (found.into_iter())
             .map(|a| {
-                let merged = crate::agents::merged(last(&a.id).as_ref(), a, checked);
-                AgentHealth { rev, ..merged }
+                let row = match checked {
+                    true => crate::agents::merged(last(&a.id).as_ref(), a, now),
+                    false => a,
+                };
+                AgentHealth { rev, ..row }
             })
             .collect();
         let agents = &mut self.memory.agents;
@@ -217,6 +218,14 @@ impl Core {
         }
         let order = |id: &str| crate::agents::all().iter().position(|a| a.id() == id);
         agents.sort_by_key(|a| order(&a.id));
+        if checked {
+            use crate::agents::checks::{Said, keep_said};
+            let said: Vec<Said> = agents.iter().filter_map(Said::of).collect();
+            let data = self.terminals.data().to_owned();
+            // Off this thread, as every write to a file is. One that fails
+            // costs the next core what this one learned, and nothing else.
+            crate::calls::aside(self, move || keep_said(&data, &said), |_, _| {});
+        }
         let sets = vec![Set::Agents(Rows {
             put: found.clone(),
             del: Vec::new(),

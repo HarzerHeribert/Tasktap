@@ -390,15 +390,23 @@ pub struct Adopt {
 
 /// `agents.detect`: whether each agent this core can run is installed on the
 /// PATH its terminals get and signed in, as the agent itself says. Without
-/// `agents`, every one. Each check runs the agent's own command, at most 4 s.
+/// `agents`, every one. Each check runs the agent's own commands, each at
+/// most 4 s. A core runs them only here and the first time in its life that
+/// a thought is given to the agent, never as it starts: a client calls this
+/// when the person looks at their agents, picks one, or asks to check again.
+/// With `unchecked`, only the agents whose commands this core has not run
+/// yet are checked, so the call may be made each time the person looks.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct DetectAgents {
     #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub agents: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unchecked: bool,
 }
 
-/// The reply of `agents.detect`, in the order the core lists its agents.
+/// The reply of `agents.detect`: the rows of the agents asked about, as
+/// they are now, in the order the core lists its agents.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Agents {
@@ -418,7 +426,7 @@ pub struct AgentHealth {
     pub supported: bool,
     /// The revision of the change that last put the row.
     pub rev: crate::ids::Rev,
-    /// When its commands last said what follows.
+    /// When its commands last said what follows; zero while they never have.
     pub checked: crate::ids::Time,
     /// Its program is on the PATH the core's terminals get.
     pub installed: bool,
@@ -428,8 +436,9 @@ pub struct AgentHealth {
     pub signed_in: Option<bool>,
     /// Whom it is signed in as, or how, as it says.
     pub identity: Option<String>,
-    /// Its commands could not say this time whether it is signed in: what
-    /// they last said stands, as of `checked`.
+    /// What follows is what its commands said at `checked` and not since:
+    /// this core has not run them yet and a core before it kept their answer,
+    /// or they could not say this time whether it is signed in.
     pub stale: bool,
     /// Its runs report through hooks; one that does not reports by exiting.
     pub events: bool,

@@ -143,7 +143,16 @@ const about = (a: { id: string; events: boolean; permissions: string | null; que
   const [p, q] = [a.permissions === 'terminal', a.questions === 'terminal'];
   return [family[a.id], !a.events ? 'heard only when it ends' : p && q ? 'asks in its terminal' : p ? 'approvals in its terminal' : q && 'questions in its terminal'];
 };
+/** Has the core ask the agents whether they are signed in: each by its own commands, which it never runs by itself
+ *  as it starts. Opening the section asks those it has not asked in its life; "Check again" asks every one. */
+const looking = { on: false };
+function look(again = false) {
+  looking.on = true;
+  call('agents.detect', { unchecked: !again }).catch(() => {}).then(() => ((looking.on = false), redraw()));
+  redraw();
+}
 function AgentsPane() {
+  useEffect(() => look(), []);
   const agents = [...records.agents.values()];
   if (!agents.length) return <p class="note">Looking for agents…</p>;
   const usual = agent()?.id;
@@ -151,11 +160,11 @@ function AgentsPane() {
     <>
       <div class="list">
         {agents.map((a) => {
-          // What its own commands said, and when they could not say: nothing is shown as known that was not checked.
+          // What its own commands said, and when: nothing is shown as known now that was not checked now.
           const off = runs(a) && a.signed_in === false;
-          const state = !a.supported ? 'does not run on this system yet' : !a.installed ? 'not installed' : !a.checked ? 'checking…'
-            : a.signed_in === false ? 'not signed in' : a.signed_in === null ? 'sign-in could not be checked'
-            : a.stale ? `signed in when last checked, ${ago(a.checked)}` : 'signed in';
+          const state = !a.supported ? 'does not run on this system yet' : !a.installed ? 'not installed'
+            : a.signed_in === null ? (looking.on ? 'checking…' : a.checked ? 'sign-in could not be checked' : 'not checked yet')
+            : `${a.signed_in ? 'signed in' : 'not signed in'}${a.stale ? ` when last checked, ${ago(a.checked)}` : ''}`;
           return (
             <div class="line ag" data-s={off || !runs(a) ? 'off' : undefined}>
               <Ring agent={a.id} s={off || !runs(a) ? 'off' : ''} />
@@ -172,6 +181,9 @@ function AgentsPane() {
         })}
       </div>
       <p class="note">The default runs your thoughts. For one thought, pick another by its ring where you write it.</p>
+      <Row name="Sign-in" hint="Each agent is asked when you look here and when it first runs a thought, not when Tasktap starts.">
+        <button type="button" class="btn" disabled={looking.on} onClick={() => look(true)}>{looking.on ? 'Checking…' : 'Check again'}</button>
+      </Row>
     </>
   );
 }

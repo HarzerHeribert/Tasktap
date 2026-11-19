@@ -391,6 +391,7 @@ fn every_call_round_trips() {
     };
     let detect = DetectAgents {
         agents: Some(vec!["codex".into()]),
+        unchecked: false,
     };
     let agents = Agents {
         agents: vec![health],

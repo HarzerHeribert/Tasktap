@@ -499,8 +499,12 @@ button.line.fold-l{grid-template-columns:28px 190px minmax(0,1fr)}
 .sx-n{padding:14px 18px}
 .sx>.more{margin:6px 12px}
 /* Settings (settings.tsx): its sections listed at the left, one shown at a time, in a sheet of one size whichever is
-   shown. The owner froze how its Appearance controls look (2026-11-17): the switch, the choices, the swatches, the hue
-   slider and the preview keep the look they had, and nothing in them follows a later change to the materials. */
+   shown: as tall as the window allows, up to 720 px (Appearance, the tallest that must not scroll, is 705 at most), so
+   its lower edge stays where it is as the person goes through the sections, and a section longer than that scrolls
+   inside it, dissolving at the edge there is more beyond (scripts/align-check.cjs). The owner froze how its Appearance
+   controls look (2026-11-17): the switch, the choices, the swatches, the hue slider and the preview keep the look they
+   had, and nothing in them follows a later change to the materials. */
+.sheet:has(>.sh-b>.settings){height:min(720px,calc(100% - var(--bar-h) - 40px))}
 .sh-b:has(>.settings){display:flex;overflow:hidden;border-top:1px solid var(--line)}
 .settings{display:grid;grid-template-columns:176px minmax(0,1fr);flex:1;min-width:0;min-height:0}
 .set-nav{display:flex;flex-direction:column;padding:var(--sp2) 0;border-right:1px solid var(--line)}

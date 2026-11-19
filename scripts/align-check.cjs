@@ -529,6 +529,20 @@ async function main() {
         if (after.includes('true')) failures.push(`${name}, ${width}px: the ambient layer moves behind the sheet`);
         for (const b of await measure(page, hung)) failures.push(`${name}, ${width}px: ${b}`);
         measured.add('sheets on the window\'s centre');
+        // Settings keeps one box whichever section it shows: its edges do not move as the person goes through them,
+        // and what does not fit scrolls inside. Every section in its list, by a click, as a person goes.
+        if (name === 'Settings') {
+          const boxes = [];
+          for (let i = 0; i < (await page.evaluate(`document.querySelectorAll('.set-nav button').length`)); i++) {
+            await page.evaluate(`document.querySelectorAll('.set-nav button')[${i}].click()`);
+            await page.waitForTimeout(150);
+            boxes.push(await page.evaluate(`(() => { const r = document.querySelector('.sheet').getBoundingClientRect(); return [document.querySelector('.set-nav [aria-selected=true] span')?.textContent, Math.round(r.top), Math.round(r.bottom), Math.round(r.left), Math.round(r.right)]; })()`));
+          }
+          const moved = boxes.filter((b) => b.slice(1).join() !== boxes[0].slice(1).join());
+          if (boxes.length < 2) failures.push(`Settings, ${width}px: no sections to go through`);
+          for (const b of moved) failures.push(`Settings, ${width}x${height}: in ${b[0]} its box is ${b.slice(1).join(', ')} (top, bottom, left, right), in ${boxes[0][0]} ${boxes[0].slice(1).join(', ')}`);
+          measured.add('Settings keeps one box in every section');
+        }
         await page.context().close();
       }
     for (const [a, sc, kind, opts, then] of [

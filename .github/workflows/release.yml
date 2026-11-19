@@ -1,0 +1,323 @@
+name: Release Tasktap
+# A tag v<x.y.z> makes a release: the Mac app (Apple silicon) signed with the Developer ID, notarised and stapled, as a
+# disk image and as the updater's pack; Windows (x64) as an installer and a zip, not code-signed; the updater's feed,
+# latest.json, with every package's signature checked against the updater's public key. All of it goes to a draft
+# GitHub Release of that tag, which the owner publishes; until then the app's updater does not see it.
+#
+# Run by hand (Actions > Release Tasktap > Run workflow, or `gh workflow run release.yml --ref <branch>`), or by a
+# push to the branch release-dry-run, it is a dry run: every step that needs no secret runs as in a release, signed ad
+# hoc, with an updater key pair made for the run and thrown away, not notarised, and nothing is published; what it
+# made is kept as the run's artifacts for a week. With "rehearse" it signs and notarises with the secrets and still
+# publishes nothing: a way to prove the secrets before the first tag.
+#
+# Repository secrets (Settings > Secrets and variables > Actions), every one needed by a signed run:
+#   APPLE_CERTIFICATE                   the Developer ID Application certificate with its private key, a .p12, base64
+#   APPLE_CERTIFICATE_PASSWORD          the .p12's password
+#   APPLE_SIGNING_IDENTITY              the certificate's name: Developer ID Application: <name> (<team ID>)
+#   APPLE_TEAM_ID                       the team ID; every program must be signed by this team
+#   APPLE_API_KEY                     the App Store Connect API key's Key ID
+#   APPLE_API_ISSUER                    its Issuer ID
+#   APPLE_API_PRIVATE_KEY               the key's .p8 file as it is; written to a file on the runner for notarytool
+#   TAURI_SIGNING_PRIVATE_KEY           the updater's private key file as Tauri's signer wrote it
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  its password
+# The updater's public key is not a secret: it is in host/tauri.conf.json, plugins.updater.pubkey.
+on:
+  push:
+    tags: ['v*']
+    # A push to this branch is a dry run too: GitHub offers "Run workflow" only for a workflow on the default branch,
+    # so this is how the workflow is tried before it is there.
+    branches: [release-dry-run]
+  workflow_dispatch:
+    inputs:
+      rehearse:
+        description: Sign and notarise with the secrets, but publish nothing
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: What this run makes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      sign: ${{ steps.plan.outputs.sign }}
+      publish: ${{ steps.plan.outputs.publish }}
+      dry_key: ${{ steps.dry.outputs.key }}
+      dry_pub: ${{ steps.dry.outputs.pub }}
+    steps:
+      # First, so that a release is never signed in part: a signed run stops here, before anything is built, when a
+      # secret is missing.
+      - name: The secrets a signed run needs are there
+        if: github.ref_type == 'tag' || inputs.rehearse
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          missing=""
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_TEAM_ID APPLE_API_KEY APPLE_API_ISSUER \
+                      APPLE_API_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
+            [ -n "${!name}" ] || missing="$missing, $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Nothing was built or signed, because these repository secrets are not set: ${missing#, }. Set them under Settings, Secrets and variables, Actions, then run this workflow again."
+            exit 1
+          fi
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - id: plan
+        env:
+          REHEARSE: ${{ inputs.rehearse }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="${GITHUB_REF_NAME#v}"
+            echo "sign=true" >> "$GITHUB_OUTPUT"
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            version="$(node -p "require('./host/tauri.conf.json').version")"
+            echo "sign=${REHEARSE:-false}" >> "$GITHUB_OUTPUT"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::$version is not a version x.y.z (the tag must be v<x.y.z>)"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Version $version; signed and notarised: $([ "$GITHUB_REF_TYPE" = tag ] || [ "$REHEARSE" = true ] && echo yes || echo 'no, a dry run')" >> "$GITHUB_STEP_SUMMARY"
+      - name: The updater's public key is in tauri.conf.json
+        if: steps.plan.outputs.sign == 'true'
+        run: |
+          key="$(node -p "require('./host/tauri.conf.json').plugins.updater.pubkey")"
+          [ -n "$key" ] || { echo "::error::Nothing was built or signed, because the updater's public key is not in host/tauri.conf.json (plugins.updater.pubkey)."; exit 1; }
+      # A dry run signs the updater's packages with a key pair made for this run alone and thrown away with it.
+      - id: dry
+        if: steps.plan.outputs.sign != 'true'
+        run: |
+          npx --yes @tauri-apps/cli@2.12.5 signer generate --ci -p dry-run -w "$RUNNER_TEMP/dry.key" > /dev/null
+          echo "key=$(base64 -w0 "$RUNNER_TEMP/dry.key")" >> "$GITHUB_OUTPUT"
+          echo "pub=$(cat "$RUNNER_TEMP/dry.key.pub")" >> "$GITHUB_OUTPUT"
+          rm "$RUNNER_TEMP/dry.key" "$RUNNER_TEMP/dry.key.pub"
+
+  mac:
+    name: Mac (Apple silicon)
+    needs: plan
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      TASKTAP_VERSION: ${{ needs.plan.outputs.version }}
+      SIGN: ${{ needs.plan.outputs.sign }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: This runner is Apple silicon
+        run: test "$(uname -m)" = arm64
+      # A build of this workflow updates itself; a dry run's with the run's own key in place of tauri.conf.json's.
+      - name: Build the app
+        env:
+          TASKTAP_UPDATES: '1'
+          TASKTAP_UPDATE_KEY: ${{ needs.plan.outputs.dry_pub }}
+        run: host/scripts/build.sh
+      # On this runner only, in a keychain of the run's own, removed at its end.
+      - name: Import the Developer ID certificate
+        if: env.SIGN == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          keychain="$RUNNER_TEMP/tasktap.keychain-db"
+          password="$(openssl rand -hex 24)"
+          echo "::add-mask::$password"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 7200 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain" > /dev/null
+          rm -P "$RUNNER_TEMP/certificate.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          case "$APPLE_SIGNING_IDENTITY" in
+            "Developer ID Application: "*) ;;
+            *) echo "::error::APPLE_SIGNING_IDENTITY does not name a Developer ID Application identity."; exit 1 ;;
+          esac
+          security find-identity -v -p codesigning "$keychain" | grep -qF "\"$APPLE_SIGNING_IDENTITY\"" || {
+            echo "::error::The certificate in APPLE_CERTIFICATE is not the identity APPLE_SIGNING_IDENTITY names, or its private key is not in the .p12."
+            exit 1
+          }
+          echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY" >> "$GITHUB_ENV"
+      - name: Put the App Store Connect key where notarytool reads it
+        if: env.SIGN == 'true'
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/private_keys"
+          chmod 700 "$RUNNER_TEMP/private_keys"
+          (umask 077 && printf '%s\n' "$APPLE_API_PRIVATE_KEY" > "$RUNNER_TEMP/private_keys/AuthKey_$APPLE_API_KEY.p8")
+          echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/private_keys/AuthKey_$APPLE_API_KEY.p8" >> "$GITHUB_ENV"
+      # Tauri's names for the notary's key are kept: APPLE_API_ISSUER, APPLE_API_KEY, APPLE_API_KEY_PATH (the file
+      # written above from APPLE_API_PRIVATE_KEY).
+      - name: Seal, notarise, make the disk image and the updater's pack
+        env:
+          APPLE_TEAM_ID: ${{ env.SIGN == 'true' && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_API_ISSUER: ${{ env.SIGN == 'true' && secrets.APPLE_API_ISSUER || '' }}
+          APPLE_API_KEY: ${{ env.SIGN == 'true' && secrets.APPLE_API_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.SIGN == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY || needs.plan.outputs.dry_key }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ env.SIGN == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || 'dry-run' }}
+        run: |
+          if [ "$SIGN" != true ]; then export TAURI_SIGNING_PRIVATE_KEY="$(printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" | base64 --decode)"; fi
+          host/scripts/release-mac.sh
+      - name: What Apple's tools say of the app
+        env:
+          APPLE_TEAM_ID: ${{ env.SIGN == 'true' && secrets.APPLE_TEAM_ID || '' }}
+        run: |
+          app="$(ls -d host/target/release/bundle/macos/*.app)"
+          dmg="$(ls host/target/release/dist/*.dmg)"
+          echo "== codesign --verify --deep --strict --verbose=2"; codesign --verify --deep --strict --verbose=2 "$app" 2>&1
+          echo "== spctl -a -vv -t exec"; spctl -a -vv -t exec "$app" 2>&1 || true
+          echo "== xcrun stapler validate (app)"; xcrun stapler validate "$app" 2>&1 || true
+          echo "== xcrun stapler validate (disk image)"; xcrun stapler validate "$dmg" 2>&1 || true
+          echo "== spctl -a -vv -t open (disk image)"; spctl -a -vv -t open --context context:primary-signature "$dmg" 2>&1 || true
+          host/scripts/check-signed.sh "$app" $([ "$SIGN" = true ] && echo --developer-id --notarised)
+      - name: What is in the bundle, and its size
+        run: |
+          app="$(ls -d host/target/release/bundle/macos/*.app)"
+          { echo '### Mac'; echo '```'; ls -l host/target/release/dist; du -sh "$app"; ls -l "$app/Contents/MacOS"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Forget the keychain and the key
+        if: always()
+        run: |
+          [ -f "$RUNNER_TEMP/tasktap.keychain-db" ] && security delete-keychain "$RUNNER_TEMP/tasktap.keychain-db" || true
+          rm -rf "$RUNNER_TEMP/private_keys"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: host/target/release/dist/*
+          retention-days: 7
+          if-no-files-found: error
+
+  windows:
+    name: Windows (x64, not code-signed)
+    needs: plan
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      TASKTAP_VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Build the folder, its zip and the installer
+        shell: pwsh
+        env:
+          TASKTAP_UPDATES: '1'
+          TASKTAP_UPDATE_KEY: ${{ needs.plan.outputs.dry_pub }}
+        run: ./host/scripts/build.ps1 -Target x86_64 -Installer
+      - name: The installer holds the app, the core, Microsoft's console and the licences
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem host/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          $listing = & 7z l $setup.FullName
+          $listing | Out-String | Write-Host
+          foreach ($want in @('tasktap-app.exe', 'tasktap.exe', 'conpty.dll', 'OpenConsole.exe', 'Tasktap-LICENSE.txt')) {
+            if (-not ($listing | Select-String -SimpleMatch $want)) { throw "the installer has no $want" }
+          }
+      - name: Sign the installer for the updater, and gather what is published
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ needs.plan.outputs.sign == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY || needs.plan.outputs.dry_key }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ needs.plan.outputs.sign == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || 'dry-run' }}
+          SIGN: ${{ needs.plan.outputs.sign }}
+        run: |
+          if ($env:SIGN -ne 'true') { $env:TAURI_SIGNING_PRIVATE_KEY = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:TAURI_SIGNING_PRIVATE_KEY)) }
+          # A line break after the key, as a secret set from a file may have, makes Tauri's signer refuse it.
+          $env:TAURI_SIGNING_PRIVATE_KEY = $env:TAURI_SIGNING_PRIVATE_KEY.Trim()
+          $out = 'host/target/x86_64-pc-windows-msvc/release'
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item "$out/bundle/nsis/*-setup.exe" dist/
+          Copy-Item "$out/*-x86_64.zip" dist/
+          $setup = Get-ChildItem dist/*-setup.exe | Select-Object -First 1
+          & ui/node_modules/.bin/tauri.cmd signer sign $setup.FullName
+          if (-not (Test-Path "$($setup.FullName).sig")) { throw 'the installer was not signed for the updater' }
+          "### Windows`n``````" | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          Get-ChildItem dist | Format-Table Name, Length -AutoSize | Out-String | Out-File -Append $env:GITHUB_STEP_SUMMARY
+          '```' | Out-File -Append $env:GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    name: The feed, and the release
+    needs: [plan, mac, windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - name: The updater's feed, every signature checked against the key the app is built with
+        env:
+          DRY_KEY: ${{ needs.plan.outputs.dry_pub }}
+        run: |
+          export TASKTAP_UPDATE_KEY="${DRY_KEY:-$(node -p "require('./host/tauri.conf.json').plugins.updater.pubkey")}"
+          # The notes are the tag's message, when the tag has one of its own (an annotated tag).
+          git fetch --depth=1 origin "+refs/tags/v$VERSION:refs/tags/v$VERSION" 2>/dev/null || true
+          : > "$RUNNER_TEMP/notes.md"
+          if [ "$(git cat-file -t "v$VERSION" 2>/dev/null)" = tag ]; then git tag -l --format='%(contents)' "v$VERSION" > "$RUNNER_TEMP/notes.md"; fi
+          node scripts/release-feed.cjs --version "$VERSION" --dir release --notes "$RUNNER_TEMP/notes.md" --out release/latest.json
+          ls -l release
+          { echo '### The feed'; echo '```json'; cut -c1-160 release/latest.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: A draft release of the tag, which the owner publishes
+        if: needs.plan.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "Tasktap $VERSION" \
+            --notes-file "$RUNNER_TEMP/notes.md" release/*
+          echo "A draft release v$VERSION is waiting to be published: https://github.com/$GITHUB_REPOSITORY/releases" >> "$GITHUB_STEP_SUMMARY"
+      - name: A dry run publishes nothing
+        if: needs.plan.outputs.publish != 'true'
+        run: echo "A dry run, so nothing was published. The files are this run's artifacts." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: needs.plan.outputs.publish != 'true'
+        with:
+          name: feed
+          path: release/latest.json
+          retention-days: 7

@@ -11,9 +11,9 @@ try {
     # In the release profile, so that the dependencies are compiled once.
     cargo clippy --release --target $triple --all-targets -- -D warnings
     cargo test --release --target $triple
-    $app = "$checkout\host\target\$triple\release\Tasktap Next"
+    $app = "$checkout\host\target\$triple\release\Tasktap"
     Get-ChildItem $app -Recurse -File | ForEach-Object { '{0,10}  {1}' -f $_.Length, $_.FullName.Substring($app.Length + 1) }
-    $zip = "$checkout\host\target\$triple\release\Tasktap-Next-$($Job.target).zip"
+    $zip = "$checkout\host\target\$triple\release\Tasktap-$($Job.target).zip"
     '{0}  {1}  {2} bytes' -f (Get-FileHash $zip -Algorithm SHA256).Hash, (Split-Path $zip -Leaf), (Get-Item $zip).Length
     if ($Job.run) {
         & "$checkout\host\scripts\smoke.ps1" -App $app -Core "$checkout\host\binaries\fixtures\tasktap.exe"

@@ -281,7 +281,7 @@ pub fn clipboard(text: Option<&str>, private: bool) -> Option<String> {
     // A passive run (the checks) uses a pasteboard of its own, never the person's.
     let board = if private {
         objc2_app_kit::NSPasteboard::pasteboardWithName(&objc2_foundation::NSString::from_str(
-            "io.github.harzerheribert.tasktap.next.checks",
+            "io.github.harzerheribert.tasktap.checks",
         ))
     } else {
         objc2_app_kit::NSPasteboard::generalPasteboard()

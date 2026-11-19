@@ -1,4 +1,4 @@
-# Tasktap Next (host)
+# Tasktap (host)
 
 The rebuilt Tasktap that can be tried: the Mac host (Tauri v2) with the notch and the workspace window, running on the new core in `core/`. Its pages are in `ui/`. The same host builds for Windows, where a tab at the top of the screen and an icon in the notification area stand in for the notch: see "Windows" below.
 
@@ -6,11 +6,11 @@ The rebuilt Tasktap that can be tried: the Mac host (Tauri v2) with the notch an
 
     host/scripts/build.sh --open
 
-It builds the pages, the core and the host, and opens `host/target/release/bundle/macos/Tasktap Next.app`. Needs Rust, Node 22 and macOS 13 or later. Quit the installed Tasktap first: its notch sits in the same place and uses the same shortcuts.
+It builds the pages, the core and the host, and opens `host/target/release/bundle/macos/Tasktap.app`. Needs Rust, Node 22 and macOS 13 or later. Quit an installed Tasktap first: its notch sits in the same place and uses the same shortcuts.
 
-The app has its own identity (`io.github.harzerheribert.tasktap.next`) and keeps everything in `~/Library/Application Support/Tasktap Next`: the core's database, the core's copy of itself in `bin/<build>/`, the host's device key, and `host.json` (the workspace window's frame). It never reads or writes the installed app's data or the trial's.
+The app's identity is `io.github.harzerheribert.tasktap`, and it keeps everything in `~/Library/Application Support/Tasktap` (`%LOCALAPPDATA%\Tasktap` on Windows): the core's database, the core's copy of itself in `bin/<build>/`, the host's device key, and `host.json` (the workspace window's frame). A build run from here is the same app with the same folder; the checks give theirs a temporary one (`TASKTAP_DATA`).
 
-Tasktap Next is in the Dock and has a menu. Closing the workspace window leaves the notch; the Dock icon brings the workspace back. Quit it with ⌘Q. The core keeps running a minute after the last window is gone, or as long as a terminal runs: quitting never stops a session.
+Tasktap is in the Dock and has a menu. Closing the workspace window leaves the notch; the Dock icon brings the workspace back. Quit it with ⌘Q. The core keeps running a minute after the last window is gone, or as long as a terminal runs: quitting never stops a session.
 
 ## What works
 
@@ -34,15 +34,24 @@ Tasktap Next is in the Dock and has a menu. Closing the workspace window leaves 
 
     pwsh host\scripts\build.ps1 [-Target x86_64|aarch64]
 
-It builds the pages, the core and the host and puts what runs into one folder, `host\target\<target>-pc-windows-msvc\release\Tasktap Next\`, and the same folder into a zip beside it: `Tasktap Next.exe`, the core (`tasktap.exe`), Microsoft's console (`conpty.dll`, `OpenConsole.exe`: the core's terminals run in it, `core/scripts/conpty.ps1`) and the licences. Needs Rust with the target, Visual Studio Build Tools and Node; to run, the WebView2 runtime that Windows 11 has. The app keeps everything in `%LOCALAPPDATA%\Tasktap Next`.
+It builds the pages, the core and the host and puts what runs into one folder, `host\target\<target>-pc-windows-msvc\release\Tasktap\`, and the same folder into a zip beside it: `tasktap-app.exe` (not `Tasktap.exe`, which Windows would not tell from the core's name), the core (`tasktap.exe`), Microsoft's console (`conpty.dll`, `OpenConsole.exe`: the core's terminals run in it, `core/scripts/conpty.ps1`) and the licences. Needs Rust with the target, Visual Studio Build Tools and Node; to run, the WebView2 runtime that Windows 11 has. The app keeps everything in `%LOCALAPPDATA%\Tasktap`. `-Installer` also makes the installer (below).
 
 Built, and checked as far as a machine without a signed-in desktop allows (`scripts/winvm/host.sh`, `host\scripts\smoke.ps1`): the host compiles and links for x64 and ARM64 with Clippy clean; it starts the core and talks to it over the core's named pipe, each page through its own connection (`src/windows.rs`); the workspace window, dark as a whole, whose title bar is the page's own top row with a menu button and the caption buttons in it (`src/chrome.rs`), and whose commands have Windows' own keys (`ui/src/keys.ts`; the plan's "Keys on Windows"). The system's folder dialog, modal to the window (`host.pick`); previews beside a terminal, with WebView2 held to this machine's addresses as the Mac's web view is (`src/frames.rs`, `src/windows.rs`); a web address, a file of text and a place opened by Windows' own programs (`src/open.rs`); pictures of a page (`snapshot`). At a desktop (`scripts/winvm/desktop.sh`, on the tower): the window in under half a second, the capture key, a terminal with `cmd.exe` and PowerShell, Control-C, the credential store, the window's buttons, edges, menus and Snap layouts tried with the pointer, the folder dialog opened, cancelled and chosen in, and a thought sent from another program with the fixture agent answering. Built since (2026-11-19): the tab that stands for the notch and the icon in the notification area (`src/edge.rs`, `src/tray.rs`, `src/tab.rs`; the plan's "The notch on Windows", "Built", says what was tried and what was not); closing the window leaves the app in the notification area, and Settings, Thoughts chooses the tab's display or turns it off. Not built: being told when battery saver begins or ends. `scripts/winvm/README.md`, "At the desktop", lists what a person has to look at.
 
-Nothing is signed. For a copy that leaves the owner's machines: an Authenticode certificate (or Microsoft's Trusted Signing) for `Tasktap Next.exe` and `tasktap.exe`, signed with a timestamp; Microsoft's two files keep Microsoft's signature; and an installer (`tauri build` makes NSIS or MSI ones, and downloads their tools to do so), signed too, which is also what gives the app the Start-menu shortcut that notifications need. Unsigned, a downloaded copy is stopped by SmartScreen until the person chooses to run it.
+Nothing for Windows is code-signed, by choice: a downloaded copy is stopped by SmartScreen until the person chooses to run it ("Release" below). Microsoft's two files keep Microsoft's signature.
+
+## Release
+
+`.github/workflows/release.yml`, from a tag `v<x.y.z>`: the Mac app for Apple silicon, sealed and notarised, as a disk image and as the updater's pack; Windows x64 as an installer (Tauri's NSIS, for the person alone, so no administrator is asked and the updater can replace it) and as the zip above, neither code-signed; the updater's feed (`latest.json`); all of it as a draft GitHub Release, which the owner publishes. Run by hand, or by a push to `release-dry-run`, it is a dry run: signed ad hoc, not notarised, nothing published.
+
+- **Sealing** (`scripts/sign-mac.sh`, `scripts/check-signed.sh`): every program in the bundle signed with the hardened runtime from the inside out; the app with the microphone and Apple Events (`entitlements/app.plist` says why), the core and the speech helper with nothing. Tauri's own signing gives every program the same entitlements, so it is not used. The check lists every program in the bundle and fails on one unsigned, unhardened, with other entitlements or unknown. On a person's Mac only ad hoc: `host/scripts/sign-mac.sh <app>`.
+- **Notarising and the disk image** (`scripts/release-mac.sh`): the app is notarised and stapled, the disk image made from it, signed, notarised and stapled, and the stapled app packed for the updater and signed with the updater's key.
+- **The updater** (`src/update.rs`, `ui/src/workspace/update.tsx`): Tauri's, with a key pair of its own; its public key is `plugins.updater.pubkey` in `tauri.conf.json`, its private key only in the repository's secrets. Only the release workflow's builds look (`TASKTAP_UPDATES`): when Settings › About is shown, and at the first capture of a day; never at start, never on a timer. A new version is said in About and in one quiet line in the rail, and installed only from About: on the Mac in place, then the app restarts; on Windows the installer runs and opens the app again. The core and its sessions run on either way.
+- **The takeover** (`src/takeover.rs`, `scripts/takeover-check.sh`): builds were called "Tasktap Next", with their own identity and data folder. At its first start Tasktap moves that folder to its own (`tasktap move-data`, after a copy of the database, with the records' paths and the projects' copies following it), once, and only when nothing of Tasktap Next runs; otherwise it says what to quit and does not start. Nothing else of Tasktap Next is supported.
 
 ## Deliberately missing
 
-Previews of a folder, of sound and of film, Notebook, Session history and Activity, local voices, screen context, the updater, notifications, and terminal themes other than Default.
+Previews of a folder, of sound and of film, Notebook, Session history and Activity, local voices, screen context, notifications, and terminal themes other than Default.
 
 ## How it fits together
 

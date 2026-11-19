@@ -262,6 +262,7 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .rail-r{display:flex;align-items:center;gap:2px;flex:none}
 .rail button{height:20px;padding:0 7px;border-radius:var(--r1);font:var(--f-num);color:var(--fg3)}
 .rail button:hover{background:var(--hover);color:var(--fg)}
+.rail .newer{color:var(--fg2)} /* a new version waits (update.tsx): quiet, a step above the rest */
 
 /* ——— Home: one column, centred, as wide as its rows read well; two where the window is wide (home.tsx) ——— */
 .room{position:relative;min-height:0;display:grid;background:var(--bg);overflow:hidden}

@@ -353,10 +353,15 @@ fn migrate(db: &mut Connection, path: &Path, migrations: &[&str]) -> Result<()> 
 
 /// Copies the database beside itself as `<name>.v<version>.db` before a migration.
 fn backup(db: &Connection, path: &Path, version: u32) -> Result<()> {
-    let to = path.with_extension(format!("v{version}.db"));
+    copy(db, &path.with_extension(format!("v{version}.db")))
+}
+
+/// Copies the database whole to `to`, as it is now: the copy made before a
+/// migration, and before the data folder is moved (`relocate`).
+pub fn copy(db: &Connection, to: &Path) -> Result<()> {
     // VACUUM INTO refuses an existing file; one left by an earlier attempt is
     // a copy of this same version and is superseded.
-    match std::fs::remove_file(&to) {
+    match std::fs::remove_file(to) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(Error::Io(e)),
         _ => {}
     }

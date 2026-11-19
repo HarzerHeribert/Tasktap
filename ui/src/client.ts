@@ -64,7 +64,19 @@ export type HostCalls = {
    *  is added to for a frame to load it; and with `listens`, a local web address, whether anything answers there
    *  now. Refused, in a sentence, by a host that cannot hold a frame to this machine. */
   'host.frame': { args: { listens?: string }; result: { base: string; listens?: boolean } };
+  /** New versions (host/src/update.rs): where things stand; with `look`, a look begins (About is shown); with
+   *  `install`, the version found is downloaded and installed, which the person asked for. The host says every change
+   *  as the `ui` event `update`. */
+  'host.update': { args: { look?: boolean; install?: boolean }; result: HostUpdate };
 };
+/** What the host knows of new versions: `off` in a build that does not update itself. */
+export type HostUpdate =
+  | { state: 'off' | 'unknown' | 'looking' }
+  | { state: 'current'; version: string }
+  | { state: 'available'; version: string; notes: string }
+  | { state: 'downloading'; version: string; percent: number | null }
+  | { state: 'installing'; version: string }
+  | { state: 'failed'; why: string; version: string | null };
 type AllCalls = { [K in keyof Calls]: { args: Calls[K]['args']; result: Calls[K]['result'] } } & HostCalls;
 export type Name = keyof AllCalls;
 export type Args<N extends Name> = AllCalls[N]['args'];

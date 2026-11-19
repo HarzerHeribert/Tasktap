@@ -1,5 +1,5 @@
 #!/bin/bash
-# host/scripts/smoke.sh: builds Tasktap Next with a core that has the fixture agent, runs it on a
+# host/scripts/smoke.sh: builds Tasktap with a core that has the fixture agent, runs it on a
 # temporary data folder and drives it through its debug channel: the notch (a thought saved for
 # later before any folder is open and sent to one, capture, Undo, a run, a trust prompt, a question,
 # affirm, the result; where Tasktap shows itself: the notch put away while the window is in front, a question in
@@ -113,7 +113,7 @@ launch() {
   mkfifo "$tmp/in"
   env PATH="$tmp/agents:$PATH" TASKTAP_DEBUG=1 TASKTAP_PASSIVE=1 TASKTAP_DATA="$tmp/data" TASKTAP_PICK="$tmp/project" TASKTAP_OPEN="$tmp/opener" \
     TASKTAP_CORE_EXE="$host/binaries/fixtures/tasktap" TASKTAP_CORE_BUILD="$(cat "$host/binaries/fixtures/build.txt")" \
-    "$host/target/debug/tasktap-next" < "$tmp/in" >> "$log" 2>&1 &
+    "$host/target/debug/tasktap-app" < "$tmp/in" >> "$log" 2>&1 &
   app=$!
   exec 3>"$tmp/in"
 }

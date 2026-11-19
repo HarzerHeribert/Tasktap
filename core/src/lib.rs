@@ -18,6 +18,7 @@ mod isolate;
 mod launch;
 mod questions;
 mod records;
+pub mod relocate;
 pub mod roles;
 pub mod route;
 pub mod secrets;

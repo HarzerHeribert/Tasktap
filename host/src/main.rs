@@ -1,6 +1,6 @@
 // A window's program on Windows: started from the Start menu it opens no console.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
-//! Tasktap Next: the host, on the Mac and on Windows. It starts the core, gives each page one pass-through to it
+//! Tasktap: the host, on the Mac and on Windows. It starts the core, gives each page one pass-through to it
 //! (design §12), answers the page's `host.*` calls, places the notch panel (on Windows the tab at the top edge,
 //! with its icon in the notification area) and binds the global shortcuts. Everything else is the core's or the
 //! page's.
@@ -23,6 +23,8 @@ mod open;
 // Where Tasktap shows itself: the notch, or the window, or a system notification (plan, "Notch").
 mod presence;
 mod speech;
+mod takeover;
+mod update;
 // Where the tab hangs on a Windows display: arithmetic, tested on every system.
 #[cfg(any(windows, test))]
 mod tab;
@@ -84,7 +86,7 @@ fn bridge_open(
     host: tauri::State<Host>,
 ) -> Result<(), String> {
     let label = webview.label().to_owned();
-    let (stream, first) = host.core.connect(Role::Page, &format!("tasktap-next {label}")).map_err(|e| e.to_string())?;
+    let (stream, first) = host.core.connect(Role::Page, &format!("tasktap-app {label}")).map_err(|e| e.to_string())?;
     let mut reader = stream.try_clone().map_err(|e| e.to_string())?;
     if let Some(old) = host.pages.lock().unwrap().insert(label, stream) {
         let _ = old.shutdown(Shutdown::Both);
@@ -150,6 +152,10 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
     let (id, args) = (call["id"].clone(), &call["args"]);
     let outcome = match call["name"].as_str().unwrap_or_default() {
         "host.notch" => {
+            // The notch takes the keyboard for a thought: a capture, at which the updater looks once a day.
+            if args["key"].as_bool() == Some(true) {
+                update::daily(app);
+            }
             notch::request(app, args);
             Ok(Value::Null)
         }
@@ -195,6 +201,8 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
         "host.capture_key" => keys::call(app, args),
         // Where Tasktap shows itself; with `shows`, what the workspace window shows now (presence.rs).
         "host.where" => Ok(presence::call(app, args)),
+        // New versions: what is known, a look (About is shown), or the install the person asked for (update.rs).
+        "host.update" => update::call(app, args),
         // Windows: which display the tab hangs on, or none.
         #[cfg(windows)]
         "host.tab" => edge::setting(app, args),
@@ -294,6 +302,10 @@ pub(crate) fn capture(app: &AppHandle) {
 /// another app the notch opens with the keyboard; a question only its terminal answers brings the window to that
 /// terminal on J, Y and N alike; Yes and No are the core's to carry out otherwise, which never answers for the person.
 fn pressed(app: &AppHandle, key: presence::Key) {
+    // The first capture of a day is when a new version is looked for (update.rs).
+    if key == presence::Key::Capture {
+        update::daily(app);
+    }
     let goes = presence::situation().key(key);
     log(json!({"event": "key", "key": format!("{key:?}"), "goes": format!("{goes:?}")}));
     match goes {
@@ -489,10 +501,10 @@ fn data_folder() -> std::path::PathBuf {
         Some(dir) => dir.into(),
         #[cfg(target_os = "macos")]
         None => std::path::Path::new(&std::env::var_os("HOME").unwrap_or_default())
-            .join("Library/Application Support/Tasktap Next"),
+            .join("Library/Application Support/Tasktap"),
         // The person's own, never roaming: the core's database and its pipe belong to this machine.
         #[cfg(windows)]
-        None => std::path::Path::new(&std::env::var_os("LOCALAPPDATA").unwrap_or_default()).join("Tasktap Next"),
+        None => std::path::Path::new(&std::env::var_os("LOCALAPPDATA").unwrap_or_default()).join("Tasktap"),
     }
 }
 
@@ -505,17 +517,37 @@ fn granted(passive: bool, kind: PermissionKind) -> bool {
 
 fn main() {
     START.get_or_init(Instant::now);
-    // The core starts while the app and its windows are made: macOS takes a tenth of a second over the first run of
-    // a new copy of it, and nothing needs it before a page asks.
-    let starting = std::thread::spawn(|| -> std::io::Result<(Arc<Core>, Arc<Link>)> {
-        // The core this app bundles, next to its own program; a check may name another.
-        let (exe, build) = match (std::env::var_os("TASKTAP_CORE_EXE"), std::env::var("TASKTAP_CORE_BUILD")) {
+    let passive = std::env::var_os("TASKTAP_PASSIVE").is_some();
+    // The core this app bundles, next to its own program; a check may name another.
+    let (exe, build): (std::path::PathBuf, String) =
+        match (std::env::var_os("TASKTAP_CORE_EXE"), std::env::var("TASKTAP_CORE_BUILD")) {
             (Some(exe), Ok(build)) => (exe.into(), build),
             _ => (
-                std::env::current_exe()?.with_file_name(format!("tasktap{}", std::env::consts::EXE_SUFFIX)),
+                std::env::current_exe()
+                    .unwrap_or_default()
+                    .with_file_name(format!("tasktap{}", std::env::consts::EXE_SUFFIX)),
                 env!("TASKTAP_CORE_BUILD").to_owned(),
             ),
         };
+    // The first start after the rename takes over Tasktap Next's folder, before anything is made in this app's own
+    // (two looks at the disk when there is nothing to take over). While Tasktap Next runs, the app does not start.
+    let moved = match takeover::before_start(&data_folder(), &exe) {
+        takeover::Outcome::Nothing => None,
+        takeover::Outcome::Moved(words) => {
+            log(json!({"event": "takeover", "moved": words.body}));
+            Some(words)
+        }
+        takeover::Outcome::Stopped(words) => {
+            log(json!({"event": "takeover", "stopped": words.title, "why": words.body}));
+            if !passive {
+                takeover::tell(&words);
+            }
+            return;
+        }
+    };
+    // The core starts while the app and its windows are made: macOS takes a tenth of a second over the first run of
+    // a new copy of it, and nothing needs it before a page asks.
+    let starting = std::thread::spawn(move || -> std::io::Result<(Arc<Core>, Arc<Link>)> {
         let core = Arc::new(Core::prepare(data_folder(), &exe, build)?);
         let link = Link::start(
             core.clone(),
@@ -540,6 +572,12 @@ fn main() {
     let builder = tauri::Builder::default();
     #[cfg(target_os = "macos")]
     let builder = builder.activate_ignoring_other_apps(false);
+    // The updater, in a build that has its key (update.rs).
+    let mut context = tauri::generate_context!();
+    let builder = match update::configure(context.config_mut()) {
+        true => builder.plugin(tauri_plugin_updater::Builder::new().build()),
+        false => builder,
+    };
     let app = builder
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -650,10 +688,14 @@ fn main() {
             log(json!({"event": "ready", "data": core.data}));
             app.manage(Host { core, link, pages: Mutex::default(), question: Mutex::default() });
             let _ = APP.set(app.handle().clone());
+            // Said once the window is there: what the first start did with Tasktap Next's folder.
+            if let Some(words) = moved.filter(|_| !passive) {
+                let _ = app.run_on_main_thread(move || takeover::tell(&words));
+            }
             Ok(())
         })
-        .build(tauri::generate_context!())
-        .expect("Tasktap Next failed to start");
+        .build(context)
+        .expect("Tasktap failed to start");
     // Closing the workspace never quits: the notch's own (hidden) Tauri window stays open. The
     // Dock icon brings the workspace back; Quit in the menu ends the app. On Windows the app stays in the
     // notification area, with or without the tab: its icon brings the workspace back, and Quit in the icon's menu

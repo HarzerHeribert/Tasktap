@@ -50,6 +50,11 @@ pub struct Prepared {
 pub fn prepare(l: &Launch, data: &Path, allowed: &[String]) -> Result<Prepared, String> {
     let agent =
         agents::find(&l.agent).ok_or_else(|| format!("this build cannot run {}", l.agent))?;
+    // One the person removed: a follow-up to what it ran says so, and how
+    // it comes back.
+    if let Some(why) = agents::removed(&l.agent) {
+        return Err(why);
+    }
     let hook =
         crate::roles::program().map_err(|e| format!("Tasktap cannot find its own program: {e}"))?;
     let home = agents::home(data, agent);

@@ -12,8 +12,8 @@ use tasktap_core::agents::plain::{self, AIDER};
 use tasktap_core::agents::{self, Run};
 use tasktap_proto::call::{self, Code};
 use tasktap_proto::{
-    Capture, OwnAgent, Place, PrefPatch, Put, PutTarget, Route, SessionId, SessionState, Status,
-    ThoughtId,
+    AttemptId, Capture, OwnAgent, Place, PrefPatch, Put, PutTarget, Ref, Route, SessionId,
+    SessionState, Start, Status, ThoughtId,
 };
 
 const RUN: &str = "01930000-0000-7000-8000-0000000000aa";
@@ -37,6 +37,7 @@ fn own(id: &str, name: &str, command: &str) -> OwnAgent {
         id: id.into(),
         name: name.into(),
         command: command.into(),
+        removed: false,
     }
 }
 
@@ -85,7 +86,11 @@ fn aider_is_started_for_one_task_and_says_only_that_it_ended() {
     let row = agents::checks::found(aider);
     assert!(!row.checks && !row.own && !row.events);
     // It exits with 0 also when its key was refused: the row says so.
-    assert!(row.note.unwrap().contains("whether it did the work or not"));
+    assert!(
+        row.note
+            .unwrap()
+            .starts_with("Its terminal says whether it did the work")
+    );
     // Nothing of it has been run on Windows yet.
     assert_eq!(aider.supported(), !cfg!(windows));
     assert!(AIDER.variables.contains(&"DEEPSEEK_API_KEY"));
@@ -207,8 +212,9 @@ fn an_agent_the_person_added_is_listed_runs_its_command_and_goes_when_removed() 
         "Lost",
         "no-such-program-of-tasktap --do {prompt}",
     );
-    let all = vec![tidy.clone(), fails, lost];
+    let all = vec![tidy.clone(), fails.clone(), lost.clone()];
     put(&mut s.w, PrefPatch::OwnAgents(all)).unwrap();
+    let mut ran = Vec::new();
     // Both are listed after the agents the core brings: what the person
     // called them, that they are theirs, and whether their program is here.
     s.w.until("the person's agents are listed", |m| {
@@ -250,6 +256,7 @@ fn an_agent_the_person_added_is_listed_runs_its_command_and_goes_when_removed() 
             m.session(session).state == SessionState::Ended
         });
         assert_eq!(s.w.model.status(t), status);
+        ran.push(t);
     }
     // One that is no agent is refused in words for the person, and the
     // ones before stay.
@@ -261,17 +268,50 @@ fn an_agent_the_person_added_is_listed_runs_its_command_and_goes_when_removed() 
         "The command of Tidy needs {prompt} where the thought goes"
     );
     assert!(s.w.model.agents.contains_key("own-lost"));
-    // Removed, its row goes, and a thought that names it is refused.
-    put(&mut s.w, PrefPatch::OwnAgents(vec![tidy])).unwrap();
+    // Removed, its row goes and it runs nothing more. It is kept, so that
+    // what it ran still says who ran it: a thought that names it, and the
+    // one it ran when that is tried again, say that it is no longer set up
+    // and how it comes back.
+    let removed = OwnAgent {
+        removed: true,
+        ..fails.clone()
+    };
+    let now = vec![tidy.clone(), removed, lost];
+    put(&mut s.w, PrefPatch::OwnAgents(now)).unwrap();
     s.w.until("the removed agent's row goes", |m| {
-        !m.agents.contains_key("own-lost") && m.agents.contains_key("own-tidy")
+        !m.agents.contains_key("own-fails") && m.agents.contains_key("own-tidy")
     });
-    let named = Capture {
-        agent: Some("own-lost".into()),
+    let gone = "Fails is no longer set up: add it back in Settings \u{203a} Agents";
+    let named = |agent: &str| Capture {
+        agent: Some(agent.into()),
         ..typed(ThoughtId::mint(), "tidy up")
     };
-    let e = s.w.call::<call::ThoughtCapture>(&named).unwrap_err();
+    let e =
+        s.w.call::<call::ThoughtCapture>(&named("own-fails"))
+            .unwrap_err();
+    assert_eq!((e.code, e.message.as_str()), (Code::Failed, gone));
+    let again = ran[1];
+    s.w.ok::<call::ThoughtRetry>(&Ref { id: again });
+    let attempt = AttemptId::mint();
+    let start = Start { id: again, attempt };
+    let e = s.w.call::<call::ThoughtStart>(&start).unwrap_err();
+    assert_eq!((e.code, e.message.as_str()), (Code::Failed, gone));
+    // Added back, it runs as it did.
+    let back = vec![tidy.clone(), fails];
+    put(&mut s.w, PrefPatch::OwnAgents(back)).unwrap();
+    s.w.until("the agent is listed again", |m| {
+        m.agents.contains_key("own-fails") && !m.agents.contains_key("own-lost")
+    });
+    s.w.ok::<call::ThoughtCapture>(&named("own-fails"));
+    // One that is forgotten is no agent at all.
+    let e =
+        s.w.call::<call::ThoughtCapture>(&named("own-lost"))
+            .unwrap_err();
     assert_eq!(e.code, Code::Invalid);
+    put(&mut s.w, PrefPatch::OwnAgents(vec![tidy])).unwrap();
+    s.w.until("the forgotten agent's row goes", |m| {
+        !m.agents.contains_key("own-fails")
+    });
 
     // The next core on this folder has the one that stayed, with no call.
     let Scene { core, data, .. } = s;

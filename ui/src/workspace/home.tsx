@@ -16,8 +16,8 @@ import { Light, useLight } from './light.tsx';
 import { popup } from './menu.ts';
 import { older, past } from './past.ts';
 import {
-  agentName, call, details, fail, focus, focusSession, layout, open, openQuestions, page, projectName, projects, records, redraw, resultOf, show,
-  title, ui, why, workspaces,
+  agentName, call, details, endedSays, fail, focus, focusSession, layout, open, openQuestions, page, projectName, projects, records, redraw, resultOf, show,
+  title, ui, unheard, why, workspaces,
 } from './model.ts';
 
 /** The rows Home draws, from the records: one pass. */
@@ -39,7 +39,8 @@ export function home() {
   return { questions, running: runningRows, waiting, results, later, inBackground };
 }
 
-const stateOf = (t: Thought): State => (t.status === 'failed' ? 'failed' : !t.read ? 'ready' : 'ended');
+// What an agent of the plain tier ran has ended, whatever came of it: never a result that is ready (page.ts unheard).
+const stateOf = (t: Thought): State => (t.status === 'failed' ? 'failed' : !t.read && !unheard(t) ? 'ready' : 'ended');
 
 /** What a row says under its title, quietly: where, who, and the one fact, in that order, so that what gives way where
  *  there is no room is the end of the fact, never where it is or who works on it. */
@@ -84,7 +85,7 @@ function QuestionRow({ q, open: isOpen, choose }: { q: Question; open: boolean; 
 function Row({ t, kind, bg }: { t: Thought; kind: 'run' | 'res'; bg?: boolean }) {
   const s = t.session_id ? records.sessions.get(t.session_id) : undefined;
   const r = resultOf(t);
-  const fact = kind === 'run' ? (s?.activity.at(-1) ?? 'Starting') : t.status === 'failed' ? `${why(t)}${r?.summary ? `: ${r.summary}` : ''}` : r?.summary;
+  const fact = kind === 'run' ? (s?.activity.at(-1) ?? 'Starting') : t.status === 'failed' ? `${why(t)}${r?.summary ? `: ${r.summary}` : ''}` : unheard(t) ? endedSays(t) : r?.summary;
   const changes = pending(t) ? t : null;
   const go = () => {
     if (t.session_id && focusSession(t.session_id) && (t.status === 'done' || t.status === 'failed') && !t.read)
@@ -167,10 +168,13 @@ function LaterRow({ t }: { t: Thought }) {
 function Counts({ rows }: { rows: Thought[] }) {
   const fresh = rows.filter((t) => !t.read);
   const failed = fresh.filter((t) => t.status === 'failed').length;
-  const news = fresh.length - failed;
+  // What an agent of the plain tier ran has ended and is no result: counted apart, in that word.
+  const ended = fresh.filter(unheard).length;
+  const news = fresh.length - failed - ended;
   return (
     <span class="fold-c">
       {news > 0 && <i class="n">{news} new</i>}
+      {ended > 0 && <i class="n">{ended} ended</i>}
       {failed > 0 && <i class="f">{failed} failed</i>}
       {!fresh.length && <i>{rows.length}</i>}
     </span>
@@ -397,5 +401,6 @@ export function Earlier() {
 
 export const homeCounts = () => {
   const h = home();
-  return { needs: h.questions.length, working: h.running.length, fresh: h.results.filter((t) => !t.read).length + h.waiting.length, waiting: h.waiting.length };
+  const fresh = h.results.filter((t) => !t.read);
+  return { needs: h.questions.length, working: h.running.length, fresh: fresh.length + h.waiting.length, waiting: h.waiting.length, ended: fresh.filter(unheard).length };
 };

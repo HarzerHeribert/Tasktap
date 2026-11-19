@@ -3,7 +3,7 @@
 import type { Workdir } from '../../core/proto/protocol.ts';
 import type { ComponentChildren } from 'preact';
 import { spell } from './keys.ts';
-import { records } from './page.ts';
+import { ownName, records } from './page.ts';
 import { letters, lettersOf } from './way.ts';
 
 /** One owned set of icons on a 16 px grid, drawn as strokes. */
@@ -112,7 +112,7 @@ export function Ring({ agent, s, turns = s === 'working', size, tone, one = (siz
   agent: string; s: RingState; turns?: boolean; size?: number; tone?: RingTone; one?: boolean;
 }) {
   // One the person added is lettered by the name they gave it: its id is Tasktap's and says nothing.
-  const word = (id: string) => (records.agents.get(id)?.own ? records.agents.get(id)!.name : id);
+  const word = (id: string) => ownName(id) ?? id;
   const lettered = [...records.agents.keys()].filter((id) => !MARKS[id]).map(word);
   return (
     <svg class="ring-o" viewBox="0 0 24 24" aria-hidden="true" data-tone={tone} style={size ? { '--ring-px': size } : undefined}>

@@ -811,7 +811,13 @@ name: string,
  * with quotes around one that has spaces; `{prompt}` in an argument
  * is what the run is told. No shell reads it.
  */
-command: string, };
+command: string,
+/**
+ * The person removed it: it runs nothing and is not listed, and is
+ * kept so that what it ran still says who ran it, and so that it can
+ * be added back as it was.
+ */
+removed?: boolean, };
 
 /**
  * Written only by the state machine.

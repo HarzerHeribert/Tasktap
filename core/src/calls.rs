@@ -303,7 +303,7 @@ pub fn capture(core: &mut Core, capture: tasktap_proto::Capture) -> Result<(), E
         .ok()
         .flatten();
     let preferred = match pref.map(|p| p.value) {
-        Some(PrefValue::Agent(Some(name))) if crate::agents::find(&name).is_some() => Some(name),
+        Some(PrefValue::Agent(Some(name))) if crate::agents::live(&name).is_some() => Some(name),
         _ => None,
     };
     let agent = (capture.agent.clone())
@@ -694,7 +694,7 @@ fn detect(cx: &mut Cx, args: DetectAgents) -> Option<Control> {
         // Those it lists: in a build with the test fixtures not the real ones.
         None => crate::agents::at_start(),
         Some(names) => {
-            let found: Option<Vec<_>> = names.iter().map(|n| crate::agents::find(n)).collect();
+            let found: Option<Vec<_>> = names.iter().map(|n| crate::agents::live(n)).collect();
             let Some(found) = found else {
                 let e = Error::new(
                     Code::Invalid,

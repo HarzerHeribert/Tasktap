@@ -50,8 +50,20 @@ export function agent(): AgentHealth | undefined {
   return all.find((a) => a.id === id) ?? (id ? undefined : all[0]);
 }
 
+/** The name of an agent the person added, also of one they have removed since: their `own_agents` preference keeps
+ *  it, so what such an agent ran still says who ran it. */
+export const ownName = (id: string | null | undefined) => pref('own_agents').find((o) => o.id === id)?.name;
 /** An agent's name, as the core says it: its row of the agents carries it, so no page keeps a list of its own. */
-export const agentName = (id: string | null | undefined) => (id ? (records.agents.get(id)?.name ?? id) : 'Agent');
+export const agentName = (id: string | null | undefined) => (id ? (records.agents.get(id)?.name ?? ownName(id) ?? id) : 'Agent');
+/** Whether a thought was run by an agent Tasktap hears nothing of but its end (the plain tier: Aider, and the ones
+ *  the person added). Such a thought is not done, it has ended: nothing says whether the work was done, so no page
+ *  calls it a result, and where its outcome would stand is the one sentence that says so (`endedSays`). */
+export const unheard = (t: Pick<Thought, 'agent' | 'status'>) => {
+  const a = records.agents.get(t.agent ?? '');
+  return t.status === 'done' && (a ? !a.events : !!ownName(t.agent));
+};
+export const endedSays = (t: Pick<Thought, 'agent'>) =>
+  records.agents.get(t.agent ?? '')?.note ?? 'Its terminal says what it did: Tasktap heard only that it ended.';
 /** Whether an agent can be picked to run something: its program is here, and it runs on this system. */
 export const runs = (a: AgentHealth | undefined) => !!a?.installed && a.supported;
 export const projectName = (id: string | null | undefined) => (id && records.projects.get(id)?.name) || 'For later';

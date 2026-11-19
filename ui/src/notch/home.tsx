@@ -7,7 +7,7 @@ import { Capture, cap, going } from '../capture.tsx';
 import { talk } from '../speech/record.ts';
 import { lost, next, pending, running, settle, settling, Status, Told } from '../changes.tsx';
 import { Answer as Act, Mark, type State, elapsed, plural, when } from '../ui.tsx';
-import { agentName, call, fail, openQuestions, projectName, records, redraw, resultOf, title, ui, why } from './model.ts';
+import { agentName, call, endedSays, fail, openQuestions, projectName, records, redraw, resultOf, title, ui, unheard, why } from './model.ts';
 import { fold, peek } from './panel.ts';
 
 /** The notch's hooks into the shared capture line, here and under a question. */
@@ -23,12 +23,12 @@ export const hooks = {
 };
 
 const stateOf = (t: Thought): State =>
-  t.status === 'working' || t.status === 'routed' ? 'working' : t.status === 'failed' ? 'failed' : t.status === 'done' ? (t.read ? 'ended' : 'ready') : 'ended';
+  t.status === 'working' || t.status === 'routed' ? 'working' : t.status === 'failed' ? 'failed' : t.status === 'done' ? (t.read || unheard(t) ? 'ended' : 'ready') : 'ended';
 
 function Row({ t }: { t: Thought }) {
   const s = t.session_id ? records.sessions.get(t.session_id) : undefined;
   const live = t.status === 'working' || t.status === 'routed';
-  const fact = t.status === 'routed' ? 'Starting soon' : live ? s?.activity.at(-1) : t.status === 'failed' ? why(t) : resultOf(t)?.summary;
+  const fact = t.status === 'routed' ? 'Starting soon' : live ? s?.activity.at(-1) : t.status === 'failed' ? why(t) : unheard(t) ? endedSays(t) : resultOf(t)?.summary;
   return (
     <button type="button" class="row" data-status={t.status} title={[t.text, fact].filter(Boolean).join('\n')} disabled={!t.session_id}
       onClick={() => t.session_id && peek(t.session_id)}>
@@ -70,9 +70,9 @@ function Result({ t }: { t: Thought }) {
   };
   return (
     <section class="result" tabIndex={-1} data-result={t.id} onKeyDown={keys}>
-      <p class="ctx">{t.status === 'failed' ? 'Failed' : 'Result'}</p>
+      <p class="ctx">{t.status === 'failed' ? 'Failed' : unheard(t) ? 'Ended' : 'Result'}</p>
       <p class="qp">{title(t)}</p>
-      {(t.status === 'failed' || r?.summary) && <p class="sum">{t.status === 'failed' ? `${why(t)}${r?.summary ? `: ${r.summary}` : ''}` : r!.summary}</p>}
+      {(t.status === 'failed' || unheard(t) || r?.summary) && <p class="sum">{t.status === 'failed' ? `${why(t)}${r?.summary ? `: ${r.summary}` : ''}` : unheard(t) ? endedSays(t) : r!.summary}</p>}
       {t.workdir && t.workdir.changes !== 'none' && <p class="status"><Status t={{ ...t, workdir: t.workdir }} /></p>}
       {changes && <Told t={changes} />}
       {asking ? (
@@ -117,7 +117,9 @@ export function Home() {
   const first = ui.capturing || !top || going().length > 0 || !!talk.id || talk.asking;
   const rows = [...working, ...(first ? finished : rest)].slice(0, 4);
   const capture = <div class="capture-block"><Capture {...hooks} /></div>;
-  const words = [working.length && `${working.length} working`, finished.filter((t) => !t.read).length && plural(finished.filter((t) => !t.read).length, 'new result', 'new results')]
+  // What an agent of the plain tier ran has ended and is no result: counted apart, in that word.
+  const fresh = finished.filter((t) => !t.read), ended = fresh.filter(unheard).length;
+  const words = [working.length && `${working.length} working`, fresh.length - ended && plural(fresh.length - ended, 'new result', 'new results'), ended && `${ended} ended`]
     .filter(Boolean).join(' · ');
   return (
     <div class="view">

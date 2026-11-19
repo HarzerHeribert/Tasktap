@@ -238,7 +238,8 @@ function Rail() {
     c.needs > 0 && <b>{plural(c.needs, 'needs you', 'need you')}</b>,
     c.working > 0 && <span>{c.working} working</span>,
     c.waiting > 0 && <span>{c.waiting} to keep</span>,
-    c.fresh - c.waiting > 0 && <span>{plural(c.fresh - c.waiting, 'new result', 'new results')}</span>,
+    c.fresh - c.waiting - c.ended > 0 && <span>{plural(c.fresh - c.waiting - c.ended, 'new result', 'new results')}</span>,
+    c.ended > 0 && <span>{c.ended} ended</span>,
   ].filter(Boolean);
   const mark = c.needs ? 'asks' : c.working ? 'working' : c.fresh ? 'ready' : 'ended';
   return (

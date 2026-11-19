@@ -15,9 +15,9 @@ import { hit, keyName, spell } from './keys.ts';
 import { talkKey } from './page.ts';
 import { Rings } from './rings.tsx';
 import { cancel, control, end, follow, mine, needs, place, setAim, talk, voiced } from './speech/record.ts';
-import { I, Key, Level, Mark, Ring, Wave, madeAt } from './ui.tsx';
-import { agent, agentName, call, fail, focus, openQuestions, page, placers, pref, projectName, projects, records, redraw, runs, sentence, sessionName, why } from './page.ts';
-import { back, briefOf, clock, hold, laterWhy, leave, onWay, placed, ring, step } from './way.ts';
+import { I, Key, Level, Mark, Wave, madeAt } from './ui.tsx';
+import { agent, agentName, call, fail, focus, page, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
+import { back, briefOf, clock, hold, laterWhy, leave, onWay, placed, step } from './way.ts';
 
 /** What was just sent, for what is said of it once it is no longer on its way. `pick`: the place the person chose for
  *  it, which Undo gives back with its words. How it came by its place is the thought's own to say (`placed`). */

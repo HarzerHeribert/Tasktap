@@ -4,7 +4,7 @@
 import type { Session, StartTerminal, Thought } from '../../../core/proto/protocol.ts';
 import { cap } from '../capture.tsx';
 import { CallError, uuid7 } from '../client.ts';
-import { agentName, call, fail, focus, openQuestions, page, records, redraw, sentence, title, why } from '../page.ts';
+import { agentName, call, endedSays, fail, focus, openQuestions, page, records, redraw, sentence, title, unheard, why } from '../page.ts';
 import type { State } from '../ui.tsx';
 import { snap } from './appearance.ts';
 import * as L from './layout.ts';
@@ -193,6 +193,8 @@ export function cue(id: string): Cue {
   if (q) return { s: 'asks', words: q.reply_via === 'terminal' ? 'Asks in its terminal' : q.source === 'permission' ? 'Asks permission' : 'Needs your answer', activity: q.prompt };
   const th = thoughtOf(s);
   if (th && !th.read && th.status === 'failed') return { s: 'failed', words: 'Failed', activity: why(th) };
+  // What an agent of the plain tier ran has ended: nothing says whether the work was done, so it is no result.
+  if (th && unheard(th) && (!th.read || th.workdir?.changes === 'pending')) return { s: 'ended', words: th.workdir?.changes === 'pending' ? 'Ended, changes to keep' : 'Ended', activity: endedSays(th) };
   if (th && th.status === 'done' && (!th.read || th.workdir?.changes === 'pending')) return { s: 'ready', words: th.workdir?.changes === 'pending' ? 'Result ready, changes to keep' : 'Result ready' };
   if (ui.starting.has(id) || (!t && !ui.stopping.has(id))) return { s: 'working', words: 'Opening' };
   if (!t || t.state !== 'running' || ui.stopping.has(id)) {

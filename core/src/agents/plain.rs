@@ -23,8 +23,10 @@ use super::{Agent, Caps, Detect, Heard, Run, WORDS};
 pub const PROMPT: &str = "{prompt}";
 /// Where a run's model goes in the words that name it.
 const MODEL: &str = "{model}";
-/// Most agents a person adds.
+/// Most agents a person has added and not removed, and most they have
+/// with the removed ones.
 pub const MOST: usize = 16;
+pub const KEPT: usize = 64;
 
 pub struct Plain {
     pub id: &'static str,
@@ -48,6 +50,9 @@ pub struct Plain {
     pub windows: bool,
     /// The person added it.
     pub own: bool,
+    /// The person removed it: it runs nothing, and is known only so that
+    /// what it ran says who ran it.
+    pub removed: bool,
 }
 
 /// Aider, as 0.86.2 runs one task (`--message`): it does the work, commits
@@ -90,9 +95,10 @@ pub const AIDER: Plain = Plain {
     ],
     // `/` begins a command of its own, `!` a shell command.
     commands: "/!",
-    note: Some("It ends the same way whether it did the work or not: its terminal says which."),
+    note: Some("Its terminal says whether it did the work: Aider ends the same way either way."),
     windows: false,
     own: false,
+    removed: false,
 };
 
 impl Agent for Plain {
@@ -212,15 +218,15 @@ pub fn words(line: &str) -> Result<Vec<String>, String> {
     Ok(words)
 }
 
-/// An agent a person added, checked: its id, its name and its command line
-/// word by word.
+/// An agent a person added, checked: its id, its name, its command line
+/// word by word, and whether they removed it.
 #[derive(PartialEq, Eq)]
-pub struct Own(String, String, Vec<String>);
+pub struct Own(String, String, Vec<String>, bool);
 
 impl Own {
     /// Whether `plain` is this agent as it is now.
     pub fn is(&self, plain: &Plain) -> bool {
-        (self.0.as_str(), self.1.as_str()) == (plain.id, plain.name)
+        (self.0.as_str(), self.1.as_str(), self.3) == (plain.id, plain.name, plain.removed)
             && self.2.iter().eq(plain.command.iter())
     }
 
@@ -240,6 +246,7 @@ impl Own {
             note: None,
             windows: true,
             own: true,
+            removed: self.3,
         }))
     }
 }
@@ -247,8 +254,11 @@ impl Own {
 /// The agents a person added, checked, or why one cannot be an agent: a
 /// sentence the interface shows as it is.
 pub fn own(list: &[OwnAgent]) -> Result<Vec<Own>, String> {
-    if list.len() > MOST {
+    if list.iter().filter(|agent| !agent.removed).count() > MOST {
         return Err(format!("Tasktap keeps at most {MOST} agents of your own"));
+    }
+    if list.len() > KEPT {
+        return Err("Forget an agent you removed before you add another".into());
     }
     let mut all = Vec::new();
     for (i, agent) in list.iter().enumerate() {
@@ -287,7 +297,12 @@ pub fn own(list: &[OwnAgent]) -> Result<Vec<Own>, String> {
             }
             Some(_) => {}
         }
-        all.push(Own(agent.id.clone(), name.to_owned(), command));
+        all.push(Own(
+            agent.id.clone(),
+            name.to_owned(),
+            command,
+            agent.removed,
+        ));
     }
     Ok(all)
 }

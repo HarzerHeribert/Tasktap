@@ -16,7 +16,7 @@ import { live, talk } from '../speech/record.ts';
 import { lookOf } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
 import { Mark, Wave } from '../ui.tsx';
-import { agentName, call, client, fail, onRedraw, openQuestions, page, pref, records, redraw, settleFocus, title, ui } from './model.ts';
+import { agentName, call, client, fail, onRedraw, openQuestions, page, pref, records, redraw, settleFocus, title, ui, unheard } from './model.ts';
 import { fold, reveal } from './panel.ts';
 
 const body = document.body;
@@ -102,6 +102,9 @@ function Glance() {
   const q = openQuestions().find((x) => x.id === g?.question) ?? openQuestions()[0];
   const cutout = ui.geometry?.cutout === true;
   const any = !!g && g.working + g.needs_you + g.done + g.failed > 0;
+  // Of what the core counts as done, the thoughts an agent of the plain tier ran have only ended (page.ts unheard):
+  // they are counted apart, under the quiet mark, never as a result that is ready.
+  const ended = Math.min(g?.done ?? 0, [...records.thoughts.values()].filter((x) => !x.read && unheard(x)).length);
   const s = q?.session_id ? records.sessions.get(q.session_id) : undefined;
   const t = q?.thought_id ? records.thoughts.get(q.thought_id) : undefined;
   const asks = q && <span class="peek"><b>{q.source === 'router' ? 'Where to?' : `${agentName(s?.agent ?? t?.agent)} asks`}</b> {q.source === 'router' ? title(t) : q.prompt}</span>;
@@ -125,7 +128,8 @@ function Glance() {
       {!cutout && (asks || (!any && <Wave n={7} rest />))}
       <span class="wing r" ref={right}>
         {g.needs_you > 0 && <span class="n asks"><Mark s="asks" label="" /><b>{g.needs_you}</b></span>}
-        {g.done > 0 && <span class="n"><Mark s="ready" label="" /><b>{g.done}</b></span>}
+        {g.done - ended > 0 && <span class="n"><Mark s="ready" label="" /><b>{g.done - ended}</b></span>}
+        {ended > 0 && <span class="n"><Mark s="ended" label="" /><b>{ended}</b></span>}
         {g.failed > 0 && <span class="n fail"><Mark s="failed" label="" /><b>{g.failed}</b></span>}
       </span>
       {cutout && asks && <span class="line">{asks}</span>}

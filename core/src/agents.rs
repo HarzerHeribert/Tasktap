@@ -379,8 +379,18 @@ pub trait Agent: Sync {
     fn reply(&self, args: &[String], payload: &[u8], answer: &Answer) -> Option<String>;
 }
 
-/// The agent named `id`.
+/// The agent named `id`: one this core has, or one the person removed,
+/// which still has its name and says what its runs were ([`removed`]).
 pub fn find(id: &str) -> Option<&'static dyn Agent> {
+    let own = OWN.read().unwrap_or_else(|e| e.into_inner());
+    let own = own.iter().map(|agent| *agent as &dyn Agent);
+    let mut all = AGENTS.iter().copied().chain(own);
+    all.find(|agent| agent.id() == id)
+}
+
+/// The agent named `id`, when this core has it now: not one the person
+/// removed.
+pub fn live(id: &str) -> Option<&'static dyn Agent> {
     all().into_iter().find(|agent| agent.id() == id)
 }
 
@@ -398,6 +408,9 @@ pub fn option(name: &str) -> Option<&'static Choice> {
 /// may: a run that cannot start fails and says why.
 pub fn usable(agent: &dyn Agent, health: Option<&AgentHealth>) -> Result<(), String> {
     let name = agent.name();
+    if let Some(why) = removed(agent.id()) {
+        return Err(why);
+    }
     match health {
         _ if !agent.supported() => Err(format!("{name} does not run on this system yet")),
         Some(h) if !h.installed => Err(format!("{name} is not installed on this computer")),
@@ -444,11 +457,24 @@ pub fn home(data: &Path, agent: &dyn Agent) -> PathBuf {
 }
 
 /// Every agent this core has, the default first: the build's own, then the
-/// ones the person added.
+/// ones the person added and has not removed.
 pub fn all() -> Vec<&'static dyn Agent> {
     let own = OWN.read().unwrap_or_else(|e| e.into_inner());
-    let own = own.iter().map(|agent| *agent as &dyn Agent);
+    let own = own.iter().filter(|agent| !agent.removed);
+    let own = own.map(|agent| *agent as &dyn Agent);
     AGENTS.iter().copied().chain(own).collect()
+}
+
+/// Why the agent named `id` runs nothing, when it is one the person added
+/// and then removed: said where a thought or a follow-up names it, with
+/// the way back.
+pub fn removed(id: &str) -> Option<String> {
+    let own = OWN.read().unwrap_or_else(|e| e.into_inner());
+    let agent = own.iter().find(|agent| agent.id == id && agent.removed)?;
+    let name = agent.name;
+    Some(format!(
+        "{name} is no longer set up: add it back in Settings \u{203a} Agents"
+    ))
 }
 
 /// The agents the person added (the `own_agents` preference), which only

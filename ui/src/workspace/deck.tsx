@@ -14,7 +14,7 @@ import * as L from './layout.ts';
 import { type Item, popup } from './menu.ts';
 import {
   LOOSE, agentName, attach, call, closeTab, copy, cue, details, fail, focusTerminal, keepInBackground, label, layout, newTerminal, open, paste, questionOf,
-  readSoon, records, redraw, resultOf, runs, sessionOf, setLayout, store, textSize, textSizeBy, thoughtOf, ui,
+  endedSays, readSoon, records, redraw, resultOf, runs, sessionOf, setLayout, store, textSize, textSizeBy, thoughtOf, ui, unheard,
 } from './model.ts';
 import { Preview, focusPreview, openedBy, previewMenu } from './preview.tsx';
 import { engine, engines, flushFits, queueFit } from './terminal.ts';
@@ -188,7 +188,7 @@ export function ResultStrip({ t }: { t: Thought & { workdir: NonNullable<Thought
       e.preventDefault();
     }}>
       <p class="meta"><b>Result</b><time>{when(t.updated)}</time><span class="end"><Status t={t} /></span></p>
-      {r?.summary && <p class="qp">{r.summary}</p>}
+      {unheard(t) ? <p class="qp">{endedSays(t)}</p> : r?.summary && <p class="qp">{r.summary}</p>}
       <Told t={t} />
       {!busy && (
         <div class="qa">

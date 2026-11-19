@@ -601,7 +601,7 @@ pub fn askable(text: &str) -> Result<(), String> {
 /// The agent a consent names and how its tool is asked, when the consent
 /// covers what this core would ask: that tool, with that model.
 pub fn consented(by: &RouteBy) -> Result<(&'static dyn Agent, Headless), String> {
-    let agent = agents::find(&by.agent).ok_or(format!("Tasktap has no agent {}", by.agent))?;
+    let agent = agents::live(&by.agent).ok_or(format!("Tasktap has no agent {}", by.agent))?;
     let how = agent
         .headless()
         .ok_or(format!("{} cannot be asked to place thoughts", by.agent))?;

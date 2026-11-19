@@ -41,12 +41,12 @@ What the owner found when he first tried the build with the project map (2026-11
 
 | # | Done | Finding | Decided fix | Proof |
 | --- | --- | --- | --- | --- |
-| 26 | [ ] | Closing an empty shell asks "Close zsh?" | A shell with nothing running in it closes at once. Tasktap asks only when a program or an agent is running there | |
-| 27 | [ ] | Panels in the sidebar have no close button | Every session and terminal row in the sidebar has one | |
-| 28 | [ ] | (follows) The same rule wherever a terminal is closed: its key, its tab, the sidebar, closing a workspace | | |
-| 29 | [ ] | (follows) A session that has ended closes without a question | | |
-| 30 | [ ] | After `/exit` in Codex the shell's prompt does not come back; after Claude Code it does | Find the cause and fix it; when any agent ends, its terminal is a usable shell again | |
-| 31 | [ ] | (follows) The same proved for every agent Tasktap starts, with a stand-in that ends as each tool does | | |
+| 26 | [x] | Closing an empty shell asks "Close zsh?" | A shell with nothing running in it closes at once. Tasktap asks only when a program or an agent is running there | core tests on real terminals (`core/tests/terminals.rs`), `scripts/closing-check.cjs`, smoke; the Windows path is built but not yet run there |
+| 27 | [x] | Panels in the sidebar have no close button | Every session and terminal row in the sidebar has one | `scripts/closing-check.cjs` at 1x and 2x with a real pointer and Tab; pictures sidebar-rest, -hover, -focus |
+| 28 | [x] | (follows) The same rule wherever a terminal is closed: its key, its tab, the sidebar, closing a workspace | `scripts/closing-check.cjs` and four smoke steps: one function closes everywhere, a workspace asks once |
+| 29 | [x] | (follows) A session that has ended closes without a question | core test `when_any_agent_ends_its_terminal_is_a_usable_shell_again` |
+| 30 | [x] | After `/exit` in Codex the shell's prompt does not come back; after Claude Code it does | Find the cause and fix it; when any agent ends, its terminal is a usable shell again | the same core test: after the agent ends a command is typed and its output read; a signed-in Codex run by the owner is still to confirm it |
+| 31 | [x] | (follows) The same proved for every agent Tasktap starts, with a stand-in that ends as each tool does | the same core test for each agent's way of ending; Pi and Qwen Code by approximation |
 
 ## Settings' words (owner, same evening)
 
@@ -82,4 +82,4 @@ Decisions for 32 and 33 (Claude, 2026-11-19; applied once Home and the placing l
 
 | # | Done | Proposal | The owner's answer |
 | --- | --- | --- | --- |
-| P1 | [ ] | When one project clearly leads (its name nearly said and a second word of its own matching, the others matching one common word), start there with Undo instead of asking. The owner's trial thought about a "claude mod" for the "modpack" was such a case | Yes, if it is accurate: "it has not been too great, but if you can get it to greatness then why not". It ships only if a set of thoughts the builder never saw, written and scored by the reviewer, and the owner's own projects show no thought started in a wrong project; otherwise Tasktap keeps asking |
+| P1 | [x] | When one project clearly leads (its name nearly said and a second word of its own matching, the others matching one common word), start there with Undo instead of asking. The owner's trial thought about a "claude mod" for the "modpack" was such a case | Yes, if it is accurate: "it has not been too great, but if you can get it to greatness then why not". It ships only if a set of thoughts the builder never saw, written and scored by the reviewer, and the owner's own projects show no thought started in a wrong project; otherwise Tasktap keeps asking. Result: as first built it failed the reviewer's gate (thoughts about a tool started in the project named after it); narrowed to a whole name nearly said, it starts nothing wrongly in either of the reviewer's sets or on the owner's projects. Both sets are in `core/scripts/place-eval.json`, and `place-eval.sh` fails if a thought that means no project is ever started this way |

@@ -298,6 +298,7 @@ impl World {
             projects: self.projects.clone(),
             sessions: self.sessions.iter().map(|(_, s)| s.clone()).collect(),
             recent: self.recent.clone(),
+            words: Default::default(),
         }
     }
 

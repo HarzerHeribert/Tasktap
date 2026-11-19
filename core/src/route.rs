@@ -72,7 +72,7 @@ use crate::state::{self, Candidate, Destination, Route};
 use crate::store::{self, Tx};
 
 mod names;
-pub use names::{How, parts, sound};
+pub use names::{How, Lexicon, parts, sound};
 use names::{Said, Words, said, words as name_words};
 
 /// What a model is told with every thought, in full: the person reads it
@@ -140,6 +140,9 @@ pub struct Request {
     pub recent: Vec<Exchange>,
     /// Where the newest thought that has a place went.
     pub last: Option<Destination>,
+    /// Where the words of the language are, to tell an ordinary word from
+    /// one made up for a name ([`Lexicon`]).
+    pub words: Lexicon,
 }
 
 /// A project a thought can go to: a workspace (`Destination::New`), or a
@@ -293,6 +296,7 @@ pub fn request(tx: &Tx, text: &str, current: Option<SessionId>) -> store::Result
         projects: named,
         sessions: followed,
         last,
+        words: Lexicon::default(),
     })
 }
 
@@ -307,9 +311,12 @@ fn said_at(w: &Words, p: &Named) -> Vec<Said> {
 struct Hit<'r> {
     p: &'r Named,
     said: Said,
-    /// A name that is an everyday word ("app", "test", "notes"), said as
-    /// that word and not as a name: as weak as a name a letter off.
+    /// Words that are a name but not used as one (an everyday word, "app";
+    /// ordinary words written apart, "harbor master"): as weak as a name a
+    /// letter off.
     plain: bool,
+    /// The name said is an everyday word's ([`EVERYDAY`]).
+    everyday: bool,
 }
 
 /// Names that are everyday words of a person's work: a project called so
@@ -391,14 +398,40 @@ fn everyday(name: &str) -> bool {
     !p.is_empty() && p.iter().all(|w| EVERYDAY.contains(&w.as_str()))
 }
 
+/// Everyday-word names that are also verbs: after "to" they are the verb
+/// ("remember to test the export", "time to deploy").
+const VERBS: &[&str] = &[
+    "build",
+    "code",
+    "config",
+    "demo",
+    "deploy",
+    "design",
+    "prototype",
+    "service",
+    "test",
+];
+/// Verbs of moving something somewhere: "move the fixtures to test".
+const MOVES: &[&str] = &[
+    "add", "bring", "copy", "migrate", "move", "port", "push", "put", "send", "upload",
+];
+
 /// Whether the capture says `name` as a name where it says it: after "in"
-/// or "to", before "project" or "repo", in backticks or quotes, at the end
-/// of a path, or written whole with what joins its parts ("my-app").
+/// or "to", before "project" or "repo", in backticks or quotes, in a path
+/// to the project or one that begins with it, or written whole with what
+/// joins its parts ("my-app").
 fn as_name(r: &Request, w: &Words, said: &Said, name: &str) -> bool {
     let word = |i: usize| w.words.get(i).map(String::as_str);
     let before = said.at.start.checked_sub(1).and_then(word);
     let after = word(said.at.end);
-    if before.is_some_and(|b| BEFORE_NAME.contains(&b))
+    // "to" before a name that is also a verb is the verb's, unless
+    // something is moved to it.
+    let verb = parts(name).len() == 1 && VERBS.contains(&parts(name)[0].as_str());
+    let moved = (said.at.start.saturating_sub(5)..said.at.start.saturating_sub(1))
+        .filter_map(word)
+        .any(|x| MOVES.contains(&x));
+    let to = |b: &str| b != "to" || !verb || moved;
+    if before.is_some_and(|b| BEFORE_NAME.contains(&b) && to(b))
         || after.is_some_and(|a| AFTER_NAME.contains(&a))
     {
         return true;
@@ -414,9 +447,22 @@ fn as_name(r: &Request, w: &Words, said: &Said, name: &str) -> bool {
             | (Some('“'), Some('”'))
             | (Some('‘'), Some('’'))
     );
-    let path = open == Some('/') || open == Some('\\');
+    // In a path: one that ends at the project's own folder (`~/code/app`),
+    // or begins with it (`app/src/main.rs`); never a folder of the same name
+    // inside another (`src/app/page.tsx`).
+    let lead = head
+        .rfind(char::is_whitespace)
+        .map_or(head, |i| &head[i + 1..]);
+    let rest = tail.find(char::is_whitespace).map_or(tail, |i| &tail[..i]);
+    let lead = lead.trim_start_matches(['`', '"', '\'', '“', '‘', '(']);
+    let rest = rest.trim_end_matches(['`', '"', '\'', '”', '’', ')', ',', '.', ':', ';']);
+    let slash = |s: &str| s.starts_with(['/', '\\']);
+    let begins = lead.is_empty() && slash(rest);
+    let ends = (lead.starts_with(['/', '~']) || lead.get(1..2) == Some(":"))
+        && lead.ends_with(['/', '\\'])
+        && (rest.is_empty() || rest == "/" || rest == "\\");
     let whole = parts(name).len() > 1 && r.text[said.span.clone()].eq_ignore_ascii_case(name);
-    quoted || path || whole
+    quoted || begins || ends || whole
 }
 
 /// The projects the capture names, each once, at its strongest: a name
@@ -433,10 +479,55 @@ fn hits(r: &Request) -> Vec<Hit<'_>> {
             let w = &w;
             names.flat_map(move |n| {
                 said(w, n).into_iter().map(move |said| {
-                    let plain = (everyday(n) || apart(r, w, &said)) && !as_name(r, w, &said, n);
-                    Hit { p, said, plain }
+                    let everyday = everyday(n);
+                    let plain = (everyday || apart(r, w, &said)) && !as_name(r, w, &said, n);
+                    Hit {
+                        p,
+                        said,
+                        plain,
+                        everyday,
+                    }
                 })
             })
+        })
+        .collect();
+    // A name written apart is asked about only when every one of its words
+    // is an ordinary word of the language, or another project's name is
+    // said in the same words: "harbor master", "tidepool mobile" (`tidepool`
+    // too). One with a word made up for it cannot be said by accident:
+    // "tasktap api" places in `tasktap-api`.
+    let loose: Vec<usize> = (0..all.len())
+        .filter(|i| all[*i].plain && !all[*i].everyday)
+        .collect();
+    let mut wanted: Vec<&str> = Vec::new();
+    for i in &loose {
+        for x in &w.words[all[*i].said.at.clone()] {
+            if !wanted.contains(&x.as_str()) {
+                wanted.push(x);
+            }
+        }
+    }
+    let known = match wanted.is_empty() {
+        true => Vec::new(),
+        false => r.words.each(&wanted),
+    };
+    let ordinary = |x: &str| wanted.iter().position(|y| *y == x).is_none_or(|i| known[i]);
+    let shared = |h: &Hit| {
+        all.iter().any(|o| {
+            o.p.to != h.p.to && o.said.at.start < h.said.at.end && h.said.at.start < o.said.at.end
+        })
+    };
+    let placed: Vec<usize> = (loose.iter().copied())
+        .filter(|i| {
+            let h = &all[*i];
+            let words = &w.words[h.said.at.clone()];
+            !words.iter().all(|x| ordinary(x)) && !shared(h)
+        })
+        .collect();
+    let all: Vec<Hit> = (all.into_iter().enumerate())
+        .map(|(i, h)| Hit {
+            plain: h.plain && !placed.contains(&i),
+            ..h
         })
         .collect();
     // An everyday word beside another project's name, "and" or "or"

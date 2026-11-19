@@ -507,6 +507,14 @@ fn a_repository_is_one_project_whatever_its_copies() {
     assert_eq!(by("projects/starter").copy_of, None);
 }
 
+/// The words of the language as the checks know them: a few, so that a
+/// check reads the same on every system.
+fn words() -> route::Lexicon {
+    route::Lexicon(vec![
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/words.txt"),
+    ])
+}
+
 /// A look in `folder`, on.
 fn folder_look(folder: &Path) -> Look {
     Look {
@@ -1036,11 +1044,15 @@ fn a_name_said_only_as_it_sounds_or_an_everyday_word_is_asked_about() {
         card("harbormaster", "Deploys containers to a small fleet"),
         card("snow-line", ""),
         card("scripts", ""),
+        card("deploy", ""),
+        card("tasktap-api", ""),
+        card("cuegrid-web", ""),
     ];
     let place = |text: &str| {
         route::local(&Request {
             text: text.into(),
             projects: projects.clone(),
+            words: words(),
             ..Request::default()
         })
     };
@@ -1062,6 +1074,13 @@ fn a_name_said_only_as_it_sounds_or_an_everyday_word_is_asked_about() {
             "the scripts folder has two copies of the backup job",
             "scripts",
         ),
+        // "to" before a name that is also a verb is the verb's.
+        ("remember to test the export", "test"),
+        ("time to deploy the new build on friday", "deploy"),
+        // A folder of that name inside a path is no name.
+        ("src/app/page.tsx has a typo", "app"),
+        // Words written apart that are another project's name as well.
+        ("the cuegrid web login is broken", "cuegrid-web"),
     ] {
         match place(text) {
             Route::Ambiguous { candidates, .. } => {
@@ -1085,6 +1104,13 @@ fn a_name_said_only_as_it_sounds_or_an_everyday_word_is_asked_about() {
         ("`snow line` shows the wrong peak", "snow-line"),
         ("harbormaster needs a dry run flag", "harbormaster"),
         ("snow-line shows the wrong peak", "snow-line"),
+        // Something moved to it; a path that begins with it or ends at it.
+        ("move the shared fixtures to test", "test"),
+        ("app/src/page.tsx has a typo", "app"),
+        ("~/code/app has a stale readme", "app"),
+        // Words written apart, one of them made up for the name: no one
+        // says it by accident.
+        ("the tasktap api login is broken", "tasktap-api"),
     ] {
         match place(text) {
             Route::Clear { to: at, .. } => assert_eq!(at, to(want), "{text}"),

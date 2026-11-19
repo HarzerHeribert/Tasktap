@@ -26,6 +26,7 @@ fn the_local_router_follows_its_table() {
     let project = |id, name: &str, aliases: &[&str]| Named::open(id, name, aliases);
     let request = |text: &str, current| Request {
         last: None,
+        words: Default::default(),
         text: text.into(),
         current,
         picked: None,
@@ -411,6 +412,11 @@ fn the_longest_name_said_wins_and_names_said_alike_are_a_choice() {
         let request = Request {
             text: text.into(),
             projects: projects.clone(),
+            // The words of the language as this check knows them, the same on every system.
+            words: tasktap_core::route::Lexicon(vec![
+                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("tests/fixtures/words.txt"),
+            ]),
             ..Request::default()
         };
         let wanted = match expected {
@@ -630,6 +636,7 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
         last: None,
         text: text.into(),
         current: None,
+        words: Default::default(),
         picked: None,
         projects: vec![
             project(tasktap, "tasktap"),

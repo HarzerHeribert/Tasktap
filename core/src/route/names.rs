@@ -241,6 +241,121 @@ pub fn said(w: &Words, name: &str) -> Vec<Said> {
     found
 }
 
+/// Where the words of the language are: the system's dictionary (on a Mac
+/// Webster's word list and its list of word groups, elsewhere
+/// `/usr/share/dict/words`), or the files `TASKTAP_WORDS` names (`:`
+/// between them). Read when a name written apart asks whether its words are
+/// ordinary words, never kept: a few milliseconds, no memory held.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Lexicon(pub Vec<std::path::PathBuf>);
+
+impl Default for Lexicon {
+    fn default() -> Lexicon {
+        if let Some(named) = std::env::var_os("TASKTAP_WORDS") {
+            return Lexicon(std::env::split_paths(&named).collect());
+        }
+        let mac = ["/usr/share/dict/web2", "/usr/share/dict/web2a"];
+        let paths = match std::path::Path::new(mac[0]).is_file() {
+            true => mac.to_vec(),
+            false => vec!["/usr/share/dict/words"],
+        };
+        Lexicon(paths.into_iter().map(std::path::PathBuf::from).collect())
+    }
+}
+
+/// Ordinary words an old dictionary lacks.
+const NEWER: &[&str] = &[
+    "app",
+    "apps",
+    "backend",
+    "blog",
+    "codebase",
+    "dashboard",
+    "database",
+    "dataset",
+    "doc",
+    "docs",
+    "download",
+    "email",
+    "firmware",
+    "frontend",
+    "homepage",
+    "inbox",
+    "internet",
+    "laptop",
+    "login",
+    "online",
+    "password",
+    "plugin",
+    "podcast",
+    "repo",
+    "sidebar",
+    "smartphone",
+    "software",
+    "toolbar",
+    "upload",
+    "username",
+    "webhook",
+    "website",
+    "wiki",
+    "workflow",
+];
+
+impl Lexicon {
+    /// Whether every one of `words` (lower-cased) is an ordinary word, as
+    /// it is or with a common ending taken off ("notes", "files"). With no
+    /// dictionary to read, every word is taken for one: a name then asks.
+    pub fn ordinary(&self, words: &[&str]) -> bool {
+        self.each(words).into_iter().all(|o| o)
+    }
+
+    /// For each of `words`, whether it is an ordinary word ([`Lexicon::ordinary`]).
+    pub fn each(&self, words: &[&str]) -> Vec<bool> {
+        let forms = |w: &str| -> Vec<String> {
+            let mut all = vec![w.to_owned()];
+            for (end, to) in [("ies", "y"), ("es", ""), ("s", ""), ("ed", ""), ("ing", "")] {
+                if let Some(head) = w.strip_suffix(end)
+                    && head.chars().count() >= 2
+                {
+                    all.push(format!("{head}{to}"));
+                }
+            }
+            all
+        };
+        let mut found: Vec<bool> = (words.iter())
+            .map(|w| NEWER.contains(w) || COMMON.contains(w))
+            .collect();
+        let mut wanted: std::collections::HashMap<String, Vec<usize>> = Default::default();
+        for (i, w) in words.iter().enumerate().filter(|(i, _)| !found[*i]) {
+            for f in forms(w) {
+                wanted.entry(f).or_default().push(i);
+            }
+        }
+        if wanted.is_empty() {
+            return found;
+        }
+        let mut read = false;
+        for path in &self.0 {
+            let Ok(text) = std::fs::read_to_string(path) else {
+                continue;
+            };
+            read = true;
+            // A word, or each word of a word group ("box spring"), in lower case.
+            for entry in text.lines().flat_map(|l| l.split([' ', '-'])) {
+                if let Some(at) = wanted.get(entry) {
+                    for i in at {
+                        found[*i] = true;
+                    }
+                }
+            }
+        }
+        match read {
+            true => found,
+            false => vec![true; words.len()],
+        }
+    }
+}
+
 /// Common words that say nothing of where work belongs.
 const COMMON: &[&str] = &[
     "about", "add", "after", "again", "all", "also", "an", "and", "any", "are", "as", "at", "be",

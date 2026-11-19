@@ -163,6 +163,176 @@ fn the_root_rule_says_which_folder_is_a_project() {
 }
 
 #[test]
+fn a_folder_in_a_worktree_a_submodule_or_a_bare_layout_counts_for_its_repository() {
+    let t = Folder::new("root-links");
+    let (home, data) = (t.0.join("home"), t.0.join("data"));
+    mkdir(&home);
+    mkdir(&data);
+    let home = real(&home);
+    let p = |rel: &str| home.join(rel);
+    // A worktree, and a folder deep in it with a package file of its own.
+    repo(&p("code/harbor"), "Ships.", None);
+    git(
+        &p("code/harbor"),
+        &["worktree", "add", "-q", "../../wt/feature", "-b", "feature"],
+    );
+    write(&p("wt/feature/app/package.json"), r#"{"name": "app"}"#);
+    mkdir(&p("wt/feature/app/src"));
+    // An agent's worktree in its own hidden folder, and a folder in it.
+    git(
+        &p("code/harbor"),
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "../../.agent/worktrees/x",
+            "-b",
+            "x",
+        ],
+    );
+    mkdir(&p(".agent/worktrees/x/src"));
+    // A submodule, and a folder in it.
+    repo(&p("code/lib"), "A library.", None);
+    repo(&p("code/mono"), "Everything.", None);
+    git(
+        &p("code/mono"),
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            p("code/lib").to_str().unwrap(),
+            "sub",
+        ],
+    );
+    mkdir(&p("code/mono/sub/src"));
+    // A bare repository with its worktrees beside it: `proj/.bare`, and
+    // `proj/.git` saying `gitdir: ./.bare`.
+    repo(&p("seed"), "Seed.", None);
+    mkdir(&p("code/tide"));
+    git(
+        &p("code/tide"),
+        &[
+            "clone",
+            "-q",
+            "--bare",
+            p("seed").to_str().unwrap(),
+            ".bare",
+        ],
+    );
+    write(&p("code/tide/.git"), "gitdir: ./.bare\n");
+    git(&p("code/tide"), &["worktree", "add", "-q", "main", "main"]);
+    mkdir(&p("code/tide/main/src"));
+    // A repository whose git folder is kept elsewhere.
+    mkdir(&p("code/kept"));
+    mkdir(&p("gitdirs"));
+    git(
+        &p("code/kept"),
+        &[
+            "init",
+            "-q",
+            "--separate-git-dir",
+            p("gitdirs/kept").to_str().unwrap(),
+        ],
+    );
+
+    let rule = Rule::new(&home, &data);
+    let kind = |rel: &str| rule.kind(&real(&p(rel)));
+    let copy = |rel: &str| Kind::Copy(real(&p(rel)));
+    for (folder, want) in [
+        ("wt/feature", copy("code/harbor")),
+        ("wt/feature/app", copy("code/harbor")),
+        ("wt/feature/app/src", copy("code/harbor")),
+        (".agent/worktrees/x/src", copy("code/harbor")),
+        ("code/mono/sub", copy("code/mono")),
+        ("code/mono/sub/src", copy("code/mono")),
+        ("code/tide/main", copy("code/tide")),
+        ("code/tide/main/src", copy("code/tide")),
+    ] {
+        assert_eq!(kind(folder), want, "{folder}");
+    }
+    let git_top = Kind::Top {
+        git: true,
+        package: false,
+        signs: false,
+    };
+    assert_eq!(kind("code/tide"), git_top, "a bare layout's top");
+    assert_eq!(kind("code/kept"), git_top, "a git folder kept elsewhere");
+    assert_eq!(kind("code/mono"), git_top);
+
+    // A look at the agent's history makes one card for harbor, none for its
+    // worktree or a folder in it; tide's card reads its remote from `.bare`.
+    git(
+        &p("code/tide"),
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "git@example.com:acme/tide.git",
+        ],
+    );
+    let input = Input {
+        rule: Rule::new(&home, &data),
+        data: data.clone(),
+        looks: vec![Look {
+            id: LookId::mint(),
+            rev: Rev::ZERO,
+            kind: LookKind::Folder,
+            agent: None,
+            folder: Some(p("code").to_str().unwrap().into()),
+            on: true,
+            state: LookState::New,
+            found: 0,
+            looked: None,
+            note: None,
+        }],
+        opened: Vec::new(),
+        known: Default::default(),
+    };
+    let out = map::read(input);
+    let tide = out.cards.iter().find(|m| m.name == "tide").unwrap();
+    assert_eq!(tide.repo.as_deref(), Some("remote example.com/acme/tide"));
+}
+
+#[test]
+fn the_root_rule_holds_on_other_volumes() {
+    let t = Folder::new("root-volumes");
+    let (home, data, volumes) = (t.0.join("home"), t.0.join("data"), t.0.join("Volumes"));
+    mkdir(&home);
+    mkdir(&data);
+    mkdir(&volumes);
+    let volumes = real(&volumes);
+    let v = |rel: &str| volumes.join(rel);
+    write(&v("disk/mono/package.json"), r#"{"name": "mono"}"#);
+    write(
+        &v("disk/mono/packages/web/package.json"),
+        r#"{"name": "web"}"#,
+    );
+    mkdir(&v("disk/mono/packages/web/src"));
+    repo(&v("disk/.cache/run/harbor"), "A tool's copy.", None);
+    repo(&v("disk/code/harbor"), "Ships.", None);
+    let rule = Rule::new(&real(&home), &data).with_volumes(&[(&volumes, 1)]);
+    let kind = |rel: &str| rule.kind(&v(rel));
+    // A package in a package: inside the outermost, the project.
+    let mono = Kind::Inside(v("disk/mono"));
+    assert_eq!(kind("disk/mono/packages/web"), mono);
+    assert_eq!(kind("disk/mono/packages/web/src"), mono);
+    assert_eq!(kind(".cache/run/harbor"), Kind::Gone);
+    assert_eq!(kind("disk/.cache/run/harbor"), Kind::Never);
+    assert_eq!(kind("disk"), Kind::Never, "a volume's root");
+    assert_eq!(
+        kind("disk/code/harbor"),
+        Kind::Top {
+            git: true,
+            package: false,
+            signs: false
+        }
+    );
+    assert_eq!(rule.kind(&real(&t.0)), Kind::Never, "on no volume");
+}
+
+#[test]
 fn a_repository_is_one_project_whatever_its_copies() {
     // Its remote's address, without user, password or `.git`.
     let cases = [

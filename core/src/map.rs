@@ -228,9 +228,21 @@ fn position(hay: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 /// Reads `path` from its start, 16 KiB at a time, until `found` finds what
-/// it looks for in what was read or `most` bytes were read.
+/// it looks for in what was read or `most` bytes were read. Only a regular
+/// file is read: a FIFO, a device or a socket, under any name, is not even
+/// waited on (it is opened without waiting, and left when it is no file).
 pub fn head<T>(path: &Path, most: usize, found: impl Fn(&[u8]) -> Option<T>) -> Option<T> {
-    let mut file = std::fs::File::open(path).ok()?;
+    if !std::fs::metadata(path).ok()?.is_file() {
+        return None;
+    }
+    let mut open = std::fs::File::options();
+    open.read(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(&mut open, NONBLOCK);
+    let mut file = open.open(path).ok()?;
+    if !file.metadata().ok()?.is_file() {
+        return None;
+    }
     let mut bytes = Vec::new();
     loop {
         let start = bytes.len();
@@ -254,6 +266,12 @@ pub fn head<T>(path: &Path, most: usize, found: impl Fn(&[u8]) -> Option<T>) -> 
         }
     }
 }
+
+/// `O_NONBLOCK`: opening a FIFO does not wait for a writer.
+#[cfg(target_os = "linux")]
+const NONBLOCK: i32 = 0o4000;
+#[cfg(all(unix, not(target_os = "linux")))]
+const NONBLOCK: i32 = 0x0004;
 
 /// When a file or folder last changed: milliseconds since the Unix epoch.
 pub fn modified(meta: &std::fs::Metadata) -> u64 {
@@ -310,6 +328,7 @@ pub struct Rule {
     home: PathBuf,
     data: PathBuf,
     temp: Vec<PathBuf>,
+    volumes: Vec<(PathBuf, usize)>,
 }
 
 impl Rule {
@@ -330,7 +349,17 @@ impl Rule {
             home: real(home),
             data: real(data),
             temp,
+            volumes: volumes(),
         }
+    }
+
+    /// The rule with other volumes at these roots, each with how many
+    /// folders down a volume's root is, and no folder temporary: for a
+    /// check, whose volumes are folders it made.
+    pub fn with_volumes(mut self, roots: &[(&Path, usize)]) -> Rule {
+        self.temp.clear();
+        self.volumes = roots.iter().map(|(p, d)| (p.to_path_buf(), *d)).collect();
+        self
     }
 
     pub fn home(&self) -> &Path {
@@ -343,12 +372,19 @@ impl Rule {
         if folder.starts_with(&self.data) {
             return true;
         }
+        let named = |part: &OsStr, list: &[&str]| list.iter().any(|n| OsStr::new(n) == part);
+        let hidden = |p: &OsStr| p.to_string_lossy().starts_with('.');
         let Ok(rest) = folder.strip_prefix(&self.home) else {
-            let temporary = self.temp.iter().any(|t| folder.starts_with(t));
-            return temporary || !elsewhere(folder, &self.home);
+            // On another volume the same rules hold below its root.
+            if self.temp.iter().any(|t| folder.starts_with(t)) {
+                return true;
+            }
+            let Some(below) = on_volume(folder, &self.volumes) else {
+                return true;
+            };
+            return below.iter().any(|p| hidden(p) || named(p, SKIP));
         };
         let parts: Vec<&OsStr> = rest.iter().collect();
-        let named = |part: &OsStr, list: &[&str]| list.iter().any(|n| OsStr::new(n) == part);
         match parts.as_slice() {
             [] => return true,
             [one] if named(one, PLAIN) || named(one, SYSTEM) => return true,
@@ -357,7 +393,6 @@ impl Rule {
         }
         // Another tool's: a hidden folder on the way, unless the folder is
         // one directly in the home folder (`~/.dotfiles`) or in `~/.config`.
-        let hidden = |p: &OsStr| p.to_string_lossy().starts_with('.');
         parts.iter().enumerate().any(|(i, part)| {
             let own = i == 0 && (parts.len() == 1 || (*part == ".config" && parts.len() == 2));
             (hidden(part) && !own) || named(part, SKIP)
@@ -371,21 +406,26 @@ impl Rule {
         if !folder.is_dir() {
             return Kind::Gone;
         }
-        let git = folder.join(".git");
-        let git = std::fs::symlink_metadata(&git)
-            .ok()
-            .map(|m| (m.is_dir(), git));
-        if let Some((false, file)) = &git {
-            return match linked(file).filter(|top| !self.never(top)) {
-                Some(top) => Kind::Copy(top),
-                None => Kind::Never,
+        // A `.git` file: a worktree or a submodule counts for its repository;
+        // a git folder kept elsewhere (`--separate-git-dir`, `gitdir: ./.bare`)
+        // leaves this folder the repository's top.
+        let is_git = match git_link(folder) {
+            Some(GitLink::Of(top)) if self.never(&top) => return Kind::Never,
+            Some(GitLink::Of(top)) => return Kind::Copy(top),
+            Some(GitLink::Own) => true,
+            None => false,
+        };
+        // In a worktree or a submodule, however deep: its repository's.
+        if !is_git && let Some(GitLink::Of(top)) = self.above(folder) {
+            return match self.never(&top) {
+                true => Kind::Never,
+                false => Kind::Copy(top),
             };
         }
         if self.never(folder) {
             return Kind::Never;
         }
-        let is_git = git.is_some();
-        if !is_git && let Some(top) = self.above(folder) {
+        if !is_git && let Some(top) = self.inside(folder) {
             return Kind::Inside(top);
         }
         let names = top_names(folder);
@@ -404,59 +444,175 @@ impl Rule {
         }
     }
 
-    /// The project a folder is inside: the nearest folder above it with
-    /// `.git` or a package file, below the home folder.
-    fn above(&self, folder: &Path) -> Option<PathBuf> {
+    /// What the nearest `.git` above a folder says: whether the folder lies
+    /// in a worktree or a submodule of another repository (one kept in a
+    /// hidden folder too: an agent's worktree). Up to the home folder, or to
+    /// the volume's root.
+    fn above(&self, folder: &Path) -> Option<GitLink> {
         let mut at = folder.parent()?;
-        while at.starts_with(&self.home) && at != self.home && !self.never(at) {
-            let package = ["package.json", "Cargo.toml", "pyproject.toml", "go.mod"];
-            if at.join(".git").exists() || package.iter().any(|p| at.join(p).is_file()) {
-                return Some(at.to_owned());
+        while at != self.home {
+            if at.join(".git").exists() {
+                return Some(git_link(at).unwrap_or(GitLink::Own));
             }
             at = at.parent()?;
         }
         None
     }
+
+    /// The project a folder is inside: the nearest folder above it with
+    /// `.git`, else the outermost with a package file (a package in a
+    /// workspace of packages is the workspace's); below the home folder, or
+    /// below a volume's root outside it (the rule holds on every volume).
+    fn inside(&self, folder: &Path) -> Option<PathBuf> {
+        let package = ["package.json", "Cargo.toml", "pyproject.toml", "go.mod"];
+        let mut top = None;
+        let mut at = folder.parent();
+        while let Some(here) = at.filter(|a| !self.never(a)) {
+            if here.join(".git").exists() {
+                return Some(here.to_owned());
+            }
+            if package.iter().any(|p| here.join(p).is_file()) {
+                top = Some(here.to_owned());
+            }
+            at = here.parent();
+        }
+        top
+    }
 }
 
-/// Whether a folder outside the home folder may hold projects: on another
-/// volume, never its root, never another person's home or the system's.
-#[cfg(unix)]
-fn elsewhere(folder: &Path, _home: &Path) -> bool {
-    let parts: Vec<_> = folder.iter().collect();
-    match parts.as_slice() {
-        [_, v, _, _, ..] if *v == "Volumes" || *v == "mnt" => true,
-        [_, v, _, _, _, ..] if *v == "media" => true,
-        _ => false,
+/// Where a folder's `.git` leads, when it has one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum GitLink {
+    /// The folder is a repository's top: its `.git` is a folder, or names a
+    /// git folder kept elsewhere for this folder alone.
+    Own,
+    /// A worktree or a submodule of the repository at that top.
+    Of(PathBuf),
+}
+
+/// What a folder's `.git` says, by `stat` and at most two small reads.
+fn git_link(folder: &Path) -> Option<GitLink> {
+    let git = folder.join(".git");
+    let meta = std::fs::symlink_metadata(&git).ok()?;
+    if meta.is_dir() {
+        return Some(GitLink::Own);
     }
+    let gitdir = gitdir(&git)?;
+    // A worktree's git folder names the repository's own in `commondir`.
+    if let Some(common) = small(&gitdir.join("commondir")) {
+        let common = canonical(&gitdir.join(common.trim()));
+        return Some(match top_of(&common) {
+            Some(top) if top != folder => GitLink::Of(top),
+            // A bare repository's worktree with no folder of the repository's
+            // own: each worktree is a top, and their first commit folds them.
+            _ => GitLink::Own,
+        });
+    }
+    // A submodule's git folder is in its superproject's `.git/modules`.
+    let parts: Vec<_> = gitdir.iter().collect();
+    if let Some(at) = parts
+        .windows(2)
+        .position(|w| w[0] == ".git" && w[1] == "modules")
+    {
+        let top: PathBuf = parts[..at].iter().collect();
+        return top.is_dir().then_some(GitLink::Of(top));
+    }
+    // `--separate-git-dir`, or `gitdir: ./.bare`: this folder is the top.
+    Some(GitLink::Own)
+}
+
+/// The git folder a `.git` file names, canonical.
+fn gitdir(file: &Path) -> Option<PathBuf> {
+    let text = small(file)?;
+    let to = text.lines().find_map(|l| l.strip_prefix("gitdir:"))?.trim();
+    let to = canonical(&file.parent()?.join(to));
+    to.is_dir().then_some(to)
+}
+
+/// The first KiB of a small file of git's, as text.
+fn small(file: &Path) -> Option<String> {
+    let text = head(file, 1 << 10, |b| Some(b.to_vec()))?;
+    String::from_utf8(text).ok()
+}
+
+/// The working folder of a repository's own git folder: the folder `.git`
+/// is in; for a bare repository, the folder beside it whose `.git` names it
+/// (`proj/.bare` with `proj/.git`), else none.
+fn top_of(common: &Path) -> Option<PathBuf> {
+    let parent = common.parent()?;
+    if common.file_name().is_some_and(|n| n == ".git") {
+        return Some(parent.to_owned());
+    }
+    let pointer = parent.join(".git");
+    (pointer.is_file() && gitdir(&pointer).as_deref() == Some(common)).then(|| parent.to_owned())
+}
+
+/// The git folder whose `config` holds a repository's remotes: `.git`, or
+/// the repository's own that a worktree's or a kept-elsewhere `.git` names.
+fn config_of(folder: &Path) -> Option<PathBuf> {
+    let git = folder.join(".git");
+    if git.is_dir() {
+        return Some(git.join("config"));
+    }
+    let gitdir = gitdir(&git)?;
+    let common = match small(&gitdir.join("commondir")) {
+        Some(common) => canonical(&gitdir.join(common.trim())),
+        None => gitdir,
+    };
+    Some(common.join("config"))
+}
+
+/// Where other volumes are, and how many folders down a volume's root is:
+/// `/Volumes/<volume>`, `/mnt/<volume>`, `/media/<person>/<volume>`.
+#[cfg(unix)]
+fn volumes() -> Vec<(PathBuf, usize)> {
+    [("/Volumes", 1), ("/mnt", 1), ("/media", 2)]
+        .into_iter()
+        .map(|(p, d)| (PathBuf::from(p), d))
+        .collect()
 }
 
 #[cfg(windows)]
-fn elsewhere(folder: &Path, _home: &Path) -> bool {
+fn volumes() -> Vec<(PathBuf, usize)> {
+    Vec::new()
+}
+
+/// The part of a folder outside the home folder below the volume it is on,
+/// when it is on another volume and not its root. None: the system's,
+/// another person's, a volume's root, or no volume.
+#[cfg(unix)]
+fn on_volume<'a>(folder: &'a Path, volumes: &[(PathBuf, usize)]) -> Option<&'a Path> {
+    volumes.iter().find_map(|(root, depth)| {
+        let mut parts = folder.strip_prefix(root).ok()?.components();
+        for _ in 0..*depth {
+            parts.next()?;
+        }
+        let below = parts.as_path();
+        (!below.as_os_str().is_empty()).then_some(below)
+    })
+}
+
+/// On Windows, a drive's `X:\…`, but not the system's folders or the
+/// people's (`X:\Users`).
+#[cfg(windows)]
+fn on_volume<'a>(folder: &'a Path, volumes: &[(PathBuf, usize)]) -> Option<&'a Path> {
     let text = folder.to_string_lossy().to_lowercase().replace('/', "\\");
     let system = ["\\windows", "\\program files", "\\programdata", "\\users"];
     let rest = text.get(2..).unwrap_or_default();
-    folder.components().count() >= 3 && !system.iter().any(|s| rest.starts_with(s))
-}
-
-/// The top of the repository a `.git` file links a worktree or a submodule
-/// to: the folder before `.git` in the path it names.
-fn linked(file: &Path) -> Option<PathBuf> {
-    let text = head(file, 1 << 10, |b| Some(b.to_vec()))?;
-    let text = String::from_utf8(text).ok()?;
-    let to = text.lines().find_map(|l| l.strip_prefix("gitdir:"))?.trim();
-    let to = file.parent()?.join(to);
-    let to = std::fs::canonicalize(&to)
-        .ok()
-        .map(crate::terminal::folder)?;
-    let mut top = PathBuf::new();
-    for part in to.iter() {
-        if part == ".git" {
-            return top.is_dir().then_some(top);
-        }
-        top.push(part);
+    if system.iter().any(|s| rest.starts_with(s)) {
+        return None;
     }
-    None
+    if let Some(below) = volumes
+        .iter()
+        .find_map(|(root, _)| folder.strip_prefix(root).ok())
+    {
+        return (!below.as_os_str().is_empty()).then_some(below);
+    }
+    let mut parts = folder.components();
+    parts.next()?;
+    parts.next()?;
+    let below = parts.as_path();
+    (!below.as_os_str().is_empty()).then_some(below)
 }
 
 /// The names at a folder's top: one listing, nothing opened.
@@ -542,11 +698,9 @@ pub fn facts(folder: &Path, git: bool) -> Facts {
             }
         }
     }
-    if git {
-        facts.remote = head(&folder.join(".git/config"), CONFIG_BYTES, |b| {
-            Some(b.to_vec())
-        })
-        .and_then(|b| remote(&String::from_utf8_lossy(&b)));
+    if git && let Some(config) = config_of(folder) {
+        facts.remote = head(&config, CONFIG_BYTES, |b| Some(b.to_vec()))
+            .and_then(|b| remote(&String::from_utf8_lossy(&b)));
     }
     facts
 }
@@ -922,7 +1076,7 @@ pub fn read(input: Input) -> Output {
         s.add(Evidence::Opened);
         s.project = Some(*project);
         s.used = s.used.max(used.map_or(0, u64::from));
-        if !s.git && Path::new(folder).join(".git").is_dir() {
+        if !s.git && git_link(Path::new(folder)).is_some() {
             s.git = true;
             s.add(Evidence::Git);
         }

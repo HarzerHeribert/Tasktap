@@ -12,9 +12,9 @@ That is the idea this code is built to. What works today, and what is deliberate
 | --- | --- |
 | [`core/`](core/README.md) | One Rust service, `tasktap`, that owns everything that is not pixels: the data (SQLite), every terminal process, the agents, questions and answers, routing. It serves one data folder on a private local socket (a named pipe on Windows) and keeps running when the windows close. |
 | `ui/` | The interface, in strict TypeScript with Preact and Vite: two pages, the notch and the workspace, on one shared client for the core. It holds no durable data; its types come from `core/proto/protocol.ts`, which the core generates. |
-| [`host/`](host/README.md) | The Mac host, Tauri v2: the workspace window, the notch panel, the menu, the global shortcuts. It bundles the core and the built pages, starts the core on demand, and gives each page a pass-through channel to it. |
+| [`host/`](host/README.md) | The host, Tauri v2, for the Mac and Windows: the workspace window, the notch panel, the menu, the global shortcuts. It bundles the core and the built pages, starts the core on demand, and gives each page a pass-through channel to it. |
 
-The host is the only part tied to the Mac. The core is tested on Linux, macOS and Windows; a Windows host is planned and not built.
+The core is tested on Linux, macOS and Windows. The host runs on the Mac and on Windows 11, where a tab at the top of the screen and an icon by the clock take the notch's place.
 
 ## Build, test and run
 

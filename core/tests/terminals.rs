@@ -703,7 +703,6 @@ fn runs_of(c: &mut Client, id: TerminalId) -> Result<Runs, tasktap_proto::Error>
 /// What the core says runs in a terminal, asked until it says `want` or
 /// [`PATIENCE`] has passed: a shell starts its program a moment after the
 /// line is typed.
-#[cfg(unix)]
 fn runs_until(c: &mut Client, id: TerminalId, want: impl Fn(&Runs) -> bool) -> Runs {
     let deadline = Instant::now() + PATIENCE;
     loop {
@@ -776,6 +775,45 @@ fn a_shell_says_what_runs_in_it_and_nothing_when_it_waits_for_a_command() {
     assert_eq!(runs_of(&mut c, id).unwrap().state, RunState::Ended);
     let gone = runs_of(&mut c, TerminalId::mint());
     assert_eq!(gone.unwrap_err().code, Code::Gone);
+}
+
+/// On Windows the console's job says what runs: nothing but the shell and
+/// the consoles' hosts while it waits; a program in front, and one started
+/// to run on beside the prompt, by its program's name; once it exited, it
+/// ended.
+#[cfg(windows)]
+#[test]
+fn a_console_says_through_its_job_what_runs_in_it() {
+    let data = Folder::new("tt-runs-job");
+    let core = Core::start(&data);
+    let mut c = core.device();
+    let id = TerminalId::mint();
+    let start = StartTerminal {
+        project: None,
+        argv: Vec::new(),
+        title: None,
+    };
+    let mut screen = Screen::start(&core, id, Some(start));
+    screen.line("set /a 3*271");
+    screen.until("813");
+    let idle = |r: &Runs| r.state == RunState::Idle;
+    let runs = runs_until(&mut c, id, idle);
+    assert_eq!((runs.state, runs.what), (RunState::Idle, vec![]));
+    let ping = |r: &Runs| r.what.iter().any(|w| w.eq_ignore_ascii_case("ping"));
+    screen.line("ping -n 60 127.0.0.1");
+    let runs = runs_until(&mut c, id, ping);
+    assert_eq!(runs.state, RunState::Running, "{:?}", runs.what);
+    assert!(ping(&runs), "{:?}", runs.what);
+    screen.write(b"\x03");
+    assert!(idle(&runs_until(&mut c, id, idle)));
+    // Started to run on beside the prompt: it runs.
+    screen.line("start /b ping -n 60 127.0.0.1 > nul");
+    let runs = runs_until(&mut c, id, ping);
+    assert_eq!(runs.state, RunState::Running, "{:?}", runs.what);
+    let stopped = c.call::<call::TerminalStop>(&Ref { id }).unwrap();
+    assert!(stopped.is_ok());
+    screen.ended();
+    assert_eq!(runs_of(&mut c, id).unwrap().state, RunState::Ended);
 }
 
 /// Where the system does not list processes, the core does not guess: it

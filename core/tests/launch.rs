@@ -15,6 +15,12 @@ use tasktap_proto::{
     TerminalState, ThoughtId,
 };
 
+/// A command the shell runs, and what only running it prints.
+#[cfg(unix)]
+const SUM: (&str, &str) = ("echo tasktap-$((6*7))", "tasktap-42");
+#[cfg(windows)]
+const SUM: (&str, &str) = ("set /a 6*7+1300", "1342");
+
 /// Waits until a thought's run has started in its terminal, or failed: the
 /// launcher finds the program and runs its check off the core's thread.
 fn launched(s: &mut Scene, t: ThoughtId) {
@@ -250,6 +256,7 @@ fn the_agents_exit_code_ends_its_session_and_its_terminal_goes_on_as_a_shell() {
         assert_eq!(m.session(session).exit, Some(code));
         let shell = &m.terminals[&terminal];
         assert_eq!((shell.state, shell.exit), (TerminalState::Running, None));
+        #[cfg(unix)]
         assert_eq!(shell.argv, ["/bin/sh"]);
         let th = m.thought(t);
         assert_eq!(
@@ -600,8 +607,8 @@ fn a_follow_up_whose_agent_exits_before_it_is_typed_is_never_typed() {
     s.w.until("the terminal goes on as a shell", |m| {
         m.terminals[&terminal].kind == TerminalKind::Shell
     });
-    agent.line("echo tasktap-$((6*7))");
-    agent.until("tasktap-42");
+    agent.line(SUM.0);
+    agent.until(SUM.1);
     assert!(!agent.text().contains("rm -rf"), "{}", agent.text());
     s.w.ok::<call::TerminalStop>(&Ref { id: terminal });
     agent.ended();

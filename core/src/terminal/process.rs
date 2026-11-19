@@ -229,8 +229,11 @@ impl Process {
                     *parent != core && !hosts.contains(&name.to_ascii_lowercase().as_str())
                 })
                 .map(|(_, _, name)| {
-                    name.strip_suffix(".exe")
-                        .map_or(name.clone(), str::to_owned)
+                    // `PING.EXE` is `PING`, as a person types it.
+                    let program = name.len().checked_sub(4).filter(|&at| {
+                        name.is_char_boundary(at) && name[at..].eq_ignore_ascii_case(".exe")
+                    });
+                    program.map_or(name.clone(), |at| name[..at].to_owned())
                 });
             Some(others.collect())
         }

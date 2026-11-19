@@ -96,6 +96,7 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
     assert.match(await page.locator('#get').innerText(), /In development/);
     assert.match(await page.locator('#get').innerText(), /There is no download yet/);
     assert.match(await page.locator('#get pre').innerText(), /host\/scripts\/build\.sh/);
+    assert.equal((await page.locator('#get pre').innerText()).trim().split('\n').length, 3, 'the build commands stand on three lines');
     assert.match(await page.locator('.foot .license').innerText(), /source-available under Apache License 2\.0 with the Commons Clause/);
     for (const gone of ['install.sh', 'appcast.xml']) assert.equal((await page.request.get(url + gone)).status(), 404, `${gone} is no longer published`);
     // One metal key in view: the page's two keys are further apart than any window is tall.

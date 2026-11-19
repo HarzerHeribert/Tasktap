@@ -76,16 +76,16 @@ const screens = {
     `${dim('15:41:03')} ${cyan('[vite]')} ${green('hmr update')} ${dim('/src/rehearsal/Timer.tsx')}`,
   ].join('\n'),
   export: [
-    `${bold('codex')} ${dim('0.169.0 · ~/projects/cuegrid')}`,
+    `${orange('✻')} ${bold('Claude Code')} ${dim('v2.1.326 · ~/projects/cuegrid')}`,
     '',
-    `${dim('›')} ${bold('Fix the flaky export test')}`,
+    `${dim('>')} ${bold('Fix the flaky export test')}`,
     '',
-    `${dim('•')} Ran ${cyan('npm test -- export')} 20 times: ${red('3 failed')}`,
-    `  ${dim('└')} ${red('×')} names the file by date`,
+    `${green('●')} ${bold('Bash')}(npm test -- export, 20 times)`,
+    `  ${dim('⎿')}  ${red('3 failed')}: names the file by date`,
     `      expected ${green('"cues-2026-11-17.pdf"')}`,
     `      received ${red('"cues-2026-11-18.pdf"')}`,
     '',
-    `${dim('•')} The test builds its expected name from ${cyan('new Date()')} while the`,
+    `${'●'} The test builds its expected name from ${cyan('new Date()')} while the`,
     '  exporter reads the clock a moment later, so a run that crosses',
     '  midnight in UTC fails.',
   ].join('\n'),
@@ -212,7 +212,9 @@ function scene(name, { now = Date.now(), changes = false } = {}) {
   const busy = name === 'busy' || name === 'workspace', normal = name === 'normal', quiet = name === 'quiet';
   const longPrompt = 'The export test reads the real clock, so a run that crosses midnight in UTC names the file for the next day. Should I freeze time in the test fixture, retry the assertion up to three times, or pass the date into the exporter so the test can choose it?';
   if (busy) {
-    run('export', { p: 'cuegrid', agent: 'codex', text: 'Fix the flaky export test', age: 9, screen: 'export', activity: ['Ran npm test -- export 20 times'],
+    // A question with answers on keys is Claude Code's here: Codex's own questions are answered in its terminal
+    // (core/src/agents/codex.rs), and only its requests to run or change something in the app.
+    run('export', { p: 'cuegrid', text: 'Fix the flaky export test', age: 9, screen: 'export', activity: ['Ran npm test -- export 20 times'],
       ask: { prompt: longPrompt, choices: ['Freeze the clock in the fixture', 'Retry the assertion up to 3 times', 'Pass the date into the exporter'] }, askAge: 2 });
     run('v1', { p: 'ledger', text: 'Retire the v1 import route', age: 12, ask: { prompt: 'Two clients still call v1. Remove it now, or keep it behind a flag for one release?', kind: 'confirm' }, askAge: 9 });
   }

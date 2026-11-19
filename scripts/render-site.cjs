@@ -62,22 +62,8 @@ const TRAFFIC = 'body::after{content:"";position:fixed;z-index:99;left:14px;top:
 /* The list alone: the Composer above it would leave its shadow in the picture's top edge. */
 const ALONE = '.capture{visibility:hidden}';
 const off = (records) => ((records.prefs = (records.prefs || []).filter((p) => p.id !== 'motion_ambient').concat({ id: 'motion_ambient', value: 'off', rev: 70 })), records);
-/* The public site shows only what the app does: Codex's questions are answered in its terminal (core/src/agents/codex.rs,
-   its approvals in the app), so a question with answers on keys that the fixtures give Codex is Claude Code's here. */
-const truthful = (records) => {
-  for (const q of records.questions || []) {
-    if (q.state !== 'open' || q.reply_via !== 'core' || q.kind === 'confirm') continue;
-    const s = (records.sessions || []).find((x) => x.id === q.session_id);
-    if (!s || s.agent !== 'codex') continue;
-    s.agent = 'claude';
-    for (const t of records.thoughts || []) if (t.id === q.thought_id || t.session_id === s.id) t.agent = 'claude';
-  }
-  return records;
-};
 function pictures() {
-  const fixtures = require('./instrument-fixtures.cjs');
-  const scene = (name) => truthful(fixtures.scene(name));
-  const flow = fixtures.flow;
+  const { scene, flow } = require('./instrument-fixtures.cjs');
   const show = (key) => async (page, r) => page.evaluate((id) => window.__ws.show(id), r.ids.projects[key]);
   return {
     // A spoken thought on its way: where it goes, its brief, the words as said, Undo. The Composer 600 wide.

@@ -57,6 +57,10 @@ done < <(find "$app" -type f -print0)
 if [ "$developer" = 1 ] && [ "$(tr ' ' '\n' <<<"$teams" | sed '/^$/d' | sort -u | wc -l | tr -d ' ')" != 1 ]; then
   fail "the programs are signed by more than one team:$teams"
 fi
+# The team the release is meant to be signed by (the workflow's APPLE_TEAM_ID), when it is given.
+if [ "$developer" = 1 ] && [ -n "${APPLE_TEAM_ID:-}" ] && [ "$(tr ' ' '\n' <<<"$teams" | sed '/^$/d' | sort -u)" != "$APPLE_TEAM_ID" ]; then
+  fail "the programs are not signed by the team APPLE_TEAM_ID names"
+fi
 for key in NSMicrophoneUsageDescription NSAppleEventsUsageDescription; do
   /usr/libexec/PlistBuddy -c "Print :$key" "$plist" >/dev/null 2>&1 || fail "Info.plist does not say why the app asks ($key)"
 done

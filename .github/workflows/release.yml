@@ -14,7 +14,8 @@ name: Release Tasktap
 #   APPLE_CERTIFICATE                   the Developer ID Application certificate with its private key, a .p12, base64
 #   APPLE_CERTIFICATE_PASSWORD          the .p12's password
 #   APPLE_SIGNING_IDENTITY              the certificate's name: Developer ID Application: <name> (<team ID>)
-#   APPLE_API_KEY                       the App Store Connect API key's Key ID
+#   APPLE_TEAM_ID                       the team ID; every program must be signed by this team
+#   APPLE_API_KEY                     the App Store Connect API key's Key ID
 #   APPLE_API_ISSUER                    its Issuer ID
 #   APPLE_API_PRIVATE_KEY               the key's .p8 file as it is; written to a file on the runner for notarytool
 #   TAURI_SIGNING_PRIVATE_KEY           the updater's private key file as Tauri's signer wrote it
@@ -60,6 +61,7 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
@@ -67,7 +69,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           missing=""
-          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_KEY APPLE_API_ISSUER \
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_TEAM_ID APPLE_API_KEY APPLE_API_ISSUER \
                       APPLE_API_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD; do
             [ -n "${!name}" ] || missing="$missing, $name"
           done
@@ -145,6 +147,7 @@ jobs:
         run: |
           keychain="$RUNNER_TEMP/tasktap.keychain-db"
           password="$(openssl rand -hex 24)"
+          echo "::add-mask::$password"
           security create-keychain -p "$password" "$keychain"
           security set-keychain-settings -lut 7200 "$keychain"
           security unlock-keychain -p "$password" "$keychain"
@@ -170,10 +173,13 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/private_keys"
           chmod 700 "$RUNNER_TEMP/private_keys"
-          printf '%s\n' "$APPLE_API_PRIVATE_KEY" > "$RUNNER_TEMP/private_keys/AuthKey_$APPLE_API_KEY.p8"
+          (umask 077 && printf '%s\n' "$APPLE_API_PRIVATE_KEY" > "$RUNNER_TEMP/private_keys/AuthKey_$APPLE_API_KEY.p8")
           echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/private_keys/AuthKey_$APPLE_API_KEY.p8" >> "$GITHUB_ENV"
+      # Tauri's names for the notary's key are kept: APPLE_API_ISSUER, APPLE_API_KEY, APPLE_API_KEY_PATH (the file
+      # written above from APPLE_API_PRIVATE_KEY).
       - name: Seal, notarise, make the disk image and the updater's pack
         env:
+          APPLE_TEAM_ID: ${{ env.SIGN == 'true' && secrets.APPLE_TEAM_ID || '' }}
           APPLE_API_ISSUER: ${{ env.SIGN == 'true' && secrets.APPLE_API_ISSUER || '' }}
           APPLE_API_KEY: ${{ env.SIGN == 'true' && secrets.APPLE_API_KEY || '' }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ env.SIGN == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY || needs.plan.outputs.dry_key }}
@@ -181,10 +187,21 @@ jobs:
         run: |
           if [ "$SIGN" != true ]; then export TAURI_SIGNING_PRIVATE_KEY="$(printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" | base64 --decode)"; fi
           host/scripts/release-mac.sh
+      - name: What Apple's tools say of the app
+        env:
+          APPLE_TEAM_ID: ${{ env.SIGN == 'true' && secrets.APPLE_TEAM_ID || '' }}
+        run: |
+          app="$(ls -d host/target/release/bundle/macos/*.app)"
+          dmg="$(ls host/target/release/dist/*.dmg)"
+          echo "== codesign --verify --deep --strict --verbose=2"; codesign --verify --deep --strict --verbose=2 "$app" 2>&1
+          echo "== spctl -a -vv -t exec"; spctl -a -vv -t exec "$app" 2>&1 || true
+          echo "== xcrun stapler validate (app)"; xcrun stapler validate "$app" 2>&1 || true
+          echo "== xcrun stapler validate (disk image)"; xcrun stapler validate "$dmg" 2>&1 || true
+          echo "== spctl -a -vv -t open (disk image)"; spctl -a -vv -t open --context context:primary-signature "$dmg" 2>&1 || true
+          host/scripts/check-signed.sh "$app" $([ "$SIGN" = true ] && echo --developer-id --notarised)
       - name: What is in the bundle, and its size
         run: |
           app="$(ls -d host/target/release/bundle/macos/*.app)"
-          host/scripts/check-signed.sh "$app" $([ "$SIGN" = true ] && echo --developer-id --notarised)
           { echo '### Mac'; echo '```'; ls -l host/target/release/dist; du -sh "$app"; ls -l "$app/Contents/MacOS"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Forget the keychain and the key
         if: always()

@@ -19,7 +19,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUzNjk3RTUxQjAwMEQ1MkEKUldRcTFRQ3dVWDVwNHlYNlNQTWlWaEZDdzhHTUoyZW1EeWJjR0JrdGFndkxXNUJvWlplNEJNN1oK",
       "endpoints": ["https://github.com/HarzerHeribert/Tasktap/releases/latest/download/latest.json"],
       "windows": { "installMode": "passive" }
     }

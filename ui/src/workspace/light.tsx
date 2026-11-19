@@ -161,10 +161,36 @@ function noise() {
   return grain;
 }
 
+/** While the sidebar slides, Home's column narrows or widens in every frame, and the band's form, drawn to fit it, would
+ *  be drawn again at a new size in every frame of the slide, its canvas given that size each time (67 times a second
+ *  on the tower, at Still too). Instead it takes the size it will have when the slide is over, once, as it starts, and
+ *  rides the column's centre until then: the form drawn once, moved by the compositor, the words it keeps clear moving
+ *  with it (Home's column is centred). Where it is at rest nothing of this is left. */
+function useSlide(band: RefObject<HTMLElement | null>) {
+  useLayoutEffect(() => {
+    const el = band.current?.querySelector<HTMLElement>('.motion'), main = band.current?.closest<HTMLElement>('.main'), win = main?.closest<HTMLElement>('.win');
+    if (!el || !main || !win || !band.current) return;
+    if (!ui.slide) {
+      el.style.removeProperty('width');
+      el.style.removeProperty('left');
+      return;
+    }
+    // The column's width at the end: the window's, less the sidebar's where it opens.
+    const side = parseFloat(getComputedStyle(win).getPropertyValue('--side-w')) || 0;
+    const now = band.current.getBoundingClientRect().width, end = now + win.getBoundingClientRect().width - (ui.slide === 'in' ? side : 0) - main.getBoundingClientRect().width;
+    // Its place and width as shares of the band's (window.css .band .motion), at the end's size, about the centre.
+    const width = el.offsetWidth / now, left = el.offsetLeft / now;
+    el.style.width = `${width * end}px`;
+    el.style.left = `calc(50% + ${(left - 0.5) * end}px)`;
+  }, [ui.slide]);
+}
+
 /** Home's light: three pools and the chrome band, behind the column. `load` dims the chrome as the page fills. */
 export function Light({ load }: { load: 'quiet' | 'busy' | 'asks' | 'paged' }) {
   const l = useLight();
+  const band = useRef<HTMLSpanElement>(null);
   useEffect(() => void document.documentElement.style.setProperty('--noise', noise()), []);
+  useSlide(band);
   // Its pools breathe while it moves: the page moves them, at the motion's pace (paced.ts).
   useLayoutEffect(() => stir(), [l.moves]);
   if (l.level === 'off') return null;
@@ -179,7 +205,7 @@ export function Light({ load }: { load: 'quiet' | 'busy' | 'asks' | 'paged' }) {
   return (
     <div class="light" data-state={l.state} data-moves={String(l.moves)} data-stir={ui.greet === 'main' || l.lift || undefined} data-load={load} style={l.vars} aria-hidden="true">
       <i class="pool a" /><i class="pool b" /><i class="pool c" />
-      <span class="band">
+      <span class="band" ref={band}>
         <Motion look={l.look} state={l.state} pace={full ? 'calm' : 'still'} rest={!l.active} primary soft pose={1} pulse={full ? amount() : 0}
           every={l.moves && (l.state === 'thinking' || l.state === 'working') ? 1.25 * tempo() : 0} kick={greets} tempo={pace()} clear=".hx" pad={10} feather={30} />
       </span>

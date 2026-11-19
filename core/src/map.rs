@@ -876,11 +876,15 @@ pub fn remote(config: &str) -> Option<String> {
 
 /// A remote's address as [`remote`] keeps it.
 pub fn address(url: &str) -> Option<String> {
+    // A Windows drive's path, `C:\…` or `C:/…`, is no host `c`.
+    let drive = url.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+        && matches!(url.get(1..3), Some(":\\" | ":/"));
     let local = url.starts_with('/')
         || url.starts_with('.')
         || url.starts_with('~')
         || url.starts_with("file:")
-        || url.get(1..3) == Some(":\\");
+        || url.starts_with('\\')
+        || drive;
     if local || url.is_empty() {
         return None;
     }
@@ -915,8 +919,9 @@ pub struct Input {
     /// Every workspace that is a folder: its id, its folder, and when a
     /// thought last started there.
     pub opened: Vec<(ProjectId, String, Option<Time>)>,
-    /// The cards there are: their folders and the repository each is,
-    /// which is not asked of git again.
+    /// The cards there are: their folders and the first commit of each
+    /// that is a repository (`root <commit>`), which is not asked of git
+    /// again.
     pub known: BTreeMap<String, Option<String>>,
 }
 
@@ -945,6 +950,8 @@ pub struct Made {
     pub looks: Vec<LookId>,
     pub inside: Option<String>,
     pub repo: Option<String>,
+    /// `root <commit>`, for a repository: its first commit.
+    pub root: Option<String>,
     pub project: Option<ProjectId>,
 }
 
@@ -1106,16 +1113,19 @@ pub fn read(input: Input) -> Output {
             continue;
         }
         let facts = facts(&folder, s.git);
-        let repo = match (&facts.remote, s.git) {
-            (Some(remote), _) => Some(format!("remote {remote}")),
-            (None, true) => match known.get(&text).cloned().flatten() {
-                Some(root) if root.starts_with("root ") => Some(root),
-                _ => git
-                    .as_ref()
-                    .and_then(|g| g.root(&folder).ok())
-                    .map(|r| format!("root {r}")),
-            },
-            (None, false) => None,
+        // The first commit of every repository, asked of git once and kept:
+        // a clone of a folder on this machine has no remote, and joins the
+        // repository it was made from by it.
+        let root = match s.git {
+            true => known.get(&text).cloned().flatten().or_else(|| {
+                let root = git.as_ref().and_then(|g| g.root(&folder).ok());
+                root.map(|r| format!("root {r}"))
+            }),
+            false => None,
+        };
+        let repo = match &facts.remote {
+            Some(remote) => Some(format!("remote {remote}")),
+            None => root.clone(),
         };
         let name = folder
             .file_name()
@@ -1131,6 +1141,7 @@ pub fn read(input: Input) -> Output {
             looks: s.looks.into_iter().collect(),
             inside: s.inside.and_then(|p| p.to_str().map(str::to_owned)),
             repo,
+            root,
             project: s.project,
         });
     }
@@ -1227,6 +1238,7 @@ pub fn merge(tx: &mut Tx, out: Output, now: Time) -> store::Result<u32> {
                 why: Vec::new(),
                 agents: Vec::new(),
                 repo: None,
+                root: None,
                 copy_of: None,
                 inside: None,
                 project_id: None,
@@ -1260,6 +1272,7 @@ pub fn merge(tx: &mut Tx, out: Output, now: Time) -> store::Result<u32> {
         c.why = m.why;
         c.agents = m.agents;
         c.repo = m.repo;
+        c.root = m.root;
         c.used = match (c.used, m.used) {
             (Some(a), Some(b)) => Some(a.max(Time::new(b).unwrap_or(a))),
             (a, b) => a.or(b.and_then(Time::new)),
@@ -1336,27 +1349,64 @@ pub fn offered(c: &Card) -> bool {
     c.copy_of.is_none() && c.inside.is_none() && !c.hidden && c.available
 }
 
+/// Which repository each card is, for grouping its copies: its remote; for
+/// one without a remote (a clone of a folder on this machine), the remote
+/// of the repositories that share its first commit, when they have one
+/// remote among them; else its first commit. Two repositories with one
+/// first commit and different remotes (a project started from another's
+/// history) stay two.
+pub fn repositories(cards: &[Card]) -> BTreeMap<CardId, String> {
+    fn remote(c: &Card) -> Option<&String> {
+        c.repo.as_ref().filter(|r| r.starts_with("remote "))
+    }
+    let mut remotes: BTreeMap<&str, BTreeSet<&String>> = BTreeMap::new();
+    for c in cards {
+        if let (Some(r), Some(root)) = (remote(c), &c.root) {
+            remotes.entry(root).or_default().insert(r);
+        }
+    }
+    let key = |c: &Card| match (remote(c), &c.root) {
+        (Some(r), _) => Some(r.clone()),
+        (None, Some(root)) => match remotes.get(root.as_str()) {
+            Some(one) if one.len() == 1 => one.first().map(|r| (*r).clone()),
+            _ => Some(root.clone()),
+        },
+        (None, None) => c.repo.clone(),
+    };
+    (cards.iter())
+        .filter_map(|c| Some((c.id, key(c)?)))
+        .collect()
+}
+
 /// Groups the copies of each repository under the one taken as the
 /// project (the module's rule) and writes the cards that changed.
 pub fn copies(tx: &mut Tx) -> store::Result<()> {
     let cards = tx.cards()?;
+    let keys = repositories(&cards);
     let mut by_repo: BTreeMap<&str, Vec<&Card>> = BTreeMap::new();
     for c in cards.iter().filter(|c| !c.hidden) {
-        if let Some(repo) = &c.repo {
+        if let Some(repo) = keys.get(&c.id) {
             by_repo.entry(repo).or_default().push(c);
         }
     }
+    // The repositories in each folder, once: whether a copy is beside
+    // another project is then one lookup, not a pass over every card.
     let parent = |c: &Card| Path::new(&c.folder).parent().map(Path::to_owned);
+    let mut beside: BTreeMap<Option<PathBuf>, BTreeSet<Option<&str>>> = BTreeMap::new();
+    for c in &cards {
+        let key = keys.get(&c.id).map(String::as_str);
+        beside.entry(parent(c)).or_default().insert(key);
+    }
     let mut wanted: BTreeMap<CardId, Option<CardId>> = BTreeMap::new();
     for group in by_repo.values() {
         // A folder of copies: its other folders are copies of the same repository.
         // In a folder of projects: beside another project, not only beside
         // copies of itself (a tool's folder of copies, `workspaces/<repo>/…`).
         let among_projects = |c: &Card| {
-            let p = parent(c);
-            cards
-                .iter()
-                .any(|o| o.id != c.id && parent(o) == p && o.repo != c.repo)
+            let own = keys.get(&c.id).map(String::as_str);
+            beside
+                .get(&parent(c))
+                .is_some_and(|s| s.iter().any(|k| *k != own))
         };
         let main = group.iter().max_by(|a, b| {
             let key = |c: &Card| {
@@ -1509,7 +1559,7 @@ fn input(core: &mut Core) -> Result<Input, Error> {
         let known = tx
             .cards()?
             .into_iter()
-            .map(|c| (c.folder, c.repo))
+            .map(|c| (c.folder, c.root))
             .collect();
         Ok(Input {
             rule: Rule::new(&home, &data),

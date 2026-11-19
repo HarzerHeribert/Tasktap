@@ -351,6 +351,9 @@ fn a_repository_is_one_project_whatever_its_copies() {
         ),
         ("/Users/someone/projects/cuegrid", None),
         ("file:///srv/cuegrid.git", None),
+        ("C:/Users/someone/cuegrid", None),
+        ("C:\\code\\cuegrid", None),
+        ("\\\\server\\share\\cuegrid", None),
     ];
     for (url, want) in cases {
         assert_eq!(map::address(url).as_deref(), want, "{url}");
@@ -386,6 +389,28 @@ fn a_repository_is_one_project_whatever_its_copies() {
         Some("git@github.com:acme/cuegrid.git"),
     );
     copy(&home.join("projects/cuegrid"), &home.join("work/cuegrid"));
+    // A clone of a folder on this machine: its remote is that folder.
+    git(
+        &home.join("work"),
+        &["clone", "-q", "../projects/cuegrid", "cuegrid-local"],
+    );
+    // A project started from another's history, with a remote of its own:
+    // one first commit, two repositories.
+    repo(
+        &home.join("projects/starter"),
+        "A starter.",
+        Some("git@github.com:acme/starter.git"),
+    );
+    copy(&home.join("projects/starter"), &home.join("projects/kiln"));
+    git(
+        &home.join("projects/kiln"),
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "git@github.com:acme/kiln.git",
+        ],
+    );
     let home = real(&home);
     let look = |folder: PathBuf| Look {
         id: LookId::mint(),
@@ -443,7 +468,7 @@ fn a_repository_is_one_project_whatever_its_copies() {
             .unwrap()
     };
     // One project per repository; the copy beside other projects is it.
-    assert_eq!(projects, 3, "ledger, tidepool, cuegrid");
+    assert_eq!(projects, 5, "ledger, tidepool, cuegrid, starter, kiln");
     let ledger = by("projects/ledger");
     assert!(map::offered(ledger) || map::offered(by("projects/ledger-old")));
     let main = cards
@@ -464,6 +489,11 @@ fn a_repository_is_one_project_whatever_its_copies() {
     // other under it, until the person chooses (`main`).
     let (a, b) = (by("work/cuegrid"), by("projects/cuegrid"));
     assert_eq!((a.copy_of, b.copy_of), (None, Some(a.id)));
+    // The local clone joins them by its first commit; the project started
+    // from their history, with its own remote, does not.
+    assert_eq!(by("work/cuegrid-local").copy_of, Some(a.id));
+    assert_eq!(by("projects/kiln").copy_of, None);
+    assert_eq!(by("projects/starter").copy_of, None);
 }
 
 /// A look in `folder`, on.
@@ -491,7 +521,7 @@ fn reads(store: &mut Store, home: &Path, data: &Path, looks: &[Look]) -> map::Ou
         data: data.to_owned(),
         looks: looks.to_vec(),
         opened: Vec::new(),
-        known: known.into_iter().map(|c| (c.folder, c.repo)).collect(),
+        known: known.into_iter().map(|c| (c.folder, c.root)).collect(),
     })
 }
 

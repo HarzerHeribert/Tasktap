@@ -296,6 +296,12 @@ pub struct Card {
     /// `root <commit>` by its first commit for one without; none for a
     /// folder without Git. Copies of one repository share it.
     pub repo: Option<String>,
+    /// The repository's first commit (`root <commit>`), for one with Git
+    /// whether or not it has a remote: a clone of a folder on this machine
+    /// has no remote of its own, and is a copy of the repository it was
+    /// made from by this.
+    #[serde(default)]
+    pub root: Option<String>,
     /// Another copy of the repository of that card, which is the project:
     /// shown under it, never as a project of its own.
     pub copy_of: Option<CardId>,

@@ -92,7 +92,7 @@ fn main() {
         known: out
             .cards
             .iter()
-            .map(|m| (m.folder.clone(), m.repo.clone()))
+            .map(|m| (m.folder.clone(), m.root.clone()))
             .collect(),
     };
     let began = Instant::now();

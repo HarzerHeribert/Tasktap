@@ -559,8 +559,15 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
             // One copy of a repository is the project: choosing one unchooses the others.
             if let Some(main) = main {
                 if main {
-                    for mut other in tx.cards().map_err(fail)? {
-                        if other.id != c.id && other.main && other.repo == c.repo {
+                    let all = tx.cards().map_err(fail)?;
+                    let repos = crate::map::repositories(&all);
+                    let mine = repos.get(&c.id);
+                    for mut other in all {
+                        if other.id != c.id
+                            && other.main
+                            && mine.is_some()
+                            && repos.get(&other.id) == mine
+                        {
                             other.main = false;
                             tx.put_card(&other).map_err(fail)?;
                         }

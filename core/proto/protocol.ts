@@ -321,6 +321,13 @@ agents: Array<string>,
  */
 repo: string | null,
 /**
+ * The repository's first commit (`root <commit>`), for one with Git
+ * whether or not it has a remote: a clone of a folder on this machine
+ * has no remote of its own, and is a copy of the repository it was
+ * made from by this.
+ */
+root: string | null,
+/**
  * Another copy of the repository of that card, which is the project:
  * shown under it, never as a project of its own.
  */

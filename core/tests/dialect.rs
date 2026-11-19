@@ -447,12 +447,14 @@ fn droid_runs_one_task_and_the_end_of_its_turn_is_read_from_its_transcript() {
     let caps = droid.caps();
     assert!(caps.events && caps.resume && !droid.typed());
     assert_eq!((caps.permissions, caps.questions), (None, None));
+    let settings = Path::new("/data/agents/x").join("settings.json");
+    let settings = settings.to_string_lossy();
     // A settings file of Tasktap's, merged for the one run; edits in the
     // project and no more, until the person lets it run more.
     #[rustfmt::skip]
     assert_eq!(
         droid.launch(&run("-x and /y", None, None)),
-        ["droid", "exec", "--settings", "/data/agents/x/settings.json", "--auto", "low", "--",
+        ["droid", "exec", "--settings", &settings, "--auto", "low", "--",
          "-x and /y"]
     );
     let allowed = ["pi.project".to_owned(), "droid.commands".to_owned()];
@@ -463,7 +465,7 @@ fn droid_runs_one_task_and_the_end_of_its_turn_is_read_from_its_transcript() {
     #[rustfmt::skip]
     assert_eq!(
         droid.launch(&more),
-        ["droid", "exec", "--settings", "/data/agents/x/settings.json", "-m",
+        ["droid", "exec", "--settings", &settings, "-m",
          "custom:DeepSeek-Chat-0", "--auto", "medium", "-s", SESSION, "--", "Go on"]
     );
     let option = &droid.options()[0];

@@ -652,7 +652,11 @@ if ($DryRun) {
         $now = [Tasktap.Meter]::CardRead()
         Tell "The card answers through $source; now: $(F $now[0] 0) % busy, $(F $now[1]) W, $(F $now[2] 0) °C, fan $(F $now[3] 0) %, $(F $now[4] 0) MHz."
     } else { Tell "The card does not answer ($cardWhy): a round would refuse to start." }
-    if ($counters) { Tell "Windows' counters for the graphics processor cannot be read: $counters." } else {
+    # A standard account signed in over SSH may not read the counters' names (they are the interactive account's:
+    # PDH_CANNOT_READ_NAME_STRINGS); at the desktop it may (seen on the tower, 2026-11-19).
+    $remote = $counters -and $session -eq 0 -and $counters -match 'c0000bc8'
+    if ($remote) { Tell "Windows' counters for the graphics processor are not readable over SSH (${counters}: their names are read only by an account signed in at the screen); the round reads them at the desktop." }
+    elseif ($counters) { Tell "Windows' counters for the graphics processor cannot be read: $counters." } else {
         Start-Sleep -Seconds 1
         $t = [Tasktap.Meter]::Sample($ids, $dwm)
         Tell "Windows' counters answer: $($t.Instances) engines of processes; the busiest process now: $(if ($t.TopUse -gt 0) { "$(Who $t.TopPid), $(F $t.TopUse 2) % of its $($t.TopKind) engine" } else { 'none' }); the compositor $(F (Kind $t.Compositor '3D') 2) % of its 3D engine."
@@ -661,7 +665,7 @@ if ($DryRun) {
     Tell "The round: the floor, then $($plan.Count) states of $Seconds s at the window's size '$Size', effects $($levels -join ', ')$(if ($lumens) { ", Lumen $($lumens -join ', ') where it applies" }): about $([Math]::Ceiling($estimate / 60)) minutes$(if ($estimate -gt 900) { ', OVER the quarter of an hour: a round this long is refused' })."
     foreach ($p in $plan) { Tell "  $($p.state), effects $($p.effects)$(if ($p.lumen) { ", Lumen $($p.lumen)" }): $($catalogue[$p.state].what)" }
     foreach ($s in $skipped) { Tell "  not at full size: $s (the window is minimised for it, so its size changes nothing)" }
-    exit [int]($missing.Count -gt 0 -or -not $screen.ready -or -not $source -or [bool]$counters)
+    exit [int]($missing.Count -gt 0 -or -not $screen.ready -or -not $source -or ($counters -and -not $remote))
 }
 
 if ($missing) { throw "Missing: $($missing -join ', '). Run scripts/winvm/host.sh --tower first." }

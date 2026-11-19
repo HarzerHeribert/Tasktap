@@ -8,12 +8,13 @@ mod common;
 
 use common::*;
 use serde_json::{Value, json};
-use tasktap_core::route::{Followed, Named, Request, accept, local, same, short};
+use tasktap_core::route::{Followed, Named, Request, accept, local, request, same, short};
 use tasktap_core::state::{Candidate, Destination, Route};
+use tasktap_core::store::Store;
 use tasktap_proto::{
-    AddProject, Capture, FixtureClock, Hint, Mode, Placed, PrefPatch, ProjectId, ProjectPatch, Put,
-    PutTarget, QuestionKind, QuestionSource, RouteBy, Routing, SessionId, SessionState, Status,
-    Thought, ThoughtId, call,
+    AddProject, Capture, FixtureClock, Hint, Mode, Placed, PrefPatch, ProjectId, ProjectKind,
+    ProjectPatch, Put, PutTarget, QuestionKind, QuestionSource, RouteBy, Routing, SessionId,
+    SessionState, Status, Thought, ThoughtId, call,
 };
 
 #[test]
@@ -284,6 +285,231 @@ fn a_normal_build_routes_by_name_and_hints_the_same() {
         (Status::Routed, Some(folio), None)
     );
     assert_eq!(th.placed, Some(Placed::Name));
+    core.stop();
+}
+
+#[test]
+fn the_longest_name_said_wins_and_names_said_alike_are_a_choice() {
+    // Near-duplicate names, as core/scripts/place-eval.json has them, with
+    // the words of a name joined by hyphens, underscores and spaces.
+    let names = [
+        "tidepool",
+        "tidepool-mobile",
+        "tidepool-mobile-api",
+        "ledgerline",
+        "ledger-api",
+        "lumenbox",
+        "lumenbox_firmware",
+        "kiln",
+        "kiln themes",
+        "cuegrid-web",
+        "cuegrid_web",
+    ];
+    let projects: Vec<Named> = (names.iter())
+        .map(|n| Named {
+            id: ProjectId::mint(),
+            name: (*n).into(),
+            aliases: Vec::new(),
+        })
+        .collect();
+    let id = |name: &str| projects.iter().find(|p| p.name == name).unwrap().id;
+    // (text, where it goes: Ok for clear, the choices otherwise)
+    let table: Vec<(&str, Result<&str, Vec<&str>>)> = vec![
+        // The longest name said wins, its words written apart, joined as
+        // the name joins them, or joined otherwise; whatever the case.
+        (
+            "tidepool mobile drains the battery while uploading",
+            Ok("tidepool-mobile"),
+        ),
+        ("tidepool-mobile drains the battery", Ok("tidepool-mobile")),
+        ("Tidepool  Mobile drains the battery", Ok("tidepool-mobile")),
+        (
+            "the tidepool mobile api returns 500",
+            Ok("tidepool-mobile-api"),
+        ),
+        ("In Tidepool the face grouping merges twins", Ok("tidepool")),
+        (
+            "ledger api should return 404 for a customer",
+            Ok("ledger-api"),
+        ),
+        (
+            "ledgerline: the reminder mails go out twice",
+            Ok("ledgerline"),
+        ),
+        (
+            "the lumenbox firmware drops frames at 44 hertz",
+            Ok("lumenbox_firmware"),
+        ),
+        ("lumenbox_firmware drops frames", Ok("lumenbox_firmware")),
+        ("lumenbox-firmware drops frames", Ok("lumenbox_firmware")),
+        ("add a dark theme to kiln themes", Ok("kiln themes")),
+        ("add a dark theme to kiln-themes", Ok("kiln themes")),
+        ("kiln builds are slow", Ok("kiln")),
+        // The shorter said on its own as well: both are named.
+        (
+            "tidepool mobile and tidepool both crash on start",
+            Err(vec!["tidepool", "tidepool-mobile"]),
+        ),
+        // Two names said alike: the person chooses, nothing is guessed.
+        (
+            "cuegrid web has a typo",
+            Err(vec!["cuegrid-web", "cuegrid_web"]),
+        ),
+        // An underscore joins words: a name inside a longer word is none.
+        ("fix the tidepool_v2 sync", Err(vec![])),
+    ];
+    for (text, expected) in table {
+        let request = Request {
+            text: text.into(),
+            projects: projects.clone(),
+            ..Request::default()
+        };
+        let wanted = match expected {
+            Ok(name) => Route::Clear {
+                to: Destination::New(id(name)),
+                brief: text.into(),
+            },
+            Err(names) if names.is_empty() => Route::Unknown,
+            Err(names) => Route::Ambiguous {
+                prompt: "Where should this go?".into(),
+                candidates: (names.iter())
+                    .map(|n| Candidate {
+                        label: (*n).into(),
+                        to: Destination::New(id(n)),
+                    })
+                    .collect(),
+                brief: None,
+            },
+        };
+        assert_eq!(local(&request), wanted, "{text:?}");
+    }
+}
+
+#[test]
+fn scratch_is_no_place_a_router_offers() {
+    let data = Folder::new("scratch");
+    let (mut store, _) = Store::open(&data.0.join("core.db"), time(wall_ms())).unwrap();
+    let tx = store.begin().unwrap();
+    let r = request(&tx, "start from scratch on the landing page", None).unwrap();
+    assert_eq!(r.projects, [], "Scratch is offered to the routers");
+    assert_eq!(local(&r), Route::Unknown);
+}
+
+#[test]
+fn a_normal_build_places_by_the_longest_name_and_never_in_scratch_unless_picked() {
+    let data = Folder::new("place");
+    let core = Core::with_agents(&data.0);
+    let mut w = core.watch();
+    let mut add = |path: &str, name: &str| {
+        let folder = data.0.join(path);
+        std::fs::create_dir_all(&folder).unwrap();
+        let add = AddProject {
+            id: ProjectId::mint(),
+            folder: folder.to_str().unwrap().into(),
+            name: Some(name.into()),
+        };
+        w.ok::<call::ProjectAdd>(&add)
+    };
+    let (_, mobile) = (
+        add("tidepool", "tidepool"),
+        add("tidepool-mobile", "tidepool-mobile"),
+    );
+    let (kiln, other) = (add("a/kiln", "kiln"), add("b/kiln", "kiln"));
+    let scratch = (w.model.projects.values())
+        .find(|p| p.kind == ProjectKind::Scratch)
+        .map(|p| p.id)
+        .unwrap();
+    // The clock stands still, so a hold never ends.
+    w.ok::<call::FixtureClock>(&FixtureClock {
+        now: time(wall_ms()),
+    });
+    let hint = |w: &mut Watch, text: &str, current| {
+        let text = text.into();
+        w.ok::<call::RouteHint>(&Hint { text, current })
+    };
+    let capture = |w: &mut Watch, capture: Capture| {
+        w.ok::<call::ThoughtCapture>(&Capture {
+            agent: Some("fixture".into()),
+            ..capture
+        });
+        capture.id
+    };
+
+    // The longest name said wins.
+    let text = "tidepool mobile drains the battery while uploading";
+    let clear = tasktap_proto::Route::Clear {
+        to: tasktap_proto::Place::Project(mobile),
+        brief: text.into(),
+    };
+    assert_eq!(hint(&mut w, text, None), clear);
+    let t = capture(&mut w, typed(ThoughtId::mint(), text));
+    let th = w.model.thought(t);
+    assert_eq!(
+        (th.project_id, th.placed),
+        (Some(mobile), Some(Placed::Name))
+    );
+
+    // One name two projects have: the router asks, with both.
+    let t = capture(&mut w, typed(ThoughtId::mint(), "kiln builds are slow"));
+    w.until("the router asks", |m| m.glance().question.is_some());
+    let q = w.model.question(w.model.glance().question.unwrap()).clone();
+    assert_eq!(q.thought_id, Some(t));
+    let mut places = q.places.unwrap();
+    places.sort_by_key(|p| format!("{p:?}"));
+    let mut both = vec![
+        tasktap_proto::Place::Project(kiln),
+        tasktap_proto::Place::Project(other),
+    ];
+    both.sort_by_key(|p| format!("{p:?}"));
+    assert_eq!(places, both);
+
+    // The word "scratch" places nothing in Scratch: the thought is kept.
+    let text = "start from scratch on the landing page";
+    assert_eq!(hint(&mut w, text, None), tasktap_proto::Route::Unknown);
+    let t = capture(&mut w, typed(ThoughtId::mint(), text));
+    let th = w.model.thought(t);
+    assert_eq!(
+        (th.project_id, th.mode, th.placed),
+        (None, Mode::Note, Some(Placed::KeptName))
+    );
+
+    // Picked, Scratch is a place, and a session there is followed up as
+    // any other.
+    let hold = |w: &mut Watch, seconds| {
+        let target = PutTarget::Prefs(PrefPatch::Hold(seconds));
+        w.ok::<call::Put>(&Put {
+            target,
+            if_rev: None,
+        });
+    };
+    hold(&mut w, 0);
+    let run = ThoughtId::mint();
+    let picked = Capture {
+        project_id: Some(scratch),
+        ..typed(run, "wait")
+    };
+    capture(&mut w, picked);
+    w.until("the run has a session", |m| {
+        m.thoughts[&run].session_id.is_some()
+    });
+    let th = w.model.thought(run);
+    assert_eq!(
+        (th.project_id, th.placed),
+        (Some(scratch), Some(Placed::Picked))
+    );
+    let session = th.session_id.unwrap();
+    hold(&mut w, 5);
+    let text = "and add tests";
+    let follow = Capture {
+        current: Some(session),
+        ..typed(ThoughtId::mint(), text)
+    };
+    let t = capture(&mut w, follow);
+    let th = w.model.thought(t);
+    assert_eq!(
+        (th.session_id, th.placed),
+        (Some(session), Some(Placed::FollowUp))
+    );
     core.stop();
 }
 

@@ -27,7 +27,13 @@
 //! | names nothing | `unknown`: it stays an idea |
 //!
 //! A name is named when it appears in the text as whole words, ignoring
-//! case. The brief is the person's text unchanged.
+//! case; a name of several words joined by hyphens, underscores or spaces
+//! (`tidepool-mobile`) also when its words are written with any of those
+//! between them ("tidepool mobile"). Where one project's name is said
+//! inside a longer name of another ("tidepool" in "tidepool mobile"), the
+//! longer is meant; two said alike are a choice. Scratch is never offered:
+//! a thought goes there only when the person picks it. The brief is the
+//! person's text unchanged.
 //!
 //! What the core enforces on a model's answer, whatever the instructions
 //! made of it ([`accept`]); an answer that breaks a rule is not used at
@@ -43,10 +49,12 @@
 //! | a title is one line of at most 60 characters | it has none |
 //! | the person picked the destination | only the brief and the title are taken |
 
+use std::ops::Range;
+
 use serde_json::{Value, json};
 use tasktap_proto::{
-    Collection, Error, Hint, ProjectId, RouteBy, RouteTerms, Routing, SessionId, SessionState, Set,
-    Status, ThoughtId,
+    Collection, Error, Hint, ProjectId, ProjectKind, RouteBy, RouteTerms, Routing, SessionId,
+    SessionState, Set, Status, ThoughtId,
 };
 
 use crate::agents::{self, Agent, Headless};
@@ -102,7 +110,8 @@ pub struct Request {
     pub current: Option<SessionId>,
     /// The destination the person picked themselves: only the brief is open.
     pub picked: Option<Destination>,
-    /// Projects a run can start in: open, with their folder there.
+    /// Projects a run can start in: open, with their folder there, and
+    /// never Scratch, which only the person picks.
     pub projects: Vec<Named>,
     /// Sessions a follow-up can go to, each in one of `projects`.
     pub sessions: Vec<Followed>,
@@ -161,14 +170,16 @@ pub fn request(tx: &Tx, text: &str, current: Option<SessionId>) -> store::Result
         Some(Set::Sessions(rows)) => rows.put,
         _ => Vec::new(),
     };
-    let projects: Vec<_> = (projects.into_iter())
+    let (projects, scratch): (Vec<_>, Vec<_>) = (projects.into_iter())
         .filter(|p| p.open && p.available)
-        .collect();
+        .partition(|p| p.kind != ProjectKind::Scratch);
+    // A session in Scratch is followed up as any other, when the person is
+    // in it or names it.
     let followed = (sessions.into_iter())
         // A follow-up to an ended session resumes it, when its agent left a handle.
         .filter(|s| s.state != SessionState::Ended || s.resume.is_some())
         .filter_map(|s| {
-            let project = projects.iter().find(|p| p.id == s.project_id)?;
+            let project = (projects.iter().chain(&scratch)).find(|p| p.id == s.project_id)?;
             let label = format!("The {} session in {}", s.agent, project.name);
             Some(Followed {
                 id: s.id,
@@ -198,21 +209,44 @@ pub fn request(tx: &Tx, text: &str, current: Option<SessionId>) -> store::Result
     })
 }
 
-/// Whether the capture names the project, by its name or an alias.
-fn names(text: &str, p: &Named) -> bool {
+/// Where the capture names the project, by its name or an alias.
+fn said_at(text: &str, p: &Named) -> Vec<Range<usize>> {
     std::iter::once(&p.name)
         .chain(&p.aliases)
-        .any(|n| mentions(text, n))
+        .flat_map(|n| spans(text, n))
+        .collect()
+}
+
+/// Whether the capture names the project, by its name or an alias.
+fn names(text: &str, p: &Named) -> bool {
+    !said_at(text, p).is_empty()
 }
 
 /// Whether the capture names the session.
 fn follows(text: &str, s: &Followed) -> bool {
-    s.name.as_deref().is_some_and(|n| mentions(text, n))
+    s.name
+        .as_deref()
+        .is_some_and(|n| !spans(text, n).is_empty())
 }
 
 /// The rules of the module's table, over `r` alone.
 pub fn local(r: &Request) -> Route {
-    let named: Vec<&Named> = (r.projects.iter()).filter(|p| names(&r.text, p)).collect();
+    // A project is named where its name is not said only inside a longer
+    // name of another: "tidepool mobile" names `tidepool-mobile`, not
+    // `tidepool` as well.
+    let said: Vec<_> = (r.projects.iter())
+        .map(|p| (p, said_at(&r.text, p)))
+        .collect();
+    let inside = |p: &Named, a: &Range<usize>| {
+        (said.iter()).any(|(q, at)| {
+            q.id != p.id
+                && (at.iter()).any(|b| b.start <= a.start && a.end <= b.end && b.len() > a.len())
+        })
+    };
+    let named: Vec<&Named> = (said.iter())
+        .filter(|(p, at)| at.iter().any(|a| !inside(p, a)))
+        .map(|(p, _)| *p)
+        .collect();
     let sessions: Vec<&Followed> = (r.sessions.iter())
         .filter(|s| follows(&r.text, s))
         .collect();
@@ -595,19 +629,36 @@ pub fn terms(cx: &mut Cx, _: tasktap_proto::Empty) -> Result<RouteTerms, Error> 
     })
 }
 
-/// Whether `name` appears in `text` as whole words, ignoring case.
-fn mentions(text: &str, name: &str) -> bool {
-    let name = name.trim().to_lowercase();
-    if name.is_empty() {
-        return false;
-    }
-    let text = text.to_lowercase();
+/// Where `name` appears in `text` as whole words, ignoring case: the
+/// byte ranges in the lower-cased text. The words of a name joined by
+/// hyphens, underscores or spaces may be joined by any of those there.
+fn spans(text: &str, name: &str) -> Vec<Range<usize>> {
+    let joint = |c: char| c == '-' || c == '_' || c.is_whitespace();
     let word = |c: char| c.is_alphanumeric() || c == '_';
-    text.match_indices(&name).any(|(at, _)| {
-        let before = text[..at].chars().next_back();
-        let after = text[at + name.len()..].chars().next();
-        !before.is_some_and(word) && !after.is_some_and(word)
-    })
+    let name = name.to_lowercase();
+    let parts: Vec<&str> = name.split(joint).filter(|p| !p.is_empty()).collect();
+    let Some((head, tail)) = parts.split_first() else {
+        return Vec::new();
+    };
+    let text = text.to_lowercase();
+    let mut found = Vec::new();
+    for (at, _) in text.match_indices(head) {
+        if text[..at].chars().next_back().is_some_and(word) {
+            continue;
+        }
+        let mut end = at + head.len();
+        let whole = tail.iter().all(|part| {
+            let rest = &text[end..];
+            let gap = rest.len() - rest.trim_start_matches(joint).len();
+            let next = gap > 0 && rest[gap..].starts_with(part);
+            end += if next { gap + part.len() } else { 0 };
+            next
+        });
+        if whole && !text[end..].chars().next().is_some_and(word) {
+            found.push(at..end);
+        }
+    }
+    found
 }
 
 /// `route.hint`: the local match for a capture being typed. It stores

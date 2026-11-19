@@ -23,9 +23,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $checkout = if ($Checkout) { $Checkout } else { Split-Path (Split-Path $PSScriptRoot -Parent) -Parent }
 $triple = "$Target-pc-windows-msvc"
-$app = "$checkout\host\target\$triple\release\Tasktap Next"
-$exe = "$app\Tasktap Next.exe"
-$data = "$env:LOCALAPPDATA\Tasktap Next"
+$app = "$checkout\host\target\$triple\release\Tasktap"
+$exe = "$app\tasktap-app.exe"
+$data = "$env:LOCALAPPDATA\Tasktap"
 $tmp = Join-Path ([IO.Path]::GetTempPath()) "tasktap-desk-$PID"
 . "$checkout\host\scripts\app.ps1"
 
@@ -499,7 +499,7 @@ $rows['1'] = 'Starts the app as Explorer would, with no debug channel and its ow
     $core = Under $data | Where-Object Name -eq 'tasktap'
     $views = Children $process 'msedgewebview2'
     Check 1 'the core and the web view run beside the app' ($core -and $views) "tasktap.exe: $(($core | ForEach-Object Path) -join ', '); msedgewebview2.exe under the app: $($views.Count)"
-    Check 1 'its data is in %LOCALAPPDATA%\Tasktap Next' (Test-Path "$data\core.db") "$data\core.db"
+    Check 1 'its data is in %LOCALAPPDATA%\Tasktap' (Test-Path "$data\core.db") "$data\core.db"
     # The tab and the icon: the app is there without its window, as it is on a Mac with its notch.
     $tab = $null
     for ($i = 0; $i -lt 40 -and -not $tab; $i++) { Start-Sleep -Milliseconds 250; $tab = [Tasktap.Desk]::Every() | Where-Object { $_.ProcessId -eq $process.Id -and $_.Title -eq 'Tasktap tab' } | Select-Object -First 1 }

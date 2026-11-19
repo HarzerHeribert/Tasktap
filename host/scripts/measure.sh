@@ -1,5 +1,5 @@
 #!/bin/bash
-# host/scripts/measure.sh [runs]: the cost of Tasktap Next, measured as the rebuild plan measured
+# host/scripts/measure.sh [runs]: the cost of Tasktap, measured as the rebuild plan measured
 # 1.2's baseline: the workspace open on one idle shell terminal, the notch collapsed. Per run:
 # launch to the window on screen; top over 60 s (processor use, context switches; wakeups a second)
 # and physical footprint for the host, its WebKit processes and its core. In the first run, after
@@ -20,7 +20,7 @@
 # covered screen; DISPLAY_HZ=144 puts the window on the display of that rate.
 set -u
 host="$(cd "$(dirname "$0")/.." && pwd)"
-exe="$host/target/release/bundle/macos/Tasktap Next.app/Contents/MacOS/tasktap-next"
+exe="$host/target/release/bundle/macos/Tasktap.app/Contents/MacOS/tasktap-app"
 [ -x "$exe" ] || { echo "Build the app first: host/scripts/build.sh"; exit 1; }
 root="$(cd "$host/.." && pwd)"
 on=${DISPLAY_HZ:+--display $DISPLAY_HZ}

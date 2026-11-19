@@ -9,7 +9,8 @@ use tasktap_core::roles::{self, shim};
 use tasktap_core::serve::{self, Options};
 
 const USAGE: &str = "usage: tasktap serve --data <folder> | event <kind> [TEXT] | \
-                     hook <agent> | ask [PROMPT...] | preview <file or address>";
+                     hook <agent> | ask [PROMPT...] | preview <file or address> | \
+                     move-data --from <folder> --data <folder>";
 
 fn main() -> ExitCode {
     let mut args = std::env::args_os();
@@ -30,6 +31,7 @@ fn main() -> ExitCode {
         Some("hook") => return roles::hook(args.collect()),
         Some("ask") => return roles::ask(args.collect()),
         Some("preview") => return roles::preview(args.collect()),
+        Some("move-data") => return move_data(args),
         #[cfg(feature = "fixtures")]
         Some("fixture-agent") => return roles::fixture::run(args.collect()),
         _ => {
@@ -111,6 +113,42 @@ fn serve(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
         detect,
     };
     serve::run(opts).map_err(|e| e.to_string())
+}
+
+/// `move-data --from <folder> --data <folder>`: moves a data folder whole
+/// (`relocate`) and prints what it did as one line of JSON. Exits 77 when a
+/// core runs in the folder or is starting there, having changed nothing.
+fn move_data(mut args: impl Iterator<Item = OsString>) -> ExitCode {
+    let (mut from, mut to, mut bad) = (None, None, false);
+    while let Some(flag) = args.next() {
+        match (flag.to_str(), args.next()) {
+            (Some("--from"), Some(v)) => from = Some(PathBuf::from(v)),
+            (Some("--data"), Some(v)) => to = Some(PathBuf::from(v)),
+            _ => bad = true,
+        }
+    }
+    let (Some(from), Some(to), false) = (from, to, bad) else {
+        let _ = writeln!(io::stderr(), "tasktap: {USAGE}");
+        return ExitCode::from(roles::USAGE);
+    };
+    match tasktap_core::relocate::run(&from, &to) {
+        Ok(moved) => {
+            let _ = writeln!(
+                io::stdout(),
+                "{}",
+                serde_json::to_string(&moved).unwrap_or_default()
+            );
+            ExitCode::SUCCESS
+        }
+        Err(tasktap_core::relocate::Refused::Running) => {
+            let _ = writeln!(io::stderr(), "tasktap: a core runs in {}", from.display());
+            ExitCode::from(roles::REFUSED)
+        }
+        Err(tasktap_core::relocate::Refused::Failed(why)) => {
+            let _ = writeln!(io::stderr(), "tasktap: {why}");
+            ExitCode::from(roles::FAILED)
+        }
+    }
 }
 
 /// A delay given in milliseconds.

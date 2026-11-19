@@ -4,6 +4,8 @@
 <plist version="1.0">
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Tasktap listens only while you hold to talk, to turn what you say into text, and while you try the motion with your voice in Appearance.</string>
+	<string>Tasktap listens only while you hold to talk, to turn what you say into text, and while you try the motion with your voice in Appearance. A program running in one of its terminals may ask too.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>A program or an agent running in one of Tasktap's terminals wants to control another app.</string>
 </dict>
 </plist>

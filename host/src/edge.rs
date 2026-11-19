@@ -49,8 +49,8 @@ use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_MBUTTON, VK_RBUTTON};
 use windows_sys::Win32::UI::Shell::{
     DefSubclassProc, RemoveWindowSubclass, SHAppBarMessage, SHQueryUserNotificationState, SetWindowSubclass, ABM_NEW,
-    ABM_REMOVE, ABN_FULLSCREENAPP, APPBARDATA, NIN_SELECT, QUNS_BUSY, QUNS_NOT_PRESENT, QUNS_PRESENTATION_MODE,
-    QUNS_RUNNING_D3D_FULL_SCREEN,
+    ABM_REMOVE, ABN_FULLSCREENAPP, APPBARDATA, NIN_BALLOONUSERCLICK, NIN_SELECT, QUNS_BUSY, QUNS_NOT_PRESENT,
+    QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, GetClassNameW, GetCursorPos, GetForegroundWindow, GetMessageTime, GetShellWindow,
@@ -75,6 +75,8 @@ const TRAY: u32 = WM_APP + 1;
 const APPBAR: u32 = WM_APP + 2;
 const AWAY: u32 = WM_APP + 3;
 const PLACE: u32 = WM_APP + 4;
+/// Another window came in front: whether it is the workspace's (presence.rs).
+const FRONT: u32 = WM_APP + 5;
 /// The helper's timers: the pointer while it is on the tab or the sheet is open, one more look at what the
 /// shell says after the window in front changed,
 const WATCH: usize = 1;
@@ -263,11 +265,11 @@ pub fn show(panel: usize) {
     }
 }
 
-/// Whether the tab is hidden now: Windows says not to show it, and it is not a sheet the person asked for with the
-/// key. Hidden, the pointer where the tab would be is on nothing.
+/// Whether the tab is hidden now: Tasktap's window is in front (presence.rs), or Windows says not to show it and it
+/// is not a sheet the person asked for with the key. Hidden, the pointer where the tab would be is on nothing.
 pub fn hidden(panel: usize) -> bool {
     // SAFETY: asks which window is in front.
-    BUSY.load(Relaxed) && unsafe { GetForegroundWindow() } != panel as HWND
+    crate::presence::front() || (BUSY.load(Relaxed) && unsafe { GetForegroundWindow() } != panel as HWND)
 }
 
 /// Whether a window is the taskbar or the notification area's overflow: in front for the moment of a click on the
@@ -411,6 +413,10 @@ fn rule() {
     if BUSY.swap(busy, Relaxed) != busy {
         crate::log(json!({"event": "tab", "hidden": busy}));
         post(PLACE);
+        // The same answer says where a question goes: the notch, or a notification (rule 6).
+        if let Some(app) = crate::APP.get() {
+            crate::presence::full(app, busy);
+        }
     }
 }
 
@@ -420,6 +426,7 @@ unsafe extern "system" fn foreground(_: HWINEVENTHOOK, _: u32, window: HWND, _: 
     if !window.is_null() && window as isize != TAB.load(Relaxed) && window != helper() && !bar(window) {
         FOREIGN.store(window as isize, Relaxed);
     }
+    post(FRONT);
     rule();
     SetTimer(helper(), AGAIN, 700, None);
 }
@@ -441,6 +448,8 @@ unsafe extern "system" fn helper_proc(window: HWND, message: u32, w: WPARAM, l: 
                         crate::capture(app);
                     }
                 }
+                // The icon's notification was clicked: the window, at its question.
+                NIN_BALLOONUSERCLICK => crate::notify::clicked_balloon(app),
                 WM_CONTEXTMENU => {
                     let front = GetForegroundWindow();
                     let chosen = tray::menu(window as isize, x, y);
@@ -485,6 +494,13 @@ unsafe extern "system" fn helper_proc(window: HWND, message: u32, w: WPARAM, l: 
         }
         PLACE => {
             notch::place(app);
+            0
+        }
+        // Whether the window in front is the workspace's: the one notice of it on Windows.
+        FRONT => {
+            let workspace = app.get_webview_window(workspace::LABEL).and_then(|w| w.hwnd().ok());
+            let front = workspace.is_some_and(|w| std::ptr::eq(GetForegroundWindow(), w.0));
+            crate::presence::told(app, Some(front), Some(front));
             0
         }
         WM_TIMER if w == WATCH => {
@@ -680,7 +696,8 @@ pub fn end() {
 /// view holds the app for a tenth of a second or two; made before the window it would hold up its first picture,
 /// and made in the same turn as the window is shown it left the window white until it was done (the desktop
 /// round caught that once in five starts).
-pub fn ready(_app: &AppHandle) {
+pub fn ready(app: &AppHandle) {
+    crate::presence::full(app, BUSY.load(Relaxed));
     if TAB.load(Relaxed) == 0 && !helper().is_null() {
         // SAFETY: a timer of the helper window, which ends it at its first turn.
         unsafe { SetTimer(helper(), MAKE, 700, None) };

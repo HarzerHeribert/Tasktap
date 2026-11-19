@@ -2,7 +2,7 @@
 // element to focus next, and the words the records are shown in. Each page's bundle has its own.
 import { type AgentHealth, PREF_DEFAULTS, type Question, type RouteTerms, type SpeechTerms, type Thought, type TurnResult } from '../../core/proto/protocol.ts';
 import { tauriBridge } from './bridge.ts';
-import { Client, Records } from './client.ts';
+import { Client, Records, type Where } from './client.ts';
 import { TALK } from './keys.ts';
 
 export const client = new Client(tauriBridge());
@@ -27,6 +27,21 @@ export const fail = (e: unknown) => {
   page.error = e instanceof Error ? e.message : String(e);
   redraw();
 };
+
+/** Where Tasktap shows itself (docs/rebuild-plan.md, "Where Tasktap shows itself"), as the host last said it to both
+ *  pages at once (the `ui` event `where`, and the reply to `host.where`). Until it has said, the notch is where
+ *  Tasktap is, as it is with the window behind. */
+export const where: Where = { front: false, full: false, notch: true, place: null, question: null };
+/** Takes what the host said; the answer is whether anything changed. */
+export function heardWhere(w: Partial<Where>) {
+  const before = JSON.stringify(where);
+  Object.assign(where, { front: !!w.front, full: !!w.full, notch: !!w.notch, place: w.place ?? null, question: w.question ?? null });
+  return JSON.stringify(where) !== before;
+}
+/** Whether a waiting question is shown by this page now, the rule both pages and their question sheets follow: the
+ *  window while it is in front, the notch otherwise, and never both (rule 3). The notch opens by itself only where
+ *  this holds; the window's sheets come down for a question only where it holds. */
+export const asksHere = (here: 'notch' | 'window') => (here === 'window' ? where.front : where.notch && !where.front);
 
 /** The core's words, shown as they are, as a sentence: begun with a capital and ended with a stop. */
 export const sentence = (s: string) => s.replace(/^./, (c) => c.toUpperCase()).replace(/([^.!?…])$/, '$1.');

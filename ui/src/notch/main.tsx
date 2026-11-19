@@ -16,8 +16,26 @@ import { live, talk } from '../speech/record.ts';
 import { lookOf } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
 import { Mark, Wave } from '../ui.tsx';
-import { agentName, call, client, fail, onRedraw, openQuestions, page, pref, records, redraw, settleFocus, title, ui, unheard } from './model.ts';
+import { agentName, asksHere, call, client, fail, heardWhere, onRedraw, openQuestions, page, pref, records, redraw, settleFocus, title, ui, unheard, where } from './model.ts';
 import { fold, reveal } from './panel.ts';
+import type { Where } from '../client.ts';
+
+/** How long a notch that opened by itself for a question stays open untouched before it folds (docs/rebuild-plan.md,
+ *  "Where Tasktap shows itself", rule 4). The pointer over it holds it; a click or a key makes it the person's. Its
+ *  amber glow stays until the question is answered. */
+const UNTOUCHED = 10_000;
+let idle = 0;
+function untouched() {
+  clearTimeout(idle);
+  if (ui.auto && !ui.touched && !ui.inside) idle = window.setTimeout(() => ui.auto && !ui.touched && !ui.inside && fold(), UNTOUCHED);
+}
+/** The host said where Tasktap is: the window coming in front folds the notch (rule 3), what was typed staying for
+ *  the next time; going behind, the glance is back, glowing while a question waits, and opens nothing by itself. */
+function followWhere(w: Partial<Where>) {
+  if (!heardWhere(w)) return;
+  if (!where.notch && ui.mode !== 'closed') fold();
+  redraw();
+}
 
 const body = document.body;
 const root = document.documentElement.style;
@@ -34,12 +52,15 @@ const host = {
   },
   'hover-enter'() {
     ui.inside = true;
-    if (ui.mode !== 'closed') return;
+    clearTimeout(idle);
+    // While Tasktap's window is in front the notch is put away, and the pointer opens nothing (rule 1).
+    if (ui.mode !== 'closed' || !where.notch) return;
     clearTimeout(ui.timer);
     ui.timer = window.setTimeout(() => ui.inside && reveal('hover', openQuestions().length ? 'answer' : 'home'), 170);
   },
   'hover-exit'() {
     ui.inside = false;
+    untouched();
     if (ui.mode !== 'hover' || document.hasFocus()) return;
     clearTimeout(ui.timer);
     ui.timer = window.setTimeout(() => !ui.inside && ui.mode === 'hover' && fold(), 320);
@@ -69,11 +90,14 @@ records.onchange = () => {
   known.clear();
   for (const q of open) known.add(q.id);
   // A notch the last question opened by itself is still its own to fold: a new question that
-  // arrives while that fold is pending keeps it open.
-  if (fresh && (ui.mode === 'closed' || ui.auto)) {
+  // arrives while that fold is pending keeps it open. Only where the notch is where Tasktap is (presence.rs): with
+  // Tasktap's window in front the window shows the question, in full screen a notification does (rules 1 and 6).
+  if (fresh && asksHere('notch') && (ui.mode === 'closed' || ui.auto)) {
     reveal('pinned', 'answer');
     ui.auto = true;
-  } else if (fresh && ui.view === 'home') {
+    ui.touched = false;
+    untouched();
+  } else if (fresh && ui.mode !== 'closed' && ui.view === 'home') {
     // Open on the capture line: the question comes first and the line moves under it, the
     // person's typing and its focus with it.
     ui.view = 'answer';
@@ -173,7 +197,7 @@ function App() {
   });
 
   return (
-    <div onPointerDown={() => ui.mode === 'hover' && (ui.mode = 'pinned')}>
+    <div onPointerDown={() => (touch(), ui.mode === 'hover' && (ui.mode = 'pinned'))}>
       <Art glowing={!!g?.needs_you} tint={motion.lumen ? stops(motion.palette, motion.hue) : undefined} />
       <button id="tab" class="tab" type="button" aria-expanded={open} aria-label={label()}
         onClick={() => (open ? fold() : reveal('pinned', questions.length ? 'answer' : 'home'))}>
@@ -189,7 +213,13 @@ function App() {
 
 // Escape folds the notch and the keyboard returns to the app in use; inside a list or a
 // reply it only leaves that.
+/** A click or a key in the open notch: it is the person's now, and does not fold by itself. */
+function touch() {
+  ui.touched = true;
+  clearTimeout(idle);
+}
 document.addEventListener('keydown', (e) => {
+  if (ui.mode !== 'closed') touch();
   if (e.key !== 'Escape' || ui.mode === 'closed' || e.defaultPrevented) return;
   e.preventDefault();
   if (cap.choosing || (ui.capturing && openQuestions().length)) {
@@ -199,13 +229,15 @@ document.addEventListener('keydown', (e) => {
     redraw();
   } else fold();
 });
-void listen<{ do: keyof typeof host } & Record<string, number | boolean>>('ui', ({ payload }) => {
+void listen<{ do: keyof typeof host | 'where' } & Record<string, number | boolean>>('ui', ({ payload }) => {
   if (payload.do === 'geometry') host.geometry(payload);
+  else if (payload.do === 'where') followWhere(payload as unknown as Partial<Where>);
   else host[payload.do]?.();
 });
+void call('host.where', {}).then(followWhere, () => {});
 render(<App />, body);
 // For the debug channel's checks (host/scripts/smoke.sh), which read the records the page holds.
-Object.assign(window, { __records: records, __speech: { talk, live, cap }, __look: (l: Partial<typeof look>) => (Object.assign(look, l), redraw(), look) });
+Object.assign(window, { __records: records, __where: where, __speech: { talk, live, cap }, __look: (l: Partial<typeof look>) => (Object.assign(look, l), redraw(), look) });
 void client
   .sub(['glance', 'thoughts', 'questions', 'results', 'sessions', 'projects', 'prefs', 'agents', 'terminals', 'dictations'], records)
   .then(() => call('host.notch', {}))

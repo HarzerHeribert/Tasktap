@@ -2,7 +2,9 @@
 # host/scripts/smoke.sh: builds Tasktap Next with a core that has the fixture agent, runs it on a
 # temporary data folder and drives it through its debug channel: the notch (a thought saved for
 # later before any folder is open and sent to one, capture, Undo, a run, a trust prompt, a question,
-# affirm, the result), Home (first run, the agents' rings, the question in full, the Folds, Earlier,
+# affirm, the result; where Tasktap shows itself: the notch put away while the window is in front, a question in
+# the strip, Needs you or a line in the title bar, the capture key and the answer keys by the rule, the notch that folds
+# untouched or at a click elsewhere, the notification over a full-screen app), Home (first run, the agents' rings, the question in full, the Folds, Earlier,
 # For later), the sidebar's slide, scrolling without bars, and the workspace (a run's
 # terminal, a question in its pane's strip, a shell typed into, splits, a moved tab, a divider,
 # the sheets, Keep running in background and restore, Stop, text size, Keep and Discard of a run
@@ -346,6 +348,17 @@ until_has notch "text #sheet" 10 "trust this folder" && ask notch "text #sheet" 
 shot trust
 until_has workspace "text .strip" 5 "asks in its terminal" \
   && pass "the trust prompt shows in its pane's strip, which sends the keyboard to the terminal" || fail "the trust prompt shows in its pane"
+# The answer keys always do something (plan, "Where Tasktap shows itself", rule 5): on a question only its terminal
+# answers, ⌃⌥Y, ⌃⌥N and ⌃⌥J each bring the window forward at that terminal, and none asks the core to answer it.
+inputs=$(grep -c '"event":"input"' "$log")
+moved=0
+for k in y n j; do
+  js workspace "(__ws.show('home'), 1)" >/dev/null
+  until_has workspace "eval __ws.ui.view" 3 "home" >/dev/null && send "hotkey $k" && until_has workspace "eval __ws.ui.view" 5 "$project" >/dev/null && moved=$((moved + 1))
+done
+[ "$moved" = 3 ] && [ "$(grep -c '"event":"input"' "$log")" = "$inputs" ] && [ "$(grep -c '"event":"key","goes":"Question(' "$log")" -ge 3 ] \
+  && pass "rule 5: on a question only its terminal answers, ⌃⌥Y, ⌃⌥N and ⌃⌥J each bring the window to that terminal, and none answers for the person" \
+  || fail "the answer keys on a terminal question" "$moved of 3"
 term_line "event:ready"
 until_has notch "eval String(!!document.querySelector('#sheet [data-question]'))" 5 "false" \
   && pass "the agent starting closes the trust question as answered in its terminal" || fail "the trust question closes"
@@ -399,6 +412,74 @@ send 'call delete {"c":"prefs","id":"speech_by"}'
 press workspace ".strip [data-question]" 1 >/dev/null
 until_has workspace "$(screen)" 10 "answer:yes" && [ "$(ask workspace "$(screen)" | grep -c 'answer:yes')" = 2 ] \
   && pass "the strip's key 1, pressed while it has the keyboard, answers the agent" || fail "the strip's keys answer"
+
+echo "== Where Tasktap shows itself: the window or the notch, one place at a time"
+# The system never puts a passive run's window in front, so the check says where it is as the system would
+# (`where front|behind`, `where full on|off`), and brings the window forward for those steps (`front`, `back`) so that
+# it is drawn; the keyboard stays where it is throughout. `hotkey` is a key from any app as the system tells of it.
+hstate() { send state; sleep 0.5; grep '"event":"state"' "$log" | tail -1 | python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
+closed="String(document.querySelector('#sheet').inert)"
+glows="String(!!document.querySelector('#notch-art .glow-set'))"
+open_q() { echo "eval [...__records.questions.values()].filter(q=>q.state==='open'&&q.prompt==='$1').length"; }
+js workspace "(__ws.show('$project'), 1)" >/dev/null
+send front "where front"
+until_has notch "eval __where.front + ' ' + __where.notch" 3 "true false" && [ "$(hstate 'd["notch"]["hidden"]')" = True ] \
+  && until_has workspace "eval String(__ws.ui.active)" 3 "true" \
+  && pass "rule 1: with Tasktap's window in front the notch is put away, and both pages hear it from the host at once" || fail "the window in front puts the notch away" "$(hstate 'd["where"]')"
+term_line "ask:Rule one?"
+until_has workspace "text .strip" 10 "Rule one?" && sleep 1 && [ "$(js notch "$closed")" = true ] && [ "$(js workspace "__where.place")" = strip ] \
+  && pass "rule 1: a question asked while the window shows its terminal is in the strip under it, and the notch does not open" || fail "a question with the window in front" "$(js workspace "JSON.stringify(__where)")"
+js workspace "(__ws.command('settings'), 1)" >/dev/null
+until_has workspace "text .asks-line" 5 "Rule one?" && [ "$(js workspace "__where.place")" = line ] \
+  && pass "rule 1: elsewhere in the window (Settings) one quiet line in the title bar says who asks and what" || fail "the line that leads to the question" "$(js workspace "JSON.stringify(__where)")"
+shot where-line workspace
+send "hotkey capture"
+until_has workspace "eval __ws.ui.sheet?.kind" 3 "capture" && [ "$(js notch "$closed")" = true ] \
+  && pass "rule 1: the capture key over Settings opens New Task in the window, not the notch" || fail "the capture key over a sheet" "$(js workspace "__ws.ui.sheet?.kind")"
+js workspace "(__ws.dismiss(), __ws.show('home'), document.activeElement?.blur(), 1)" >/dev/null
+until_has workspace "eval __where.place" 3 "needs-you" || fail "on Home the question is in Needs you" "$(js workspace "JSON.stringify(__where)")"
+send "hotkey capture"
+until_has workspace "eval document.activeElement?.id + ' ' + __ws.ui.sheet" 3 "capture-input null" && [ "$(js notch "$closed")" = true ] \
+  && pass "rule 1: on Home the capture key puts the caret in Home's own field and opens nothing" || fail "the capture key on Home"
+send "hotkey j"
+until_has workspace "eval __ws.ui.view + ' ' + !!document.activeElement?.closest('.strip [data-question]')" 5 "$project true" \
+  && pass "rule 5: ⌃⌥J with the window in front goes to the question under its terminal, with the keyboard on its answers" || fail "the answer key in the window"
+send "where behind" back
+until_has notch "eval String(__where.notch)" 3 "true" && [ "$(hstate 'd["notch"]["hidden"]')" = False ] && sleep 1 \
+  && [ "$(js notch "$closed")" = true ] && [ "$(js notch "$glows")" = true ] \
+  && pass "rule 3: the window going behind with the question unanswered brings the glance back, glowing, and opens nothing" || fail "the window behind with a question waiting"
+send answer
+until_has notch "text #sheet" 5 "Rule one?" || fail "the answer key opens the notch on the question"
+send front "where front"
+until_has notch "eval $closed" 3 "true" && [ "$(hstate 'd["notch"]["hidden"]')" = True ] \
+  && pass "rule 3: the window coming in front folds the open notch: the question is in one place" || fail "the window in front folds the notch"
+send "where behind" back
+send "hotkey y"
+until_has notch "$(open_q 'Rule one?')" 10 "0" && until_has workspace "$(screen)" 5 "answer:yes" \
+  && pass "rule 5: ⌃⌥Y from another app answers a yes-or-no question through the core" || fail "Yes from another app"
+term_line "ask:Rule four?"
+until_has notch "text #sheet" 10 "Rule four?" && pass "rule 2: with the window behind a question opens the notch by itself" || fail "a question opens the notch"
+sleep 8
+[ "$(js notch "$closed")" = false ] || fail "the notch stays open for its ten seconds"
+until_has notch "eval $closed" 5 "true" && [ "$(js notch "$glows")" = true ] \
+  && pass "rule 4: a notch that opened by itself folds after ten seconds untouched; its glow stays while the question waits" || fail "the untouched notch folds"
+send answer
+until_has notch "eval $closed" 5 "false" && send elsewhere && until_has notch "eval $closed" 3 "true" \
+  && pass "rule 6: a click elsewhere folds the open notch, as on Windows" || fail "a click elsewhere folds the notch"
+send "hotkey n"
+until_has notch "$(open_q 'Rule four?')" 10 "0" && pass "rule 5: ⌃⌥N from another app answers no through the core" || fail "No from another app"
+send "where full on"
+term_line "ask:Rule six?"
+until_has notch "$(open_q 'Rule six?')" 10 "1" && sleep 1 && [ "$(js notch "$closed")" = true ] \
+  && grep '"event":"notify"' "$log" | grep '"body":"Rule six?"' | grep -q '"shown":true' \
+  && pass "rule 6: over a full-screen app the notch does not open, and the question is the one system notification (said, not posted, by a check)" \
+  || fail "a question over a full-screen app" "$(grep '"event":"notify"' "$log" | tail -1)"
+send "where full off" "where system"
+send "hotkey y"
+until_has notch "$(open_q 'Rule six?')" 10 "0" || fail "the last question is answered"
+grep '"event":"notify"' "$log" | grep '"body":"Rule one?"' | grep -q '"shown":false' \
+  && pass "rule 6: a question while the window or the notch can show it sends no notification" || fail "no notification without full screen"
+js workspace "(__ws.show('$project'), 1)" >/dev/null
 term_line "event:turn_finished:All green."
 until_has notch "text .tab .wing.r" 10 "1" && pass "the collapsed glance counts the result as new" || fail "the glance counts the result"
 until_has workspace "eval document.querySelector('.tabw.on .st')?.dataset.s + ' ' + document.querySelector('.row.s.sel .st')?.dataset.s" 5 "ready ready" \

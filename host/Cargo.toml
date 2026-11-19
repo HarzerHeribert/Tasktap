@@ -26,6 +26,8 @@ objc2-foundation = "0.3"
 objc2-app-kit = "0.3"
 # The mouse-moved monitors take a block; already in the tree through objc2-app-kit.
 block2 = "0.6"
+# The one notification Tasktap sends, a question over a full-screen app (src/notify.rs); in the tree already.
+objc2-user-notifications = { version = "0.3", default-features = false, features = ["std", "bitflags", "block2", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationTrigger", "UNUserNotificationCenter"] }
 
 # The core's named pipe, read and written from two threads, its name and whose it is; the
 # clipboard and the power state (src/windows.rs); the window's caption buttons, its colours and

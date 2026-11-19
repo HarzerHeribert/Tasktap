@@ -18,7 +18,10 @@ mod keys;
 #[cfg_attr(windows, path = "windows.rs")]
 mod native;
 mod notch;
+mod notify;
 mod open;
+// Where Tasktap shows itself: the notch, or the window, or a system notification (plan, "Notch").
+mod presence;
 mod speech;
 // Where the tab hangs on a Windows display: arithmetic, tested on every system.
 #[cfg(any(windows, test))]
@@ -158,14 +161,22 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
         // The system's own folder panel, or the folder a check names instead.
         "host.pick" => match std::env::var("TASKTAP_PICK") {
             Ok(folder) => Ok(json!(folder)),
+            // The window's own folder panel: while it is open the window counts as in front still.
             #[cfg(not(windows))]
-            Err(_) => Ok(json!(native::pick_folder())),
+            Err(_) => {
+                presence::pause(page == workspace::LABEL);
+                let chosen = native::pick_folder();
+                presence::pause(false);
+                Ok(json!(chosen))
+            }
             // Modal to the window that asks: the workspace's, or the tab's, whose sheet stays open behind it.
             #[cfg(windows)]
             Err(_) => {
                 edge::picking(true);
+                presence::pause(page == workspace::LABEL);
                 let chosen =
                     native::pick_folder(app.get_webview_window(page).and_then(|w| w.hwnd().ok()).map(|w| w.0 as isize));
+                presence::pause(false);
                 edge::picking(false);
                 chosen.map(|folder| json!(folder))
             }
@@ -182,17 +193,8 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
             open::open(args, &roots, notch::NOTCH.lock().unwrap().passive)
         }
         "host.capture_key" => keys::call(app, args),
-        // The capture key was pressed with the workspace in front and it has no field of its own in view: what
-        // the key opens from another app. Without a notch or a tab that is New Task.
-        "host.capture" => {
-            // (The lock is let go before the notch is asked: it takes it itself.)
-            let panel = notch::NOTCH.lock().unwrap().panel;
-            match panel {
-                0 => workspace::on_menu(app, "new-task"),
-                _ => notch::capture(app),
-            }
-            Ok(Value::Null)
-        }
+        // Where Tasktap shows itself; with `shows`, what the workspace window shows now (presence.rs).
+        "host.where" => Ok(presence::call(app, args)),
         // Windows: which display the tab hangs on, or none.
         #[cfg(windows)]
         "host.tab" => edge::setting(app, args),
@@ -239,6 +241,28 @@ fn input(app: &AppHandle, action: &str) {
     });
 }
 
+/// The question the answer keys act on, as the rule needs it. One the host has not heard the row of yet is
+/// answered as before: the core says whether the answer fits.
+fn asks(app: &AppHandle) -> Option<presence::Asks> {
+    let host = app.state::<Host>();
+    let id = (*host.question.lock().unwrap())?;
+    let known = host.link.questions.lock().unwrap().get(&id).cloned();
+    Some(known.unwrap_or(presence::Asks { id: id.uuid().to_string(), session: None, terminal: false, confirm: true }))
+}
+
+/// What the host's own connection heard besides `glance`: the open questions changed, or a question opened.
+fn heard(app: &AppHandle, heard: core::Heard) {
+    match heard {
+        core::Heard::Questions => {
+            presence::question(app, asks(app));
+            let open: Vec<String> =
+                app.state::<Host>().link.questions.lock().unwrap().values().map(|q| q.id.clone()).collect();
+            notify::settle(&open);
+        }
+        core::Heard::Notify(args) => notify::asked(&args),
+    }
+}
+
 /// The answer shortcuts exist only while a question waits, so they take no keys from other
 /// apps the rest of the time. On Windows the icon in the notification area follows the counts.
 fn glance(app: &AppHandle, g: tasktap_proto::Glance) {
@@ -247,6 +271,7 @@ fn glance(app: &AppHandle, g: tasktap_proto::Glance) {
     let question = g.question;
     let host = app.state::<Host>();
     let before = std::mem::replace(&mut *host.question.lock().unwrap(), question);
+    presence::question(app, asks(app));
     if before.is_some() == question.is_some() {
         return;
     }
@@ -258,30 +283,54 @@ fn glance(app: &AppHandle, g: tasktap_proto::Glance) {
     log(json!({"event": "answer-keys", "on": question.is_some(), "ok": done.is_ok()}));
 }
 
-/// A thought from anywhere: the notch opens with the keyboard in its field, on Windows the tab. Where there is
-/// neither (Windows, with the tab switched off) the workspace comes in front with a field for it.
+/// A thought from anywhere: what the capture key does, also from the icon in the notification area (Windows).
+#[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) fn capture(app: &AppHandle) {
-    // (The lock is let go before the notch is asked: it takes it itself.)
-    let panel = notch::NOTCH.lock().unwrap().panel;
-    match panel {
-        0 => workspace::capture(app),
-        _ => notch::capture(app),
+    pressed(app, presence::Key::Capture);
+}
+
+/// A key from any app, where the rule sends it (plan, "Where Tasktap shows itself"): with the window in front the
+/// caret goes to Home's field or New Task opens over what shows, and ⌃⌥J goes to the question in the window; from
+/// another app the notch opens with the keyboard; a question only its terminal answers brings the window to that
+/// terminal on J, Y and N alike; Yes and No are the core's to carry out otherwise, which never answers for the person.
+fn pressed(app: &AppHandle, key: presence::Key) {
+    let goes = presence::situation().key(key);
+    log(json!({"event": "key", "key": format!("{key:?}"), "goes": format!("{goes:?}")}));
+    match goes {
+        presence::Goes::Field => workspace::capture(app, "field"),
+        presence::Goes::NewTask => workspace::capture(app, "new-task"),
+        presence::Goes::NotchField => notch::capture(app),
+        presence::Goes::NotchQuestion => notch::answer(app),
+        presence::Goes::Question(id) => drop(workspace::show(app, Some(&format!("question:{id}")))),
+        presence::Goes::Core(action) => input(app, action),
+        presence::Goes::Nothing => {}
     }
 }
 
 fn shortcut(app: &AppHandle, shortcut: &Shortcut) {
     let capture_key = keys::CAPTURE.lock().unwrap().as_ref().and_then(keys::system);
-    let panel = notch::NOTCH.lock().unwrap().panel;
     match shortcut.key {
-        // The capture key puts the caret where a thought is typed (plan, "The capture key on Home"). With the
-        // workspace in front that is its page's to say: Home has a field of its own.
-        _ if capture_key.as_ref() == Some(shortcut) && workspace::in_front(app) => workspace::capture(app),
-        _ if capture_key.as_ref() == Some(shortcut) => capture(app),
-        Code::KeyJ if panel == 0 => drop(workspace::show(app, None)),
-        Code::KeyJ => notch::answer(app),
-        Code::KeyY => input(app, "answer.affirm"),
-        Code::KeyN => input(app, "answer.deny"),
+        _ if capture_key.as_ref() == Some(shortcut) => pressed(app, presence::Key::Capture),
+        Code::KeyJ => pressed(app, presence::Key::Answer),
+        Code::KeyY => pressed(app, presence::Key::Yes),
+        Code::KeyN => pressed(app, presence::Key::No),
         _ => {}
+    }
+}
+
+/// The Mac: whether a full-screen app or a presentation is in front, asked when the system says the space or the app
+/// in front changed, and once more a moment later, since a space takes its time to settle. Never on a timer.
+#[cfg(target_os = "macos")]
+fn full_screen(app: &AppHandle, again: bool) {
+    let panel = notch::NOTCH.try_lock().map(|st| st.panel).unwrap_or(0);
+    presence::full(app, native::full_screen(panel));
+    if again {
+        let handle = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(700));
+            let inner = handle.clone();
+            let _ = handle.run_on_main_thread(move || full_screen(&inner, false));
+        });
     }
 }
 
@@ -320,6 +369,31 @@ fn command(app: &AppHandle, line: &str) {
                 native::order_back(window as usize)
             }
         }
+        // `where`: where Tasktap shows itself now. A check's run is never put in front by the system, so it says where
+        // the window is instead, as the system would: `where front|behind|system`, `where full on|off|system`.
+        "where" => match (label, arg) {
+            ("front" | "behind", _) => presence::tell(app, Some(label == "front")),
+            ("system", _) => presence::tell(app, None),
+            ("full", "on" | "off") => presence::tell_full(app, Some(arg == "on")),
+            ("full", _) => presence::tell_full(app, None),
+            _ => log(json!({"event": "where", "state": presence::state()})),
+        },
+        // `hotkey <capture|j|y|n>`: a key from any app, as the system tells of it.
+        "hotkey" => pressed(
+            app,
+            match rest {
+                "j" => presence::Key::Answer,
+                "y" => presence::Key::Yes,
+                "n" => presence::Key::No,
+                _ => presence::Key::Capture,
+            },
+        ),
+        // `elsewhere`: a click outside the app, as the Mac's monitor tells of it (Windows: the keyboard went to another
+        // window, as its watch tells of it).
+        #[cfg(target_os = "macos")]
+        "elsewhere" => notch::elsewhere(app),
+        #[cfg(windows)]
+        "elsewhere" => notch::tell(app, json!({"do": "away"})),
         "menu" => workspace::on_menu(app, rest),
         // `shortcut`: the capture key, as the system tells of it.
         "shortcut" => {
@@ -352,7 +426,7 @@ fn command(app: &AppHandle, line: &str) {
             let workspace = workspace.and_then(|w| w.hwnd().ok()).map(|w| w.0 as isize);
             log(
                 json!({"event": "state", "notch": notch::state(), "question": *app.state::<Host>().question.lock().unwrap(),
-                "workspace": workspace}),
+                "workspace": workspace, "where": presence::state()}),
             )
         }
         // `snapshot <page> <file>`: the page as it is drawn, as PNG.
@@ -456,6 +530,10 @@ fn main() {
                 let app = APP.wait();
                 let _ = app.run_on_main_thread(move || keys::prefer(app, key));
             },
+            |told| {
+                let app = APP.wait();
+                let _ = app.run_on_main_thread(move || heard(app, told));
+            },
         )?;
         Ok((core, link))
     });
@@ -530,10 +608,21 @@ fn main() {
             })?;
             // A passive run (the checks) is driven by its debug channel alone: the person's own
             // pointer passing the notch must not open or hold it while a check reads it.
+            // What the system says of where the person is, which decides where Tasktap shows itself (presence.rs): this
+            // app becoming the active one or not, a full-screen app or a presentation coming or going, a click outside
+            // the app or the panel losing the keyboard. A passive run hears none of it and is told by its check.
             #[cfg(target_os = "macos")]
             if !notch::NOTCH.lock().unwrap().passive {
                 let handle = app.handle().clone();
                 native::watch_pointer(move || notch::moved(&handle));
+                let handle = app.handle().clone();
+                native::watch_active(move |active| presence::told(&handle, Some(active), None));
+                presence::told(app.handle(), Some(native::app_active()), None);
+                let handle = app.handle().clone();
+                native::watch_spaces(move || full_screen(&handle, true));
+                full_screen(app.handle(), false);
+                let (handle, panel) = (app.handle().clone(), notch::NOTCH.lock().unwrap().panel);
+                native::watch_elsewhere(panel, move || notch::elsewhere(&handle));
             }
 
             // Windows: the helper window, the icon in the notification area and what says when to hide the tab.

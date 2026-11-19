@@ -87,18 +87,17 @@ pub fn set_tab(display: &str) {
     save();
 }
 
-/// Whether the workspace window is the one the keyboard is in.
-pub fn in_front(app: &AppHandle) -> bool {
-    app.get_webview_window(LABEL).is_some_and(|w| w.is_focused().unwrap_or(false))
-}
-
-/// The capture key, for the workspace's page to carry out (plan, "The capture key on Home"): the window comes in
-/// front, and the page puts the caret in Home's own field where Home is showing, in New Task's where that is open,
-/// and otherwise asks for what the key opens from another app (`host.capture`).
-pub fn capture(app: &AppHandle) {
+/// The capture key, for the workspace's page to carry out (plan, "Where Tasktap shows itself"): the window comes in
+/// front, and the page puts the caret in Home's own field or New Task's (`to` "field"), or opens New Task over what
+/// it shows ("new-task"). A window made for it is told so as it opens.
+pub fn capture(app: &AppHandle, to: &str) {
+    if app.get_webview_window(LABEL).is_none() {
+        let _ = show(app, Some(&format!("capture:{to}")));
+        return;
+    }
     let _ = show(app, None);
     // Not `capture`: that is what the notch's page is told, and a page hears what any page is told.
-    let _ = app.emit_to(LABEL, "ui", json!({"do": "capture-key"}));
+    let _ = app.emit_to(LABEL, "ui", json!({"do": "capture-key", "to": to}));
 }
 
 /// Shows the workspace window, made the first time; with `at`, the page shows that session's or
@@ -225,10 +224,17 @@ pub fn show(app: &AppHandle, at: Option<&str>) -> tauri::Result<()> {
         if let WindowEvent::Moved(_) | WindowEvent::Resized(_) | WindowEvent::CloseRequested { .. } = event {
             remember();
         }
+        // Whether the window is in front (presence.rs): on the Mac the window taking or losing the keyboard, beside the
+        // app's own activation (main.rs); on Windows the window in front, as the foreground hook tells it (edge.rs).
+        #[cfg(target_os = "macos")]
+        if let WindowEvent::Focused(key) = event {
+            crate::presence::told(&handle, None, Some(*key));
+        }
         if let WindowEvent::Destroyed = event {
             save();
             with(|st| st.shown = false);
             crate::forget_page(&handle, LABEL);
+            crate::presence::closed(&handle);
         }
     });
     // Shown once the page has drawn, or after 3 s if it never says so.
@@ -424,8 +430,7 @@ pub fn on_menu(app: &AppHandle, id: &str) {
             let _ = app.emit_to(LABEL, "ui", json!({"do": "menu", "id": id}));
         }
         _ => {
-            let focused = app.get_webview_window(LABEL).is_some_and(|w| w.is_focused().unwrap_or(false));
-            if focused {
+            if crate::presence::front() {
                 let _ = app.emit_to(LABEL, "ui", json!({"do": "menu", "id": id}));
             }
         }

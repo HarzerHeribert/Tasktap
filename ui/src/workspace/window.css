@@ -82,6 +82,15 @@ button.row:active{background:var(--sel)}
 .newt{display:inline-flex;align-items:center;gap:var(--sp2);height:var(--ctl-h);margin-left:var(--sp2);padding:0 6px 0 var(--sp2);border-radius:var(--r1);font:var(--f-small);color:var(--fg)}
 .newt:hover{background:var(--hover)}
 .newt .wave{--wh:12px;--ww:1.5px;--wg:1.5px}
+/* The line that leads to a waiting question from anywhere in the window but Home and the question's own terminal
+   (plan, "Where Tasktap shows itself", rule 1): one quiet line in the title bar, who asks in the text colour, the
+   question cut to fit, how many more wait, and the cap of the key that goes there. No metal: it is not the view's. */
+.asks-line{display:flex;align-items:center;gap:var(--sp2);flex:0 1 auto;min-width:0;max-width:min(560px,56%);height:var(--ctl-h);margin:0 auto;padding:0 6px 0 var(--sp2);border-radius:var(--r1);font:var(--f-small);color:var(--fg2);overflow:hidden}
+.asks-line:hover{background:var(--hover);color:var(--fg)}
+.asks-line b{flex:none;font:inherit;color:var(--fg)}
+.asks-line .what{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.asks-line .more{flex:none;color:var(--fg3)}
+.asks-line kbd{flex:none}
 .win.dimmed .bar::after{content:"";position:absolute;inset:0;background:var(--scrim);pointer-events:none}
 /* Windows (chrome.tsx). The top row is the title bar: the window is dragged by it, a double click maximises it and a
    right click opens the window's own menu (WebView2 takes app-region for the system's title bar), and what is pressed

@@ -804,6 +804,40 @@ fn folder_has(folder: &std::path::Path, name: &str) -> bool {
     folder.join(name).exists()
 }
 
+/// Droid, in its form for one task, with a settings file of Tasktap's
+/// merged for the run: the end of its turn is read from its transcript.
+/// TASKTAP_LIVE_DROID names its program, TASKTAP_LIVE_DROID_SETTINGS a
+/// settings file for the stand-in person's home (a model of their own at
+/// the service whose key is in the environment) and TASKTAP_LIVE_DROID_MODEL
+/// that model's id.
+#[test]
+#[ignore = "runs Droid for two turns on a key in the environment"]
+fn droid_runs_one_task_and_goes_on_in_a_new_run() {
+    let home = own_home("live-droid-home", "TASKTAP_LIVE_DROID", "droid");
+    let settings = std::env::var("TASKTAP_LIVE_DROID_SETTINGS")
+        .expect("TASKTAP_LIVE_DROID_SETTINGS names a settings file with a model");
+    let model = std::env::var("TASKTAP_LIVE_DROID_MODEL")
+        .expect("TASKTAP_LIVE_DROID_MODEL names the model's id");
+    std::fs::create_dir_all(home.0.join(".factory")).unwrap();
+    std::fs::copy(&settings, home.0.join(".factory/settings.json")).unwrap();
+    let own = std::fs::read(home.0.join(".factory/settings.json")).unwrap();
+    // No sound, no update of itself, never the system's keyring; and a
+    // proxy, where the environment names one.
+    let proxy = std::env::var("HTTPS_PROXY").ok();
+    let mut env = vec![
+        ("DROID_DISABLE_SOUNDS", "1"),
+        ("FACTORY_DROID_AUTO_UPDATE_ENABLED", "false"),
+        ("FACTORY_DISABLE_KEYRING", "1"),
+    ];
+    env.extend(proxy.as_deref().map(|proxy| ("HTTPS_PROXY", proxy)));
+    one_task_and_another("droid", &home, &env, Some(&model));
+    // The person's own settings are as they were.
+    assert_eq!(
+        std::fs::read(home.0.join(".factory/settings.json")).unwrap(),
+        own
+    );
+}
+
 /// Qwen Code, with the settings file of Tasktap's that a variable names: it
 /// asks to be let run a command, which is shown and answered in its
 /// terminal; a follow-up is typed there; a resume goes on with the same

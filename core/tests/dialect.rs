@@ -373,6 +373,126 @@ fn crush_runs_one_task_with_a_data_folder_of_tasktaps_and_its_hooks_say_what_it_
     assert!(row.note.unwrap().starts_with("It runs one task and ends"));
 }
 
+#[test]
+fn droid_runs_one_task_and_the_end_of_its_turn_is_read_from_its_transcript() {
+    let droid = agent("droid");
+    const SESSION: &str = "5329867a-65ce-4bde-9332-5817783e4b8b";
+    let ready = event("droid", "SessionStart");
+    assert_eq!(ready.event, Event::Ready);
+    assert_eq!(ready.resume.as_deref(), Some(SESSION));
+    assert!(matches!(
+        event("droid", "UserPromptSubmit").event,
+        Event::TurnStarted { prompt: Some(prompt) } if prompt.starts_with("Tasktap test: add the comment line")
+    ));
+    assert!(matches!(
+        event("droid", "PreToolUse-Execute").event,
+        Event::Activity { text } if text == "Execute: echo hi && cd /work && git add hello.py && git commit -m tasktap-test"
+    ));
+    assert!(matches!(
+        event("droid", "PreToolUse-Edit").event,
+        Event::Activity { text } if text == "Edit: /work/hello.py"
+    ));
+    assert!(heard("droid", "SessionEnd").is_none());
+    // Its `Stop` names a line of its transcript and says nothing else, and
+    // it comes when the turn failed too: what the turn's end is, is read.
+    let ends = |name: &str| {
+        let stop = droid.event(&[], &payload("droid", name)).unwrap();
+        let Some(Heard::Read { event, files, fill }) = stop else {
+            panic!("{name}: the end of a turn is read from the transcript");
+        };
+        assert_eq!(event.event, Event::TurnFinished { answer: None });
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].extension().unwrap(), "jsonl", "{files:?}");
+        let transcript = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/agents/droid")
+            .join(format!("transcript-at-{name}.jsonl"));
+        let transcript = std::fs::read_to_string(transcript).unwrap();
+        // While the line is not written, the hook reads again.
+        assert!(fill(&event, "").is_none());
+        assert!(fill(&event, "{\"type\":\"session_start\"}\nnot json\n").is_none());
+        (event.id.clone(), fill(&event, &transcript).unwrap())
+    };
+    let (id, done) = ends("Stop");
+    assert_eq!(id, "Stop:a052f0f4-b52a-4e1b-abad-1d4fff9026f2");
+    assert_eq!((done.id, done.resume.as_deref()), (id, Some(SESSION)));
+    let Event::TurnFinished { answer } = done.event else {
+        panic!("what its model said last is the answer");
+    };
+    assert!(
+        answer
+            .unwrap()
+            .starts_with("Added `# hello` as the first line of hello.py")
+    );
+    // A notice of its own in place of an answer: the turn failed, and why.
+    let (_, failed) = ends("Stop-failed-wrong-key");
+    let Event::TurnFailed { error } = failed.event else {
+        panic!("a refused key fails the turn");
+    };
+    assert!(
+        error
+            .unwrap()
+            .starts_with("BYOK Error: 401 Authentication Fails")
+    );
+    // Its own sentence that the run ended, which no model wrote: failed.
+    let (_, early) = ends("Stop-ended-early");
+    let Event::TurnFailed { error } = early.event else {
+        panic!("a run that ended early failed");
+    };
+    assert!(
+        error
+            .unwrap()
+            .starts_with("Exec ended early: insufficient permission to proceed")
+    );
+
+    let caps = droid.caps();
+    assert!(caps.events && caps.resume && !droid.typed());
+    assert_eq!((caps.permissions, caps.questions), (None, None));
+    // A settings file of Tasktap's, merged for the one run; edits in the
+    // project and no more, until the person lets it run more.
+    #[rustfmt::skip]
+    assert_eq!(
+        droid.launch(&run("-x and /y", None, None)),
+        ["droid", "exec", "--settings", "/data/agents/x/settings.json", "--auto", "low", "--",
+         "-x and /y"]
+    );
+    let allowed = ["pi.project".to_owned(), "droid.commands".to_owned()];
+    let more = Run {
+        allowed: &allowed,
+        ..run("Go on", Some("custom:DeepSeek-Chat-0"), Some(SESSION))
+    };
+    #[rustfmt::skip]
+    assert_eq!(
+        droid.launch(&more),
+        ["droid", "exec", "--settings", "/data/agents/x/settings.json", "-m",
+         "custom:DeepSeek-Chat-0", "--auto", "medium", "-s", SESSION, "--", "Go on"]
+    );
+    let option = &droid.options()[0];
+    assert_eq!(
+        (option.id, option.name),
+        ("commands", "Installs, builds, tests and local git")
+    );
+    assert!(agents::option("droid.commands").is_some());
+    let files = droid.files(Path::new("/opt/tasktap/tasktap"));
+    assert_eq!(files[0].0, "settings.json");
+    let settings: Value = serde_json::from_str(&files[0].1).unwrap();
+    let stop = &settings["hooks"]["Stop"][0]["hooks"][0];
+    assert_eq!(
+        (&stop["type"], &stop["timeout"]),
+        (&Value::from("command"), &Value::from(120))
+    );
+    #[cfg(unix)]
+    assert_eq!(stop["command"], "'/opt/tasktap/tasktap' hook droid");
+    assert_eq!(settings["hooks"].as_object().unwrap().len(), 4);
+    let detect = droid.detect();
+    assert_eq!((detect.version_of)("1.14.0\n").as_deref(), Some("1.14.0"));
+    assert!(
+        droid
+            .note()
+            .unwrap()
+            .contains("shows nothing until the end")
+    );
+}
+
 // Through the binary.
 
 #[test]

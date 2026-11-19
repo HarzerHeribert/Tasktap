@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Live runs of Claude Code, Codex, Antigravity and OpenCode through the core (design §14 D).
+# Live runs of the real agents through the core (design §14 D).
 #
 # Each run starts the real agent, installed and signed in on this computer,
 # for a few short turns on the person's own subscription, so this is never
@@ -24,7 +24,8 @@
 #   goose   Goose: a run of one task, and a follow-up that goes on in a new
 #           run (2 turns)
 #   crush   Crush: the same (2 turns)
-#           These three run in a home of their own that the test makes, never
+#   droid   Droid: the same, the end of its turn read from its transcript (2 turns)
+#           These four run in a home of their own that the test makes, never
 #           in the person's, and only when told where the program is and
 #           given a service's key in the environment; none is among the runs
 #           without a name:
@@ -34,12 +35,14 @@
 #                    that provider's key
 #             crush  TASKTAP_LIVE_CRUSH=<program> TASKTAP_LIVE_CRUSH_MODEL=<provider/model>
 #                    and that provider's key
+#             droid  TASKTAP_LIVE_DROID=<program> TASKTAP_LIVE_DROID_MODEL=<model id>
+#                    TASKTAP_LIVE_DROID_SETTINGS=<a settings.json with that model>, and its key
 #   alone   a Codex run with no client attached to its terminal (1 turn)
 #   trust   Claude Code in a folder it has not seen asks, through the core, to be
 #           trusted there; left unanswered (no turn)
 #   loop    the loop check with Claude Code as its agent (1 turn)
 #
-# Usage: core/scripts/live-agents.sh [claude] [codex] [agy] [pi] [opencode] [qwen] [goose] [crush] [alone] [trust] [loop]
+# Usage: core/scripts/live-agents.sh [claude] [codex] [agy] [pi] [opencode] [qwen] [goose] [crush] [droid] [alone] [trust] [loop]
 #        (none: the eight that run on this computer's own accounts)
 #
 # Tasktap writes nothing to ~/.claude, ~/.codex or ~/.gemini: hooks and
@@ -69,6 +72,7 @@ run_of() {
     qwen) echo "qwen_runs_asks_follows_up_and_resumes qwen 3" ;;
     goose) echo "goose_runs_one_task_and_goes_on_in_a_new_run goose 2" ;;
     crush) echo "crush_runs_one_task_and_goes_on_in_a_new_run crush 2" ;;
+    droid) echo "droid_runs_one_task_and_goes_on_in_a_new_run droid 2" ;;
     alone) echo "codex_runs_with_no_window codex 1" ;;
     trust) echo "claude_in_a_new_folder_asks_to_be_trusted_there claude 0" ;;
     loop) echo "the_loop_on_claude claude 1" ;;
@@ -78,7 +82,7 @@ run_of() {
 
 [ $# -eq 0 ] && set -- claude codex agy pi opencode alone trust loop
 for name in "$@"; do
-  run_of "$name" >/dev/null || { echo "live-agents: no run called $name (claude, codex, agy, pi, opencode, qwen, goose, crush, alone, trust, loop)" >&2; exit 64; }
+  run_of "$name" >/dev/null || { echo "live-agents: no run called $name (claude, codex, agy, pi, opencode, qwen, goose, crush, droid, alone, trust, loop)" >&2; exit 64; }
 done
 
 echo "live-agents: the agents on this computer"
@@ -101,6 +105,7 @@ for name in "$@"; do
     qwen) own=TASKTAP_LIVE_QWEN ;;
     goose) own=TASKTAP_LIVE_GOOSE ;;
     crush) own=TASKTAP_LIVE_CRUSH ;;
+    droid) own=TASKTAP_LIVE_DROID ;;
   esac
   if [ -n "$own" ] && [ -z "${!own:-}" ]; then
     echo "live-agents: $name skipped, $own names no program"

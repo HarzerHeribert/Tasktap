@@ -10,20 +10,21 @@
 //! folder of Tasktap's that the run is pointed at, so that nothing is
 //! written to the person's configuration or to their project.
 //!
-//! Qwen Code, Goose and Crush speak it, each proved on the real tool (their
-//! recorded payloads are the tests' fixtures). Two kinds of run:
+//! Qwen Code, Goose, Crush and Droid speak it, each proved on the real tool
+//! (their recorded payloads are the tests' fixtures). Two kinds of run:
 //!
 //! - **Qwen Code stays**: its terminal interface runs the first prompt and
 //!   takes what is typed after it, as Claude Code's does. What it asks, a
 //!   permission or a question, it asks in its terminal; the request is
 //!   heard and shown, and answered there.
-//! - **Goose and Crush run one task and end**: their form for one prompt,
-//!   which does the work and exits, heard through their hooks while it
-//!   runs. Their own terminal interfaces cannot be started with a prompt
-//!   (Crush) or say nothing when a turn fails (Goose); the one-task form
-//!   has neither gap, since its exit says the rest. A follow-up continues
-//!   the conversation in a new run, by the session's id. Such a run asks
-//!   for no approval, as the runs of the other agents are started.
+//! - **Goose, Crush and Droid run one task and end**: their form for one
+//!   prompt, which does the work and exits, heard through their hooks
+//!   while it runs. Their own terminal interfaces cannot be started with a
+//!   prompt (Crush), say nothing when a turn fails (Goose) or want an
+//!   account of their maker's first (Droid); the one-task form has none of
+//!   these gaps, since its exit says the rest. A follow-up continues the
+//!   conversation in a new run, by the session's id. Such a run asks for
+//!   no approval, as the runs of the other agents are started.
 //!
 //! Qwen Code's payloads carry the time, which with the event's name is its
 //! id. Goose's and Crush's carry nothing that tells one turn's events from
@@ -35,9 +36,9 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use serde_json::{Value, json};
-use tasktap_proto::{Answer, Ask, Event, MAX_LINE, MAX_TEXT, QuestionKind, ReplyVia};
+use tasktap_proto::{Answer, Ask, Event, MAX_LINE, MAX_TEXT, QuestionKind, ReplyVia, SessionEvent};
 
-use super::{Agent, Caps, Detect, Heard, Payload, Run, WORDS};
+use super::{Agent, Caps, Choice, Detect, Heard, Payload, Run, WORDS};
 use super::{activity, fit, line, permission, quoted, said};
 
 /// What one of a tool's hook events says.
@@ -69,6 +70,9 @@ pub struct Start<'a> {
     pub model: Option<&'a str>,
     /// The conversation it continues, by the id its hooks named.
     pub resume: Option<&'a str>,
+    /// What the person lets agents do beyond their default
+    /// (`<agent>.<option>`).
+    pub allowed: &'a [String],
     /// Tasktap's folder for this agent.
     pub home: &'a Path,
 }
@@ -103,6 +107,13 @@ pub struct Dialect {
     pub version: &'static [&'static str],
     pub variables: &'static [&'static str],
     pub note: Option<&'static str>,
+    /// What it does only when the person lets it.
+    pub options: &'static [Choice],
+    /// For a tool whose end of a turn does not say what it last said: what
+    /// the turn's end is, from the end of the transcript its payload names
+    /// (`transcript_path`). The event it is given has the id `<event>:`
+    /// and the message the payload names (`message_id`).
+    pub ends: Option<fn(&SessionEvent, &str) -> Option<SessionEvent>>,
 }
 
 /// What stands before a prompt its tool would take for a command.
@@ -162,6 +173,8 @@ pub const QWEN: Dialect = Dialect {
         "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "DASHSCOPE_API_KEY", "DEEPSEEK_API_KEY",
     ],
     note: None,
+    options: &[],
+    ends: None,
 };
 
 const QWEN_SETTINGS: &str = "system-defaults.json";
@@ -269,6 +282,8 @@ pub const GOOSE: Dialect = Dialect {
         "It runs one task and ends; a follow-up goes on in a new run. \
          Its sessions are kept in Tasktap's folder, apart from your own Goose's.",
     ),
+    options: &[],
+    ends: None,
 };
 
 /// Crush, as `crush` 0.101.0 runs one task (`crush run`). A run's data
@@ -317,7 +332,116 @@ pub const CRUSH: Dialect = Dialect {
         "It runs one task and ends; a follow-up goes on in a new run. \
          Its sessions are kept in Tasktap's folder, apart from your own Crush's.",
     ),
+    options: &[],
+    ends: None,
 };
+
+/// Droid, as `droid` 1.14.0 runs one task (`droid exec`), which needs no
+/// account of Factory's for a model of the person's own. A settings file
+/// of Tasktap's is merged for the one run (`--settings`); its sessions stay
+/// with the person's own. How much a run may do without asking is a level:
+/// it is started at `low`, which edits files in the project, and at
+/// `medium` (installs, builds, tests, local git) once the person lets it;
+/// what is beyond its level ends the run, which says so. Which command is
+/// of which level its model says itself.
+///
+/// Its `Stop` says nothing of what was said, and comes when a turn failed
+/// too: the end is read from its transcript ([`droid_ended`]).
+pub const DROID: Dialect = Dialect {
+    id: "droid",
+    name: "Droid",
+    program: "droid",
+    events: DROID_EVENTS,
+    prompt: "prompt",
+    call: "",
+    question: "",
+    args: |run| {
+        let settings = run.home.join(DROID_SETTINGS).to_string_lossy().into_owned();
+        let mut args = vec!["exec".to_owned(), "--settings".into(), settings];
+        if let Some(model) = run.model {
+            args.extend(["-m".into(), model.into()]);
+        }
+        let more = run
+            .allowed
+            .iter()
+            .any(|allowed| allowed == "droid.commands");
+        args.extend(["--auto".into(), if more { "medium" } else { "low" }.into()]);
+        if let Some(handle) = run.resume {
+            args.extend(["-s".into(), handle.into()]);
+        }
+        args.extend(["--".into(), run.told.into()]);
+        args
+    },
+    files: |command| {
+        let hook = json!([{ "hooks": [
+            { "type": "command", "command": command, "timeout": 120 },
+        ] }]);
+        let hooks: serde_json::Map<String, Value> = (DROID_EVENTS.iter())
+            .map(|(event, _)| ((*event).to_owned(), hook.clone()))
+            .collect();
+        vec![(DROID_SETTINGS, json!({ "hooks": hooks }).to_string())]
+    },
+    environment: |_| Vec::new(),
+    // Its one-task form takes `/`, `!` and `@` as they are.
+    commands: "",
+    stays: false,
+    version: &["--version"],
+    #[rustfmt::skip]
+    variables: &[
+        "FACTORY_API_KEY", "FACTORY_DISABLE_KEYRING", "FACTORY_DROID_AUTO_UPDATE_ENABLED",
+        "DROID_DISABLE_SOUNDS", "HTTPS_PROXY", "NO_PROXY", "ANTHROPIC_API_KEY",
+        "DEEPSEEK_API_KEY", "OPENAI_API_KEY",
+    ],
+    note: Some(
+        "It runs one task and ends; a follow-up goes on in a new run. \
+         Its terminal shows nothing until the end.",
+    ),
+    options: &[Choice {
+        id: "commands",
+        name: "Installs, builds, tests and local git",
+        allows: "Droid runs such commands without asking (its --auto medium). \
+                 Which command is one of them its model says itself.",
+    }],
+    ends: Some(droid_ended),
+};
+
+const DROID_SETTINGS: &str = "settings.json";
+const DROID_EVENTS: &[(&str, Says)] = &[
+    ("SessionStart", Says::Ready),
+    ("UserPromptSubmit", Says::Started),
+    ("PreToolUse", Says::Tool),
+    ("Stop", Says::Finished),
+];
+
+/// The end of a turn of Droid's, from its transcript: the line its `Stop`
+/// names. What its model said is the turn's answer. Any other line is why
+/// the turn failed: a notice of its own (a key refused, a model not there)
+/// or its sentence that the run ended early, which no model wrote. None
+/// while the line is not written yet.
+fn droid_ended(event: &SessionEvent, transcript: &str) -> Option<SessionEvent> {
+    let (_, id) = event.id.split_once(':')?;
+    let rows = transcript.lines().rev();
+    let mut rows = rows.filter_map(|row| serde_json::from_str::<Value>(row).ok());
+    let row = rows.find(|row| row.get("id").and_then(Value::as_str) == Some(id))?;
+    let message = row.get("message")?;
+    let texts = message.get("content")?.as_array()?.iter();
+    let texts = texts.filter_map(|part| part.get("text")?.as_str());
+    let said = texts.collect::<Vec<_>>().join("\n");
+    let answered = message.get("role").and_then(Value::as_str) == Some("assistant")
+        && message.get("modelId").is_some();
+    let ended = match answered {
+        true => Event::TurnFinished {
+            answer: Some(fit(&said, 512 << 10)),
+        },
+        false => Event::TurnFailed {
+            error: Some(fit(&line(&said, 500), MAX_LINE)),
+        },
+    };
+    Some(SessionEvent {
+        event: ended,
+        ..event.clone()
+    })
+}
 
 impl Dialect {
     /// The question its question tool asks, as one answered in its terminal.
@@ -356,6 +480,10 @@ impl Agent for Dialect {
         self.stays
     }
 
+    fn options(&self) -> &'static [Choice] {
+        self.options
+    }
+
     fn program(&self) -> &'static str {
         self.program
     }
@@ -381,6 +509,7 @@ impl Agent for Dialect {
             told: &told,
             model: run.model,
             resume: run.resume,
+            allowed: run.allowed,
             home: run.home,
         };
         let mut argv = vec![self.program.to_owned()];
@@ -468,6 +597,19 @@ impl Agent for Dialect {
             Says::Finished => {
                 let answer = p.str("last_assistant_message");
                 let answer = answer.map(|a| fit(a, 512 << 10));
+                // Not said in the payload: read where it is written.
+                if let (None, Some(fill), Some(file)) =
+                    (&answer, self.ends, p.str("transcript_path"))
+                {
+                    let id = format!("{name}:{}", p.str("message_id").unwrap_or_default());
+                    let Heard::Event(event) =
+                        said(id, false, resume, Event::TurnFinished { answer })
+                    else {
+                        return Ok(None);
+                    };
+                    let files = vec![file.into()];
+                    return Ok(Some(Heard::Read { event, files, fill }));
+                }
                 (own, Event::TurnFinished { answer })
             }
             Says::Failed => {

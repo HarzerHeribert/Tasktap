@@ -1,0 +1,1 @@
+{"session_id":"5329867a-65ce-4bde-9332-5817783e4b8b","transcript_path":"/home/person/.factory/sessions/-work/5329867a-65ce-4bde-9332-5817783e4b8b.jsonl","cwd":"/work","permission_mode":"auto-medium","hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"/work/hello.py","old_str":"print(\"hello\")","new_str":"# hello\nprint(\"hello\")"}}

@@ -15,8 +15,8 @@ What the owner found when he first tried the build with the project map (2026-11
 | 7 | [ ] | It is not clear that the question needs him | The question sits where he just typed, in the colour of "needs you" | |
 | 8 | [ ] | The agents' rings with "+3" | One agent control that opens a list in the app's own style | |
 | 9 | [ ] | The Start key turns black | On Home the Composer's key is always the bright key | |
-| 10 | [ ] | Placing by a model should be chosen by the app: the cheapest that works, and one with quota left | Tasktap proposes the order among his agents: included in a subscription first, then the fastest | |
-| 11 | [ ] | He wants to rank them 1, 2, 3 | A ranked list he can reorder, each agent on or off | |
+| 10 | [x] | Placing by a model should be chosen by the app: the cheapest that works, and one with quota left | Tasktap proposes the order among his agents: included in a subscription first, then the fastest | core test of the default order; `scripts/placing-check.cjs`; picture placing-proposed |
+| 11 | [x] | He wants to rank them 1, 2, 3 | A ranked list he can reorder, each agent on or off | `scripts/placing-check.cjs` (move by keys and drag, switches, saved on Return); smoke |
 | 12 | [ ] | Offers and tips appear loose under the Composer | One place for them, "Setup", on Home | |
 
 ## What follows from it
@@ -29,8 +29,8 @@ What the owner found when he first tried the build with the project map (2026-11
 | 16 | [ ] | A waiting question is in one place only: at the Composer, or in Needs you, never both | |
 | 17 | [ ] | "Found n projects" and its list are shown in the setup sheet, not loose on Home | |
 | 18 | [ ] | Setup can be hidden and found again | |
-| 19 | [ ] | If the first agent cannot place (signed out, out of quota, no answer), the next is asked; if none can, Tasktap asks him. The thought says who placed it | |
-| 20 | [ ] | An agreement given to the old wording is asked again | |
+| 19 | [x] | If the first agent cannot place (signed out, out of quota, no answer), the next is asked; if none can, Tasktap asks him. The thought says who placed it | core tests: the next agent places, none can so the person is asked, a limit skips an agent until its time, the 8 s budget |
+| 20 | [x] | An agreement given to the old wording is asked again | store test (old agreement read as a list of one and refused), `placing-check` "Agree again"; the Setup row for it is still open with item 12 |
 | 21 | [ ] | The notch's capture row follows the same rules (agent control, keys, the bright key) | |
 | 22 | [ ] | The same on Windows: the key's ink, the keys' names | |
 | 23 | [ ] | Each finding has a check that would have caught it | |

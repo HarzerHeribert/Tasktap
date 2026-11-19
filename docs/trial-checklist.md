@@ -78,6 +78,13 @@ Decisions for 32 and 33 (Claude, 2026-11-19; applied once Home and the placing l
 | 34 | [ ] | What the app costs the graphics processor was never measured; only the main processor, memory and wake-ups were | Measure it in every state (at rest, agents working, listening, the sidebar moving, effects Off, Still and Full) with the window on screen, on the Mac and on the Windows tower, and set a limit for each | |
 | 35 | [ ] | (follows) At rest the figure is zero, and a check keeps it so | | |
 
+## Layout (owner, same evening)
+
+| # | Done | Finding | Decided fix | Proof |
+| --- | --- | --- | --- | --- |
+| 36 | [ ] | In full screen the content is not in the centre. Should it move with the sidebar, or stay centred whether the sidebar is open or closed? | Being researched: measured on the app, compared with how well-made apps do it, three alternatives rendered; then decided | |
+| 37 | [ ] | (the owner asked) Other practices of interface designers that would lift the app | A ranked list of findings on this app, each with a picture, from the same research | |
+
 ## Proposed by Claude
 
 | # | Done | Proposal | The owner's answer |

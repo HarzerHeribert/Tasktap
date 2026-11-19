@@ -75,10 +75,12 @@ const TRAY: u32 = WM_APP + 1;
 const APPBAR: u32 = WM_APP + 2;
 const AWAY: u32 = WM_APP + 3;
 const PLACE: u32 = WM_APP + 4;
-/// The helper's timers: the pointer while it is on the tab or the sheet is open, and one more look at what the
-/// shell says after the window in front changed.
+/// The helper's timers: the pointer while it is on the tab or the sheet is open, one more look at what the
+/// shell says after the window in front changed,
 const WATCH: usize = 1;
 const AGAIN: usize = 2;
+/// And the moment the tab's window is made, a little after the workspace's window is shown.
+const MAKE: usize = 3;
 
 static HELPER: AtomicIsize = AtomicIsize::new(0);
 static STRIP: AtomicIsize = AtomicIsize::new(0);
@@ -507,6 +509,15 @@ unsafe extern "system" fn helper_proc(window: HWND, message: u32, w: WPARAM, l: 
             rule();
             0
         }
+        WM_TIMER if w == MAKE => {
+            KillTimer(window, MAKE);
+            if TAB.load(Relaxed) == 0 && workspace::tab() != "off" {
+                if let Err(e) = make(app) {
+                    crate::log(json!({"event": "tab", "made": false, "why": e.to_string()}));
+                }
+            }
+            0
+        }
         // The displays, the scale, the taskbar's place or the colour mode changed.
         WM_DISPLAYCHANGE | WM_SETTINGCHANGE => {
             if message == WM_DISPLAYCHANGE || w as u32 == SPI_SETWORKAREA {
@@ -665,12 +676,14 @@ pub fn end() {
     }
 }
 
-/// The workspace has drawn: the tab's page is made now, so that it does not hold up the window's first picture.
-pub fn ready(app: &AppHandle) {
-    if TAB.load(Relaxed) == 0 && workspace::tab() != "off" {
-        if let Err(e) = make(app) {
-            crate::log(json!({"event": "tab", "made": false, "why": e.to_string()}));
-        }
+/// The workspace has drawn and its window is shown: the tab's page is made a moment later. Making a second web
+/// view holds the app for a tenth of a second or two; made before the window it would hold up its first picture,
+/// and made in the same turn as the window is shown it left the window white until it was done (the desktop
+/// round caught that once in five starts).
+pub fn ready(_app: &AppHandle) {
+    if TAB.load(Relaxed) == 0 && !helper().is_null() {
+        // SAFETY: a timer of the helper window, which ends it at its first turn.
+        unsafe { SetTimer(helper(), MAKE, 700, None) };
     }
 }
 

@@ -714,6 +714,9 @@ until_has workspace "eval document.querySelector('.home #capture-input').value +
 send 'call delete {"c":"prefs","id":"return_sends"}'
 until_has workspace "eval String(document.querySelector('.home .capture .key .sends').textContent)" 3 "" || fail "Return sends again"
 js workspace "(__speech.cap.dest = undefined, (t => t && __ws.call('delete', { c: 'thoughts', id: t.id }).catch(() => 0))([...__ws.records.thoughts.values()].find((t) => t.text === 'see whether return sends')))" >/dev/null
+# The keyboard's own names: a Mac's web view cannot say what a key prints, so the host does, from the layout in use.
+layout="$(js workspace "__ws.call('host.layout', {}).then((m) => [[...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].every((c) => [...(m['Key' + c] ?? '')].length === 1), [...'0123456789'].every((d) => m['Digit' + d]), Object.keys(m).length].join(' '))")"
+case "$layout" in "true true "*) pass "the host says what each key prints in the keyboard layout in use, by its place ($(echo "$layout" | cut -d' ' -f3) keys): the names of keys bound by their place" ;; *) fail "the keyboard layout from the host" "$layout" ;; esac
 # The capture key: recorded, refused by the rule in its own sentence, registered with the system, and back to the default.
 js workspace "(__ws.open({ kind: 'settings', at: 'thoughts' }), 1)" >/dev/null
 until_has workspace "$(key_row "From any app")" 5 "| false |" || fail "the capture key's row"

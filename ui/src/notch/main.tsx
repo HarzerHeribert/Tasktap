@@ -18,6 +18,7 @@ import { stops } from '../motion/palette.ts';
 import { Brand, Mark } from '../ui.tsx';
 import { agentName, asksHere, call, client, fail, heardWhere, onRedraw, openQuestions, page, pref, records, redraw, settleFocus, title, ui, unheard, where } from './model.ts';
 import { fold, reveal } from './panel.ts';
+import { watchLayout } from '../keys.ts';
 import type { Where } from '../client.ts';
 
 /** How long a notch that opened by itself for a question stays open untouched before it folds (docs/rebuild-plan.md,
@@ -235,6 +236,8 @@ void listen<{ do: keyof typeof host | 'where' } & Record<string, number | boolea
   else host[payload.do]?.();
 });
 void call('host.where', {}).then(followWhere, () => {});
+// Keys bound by their place are named as the person's keyboard prints them (keys.ts).
+watchLayout(() => call('host.layout', {}), redraw);
 render(<App />, body);
 // For the debug channel's checks (host/scripts/smoke.sh), which read the records the page holds.
 Object.assign(window, { __records: records, __where: where, __speech: { talk, live, cap }, __look: (l: Partial<typeof look>) => (Object.assign(look, l), redraw(), look) });

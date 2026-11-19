@@ -190,6 +190,10 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
         "host.window" => workspace::window(app, args["do"].as_str().unwrap_or_default()),
         "host.clipboard" => Ok(json!(native::clipboard(args["text"].as_str(), notch::NOTCH.lock().unwrap().passive))),
         "host.power" => Ok(json!(native::low_power())),
+        // What each key prints in the keyboard layout in use, by its place: a Mac's web view cannot say (keys.ts
+        // `watchLayout`); on Windows the page asks its own web view.
+        #[cfg(target_os = "macos")]
+        "host.layout" => Ok(Value::Object(native::layout())),
         // A web address, or what is inside a folder the person opened or a copy Tasktap made of one (open.rs).
         "host.open" => {
             let host = app.state::<Host>();

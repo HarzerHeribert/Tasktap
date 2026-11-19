@@ -1,8 +1,42 @@
 // Keys as each system has them (keys.ts): the Mac's as written, Windows' by its rule.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { accelerator, commands, hit, keyName, links, local, ours, spell } from './keys.ts';
+import { ANSWER, accelerator, commands, hit, holds, keyName, learnLayout, links, local, ours, spell } from './keys.ts';
 import { plain, shownPath } from './system.ts';
+
+// Stand-ins for the layout map a web view gives (what each key prints, by its place): a German keyboard's and a US one.
+const DE = { KeyQ: 'q', KeyE: 'e', KeyJ: 'j', KeyY: 'z', KeyZ: 'y', Digit1: '1', Minus: 'ß', Equal: '´', BracketLeft: 'ü', BracketRight: '+', Backslash: '#',
+  Semicolon: 'ö', Quote: 'ä', Backquote: '^', Comma: ',', Period: '.', Slash: '-', IntlBackslash: '<', Space: ' ' };
+const US = { KeyQ: 'q', KeyE: 'e', KeyJ: 'j', KeyY: 'y', KeyZ: 'z', Digit1: '1', Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Backslash: '\\',
+  Semicolon: ';', Quote: "'", Backquote: '`', Comma: ',', Period: '.', Slash: '/' };
+
+test("a key bound by its place is named as the person's keyboard prints it, and still matched by its place", () => {
+  const alt = (code: string) => ({ control: false, alt: true, shift: false, meta: false, code });
+  try {
+    // Before a layout is known: as a US keyboard prints it.
+    assert.equal(keyName(alt('KeyZ'), true), '⌥Z');
+    assert.equal(learnLayout(DE), true);
+    for (const [code, onMac, onWindows] of [['KeyZ', '⌥Y', 'Alt+Y'], ['KeyY', '⌥Z', 'Alt+Z'], ['Minus', '⌥ß', 'Alt+ß'], ['BracketLeft', '⌥Ü', 'Alt+Ü'], ['Semicolon', '⌥Ö', 'Alt+Ö'],
+      ['Quote', '⌥Ä', 'Alt+Ä'], ['Equal', '⌥´', 'Alt+´'], ['Backquote', '⌥^', 'Alt+^'], ['BracketRight', '⌥+', 'Alt++'], ['Slash', '⌥-', 'Alt+-'], ['IntlBackslash', '⌥<', 'Alt+<'],
+      ['Space', '⌥Space', 'Alt+Space'], ['KeyJ', '⌥J', 'Alt+J'], ['Digit1', '⌥1', 'Alt+1']] as const) {
+      assert.equal(keyName(alt(code), true), onMac, code);
+      assert.equal(keyName(alt(code), false), onWindows, code);
+    }
+    assert.equal(keyName(ANSWER, true), '⌃⌥J');
+    assert.equal(spell(keyName(ANSWER, false), false), 'Ctrl+Alt+J');
+    // The same layout again changes nothing; a US one changes the names back.
+    assert.equal(learnLayout(new Map(Object.entries(DE))), false);
+    assert.equal(learnLayout(US), true);
+    for (const [code, said] of [['KeyZ', '⌥Z'], ['Minus', '⌥-'], ['BracketLeft', '⌥['], ['Semicolon', '⌥;'], ['Quote', "⌥'"], ['Backquote', '⌥`']] as const) assert.equal(keyName(alt(code), true), said);
+    // Whatever it is called, a recorded key is the key in that place.
+    learnLayout(DE);
+    const press = { code: 'KeyZ', key: 'y', ctrlKey: false, altKey: true, shiftKey: false, metaKey: false } as KeyboardEvent;
+    assert.ok(holds(press, alt('KeyZ')) && !holds(press, alt('KeyY')));
+  } finally {
+    learnLayout(null);
+  }
+  assert.equal(keyName(alt('KeyZ'), true), '⌥Z');
+});
 
 const press = (key: string, held = '') => ({ key, ctrlKey: held.includes('c'), altKey: held.includes('a'), shiftKey: held.includes('s'), metaKey: held.includes('m') });
 

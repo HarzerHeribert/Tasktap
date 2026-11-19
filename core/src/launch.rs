@@ -45,8 +45,9 @@ pub struct Prepared {
 
 /// The command line of a run. Its program is found, and the check its
 /// agent needs is run, off the core's thread (`Prepared::look`); `start`
-/// takes what they found.
-pub fn prepare(l: &Launch, data: &Path) -> Result<Prepared, String> {
+/// takes what they found. `allowed` is what the person lets agents do
+/// beyond their default (the `agent_options` preference).
+pub fn prepare(l: &Launch, data: &Path, allowed: &[String]) -> Result<Prepared, String> {
     let agent =
         agents::find(&l.agent).ok_or_else(|| format!("this build cannot run {}", l.agent))?;
     let hook =
@@ -61,6 +62,7 @@ pub fn prepare(l: &Launch, data: &Path) -> Result<Prepared, String> {
         resume: l.resume.as_deref(),
         hook: &hook,
         home: &home,
+        allowed,
     };
     let argv = agent.launch(&run);
     let probe = agent.probe(&hook, Path::new(&l.cwd));
@@ -137,7 +139,13 @@ pub fn start(
         rev: Rev::ZERO,
         project_id: Some(l.project),
         kind: TerminalKind::Agent,
-        title: agent.id().into(),
+        // What the person types to start it; what they called one of their own.
+        title: if agent.own() {
+            agent.name()
+        } else {
+            agent.id()
+        }
+        .into(),
         cwd: l.cwd.clone(),
         argv,
         cols: 80,

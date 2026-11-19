@@ -47,17 +47,26 @@ pub enum Asked {
 }
 
 /// Whether `agent` is installed and signed in, as its own commands say.
+/// A core runs them when the person looks at their agents, picks this one
+/// or asks, and the first time it gives the agent a thought: never as it
+/// starts, since some agents write to their own files each time they run
+/// and one asks its service.
 pub fn detect(agent: &dyn Agent) -> AgentHealth {
     let mut health = found(agent);
     let program = crate::terminal::find(agent.program()).filter(|_| health.supported);
     let Some(program) = program else {
         return health;
     };
+    // A command it has not got is not run: the program alone would start it.
     let checks = agent.detect();
-    if let Ok((_, out)) = output(&program, checks.version) {
+    let asked = |args: &'static [&'static str]| match args.is_empty() {
+        true => Err(String::new()),
+        false => output(&program, args),
+    };
+    if let Ok((_, out)) = asked(checks.version) {
         health.version = (checks.version_of)(&out).map(|v| fit(&v, 200));
     }
-    if let Ok((code, out)) = output(&program, checks.account) {
+    if let Ok((code, out)) = asked(checks.account) {
         let (signed_in, identity) = (checks.account_of)(code, &out);
         health.signed_in = signed_in;
         health.identity = identity.map(|i| fit(&i, 200));
@@ -65,16 +74,26 @@ pub fn detect(agent: &dyn Agent) -> AgentHealth {
     health
 }
 
-/// What is known of `agent` before any command of its own has run: its
-/// name, what its runs can do, and whether its program is on the PATH. A
-/// core puts this first as it starts, so a page names its agents and shows
-/// their rings at once; whether each is signed in follows as it answers.
+/// What is known of `agent` with no command of its own run: its name, what
+/// its runs can do, and whether its program is on the PATH. A core puts
+/// this as it starts, with what its commands last said ([`Said`]), so a
+/// page names its agents and shows their rings at once.
 pub fn found(agent: &dyn Agent) -> AgentHealth {
     let caps = agent.caps();
     let mut health = AgentHealth {
         id: agent.id().into(),
         name: agent.name().into(),
         supported: agent.supported(),
+        own: agent.own(),
+        note: agent.note().map(Into::into),
+        checks: !agent.detect().account.is_empty(),
+        options: (agent.options().iter())
+            .map(|o| tasktap_proto::AgentOption {
+                id: o.id.into(),
+                name: o.name.into(),
+                allows: o.allows.into(),
+            })
+            .collect(),
         stale: false,
         // Stamped once the collection takes the row.
         rev: tasktap_proto::Rev::ZERO,
@@ -90,6 +109,69 @@ pub fn found(agent: &dyn Agent) -> AgentHealth {
     };
     health.installed = crate::terminal::find(agent.program()).is_some();
     health
+}
+
+/// What an agent's commands said when a core last ran them, kept in the
+/// data folder so that the next core knows it without running them: whether
+/// it is signed in, and when that was said. Whom it is signed in as is not kept.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Said {
+    pub id: String,
+    pub checked: tasktap_proto::Time,
+    pub signed_in: bool,
+    pub version: Option<String>,
+}
+
+impl Said {
+    /// What `row` says that the next core should know: nothing while its
+    /// commands never said whether it is signed in.
+    pub fn of(row: &AgentHealth) -> Option<Said> {
+        Some(Said {
+            id: row.id.clone(),
+            checked: row.checked,
+            signed_in: row.signed_in.filter(|_| row.installed)?,
+            version: row.version.clone(),
+        })
+    }
+
+    /// `found` with what its agent's commands last said, marked as said
+    /// then (`stale`); as it is for an agent that is not here any more.
+    pub fn onto(&self, found: AgentHealth) -> AgentHealth {
+        match found.installed && found.supported {
+            true => AgentHealth {
+                checked: self.checked,
+                signed_in: Some(self.signed_in),
+                version: self.version.clone(),
+                stale: true,
+                ..found
+            },
+            false => found,
+        }
+    }
+}
+
+/// What is to be kept next: the newest rows, until a write has taken them.
+pub type ToKeep = std::sync::Arc<std::sync::Mutex<Option<Vec<Said>>>>;
+
+/// The file of [`Said`] in the data folder.
+fn said_file(data: &Path) -> std::path::PathBuf {
+    data.join("agents.json")
+}
+
+/// What the agents' commands last said, as a core before this one kept it;
+/// nothing when none did or the file is not as this build writes it.
+pub fn said(data: &Path) -> Vec<Said> {
+    let kept = std::fs::read(said_file(data)).ok();
+    kept.and_then(|text| serde_json::from_slice(&text).ok())
+        .unwrap_or_default()
+}
+
+/// Keeps what the agents' commands said, whole or not at all.
+pub fn keep_said(data: &Path, said: &[Said]) -> std::io::Result<()> {
+    let file = said_file(data);
+    let new = file.with_extension(format!("{}.new", std::process::id()));
+    std::fs::write(&new, serde_json::to_vec(said)?)?;
+    std::fs::rename(&new, &file)
 }
 
 /// [`detect`] for each of `agents`, all at once, each on a thread of its own.

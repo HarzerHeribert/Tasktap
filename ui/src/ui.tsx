@@ -111,7 +111,9 @@ export type RingTone = 'asks' | 'lit' | 'fail';
 export function Ring({ agent, s, turns = s === 'working', size, tone, one = (size ?? 22) < 20 }: {
   agent: string; s: RingState; turns?: boolean; size?: number; tone?: RingTone; one?: boolean;
 }) {
-  const lettered = [...records.agents.keys()].filter((id) => !MARKS[id]);
+  // One the person added is lettered by the name they gave it: its id is Tasktap's and says nothing.
+  const word = (id: string) => (records.agents.get(id)?.own ? records.agents.get(id)!.name : id);
+  const lettered = [...records.agents.keys()].filter((id) => !MARKS[id]).map(word);
   return (
     <svg class="ring-o" viewBox="0 0 24 24" aria-hidden="true" data-tone={tone} style={size ? { '--ring-px': size } : undefined}>
       <linearGradient id="ring-lit" x1="0" y1="1" x2="1" y2="0">
@@ -119,7 +121,7 @@ export function Ring({ agent, s, turns = s === 'working', size, tone, one = (siz
       </linearGradient>
       <circle cx="12" cy="12" r="11" pathLength="100" />
       {turns && <circle class="turn" cx="12" cy="12" r="11" pathLength="100" />}
-      {MARKS[agent] ? <path d={MARKS[agent]} transform="translate(5.5 5.5) scale(.542)" /> : <text class={one ? 'one' : undefined} x="12" y={one ? 17 : 15.6} text-anchor="middle">{lettersOf(lettered, one).get(agent) ?? letters(agent).slice(0, one ? 1 : 2)}</text>}
+      {MARKS[agent] ? <path d={MARKS[agent]} transform="translate(5.5 5.5) scale(.542)" /> : <text class={one ? 'one' : undefined} x="12" y={one ? 17 : 15.6} text-anchor="middle">{lettersOf(lettered, one).get(word(agent)) ?? letters(word(agent)).slice(0, one ? 1 : 2)}</text>}
     </svg>
   );
 }

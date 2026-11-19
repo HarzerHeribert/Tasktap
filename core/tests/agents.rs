@@ -365,6 +365,7 @@ fn run<'a>(prompt: &'a str, model: Option<&'a str>, resume: Option<&'a str>) -> 
         resume,
         hook: Path::new("/opt/tasktap/tasktap"),
         home: Path::new("/data/agents/x"),
+        allowed: &[],
     }
 }
 
@@ -1249,6 +1250,10 @@ fn a_capture_is_refused_for_an_agent_found_missing_or_signed_out_and_never_run_b
         id: "codex".into(),
         name: "Codex".into(),
         supported: true,
+        own: false,
+        note: None,
+        checks: true,
+        options: Vec::new(),
         stale: false,
         rev: Rev::ZERO,
         checked: Time::ZERO,
@@ -1293,6 +1298,7 @@ fn a_capture_is_refused_for_an_agent_found_missing_or_signed_out_and_never_run_b
     // refused and leaves nothing behind.
     let asked = DetectAgents {
         agents: Some(vec!["fixture".into()]),
+        unchecked: false,
     };
     let Agents { agents } = s.w.ok::<call::AgentsDetect>(&asked);
     assert!(!agents[0].installed);
@@ -1347,6 +1353,7 @@ fn detection_runs_each_agents_own_commands() {
     let mut c = core.device();
     let asked = DetectAgents {
         agents: Some(vec!["fixture".into()]),
+        unchecked: false,
     };
     let Agents { agents } = c.call::<call::AgentsDetect>(&asked).unwrap().unwrap();
     assert_eq!(agents.len(), 1);
@@ -1360,38 +1367,52 @@ fn detection_runs_each_agents_own_commands() {
     );
     let unknown = DetectAgents {
         agents: Some(vec!["nobody".into()]),
+        unchecked: false,
     };
     let e = c.call::<call::AgentsDetect>(&unknown).unwrap().unwrap_err();
     assert_eq!(e.code, tasktap_proto::Code::Invalid);
 }
 
 #[test]
-fn the_agents_are_detected_as_the_core_starts_and_again_when_asked() {
+fn a_core_lists_its_agents_as_it_starts_and_runs_their_commands_only_when_asked() {
+    use tasktap_proto::{AgentHealth, ThoughtId, Time};
     let data = Folder::new("aa");
     let path = path_with(&agents(&data.0));
     let core = Core::start_env(&data.0, &["--detect"], &[("PATH", &path)]);
     let mut w = core.watch();
-    // Found off the core's thread as it starts: first what needs no command
-    // of theirs, their names and whether their program is there, with the
-    // time zero, so a page names them and shows their rings at once.
+    // Found off the core's thread as it starts, by what needs no command of
+    // theirs: their names and whether their program is there, with the time
+    // zero, so a page names them and shows their rings at once.
     w.until("the agents are found", |m| m.agents.len() == 3);
-    let first = w.model.agents["fixture"].clone();
-    assert_eq!(
-        (first.name.as_str(), first.installed),
-        ("Fixture agent", true)
-    );
-    // Then each as its own commands answer, none waiting for another.
-    w.until("the agents are detected", |m| {
-        m.agents
-            .values()
-            .all(|a| a.checked > tasktap_proto::Time::ZERO)
-    });
-    // A build with the test fixtures detects only the fixture agents, so no
+    // A build with the test fixtures lists only the fixture agents, so no
     // test runs a real agent's commands.
     let ids: Vec<&str> = w.model.agents.keys().map(String::as_str).collect();
     assert_eq!(ids, ["fixture", "fixture-probed", "fixture-silent"]);
-    let fixture = w.model.agents["fixture"].clone();
-    assert!(fixture.installed && fixture.events);
+    // No program of theirs has run, and none does while nobody asks: what
+    // only their commands say is not known.
+    w.sync();
+    for first in w.model.agents.values() {
+        assert!(first.installed, "{first:?}");
+        assert_eq!(
+            (first.checked, first.signed_in, first.version.as_deref()),
+            (Time::ZERO, None, None),
+            "{first:?}"
+        );
+    }
+    let first = w.model.agents["fixture"].clone();
+    assert_eq!(first.name, "Fixture agent");
+    // A fresh subscriber's snapshot holds them.
+    assert_eq!(core.watch().model.agents.len(), 3);
+    // The person looks at their agents: those whose commands this core has
+    // not run are checked, each by its own.
+    let unchecked = DetectAgents {
+        agents: None,
+        unchecked: true,
+    };
+    let looked: Vec<AgentHealth> = w.ok::<call::AgentsDetect>(&unchecked).agents;
+    assert_eq!(looked.len(), 3);
+    let fixture = looked[0].clone();
+    assert!(fixture.installed && fixture.events && !fixture.stale);
     assert_eq!(
         (
             fixture.version.as_deref(),
@@ -1400,12 +1421,15 @@ fn the_agents_are_detected_as_the_core_starts_and_again_when_asked() {
         ),
         (Some("fixture 1.0"), Some(true), Some("fixture"))
     );
-    assert!(fixture.checked > tasktap_proto::Time::ZERO);
-    // A fresh subscriber's snapshot holds them.
-    assert_eq!(core.watch().model.agents.len(), 3);
-    // agents.detect puts the rows it found again, at a new revision.
+    assert!(fixture.checked > Time::ZERO && fixture.rev > first.rev);
+    w.until("the rows change", |m| m.agents["fixture"] == fixture);
+    // Looking again runs nothing: the rows are as they were.
+    let again = w.ok::<call::AgentsDetect>(&unchecked).agents;
+    assert_eq!(again, looked);
+    // Asked to check again, it does, at a new revision.
     let asked = DetectAgents {
         agents: Some(vec!["fixture".into()]),
+        unchecked: false,
     };
     let Agents { agents } = w.ok::<call::AgentsDetect>(&asked);
     assert_eq!(agents.len(), 1);
@@ -1414,11 +1438,57 @@ fn the_agents_are_detected_as_the_core_starts_and_again_when_asked() {
         m.agents["fixture"].rev == agents[0].rev
     });
     assert_eq!(w.model.agents["fixture"], agents[0]);
+    let said = agents[0].clone();
+    // Kept off the core's thread, a moment after the reply.
+    let kept = || std::fs::read_to_string(data.0.join("agents.json")).unwrap_or_default();
+    let now = format!("\"checked\":{}", said.checked.get());
+    for _ in 0..200 {
+        if kept().contains(&now) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(kept().contains(&now), "{}", kept());
+    drop(w);
+    drop(core);
 
-    // Without being asked to, such a build detects nothing as it starts.
+    // The next core on this folder knows what they said and when, without
+    // running them: marked as said then, and not whom it was signed in as.
+    let core = Core::start_env(&data.0, &["--detect"], &[("PATH", &path)]);
+    let mut w = core.watch();
+    w.until("the agents are found", |m| m.agents.len() == 3);
+    let kept = w.model.agents["fixture"].clone();
+    assert_eq!(
+        (kept.checked, kept.signed_in, kept.version, kept.stale),
+        (said.checked, Some(true), said.version.clone(), true)
+    );
+    assert_eq!(kept.identity, None);
+    // The first thought it gives an agent has it look at that one, beside
+    // the run: the row is then what its commands say now.
+    let named = Capture {
+        agent: Some("fixture".into()),
+        ..typed(ThoughtId::mint(), "tidy up")
+    };
+    w.ok::<call::ThoughtCapture>(&named);
+    w.until("the agent is looked at", |m| {
+        let row = &m.agents["fixture"];
+        !row.stale && row.checked >= said.checked && row.identity.is_some()
+    });
+    let others = ["fixture-probed", "fixture-silent"];
+    assert!(others.iter().all(|id| w.model.agents[*id].stale));
+
+    // Without being asked to, such a build lists nothing as it starts, and
+    // looks at nothing by itself.
     let quiet = Folder::new("ab");
     let core = Core::start_env(&quiet.0, &[], &[("PATH", &path)]);
     let mut w = core.watch();
+    w.sync();
+    assert!(w.model.agents.is_empty());
+    let named = Capture {
+        agent: Some("fixture".into()),
+        ..typed(ThoughtId::mint(), "tidy up")
+    };
+    w.ok::<call::ThoughtCapture>(&named);
     w.sync();
     assert!(w.model.agents.is_empty());
 }

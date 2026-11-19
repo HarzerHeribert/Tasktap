@@ -168,7 +168,7 @@ for _ in $(seq 1 100); do grep -q '"event":"ready"' "$log" && break; sleep 0.1; 
 grep -q '"event":"ready"' "$log" && pass "the app starts and reaches its own core" || { fail "the app starts" "$(tail -3 "$log")"; exit 1; }
 until_has workspace "eval __ws.ui.view + ' ' + !!document.querySelector('.home .capture')" 10 "home true" && grep -q '"event":"window"' "$log" \
   && pass "the workspace window opens at launch, on Home, once its page has drawn" || fail "the workspace window opens"
-# A core built with its fixtures detects its agents when asked, as a normal one does at start.
+# A core built with its fixtures lists its agents when asked, as a normal one does at start, and runs their commands then.
 send 'call put {"c":"prefs","id":"agent","patch":"fixture"}' 'call put {"c":"prefs","id":"hold","patch":2}' 'call agents.detect {}'
 # Every agent on this Mac answers in its own time, and one asks its servers first: what follows waits for them all,
 # since their rows redraw the pages, which is no rest.

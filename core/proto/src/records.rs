@@ -36,7 +36,7 @@ pub enum Set {
         put: Vec<Glance>,
     },
     /// In memory: one row per agent this core has, once it has been
-    /// detected; rows are only ever put.
+    /// listed; only the row of an agent the person removed is deleted.
     Agents(Rows<crate::args::AgentHealth, String>),
     /// In memory: the dictations under way or failed (design §8).
     Dictations(Rows<Dictation, DictationId>),
@@ -553,6 +553,31 @@ pub enum PrefValue {
     /// The size of the interface's text: a scale the pages apply to their
     /// type roles.
     TextSize(TextSize),
+    /// What the person lets an agent do beyond its default, each as
+    /// `<agent>.<option>`, an option its row of the `agents` collection
+    /// lists (`options`). One that is not here is off.
+    AgentOptions(Vec<String>),
+    /// The agents the person added themselves, in their order: each a name
+    /// and a command line. They follow the core's own in the `agents`
+    /// collection.
+    OwnAgents(Vec<OwnAgent>),
+}
+
+/// An agent the person added (design §7): any program that takes what it is
+/// told as an argument, does the work and exits. Tasktap hears nothing of
+/// it but its end.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OwnAgent {
+    /// `own-` and 1 to 16 lower-case letters and digits, made where it is
+    /// added and never changed: thoughts and sessions keep it.
+    pub id: String,
+    /// As the person calls it, 1 to 40 characters.
+    pub name: String,
+    /// Its command line: the program, then its arguments, apart by spaces,
+    /// with quotes around one that has spaces; `{prompt}` in an argument
+    /// is what the run is told. No shell reads it.
+    pub command: String,
 }
 
 /// A key combination in a portable form: the modifiers held, and the key
@@ -710,7 +735,8 @@ words! {
     pub enum PrefKey {
         Hold, Agent, RouteBy, MotionStyle, MotionPalette, MotionHue, MotionLumen, MotionAmbient,
         TerminalFont, TerminalSize, TerminalLineHeight, SpeechBy, SpeechLanguages, Keys,
-        ReturnSends, CaptureKey, TalkKey, KeepDays, TerminalBoldBright, TerminalContrast, TextSize
+        ReturnSends, CaptureKey, TalkKey, KeepDays, TerminalBoldBright, TerminalContrast, TextSize,
+        AgentOptions, OwnAgents
     }
 }
 
@@ -763,6 +789,8 @@ impl PrefKey {
             PrefKey::TerminalBoldBright => PrefValue::TerminalBoldBright(true),
             PrefKey::TerminalContrast => PrefValue::TerminalContrast(true),
             PrefKey::TextSize => PrefValue::TextSize(TextSize::Default),
+            PrefKey::AgentOptions => PrefValue::AgentOptions(Vec::new()),
+            PrefKey::OwnAgents => PrefValue::OwnAgents(Vec::new()),
         }
     }
 }
@@ -791,6 +819,8 @@ impl PrefValue {
             PrefValue::TerminalBoldBright(_) => PrefKey::TerminalBoldBright,
             PrefValue::TerminalContrast(_) => PrefKey::TerminalContrast,
             PrefValue::TextSize(_) => PrefKey::TextSize,
+            PrefValue::AgentOptions(_) => PrefKey::AgentOptions,
+            PrefValue::OwnAgents(_) => PrefKey::OwnAgents,
         }
     }
 }

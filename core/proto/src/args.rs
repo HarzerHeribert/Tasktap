@@ -100,6 +100,12 @@ pub enum PrefPatch {
     TerminalBoldBright(bool),
     TerminalContrast(bool),
     TextSize(TextSize),
+    AgentOptions(#[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")] Vec<String>),
+    /// Refused by the core unless each is as [`crate::records::OwnAgent`] says.
+    OwnAgents(
+        #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+        Vec<crate::records::OwnAgent>,
+    ),
 }
 
 /// A font family's name, as JSON, is at most this many bytes.
@@ -158,6 +164,8 @@ impl From<PrefPatch> for PrefValue {
             PrefPatch::TerminalBoldBright(v) => PrefValue::TerminalBoldBright(v),
             PrefPatch::TerminalContrast(v) => PrefValue::TerminalContrast(v),
             PrefPatch::TextSize(v) => PrefValue::TextSize(v),
+            PrefPatch::AgentOptions(v) => PrefValue::AgentOptions(v),
+            PrefPatch::OwnAgents(v) => PrefValue::OwnAgents(v),
         }
     }
 }
@@ -390,15 +398,23 @@ pub struct Adopt {
 
 /// `agents.detect`: whether each agent this core can run is installed on the
 /// PATH its terminals get and signed in, as the agent itself says. Without
-/// `agents`, every one. Each check runs the agent's own command, at most 4 s.
+/// `agents`, every one. Each check runs the agent's own commands, each at
+/// most 4 s. A core runs them only here and the first time in its life that
+/// a thought is given to the agent, never as it starts: a client calls this
+/// when the person looks at their agents, picks one, or asks to check again.
+/// With `unchecked`, only the agents whose commands this core has not run
+/// yet are checked, so the call may be made each time the person looks.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
 pub struct DetectAgents {
     #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
     pub agents: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unchecked: bool,
 }
 
-/// The reply of `agents.detect`, in the order the core lists its agents.
+/// The reply of `agents.detect`: the rows of the agents asked about, as
+/// they are now, in the order the core lists its agents.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Agents {
@@ -418,8 +434,19 @@ pub struct AgentHealth {
     pub supported: bool,
     /// The revision of the change that last put the row.
     pub rev: crate::ids::Rev,
-    /// When its commands last said what follows.
+    /// When its commands last said what follows; zero while they never have.
     pub checked: crate::ids::Time,
+    /// The person added it (the `own_agents` preference): it can be changed
+    /// and removed.
+    pub own: bool,
+    /// What a person should know of it that nothing else here says.
+    pub note: Option<String>,
+    /// Its own commands say whether it is signed in. One whose do not is
+    /// never shown as signed in or out: `signed_in` stays none.
+    pub checks: bool,
+    /// What the person can let it do beyond its default (the
+    /// `agent_options` preference).
+    pub options: Vec<AgentOption>,
     /// Its program is on the PATH the core's terminals get.
     pub installed: bool,
     /// As it reports its version.
@@ -428,8 +455,9 @@ pub struct AgentHealth {
     pub signed_in: Option<bool>,
     /// Whom it is signed in as, or how, as it says.
     pub identity: Option<String>,
-    /// Its commands could not say this time whether it is signed in: what
-    /// they last said stands, as of `checked`.
+    /// What follows is what its commands said at `checked` and not since:
+    /// this core has not run them yet and a core before it kept their answer,
+    /// or they could not say this time whether it is signed in.
     pub stale: bool,
     /// Its runs report through hooks; one that does not reports by exiting.
     pub events: bool,
@@ -439,6 +467,19 @@ pub struct AgentHealth {
     pub permissions: Option<crate::records::ReplyVia>,
     /// Where the questions it asks the person are answered; none: none are heard.
     pub questions: Option<crate::records::ReplyVia>,
+}
+
+/// Something an agent does only when the person lets it: a switch in its
+/// row, off until they turn it on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct AgentOption {
+    /// Its name in the `agent_options` preference, after the agent's id and a dot.
+    pub id: String,
+    /// The switch's name.
+    pub name: String,
+    /// What turning it on allows, as a sentence for the person.
+    pub allows: String,
 }
 
 /// `shim.hold`, which the core calls on the shim of an adopted session before

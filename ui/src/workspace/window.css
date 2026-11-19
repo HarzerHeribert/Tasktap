@@ -283,7 +283,7 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .capture.raised textarea{grid-column:1/-1;max-height:calc(6*round(28px*var(--ts),1px) + 14px);padding:6px 10px 8px;font:var(--f-thought);letter-spacing:var(--ls-thought);color:var(--fg)}
 .capture.raised textarea::placeholder{color:var(--fg-field)}
 .capture.raised .cap-row{gap:6px;padding:0;border:0}
-.capture.raised :is(.cap-to,.cap-list button,.ring){border-radius:var(--r-in)}
+.capture.raised :is(.cap-to,.cap-list button,.ring,.rings .more){border-radius:var(--r-in)}
 .capture.raised :is(.cap-to,.cap-list button){gap:7px;padding:0 10px;margin:0;font:var(--f-text)}
 .capture.raised .cap-list{display:flex;flex-wrap:wrap;gap:2px}
 .capture.raised .ring{padding:0 5px}
@@ -446,8 +446,30 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 button.line{grid-template-columns:190px minmax(0,1fr)}
 button.line:hover{background:var(--hover)}
 .line[data-s=off] .x{color:var(--asks)}
+.line[data-s=none] :is(.t,.x){color:var(--fg3)}
 .line>.i{justify-self:center;width:14px;height:14px;color:var(--fg3)}
 .line .def{color:var(--fg3)}
+/* What a person does with an agent stands at its line's end, side by side. */
+.line .acts{display:flex;align-items:center;gap:var(--sp2);padding-left:var(--sp3)}
+/* Under an agent's line: what it does only when let, with its switch, and what a person should know of it. These
+   are sentences, so they wrap; they stand on the name's edge and are part of the line above, which keeps the rule. */
+.line.ag:has(+ :is(.line.opt,.line-n,.own)){border-bottom-color:transparent}
+.line.opt{height:auto;align-items:start;padding-block:2px 10px}
+.line.opt .t{font:var(--f-small);color:var(--fg2);line-height:18px}
+.line.opt .x{white-space:normal;text-wrap:pretty;font:var(--f-cap);line-height:18px;color:var(--fg3)}
+.line.opt .switch{margin-left:var(--sp3)}
+.line-n{margin:0;padding:0 18px 10px 46px;font:var(--f-cap);color:var(--fg3);text-wrap:pretty}
+:is(.line.opt,.line-n):not(:has(+ :is(.line.opt,.line-n))){border-bottom:1px solid var(--line)}
+/* A line that opens something: the agents that are not here, the form for one of the person's own. */
+button.line.fold-l{grid-template-columns:28px 190px minmax(0,1fr)}
+.line.fold-l .i{transition:transform var(--t-fast)}
+.line.fold-l[aria-expanded=true] .i{transform:rotate(90deg)}
+.line.fold-l .t{color:var(--fg2)}
+.line.fold-l:hover .t{color:var(--fg)}
+.own{border-bottom:1px solid var(--line)}
+.own .set{border-bottom:0;padding-block:6px}
+.own .set:first-child{padding-top:12px}
+.own .set:last-child{padding-bottom:12px}
 /* A session's details (session.tsx), to read: two lines of what it is, what can be done with it, then its turns, the
    newest first. A turn is one set of columns for every line in it: the time, the mark, the words. Nothing is boxed;
    a hairline parts the turns. */

@@ -115,9 +115,9 @@ for n in 1 2; do
     pids="$pids $!"
     wait_for "$tmp/hold$n.log" '^subscribed$' || die "client $n did not subscribe: $(cat "$tmp/hold$n.log")"
 done
-# The core detects the agents as it starts, running their commands for a few
-# seconds; that is start-up work too, not part of the window.
-wait_for "$tmp/hold1.log" '^detected$' || die "the agents were not detected: $(cat "$tmp/hold1.log")"
+# The core lists the agents as it starts, by their programs on the PATH and
+# with no program of theirs run; that is start-up work too, not part of the window.
+wait_for "$tmp/hold1.log" '^detected$' || die "the agents were not listed: $(cat "$tmp/hold1.log")"
 sleep 2 # let the start-up work end; it is not part of the window
 
 # --- memory, with the same two clients connected and no terminal ----------------

@@ -17,11 +17,12 @@ import { stops } from '../motion/palette.ts';
 import { ready as hearsHere } from '../speech/local.ts';
 import { motionState } from '../motion/state.ts';
 import { Voice } from '../motion/voice.ts';
-import { I, Key, Ring, ago } from '../ui.tsx';
+import { I, Key } from '../ui.tsx';
 import { placing } from '../way.ts';
+import { AgentsPane } from './agents.tsx';
 import { Speech, Thoughts, serviceName } from './consent.tsx';
 import { Choice, Recorder, Row, Switch, setPref } from './form.tsx';
-import { LOOSE, agent, agentName, call, dismiss, fail, focus, loadTerms, newTerminal, openQuestions, placers, pref, records, redraw, runs, ui } from './model.ts';
+import { agent, agentName, call, fail, focus, loadTerms, openQuestions, placers, pref, records, redraw, ui } from './model.ts';
 
 export const SECTIONS = [['thoughts', 'Thoughts'], ['voice', 'Voice'], ['agents', 'Agents'], ['appearance', 'Appearance'], ['terminal', 'Terminal'], ['about', 'About']] as const;
 export type Section = (typeof SECTIONS)[number][0];
@@ -148,52 +149,6 @@ function VoicePane() {
       <Row name="Hold to talk" hint="Held in a thought or a reply. Letting go ends it.">
         <Recorder name="Hold to talk" value={talkKey()} own={!!pref('talk_key')} set={setTalk} />
       </Row>
-    </>
-  );
-}
-
-/** The agents this Mac has, with how each is signed in, and a terminal to sign in to one that is not. One of them is
- *  the default: it runs a thought unless another ring was picked for that thought in the Composer. Only here is the
- *  default changed (the `agent` preference). */
-const signIn: Record<string, string> = { claude: 'claude', codex: 'codex login', agy: 'agy', pi: 'pi', opencode: 'opencode auth login' };
-/** What a row adds about its agent: whose models it runs, where its name does not say, and what of it the notch
- *  cannot do, in the words of what the core says its runs can (its row's `events`, `permissions`, `questions`): one
- *  that reports nothing is heard only when it ends, and what one asks where nothing outside its terminal can answer
- *  is answered there. Nothing is said of what the notch does answer. */
-const family: Record<string, string> = { agy: 'Gemini' };
-const about = (a: { id: string; events: boolean; permissions: string | null; questions: string | null }) => {
-  const [p, q] = [a.permissions === 'terminal', a.questions === 'terminal'];
-  return [family[a.id], !a.events ? 'heard only when it ends' : p && q ? 'asks in its terminal' : p ? 'approvals in its terminal' : q && 'questions in its terminal'];
-};
-function AgentsPane() {
-  const agents = [...records.agents.values()];
-  if (!agents.length) return <p class="note">Looking for agents…</p>;
-  const usual = agent()?.id;
-  return (
-    <>
-      <div class="list">
-        {agents.map((a) => {
-          // What its own commands said, and when they could not say: nothing is shown as known that was not checked.
-          const off = runs(a) && a.signed_in === false;
-          const state = !a.supported ? 'does not run on this system yet' : !a.installed ? 'not installed' : !a.checked ? 'checking…'
-            : a.signed_in === false ? 'not signed in' : a.signed_in === null ? 'sign-in could not be checked'
-            : a.stale ? `signed in when last checked, ${ago(a.checked)}` : 'signed in';
-          return (
-            <div class="line ag" data-s={off || !runs(a) ? 'off' : undefined}>
-              <Ring agent={a.id} s={off || !runs(a) ? 'off' : ''} />
-              <span class="t">{agentName(a.id)}</span>
-              <span class="x">{[a.version, state, ...about(a), a.identity].filter(Boolean).join(' · ')}</span>
-              {off && signIn[a.id] && (
-                <button type="button" class="btn" onClick={() => (dismiss(), newTerminal(LOOSE, { title: `Sign in to ${agentName(a.id)}`, type: signIn[a.id] }))}>Sign in</button>
-              )}
-              {a.id === usual ? <span class="x def">Default</span> : runs(a) && !off && (
-                <button type="button" class="btn" onClick={() => setPref({ id: 'agent', patch: a.id })}>Make default</button>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      <p class="note">The default runs your thoughts. For one thought, pick another by its ring where you write it.</p>
     </>
   );
 }

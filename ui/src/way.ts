@@ -105,6 +105,47 @@ export function ring(
   return { n, s: a.signed_in === false ? 'off' : asking(a.id) ? 'asks' : n ? 'working' : '' };
 }
 
+/** What an agent's row in Settings says of it: whether it is here and signed in, in the words of what its own
+ *  commands said and when (`ago`, how long ago that was). Nothing is shown as known now that was not said now: an
+ *  answer a core before this one kept, or one that stands because the agent could not say this time, has its age.
+ *  `looking`: the core is asking it right now. An agent whose commands cannot say is never asked. */
+export function agentState(
+  a: { supported: boolean; installed: boolean; checks: boolean; signed_in: boolean | null; stale: boolean; checked: number }, looking: boolean, ago: string,
+): string {
+  if (!a.supported) return 'does not run on this system yet';
+  if (!a.installed) return 'not installed';
+  if (!a.checks) return 'sign-in not checked';
+  if (a.signed_in === null) return looking ? 'checking…' : a.checked ? 'sign-in could not be checked' : 'not checked yet';
+  return `${a.signed_in ? 'signed in' : 'not signed in'}${a.stale ? ` when last checked, ${ago}` : ''}`;
+}
+
+/** The agents the Composer offers for a thought, and which of them have a ring. Offered are those that can run one
+ *  now: installed, on this system, and not known to be signed out (one never asked counts: the core asks it the
+ *  first time it is picked or runs); and the usual one even when it is signed out, since it runs the next thought
+ *  and its ring says what is wrong. At most `cap` have a ring: the usual one, the one picked for this thought,
+ *  those that work or ask, then the others in the core's order. The rest are behind "+n", from where each can be
+ *  picked, which gives it a ring. Rings stand in the core's order, so none moves when another is picked. */
+export function offered<A extends { id: string; installed: boolean; supported: boolean; signed_in: boolean | null }>(
+  agents: A[], usual: string | undefined, chosen: string | undefined, busy: (id: string) => boolean, cap: number,
+): { rings: A[]; more: A[] } {
+  const all = agents.filter((a) => a.installed && a.supported && (a.signed_in !== false || a.id === usual));
+  const rank = (a: A) => (a.id === usual ? 0 : a.id === chosen ? 1 : busy(a.id) ? 2 : 3);
+  const first = new Set(all.map((a, i) => [rank(a), i, a] as const).sort((x, y) => x[0] - y[0] || x[1] - y[1]).slice(0, cap).map((x) => x[2]));
+  return { rings: all.filter((a) => first.has(a)), more: all.filter((a) => !first.has(a)) };
+}
+
+/** The command line of an agent the person adds, checked as the core checks it, so the form can say what is missing
+ *  before it is sent: the core's own sentence, or nothing. */
+export function ownAgentLacks(name: string, command: string): string {
+  const n = name.trim();
+  if (!n || [...n].length > 40) return 'Give the agent a name of up to 40 characters';
+  const words = command.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+  if (!words.length) return `${n} needs a command`;
+  if (words[0]!.includes('{prompt}')) return `The command of ${n} needs a program before {prompt}`;
+  if (!words.slice(1).some((w) => w.includes('{prompt}'))) return `The command of ${n} needs {prompt} where the thought goes`;
+  return '';
+}
+
 /** Words given back to a field, a thought taken back or one the core refused, go before what was typed since. */
 export const back = (words: string, field: string) => (field.trim() ? `${words}\n${field}` : words);
 

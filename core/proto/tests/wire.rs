@@ -377,6 +377,10 @@ fn every_call_round_trips() {
         id: "codex".into(),
         name: "Codex".into(),
         supported: true,
+        own: false,
+        note: None,
+        checks: true,
+        options: Vec::new(),
         stale: false,
         rev: rev(7),
         checked: time(42),
@@ -391,6 +395,7 @@ fn every_call_round_trips() {
     };
     let detect = DetectAgents {
         agents: Some(vec!["codex".into()]),
+        unchecked: false,
     };
     let agents = Agents {
         agents: vec![health],

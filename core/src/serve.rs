@@ -48,9 +48,10 @@ pub struct Options {
     /// limit lasts, for tests.
     #[cfg(feature = "fixtures")]
     pub second: Duration,
-    /// Detect the agents as the core starts: always in a normal build; in a
-    /// build with the test fixtures only when a test asks (`--detect`),
-    /// and then only the fixture agents (`agents::at_start`).
+    /// List the agents as the core starts, and look at one by its own
+    /// commands the first time it is given a thought: always in a normal
+    /// build; in a build with the test fixtures only when a test asks
+    /// (`--detect`), and then only the fixture agents (`agents::at_start`).
     pub detect: bool,
 }
 
@@ -70,6 +71,13 @@ pub struct Core {
     pub events: Rc<Notify>,
     /// Folder checks running on their own threads (`calls::off_thread`).
     pub checks: usize,
+    /// The agents whose own commands this core has run or is running, and
+    /// whether it runs them by itself at all (`Options::detect`).
+    pub looked: Vec<&'static str>,
+    pub looks: bool,
+    /// What the agents' commands said that is still to be written to the
+    /// data folder (`Core::put_agents`).
+    pub said: crate::agents::checks::ToKeep,
     pub terminals: crate::terminal::Terminals,
     /// The agents adopted by shims, each with the connection it belongs to.
     pub shims: crate::shim::Shims,
@@ -186,6 +194,9 @@ async fn serve(opts: Options) -> io::Result<()> {
             me: me.clone(),
             events: events.clone(),
             checks: 0,
+            looked: Vec::new(),
+            looks: opts.detect,
+            said: Default::default(),
             terminals,
             shims: Default::default(),
             diffs: Default::default(),
@@ -201,8 +212,9 @@ async fn serve(opts: Options) -> io::Result<()> {
     // What the person keeps for a number of days and is older goes now,
     // and then once a day while this core runs.
     crate::effects::keep(&mut core.borrow_mut(), true);
+    crate::calls::own_agents(&mut core.borrow_mut());
     if opts.detect {
-        crate::calls::detect_at_start(&core.borrow());
+        crate::calls::agents_at_start(&core.borrow());
     }
     tokio::pin!(terminated);
     let mut idle = None;

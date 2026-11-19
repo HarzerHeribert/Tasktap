@@ -310,6 +310,7 @@ pub fn capture(core: &mut Core, capture: tasktap_proto::Capture) -> Result<(), E
         .or_else(|| core.seams.agent())
         .or(preferred)
         .unwrap_or_else(|| crate::agents::all()[0].id().into());
+    look(core, &agent);
     effects::call(core, "thought.capture", Event::Capture { capture, agent })
 }
 
@@ -684,12 +685,14 @@ fn opened(
 }
 
 /// `agents.detect`: each agent asked for, or every one, as its own commands
-/// find it, each agent on a thread of its own. What it finds goes to the
-/// `agents` collection too, and the reply is those rows.
+/// find it, each agent on a thread of its own; with `unchecked`, only those
+/// whose commands this core has not run yet. What it finds goes to the
+/// `agents` collection, and the reply is the rows of the agents asked for.
 fn detect(cx: &mut Cx, args: DetectAgents) -> Option<Control> {
     let all = crate::agents::all();
-    let asked: Vec<_> = match &args.agents {
-        None => all.to_vec(),
+    let named: Vec<_> = match &args.agents {
+        // Those it lists: in a build with the test fixtures not the real ones.
+        None => crate::agents::at_start(),
         Some(names) => {
             let found: Option<Vec<_>> = names.iter().map(|n| crate::agents::find(n)).collect();
             let Some(found) = found else {
@@ -702,40 +705,94 @@ fn detect(cx: &mut Cx, args: DetectAgents) -> Option<Control> {
             found
         }
     };
+    let looked = &mut cx.core.looked;
+    let mut asked = named.clone();
+    asked.retain(|a| !(args.unchecked && looked.contains(&a.id())));
+    looked.extend(asked.iter().map(|a| a.id()));
+    let rows = move |core: &Core| -> Vec<_> {
+        let named = |id: &str| named.iter().any(|a| a.id() == id);
+        let rows = all.iter().filter_map(|a| core.detected(a.id()));
+        rows.filter(|row| named(&row.id)).cloned().collect()
+    };
+    if asked.is_empty() {
+        let agents = rows(cx.core);
+        return Some(call::AgentsDetect::reply(cx.id, Ok(Agents { agents })));
+    }
     let look = move || crate::agents::checks::detect_all(&asked);
-    off_thread::<call::AgentsDetect, _>(cx, look, |core, found| {
-        let agents = core.set_agents(found).map_err(effects::stored)?;
-        Ok(Agents { agents })
+    off_thread::<call::AgentsDetect, _>(cx, look, move |core, found| {
+        core.set_agents(found).map_err(effects::stored)?;
+        Ok(Agents { agents: rows(core) })
     })
 }
 
-/// Detects the agents once as the core starts, off its thread, so the
-/// `agents` collection is filled before a page asks (design §7). It keeps
-/// nothing alive: a core that idles out meanwhile ends without the rows.
-pub fn detect_at_start(core: &Core) {
-    let agents = crate::agents::at_start();
-    if agents.is_empty() {
+/// Looks at an agent by its own commands the first time in this core's life
+/// that it is given a thought, beside the run and not before it: what it
+/// finds is for the next thought and for the person, who sees it in Settings.
+fn look(core: &mut Core, agent: &str) {
+    let own = crate::agents::at_start();
+    let agent = own.into_iter().find(|a| a.id() == agent);
+    let Some(agent) = agent.filter(|a| core.looks && !core.looked.contains(&a.id())) else {
+        return;
+    };
+    core.looked.push(agent.id());
+    let look = move || crate::agents::checks::detect(agent);
+    aside(core, look, |core, found| {
+        let _ = core.set_agents(found.into_iter().collect());
+    });
+}
+
+/// Takes the agents the person added (the `own_agents` preference) as they
+/// are now, when the core starts and when the preference changed, and then
+/// lists them: whether each one's program is on the PATH, off this thread.
+pub fn own_agents(core: &mut Core) {
+    let kept = effects::read(core, |tx| tx.pref(tasktap_proto::PrefKey::OwnAgents));
+    let own = match kept.ok().flatten().map(|pref| pref.value) {
+        Some(PrefValue::OwnAgents(own)) => own,
+        _ => Vec::new(),
+    };
+    // Checked when it was put: one a newer build refuses stays out.
+    if crate::agents::set_own(&own).is_err() {
         return;
     }
-    // First what needs no command of theirs, so a page names them and
-    // shows their rings at once; then each as its own commands answer, none
-    // waiting for the slowest. Memory only: a revision not taken leaves the
-    // collection as it was.
-    let all = agents.clone();
+    let own = crate::agents::all().into_iter().filter(|a| a.own());
+    let own: Vec<_> = own.collect();
     let look = move || -> Vec<_> {
-        all.iter()
+        own.iter()
             .map(|a| crate::agents::checks::found(*a))
             .collect()
     };
     aside(core, look, |core, found| {
+        let _ = core.put_own_agents(found.unwrap_or_default());
+    });
+}
+
+/// Lists the agents once as the core starts, off its thread, so the
+/// `agents` collection is filled before a page asks (design §7): which are
+/// installed, by their programs on the PATH, and what their own commands
+/// said when a core last ran them. No program of theirs runs here. It keeps
+/// nothing alive: a core that idles out meanwhile ends without the rows.
+pub fn agents_at_start(core: &Core) {
+    let agents = crate::agents::at_start();
+    if agents.is_empty() {
+        return;
+    }
+    let data = core.terminals.data().to_owned();
+    let look = move || -> Vec<_> {
+        use crate::agents::checks::{found, said};
+        let said = said(&data);
+        let row = |agent: &&'static dyn crate::agents::Agent| {
+            let found = found(*agent);
+            match said.iter().find(|said| said.id == found.id) {
+                Some(said) => said.onto(found),
+                None => found,
+            }
+        };
+        agents.iter().map(row).collect()
+    };
+    // Memory only: a revision not taken leaves the collection as it was.
+    aside(core, look, |core, found| {
         let _ = core.put_agents(found.unwrap_or_default(), false);
     });
-    for agent in agents {
-        let look = move || crate::agents::checks::detect(agent);
-        aside(core, look, |core, found| {
-            let _ = core.set_agents(found.into_iter().collect());
-        });
-    }
 }
 
 /// `project.scan`: whether each project's folder is still there, and still

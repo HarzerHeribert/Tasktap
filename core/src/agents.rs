@@ -19,6 +19,7 @@ pub mod claude;
 pub mod codex;
 pub mod opencode;
 pub mod pi;
+pub mod plain;
 pub mod rules;
 
 use std::ffi::OsString;
@@ -84,9 +85,31 @@ pub struct Run<'a> {
     /// The folder of Tasktap's own that holds this agent's files
     /// ([`Agent::files`]): `<data>/agents/<id>`.
     pub home: &'a Path,
+    /// What the person lets agents do beyond their default: the
+    /// `agent_options` preference, each `<agent>.<option>`.
+    pub allowed: &'a [String],
+}
+
+/// Something an agent does only when the person lets it ([`Agent::options`]):
+/// a switch in its row in Settings, off until they turn it on.
+pub struct Choice {
+    pub id: &'static str,
+    /// The switch's name.
+    pub name: &'static str,
+    /// What turning it on allows, as a sentence for the person.
+    pub allows: &'static str,
 }
 
 impl Run<'_> {
+    /// Whether the person lets `agent` do what its option `id` is.
+    pub fn allows(&self, agent: &dyn Agent, id: &str) -> bool {
+        let named = |allowed: &String| {
+            let option = allowed.strip_prefix(agent.id())?.strip_prefix('.')?;
+            Some(option == id)
+        };
+        self.allowed.iter().any(|a| named(a) == Some(true))
+    }
+
     /// The prompt as `agent` takes it: with the person's own words after
     /// the brief, when there are both.
     pub fn told(&self, agent: &dyn Agent) -> String {
@@ -263,6 +286,22 @@ pub trait Agent: Sync {
         true
     }
 
+    /// The person added it: it can be changed and removed.
+    fn own(&self) -> bool {
+        false
+    }
+
+    /// What a person should know of it that nothing else in its row says,
+    /// as a sentence; nothing for most agents.
+    fn note(&self) -> Option<&'static str> {
+        None
+    }
+
+    /// What it does only when the person lets it; nothing for most agents.
+    fn options(&self) -> &'static [Choice] {
+        &[]
+    }
+
     /// Its program, found on the PATH of the terminals.
     fn program(&self) -> &'static str;
 
@@ -342,7 +381,13 @@ pub trait Agent: Sync {
 
 /// The agent named `id`.
 pub fn find(id: &str) -> Option<&'static dyn Agent> {
-    AGENTS.iter().copied().find(|agent| agent.id() == id)
+    all().into_iter().find(|agent| agent.id() == id)
+}
+
+/// The option `<agent>.<option>` names, when an agent has it.
+pub fn option(name: &str) -> Option<&'static Choice> {
+    let (agent, option) = name.split_once('.')?;
+    find(agent)?.options().iter().find(|o| o.id == option)
 }
 
 /// Whether a capture may name the agent, by what detection last found of
@@ -356,15 +401,20 @@ pub fn usable(agent: &dyn Agent, health: Option<&AgentHealth>) -> Result<(), Str
     match health {
         _ if !agent.supported() => Err(format!("{name} does not run on this system yet")),
         Some(h) if !h.installed => Err(format!("{name} is not installed on this computer")),
-        Some(h) if h.signed_in == Some(false) => Err(format!("{name} is not signed in")),
+        // What was said before this look, and not since, refuses nothing:
+        // the person may have signed in meanwhile.
+        Some(h) if h.signed_in == Some(false) && !h.stale => {
+            Err(format!("{name} is not signed in"))
+        }
         _ => Ok(()),
     }
 }
 
 /// What a new look at an agent leaves of the last one. When its commands
-/// could not say this time whether it is signed in, as with no network,
-/// what they last said stands, marked as such (`stale`), with the time they
-/// said it; otherwise the new look, as of `now`.
+/// could not say this time whether it is signed in, as with no network, or
+/// have not run at all, as when a core starts, what they last said stands,
+/// marked as such (`stale`), with the time they said it and the version
+/// they named; otherwise the new look, as of `now`.
 pub fn merged(
     last: Option<&AgentHealth>,
     found: AgentHealth,
@@ -374,6 +424,7 @@ pub fn merged(
         Some(last) if found.installed && found.supported && found.signed_in.is_none() => {
             AgentHealth {
                 checked: last.checked,
+                version: found.version.or_else(|| last.version.clone()),
                 signed_in: last.signed_in,
                 identity: last.identity.clone(),
                 stale: true,
@@ -392,20 +443,44 @@ pub fn home(data: &Path, agent: &dyn Agent) -> PathBuf {
     data.join("agents").join(agent.id())
 }
 
-/// Every agent this build has, the default first.
-pub fn all() -> &'static [&'static dyn Agent] {
-    AGENTS
+/// Every agent this core has, the default first: the build's own, then the
+/// ones the person added.
+pub fn all() -> Vec<&'static dyn Agent> {
+    let own = OWN.read().unwrap_or_else(|e| e.into_inner());
+    let own = own.iter().map(|agent| *agent as &dyn Agent);
+    AGENTS.iter().copied().chain(own).collect()
 }
 
-/// The agents a core detects as it starts (`agents` collection, design §7):
-/// every one, except in a build with the test fixtures, where only the
-/// fixture agents, so that a test never runs a real agent's commands.
+/// The agents the person added (the `own_agents` preference), which only
+/// the core's own process knows: none of them has a hook or a shim.
+static OWN: std::sync::RwLock<Vec<&'static plain::Plain>> = std::sync::RwLock::new(Vec::new());
+
+/// Takes the agents the person added as they are now, or says why one of
+/// them cannot be an agent and leaves the ones before. One that did not
+/// change stays the adapter it was.
+pub fn set_own(list: &[tasktap_proto::OwnAgent]) -> Result<(), String> {
+    let checked = plain::own(list)?;
+    let mut own = OWN.write().unwrap_or_else(|e| e.into_inner());
+    let was = std::mem::take(&mut *own);
+    let adapter = |agent: plain::Own| match was.iter().find(|plain| agent.is(plain)) {
+        Some(plain) => *plain,
+        None => agent.adapter(),
+    };
+    *own = checked.into_iter().map(adapter).collect();
+    Ok(())
+}
+
+/// The agents a core lists as it starts and looks at by itself, the first
+/// time it gives one a thought (`agents` collection, design §7): every
+/// one, except in a build with the test fixtures, where only the fixture
+/// agents, so that a test never runs a real agent's commands.
 pub fn at_start() -> Vec<&'static dyn Agent> {
+    // The person's own are listed in any build: they have no commands.
     #[cfg(feature = "fixtures")]
-    let detected = |a: &&dyn Agent| a.program() == crate::roles::fixture::PROGRAM;
+    let detected = |a: &&dyn Agent| a.program() == crate::roles::fixture::PROGRAM || a.own();
     #[cfg(not(feature = "fixtures"))]
     let detected = |_: &&dyn Agent| true;
-    AGENTS.iter().copied().filter(detected).collect()
+    all().into_iter().filter(detected).collect()
 }
 
 /// The variables every agent declares it needs, each once.
@@ -423,6 +498,7 @@ const AGENTS: &[&dyn Agent] = &[
     &antigravity::Antigravity,
     &pi::Pi,
     &opencode::OpenCode,
+    &plain::AIDER,
     #[cfg(feature = "fixtures")]
     &Fixture {
         events: true,
@@ -627,11 +703,26 @@ impl Agent for Fixture {
         }
     }
 
+    /// One thing it does only when let, as an agent with such a switch has it.
+    fn options(&self) -> &'static [Choice] {
+        const MORE: &[Choice] = &[Choice {
+            id: "more",
+            name: "More",
+            allows: "The fixture agent is started with --more.",
+        }];
+        if self.events && !self.probed {
+            MORE
+        } else {
+            &[]
+        }
+    }
+
     fn launch(&self, run: &Run) -> Vec<String> {
         let hooks = self.events.then(|| self.attach(run.hook, run.home));
         let hooks = hooks.into_iter().flatten();
         let mut argv = vec![self.program().to_owned()];
         argv.extend(hooks.map(|a| a.to_string_lossy().into_owned()));
+        argv.extend(run.allows(self, "more").then(|| "--more".to_owned()));
         argv.push(run.told(self));
         argv
     }

@@ -732,6 +732,7 @@ fn nothing_leaves_the_machine_without_consent_or_when_nothing_was_heard() {
     // refused before it is spoken, not run by another.
     let asked = tasktap_proto::DetectAgents {
         agents: Some(vec!["fixture".into()]),
+        unchecked: false,
     };
     let found = s.w.ok::<call::AgentsDetect>(&asked);
     assert!(!found.agents[0].installed);

@@ -637,6 +637,19 @@ async function main() {
       expect(!(await allowed(page)) && (await calls(page, 'thought.capture')) === 1, 'typing at the first start: Return did not send the thought, or allowed reading');
       await page.context().close();
 
+      // Agreed to placing under older terms: Setup's placing step says Agree again and is not done, and no thought
+      // carries the core's sentence about it (it is said in that one place).
+      {
+        const r = { ...flow(scene('normal'), 'held'), prefs: [{ id: 'route_by', value: { agents: [{ agent: 'claude', model: 'haiku', on: true }], terms: 2 }, rev: 9 }] };
+        for (const t of r.thoughts) if (t.route) t.route = { ...t.route, fallback: 'the agreement was to what was sent before: placing now asks your agents one after another, and asks you again' };
+        page = await open(browser, { label: 'workspace', records: r, url: server.url, dpr: 1 });
+        await page.waitForTimeout(300);
+        const step = await page.evaluate(() => { const s = document.querySelector('.setup [data-step=placing]'); return s ? `${s.hasAttribute('data-done')} ${s.textContent}` : ''; });
+        expect(/^false .*Agree again/.test(step), `an agreement to older terms: Setup's placing step says "${step}", not Agree again, undone`);
+        expect(!(await page.evaluate(() => /the agreement/.test(document.querySelector('.home').innerText))), 'an agreement to older terms: a thought on Home carries the sentence about it');
+        await page.context().close();
+      }
+
       // On Windows (the page told so), the same key: metal, its arrow in its ink, and its keys in Windows' words.
       page = await open(browser, { label: 'workspace', records: scene('normal'), url: server.url, dpr: 1, system: 'windows' });
       await page.focus(FIELD);

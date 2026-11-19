@@ -58,6 +58,13 @@ function shots() {
     'setup-none': { records: speech(projects('first-agents')), act: both(wait(900), press('Escape'), wait(300)) },
     'setup-one': { records: speech(looked(scene('normal'))), act: wait(400) },
     'setup-two': { records: speech(answered(looked(scene('normal')))), act: wait(400) },
+    // Agreed to placing under older terms: Setup's placing step says Agree again, and no thought carries a note of it.
+    'setup-again': { records: (() => {
+      const r = speech(looked(flow(scene('normal'), 'held')));
+      r.prefs = [...r.prefs.filter((p) => p.id !== 'route_by'), { id: 'route_by', value: { agents: [{ agent: 'claude', model: 'haiku', on: true }], terms: 2 }, rev: 9 }];
+      for (const t of r.thoughts) if (t.route) t.route = { ...t.route, by: 'local', fallback: 'the agreement was to what was sent before: placing now asks your agents one after another, and asks you again' };
+      return r;
+    })(), act: wait(400) },
     'setup-done': { records: speech(answered(looked(scene('normal'))), 'ready'), act: wait(400) },
     'setup-hidden': { records: speech({ ...looked(scene('normal')), prefs: [{ id: 'setup_hidden', value: true, rev: 9 }] }), act: wait(400) },
     'setup-closed': { records: speech(looked(scene('normal'))), act: both(wait(300), click('.setup .fold-h'), wait(200)) },

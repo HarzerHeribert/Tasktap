@@ -75,6 +75,12 @@ const got = (url, how) => fetch(url, how).then((r) => (r.type === 'opaque' ? 'lo
   if (q.get('local')) said.local = await got(q.get('local'), { mode: 'no-cors' });
   // The window around it.
   try { top.location = location.origin + '/leak-top'; said.top = 'asked'; } catch { said.top = 'refused'; }
+  // Its scrollers' bars, which the host's style for frames hides (frames.rs BARS): what one made to scroll takes, and
+  // what its style and the page's own say.
+  const scroller = Object.assign(document.createElement('div'), { style: 'overflow:scroll;width:60px;height:60px' });
+  document.body.append(scroller);
+  said.bars = [scroller.offsetWidth - scroller.clientWidth, getComputedStyle(scroller).scrollbarWidth, getComputedStyle(document.documentElement).scrollbarWidth].join(' ');
+  scroller.remove();
   document.querySelector('#said').textContent = JSON.stringify(said);
   parent.postMessage({ probe: said }, '*');
   if (q.get('go') === 'away') location.href = `http://${q.get('remote')}/leak-away`;

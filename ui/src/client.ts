@@ -55,6 +55,10 @@ export type HostCalls = {
   'host.open': { args: { target: string; cwd?: string; reveal?: boolean; probe?: boolean }; result: string | null };
   /** Whether the Mac is in Low Power Mode; the host says when that changes (the `ui` event `power`). */
   'host.power': { args: Record<string, never>; result: boolean };
+  /** A Mac: what each key prints in the keyboard layout in use, by its place (`KeyboardEvent.code`), lower case;
+   *  for the keys named by what they print (keys.ts `watchLayout`). Windows' host has no such call: its web view
+   *  says itself. */
+  'host.layout': { args: Record<string, never>; result: Record<string, string> };
   /** The capture key. With `key`, a shortcut or null for the system's own: the host asks the system for it and only
    *  then stores the preference; refused, by the rule of a shortcut or because another app holds it, the error says
    *  so and the old key goes on working. The reply, and the reply to a call with no `key`, is the key registered

@@ -1,10 +1,10 @@
 // Scrolling without bars. No scroller in either page shows one (parts.css); each says instead, as `data-more`, which
-// way there is more ("up", "down", "up down"; "left", "right" for the tabs), and the styles dissolve its content at
+// way there is more ("up", "down", "up down"; "left", "right" for the tabs and a preview's actions), and the styles dissolve its content at
 // that edge only, so the cue itself says which way one can go. One mechanism for every scroller: they are marked
 // after anything is drawn, as they scroll, and when the window is resized.
 import { options } from 'preact';
 
-const SCROLLERS = '.room > .home, .tree, .sh-b, .set-pane, .tabs, .cap textarea, .pv-b, .md-t, .found > .fr-s';
+const SCROLLERS = '.room > .home, .tree, .sh-b, .set-pane, .tabs, .pv-do, .cap textarea, .pv-b, .md-t, .found > .fr-s';
 function mark(el: Element) {
   const more = [
     el.scrollTop > 1 && 'up', el.scrollTop + el.clientHeight < el.scrollHeight - 1 && 'down',

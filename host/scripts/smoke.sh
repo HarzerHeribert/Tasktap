@@ -59,6 +59,7 @@ if out="$(node "$root/scripts/composer-check.cjs" 2>&1)"; then pass "$(echo "$ou
 
 echo "== Links in terminals (headless, a real pointer and real keys, a host that keeps what it is asked to open)"
 if out="$(node "$root/scripts/links-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "links in terminals"; fi
+if out="$(node "$root/scripts/frame-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "a page in a preview's frame"; fi
 
 echo "== Voice, recorded by the page (headless, a microphone that is a file)"
 if out="$(node "$root/scripts/voice-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "voice in the page"; fi
@@ -721,6 +722,9 @@ until_has workspace "eval document.querySelector('.home #capture-input').value +
 send 'call delete {"c":"prefs","id":"return_sends"}'
 until_has workspace "eval String(document.querySelector('.home .capture .key .sends').textContent)" 3 "" || fail "Return sends again"
 js workspace "(__speech.cap.dest = undefined, (t => t && __ws.call('delete', { c: 'thoughts', id: t.id }).catch(() => 0))([...__ws.records.thoughts.values()].find((t) => t.text === 'see whether return sends')))" >/dev/null
+# The keyboard's own names: a Mac's web view cannot say what a key prints, so the host does, from the layout in use.
+layout="$(js workspace "__ws.call('host.layout', {}).then((m) => [[...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].every((c) => [...(m['Key' + c] ?? '')].length === 1), [...'0123456789'].every((d) => m['Digit' + d]), Object.keys(m).length].join(' '))")"
+case "$layout" in "true true "*) pass "the host says what each key prints in the keyboard layout in use, by its place ($(echo "$layout" | cut -d' ' -f3) keys): the names of keys bound by their place" ;; *) fail "the keyboard layout from the host" "$layout" ;; esac
 # The capture key: recorded, refused by the rule in its own sentence, registered with the system, and back to the default.
 js workspace "(__ws.open({ kind: 'settings', at: 'thoughts' }), 1)" >/dev/null
 until_has workspace "$(key_row "From any app")" 5 "| false |" || fail "the capture key's row"
@@ -1281,6 +1285,8 @@ api="window.__probe.every((p) => p.internals === 'undefined' && p.parent === 're
   && pass "a frame has nothing of the app: no bridge object, no way to the page around it or its records, and the host answers no command from it (tried through the web view's message handler and the app's own protocol)" || fail "a frame and the app's interface" "$probes"
 [ "$(js workspace "String(window.__probe.every((p) => p.top === 'refused' && p.window === 'refused'))")" = true ] \
   && pass "a frame cannot move the window around it, and no window opens for it" || fail "a frame, the top window and new windows" "$probes"
+[ "$(js workspace "String(window.__probe.every((p) => p.bars === '0 none none'))")" = true ] \
+  && pass "a page in a frame shows no scrollbar: the host's style for frames reaches its scrollers, as a local address and as a file" || fail "scrollbars in a frame" "$probes"
 [ "$(js workspace "String(window.__probe.every((p) => p.picture === 'refused' && p.request === 'refused'))")" = true ] && ! grep -q "/leak" "$tmp/frames.log" \
   && grep -q "\"stopped\":\"http://$remote/leak-frame\"" "$log" \
   && pass "a frame loads nothing from an address that is not this machine's: a picture, a request and a frame inside it were each refused, and none reached the server ($remote)" || fail "a frame and the network" "$probes | $(grep -c /leak "$tmp/frames.log")"

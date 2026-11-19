@@ -99,6 +99,13 @@ function audit([LISTS, KEY]) {
     seen.add('whole text');
     if (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1) bad.push(`"${el.textContent.trim().slice(0, 40)}" is cut short (${el.className || el.tagName})`);
   }
+  // The line over a preview is one line, as the tabs over it are, however narrow its pane: nothing in it wraps.
+  for (const h of document.querySelectorAll('.pv-h')) {
+    if (!h.offsetParent) continue;
+    seen.add('the line over a preview');
+    const b = box(h), off = [...h.querySelectorAll(':scope > *, .pv-do > *')].filter((c) => c.offsetParent && (box(c).top < b.top - 0.5 || box(c).bottom > b.bottom + 0.5 || box(c).height > 24.5));
+    if (b.height > 31 || off.length) bad.push(`the line over a preview is ${Math.round(b.height)} px tall and not one line (${off.map((c) => c.className || c.textContent.trim()).join(', ') || 'itself'})`);
+  }
   // In the Composer and what is under it, one key at most is metal, and one thing at most says Start.
   for (const c of document.querySelectorAll('.capture')) {
     const keys = [...c.querySelectorAll('.key:not(:disabled)')].filter((k) => k.offsetParent);
@@ -450,9 +457,9 @@ async function main() {
     // Previews beside a terminal: what the person opened and what the agent did, text that is cut, a file that is gone.
     ...['previews', 'preview-text', 'preview-gone', 'preview-web'].map((kind) => ['workspace', (w) => w.__ws.show(w.__fake.records.ids.projects.cuegrid), kind]),
   ];
-  // The key role, from the token file: no key is set smaller or lighter.
-  const [, weight, size] = /--f-key:(\d+) round\(([\d.]+)px/.exec(require('node:fs').readFileSync(path.resolve(__dirname, '../ui/src/tokens.css'), 'utf8'));
-  const KEY = { size: scaled(Number(size)), weight: Number(weight) };
+  // The key role, from the token file: no key is set smaller or lighter. It has a floor no text size goes under.
+  const [, weight, floor, size] = /--f-key:(\d+) (?:max\(([\d.]+)px,)?round\(([\d.]+)px/.exec(require('node:fs').readFileSync(path.resolve(__dirname, '../ui/src/tokens.css'), 'utf8'));
+  const KEY = { size: Math.max(Number(floor ?? 0), scaled(Number(size))), weight: Number(weight) };
   // In the page: this page's dictation is the fixture's; and a thought typed into the Composer.
   const helpers = `const mine = (w, kind = 'thought', latched = false, field = '') => Object.assign(w.__speech.talk, { id: w.__fake.records.dictations[0].id, kind, latched, field: field ? w.document.querySelector(field) : null });
     const typeIn = (w, text) => (w.document.querySelector('#capture-input').focus(), w.document.execCommand('insertText', false, text));`;
@@ -529,6 +536,20 @@ async function main() {
         if (after.includes('true')) failures.push(`${name}, ${width}px: the ambient layer moves behind the sheet`);
         for (const b of await measure(page, hung)) failures.push(`${name}, ${width}px: ${b}`);
         measured.add('sheets on the window\'s centre');
+        // Settings keeps one box whichever section it shows: its edges do not move as the person goes through them,
+        // and what does not fit scrolls inside. Every section in its list, by a click, as a person goes.
+        if (name === 'Settings') {
+          const boxes = [];
+          for (let i = 0; i < (await page.evaluate(`document.querySelectorAll('.set-nav button').length`)); i++) {
+            await page.evaluate(`document.querySelectorAll('.set-nav button')[${i}].click()`);
+            await page.waitForTimeout(150);
+            boxes.push(await page.evaluate(`(() => { const r = document.querySelector('.sheet').getBoundingClientRect(); return [document.querySelector('.set-nav [aria-selected=true] span')?.textContent, Math.round(r.top), Math.round(r.bottom), Math.round(r.left), Math.round(r.right)]; })()`));
+          }
+          const moved = boxes.filter((b) => b.slice(1).join() !== boxes[0].slice(1).join());
+          if (boxes.length < 2) failures.push(`Settings, ${width}px: no sections to go through`);
+          for (const b of moved) failures.push(`Settings, ${width}x${height}: in ${b[0]} its box is ${b.slice(1).join(', ')} (top, bottom, left, right), in ${boxes[0][0]} ${boxes[0].slice(1).join(', ')}`);
+          measured.add('Settings keeps one box in every section');
+        }
         await page.context().close();
       }
     for (const [a, sc, kind, opts, then] of [

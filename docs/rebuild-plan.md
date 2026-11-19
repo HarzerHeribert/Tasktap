@@ -318,21 +318,46 @@ Aim for under 20 checks, each named after a promise to the user.
 
 ## Status
 
+**As of 2026-11-19.** Everything built is on `rebuild-phase-2`. `main` still holds 1.2 and the last tag is `v1.2.0`: 2.0 is not released. The phases were not built in the planned order: the app the owner can try was pulled forward on 2026-11-17 ("State on 2026-11-17, evening"), and the work of Phases 3 to 7 has run side by side since. Every phase now has something built; what is open stands under each.
+
 **Waiting for the owner**
 
-1. Done: `trials/tauri-notch/check.sh` was run. Two focus checks failed and are being investigated against how 1.2 behaves; the look was judged fine apart from a focus outline.
-2. Done: the 1.2 baseline is measured and recorded below.
-3. Done: Phase 0 was tried. Two defects were found, listed at the end of this plan.
-4. Overrule anything in "Changes made while the owner was away" that should not stand.
+1. The site's wording, and whether it names Windows. Its download area waits for a signed build.
+2. On Windows, closing the window now leaves Tasktap in the notification area, as it stays in the Dock on a Mac. To confirm.
+3. Two rules Claude proposed for where Tasktap shows itself: a notch that opened by itself folds after 10 seconds untouched; in a full-screen app there is no notch and a question comes as a system notification.
+4. Before the first start of Tasktap: end the sessions in Tasktap Next and quit it. Tasktap then takes over its data folder, once.
+5. Publishing 2.0: the merge into `main`, the tag, and publishing the draft release the workflow makes.
+6. Windows: an account for a first real agent there, and a licence for the test machine.
+7. Asked on 2026-11-17, with no answer recorded in this plan: whether Stop should also end `nohup` jobs.
 
 **Phases**
 
-- Phase 0: built and checked on `rebuild-phase-0` (2026-11-17). 3,979 lines removed, 522 added.
-- Phase 1: built, reviewed and fixed on `rebuild-phase-1` (2026-11-17). The core runs the whole loop on its own, from capture to result, with a stand-in for the agent and the router. 167 tests pass on Linux, macOS and Windows. Codex reviewed the design before building and the code after; every finding is fixed. About 8,900 lines of Rust and 10,400 lines of tests. It is not connected to any interface yet, so there is nothing to try by hand. The design is in [core-design.md](core-design.md); the description of 1.2 it was built from is in [rebuild-inventory.md](rebuild-inventory.md).
-- Phase 2: started 2026-11-17. Its packages are listed in the design under "Phase 2 work packages".
-- Phases 3 to 7: not started.
-- A third agent, Antigravity (Google's `agy`, 2026-11-18, on `worktree-agent-a6924977252b61a03`): it runs thoughts as Claude Code and Codex do, started with its title script, which says what state it is in, since its hooks cannot be given to one run (design §7, "Antigravity"). What it asks is shown and answered in its terminal; it resumes by its conversation's id; it places thoughts through its smallest model as well as the other two and more slowly (design §8). Two things grew for it and are any agent's: a hook may read the end of a file its agent keeps, and a headless question may be shaped for the tool's standard input.
-- A fourth agent, Pi (`pi` 1.5.2, 2026-11-19): it runs thoughts through an extension of Tasktap's own, given to each run from Tasktap's folder, which tells the hook when a turn starts, what tool it uses, when a dialog waits and how the turn settled (design §7, "Pi"). It asks for no approval; a dialog of an extension the person added is shown and answered in its terminal; it resumes by its session's id; it places no thought, having been right in 13 of the evaluation's 14.
+- **Phase 0, cut and prepare: built and checked** (2026-11-17, `rebuild-phase-0`). 3,979 lines removed, 522 added. The 1.2 baseline is below. The 1.2 app it cut has since left the repository (Phase 6).
+- **Phase 1, core foundation: built, reviewed and fixed** (2026-11-17, `rebuild-phase-1`). The core runs the whole loop on its own, from capture to result. 167 tests passed then on Linux, macOS and Windows. Codex reviewed the design before building and the code after; every finding is fixed. Its numbers are below. The design is in [core-design.md](core-design.md); the description of 1.2 it was built from is in [rebuild-inventory.md](rebuild-inventory.md).
+- **Phase 2, terminals and agents: built** and merged (2026-11-17), with its review fixes in.
+  - Built: terminals owned by the core, the launcher, Claude Code and Codex, and placing a thought by the names it uses. Both tools' permission requests and Claude Code's questions are answered from outside the terminal.
+  - Built since (2026-11-18 and 19): nine more agents, Antigravity, Pi, OpenCode, GitHub Copilot, Qwen Code, Goose, Crush, Droid and Aider, and any command-line agent a person adds as a name and a command line. How each is heard and answered is in the design, §7.
+  - Open: Codex's own questions can only be answered in its terminal. Cursor's adapter is written and not offered, since it could not be tried signed in. Copilot is not supported on Windows. Two things the design lists to verify are not marked done: that Codex shows its own approval when no answer comes within 600 seconds, and that a plugin of the person's own does not cut a waiting answer short. Agent sign-in in a Tasktap terminal of its own is not confirmed as built. The voice helper that ran through Python went with the old code, and the app has no spoken voices.
+- **Phase 3, thoughts and flow: built, except the map of projects.**
+  - Built: a thought starts without review, after a hold that shows where it goes and its brief, with Undo. It is placed by name on the machine with no model, or, once the person agrees, by the model behind their own agent, which also writes the brief (core 2026-11-17, interface 2026-11-18). The proof the brief asked for was run: 14 of 14 thoughts placed right with Claude Code, Codex and Antigravity, and nothing invented. An unclear thought becomes the question "Where should this go?". A thought with no folder is saved for later; the word "idea" is gone.
+  - Built: isolated runs with Keep and Discard, finished and closed on 2026-11-17 ("What isolated runs guarantee").
+  - Built: voice (2026-11-18), through a speech service the person chooses, which the core calls, or on this Mac with a Whisper helper, in German and English.
+  - Open: how Tasktap knows a person's projects (the map of projects) is designed and decided ([projects-design.md](projects-design.md), 2026-11-19) and is being finished on a branch of its own, with Settings › Projects; until it is merged, only fixes to the Composer's folder chip are in. In the Mac's check run of 2026-11-19 the step for speech on this Mac failed, before and after that night's work; no fix is recorded. Windows has no speech on the device.
+- **Phase 4, host and notch: built.**
+  - Built: one host (Tauri), tryable since 2026-11-17 as "Tasktap Next" and named Tasktap since 2026-11-19. The notch as a page of its own: the glance, capture with the capture key, a question in full with its answers, results. Keys that answer a question from another app. Hold to talk in the Composer and in a reply.
+  - Built (2026-11-19): the owner's rules for where Tasktap shows itself. No notch while its window is in front, a waiting question in one place, and a system notification for a question where there is no notch.
+  - Measured against 1.2: the table in "State on 2026-11-17, evening".
+  - Open: not recorded as checked by eye: other Spaces, whether the tab blinks when the notch folds, VoiceOver. The last run of the Mac's checks recorded here (2026-11-19, screen locked) ended at 187 passes and 5 failures, 2 of which fail without that night's work too; it needs a run on an unlocked screen. No check presses the capture key on Home on a Mac. Following Do not disturb is not built.
+- **Phase 5, workspace: built** (from 2026-11-17).
+  - Built: the workspace in TypeScript on the core: terminals, tabs, nested splits, the sidebar, Home, the Composer with the agents' rings, Settings as one sheet, a session's details, links in terminals, previews beside a terminal. The look is Instrument and not 1.2's, by the owner's decision; 1.2's stylesheets are gone. The light and the motion, with one control for all of it (Off, Still, Full). Tasktap's chrome mark (2026-11-19).
+  - Open: what Home costs in front while agents work was 9 to 18 % of one core on 2026-11-18; the change built that day to lower it is not recorded as measured. Settings › Projects comes with the map of projects (Phase 3). Fixed on 2026-11-19: the line over a preview wrapping, a white flash and scrollbars in a framed page, keys under 12 px at the small text size, Settings' lower edge moving between sections, and keys named as a US keyboard prints them. Left out on purpose: previews of a folder, of sound and of film, and terminal themes other than Default.
+- **Phase 6, cutover: built, not released.**
+  - Built: the old app's code is out of the repository (2026-11-17: 295 files, about 30,700 lines, every Python helper). There is no import from 1.2, by the owner's decision, and his installed 1.2 is removed. The public site is rebuilt in the new look (2026-11-18). The release work (2026-11-19): the name Tasktap and version 2.0.0, the one move of Tasktap Next's data, the Mac app signed and notarised (a trial run was accepted by Apple), the updater, a Windows installer that is not code-signed by choice, and a workflow that makes a draft release from a tag.
+  - Open: nothing is published. `rebuild-phase-2` is not merged into `main`, there is no 2.0 tag, and the new site goes public only with the merge. The move of the data folder was tried on a made-up folder only, never on the owner's.
+- **Phase 7, Windows: mostly built; no real agent has run there.**
+  - Built: the host for x64 and ARM64, as a folder, a zip and an installer. The core's whole suite passes on a real x64 PC (2026-11-18: 383 tests in each of 10 runs). Microsoft's console ships with the app, which closed the defect of a typed line being held back. The window as one dark surface with Windows' own keys, the folder dialog, previews. A thought from capture to result with the fixture agent, sent and answered from Notepad with real keys. The tab at the top edge and the notification-area icon in place of the notch (2026-11-19: 96 passes, no failure).
+  - Open: the phase's "done when" asks for at least one real agent, and none has run there. Left to a person: the microphone and hold to talk, a second display and a second scale, a taskbar at the top, dragging and Win+arrows, the icon as it sits in the overflow. ARM64 has run in the VM only. A large-output test stalled once in CI and once on ARM64, and no cause is recorded. Not decided: a proxy set by script, PowerShell as the default shell, and which editor opens a file of text.
+- **Review.** Independent review is recorded for Phase 1, Phase 2 and isolated runs. For the rest, none was found in this plan or the log.
 
 **Core, measured on 2026-11-17** with `core/scripts/measure.sh` (Apple M4 Pro, two clients subscribed, no terminals, end of Phase 1):
 
@@ -360,9 +385,9 @@ Aim for under 20 checks, each named after a promise to the user.
 
 These are whole-app numbers. The core's numbers above cover only the part that replaces the Python service and the host's logic; the fair comparison is made once the new host and pages exist.
 
-**One-host trial:** finished, and the decision is one host. Every automated check passes on an unlocked screen. Two focus checks first failed because they compared two different measures; measured the same way, 1.2 and the trial behave alike. Idle memory including the web view processes was 74 MB for the trial against 208 MB for 1.2, mostly because 1.2 loads its full page twice. Still to be checked by eye in Phase 4: other Spaces and full-screen apps, whether the tab blinks when the notch folds, and VoiceOver.
+**One-host trial:** finished, and the decision is one host. Every automated check passes on an unlocked screen. Two focus checks first failed because they compared two different measures; measured the same way, 1.2 and the trial behave alike. Idle memory including the web view processes was 74 MB for the trial against 208 MB for 1.2, mostly because 1.2 loads its full page twice. Left then to be checked by eye, and not recorded as checked since: other Spaces, whether the tab blinks when the notch folds, and VoiceOver. Full-screen apps have had a rule of their own since 2026-11-19 ("Where Tasktap shows itself").
 
-**Carried into Phase 2:** the stricter macOS durability setting, to be decided against measured typing delay; a burst of connections can make clients start extra copies of the core; the Windows pipe relies on a peer check and not yet on an owner-only access list; agent sign-in moves into a Tasktap terminal that belongs to no project.
+**Carried into Phase 2, and what became of each:** the stricter macOS durability setting was decided in Phase 2 and left off (design §3). A burst of connections starting extra copies of the core: a test now holds that two hundred starts at once leave one core. The Windows pipe's access rules are still on the design's list to verify. Agent sign-in in a Tasktap terminal that belongs to no project is not confirmed as built.
 
 ## Changes made on 2026-11-17 while the owner was away
 

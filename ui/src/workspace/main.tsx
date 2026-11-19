@@ -17,7 +17,7 @@ import { type HostUpdate, uuid7 } from '../client.ts';
 import { LevelVoice } from '../speech/level.ts';
 import { live, loudness, recording, talk } from '../speech/record.ts';
 import { Brand, I, Key, Mark, plural } from '../ui.tsx';
-import { COMMANDS, commands, hit, recorder, tip } from '../keys.ts';
+import { ANSWER, COMMANDS, commands, hit, keyName, recorder, tip, watchLayout } from '../keys.ts';
 import { mac, shownPath, titled } from '../system.ts';
 import { Caps, MenuButton, heard as captionSaid, openMenu } from './chrome.tsx';
 import { apply, fontsReady, look } from './appearance.ts';
@@ -245,12 +245,12 @@ function AsksLine() {
   const who = router ? 'Where should this go?' : `${agentName(s?.agent ?? t?.agent)} asks`;
   const more = openQuestions().length - 1;
   return (
-    <button type="button" class="asks-line" title={tip(router ? 'Show the question on Home' : 'Show the question under its terminal', '⌃⌥J')} onClick={() => toQuestion(q.id)}>
+    <button type="button" class="asks-line" title={tip(router ? 'Show the question on Home' : 'Show the question under its terminal', keyName(ANSWER))} onClick={() => toQuestion(q.id)}>
       <Mark s="asks" label="" />
       <b>{who}</b>
       <span class="what">{router ? title(t) : q.prompt}</span>
       {more > 0 && <span class="more">{plural(more, 'more waits', 'more wait')}</span>}
-      <Key k="⌃⌥J" cap />
+      <Key k={keyName(ANSWER)} cap />
     </button>
   );
 }
@@ -415,6 +415,8 @@ void listen<{ do: string; at?: string; id?: string; low?: boolean; url?: string;
   else if (payload.do === 'update') updateSaid(payload as unknown as HostUpdate);
 });
 void askUpdate();
+// Keys bound by their place are named as the person's keyboard prints them (keys.ts).
+watchLayout(() => call('host.layout', {}), redraw);
 void call('host.power', {}).then((low) => ((power.low = !!low), redraw()), () => {});
 const narrow = () => {
   const n = innerWidth < NARROW;

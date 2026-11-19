@@ -149,6 +149,9 @@ pub fn show(app: &AppHandle, at: Option<&str>) -> tauri::Result<()> {
             stopped(&asks, url.as_str());
             NewWindowResponse::Deny
         })
+        // A preview's frame shows no scrollbar, as nothing in the app does, where a page's own styles leave that to
+        // the app (frames.rs BARS); the app's own page is left as it is.
+        .initialization_script_for_all_frames(crate::frames::BARS)
         .on_page_load(|window, load| {
             if load.event() != PageLoadEvent::Started {
                 return;

@@ -100,6 +100,56 @@ export function accelerator(k: string, onMac = mac): string {
   return [c.control && 'Ctrl', c.alt && 'Alt', c.shift && 'Shift', c.meta && 'CmdOrCtrl', named[c.key] ?? c.key].filter(Boolean).join('+');
 }
 
+// ——— The person's own keyboard ———
+//
+// A key bound by its place (a shortcut a person recorded, the keys that answer from any app) is named as the
+// person's keyboard prints it: on a German one the key a US keyboard calls Z says Y, the one right of P says Ü, the one
+// right of 0 says ß. What each place prints comes from the browser's layout map where there is one (WebView2 on
+// Windows), else from the host (a Mac's web view has none: `host.layout`), and the US names stand until either says.
+// Only names change: such a key is still matched by its place (`holds`), as the system registers it. A command's key
+// (`spell`) is matched by the character it types, so its name is that character on any keyboard.
+
+/** What each key prints, by its place (`KeyboardEvent.code`), lower case, as the layout in use says. */
+let printed: ReadonlyMap<string, string> = new Map();
+/** The keys whose name is what they print: letters, digits and the signs, never a named key such as Space. */
+const PRINTS = /^(Key[A-Z]|Digit\d|Minus|Equal|BracketLeft|BracketRight|Backslash|Semicolon|Quote|Backquote|Comma|Period|Slash|Intl(Backslash|Ro|Yen))$/;
+/** Takes the layout in use, a map of what each key prints by its place; whether any key's name changed. */
+export function learnLayout(map: ReadonlyMap<string, string> | Record<string, string> | null | undefined): boolean {
+  const next = new Map([...(map instanceof Map ? map : Object.entries(map ?? {}))].filter(([code, ch]) => PRINTS.test(code) && typeof ch === 'string' && ch.trim().length === 1));
+  if (next.size === printed.size && [...next].every(([code, ch]) => printed.get(code) === ch)) return false;
+  printed = next;
+  return true;
+}
+type Layouts = { keyboard?: { getLayoutMap?: () => Promise<ReadonlyMap<string, string>> } };
+/** Reads the layout in use, from the browser or else from `host`, now, whenever the window comes back into use, and
+ *  at a plain key that types something else than the layout said (another layout was chosen meanwhile); `changed`
+ *  runs when a key's name changed. */
+export function watchLayout(host: (() => Promise<Record<string, string>>) | undefined, changed: () => void) {
+  const read = async () => {
+    const kb = (navigator as Navigator & Layouts).keyboard;
+    let map: ReadonlyMap<string, string> | Record<string, string> | null = null;
+    try {
+      map = kb?.getLayoutMap ? await kb.getLayoutMap() : host ? await host() : null;
+    } catch {
+      // No layout to be had: the names stay as they were.
+    }
+    if (map && learnLayout(map)) changed();
+  };
+  void read();
+  addEventListener('focus', () => void read());
+  addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.key.length !== 1 || !printed.has(e.code)) return;
+    if (printed.get(e.code) !== e.key.toLowerCase()) void read();
+  }, { capture: true, passive: true });
+}
+/** A key by its place, as the layout in use prints it: a letter as a capital (ß stays ß), a dead key as its mark. */
+function printedAs(code: string): string | undefined {
+  const ch = printed.get(code);
+  if (!ch) return undefined;
+  const up = ch.toUpperCase();
+  return up.length === 1 ? up : ch;
+}
+
 // ——— A shortcut a person recorded ———
 
 const NAMES: Record<string, string> = {
@@ -107,12 +157,16 @@ const NAMES: Record<string, string> = {
   PageUp: '⇞', PageDown: '⇟', Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Semicolon: ';', Quote: "'", Backquote: '`',
   Comma: ',', Period: '.', Slash: '/',
 };
-/** A shortcut as ui.tsx `Key` takes it: "⌃⌥Space" on a Mac, "Ctrl+Alt+Space" on Windows. A key is named as the US
- *  keyboard prints it. These are the keys themselves: Command is the Windows key there, never Control. */
+/** A shortcut as ui.tsx `Key` takes it: "⌃⌥Space" on a Mac, "Ctrl+Alt+Space" on Windows. A key is named as the
+ *  person's keyboard prints it (`learnLayout`), as the US keyboard does until the layout is known. These are the keys
+ *  themselves: Command is the Windows key there, never Control. */
 export function keyName(s: Shortcut, onMac = mac): string {
-  const key = NAMES[s.code] ?? s.code.replace(/^(Key|Digit)/, '');
+  const key = printedAs(s.code) ?? NAMES[s.code] ?? s.code.replace(/^(Key|Digit)/, '');
   return onMac ? signs(s) + key : [...words(s), PRINTED[key] ?? key].join('+');
 }
+/** The key that goes to a waiting question from any app (host/src/main.rs ANSWER_KEYS: Control-Option-J on both
+ *  systems), by its place. */
+export const ANSWER: Shortcut = { control: true, alt: true, shift: false, meta: false, code: 'KeyJ' };
 /** What a key press is as a shortcut, and the modifiers alone while only they are held. */
 export const pressed = (e: KeyboardEvent): Shortcut => ({ control: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: e.metaKey, code: e.code });
 export const heldNow = (e: KeyboardEvent, onMac = mac) => (onMac ? signs(pressed(e)) : words(pressed(e)).join('+'));

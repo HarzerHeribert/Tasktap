@@ -315,6 +315,11 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     toCore({ t: 'close', s: Number(s), why: 'gone' });
   };
   window.__fake = { emit, push, records, heard, calls, sizes, close, opened };
+  // The keyboard's layout, as the web view says it (keys.ts watchLayout): the records' (`layout`, what each key
+  // prints by its place), else a US keyboard's, so that a picture is the same on every machine the checks run on.
+  const US = Object.fromEntries([...'abcdefghijklmnopqrstuvwxyz'].map((c) => [`Key${c.toUpperCase()}`, c]).concat([...'0123456789'].map((d) => [`Digit${d}`, d]),
+    [['Minus', '-'], ['Equal', '='], ['BracketLeft', '['], ['BracketRight', ']'], ['Backslash', '\\'], ['Semicolon', ';'], ['Quote', "'"], ['Backquote', '`'], ['Comma', ','], ['Period', '.'], ['Slash', '/']]));
+  if (top === window) Object.defineProperty(navigator, 'keyboard', { configurable: true, value: { getLayoutMap: async () => new Map(Object.entries(records.layout || US)) } });
   window.__fake.speech = { acts: [], ended: [], fed: [], said(line) { callbacks.get(this.channel)?.({ index: this.n++, message: line }); } };
   window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
   window.__TAURI_INTERNALS__ = {

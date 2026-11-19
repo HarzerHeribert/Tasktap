@@ -250,6 +250,7 @@ try {
             Pass "a frame reaches nothing of the app: not the page around it or its records, and the host answers no command from it, tried through the web view's message channel, the app's own protocol and the app's own call (the app's object in the frame: $object)"
         } else { Fail 'a frame and the app''s interface' "$probes | $(@($seen | Where-Object { $_.Contains('REACHED') }) -join ' | ')" }
         if (& $every "p.top === 'refused' && p.window === 'refused'") { Pass 'a frame cannot move the window around it, and no window opens for it' } else { Fail 'a frame, the top window and new windows' $probes }
+        if (& $every "p.bars === '0 none none'") { Pass "a page in a frame shows no scrollbar: the host's style for frames reaches its scrollers" } else { Fail 'scrollbars in a frame' $probes }
         $stopped = Seen "`"stopped`":`"http://$remote/leak-frame`"" 2
         # (A request the host refuses is answered 403, which a page that asked without leave to read sees as
         # an answer it cannot read: whether anything left is the server's to say.)

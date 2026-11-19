@@ -58,6 +58,22 @@ pub const BROWSER: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenP
     --autoplay-policy=no-user-gesture-required \
     --host-resolver-rules=\"MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE [::1]\"";
 
+/// What the host gives every frame of the workspace page as it starts (`workspace.rs`), on both systems: in a
+/// preview's frame, and nowhere else, no scroller shows a bar, as none does in the app's own pages (design §3,
+/// "Scroller"); the page scrolls as it did. A page's own document is not the app's to style, so the rules stand in a
+/// layer of their own, which every rule of the page outranks: a page that sets `scrollbar-width` itself keeps its
+/// bar, and so does one that draws a bar of its own, or that replaces its document's adopted style sheets; a PDF is
+/// drawn by the web view's own viewer, which no style reaches. It reads nothing and gives the frame nothing.
+/// (scripts/frame-check.cjs runs it in headless Chromium; host/scripts/smoke.sh reads what WebKit makes of it.)
+pub const BARS: &str = r#"(() => {
+  if (window === window.top || !/^https?:$/.test(location.protocol)) return;
+  try {
+    const bars = new CSSStyleSheet();
+    bars.replaceSync('@layer tasktap-bars { :root, * { scrollbar-width: none } ::-webkit-scrollbar { display: none } }');
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, bars];
+  } catch {}
+})();"#;
+
 /// Whether the web view may go to `url`, in any frame: the app's own pages (`tauri://` on a Mac,
 /// `http://tauri.localhost` on Windows), an empty frame, and this machine's own web addresses.
 pub fn allowed(url: &str) -> bool {
@@ -260,6 +276,17 @@ mod tests {
     use super::*;
     #[cfg(unix)]
     use std::fs;
+
+    #[test]
+    fn the_style_for_frames_stays_out_of_the_apps_page_and_under_a_pages_own() {
+        // It acts in a frame of this machine only, never in the top page, and its rules lose to any of the page's.
+        assert!(BARS.contains("window === window.top") && BARS.contains("/^https?:$/.test(location.protocol)"));
+        assert!(BARS.contains("@layer tasktap-bars {") && BARS.contains("scrollbar-width: none"));
+        // It adds a style sheet and does nothing else: no message, no request, no global of its own.
+        for never in ["postMessage", "fetch", "XMLHttpRequest", "window.__", "localStorage"] {
+            assert!(!BARS.contains(never), "{never}");
+        }
+    }
 
     #[test]
     fn a_frame_goes_to_the_apps_pages_and_to_this_machine_and_nowhere_else() {

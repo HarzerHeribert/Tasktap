@@ -47,7 +47,7 @@ use tasktap_proto::{
 pub const LIVE_FINISHED: u32 = 200;
 
 /// The schema, oldest first: entry `n` brings `user_version` from `n` to `n + 1`.
-pub const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2, SCHEMA_V3];
+pub const MIGRATIONS: &[&str] = &[SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4];
 
 /// A SHA-256 digest: of a device key, a session token or a call's arguments.
 pub type Hash = [u8; 32];
@@ -1764,4 +1764,17 @@ CREATE TABLE cards (
     data TEXT NOT NULL,
     folder TEXT NOT NULL UNIQUE AS (data ->> 'folder')
 ) STRICT;
+"#;
+
+/// A consent to place thoughts by one agent (`route_by {agent, model,
+/// terms}`) becomes an agreement that lists that agent alone, switched on,
+/// to the same terms (design §8). A No (null) stays No.
+const SCHEMA_V4: &str = r#"
+UPDATE prefs SET data = json_set(data, '$.value', json_object(
+    'agents', json_array(json_object(
+        'agent', data ->> '$.value.agent',
+        'model', data ->> '$.value.model',
+        'on', json('true'))),
+    'terms', coalesce(data ->> '$.value.terms', 0)))
+WHERE id = 'route_by' AND data ->> '$.value.agent' IS NOT NULL;
 "#;

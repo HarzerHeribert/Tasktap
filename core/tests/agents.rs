@@ -1261,6 +1261,7 @@ fn a_capture_is_refused_for_an_agent_found_missing_or_signed_out_and_never_run_b
         version: None,
         signed_in,
         identity: None,
+        limited: None,
         events: true,
         resume: true,
         permissions: None,
@@ -1628,6 +1629,140 @@ fn each_tools_answer_is_read_from_what_it_really_printed() {
         "ERROR: stream disconnected before completion",
     ] {
         assert!(!(codex.gone)("", other), "{other}");
+    }
+}
+
+// A plan or key at its usage limit (design §8). None of the three tools
+// was recorded at its limit, and none is run to get there, which would
+// spend the person's plan: the `headless-limit` files hold each tool's
+// words as its own program holds them (Claude Code 2.1.328 and Codex 0.169
+// read from the installed programs, Antigravity 1.5 likewise), in the shape
+// of what it printed when it was recorded failing otherwise.
+#[test]
+fn each_tool_says_its_plan_reached_its_usage_limit_in_its_own_words_with_when_it_is_back() {
+    use tasktap_core::agents::quota::Back;
+    let clock = |h: u32, m: u32| Back::Clock {
+        date: None,
+        minutes: h * 60 + m,
+    };
+    let claude = headless("claude");
+    let limit = printed("claude/headless-limit.json");
+    assert!((claude.answer)(&limit).is_err());
+    assert_eq!((claude.quota)(&limit, ""), Some(clock(16, 0)));
+    let said =
+        |result: &str| json!({"type": "result", "is_error": true, "result": result}).to_string();
+    let weekly = said("You've hit your weekly limit · resets Nov 21, 4:30pm (Europe/Berlin)");
+    assert_eq!(
+        (claude.quota)(&weekly, ""),
+        Some(Back::Clock {
+            date: Some((None, 11, 21)),
+            minutes: 16 * 60 + 30
+        })
+    );
+    // Before 2.1 it named the moment in seconds; a spend limit names none.
+    let old = said("Claude AI usage limit reached|1795100400");
+    assert_eq!((claude.quota)(&old, ""), Some(Back::At(1_795_100_400)));
+    let spent = said("You've hit your monthly spend limit");
+    assert_eq!((claude.quota)(&spent, ""), Some(Back::Unsaid));
+    // An answer, a model it does not have, or another failure is no limit.
+    for other in [
+        printed("claude/headless-answer.json"),
+        printed("claude/headless-error.json"),
+        said("API Error: 529 overloaded"),
+    ] {
+        assert_eq!((claude.quota)(&other, ""), None, "{other}");
+    }
+
+    let codex = headless("codex");
+    let limit = printed("codex/headless-limit.txt");
+    assert_eq!(
+        (codex.quota)("", limit.trim()),
+        Some(Back::Clock {
+            date: Some((Some(2026), 11, 20)),
+            minutes: 16 * 60 + 5
+        })
+    );
+    let today = "ERROR: You've hit your usage limit. Try again at 4:05 PM.";
+    assert_eq!((codex.quota)("", today), Some(clock(16, 5)));
+    let key = "ERROR: Quota exceeded. Check your plan and billing details.";
+    assert_eq!((codex.quota)("", key), Some(Back::Unsaid));
+    for other in ["", "ERROR: stream disconnected before completion"] {
+        assert_eq!((codex.quota)("", other), None, "{other}");
+    }
+    assert_eq!(
+        (codex.quota)(&printed("codex/headless-answer.json"), ""),
+        None
+    );
+
+    let agy = headless("agy");
+    let limit = printed("agy/headless-limit.jsonl");
+    let why = (agy.answer)(&limit).unwrap_err();
+    assert!(why.contains("exhausted your quota"), "{why}");
+    assert_eq!((agy.quota)(&limit, ""), Some(Back::Unsaid));
+    for other in [
+        printed("agy/headless-answer.jsonl"),
+        printed("agy/headless-error.jsonl"),
+    ] {
+        assert_eq!((agy.quota)(&other, ""), None);
+    }
+}
+
+#[test]
+fn the_time_a_tool_names_is_read_on_the_persons_clock_and_an_hour_where_it_names_none() {
+    use tasktap_core::agents::quota::{back, until};
+    // 2026-11-19 14:00 UTC: 15:00 in Berlin, an hour ahead.
+    let now = time(1_795_096_800_000);
+    let berlin = |text: &str| until(back(text), now, 3600).get() / 1000;
+    let hour = 1_795_096_800 + 3600;
+    // Claude Code: today, the next day once the time has passed, a day it names.
+    assert_eq!(
+        berlin("You've hit your 5-hour limit · resets 4pm (Europe/Berlin)"),
+        1_795_100_400
+    );
+    assert_eq!(berlin("· resets 2pm"), 1_795_096_800 - 3600 + 86_400);
+    assert_eq!(
+        berlin("· resets Nov 21, 4:30pm (Europe/Berlin)"),
+        1_795_275_000
+    );
+    assert_eq!(berlin("· resets Nov 21, 2026, 4:30pm"), 1_795_275_000);
+    assert_eq!(berlin("usage limit reached|1795100400"), 1_795_100_400);
+    // Codex, with the day and without, and a clock of 24 hours.
+    assert_eq!(
+        berlin("or try again at Nov 20th, 2026 4:05 PM."),
+        1_795_187_100
+    );
+    assert_eq!(berlin("Try again at 4:05 PM."), 1_795_100_700);
+    assert_eq!(berlin("resets at 16:00"), 1_795_100_400);
+    // Gemini's tools, in a length of time.
+    assert_eq!(
+        berlin("Your quota will reset after 2h30m5s."),
+        1_795_096_800 + 9005
+    );
+    assert_eq!(
+        berlin("try again in 2 hours and 5 minutes"),
+        1_795_096_800 + 7500
+    );
+    // The same clock time elsewhere: 4pm in New York, five hours behind.
+    assert_eq!(
+        until(back("resets 4pm"), now, -5 * 3600).get() / 1000,
+        1_795_122_000
+    );
+    // A date without a year that has passed is next year's.
+    let december = time(1_798_632_000_000);
+    assert_eq!(
+        until(back("resets Jan 2, 9am"), december, 3600).get() / 1000,
+        1_798_876_800
+    );
+    // No time, one that cannot be read, one passed, one more than eight
+    // days ahead: an hour.
+    for text in [
+        "Try again later.",
+        "resets soon",
+        "resets 25pm",
+        "usage limit reached|1700000000",
+        "usage limit reached|1899999999",
+    ] {
+        assert_eq!(berlin(text), hour, "{text}");
     }
 }
 

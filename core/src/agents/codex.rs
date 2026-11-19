@@ -48,7 +48,7 @@ use tasktap_proto::{Answer, Ask, Event, MAX_TEXT, QuestionKind, ReplyVia, Respon
 use super::rules::Rules;
 use super::{
     Agent, Caps, Detect, Headless, Heard, Payload, Probe, Run, WORDS, activity, digest, fit,
-    permission, quoted, said,
+    permission, quota, quoted, said,
 };
 
 pub struct Codex;
@@ -87,6 +87,25 @@ const HOOKS: &[(&str, u32)] = &[
 /// The model a headless question asks: the smallest, fastest one Codex
 /// lists (`codex debug models`), which has no alias that follows it.
 const SMALL: &str = "gpt-6-luna";
+
+/// Whether Codex said the person's plan or key has reached its usage
+/// limit, in the words of its program (0.169): "You've hit your usage
+/// limit." with what the plan allows next, "… or try again at 4:05 PM." (or
+/// "at Nov 20th, 2026 4:05 PM", or "Try again later."), "You've hit your
+/// usage limit for <model>. Switch to another model now, or try again at
+/// …", and with a key "Quota exceeded. Check your plan and billing
+/// details.". `exec` prints them after "ERROR: " on its other output.
+fn spent(text: &str) -> Option<quota::Back> {
+    let words = [
+        "hit your usage limit",
+        "Quota exceeded",
+        "usage_limit_reached",
+    ];
+    words
+        .iter()
+        .any(|w| text.contains(w))
+        .then(|| quota::back(text))
+}
 
 /// What gives a Codex model tools, each turned off for a headless question.
 const TOOLS: &[&str] = &[
@@ -265,6 +284,7 @@ impl Agent for Codex {
                 let unknown = ["not supported", "does not exist", "not found"];
                 said.contains("model") && unknown.iter().any(|u| said.contains(u))
             },
+            quota: |printed, said| [said, printed].into_iter().find_map(spent),
         })
     }
 

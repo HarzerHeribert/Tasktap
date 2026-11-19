@@ -419,11 +419,12 @@ fn stop(why: impl std::fmt::Display) -> ! {
 /// Asks the router about a thought (design §8). The match on names
 /// answers at once, and what it finds it places: a project or session the
 /// thought names, the session it was made in, or a question when it names
-/// several. With the person's consent `by`, the model behind their agent
-/// is asked, off the core's thread, to place a thought the match finds
-/// nothing for: its answer is used as `route::accept` allows, and whenever
-/// it is not, the match's is, with why. With `picked` (by the person, or by
-/// the match for a thought too long to go as it is) only the brief is open,
+/// several. With the person's agreement `by`, the models behind their
+/// agents are asked, off the core's thread and one after another in their
+/// order ([`ask_next`]), to place a thought the match finds nothing for:
+/// the first answer `route::accept` allows is used, and when there is
+/// none, the match's is, with why. With `picked` (by the person, or by the
+/// match for a thought too long to go as it is) only the brief is open,
 /// and the fallback is the person's own words.
 fn route(
     core: &mut Core,
@@ -432,7 +433,7 @@ fn route(
     by: Option<RouteBy>,
     picked: Option<Destination>,
 ) {
-    use crate::route::{accept, askable, consented, narrow, question, request, short};
+    use crate::route::{agreed, askable, narrow, request, short};
     let found = read(core, |tx| {
         let thought = tx.thought(id)?;
         (thought.map(|t| request(tx, &t.text, current))).transpose()
@@ -456,28 +457,96 @@ fn route(
         Some(_) => short(&asked.text),
         None => !matches!(local, Route::Unknown) && core.seams.sure(&asked),
     };
-    let tool = match by.filter(|_| !sure) {
-        Some(by) => consented(&by).and_then(|tool| askable(&asked.text).map(|()| tool)),
+    let tools = match by.filter(|_| !sure) {
+        Some(by) => agreed(&by).and_then(|tools| askable(&asked.text).map(|()| tools)),
         None => return routed(core, id, local, state::locally(None), current),
     };
     let narrowed = read(core, |tx| narrow(tx, asked)).map_err(|e| e.message);
-    let (agent, how, asked) = match (tool, narrowed) {
-        (Ok((agent, _)), _) if core.seams.gone(agent.id()) => {
-            let why = crate::route::gone(agent.name());
-            return routed(core, id, local, state::locally(Some(why)), current);
-        }
-        (Ok((agent, how)), Ok(asked)) => (agent, how, asked),
+    let (tools, asked) = match (tools, narrowed) {
+        (Ok(tools), Ok(asked)) => (tools, asked),
         (Err(why), _) | (_, Err(why)) => {
             return routed(core, id, local, state::locally(Some(why)), current);
         }
+    };
+    let chain = Chain {
+        id,
+        current,
+        asked,
+        local,
+        left: tools.into(),
+        began: Instant::now(),
+        why: Vec::new(),
+        tried: false,
+    };
+    ask_next(core, chain);
+}
+
+/// The agents asked about one thought, one after another (design §8): what
+/// they are asked, what the match on names found, who is left to ask, and
+/// why each one so far gave nothing the core took.
+struct Chain {
+    id: ThoughtId,
+    current: Option<SessionId>,
+    asked: crate::route::Request,
+    local: Route,
+    /// The next first.
+    left: std::collections::VecDeque<(&'static dyn agents::Agent, agents::Headless)>,
+    began: Instant,
+    why: Vec<String>,
+    /// A tool was run.
+    tried: bool,
+}
+
+/// The least time worth asking an agent in: less than it usually takes to
+/// place a thought is not.
+const LEAST: Duration = Duration::from_secs(1);
+
+/// Asks the next agent of the chain that can be asked now, within what is
+/// left of [`crate::route::BUDGET`] and its own time limit, one at a time.
+/// Passed over: one whose tool said it no longer has its model, or that the
+/// person's plan or key has reached its limit until later, one known to be
+/// missing or signed out, and one there is no longer time for. When none is
+/// left, the match on names places the thought, or asks about it, with why.
+fn ask_next(core: &mut Core, mut chain: Chain) {
+    use crate::route::{BUDGET, accept, question, typical};
+    let now = core.seams.now();
+    let next = loop {
+        let Some((agent, how)) = chain.left.pop_front() else {
+            break None;
+        };
+        let name = agent.id();
+        let left = BUDGET.saturating_sub(chain.began.elapsed());
+        let usual = Duration::from_millis(typical(name).map_or(0, u64::from)).max(LEAST);
+        let health = core.detected(name);
+        let rests = health.and_then(|h| h.limited).filter(|&until| until > now);
+        let why = match agents::usable(agent, health) {
+            _ if core.seams.gone(name) => crate::route::gone(agent.name()),
+            _ if rests.is_some() => format!("{name}: its usage limit is reached for now"),
+            Err(why) => format!("{name}: {why}"),
+            Ok(()) if left < usual => format!("{name}: no time was left to ask it"),
+            Ok(()) => {
+                let limit = how.limit.min(left);
+                break Some((agent, agents::Headless { limit, ..how }));
+            }
+        };
+        chain.why.push(why);
+    };
+    let Some((agent, how)) = next else {
+        let ms = u32::try_from(chain.began.elapsed().as_millis()).unwrap_or(u32::MAX);
+        let why = (!chain.why.is_empty()).then(|| chain.why.join("; "));
+        let how = Routing {
+            ms: chain.tried.then_some(ms),
+            ..state::locally(why)
+        };
+        return routed(core, chain.id, chain.local, how, chain.current);
     };
     let folder = core.terminals.data().join("route");
     let (hear, heard) = mpsc::channel();
     core.seams.asked += 1;
     let number = core.seams.asked;
-    core.seams.routes.insert(id, (number, hear.clone()));
-    let (began, model, tool) = (Instant::now(), how.model, agent.name());
-    let text = question(&asked);
+    core.seams.routes.insert(chain.id, (number, hear.clone()));
+    chain.tried = true;
+    let text = question(&chain.asked);
     let ask = move || {
         checks::ask(
             agent,
@@ -489,6 +558,7 @@ fn route(
         )
     };
     crate::calls::aside(core, ask, move |core, answer| {
+        let id = chain.id;
         // Stopped, or asked anew since: nobody waits for this answer.
         if core.seams.routes.get(&id).map(|(n, _)| *n) != Some(number) {
             return;
@@ -496,39 +566,38 @@ fn route(
         core.seams.routes.remove(&id);
         // The last question may have kept the core alive.
         core.events.notify_one();
-        let ms = Some(u32::try_from(began.elapsed().as_millis()).unwrap_or(u32::MAX));
+        let ms = Some(u32::try_from(chain.began.elapsed().as_millis()).unwrap_or(u32::MAX));
         let lost = || Err(Failed::Why("it ended without an answer".into()));
         let accepted = answer
             .unwrap_or_else(lost)
-            .and_then(|answer| Ok(accept(&asked, &answer)?));
-        let (route, how) = match accepted {
+            .and_then(|answer| Ok(accept(&chain.asked, &answer)?));
+        let why = match accepted {
             Ok((route, found)) => {
                 let how = Routing {
                     by: agent.id().into(),
-                    model: Some(model.into()),
+                    model: Some(how.model.into()),
                     ms,
                     ..found
                 };
-                (route, how)
+                return routed(core, id, route, how, chain.current);
             }
-            Err(failed) => {
-                let why = match failed {
-                    Failed::Gone => {
-                        core.seams.gone.push(agent.id());
-                        crate::route::gone(tool)
-                    }
-                    Failed::Why(why) => format!("{}: {why}", agent.id()),
-                };
-                (
-                    local,
-                    Routing {
-                        ms,
-                        ..state::locally(Some(why))
-                    },
-                )
+            Err(Failed::Gone) => {
+                core.seams.gone.push(agent.id());
+                crate::route::gone(agent.name())
             }
+            Err(Failed::Limit(back, words)) => {
+                let now = core.seams.now();
+                let offset = crate::sys::utc_offset(now).unwrap_or(0);
+                let until = agents::quota::until(back, now, offset);
+                if let Err(e) = core.limit_agent(agent, until) {
+                    stop(e);
+                }
+                format!("{}: {words}", agent.id())
+            }
+            Err(Failed::Why(why)) => format!("{}: {why}", agent.id()),
         };
-        routed(core, id, route, how, current);
+        chain.why.push(why);
+        ask_next(core, chain);
     });
 }
 

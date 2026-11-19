@@ -477,6 +477,14 @@ fn command(app: &AppHandle, line: &str) {
                 });
             }
         }
+        // `tabkey <page> [back]`: Tab (Shift-Tab) pressed in that page's web view, as the keyboard presses it there.
+        #[cfg(target_os = "macos")]
+        "tabkey" => {
+            if let Some(window) = app.get_webview_window(label) {
+                let back = arg == "back";
+                let _ = window.with_webview(move |view| native::press_tab(view.inner(), back));
+            }
+        }
         "text" => report(format!("document.querySelector({arg:?})?.innerText ?? null")),
         "eval" => report(arg.to_owned()),
         "type" => report(format!("document.execCommand('insertText',false,{arg:?})")),
@@ -655,6 +663,7 @@ fn main() {
                     .build()?;
                 let handle = app.handle().clone();
                 window.with_webview(move |webview| {
+                    native::tab_to_controls(webview.inner());
                     let mut st = notch::NOTCH.lock().unwrap();
                     st.panel = native::make_panel(webview.inner() as usize);
                     notch::position(&handle, &mut st);

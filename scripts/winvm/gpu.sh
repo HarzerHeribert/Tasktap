@@ -6,7 +6,7 @@
 # second-by-second samples into a folder outside the repository.
 #   scripts/winvm/gpu.sh [ref] [--out DIR] [--no-build] [--size window|full] [--effects full,still,off]
 #                        [--lumen on,off] [--states rest,working,...] [--seconds 60]
-#   scripts/winvm/gpu.sh --rest        the proof alone: the floor and the app at rest on Home, a minute each; fails
+#   scripts/winvm/gpu.sh --rest        the proof alone: the floor and the app at rest, a minute each; fails
 #                                      when the app at rest uses the graphics processor at all
 #   scripts/winvm/gpu.sh --dry-run     over SSH alone: whether the screen shows the test account's unlocked desktop,
 #                                      whether the card and the counters can be read, what the round would measure;
@@ -26,7 +26,7 @@ while (($#)); do
     --lumen) [[ $# -ge 2 && $2 =~ ^(on|off)(,(on|off))?$ ]] || usage; args+=" -Lumen ${2//,/:}"; shift ;;
     --states) [[ $# -ge 2 && $2 =~ ^[a-z,-]+$ ]] || usage; args+=" -States ${2//,/:}"; shift ;;
     --seconds) [[ $# -ge 2 && $2 =~ ^[0-9]+$ ]] || usage; args+=" -Seconds $2"; shift ;;
-    --rest) args+=' -States rest' ;;
+    --rest) args+=' -States rest:rest-unfocused:tab-rest' ;;
     --no-build) build=0 ;;
     --dry-run) dry=1 ;;
     --rehearse) rehearse=1 ;;
@@ -42,8 +42,12 @@ run="pwsh -NoProfile -File $script -Out C:\\tasktap\\gpu-rounds\\$stamp$args"
 host=tasktap-tower
 status=0
 if ((dry)); then
-  # The checkout's copy, as the round would run it: of the commit last built or tested there.
-  ssh -T -o BatchMode=yes "$host" "$run -DryRun" || status=$?
+  # This worktree's copy, beside the checkout (which may be at a commit that has none, and is not changed for this),
+  # asked about the app the checkout last built.
+  dry='C:\tasktap\gpu-rounds\dry-run'
+  ssh -T -o BatchMode=yes "$host" "New-Item -ItemType Directory -Force $dry | Out-Null"
+  scp -q "$here/gpu.ps1" "$here/sounds.ps1" "$host:${dry//\\//}/"
+  ssh -T -o BatchMode=yes "$host" "pwsh -NoProfile -File $dry\\gpu.ps1 -Checkout C:\\tasktap\\checkout -Out C:\\tasktap\\gpu-rounds\\$stamp$args -DryRun" || status=$?
 elif ((rehearse)); then
   # The VM: nobody uses it and it has no desktop for a script. Its x64 build, run emulated: its ARM64 host does not
   # build there (ring wants clang for aarch64-pc-windows-msvc, which the VM lacks; seen 2026-11-19).
@@ -53,6 +57,8 @@ elif ((build)); then
   # One job builds and then runs the round, holding the checkout throughout: other worktrees send jobs there too.
   "$here/host.sh" ${ref:+"$ref"} --tower --gpu "$stamp" ${args:+--gpu-args "$args"} || status=$?
 else
+  # The app the checkout last built, and the round's own lock; it refuses a checkout another job has moved meanwhile.
+  run+=" -Commit $(git rev-parse --verify --end-of-options "${ref:-HEAD}^{commit}")"
   ssh -T -o BatchMode=yes "$host" "C:\\tasktap\\desk.ps1 -TimeoutSeconds 1200 -CommandLine '$run'" || status=$?
 fi
 mkdir -p "$out"

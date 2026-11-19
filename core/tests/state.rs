@@ -78,6 +78,7 @@ fn project(folder: &str) -> Project {
 
 fn capture(id: ThoughtId, text: &str) -> Capture {
     Capture {
+        card_id: None,
         id,
         text: text.into(),
         strokes: Vec::new(),
@@ -101,6 +102,7 @@ fn captured(capture: Capture) -> Event {
 /// An agent's question in the session's current turn.
 fn question(s: &Session, via: ReplyVia) -> Question {
     Question {
+        notes: None,
         id: QuestionId::mint(),
         rev: Rev::ZERO,
         thought_id: s.thought_id,
@@ -470,6 +472,7 @@ fn row_route_clear_and_the_persons_pick_route_and_start_the_hold() {
     w.set_hold(3);
     let t = w.capture("fix the build");
     let route = Route::Clear {
+        said: None,
         to: Destination::New(w.project),
         brief: "Fix the failing build".into(),
     };
@@ -539,10 +542,12 @@ fn row_route_ambiguous_asks_and_the_answer_routes() {
     let t = w.capture("deploy it");
     let candidates = vec![
         Candidate {
+            why: String::new(),
             label: "app".into(),
             to: Destination::New(w.project),
         },
         Candidate {
+            why: String::new(),
             label: "site".into(),
             to: Destination::New(site.id),
         },
@@ -613,6 +618,7 @@ fn a_router_question_declined_or_bypassed_closes() {
     let ambiguous = |w: &World| Route::Ambiguous {
         prompt: "Where?".into(),
         candidates: vec![Candidate {
+            why: String::new(),
             label: "app".into(),
             to: Destination::New(w.project),
         }],
@@ -1746,6 +1752,7 @@ const DAY: u64 = state::DAY;
 /// A thought that is finished, last changed at `updated`: done and read.
 fn finished(project: ProjectId, updated: u64) -> Thought {
     Thought {
+        card_id: None,
         id: ThoughtId::mint(),
         rev: Rev::ZERO,
         text: "fix the build".into(),
@@ -2480,6 +2487,7 @@ fn a_router_question_survives_a_restart_and_still_routes() {
     let route = Route::Ambiguous {
         prompt: "Which?".into(),
         candidates: vec![Candidate {
+            why: String::new(),
             label: "app".into(),
             to: Destination::New(w.project),
         }],
@@ -2557,6 +2565,7 @@ fn a_thought_runs_captured_routed_working_needs_you_working_done() {
     let t = w.capture("fix the build");
     seen(&mut w, t);
     let mut router = FixtureRouter(Route::Clear {
+        said: None,
         to: Destination::New(w.project),
         brief: "Fix the failing build".into(),
     });
@@ -2862,11 +2871,13 @@ impl Sweep {
                 continue;
             };
             let candidates = vec![Candidate {
+                why: String::new(),
                 label: "app".into(),
                 to: p,
             }];
             let routes = [
                 Route::Clear {
+                    said: None,
                     to: p,
                     brief: "Fix it".into(),
                 },
@@ -3488,6 +3499,7 @@ const BRIEF: &str = "Get the build green again. Do not touch the release profile
 
 fn consent() -> RouteBy {
     RouteBy {
+        terms: tasktap_core::route::TERMS,
         agent: "claude".into(),
         model: "haiku".into(),
     }
@@ -3530,6 +3542,7 @@ impl World {
 
     fn clear(&self, brief: &str) -> Route {
         Route::Clear {
+            said: None,
             to: Destination::New(self.project),
             brief: brief.into(),
         }
@@ -3697,10 +3710,12 @@ fn a_router_questions_choices_say_what_they_are() {
     let t = w.capture("and the docs");
     let candidates = vec![
         Candidate {
+            why: String::new(),
             label: "The claude session in app".into(),
             to: Destination::Session(s),
         },
         Candidate {
+            why: String::new(),
             label: "app".into(),
             to: Destination::New(w.project),
         },
@@ -3759,6 +3774,7 @@ fn row_placed_says_how_a_thought_came_by_its_place_or_why_it_waits() {
     let app = Destination::New(w.project);
     let placed = |w: &mut World, t| (w.thought(t).placed, w.thought(t).mode);
     let clear = |to| Route::Clear {
+        said: None,
         to,
         brief: "Do it.".into(),
     };
@@ -3766,10 +3782,12 @@ fn row_placed_says_how_a_thought_came_by_its_place_or_why_it_waits() {
         prompt: "Where should this go?".into(),
         candidates: vec![
             Candidate {
+                why: String::new(),
                 label: "app".into(),
                 to: app,
             },
             Candidate {
+                why: String::new(),
                 label: "site".into(),
                 to: Destination::New(site.id),
             },
@@ -3920,6 +3938,7 @@ fn row_a_new_run_is_named_by_the_title_a_model_gave_the_work() {
     w.say(s, Said::Ready).unwrap();
     let f = w.capture("uh, and now, well, run the tests too");
     let route = Route::Clear {
+        said: None,
         to: Destination::Session(s),
         brief: "Run the tests too.".into(),
     };
@@ -4023,6 +4042,7 @@ fn rows_a_picked_thought_is_briefed_by_the_model_and_launches_once_both_are_in()
     // is there to read.
     w.tick(1000);
     let elsewhere = Route::Clear {
+        said: None,
         to: Destination::New(ProjectId::mint()),
         brief: BRIEF.into(),
     };
@@ -4114,6 +4134,7 @@ fn row_route_ambiguous_keeps_the_models_brief_for_where_the_person_sends_it() {
     let id = w.asked(SPOKEN);
     let to = Destination::New(w.project);
     let choice = |label: &str| Candidate {
+        why: String::new(),
         label: label.into(),
         to,
     };
@@ -4148,6 +4169,7 @@ fn row_a_destination_that_went_while_the_router_was_asked_leaves_an_idea() {
     w.consents();
     let id = w.asked(SPOKEN);
     let gone = Route::Clear {
+        said: None,
         to: Destination::New(ProjectId::mint()),
         brief: BRIEF.into(),
     };
@@ -4197,6 +4219,7 @@ fn the_persons_words_go_with_a_brief_unless_it_says_the_same() {
     w.say(s, finished).unwrap();
     let f = w.capture("uh, and now, well, run the tests too");
     let route = Route::Clear {
+        said: None,
         to: Destination::Session(s),
         brief: "Run the tests too.".into(),
     };
@@ -4293,6 +4316,7 @@ mod dictations {
 
     fn thought() -> DictationTarget {
         DictationTarget::Thought(Box::new(Capture {
+            card_id: None,
             id: ThoughtId::mint(),
             text: String::new(),
             strokes: Vec::new(),

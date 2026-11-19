@@ -29,11 +29,11 @@ use sha2::{Digest, Sha256};
 // Short names keep each row of the table on one line: E an event, A what an
 // agent said, P a thought's phase, S a session's state, Q a question's state.
 use tasktap_proto::{
-    Answer, AttemptId, Capture, Changes, Code, DeviceId, Event as A, Isolate, MAX_OPEN_QUESTIONS,
-    MAX_PREVIEWS, MAX_SESSION_QUESTIONS, Mode, Offset, Outcome, Phase as P, Placed, PrefKey,
-    PrefValue, Preview, PreviewBy, PreviewId, PreviewKind, Project, ProjectId, ProjectKind,
-    Question, QuestionId, QuestionKind, QuestionSource, QuestionState as Q, READ_HOLD, Reason,
-    ReplyVia, Response, ResultKind, Rev, RouteBy, Routing, Secret, Session, SessionId,
+    Answer, AttemptId, Capture, CardId, Changes, Code, DeviceId, Event as A, Evidence, Isolate,
+    MAX_OPEN_QUESTIONS, MAX_PREVIEWS, MAX_SESSION_QUESTIONS, Mode, Offset, Outcome, Phase as P,
+    Placed, PrefKey, PrefValue, Preview, PreviewBy, PreviewId, PreviewKind, Project, ProjectId,
+    ProjectKind, Question, QuestionId, QuestionKind, QuestionSource, QuestionState as Q, READ_HOLD,
+    Reason, ReplyVia, Response, ResultKind, Rev, RouteBy, Routing, Secret, Session, SessionId,
     SessionState as S, Source, Status, Terminal, TerminalId, TerminalKind, TerminalState, Thought,
     ThoughtId, Time, TurnResult, Workdir,
 };
@@ -178,6 +178,10 @@ pub enum Destination {
     New(ProjectId),
     /// A follow-up to a session.
     Session(SessionId),
+    /// A new run in a project Tasktap knows that is not open: it becomes a
+    /// workspace when the thought starts there, and not before, so Undo
+    /// during the hold leaves no project and no right behind.
+    Card(CardId),
 }
 
 impl From<Destination> for tasktap_proto::Place {
@@ -185,6 +189,7 @@ impl From<Destination> for tasktap_proto::Place {
         match to {
             Destination::New(project) => Self::Project(project),
             Destination::Session(session) => Self::Session(session),
+            Destination::Card(card) => Self::Card(card),
         }
     }
 }
@@ -192,9 +197,11 @@ impl From<Destination> for tasktap_proto::Place {
 /// What the router found, after the acceptance rules of design §8.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Route {
+    /// `said`: the words that named the project, when not as it is written.
     Clear {
         to: Destination,
         brief: String,
+        said: Option<String>,
     },
     /// The person chooses in a router question. `brief` is the one a
     /// model wrote already, which holds wherever the thought goes.
@@ -212,6 +219,8 @@ pub enum Route {
 pub struct Candidate {
     pub label: String,
     pub to: Destination,
+    /// Why it is a choice, in a few words; or empty.
+    pub why: String,
 }
 
 /// What the caller must do once the transaction is committed.
@@ -568,15 +577,21 @@ impl Machine<'_, '_> {
             // counts only while it is waited for.
             (
                 E::Routed {
-                    route: Route::Clear { to, brief },
-                    how,
+                    route: Route::Clear { to, brief, said },
+                    mut how,
                     current,
                     ..
                 },
                 _,
                 Some(P::Captured),
                 ..,
-            ) if routing(&thought) => self.routed(some(thought)?, to, brief, how, current),
+            ) if routing(&thought) => {
+                // The words that named the project, for what is said of it.
+                if how.by == LOCAL && said.is_some() {
+                    how.quote = said;
+                }
+                self.routed(some(thought)?, to, brief, how, current)
+            }
             // the brief of a thought whose destination the person picked.
             (
                 E::Routed {
@@ -967,10 +982,11 @@ impl Machine<'_, '_> {
     fn capture(&mut self, c: Capture, agent: String, record: Attempt) -> Result<()> {
         let mode = c.mode.unwrap_or(Mode::Ask);
         // A destination given at capture is the person's own pick.
-        let pick = match (mode, c.session_id, c.project_id) {
-            (Mode::Note, ..) | (_, None, None) => None,
-            (_, Some(session), _) => Some(Destination::Session(session)),
-            (_, None, Some(project)) => Some(Destination::New(project)),
+        let pick = match (mode, c.session_id, c.project_id, c.card_id) {
+            (Mode::Note, ..) | (_, None, None, None) => None,
+            (_, Some(session), ..) => Some(Destination::Session(session)),
+            (_, None, Some(project), _) => Some(Destination::New(project)),
+            (_, None, None, Some(card)) => Some(Destination::Card(card)),
         };
         if let Some(to) = pick {
             self.target(to)?;
@@ -987,6 +1003,7 @@ impl Machine<'_, '_> {
             reason: None,
             live: false,
             project_id: c.project_id,
+            card_id: None,
             session_id: None,
             brief: None,
             route: None,
@@ -1133,18 +1150,80 @@ impl Machine<'_, '_> {
         Ok(planned.max(after(self.now, read)?))
     }
 
-    /// The project a destination is in, and its session for a follow-up.
-    fn target(&self, to: Destination) -> Result<(ProjectId, Option<Session>)> {
+    /// The project a destination is in, or the project Tasktap knows that
+    /// opens when the thought starts; and its session for a follow-up. A
+    /// known project whose workspace is open is that workspace.
+    fn target(
+        &self,
+        to: Destination,
+    ) -> Result<(Option<ProjectId>, Option<CardId>, Option<Session>)> {
         match to {
             Destination::New(project) => {
                 self.tx.project(project)?.ok_or(Error::Gone)?;
-                Ok((project, None))
+                Ok((Some(project), None, None))
             }
             Destination::Session(id) => {
                 let s = self.tx.session(id)?.ok_or(Error::Gone)?;
-                Ok((s.project_id, Some(s)))
+                Ok((Some(s.project_id), None, Some(s)))
+            }
+            Destination::Card(id) => {
+                let card = self.tx.card(id)?.filter(|c| !c.hidden).ok_or(Error::Gone)?;
+                let open = match card.project_id {
+                    Some(p) => self.tx.project(p)?.filter(|p| p.open),
+                    None => None,
+                };
+                match open {
+                    Some(p) => Ok((Some(p.id), None, None)),
+                    None => Ok((None, Some(id), None)),
+                }
             }
         }
+    }
+
+    /// A project Tasktap knows becomes a workspace as a thought starts
+    /// there: its folder is opened as `project.add` opens one, an older row
+    /// of it reopened, and its card names the workspace. Only now does its
+    /// folder become one Tasktap may read, show and open (`rules::inside`).
+    fn open_card(&mut self, id: CardId) -> Result<ProjectId> {
+        let mut card = self.tx.card(id)?.ok_or(Error::Gone)?;
+        let known = match card.project_id {
+            Some(p) => self.tx.project(p)?,
+            None => None,
+        };
+        let project = match known.or(self.tx.project_by_folder(&card.folder)?) {
+            Some(mut p) => {
+                if !p.open {
+                    p.open = true;
+                    self.tx.update_project(&p)?;
+                }
+                p.id
+            }
+            None => {
+                let p = Project {
+                    id: self.mint(&[b"card", id.uuid().as_bytes()])?,
+                    rev: Rev::ZERO,
+                    name: card.name.clone(),
+                    folder: card.folder.clone(),
+                    kind: ProjectKind::Folder,
+                    color: String::new(),
+                    aliases: Vec::new(),
+                    git: card.why.contains(&Evidence::Git),
+                    isolate: Isolate::Busy,
+                    open: true,
+                    available: true,
+                };
+                self.tx.insert_project(&p)?;
+                p.id
+            }
+        };
+        if card.project_id != Some(project) {
+            card.project_id = Some(project);
+            if !card.why.contains(&Evidence::Opened) {
+                card.why.insert(0, Evidence::Opened);
+            }
+            self.tx.put_card(&card)?;
+        }
+        Ok(project)
     }
 
     /// Routes a thought to `to`; its hold counts from `since` and ends no
@@ -1160,7 +1239,7 @@ impl Machine<'_, '_> {
         since: Time,
         placed: Placed,
     ) -> Result<()> {
-        let (project, session) = self.target(to)?;
+        let (project, card, session) = self.target(to)?;
         t.placed = Some(placed);
         let until = self.held(after(since, self.hold()?)?)?;
         // Picked while the router was still asked where it goes.
@@ -1176,7 +1255,7 @@ impl Machine<'_, '_> {
             |q| q.thought_id == Some(id) && q.source == QuestionSource::Router,
             Q::Withdrawn,
         )?;
-        t.project_id = Some(project);
+        (t.project_id, t.card_id) = (project, card);
         t.mode = if session.is_some() {
             Mode::Nudge
         } else {
@@ -1208,6 +1287,7 @@ impl Machine<'_, '_> {
         let id: QuestionId = self.mint(&[b"router", t.id.uuid().as_bytes()])?;
         let key = router_key(id, &candidates);
         let places = candidates.iter().map(|c| c.to.into()).collect();
+        let notes = candidates.iter().map(|c| c.why.clone()).collect();
         let q = Question {
             id,
             rev: Rev::ZERO,
@@ -1219,6 +1299,7 @@ impl Machine<'_, '_> {
                 choices: candidates.into_iter().map(|c| c.label).collect(),
             },
             places: Some(places),
+            notes: Some(notes),
             prompt,
             detail: None,
             reply_via: ReplyVia::Core,
@@ -1296,9 +1377,16 @@ impl Machine<'_, '_> {
                 words,
             })
         } else {
-            let project = t
-                .project_id
-                .ok_or(Error::Invalid("a thought starts in a folder"))?;
+            // A project Tasktap knows opens now, as the thought starts there.
+            let project = match (t.project_id, t.card_id) {
+                (Some(project), _) => project,
+                (None, Some(card)) => {
+                    let project = self.open_card(card)?;
+                    t.project_id = Some(project);
+                    project
+                }
+                (None, None) => return Err(Error::Invalid("a thought starts in a folder")),
+            };
             let p = self.tx.project(project)?.ok_or(Error::Gone)?;
             let (cwd, worktree) = self.place(&t, &p, target.as_ref(), attempt)?;
             let agent = target
@@ -1542,6 +1630,7 @@ impl Machine<'_, '_> {
             reason: None,
             live: false,
             project_id: Some(s.project_id),
+            card_id: None,
             session_id: Some(s.id),
             brief: None,
             route: None,
@@ -1616,6 +1705,7 @@ impl Machine<'_, '_> {
             source: ask.source.unwrap_or(QuestionSource::Agent),
             kind: ask.kind,
             places: None,
+            notes: None,
             prompt: ask.prompt,
             detail: ask.detail,
             reply_via: ReplyVia::Terminal,
@@ -2424,6 +2514,7 @@ fn router_key(question: QuestionId, candidates: &[Candidate]) -> String {
         match c.to {
             Destination::New(p) => key += &format!(" n:{}", p.uuid()),
             Destination::Session(s) => key += &format!(" s:{}", s.uuid()),
+            Destination::Card(c) => key += &format!(" c:{}", c.uuid()),
         }
     }
     key
@@ -2438,6 +2529,7 @@ fn destinations(key: &str) -> Vec<Destination> {
         .filter_map(|part| match part.split_once(':')? {
             ("n", p) => id(p).map(Destination::New),
             ("s", s) => id(s).map(Destination::Session),
+            ("c", c) => id(c).map(Destination::Card),
             _ => None,
         })
         .collect()

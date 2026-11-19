@@ -8,25 +8,24 @@ mod common;
 
 use common::*;
 use serde_json::{Value, json};
-use tasktap_core::route::{Followed, Named, Request, accept, local, request, same, short};
+use tasktap_core::route::{
+    Followed, Named, Request, accept, by_names, local, request, same, short,
+};
 use tasktap_core::state::{Candidate, Destination, Route};
 use tasktap_core::store::Store;
 use tasktap_proto::{
     AddProject, Capture, FixtureClock, Hint, Mode, Placed, PrefPatch, ProjectId, ProjectKind,
-    ProjectPatch, Put, PutTarget, QuestionKind, QuestionSource, RouteBy, Routing, SessionId,
-    SessionState, Status, Thought, ThoughtId, call,
+    ProjectPatch, Put, PutTarget, QuestionKind, QuestionSource, QuestionState, Response, RouteBy,
+    Routing, SessionId, SessionState, Status, Thought, ThoughtId, call,
 };
 
 #[test]
 fn the_local_router_follows_its_table() {
     let (tasktap, folio, app) = (ProjectId::mint(), ProjectId::mint(), ProjectId::mint());
     let (login, quiet) = (SessionId::mint(), SessionId::mint());
-    let project = |id, name: &str, aliases: &[&str]| Named {
-        id,
-        name: name.into(),
-        aliases: aliases.iter().map(|a| (*a).into()).collect(),
-    };
+    let project = |id, name: &str, aliases: &[&str]| Named::open(id, name, aliases);
     let request = |text: &str, current| Request {
+        last: None,
         text: text.into(),
         current,
         picked: None,
@@ -62,6 +61,7 @@ fn the_local_router_follows_its_table() {
     let new = Destination::New;
     let to = Destination::Session;
     let choice = |label: &str, to| Candidate {
+        why: String::new(),
         label: label.into(),
         to,
     };
@@ -114,10 +114,29 @@ fn the_local_router_follows_its_table() {
         ("buy milk", None, Err(vec![])),
         ("", None, Err(vec![])),
     ];
+    // What the names decide; why each choice is there aside.
+    let plain = |route: Route| match route {
+        Route::Ambiguous {
+            prompt,
+            candidates,
+            brief,
+        } => Route::Ambiguous {
+            prompt,
+            brief,
+            candidates: (candidates.into_iter())
+                .map(|c| Candidate {
+                    why: String::new(),
+                    ..c
+                })
+                .collect(),
+        },
+        route => route,
+    };
     for (text, current, expected) in table {
-        let route = local(&request(text, current));
+        let route = plain(by_names(&request(text, current)).unwrap_or(Route::Unknown));
         let wanted = match expected {
             Ok(to) => Route::Clear {
+                said: None,
                 to,
                 brief: text.into(),
             },
@@ -133,7 +152,7 @@ fn the_local_router_follows_its_table() {
     // An unnamed session is offered under its label.
     let mut r = request("the login fix or the other one", None);
     r.sessions[1].name = Some("other one".into());
-    let Route::Ambiguous { candidates, .. } = local(&r) else {
+    let Route::Ambiguous { candidates, .. } = plain(local(&r)) else {
         panic!("two sessions named")
     };
     assert_eq!(
@@ -143,6 +162,15 @@ fn the_local_router_follows_its_table() {
             choice("other one", to(quiet))
         ]
     );
+    // Named nothing, with projects known: the person is asked, never
+    // guessed for, with at most three; with none known, it is an idea.
+    let Route::Ambiguous { candidates, .. } = local(&request("buy milk", None)) else {
+        panic!("asked")
+    };
+    assert!(!candidates.is_empty() && candidates.len() <= tasktap_core::route::CHOICES);
+    let mut none = request("buy milk", None);
+    (none.projects, none.sessions) = (Vec::new(), Vec::new());
+    assert_eq!(local(&none), Route::Unknown);
 }
 
 #[test]
@@ -196,6 +224,7 @@ fn a_normal_build_routes_by_name_and_hints_the_same() {
     // One project named: clear, the brief the text unchanged.
     let text = "Fix the header of the site";
     let clear = tasktap_proto::Route::Clear {
+        said: None,
         to: tasktap_proto::Place::Project(folio),
         brief: text.into(),
     };
@@ -214,16 +243,21 @@ fn a_normal_build_routes_by_name_and_hints_the_same() {
     w.until("the router asks", |m| m.glance().question.is_some());
     let q = w.model.question(w.model.glance().question.unwrap()).clone();
     assert_eq!((q.thought_id, q.source), (Some(t), QuestionSource::Router));
+    // The longer name first, each with why it is a choice.
     assert_eq!(
         q.kind,
         QuestionKind::Choice {
-            choices: vec!["app".into(), "folio".into()]
+            choices: vec!["folio".into(), "app".into()]
         }
+    );
+    assert_eq!(
+        q.notes,
+        Some(vec!["named in it".into(), "named in it".into()])
     );
     // What each choice is, so no page tells a folder from a session by its name.
     let places = vec![
-        tasktap_proto::Place::Project(app),
         tasktap_proto::Place::Project(folio),
+        tasktap_proto::Place::Project(app),
     ];
     assert_eq!(q.places, Some(places));
     assert_eq!(w.model.status(t), Status::NeedsYou);
@@ -232,11 +266,21 @@ fn a_normal_build_routes_by_name_and_hints_the_same() {
     };
     assert_eq!(candidates.len(), 2);
 
-    // Nothing named: an idea, and the hint says so.
+    // Nothing named: the person is asked where it goes, never guessed for,
+    // and "Keep for later" keeps it; the hint says nothing is named.
     let t = capture(&mut w, "buy milk", None);
+    assert_eq!(w.model.thought(t).status, Status::NeedsYou);
+    let q = (w.model.questions.values())
+        .find(|q| q.thought_id == Some(t) && q.state == QuestionState::Open)
+        .unwrap()
+        .clone();
+    w.ok::<call::QuestionAnswer>(&tasktap_proto::AnswerQuestion {
+        id: q.id,
+        response: Response::Deny,
+    });
     let th = w.model.thought(t);
     assert_eq!((th.status, th.mode), (Status::Captured, Mode::Note));
-    assert_eq!(th.placed, Some(Placed::KeptName));
+    assert_eq!(th.placed, Some(Placed::KeptAnswer));
     assert_eq!(
         hint(&mut w, "buy milk", None),
         tasktap_proto::Route::Unknown
@@ -306,13 +350,12 @@ fn the_longest_name_said_wins_and_names_said_alike_are_a_choice() {
         "cuegrid_web",
     ];
     let projects: Vec<Named> = (names.iter())
-        .map(|n| Named {
-            id: ProjectId::mint(),
-            name: (*n).into(),
-            aliases: Vec::new(),
-        })
+        .map(|n| Named::open(ProjectId::mint(), n, &[]))
         .collect();
-    let id = |name: &str| projects.iter().find(|p| p.name == name).unwrap().id;
+    let id = |name: &str| match projects.iter().find(|p| p.name == name).unwrap().to {
+        Destination::New(id) => id,
+        _ => unreachable!(),
+    };
     // (text, where it goes: Ok for clear, the choices otherwise)
     let table: Vec<(&str, Result<&str, Vec<&str>>)> = vec![
         // The longest name said wins, its words written apart, joined as
@@ -348,7 +391,7 @@ fn the_longest_name_said_wins_and_names_said_alike_are_a_choice() {
         // The shorter said on its own as well: both are named.
         (
             "tidepool mobile and tidepool both crash on start",
-            Err(vec!["tidepool", "tidepool-mobile"]),
+            Err(vec!["tidepool-mobile", "tidepool"]),
         ),
         // Two names said alike: the person chooses, nothing is guessed.
         (
@@ -366,6 +409,7 @@ fn the_longest_name_said_wins_and_names_said_alike_are_a_choice() {
         };
         let wanted = match expected {
             Ok(name) => Route::Clear {
+                said: None,
                 to: Destination::New(id(name)),
                 brief: text.into(),
             },
@@ -374,6 +418,7 @@ fn the_longest_name_said_wins_and_names_said_alike_are_a_choice() {
                 prompt: "Where should this go?".into(),
                 candidates: (names.iter())
                     .map(|n| Candidate {
+                        why: String::new(),
                         label: (*n).into(),
                         to: Destination::New(id(n)),
                     })
@@ -381,7 +426,25 @@ fn the_longest_name_said_wins_and_names_said_alike_are_a_choice() {
                 brief: None,
             },
         };
-        assert_eq!(local(&request), wanted, "{text:?}");
+        let route = match by_names(&request).unwrap_or(Route::Unknown) {
+            Route::Ambiguous {
+                prompt,
+                candidates,
+                brief,
+            } => Route::Ambiguous {
+                prompt,
+                brief,
+                candidates: candidates
+                    .into_iter()
+                    .map(|c| Candidate {
+                        why: String::new(),
+                        ..c
+                    })
+                    .collect(),
+            },
+            route => route,
+        };
+        assert_eq!(route, wanted, "{text:?}");
     }
 }
 
@@ -438,6 +501,7 @@ fn a_normal_build_places_by_the_longest_name_and_never_in_scratch_unless_picked(
     // The longest name said wins.
     let text = "tidepool mobile drains the battery while uploading";
     let clear = tasktap_proto::Route::Clear {
+        said: None,
         to: tasktap_proto::Place::Project(mobile),
         brief: text.into(),
     };
@@ -463,15 +527,19 @@ fn a_normal_build_places_by_the_longest_name_and_never_in_scratch_unless_picked(
     both.sort_by_key(|p| format!("{p:?}"));
     assert_eq!(places, both);
 
-    // The word "scratch" places nothing in Scratch: the thought is kept.
+    // The word "scratch" places nothing in Scratch: the person is asked,
+    // and Scratch is no choice.
     let text = "start from scratch on the landing page";
     assert_eq!(hint(&mut w, text, None), tasktap_proto::Route::Unknown);
     let t = capture(&mut w, typed(ThoughtId::mint(), text));
     let th = w.model.thought(t);
-    assert_eq!(
-        (th.project_id, th.mode, th.placed),
-        (None, Mode::Note, Some(Placed::KeptName))
-    );
+    assert_eq!((th.project_id, th.status), (None, Status::NeedsYou));
+    let q = (w.model.questions.values())
+        .find(|q| q.thought_id == Some(t))
+        .unwrap();
+    let places = q.places.clone().unwrap();
+    assert!(!places.contains(&tasktap_proto::Place::Project(scratch)));
+    assert!(places.len() <= tasktap_core::route::CHOICES);
 
     // Picked, Scratch is a place, and a session there is followed up as
     // any other.
@@ -535,11 +603,7 @@ fn answer(confidence: &str, to: &str, brief: &str) -> Value {
 fn a_models_answer_is_taken_only_as_the_rules_allow() {
     let (tasktap, folio, app) = (ProjectId::mint(), ProjectId::mint(), ProjectId::mint());
     let (login, quiet) = (SessionId::mint(), SessionId::mint());
-    let project = |id, name: &str| Named {
-        id,
-        name: name.into(),
-        aliases: Vec::new(),
-    };
+    let project = |id, name: &str| Named::open(id, name, &[]);
     let session = |id, name: Option<&str>, project| Followed {
         id,
         name: name.map(Into::into),
@@ -553,6 +617,7 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
     let text = "um, the login fix from before, it still fails on Safari, please look again \
                 and don't touch the session cookie, okay";
     let request = Request {
+        last: None,
         text: text.into(),
         current: None,
         picked: None,
@@ -574,6 +639,7 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
         a.to_string()
     };
     let clear = |to, brief: &str| Route::Clear {
+        said: None,
         to,
         brief: brief.into(),
     };
@@ -642,6 +708,7 @@ fn a_models_answer_is_taken_only_as_the_rules_allow() {
         a.to_string()
     };
     let choice = |label: &str, to| Candidate {
+        why: String::new(),
         label: label.into(),
         to,
     };
@@ -813,6 +880,7 @@ impl Asking {
     /// The person consents to routing by the fixture agent's model.
     fn consent(&mut self, agent: &str) {
         let by = RouteBy {
+            terms: tasktap_core::route::TERMS,
             agent: agent.into(),
             model: "fixture-small".into(),
         };
@@ -991,7 +1059,7 @@ fn whatever_goes_wrong_with_the_model_the_match_on_names_routes_and_says_why() {
     let t = a.capture(&text, None);
     let route = a.settled(t).route.unwrap();
     assert!(route.fallback.unwrap().contains("no steps in ask"));
-    // Without a place the match on names knows, the thought stays an idea.
+    // Without a place the match on names knows, the person is asked.
     for (steps, why) in [
         (vec!["exit:1".into()], "it printed no answer"),
         (
@@ -1002,7 +1070,7 @@ fn whatever_goes_wrong_with_the_model_the_match_on_names_routes_and_says_why() {
         a.script(&steps);
         let t = a.capture(SPOKEN, None);
         let th = a.settled(t);
-        assert_eq!((th.status, th.mode), (Status::Captured, Mode::Note));
+        assert_eq!((th.status, th.mode), (Status::NeedsYou, Mode::Ask));
         assert!(th.route.unwrap().fallback.unwrap().contains(why), "{why}");
     }
 }
@@ -1239,7 +1307,11 @@ fn a_destination_the_person_picked_is_never_routed_by_the_model_only_briefed() {
     );
     assert_eq!(th.route.unwrap().by, "fixture");
     let sent = a.asked().unwrap();
-    assert_eq!(sent["picked"], "p2");
+    // The key of the folder picked, wherever the ranking put it.
+    let app = (sent["projects"].as_array().unwrap().iter())
+        .position(|p| p["name"] == "app")
+        .unwrap();
+    assert_eq!(sent["picked"], format!("p{}", app + 1));
     assert_eq!(a.asked(), None);
     // A model that fails leaves the person's words as they are.
     a.script(&["exit:1".into()]);
@@ -1310,16 +1382,18 @@ fn no_model_is_asked_without_the_persons_consent_for_what_this_core_would_ask() 
             .contains("Add nothing the person did not say")
     );
     assert_eq!(terms.sends.len(), 4);
-    // In the words the interface uses: folders, never projects, and nothing is "routed".
+    // In the words the interface uses (docs/projects-design.md, "Words"):
+    // projects, and nothing is "routed".
     assert_eq!(
         terms.sends[1],
-        "the names and aliases of up to 8 of your open folders"
+        "of up to 8 of your projects, those this Mac ranks likeliest: the name, the other names it goes by and one line about it"
     );
     let said = terms.sends.join(" ").to_lowercase();
-    for word in ["project", "repositor", "rout"] {
+    for word in ["folder", "repositor", "rout"] {
         assert!(!said.contains(word), "{word} in {said}");
     }
     let tool = |agent: &str, model: &str| RouteBy {
+        terms: tasktap_core::route::TERMS,
         agent: agent.into(),
         model: model.into(),
     };

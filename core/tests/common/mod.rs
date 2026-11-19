@@ -50,7 +50,7 @@ pub fn notes(test: &str) -> String {
 pub const EXE: &str = env!("CARGO_BIN_EXE_tasktap");
 /// Milliseconds a thought is held while the preference is unset.
 pub const HOLD_MS: u64 = tasktap_proto::DEFAULT_HOLD as u64 * 1000;
-pub const ALL: [Collection; 13] = [
+pub const ALL: [Collection; 15] = [
     Collection::Thoughts,
     Collection::Projects,
     Collection::Sessions,
@@ -61,6 +61,8 @@ pub const ALL: [Collection; 13] = [
     Collection::Prefs,
     Collection::Devices,
     Collection::Previews,
+    Collection::Looks,
+    Collection::Cards,
     Collection::Glance,
     Collection::Agents,
     Collection::Dictations,
@@ -288,6 +290,8 @@ pub struct Model {
     pub prefs: HashMap<tasktap_proto::PrefKey, tasktap_proto::PrefValue>,
     pub dictations: BTreeMap<tasktap_proto::DictationId, tasktap_proto::Dictation>,
     pub previews: BTreeMap<tasktap_proto::PreviewId, tasktap_proto::Preview>,
+    pub cards: BTreeMap<tasktap_proto::CardId, tasktap_proto::Card>,
+    pub looks: BTreeMap<tasktap_proto::LookId, tasktap_proto::Look>,
 }
 
 impl Model {
@@ -334,6 +338,8 @@ impl Model {
                 }
                 Set::Dictations(r) => rows!(dictations, r),
                 Set::Previews(r) => rows!(previews, r),
+                Set::Cards(r) => rows!(cards, r),
+                Set::Looks(r) => rows!(looks, r),
                 _ => {}
             }
         }
@@ -760,6 +766,7 @@ pub fn typed(id: ThoughtId, text: &str) -> Capture {
         source: Source::Typed,
         mode: None,
         project_id: None,
+        card_id: None,
         session_id: None,
         agent: None,
         model: None,
@@ -771,6 +778,7 @@ pub fn clear(project: ProjectId) -> Route {
     Route::Clear {
         to: Place::Project(project),
         brief: "Fix the failing build".into(),
+        said: None,
     }
 }
 

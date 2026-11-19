@@ -60,16 +60,16 @@ type Frame =                                   // kind 0: one JSON object
 
 **Plain data and effects.** `put {c, id, patch, if_rev?}` and `delete {c, id}` write the collections that are plain data (`prefs`, `layouts`, the editable fields of `projects`, and the text of a thought that is captured and was never launched: a note, an idea, or one undone before it started, which `delete` also removes, so a person who undoes and retypes leaves nothing behind; `state::plain` decides). `delete` also removes two things `put` cannot write: a terminal that is not running, with its history, and a preview, which `preview.open` writes under its rule (§9). Everything with an effect is a named call. Fields the state machine owns are refused by `put`.
 
-Calls without a mark are built in Phase 1; (2) and (3) name the phase that added the rest; "not built" marks those no phase has added yet. The protocol crate holds only what exists: the 41 built (`core/proto/src/call.rs`, whose test holds this table to them).
+Calls without a mark are built in Phase 1; (2) and (3) name the phase that added the rest; "not built" marks those no phase has added yet. The protocol crate holds only what exists: the 45 built (`core/proto/src/call.rs`, whose test holds this table to them).
 
-| Area | Core calls (47: 41 built, 6 not built) |
+| Area | Core calls (51: 45 built, 6 not built) |
 | --- | --- |
 | Records | `sub`, `put`, `delete`, `history` |
 | Thoughts | `thought.capture`, `thought.update`, `thought.start`, `thought.stop`, `thought.retry`, `thought.read`, `thought.settle` (3), `thought.changes` (3) |
 | Questions | `question.ask`, `question.answer`, `question.withdraw`, `question.received`, `question.focus` |
 | Sessions | `session.event`, `session.adopt` (2), `session.resume` (not built) |
 | Terminals (2) | `terminal.open`, `terminal.resize`, `terminal.stop` |
-| Projects | `project.add`, `project.scan`, `project.close` (2) |
+| Projects | `project.add`, `project.scan`, `project.close` (2); `look.add`, `projects.offer`, `projects.look`, `projects.find` (what Tasktap knows of the person's projects, docs/projects-design.md) |
 | Files | `preview.open` (4: a file or a web address of this machine beside a terminal, §9 "Previews"), `file.read` (4: a file's bytes as a stream, §9 "Previews"), `result.export` (not built) |
 | Input and voice | `input` (affirm and deny now; hold in 3), `dictation.start` (3), `dictation.report` (3), `dictation.finish` (3), `dictation.cancel` (3), `speech.terms` (3: what a speech service is sent, §8) |
 | Routing and agents | `route.hint` (2), `route.terms` (3: what routing by a model sends and to whom, §8), `key.set` (3), `key.remove` (3: a server's key, §8), `connection.login` (not built), `connection.models` (not built), `agents.detect` (2), `agents.login` (not built) |

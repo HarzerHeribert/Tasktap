@@ -53,7 +53,14 @@ fn screen(s: &Scene, terminal: TerminalId) -> Screen {
 fn brief(s: &mut Scene, brief: &str) {
     let to = Place::Project(s.project);
     let brief = brief.into();
-    s.script(Route::Clear { to, brief }, None);
+    s.script(
+        Route::Clear {
+            said: None,
+            to,
+            brief,
+        },
+        None,
+    );
 }
 
 /// A follow-up for the session, started once its hold ends.

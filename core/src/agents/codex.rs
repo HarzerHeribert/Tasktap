@@ -37,7 +37,9 @@
 //! exists only in plan mode unless `default_mode_request_user_input` is on.
 
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use crate::map::{self, Within, Worked};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -225,6 +227,10 @@ impl Agent for Codex {
     /// and the answer held to the schema. It prints the answer alone on
     /// standard output. Turning the tools off is also what makes it fast:
     /// 4.4 s against 6.6 s with them on.
+    fn history(&self) -> Option<&'static dyn crate::map::History> {
+        Some(&History)
+    }
+
     fn headless(&self) -> Option<Headless> {
         Some(Headless {
             model: SMALL,
@@ -459,4 +465,70 @@ fn asked(request: String, input: Option<&Value>) -> Ask {
         detail: (all.len() > 1).then(|| fit(&all.join("\n"), 16 << 10)),
         source: None,
     }
+}
+
+/// Codex's record of where it was started (docs/projects-design.md):
+/// `<home>/sessions/<year>/<month>/<day>/*.jsonl`, whose first line is the
+/// session's `session_meta`, with the `cwd` it started in a few hundred
+/// bytes in. Only that line's first bytes are read, up to the field, and
+/// the date is the file's modified time; the dated folders are read newest
+/// first. `config.toml`, its history and its state database are not read.
+pub struct History;
+
+/// Most bytes of a session file's first line read for its folder.
+const FIRST: usize = 4 << 10;
+
+impl crate::map::History for History {
+    fn folder(&self, home: &Path) -> PathBuf {
+        let codex = std::env::var_os("CODEX_HOME").map(PathBuf::from);
+        codex
+            .unwrap_or_else(|| home.join(".codex"))
+            .join("sessions")
+    }
+
+    fn read(&self, home: &Path, within: &mut Within) -> Result<Vec<Worked>, String> {
+        let root = self.folder(home);
+        if !root.is_dir() {
+            return Err(format!("{} is not there", root.display()));
+        }
+        let mut worked = Vec::new();
+        for year in dated(&root) {
+            for month in dated(&year) {
+                for day in dated(&month) {
+                    let Ok(files) = std::fs::read_dir(&day) else {
+                        continue;
+                    };
+                    for file in files.filter_map(|f| f.ok()) {
+                        if !file.file_name().to_string_lossy().ends_with(".jsonl") {
+                            continue;
+                        }
+                        if !within.more() {
+                            return Ok(worked);
+                        }
+                        let Ok(meta) = file.metadata() else { continue };
+                        let first = |b: &[u8]| map::field(b.split(|c| *c == b'\n').next()?, "cwd");
+                        let cwd = map::head(&file.path(), FIRST, first);
+                        if let Some(cwd) = cwd.filter(|c| Path::new(c).is_absolute()) {
+                            let when = map::modified(&meta);
+                            let folder = PathBuf::from(cwd);
+                            worked.push(Worked { folder, when });
+                        }
+                    }
+                }
+            }
+        }
+        Ok(worked)
+    }
+}
+
+/// The folders of a dated folder, the greatest number first.
+fn dated(at: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(at) else {
+        return Vec::new();
+    };
+    let mut all: Vec<(u32, PathBuf)> = (entries.filter_map(|e| e.ok()))
+        .filter_map(|e| Some((e.file_name().to_str()?.parse().ok()?, e.path())))
+        .collect();
+    all.sort_by_key(|a| std::cmp::Reverse(a.0));
+    all.into_iter().map(|(_, p)| p).collect()
 }

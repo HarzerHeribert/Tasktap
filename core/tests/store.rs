@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use serde_json::json;
+use tasktap_core::state::Destination;
 use tasktap_core::store::{
     Attempt, AttemptKind, AttemptOutcome, Error, LIVE_FINISHED, MIGRATIONS, Store, Tx,
 };
@@ -83,6 +84,7 @@ fn project(folder: &str) -> Project {
 
 fn thought(project: Option<ProjectId>, phase: Phase) -> Thought {
     Thought {
+        card_id: None,
         id: ThoughtId::mint(),
         rev: Rev::ZERO,
         text: "fix the build".into(),
@@ -162,6 +164,7 @@ fn session(
 
 fn question(thought: Option<ThoughtId>, session: Option<SessionId>) -> Question {
     Question {
+        notes: None,
         id: QuestionId::mint(),
         rev: Rev::ZERO,
         thought_id: thought,
@@ -1574,7 +1577,7 @@ fn a_model_is_given_at_most_8_projects_8_sessions_and_3_exchanges() {
     // What the capture names comes first, then where it was made, then the
     // newest; a project that holds an offered session stays.
     assert_eq!(r.projects[0].name, "project7");
-    assert_eq!(r.projects[1].id, home);
+    assert_eq!(r.projects[1].to, Destination::New(home));
     let names: Vec<_> = r.sessions.iter().map(|s| s.name.clone().unwrap()).collect();
     assert_eq!(
         names[..4],
@@ -1604,7 +1607,7 @@ fn a_model_is_given_at_most_8_projects_8_sessions_and_3_exchanges() {
     assert_eq!(sent["projects"].as_array().unwrap().len(), 8);
     assert_eq!(
         sent["projects"][0],
-        json!({ "id": "p1", "name": "project7", "aliases": [] })
+        json!({ "id": "p1", "name": "project7", "aliases": [], "about": "" })
     );
     assert_eq!(
         sent["sessions"][0],

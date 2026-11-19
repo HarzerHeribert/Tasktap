@@ -342,6 +342,7 @@ fn the_largest_row_of_every_collection_goes_out_in_a_snapshot_and_a_change() {
     let brief = escaped(MAX_LINE);
     s.script(
         Route::Clear {
+            said: None,
             to: Place::Project(p),
             brief,
         },

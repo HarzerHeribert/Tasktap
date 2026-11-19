@@ -87,6 +87,8 @@ pub struct Core {
     pub files: Rc<std::cell::Cell<usize>>,
     /// The dictations under way (design §8).
     pub speech: crate::speech::Speech,
+    /// Whether a look at the person's projects runs (docs/projects-design.md).
+    pub map: crate::map::Map,
     /// How long each folder check waits first, for tests (design §13).
     #[cfg(feature = "fixtures")]
     pub fixture_check: Duration,
@@ -106,6 +108,7 @@ impl Core {
             || self.terminals() > 0
             || self.seams.holding()
             || self.speech.busy()
+            || self.map.busy()
     }
 
     /// Every committed change passes here, in the step that committed it,
@@ -202,6 +205,7 @@ async fn serve(opts: Options) -> io::Result<()> {
             diffs: Default::default(),
             files: Default::default(),
             speech: crate::speech::Speech::new(second),
+            map: Default::default(),
             #[cfg(feature = "fixtures")]
             fixture_check: opts.check,
         })

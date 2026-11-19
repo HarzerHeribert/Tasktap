@@ -33,6 +33,8 @@ use crate::state::{Found, Worktree};
 
 /// Longest a command that only reads runs.
 const LOOK: Duration = Duration::from_secs(60);
+/// Longest the search for a repository's first commit runs.
+const ROOT: Duration = Duration::from_secs(10);
 /// Longest a command that writes a whole tree runs: making, updating or
 /// removing a worktree, or adding all of one, which in a large repository
 /// takes long.
@@ -1005,6 +1007,18 @@ impl Git {
             Some(0) => Ok(ran.out),
             _ => Err(failed(&verb(args), &ran)),
         }
+    }
+
+    /// The first commit of the repository at `dir`, by which its copies are
+    /// known to be one (docs/projects-design.md); of several, the least.
+    /// Read only: `rev-list` writes nothing.
+    pub fn root(&self, dir: &Path) -> Result<String, String> {
+        let out = self.ok(dir, &["rev-list", "--max-parents=0", "HEAD"], ROOT)?;
+        let roots = text(&out);
+        let first = roots.lines().map(str::trim).filter(|l| !l.is_empty()).min();
+        first
+            .map(str::to_owned)
+            .ok_or_else(|| "it has no commit yet".into())
     }
 
     /// The one line a command printed, when it succeeded.

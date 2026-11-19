@@ -2,7 +2,9 @@
 //! agent reads. Two routers answer the same [`Request`].
 //!
 //! The local router matches the words of the capture against the names and
-//! aliases of the core's own projects and sessions, with no model call. It
+//! aliases of the core's own projects and sessions, and of the projects
+//! Tasktap knows that are not open (`map.rs`, its cards), with no model
+//! call (`names.rs`: as written, joined, as speech writes them). It
 //! answers `route.hint`, the destination chip shown while typing, routes
 //! every capture until the person consents to a model and, after, every
 //! capture it finds a place for (a model then only writes the brief of one
@@ -24,18 +26,18 @@
 //! | --- | --- |
 //! | names one session, and no project but that session's | `clear`: a follow-up to it |
 //! | names no session, was made in a current session, and names no project but that session's | `clear`: a follow-up to the current session |
-//! | names one project and no session | `clear`: a new run in that project |
-//! | names several projects or sessions | `ambiguous`: those are the choices |
-//! | names nothing | `unknown`: it stays an idea |
+//! | names one project and no session | `clear`: a new run in that project, opened there if it is a known project and not a workspace |
+//! | names several projects or sessions, or one name two projects have, or a name one letter off | `ambiguous`: those are the choices, at most three |
+//! | names nothing, and projects are known | `ambiguous`: at most three, those whose line about them shares the rarest words first, then where the last thought went, then the most recently worked on |
+//! | names nothing, and no project is known | `unknown`: it stays an idea |
 //!
-//! A name is named when it appears in the text as whole words, ignoring
-//! case; a name of several words joined by hyphens, underscores or spaces
-//! (`tidepool-mobile`) also when its words are written with any of those
-//! between them ("tidepool mobile"). Where one project's name is said
+//! A name is said as `names.rs` finds it. Where one project's name is said
 //! inside a longer name of another ("tidepool" in "tidepool mobile"), the
-//! longer is meant; two said alike are a choice. Scratch is never offered:
-//! a thought goes there only when the person picks it. The brief is the
-//! person's text unchanged.
+//! longer is meant; two said alike are a choice. A name said as written
+//! or joined outweighs one said only as it sounds, which outweighs one a
+//! letter off. How recently a project was worked on orders the choices and
+//! never decides alone. Scratch is never offered: a thought goes there
+//! only when the person picks it. The brief is the person's text unchanged.
 //!
 //! What the core enforces on a model's answer, whatever the instructions
 //! made of it ([`accept`]); an answer that breaks a rule is not used at
@@ -51,12 +53,13 @@
 //! | a title is one line of at most 60 characters | it has none |
 //! | the person picked the destination | only the brief and the title are taken |
 
+use std::collections::BTreeMap;
 use std::ops::Range;
 
 use serde_json::{Value, json};
 use tasktap_proto::{
     Collection, Error, Hint, ProjectId, ProjectKind, RouteBy, RouteTerms, Routing, SessionId,
-    SessionState, Set, Status, ThoughtId,
+    SessionState, Set, Status, ThoughtId, Time,
 };
 
 use crate::agents::{self, Agent, Headless};
@@ -64,6 +67,10 @@ use crate::calls::Cx;
 use crate::effects;
 use crate::state::{self, Candidate, Destination, Route};
 use crate::store::{self, Tx};
+
+mod names;
+pub use names::{How, parts, sound};
+use names::{Said, Words, said, words as name_words};
 
 /// What a model is told with every thought, in full: the person reads it
 /// before they consent (`route.terms`).
@@ -86,13 +93,21 @@ pub const SCHEMA: &str = concat!(
 /// What routing by a model sends, as `route.terms` lists it.
 const SENDS: &[&str] = &[
     "the thought, as you said or typed it",
-    "the names and aliases of up to 8 of your open folders",
+    "of up to 8 of your projects, those this Mac ranks likeliest: the name, the other names it goes by and one line about it",
     "of up to 8 sessions in them: the name, the last request (180 characters), the agent and whether it is working",
     "of up to 3 recent exchanges: the request (320 characters), how it ended and the first line of the result (160 characters)",
 ];
 
+/// The version of what is sent, which a consent names (`RouteBy::terms`):
+/// 2 since a model is given a line about each project, and projects that
+/// are not open. A consent to another version covers nothing.
+pub const TERMS: u32 = 2;
+
 /// Most projects, sessions and recent exchanges a model is given (design §8).
 const OFFERED: usize = 8;
+/// Most choices a question of where a thought goes has (the owner's
+/// decision of 2026-11-19), beside "Another project…" and "Keep for later".
+pub const CHOICES: usize = 3;
 const RECENT: usize = 3;
 /// Most characters of a title a model gives the work.
 const MAX_TITLE: usize = 60;
@@ -120,13 +135,37 @@ pub struct Request {
     /// The latest exchanges with those sessions, newest first; only a
     /// model is given them ([`narrow`]).
     pub recent: Vec<Exchange>,
+    /// Where the newest thought that has a place went.
+    pub last: Option<Destination>,
 }
 
+/// A project a thought can go to: a workspace (`Destination::New`), or a
+/// project Tasktap knows that is not open (`Destination::Card`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Named {
-    pub id: ProjectId,
+    pub to: Destination,
     pub name: String,
+    /// The other names it goes by: the person's, and its package file's.
     pub aliases: Vec<String>,
+    /// One line about it, from its README or package file; or empty.
+    pub about: String,
+    pub folder: String,
+    /// When work last happened there, as far as Tasktap knows.
+    pub used: Option<Time>,
+}
+
+impl Named {
+    /// A workspace with no card: its name and aliases alone.
+    pub fn open(id: ProjectId, name: &str, aliases: &[&str]) -> Named {
+        Named {
+            to: Destination::New(id),
+            name: name.into(),
+            aliases: aliases.iter().map(|a| (*a).into()).collect(),
+            about: String::new(),
+            folder: String::new(),
+            used: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -172,6 +211,15 @@ pub fn request(tx: &Tx, text: &str, current: Option<SessionId>) -> store::Result
         Some(Set::Sessions(rows)) => rows.put,
         _ => Vec::new(),
     };
+    let cards = tx.cards()?;
+    let started = tx.last_started()?;
+    let last = tx
+        .last_placed()?
+        .and_then(|t| match (t.project_id, t.card_id) {
+            (Some(p), _) => Some(Destination::New(p)),
+            (None, Some(c)) => Some(Destination::Card(c)),
+            _ => None,
+        });
     let (projects, scratch): (Vec<_>, Vec<_>) = (projects.into_iter())
         .filter(|p| p.open && p.available)
         .partition(|p| p.kind != ProjectKind::Scratch);
@@ -195,33 +243,134 @@ pub fn request(tx: &Tx, text: &str, current: Option<SessionId>) -> store::Result
             })
         })
         .collect();
+    // A workspace with its card's line and names; then every project Tasktap
+    // knows that is not an open workspace, copies and hidden ones not.
+    let card_of: BTreeMap<ProjectId, &tasktap_proto::Card> = (cards.iter())
+        .filter_map(|c| Some((c.project_id?, c)))
+        .collect();
+    let mut named: Vec<Named> = (projects.iter())
+        .map(|p| {
+            let card = card_of.get(&p.id);
+            let mut aliases = p.aliases.clone();
+            for n in card.map(|c| c.names.as_slice()).unwrap_or_default() {
+                if !aliases.contains(n) && *n != p.name {
+                    aliases.push(n.clone());
+                }
+            }
+            let used = [card.and_then(|c| c.used), started.get(&p.id).copied()];
+            Named {
+                to: Destination::New(p.id),
+                name: p.name.clone(),
+                aliases,
+                about: card.map(|c| c.about.clone()).unwrap_or_default(),
+                folder: p.folder.clone(),
+                used: used.into_iter().flatten().max(),
+            }
+        })
+        .collect();
+    let open = |c: &tasktap_proto::Card| {
+        (projects.iter().chain(&scratch))
+            .any(|p| Some(p.id) == c.project_id || p.folder == c.folder)
+    };
+    for c in cards.iter().filter(|c| crate::map::offered(c) && !open(c)) {
+        named.push(Named {
+            to: Destination::Card(c.id),
+            name: c.name.clone(),
+            aliases: c.names.clone(),
+            about: c.about.clone(),
+            folder: c.folder.clone(),
+            used: c.used,
+        });
+    }
     Ok(Request {
         text: text.to_owned(),
         current,
         picked: None,
         recent: Vec::new(),
-        projects: (projects.into_iter())
-            .map(|p| Named {
-                id: p.id,
-                name: p.name,
-                aliases: p.aliases,
-            })
-            .collect(),
+        projects: named,
         sessions: followed,
+        last,
     })
 }
 
-/// Where the capture names the project, by its name or an alias.
-fn said_at(text: &str, p: &Named) -> Vec<Range<usize>> {
-    std::iter::once(&p.name)
-        .chain(&p.aliases)
-        .flat_map(|n| spans(text, n))
-        .collect()
+/// Where the capture says one of the project's names, and how.
+fn said_at(w: &Words, p: &Named) -> Vec<Said> {
+    let all = std::iter::once(&p.name).chain(&p.aliases);
+    all.flat_map(|n| said(w, n)).collect()
 }
 
-/// Whether the capture names the project, by its name or an alias.
+/// One project the capture names: where, and how.
+#[derive(Clone, Debug)]
+struct Hit<'r> {
+    p: &'r Named,
+    said: Said,
+}
+
+/// The projects the capture names, each once, at its strongest: a name
+/// said inside a longer name of another project is not; one said only
+/// as it sounds is not when another is written or joined; one a letter
+/// off is not when another is said otherwise. The strongest and longest
+/// first, then the most recently worked on.
+fn hits(r: &Request) -> Vec<Hit<'_>> {
+    let w = name_words(&r.text);
+    let all: Vec<Hit> = (r.projects.iter())
+        .flat_map(|p| said_at(&w, p).into_iter().map(move |said| Hit { p, said }))
+        .collect();
+    let inside = |h: &Hit| {
+        all.iter().any(|o| {
+            o.p.to != h.p.to
+                && o.said.at.start <= h.said.at.start
+                && h.said.at.end <= o.said.at.end
+                && (o.said.len > h.said.len || o.said.at.len() > h.said.at.len())
+                && strength(o.said.how) >= strength(h.said.how)
+        })
+    };
+    let kept: Vec<&Hit> = all.iter().filter(|h| !inside(h)).collect();
+    let best = kept.iter().map(|h| strength(h.said.how)).max();
+    let mut out: Vec<Hit> = Vec::new();
+    for h in kept
+        .into_iter()
+        .filter(|h| Some(strength(h.said.how)) == best)
+    {
+        match out.iter_mut().find(|o| o.p.to == h.p.to) {
+            Some(o) if (h.said.how, h.said.len) > (o.said.how, o.said.len) => *o = h.clone(),
+            Some(_) => {}
+            None => out.push(h.clone()),
+        }
+    }
+    out.sort_by_key(|h| std::cmp::Reverse((h.said.how, h.said.len, h.p.used)));
+    out
+}
+
+/// A name written or joined is as strong as another: both are what the
+/// person meant to say.
+fn strength(how: How) -> u8 {
+    match how {
+        How::Near => 0,
+        How::Sounds => 1,
+        How::Joined | How::Written => 2,
+    }
+}
+
+/// What the person's words were, when they named a project otherwise
+/// than as its name is written.
+fn quoted(r: &Request, h: &Hit) -> Option<String> {
+    (h.said.how != How::Written).then(|| r.text[h.said.span.clone()].to_owned())
+}
+
+/// Why a project named is a choice, in a few words.
+fn why_named(r: &Request, h: &Hit) -> String {
+    let words = &r.text[h.said.span.clone()];
+    match h.said.how {
+        How::Written => "named in it".into(),
+        How::Joined | How::Sounds => format!("said as “{words}”"),
+        How::Near => format!("you wrote “{words}”"),
+    }
+}
+
+/// Whether the capture names the project, by any of its names.
 fn names(text: &str, p: &Named) -> bool {
-    !said_at(text, p).is_empty()
+    !said_at(&name_words(text), p).is_empty()
 }
 
 /// Whether the capture names the session.
@@ -233,22 +382,19 @@ fn follows(text: &str, s: &Followed) -> bool {
 
 /// The rules of the module's table, over `r` alone.
 pub fn local(r: &Request) -> Route {
-    // A project is named where its name is not said only inside a longer
-    // name of another: "tidepool mobile" names `tidepool-mobile`, not
-    // `tidepool` as well.
-    let said: Vec<_> = (r.projects.iter())
-        .map(|p| (p, said_at(&r.text, p)))
-        .collect();
-    let inside = |p: &Named, a: &Range<usize>| {
-        (said.iter()).any(|(q, at)| {
-            q.id != p.id
-                && (at.iter()).any(|b| b.start <= a.start && a.end <= b.end && b.len() > a.len())
-        })
-    };
-    let named: Vec<&Named> = (said.iter())
-        .filter(|(p, at)| at.iter().any(|a| !inside(p, a)))
-        .map(|(p, _)| *p)
-        .collect();
+    by_names(r).unwrap_or_else(|| unsure(r))
+}
+
+/// Whether the names the capture says, or the session it was made in,
+/// decide where it goes: then the match is sure and no model is asked.
+pub fn sure(r: &Request) -> bool {
+    by_names(r).is_some()
+}
+
+/// The route the names the capture says decide, or the session it was
+/// made in; none when neither says anything.
+pub fn by_names(r: &Request) -> Option<Route> {
+    let named = hits(r);
     let sessions: Vec<&Followed> = (r.sessions.iter())
         .filter(|s| follows(&r.text, s))
         .collect();
@@ -256,44 +402,219 @@ pub fn local(r: &Request) -> Route {
         .current
         .and_then(|id| r.sessions.iter().find(|s| s.id == id));
     // No project named, or only the one the session is in.
-    let only_in = |project: ProjectId| named.iter().all(|p| p.id == project);
-    let clear = |to| Route::Clear {
+    let only_in = |project: ProjectId| named.iter().all(|h| h.p.to == Destination::New(project));
+    let clear = |to, said| Route::Clear {
         to,
         brief: r.text.clone(),
+        said,
     };
+    let sure = |h: &Hit| h.said.how != How::Near;
     match (sessions.as_slice(), current, named.as_slice()) {
-        ([s], ..) if only_in(s.project) => clear(Destination::Session(s.id)),
-        ([], Some(c), _) if only_in(c.project) => clear(Destination::Session(c.id)),
-        ([], _, [p]) => clear(Destination::New(p.id)),
+        ([s], ..) if only_in(s.project) => Some(clear(Destination::Session(s.id), None)),
+        ([], Some(c), _) if only_in(c.project) => Some(clear(Destination::Session(c.id), None)),
+        ([], _, [h]) if sure(h) => Some(clear(h.p.to, quoted(r, h))),
+        ([], _, []) => None,
         _ => {
-            let projects = named.iter().map(|p| Candidate {
-                label: p.name.clone(),
-                to: Destination::New(p.id),
+            // A name a letter off ("carrier" for `farrier`) is asked about
+            // among what else fits, which a line that fits well comes before.
+            let near = sessions.is_empty() && named.iter().all(|h| h.said.how == How::Near);
+            let projects = named.iter().map(|h| Candidate {
+                label: h.p.name.clone(),
+                to: h.p.to,
+                why: why_named(r, h),
             });
             let sessions = sessions.iter().map(|s| Candidate {
                 label: s.name.clone().unwrap_or_else(|| s.label.clone()),
                 to: Destination::Session(s.id),
+                why: "named in it".into(),
             });
-            let candidates: Vec<_> = projects.chain(sessions).collect();
-            match candidates.len() {
-                0 | 1 => Route::Unknown,
-                _ => Route::Ambiguous {
-                    prompt: WHERE.into(),
-                    candidates,
-                    brief: None,
-                },
-            }
+            let mut candidates: Vec<_> = match near {
+                false => projects.chain(sessions).collect(),
+                true => (ranked(r, CHOICES).into_iter())
+                    .map(|(p, why)| Candidate {
+                        label: p.name.clone(),
+                        to: p.to,
+                        why,
+                    })
+                    .collect(),
+            };
+            candidates.truncate(CHOICES);
+            Some(Route::Ambiguous {
+                prompt: WHERE.into(),
+                candidates,
+                brief: None,
+            })
         }
     }
+}
+
+/// Where a capture that names nothing may go: asked about, with at most
+/// three choices; an idea when no project is known at all.
+fn unsure(r: &Request) -> Route {
+    let candidates: Vec<Candidate> = (ranked(r, CHOICES).into_iter())
+        .map(|(p, why)| Candidate {
+            label: p.name.clone(),
+            to: p.to,
+            why,
+        })
+        .collect();
+    match candidates.is_empty() {
+        true => Route::Unknown,
+        false => Route::Ambiguous {
+            prompt: WHERE.into(),
+            candidates,
+            brief: None,
+        },
+    }
+}
+
+/// The projects likeliest for a capture, at most `most`, each with why:
+/// those it names; then those whose line about them shares its rarer
+/// words; then where the last thought went; then the most recently worked
+/// on. Recency orders and never adds a reason of its own beyond that.
+pub fn ranked(r: &Request, most: usize) -> Vec<(&Named, String)> {
+    let mut out: Vec<(&Named, String)> = Vec::new();
+    let add = |p, why: String, out: &mut Vec<_>| push(out, most, p, why);
+    let named = hits(r);
+    let (near, said): (Vec<&Hit>, Vec<&Hit>) = named.iter().partition(|h| h.said.how == How::Near);
+    for h in said {
+        add(h.p, why_named(r, h), &mut out);
+    }
+    let lines: Vec<String> = (r.projects.iter())
+        .map(|p| {
+            let names = std::iter::once(&p.name).chain(&p.aliases);
+            let names: Vec<String> = names.flat_map(|n| parts(n)).collect();
+            format!("{} {}", names.join(" "), p.about)
+        })
+        .collect();
+    let fits = names::fit(&r.text, &lines);
+    let mut described: Vec<(usize, f64)> = (fits.iter().enumerate())
+        .filter(|(_, (score, _))| *score > 0.0)
+        .map(|(i, (score, _))| (i, *score))
+        .collect();
+    described.sort_by(|a, b| {
+        let (pa, pb) = (&r.projects[a.0], &r.projects[b.0]);
+        b.1.total_cmp(&a.1).then_with(|| pb.used.cmp(&pa.used))
+    });
+    // A name a letter off comes after a line that shares two words or more.
+    let mut near = near.into_iter();
+    for (i, _) in described {
+        let shared = &fits[i].1;
+        if shared.len() < 2 {
+            for h in near.by_ref() {
+                add(h.p, why_named(r, h), &mut out);
+            }
+        }
+        add(
+            &r.projects[i],
+            shared
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", "),
+            &mut out,
+        );
+    }
+    for h in near {
+        add(h.p, why_named(r, h), &mut out);
+    }
+    if let Some(last) = r.last
+        && let Some(p) = r.projects.iter().find(|p| p.to == last)
+    {
+        add(p, "where your last thought went".into(), &mut out);
+    }
+    let mut recent: Vec<&Named> = r.projects.iter().filter(|p| p.used.is_some()).collect();
+    recent.sort_by_key(|p| std::cmp::Reverse(p.used));
+    for (i, p) in recent.into_iter().enumerate() {
+        add(
+            p,
+            if i == 0 {
+                "worked on last".into()
+            } else {
+                String::new()
+            },
+            &mut out,
+        );
+    }
+    // Then the workspaces, the newest first, before the projects not open.
+    let open = |p: &&Named| matches!(p.to, Destination::New(_));
+    for p in r.projects.iter().rev().filter(open) {
+        add(p, String::new(), &mut out);
+    }
+    for p in r.projects.iter().rev() {
+        add(p, String::new(), &mut out);
+    }
+    out
+}
+
+/// Adds a project to a list of at most `most`, once.
+fn push<'r>(out: &mut Vec<(&'r Named, String)>, most: usize, p: &'r Named, why: String) {
+    if out.len() < most && !out.iter().any(|(q, _)| q.to == p.to) {
+        out.push((p, why));
+    }
+}
+
+/// What a field to find a project finds for `r.text`: with nothing typed,
+/// the most recently worked on; with a few words, the projects whose name
+/// they say or begin, then those whose line about them they fit; with a
+/// whole thought, its likeliest places ([`ranked`]).
+pub fn find(r: &Request, most: usize) -> Vec<(&Named, String)> {
+    let typed = name_words(&r.text);
+    if typed.words.len() > 3 {
+        return ranked(r, most);
+    }
+    let mut out: Vec<(&Named, String)> = Vec::new();
+    if typed.words.is_empty() {
+        let mut recent: Vec<&Named> = r.projects.iter().collect();
+        recent.sort_by(|a, b| b.used.cmp(&a.used).then_with(|| a.name.cmp(&b.name)));
+        return recent
+            .into_iter()
+            .take(most)
+            .map(|p| (p, String::new()))
+            .collect();
+    }
+    let query: String = typed.words.concat();
+    for h in hits(r) {
+        if out.len() < most && !out.iter().any(|(q, _)| q.to == h.p.to) {
+            out.push((h.p, why_named(r, &h)));
+        }
+    }
+    let mut begun: Vec<&Named> = (r.projects.iter())
+        .filter(|p| {
+            let names = std::iter::once(&p.name).chain(&p.aliases);
+            names.map(|n| parts(n).concat()).any(|n| n.contains(&query))
+        })
+        .collect();
+    begun.sort_by(|a, b| b.used.cmp(&a.used).then_with(|| a.name.cmp(&b.name)));
+    for p in begun {
+        if out.len() < most && !out.iter().any(|(q, _)| q.to == p.to) {
+            out.push((p, String::new()));
+        }
+    }
+    let lines: Vec<String> = r.projects.iter().map(|p| p.about.clone()).collect();
+    let fits = names::fit(&r.text, &lines);
+    let mut described: Vec<usize> = (0..fits.len()).filter(|i| fits[*i].0 > 0.0).collect();
+    described.sort_by(|a, b| fits[*b].0.total_cmp(&fits[*a].0));
+    for i in described {
+        let p = &r.projects[i];
+        if out.len() < most && !out.iter().any(|(q, _)| q.to == p.to) {
+            out.push((p, fits[i].1.join(", ")));
+        }
+    }
+    out
 }
 
 /// What a router question asks.
 const WHERE: &str = "Where should this go?";
 
 /// The request as a model is given it (design §8): at most 8 projects and
-/// 8 sessions, those the capture names first, then the current session and
-/// its project, then the newest; each session with its last request, and
-/// the 3 latest exchanges with them.
+/// 8 sessions. The projects: those the capture names, then the current
+/// session's, then the others this machine ranks likeliest ([`ranked`]:
+/// by the line about each, where the last thought went, how recently each
+/// was worked on), workspaces and known projects alike; never all of them.
+/// The sessions: those it names, then the current one, then the newest;
+/// each with its last request, and the 3 latest exchanges with them.
 pub fn narrow(tx: &Tx, mut r: Request) -> store::Result<Request> {
     let (current, text) = (r.current, r.text.clone());
     // Newest first, then what the capture points at before the rest. (No
@@ -302,20 +623,31 @@ pub fn narrow(tx: &Tx, mut r: Request) -> store::Result<Request> {
     r.sessions = first(r.sessions, |s| Some(s.id) == current);
     r.sessions = first(r.sessions, |s| follows(&text, s));
     r.sessions.truncate(OFFERED);
-    // The projects it names, then those of the sessions in their order.
-    r.projects.reverse();
-    let mut rest = first(r.projects, |p| names(&text, p));
+    let order: Vec<Destination> = ranked(&r, r.projects.len())
+        .iter()
+        .map(|(p, _)| p.to)
+        .collect();
+    let mut rest = std::mem::take(&mut r.projects);
+    rest.sort_by_key(|p| order.iter().position(|o| *o == p.to).unwrap_or(usize::MAX));
     let named = rest.iter().take_while(|p| names(&text, p)).count();
     r.projects = rest.drain(..named).collect();
-    for s in &r.sessions {
-        if let Some(at) = rest.iter().position(|p| p.id == s.project) {
-            r.projects.push(rest.remove(at));
-        }
+    let session = r
+        .current
+        .and_then(|c| r.sessions.iter().find(|s| s.id == c));
+    if let Some(s) = session
+        && let Some(at) = rest
+            .iter()
+            .position(|p| p.to == Destination::New(s.project))
+    {
+        r.projects.push(rest.remove(at));
     }
     r.projects.extend(rest);
     r.projects.truncate(OFFERED);
-    r.sessions
-        .retain(|s| r.projects.iter().any(|p| p.id == s.project));
+    r.sessions.retain(|s| {
+        r.projects
+            .iter()
+            .any(|p| p.to == Destination::New(s.project))
+    });
     for s in &mut r.sessions {
         let asked = s.thought.map(|t| tx.thought(t)).transpose()?.flatten();
         s.task = asked.map(|t| cut(&t.text, 180)).unwrap_or_default();
@@ -354,13 +686,13 @@ fn cut(text: &str, chars: usize) -> String {
 /// core's ids never leave it.
 fn key(r: &Request, to: Destination) -> Option<String> {
     match to {
-        Destination::New(id) => {
-            let at = r.projects.iter().position(|p| p.id == id)?;
-            Some(format!("p{}", at + 1))
-        }
         Destination::Session(id) => {
             let at = r.sessions.iter().position(|s| s.id == id)?;
             Some(format!("s{}", at + 1))
+        }
+        to => {
+            let at = r.projects.iter().position(|p| p.to == to)?;
+            Some(format!("p{}", at + 1))
         }
     }
 }
@@ -371,11 +703,13 @@ fn place(r: &Request, key: &str) -> Option<Candidate> {
     match key.as_bytes().first()? {
         b'p' => r.projects.get(at).map(|p| Candidate {
             label: p.name.clone(),
-            to: Destination::New(p.id),
+            to: p.to,
+            why: String::new(),
         }),
         b's' => r.sessions.get(at).map(|s| Candidate {
             label: s.name.clone().unwrap_or_else(|| s.label.clone()),
             to: Destination::Session(s.id),
+            why: String::new(),
         }),
         _ => None,
     }
@@ -389,7 +723,8 @@ pub fn question(r: &Request) -> String {
     let projects: Vec<_> = (r.projects.iter())
         .map(|p| {
             let aliases: Vec<_> = p.aliases.iter().take(3).map(|a| cut(a, 60)).collect();
-            json!({ "id": project(p.id), "name": cut(&p.name, 100), "aliases": aliases })
+            json!({ "id": key(r, p.to), "name": cut(&p.name, 100), "aliases": aliases,
+                    "about": cut(&p.about, 160) })
         })
         .collect();
     let sessions: Vec<_> = (r.sessions.iter())
@@ -515,20 +850,25 @@ pub fn accept(r: &Request, answer: &str) -> Result<(Route, Routing), String> {
     };
     if let Some(to) = r.picked {
         let brief = brief()?;
-        return Ok((Route::Clear { to, brief }, found(None)));
+        let said = None;
+        return Ok((Route::Clear { to, brief, said }, found(None)));
     }
     match a.confidence {
         Confidence::Unknown => Ok((Route::Unknown, Routing::default())),
         Confidence::Clear => {
             let to = offered(&a.to)?.to;
             let quote = a.quote.trim();
-            let quoted = quote.chars().count() >= 3 && said(&r.text, quote);
+            let quoted = quote.chars().count() >= 3 && says(&r.text, quote);
             let follows = matches!(to, Destination::Session(id) if Some(id) != r.current);
             if follows && !quoted {
                 return Err("the words it quotes for a follow-up are not in the thought".into());
             }
             let brief = brief()?;
-            Ok((Route::Clear { to, brief }, found(quoted.then_some(quote))))
+            let said = None;
+            Ok((
+                Route::Clear { to, brief, said },
+                found(quoted.then_some(quote)),
+            ))
         }
         Confidence::Ambiguous => {
             let mut candidates: Vec<Candidate> = Vec::new();
@@ -541,6 +881,8 @@ pub fn accept(r: &Request, answer: &str) -> Result<(Route, Routing), String> {
             if candidates.len() < 2 {
                 return Err("it is unsure and names fewer than two choices".into());
             }
+            // At most three choices, the likeliest first as it gave them.
+            candidates.truncate(CHOICES);
             let route = Route::Ambiguous {
                 prompt: WHERE.into(),
                 candidates,
@@ -572,7 +914,7 @@ fn words(text: &str) -> String {
 }
 
 /// Whether `text` has `part` word for word.
-fn said(text: &str, part: &str) -> bool {
+fn says(text: &str, part: &str) -> bool {
     let part = words(part);
     !part.is_empty() && format!(" {} ", words(text)).contains(&format!(" {part} "))
 }
@@ -601,6 +943,9 @@ pub fn askable(text: &str) -> Result<(), String> {
 /// The agent a consent names and how its tool is asked, when the consent
 /// covers what this core would ask: that tool, with that model.
 pub fn consented(by: &RouteBy) -> Result<(&'static dyn Agent, Headless), String> {
+    if by.terms != TERMS {
+        return Err("the agreement was to what was sent before: placing by a model now sends a line about each project, and asks again".into());
+    }
     let agent = agents::live(&by.agent).ok_or(format!("Tasktap has no agent {}", by.agent))?;
     let how = agent
         .headless()
@@ -623,6 +968,7 @@ pub fn terms(cx: &mut Cx, _: tasktap_proto::Empty) -> Result<RouteTerms, Error> 
         Some(RouteBy {
             agent: a.id().into(),
             model: a.headless()?.model.into(),
+            terms: TERMS,
         })
     });
     Ok(RouteTerms {
@@ -664,19 +1010,22 @@ fn spans(text: &str, name: &str) -> Vec<Range<usize>> {
     found
 }
 
-/// `route.hint`: the local match for a capture being typed. It stores
+/// `route.hint`: the match on names for a capture being typed, which the
+/// chip says: where the names it says send it, or `unknown` while they say
+/// nothing (the capture then asks, or a model places it). It stores
 /// nothing and starts nothing.
 pub fn hint(cx: &mut Cx, args: Hint) -> Result<tasktap_proto::Route, Error> {
     let request = effects::read(cx.core, |tx| request(tx, &args.text, args.current))?;
-    Ok(wire(local(&request)))
+    Ok(wire(by_names(&request).unwrap_or(Route::Unknown)))
 }
 
 /// A route as the protocol says it.
 pub fn wire(route: Route) -> tasktap_proto::Route {
     match route {
-        Route::Clear { to, brief } => tasktap_proto::Route::Clear {
+        Route::Clear { to, brief, said } => tasktap_proto::Route::Clear {
             to: to.into(),
             brief,
+            said,
         },
         Route::Ambiguous {
             prompt, candidates, ..
@@ -686,6 +1035,7 @@ pub fn wire(route: Route) -> tasktap_proto::Route {
                 .map(|c| tasktap_proto::Candidate {
                     label: c.label,
                     to: c.to.into(),
+                    why: c.why,
                 })
                 .collect(),
         },
@@ -699,11 +1049,17 @@ pub fn unwire(route: tasktap_proto::Route) -> Route {
     let to = |place| match place {
         tasktap_proto::Place::Project(id) => Destination::New(id),
         tasktap_proto::Place::Session(id) => Destination::Session(id),
+        tasktap_proto::Place::Card(id) => Destination::Card(id),
     };
     match route {
-        tasktap_proto::Route::Clear { to: place, brief } => Route::Clear {
+        tasktap_proto::Route::Clear {
+            to: place,
+            brief,
+            said,
+        } => Route::Clear {
             to: to(place),
             brief,
+            said,
         },
         tasktap_proto::Route::Ambiguous { prompt, candidates } => Route::Ambiguous {
             brief: None,
@@ -712,6 +1068,7 @@ pub fn unwire(route: tasktap_proto::Route) -> Route {
                 .map(|c| Candidate {
                     label: c.label,
                     to: to(c.to),
+                    why: c.why,
                 })
                 .collect(),
         },

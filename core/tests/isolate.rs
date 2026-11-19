@@ -248,6 +248,7 @@ fn capture(s: &mut Scene, step: &str) -> ThoughtId {
     let to = Place::Project(s.project);
     s.script(
         Route::Clear {
+            said: None,
             to,
             brief: step.into(),
         },
@@ -1174,6 +1175,7 @@ fn a_run_that_cannot_have_its_worktree_fails_and_leaves_nothing_behind() {
     let to = Place::Project(s.project);
     s.script(
         Route::Clear {
+            said: None,
             to,
             brief: "write:a.txt:x".into(),
         },
@@ -1445,6 +1447,7 @@ fn the_start_sweep_removes_what_a_stopped_launch_left_and_keeps_anything_else() 
 /// written straight into the store as a damaged or forged record would be.
 fn forge(s: &mut Scene, workdir: Workdir) -> ThoughtId {
     let t = Thought {
+        card_id: None,
         id: ThoughtId::mint(),
         rev: Rev::ZERO,
         text: "forged".into(),
@@ -1612,6 +1615,7 @@ fn review_3_two_starts_that_would_take_one_worktree_never_undo_each_other() {
     let to = Place::Project(s.project);
     s.script(
         Route::Clear {
+            said: None,
             to,
             brief: "start".into(),
         },
@@ -2164,6 +2168,7 @@ fn review3_1_a_runs_branch_made_a_symbolic_ref_never_leads_to_the_branch_it_name
     let to = Place::Project(s.project);
     s.script(
         Route::Clear {
+            said: None,
             to,
             brief: "write:a.txt:x".into(),
         },

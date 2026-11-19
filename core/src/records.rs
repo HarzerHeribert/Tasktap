@@ -18,9 +18,10 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use tasktap_proto::call::{Code, Error};
 use tasktap_proto::{
-    AgentHealth, Change, Collection, Control, Delete, Dictation, DictationId, Glance, History,
-    HistoryPage, Layout, NotePatch, PrefKey, PrefValue, ProjectPatch, Put, PutTarget, Rev,
-    Revision, Rows, SessionId, Set, Subscribe, Thought, ThoughtId, encode_control, json_len,
+    AgentHealth, CardPatch, Change, Collection, Control, Delete, Dictation, DictationId, Glance,
+    History, HistoryPage, Layout, LookPatch, MAX_LINE, NotePatch, PrefKey, PrefValue, ProjectPatch,
+    Put, PutTarget, Rev, Revision, Rows, SessionId, Set, Subscribe, Thought, ThoughtId,
+    encode_control, json_len,
 };
 
 /// Most bytes of JSON in one snapshot chunk (design §1).
@@ -69,6 +70,8 @@ fn collection(set: &Set) -> Collection {
         Set::Prefs(_) => Collection::Prefs,
         Set::Devices(_) => Collection::Devices,
         Set::Previews(_) => Collection::Previews,
+        Set::Looks(_) => Collection::Looks,
+        Set::Cards(_) => Collection::Cards,
         Set::Glance { .. } => Collection::Glance,
         Set::Agents(_) => Collection::Agents,
         Set::Dictations(_) => Collection::Dictations,
@@ -450,7 +453,7 @@ fn chunks(rev: Rev, snap: bool, sets: Vec<Set>) -> Vec<Change> {
     for set in sets {
         split!(
             set, Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs,
-            Devices, Previews, Agents, Dictations
+            Devices, Previews, Looks, Cards, Agents, Dictations
         );
     }
     if !chunk.sets.is_empty() || chunk.done.is_empty() {
@@ -516,8 +519,58 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
     };
     let core = &mut *cx.core;
     let mut tx = core.store.begin().map_err(fail)?;
-    let (mut kept, mut own) = (false, false);
+    let (mut kept, mut own, mut look) = (false, false, false);
     match target {
+        PutTarget::Cards { id, patch } => {
+            let mut c = tx.card(id).map_err(fail)?.ok_or_else(|| gone(id))?;
+            check(Some(c.rev))?;
+            let CardPatch {
+                names,
+                hidden,
+                main,
+            } = patch;
+            if let Some(names) = names {
+                let names: Vec<String> = (names.iter())
+                    .map(|n| n.split_whitespace().collect::<Vec<_>>().join(" "))
+                    .filter(|n| !n.is_empty() && *n != c.name)
+                    .collect();
+                if names.len() > crate::map::NAMES || json_len(&names) > MAX_LINE {
+                    let why = format!("a project goes by at most {} names", crate::map::NAMES);
+                    return Err(invalid(why));
+                }
+                c.names = names;
+            }
+            c.hidden = hidden.unwrap_or(c.hidden);
+            // One copy of a repository is the project: choosing one unchooses the others.
+            if let Some(main) = main {
+                if main {
+                    for mut other in tx.cards().map_err(fail)? {
+                        if other.id != c.id && other.main && other.repo == c.repo {
+                            other.main = false;
+                            tx.put_card(&other).map_err(fail)?;
+                        }
+                    }
+                }
+                c.main = main;
+            }
+            tx.put_card(&c).and_then(|()| crate::map::copies(&mut tx))
+        }
+        PutTarget::Looks { id, patch } => {
+            let mut l = tx.look(id).map_err(fail)?.ok_or_else(|| gone(id))?;
+            check(Some(l.rev))?;
+            let LookPatch { on } = patch;
+            let was = l.on;
+            l.on = on.unwrap_or(l.on);
+            look = l.on && !was;
+            let off = was && !l.on;
+            tx.put_look(&l).and_then(|()| {
+                if off {
+                    crate::map::unlook(&mut tx, id)
+                } else {
+                    Ok(())
+                }
+            })
+        }
         PutTarget::Prefs(patch) => {
             let value = PrefValue::from(patch);
             kept = value.key() == PrefKey::KeepDays;
@@ -597,6 +650,10 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
     if own {
         crate::calls::own_agents(core);
     }
+    // A look switched on is read at once.
+    if look {
+        crate::map::look(core, None);
+    }
     Ok(revision)
 }
 
@@ -615,6 +672,26 @@ pub fn delete(cx: &mut Cx, args: Delete) -> Result<Revision, Error> {
         Delete::Layouts { id } => tx.delete_layout(id),
         // Closed already, a preview is closed: nothing changes.
         Delete::Previews { id } => tx.delete_preview(id),
+        // Forgets a project Tasktap knows; a later look may find it again.
+        Delete::Cards { id } => {
+            if tx.bound(id).map_err(fail)? {
+                let why = "a thought on its way goes there: undo it or let it start first";
+                return Err(Error::new(Code::Conflict, why));
+            }
+            tx.delete_card(id).and_then(|deleted| {
+                // Its copies are no longer under it.
+                crate::map::copies(&mut tx).map(|()| deleted)
+            })
+        }
+        // Stops looking in a folder; an agent's history is switched off instead.
+        Delete::Looks { id } => match tx.look(id).map_err(fail)? {
+            Some(l) if l.kind == tasktap_proto::LookKind::Agent => {
+                let why = "an agent's history is switched off, not removed";
+                return Err(invalid(why.into()));
+            }
+            Some(_) => crate::map::unlook(&mut tx, id).and_then(|()| tx.delete_look(id)),
+            None => Ok(false),
+        },
         Delete::Thoughts { id } => {
             plain(&tx, id)?;
             match tx.delete_thought(id) {

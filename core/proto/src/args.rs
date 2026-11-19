@@ -3,8 +3,8 @@
 //! An optional argument may be left out or sent as `null`.
 
 use crate::ids::{
-    AttemptId, Invalid, Offset, ProjectId, QuestionId, Rev, Secret, SessionId, TerminalId,
-    ThoughtId, Time,
+    AttemptId, CardId, Invalid, LookId, Offset, ProjectId, QuestionId, Rev, Secret, SessionId,
+    TerminalId, ThoughtId, Time,
 };
 use crate::records::{
     Collection, Isolate, Mode, MotionAmbient, MotionPalette, MotionStyle, PrefKey, PrefValue,
@@ -65,6 +65,16 @@ pub enum PutTarget {
     Projects {
         id: ProjectId,
         patch: ProjectPatch,
+    },
+    /// What the person corrects of what Tasktap knows of a project.
+    Cards {
+        id: CardId,
+        patch: CardPatch,
+    },
+    /// A look switched on or off: an agent's history is read only while on.
+    Looks {
+        id: LookId,
+        patch: LookPatch,
     },
     /// The text of a thought that is captured and never started: a note,
     /// an idea, or one undone before its launch; the core refuses any other.
@@ -192,6 +202,28 @@ pub struct ProjectPatch {
     pub isolate: Option<Isolate>,
 }
 
+/// What the person corrects of a card; a missing field is left as it is.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct CardPatch {
+    /// The names the person gives it, beside its own.
+    #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub names: Option<Vec<String>>,
+    /// Not a project: never offered, never placed into.
+    pub hidden: Option<bool>,
+    /// This copy is the project, not another of its copies.
+    pub main: Option<bool>,
+}
+
+/// What the person changes of a look.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct LookPatch {
+    pub on: Option<bool>,
+}
+
 /// The editable fields of a note; a missing one is left as it is.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -226,6 +258,15 @@ pub enum Delete {
     /// Closes a preview.
     Previews {
         id: crate::ids::PreviewId,
+    },
+    /// Forgets a project Tasktap knows: a later look may find it again,
+    /// unless the person said it is not one (`hidden`).
+    Cards {
+        id: CardId,
+    },
+    /// Stops looking in a folder, and forgets what only it found.
+    Looks {
+        id: LookId,
     },
 }
 
@@ -302,6 +343,10 @@ pub struct Capture {
     pub source: Source,
     pub mode: Option<Mode>,
     pub project_id: Option<ProjectId>,
+    /// A project Tasktap knows that is not open, picked by the person: it
+    /// opens when the thought starts there, not before.
+    #[serde(default)]
+    pub card_id: Option<CardId>,
     pub session_id: Option<SessionId>,
     /// The agent a new run of the thought uses, by the id `agents.detect`
     /// lists; without one, the `agent` preference, else the first agent
@@ -339,7 +384,14 @@ pub struct Hint {
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub struct Assign {
     pub id: ThoughtId,
-    pub project_id: ProjectId,
+    /// A workspace; or, in its place, `card_id`: a project Tasktap knows
+    /// that is not open, which opens when the thought starts there.
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional))]
+    pub project_id: Option<ProjectId>,
+    #[serde(default)]
+    #[cfg_attr(test, ts(optional))]
+    pub card_id: Option<CardId>,
 }
 
 /// `thought.start`. The attempt is committed before anything is spawned, so
@@ -683,7 +735,8 @@ pub struct RouteTerms {
     /// What is sent with them, one line for each kind of field.
     pub sends: Vec<String>,
     /// The agents whose tool can be asked, each with the model it asks,
-    /// in the order the core lists its agents.
+    /// in the order the core lists its agents. Each names these terms by
+    /// their version: a consent to an older version covers nothing.
     pub tools: Vec<RouteBy>,
 }
 
@@ -693,11 +746,15 @@ pub struct RouteTerms {
 #[serde(tag = "confidence", rename_all = "snake_case")]
 #[cfg_attr(test, derive(ts_rs::TS))]
 pub enum Route {
-    /// One destination; `brief` is what the run is told.
+    /// One destination; `brief` is what the run is told. `said`: the
+    /// words that named the project, when they are not its name as written
+    /// ("queue grid" for `cuegrid`).
     Clear {
         to: Place,
         #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
         brief: String,
+        #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+        said: Option<String>,
     },
     Ambiguous {
         #[serde(deserialize_with = "crate::within::<MAX_LINE, _, _>")]
@@ -716,6 +773,8 @@ pub enum Route {
 pub enum Place {
     Project(ProjectId),
     Session(SessionId),
+    /// A project Tasktap knows that is not open: a new run there opens it.
+    Card(CardId),
 }
 
 /// One choice of an ambiguous route, as its question shows it.
@@ -724,6 +783,9 @@ pub enum Place {
 pub struct Candidate {
     pub label: String,
     pub to: Place,
+    /// Why it is a choice, in a few words; empty when nothing says.
+    #[serde(default)]
+    pub why: String,
 }
 
 /// What the fixture launcher and host were asked, oldest first.
@@ -1069,4 +1131,92 @@ pub struct SpeechTerms {
     pub path: String,
     /// The longest recording, which is the most that is sent at once.
     pub seconds: u32,
+}
+
+/// `look.add`: a folder the person keeps projects in, or an agent's
+/// history (`agent`), as a look; read at once unless `on` is false
+/// (the person said "Not now"). The reply names the look, an older one
+/// when that folder or agent has one already, which is then switched as
+/// `on` says.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct AddLook {
+    pub id: LookId,
+    #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub folder: Option<String>,
+    #[serde(default, deserialize_with = "crate::within::<MAX_LINE, _, _>")]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub on: Option<bool>,
+}
+
+/// `projects.offer`: what Tasktap can look at, found by `stat` alone,
+/// with nothing inside read: the agents whose history is on this machine
+/// and the folders a person may keep projects in.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Offer {
+    pub agents: Vec<OfferedAgent>,
+    pub places: Vec<OfferedPlace>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OfferedAgent {
+    /// By the id `agents.detect` lists.
+    pub agent: String,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct OfferedPlace {
+    /// Canonical.
+    pub folder: String,
+    /// The projects Tasktap knows directly in it: a folder derived from
+    /// them has some; one of the usual names (`~/projects`) may have none.
+    pub projects: u32,
+}
+
+/// `projects.look`: every look that is on, read again; what it found is
+/// in the `looks` and `cards` records.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Looked {
+    /// The projects Tasktap knows now, copies not counted.
+    pub projects: u32,
+    /// Milliseconds the looking took.
+    pub ms: u32,
+}
+
+/// `projects.find`: the projects a text names or points at, the likeliest
+/// first: by name as written, as speech writes it, and by the line about
+/// each. With no text, the most recently used.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(optional_fields = nullable))]
+pub struct Find {
+    #[serde(deserialize_with = "crate::within::<MAX_TEXT, _, _>")]
+    pub text: String,
+    /// At most 8; 3 without.
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Finds {
+    pub found: Vec<Found>,
+}
+
+/// One project `projects.find` found.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Found {
+    /// A workspace, or a project Tasktap knows that is not open.
+    pub to: Place,
+    pub name: String,
+    /// Its folder as a person reads it: `~/work/cuegrid`.
+    pub folder: String,
+    /// Why it is found, in a few words.
+    pub why: String,
 }

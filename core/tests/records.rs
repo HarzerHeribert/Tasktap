@@ -211,6 +211,7 @@ fn project(name: &str) -> Project {
 
 fn thought(id: ThoughtId, mode: Mode, phase: Phase, text: &str) -> Thought {
     Thought {
+        card_id: None,
         id,
         rev: Rev::ZERO,
         text: text.into(),
@@ -1097,6 +1098,7 @@ fn history_pages_the_questions_and_results_of_a_thought_that_do_not_fit_one_repl
     for i in 0..12 {
         let set = if i % 2 == 0 {
             let q = Question {
+                notes: None,
                 id: QuestionId::mint(),
                 rev: Rev::ZERO,
                 thought_id: Some(many),

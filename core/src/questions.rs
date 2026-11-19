@@ -131,6 +131,7 @@ fn open(core: &mut Core, s: &Session, ask: Ask) -> Result<Question, Refusal> {
         source: ask.source.unwrap_or(QuestionSource::Agent),
         kind: ask.kind,
         places: None,
+        notes: None,
         prompt: ask.prompt,
         detail: ask.detail,
         reply_via: ReplyVia::Core,

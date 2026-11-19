@@ -6,14 +6,14 @@
 //! on the wire. Every row is keyed by `id`, so one client loop merges them all.
 
 use crate::ids::{
-    DeviceId, DictationId, Offset, PreviewId, ProjectId, QuestionId, ResultId, Rev, SessionId,
-    TerminalId, ThoughtId, Time,
+    CardId, DeviceId, DictationId, LookId, Offset, PreviewId, ProjectId, QuestionId, ResultId, Rev,
+    SessionId, TerminalId, ThoughtId, Time,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 words! {
-    pub enum Collection { Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices, Previews, Glance, Agents, Dictations }
+    pub enum Collection { Thoughts, Projects, Sessions, Terminals, Questions, Results, Layouts, Prefs, Devices, Previews, Looks, Cards, Glance, Agents, Dictations }
 }
 
 /// The rows of one collection that one change touches.
@@ -31,6 +31,10 @@ pub enum Set {
     Prefs(Rows<Pref, PrefKey>),
     Devices(Rows<Device, DeviceId>),
     Previews(Rows<Preview, PreviewId>),
+    /// Where Tasktap looks for the person's projects (docs/projects-design.md).
+    Looks(Rows<Look, LookId>),
+    /// What Tasktap knows of the person's projects, one row per folder.
+    Cards(Rows<Card, CardId>),
     /// One row that always exists, so it is only ever put.
     Glance {
         put: Vec<Glance>,
@@ -67,6 +71,12 @@ pub struct Thought {
     pub reason: Option<Reason>,
     pub live: bool,
     pub project_id: Option<ProjectId>,
+    /// The project Tasktap knows and the person has not opened that the
+    /// thought goes to: it becomes a workspace, its `project_id`, when the
+    /// thought starts there, and stays named here, so what is said of the
+    /// thought can say it is new there. None in a row older than the field.
+    #[serde(default)]
+    pub card_id: Option<CardId>,
     pub session_id: Option<SessionId>,
     pub brief: Option<String>,
     /// How it found its destination and its brief; none when no router was
@@ -252,6 +262,116 @@ words! {
     pub enum ProjectKind { Folder, Scratch }
 }
 
+/// What Tasktap knows of one folder that is, or holds a copy of, a
+/// project (docs/projects-design.md): not a workspace, and no right to
+/// read, show or open anything in it. A card becomes a workspace, a
+/// `projects` row, when a thought starts there or the person opens it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Card {
+    pub id: CardId,
+    pub rev: Rev,
+    /// Canonical and unique among cards.
+    pub folder: String,
+    /// What it is called: the folder's name.
+    pub name: String,
+    /// Other names it goes by: the one its package file gives, when that
+    /// differs, and those the person gave it.
+    pub names: Vec<String>,
+    /// One line about it, from its README or its package file; empty when none says.
+    pub about: String,
+    /// The file the line is from.
+    pub about_from: Option<String>,
+    /// Why Tasktap takes it for a project, strongest first.
+    pub why: Vec<Evidence>,
+    /// The agents whose history names it, by id.
+    pub agents: Vec<String>,
+    /// Which repository it is: `remote <host/path>` for one with a remote,
+    /// `root <commit>` by its first commit for one without; none for a
+    /// folder without Git. Copies of one repository share it.
+    pub repo: Option<String>,
+    /// Another copy of the repository of that card, which is the project:
+    /// shown under it, never as a project of its own.
+    pub copy_of: Option<CardId>,
+    /// A folder inside that card's project where an agent was started.
+    pub inside: Option<CardId>,
+    /// The workspace of this folder, once it is one.
+    pub project_id: Option<ProjectId>,
+    /// When work last happened in it as far as Tasktap knows: an agent's
+    /// history, or a thought of Tasktap's.
+    pub used: Option<Time>,
+    /// The looks that found it the last time each was read.
+    pub looks: Vec<LookId>,
+    /// The person said it is not a project: never offered, never placed
+    /// into, and kept so that a look does not bring it back.
+    pub hidden: bool,
+    /// The person chose this copy as the project.
+    pub main: bool,
+    /// Its folder was there the last time Tasktap looked.
+    pub available: bool,
+}
+
+words! {
+    /// Why a folder is taken for a project, strongest first.
+    pub enum Evidence {
+        /// The person opened it in Tasktap.
+        Opened,
+        /// An agent was started in it (an agent's history, or Tasktap's own).
+        Agent,
+        /// It is the top of a Git repository.
+        Git,
+        /// It has a package file, and no project is above it.
+        Package,
+        /// An agent's files are in it (`AGENTS.md`, `CLAUDE.md`, `.claude`…).
+        Signs,
+    }
+}
+
+/// One place Tasktap looks for projects (docs/projects-design.md): an
+/// agent's history, or a folder the person keeps projects in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+pub struct Look {
+    pub id: LookId,
+    pub rev: Rev,
+    pub kind: LookKind,
+    /// Of an agent's history: the agent, by its id.
+    pub agent: Option<String>,
+    /// Of a folder to look in: the folder, canonical.
+    pub folder: Option<String>,
+    /// Read when Tasktap looks. The person switches it; an agent's history
+    /// is off until they turn it on.
+    pub on: bool,
+    pub state: LookState,
+    /// The projects it found the last time it was read.
+    pub found: u32,
+    /// When it was last read.
+    pub looked: Option<Time>,
+    /// What stopped it, in words, when it read nothing.
+    pub note: Option<String>,
+}
+
+words! {
+    /// What a look reads. Another kind (an account on a code host) is one
+    /// more word here and one more row of the core's table of kinds.
+    pub enum LookKind { Agent, Folder }
+}
+
+words! {
+    pub enum LookState {
+        /// Not read yet.
+        New,
+        /// Read; `found` says what it found.
+        Ready,
+        /// It is not there now: what it found is kept.
+        Gone,
+        /// Too many folders to be a folder of projects: nothing listed.
+        Many,
+        /// It could not be read; `note` says why.
+        Failed,
+    }
+}
+
 words! {
     /// When a thought gets its own worktree; `busy` means when the project has
     /// a session that is not idle or ended.
@@ -335,6 +455,11 @@ pub struct Question {
     /// the field.
     #[serde(default)]
     pub places: Option<Vec<crate::args::Place>>,
+    /// Of a router's question: why each of its `choices` is there, in a
+    /// few words ("named in it", "invoices, export"), or empty. None for
+    /// every other question, and in a row older than the field.
+    #[serde(default)]
+    pub notes: Option<Vec<String>>,
     pub prompt: String,
     pub detail: Option<String>,
     pub reply_via: ReplyVia,
@@ -734,6 +859,11 @@ pub struct RouteBy {
     /// The model its tool is asked for, as `route.terms` names it.
     #[serde(deserialize_with = "crate::within::<{ crate::MAX_LINE }, _, _>")]
     pub model: String,
+    /// The version of what is sent that the person saw, as `route.terms`
+    /// names it; 0 in a consent older than the field. A consent to another
+    /// version than the core's covers nothing.
+    #[serde(default)]
+    pub terms: u32,
 }
 
 words! {

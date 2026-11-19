@@ -359,6 +359,14 @@ pub trait Agent: Sync {
         None
     }
 
+    /// Its own record of where it was started on this machine, and when,
+    /// which Tasktap reads only once the person allows it
+    /// (docs/projects-design.md): which folder and when, never what was
+    /// said. None for an agent whose record Tasktap does not read.
+    fn history(&self) -> Option<&'static dyn crate::map::History> {
+        None
+    }
+
     /// What a run is told when a brief was written from the person's
     /// words (design §8): the brief, then their words as they said them,
     /// marked as theirs, so the agent can check one against the other.

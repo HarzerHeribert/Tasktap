@@ -29,6 +29,15 @@ export type Access = "anyone" | "device" | "session" | "either" | "ability";
 export type Action = "answer.affirm" | "answer.deny";
 
 /**
+ * `look.add`: a folder the person keeps projects in, or an agent's
+ * history (`agent`), as a look; read at once unless `on` is false
+ * (the person said "Not now"). The reply names the look, an older one
+ * when that folder or agent has one already, which is then switched as
+ * `on` says.
+ */
+export type AddLook = { id: LookId, folder?: string | null, agent?: string | null, on?: boolean | null, };
+
+/**
  * `project.add`. The reply is the id of the project that holds the folder,
  * which is an older one when the folder was already added.
  */
@@ -197,7 +206,12 @@ export type AskKey = { request: string, };
 /**
  * `thought.update`: assigns a note to a project.
  */
-export type Assign = { id: ThoughtId, project_id: ProjectId, };
+export type Assign = { id: ThoughtId,
+/**
+ * A workspace; or, in its place, `card_id`: a project Tasktap knows
+ * that is not open, which opens when the thought starts there.
+ */
+project_id?: ProjectId, card_id?: CardId, };
 
 /**
  * A UUID v7 in text, minted by whoever creates the record.
@@ -219,13 +233,22 @@ export type CallId = number;
 /**
  * One choice of an ambiguous route, as its question shows it.
  */
-export type Candidate = { label: string, to: Place, };
+export type Candidate = { label: string, to: Place,
+/**
+ * Why it is a choice, in a few words; empty when nothing says.
+ */
+why: string, };
 
 /**
  * `thought.capture`. A project or session given here is the person's own
  * pick, which routes the thought without asking the router.
  */
-export type Capture = { id: ThoughtId, text: string, strokes: Array<Array<[number, number]>>, source: Source, mode?: Mode | null, project_id?: ProjectId | null, session_id?: SessionId | null,
+export type Capture = { id: ThoughtId, text: string, strokes: Array<Array<[number, number]>>, source: Source, mode?: Mode | null, project_id?: ProjectId | null,
+/**
+ * A project Tasktap knows that is not open, picked by the person: it
+ * opens when the thought starts there, not before.
+ */
+card_id?: CardId | null, session_id?: SessionId | null,
 /**
  * The agent a new run of the thought uses, by the id `agents.detect`
  * lists; without one, the `agent` preference, else the first agent
@@ -246,6 +269,107 @@ model?: string | null,
  * a pick: unlike `session_id`, the router still decides (design §8).
  */
 current?: SessionId | null, };
+
+/**
+ * What Tasktap knows of one folder that is, or holds a copy of, a
+ * project (docs/projects-design.md): not a workspace, and no right to
+ * read, show or open anything in it. A card becomes a workspace, a
+ * `projects` row, when a thought starts there or the person opens it.
+ */
+export type Card = { id: CardId, rev: Rev,
+/**
+ * Canonical and unique among cards.
+ */
+folder: string,
+/**
+ * What it is called: the folder's name.
+ */
+name: string,
+/**
+ * Other names it goes by: the one its package file gives, when that
+ * differs, and those the person gave it.
+ */
+names: Array<string>,
+/**
+ * One line about it, from its README or its package file; empty when none says.
+ */
+about: string,
+/**
+ * The file the line is from.
+ */
+about_from: string | null,
+/**
+ * Why Tasktap takes it for a project, strongest first.
+ */
+why: Array<Evidence>,
+/**
+ * The agents whose history names it, by id.
+ */
+agents: Array<string>,
+/**
+ * Which repository it is: `remote <host/path>` for one with a remote,
+ * `root <commit>` by its first commit for one without; none for a
+ * folder without Git. Copies of one repository share it.
+ */
+repo: string | null,
+/**
+ * Another copy of the repository of that card, which is the project:
+ * shown under it, never as a project of its own.
+ */
+copy_of: CardId | null,
+/**
+ * A folder inside that card's project where an agent was started.
+ */
+inside: CardId | null,
+/**
+ * The workspace of this folder, once it is one.
+ */
+project_id: ProjectId | null,
+/**
+ * When work last happened in it as far as Tasktap knows: an agent's
+ * history, or a thought of Tasktap's.
+ */
+used: Time | null,
+/**
+ * The looks that found it the last time each was read.
+ */
+looks: Array<LookId>,
+/**
+ * The person said it is not a project: never offered, never placed
+ * into, and kept so that a look does not bring it back.
+ */
+hidden: boolean,
+/**
+ * The person chose this copy as the project.
+ */
+main: boolean,
+/**
+ * Its folder was there the last time Tasktap looked.
+ */
+available: boolean, };
+
+/**
+ * A UUID v7 in text, minted by whoever creates the record.
+ * What Tasktap knows of one folder that is, or holds a copy of, a project.
+ */
+export type CardId = string;
+
+/**
+ * What the person corrects of a card; a missing field is left as it is.
+ */
+export type CardPatch = {
+/**
+ * The names the person gives it, beside its own.
+ */
+names?: Array<string> | null,
+/**
+ * Not a project: never offered, never placed into.
+ */
+hidden?: boolean | null,
+/**
+ * This copy is the project, not another of its copies.
+ */
+main?: boolean | null, };
 
 /**
  * One committed transaction, or one chunk of a snapshot.
@@ -280,7 +404,7 @@ export type CloseWhy = "done" | "overflow" | "gone" | "denied";
 
 export type Code = "unknown" | "invalid" | "denied" | "conflict" | "gone" | "failed";
 
-export type Collection = "thoughts" | "projects" | "sessions" | "terminals" | "questions" | "results" | "layouts" | "prefs" | "devices" | "previews" | "glance" | "agents" | "dictations";
+export type Collection = "thoughts" | "projects" | "sessions" | "terminals" | "questions" | "results" | "layouts" | "prefs" | "devices" | "previews" | "looks" | "cards" | "glance" | "agents" | "dictations";
 
 /**
  * A kind 0 frame. Unknown fields are ignored, so a newer peer may add fields
@@ -314,7 +438,7 @@ export type Credit = { s: StreamId, n: number, };
  * removed by hand; one a session refers to is `conflict`. Deleting a
  * preference restores its default.
  */
-export type Delete = { "c": "prefs", id: PrefKey, } | { "c": "layouts", id: ProjectId, } | { "c": "thoughts", id: ThoughtId, } | { "c": "terminals", id: TerminalId, } | { "c": "previews", id: PreviewId, };
+export type Delete = { "c": "prefs", id: PrefKey, } | { "c": "layouts", id: ProjectId, } | { "c": "thoughts", id: ThoughtId, } | { "c": "terminals", id: TerminalId, } | { "c": "previews", id: PreviewId, } | { "c": "cards", id: CardId, } | { "c": "looks", id: LookId, };
 
 /**
  * `agents.detect`: whether each agent this core can run is installed on the
@@ -411,6 +535,11 @@ export type Encoding = "utf-8" | "utf-16le" | "utf-16be";
 export type Error = { code: Code, message: string, };
 
 /**
+ * Why a folder is taken for a project, strongest first.
+ */
+export type Evidence = "opened" | "agent" | "git" | "package" | "signs";
+
+/**
  * `type`: a file became a link, or the reverse.
  */
 export type FileChange = "added" | "modified" | "deleted" | "type";
@@ -450,6 +579,19 @@ cut: boolean,
  * written. To be handed back as `unless`.
  */
 stamp: string, };
+
+/**
+ * `projects.find`: the projects a text names or points at, the likeliest
+ * first: by name as written, as speech writes it, and by the line about
+ * each. With no text, the most recently used.
+ */
+export type Find = { text: string,
+/**
+ * At most 8; 3 without.
+ */
+limit?: number | null, };
+
+export type Finds = { found: Array<Found>, };
 
 /**
  * What `dictation.finish` may turn a dictation into: only the words.
@@ -572,6 +714,23 @@ chunk: number,
 marks?: Array<Offset>, };
 
 /**
+ * One project `projects.find` found.
+ */
+export type Found = {
+/**
+ * A workspace, or a project Tasktap knows that is not open.
+ */
+to: Place, name: string,
+/**
+ * Its folder as a person reads it: `~/work/cuegrid`.
+ */
+folder: string,
+/**
+ * Why it is found, in a few words.
+ */
+why: string, };
+
+/**
  * What a host shows with no page running. Memory only.
  */
 export type Glance = { rev: Rev, working: number, needs_you: number,
@@ -682,6 +841,70 @@ stream: Opened | null,
 seconds: number, };
 
 /**
+ * One place Tasktap looks for projects (docs/projects-design.md): an
+ * agent's history, or a folder the person keeps projects in.
+ */
+export type Look = { id: LookId, rev: Rev, kind: LookKind,
+/**
+ * Of an agent's history: the agent, by its id.
+ */
+agent: string | null,
+/**
+ * Of a folder to look in: the folder, canonical.
+ */
+folder: string | null,
+/**
+ * Read when Tasktap looks. The person switches it; an agent's history
+ * is off until they turn it on.
+ */
+on: boolean, state: LookState,
+/**
+ * The projects it found the last time it was read.
+ */
+found: number,
+/**
+ * When it was last read.
+ */
+looked: Time | null,
+/**
+ * What stopped it, in words, when it read nothing.
+ */
+note: string | null, };
+
+/**
+ * A UUID v7 in text, minted by whoever creates the record.
+ * One place Tasktap learns of projects from: an agent's history, or a folder to look in.
+ */
+export type LookId = string;
+
+/**
+ * What a look reads. Another kind (an account on a code host) is one
+ * more word here and one more row of the core's table of kinds.
+ */
+export type LookKind = "agent" | "folder";
+
+/**
+ * What the person changes of a look.
+ */
+export type LookPatch = { on?: boolean | null, };
+
+export type LookState = "new" | "ready" | "gone" | "many" | "failed";
+
+/**
+ * `projects.look`: every look that is on, read again; what it found is
+ * in the `looks` and `cards` records.
+ */
+export type Looked = {
+/**
+ * The projects Tasktap knows now, copies not counted.
+ */
+projects: number,
+/**
+ * Milliseconds the looking took.
+ */
+ms: number, };
+
+/**
  * Something that happened at byte offset `at` of stream `s`.
  */
 export type Mark = { s: StreamId, at: Offset, size?: Size | null,
@@ -717,6 +940,30 @@ export type MotionStyle = "slats" | "glyphs" | "resonator";
  * The editable fields of a note; a missing one is left as it is.
  */
 export type NotePatch = { text?: string | null, strokes?: Array<Array<[number, number]>> | null, };
+
+/**
+ * `projects.offer`: what Tasktap can look at, found by `stat` alone,
+ * with nothing inside read: the agents whose history is on this machine
+ * and the folders a person may keep projects in.
+ */
+export type Offer = { agents: Array<OfferedAgent>, places: Array<OfferedPlace>, };
+
+export type OfferedAgent = {
+/**
+ * By the id `agents.detect` lists.
+ */
+agent: string, name: string, };
+
+export type OfferedPlace = {
+/**
+ * Canonical.
+ */
+folder: string,
+/**
+ * The projects Tasktap knows directly in it: a folder derived from
+ * them has some; one of the usual names (`~/projects`) may have none.
+ */
+projects: number, };
 
 /**
  * A byte position in a stream since it opened.
@@ -827,7 +1074,7 @@ export type Phase = "captured" | "routed" | "working" | "done" | "failed";
 /**
  * Where a thought goes: a new run in a project, or a follow-up to a session.
  */
-export type Place = { "project": ProjectId } | { "session": SessionId };
+export type Place = { "project": ProjectId } | { "session": SessionId } | { "card": CardId };
 
 /**
  * How a thought's place came about (design §5): who decided where it
@@ -910,7 +1157,7 @@ export type Put = {
 /**
  * Refused with `conflict` unless the row is still at this revision.
  */
-if_rev?: Rev | null, } & ({ "c": "prefs" } & PrefPatch | { "c": "layouts", id: ProjectId, patch: LayoutPatch, } | { "c": "projects", id: ProjectId, patch: ProjectPatch, } | { "c": "thoughts", id: ThoughtId, patch: NotePatch, });
+if_rev?: Rev | null, } & ({ "c": "prefs" } & PrefPatch | { "c": "layouts", id: ProjectId, patch: LayoutPatch, } | { "c": "projects", id: ProjectId, patch: ProjectPatch, } | { "c": "cards", id: CardId, patch: CardPatch, } | { "c": "looks", id: LookId, patch: LookPatch, } | { "c": "thoughts", id: ThoughtId, patch: NotePatch, });
 
 /**
  * Everything except `state` and `answer` is written once.
@@ -922,7 +1169,13 @@ export type Question = { id: QuestionId, rev: Rev, thought_id: ThoughtId | null,
  * by its id. None for every other question, and in a row older than
  * the field.
  */
-places: Array<Place> | null, prompt: string, detail: string | null, reply_via: ReplyVia, state: QuestionState, answer: Answer | null, } & ({ "kind": "confirm" } | { "kind": "choice", choices: Array<string>, } | { "kind": "text" });
+places: Array<Place> | null,
+/**
+ * Of a router's question: why each of its `choices` is there, in a
+ * few words ("named in it", "invoices, export"), or empty. None for
+ * every other question, and in a row older than the field.
+ */
+notes: Array<string> | null, prompt: string, detail: string | null, reply_via: ReplyVia, state: QuestionState, answer: Answer | null, } & ({ "kind": "confirm" } | { "kind": "choice", choices: Array<string>, } | { "kind": "text" });
 
 /**
  * A UUID v7 in text, minted by whoever creates the record.
@@ -1043,7 +1296,7 @@ export type Role = "page" | "host" | "cli";
  * Where a router sends a thought (design §8): the answer of `route.hint`,
  * and what `fixture.script` has the fixture router answer.
  */
-export type Route = { "confidence": "clear", to: Place, brief: string, } | { "confidence": "ambiguous", prompt: string, candidates: Array<Candidate>, } | { "confidence": "unknown" };
+export type Route = { "confidence": "clear", to: Place, brief: string, said: string | null, } | { "confidence": "ambiguous", prompt: string, candidates: Array<Candidate>, } | { "confidence": "unknown" };
 
 /**
  * What the `route_by` preference names: a tool and the model it asks.
@@ -1056,7 +1309,13 @@ agent: string,
 /**
  * The model its tool is asked for, as `route.terms` names it.
  */
-model: string, };
+model: string,
+/**
+ * The version of what is sent that the person saw, as `route.terms`
+ * names it; 0 in a consent older than the field. A consent to another
+ * version than the core's covers nothing.
+ */
+terms: number, };
 
 /**
  * `route.terms`: what routing by a model sends and to whom (design §8),
@@ -1074,7 +1333,8 @@ instructions: string,
 sends: Array<string>,
 /**
  * The agents whose tool can be asked, each with the model it asks,
- * in the order the core lists its agents.
+ * in the order the core lists its agents. Each names these terms by
+ * their version: a consent to an older version covers nothing.
  */
 tools: Array<RouteBy>, };
 
@@ -1186,7 +1446,7 @@ export type SessionState = "starting" | "idle" | "working" | "ended";
 /**
  * The rows of one collection that one change touches.
  */
-export type Set = { "c": "thoughts" } & Rows<Thought, ThoughtId> | { "c": "projects" } & Rows<Project, ProjectId> | { "c": "sessions" } & Rows<Session, SessionId> | { "c": "terminals" } & Rows<Terminal, TerminalId> | { "c": "questions" } & Rows<Question, QuestionId> | { "c": "results" } & Rows<TurnResult, ResultId> | { "c": "layouts" } & Rows<Layout, ProjectId> | { "c": "prefs" } & Rows<Pref, PrefKey> | { "c": "devices" } & Rows<Device, DeviceId> | { "c": "previews" } & Rows<Preview, PreviewId> | { "c": "glance", put: Array<Glance>, } | { "c": "agents" } & Rows<AgentHealth, string> | { "c": "dictations" } & Rows<Dictation, DictationId>;
+export type Set = { "c": "thoughts" } & Rows<Thought, ThoughtId> | { "c": "projects" } & Rows<Project, ProjectId> | { "c": "sessions" } & Rows<Session, SessionId> | { "c": "terminals" } & Rows<Terminal, TerminalId> | { "c": "questions" } & Rows<Question, QuestionId> | { "c": "results" } & Rows<TurnResult, ResultId> | { "c": "layouts" } & Rows<Layout, ProjectId> | { "c": "prefs" } & Rows<Pref, PrefKey> | { "c": "devices" } & Rows<Device, DeviceId> | { "c": "previews" } & Rows<Preview, PreviewId> | { "c": "looks" } & Rows<Look, LookId> | { "c": "cards" } & Rows<Card, CardId> | { "c": "glance", put: Array<Glance>, } | { "c": "agents" } & Rows<AgentHealth, string> | { "c": "dictations" } & Rows<Dictation, DictationId>;
 
 /**
  * `key.set`: stores the key of a server in the system's credential
@@ -1333,7 +1593,14 @@ export type TextSize = "small" | "default" | "large";
 /**
  * The primary record. A note is a thought with mode `note`.
  */
-export type Thought = { id: ThoughtId, rev: Rev, text: string, strokes: Array<Array<[number, number]>>, source: Source, mode: Mode, phase: Phase, status: Status, reason: Reason | null, live: boolean, project_id: ProjectId | null, session_id: SessionId | null, brief: string | null,
+export type Thought = { id: ThoughtId, rev: Rev, text: string, strokes: Array<Array<[number, number]>>, source: Source, mode: Mode, phase: Phase, status: Status, reason: Reason | null, live: boolean, project_id: ProjectId | null,
+/**
+ * The project Tasktap knows and the person has not opened that the
+ * thought goes to: it becomes a workspace, its `project_id`, when the
+ * thought starts there, and stays named here, so what is said of the
+ * thought can say it is new there. None in a row older than the field.
+ */
+card_id: CardId | null, session_id: SessionId | null, brief: string | null,
 /**
  * How it found its destination and its brief; none when no router was
  * asked: a note, or a pick whose words go on as they are.
@@ -1443,6 +1710,10 @@ export type Calls = {
   "project.add": { args: AddProject; result: ProjectId; access: "device" };
   "project.scan": { args: Empty; result: null; access: "device" };
   "project.close": { args: CloseProject; result: null; access: "device" };
+  "look.add": { args: AddLook; result: LookId; access: "device" };
+  "projects.offer": { args: Empty; result: Offer; access: "device" };
+  "projects.look": { args: Empty; result: Looked; access: "device" };
+  "projects.find": { args: Find; result: Finds; access: "device" };
   "file.read": { args: ReadFile; result: FileRead; access: "device" };
   "preview.open": { args: OpenPreview; result: PreviewId; access: "either" };
   "input": { args: Input; result: null; access: "device" };

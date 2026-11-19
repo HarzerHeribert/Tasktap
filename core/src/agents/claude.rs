@@ -31,7 +31,9 @@
 //! to the chosen option's label or to the text given.
 
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use crate::map::{self, Within, Worked};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -240,6 +242,10 @@ impl Agent for Claude {
     /// model thinks before it answers, about 500 tokens for a spoken
     /// thought, which is most of the time it takes; neither `--effort low`,
     /// `alwaysThinkingEnabled` nor `MAX_THINKING_TOKENS=0` turns that off.
+    fn history(&self) -> Option<&'static dyn crate::map::History> {
+        Some(&History)
+    }
+
     fn headless(&self) -> Option<Headless> {
         Some(Headless {
             model: SMALL,
@@ -453,4 +459,55 @@ fn output(decision: Value) -> String {
         "hookSpecificOutput": { "hookEventName": "PermissionRequest", "decision": decision }
     })
     .to_string()
+}
+
+/// Claude Code's record of where it was started (docs/projects-design.md):
+/// `<config>/projects` holds one folder per working folder, named by the
+/// path with every character but letters and digits made `-`, which
+/// cannot be read back; so the path is the `cwd` field near the start of
+/// the newest session file in it, read until that field and no further,
+/// and the date is that file's modified time. Nothing else of the file is
+/// kept, and `~/.claude.json`, which holds the account, is not read.
+pub struct History;
+
+impl crate::map::History for History {
+    fn folder(&self, home: &Path) -> PathBuf {
+        let config = std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from);
+        config
+            .unwrap_or_else(|| home.join(".claude"))
+            .join("projects")
+    }
+
+    fn read(&self, home: &Path, within: &mut Within) -> Result<Vec<Worked>, String> {
+        let folder = self.folder(home);
+        let entries = std::fs::read_dir(&folder)
+            .map_err(|e| format!("{} could not be read: {e}", folder.display()))?;
+        let mut worked = Vec::new();
+        for entry in entries.filter_map(|e| e.ok()) {
+            let Ok(files) = std::fs::read_dir(entry.path()) else {
+                continue;
+            };
+            let mut sessions: Vec<(u64, PathBuf)> = (files.filter_map(|f| f.ok()))
+                .filter(|f| f.file_name().to_string_lossy().ends_with(".jsonl"))
+                .filter_map(|f| Some((map::modified(&f.metadata().ok()?), f.path())))
+                .collect();
+            sessions.sort_by_key(|s| std::cmp::Reverse(s.0));
+            let Some(&(when, _)) = sessions.first() else {
+                continue;
+            };
+            // The newest that says where it started, of the newest three.
+            for (_, file) in sessions.iter().take(3) {
+                if !within.more() {
+                    return Ok(worked);
+                }
+                let cwd = map::head(file, map::HISTORY_BYTES, |b| map::field(b, "cwd"));
+                if let Some(cwd) = cwd.filter(|c| Path::new(c).is_absolute()) {
+                    let folder = PathBuf::from(cwd);
+                    worked.push(Worked { folder, when });
+                    break;
+                }
+            }
+        }
+        Ok(worked)
+    }
 }

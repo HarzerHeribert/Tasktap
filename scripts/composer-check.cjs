@@ -351,7 +351,15 @@ async function main() {
       }, [field, notch]);
       expect(measured === 0, `${where}: 20 renders that changed nothing measured the field ${measured / 2} times`);
       if (!notch) {
-        await page.keyboard.type(' and words enough to wrap onto a second line here, and then onto a third');
+        // Words up to the end of the line and no further, however wide the field is at this width and text size: in
+        // a narrower window they need another line.
+        const one = await height();
+        for (const word of 'and words enough to wrap onto a second line here and then onto a third and on'.split(' ')) {
+          await page.keyboard.type(` ${word}`);
+          if ((await height()) === one) continue;
+          for (let i = 0; i <= word.length; i++) await page.keyboard.press('Backspace');
+          break;
+        }
         const wide = await height();
         await page.setViewportSize({ width: 400, height: 760 });
         await page.waitForTimeout(300);

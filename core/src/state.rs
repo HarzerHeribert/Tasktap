@@ -1076,11 +1076,18 @@ impl Machine<'_, '_> {
             _ if how.by == LOCAL => Placed::Name,
             _ => Placed::Model,
         };
+        // The match's brief is the person's words. One too long to go as
+        // they are, the model briefs once it is placed, as one picked.
+        let wordy = how.by == LOCAL && how.fallback.is_none() && !crate::route::short(&t.text);
+        let brief = match wordy && self.consent()?.is_some() {
+            true => None,
+            false => Some(brief),
+        };
         t.route = Some(how);
         match self.target(to) {
             Ok(_) => {
                 let since = t.created;
-                self.route(t, to, Some(brief), since, placed)
+                self.route(t, to, brief, since, placed)
             }
             Err(Error::Gone) => {
                 let route = t.route.as_mut().expect("set above");

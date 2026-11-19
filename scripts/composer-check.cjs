@@ -84,16 +84,29 @@ async function main() {
         'and the timer too': { confidence: 'clear', to: { session: r.ids.timer.session }, brief: 'and the timer too' },
         'move the timer from cuegrid to fieldnotes': { confidence: 'ambiguous', prompt: 'Where should this go?', candidates: [{ label: 'cuegrid', to: { project: P.cuegrid } }, { label: 'fieldnotes', to: { project: P.fieldnotes } }] },
       };
-      // (Clicked as the align and type checks click it: a click of Chromium's own focuses the chip, which the list
-      // then replaces, and that closes the list again; WebKit's does not focus a button.)
-      const click = (page, at, name) => page.evaluate(([s, n]) => [...document.querySelectorAll(s)].find((b) => !n || b.textContent === n)?.click(), [at, name]);
+      // Clicked with the pointer, as a person clicks: Chromium's click focuses the chip, which the list then replaces.
+      const exact = (name) => new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
+      const click = async (page, at, name) => {
+        const target = name ? page.locator(at).filter({ hasText: exact(name) }) : page.locator(at);
+        try {
+          await target.first().click({ timeout: 2000 });
+        } catch {
+          failures.push(`there is no ${name ? `"${name}" in ` : ''}${at} to click`);
+        }
+        await page.waitForTimeout(150);
+      };
+      const focused = (page) => page.evaluate(() => (document.activeElement?.closest('.cap-list') ? 'the list' : document.activeElement?.id || document.activeElement?.tagName));
       const chip = (page, at = '') => page.evaluate((s) => [...document.querySelectorAll(`${s}#dest-chip > b, ${s}#dest-chip > span`)].map((e) => e.textContent).join(' · '), at);
       // The list's rows, the one marked with a star; the list is put away again.
       const rows = async (page, at = '') => {
         await click(page, `${at}#dest-chip`);
-        await page.waitForTimeout(100);
         const all = await page.evaluate((s) => [...document.querySelectorAll(`${s}.cap-list > button`)].map((b) => (b.getAttribute('aria-selected') === 'true' ? '*' : '') + b.textContent), at);
+        const into = await focused(page);
+        expect(all.length > 0 && into === 'the list', `${at || 'Home '}: a click on the chip leaves ${all.length ? 'the list without the keyboard' : 'no list open'} (the keyboard is on ${into})`);
         await page.keyboard.press('Escape');
+        await page.waitForTimeout(100);
+        const back = await focused(page);
+        expect(back === 'capture-input', `${at || 'Home '}: Escape in the list leaves the keyboard on ${back}, not the field`);
         return all.join(', ');
       };
       const says = async (page, words, where, at = '') => {
@@ -134,9 +147,19 @@ async function main() {
       const asked = await sent(page);
       expect(asked && !asked.project_id && asked.mode !== 'note', `Home: a thought with the chip at "Tasktap decides" was sent ${JSON.stringify(asked && { project_id: asked.project_id, mode: asked.mode })}, not for the router to place`);
       // A pick is for its thought alone, and the chip says it went back.
-      await click(page, '#dest-chip');
-      await page.waitForTimeout(100);
-      await click(page, '.cap-list > button', 'fieldnotes');
+      // By the keyboard: Tab from the field to the chip, an arrow opens the list, the arrows move, Return chooses, and the
+      // field has the keyboard again.
+      await page.focus(FIELD);
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('ArrowDown');
+      await page.waitForTimeout(150);
+      const opened = await focused(page);
+      expect(opened === 'the list', `Home: Tab and an arrow on the chip leave the keyboard on ${opened}, not in the list`);
+      for (let i = 0; i < 6 && !(await page.evaluate(() => document.activeElement?.textContent === 'fieldnotes')); i++) await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(150);
+      const chosen = await focused(page);
+      expect(chosen === 'capture-input', `Home: a place chosen by the keyboard leaves the keyboard on ${chosen}, not the field`);
       await says(page, 'fieldnotes · your choice', 'Home, fieldnotes chosen');
       await marks(page, 'fieldnotes', 'Home, fieldnotes chosen');
       await page.focus(FIELD);
@@ -153,7 +176,6 @@ async function main() {
       await says(page, 'Tasktap decides · by its words', 'Home, after a thought nobody chose a place for');
       // Scratch, chosen.
       await click(page, '#dest-chip');
-      await page.waitForTimeout(100);
       await click(page, '.cap-list > button', 'Scratch');
       await says(page, 'Scratch · your choice', 'Home, Scratch chosen');
       await page.focus(FIELD);
@@ -167,6 +189,15 @@ async function main() {
       await page.waitForTimeout(400);
       await says(page, 'cuegrid · you are in it', 'New Task in cuegrid', '.sheet ');
       await marks(page, 'cuegrid', 'New Task in cuegrid', '.sheet ');
+      await page.focus(`.sheet ${FIELD}`);
+      await typed(page, 'fix the export in ledger-api');
+      await says(page, 'ledger-api · named in it', 'New Task in cuegrid, a thought that names ledger-api', '.sheet ');
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(300);
+      const named = await sent(page);
+      expect(named && !named.project_id && named.mode !== 'note', `New Task in cuegrid: a thought that names ledger-api was sent ${JSON.stringify(named && { project_id: named.project_id, mode: named.mode })}, not for the match on names to place`);
+      await page.evaluate((p) => (window.__ws.show(p), window.__ws.command('new-task')), P.cuegrid);
+      await page.waitForTimeout(400);
       await page.evaluate(() => window.__ws.dismiss());
       await page.evaluate(() => window.__ws.show('home'));
       await page.waitForTimeout(300);
@@ -184,6 +215,89 @@ async function main() {
       page = await open(browser, { label: 'workspace', records: { ...structuredClone(r), prefs: [...(r.prefs || []), { id: 'route_by', value: { agent: 'claude', model: 'haiku' }, rev: 2 }] }, url: server.url, dpr: 1 });
       const model = await chip(page);
       expect(/^Tasktap decides · .+ reads it$/.test(model), `Home, placing by a model agreed to: the chip says "${model}", not who reads the thought`);
+      await page.focus(FIELD);
+      await typed(page, 'fix the export in ledger-api');
+      await says(page, 'ledger-api · named in it', 'Home, placing by a model agreed to, a thought that names ledger-api');
+      await page.context().close();
+
+      // One folder open (Scratch not counted): it is where a thought that names none goes, on Home and in the notch.
+      const one = { ...structuredClone(r), projects: r.projects.map((p) => ({ ...p, open: p.kind === 'scratch' || p.id === P.cuegrid })) };
+      page = await open(browser, { label: 'workspace', records: structuredClone(one), url: server.url, dpr: 1 });
+      await says(page, 'cuegrid · the only folder open', 'Home, one folder open');
+      await page.focus(FIELD);
+      await typed(page, 'buy milk');
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(300);
+      expect((await sent(page))?.project_id === P.cuegrid, 'Home, one folder open: a thought that names none was not sent to it');
+      await page.context().close();
+      page = await open(browser, { label: 'notch', records: structuredClone(one), url: server.url, dpr: 1 });
+      await page.evaluate((g) => window.__fake.emit(g), GEO);
+      await page.evaluate(() => window.__fake.emit({ do: 'capture' }));
+      await page.waitForTimeout(600);
+      await says(page, 'cuegrid · the only folder open', 'the notch, one folder open');
+      await page.context().close();
+
+      // A thought kept for later because its words named no folder: Undo, as for one saved for later by choice, and
+      // Send to a folder from its line.
+      page = await open(browser, { label: 'workspace', records: { ...structuredClone(r), keep: true }, url: server.url, dpr: 1 });
+      const kept = (page) => page.evaluate(() => document.querySelector('.capture .cap-said')?.textContent ?? '');
+      const keep = async (words) => {
+        await page.focus(FIELD);
+        await typed(page, words);
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(400);
+      };
+      await keep('buy milk');
+      const line = await kept(page);
+      expect(line.startsWith('It named no folder; saved for later') && line.includes('Undo') && line.includes('Send to a folder'), `a thought kept for later by its words: its line says "${line}", without Undo and Send to a folder`);
+      await click(page, '.capture .cap-said button', '⌘ZUndo');
+      expect((await page.inputValue(FIELD)) === 'buy milk', `Undo on a thought kept for later by its words leaves "${await page.inputValue(FIELD)}" in the field`);
+      await page.fill(FIELD, '');
+      await keep('buy bread');
+      await page.focus(FIELD);
+      await page.keyboard.press('Meta+z');
+      await page.waitForTimeout(300);
+      expect((await page.inputValue(FIELD)) === 'buy bread', `⌘Z on a thought kept for later by its words leaves "${await page.inputValue(FIELD)}" in the field`);
+      await page.fill(FIELD, '');
+      await keep('buy cheese');
+      await click(page, '.capture .cap-said button', 'Send to a folder…');
+      const to = await page.evaluate(() => [...document.querySelectorAll('.cap-list > button')].map((b) => b.textContent).join(', '));
+      expect(/fieldnotes/.test(to) && !/For later|Tasktap decides/.test(to), `Send to a folder on a kept thought's line opens ${to ? `"${to}"` : 'no list'}, not the folders`);
+      await click(page, '.cap-list > button', 'fieldnotes');
+      const moved = await page.evaluate(() => window.__fake.updated);
+      expect(moved?.project_id === P.fieldnotes, `Send to a folder, fieldnotes chosen: the kept thought was ${moved ? `sent to ${moved.project_id}` : 'not sent anywhere'}`);
+      expect((await focused(page)) === 'capture-input', 'Send to a folder: the field does not have the keyboard again');
+      for (const e of page.errors) failures.push(`kept for later: ${e}`);
+      await page.context().close();
+
+      // Where the foot is short of room: the chip's reason gives way first, then the microphone's key hint goes, and
+      // only then does the chip's place shorten. The hint is never on a line of its own, and nothing wraps.
+      // (With a model agreed to, and then with a follow-up's long name typed for.)
+      const busy = flow(scene('busy'), 'session');
+      busy.hints = { 'and the timer too': { confidence: 'clear', to: { session: busy.ids.timer.session }, brief: 'and the timer too' } };
+      page = await open(browser, { label: 'workspace', records: busy, url: server.url, dpr: 1, viewport: { width: 1180, height: 800 } });
+      for (const words of ['', 'and the timer too']) {
+        if (words) (await page.focus(FIELD), await typed(page, words));
+        for (let width = 1180; width >= 640; width -= 30) {
+          await page.setViewportSize({ width, height: 800 });
+          await page.waitForTimeout(120);
+          const f = await page.evaluate(() => {
+            const row = document.querySelector('.home .cap-row'), place = row?.querySelector('#dest-chip b'), hint = row?.querySelector('.mic kbd'), icon = row?.querySelector('.mic .i');
+            if (!place || !icon) return null;
+            const mid = (e) => { const b = e.getBoundingClientRect(); return b.top + b.height / 2; };
+            const shown = !!hint && hint.getClientRects().length > 0 && getComputedStyle(hint).display !== 'none';
+            const squeezed = [...row.querySelectorAll('#dest-chip .i')].some((i) => i.getBoundingClientRect().width < 11);
+            const chip = row.querySelector('#dest-chip'), over = chip.scrollWidth > chip.clientWidth + 1;
+            return { cut: place.scrollWidth > place.clientWidth, shown, off: shown ? Math.abs(mid(hint) - mid(icon)) : 0, squeezed, over };
+          });
+          if (!f) continue;
+          const at = `Home ${width} px${words ? ', a follow-up typed for' : ''}`;
+          expect(f.off <= 1.5, `${at}: the microphone's key hint is ${f.off.toFixed(1)} px off its icon's line`);
+          expect(!(f.shown && f.cut), `${at}: the chip's place is cut short while the microphone's key hint is shown`);
+          expect(!f.squeezed, `${at}: the chip's icons are squeezed`);
+          expect(!f.over, `${at}: the chip's words run out of the chip`);
+        }
+      }
       await page.context().close();
 
       // No folder open: saved for later, and the chip says so.
@@ -197,6 +311,8 @@ async function main() {
       await page.evaluate(() => window.__fake.emit({ do: 'capture' }));
       await page.waitForTimeout(600);
       await says(page, 'Tasktap decides · by its words', 'the notch, the newest thought in Scratch');
+      await page.focus(FIELD);
+      await marks(page, 'Tasktap decides', 'the notch');
       for (const e of page.errors) failures.push(`the notch: ${e}`);
       await page.context().close();
     }
@@ -249,7 +365,7 @@ async function main() {
     await server.close();
   }
   for (const f of failures) console.log('FAIL  ' + f);
-  console.log(failures.length ? `FAIL  the Composer's field: ${failures.length} things wrong` : 'PASS  the Composer\'s field takes every key while a capture is on its way, keeps what was typed for the next thought, sends a thought once, takes one back with ⌘Z, gets a refused one\'s words back, and is measured only when its words or its width change, growing and shrinking a line at a time; its chip says where a thought goes and why, never defaults to Scratch or the newest thought\'s folder, keeps a workspace\'s folder to the sheet opened there, marks its choice in a list that has Scratch, and says when a choice has gone with its thought');
+  console.log(failures.length ? `FAIL  the Composer's field: ${failures.length} things wrong` : 'PASS  the Composer\'s field takes every key while a capture is on its way, keeps what was typed for the next thought, sends a thought once, takes one back with ⌘Z, gets a refused one\'s words back, and is measured only when its words or its width change, growing and shrinking a line at a time; its chip says where a thought goes and why, never defaults to Scratch or the newest thought\'s folder, keeps a workspace\'s folder to the sheet opened there, marks its choice in a list that has Scratch and that a click or the keyboard opens and leaves with the field\'s keyboard back, says when a choice has gone with its thought, places by a name before the workspace and by the one folder open, gives a thought kept for later by its words Undo and Send to a folder, and keeps the microphone\'s key hint whole on its line or drops it before the chip\'s place is cut');
   process.exitCode = failures.length ? 1 : 0;
 }
 main().catch((e) => (console.error(e), process.exit(1)));

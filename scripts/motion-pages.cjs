@@ -176,11 +176,13 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     // `slow`: a capture is answered that many milliseconds later, as a core that is far away or busy answers;
     // `refuse`: with that refusal.
     if (name === 'thought.capture' && (records.slow || records.refuse)) return void setTimeout(() => (records.refuse ? toCore({ t: 'reply', id, err: { code: 'failed', message: records.refuse } }) : reply(id, null)), records.slow || 0);
-    // A thought saved for later is kept as the core keeps it, so the page can show where it landed.
-    if (name === 'thought.capture' && args.mode === 'note') {
+    // A thought saved for later is kept as the core keeps it, so the page can show where it landed; and with `keep`,
+    // one left to the router that names no place, as the match on names keeps it.
+    if (name === 'thought.update') window.__fake.updated = args;
+    if (name === 'thought.capture' && (args.mode === 'note' || (records.keep && !args.project_id))) {
       rev++;
       push({ t: 'change', rev, sets: [{ c: 'thoughts', put: [{ id: args.id, rev, text: args.text, strokes: [], source: 'typed', mode: 'note', phase: 'captured', status: 'captured',
-        reason: null, live: false, project_id: null, session_id: null, brief: args.text, route: null, placed: 'kept', agent: null, model: null, workdir: null, hold_until: null, read: false, created: Date.now(), updated: Date.now() }] }] });
+        reason: null, live: false, project_id: null, session_id: null, brief: args.text, route: null, placed: args.mode === 'note' ? 'kept' : 'kept_name', agent: null, model: null, workdir: null, hold_until: null, read: false, created: Date.now(), updated: Date.now() }] }] });
       return reply(id, null);
     }
     // Keep or Discard: what `settles` holds for the thought is the core's refusal in its own words; else it settles,

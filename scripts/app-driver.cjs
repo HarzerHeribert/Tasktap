@@ -228,9 +228,6 @@ const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
  *  (core/src/roles/fixture.rs): it starts, works a second and a half, prints 24 lines, works on, and finishes with a
  *  result. */
 const THOUGHT = 'script:flow.steps';
-/** Chooses the project's folder for the next thought on Home: with no model, one whose words name no folder would be
- *  saved for later rather than run. */
-const AIM = "(__speech.cap.dest = [...__ws.records.projects.values()].find((p) => p.kind === 'folder').id, 1)";
 const STEPS = ['event:ready', 'event:turn_started', 'sleep:1500', ...Array.from({ length: 24 }, (_, i) => `print:line ${i} of the agent's output, long enough to fill most of a row of its terminal`), 'sleep:1500', 'event:turn_finished:All green.'];
 /** Rows as a table of aligned columns. */
 function table(head, rows) {
@@ -238,4 +235,4 @@ function table(head, rows) {
   return all.map((r) => r.map((c, i) => (i ? c.padStart(w[i]) : c.padEnd(w[i]))).join('  ')).join('\n');
 }
 
-module.exports = { launch, awake, screens, sleep, table, THOUGHT, AIM, RELEASE, DEBUG, root };
+module.exports = { launch, awake, screens, sleep, table, THOUGHT, RELEASE, DEBUG, root };

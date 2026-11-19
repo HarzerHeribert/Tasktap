@@ -303,9 +303,10 @@ send capture
 until_has notch "eval document.activeElement?.id" 5 "capture-input" || fail "capture opens again"
 until_has notch "eval (r => r?.dataset.s + ' ' + r?.querySelector('b')?.textContent + ' ' + !!r?.querySelector('.turn'))(document.querySelector('.ring[data-agent=fixture]'))" 5 "working 1 true" \
   && pass "while its session works an agent's ring turns, with the count beside it" || fail "a working agent's ring"
-# (Its words name the folder: with no model, Tasktap places a thought by the folder its words name.)
-send "type notch Undo me in project" "key notch Enter"
-until_has notch "text .way" 5 "project" && pass "with a folder open, Enter sends a thought that names it there, and it shows on its way" || fail "Enter sends"
+until_has notch "eval [...document.querySelectorAll('#dest-chip > b, #dest-chip > span')].map(e => e.textContent).join(' · ')" 3 "project · the only folder open" \
+  || fail "with one folder open, the chip says it is where a thought goes"
+send "type notch Undo me" "key notch Enter"
+until_has notch "text .way" 5 "project" && pass "with one folder open, the chip says it is where a thought goes, and Enter sends the thought there; it shows on its way" || fail "Enter sends"
 ask notch "text .way" | grep -q "Undo" && [ "$(js notch "(b => b.textContent + ' ' + b.disabled)(document.querySelector('.cap-row .key'))")" = "Start false" ] \
   && [ "$(js notch "String((h => !!h && !h.hasAttribute('data-open') && parseFloat(getComputedStyle(h).getPropertyValue('--ms')) > 500)(document.querySelector('.way-hold')))")" = true ] \
   && pass "while it is held it offers Undo, the Composer's key says that Return starts it, and its hold is a line that runs out by the clock" || fail "the thought on its way offers Undo" "$(ask notch "text .way")"

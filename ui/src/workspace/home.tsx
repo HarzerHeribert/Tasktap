@@ -229,7 +229,7 @@ export function Home() {
   const first = !folders && !h.questions.length && !h.waiting.length && !h.running.length && !h.results.length;
   // The line under the Composer speaks only while it is true: no folder is open and the next thought has nowhere to
   // start. A thought that runs in Scratch has a place, and so has the next one.
-  const to = where().to, nowhere = !folders && (!to || to === 'later');
+  const nowhere = !folders && where().by === 'later';
   const asks = h.questions.length > 0;
   const idle = !asks && !h.running.length;
   const shownQ = h.questions.find((q) => q.id === openQ) ?? h.questions[0];

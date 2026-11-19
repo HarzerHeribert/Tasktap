@@ -407,12 +407,14 @@ fn stop(why: impl std::fmt::Display) -> ! {
 }
 
 /// Asks the router about a thought (design §8). The match on names
-/// answers at once. With the person's consent `by`, the model behind
-/// their agent is asked instead, off the core's thread, unless the match
-/// is sure of a short thought already: its answer is used as
-/// `route::accept` allows, and whenever it is not, the match's is, with
-/// why. With `picked` only the brief is open, and the fallback is the
-/// person's own words.
+/// answers at once, and what it finds it places: a project or session the
+/// thought names, the session it was made in, or a question when it names
+/// several. With the person's consent `by`, the model behind their agent
+/// is asked, off the core's thread, to place a thought the match finds
+/// nothing for: its answer is used as `route::accept` allows, and whenever
+/// it is not, the match's is, with why. With `picked` (by the person, or by
+/// the match for a thought too long to go as it is) only the brief is open,
+/// and the fallback is the person's own words.
 fn route(
     core: &mut Core,
     id: ThoughtId,
@@ -436,7 +438,10 @@ fn route(
         },
         None => core.seams.route(&asked),
     };
-    let sure = matches!(local, Route::Clear { .. }) && short(&asked.text);
+    let sure = match picked {
+        Some(_) => short(&asked.text),
+        None => !matches!(local, Route::Unknown),
+    };
     let tool = match by.filter(|_| !sure) {
         Some(by) => consented(&by).and_then(|tool| askable(&asked.text).map(|()| tool)),
         None => return routed(core, id, local, state::locally(None), current),

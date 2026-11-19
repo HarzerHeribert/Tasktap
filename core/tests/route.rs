@@ -956,10 +956,6 @@ fn whatever_goes_wrong_with_the_model_the_match_on_names_routes_and_says_why() {
         ),
         // An answer the rules refuse.
         (
-            vec![format!("print:{}", answer("clear", "p9", "Brief."))],
-            "was not offered",
-        ),
-        (
             vec![format!("print:{}", answer("clear", "p1", ""))],
             "it wrote no brief",
         ),
@@ -996,11 +992,19 @@ fn whatever_goes_wrong_with_the_model_the_match_on_names_routes_and_says_why() {
     let route = a.settled(t).route.unwrap();
     assert!(route.fallback.unwrap().contains("no steps in ask"));
     // Without a place the match on names knows, the thought stays an idea.
-    a.script(&["exit:1".into()]);
-    let t = a.capture(SPOKEN, None);
-    let th = a.settled(t);
-    assert_eq!((th.status, th.mode), (Status::Captured, Mode::Note));
-    assert!(th.route.unwrap().fallback.is_some());
+    for (steps, why) in [
+        (vec!["exit:1".into()], "it printed no answer"),
+        (
+            vec![format!("print:{}", answer("clear", "p9", "Brief."))],
+            "was not offered",
+        ),
+    ] {
+        a.script(&steps);
+        let t = a.capture(SPOKEN, None);
+        let th = a.settled(t);
+        assert_eq!((th.status, th.mode), (Status::Captured, Mode::Note));
+        assert!(th.route.unwrap().fallback.unwrap().contains(why), "{why}");
+    }
 }
 
 #[test]
@@ -1130,6 +1134,36 @@ fn undo_while_a_model_is_asked_stops_its_tool() {
     );
     // Undone, it is the person's to edit again.
     a.w.ok::<call::Put>(&put);
+}
+
+#[test]
+fn with_a_model_what_the_match_on_names_finds_it_places_and_the_model_only_briefs() {
+    let mut a = Asking::new("named");
+    a.consent("fixture");
+    // Long and naming folio: placed there by name at once, though the model
+    // would send it elsewhere; only its brief is taken.
+    a.answers(&answer("clear", "p2", "Keep the header on one line."));
+    let text = format!("{SPOKEN}, that is in folio by the way");
+    let t = a.capture(&text, None);
+    let th = a.settled(t);
+    assert_eq!(
+        (th.status, th.project_id, th.placed),
+        (Status::Routed, Some(a.folio), Some(Placed::Name))
+    );
+    assert_eq!(th.brief.as_deref(), Some("Keep the header on one line."));
+    assert_eq!(th.route.unwrap().by, "fixture");
+    assert_eq!(a.asked().unwrap()["picked"], "p1");
+    // Naming two: the person is asked which, and no model places it.
+    a.answers(&answer("clear", "p2", "Brief."));
+    let t = a.capture(&format!("{SPOKEN}, in folio or in app"), None);
+    a.w.until("the router asks", |m| m.glance().question.is_some());
+    let q =
+        a.w.model
+            .question(a.w.model.glance().question.unwrap())
+            .clone();
+    assert_eq!((q.thought_id, q.source), (Some(t), QuestionSource::Router));
+    assert_eq!(q.places.map(|p| p.len()), Some(2));
+    assert_eq!(a.asked(), None);
 }
 
 #[test]
@@ -1316,10 +1350,15 @@ fn no_model_is_asked_without_the_persons_consent_for_what_this_core_would_ask() 
         assert_eq!(refused.code, tasktap_proto::Code::Invalid);
     }
     local(&mut a);
-    // Given, the model routes; cleared, the match on names again.
+    // Given, the model is asked (of a thought that names its folder, only
+    // for the brief); cleared, the match on names again.
     a.consent("fixture");
     let t = a.capture(&text, None);
-    assert_eq!(a.settled(t).project_id, Some(a.app));
+    let th = a.settled(t);
+    assert_eq!(
+        (th.project_id, th.brief.as_deref()),
+        (Some(a.folio), Some("Brief."))
+    );
     assert!(a.asked().is_some());
     a.pref(PrefPatch::RouteBy(None)).unwrap();
     local(&mut a);

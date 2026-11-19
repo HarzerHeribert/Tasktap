@@ -42,6 +42,8 @@ export const cap = {
   /** The session the person is in, which the router may send a follow-up to. */
   current: null as string | null,
   choosing: false,
+  /** A thought kept for later that the list, while open, sends to a folder, rather than choosing where the next goes. */
+  moving: null as string | null,
   /** How many thoughts are on their way to the core, their call not back yet. The field is free for the next. */
   sending: 0,
   sent: null as Sent | null,
@@ -71,20 +73,22 @@ export function hinted(): Route | undefined {
 
 /** Where the thought in the field goes, who places it (`to` '' is the router's to say), and why
  *  (docs/projects-design.md, "The chip"). The person's choice, for this thought alone; else a follow-up to the session
- *  its words name or the person is in; else Tasktap decides with a model, where placing by one is agreed to; else the
- *  folder of the workspace this Composer was opened in; else the folder its words name, or a question when they name
- *  several; else Tasktap decides by its words, and one that names no folder is saved for later. Scratch is never a
+ *  its words name or the person is in; else the folder its words name, or a question when they name several (the
+ *  match on names places these, with a model agreed to as without); else the folder of the workspace this Composer
+ *  was opened in; else Tasktap decides with a model, where placing by one is agreed to; else the one folder open, when
+ *  only one is; else Tasktap decides by its words, and one that names no folder is saved for later. Scratch is never a
  *  default: a thought goes there only when the person chooses it. */
-export function where(): { to: string; by: 'router' | 'pick' | 'later'; why: 'chosen' | 'follows' | 'model' | 'in' | 'named' | 'asked' | 'words' | 'none' } {
-  const pick = picked(), route = hinted(), folders = projects().some((p) => p.kind === 'folder');
+export function where(): { to: string; by: 'router' | 'pick' | 'later'; why: 'chosen' | 'follows' | 'named' | 'asked' | 'in' | 'model' | 'only' | 'words' | 'none' } {
+  const pick = picked(), route = hinted(), folders = projects().filter((p) => p.kind === 'folder');
   const usual = pick === undefined && cap.usual ? records.projects.get(cap.usual) : undefined;
   if (pick === 'later') return { to: pick, by: 'later', why: 'chosen' };
   if (pick) return { to: pick, by: 'pick', why: 'chosen' };
   if (route?.confidence === 'clear' && 'session' in route.to) return { to: '', by: 'router', why: 'follows' };
-  if (folders && pref('route_by')) return { to: '', by: 'router', why: 'model' };
-  if (usual?.open && usual.kind === 'folder') return { to: usual.id, by: 'pick', why: 'in' };
   if (route) return { to: routedProject(route) ?? '', by: 'router', why: route.confidence === 'clear' ? 'named' : 'asked' };
-  return folders ? { to: '', by: 'router', why: 'words' } : { to: 'later', by: 'later', why: 'none' };
+  if (usual?.open && usual.kind === 'folder') return { to: usual.id, by: 'pick', why: 'in' };
+  if (folders.length && pref('route_by')) return { to: '', by: 'router', why: 'model' };
+  if (pick === undefined && folders.length === 1) return { to: folders[0]!.id, by: 'pick', why: 'only' };
+  return folders.length ? { to: '', by: 'router', why: 'words' } : { to: 'later', by: 'later', why: 'none' };
 }
 /** What the chip says: where the thought goes, and why, in a few words. */
 function says(w: ReturnType<typeof where>, route: Route | undefined): [string, string] {
@@ -98,6 +102,8 @@ function says(w: ReturnType<typeof where>, route: Route | undefined): [string, s
       return ['Tasktap decides', `${agentName(pref('route_by')?.agent)} reads it`];
     case 'in':
       return [projectName(w.to), 'you are in it'];
+    case 'only':
+      return [projectName(w.to), 'the only folder open'];
     case 'named':
       return [label, 'named in it'];
     case 'asked':
@@ -134,10 +140,13 @@ type Hooks = {
 };
 
 async function addProject(hooks: Hooks): Promise<string | undefined> {
-  cap.choosing = false;
+  const moving = cap.moving;
+  Object.assign(cap, { choosing: false, moving: null });
   try {
     const chosen = await call('host.pick', { folder: true });
-    if (chosen) cap.dest = await call('project.add', { id: uuid7(), folder: chosen });
+    const added = chosen ? await call('project.add', { id: uuid7(), folder: chosen }) : undefined;
+    if (added && moving) await call('thought.update', { id: moving, project_id: added });
+    else if (added) cap.dest = added;
   } catch (e) {
     fail(e);
   }
@@ -182,7 +191,7 @@ async function send(e: Event, hooks: Hooks) {
     }
     // A thought that went where nobody chose, to the workspace's folder or wherever its words lead: the moment to offer
     // placing by a model, once.
-    const offer = (w.why === 'in' || w.why === 'words') && !cap.offered && !!hooks.terms && offerable();
+    const offer = (w.why === 'in' || w.why === 'only' || w.why === 'words') && !cap.offered && !!hooks.terms && offerable();
     Object.assign(cap, { sent: { id, text, to: w.to, pick, agent: by }, offer, offered: cap.offered || offer });
     page.error = '';
   });
@@ -204,7 +213,7 @@ async function send(e: Event, hooks: Hooks) {
 export async function undo(t?: Thought | 'later') {
   if (!t) {
     await flights;
-    t = going()[0] ?? (cap.sent?.to === 'later' ? 'later' : undefined);
+    t = going()[0] ?? (kept() ? 'later' : undefined);
   }
   const sent = cap.sent;
   try {
@@ -229,6 +238,13 @@ export async function undo(t?: Thought | 'later') {
   }
   redraw();
 }
+
+/** What this page sent last waits in For later: saved there by choice, or kept there because its words named no
+ *  folder. Undo takes it back. */
+const kept = () => {
+  const t = cap.sent && records.thoughts.get(cap.sent.id);
+  return cap.sent?.to === 'later' || (!!t && step(t) === 'later');
+};
 
 /** An undone thought whose text the person cleared is gone: nothing stale stays behind. */
 function drop() {
@@ -262,16 +278,24 @@ function routeLabel(r: Route) {
 
 export function choose(open: boolean) {
   cap.choosing = open;
+  if (!open) cap.moving = null;
   // The destination chosen now, else the first.
   page.focus = open ? '.cap-list [aria-selected=true], .cap-list:not(:has([aria-selected=true])) button' : '#capture-input';
   redraw();
 }
 
 function pick(dest: string) {
-  Object.assign(cap, { dest, choosing: false, back: undefined });
+  const moving = cap.moving;
+  // The list was opened from a kept thought's line: it starts there, as from Home's For later.
+  if (moving) void call('thought.update', { id: moving, project_id: dest }).catch(fail);
+  else Object.assign(cap, { dest, back: undefined });
+  Object.assign(cap, { choosing: false, moving: null });
   page.focus = '#capture-input';
   redraw();
 }
+
+/** Opens the list to send a thought kept for later to a folder. */
+const sendOn = (id: string) => ((cap.moving = id), choose(true));
 
 /** The arrows move through the destinations; the browser's Enter and Space press one; Escape leaves them as they were. */
 function arrows(e: KeyboardEvent) {
@@ -442,7 +466,10 @@ function Way({ hooks, raised, offer }: { hooks: Hooks; raised: boolean; offer: b
         <button type="button" class="act" onClick={() => void undo('later')}><Key k="⌘Z" cap /><span>Undo</span></button>)}
       {sent && sent.to !== 'later' && t && !onWay(t) && (
         at === 'asked' ? line('Where should it go? Its question is open.')
-          : at === 'later' ? line(later)
+          : at === 'later' ? line(later, <>
+            <button type="button" class="btn" onClick={() => sendOn(t.id)}>Send to a folder…</button>
+            <button type="button" class="act" onClick={() => void undo('later')}><Key k="⌘Z" cap /><span>Undo</span></button>
+          </>)
             : at === 'failed' ? line(`${why(t)} in ${projectName(t.project_id)}.`)
               : fresh ? line(<>Started in <b>{projectName(t.project_id)}</b>{note && <i>{note}</i>}</>) : null
       )}
@@ -497,7 +524,7 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
   const later = w.by === 'later', model = w.why === 'model';
   const session = route?.confidence === 'clear' && 'session' in route.to ? route.to.session : undefined;
   // After a thought with a place of its own is sent, the next goes where nobody chose, and the chip says it is back.
-  const [name, why] = says(w, route), back = cap.back !== undefined && !!cap.sent && cap.back !== w.to && (model || w.why === 'in' || w.why === 'words');
+  const [name, why] = says(w, route), back = cap.back !== undefined && !!cap.sent && cap.back !== w.to && (model || w.why === 'in' || w.why === 'only' || w.why === 'words');
   // What Return does, which the key says: with a thought in the field it sends that; with none it starts the one that
   // waits, if one does; and while the last is still on its way to the core and nothing new is typed, it shows the wave.
   const has = !!cap.draft.trim(), now = !has && !!waiting(), busy = !has && cap.sending > 0;
@@ -518,6 +545,30 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
     el.style.height = `${el.scrollHeight}px`;
   };
   useLayoutEffect(() => fit());
+  // The foot where it is short of room: the chip's reason gives way first, by itself (parts.css); then the microphone's
+  // key hint is dropped, once the reason is gone and only where that gives the chip's place room; then the place is cut
+  // short. Measured when the foot's width, the rings or what the chip and the key say change, and on no other render.
+  const foot = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const row = foot.current;
+    if (!row) return undefined;
+    const room = () => {
+      const place = row.querySelector<HTMLElement>('#dest-chip b'), reason = row.querySelector<HTMLElement>('#dest-chip span');
+      if (!place || !reason || !row.querySelector('.mic kbd')) return;
+      const wide = () => place.getBoundingClientRect().width + reason.getBoundingClientRect().width;
+      row.removeAttribute('data-short');
+      if (reason.getBoundingClientRect().width >= 1) return;
+      const was = wide();
+      row.setAttribute('data-short', '');
+      if (wide() <= was) row.removeAttribute('data-short');
+    };
+    room();
+    const watch = new ResizeObserver(room);
+    watch.observe(row);
+    const rings = row.querySelector('.rings');
+    if (rings) watch.observe(rings);
+    return () => watch.disconnect();
+  }, [name, why, back, does, busy, hearing, cap.choosing]);
   useLayoutEffect(() => {
     const watch = new ResizeObserver(([e]) => fit(e!.contentRect.width));
     watch.observe(area.current!);
@@ -546,7 +597,7 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
             // Return sends, once however long it is held, and Shift-Return starts a new line; or, as the person set it
             // (`return_sends`), Return starts a new line and Command-Return sends (Control-Return off the Mac).
             if (e.key === 'Enter' && !e.isComposing && (pref('return_sends') ? !e.shiftKey : e.metaKey || e.ctrlKey)) e.repeat ? e.preventDefault() : void send(e, hooks);
-            else if (hit('⌘Z', e) && !cap.draft && (cap.sending || going().length || cap.sent?.to === 'later')) {
+            else if (hit('⌘Z', e) && !cap.draft && (cap.sending || going().length || kept())) {
               e.preventDefault();
               void undo();
             }
@@ -554,19 +605,23 @@ export function Capture({ raised = false, offer = false, ...hooks }: Hooks & { r
         {cap.choosing ? (
           // The choice has the field's row to itself, so it covers nothing the person is reading: the folders, a new
           // one, and for later. Return then picks, so the key that sends is away until one is picked.
-          <div class="cap-row cap-list" role="listbox" aria-label="Where it goes" onKeyDown={arrows}
-            onFocusOut={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && cap.choosing && ((cap.choosing = false), redraw())}>
-            {folders.length > 0 && option('', w.by === 'router' && !w.to, <I n="arrow" />, 'Tasktap decides')}
-            {projects().map((p) => option(p.id, p.id === w.to, <I n="folder" />, p.name))}
+          // An element of its own (`key`), never the chip's: the chip had the keyboard, and losing it as the list took the
+          // chip's place would close the list again where the engine says so (Chromium, so Windows). The list takes the
+          // keyboard; Escape and a choice give it back to the field. Opened from a kept thought's line, it sends that one.
+          <div key="list" class="cap-row cap-list" role="listbox" aria-label={cap.moving ? 'Send it to' : 'Where it goes'} onKeyDown={arrows}
+            onFocusOut={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && cap.choosing && ((cap.choosing = false), (cap.moving = null), redraw())}>
+            {!cap.moving && folders.length > 0 && option('', w.by === 'router' && !w.to, <I n="arrow" />, 'Tasktap decides')}
+            {projects().map((p) => option(p.id, !cap.moving && p.id === w.to, <I n="folder" />, p.name))}
             <button type="button" onClick={() => void addProject(hooks)}><I n="plus" /><span>Open a folder…</span></button>
-            {option('later', later, <Mark s="later" label="" />, 'For later')}
+            {!cap.moving && option('later', later, <Mark s="later" label="" />, 'For later')}
           </div>
         ) : hearing ? <Hearing d={d} raised={raised} said={said} /> : (
-          <div class="cap-row">
+          <div key="foot" class="cap-row" ref={foot}>
             <button type="button" class="cap-to" id="dest-chip" aria-haspopup="listbox" aria-expanded={false}
               title={`${back ? 'Your choice was for the thought before. ' : ''}${!folders.length ? 'No folder is open yet: a thought is saved for later until one is. Click to open one' : later ? 'Saved for later: nothing starts. Click to change'
                 : model ? `${agentName(pref('route_by')?.agent)} reads the thought and places it. Click to choose the place yourself`
-                  : w.why === 'words' ? 'Tasktap places it in the folder its words name, and saves it for later when they name none. Click to choose the place yourself' : 'Where it goes. Click to change'}`}
+                  : w.why === 'words' ? 'Tasktap places it in the folder its words name, and saves it for later when they name none. Click to choose the place yourself'
+                    : w.why === 'only' ? 'The one folder open, so a thought that names no other place goes there. Click to change' : 'Where it goes. Click to change'}`}
               onClick={() => choose(true)}
               onKeyDown={(e) => (e.key === 'ArrowDown' || e.key === 'ArrowUp') && (e.preventDefault(), e.stopPropagation(), choose(true))}>
               {!later ? <I n={session ? 'term' : 'arrow'} /> : folders.length ? <Mark s="later" label="" /> : <I n="folder" />}

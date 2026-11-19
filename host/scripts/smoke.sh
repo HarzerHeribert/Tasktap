@@ -1440,7 +1440,8 @@ until_has workspace "text #sidebar" 5 "Sign-in terminals" && pass "a sign-in ter
 # The workspace's own menu is the system's; the check runs its item as choosing it would.
 js workspace "(document.querySelector('[data-workspace=\"$project\"] .row.w').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true})), 1)" >/dev/null
 js workspace "__ws.choose('Close Workspace…')" >/dev/null
-until_has workspace "text .sheet" 3 "and stop" && pass "closing a workspace with running sessions asks first" || fail "close workspace asks"
+until_has workspace "text .sheet" 3 "Still running:" && ask workspace "text .sheet" | grep -q "Close project?" \
+  && pass "closing a workspace where something runs asks once, naming what runs where" || fail "close workspace asks" "$(ask workspace "text .sheet")"
 press workspace ".sheet" Backspace true >/dev/null
 until_has workspace "eval String(__ws.records.projects.get('$project').open) + ' ' + [...__ws.records.terminals.values()].filter(t=>t.project_id==='$project'&&t.state==='running').length" 10 "false 0" \
   && pass "it closes the workspace and stops its sessions" || fail "close workspace"

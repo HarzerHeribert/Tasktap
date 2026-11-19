@@ -379,8 +379,9 @@ function Card-Read { $v = [Tasktap.Meter]::Last; if ($v -and [Tasktap.Meter]::Ag
 $catalogue = [ordered]@{
     'rest'         = @{ what = 'at rest on Home, nothing running'; window = $true; settle = 10; enter = { Up; Show 'home' } }
     'rest-unfocused' = @{ what = 'at rest on Home, nothing running, the caret taken out of its field'; window = $true; settle = 10; enter = { Up; Show 'home'; $null = Js '(document.activeElement?.blur(), 1)' } }
-    # Tasktap not in front: the round's own Notepad, small in the display's corner beside the app's window, is.
-    'rest-behind'  = @{ what = 'at rest on Home, the caret in its field, another program in front beside the window'; window = $true; settle = 6; enter = { Up; Show 'home'; Behind }; leave = { Unbehind } }
+    # Tasktap not in front: the round's own Notepad, small in the display's corner beside the app's window, is. Settled
+    # as `rest` is: bringing the window in front first sends the pulse of focus, which runs on behind for 7.2 s.
+    'rest-behind'  = @{ what = 'at rest on Home, the caret in its field, another program in front beside the window'; window = $true; settle = 10; enter = { Up; Show 'home'; Behind }; leave = { Unbehind } }
     'tab-rest'     = @{ what = 'the tab at the top edge at rest, the window minimised'; settle = 6; enter = { Down } }
     # Opened as the capture key opens it: told `hover in`, the tab of an app that is not passive folds again at once,
     # since the real pointer is not on it (the tower's round, 2026-11-19).

@@ -872,11 +872,11 @@ run "write:way.txt:agent"
 until_has workspace "$(thought 'write:way.txt:agent' 'workdir?.changes')" 30 "pending" || fail "a fourth run's changes come back pending"
 echo "mine" > "$tmp/project/way.txt"
 way="$(row 'write:way.txt:agent')"
-ask workspace "click $way .key" >/dev/null
+ask workspace "click $way .hr-a .btn" >/dev/null
 until_has workspace "text $way .told" 30 "Not kept" && ask workspace "text $way .told" | grep -q "way.txt" && [ "$(cat "$tmp/project/way.txt")" = mine ] \
   && pass "a Keep that git refuses, a file of the person's being in the way, names the file in git's own words and touches nothing" || fail "Keep refused by git" "$(ask workspace "text $way")"
 rm "$tmp/project/way.txt"
-ask workspace "click $way .key" >/dev/null
+ask workspace "click $way .hr-a .btn" >/dev/null
 until_has workspace "$(thought 'write:way.txt:agent' 'workdir?.changes')" 30 "kept" && [ "$(cat "$tmp/project/way.txt")" = agent ] \
   && pass "with the file moved away, Keep again brings the changes in" || fail "Keep after a refusal"
 # The changes are in, but git will not remove the copy: said as kept with one thing left, with Tidy up as the action;
@@ -885,9 +885,9 @@ run "write:locked.txt:n"
 until_has workspace "$(thought 'write:locked.txt:n' 'workdir?.changes')" 30 "pending" || fail "a fifth run's changes come back pending"
 git -C "$tmp/project" worktree lock "$(js workspace "[...__ws.records.thoughts.values()].find(t=>t.text==='write:locked.txt:n').workdir.path")"
 locked="$(row 'write:locked.txt:n')"
-ask workspace "click $locked .key" >/dev/null
+ask workspace "click $locked .hr-a .btn" >/dev/null
 until_has workspace "text $locked .told" 30 "Kept, with one thing left" && [ "$(cat "$tmp/project/locked.txt")" = n ] \
-  && [ "$(js workspace "document.querySelector(\"$locked .key\").textContent + ' ' + document.querySelector(\"$locked .told\").getAttribute('role')")" = "Tidy up status" ] \
+  && [ "$(js workspace "document.querySelector(\"$locked .hr-a .btn\").textContent + ' ' + document.querySelector(\"$locked .told\").getAttribute('role')")" = "Tidy up status" ] \
   && pass "a Keep whose changes are in while its copy stays says so as a success with one thing left, and offers Tidy up" || fail "Keep with the copy left" "$(ask workspace "text $locked")"
 ask workspace "click $locked .btn:nth-of-type(2)" >/dev/null
 until_has workspace "text .sheet" 3 "The changes stay in main" || fail "the discard sheet after a Keep"
@@ -903,7 +903,7 @@ left="$(row 'write:out.log:built')"
 until_has workspace "text $left" 5 "Copy left over" && ask workspace "text $left" | grep -q "A copy of the project is left over" \
   && [ "$(js workspace "[...document.querySelectorAll(\"$left :is(.key,.btn)\")].map(b => b.textContent).join('|')")" = "Remove the copy" ] && ! ask workspace "text $left" | grep -q "0 files" \
   && pass "a copy left over with nothing in it to keep says so, with Remove the copy as its one action" || fail "a leftover copy" "$(ask workspace "text $left")"
-ask workspace "click $left .key" >/dev/null
+ask workspace "click $left .hr-a .btn" >/dev/null
 until_has workspace "text .sheet" 3 "Remove the copy left by" || fail "the sheet for a leftover copy"
 press workspace ".sheet" Backspace true >/dev/null
 until_has workspace "$(thought 'write:out.log:built' 'workdir?.changes')" 30 "discarded" && pass "⌘⌫ removes the leftover copy" || fail "removing a leftover copy"

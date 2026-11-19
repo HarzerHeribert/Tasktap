@@ -31,7 +31,8 @@ img,picture{display:block}
 .i{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:var(--i-w);stroke-linecap:var(--i-cap);stroke-linejoin:var(--i-join)}
 /* One weight, as in the app (parts.css): an icon's strokes are --i-w on the screen at whatever size it is shown. */
 .i>*{vector-effect:non-scaling-stroke}
-code{font-family:var(--mono);font-size:.875em;white-space:nowrap}
+/* Code in a line of words; a block of it (the build's commands) keeps its own face, size and lines. */
+:not(pre)>code{font-family:var(--mono);font-size:.875em;white-space:nowrap}
 
 /* ——— the app's parts ——— */
 /* Metal: the key, the one primary action in view; and the caps that show a key. */

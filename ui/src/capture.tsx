@@ -75,7 +75,7 @@ export function hinted(): Route | undefined {
  *  folder of the workspace this Composer was opened in; else the folder its words name, or a question when they name
  *  several; else Tasktap decides by its words, and one that names no folder is saved for later. Scratch is never a
  *  default: a thought goes there only when the person chooses it. */
-function where(): { to: string; by: 'router' | 'pick' | 'later'; why: 'chosen' | 'follows' | 'model' | 'in' | 'named' | 'asked' | 'words' | 'none' } {
+export function where(): { to: string; by: 'router' | 'pick' | 'later'; why: 'chosen' | 'follows' | 'model' | 'in' | 'named' | 'asked' | 'words' | 'none' } {
   const pick = picked(), route = hinted(), folders = projects().some((p) => p.kind === 'folder');
   const usual = pick === undefined && cap.usual ? records.projects.get(cap.usual) : undefined;
   if (pick === 'later') return { to: pick, by: 'later', why: 'chosen' };

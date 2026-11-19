@@ -48,8 +48,8 @@ What the owner found when he first tried the build with the project map (2026-11
 | 30 | [ ] | After `/exit` in Codex the shell's prompt does not come back; after Claude Code it does | Find the cause and fix it; when any agent ends, its terminal is a usable shell again | |
 | 31 | [ ] | (follows) The same proved for every agent Tasktap starts, with a stand-in that ends as each tool does | | |
 
-## Proposed by Claude, waiting for the owner's yes
+## Proposed by Claude
 
-| # | Done | Proposal |
-| --- | --- | --- |
-| P1 | [ ] | When one project clearly leads (its name nearly said and a second word of its own matching, the others matching one common word), start there with Undo instead of asking. The owner's trial thought about a "claude mod" for the "modpack" was such a case |
+| # | Done | Proposal | The owner's answer |
+| --- | --- | --- | --- |
+| P1 | [ ] | When one project clearly leads (its name nearly said and a second word of its own matching, the others matching one common word), start there with Undo instead of asking. The owner's trial thought about a "claude mod" for the "modpack" was such a case | Yes, if it is accurate: "it has not been too great, but if you can get it to greatness then why not". It ships only if a set of thoughts the builder never saw, written and scored by the reviewer, and the owner's own projects show no thought started in a wrong project; otherwise Tasktap keeps asking |

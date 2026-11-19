@@ -55,6 +55,21 @@ What the owner found when he first tried the build with the project map (2026-11
 | 32 | [ ] | "From any app" does not say what it sets; Settings in general do not say what a setting does for the person | Every setting has a label that can be read by itself and one sentence saying what changes for the person | |
 | 33 | [ ] | (follows) The same words in the guide's Settings chapter and wherever a sheet or Setup names a setting | | |
 
+Decisions for 32 and 33 (Claude, 2026-11-19; applied once Home and the placing list are merged). A worker listed all 46 rows with proposed words; the rules: a label reads alone and names what the person decides, one sentence says what changes for them, options complete the label's sentence, a problem is said with what to do.
+
+- Take the proposal's words, with the app's own phrase where there is one: "Key to put a thought in, from any app"; "Finding the project for a thought" (no "Placing:" in front); "Wait before an agent starts a thought" (No wait, 3, 5, 10 seconds; "at least", since placing can take longer); "Key to hold while you talk"; "Delete finished thoughts after" (Never, 30 days, 90 days, A year; says that the terminal's history goes too); "Where your speech becomes text".
+- Appearance keeps its words: the owner froze that section. Only its "Microphone" row, which reads like the real microphone setting, is the owner's to rename.
+- Words that say something the app does not do are corrected first: About says nothing else is sent, but a released build asks GitHub for a new version; the placing row says only thoughts naming no folder are read by the model, but long ones that name their project are read too, for their summary; "each agent is asked when you look here" is true only of agents never asked before; hold to talk says letting go ends it, where in an empty field it sends the thought, and the key works only while Tasktap is in front.
+- Order: Thoughts, Agents, Projects, Voice, Appearance, Terminal, About; the capture key first in Thoughts; finding the project moves to Projects.
+
+| # | Done | Missing settings a person would look for (proposed by Claude, each needs the owner's yes) |
+| --- | --- | --- |
+| P2 | [ ] | Open Tasktap when the computer starts |
+| P3 | [ ] | Per project: the agent works on its own copy, or in the project itself (exists in the core, shown nowhere) |
+| P4 | [ ] | The keys that answer a question from any app can be recorded (also ends the AltGr clash on German Windows keyboards) |
+| P5 | [ ] | Look for new versions: on or off |
+| later | | Which microphone; which display shows the notch; a switch for the one notification |
+
 ## Graphics cost (owner, same evening)
 
 | # | Done | Finding | Decided fix | Proof |

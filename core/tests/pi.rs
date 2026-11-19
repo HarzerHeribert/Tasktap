@@ -67,6 +67,7 @@ fn run<'a>(prompt: &'a str, model: Option<&'a str>, resume: Option<&'a str>) -> 
         resume,
         hook: Path::new("/opt/tasktap/tasktap"),
         home: Path::new("/data/agents/pi"),
+        allowed: &[],
     }
 }
 
@@ -208,21 +209,44 @@ fn nothing_pi_asks_is_answered_by_a_hook() {
 }
 
 #[test]
-fn pi_runs_with_tasktaps_extension_in_a_folder_it_is_told_to_trust() {
+fn pi_runs_with_tasktaps_extension_and_reads_a_projects_own_files_only_when_let() {
     let extension = Path::new("/data/agents/pi").join("tasktap.mjs");
     let extension = extension.to_string_lossy();
+    // What a project's `.pi` holds is that project's code: passed over,
+    // with no question, until the person lets Pi load it.
     let argv = pi().launch(&run("Fix it", None, None));
     assert_eq!(
         argv,
-        ["pi", "-e", &extension, "--approve", "--", "Fix it"],
+        ["pi", "-e", &extension, "--no-approve", "--", "Fix it"],
         "a new run"
     );
+    let option = &pi().options()[0];
+    assert_eq!(
+        (option.id, option.name),
+        ("project", "A project's own Pi files")
+    );
+    assert!(option.allows.contains("runs as you"));
+    assert!(agents::option("pi.project").is_some() && agents::option("pi.other").is_none());
+    for (allowed, flag) in [
+        (&["pi.project".to_owned()][..], "--approve"),
+        // Another agent's option, or one of the same name without its agent, lets Pi do nothing.
+        (
+            &["fixture.project".to_owned(), "project".to_owned()][..],
+            "--no-approve",
+        ),
+    ] {
+        let run = Run {
+            allowed,
+            ..run("Fix it", None, None)
+        };
+        assert_eq!(pi().launch(&run)[3], flag);
+    }
     let model = Some("deepseek/deepseek-flash");
     let argv = pi().launch(&run("Go on", model, Some(SESSION)));
     #[rustfmt::skip]
     assert_eq!(
         argv,
-        ["pi", "--model", "deepseek/deepseek-flash", "-e", &extension, "--approve",
+        ["pi", "--model", "deepseek/deepseek-flash", "-e", &extension, "--no-approve",
          "--session", SESSION, "--", "Go on"],
         "a resume, on the model its session had"
     );
@@ -250,7 +274,8 @@ fn pi_runs_with_tasktaps_extension_in_a_folder_it_is_told_to_trust() {
         pi().environment(Path::new("/x"), Path::new("/y"))
             .is_empty()
     );
-    assert!(pi().supported());
+    // Nothing of it has been run on Windows yet.
+    assert_eq!(pi().supported(), !cfg!(windows));
 }
 
 #[test]

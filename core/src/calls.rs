@@ -741,6 +741,31 @@ fn look(core: &mut Core, agent: &str) {
     });
 }
 
+/// Takes the agents the person added (the `own_agents` preference) as they
+/// are now, when the core starts and when the preference changed, and then
+/// lists them: whether each one's program is on the PATH, off this thread.
+pub fn own_agents(core: &mut Core) {
+    let kept = effects::read(core, |tx| tx.pref(tasktap_proto::PrefKey::OwnAgents));
+    let own = match kept.ok().flatten().map(|pref| pref.value) {
+        Some(PrefValue::OwnAgents(own)) => own,
+        _ => Vec::new(),
+    };
+    // Checked when it was put: one a newer build refuses stays out.
+    if crate::agents::set_own(&own).is_err() {
+        return;
+    }
+    let own = crate::agents::all().into_iter().filter(|a| a.own());
+    let own: Vec<_> = own.collect();
+    let look = move || -> Vec<_> {
+        own.iter()
+            .map(|a| crate::agents::checks::found(*a))
+            .collect()
+    };
+    aside(core, look, |core, found| {
+        let _ = core.put_own_agents(found.unwrap_or_default());
+    });
+}
+
 /// Lists the agents once as the core starts, off its thread, so the
 /// `agents` collection is filled before a page asks (design §7): which are
 /// installed, by their programs on the PATH, and what their own commands

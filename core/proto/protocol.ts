@@ -19,7 +19,7 @@ export const MAX_TEXT = 65536;
 export const MAX_LINE = 8192;
 export const MAX_POINTS = 2048;
 /** The value of each preference while none is stored: deleting one restores it. */
-export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] } = {"agent":null,"capture_key":null,"hold":5,"keep_days":0,"keys":[],"motion_ambient":"breathing","motion_hue":265,"motion_lumen":false,"motion_palette":"chromatic","motion_style":"slats","return_sends":true,"route_by":null,"speech_by":null,"speech_languages":[],"talk_key":null,"terminal_bold_bright":true,"terminal_contrast":true,"terminal_font":"","terminal_line_height":100,"terminal_size":14,"text_size":"default"};
+export const PREF_DEFAULTS: { [K in PrefKey]: Extract<Pref, { id: K }>["value"] } = {"agent":null,"agent_options":[],"capture_key":null,"hold":5,"keep_days":0,"keys":[],"motion_ambient":"breathing","motion_hue":265,"motion_lumen":false,"motion_palette":"chromatic","motion_style":"slats","own_agents":[],"return_sends":true,"route_by":null,"speech_by":null,"speech_languages":[],"talk_key":null,"terminal_bold_bright":true,"terminal_contrast":true,"terminal_font":"","terminal_line_height":100,"terminal_size":14,"text_size":"default"};
 
 /**
  * Who may make a call (design §2): authorization is per call.
@@ -76,6 +76,25 @@ rev: Rev,
  */
 checked: Time,
 /**
+ * The person added it (the `own_agents` preference): it can be changed
+ * and removed.
+ */
+own: boolean,
+/**
+ * What a person should know of it that nothing else here says.
+ */
+note: string | null,
+/**
+ * Its own commands say whether it is signed in. One whose do not is
+ * never shown as signed in or out: `signed_in` stays none.
+ */
+checks: boolean,
+/**
+ * What the person can let it do beyond its default (the
+ * `agent_options` preference).
+ */
+options: Array<AgentOption>,
+/**
  * Its program is on the PATH the core's terminals get.
  */
 installed: boolean,
@@ -113,6 +132,24 @@ permissions: ReplyVia | null,
  * Where the questions it asks the person are answered; none: none are heard.
  */
 questions: ReplyVia | null, };
+
+/**
+ * Something an agent does only when the person lets it: a switch in its
+ * row, off until they turn it on.
+ */
+export type AgentOption = {
+/**
+ * Its name in the `agent_options` preference, after the agent's id and a dot.
+ */
+id: string,
+/**
+ * The switch's name.
+ */
+name: string,
+/**
+ * What turning it on allows, as a sentence for the person.
+ */
+allows: string, };
 
 /**
  * The reply of `agents.detect`: the rows of the agents asked about, as
@@ -755,6 +792,28 @@ credit: number,
 from?: Offset | null, };
 
 /**
+ * An agent the person added (design §7): any program that takes what it is
+ * told as an argument, does the work and exits. Tasktap hears nothing of
+ * it but its end.
+ */
+export type OwnAgent = {
+/**
+ * `own-` and 1 to 16 lower-case letters and digits, made where it is
+ * added and never changed: thoughts and sessions keep it.
+ */
+id: string,
+/**
+ * As the person calls it, 1 to 40 characters.
+ */
+name: string,
+/**
+ * Its command line: the program, then its arguments, apart by spaces,
+ * with quotes around one that has spaces; `{prompt}` in an argument
+ * is what the run is told. No shell reads it.
+ */
+command: string, };
+
+/**
  * Written only by the state machine.
  */
 export type Phase = "captured" | "routed" | "working" | "done" | "failed";
@@ -775,14 +834,14 @@ export type Placed = "picked" | "name" | "model" | "follow_up" | "answer" | "kep
 /**
  * A preference row: `{id, value, rev}`, where the key fixes the value's type.
  */
-export type Pref = { rev: Rev, } & ({ "id": "hold", "value": number } | { "id": "agent", "value": string | null } | { "id": "route_by", "value": RouteBy | null } | { "id": "motion_style", "value": MotionStyle } | { "id": "motion_palette", "value": MotionPalette } | { "id": "motion_hue", "value": number } | { "id": "motion_lumen", "value": boolean } | { "id": "motion_ambient", "value": MotionAmbient } | { "id": "terminal_font", "value": string } | { "id": "terminal_size", "value": number } | { "id": "terminal_line_height", "value": number } | { "id": "speech_by", "value": SpeechBy | null } | { "id": "speech_languages", "value": Array<string> } | { "id": "keys", "value": Array<string> } | { "id": "return_sends", "value": boolean } | { "id": "capture_key", "value": Shortcut | null } | { "id": "talk_key", "value": Shortcut | null } | { "id": "keep_days", "value": number } | { "id": "terminal_bold_bright", "value": boolean } | { "id": "terminal_contrast", "value": boolean } | { "id": "text_size", "value": TextSize });
+export type Pref = { rev: Rev, } & ({ "id": "hold", "value": number } | { "id": "agent", "value": string | null } | { "id": "route_by", "value": RouteBy | null } | { "id": "motion_style", "value": MotionStyle } | { "id": "motion_palette", "value": MotionPalette } | { "id": "motion_hue", "value": number } | { "id": "motion_lumen", "value": boolean } | { "id": "motion_ambient", "value": MotionAmbient } | { "id": "terminal_font", "value": string } | { "id": "terminal_size", "value": number } | { "id": "terminal_line_height", "value": number } | { "id": "speech_by", "value": SpeechBy | null } | { "id": "speech_languages", "value": Array<string> } | { "id": "keys", "value": Array<string> } | { "id": "return_sends", "value": boolean } | { "id": "capture_key", "value": Shortcut | null } | { "id": "talk_key", "value": Shortcut | null } | { "id": "keep_days", "value": number } | { "id": "terminal_bold_bright", "value": boolean } | { "id": "terminal_contrast", "value": boolean } | { "id": "text_size", "value": TextSize } | { "id": "agent_options", "value": Array<string> } | { "id": "own_agents", "value": Array<OwnAgent> });
 
-export type PrefKey = "hold" | "agent" | "route_by" | "motion_style" | "motion_palette" | "motion_hue" | "motion_lumen" | "motion_ambient" | "terminal_font" | "terminal_size" | "terminal_line_height" | "speech_by" | "speech_languages" | "keys" | "return_sends" | "capture_key" | "talk_key" | "keep_days" | "terminal_bold_bright" | "terminal_contrast" | "text_size";
+export type PrefKey = "hold" | "agent" | "route_by" | "motion_style" | "motion_palette" | "motion_hue" | "motion_lumen" | "motion_ambient" | "terminal_font" | "terminal_size" | "terminal_line_height" | "speech_by" | "speech_languages" | "keys" | "return_sends" | "capture_key" | "talk_key" | "keep_days" | "terminal_bold_bright" | "terminal_contrast" | "text_size" | "agent_options" | "own_agents";
 
 /**
  * A preference write: `{id, patch}`, where the key fixes the value's type.
  */
-export type PrefPatch = { "id": "hold", "patch": number } | { "id": "agent", "patch": string | null } | { "id": "route_by", "patch": RouteBy | null } | { "id": "motion_style", "patch": MotionStyle } | { "id": "motion_palette", "patch": MotionPalette } | { "id": "motion_hue", "patch": number } | { "id": "motion_lumen", "patch": boolean } | { "id": "motion_ambient", "patch": MotionAmbient } | { "id": "terminal_font", "patch": string } | { "id": "terminal_size", "patch": number } | { "id": "terminal_line_height", "patch": number } | { "id": "speech_by", "patch": SpeechBy | null } | { "id": "speech_languages", "patch": Array<string> } | { "id": "return_sends", "patch": boolean } | { "id": "capture_key", "patch": Shortcut | null } | { "id": "talk_key", "patch": Shortcut | null } | { "id": "keep_days", "patch": number } | { "id": "terminal_bold_bright", "patch": boolean } | { "id": "terminal_contrast", "patch": boolean } | { "id": "text_size", "patch": TextSize };
+export type PrefPatch = { "id": "hold", "patch": number } | { "id": "agent", "patch": string | null } | { "id": "route_by", "patch": RouteBy | null } | { "id": "motion_style", "patch": MotionStyle } | { "id": "motion_palette", "patch": MotionPalette } | { "id": "motion_hue", "patch": number } | { "id": "motion_lumen", "patch": boolean } | { "id": "motion_ambient", "patch": MotionAmbient } | { "id": "terminal_font", "patch": string } | { "id": "terminal_size", "patch": number } | { "id": "terminal_line_height", "patch": number } | { "id": "speech_by", "patch": SpeechBy | null } | { "id": "speech_languages", "patch": Array<string> } | { "id": "return_sends", "patch": boolean } | { "id": "capture_key", "patch": Shortcut | null } | { "id": "talk_key", "patch": Shortcut | null } | { "id": "keep_days", "patch": number } | { "id": "terminal_bold_bright", "patch": boolean } | { "id": "terminal_contrast", "patch": boolean } | { "id": "text_size", "patch": TextSize } | { "id": "agent_options", "patch": Array<string> } | { "id": "own_agents", "patch": Array<OwnAgent> };
 
 /**
  * Something shown beside a terminal (design §9, "Previews"): a file, or a

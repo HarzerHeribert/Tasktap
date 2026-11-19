@@ -603,7 +603,14 @@ fn launch(core: &mut Core, launch: Launch) -> Option<Outcome> {
 fn begin(core: &mut Core, launch: Launch, token: Secret) -> Option<Outcome> {
     let attempt = launch.attempt;
     let data = core.terminals.data().to_owned();
-    let mut prepared = match crate::launch::prepare(&launch, &data) {
+    let allowed = match read(core, |tx| tx.pref(PrefKey::AgentOptions)) {
+        Ok(Some(pref)) => match pref.value {
+            PrefValue::AgentOptions(allowed) => allowed,
+            _ => Vec::new(),
+        },
+        _ => Vec::new(),
+    };
+    let mut prepared = match crate::launch::prepare(&launch, &data, &allowed) {
         Ok(prepared) => prepared,
         Err(error) => return Some(failed(core, attempt, error)),
     };

@@ -320,6 +320,9 @@ impl Model {
                     for a in &r.put {
                         self.agents.insert(a.id.clone(), a.clone());
                     }
+                    for id in &r.del {
+                        self.agents.remove(id);
+                    }
                 }
                 Set::Prefs(r) => {
                     for p in &r.put {

@@ -616,7 +616,8 @@ pub fn consented(by: &RouteBy) -> Result<(&'static dyn Agent, Headless), String>
 /// was found not to offer its model any more is not among them.
 pub fn terms(cx: &mut Cx, _: tasktap_proto::Empty) -> Result<RouteTerms, Error> {
     let offered = |a: &&&dyn Agent| !cx.core.seams.gone(a.id());
-    let tools = agents::all().iter().filter(offered).filter_map(|a| {
+    let all = agents::all();
+    let tools = all.iter().filter(offered).filter_map(|a| {
         Some(RouteBy {
             agent: a.id().into(),
             model: a.headless()?.model.into(),

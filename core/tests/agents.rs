@@ -365,6 +365,7 @@ fn run<'a>(prompt: &'a str, model: Option<&'a str>, resume: Option<&'a str>) -> 
         resume,
         hook: Path::new("/opt/tasktap/tasktap"),
         home: Path::new("/data/agents/x"),
+        allowed: &[],
     }
 }
 
@@ -1249,6 +1250,10 @@ fn a_capture_is_refused_for_an_agent_found_missing_or_signed_out_and_never_run_b
         id: "codex".into(),
         name: "Codex".into(),
         supported: true,
+        own: false,
+        note: None,
+        checks: true,
+        options: Vec::new(),
         stale: false,
         rev: Rev::ZERO,
         checked: Time::ZERO,

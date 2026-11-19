@@ -208,6 +208,7 @@ async fn serve(opts: Options) -> io::Result<()> {
     // What the person keeps for a number of days and is older goes now,
     // and then once a day while this core runs.
     crate::effects::keep(&mut core.borrow_mut(), true);
+    crate::calls::own_agents(&mut core.borrow_mut());
     if opts.detect {
         crate::calls::agents_at_start(&core.borrow());
     }

@@ -41,7 +41,7 @@ use serde_json::Value;
 use tasktap_proto::{Answer, Ask, Event, MAX_LINE, MAX_TEXT, QuestionKind, ReplyVia};
 
 use super::rules::Rules;
-use super::{Agent, Caps, Detect, Heard, Payload, Prompt, Run, WORDS, activity};
+use super::{Agent, Caps, Choice, Detect, Heard, Payload, Prompt, Run, WORDS, activity};
 use super::{fit, line, said};
 
 pub struct Pi;
@@ -55,6 +55,9 @@ pub const RULES: Rules = Rules {
     policy: &[],
     default: &[],
 };
+
+/// The option that lets a run read its project's own `.pi`.
+const PROJECT: &str = "project";
 
 /// The extension, below Tasktap's folder for Pi.
 const FILE: &str = "tasktap.mjs";
@@ -161,6 +164,20 @@ impl Agent for Pi {
         }
     }
 
+    /// Not there yet: nothing of it has been run on Windows.
+    fn supported(&self) -> bool {
+        !cfg!(windows)
+    }
+
+    fn options(&self) -> &'static [Choice] {
+        &[Choice {
+            id: PROJECT,
+            name: "A project's own Pi files",
+            allows: "Pi loads the extensions, skills and settings in a project's .pi folder. \
+                     An extension is that project's code, and runs as you.",
+        }]
+    }
+
     fn launch(&self, run: &Run) -> Vec<String> {
         let mut argv = vec![self.program().to_owned()];
         // Also for a resume, which is then on the model its session had.
@@ -169,9 +186,11 @@ impl Agent for Pi {
         }
         let attached = self.attach(run.hook, run.home).into_iter();
         argv.extend(attached.map(|a| a.to_string_lossy().into_owned()));
-        // The folder is one the person chose to work in (design §7, trust):
-        // what its `.pi` holds is read for this run, and nothing is saved.
-        argv.push("--approve".into());
+        // What a project's own `.pi` holds is code of that project's, which
+        // would run as the person: it is read for this run only when they
+        // said so (`options`), and otherwise passed over without a question.
+        let project = run.allows(self, PROJECT);
+        argv.push(if project { "--approve" } else { "--no-approve" }.into());
         if let Some(handle) = run.resume {
             argv.extend(["--session".into(), handle.into()]);
         }

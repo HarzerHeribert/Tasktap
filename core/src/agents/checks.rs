@@ -57,11 +57,16 @@ pub fn detect(agent: &dyn Agent) -> AgentHealth {
     let Some(program) = program else {
         return health;
     };
+    // A command it has not got is not run: the program alone would start it.
     let checks = agent.detect();
-    if let Ok((_, out)) = output(&program, checks.version) {
+    let asked = |args: &'static [&'static str]| match args.is_empty() {
+        true => Err(String::new()),
+        false => output(&program, args),
+    };
+    if let Ok((_, out)) = asked(checks.version) {
         health.version = (checks.version_of)(&out).map(|v| fit(&v, 200));
     }
-    if let Ok((code, out)) = output(&program, checks.account) {
+    if let Ok((code, out)) = asked(checks.account) {
         let (signed_in, identity) = (checks.account_of)(code, &out);
         health.signed_in = signed_in;
         health.identity = identity.map(|i| fit(&i, 200));
@@ -79,6 +84,16 @@ pub fn found(agent: &dyn Agent) -> AgentHealth {
         id: agent.id().into(),
         name: agent.name().into(),
         supported: agent.supported(),
+        own: agent.own(),
+        note: agent.note().map(Into::into),
+        checks: !agent.detect().account.is_empty(),
+        options: (agent.options().iter())
+            .map(|o| tasktap_proto::AgentOption {
+                id: o.id.into(),
+                name: o.name.into(),
+                allows: o.allows.into(),
+            })
+            .collect(),
         stale: false,
         // Stamped once the collection takes the row.
         rev: tasktap_proto::Rev::ZERO,

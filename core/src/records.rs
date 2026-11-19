@@ -239,6 +239,38 @@ impl Core {
         Ok(found)
     }
 
+    /// Puts the rows of the agents the person added as they are now, in
+    /// place of those that were there: the row of one they removed goes.
+    pub fn put_own_agents(&mut self, found: Vec<AgentHealth>) -> store::Result<()> {
+        let agents = &mut self.memory.agents;
+        let stays = |id: &str| found.iter().any(|a| a.id == id);
+        let gone = agents.iter().filter(|row| row.own && !stays(&row.id));
+        let gone: Vec<String> = gone.map(|row| row.id.clone()).collect();
+        if gone.is_empty() && found.is_empty() {
+            return Ok(());
+        }
+        let rev = self.store.take_rev()?;
+        let found: Vec<AgentHealth> = (found.into_iter())
+            .map(|a| AgentHealth { rev, ..a })
+            .collect();
+        let agents = &mut self.memory.agents;
+        agents.retain(|row| !row.own);
+        agents.extend(found.iter().cloned());
+        let all = crate::agents::all();
+        agents.sort_by_key(|row| all.iter().position(|a| a.id() == row.id));
+        let sets = vec![Set::Agents(Rows {
+            put: found,
+            del: gone,
+        })];
+        self.publish(Some(Change {
+            rev,
+            snap: false,
+            more: false,
+            sets,
+        }));
+        Ok(())
+    }
+
     /// Puts a dictation's row in the `dictations` collection, stamped with
     /// the change's revision, or with no row takes it out, and sends that
     /// as one change.
@@ -475,11 +507,12 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
     };
     let core = &mut *cx.core;
     let mut tx = core.store.begin().map_err(fail)?;
-    let mut kept = false;
+    let (mut kept, mut own) = (false, false);
     match target {
         PutTarget::Prefs(patch) => {
             let value = PrefValue::from(patch);
             kept = value.key() == PrefKey::KeepDays;
+            own = value.key() == PrefKey::OwnAgents;
             // A consent names what this core would really ask (design §8).
             if let PrefValue::RouteBy(Some(by)) = &value {
                 crate::route::consented(by).map_err(|why| Error::new(Code::Invalid, why))?;
@@ -492,6 +525,15 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
                 PrefValue::CaptureKey(Some(key)) | PrefValue::TalkKey(Some(key)) => {
                     key.refused().map_or(Ok(()), |why| Err(why.into()))
                 }
+                // Each names something an agent of this core does when let.
+                PrefValue::AgentOptions(allowed) => {
+                    let known = |o: &String| crate::agents::option(o).is_some();
+                    match allowed.iter().find(|o| !known(o)) {
+                        Some(o) => Err(format!("no agent has the option {o}")),
+                        None => Ok(()),
+                    }
+                }
+                PrefValue::OwnAgents(agents) => crate::agents::plain::own(agents).map(|_| ()),
                 _ => Ok(()),
             }
             .map_err(invalid)?;
@@ -542,6 +584,9 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
     let revision = published(core, change);
     if kept {
         crate::effects::keep(core, false);
+    }
+    if own {
+        crate::calls::own_agents(core);
     }
     Ok(revision)
 }
@@ -598,6 +643,14 @@ pub fn delete(cx: &mut Cx, args: Delete) -> Result<Revision, Error> {
         }
     ) {
         crate::effects::keep(core, false);
+    }
+    if matches!(
+        args,
+        Delete::Prefs {
+            id: PrefKey::OwnAgents
+        }
+    ) {
+        crate::calls::own_agents(core);
     }
     Ok(revision)
 }

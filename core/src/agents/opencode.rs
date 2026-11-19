@@ -149,6 +149,11 @@ impl Agent for OpenCode {
         "opencode"
     }
 
+    /// Not there yet: nothing of it has been run on Windows.
+    fn supported(&self) -> bool {
+        !cfg!(windows)
+    }
+
     fn caps(&self) -> Caps {
         Caps {
             events: true,

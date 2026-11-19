@@ -883,7 +883,13 @@ looked: Time | null,
 /**
  * What stopped it, in words, when it read nothing.
  */
-note: string | null, };
+note: string | null,
+/**
+ * What it reads as it was when it was last read: the modified times
+ * of its folders, as one value. When they are the same, nothing new
+ * is there to find and it is not read again.
+ */
+stamp: string | null, };
 
 /**
  * A UUID v7 in text, minted by whoever creates the record.

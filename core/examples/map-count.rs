@@ -42,6 +42,7 @@ fn main() {
         found: 0,
         looked: None,
         note: None,
+        stamp: None,
     };
     let mut looks = vec![look(Some("claude"), None), look(Some("codex"), None)];
     for p in &places {
@@ -145,7 +146,7 @@ fn main() {
         cold.as_millis(),
         warm.as_millis()
     );
-    for (id, state, found, _) in &out.looks {
+    for (id, state, found, ..) in &out.looks {
         let which = if *id == out.looks[0].0 {
             "Claude Code"
         } else if out.looks.get(1).map(|l| l.0) == Some(*id) {

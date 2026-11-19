@@ -194,6 +194,12 @@ pub trait History: Sync {
     fn folder(&self, home: &Path) -> PathBuf;
     /// Where the person worked with the agent and when; nothing else.
     fn read(&self, home: &Path, within: &mut Within) -> Result<Vec<Worked>, String>;
+    /// The folders whose modified times change when a session begins:
+    /// [`stamp`] looks at each and at the folders directly in it. The
+    /// history's folder, unless the agent keeps sessions deeper.
+    fn watch(&self, home: &Path) -> Vec<PathBuf> {
+        vec![self.folder(home)]
+    }
 }
 
 /// The value of the first JSON string field `key` in `bytes`, decoded;
@@ -917,7 +923,9 @@ pub struct Input {
 /// What a look found, made on a thread of its own.
 #[derive(Debug, Default)]
 pub struct Output {
-    pub looks: Vec<(LookId, LookState, u32, Option<String>)>,
+    /// Each look read: how it went, how many it found, what stopped it,
+    /// and its [`stamp`] as it was before it was read.
+    pub looks: Vec<(LookId, LookState, u32, Option<String>, String)>,
     pub cards: Vec<Made>,
     /// Folders of known cards that are not there now.
     pub gone: Vec<String>,
@@ -993,6 +1001,8 @@ pub fn read(input: Input) -> Output {
         }
     };
     for look in looks.iter().filter(|l| l.on) {
+        // Before it is read: what changes while it reads is new to the next look.
+        let stamp = stamp(&rule, look);
         let mut found: BTreeSet<PathBuf> = BTreeSet::new();
         let (state, note) = match (look.kind, &look.agent, &look.folder) {
             (LookKind::Agent, Some(agent), _) => {
@@ -1003,11 +1013,12 @@ pub fn read(input: Input) -> Output {
                         LookState::Failed,
                         0,
                         Some(format!("Tasktap has no agent {agent}")),
+                        stamp,
                     ));
                     continue;
                 };
                 if !history.folder(rule.home()).is_dir() {
-                    out.looks.push((look.id, LookState::Gone, 0, None));
+                    out.looks.push((look.id, LookState::Gone, 0, None, stamp));
                     continue;
                 }
                 let mut within = Within::new(HISTORY_TIME, HISTORY_FILES);
@@ -1069,7 +1080,8 @@ pub fn read(input: Input) -> Output {
                 Some("it names nothing to look at".into()),
             ),
         };
-        out.looks.push((look.id, state, found.len() as u32, note));
+        out.looks
+            .push((look.id, state, found.len() as u32, note, stamp));
     }
     for (project, folder, used) in &opened {
         let s = seen.entry(PathBuf::from(folder)).or_default();
@@ -1299,9 +1311,10 @@ pub fn merge(tx: &mut Tx, out: Output, now: Time) -> store::Result<u32> {
         }
     }
     copies(tx)?;
-    for (id, state, found, note) in out.looks {
+    for (id, state, found, note, stamp) in out.looks {
         if let Some(mut l) = tx.look(id)?.filter(|l| l.on) {
             (l.state, l.found, l.note, l.looked) = (state, found, note, Some(now));
+            l.stamp = Some(stamp);
             tx.put_look(&l)?;
         }
     }
@@ -1404,7 +1417,6 @@ pub struct Map {
     looks: u64,
     again: bool,
     waiting: Vec<(Rc<Link>, CallId)>,
-    stamps: Option<Vec<u64>>,
     /// How long a look may take.
     most: Duration,
 }
@@ -1417,7 +1429,6 @@ impl Map {
             looks: 0,
             again: false,
             waiting: Vec::new(),
-            stamps: None,
             most: second * LOOK_MOST,
         }
     }
@@ -1442,46 +1453,45 @@ impl Map {
     }
 }
 
-/// Where to `stat` for the cheap check: each agent's history folder that
-/// is on (and the newest folder in it, where an agent keeps dated folders),
-/// and each folder to look in.
-fn watched(rule: &Rule, looks: &[Look]) -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-    for l in looks.iter().filter(|l| l.on) {
-        match (&l.agent, &l.folder) {
-            (Some(agent), _) => {
-                if let Some((.., h)) = histories().into_iter().find(|(id, ..)| id == agent) {
-                    paths.push(h.folder(rule.home()));
-                }
-            }
-            (None, Some(folder)) => paths.push(PathBuf::from(folder)),
-            _ => {}
+/// What a look reads as it is now, as one value: the modified time of each
+/// folder it watches (an agent's history folder, or the newest dated
+/// folders in it; a folder to look in) and of the folders directly in each:
+/// a session in a folder an agent already had, a project cloned into a
+/// folder of projects. A few hundred `stat`s, under a millisecond. Kept with
+/// the look (`Look::stamp`), so a core that starts again knows it too.
+pub fn stamp(rule: &Rule, look: &Look) -> String {
+    let paths = match (&look.agent, &look.folder) {
+        (Some(agent), _) => match histories().into_iter().find(|(id, ..)| id == agent) {
+            Some((.., h)) => h.watch(rule.home()),
+            None => Vec::new(),
+        },
+        (None, Some(folder)) => vec![PathBuf::from(folder)],
+        _ => Vec::new(),
+    };
+    // FNV-1a over the paths and their times: any change changes it.
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut add = |bytes: &[u8]| {
+        for b in bytes {
+            hash = (hash ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3);
         }
-    }
-    paths
-}
-
-/// The modified time of each path, and of the folders directly in it: a
-/// session in a folder an agent already had, a project cloned into a
-/// group folder. A few hundred `stat`s, under a millisecond.
-fn stamps(paths: &[PathBuf]) -> Vec<u64> {
-    let mut all = Vec::new();
-    for p in paths {
+    };
+    for p in &paths {
+        add(p.as_os_str().as_encoded_bytes());
         let Ok(meta) = std::fs::metadata(p) else {
-            all.push(0);
+            add(b"-");
             continue;
         };
-        let mut newest = modified(&meta);
+        add(&modified(&meta).to_le_bytes());
         if let Ok(entries) = std::fs::read_dir(p) {
             for e in entries.take(ENTRIES).filter_map(|e| e.ok()) {
                 if let Some(m) = e.metadata().ok().filter(|m| m.is_dir()) {
-                    newest = newest.max(modified(&m));
+                    add(e.file_name().as_encoded_bytes());
+                    add(&modified(&m).to_le_bytes());
                 }
             }
         }
-        all.push(newest);
     }
-    all
+    format!("{hash:016x}")
 }
 
 /// What a look is given, from the records.
@@ -1543,24 +1553,19 @@ pub fn look(core: &mut Core, waiting: Option<(Rc<Link>, CallId)>) {
         }
     });
     core.map.looking = Some((n, timer));
-    let paths = watched(&input.rule, &input.looks);
     let started = Instant::now();
     crate::calls::aside(
         core,
-        move || {
-            let out = self::read(input);
-            (out, stamps(&paths))
-        },
+        move || self::read(input),
         move |core, found| {
             if !core.map.end(n) {
                 return;
             }
-            let Some((out, stamps)) = found else {
+            let Some(out) = found else {
                 core.map.again = false;
                 let lost = Error::new(Code::Failed, "the look ended without an answer");
                 return answer(core, Err(lost));
             };
-            core.map.stamps = Some(stamps);
             let now = core.seams.now();
             let merged = effects::write(core, |tx| merge(tx, out, now).map_err(stored));
             let ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
@@ -1579,10 +1584,10 @@ fn answer(core: &mut Core, result: Result<Looked, Error>) {
     }
 }
 
-/// When a capture or the list needs what is kept: one `stat` of each
-/// looked-at folder and of the folders directly in it, off the core's
-/// thread, and a look when any changed since the last. Nothing when no
-/// look is on.
+/// When a capture or the list needs what is kept: the [`stamp`] of each
+/// look that is on, off the core's thread, and a look when one is not what
+/// it was when that look last read, or it never read. Nothing when no look
+/// is on, and nothing new after the core starts again: the stamps are kept.
 pub fn freshen(core: &mut Core) {
     if core.map.busy() {
         return;
@@ -1590,16 +1595,18 @@ pub fn freshen(core: &mut Core) {
     let Some(home) = home() else { return };
     let rule = Rule::new(&home, core.terminals.data());
     let looks = effects::read(core, |tx| tx.looks()).unwrap_or_default();
-    let paths = watched(&rule, &looks);
-    if paths.is_empty() {
+    let on: Vec<Look> = looks.into_iter().filter(|l| l.on).collect();
+    if on.is_empty() {
         return;
     }
-    let was = core.map.stamps.clone();
     crate::calls::aside(
         core,
-        move || stamps(&paths),
-        move |core, now| {
-            if now.is_some() && now != was {
+        move || {
+            on.iter()
+                .any(|l| l.stamp.as_deref() != Some(stamp(&rule, l).as_str()))
+        },
+        move |core, changed| {
+            if changed == Some(true) {
                 look(core, None);
             }
         },
@@ -1663,6 +1670,7 @@ pub fn add_look(cx: &mut Cx, args: AddLook) -> Option<Control> {
             found: 0,
             looked: None,
             note: None,
+            stamp: None,
         });
         let was = l.on;
         l.on = on;

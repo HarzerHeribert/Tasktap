@@ -286,6 +286,7 @@ fn a_folder_in_a_worktree_a_submodule_or_a_bare_layout_counts_for_its_repository
             found: 0,
             looked: None,
             note: None,
+            stamp: None,
         }],
         opened: Vec::new(),
         known: Default::default(),
@@ -397,6 +398,7 @@ fn a_repository_is_one_project_whatever_its_copies() {
         found: 0,
         looked: None,
         note: None,
+        stamp: None,
     };
     let looks = vec![look(home.join("projects")), look(home.join("work"))];
     let input = Input {
@@ -477,6 +479,7 @@ fn folder_look(folder: &Path) -> Look {
         found: 0,
         looked: None,
         note: None,
+        stamp: None,
     }
 }
 
@@ -628,6 +631,81 @@ fn a_name_the_person_gives_keeps_its_project_and_one_taken_away_stays_away() {
         .get(&card.id)
         .expect("a project the person named is kept");
     assert_eq!(kept.names, ["rehearsal"]);
+}
+
+#[test]
+fn a_look_reads_again_only_when_what_it_reads_changed_also_after_the_core_starts_again() {
+    let t = Folder::new("fresh");
+    let (home, data) = (t.0.join("home"), t.0.join("data"));
+    mkdir(&data);
+    let (kiln, tidepool) = (home.join("projects/kiln"), home.join("projects/tidepool"));
+    mkdir(&kiln);
+    mkdir(&tidepool);
+    let home = real(&home);
+    let day = home.join(".codex/sessions/2026/11/18");
+    let session = |name: &str, folder: &Path| {
+        let cwd = serde_json::to_string(real(folder).to_str().unwrap()).unwrap();
+        let first = format!(r#"{{"type":"session_meta","payload":{{"id":"x","cwd":{cwd}}}}}"#);
+        write(&day.join(name), &format!("{first}\n"));
+    };
+    session("rollout-1.jsonl", &kiln);
+    let (home_text, codex) = (
+        home.to_str().unwrap().to_owned(),
+        home.join(".codex").to_str().unwrap().to_owned(),
+    );
+    let env = [("HOME", home_text.as_str()), ("CODEX_HOME", codex.as_str())];
+    let core = Core::start_env(&data, &[], &env);
+    let mut w = core.watch();
+    w.ok::<call::LookAdd>(&AddLook {
+        id: LookId::mint(),
+        folder: None,
+        agent: Some("codex".into()),
+        on: None,
+    });
+    assert_eq!(w.ok::<call::ProjectsLook>(&Empty {}).projects, 1);
+    w.sync();
+    let read = |w: &Watch| {
+        let l = w.model.looks.values().next().unwrap();
+        (l.looked, l.rev)
+    };
+    let first = read(&w);
+    // What a capture or the list's field does: the cheap check, then a look if due.
+    let find = |w: &mut Watch| {
+        let text = Find {
+            text: "tide".into(),
+            limit: None,
+            thought: false,
+        };
+        let found = w.ok::<call::ProjectsFind>(&text).found;
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        w.sync();
+        found
+    };
+    find(&mut w);
+    assert_eq!(read(&w), first, "nothing changed: not read again");
+    // The core starts again: what the last look saw is kept with it.
+    drop(w);
+    core.stop();
+    let core = Core::start_env(&data, &[], &env);
+    let mut w = core.watch();
+    w.sync();
+    find(&mut w);
+    assert_eq!(
+        read(&w),
+        first,
+        "started again, nothing changed: not read again"
+    );
+    // A session begins in the day's folder Codex already had: read again.
+    session("rollout-2.jsonl", &tidepool);
+    let since = std::time::Instant::now();
+    while !w.model.cards.values().any(|c| c.name == "tidepool") {
+        assert!(
+            since.elapsed() < std::time::Duration::from_secs(5),
+            "a new session in today's folder is not noticed"
+        );
+        find(&mut w);
+    }
+    assert_ne!(read(&w), first);
 }
 
 #[test]

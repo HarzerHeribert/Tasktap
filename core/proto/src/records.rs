@@ -355,6 +355,11 @@ pub struct Look {
     pub looked: Option<Time>,
     /// What stopped it, in words, when it read nothing.
     pub note: Option<String>,
+    /// What it reads as it was when it was last read: the modified times
+    /// of its folders, as one value. When they are the same, nothing new
+    /// is there to find and it is not read again.
+    #[serde(default)]
+    pub stamp: Option<String>,
 }
 
 words! {

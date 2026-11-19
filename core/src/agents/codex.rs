@@ -519,6 +519,21 @@ impl crate::map::History for History {
         }
         Ok(worked)
     }
+
+    /// The sessions folder and the newest year, month and day in it: a
+    /// session that begins today changes the day's folder alone.
+    fn watch(&self, home: &Path) -> Vec<PathBuf> {
+        let mut at = self.folder(home);
+        let mut all = vec![at.clone()];
+        for _ in 0..3 {
+            let Some(newest) = dated(&at).into_iter().next() else {
+                break;
+            };
+            all.push(newest.clone());
+            at = newest;
+        }
+        all
+    }
 }
 
 /// The folders of a dated folder, the greatest number first.

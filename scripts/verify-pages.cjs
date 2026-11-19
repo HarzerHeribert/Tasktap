@@ -161,13 +161,13 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
     assert.ok(await bare.locator('.notch-ask img').evaluate(async (image) => (await image.decode(), image.naturalWidth > 0 && image.clientWidth > 0)), 'the notch is a picture');
     assert.ok(await bare.locator('.still-says').isVisible(), 'and its caption says what it shows');
     assert.equal(await bare.locator('.steps').isVisible(), false);
-    assert.equal(await bare.locator('main section:visible').count(), 7);
+    assert.equal(await bare.locator('main section:visible').count(), 9);
     assert.ok(await bare.locator('#get pre').isVisible());
     assert.ok(await fits(bare));
     if (shots) await bare.screenshot({ path: path.join(shots, 'home-noscript-390.png'), fullPage: true });
     await bare.goto(url + 'docs/');
     assert.ok(await bare.locator('.contents a[href="#results"]').isVisible());
-    assert.equal(await bare.locator('article section:visible').count(), 9);
+    assert.equal(await bare.locator('article section:visible').count(), 11);
     await plain.close();
 
     // ---- the live notch ----

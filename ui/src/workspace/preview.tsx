@@ -36,6 +36,10 @@ const WINDOW = 1 << 20;
 const PICTURES: Partial<Record<FileKind, string>> = { png: 'image/png', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' };
 const TEXTS: FileKind[] = ['text', 'markdown', 'html', 'svg'];
 const SANDBOX = 'allow-scripts allow-forms allow-same-origin';
+/** The longest a frame waits on the dark ground for its page (Preview). */
+const DRAWN = 2500;
+/** A frame whose page is there: shown (window.css `.pv-f`). Set on the element, which a reload replaces. */
+const drawn = (f: HTMLIFrameElement) => f.setAttribute('data-drawn', '');
 
 /** What the page keeps of a preview while it runs. */
 type View = {
@@ -255,6 +259,15 @@ export function Preview({ p, project, select }: { p: Row; project: string; selec
   }, []);
   const kind = v.file?.kind, web = p.kind === 'web', how = elsewhere(p, kind);
   const framed = web ? v.listens : kind === 'html' || kind === 'pdf';
+  // A frame shows once its page is there, and until then the pane's dark ground: before a page has drawn anything a
+  // frame is the white a page without a ground of its own is given, a flash on the dark ground each time one opens or
+  // reloads. Shown at the latest after DRAWN, for a page that loads something for ever (a stream, a socket).
+  useEffect(() => {
+    const f = frame.current;
+    if (!f) return;
+    const t = setTimeout(() => drawn(f), DRAWN);
+    return () => clearTimeout(t);
+  }, [framed, v.base, v.turn]);
   const text = v.text !== undefined && kind && TEXTS.includes(kind) ? v.text.slice(0, MOST) : undefined;
   const cut = text !== undefined && (v.file!.cut || v.text!.length > MOST);
   // A link in what is shown follows the rule a link in the terminal does, from the folder its file is in.
@@ -297,7 +310,7 @@ export function Preview({ p, project, select }: { p: Row; project: string; selec
           <div class="qa">{act('Reload', () => reload(p.id))}{act('Close', shut)}</div>
         </div>
       ) : framed && v.base ? (
-        <iframe key={v.turn} ref={frame} class="pv-f" title={p.title} referrerpolicy="no-referrer" sandbox={kind === 'pdf' ? undefined : SANDBOX}
+        <iframe key={v.turn} ref={frame} class="pv-f" title={p.title} referrerpolicy="no-referrer" sandbox={kind === 'pdf' ? undefined : SANDBOX} onLoad={(e) => drawn(e.currentTarget)}
           src={web ? p.target : v.base + encodeURI(asAddress(p.target)).replace(/[?#]/g, encodeURIComponent)} />
       ) : v.picture ? (
         <div class={`pv-b pv-p${v.real ? ' real' : ''}`} tabIndex={-1}>

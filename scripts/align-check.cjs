@@ -99,6 +99,13 @@ function audit([LISTS, KEY]) {
     seen.add('whole text');
     if (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1) bad.push(`"${el.textContent.trim().slice(0, 40)}" is cut short (${el.className || el.tagName})`);
   }
+  // The line over a preview is one line, as the tabs over it are, however narrow its pane: nothing in it wraps.
+  for (const h of document.querySelectorAll('.pv-h')) {
+    if (!h.offsetParent) continue;
+    seen.add('the line over a preview');
+    const b = box(h), off = [...h.querySelectorAll(':scope > *, .pv-do > *')].filter((c) => c.offsetParent && (box(c).top < b.top - 0.5 || box(c).bottom > b.bottom + 0.5 || box(c).height > 24.5));
+    if (b.height > 31 || off.length) bad.push(`the line over a preview is ${Math.round(b.height)} px tall and not one line (${off.map((c) => c.className || c.textContent.trim()).join(', ') || 'itself'})`);
+  }
   // In the Composer and what is under it, one key at most is metal, and one thing at most says Start.
   for (const c of document.querySelectorAll('.capture')) {
     const keys = [...c.querySelectorAll('.key:not(:disabled)')].filter((k) => k.offsetParent);

@@ -59,6 +59,7 @@ if out="$(node "$root/scripts/composer-check.cjs" 2>&1)"; then pass "$(echo "$ou
 
 echo "== Links in terminals (headless, a real pointer and real keys, a host that keeps what it is asked to open)"
 if out="$(node "$root/scripts/links-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "links in terminals"; fi
+if out="$(node "$root/scripts/frame-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "a page in a preview's frame"; fi
 
 echo "== Voice, recorded by the page (headless, a microphone that is a file)"
 if out="$(node "$root/scripts/voice-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "voice in the page"; fi
@@ -1271,6 +1272,8 @@ api="window.__probe.every((p) => p.internals === 'undefined' && p.parent === 're
   && pass "a frame has nothing of the app: no bridge object, no way to the page around it or its records, and the host answers no command from it (tried through the web view's message handler and the app's own protocol)" || fail "a frame and the app's interface" "$probes"
 [ "$(js workspace "String(window.__probe.every((p) => p.top === 'refused' && p.window === 'refused'))")" = true ] \
   && pass "a frame cannot move the window around it, and no window opens for it" || fail "a frame, the top window and new windows" "$probes"
+[ "$(js workspace "String(window.__probe.every((p) => p.bars === '0 none none'))")" = true ] \
+  && pass "a page in a frame shows no scrollbar: the host's style for frames reaches its scrollers, as a local address and as a file" || fail "scrollbars in a frame" "$probes"
 [ "$(js workspace "String(window.__probe.every((p) => p.picture === 'refused' && p.request === 'refused'))")" = true ] && ! grep -q "/leak" "$tmp/frames.log" \
   && grep -q "\"stopped\":\"http://$remote/leak-frame\"" "$log" \
   && pass "a frame loads nothing from an address that is not this machine's: a picture, a request and a frame inside it were each refused, and none reached the server ($remote)" || fail "a frame and the network" "$probes | $(grep -c /leak "$tmp/frames.log")"

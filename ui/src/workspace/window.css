@@ -200,16 +200,25 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .st.by .i{width:14px;height:14px}
 .st.by[data-by=person]{color:var(--fg3)}
 .pv{display:grid;grid-template-rows:auto minmax(0,1fr) auto;min-width:0;min-height:0;background:var(--bg)}
-.pv-h{display:flex;flex-wrap:wrap;align-items:center;gap:2px var(--sp2);min-width:0;min-height:var(--tab-h);padding:3px 6px 3px var(--sp3);border-bottom:1px solid var(--line)}
-.pv-by{flex:none;font:var(--f-cap);color:var(--fg2)}
+/* The line under the tabs is one line, as the tabs are, however narrow the pane: who opened it and the path shorten
+   with an ellipsis (the path at its start, where a long one says least), and the actions that do not fit go on past
+   the edge, which they dissolve at, as the tabs do (scroll.ts), the hint going first. In a narrow pane who opened it
+   and a picture's size are left to the tab's mark and its tooltip. (They wrapped onto two and three lines.) */
+.pv-h{display:flex;align-items:center;gap:var(--sp2);min-width:0;height:var(--tab-h);padding:0 6px 0 var(--sp3);border-bottom:1px solid var(--line);overflow:hidden;container-type:inline-size}
+.pv-by{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:var(--f-cap);color:var(--fg2)}
 .pv-by::after{content:"·";margin-left:var(--sp2);color:var(--fg3)}
-/* A path is cut at its start, where a long one says least. */
-.pv-at{flex:1 1 80px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left;font:var(--f-num);color:var(--fg3)}
-.pv-n{flex:none;font:var(--f-num);color:var(--fg3)}
-.pv-do{display:flex;flex-wrap:wrap;gap:2px;margin-left:auto}
+.pv-at{flex:1 1 96px;min-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left;font:var(--f-num);color:var(--fg3)}
+.pv-n{flex:none;font:var(--f-num);color:var(--fg3);white-space:nowrap}
+.pv-do{display:flex;flex:0 1 auto;gap:2px;min-width:0;margin-left:auto;overflow-x:auto}
+@container (width < 480px){.pv-h>.pv-by{display:none}}
+@container (width < 360px){.pv-h>.pv-n{display:none}}
 .pv .btn{box-shadow:none;color:var(--fg2)}
 .pv-b{min-width:0;min-height:0;overflow:auto;outline:0;-webkit-user-select:text;user-select:text;cursor:auto}
-.pv-f{width:100%;height:100%;border:0;background:#fff;color-scheme:light}
+/* A page in a frame: on the pane's dark ground until its page is there (preview.tsx `drawn`), then on the white a
+   page without a ground of its own is given. Its scrollers show no bar: the host gives every frame a style for that
+   (host/src/frames.rs BARS), which a page's own styles outrank. */
+.pv-f{width:100%;height:100%;border:0;background:#fff;color-scheme:light;opacity:0}
+.pv-f[data-drawn]{opacity:1;transition:opacity var(--t-fast) linear}
 /* Nothing to show: why, in a sentence, and what can be done. */
 .pv-s{display:flex;flex-direction:column;align-items:flex-start;gap:var(--sp1);padding:var(--sp5) var(--sp4);-webkit-user-select:none;user-select:none;cursor:default}
 .pv-s b{font:var(--f-label);color:var(--fg)}

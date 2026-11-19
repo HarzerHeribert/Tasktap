@@ -57,10 +57,11 @@ def main():
         if not name.endswith(".wav") or not any(name.startswith(o) for o in only):
             continue
         rid, voice = name[:-4].split(".")
-        kind, lang = rid.split("-") if rid.split("-")[0] in ("ten", "sixty") else ("one", rid.split("-")[0])
+        kind, lang = rid.split("-") if rid.split("-")[0] in ("ten", "sixty", "all") else ("one", rid.split("-")[0])
         # The spliced recordings (`mixs`) are the mixed sentences.
         ids = [f"{lang.rstrip('s')}-{i}" for i in range(1, 9)]
-        ref = [by[rid.replace("mixs", "mix")]] if kind == "one" else [by[i] for i in (ids[:2] if kind == "ten" else ids + ids[:4])]
+        # `all`: a language's eight sentences read in one go, as a person's own recording may be (all-de.own.wav).
+        ref = [by[rid.replace("mixs", "mix")]] if kind == "one" else [by[i] for i in (ids[:2] if kind == "ten" else ids if kind == "all" else ids + ids[:4])]
         t = time.time()
         run = subprocess.run([c.replace("{wav}", os.path.join(folder, name)) for c in command], capture_output=True, text=True)
         last = {}
@@ -79,7 +80,7 @@ def main():
     json.dump(rows, open(out, "w"), ensure_ascii=False, indent=1)
     print()
     for lang in ("de", "en", "mix", "mixs"):
-        for kind in ("one", "ten", "sixty"):
+        for kind in ("one", "ten", "sixty", "all"):
             part = [r for r in rows if r["lang"] == lang and r["kind"] == kind]
             if not part:
                 continue

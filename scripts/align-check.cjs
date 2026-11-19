@@ -13,17 +13,23 @@
 // draws is centred on the tab's own centre line and height, in every state; with a cutout its two halves keep the same
 // distance from the tab's outer edges and stay clear of the camera, and the line under it is centred. The open notch's
 // head row keeps equal insets and one centre line.
-// usage: node scripts/align-check.cjs   (exit status 1 on a failure; ui/dist must be built)
+// And the rule for what stands in a row, measured in every state of the window at 1x and 2x (and, through
+// scripts/text-sizes.sh, at the three text sizes): one weight (every stroke of an icon and of a session's seat is as wide
+// on the screen as the token --i-w says at that text size, whatever size its box is shown at); one centre line (what
+// leads a row is centred on the capital letters of the words it leads, within a pixel); one baseline (words of
+// different sizes on one line of a row stand on it); and figures in the monospace face or tabular, their right edges
+// on one line down a list.
+// usage: node scripts/align-check.cjs [--dist folder]   (exit status 1 on a failure; ui/dist must be built)
 const path = require('node:path');
 const { serve, open, scaled } = require('./motion-pages.cjs');
 const { scene, flow } = require('./instrument-fixtures.cjs');
 
 // Lists: the rows that are siblings, and the parts of a row whose edges must agree.
 const LISTS = [
-  { list: '.hsec, .fold-b, .hx .col', row: ':scope > .hr.run', parts: { mark: '.st', folder: '.hr-w', label: '.hr-t', fact: '.hr-x', time: 'time' } },
-  { list: '.hsec, .fold-b', row: ':scope > .hr.res', parts: { mark: '.st', folder: '.hr-w', label: '.hr-t', fact: '.hr-x', time: 'time' } },
-  { list: '.hsec, .fold-b', row: ':scope > .hr.later', parts: { mark: '.st', label: '.hr-t', time: 'time' } },
-  { list: '.hsec.needs', row: ':scope > button.hq', parts: { mark: '.st', label: '.hq-m', question: '.hq-q', time: 'time' } },
+  { list: '.hrs', row: ':scope > .hr.run', parts: { mark: '.st', label: '.hr-t', fact: '.hr-m', time: 'time' } },
+  { list: '.hrs', row: ':scope > .hr.res', parts: { mark: '.st', label: '.hr-t', fact: '.hr-m', time: 'time' } },
+  { list: '.hrs', row: ':scope > .hr.later', parts: { mark: '.st', label: '.hr-t', fact: '.hr-m', time: 'time' } },
+  { list: '.hrs', row: ':scope > .hr.ask', parts: { mark: '.st', label: '.hr-t', fact: '.hr-m', time: 'time' } },
   { list: '.folds', row: ':scope > .fold > .fold-h', parts: { mark: '.i', name: 'b', count: '.fold-c', time: 'time' } },
   { list: '.list', row: ':scope > .line', parts: { mark: '.ring-o, :scope > .i', label: '.t', fact: '.x' } },
   { list: '.sx', row: ':scope > .tn', parts: { time: 'time', label: '.tn-t' } },
@@ -190,6 +196,89 @@ const hung = () => new Promise((done) => {
   requestAnimationFrame(tick);
 });
 
+/** What stands in a row: one weight, one centre line, one baseline, figures on one edge (the rule at the head of this
+ *  file). The Composer's and Settings' rings are left out of the weight: they are the agents' own component, drawn at
+ *  1.25 px of their 24 px grid whatever the text size. */
+function weights() {
+  const bad = [], seen = new Set(), box = (el) => el.getBoundingClientRect();
+  const ts = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ts')) || 1, rule = 1.2 * ts;
+  const shown = (el) => el && el.getClientRects().length > 0 && box(el).width > 0 && getComputedStyle(el).visibility !== 'hidden';
+  const name = (el) => { const r = el.closest('.hr, .hq, .row, .tab, .fold-h, .cap-to, .mic, .key, .more, .ib, .btn, kbd, h3, .rail-l, [class]'); return `.${(r?.className?.baseVal ?? r?.className ?? '').split(' ').filter(Boolean).slice(0, 2).join('.')}`; };
+  // One weight.
+  for (const svg of document.querySelectorAll('svg.i, .st .ring-o')) {
+    if (!shown(svg) || !svg.viewBox.baseVal.width) continue;
+    const k = box(svg).width / svg.viewBox.baseVal.width;
+    for (const shape of svg.querySelectorAll('path, rect, circle, line')) {
+      const s = getComputedStyle(shape);
+      if (s.stroke === 'none' || !(parseFloat(s.strokeWidth) > 0)) continue;
+      const w = parseFloat(s.strokeWidth) * (s.vectorEffect === 'non-scaling-stroke' ? 1 : k);
+      seen.add('strokes at one weight');
+      // Return's arrow on the metal key stands beside a word in 600 and is the one heavier stroke (--i-w-key).
+      if (Math.abs(w - (svg.closest('.key') ? 1.35 * ts : rule)) > 0.06) bad.push(`a stroke ${w.toFixed(2)} px wide where every stroke is ${rule.toFixed(2)}: ${svg.classList.contains('i') ? 'an icon' : 'a seat'} ${Math.round(box(svg).width)} px wide in ${name(svg)}`);
+    }
+  }
+  // Where an element's first words stand: their baseline (their box's top and the face's ascent, in whole pixels as the
+  // page lays text out), the middle of their capital letters, and their right edge.
+  const pen = document.createElement('canvas').getContext('2d');
+  const words = (el) => {
+    if (!shown(el)) return null;
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let n = walk.nextNode();
+    while (n && (!n.textContent.trim() || !shown(n.parentElement))) n = walk.nextNode();
+    if (!n) return null;
+    const s = getComputedStyle(n.parentElement), range = document.createRange();
+    pen.font = `${s.fontStyle} ${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
+    range.selectNodeContents(n);
+    const first = range.getClientRects()[0], m = pen.measureText('H');
+    if (!first) return null;
+    const base = first.top + Math.round(m.fontBoundingBoxAscent);
+    return { base, mid: base - m.actualBoundingBoxAscent / 2, right: range.getBoundingClientRect().right, size: parseFloat(s.fontSize), mono: /mono|Menlo|Consolas/i.test(s.fontFamily) || /tabular/.test(s.fontVariantNumeric) };
+  };
+  // One centre line: what leads a row, on the capital letters of the words it leads.
+  for (const [row, lead, label] of [
+    ['.hr', ':scope > .st', ':scope > .hr-t'], ['.hq.open', ':scope > .st', '.hq-m > b'], ['.hsec h3', '.st', 'span'], ['.fold-h', '.i', 'b'], ['.row.s', '.st', '.lbl'], ['.row.home', '.i', '.lbl'],
+    ['.row.w', '.fold .i', '.lbl'], ['.tab', '.st', '.lbl'], ['.cap-to', '.i', 'b'], ['.mic', '.i', 'kbd'], ['.rail-l', '.st', 'b, span'], ['.rows .row', '.st', '.t'], ['.line', ':scope > .ring-o, :scope > .i', '.t'],
+  ])
+    for (const r of document.querySelectorAll(row)) {
+      const m = r.querySelector(lead), w = words(r.querySelector(label));
+      if (!shown(m) || !w) continue;
+      seen.add('leads on the capitals\' centre');
+      const d = box(m).top + box(m).height / 2 - w.mid;
+      if (Math.abs(d) > 1) bad.push(`${row}: what leads it is ${d.toFixed(1)} px off the middle of its words' capitals ("${r.querySelector(label).textContent.trim().slice(0, 24)}")`);
+    }
+  // One baseline: words of different sizes on one line of a row.
+  for (const [row, parts] of [
+    ['.hr', [':scope > .hr-t', ':scope > time']], ['.hr', [':scope > .hr-m > :last-child', ':scope > .hr-d']], ['.hr', [':scope > .hr-w', ':scope > .hr-t', ':scope > .hr-x', ':scope > time']],
+    ['.hq.open', ['.hq-m > b', ':scope > time']], ['button.hq', ['.hr-w', '.hq-w', '.hq-q', 'time']], ['.hsec h3', ['span', 'i']], ['.fold-h', ['b', '.fold-c i', '.fold-p', 'time']], ['.row.s', ['.lbl', '.meta']],
+    ['.row.home', ['.lbl', '.cnt']], ['.row.w', ['.lbl', '.cnt']], ['.rail-l', ['b', 'span']], ['.rows .row', ['.t', '.x', 'time']],
+  ])
+    for (const r of document.querySelectorAll(row)) {
+      const at = parts.map((sel) => words(r.querySelector(sel))).filter(Boolean);
+      if (at.length < 2 || new Set(at.map((w) => w.size)).size < 2) continue;
+      seen.add('one baseline');
+      const off = Math.max(...at.map((w) => w.base)) - Math.min(...at.map((w) => w.base));
+      if (off > 0.5) bad.push(`${row}: its words stand on baselines ${off.toFixed(2)} px apart ("${r.textContent.trim().slice(0, 24)}")`);
+    }
+  // Figures: monospace or tabular, and their right edges on one line down a list (a list may stand in columns).
+  for (const [list, cell] of [['.hrs', ':scope > .hr > time'], ['.hsec, .fold-b, .hx .col', ':scope > .hr > time'], ['.ws', ':scope > .row.s > .meta'], ['.folds', ':scope > .fold > .fold-h > time'], ['.rows', ':scope > .row > time']])
+    for (const l of document.querySelectorAll(list)) {
+      const columns = new Map();
+      for (const c of l.querySelectorAll(cell)) {
+        const w = words(c);
+        if (!w) continue;
+        if (!w.mono) bad.push(`${list}: a figure is neither in the monospace face nor tabular ("${c.textContent}")`);
+        const key = Math.round(box(c.parentElement).left);
+        columns.set(key, [...(columns.get(key) ?? []), w.right - box(c.parentElement).right]);
+      }
+      for (const edges of columns.values()) {
+        if (edges.length < 2) continue;
+        seen.add('figures on one edge');
+        if (Math.max(...edges) - Math.min(...edges) > 0.5) bad.push(`${list}: its figures end ${(Math.max(...edges) - Math.min(...edges)).toFixed(1)} px apart`);
+      }
+    }
+  return { bad, seen: [...seen] };
+}
+
 /** The collapsed notch's tab, from the tight boxes of what it draws (bars, figures, the words of who asks), never from
  *  a box with room in it. `own` is the tab's width before its wings. */
 function glance(own) {
@@ -268,7 +357,7 @@ const trail = ([start, sel, axis]) => new Promise((done) => {
 
 async function main() {
   const { chromium } = require('playwright');
-  const server = await serve(path.resolve(__dirname, '../ui/dist'));
+  const server = await serve(path.resolve(process.argv.includes('--dist') ? process.argv[process.argv.indexOf('--dist') + 1] : path.join(__dirname, '../ui/dist')));
   const browser = await chromium.launch({ headless: true });
   const failures = [], measured = new Set(), TWO = { two: true };
   const views = [
@@ -317,11 +406,24 @@ async function main() {
           measured.add('rings');
           if (got !== RINGS[state]) failures.push(`workspace ${state}: the agents' rings are "${got}", not "${RINGS[state]}"`);
         }
+        const parts = await page.evaluate(weights);
+        r.seen.push(...parts.seen);
+        r.bad.push(...parts.bad);
         r.seen.forEach((x) => measured.add(x.replace(/ ×\d+/, '')));
         for (const b of r.bad) failures.push(`workspace ${state}${kind ? ` (${kind})` : ''} ${width}px: ${b}`);
         for (const e of page.errors) failures.push(`workspace ${state}${kind ? ` (${kind})` : ''}: the page said ${e}`);
         await page.context().close();
       }
+    // What stands in a row, again at 2x: Home in each state, Earlier, and a workspace with its sidebar and tabs.
+    for (const [state, act] of [['busy', null], ['busy', (w) => (w.__ws.ui.fold = 'results')], ['normal', null], ['quiet', null], ['busy', (w) => w.__ws.show('earlier')], ['workspace', (w) => w.__ws.show(w.__fake.records.ids.projects.cuegrid)]]) {
+      const page = await open(browser, { label: 'workspace', records: scene(state), url: server.url, dpr: 2, viewport: { width: 1180, height: 900 } });
+      if (act) await page.evaluate(`(${act})(window); window.__motion.redraw()`);
+      await page.waitForTimeout(500);
+      const parts = await page.evaluate(weights);
+      parts.seen.forEach((x) => measured.add(`${x} at 2x`));
+      for (const b of parts.bad) failures.push(`workspace ${state} at 2x: ${b}`);
+      await page.context().close();
+    }
     // The wake: right of the sidebar's edge as it closes, left of it as it opens. No sheet sheds one.
     const moving = await open(browser, { label: 'workspace', records: scene('normal'), url: server.url, dpr: 1 });
     await moving.waitForTimeout(1500);
@@ -371,7 +473,7 @@ async function main() {
       await page.waitForTimeout(900);
       const r = await page.evaluate(audit, [LISTS, KEY]);
       r.seen.forEach((x) => measured.add(x.replace(/ ×\d+/, '')));
-      for (const b of [...r.bad, ...(await page.evaluate(band)).map((x) => `the head row: ${x}`)]) failures.push(`notch ${a} ${sc}: ${b}`);
+      for (const b of [...r.bad, ...(await page.evaluate(weights)).bad, ...(await page.evaluate(band)).map((x) => `the head row: ${x}`)]) failures.push(`notch ${a} ${sc}: ${b}`);
       measured.add('the open notch\'s head row');
       await page.context().close();
     }

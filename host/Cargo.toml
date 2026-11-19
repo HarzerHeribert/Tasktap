@@ -32,9 +32,13 @@ block2 = "0.6"
 # dark menus (src/chrome.rs). Both are in the tree already through Tauri.
 [target.'cfg(windows)'.dependencies]
 sha2 = "0.11"
-# The web view's own settings, for the browser's keys it must not act on (src/chrome.rs).
+# The web view's own settings, for the browser's keys it must not act on (src/chrome.rs), and what it is held to
+# for a preview's frame (src/windows.rs).
 webview2-com = "0.39"
 windows-core = "0.62"
+# The system's folder dialog and a file to write a page's picture to (src/windows.rs): interfaces, which
+# windows-sys does not have. In the tree already through Tauri.
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_Shell_Common"] }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_DataExchange", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_Power", "Win32_System_Threading", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [build-dependencies]

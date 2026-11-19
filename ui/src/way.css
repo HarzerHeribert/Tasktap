@@ -92,8 +92,7 @@
 .cap-said .btn+.act{margin-left:0}
 
 /* How a thought was placed, on its row on Home, where a model was asked and could not be used: the core's sentence in full. */
-.hr-n{grid-column:3/-1;margin:-5px 0 9px;font:var(--f-cap);color:var(--fg3);white-space:normal;text-wrap:pretty}
-.hr.later .hr-n{grid-column:2/-1}
+.hr-n{grid-column:2/-1;margin:4px 0 0;font:var(--f-cap);color:var(--fg3);white-space:normal;text-wrap:pretty}
 
 /* A question about where a thought should go shows the thought and its brief so far, as the thought on its way does. */
 [data-question] .way-w{margin-top:var(--sp2)}

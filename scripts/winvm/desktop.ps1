@@ -123,6 +123,70 @@ public static string[] Menu(IntPtr window) {
     }
     return names.ToArray();
 }
+[StructLayout(LayoutKind.Sequential)] struct Header { public int Size, Width, Height; public short Planes, Bits; public int Compression, SizeImage, X, Y, Used, Important; }
+[DllImport("gdi32.dll")] static extern IntPtr CreateCompatibleDC(IntPtr dc);
+[DllImport("gdi32.dll")] static extern IntPtr CreateDIBSection(IntPtr dc, ref Header info, uint usage, out IntPtr bits, IntPtr section, uint offset);
+[DllImport("gdi32.dll")] static extern IntPtr SelectObject(IntPtr dc, IntPtr thing);
+[DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr thing);
+[DllImport("gdi32.dll")] static extern bool DeleteDC(IntPtr dc);
+[DllImport("gdi32.dll")] static extern bool BitBlt(IntPtr to, int x, int y, int w, int h, IntPtr from, int fx, int fy, uint how);
+[DllImport("user32.dll")] static extern IntPtr GetDC(IntPtr window);
+[DllImport("user32.dll")] static extern int ReleaseDC(IntPtr window, IntPtr dc);
+public static bool Drawn;
+// A window as the system draws it for a program that asks, or the screen's own points from (sx, sy): w by h points
+// of four bytes (blue, green, red and one unused), top row first, read straight from memory the system drew into.
+public static byte[] Bits(IntPtr window, int w, int h, bool screen, int sx, int sy) {
+    var info = new Header { Size = 40, Width = w, Height = -h, Planes = 1, Bits = 32 };
+    IntPtr bits;
+    var all = GetDC(IntPtr.Zero);
+    var dc = CreateCompatibleDC(all);
+    var picture = CreateDIBSection(dc, ref info, 0, out bits, IntPtr.Zero, 0);
+    var old = SelectObject(dc, picture);
+    Drawn = screen ? BitBlt(dc, 0, 0, w, h, all, sx, sy, 0x00CC0020) : PrintWindow(window, dc, 2);
+    var bytes = new byte[w * h * 4];
+    Marshal.Copy(bits, bytes, 0, bytes.Length);
+    SelectObject(dc, old); DeleteObject(picture); DeleteDC(dc); ReleaseDC(IntPtr.Zero, all);
+    return bytes;
+}
+// Points that are exactly black with no black point beside them: in the whole picture but a margin of 12 points
+// (its round corners), and among those the ones in its foot.
+public static int[] Specks(IntPtr scan, int stride, int width, int height) {
+    var bytes = new byte[stride * height];
+    Marshal.Copy(scan, bytes, 0, bytes.Length);
+    Func<int, int, bool> black = (x, y) => { int i = y * stride + x * 4; return bytes[i] == 0 && bytes[i + 1] == 0 && bytes[i + 2] == 0; };
+    int all = 0, foot = 0;
+    for (int y = 12; y < height - 12; y++) for (int x = 12; x < width - 12; x++) {
+        if (!black(x, y)) continue;
+        bool alone = true;
+        for (int dy = -1; dy <= 1 && alone; dy++) for (int dx = -1; dx <= 1; dx++) if ((dx != 0 || dy != 0) && black(x + dx, y + dy)) { alone = false; break; }
+        if (!alone) continue;
+        all++;
+        if (y > height * 0.55 && x < width * 0.6) foot++;
+    }
+    return new[] { all, foot };
+}
+[DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr window, uint which);
+[DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr window);
+[DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, EnumProc each, IntPtr none);
+[DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SendMessageW")] static extern IntPtr SendText(IntPtr window, uint message, IntPtr w, string text);
+[DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SendMessageW")] static extern IntPtr ReadText(IntPtr window, uint message, IntPtr size, StringBuilder text);
+// Every window inside a window, with what it says of itself (a field's text among it); Title of one that is not
+// shown begins with "(hidden) ".
+public static List<Window> Inside(IntPtr parent) {
+    var all = new List<Window>();
+    EnumChildWindows(parent, (window, none) => {
+        var kind = new StringBuilder(256);
+        GetClassName(window, kind, 256);
+        var title = new StringBuilder(1024);
+        ReadText(window, 0x000D, (IntPtr)1024, title);
+        all.Add(new Window { Handle = window, Class = kind.ToString(), Title = (IsWindowVisible(window) ? "" : "(hidden) ") + title.ToString() });
+        return true;
+    }, IntPtr.Zero);
+    return all;
+}
+// A field's text set as typing sets it, and a dialog's button pressed by its number (1 its default, 2 Cancel).
+public static void SetText(IntPtr field, string text) { SendText(field, 0x000C, IntPtr.Zero, text); }
+public static void Button(IntPtr dialog, int id) { PostMessage(dialog, 0x0111, (IntPtr)id, IntPtr.Zero); }
 // Asks a window to close, as its close button does.
 public static void Close(IntPtr window) { PostMessage(window, 0x0010, IntPtr.Zero, IntPtr.Zero); }
 // Presses the keys together, as the keyboard would, and lets them go.
@@ -139,21 +203,47 @@ function Say($verdict, $row, $what, $evidence = '') {
 }
 function Check($row, $what, $ok, $evidence = '') { Say $(if ($ok) { 'PASS' } else { 'FAIL' }) $row $what $evidence }
 # The window's own picture, as the system draws the window for a program that asks: the whole window with the unseen
-# margins Windows keeps around it, which are cut off.
-function Picture([IntPtr]$window) {
+# margins Windows keeps around it, which are cut off. It is drawn straight into memory of the system's own kind
+# ([Tasktap.Desk]::Bits). Not through System.Drawing's Graphics: before that library lets the system draw into a
+# picture it fills its scratch memory with one colour, rgb 13 11 12, and afterwards takes every point still in that
+# colour for one that was not drawn, so each point a window really has in that colour came out as a hole. The page's
+# faint light passes through that colour: the "dark points" of the first rounds were holes in their pictures and
+# never on the screen. -Library takes the picture that old way, for the count that says so.
+function Picture([IntPtr]$window, [switch]$Library) {
     $rect = [Tasktap.Desk+Rect]::new()
     $null = [Tasktap.Desk]::GetWindowRect($window, [ref]$rect)
     $frame = [Tasktap.Desk]::Frame($window)
-    $whole = [Drawing.Bitmap]::new([Math]::Max(1, $rect.Right - $rect.Left), [Math]::Max(1, $rect.Bottom - $rect.Top))
-    $graphics = [Drawing.Graphics]::FromImage($whole)
-    $dc = $graphics.GetHdc()
-    $script:drawn = [Tasktap.Desk]::PrintWindow($window, $dc, 2)
-    $graphics.ReleaseHdc($dc)
-    $graphics.Dispose()
+    $w = [Math]::Max(1, $rect.Right - $rect.Left); $h = [Math]::Max(1, $rect.Bottom - $rect.Top)
+    if ($Library) {
+        $whole = [Drawing.Bitmap]::new($w, $h)
+        $graphics = [Drawing.Graphics]::FromImage($whole)
+        $dc = $graphics.GetHdc()
+        $script:drawn = [Tasktap.Desk]::PrintWindow($window, $dc, 2)
+        $graphics.ReleaseHdc($dc)
+        $graphics.Dispose()
+    } else {
+        $whole = Bitmap-Of ([Tasktap.Desk]::Bits($window, $w, $h, $false, 0, 0)) $w $h
+        $script:drawn = [Tasktap.Desk]::Drawn
+    }
     $inner = [Drawing.Rectangle]::FromLTRB([Math]::Max(0, $frame.Left - $rect.Left), [Math]::Max(0, $frame.Top - $rect.Top), [Math]::Min($whole.Width, $frame.Right - $rect.Left), [Math]::Min($whole.Height, $frame.Bottom - $rect.Top))
-    $bitmap = $whole.Clone($inner, $whole.PixelFormat)
+    $bitmap = $whole.Clone($inner, [Drawing.Imaging.PixelFormat]::Format32bppRgb)
     $whole.Dispose()
     $bitmap
+}
+# A picture of the points [Tasktap.Desk]::Bits read: four bytes a point, no alpha.
+function Bitmap-Of([byte[]]$bits, $w, $h) {
+    $bitmap = [Drawing.Bitmap]::new($w, $h, [Drawing.Imaging.PixelFormat]::Format32bppRgb)
+    $into = $bitmap.LockBits([Drawing.Rectangle]::new(0, 0, $w, $h), 'WriteOnly', 'Format32bppRgb')
+    [Runtime.InteropServices.Marshal]::Copy($bits, 0, $into.Scan0, $bits.Length)
+    $bitmap.UnlockBits($into)
+    $bitmap
+}
+# Single black points in a picture: points that are exactly black with no black point beside them, counted in the
+# whole picture and in its foot (below 55 % of its height, left of 60 % of its width: the foot of Home beside the
+# sidebar and the sidebar's own foot, where the faint light is). A line, a letter or a corner is never one.
+function Specks([Drawing.Bitmap]$bitmap) {
+    $from = $bitmap.LockBits([Drawing.Rectangle]::new(0, 0, $bitmap.Width, $bitmap.Height), 'ReadOnly', 'Format32bppRgb')
+    try { , [Tasktap.Desk]::Specks($from.Scan0, $from.Stride, $bitmap.Width, $bitmap.Height) } finally { $bitmap.UnlockBits($from) }
 }
 # How light a picture is, 0 to 255: the mean over a grid of its points.
 function Light([Drawing.Bitmap]$bitmap) {
@@ -176,10 +266,8 @@ function Capture([IntPtr]$window, $name, [switch]$Screen) {
     if ($Screen) {
         $frame = [Tasktap.Desk]::Frame($window)
         if ([Tasktap.Desk]::GetForegroundWindow() -eq $window) {
-            $shot = [Drawing.Bitmap]::new($frame.Right - $frame.Left, $frame.Bottom - $frame.Top)
-            $graphics = [Drawing.Graphics]::FromImage($shot)
-            $graphics.CopyFromScreen($frame.Left, $frame.Top, 0, 0, $shot.Size)
-            $graphics.Dispose()
+            $w = $frame.Right - $frame.Left; $h = $frame.Bottom - $frame.Top
+            $shot = Bitmap-Of ([Tasktap.Desk]::Bits([IntPtr]::Zero, $w, $h, $true, $frame.Left, $frame.Top)) $w $h
             $shot.Save("$Out\$name-screen.png", [Drawing.Imaging.ImageFormat]::Png)
             $shot.Dispose()
             $said += "; as on the screen: $name-screen.png"
@@ -235,6 +323,11 @@ $rows['1'] = 'Starts the app as Explorer would, with no debug channel and its ow
     $menu = [Tasktap.Desk]::Menu($window.Handle) -join ', '
     Check 1 'the window has no menu bar of the system''s' (-not $menu) "menu bar: $(if ($menu) { $menu } else { 'none' })"
     Say 'LOOK' 1 'the window with Home in it: one dark surface, the page''s top row as its title bar' (Capture $window.Handle 'row1-window' -Screen)
+    # The faint light at the foot of Home and of the sidebar, point by point; and the same window through the drawing
+    # library, as the rounds before this check took their pictures.
+    $picture = Picture $window.Handle; $specks = Specks $picture; $picture.Dispose()
+    $picture = Picture $window.Handle -Library; $lost = Specks $picture; $picture.Dispose()
+    Check 1 'the faint light is drawn whole: no single black point in the window''s picture' ($specks[0] -eq 0) "single black points: $($specks[0]), at the foot of Home and of the sidebar: $($specks[1]); the same window taken through System.Drawing has $($lost[0]) and $($lost[1]): holes of that library's making, wherever the window is rgb 13 11 12"
     $new = @([Tasktap.Desk]::Windows() | Where-Object { $_.Handle -notin $before -and $_.Handle -ne $window.Handle })
     $consoles = @($new | Where-Object { $_.Class -match 'ConsoleWindowClass|CASCADIA_HOSTING_WINDOW_CLASS' })
     Check 1 'no console window opens' (-not $consoles) "new windows besides the app's: $(($new | ForEach-Object { "$($_.Class) '$($_.Title)'" }) -join '; ')"
@@ -570,17 +663,171 @@ $rows['12'] = 'In the same app: makes the window larger with the terminal in fro
     $null = Js "(document.documentElement.style.removeProperty('--window-opacity'), document.body.style.opacity = '', 1)"
 }
 
-$rows['9'] = 'Nothing of its own: a folder given by TASKTAP_PICK becomes a workspace in rows 2 and 5; the folder panel is not built yet.', {
-    Say 'SKIP' 9 'the folder panel is not built yet; TASKTAP_PICK is used in rows 2 and 5'
-}
 
 $rows['+'] = 'Beyond the checklist: asks taskkill''s and tasklist''s service (Windows Management Instrumentation) for this process, which it refuses the same account over SSH; tells the app with the debug channel to quit and times it, and looks for what it left running.', {
     $listed = & "$env:SystemRoot\System32\tasklist.exe" /FI "PID eq $PID" /NH 2>&1
     Say $(if ($LASTEXITCODE -eq 0) { 'PASS' } else { 'INFO' }) '+' 'the management service answers a standard account at the desktop' "tasklist exit ${LASTEXITCODE}: $("$listed".Trim())"
 }
 
+# An app of a row's own, started with its debug channel: its window once its page runs, or nothing.
+function Start-Own($environment, $seconds) {
+    Start-App $exe $environment $seconds
+    $null = Until '"event":"ready"' 45
+    $null = Soon 'typeof __ws' 'object'
+    Send 'state'
+    $state = Until '"event":"state"' 5
+    if ($state) { [IntPtr][long](ConvertFrom-Json $state).workspace } else { [IntPtr]::Zero }
+}
+# The row's app told to quit, and what it said kept.
+function End-Own($name) {
+    if ($proc -and -not $proc.HasExited) {
+        Send 'call core.retire {"when":"now"}'
+        $null = Until '"event":"reply"' 3
+        Send 'quit'
+        if (-not $proc.WaitForExit(10000)) { $proc.Kill($true) }
+    }
+    $line = $null
+    while ($lines.TryDequeue([ref]$line)) { $seen.Add($line) }
+    if ($seen) { $seen | Set-Content "$Out\$name" }
+}
+# Notepad in front with a file of the round's own, as another program a person is in; nothing when it cannot be.
+function Other-Program($marker) {
+    Set-Content "$tmp\$marker.txt" ''
+    Start-Process notepad.exe -ArgumentList "$tmp\$marker.txt"
+    $notepad = $null
+    for ($i = 0; $i -lt 50 -and -not $notepad; $i++) {
+        Start-Sleep -Milliseconds 200
+        $notepad = [Tasktap.Desk]::Windows() | Where-Object { $_.Title -like "*$marker*" } | Select-Object -First 1
+    }
+    if ($notepad -and (Front $notepad.Handle)) { $notepad }
+}
+
+$rows['9'] = 'Starts the app with no folder named for it. With its window in front presses Ctrl+Shift+O and Return, as a person opens a folder: the system''s folder dialog must appear, owned by the app''s window and modal to it; saves the screen''s points inside the dialog; presses its Cancel, after which the page has no workspace, says no failure and has the keyboard again. Opens it once more, puts a folder''s path into its field and presses its button: that folder becomes a workspace, kept as the person wrote it.', {
+    New-Item -ItemType Directory -Force "$tmp\data9", "$tmp\chosen folder" | Out-Null
+    $window = Start-Own @{ TASKTAP_DATA = "$tmp\data9" } 180
+    if ($window -eq [IntPtr]::Zero) { Say 'FAIL' 9 'the app shows no window'; End-Own 'row9-app.txt'; return }
+    Start-Sleep -Seconds 2
+    # Open Workspace by its key and the sheet's Return, with real keys; then the dialog, a window of the app's process.
+    function Ask-Folder {
+        if (-not (Front $window)) { return }
+        [Tasktap.Desk]::Chord([byte[]](0x11, 0x10, 0x4F))
+        $sheet = Soon "document.querySelector('.sheet')?.innerText ?? ''" 'Choose a folder' 10
+        [Tasktap.Desk]::Chord([byte[]](0x0D))
+        for ($i = 0; $i -lt 50; $i++) {
+            Start-Sleep -Milliseconds 200
+            $dialog = [Tasktap.Desk]::Windows() | Where-Object { $_.ProcessId -eq $proc.Id -and $_.Class -eq '#32770' } | Select-Object -First 1
+            if ($dialog) { Start-Sleep -Milliseconds 1200; return $dialog }
+        }
+    }
+    function Gone($dialog, $tries = 40) {
+        for ($i = 0; $i -lt $tries; $i++) {
+            if (-not ([Tasktap.Desk]::Windows() | Where-Object { $_.Handle -eq $dialog.Handle })) { return $true }
+            Start-Sleep -Milliseconds 150
+        }
+        $false
+    }
+    $dialog = Ask-Folder
+    Check 9 'Ctrl+Shift+O and Return open the system''s own folder dialog' ($null -ne $dialog) "its title: $($dialog.Title)"
+    if (-not $dialog) { End-Own 'row9-app.txt'; return }
+    $owner = [Tasktap.Desk]::GetWindow($dialog.Handle, 4)
+    $takes = [Tasktap.Desk]::IsWindowEnabled($window)
+    Check 9 'the dialog belongs to the app''s window and is modal to it' ($owner -eq $window -and -not $takes) "its owner is the app's window: $($owner -eq $window); the window takes input meanwhile: $takes"
+    $inside = [Tasktap.Desk]::Inside($dialog.Handle)
+    $at = ($inside | Where-Object { $_.Class -eq 'ToolbarWindow32' -and $_.Title -like 'Address: *' } | Select-Object -First 1).Title
+    Say 'INFO' 9 "where the dialog starts: $at (the first time the person's own folder, $env:USERPROFILE; afterwards where Windows keeps for this dialog)"
+    $frame = [Tasktap.Desk]::Frame($dialog.Handle)
+    if ([Tasktap.Desk]::GetForegroundWindow() -eq $dialog.Handle) {
+        $w = $frame.Right - $frame.Left; $h = $frame.Bottom - $frame.Top
+        $shot = Bitmap-Of ([Tasktap.Desk]::Bits([IntPtr]::Zero, $w, $h, $true, $frame.Left, $frame.Top)) $w $h
+        $shot.Save("$Out\row9-dialog-screen.png", [Drawing.Imaging.ImageFormat]::Png); $shot.Dispose()
+        Say 'LOOK' 9 'the folder dialog over the app''s window: the system''s own, in the system''s own colours (light where Windows is set to light, whatever the app is)' "row9-dialog-screen.png ($w x $h): the screen's points inside the dialog's edges"
+    } else { Say 'INFO' 9 'no picture of the dialog: it was not the window in front' }
+    [Tasktap.Desk]::Button($dialog.Handle, 2)
+    $closed = Gone $dialog
+    Start-Sleep -Milliseconds 600
+    $after = Js "[[...__ws.records.projects.values()].filter((p) => p.kind === 'folder').length, !__ws.ui.sheet, document.querySelector('.fail, .failure, [role=alert]')?.innerText ?? ''].join(' | ')"
+    Check 9 'Cancel closes it and is no failure: no workspace, nothing said, and the window has the keyboard again' ($closed -and "$after" -eq '0 | true | ' -and [Tasktap.Desk]::IsWindowEnabled($window) -and [Tasktap.Desk]::GetForegroundWindow() -eq $window) "workspaces, no sheet open, what the page says of a failure: $after; the window in front: $([Tasktap.Desk]::GetForegroundWindow() -eq $window)"
+    # A folder chosen through the dialog itself: its path put into the dialog's field, its own button pressed.
+    $dialog = Ask-Folder
+    $field = if ($dialog) { [Tasktap.Desk]::Inside($dialog.Handle) | Where-Object { $_.Class -eq 'Edit' -and $_.Title -notlike '(hidden)*' } | Select-Object -First 1 }
+    if (-not $field) {
+        Say 'INFO' 9 'a folder was not chosen through the dialog: its field was not found (a chosen folder is rows 2 and 5, through TASKTAP_PICK)'
+        if ($dialog) { [Tasktap.Desk]::Button($dialog.Handle, 2); $null = Gone $dialog }
+    } else {
+        # As a person does it: the path typed into the field and Return, which goes into that folder; then the
+        # dialog's own button, which takes the folder it is in. (While the dialog is open the app's event loop is
+        # inside it: the page answers nothing until it closes, so it is never left open.)
+        [Tasktap.Desk]::SetText($field.Handle, "$tmp\chosen folder")
+        Start-Sleep -Milliseconds 300
+        [Tasktap.Desk]::Button($dialog.Handle, 1)
+        if (-not (Gone $dialog 12)) {
+            $went = ([Tasktap.Desk]::Inside($dialog.Handle) | Where-Object { $_.Class -eq 'ToolbarWindow32' -and $_.Title -like 'Address: *' } | Select-Object -First 1).Title
+            Say 'INFO' 9 "after the path and the button the dialog is at: $went; its button once more takes that folder"
+            [Tasktap.Desk]::Button($dialog.Handle, 1)
+        }
+        if (-not (Gone $dialog)) { [Tasktap.Desk]::Button($dialog.Handle, 2); $null = Gone $dialog }
+        $want = "$tmp\chosen folder"
+        $got = ''
+        for ($i = 0; $i -lt 20 -and $got -ne $want; $i++) { Start-Sleep -Milliseconds 300; $got = "$(Js "[...__ws.records.projects.values()].filter((p) => p.kind === 'folder').map((p) => p.folder).join(' | ')" 2)" }
+        Check 9 'a folder chosen in the dialog becomes a workspace, kept as the person knows it' ($got -eq $want) "the workspace's folder: $got"
+    }
+    End-Own 'row9-app.txt'
+}
+
+$rows['14'] = 'Starts the app with the core that has the fixture agent, the agent on the PATH of its terminals, and a folder as a workspace. Opens Notepad in front, presses Alt-Shift-Space, types a thought with the keyboard and presses Return: the thought must be captured, placed in the folder and started, with the fixture agent in a terminal of the workspace. Has the agent ask, puts Notepad in front again and presses Ctrl+Alt+Y: the agent must be answered while Notepad stays in front. Ends the turn and looks for the result''s marks.', {
+    $fixtures = "$checkout\host\binaries\fixtures"
+    New-Item -ItemType Directory -Force "$tmp\data14", "$tmp\project14", "$tmp\agents" | Out-Null
+    Copy-Item "$fixtures\tasktap.exe" "$tmp\agents\fixture-agent.exe"
+    Copy-Item "$fixtures\tasktap.exe" "$tmp\agents\fixture.exe"
+    $window = Start-Own @{ TASKTAP_DATA = "$tmp\data14"; TASKTAP_PICK = "$tmp\project14"; TASKTAP_CORE_EXE = "$fixtures\tasktap.exe"; TASKTAP_CORE_BUILD = (Get-Content "$fixtures\build.txt" -Raw).Trim(); PATH = "$tmp\agents;$env:PATH" } 300
+    if ($window -eq [IntPtr]::Zero) { Say 'FAIL' 14 'the app shows no window'; End-Own 'row14-app.txt'; return }
+    foreach ($call in 'put {"c":"prefs","id":"agent","patch":"fixture"}', 'put {"c":"prefs","id":"hold","patch":2}', 'agents.detect {}') { Send "call $call"; $null = Until '"event":"reply"' 5 }
+    $null = Js "(__ws.call('project.add', { id: __ws.uuid7(), folder: '$("$tmp\project14".Replace('\', '\\'))' }), 1)"
+    $project = Soon "[...__ws.records.projects.values()].find((p) => p.kind === 'folder')?.id ?? ''" '-' 10
+    $words = 'Ship the header from Notepad'
+    $thought = "[...__ws.records.thoughts.values()].find((t) => t.text === '$words')"
+    $notepad = Other-Program "Tasktap-flow-$PID"
+    if (-not $notepad) { Say 'FAIL' 14 'not run: Notepad could not be put in front of the app, so no other program was in front'; End-Own 'row14-app.txt'; return }
+    [Tasktap.Desk]::Chord([byte[]](0x12, 0x10, 0x20))
+    $front = $false
+    for ($i = 0; $i -lt 30 -and -not $front; $i++) { Start-Sleep -Milliseconds 100; $front = [Tasktap.Desk]::GetForegroundWindow() -eq $window }
+    Start-Sleep -Milliseconds 500
+    # Typed as a keyboard types, and only into the app's own window.
+    if ($front) { [Windows.Forms.SendKeys]::SendWait($words) }
+    $typed = Soon "document.activeElement?.value ?? ''" ([regex]::Escape($words)) 8
+    Check 14 'Alt-Shift-Space over Notepad opens New Task, and what is typed next is in its field' ($front -and $typed -eq $words) "the app in front: $front; the field holds: $typed"
+    if ($front -and $typed -eq $words) { [Windows.Forms.SendKeys]::SendWait('{ENTER}') }
+    $phase = Soon "String($thought`?.phase)" 'working' 50
+    Check 14 'Return sends it: the thought is placed in the open folder and starts after its hold' ($phase -eq 'working') "its phase: $phase; where: $(Js "(p => p?.name ?? 'nowhere')(__ws.records.projects.get($thought`?.project_id))" 2)"
+    $session = Js "$thought`?.session_id ?? ''" 2
+    $null = Soon "String(__ws.focusSession('$session'))" 'true' 20
+    $screen = Soon '__ws.text()' 'fixture-agent' 25
+    Check 14 'the fixture agent works in a terminal of the workspace' ("$screen" -match 'fixture-agent') (("$screen".Trim() -split "`n" | Select-Object -Last 3) -join ' | ')
+    foreach ($line in 'event:ready', 'event:turn_started', 'ask:Deploy to staging?') { $null = Js "(__ws.type('$line'), 1)"; Start-Sleep -Milliseconds 400 }
+    $strip = Soon "document.querySelector('.strip')?.innerText ?? ''" 'Deploy to staging\?' 25
+    $keys = @($seen | Where-Object { $_ -match '"event":"answer-keys"' })[-1]
+    Check 14 'its question shows in its pane, and the answer keys are held while it waits' ("$strip" -match 'Deploy to staging\?' -and "$keys" -match '"ok":true' -and "$keys" -match '"on":true') "the strip: $("$strip".Replace("`n", ' ')); the host: $keys"
+    # Answered from another program, as the global shortcut is for.
+    $other = Front $notepad.Handle
+    if ($other) { [Tasktap.Desk]::Chord([byte[]](0x11, 0x12, 0x59)) }
+    $answered = Soon '__ws.text()' 'answer:yes' 25
+    Check 14 'Ctrl+Alt+Y pressed over Notepad answers the agent, and Notepad stays in front' ($other -and "$answered" -match 'answer:yes' -and [Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle) "Notepad in front before: $other, after: $([Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle); the terminal: $(("$answered".Trim() -split "`n" | Select-Object -Last 2) -join ' | ')"
+    $null = Js "(__ws.type('event:turn_finished:All green.'), 1)"
+    $marks = Soon "document.querySelector('.tabw.on .st')?.dataset.s + ' ' + document.querySelector('.row.s.sel .st')?.dataset.s" 'ready ready' 25
+    Check 14 'the turn''s end is a result: the tab and the sidebar row mark it unread' ($marks -eq 'ready ready') "the marks: $marks"
+    [Tasktap.Desk]::Close($notepad.Handle)
+    $null = Front $window
+    $null = Js "(__ws.dismiss(), 1)"
+    Start-Sleep -Milliseconds 600
+    Say 'LOOK' 14 'the workspace after the thought: the agent''s terminal with its question answered, and the result' (Capture $window 'row14-result')
+    End-Own 'row14-app.txt'
+    Start-Sleep -Milliseconds 500
+    $left = Under $tmp
+    Check 14 'the app, its core and the agent leave nothing running' (-not $left) (($left | ForEach-Object Name) -join ', ')
+    $left | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
 $rows['13'] = 'Starts the app once more with the system''s own title bar in the page''s colours (TASKTAP_CHROME=native), for one picture to set beside the app''s own top row as the title bar; then tells it to quit.', {
-    if ($seen) { $seen | Set-Content "$Out\rows4-12-app.txt" }
     Start-App $exe @{ TASKTAP_DATA = "$tmp\data"; TASKTAP_PICK = "$tmp\project"; TASKTAP_CHROME = 'native' } 120
     $null = Until '"event":"ready"' 45
     $null = Soon 'typeof __ws' 'object'
@@ -661,6 +908,7 @@ try {
                 Start-Sleep -Milliseconds 500
                 $left = Under $tmp
                 Check '+' 'it leaves nothing running' (-not $left) (($left | ForEach-Object Name) -join ', ')
+                if ($seen) { $seen | Set-Content "$Out\rows4-12-app.txt" }
             }
             & $rows[$row][1]
         } catch {

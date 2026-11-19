@@ -9,7 +9,7 @@ import {
   LOOSE, agentName, closeTab, closeWorkspace, cue, details, focusSession, keepInBackground, label, layout, newTerminal, open, openQuestions, questionOf,
   records, redraw, runs, sessionOf, show, thoughtOf, ui, workspaces,
 } from './model.ts';
-import { I, Mark, elapsed, madeAt, when } from '../ui.tsx';
+import { I, Seat, elapsed, madeAt, when } from '../ui.tsx';
 import { tip } from '../keys.ts';
 import { mac } from '../system.ts';
 import { MenuButton } from './chrome.tsx';
@@ -37,7 +37,7 @@ function Session({ project, id, bg }: { project: string; id: string; bg: boolean
     <button type="button" class={`row s${selected ? ' sel' : ''}${bg ? ' bg' : ''}${shell ? ' shl' : ''}`} data-s={c.s} data-id={id}
       title={`${name}\n${c.words}${bg ? ', in background' : ''}${c.activity ? `\n${c.activity}` : ''}`} onClick={() => focusSession(id)}
       onContextMenu={(e) => popup(e, menu)} onKeyDown={(e) => e.key.toLowerCase() === 'i' && !e.metaKey && !e.ctrlKey && details(id) && e.preventDefault()}>
-      <Mark s={c.s} bg={bg} label={`${c.words}${bg ? ', in background' : ''}`} />
+      <Seat agent={s?.agent} s={c.s} bg={bg} label={`${c.words}${bg ? ', in background' : ''}`} />
       <span class="lbl">{name}</span>
       {bg && <span class="bgi" title="Running in background"><I n="bg" /></span>}
       {time && <span class="meta">{time}</span>}

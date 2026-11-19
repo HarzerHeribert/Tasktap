@@ -188,7 +188,6 @@ export function Speech() {
   const hint = !here ? `${hold} A recording is sent when you let go.`
     : fetched ? `${hold} What you say is turned into text on ${HERE} and sent nowhere.`
       : l?.supported ? `Downloaded once from huggingface.co and kept in Tasktap’s data folder. After that, what you say is turned into text on ${HERE} and sent nowhere.${by ? ` Until it is here, ${serviceName(by.server)} stays in use.` : ''}` : undefined;
-  const names = languages.map((code) => LANGUAGES.find(([c]) => c === code)?.[1] ?? code);
   return (
     <>
       <Row name="Turned into text" hint={hint}>
@@ -199,7 +198,7 @@ export function Speech() {
         {here ? <OnThisMac l={l} used={!by} /> : <><span class="v">By {serviceName(by.server)} · {by.model}</span><button type="button" class="btn" onClick={() => open({ kind: 'speech' })}>Change…</button></>}
       </Row>
       {by && !here && <Row name="Key"><Key server={by.server} /></Row>}
-      <Row name="Languages you speak" hint={`Up to four. ${names.length > 1 ? `The first you chose, ${names[0]}, is taken as your own; the others may be mixed in. ` : ''}With none chosen, any language is listened for.`}>
+      <Row name="Languages you speak" hint="Up to four, in any order: what you say is written in the language you say it in. With none chosen, any language is listened for.">
         <div class="seg" role="group" aria-label="Languages you speak">
           {LANGUAGES.map(([code, name]) => <button type="button" role="checkbox" aria-checked={languages.includes(code)} disabled={!languages.includes(code) && languages.length >= 4} onClick={() => toggle(code)}>{name}</button>)}
         </div>

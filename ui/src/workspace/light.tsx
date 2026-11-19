@@ -22,6 +22,11 @@ import { openQuestions, pref, records, redraw, ui } from './model.ts';
 /** The light's colours: deep and low in saturation at rest, so the black stays black. */
 const COPPER: RGB = [0.77, 0.44, 0.24], STEEL: RGB = [0.37, 0.5, 0.75], ASKS: RGB = [0.92, 0.71, 0.46], FAIL: RGB = [0.94, 0.44, 0.43];
 const mix = (a: RGB, b: RGB, t: number) => a.map((v, i) => v + (b[i]! - v) * t) as RGB;
+const rgb = (c: RGB) => `rgb(${c.map((v) => Math.round(255 * Math.min(1, v))).join(' ')})`;
+/** The Composer's lit rim in a palette's two lights, laid out as the token --lit is: the second light at its ends, the
+ *  first through its middle, brightest a little before the centre. */
+const rim = (a: RGB, b: RGB) =>
+  `linear-gradient(90deg,${rgb(b)},${rgb(mix(b, a, 0.5))} 18%,${rgb(mix(a, [1, 1, 1], 0.75))} 40%,${rgb(a)} 62%,${rgb(mix(a, b, 0.5))} 82%,${rgb(b)})`;
 const lin = (v: number) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
 const srgb = (v: number) => (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055);
 /** A colour of the palette's hue, its saturation `sat` of the palette's, at the relative luminance `Y`: deep enough that
@@ -118,13 +123,17 @@ export function useLight() {
   const asks = state === 'needs';
   const c1 = asks ? mix(a, ASKS, 0.6) : a, c2 = asks ? mix(b, ASKS, 0.35) : b, c3 = state === 'failed' ? FAIL : mix(a, b, 0.5);
   const level = asks ? 1.2 : state === 'idle' ? 0.85 : 1;
+  // The Composer stands in this light and takes its colour from it, never from a fill of its own: the light gathered
+  // behind it is the palette's first light, and its lit rim the palette's two. The default palette is every colour,
+  // so it has none there: its two lights together, which is no colour, behind the field, and the token's rim.
+  const behind = L.irid ? mix(L.a, L.b, 0.5) : a;
   const active = (debug.active ?? ui.active) && !document.hidden;
   return {
     // Behind an open sheet it is a still picture: the sheet is what is read.
     state, look, level: fx, active, moves: fx === 'full' && active && !ui.sheet && ONGOING.has(state), lift: fx === 'full' && state === 'done' && now - last.at < 2500,
     vars: fx === 'off' ? {} : {
       // The pool at the lower right lies under the most rows' times, the dimmest words: it stays at its default.
-      '--c1': deep(c1, 0.0068 * level), '--glow': deep(c1, 0.02 * level), '--c2': deep(c2, 0.0056 * Math.min(level, 1.05), 0.7), '--c3': deep(c3, (state === 'failed' ? 0.008 : 0.005) * level),
+      '--c1': deep(c1, 0.0068 * level), '--glow': deep(asks ? mix(behind, ASKS, 0.6) : behind, 0.02 * level), ...(L.irid ? {} : { '--edge': rim(a, b) }), '--c2': deep(c2, 0.0056 * Math.min(level, 1.05), 0.7), '--c3': deep(c3, (state === 'failed' ? 0.008 : 0.005) * level),
       '--spark': String(ONGOING.has(state) ? 1 : 0.8),
     },
   };

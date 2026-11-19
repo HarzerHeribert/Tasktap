@@ -113,30 +113,55 @@ fn bridge_send(webview: tauri::Webview, request: tauri::ipc::Request, host: taur
 }
 
 /// A `host.*` call from the page, answered here: the reply frame.
+#[cfg(not(windows))]
 #[tauri::command]
 fn bridge_host(app: AppHandle, frame: String) -> String {
-    let call: Value = serde_json::from_str(&frame).unwrap_or_default();
+    host_call(&app, &frame)
+}
+
+/// On Windows a call is answered from the event loop, not from inside the web view's own callback, where Tauri
+/// would run it: the folder dialog runs a message loop of its own until it is closed, and WebView2 allows none
+/// inside one of its callbacks.
+#[cfg(windows)]
+#[tauri::command]
+async fn bridge_host(app: AppHandle, frame: String) -> String {
+    let (answer, mut answered) = tauri::async_runtime::channel(1);
+    let to = app.clone();
+    let asked = app.run_on_main_thread(move || drop(answer.try_send(host_call(&to, &frame))));
+    match (asked, answered.recv().await) {
+        (Ok(()), Some(reply)) => reply,
+        _ => {
+            json!({"t": "reply", "id": null, "err": {"code": "unknown", "message": "the app is quitting"}}).to_string()
+        }
+    }
+}
+
+fn host_call(app: &AppHandle, frame: &str) -> String {
+    let call: Value = serde_json::from_str(frame).unwrap_or_default();
     let (id, args) = (call["id"].clone(), &call["args"]);
     let outcome = match call["name"].as_str().unwrap_or_default() {
         "host.notch" => {
-            notch::request(&app, args);
+            notch::request(app, args);
             Ok(Value::Null)
         }
-        "host.show" => workspace::show(&app, args["at"].as_str()).map(|_| Value::Null).map_err(|e| e.to_string()),
+        "host.show" => workspace::show(app, args["at"].as_str()).map(|_| Value::Null).map_err(|e| e.to_string()),
         "host.ready" => {
-            workspace::ready(&app);
+            workspace::ready(app);
             Ok(Value::Null)
         }
-        // What the Windows host does not do yet, said so that the page can say it.
-        #[cfg(windows)]
-        "host.pick" if std::env::var_os("TASKTAP_PICK").is_none() => {
-            Err(format!("choosing a folder is {}", native::NOT_YET))
-        }
-        "host.pick" => Ok(match std::env::var("TASKTAP_PICK") {
-            Ok(folder) => json!(folder),
-            Err(_) => json!(native::pick_folder()),
-        }),
-        "host.window" => workspace::window(&app, args["do"].as_str().unwrap_or_default()),
+        // The system's own folder panel, or the folder a check names instead.
+        "host.pick" => match std::env::var("TASKTAP_PICK") {
+            Ok(folder) => Ok(json!(folder)),
+            #[cfg(not(windows))]
+            Err(_) => Ok(json!(native::pick_folder())),
+            // Modal to the workspace window, the only window there is to ask from.
+            #[cfg(windows)]
+            Err(_) => native::pick_folder(
+                app.get_webview_window(workspace::LABEL).and_then(|w| w.hwnd().ok()).map(|w| w.0 as isize),
+            )
+            .map(|folder| json!(folder)),
+        },
+        "host.window" => workspace::window(app, args["do"].as_str().unwrap_or_default()),
         "host.clipboard" => Ok(json!(native::clipboard(args["text"].as_str(), notch::NOTCH.lock().unwrap().passive))),
         "host.power" => Ok(json!(native::low_power())),
         // A web address, or what is inside a folder the person opened or a copy Tasktap made of one (open.rs).
@@ -147,16 +172,12 @@ fn bridge_host(app: AppHandle, frame: String) -> String {
             roots.push(host.core.data.join("worktrees"));
             open::open(args, &roots, notch::NOTCH.lock().unwrap().passive)
         }
-        "host.capture_key" => keys::call(&app, args),
+        "host.capture_key" => keys::call(app, args),
         // Where a preview's frame loads a file from (frames.rs): given only once the web view is held to this
-        // machine's own addresses, which the Windows host does not do yet.
-        #[cfg(windows)]
-        "host.frame" => Err(format!("showing a page here is {}", native::NOT_YET)),
-        #[cfg(not(windows))]
+        // machine's own addresses.
         "host.frame" if !workspace::CONFINED.load(std::sync::atomic::Ordering::Relaxed) => {
             Err("Showing a page here is not ready yet".into())
         }
-        #[cfg(not(windows))]
         "host.frame" => {
             let host = app.state::<Host>();
             let (link, worktrees) = (host.link.clone(), host.core.data.join("worktrees"));
@@ -254,6 +275,13 @@ fn command(app: &AppHandle, line: &str) {
                 native::order_front(window as usize)
             }
         }
+        // `back`: behind the other windows again, once a check has seen what it brought the window forward for.
+        #[cfg(target_os = "macos")]
+        "back" => {
+            if let Some(window) = app.get_webview_window(workspace::LABEL).and_then(|w| w.ns_window().ok()) {
+                native::order_back(window as usize)
+            }
+        }
         "menu" => workspace::on_menu(app, rest),
         "close" => {
             if let Some(window) = app.get_webview_window(rest) {
@@ -273,7 +301,15 @@ fn command(app: &AppHandle, line: &str) {
         }
         // `snapshot <page> <file>`: the page as it is drawn, as PNG.
         #[cfg(windows)]
-        "snapshot" => log(json!({"event": "snapshot", "file": arg, "ok": false, "why": native::NOT_YET})),
+        "snapshot" => {
+            let path = std::path::PathBuf::from(arg);
+            if let Some(window) = app.get_webview_window(label) {
+                let _ = window.with_webview(move |view| {
+                    let file = path.display().to_string();
+                    native::snapshot(&view, &path, move |ok| log(json!({"event": "snapshot", "file": file, "ok": ok})))
+                });
+            }
+        }
         #[cfg(target_os = "macos")]
         "snapshot" => {
             let path = std::path::PathBuf::from(arg);

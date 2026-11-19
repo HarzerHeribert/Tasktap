@@ -6,7 +6,7 @@ import type { Question, Thought } from '../../../core/proto/protocol.ts';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { next, pending, running, settle, settling, Status, Told } from '../changes.tsx';
 import { Ask } from '../question.tsx';
-import { Answer, I, Mark, Ring, ago, madeAt, when } from '../ui.tsx';
+import { Answer, I, Mark, Ring, Seat, ago, madeAt, when } from '../ui.tsx';
 import { tip } from '../keys.ts';
 import { shownPath } from '../system.ts';
 import { placed } from '../way.ts';
@@ -231,7 +231,7 @@ function Tab({ project, pane, id }: { project: string; pane: L.Pane; id: string 
           requestAnimationFrame(() => document.querySelector<HTMLElement>(`.tab[data-id="${next}"]`)?.focus());
         }}>
         {shows ? <i class="st by" data-by={shows.by} role="img" aria-label={openedBy(shows) || 'Preview'}>{shows.by !== 'agent' ? <I n="view" /> : sessionOf(shows.terminal_id) ? <Ring agent={sessionOf(shows.terminal_id)!.agent} s="" /> : <I n="term" />}</i>
-          : <Mark s={c.s} label={c.words} />}<span class="lbl">{name}</span>
+          : <Seat agent={sessionOf(id)?.agent} s={c.s} label={c.words} />}<span class="lbl">{name}</span>
       </button>
       <button type="button" class="x" title={tip('Close tab', '⌘W')} aria-label={`Close ${name}`} onClick={() => closeTab(project, id)}><I n="x" /></button>
     </div>

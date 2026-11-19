@@ -16,7 +16,7 @@ try {
     $zip = "$checkout\host\target\$triple\release\Tasktap-Next-$($Job.target).zip"
     '{0}  {1}  {2} bytes' -f (Get-FileHash $zip -Algorithm SHA256).Hash, (Split-Path $zip -Leaf), (Get-Item $zip).Length
     if ($Job.run) {
-        & "$checkout\host\scripts\smoke.ps1" -App $app -Core "$checkout\host\binaries\fixtures\tasktap.exe" -Seconds 30
+        & "$checkout\host\scripts\smoke.ps1" -App $app -Core "$checkout\host\binaries\fixtures\tasktap.exe"
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
     if (git status --porcelain) { git status --short; throw 'The build changed files that are in git.' }

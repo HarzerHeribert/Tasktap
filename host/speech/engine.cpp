@@ -14,11 +14,13 @@
 // only the last stretch is left, however long they spoke. A stretch in which nothing rises above the noise is not
 // given to the model at all, which would invent words for it.
 //
-// Languages: none given, the model decides; one, it is told. Several: it is told the first, the person's own, unless
-// it is all but certain, a thousand to one from the first three seconds, that it hears another of theirs. Told the
-// wrong language Whisper translates, so a German sentence that begins with English words must stay German (the trial
-// measured at most 7 to 1 for such a sentence in a natural voice, and 5000 to 1 and more for an English one), while
-// an English sentence left as German is still written down in English.
+// Languages: none given, the model decides; one, it is told. Several: the first stretch is written in the one of
+// them the model finds likelier in all of it, each later one in the likelier in the first four seconds of its speech,
+// whatever their order, and a later stretch that ends sooner than that stays in the language of the one before it. Told the wrong language Whisper translates, both ways, so the
+// language is never fixed for a whole thought; told the language a stretch begins in, it writes down what follows
+// in the other as it was said. Four seconds, because three were too few for a German sentence that begins with an
+// English word, and all of a stretch too many for one that changes language on the way; and a few words at the end
+// of a thought are too little to tell by (design §8, "On this device", has the numbers, in a person's voice).
 #include <algorithm>
 #include <cmath>
 #include <condition_variable>
@@ -36,7 +38,7 @@
 static const int RATE = 16000, FRAME = 320;                         // a frame is 20 ms
 static const size_t STRETCH = 6 * RATE, LONGEST = 28 * RATE;         // cut at a pause from 6 s on, at the latest at 28 s
 static const int PAUSE = 15;                                         // frames: a third of a second of quiet is a pause
-static const size_t EARLY = 3 * RATE;                                // what the language is decided from
+static const size_t EARLY = 4 * RATE;                                // what a stretch's language is told by
 
 static void say(const char *key, const std::string &text) {
     std::string out = std::string("{\"") + key + "\":\"";
@@ -88,6 +90,13 @@ int main(int argc, char **argv) {
         fflush(stdout);
         const int threads = std::max(1, std::min(4, (int)std::thread::hardware_concurrency()));
         std::string language = languages.size() == 1 ? languages[0] : languages.empty() ? "auto" : "", text;
+        // The likelier of the person's languages in what the model heard last; the one before, where they are level.
+        auto likelier = [&] {
+            const whisper_token start = whisper_token_sot(ctx);
+            if (whisper_decode(ctx, &start, 1, 0, threads) != 0) return;
+            auto odds = [&](const std::string &l) { return whisper_get_logits(ctx)[whisper_token_lang(ctx, whisper_lang_id(l.c_str()))]; };
+            for (auto &l : languages) if (language.empty() || odds(l) > odds(language)) language = l;
+        };
         for (;;) {
             Job job;
             std::vector<float> part;
@@ -98,25 +107,25 @@ int main(int argc, char **argv) {
                 jobs.pop_front();
                 part.assign(audio.begin() + job.from, audio.begin() + job.to);
             }
-            if (language.empty() && !part.empty()) {
-                // The person's first language, unless another of theirs is a thousand times as likely.
-                std::vector<float> p(whisper_lang_max_id() + 1, 0.f);
-                language = languages[0];
-                float most = 1000 * p[0];
-                if (whisper_pcm_to_mel(ctx, part.data(), (int)std::min(part.size(), (size_t)30 * RATE), threads) == 0 && whisper_lang_auto_detect(ctx, 0, threads, p.data()) >= 0) {
-                    most = 1000 * p[whisper_lang_id(languages[0].c_str())];
-                    for (auto &l : languages) if (p[whisper_lang_id(l.c_str())] > most) most = p[whisper_lang_id(l.c_str())], language = l;
-                }
-            }
+            // The first four seconds of a stretch, heard while the person speaks on.
+            if (job.detect && whisper_pcm_to_mel(ctx, part.data(), (int)part.size(), threads) == 0 && whisper_encode(ctx, 0, threads) == 0) likelier();
             if (!job.detect && !part.empty()) {
-                whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_BEAM_SEARCH);
-                params.n_threads = threads;
-                params.language = language.c_str();
-                params.no_context = params.no_timestamps = params.single_segment = params.suppress_nst = true;
-                params.print_progress = params.print_realtime = params.print_timestamps = params.print_special = false;
                 // Whisper wants a second of sound at the least.
                 if (part.size() < (size_t)RATE + 1600) part.resize(RATE + 1600, 0.f);
-                if (whisper_full(ctx, params, part.data(), (int)part.size()) != 0) { say("error", "engine"); _exit(4); }
+                // The first stretch has no language yet: it is written in the first of them, told by all of it,
+                // which the model has heard by then, and written again only if it was another. So a thought of one
+                // sentence never waits for its language to be told while the person has already let go.
+                for (bool guess = language.empty();; guess = false) {
+                    if (guess) language = languages[0];
+                    whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_BEAM_SEARCH);
+                    params.n_threads = threads;
+                    params.language = language.c_str();
+                    params.no_context = params.no_timestamps = params.single_segment = params.suppress_nst = true;
+                    params.print_progress = params.print_realtime = params.print_timestamps = params.print_special = false;
+                    if (whisper_full(ctx, params, part.data(), (int)part.size()) != 0) { say("error", "engine"); _exit(4); }
+                    if (guess) likelier();
+                    if (!guess || language == languages[0]) break;
+                }
                 std::string heard;
                 for (int i = 0; i < whisper_full_n_segments(ctx); i++) heard += whisper_full_get_segment_text(ctx, i);
                 heard = tidy(heard);
@@ -134,9 +143,9 @@ int main(int argc, char **argv) {
     // The recording as it comes: its loudness frame by frame, and a cut wherever the person pauses.
     std::vector<float> loud;                    // each frame's level (RMS)
     size_t begun = 0, heard = 0, seen = 0;      // where the stretch under way began; samples read; frames looked at
-    size_t first = SIZE_MAX;                    // where the first sound is
+    size_t first = SIZE_MAX, speech = SIZE_MAX; // where the stretch under way has its first sound, and where its speech begins
     float top = 0;                              // the loudest frame yet
-    bool spoke = false, early = languages.size() < 2;   // sound in the stretch under way; the language is settled, or being settled
+    bool told = true;                           // the stretch under way has its language, or is being told it; the first is told after it is written
     // A pause is a tenth of the loudest (20 dB under it); a stretch with nothing above a thirtieth (30 dB) holds no words.
     auto under = [&](size_t frame, float part) { return loud[frame] < std::max(top * part, 0.002f); };
     auto post = [&](Job job) {
@@ -160,12 +169,13 @@ int main(int argc, char **argv) {
             }
         }
         carry.erase(carry.begin(), carry.begin() + 2 * samples);
-        for (; seen < loud.size(); seen++) {
-            if (under(seen, 0.03f)) continue;
-            spoke = true;
-            if (first == SIZE_MAX) first = seen * FRAME;
-        }
-        if (!early && first != SIZE_MAX && heard >= first + EARLY) early = true, post({first, first + EARLY, false, true});
+        // A stretch begins in the pause it was cut at: its language is told from where that pause ends.
+        auto look = [&](size_t f) {
+            if (first == SIZE_MAX && !under(f, 0.03f)) first = f * FRAME;
+            if (speech == SIZE_MAX && !under(f, 0.1f)) speech = f * FRAME;
+        };
+        for (; seen < loud.size(); seen++) look(seen);
+        if (!told && speech != SIZE_MAX && heard >= speech + EARLY) told = true, post({speech, speech + EARLY, false, true});
         size_t cut = 0;
         if (heard - begun >= LONGEST) {
             // No pause in 28 s: cut at the quietest frame of the last three seconds.
@@ -179,13 +189,13 @@ int main(int argc, char **argv) {
             if (pause) cut = (loud.size() - PAUSE / 2) * FRAME;
         }
         if (cut > begun) {
-            if (spoke) post({begun, cut, false, false});
-            begun = cut, spoke = false;
-            for (size_t f = cut / FRAME; f < loud.size(); f++) spoke = spoke || !under(f, 0.03f);
+            if (first < cut) post({begun, cut, false, false});
+            begun = cut, first = speech = SIZE_MAX, told = languages.size() < 2;
+            for (size_t f = cut / FRAME; f < loud.size(); f++) look(f);
         }
     }
     // The person let go: what is left, if anything was said in it.
-    post({begun, spoke ? heard : begun, true, false});
+    post({begun, first != SIZE_MAX ? heard : begun, true, false});
     worker.join();
     return 0;
 }

@@ -37,6 +37,7 @@ Grafts from the directions not chosen:
 | Close on the left of a tab, on hover, where a Mac hand expects it | Yes | The cross replaces the state mark while the pointer or keyboard focus is on the tab |
 | Unfocused panes step back, as Ghostty | Yes | Their terminal draws at 84 % |
 | The system's own context menus | Yes | Menus are drawn by the host, not the page. The menu styles and the specimen's menu are removed |
+| What stands in a row is on one weight, one centre line and one baseline (2026-11-19) | Yes | Every stroke of an icon or a seat is `--i-w` on the screen at any size (1.2 px, times the text size); what leads a row is centred on the capitals of its words; words of different sizes on a line share a baseline; figures are monospace, right edges on one line. `scripts/align-check.cjs` measures all four in every state at 1x and 2x, and `scripts/text-sizes.sh` at the three text sizes |
 | State in words wherever there is room | Yes | The rail ("2 need you", "4 working", "2 new results"), Home's section names, every state mark's tooltip and accessible name |
 | Sentence-first wording | Yes | "2 need you", "Saved for later, until a folder is open", "No folder matched; saved for later" |
 | New York for question text | **No** | The owner does not like the other styles; Instrument stays one family plus mono |
@@ -48,7 +49,7 @@ Grafts from the directions not chosen:
 
 1. **What needs you.** Questions, question first. The first one is open: its folder, agent and thought on one quiet line, the question in full at 17 px, its answers as key caps. Any further question is a single line (wave, folder, agent, thought, the question cut to fit) and opens when chosen; opening one closes the other. The section has the page's only lit rule, so it is the first thing the eye lands on. When nothing needs you the section is absent, not empty.
 2. **What is running.** One line each: the moving wave, the folder, the thought, the one fact that matters (the step it is on), the elapsed time. Sessions in the background are dimmed and sort last. No buttons: the row itself opens the terminal. At most four rows; more than that collapse into a last line, "3 more running", which opens in place (specified here, not drawn in the mock-up, which never has more than four).
-3. **The capture field.** Always the first thing on the page, so it is always in the same place. The owner chose the Composer (2026-11-17, of three variants; the other two are gone): the **surface** material (section 5), raised, with no border, lit from behind by the room's light gathered under it, 20 px corners (`--r4`), centred and 720 px wide (`--cap-w`). The thought is on lines of its own at 20 px (the placeholder an invitation in `--fg-field`, the caret `--accent`), growing a line at a time up to six (Shift-Return for a new line). Under it, inside the surface, one row:
+3. **The capture field.** Always the first thing on the page, so it is always in the same place. The owner chose the Composer (2026-11-17, of three variants; the other two are gone): the **surface** material (section 5): opaque graphite with a hairline, the room's light gathered around it and never through it (the owner, 2026-11-19: lit from behind through a translucent surface it "looks too blueish and should be more in theme with the rest of the app"; its colour is now its lit rim and, with the effects on, the palette chosen in Appearance: the light behind it and the rim follow it, and have no colour with the default palette), 20 px corners (`--r4`), centred and 720 px wide (`--cap-w`). The thought is on lines of its own at 20 px (the placeholder an invitation in `--fg-field`, the caret `--accent`), growing a line at a time up to six (Shift-Return for a new line). Under it, inside the surface, one row:
    - at its left, where the thought will go: "→ folder", a follow-up's session, "For later", or, before any folder is open, "No folder yet";
    - then the agents as **rings** (section 5): the lit one runs the thought, a click on another picks it (the core's `agent` preference), one that is not signed in is an open ring that leads to where it is signed in;
    - at its right, the **key** that says what Return does: "Start", "Send" for a follow-up, "Save for later" when the thought has no folder to go to. It is metal whenever Return does something and quiet when it does nothing. With a thought in the field it sends that thought. With the field empty and a thought held under it, it says "Start" and starts that one now: it is the one thing in view that says Start. A thought leaves the field the moment it is sent, so the next can be typed while it is on its way to the core: the field is never locked, what is typed meanwhile is the beginning of the next thought, the key shows the wave until the core has the last one, and a second Return sends nothing twice. If the core refuses a thought its words are back in the field, before what was typed since.
@@ -87,7 +88,7 @@ Everything else is second layer and appears on the first only as one quiet line,
 | Busy day | Capture (quiet). Needs you 2: one open, one line. Running 4. Entry to results (1 new, 1 failed) and For later (2) |
 | Normal | Capture (invitation). Running 1. Entry to results (1 new) and For later (1) |
 | Quiet | Capture (invitation). The last two finished thoughts. Entry to the rest |
-| First run | One composition, centred in the content: the Composer a little above the middle, its place reading "No folder yet", its key "Save for later", the agents as its rings. Under it, on its own edges, one line: "A thought starts in a folder. Until one is open, it is saved for later." and Open a folder… (⌘O), which is the key while the Composer is empty and quiet once it holds a thought (then the Composer's key is the one key). What is saved lands under it in For later, on the same edges, with Send to a folder… showing on the one just saved |
+| First run | One composition, centred in the content: the Composer a little above the middle, its place reading "No folder yet", its key "Save for later", the agents as its rings. Under it, on its own edges, one line: "A thought starts in a folder. Until one is open, it is saved for later." and Open a folder… (⌘O), which is the key while the Composer is empty and quiet once it holds a thought (then the Composer's key is the one key). What is saved lands under it in For later, on the same edges, with Send to a folder… showing on the one just saved. The composition is for a Home with nothing on it yet (no folder open, nothing asked, running or done), and the line speaks only while it is true: while no folder is open and the next thought has nowhere to start. Once a thought runs in Scratch, Home is the usual page and says nothing under the Composer (the owner's picture of 2026-11-19 showed the line beside a thought that had started in Scratch). Where a thought started is said under the Composer for six seconds and then by its row alone |
 
 **Three layerings** (`X`, all twelve on `G`). The first layer is the same in all three; they differ in how finished and unplaced thoughts are reached.
 
@@ -129,7 +130,7 @@ The app's one design-token file, `ui/src/tokens.css`, as built. Nothing else in 
   --fg:#f2f2f3;        /* 17.7 : 1 on --bg */
   --fg2:#a3a4aa;       /*  8.0 : 1 */
   --fg3:#7c7d84;       /*  4.8 : 1; times, hints, disabled */
-  --fg-field:#c4c5cb;  /* secondary words on a raised field, lit from behind: 4.5 : 1 at the strongest light */
+  --fg-field:#c4c5cb;  /* secondary words on the Composer's surface: 10 : 1 on it with the keyboard */
   --ink:#0d0d0e;       /* text on metal */
   /* lines */
   --line:#1f2024; --line2:#33343a;
@@ -140,15 +141,16 @@ The app's one design-token file, `ui/src/tokens.css`, as built. Nothing else in 
   --plus:var(--fg2); --minus:var(--fg3);              /* a diffstat's counts */
   --add:rgb(155 203 167/.09); --del:rgb(240 113 110/.09);  /* a diff's lines, under the sign that marks them */
   /* Materials (NOTES §5): every control is one of four, on the ground above.
-     Surface: the Composer, raised and lit from behind by the room's light.
+     Surface: the Composer: opaque graphite of the ground's own family with a hairline round it, brighter along its
+       top. The room's light stands around it and never shows through it, so it has no colour of its own.
      Metal: the key, the one primary action in view, and the caps that show a key. A flat, evenly lit face its label
        always reads on (--ink on it is 15 : 1); the metal is at its edges: a bright top edge, the chromatic glint along
        its lower edge, a soft shadow beneath. Never a band behind the words.
      Quiet: every other control: text, a fill only under the pointer (--hover, --sel), a hairline round a button.
      Edge: --lit, the chromatic lit edge, for what has the keyboard and what is live. Never text, never decoration. */
-  --surface:linear-gradient(180deg,rgb(255 255 255/.075),rgb(255 255 255/.04));
-  --surface-lit:linear-gradient(180deg,rgb(255 255 255/.095),rgb(255 255 255/.05));
-  --surface-edge:inset 0 1px 0 rgb(255 255 255/.09),0 1px 0 rgb(0 0 0/.5),0 30px 60px -28px rgb(0 0 0/.85);
+  --surface:var(--fill);
+  --surface-lit:var(--sel);
+  --surface-edge:inset 0 1px 0 var(--line2),inset 0 0 0 1px var(--line),0 30px 60px -28px rgb(0 0 0/.85);
   --key:linear-gradient(180deg,#eceef1,#dde0e5);
   --key-edge:inset 0 1px 0 #fff,0 1px 0 #000,0 3px 7px -2px rgb(0 0 0/.75);
   --key-down:inset 0 1px 2px rgb(0 0 0/.28);
@@ -190,8 +192,11 @@ The app's one design-token file, `ui/src/tokens.css`, as built. Nothing else in 
   --r3:10px;  /* bottom corners of sheets and of the notch */
   --r4:20px;  /* the Composer's surface */
   --r-in:8px; /* a control standing 12 px inside that surface */
-  /* icons: one owned set on a 16 px grid */
-  --i-w:1.2px; --i-cap:butt; --i-join:miter;
+  /* icons: one owned set on a 16 px grid, and one weight: every stroke of an icon and of an agent's ring is this wide on
+     the screen whatever size it is shown at (parts.css), which is the weight of the text beside it at each text size */
+  --i-w:calc(1.2px * var(--ts));
+  --i-w-key:calc(1.35px * var(--ts));  /* the one heavier stroke: Return's arrow on the metal key, beside its word in 600 */
+  --i-cap:butt; --i-join:miter;
   /* time */
   --t-fast:120ms; --t-sheet:220ms; --t-side:280ms; --t-notch-open:510ms; --t-notch-fold:320ms; --t-wave:900ms; --t-bloom:12s;
   --t-ambient:12s;     /* one breath of the ambient light; its glyphs sway and its chrome drifts in the same time */
@@ -238,7 +243,7 @@ The owner, on the first real window (2026-11-18): the title bar's "Home" in the 
 | Material | What it is for | How it is drawn |
 | --- | --- | --- |
 | **Ground** | The window, the sidebar, the tab bar, the rail (`--bg`); sheets and the notch (`--sheet`) | One black. Hairlines divide it |
-| **Surface** | The Composer on Home | Raised and lit from behind by the room's light: `--surface`, `--surface-edge`, 20 px corners, no border. Brighter (`--surface-lit`) with the keyboard or a thought |
+| **Surface** | The Composer on Home | Opaque graphite, the family of the app's other fills (`--surface` is `--fill`), with a hairline that is brighter along its top (`--surface-edge`), 20 px corners. A shade brighter (`--surface-lit`, which is `--sel`) with the keyboard or a thought. The room's light stands around it: with the effects on, a soft light of the palette's first colour behind it and the lit rim in the palette's two; no colour with the default palette; with the effects off, the surface and its hairline only |
 | **Metal** | The key: the one primary action in view. And the caps that show a key | A machined key, not a pipe: a flat, evenly lit face (`--key`) its label always reads on (`--ink` on it is 15 : 1; the check holds every key to 7 : 1), with the metal at its edges only: a bright top edge, the chromatic glint along its lower edge, a soft shadow beneath (`--key-edge`). Never a band behind the words. Two sizes of key, 24 px and 34 px (Home's Composer and what is attached to it); the cap is 18 px. Under the pointer it brightens; pressed, it travels a pixel and its shadow goes (`--key-down`); with nothing to do it is quiet; while its work is on its way it shows the wave |
 | **Quiet** | Every other control: an answer (a cap and its label), a button among words, an icon button, the Composer's place, a ring, a row | Text. A fill only under the pointer (`--hover`), deeper while pressed (`--sel`); a button among words has a hairline round it (`--line2`). On the surface the same rule in the surface's own tones |
 | **Edge** | What has the keyboard, and what is live: the focused tab, the selected row, a field with the keyboard, the Composer with the keyboard or a thought, the top of a sheet, the rule over what needs you, the ring of the agent that runs the next thought | `--lit`, one pixel (two on a tab), never text, never decoration |
@@ -250,7 +255,7 @@ Every interactive component has: rest, hover, pressed, keyboard focus (a 1.5 px 
 | Component | What it is | States beyond the five |
 | --- | --- | --- |
 | **State mark** | Five 2 px bars in 14 × 14 | working (moving), asks (tall, copper, lit), ready (bright dotted line), failed (red line with one spike), ended (dim dotted line), any of them in background (45 %). A shell shows a prompt glyph instead. Tooltip and accessible name say the state in words |
-| **Sidebar row** | 28 px, full-bleed. Workspace: chevron, name in 600. Session: mark, title, time in mono | selected (fill plus a 2 px lit edge at the left), ended and background (dimmed), shell (title in mono) |
+| **Sidebar row** | 28 px, full-bleed. Workspace: chevron, name in 600. Session: its seat (below), title, time in mono, the words on one baseline | selected (fill plus a 2 px lit edge at the left), ended and background (dimmed), shell (title in mono) |
 | **Tab** | 30 px, flat text on `--bg`, hairline at the right | active (bright text, 2 px grey edge on top), active in the focused pane (the edge is `--lit`), hover or focus (the cross replaces the mark, at the left), shell (mono) |
 | **Divider** | 1 px `--seam`; 7 px hit area | hover (a 35 % `--accent` band) |
 | **Question strip** | Under its terminal, on `--bg`: lit hairline, "Codex asks", the question at 15/21, answers | with attention (the hairline is `--lit`, a faint bloom rises 28 px into the terminal), result (plain hairline, Keep as default) |
@@ -266,7 +271,8 @@ Every interactive component has: rest, hover, pressed, keyboard focus (a 1.5 px 
 | **Sheet** | Hangs from the title bar: `--sheet`, `--lit` top edge, 10 px bottom corners, hairline outline, the window dimmed 50 % behind it | dialog (420 px; three rows of key cap and label: ↩ default, ⌘⌫ destructive in `--fail`, esc cancel), capture (460 px), list (640 px: Agents, each line led by its ring; Settings) |
 | **Rail** | 26 px at the window's foot, mono | left: the glance in words. Right: Agents, Settings |
 | **Home question** | See section 2 | open, collapsed (one 36 px line) |
-| **Home row** | 36 px: mark, folder (96 px), thought (13/500), fact, time | running, background, result new, result failed, result seen (dimmed), with actions (a second line of buttons), saved for later (actions appear on hover or focus, and on the one just saved) |
+| **Seat** | A session's leading mark wherever a session is shown (a row on Home, a sidebar row, a tab): its agent's ring, 20 px on Home and 16 px elsewhere, its circle at the icons' weight | working (the ring's arc turns), asks (the attention colour, glowing), result new (the ring is the lit edge), failed (the failure colour), seen or ended (quiet), in background (dimmed). A shell keeps the terminal icon, a thought saved for later its small circle |
+| **Home row** | An object of two lines that keeps its shape at every width (the owner, 2026-11-19: the table's parts drifted apart, and the mark was heavier than the words beside it): the seat, the thought (13/500) and the time on one baseline; under them, quietly, folder · agent · the one fact, in that order, so that what gives way is the end of the fact. A question that is not open is the same row with the question where the thought would be. Rows stand two abreast where the column is at least 872 px wide, a lone row takes the whole width; every word in a section, its heading included, starts on one edge (`--lead`, 32 px), and what leads a row (a seat, a mark, a chevron) is centred in the column before it | running, background, result new, result failed, result seen (dimmed), with actions (a line of buttons under it), with changes (the diffstat at the right of the second line), saved for later (actions beside its words on hover or focus, and on the one just saved) |
 | **Fold** | A 36 px line: chevron, name, count, newest title, time | closed, open (chevron turned, peek hidden, rows below, "All results" last) |
 | **Notch** | Section 3 | collapsed idle, collapsed with counts, collapsed with attention (bloom and the line that says what), open on a question, on capture, on a result |
 | **Wave** | Chrome bars; the brand mark at work | resting, live (the voice-reactive version from `design/motion-lab` replaces the bars), backdrop |

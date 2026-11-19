@@ -382,6 +382,9 @@ export function Offer({ terms }: { terms: () => void }) {
   );
 }
 
+/** How long the Composer says where a thought started, and which thought it last said it of. */
+const SAID_FOR = 6000;
+let told = { id: '', at: 0 };
 function Way({ hooks, raised, offer }: { hooks: Hooks; raised: boolean; offer: boolean }) {
   const sent = cap.sent?.id === cap.spoken ? null : cap.sent;
   const t = sent ? records.thoughts.get(sent.id) : undefined;
@@ -394,6 +397,15 @@ function Way({ hooks, raised, offer }: { hooks: Hooks; raised: boolean; offer: b
   });
   const line = (words: ComponentChildren, more?: ComponentChildren) => <p class="cap-said" role="status"><span>{words}</span>{more}</p>;
   const at = step(t), note = t && placed(t, agentName);
+  // Where a thought started is said once, for a few seconds: after that its row says it, and nothing stands under the
+  // Composer. (What still needs the person stays: a question, a failure, why it waits, and Undo while it can be undone.)
+  const began = at === 'started' && sent ? (told.id === sent.id ? told : (told = { id: sent.id, at: Date.now() })).at : 0;
+  const fresh = began > 0 && Date.now() - began < SAID_FOR;
+  useEffect(() => {
+    if (!fresh) return undefined;
+    const timer = setTimeout(redraw, began + SAID_FOR - Date.now() + 20);
+    return () => clearTimeout(timer);
+  }, [fresh, began]);
   // Why it waits for later; where the person did not put it there themselves, that it does.
   const later = t ? `${laterWhy(t, agentName)}${t.placed === 'kept' || t.placed === 'kept_answer' ? '' : '; saved for later'}` : '';
   return (
@@ -403,13 +415,13 @@ function Way({ hooks, raised, offer }: { hooks: Hooks; raised: boolean; offer: b
       {talk.said === 'service' && line(needs(), hooks.speech && <button type="button" class="btn" onClick={() => (cancel(), hooks.speech!())}>Set up…</button>)}
       {talk.said && talk.said !== 'service' && line(talk.said)}
       {all.map((x, i) => <Going key={x.id} t={x} open={i === 0} />)}
-      {sent?.to === 'later' && t && line(projects().some((p) => p.kind === 'folder') ? 'Saved for later' : 'Saved for later, until a folder is open',
+      {sent?.to === 'later' && t && line(raised || projects().some((p) => p.kind === 'folder') ? 'Saved for later' : 'Saved for later, until a folder is open',
         <button type="button" class="act" onClick={() => void undo('later')}><Key k="⌘Z" cap /><span>Undo</span></button>)}
       {sent && sent.to !== 'later' && t && !onWay(t) && (
         at === 'asked' ? line('Where should it go? Its question is open.')
           : at === 'later' ? line(later)
             : at === 'failed' ? line(`${why(t)} in ${projectName(t.project_id)}.`)
-              : at === 'started' ? line(<>Started in <b>{projectName(t.project_id)}</b>{note && <i>{note}</i>}</>) : null
+              : fresh ? line(<>Started in <b>{projectName(t.project_id)}</b>{note && <i>{note}</i>}</>) : null
       )}
       {(cap.offer || offer) && hooks.terms && offerable() && !talk.id && !talk.asking && <Offer terms={hooks.terms} />}
     </div>

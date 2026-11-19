@@ -15,7 +15,7 @@
   --fg:#f2f2f3;        /* 17.7 : 1 on --bg */
   --fg2:#a3a4aa;       /*  8.0 : 1 */
   --fg3:#7c7d84;       /*  4.8 : 1; times, hints, disabled */
-  --fg-field:#c4c5cb;  /* secondary words on a raised field, lit from behind: 4.5 : 1 at the strongest light */
+  --fg-field:#c4c5cb;  /* secondary words on the Composer's surface: 10 : 1 on it with the keyboard */
   --ink:#0d0d0e;       /* text on metal */
   /* lines */
   --line:#1f2024; --line2:#33343a;
@@ -26,15 +26,16 @@
   --plus:var(--fg2); --minus:var(--fg3);              /* a diffstat's counts */
   --add:rgb(155 203 167/.09); --del:rgb(240 113 110/.09);  /* a diff's lines, under the sign that marks them */
   /* Materials (NOTES §5): every control is one of four, on the ground above.
-     Surface: the Composer, raised and lit from behind by the room's light.
+     Surface: the Composer: opaque graphite of the ground's own family with a hairline round it, brighter along its
+       top. The room's light stands around it and never shows through it, so it has no colour of its own.
      Metal: the key, the one primary action in view, and the caps that show a key. A flat, evenly lit face its label
        always reads on (--ink on it is 15 : 1); the metal is at its edges: a bright top edge, the chromatic glint along
        its lower edge, a soft shadow beneath. Never a band behind the words.
      Quiet: every other control: text, a fill only under the pointer (--hover, --sel), a hairline round a button.
      Edge: --lit, the chromatic lit edge, for what has the keyboard and what is live. Never text, never decoration. */
-  --surface:linear-gradient(180deg,rgb(255 255 255/.075),rgb(255 255 255/.04));
-  --surface-lit:linear-gradient(180deg,rgb(255 255 255/.095),rgb(255 255 255/.05));
-  --surface-edge:inset 0 1px 0 rgb(255 255 255/.09),0 1px 0 rgb(0 0 0/.5),0 30px 60px -28px rgb(0 0 0/.85);
+  --surface:var(--fill);
+  --surface-lit:var(--sel);
+  --surface-edge:inset 0 1px 0 var(--line2),inset 0 0 0 1px var(--line),0 30px 60px -28px rgb(0 0 0/.85);
   --key:linear-gradient(180deg,#eceef1,#dde0e5);
   --key-edge:inset 0 1px 0 #fff,0 1px 0 #000,0 3px 7px -2px rgb(0 0 0/.75);
   --key-down:inset 0 1px 2px rgb(0 0 0/.28);
@@ -71,6 +72,7 @@
   --side-w:224px; --bar-h:38px; --tab-h:30px; --row-h:28px; --rail-h:26px; --ctl-h:24px; --ctl-l:34px; --key-h:round(18px*var(--ts),1px);
   --fade:24px;         /* how far content dissolves at an edge it scrolls beyond */
   --home-w:1040px; --home-wide:1520px; --home-row:36px; --home-gutter:36px; --cap-w:720px;
+  --lead:32px;         /* what leads a row on Home (a seat, a mark, a chevron): one column, one centre line; every word starts after it */
   --notch-w:420px;
   --sheet-s:480px; --sheet-m:640px; --sheet-l:900px;  /* a sheet: a quick decision, a form or a list, a view to read */
   /* radii */
@@ -79,8 +81,10 @@
   --r3:10px;  /* bottom corners of sheets and of the notch */
   --r4:20px;  /* the Composer's surface */
   --r-in:8px; /* a control standing 12 px inside that surface */
-  /* icons: one owned set on a 16 px grid */
-  --i-w:1.2px; --i-cap:butt; --i-join:miter;
+  /* icons: one owned set on a 16 px grid, and one weight: every stroke of an icon and of an agent's ring is this wide on
+     the screen whatever size it is shown at (parts.css), which is the weight of the text beside it at each text size */
+  --i-w:calc(1.2px * var(--ts));
+  --i-w-key:calc(1.35px * var(--ts));  /* the one heavier stroke: Return's arrow on the metal key, beside its word in 600 */ --i-cap:butt; --i-join:miter;
   /* time */
   --t-fast:120ms; --t-sheet:220ms; --t-side:280ms; --t-notch-open:510ms; --t-notch-fold:320ms; --t-wave:900ms; --t-bloom:12s;
   --t-ambient:12s;     /* one breath of the ambient light; its glyphs sway and its chrome drifts in the same time */

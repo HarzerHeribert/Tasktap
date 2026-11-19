@@ -29,9 +29,6 @@ use windows_sys::Win32::System::Threading::{
 };
 use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult, OVERLAPPED};
 
-/// What every stub here says through the bridge, so a page can say it too.
-pub const NOT_YET: &str = "not available on Windows yet";
-
 // ---------------------------------------------------------------------------------------------
 // The core's pipe.
 
@@ -339,9 +336,146 @@ pub fn watch_power(_changed: impl Fn() + 'static) {}
 // The tab: its place is known (`tab.rs`), its window is not built. `panel` stays 0, which
 // notch.rs takes as "no panel" before it asks for anything below.
 
-/// The folder panel is not built (`IFileOpenDialog`); `TASKTAP_PICK` names a folder meanwhile.
-pub fn pick_folder() -> Option<PathBuf> {
-    None
+/// The system's own folder dialog, modal to the window `owner`: the folder the person chose, as they know it (no
+/// `\\?\` in front), or none when they closed it without choosing, which is no error. It starts where Windows
+/// keeps for this app: in the folder last chosen from, and the first time in the person's own folder. It runs a
+/// message loop of its own until it is closed, so it must be called from the event loop and never from inside one
+/// of the web view's callbacks (WebView2 allows no nested loop there: main.rs, `bridge_host`).
+pub fn pick_folder(owner: Option<isize>) -> Result<Option<PathBuf>, String> {
+    use windows::core::{GUID, HSTRING};
+    use windows::Win32::Foundation::{ERROR_CANCELLED, HWND};
+    use windows::Win32::System::Com::{CoCreateInstance, CoTaskMemFree, CLSCTX_INPROC_SERVER};
+    use windows::Win32::UI::Shell::{
+        FileOpenDialog, IFileOpenDialog, IShellItem, SHCreateItemFromParsingName, FOS_FORCEFILESYSTEM,
+        FOS_PATHMUSTEXIST, FOS_PICKFOLDERS, SIGDN_FILESYSPATH,
+    };
+    /// What Windows keeps this dialog's last folder under: this app's Open Workspace, and no other dialog's.
+    const OPEN_WORKSPACE: GUID = GUID::from_u128(0x7a51_c6f2_3b0e_4d7a_9c41_5e0f_2a8d_b613);
+    let said = |e: windows::core::Error| format!("The folder dialog could not be shown: {}", e.message());
+    // SAFETY: on the thread of the event loop, which tao has made a COM apartment; every pointer is one the
+    // call just returned, and the name is freed with the allocator that made it.
+    unsafe {
+        let dialog: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).map_err(said)?;
+        let options = dialog.GetOptions().map_err(said)?;
+        dialog.SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST).map_err(said)?;
+        let _ = dialog.SetClientGuid(&OPEN_WORKSPACE);
+        if let Some(home) = std::env::var_os("USERPROFILE") {
+            let home: windows::core::Result<IShellItem> =
+                SHCreateItemFromParsingName(&HSTRING::from(home.as_os_str()), None);
+            if let Ok(home) = home {
+                let _ = dialog.SetDefaultFolder(&home);
+            }
+        }
+        match dialog.Show(owner.map(|window| HWND(window as *mut _))) {
+            Ok(()) => {}
+            Err(e) if e.code() == ERROR_CANCELLED.to_hresult() => return Ok(None),
+            Err(e) => return Err(said(e)),
+        }
+        let name = dialog.GetResult().and_then(|item| item.GetDisplayName(SIGDN_FILESYSPATH)).map_err(said)?;
+        let folder = name.to_string().map_err(|_| "The folder's name is not one Tasktap can keep".to_owned());
+        CoTaskMemFree(Some(name.0.cast()));
+        folder.map(|folder| Some(PathBuf::from(folder)))
+    }
+}
+
+/// Holds the workspace's web view to what a preview's frame may do (frames.rs), by WebView2's own means, since
+/// WebView2 has no rule list as WebKit has:
+///
+/// - **Where a frame may go.** WebView2 asks about every frame's navigation apart from the top one's, redirects
+///   among them: only this machine's own addresses and an empty frame go on (`frames::goes`); anything else is
+///   cancelled and told to `stopped`. (The top frame is Tauri's to ask about, and a window a frame asks for is
+///   Tauri's to deny: workspace.rs, on every system.)
+/// - **What may be loaded.** Every request of the web view, of any kind, from any frame or worker, is asked about
+///   before it is sent: one that would leave this machine is answered here with a refusal (`frames::loads`). A
+///   socket is not asked about; it is stopped by what the browser is started with (`frames::BROWSER`), as is
+///   anything else that would get past this.
+///
+/// False when the web view is too old to ask about every request (before 1.0.2478); then no preview gets a frame.
+pub fn confine(view: &tauri::webview::PlatformWebview, stopped: impl Fn(&str) + 'static) -> bool {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2_22, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL, COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL,
+    };
+    use webview2_com::{take_pwstr, NavigationStartingEventHandler, WebResourceRequestedEventHandler};
+    use windows_core::{Interface, HSTRING, PWSTR};
+    let environment = view.environment();
+    // SAFETY: on the web view's own thread, where Tauri runs this, on a view that is open; each string is the
+    // web view's to give and is taken over as it asks.
+    let done: windows_core::Result<()> = (|| unsafe {
+        let core = view.controller().CoreWebView2()?;
+        let mut token = 0i64;
+        core.add_FrameNavigationStarting(
+            &NavigationStartingEventHandler::create(Box::new(move |_, args| {
+                let Some(args) = args else { return Ok(()) };
+                let mut uri = PWSTR::null();
+                args.Uri(&mut uri)?;
+                let uri = take_pwstr(uri);
+                if !crate::frames::goes(&uri) {
+                    args.SetCancel(true)?;
+                    stopped(&uri);
+                }
+                Ok(())
+            })),
+            &mut token,
+        )?;
+        core.cast::<ICoreWebView2_22>()?.AddWebResourceRequestedFilterWithRequestSourceKinds(
+            &HSTRING::from("*"),
+            COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+            COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL,
+        )?;
+        core.add_WebResourceRequested(
+            &WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
+                let Some(args) = args else { return Ok(()) };
+                let mut uri = PWSTR::null();
+                args.Request()?.Uri(&mut uri)?;
+                if !crate::frames::loads(&take_pwstr(uri)) {
+                    let refusal = environment.CreateWebResourceResponse(
+                        None,
+                        403,
+                        &HSTRING::from("Forbidden"),
+                        &HSTRING::from("Content-Type: text/plain"),
+                    )?;
+                    args.SetResponse(&refusal)?;
+                }
+                Ok(())
+            })),
+            &mut token,
+        )?;
+        Ok(())
+    })();
+    done.is_ok()
+}
+
+/// A page as its web view draws it, written to `path` as PNG; `done` is told whether it was.
+pub fn snapshot(view: &tauri::webview::PlatformWebview, path: &Path, done: impl Fn(bool) + 'static) {
+    use webview2_com::CapturePreviewCompletedHandler;
+    use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG;
+    use windows::Win32::System::Com::{STGM_CREATE, STGM_SHARE_DENY_WRITE, STGM_WRITE};
+    use windows::Win32::UI::Shell::SHCreateStreamOnFileEx;
+    use windows_core::HSTRING;
+    let done = std::rc::Rc::new(done);
+    let told = done.clone();
+    // SAFETY: on the web view's own thread, on a view that is open; the file is the stream's until the web view
+    // lets go of it, after the picture is written.
+    let asked: windows_core::Result<()> = (|| unsafe {
+        let file = SHCreateStreamOnFileEx(
+            &HSTRING::from(path.as_os_str()),
+            (STGM_CREATE | STGM_WRITE | STGM_SHARE_DENY_WRITE).0,
+            0x80,
+            true,
+            None,
+        )?;
+        view.controller().CoreWebView2()?.CapturePreview(
+            COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+            &file,
+            &CapturePreviewCompletedHandler::create(Box::new(move |result| {
+                told(result.is_ok());
+                Ok(())
+            })),
+        )
+    })();
+    if asked.is_err() {
+        done(false);
+    }
 }
 
 pub fn screens() -> Vec<Display> {

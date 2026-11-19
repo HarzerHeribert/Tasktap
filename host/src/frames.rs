@@ -14,6 +14,14 @@
 //!   browser. A window a frame asks for is never opened. A top frame that turns up anywhere but on the app's own
 //!   pages is sent back to them (`workspace.rs`).
 //!
+//! On Windows the web view is WebView2, which has no rule list, and the same three are held by its own means
+//! (`windows.rs`, `confine`; `BROWSER`): it asks the host about every request before it is sent and about every
+//! frame's navigation, and its browser is started resolving nothing but this machine. Two things differ there and
+//! are said where they are: WebView2 runs the app's start-up scripts in every frame, so a frame has the app's own
+//! object and call, and the whole of the first rule is Tauri's refusal of a command from an origin that is not the
+//! app's (the check tries the call itself); and a frame never goes to one of the app's own pages, which there would
+//! be the app a second time (`goes`).
+//!
 //! The server reads nothing the rule of `rules.rs` does not let `host.open` open: a file that exists, inside a folder
 //! the person opened or a copy Tasktap made of one, every link on the way followed. It answers `GET` for a path under
 //! a token made anew at each start, on the loopback interface only, and nothing runs while nothing asks.
@@ -39,6 +47,17 @@ pub const RULES: &str = r#"[
 {"trigger":{"url-filter":"^[a-z]+://\\[::1\\](:[0-9]+)?[/?#]"},"action":{"type":"ignore-previous-rules"}}
 ]"#;
 
+/// What WebView2's browser is started with (Windows). Its first three words are what Tauri would have given it;
+/// the rule after them is the wall under everything else here: the browser resolves no name and no address but
+/// this machine's own three, so nothing it is asked to load, by any means, leaves the machine. It is what stops a
+/// socket (`ws`, `wss`), which WebView2 does not ask the host about as it asks about every other load; it also
+/// stops whatever a browser does on its own account. A preview at a loopback address other than these three
+/// (`127.0.0.2`) therefore stays empty on Windows.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub const BROWSER: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
+    --autoplay-policy=no-user-gesture-required \
+    --host-resolver-rules=\"MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE [::1]\"";
+
 /// Whether the web view may go to `url`, in any frame: the app's own pages (`tauri://` on a Mac,
 /// `http://tauri.localhost` on Windows), an empty frame, and this machine's own web addresses.
 pub fn allowed(url: &str) -> bool {
@@ -52,6 +71,32 @@ pub fn allowed(url: &str) -> bool {
 /// Whether `url` is one of the app's own pages: the only place a top frame may be.
 pub fn own(url: &str) -> bool {
     allowed(url) && web(url) != Web::Local && !url.starts_with("about:")
+}
+
+/// Whether a frame inside the page may go to `url`, where the web view asks about a frame apart from the top one
+/// (WebView2): this machine's own web addresses and an empty frame. Not the app's own pages: WebView2 runs the
+/// app's start-up scripts in every frame, so one of the app's pages inside a frame would be the app a second time.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn goes(url: &str) -> bool {
+    allowed(url) && !own(url)
+}
+
+/// Whether the web view may load `url`, as anything, in any frame: what `RULES` says to WebKit, for a web view that
+/// asks the host about each request instead (WebView2). Every `http`, `https`, `ws` and `wss` load is refused but
+/// those to this machine's own addresses and to the two names the app's own pages and calls have on Windows.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn loads(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    let address = match lower.split_once("://") {
+        Some(("http" | "https", _)) => lower.clone(),
+        Some(("ws", rest)) => format!("http://{rest}"),
+        Some(("wss", rest)) => format!("https://{rest}"),
+        _ => return true,
+    };
+    let app = ["http://tauri.localhost", "https://tauri.localhost", "http://ipc.localhost", "https://ipc.localhost"]
+        .iter()
+        .any(|own| address.strip_prefix(own).is_some_and(|rest| rest.is_empty() || rest.starts_with(['/', '?', '#'])));
+    app || web(&address) == Web::Local
 }
 
 /// Whether anything answers at a local web address now: one attempt to connect, to this machine only, so a
@@ -121,7 +166,18 @@ fn asked(head: &str, token: &str) -> Option<PathBuf> {
         }
     }
     let path = String::from_utf8(bytes).ok()?;
-    (!path.contains('\0')).then(|| PathBuf::from(path))
+    (!path.contains('\0')).then(|| PathBuf::from(drive(&path)))
+}
+
+/// A whole path as an address has it, as this system reads one. On Windows a path begins with a drive, and the
+/// address has a slash before it and slashes throughout (`/C:/Users/…`, as the page writes it: preview.tsx), so that
+/// what a page names beside itself is asked for beside it; the slash before the drive goes. Anywhere else, and for a
+/// path without a drive, the path is as it was asked.
+fn drive(path: &str) -> &str {
+    match path.as_bytes() {
+        [b'/', letter, b':', b'/', ..] if cfg!(windows) && letter.is_ascii_alphabetic() => &path[1..],
+        _ => path,
+    }
 }
 
 /// The answer to a request: the status line's end, the type, and the body. A file is read only when the request is
@@ -242,6 +298,54 @@ mod tests {
         // A top frame belongs on the app's own pages only: a local address is a frame's.
         assert!(own("tauri://localhost/workspace.html") && own("http://tauri.localhost/notch.html"));
         assert!(!own("http://localhost:5173/") && !own("about:blank") && !own("https://example.com/"));
+    }
+
+    /// Where WebView2 asks about a frame and about each load: a frame goes to this machine and never to the app's
+    /// own pages; a load is refused when it would leave this machine, whatever it is a load of.
+    #[test]
+    fn a_frame_asked_about_apart_goes_to_this_machine_only_and_no_load_leaves_it() {
+        for yes in [
+            "http://localhost:5173/",
+            "http://127.0.0.1:8000/a.html",
+            "http://[::1]:3000/",
+            "about:blank",
+            "about:srcdoc",
+        ] {
+            assert!(goes(yes), "{yes}");
+        }
+        for no in [
+            "http://tauri.localhost/workspace.html",
+            "tauri://localhost/workspace.html",
+            "https://example.com/",
+            "http://localhost./",
+            "",
+        ] {
+            assert!(!goes(no), "{no}");
+        }
+        for yes in [
+            "http://tauri.localhost/assets/a.js",
+            "http://ipc.localhost/bridge_host",
+            "http://127.0.0.1:8000/x.png",
+            "ws://localhost:5173/hmr",
+            "wss://[::1]:3000/",
+            "data:image/png;base64,AA==",
+            "blob:http://127.0.0.1:8000/1",
+            "about:blank",
+        ] {
+            assert!(loads(yes), "{yes}");
+        }
+        for no in [
+            "https://example.com/a.png",
+            "http://localhost.:8000/leak",
+            "http://0.0.0.0:8000/leak",
+            "ws://example.com/socket",
+            "WSS://example.com/socket",
+            "http://tauri.localhost.example.com/",
+            "http://ipc.localhost@example.com/",
+            "http://192.168.1.10/",
+        ] {
+            assert!(!loads(no), "{no}");
+        }
     }
 
     /// The table the core and the pages share: what it calls local is where a frame may go, and nothing else is.

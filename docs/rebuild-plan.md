@@ -164,15 +164,16 @@ A separate page with its own entry point. It subscribes to core events and share
 | Answer | Opens by itself when an agent asks. Choices on 1, 2, 3. Hold to talk for a free reply. A visible "1 of 3" when several are waiting. |
 
 - The shortcut is the main way in. Hover stays as a second way.
+- **The capture key on Home (decided 2026-11-19).** The key puts the caret where a thought is typed, and never opens a second field over one that is there. Pressed while Tasktap's own window is in front, the window's page decides: with Home showing and no sheet over it the caret goes to Home's own field, with New Task open to that one, and nothing opens; anywhere else in the window (a terminal, Settings, another sheet) the key does what it does from another app. From another app it opens the notch, on Windows the tab, with the caret in its field, and the keyboard goes back where it was at the fold. Where there is no tab (Windows, switched off), Tasktap's window comes forward: the caret in Home's field while Home shows, New Task otherwise. The rule is the same on both systems (`host/src/main.rs` `shortcut`, `ui/src/workspace/main.tsx` `captureKey`, `host.capture`). New Task from the menu, its key and the sidebar still opens its sheet wherever it is asked for.
 - Everything else opens the workspace at the right place: routing dialogs, the review sheet, setup, navigation, preferences.
 - Keep from today: no focus stealing on passive reveal, camera-aware geometry, the menu-bar fallback on displays without a notch, reduced motion.
 
-### The notch on Windows (proposal, 2026-11-18)
+### The notch on Windows (proposal, 2026-11-18; built 2026-11-19)
 
-Windows has no notch, and the three jobs are the same. The proposal is the Mac's form for a display without a camera housing, plus one anchor that Windows owns:
+Windows has no notch, and the three jobs are the same. It has the Mac's form for a display without a camera housing, plus one anchor that Windows owns. What follows is the proposal, corrected where building it changed it; what was built and tried is under "Built" below.
 
 - **The tab.** A small frameless, transparent, always-on-top window that hangs centred from the top edge of one display and opens downwards into the same sheet. It is the same page (`notch.html`) on the same geometry: 104 × 16 points on a large display, 120 × 20 on a smaller one, the sheet 420 points wide. Collapsed it shows the glance and lets every click through.
-- **The notification-area icon.** Always there, also while the tab is hidden: its tooltip says the counts, a click opens the sheet, its menu has Workspace, New Task and Quit. It is not the glance by itself, because Windows keeps a new icon in the overflow until the person drags it out.
+- **The notification-area icon.** Always there, also while the tab is hidden or switched off: its picture says what waits (five bars, the app's state mark: in amber while a question waits, with a dot while a result does), its tooltip the counts, a click opens the sheet, its menu has Open Tasktap, Settings and Quit Tasktap. It is not the glance by itself, because Windows keeps a new icon in the overflow until the person drags it out.
 - **The shortcut.** As on the Mac it is the main way in: it opens the sheet with the keyboard, on the display the pointer is on.
 
 How it behaves:
@@ -181,11 +182,11 @@ How it behaves:
 | --- | --- |
 | Taskbar at the bottom or a side | Nothing to do: the tab is at the top, and the sheet ends 12 points above the work area's lower edge. |
 | Taskbar docked at the top | The tab hangs from the taskbar's lower edge, never over it. An auto-hidden one leaves the tab at the display's edge, where it covers the strip that reveals the taskbar for the tab's own width only. |
-| Several displays | Collapsed, the tab is on the primary display. The shortcut opens the sheet on the display under the pointer, and it folds back to where it was. |
+| Several displays | Collapsed, the tab is on the display the setting names: the main one, a named one, or wherever it was last opened. The shortcut and the icon open the sheet on the display under the pointer, and from the main or a named display it folds back to where it was. |
 | Different scale factors | The geometry is in points per display; Windows reports pixels. The window is placed and sized again when its display's scale changes. |
-| Full-screen apps | The tab hides while Windows says a full-screen app, a presentation or an exclusive Direct3D app is running (`SHQueryUserNotificationState`, the documented rule for notification UI). The shortcut still opens the sheet, since the person asked. A question that arrives meanwhile changes the icon. |
-| Keyboard | A passive reveal never takes it: the window is made unfocused and not focusable. For capture and answer it is made focusable and focused, and the window that had the keyboard gets it back at fold. |
-| Pointer | Tauri's click-through is the whole window or nothing, so the host turns it on and off from a pointer watcher against the outline the page sends, as on the Mac (Raw Input with `RIDEV_INPUTSINK`, which Microsoft recommends over a low-level hook). |
+| Full-screen apps | The tab hides while Windows says a full-screen app, a presentation or an exclusive Direct3D app is running, or that nobody is at the desktop (`SHQueryUserNotificationState`, the documented rule for notification UI). The shortcut still opens the sheet, since the person asked. A question that arrives meanwhile changes the icon. |
+| Keyboard | A passive reveal never takes it: the window is shown without activating it and a click on the collapsed tab does not activate it. For capture and answer it is made the window in front, and the window that had the keyboard gets it back at fold. Open, a click on the sheet gives it the keyboard as a click on any window does. When the keyboard goes elsewhere (a click on another window, Alt+Tab), the sheet folds. |
+| Pointer | Windows' click-through is the whole window or nothing. At rest the tab's window lets the pointer through everywhere, and a second window under the tab, which draws nothing and has the outline's own shape (a window region), is what the system tells when the pointer reaches the tab: nothing of the app runs until then. From that moment, and while the sheet is open, the host reads the pointer sixty times a second against the outline the page sends, as the Mac's pointer events do, and turns click-through off inside the outline and on outside it. (The proposal named Raw Input; that would have been told of every move of the pointer for as long as the app runs.) |
 
 **What Tauri and WebView2 support, checked on 2026-11-18** against the sources this app builds with (tauri 2.12.6, tao 0.37.2, wry 0.57.2, global-hotkey 0.8.0, tray-icon 0.25.1) and Microsoft's documentation:
 

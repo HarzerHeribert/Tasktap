@@ -7,7 +7,8 @@
 #   scripts/winvm/desktop.sh [ref] [--out DIR] [--no-build] [--rows 3,14]
 #   scripts/winvm/desktop.sh --dry-run    over SSH alone: says what each row would do, starts nothing,
 #                                         and fetches that as the round's results would be fetched
-# --rows runs those rows alone. The round makes no sound (desktop.ps1 says how).
+# --rows runs those rows alone (with 4, name + too: it ends the app rows 4 to 12 share). The round makes no sound
+# (desktop.ps1 says how).
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 ref='' out='' build=1 dry=0 rows=''
@@ -26,7 +27,7 @@ done
 script='C:\tasktap\checkout\scripts\winvm\desktop.ps1'
 stamp=$(date +%Y%m%d-%H%M%S)
 out=${out:-${TMPDIR:-/tmp}/tasktap-desktop-round}
-run="pwsh -NoProfile -File $script -Out C:\\tasktap\\desktop-rounds\\$stamp${rows:+ -Only $rows}"
+run="pwsh -NoProfile -File $script -Out C:\\tasktap\\desktop-rounds\\$stamp${rows:+ -Only ${rows//,/:}}"
 status=0
 if ((dry)); then
   # The checkout's copy, as the round would run it: of the commit last built or tested there.

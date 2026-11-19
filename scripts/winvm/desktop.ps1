@@ -6,7 +6,8 @@
 #                       the window's edges while it is in front (the frame, a menu, the backdrop as a person sees them)
 #   <Out>\*.txt         what the smoke script, the credential test and the app printed (rows4-12-app.txt, row13-app.txt)
 # -DryRun starts nothing and shows no window: it says what each row would do and checks that
-# what the round needs is there. -Only 3,14 runs those rows alone (5, 8, 10, 11 and 12 need 4, whose app they share).
+# what the round needs is there. -Only 3:14 runs those rows alone (5, 8, 10, 11 and 12 need 4, whose app they share,
+# and + after them, which ends it).
 # The round makes no sound: for as long as it runs, this account's sounds for the system's events and its warning
 # beep are off, and they are put back when it ends (a round that was cut short is put right by the next).
 param(
@@ -472,7 +473,7 @@ function Sounds-On {
 
 $rows = [ordered]@{}
 
-$rows['1'] = 'Starts the app as Explorer would, with no debug channel and its own data folder; waits for one visible window titled Tasktap and times it; reads the menu bar''s names; saves the window''s picture; looks for any new console window; lists the app''s core and web view processes; closes the window as its close button does and times the app''s end; watches the core leave by itself (a minute) and ends it after 90 s if it has not.', {
+$rows['1'] = 'Starts the app as Explorer would, with no debug channel and its own data folder; waits for one visible window titled Tasktap and times it; reads the menu bar''s names; saves the window''s picture; looks for any new console window; lists the app''s core and web view processes; finds the tab''s window and the icon; closes the window as its close button does, after which the app must run on with its tab and its icon; opens the icon''s menu and chooses Quit, and times the app''s end; watches the core leave by itself (a minute) and ends it after 90 s if it has not.', {
     $before = @([Tasktap.Desk]::Windows() | ForEach-Object Handle)
     $watch = [Diagnostics.Stopwatch]::StartNew()
     $process = Start-Process $exe -PassThru
@@ -652,6 +653,17 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
             Check 3 'the menu closes with nothing chosen, and the app runs on' ($closed -and -not $proc.HasExited) "closed: $closed"
         }
     }
+    # A click on the icon, as the shell tells of one: the sheet opens. (Whether it also gets the keyboard is the
+    # system's to say: it gives it after a real click on the icon, and may not after this telling.)
+    if ($where) {
+        [Tasktap.Desk]::Tell([IntPtr][long]$t.helper, 0x8001, ($y -shl 16) -bor ($x -band 0xffff), (1 -shl 16) -bor 0x400)
+        $body = Soon "String(document.body.classList.contains('open')) + ' ' + (document.activeElement?.id ?? '')" 'true capture-input' 10 'notch'
+        $keyed = [Tasktap.Desk]::GetForegroundWindow() -eq $tab
+        Check 3 'a click on the icon opens the sheet with its field ready' ($body -eq 'true capture-input') "the page open and where its caret is: $body; the tab got the keyboard: $keyed"
+        if ($keyed) { [Windows.Forms.SendKeys]::SendWait('{ESC}') } else { Send 'key notch Escape' }
+        $null = Tab-Soon { param($t) -not $t.watching -and $t.pixels[3] -lt 120 }
+        Check 3 'and it folds again' ([bool](Notch).collapsed) "collapsed: $((Notch).collapsed)"
+    }
     # A window over the whole display: the app's own.
     $null = Front $window
     Send 'fullscreen on'
@@ -697,7 +709,7 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
     $left | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 
-$rows['4'] = 'Starts the app with its debug channel on a data folder of its own (it stays up for rows 5 and 8). Reads the capture-key event: the default must register and be Alt-Shift-Space. Has the page change the key to Control-Alt-T and back to the default through host.capture_key. Opens Notepad in front, presses Alt-Shift-Space as the keyboard would, and expects the Tasktap window in front; says where the caret is.', {
+$rows['4'] = 'Starts the app with its debug channel on a data folder of its own (it stays up for rows 5 and 8). Reads the capture-key event: the default must register and be Alt-Shift-Space. Has the page change the key to Control-Alt-T and back to the default through host.capture_key. Opens Notepad in front, presses Alt-Shift-Space as the keyboard would, and expects the tab''s sheet in front with the caret in its field and the Tasktap window where it was; Escape must give Notepad the keyboard back. Presses the key with Home in front: the caret must be in Home''s own field and nothing open over it. Switches the tab off and presses the key over Notepad: the Tasktap window must come forward with the caret in Home''s field.', {
     $said = @($seen | Where-Object { $_ -match '"event":"capture-key"' })[-1]
     if (-not $said) { $said = Until '"event":"capture-key"' 10 }
     $default = "$said" -match '"ok":true' -and "$said" -match '"alt":true' -and "$said" -match '"shift":true' -and "$said" -match '"control":false' -and "$said" -match '"code":"Space"'
@@ -706,6 +718,8 @@ $rows['4'] = 'Starts the app with its debug channel on a data folder of its own 
     Check 4 'a Control-Alt key registers when asked for' ("$other" -match '"code":"KeyT"') $other
     $back = Js "__ws.call('host.capture_key', { key: null }).then(JSON.stringify, e => 'refused: ' + (e.message ?? e))"
     Check 4 'the default registers again when the preference is cleared' ("$back" -match '"code":"Space"' -and "$back" -match '"shift":true') $back
+    $place = Js "__ws.call('host.tab', {}).then(JSON.stringify, e => 'refused: ' + (e.message ?? e))"
+    Check 4 'the page is told where the tab hangs and which displays there are (Settings, Thoughts)' ("$place" -match '"display":"main"' -and "$place" -match '"primary":true') $place
     $marker = "Tasktap-desk-$PID"
     Set-Content "$tmp\$marker.txt" ''
     Start-Process notepad.exe -ArgumentList "$tmp\$marker.txt"
@@ -1140,7 +1154,7 @@ $rows['9'] = 'Starts the app with no folder named for it. With its window in fro
     End-Own 'row9-app.txt'
 }
 
-$rows['14'] = 'Starts the app with the core that has the fixture agent, the agent on the PATH of its terminals, and a folder as a workspace. Opens Notepad in front, presses Alt-Shift-Space, types a thought with the keyboard and presses Return: the thought must be captured, placed in the folder and started, with the fixture agent in a terminal of the workspace. Has the agent ask, puts Notepad in front again and presses Ctrl+Alt+Y: the agent must be answered while Notepad stays in front. Ends the turn and looks for the result''s marks.', {
+$rows['14'] = 'Starts the app with the core that has the fixture agent, the agent on the PATH of its terminals, and a folder as a workspace. Opens Notepad in front, presses Alt-Shift-Space, types a thought into the tab with the keyboard and presses Return: the thought must be captured, placed in the folder and started, with the fixture agent in a terminal of the workspace, and the tab must fold by itself and leave Notepad the keyboard. Has the agent ask: the tab must open on the question by itself and take the keyboard from nobody. Presses Ctrl+Alt+Y over Notepad: the agent must be answered while Notepad stays in front. Ends the turn and looks for the result''s marks in the window, on the tab and on the icon; puts the pointer on the tab, which must show the result and count it as read. Pictures of the tab with a thought running, a question, and a result.', {
     $fixtures = "$checkout\host\binaries\fixtures"
     New-Item -ItemType Directory -Force "$tmp\data14", "$tmp\project14", "$tmp\agents" | Out-Null
     Copy-Item "$fixtures\tasktap.exe" "$tmp\agents\fixture-agent.exe"
@@ -1156,6 +1170,9 @@ $rows['14'] = 'Starts the app with the core that has the fixture agent, the agen
     if (-not $notepad) { Say 'FAIL' 14 'not run: Notepad could not be put in front of the app, so no other program was in front'; End-Own 'row14-app.txt'; return }
     $t = Tab-Soon { param($t) $t.shown }
     $tab = [IntPtr][long]$t.window
+    # Notepad under the tab and all of its sheet: the pictures show them over another program's light window.
+    $null = [Tasktap.Desk]::SetWindowPos($notepad.Handle, [IntPtr]::Zero, $t.pixels[0] - 260, $t.pixels[1], 760, 520, 0x0014)
+    Start-Sleep -Milliseconds 400
     [Tasktap.Desk]::Chord([byte[]](0x12, 0x10, 0x20))
     $front = $false
     for ($i = 0; $i -lt 30 -and -not $front; $i++) { Start-Sleep -Milliseconds 100; $front = [Tasktap.Desk]::GetForegroundWindow() -eq $tab }
@@ -1186,6 +1203,14 @@ $rows['14'] = 'Starts the app with the core that has the fixture agent, the agen
     Check 14 'the question opens the tab by itself, in full, and Notepad keeps the keyboard' ("$asks" -match '^true .*Deploy to staging\?' -and [Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle -and -not (Notch).key) "the tab's sheet: $("$asks".Substring(0, [Math]::Min(160, "$asks".Length))); Notepad in front: $([Tasktap.Desk]::GetForegroundWindow() -eq $notepad.Handle)"
     Start-Sleep -Milliseconds 700
     Say 'LOOK' 14 'the tab open on a question, over another program' (Tab-Picture $tab 'row14-tab-question')
+    # Folded while the question waits, as Escape folds it: the tab says who asks and what, its light is behind it,
+    # and the icon is the question's.
+    Send 'key notch Escape'
+    $line = Soon "String(document.body.classList.contains('open')) + ' ' + (document.querySelector('#tab')?.innerText ?? '').replace(/\s+/g, ' ')" '^false .*Deploy to staging\?' 15 'notch'
+    $t = Tab-Soon { param($t) $t.pixels[3] -lt 120 }
+    Start-Sleep -Milliseconds 900
+    Check 14 'folded while the question waits, the tab says who asks and what, wider by what that needs, and the icon is the question''s' ("$line" -match '^false .*Deploy to staging\?' -and $t.pixels[2] -gt 232 -and $t.icon.waits -eq 'Question') "the tab: $line; its window: $($t.pixels -join ' '); the icon: $($t.icon.waits), '$($t.icon.says)'"
+    Say 'LOOK' 14 'the tab collapsed while a question waits: who asks and what, and the light behind it' (Tab-Picture $tab 'row14-tab-asks')
     # Answered from another program, as the global shortcut is for.
     $other = Front $notepad.Handle
     if ($other) { [Tasktap.Desk]::Chord([byte[]](0x11, 0x12, 0x59)) }
@@ -1294,7 +1319,7 @@ for ($tries = 0; -not $lock -and -not $Locked; $tries++) {
     }
 }
 $workspace = [IntPtr]::Zero
-$chosen = @($Only -split '[ ,]+' | Where-Object { $_ })
+$chosen = @($Only -split '[ ,:]+' | Where-Object { $_ })
 try {
     Say 'INFO' '' "commit $(git -C $checkout rev-parse HEAD), $triple, $([Environment]::OSVersion.VersionString), session $session"
     Say 'INFO' '' "no sound for as long as the round runs: $(Sounds-Off) sounds of this account's for the system's events are off, and its warning beep; both are put back at the end"

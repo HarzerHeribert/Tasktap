@@ -25,4 +25,4 @@ while (($#)); do
   shift
 done
 sha=$(git rev-parse --verify --end-of-options "${ref:-HEAD}^{commit}")
-submit "$here/host.ps1" "$sha" "target=$target" "run=$run" "desktop=$desktop" "only=$rows"
+submit "$here/host.ps1" "$sha" "target=$target" "run=$run" "desktop=$desktop" "only=${rows//,/:}"

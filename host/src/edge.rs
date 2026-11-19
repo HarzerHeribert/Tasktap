@@ -90,8 +90,9 @@ static FOREIGN: AtomicIsize = AtomicIsize::new(0);
 /// Windows says not to show the tab now.
 static BUSY: AtomicBool = AtomicBool::new(false);
 static WATCHING: AtomicBool = AtomicBool::new(false);
-/// The tab's window is the one in front: when another comes in front, the keyboard has left it.
-static KEYED: AtomicBool = AtomicBool::new(false);
+/// For how many looks of the watch the tab's window, which was the one in front, has not been: at the second the
+/// keyboard has left it. Below zero, it was not in front.
+static LEFT: AtomicI32 = AtomicI32::new(-1);
 /// A dialog of the tab's own is open: the keyboard is with it, not elsewhere.
 static PICKING: AtomicBool = AtomicBool::new(false);
 /// A check's run: no icon, no strip, no timer, and the tab is never hidden.
@@ -285,7 +286,7 @@ pub fn make_key(panel: usize) {
         }
         focusable(panel, true);
         SetWindowPos(tab, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
-        KEYED.store(SetForegroundWindow(tab) != 0, Relaxed);
+        SetForegroundWindow(tab);
     }
 }
 pub fn is_key(panel: usize) -> bool {
@@ -299,7 +300,7 @@ pub fn give_back_key(panel: usize) {
     }
     let prior = PRIOR.load(Relaxed) as HWND;
     // The sheet is folding by itself: the keyboard is handed back, not lost.
-    KEYED.store(false, Relaxed);
+    LEFT.store(-1, Relaxed);
     // SAFETY: windows are only asked about, and one is put in front, which this app may while it is in front.
     unsafe {
         let there = IsWindow(prior) != 0 && IsWindowVisible(prior) != 0 && IsIconic(prior) == 0;
@@ -406,11 +407,6 @@ fn rule() {
 /// Another window came in front: remembered as where the keyboard goes back to, and what Windows says is asked
 /// now and once more in a moment, since the shell decides what is full screen after the window is in front.
 unsafe extern "system" fn foreground(_: HWINEVENTHOOK, _: u32, window: HWND, _: i32, _: i32, _: u32, _: u32) {
-    if window as isize == TAB.load(Relaxed) {
-        KEYED.store(true, Relaxed);
-    } else if KEYED.swap(false, Relaxed) {
-        post(AWAY);
-    }
     if !window.is_null() && window as isize != TAB.load(Relaxed) && window != helper() && !bar(window) {
         FOREIGN.store(window as isize, Relaxed);
     }
@@ -471,8 +467,9 @@ unsafe extern "system" fn helper_proc(window: HWND, message: u32, w: WPARAM, l: 
         AWAY => {
             let tab = TAB.load(Relaxed) as HWND;
             let open = NOTCH.try_lock().is_ok_and(|st| st.panel != 0 && !st.is_collapsed());
-            if open && !PICKING.load(Relaxed) && !tab.is_null() && GetForegroundWindow() != tab {
-                crate::log(json!({"event": "tab", "away": true}));
+            let front = GetForegroundWindow();
+            crate::log(json!({"event": "tab", "away": open && front != tab, "open": open, "front": front as isize}));
+            if open && !PICKING.load(Relaxed) && !tab.is_null() && front != tab {
                 notch::tell(app, json!({"do": "away"}));
             }
             0
@@ -482,6 +479,15 @@ unsafe extern "system" fn helper_proc(window: HWND, message: u32, w: WPARAM, l: 
             0
         }
         WM_TIMER if w == WATCH => {
+            // The keyboard was in the open sheet and is in another window now, by a click there or a key: said
+            // once, at the second look, since for a moment between two windows none is in front.
+            let tab = TAB.load(Relaxed) as HWND;
+            if !tab.is_null() && GetForegroundWindow() == tab {
+                LEFT.store(0, Relaxed);
+            } else if LEFT.load(Relaxed) >= 0 && !PICKING.load(Relaxed) && LEFT.fetch_add(1, Relaxed) >= 1 {
+                LEFT.store(-1, Relaxed);
+                post(AWAY);
+            }
             let (x, y, down) = pointer();
             let now = [x as i32, y as i32, i32::from(down)];
             if SEEN.iter().zip(now).fold(false, |moved, (seen, now)| (seen.swap(now, Relaxed) != now) | moved) {
@@ -536,10 +542,7 @@ unsafe extern "system" fn tab_proc(window: HWND, message: u32, w: WPARAM, l: LPA
             }
             return 0;
         }
-        WM_ACTIVATE if (w & 0xffff) as u32 == WA_INACTIVE => {
-            KEYED.store(false, Relaxed);
-            post(AWAY)
-        }
+        WM_ACTIVATE if (w & 0xffff) as u32 == WA_INACTIVE => post(AWAY),
         WM_NCDESTROY => {
             RemoveWindowSubclass(window, Some(tab_proc), 1);
         }

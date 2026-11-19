@@ -1,6 +1,6 @@
 # How Tasktap knows a person's projects
 
-A design, not yet built (2026-11-19). It answers one question of the owner's: how does Tasktap come to know which folders are a person's projects, so that a thought can find where it belongs without each folder being opened by hand first. The pictures are on a private page for the owner; the experiments were run on invented names and generated folders, never on anyone's real ones.
+A design (2026-11-19); stages 1 and 2 are built, as the section "Built" at the end says, which with the owner's decisions above it overrides what the design proposed. It answers one question of the owner's: how does Tasktap come to know which folders are a person's projects, so that a thought can find where it belongs without each folder being opened by hand first. The pictures are on a private page for the owner; the experiments were run on invented names and generated folders, never on anyone's real ones.
 
 ## Summary
 
@@ -352,3 +352,91 @@ These override anything above that says otherwise.
 - **The central question is whether a folder is a project's root**, answered by evidence in this order: an agent was started there (the agents' lists, Tasktap's own history); it is the top of a Git repository (not a worktree, not a submodule, not Tasktap's own copy); it has a package file and no project above it. A folder with none of these is not a project until the person opens it. A folder inside a project is its own entry only when an agent was started there. The home folder, Desktop, Downloads and Documents are never projects by themselves.
 - **The full list is in Settings › Projects only**, to see and correct what Tasktap knows; and once at first run, as the sign that looking worked.
 - Open: the shapes of the agents' lists are from documentation; verify them on runs in a home of their own before building.
+
+## Built: stages 1 and 2 (2026-11-19)
+
+What follows is what the code does now. Where it differs from the design above, this section and the owner's decisions win.
+
+### Done when (for the reviewer)
+
+Each promise the build makes, and what proves it. "Test" names are in `core/tests/map.rs` unless another file is named; every check runs as the brief of this work says (`cargo test`, `npm run check`, `scripts/composer-check.cjs`, the align and type checks, `core/scripts/measure.sh`).
+
+| # | Promise | Proved by |
+| --- | --- | --- |
+| 1 | A project Tasktap knows gives no right: a file in it is refused (`denied`) until a thought starts there; Undo during the hold leaves no workspace and no right behind; once a thought starts there it is a workspace and its files read. | `a_known_project_gives_no_right_until_a_thought_starts_there`, through a real core: `file.read` denied, placed, undone, denied, started, read. |
+| 2 | The root rule: an agent's start, the top of a Git repository, a package file with no project above, an agent's files; worktrees and submodules count for their repository; a folder inside a project only under it; home, Desktop, Documents, Downloads never by themselves; temporary folders, Tasktap's data, another tool's hidden folders and a build's output never. | `the_root_rule_says_which_folder_is_a_project` (a fixture home with each case). |
+| 3 | One repository is one project however many copies: known by its remote's address (no user, no password), else by its first commit; the copy beside other projects is it, unless the person chose another; the others are shown under it and never offered. | `a_repository_is_one_project_whatever_its_copies` (real `git`, real copies); on the owner's machine, below. |
+| 4 | Of an agent's history only the folder each session started in and when its file last changed are read, within fixed bounds; never what was said. | `an_agents_history_says_where_and_when_and_nothing_more_is_read` (a session's words are never returned; a folder named past 128 KiB is not read; Codex's second line is not read; no file past the count). |
+| 5 | Schema 3 keeps every record of schema 2 and backs the file up first. | `a_schema_2_store_keeps_every_record_as_it_takes_the_map`; the store's migration tests (`tests/store.rs`). |
+| 6 | A thought is placed by a name as written, joined or split, or as speech writes it, over open and known projects; the longest name wins; equal names ask; a name a letter off asks; Scratch is never a choice; with no name it asks, with at most three choices, never guessing; with no project known it is kept for later. | `tests/route.rs` (the table, the longest name, Scratch), `placing_finds_names_as_written_and_as_said_and_asks_when_unsure`, `core/scripts/place-eval.sh` (below: 38 of 38 named thoughts right, none wrong). |
+| 7 | With a model agreed to, it is given the 8 projects this Mac ranks likeliest with one line each, never the map; a consent to the earlier terms covers nothing and is asked again. | `tests/store.rs` `a_model_is_given_at_most_8_projects_8_sessions_and_3_exchanges`, `tests/route.rs` (consent, keys), `core/proto/tests/wire.rs` (`terms`), `ui/src/way.test.ts`. |
+| 8 | The chip's list shows only what is in use (Tasktap decides, the open folders, Scratch, For later) and a field to find any project; a project not open appears only as an answer (to the field, or as a written thought's three likeliest places); ⌘K opens it; a known project picked is sent by its card and opens at its start. | `scripts/composer-check.cjs` (real pointer and keys), at three text sizes by `scripts/text-sizes.sh`. |
+| 9 | "Where should this go?" offers at most three projects, each with why, then Another project… (O, a field) and Keep for later (L). | `tests/route.rs` (`notes`), the pictures (`scripts/placing-shots.cjs`). |
+| 10 | Nothing runs when idle: no timer, no watcher. A look runs when asked (first run, Settings, a look switched on) and when a capture or the list finds a looked-at folder changed by one `stat` each. | `core/scripts/measure.sh`: 0 idle wakeups, 3.0 MB. `map.rs` has no timer. |
+| 11 | The first run offers the agents' history first, says what is read in one sentence, shows "Found n projects" once; Settings › Projects shows and corrects all of it. | The pictures (`scripts/projects-shots.cjs`), the align and type checks. |
+
+### What was built
+
+**Core** (`core/src/map.rs`, records in `core/proto/src/records.rs`, schema 3 in `core/src/store.rs`).
+
+- Records `looks` (an agent's history, or a folder to look in: `on`, `state`, `found`, `looked`, `note`) and `cards` (one per folder: `name`, `names`, `about` and `about_from`, `why` as evidence, `agents`, `repo`, `copy_of`, `inside`, `project_id`, `used`, `looks`, `hidden`, `main`, `available`). Schema 3 adds the two tables and touches nothing else. `thoughts` gain `card_id`; router questions gain `notes` (why each choice).
+- Calls: `look.add`, `projects.offer` (by `stat` only), `projects.look`, `projects.find`; `put` and `delete` on `cards` (names, not a project, this copy) and `looks` (on, off, remove a folder).
+- The agents' histories through one optional method of the agent trait, `Agent::history`, answered by Claude Code and Codex (`core/src/agents/claude.rs`, `codex.rs`). Claude Code: `<config>/projects/<folder>/`, the `cwd` of the newest of the newest three session files, read 16 KiB at a time up to 128 KiB until the field, dated by the file. `~/.claude.json` is not read (it holds the account). Codex: `<home>/sessions/<y>/<m>/<d>/`, newest first, the first line's `cwd` within 4 KiB, dated by the file; `config.toml` is not read. 5,000 files and 3 s per agent at most.
+- Identity: the remote from `.git/config` (8 KiB, `origin` else the first, no user or password, a local path counts as none), else `git rev-list --max-parents=0 HEAD` once per folder, kept on the card. Git is run as the core runs it for worktrees (no hooks, no fsmonitor, its own environment).
+- Places to look: directly inside and one level into a folder that is no project; 2,000 entries, else `many`. The usual names that exist, and folders that hold two projects or more, are suggested (`projects.offer`).
+- A card's line: the package file's description (8 KiB), else the README's first paragraph past headings, badges and code (2 KiB), 240 characters.
+- Refreshing: `projects.look` reads every look that is on; a capture and `projects.find` `stat` each looked-at folder and the folders directly in it off the core's thread, and look again when a modified time changed. One look at a time; a look keeps the core from idling out until it ends.
+
+**Placing** (`core/src/route.rs`, `core/src/route/names.rs`, `core/src/state.rs`).
+
+- The request has every open workspace and every known project that is offered (not a copy, not inside another, not hidden, there), each with its names, line and when it was last worked on, and where the last thought went.
+- Names: every stretch of one to five words against each name's parts, joined, and a rough English sound key (two words or more, not opening on a small word, of about the name's length); a single word one letter from a name of five letters or more is "near" and only asked about. A name written or joined outweighs one said only as it sounds; a name inside a longer one of another project is not said, unless the longer is only a sound alike. Underscores keep a word whole.
+- Unsure: up to three choices, by the line about each (rarer shared words count more), then where the last thought went, then the most recently worked on, then the workspaces newest first. `route.hint` says only what names decide, so the chip says "asks you if unsure" rather than three guesses.
+- `Destination::Card`: a thought placed into a known project keeps `card_id` and no project until it starts; `launch` opens the card's folder as a workspace (or reopens an older row of it) and names it on the card. "new here" follows the thought.
+- A model: the 8 ranked likeliest, each with `about` (160 characters), never all; at most three choices taken from its list. `route.terms` says so; its version (`RouteBy::terms`, 2) must match a stored consent.
+
+**Pages** (`ui/src/capture.tsx`, `ui/src/question.tsx`, `ui/src/workspace/projects.tsx`, `ui/src/workspace/home.tsx`).
+
+- The chip: "pyrite · said as “pie right” · not open yet", "harbormaster · your choice · opens it", "Tasktap decides · asks you if unsure", "No projects yet · saved for later", "cuegrid · the only project".
+- The list: the field "Find a project" first (⌘K from the Composer's field), then a written thought's three likeliest places, Tasktap decides, the open folders most recently used first (six on Home, three in the notch and the sheet), Scratch, Open another folder…, For later. Typing in the field shows only what it finds.
+- The question: 1 to 3 with why, O Another project… (a field, numbered answers, Return takes the first), L Keep for later; on Home, a pane, a sheet and the notch alike.
+- First run and Settings › Projects as described under the owner's decisions; see the pictures.
+
+**The review build** (`host/scripts/build-review.sh`): "Tasktap Review", its own bundle identifier, data folder (`~/Library/Application Support/Tasktap Review`), core, socket, device key and key service; no notch window and no global key until one is recorded in its own Settings; no updater exists in the host.
+
+### The experiment, through the real code
+
+`core/scripts/place-eval.sh` runs `core/scripts/place-eval.json` through `route::local` with every project a known one, at 30, 100 and 300 projects (figures that differ are given in that order):
+
+| Thoughts | Right | Wrong | Asked, right one first | Asked, it among the choices | Asked without it | Kept | Right one in the 8 a model gets |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 14 that name the project as typed | 14 | 0 | 0 | 0 | 0 | 0 | 14 |
+| 16 that name it as speech writes it | 16 | 0 | 0 | 0 | 0 | 0 | 16 |
+| 8 that name one with near-duplicates | 8 | 0 | 0 | 0 | 0 | 0 | 8 |
+| 16 that only describe the work | 0 | 0 | 11 / 9 / 9 | 2 / 3 / 3 | 3 / 4 / 4 | 0 | 13 |
+| 3 in a project whose card says nothing | 0 | 0 | 0 | 0 | 3 | 0 | 1 |
+| 6 that name and mean no project | 0 | 0 | 0 | 0 | 6 | 0 | 0 |
+
+0.2 / 1.0 / 2.0 ms a thought. Every thought that names nothing is now asked about (the owner's decision), so the six that mean no project are questions, not ideas: Keep for later is one key. The rules were adjusted twice on this set (a sound alike may not knock out a written name; a name a letter off comes after a line that shares two words), so the figures are in-sample.
+
+### On the owner's machine, in counts only
+
+`core/examples/map-count.rs` reads as a look does and prints counts only (run read-only, 2026-11-19).
+
+- The histories name 327 distinct folders: 61 are gone, 229 are home-like, hidden, temporary or Tasktap's (all copies of the one repository found 151 times were a benchmark tool's under a hidden folder of the home), 20 are temporary folders outside the home, 3 are inside a project, 12 are project tops, 2 have no mark.
+- From the histories alone: 14 projects (11 from Claude Code, 8 from Codex), 9 by Git; worked on in the last 7 days 9, in 30 days 14. With the one folder suggested from them (it holds 9 of them) looked in too: 60 projects, 2 copies folded under them, 3 folders kept inside their project; known by remote 37, by first commit 15, without Git 8; 49 with a line about them.
+- Identity held: grouped by remote-else-first-commit, by first commit alone and by the first entry of `.git/logs/HEAD`, the repositories in the histories fall into the same 35 groups; no remote's copies disagree on their first commit, and no first commit is shared by two remotes. 1 repository had no commit.
+- Placing over his 60 names: each written as it is, 60 placed right; the 35 names of several words said as separate words, 35 right; 4 names are a word of another project's name; none is shared by two. A sentence "the <name> is broken" places for every name, so a project named by a common word would be placed by such a sentence.
+- Cost: a look of both histories and that folder took 241 ms the first time (git asked for 15 first commits) and 46 ms after, in a process of 9 MB at its peak. The core: 0 idle wakeups, 3.0 MB, release binary 5.8 MB (5.3 before; the limit is 6 MB).
+
+### Not built (next steps)
+
+GitHub and GitLab as looks (a `LookKind` word and a row of the table of kinds); learning words from corrections and Move… after the start; names by hand beyond Settings' "Add a name for it…"; "a new project called X"; a local model for meaning; reading `~/.claude.json` and Codex's `config.toml` (folders without dates); Cursor, OpenCode, Antigravity and Copilot histories (the trait method is there for them); a card's line for a folder found by looking only, dated by its Git activity.
+
+### Questions that are the owner's
+
+1. A folder an agent was started in that has no mark at all (2 on his machine) counts as a project by the evidence order. Keep it, or ask for a mark too?
+2. Copies beside each other in one folder (`ledger`, `ledger-old`): the shorter path is the project until he chooses. Right default?
+3. Every thought that names nothing is asked about when no model is agreed to. On his own thoughts, is that too often? (Keep for later is L.)
+4. Names that are common words: placed by a sentence that uses the word. Ask instead when the name is a dictionary word?
+5. The first run shows "Found n projects" with eight rows and the rest in Settings. Enough as the sign that looking worked?

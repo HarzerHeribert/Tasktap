@@ -397,15 +397,21 @@ function Show($view) { $null = Js "(__ws.show('$view'), 1)" }
 # The window in front, as a click would put it (Windows lets a program in the background bring a window forward
 # only after a key press); minimised; and seen.
 function Up {
+    Send 'where system'
     if ($Rehearse) { return }
     if ([Tasktap.Meter]::IsIconic($workspace)) { $null = [Tasktap.Meter]::ShowWindow($workspace, 9); Start-Sleep -Milliseconds 500 }
     if ([Tasktap.Meter]::GetForegroundWindow() -ne $workspace) { [Tasktap.Meter]::Alt(); $null = [Tasktap.Meter]::SetForegroundWindow($workspace); Start-Sleep -Milliseconds 500 }
     if ([Tasktap.Meter]::GetForegroundWindow() -ne $workspace) { throw 'the app''s window cannot be brought in front' }
 }
+# Minimised, the host is told that the window is not in front, as it learns when a person goes to another program: in
+# the test account's empty desktop no other window takes the front, and the host, which hears of the window in front
+# only when another comes there, went on taking the minimised window for the one in front, so its light went on
+# drawing unseen (the tower's round, 2026-11-19: a question waiting, 80 frames a second, 9.9 % of the 3D engine).
 function Down {
     $null = [Tasktap.Meter]::ShowWindow($workspace, 6)
     Start-Sleep -Milliseconds 500
     if (-not $Rehearse -and -not [Tasktap.Meter]::IsIconic($workspace)) { throw 'the app''s window does not minimise' }
+    Send 'where behind'
 }
 # Whether the tab is open, as the app says; and the tab folded, as Escape folds it: a question may open it by itself.
 function Tab-Open {

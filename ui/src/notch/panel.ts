@@ -25,7 +25,7 @@ export function fold() {
   // the pointer's, so an action taken as the notch folds never leaves it opening again.
   if (ui.mode === 'closed') return void clearTimeout(ui.timer);
   clearTimeout(ui.timer);
-  Object.assign(ui, { mode: 'closed', retracting: true, capturing: false, auto: false });
+  Object.assign(ui, { mode: 'closed', retracting: true, capturing: false, auto: false, touched: false });
   // A recording does not go on in a notch that is put away: it ends as letting go ends it.
   end();
   cap.choosing = false;

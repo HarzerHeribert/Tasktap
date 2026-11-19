@@ -45,7 +45,9 @@ pub fn make_panel(webview: usize) -> usize {
         p.setFloatingPanel(true);
         p.setHidesOnDeactivate(false);
         p.setLevel(NSStatusWindowLevel + 1);
-        p.setCollectionBehavior(Behavior::CanJoinAllSpaces | Behavior::FullScreenAuxiliary);
+        // On every space, and not on a full-screen app's (plan, "Where Tasktap shows itself", rule 6): there it shows
+        // only while the person has opened it (`over_full_screen`).
+        p.setCollectionBehavior(Behavior::CanJoinAllSpaces);
         p.setBackgroundColor(Some(&NSColor::clearColor()));
         p.setOpaque(false);
         p.setHasShadow(false);
@@ -92,9 +94,35 @@ pub fn within(_: &NSScreen, x: f64, y: f64) -> (f64, f64) {
 pub fn outline(_: usize, _: &NSScreen, _: &Geometry, _: &[(f64, f64)]) {}
 pub fn focusable(_: usize, _: bool) {}
 pub fn watching(_: usize, _: bool) {}
-/// The tab is hidden while a window fills the whole display; the Mac's panel joins a full-screen space instead.
+/// The panel is put away while Tasktap's window is in front (presence.rs). A full-screen app's space is one it does
+/// not join, so there it is not drawn without being hidden.
 pub fn hidden(_: usize) -> bool {
-    false
+    crate::presence::front()
+}
+/// Whether the panel shows over a full-screen app's space: only while the person has it open there. Ordered out and
+/// in again when that changes, so that the system places it anew.
+pub fn over_full_screen(ptr: usize, on: bool) {
+    let p = panel(ptr);
+    let want = if on { Behavior::CanJoinAllSpaces | Behavior::FullScreenAuxiliary } else { Behavior::CanJoinAllSpaces };
+    if p.collectionBehavior() != want {
+        p.setCollectionBehavior(want);
+        if p.isVisible() {
+            p.orderOut(None);
+            p.orderFrontRegardless();
+        }
+    }
+}
+/// Whether a full-screen app or a presentation is in front: what the active app has put into effect for the whole
+/// system (full screen, or the menu bar hidden as a presentation hides it), or a full-screen space the folded panel
+/// is not on.
+pub fn full_screen(ptr: usize) -> bool {
+    use objc2_app_kit::NSApplicationPresentationOptions as Options;
+    let options = NSApplication::sharedApplication(mtm()).currentSystemPresentationOptions();
+    let away = ptr != 0 && {
+        let p = panel(ptr);
+        p.isVisible() && !p.collectionBehavior().contains(Behavior::FullScreenAuxiliary) && !p.isOnActiveSpace()
+    };
+    options.intersects(Options::FullScreen | Options::HideMenuBar) || away
 }
 pub fn frame(ptr: usize, _: &NSScreen) -> Rect {
     rect(panel(ptr).frame())
@@ -106,7 +134,10 @@ pub fn set_frame(ptr: usize, _: &NSScreen, r: Rect) {
     }
 }
 pub fn show(ptr: usize) {
-    panel(ptr).orderFrontRegardless()
+    match hidden(ptr) {
+        true => panel(ptr).orderOut(None),
+        false => panel(ptr).orderFrontRegardless(),
+    }
 }
 pub fn ignore_mouse(ptr: usize, ignore: bool) {
     if panel(ptr).ignoresMouseEvents() != ignore {
@@ -166,6 +197,62 @@ pub fn watch_power(changed: impl Fn() + 'static) {
     std::mem::forget(unsafe {
         center.addObserverForName_object_queue_usingBlock(Some(&name), None, Some(&queue), &block)
     });
+}
+
+/// Calls `changed` on the main thread with each of the system's own notices `names` (from the app's notification
+/// centre, or with `workspace` the workspace's); nothing runs between. The observers live as long as the app.
+fn observe(
+    names: &[&str],
+    object: Option<&objc2::runtime::AnyObject>,
+    workspace: bool,
+    changed: impl Fn(&str) + 'static,
+) {
+    let changed = std::rc::Rc::new(changed);
+    let center = match workspace {
+        true => objc2_app_kit::NSWorkspace::sharedWorkspace().notificationCenter(),
+        false => objc2_foundation::NSNotificationCenter::defaultCenter(),
+    };
+    let queue = objc2_foundation::NSOperationQueue::mainQueue();
+    for name in names {
+        let (told, said) = (changed.clone(), name.to_string());
+        let block = RcBlock::new(move |_: NonNull<objc2_foundation::NSNotification>| told(&said));
+        let name = objc2_foundation::NSString::from_str(name);
+        // SAFETY: the block takes the notification as AppKit hands it, on the main queue.
+        std::mem::forget(unsafe {
+            center.addObserverForName_object_queue_usingBlock(Some(&name), object, Some(&queue), &block)
+        });
+    }
+}
+
+/// Calls `changed` when this app becomes the active one (true) or stops being it (false), as the system says it: a
+/// non-activating panel taking the keyboard is neither.
+pub fn watch_active(changed: impl Fn(bool) + 'static) {
+    let names = ["NSApplicationDidBecomeActiveNotification", "NSApplicationDidResignActiveNotification"];
+    observe(&names, None, false, move |name| changed(name == names[0]));
+}
+
+/// Calls `changed` when the space in front or the app in front changes: when a full-screen app may have come or gone.
+pub fn watch_spaces(changed: impl Fn() + 'static) {
+    let names = ["NSWorkspaceActiveSpaceDidChangeNotification", "NSWorkspaceDidActivateApplicationNotification"];
+    observe(&names, None, true, move |_| changed());
+}
+
+/// Calls `elsewhere` when the person clicks anywhere outside this app (a global monitor sees only other apps'
+/// events), and when the panel loses the keyboard: what folds an open sheet on Windows folds the notch here too.
+pub fn watch_elsewhere(ptr: usize, elsewhere: impl Fn() + 'static) {
+    let elsewhere = std::rc::Rc::new(elsewhere);
+    let clicked = elsewhere.clone();
+    let mask = NSEventMask::LeftMouseDown | NSEventMask::RightMouseDown | NSEventMask::OtherMouseDown;
+    let block = RcBlock::new(move |_: NonNull<NSEvent>| clicked());
+    std::mem::forget(NSEvent::addGlobalMonitorForEventsMatchingMask_handler(mask, &block));
+    let object: &objc2::runtime::AnyObject = panel(ptr).as_ref();
+    observe(&["NSWindowDidResignKeyNotification"], Some(object), false, move |_| elsewhere());
+}
+
+/// The folder panel is open: the keyboard going to it is not the keyboard going elsewhere.
+static PICKING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn picking() -> bool {
+    PICKING.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Calls `moved` on the main thread for every pointer move or drag, in any app; nothing runs
@@ -277,7 +364,9 @@ pub fn pick_folder() -> Option<PathBuf> {
     let previous = objc2_app_kit::NSWorkspace::sharedWorkspace().frontmostApplication();
     #[allow(deprecated)]
     NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
+    PICKING.store(true, std::sync::atomic::Ordering::Relaxed);
     let chosen = open.runModal() == NSModalResponseOK;
+    PICKING.store(false, std::sync::atomic::Ordering::Relaxed);
     #[allow(deprecated)]
     if let Some(app) = previous {
         app.activateWithOptions(objc2_app_kit::NSApplicationActivationOptions::empty());

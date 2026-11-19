@@ -44,6 +44,8 @@ pub struct Peer {
     pub v: u32,
     /// The client offered `shim.hold` in its hello.
     pub holds: bool,
+    /// A host offered `host.notify` in its hello.
+    pub notifies: bool,
 }
 
 /// The core's handle on one connection.

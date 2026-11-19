@@ -15,11 +15,21 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use tasktap_proto::{
     encode_control, Auth, CallId, Control, Decoder, DeviceId, Frame, Glance, Hello, Outcome, PrefKey, PrefValue,
-    Register, Request, Role, Secret, Set, Shortcut, Versions, Welcome, VERSION,
+    QuestionId, QuestionKind, QuestionState, Register, Reply, ReplyVia, Request, Role, Secret, Set, Shortcut, Versions,
+    Welcome, VERSION,
 };
 
-/// What the host's own connection watches: `glance`, the folders, and the capture key among the preferences.
-const WATCHED: [&str; 3] = ["glance", "projects", "prefs"];
+/// What the host's own connection watches: `glance`, the folders, the capture key among the preferences, and the
+/// open questions, which the answer keys and the rule of where Tasktap shows itself need to know (presence.rs).
+const WATCHED: [&str; 4] = ["glance", "projects", "prefs", "questions"];
+
+/// What the host's own connection hears besides `glance` and the capture key.
+pub enum Heard {
+    /// The open questions changed.
+    Questions,
+    /// `host.notify` (design §12): a question opened.
+    Notify(Value),
+}
 
 /// A connection to the core: its socket in the data folder, or on Windows its named pipe.
 #[cfg(unix)]
@@ -162,7 +172,11 @@ impl Core {
                 key: self.key.clone(),
                 register: Some(Register { name: "Tasktap".into() }),
             }),
-            abilities: Vec::new(),
+            // The host's own connection answers `host.notify`; a page's answers nothing.
+            abilities: match role {
+                Role::Host => vec!["host.notify".into()],
+                _ => Vec::new(),
+            },
         };
         let mut bytes = Vec::new();
         encode_control(&Control::Hello(hello), &mut bytes).map_err(io::Error::other)?;
@@ -189,6 +203,8 @@ pub struct Link {
     pub folders: Mutex<Vec<(tasktap_proto::ProjectId, PathBuf)>>,
     /// The `capture_key` preference as stored; none while it is unset.
     capture: Mutex<Option<Shortcut>>,
+    /// The open questions, as the rule needs them.
+    pub questions: Mutex<HashMap<QuestionId, crate::presence::Asks>>,
     writer: Mutex<Option<Stream>>,
     waiting: Mutex<HashMap<u32, Waiter>>,
     next: Mutex<u32>,
@@ -203,10 +219,12 @@ impl Link {
         core: Arc<Core>,
         glance: impl Fn(Glance) + Send + 'static,
         capture: impl Fn(Option<Shortcut>) + Send + 'static,
+        heard: impl Fn(Heard) + Send + 'static,
     ) -> io::Result<Arc<Link>> {
         let link = Arc::new(Link {
             folders: Mutex::default(),
             capture: Mutex::default(),
+            questions: Mutex::default(),
             writer: Mutex::new(None),
             waiting: Mutex::default(),
             next: Mutex::new(1),
@@ -215,7 +233,7 @@ impl Link {
         let mut stream = Self::open(&core, &link, &mut decoder)?;
         let me = link.clone();
         std::thread::spawn(move || loop {
-            me.read(&mut stream, &mut decoder, &glance, &capture);
+            me.read(&mut stream, &mut decoder, &glance, &capture, &heard);
             me.writer.lock().unwrap().take();
             for (_, waiter) in me.waiting.lock().unwrap().drain() {
                 waiter(Outcome::Err(tasktap_proto::Error::new(tasktap_proto::Code::Gone, "the core went away")));
@@ -252,8 +270,9 @@ impl Link {
                 other => return Err(io::Error::other(format!("the core refused: {other:?}"))),
             };
             *link.writer.lock().unwrap() = Some(stream.try_clone()?);
-            // A snapshot holds only the preferences that are stored.
+            // A snapshot holds only the preferences that are stored, and only the questions open now.
             *link.capture.lock().unwrap() = None;
+            link.questions.lock().unwrap().clear();
             if welcome.build == core.build || retired {
                 link.call("sub", json!({"collections": WATCHED}), |_| {});
                 return Ok(stream);
@@ -307,6 +326,7 @@ impl Link {
         decoder: &mut Decoder,
         glance: &impl Fn(Glance),
         capture: &impl Fn(Option<Shortcut>),
+        heard: &impl Fn(Heard),
     ) {
         let mut buf = vec![0u8; 64 << 10];
         loop {
@@ -317,9 +337,29 @@ impl Link {
                             w(r.outcome)
                         }
                     }
+                    // The core's call on this host: `host.notify`, answered at once.
+                    Ok(Some(Frame::Control(Control::Call(r)))) => {
+                        let outcome = match r.name.as_str() {
+                            "host.notify" => {
+                                heard(Heard::Notify(r.args));
+                                Outcome::Ok(Value::Null)
+                            }
+                            name => Outcome::Err(tasktap_proto::Error::new(
+                                tasktap_proto::Code::Unknown,
+                                format!("this host has no {name}"),
+                            )),
+                        };
+                        let mut bytes = Vec::new();
+                        if encode_control(&Control::Reply(Reply { id: r.id, outcome }), &mut bytes).is_ok() {
+                            if let Some(w) = self.writer.lock().unwrap().as_mut() {
+                                let _ = w.write_all(&bytes);
+                            }
+                        }
+                    }
                     Ok(Some(Frame::Control(Control::Change(c)))) => {
                         // The key is known once a snapshot is whole, stored or not, and anew when its row changes.
                         let mut key = c.snap && !c.more;
+                        let mut asked = false;
                         for set in c.sets {
                             match set {
                                 Set::Prefs(rows) => {
@@ -334,6 +374,26 @@ impl Link {
                                     }
                                 }
                                 Set::Glance { put } => put.into_iter().for_each(glance),
+                                Set::Questions(rows) => {
+                                    let mut open = self.questions.lock().unwrap();
+                                    for id in rows.del {
+                                        open.remove(&id);
+                                    }
+                                    for q in rows.put {
+                                        if q.state != QuestionState::Open {
+                                            open.remove(&q.id);
+                                            continue;
+                                        }
+                                        let asks = crate::presence::Asks {
+                                            id: q.id.uuid().to_string(),
+                                            session: q.session_id.map(|s| s.uuid().to_string()),
+                                            terminal: q.reply_via == ReplyVia::Terminal,
+                                            confirm: q.kind == QuestionKind::Confirm,
+                                        };
+                                        open.insert(q.id, asks);
+                                    }
+                                    asked = true;
+                                }
                                 Set::Projects(rows) => {
                                     let mut folders = self.folders.lock().unwrap();
                                     folders.retain(|(id, _)| {
@@ -346,6 +406,9 @@ impl Link {
                         }
                         if key {
                             capture(self.capture.lock().unwrap().clone());
+                        }
+                        if asked {
+                            heard(Heard::Questions);
                         }
                     }
                     Ok(Some(_)) => {}

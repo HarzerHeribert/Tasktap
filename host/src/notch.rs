@@ -116,7 +116,31 @@ pub fn position(app: &AppHandle, st: &mut Notch) {
     native::outline(st.panel, &screen, &g, &st.hit);
     native::focusable(st.panel, !st.collapsed && !st.passive);
     native::watching(st.panel, st.inside || !st.collapsed);
+    // The Mac: over a full-screen app only while the person has it open there (rule 6).
+    #[cfg(target_os = "macos")]
+    native::over_full_screen(st.panel, !st.collapsed && crate::presence::situation().full);
     describe(app, st, &g, frame);
+}
+
+/// Where Tasktap shows itself changed (presence.rs): the panel is put away while the window is in front, and is back,
+/// folded, when it goes behind. Skipped while the notch is busy: whoever holds it places and shows the panel itself.
+pub fn refresh(app: &AppHandle) {
+    let Ok(mut st) = NOTCH.try_lock() else { return };
+    if st.panel != 0 {
+        position(app, &mut st);
+        native::show(st.panel);
+    }
+}
+
+/// The Mac: a click outside the app, or the open panel lost the keyboard. The open notch folds, as the sheet does on
+/// Windows when the keyboard goes elsewhere (`away`), unless it was the folder panel it opened that took it.
+#[cfg(target_os = "macos")]
+pub fn elsewhere(app: &AppHandle) {
+    let open = NOTCH.try_lock().is_ok_and(|st| st.panel != 0 && !st.collapsed);
+    if open && !native::picking() {
+        crate::log(json!({"event": "notch", "away": true}));
+        tell(app, json!({"do": "away"}));
+    }
 }
 
 /// Tells the page where the tab and the open sheet are, from the frame on screen.
@@ -215,6 +239,7 @@ pub fn request(app: &AppHandle, args: &Value) {
 
 pub fn open(app: &AppHandle, st: &mut Notch, key: bool) {
     st.collapsed = false;
+    crate::presence::opened(app, true);
     position(app, st);
     native::show(st.panel);
     if key && !st.passive {
@@ -227,6 +252,7 @@ pub fn open(app: &AppHandle, st: &mut Notch, key: bool) {
 fn fold(app: &AppHandle, st: &mut Notch) {
     native::give_back_key(st.panel);
     st.collapsed = true;
+    crate::presence::opened(app, false);
     position(app, st);
     // Windows: a sheet the key opened on the display under the pointer folds there, and the tab is then back on
     // the display the setting names.
@@ -307,5 +333,6 @@ pub fn state() -> Value {
     let Some((screen, _)) = anchored(&mut st) else { return Value::Null };
     let f = native::frame(st.panel, &screen);
     json!({"collapsed": st.collapsed, "key": native::is_key(st.panel), "frame": [f.x, f.y, f.w, f.h],
-        "window": native::window_number(st.panel), "wing": st.wing, "active": native::app_active()})
+        "window": native::window_number(st.panel), "wing": st.wing, "active": native::app_active(),
+        "hidden": native::hidden(st.panel)})
 }

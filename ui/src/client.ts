@@ -15,6 +15,17 @@ export interface Bridge {
   onframe: (frame: string | Uint8Array) => void;
 }
 
+/** Where Tasktap shows itself, as the host tells both pages (host/src/presence.rs): Tasktap's window is in front; a
+ *  full-screen app or a presentation is; the notch is where Tasktap is (its glance shows, a question opens it by
+ *  itself); and where the waiting question is, which one, with null while none waits. */
+export type Where = {
+  front: boolean;
+  full: boolean;
+  notch: boolean;
+  place: 'needs-you' | 'strip' | 'line' | 'notch' | 'notification' | 'icon' | null;
+  question: string | null;
+};
+
 /** The host's abilities this slice has. */
 export type HostCalls = {
   'host.notch': { args: { open?: boolean; key?: boolean; height?: number; wing?: number; line?: number; hit?: number[] }; result: null };
@@ -28,10 +39,11 @@ export type HostCalls = {
   /** The window minimised, maximised or put back, or closed: for the page's own caption buttons and menu (Windows);
    *  `quit` ends the app, which closing its window does not. */
   'host.window': { args: { do: 'minimize' | 'maximize' | 'close' | 'quit' }; result: null };
-  /** What the capture key opens from another app: the notch with the keyboard in its field, on Windows the tab,
-   *  and New Task where there is neither. The workspace asks for it when the key is pressed with its window in
-   *  front and no field for a thought in view. */
-  'host.capture': { args: Record<string, never>; result: null };
+  /** Where Tasktap shows itself (docs/rebuild-plan.md, "Where Tasktap shows itself"), as the host decides it for both
+   *  pages at once; the host says it again whenever it changes (the `ui` event `where`). With `shows`, the workspace
+   *  says what its window shows: Home with no sheet, the New Task sheet, a workspace's terminals (the sessions shown),
+   *  or anything else. */
+  'host.where': { args: { shows?: 'home' | 'new-task' | 'terminals' | 'elsewhere'; terminals?: string[] }; result: Where };
   /** Windows: the display the tab at the top of the screen hangs on: `main`, `pointer` (where it was last
    *  opened), a display's own name, or `off` for no tab. With `display` the host keeps the choice, in its own
    *  file since a display belongs to this machine, and carries it out. The reply is the choice and the displays

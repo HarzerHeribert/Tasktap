@@ -318,6 +318,8 @@ Aim for under 20 checks, each named after a promise to the user.
 
 ## Status
 
+A push is finished only when its run of "Verify and publish Tasktap" is green in every job: `scripts/ci.sh` says so (exit 0), or names each job and step that failed.
+
 **As of 2026-11-19.** Everything built is on `rebuild-phase-2`. `main` still holds 1.2 and the last tag is `v1.2.0`: 2.0 is not released. The phases were not built in the planned order: the app the owner can try was pulled forward on 2026-11-17 ("State on 2026-11-17, evening"), and the work of Phases 3 to 7 has run side by side since. Every phase now has something built; what is open stands under each.
 
 **Waiting for the owner**

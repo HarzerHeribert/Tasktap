@@ -62,8 +62,13 @@ async function main() {
     await hold(page, state(page).then((s) => s.asked === 0 && !s.hears), 'the microphone is asked for before voice is used');
     await page.mouse.move(...(await centre(page, '.home .mic')));
     await page.mouse.down();
-    // Held 2.2 s from when the microphone hears, which on a busy machine is a moment after the press.
-    await page.waitForFunction(() => window.__hears(), null, { timeout: 5000 }).catch(() => {});
+    // Held 2.2 s from when the microphone hears, which on a busy machine is a moment after the press. One that never
+    // hears ends the check, said as what it is: Chromium opens this Mac's own microphone even with a file standing in
+    // for it, and macOS holds that, and getUserMedia with it, while the screen is locked.
+    if (!(await page.waitForFunction(() => window.__hears(), null, { timeout: 5000 }).then(() => true, () => false))) {
+      const s = await state(page);
+      throw new Error(`the microphone has not started 5 s after the press (${s.asked ? 'its track is not live' : 'getUserMedia has not answered'}: ${JSON.stringify(s)}); on a Mac, is the screen locked? macOS holds the microphone, the file Chromium plays as one too, until it is unlocked`);
+    }
     await page.waitForTimeout(2200);
     await hold(page, state(page).then((s) => s.asked === 1 && s.hears && s.live && s.rows === 1), 'holding the microphone control does not record');
     await hold(page, page.evaluate(() => /Listening/.test(document.querySelector('.home .hear')?.textContent ?? '') && Number(document.querySelector('.home .hear .lvl')?.style.getPropertyValue('--l')) > 0.3), 'the row does not show the level while recording');

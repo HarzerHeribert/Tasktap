@@ -138,7 +138,7 @@ test('the one line under the Composer says who placed a thought in a few words; 
   assert.equal(by('model', route({ by: 'local', model: null })), 'placed by a model');
   assert.equal(by('name'), 'named in it');
   assert.equal(by('picked'), 'your choice');
-  assert.equal(by('answer'), 'your answer');
+  assert.equal(by('answer'), 'you chose it');
   // A follow-up says so in its place's name; nothing more is said where nothing is known.
   assert.equal(by('follow_up'), '');
   assert.equal(by(null, null), '');

@@ -235,7 +235,8 @@ function Found({ o, other }: { o: Offer | undefined; other: Act }) {
   const place = derived(o), most = place && place.projects * 2 >= all.length;
   const title = busy && !all.length ? 'Searching…' : all.length ? `Found ${plural(all.length, 'project', 'projects')}` : 'Found no projects';
   return (
-    <Frame size="md" title={<>{busy && <Mark s="working" label="Searching" />}{title}</>} acts={[other, { k: 'esc', label: 'Close', do: dismiss }, { k: '↩', label: 'Done', kind: 'primary', do: dismiss }]}>
+    // It only reports (what it found stays in Setup and Settings): text typed in the Composer under it puts it away.
+    <Frame size="md" title={<>{busy && <Mark s="working" label="Searching" />}{title}</>} typed={dismiss} acts={[other, { k: 'esc', label: 'Close', do: dismiss }, { k: '↩', label: 'Done', kind: 'primary', do: dismiss }]}>
       <section class="found" aria-busy={busy}>
         {all.length > 0 && <p class="found-o">None is open yet. A thought that names one opens it.</p>}
         {all.length > 0 && (

@@ -97,7 +97,9 @@ export function Setup({ quiet }: { quiet: boolean }) {
   }, [gone]);
   if (gone) return <p class="setup-gone" role="status">Setup is in Settings › About.</p>;
   if (pref('setup_hidden') || (all && !setup.unfinished)) return null;
-  const isOpen = setup.shut === null ? quiet : !setup.shut;
+  // While a step's sheet is up, Setup under it is its header line only, so nothing is said twice at once.
+  const stepUp = ui.sheet?.kind === 'setup' || ui.sheet?.kind === 'placing';
+  const isOpen = !stepUp && (setup.shut === null ? quiet : !setup.shut);
   const toggle = () => ((setup.shut = isOpen), redraw());
   // Hidden, the field has the keyboard again.
   const hide = () => {
@@ -111,7 +113,7 @@ export function Setup({ quiet }: { quiet: boolean }) {
         <button type="button" class="fold-h" data-nav aria-expanded={isOpen} onClick={toggle}
           onKeyDown={(e) => ((e.key === 'ArrowRight' && !isOpen) || (e.key === 'ArrowLeft' && isOpen)) && (e.preventDefault(), toggle())}>
           <I n="chev" /><b>Setup</b><span class="setup-n">{all ? 'All done' : `${done} of ${steps.length} done`}</span>
-          {!isOpen && !all && <span class="fold-p">{steps.find((s) => !s.done)?.label}</span>}
+          {!isOpen && !all && !stepUp && <span class="fold-p">{steps.find((s) => !s.done)?.label}</span>}
         </button>
         <button type="button" class="act" title="Setup stays in Settings › About" onClick={hide}><span>Hide</span></button>
       </div>

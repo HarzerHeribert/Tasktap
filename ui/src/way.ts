@@ -94,7 +94,7 @@ export function placedBy(t: Pick<Thought, 'placed' | 'route'>, agent: (id: strin
     case 'picked':
       return 'your choice';
     case 'answer':
-      return 'your answer';
+      return 'you chose it';
     default:
       return '';
   }

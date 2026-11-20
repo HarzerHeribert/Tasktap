@@ -75,7 +75,9 @@ function begins() {
 }
 // In the page: the owner's decisions of 2026-11-19 (docs/projects-design.md): every project found is a row, at the
 // first run and in Settings, and nothing says "and N more"; the first run's list scrolls inside itself and Home does
-// not; and what Tasktap says it reads says all it reads, and what may go to a model.
+// not; and what Tasktap says it reads says all it reads, and what may go to a model. In Settings a note says it in one
+// sentence and the rest behind the "What exactly is read" that follows it, which the check has opened by a click: the
+// note is read with the text that fold shows.
 function promises() {
   const bad = [], cards = [...window.__ws.records.cards.values()].filter((c) => !c.copy_of && !c.inside && !c.hidden);
   const text = (sel) => [...document.querySelectorAll(sel)].map((e) => e.textContent).join(' ');
@@ -85,9 +87,30 @@ function promises() {
   if (document.querySelector('.home .found, .home .fr')) bad.push('what was found stands on Home, not in its sheet');
   const rows = document.querySelectorAll('.pjs > .line.pj');
   if (document.querySelector('.pjs') && !document.querySelector('.set-pane .field input')?.value && rows.length !== cards.length) bad.push(`Settings › Projects shows ${rows.length} of ${cards.length} projects`);
-  for (const p of document.querySelectorAll('.sheet .facts-all, .set-pane .note'))
-    if (/reads/.test(p.textContent) && !['README', 'package file', 'Git remote', 'first commit', 'model', 'up to 8'].every((w) => p.textContent.includes(w))) bad.push(`what it reads leaves something out: "${p.textContent.slice(0, 60)}…"`);
+  const parts = [...document.querySelectorAll('.set-pane .note, .set-pane .more-l')];
+  for (const p of document.querySelectorAll('.sheet .facts-all, .set-pane .note')) {
+    if (!/reads/.test(p.textContent)) continue;
+    let said = p.textContent;
+    const fold = parts.slice(parts.indexOf(p) + 1).find((e) => e.matches('.more-l'));
+    if (p.closest('.set-pane') && fold) {
+      if (fold.getAttribute('aria-expanded') !== 'true') bad.push(`"What exactly is read" after "${p.textContent.slice(0, 40)}…" was not opened`);
+      const shown = parts[parts.indexOf(fold) + 1];
+      if (shown?.matches('.note')) said += ` ${shown.textContent}`;
+    }
+    if (!['README', 'package file', 'Git remote', 'first commit', 'model', 'up to 8'].every((w) => said.includes(w))) bad.push(`what it reads leaves something out: "${p.textContent.slice(0, 60)}…"`);
+  }
   return bad;
+}
+/** Opens Settings' "What exactly is read" as a person does, by the pointer on it, before the promises are read. */
+async function unfold(page) {
+  const fold = page.locator('.set-pane .more-l[aria-expanded=false]');
+  for (let i = await fold.count(); i > 0; i--) {
+    const f = fold.first();
+    await f.scrollIntoViewIfNeeded();
+    const b = await f.boundingBox();
+    await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+    await page.waitForTimeout(150);
+  }
 }
 // In the page: words cut short with an ellipsis, in what these pages draw.
 function cut() {
@@ -131,7 +154,9 @@ async function main(out, dprs, only, check) {
         if (check && dpr === dprs[0]) {
           const r = await page.evaluate(align.audit, [align.LISTS, KEY]);
           const w = await page.evaluate(align.weights);
-          const own = [...await page.evaluate(begins), ...await page.evaluate(promises)];
+          const first = await page.evaluate(begins);
+          await unfold(page);
+          const own = [...first, ...await page.evaluate(promises)];
           for (const b of [...r.bad, ...w.bad, ...own]) failures.push(`${name} (${TEXT}): ${b}`);
           for (const [key, where] of Object.entries(await page.evaluate(type.fonts))) {
             const rl = role(key, where.some((w) => /\bkbd\b/.test(w))), width = key.split(' ')[4];

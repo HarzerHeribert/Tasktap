@@ -51,7 +51,8 @@ function reasons(c: Card): string[] {
 const reason = (c: Card) => (c.why.includes('agent') && c.agents.length ? worked(c) : c.about ? `${file(c.about_from) || 'It says'}: ${c.about}` : (reasons(c)[0] ?? ''));
 
 /** What Tasktap reads, said before it reads it: of an agent's history, and of a folder; and what of it goes anywhere. */
-const MODEL = 'Only if you let a model place your thoughts does that model get the name and one-line description of up to 8 likely projects.';
+// As the core says what it sends (core/src/route.rs, `SENDS`): of up to 8 projects, the name, the other names and one line.
+const MODEL = 'Only if you let a model place your thoughts does that model get, of up to 8 likely projects, the name, the other names it goes by and one line about each.';
 const READS_AGENTS = (names: string[]) =>
   `Tasktap reads which folders ${and(names) || 'your agents'} ${names.length === 1 ? 'was' : 'were'} started in, and when; never what was said there. Of each folder that is a project it reads the first lines of its README and its package file and its Git remote, and asks Git for its first commit. It keeps all of that on ${HERE}. ${MODEL}`;
 /** The same, in one sentence each, for Settings › Projects, with the full sentences behind one quiet line. */

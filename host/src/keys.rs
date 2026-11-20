@@ -91,10 +91,18 @@ pub fn back(held: &mut Option<Key>, before: Option<Key>, mut set: impl FnMut(&Ke
     }
 }
 
-/// Whether `key` may be the key preference `id` before the system is asked: the rule of a shortcut, then Tasktap's
-/// other keys as they are now (`others`).
+/// Whether `key` may be the key preference `id` before the system is asked: the rule of a shortcut, then no key of
+/// Tasktap's own window (`own_key`), then none of Tasktap's other keys as they are now (`others`), then, for a key
+/// taken from other apps, none every app has (`every_app`).
 fn allowed(id: PrefKey, key: &Key, others: &[(PrefKey, Key)]) -> Result<(), String> {
-    match key.refused().or_else(|| clash(id, key, others)) {
+    if let Some(why) = key.refused() {
+        return Err(why.into());
+    }
+    let mac = cfg!(target_os = "macos");
+    if let Some(why) = tasktap_proto::own_key(id, key, mac) {
+        return Err(why);
+    }
+    match clash(id, key, others).or_else(|| tasktap_proto::every_app(id, key, mac)) {
         Some(why) => Err(why.into()),
         None => Ok(()),
     }
@@ -421,8 +429,10 @@ pub fn answer_call(app: &AppHandle, args: &Value) -> Result<Value, String> {
 mod tests {
     use super::*;
 
+    /// A key for a test: with Control, Shift too, so that it is a key on either system (Control alone with a key is
+    /// every app's on Windows).
     fn key(control: bool, alt: bool, code: &str) -> Key {
-        Key { control, alt, shift: false, meta: false, code: code.into() }
+        Key { control, alt, shift: control, meta: false, code: code.into() }
     }
 
     /// The system, for a test: the host's seam where it registers a key or lets it go. It holds what was registered,
@@ -457,7 +467,7 @@ mod tests {
 
     #[test]
     fn a_key_the_system_refuses_leaves_the_old_one_registered_and_says_it_is_taken() {
-        let (first, other, taken) = (Key::capture(true), key(true, false, "KeyK"), key(false, true, "Space"));
+        let (first, other, taken) = (Key::capture(true), key(true, false, "KeyG"), key(false, true, "Space"));
         let mut system = System::new(vec![taken.clone()]);
         let mut held = None;
         // The first key, as the preference's default is registered at start.
@@ -485,7 +495,7 @@ mod tests {
 
     #[test]
     fn a_change_the_core_refuses_puts_back_the_key_that_was_registered() {
-        let (first, other) = (Key::capture(true), key(true, false, "KeyK"));
+        let (first, other) = (Key::capture(true), key(true, false, "KeyG"));
         let mut system = System::new(Vec::new());
         let mut held = None;
         follow(&mut held, first.clone(), system.set()).unwrap();
@@ -506,7 +516,7 @@ mod tests {
 
     #[test]
     fn a_review_build_takes_no_global_key_chosen_or_not() {
-        let mine = key(true, false, "KeyK");
+        let mine = key(true, false, "KeyG");
         assert_eq!(TAKES, !crate::REVIEW);
         assert_eq!(global(Some(mine.clone()), usual), TAKES.then(|| mine.clone()));
         assert_eq!(global(None, usual), TAKES.then(usual));
@@ -575,7 +585,7 @@ mod tests {
         }
         let mac = cfg!(target_os = "macos");
         let others = [(PrefKey::CaptureKey, Key::capture(mac)), (PrefKey::TalkKey, Key::talk(mac))];
-        let (mine, taken) = (key(true, false, "KeyK"), key(true, false, "KeyT"));
+        let (mine, taken) = (key(true, false, "KeyG"), key(true, false, "KeyH"));
         // No question waits: the system is asked for the key and it is let go at once; nothing stays registered.
         let mut answers = defaults();
         let mut system = System::new(vec![taken.clone()]);
@@ -636,7 +646,7 @@ mod tests {
             return;
         }
         let mac = cfg!(target_os = "macos");
-        let (first, mine, taken) = (Key::capture(mac), key(true, false, "KeyK"), key(true, false, "KeyT"));
+        let (first, mine, taken) = (Key::capture(mac), key(true, false, "KeyG"), key(true, false, "KeyH"));
         let others = [(PrefKey::NoKey, Key::answer(mac, Which::No)), (PrefKey::TalkKey, Key::talk(mac))];
         let mut system = System::new(vec![taken.clone()]);
         let mut held = None;
@@ -659,7 +669,7 @@ mod tests {
     #[test]
     fn the_talk_key_another_app_holds_is_refused_and_none_stays_registered() {
         let mac = cfg!(target_os = "macos");
-        let (mine, taken) = (key(true, false, "KeyK"), key(true, false, "KeyT"));
+        let (mine, taken) = (key(true, false, "KeyG"), key(true, false, "KeyH"));
         let others = [(PrefKey::CaptureKey, Key::capture(mac)), (PrefKey::YesKey, Key::answer(mac, Which::Yes))];
         let mut now = Some(Key::talk(mac));
         // Another app holds it globally, so it would never reach Tasktap: refused, the talk key before stays.
@@ -669,7 +679,7 @@ mod tests {
         // Tasktap's other keys, and the rule, are refused before the system is asked.
         let yes = Key::answer(mac, Which::Yes);
         assert_eq!(take_talk(&mut now, Some(yes), &others, NEVER), Err(Key::taken(PrefKey::YesKey).unwrap().into()));
-        assert_eq!(take_talk(&mut now, Some(key(false, false, "KeyT")), &others, NEVER), Err(Key::BARE.into()));
+        assert_eq!(take_talk(&mut now, Some(key(false, false, "KeyH")), &others, NEVER), Err(Key::BARE.into()));
         // A free one: asked for and let go at once; it is the page's own, so nothing stays registered.
         system.asked.clear();
         assert_eq!(take_talk(&mut now, Some(mine.clone()), &others, system.set()), Ok(Some(Key::talk(mac))));
@@ -681,6 +691,35 @@ mod tests {
         assert_eq!(take_talk(&mut now, Some(mine.clone()), &others, NEVER), Ok(Some(mine.clone())));
         assert_eq!(take_talk(&mut now, None, &others, system.set()), Ok(Some(mine)));
         assert_eq!(now, Some(Key::talk(mac)));
+    }
+
+    #[test]
+    fn a_key_of_tasktaps_own_window_or_of_every_app_is_refused_before_the_system_is_asked() {
+        if crate::REVIEW {
+            return;
+        }
+        let mac = cfg!(target_os = "macos");
+        let own = |k: &str| tasktap_proto::keys::shortcut(k, mac).unwrap();
+        let says = |k: &str, name: &str| format!("Tasktap uses {} for {name}", tasktap_proto::keys::spell(k, mac));
+        // ⌘N (Control-Shift-N on Windows) and ⌘J, for each key a person records.
+        let mut held = None;
+        assert_eq!(take_capture(&mut held, Some(own("⌘N")), &[], NEVER), Err(says("⌘N", "New task")));
+        let mut answers = defaults();
+        assert_eq!(answers.try_key(Which::Yes, Some(own("⌘J")), &[], NEVER), Err(says("⌘J", "the list of agents")));
+        let mut talk = None;
+        assert_eq!(take_talk(&mut talk, Some(own("⌘,")), &[], NEVER), Err(says("⌘,", "Settings")));
+        // The system's command modifier alone takes a key from every app: refused for a global key, not to talk.
+        let alone = Key { control: !mac, alt: false, shift: false, meta: mac, code: "KeyB".into() };
+        let refused = answers.try_key(Which::No, Some(alone.clone()), &[], NEVER).unwrap_err();
+        assert!(refused.starts_with("Other apps use"), "{refused}");
+        let mut system = System::new(Vec::new());
+        assert_eq!(take_talk(&mut talk, Some(alone.clone()), &[], system.set()), Ok(None));
+        assert_eq!(talk, Some(alone));
+        // A text field's own key is refused to talk: Select all.
+        let all = Key { control: !mac, alt: false, shift: false, meta: mac, code: "KeyA".into() };
+        let field = take_talk(&mut talk, Some(all), &[], NEVER).unwrap_err();
+        assert!(field.starts_with("A text field uses") && field.ends_with("for Select all"), "{field}");
+        assert_eq!((held, answers.keys[2].clone()), (None, Some(Key::answer(mac, Which::No))));
     }
 
     #[test]

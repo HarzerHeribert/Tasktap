@@ -422,16 +422,25 @@ class Row extends Component<RowProps> {
 function ProjectRow({ c, open: isOpen, show, cards }: RowProps) {
   const copies = cards.filter((x) => x.copy_of === c.id), inside = cards.filter((x) => x.inside === c.id);
   const ws = c.project_id ? records.projects.get(c.project_id) : undefined;
+  // Opened below what the pane shows, the details come into view by the pane's own scrolling: down just as far as
+  // their end, and never so far that the project's own row goes out at the top.
+  const head = useRef<HTMLButtonElement>(null), details = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const pane = head.current?.closest('.set-pane'), end = details.current;
+    if (!isOpen || !pane || !end || !head.current) return;
+    const view = pane.getBoundingClientRect(), top = head.current.getBoundingClientRect().top, bottom = end.getBoundingClientRect().bottom;
+    if (bottom > view.bottom) pane.scrollTop += Math.min(bottom - view.bottom, top - view.top);
+  }, [isOpen]);
   return (
     <>
-      <button type="button" class="line pj" aria-expanded={isOpen} data-s={c.available ? undefined : 'none'} onClick={() => show(isOpen ? null : c.id)}>
+      <button ref={head} type="button" class="line pj" aria-expanded={isOpen} data-s={c.available ? undefined : 'none'} onClick={() => show(isOpen ? null : c.id)}>
         <I n="chev" />
         <span class="t">{c.name}</span>
         <span class="x mono" title={shownPath(c.folder)}>{shownPath(c.folder)}</span>
         <time>{c.used ? since(c.used) : ''}</time>
       </button>
       {isOpen && (
-        <div class="pj-c">
+        <div ref={details} class="pj-c">
           <Fact k="Folder"><span class="mono">{shownPath(c.folder)}</span>{!c.available && <span class="dim">Not there now</span>}</Fact>
           <Fact k="Called"><Names c={c} /></Fact>
           <Fact k="About">{c.about ? <><span>{c.about}</span>{c.about_from && <span class="dim">{c.about_from}</span>}</> : <span class="dim">Its README and package file say nothing about it.</span>}</Fact>
@@ -471,8 +480,8 @@ const Fact = ({ k, children }: { k: string; children: ComponentChildren }) => <d
 const WHERE = 'Where its agent works';
 const places: [Isolate, string][] = [['busy', 'On its own copy when another agent is working there'], ['always', 'Always on its own copy'], ['never', 'In the project itself']];
 const placed: Record<Isolate, string> = {
-  busy: 'While another agent works here, the next one gets a copy of its own, whose changes come back with Keep or go with Discard.',
-  always: 'Every agent gets a copy of its own, whose changes come back to the project with Keep or go with Discard.',
+  busy: 'While another agent works here, the next one works on a copy; when it finishes you choose Keep to bring its changes in, or Discard.',
+  always: 'Every agent works on a copy of the project; when it finishes you choose Keep to bring its changes in, or Discard.',
   never: 'Every agent works in your files directly, so two working here at once can overwrite each other’s changes.',
 };
 function Where({ c, ws }: { c: Card; ws: Project | undefined }) {
@@ -494,6 +503,9 @@ function Where({ c, ws }: { c: Card; ws: Project | undefined }) {
  *  it ("queue grid"). A name of theirs goes again with its cross. */
 function Names({ c }: { c: Card }) {
   const [adding, setAdding] = useState(false);
+  // The field takes the keyboard as it opens, by a click or a key: the button that had it is gone.
+  const field = useRef<HTMLInputElement>(null);
+  useEffect(() => void (adding && field.current?.focus()), [adding]);
   const [said, say] = useState('');
   const put = (names: string[]) => call('put', { c: 'cards', id: c.id, patch: { names } }).then(() => say(''), (e: unknown) => say(e instanceof Error ? e.message : String(e)));
   const add = (name: string) => {
@@ -508,7 +520,7 @@ function Names({ c }: { c: Card }) {
         <span class="pj-n" key={n}>{n}<button type="button" aria-label={`Remove the name ${n}`} title="Remove this name" onClick={() => void put(c.names.filter((x) => x !== n))}><I n="x" /></button></span>
       ))}
       {adding ? (
-        <input class="text" autoFocus placeholder="A name, as you say it" aria-label={`Another name for ${c.name}`} maxLength={60} spellcheck={false}
+        <input ref={field} class="text" placeholder="A name, as you say it" aria-label={`Another name for ${c.name}`} maxLength={60} spellcheck={false}
           onKeyDown={(e) => (e.key === 'Enter' ? add(e.currentTarget.value) : e.key === 'Escape' ? (e.stopPropagation(), setAdding(false)) : undefined)}
           onBlur={(e) => add(e.currentTarget.value)} />
       ) : c.names.length < 8 && <button type="button" class="btn" onClick={() => setAdding(true)}>Add a name for it…</button>}

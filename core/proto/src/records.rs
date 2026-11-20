@@ -830,31 +830,19 @@ const RESERVED: [(bool, bool, bool, bool, &str); 18] = [
     (false, false, true, true, "Digit5"),
 ];
 
-/// Combinations Tasktap's own field for a thought keeps for itself, as
-/// control, alt, shift, meta and the key, on a Mac and on Windows alike:
-/// Command-J (Control-Shift-J) opens its list of agents and Command-K
-/// (Control-Shift-K) its list of places. A key of the person's would take
-/// them from it: a global one while it is registered, the talk key while
-/// the field has the keyboard.
-const OWN: [(bool, bool, bool, bool, &str); 4] = [
-    (false, false, false, true, "KeyJ"),
-    (false, false, false, true, "KeyK"),
-    (true, false, true, false, "KeyJ"),
-    (true, false, true, false, "KeyK"),
-];
-
 impl Shortcut {
     pub const NO_KEY: &'static str = "That is not a key a shortcut can end in";
     pub const BARE: &'static str =
         "A shortcut needs Control, Option (Alt) or Command (the Windows key) held with its key";
     pub const RESERVED: &'static str = "The system keeps that combination for itself";
-    pub const OWN: &'static str = "Tasktap uses that combination where you write a thought";
 
     /// Why this combination cannot be a shortcut, in a sentence the
     /// interface shows as it is; none when it can. The one rule of every
     /// key preference (`capture_key`, `talk_key` and the three answer
     /// keys), which the core applies to a `put` and the host before it asks
-    /// the system. That two of Tasktap's keys are not one is [`clash`].
+    /// the system. That two of Tasktap's keys are not one is [`clash`]; that
+    /// one is not a key of Tasktap's own window, nor of every app, is
+    /// [`crate::own_key`], which depends on the system.
     pub fn refused(&self) -> Option<&'static str> {
         let code = self.code.as_str();
         let after = |prefix: &str| code.strip_prefix(prefix).map(str::as_bytes);
@@ -870,8 +858,6 @@ impl Shortcut {
             Some(Self::BARE)
         } else if RESERVED.contains(&(held.0, held.1, held.2, held.3, code)) {
             Some(Self::RESERVED)
-        } else if OWN.contains(&(held.0, held.1, held.2, held.3, code)) {
-            Some(Self::OWN)
         } else {
             None
         }

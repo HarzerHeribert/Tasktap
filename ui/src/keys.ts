@@ -13,7 +13,7 @@
 // A shortcut a person records (design §5, "Settings") is kept by the core as the modifiers held and the key by its
 // place on the keyboard, and is shown as exactly those keys. Whether a combination may be a shortcut is the core's
 // rule and the host's, never the page's: a recorder tries what was pressed and shows the sentence that comes back.
-import type { Shortcut } from '../../core/proto/protocol.ts';
+import { APP_KEYS, type Shortcut, WINDOWS_KEYS } from '../../core/proto/protocol.ts';
 import { mac } from './system.ts';
 
 type Mods = { control: boolean; alt: boolean; shift: boolean; meta: boolean };
@@ -25,17 +25,10 @@ const MODS = '⌃⌥⇧⌘';
 const chord = (key: string, held = ''): Chord => ({ control: held.includes('⌃'), alt: held.includes('⌥'), shift: held.includes('⇧'), meta: held.includes('⌘'), key });
 const parse = (k: string): Chord => chord([...k].filter((c) => !MODS.includes(c)).join(''), [...k].filter((c) => MODS.includes(c)).join(''));
 
-/** The keys that are not Control (and Shift with a letter) for Command on Windows, by the Mac's key in a Mac's order. */
-const WINDOWS: Record<string, Chord> = {
-  // ⌘D is Ctrl+Shift+D already: the split below it takes the key beside it.
-  '⇧⌘D': chord('E', '⌃⇧'),
-  // Back, as Windows has it; Ctrl+[ is Escape to a terminal.
-  '⌘[': chord('←', '⌥'),
-  // To the end, as Windows has it.
-  '⌘↓': chord('End', '⌃'),
-  // Undo is Ctrl+Z wherever text is typed.
-  '⌘Z': chord('Z', '⌃'),
-};
+/** The keys that are not Control (and Shift with a letter) for Command on Windows, by the Mac's key in a Mac's order:
+ *  ⌘D's split below takes the key beside it, Back is Alt+←, the end Ctrl+End, Undo Ctrl+Z. The table is the core's
+ *  (core/proto/src/keys.rs `WINDOWS_KEYS`), which the core's own rule for a recorded key reads too. */
+const WINDOWS: Record<string, Chord> = Object.fromEntries(Object.entries(WINDOWS_KEYS).map(([onMac, onWindows]) => [onMac, parse(onWindows)]));
 
 /** A key in a Mac's order: the modifiers ⌃⌥⇧⌘, then the key. */
 const ordered = (k: string) => [...k].filter((c) => MODS.includes(c)).sort((a, b) => MODS.indexOf(a) - MODS.indexOf(b)).join('') + [...k].filter((c) => !MODS.includes(c)).join('');
@@ -47,12 +40,11 @@ export function local(k: string, onMac = mac): Chord {
   return WINDOWS[ordered(k)] ?? { control: true, alt: c.alt, shift: c.shift || /^[a-z]$/i.test(c.key), meta: false, key: c.key };
 }
 
-/** The commands' keys, written as the Mac has them: the Mac's menu shows the same (host/src/workspace.rs), the
- *  Windows menu button shows this system's (workspace/chrome.tsx), and the page acts on them (workspace/main.tsx). */
-export const COMMANDS: Record<string, string> = {
-  'new-task': '⌘N', 'new-terminal': '⌘T', 'open-workspace': '⌘O', 'close-tab': '⌘W', find: '⌘F', sidebar: '⌃⌘S', 'split-right': '⌘D', 'split-down': '⇧⌘D',
-  preview: '⌘P', 'reload-preview': '⌘R', bigger: '⌘=', smaller: '⌘-', reset: '⌘0', settings: '⌘,', back: '⌘[', session: '⌘I',
-};
+/** The menu's commands' keys, written as the Mac has them, from the one table of Tasktap's own window's keys
+ *  (core/proto/src/keys.rs `APP_KEYS`, which also refuses them as a key a person records): the Mac's menu shows the
+ *  same (host/src/workspace.rs), the Windows menu button shows this system's (workspace/chrome.tsx), and the page acts
+ *  on them (workspace/main.tsx). */
+export const COMMANDS: Record<string, string> = Object.fromEntries(APP_KEYS.filter((c) => c.menu).map((c) => [c.id, c.key]));
 
 /** What Windows prints on a key the Mac has a sign for. Return keeps its arrow: ui.tsx `Key` draws it. */
 const PRINTED: Record<string, string> = { esc: 'Esc', '⌫': 'Backspace', '⌦': 'Del', '⇥': 'Tab', '↖': 'Home', '↘': 'End', '⇞': 'PgUp', '⇟': 'PgDn' };

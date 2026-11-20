@@ -407,7 +407,9 @@ export function Settings({ at }: { at: Section }) {
     go(to[0]);
   };
   return (
-    <div class="settings">
+    // A press of any button here takes the keyboard to it, as `taking` does (form.tsx): WebKit gives none to a button
+    // it clicked, so the keys after a click would start from the sheet.
+    <div class="settings" onClickCapture={(e) => (e.detail > 0 && (e.target as HTMLElement).closest?.('button')?.focus())}>
       <div class="set-nav" role="tablist" aria-label="Settings" aria-orientation="vertical" onKeyDown={arrows}>
         {SECTIONS.map(([id, name], i) => (
           <button type="button" role="tab" id={`set-tab-${id}`} aria-selected={id === at} aria-controls="set-pane" tabIndex={id === at ? 0 : -1} onClick={() => go(id)}>

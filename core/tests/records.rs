@@ -675,21 +675,23 @@ fn the_settings_preferences_are_stored_refused_in_a_sentence_and_restored_by_del
     let mut w = core.device();
     let key = json!({"control": false, "alt": true, "shift": true, "meta": false, "code": "KeyK"});
     let held = |control: bool, code: &str| json!({"control": control, "alt": false, "shift": false, "meta": false, "code": code});
+    // Two modifiers: a key taken from other apps on either system, and none of Tasktap's own window's.
+    let two = |code: &str| json!({"control": true, "alt": false, "shift": true, "meta": false, "code": code});
     let settings = [
         ("return_sends", json!(false)),
         ("capture_key", key.clone()),
-        ("talk_key", held(true, "Space")),
+        ("talk_key", two("Space")),
         ("keep_days", json!(30)),
         ("terminal_bold_bright", json!(false)),
         ("terminal_contrast", json!(false)),
         ("text_size", json!("small")),
         ("update_checks", json!(false)),
-        ("question_key", held(true, "KeyJ")),
+        ("question_key", two("KeyL")),
         (
             "yes_key",
             json!({"control": false, "alt": true, "shift": true, "meta": false, "code": "KeyY"}),
         ),
-        ("no_key", held(true, "KeyN")),
+        ("no_key", two("KeyM")),
     ];
     for (id, value) in &settings {
         let args = json!({"c": "prefs", "id": id, "patch": value});
@@ -727,10 +729,6 @@ fn the_settings_preferences_are_stored_refused_in_a_sentence_and_restored_by_del
             (held(false, "Space"), tasktap_proto::Shortcut::BARE),
             (held(true, "Hyper"), tasktap_proto::Shortcut::NO_KEY),
             (held(true, "Escape"), tasktap_proto::Shortcut::RESERVED),
-            (
-                json!({"control": false, "alt": false, "shift": false, "meta": true, "code": "KeyJ"}),
-                tasktap_proto::Shortcut::OWN,
-            ),
         ] {
             assert_eq!(said(&mut w, id, patch), invalid(why), "{id}");
         }
@@ -741,21 +739,13 @@ fn the_settings_preferences_are_stored_refused_in_a_sentence_and_restored_by_del
     // sentence names the key that has it already.
     let taken_by = |id: PrefKey| tasktap_proto::Shortcut::taken(id).unwrap();
     for (id, patch, why) in [
-        ("capture_key", held(true, "KeyN"), taken_by(PrefKey::NoKey)),
-        (
-            "capture_key",
-            held(true, "Space"),
-            taken_by(PrefKey::TalkKey),
-        ),
-        (
-            "talk_key",
-            held(true, "KeyJ"),
-            taken_by(PrefKey::QuestionKey),
-        ),
+        ("capture_key", two("KeyM"), taken_by(PrefKey::NoKey)),
+        ("capture_key", two("Space"), taken_by(PrefKey::TalkKey)),
+        ("talk_key", two("KeyL"), taken_by(PrefKey::QuestionKey)),
         ("talk_key", key.clone(), taken_by(PrefKey::CaptureKey)),
         ("question_key", key.clone(), taken_by(PrefKey::CaptureKey)),
-        ("yes_key", held(true, "KeyN"), taken_by(PrefKey::NoKey)),
-        ("no_key", held(true, "Space"), taken_by(PrefKey::TalkKey)),
+        ("yes_key", two("KeyM"), taken_by(PrefKey::NoKey)),
+        ("no_key", two("Space"), taken_by(PrefKey::TalkKey)),
     ] {
         assert_eq!(said(&mut w, id, patch), invalid(why), "{id}");
     }
@@ -763,6 +753,39 @@ fn the_settings_preferences_are_stored_refused_in_a_sentence_and_restored_by_del
         taken_by(PrefKey::NoKey),
         "Tasktap already uses that combination to answer No"
     );
+    // Tasktap's own window's keys, on this system, for every key; the
+    // system's command modifier alone for a key taken from other apps, and
+    // a text field's own keys for the key held to talk.
+    let mac = cfg!(target_os = "macos");
+    let as_json = |k: &tasktap_proto::Shortcut| serde_json::to_value(k).unwrap();
+    let new_task = tasktap_proto::keys::shortcut("⌘N", mac).unwrap();
+    let says = if mac { "⌘N" } else { "Ctrl+Shift+N" };
+    for id in [
+        "capture_key",
+        "talk_key",
+        "question_key",
+        "yes_key",
+        "no_key",
+    ] {
+        let why = format!("Tasktap uses {says} for New task");
+        assert_eq!(said(&mut w, id, as_json(&new_task)), invalid(&why), "{id}");
+    }
+    let alone = json!({"control": !mac, "alt": false, "shift": false, "meta": mac, "code": "KeyB"});
+    let other_apps = if mac {
+        "Other apps use ⌘ with a single key: hold Control or Option as well"
+    } else {
+        "Other apps use Ctrl with a single key: hold Alt or Shift as well"
+    };
+    for id in ["capture_key", "question_key", "yes_key", "no_key"] {
+        assert_eq!(said(&mut w, id, alone.clone()), invalid(other_apps), "{id}");
+    }
+    let select_all =
+        json!({"control": !mac, "alt": false, "shift": false, "meta": mac, "code": "KeyA"});
+    let field = format!(
+        "A text field uses {} for Select all",
+        if mac { "⌘A" } else { "Ctrl+A" }
+    );
+    assert_eq!(said(&mut w, "talk_key", select_all), invalid(&field));
     // None is this system's own key, which is refused while the capture key is it.
     let mac = cfg!(target_os = "macos");
     let usual = tasktap_proto::Shortcut::answer(mac, tasktap_proto::AnswerKey::No);

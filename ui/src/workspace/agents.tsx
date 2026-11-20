@@ -54,6 +54,8 @@ function Own({ at, done }: { at: OwnAgent | null; done: () => void }) {
     void keep(at ? own.map((o) => (o.id === at.id ? { ...o, name, command } : o)) : [...own, { id: mint(), name, command, removed: false }]);
   };
   const enter = (e: KeyboardEvent) => e.key === 'Enter' && (e.preventDefault(), save());
+  // Opened by a click on Add or Change, the keyboard is in its first field: the button that had it is gone.
+  useEffect(() => document.getElementById('own-name')?.focus(), []);
   return (
     <div class="own" role="group" aria-label={at ? `Change ${at.name}` : 'Add an agent'}>
       <Row name={NAME} hint="Shown wherever you choose who runs a thought, and on the work it has done.">

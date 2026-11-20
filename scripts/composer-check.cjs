@@ -777,7 +777,7 @@ async function main() {
       }
 
       // R4: put away by a click beside it, by ⌘O or by Escape, it is Not now, kept.
-      for (const [how, act] of [['a click beside it', (p) => p.mouse.click(1150, 740)], ['⌘O', (p) => p.keyboard.press('Meta+o')], ['Escape', (p) => p.keyboard.press('Escape')]]) {
+      for (const [how, act] of [['a click beside it', (p) => { const v = p.viewportSize(); return p.mouse.click(v.width - 20, v.height - 40); }], ['⌘O', (p) => p.keyboard.press('Meta+o')], ['Escape', (p) => p.keyboard.press('Escape')]]) {
         page = await first();
         await page.waitForTimeout(900);
         await act(page);

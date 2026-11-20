@@ -135,7 +135,7 @@ function shots() {
     // R3: sent from New Task: the question in the sheet only, its keys there.
     'sheet-asked': { records: asked(), act: both((p) => p.focus('#capture-input'), press('Meta+n'), wait(300), (p) => p.keyboard.type('make the export faster'), press('Enter'), wait(900)) },
     // R4: the first step put away by a click beside it: Not now, and Setup says Skipped.
-    'first-clicked-away': { records: speech(projects('first-agents')), act: both(wait(900), (p) => p.mouse.click(1150, 740), wait(500)) },
+    'first-clicked-away': { records: speech(projects('first-agents')), act: both(wait(900), (p) => { const v = p.viewportSize(); return p.mouse.click(v.width - 20, v.height - 40); }, wait(500)) },
     // R5: Home left for a workspace and back with the question at the Composer.
     'back-home': { records: asked(), act: both(send('make the export faster'), wait(900),
       (p) => p.evaluate(() => (window.__ws.show([...window.__ws.records.projects.values()].find((x) => x.open).id), window.__motion.redraw())), wait(300),

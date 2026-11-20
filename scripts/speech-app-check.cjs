@@ -9,7 +9,8 @@
 // window is covered, as letting go ends it (record.ts). A recording begun and ended behind another window is whole.
 // So the window comes forward for the one question (`front`, the keyboard stays where it is) and goes back after
 // it; behind a locked screen the question is not put, and that is said; and a part during which the window was
-// covered while it recorded is done once more.
+// covered, or lost the keyboard to another window, while it recorded is done once more: either ends a recording as
+// letting go does (record.ts `lost`), which on GitHub's Mac runner cut one at 0.64 s.
 //
 //   node scripts/speech-app-check.cjs                      # the helper is the checks' own (speech-engine-fixture.py)
 //   node scripts/speech-app-check.cjs --model <ggml file>  # then also the real helper with the real model
@@ -49,8 +50,10 @@ function page(app) {
   const settings = async () => (await ask(`(__ws.ui.sheet = { kind: 'settings', at: 'voice' }, __motion.redraw(), 1)`), sleep(400));
   const home = async () => (await ask(`(__ws.dismiss(), __ws.show('home'), 1)`), sleep(300));
   // Never the real microphone: a press is refused unless a tone or a recording stands in for it.
-  const down = () => ask(`(__speech.talk.source === 'microphone' ? Promise.reject('the check would have opened the microphone') : (document.querySelector('.home .mic').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 1 })), 1))`);
-  const up = () => ask(`(document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true })), 1)`);
+  // While the check holds the control (`__holding`), the page losing the window counts (`watch`), whatever the
+  // recorder has made of it by then.
+  const down = () => ask(`(__speech.talk.source === 'microphone' ? Promise.reject('the check would have opened the microphone') : (window.__holding = true, document.querySelector('.home .mic').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerId: 1 })), 1))`);
+  const up = () => ask(`(window.__holding = false, document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true })), 1)`);
   const type = (text) => ask(`(document.querySelector('.home #capture-input').focus(), document.execCommand('selectAll'), document.execCommand('delete'), ${text ? `document.execCommand('insertText', false, ${JSON.stringify(text)}), ` : ''}1)`);
   const field = () => ask(`document.querySelector('.home #capture-input').value`);
   const spoken = () => ask(`[...__ws.records.thoughts.values()].filter((t) => t.source === 'voice').map((t) => t.text)`);
@@ -63,8 +66,9 @@ function page(app) {
     await type('');
     await sleep(300);
   };
-  /** Counts how often the window is covered while this page records, from now on. */
-  const watch = () => ask(`(window.__covered = 0, document.addEventListener('visibilitychange', () => document.hidden && (__speech.live() || __speech.talk.asking) && __covered++), 1)`);
+  /** Counts how often the page loses the window while it records, from now on: covered, or another window given the
+   *  keyboard, each of which ends a recording (record.ts `lost`). */
+  const watch = () => ask(`(window.__covered = 0, ((lost) => (document.addEventListener('visibilitychange', () => document.hidden && lost()), addEventListener('blur', lost), addEventListener('pagehide', lost)))(() => (window.__holding || __speech.live() || __speech.talk.asking) && __covered++), 1)`);
   const covered = () => ask(`window.__covered`);
   /** Whether the page is seen; a covered window comes forward first, until `back`. False behind a locked screen. */
   let forward = false;
@@ -269,7 +273,7 @@ async function withModel(model, shots) {
       const covered = await run();
       if (failures.length === had || !covered || again) return console.log(lines.splice(0).join('\n'));
       (failures.length = had), (lines.length = 0);
-      console.log('NOTE  the check\'s window was covered while it recorded, which ends a recording as letting go does: this part is done once more');
+      console.log('NOTE  the check\'s window was covered or lost the keyboard while it recorded, which ends a recording as letting go does: this part is done once more');
     }
   };
   await part(() => withFixture(shots));

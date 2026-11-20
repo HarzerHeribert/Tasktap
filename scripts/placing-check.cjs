@@ -120,7 +120,7 @@ async function main(out, dist) {
     expect(await rows(page) === '1Antigravity, 2Claude Code, 3Codex', `a row dragged to the top: ${await rows(page)}`);
     expect(JSON.parse(await stored(page)).agents.map((a) => a.agent).join(' ') === 'agy claude codex', 'and it is written');
     // Settings has the same group, and the keyboard moves it there too.
-    await page.evaluate(() => window.__ws.open({ kind: 'settings', at: 'thoughts' }));
+    await page.evaluate(() => window.__ws.open({ kind: 'settings', at: 'projects' }));
     await page.waitForTimeout(500);
     expect(await rows(page, '.settings') === '1Antigravity, 2Claude Code, 3Codex', `Settings shows the same group: ${await rows(page, '.settings')}`);
     await page.focus('.settings .rank');

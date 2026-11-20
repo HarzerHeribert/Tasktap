@@ -172,9 +172,9 @@ impl Agent for Pi {
     fn options(&self) -> &'static [Choice] {
         &[Choice {
             id: PROJECT,
-            name: "A project's own Pi files",
-            allows: "Pi loads the extensions, skills and settings in a project's .pi folder. \
-                     An extension is that project's code, and runs as you.",
+            name: "Load project extensions",
+            allows: "Pi then loads the extensions, skills and settings in a project's .pi folder; \
+                     an extension is that project's code, and runs as you.",
         }]
     }
 

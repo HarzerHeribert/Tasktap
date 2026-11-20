@@ -62,7 +62,7 @@ Decisions for 32 and 33 (Claude, 2026-11-19; applied once Home and the placing l
 - Words that say something the app does not do are corrected first: About says nothing else is sent, but a released build asks GitHub for a new version; the placing row says only thoughts naming no folder are read by the model, but long ones that name their project are read too, for their summary; "each agent is asked when you look here" is true only of agents never asked before; hold to talk says letting go ends it, where in an empty field it sends the thought, and the key works only while Tasktap is in front.
 - Order: Thoughts, Agents, Projects, Voice, Appearance, Terminal, About; the capture key first in Thoughts; finding the project moves to Projects.
 
-| # | Done | Missing settings a person would look for (proposed by Claude, each needs the owner's yes) |
+| # | Done | Missing settings a person would look for (proposed by Claude; the owner said yes to P2 to P5 on 2026-11-20) |
 | --- | --- | --- |
 | P2 | [ ] | Open Tasktap when the computer starts |
 | P3 | [ ] | Per project: the agent works on its own copy, or in the project itself (exists in the core, shown nowhere) |
@@ -78,11 +78,31 @@ Decisions for 32 and 33 (Claude, 2026-11-19; applied once Home and the placing l
 | 34 | [ ] | What the app costs the graphics processor was never measured; only the main processor, memory and wake-ups were | Measure it in every state (at rest, agents working, listening, the sidebar moving, effects Off, Still and Full) with the window on screen, on the Mac and on the Windows tower, and set a limit for each | |
 | 35 | [ ] | (follows) At rest the figure is zero, and a check keeps it so | At rest with Tasktap not in front, or with no caret, exactly zero; with the caret in Home's field, at most 0.01 % (its blink, which stays while the person is in the field with Tasktap in front; when Tasktap is not in front nothing blinks). The host knows a minimised window is not in front (edge.rs), so nothing draws unseen | `scripts/winvm/gpu.sh --rest` asserts exactly that, in front with the caret and without, behind another program, and minimised. The tower, 2026-11-20: the caret in front 0.007 % (pass); behind the round's Notepad exactly zero (pass); minimised exactly zero (pass); with no caret 0.000 % in 58 seconds of 60 and up to 0.008 % in two in which the page drew nothing and the app used no processor time (a fail by the letter, not drawn by the page: scripts/winvm/README.md) |
 
+## Found by the independent review of the Home rework (item 24)
+
+| # | Done | Finding | Decided fix |
+| --- | --- | --- | --- |
+| R1 | [ ] | Someone typing at first start ends on Allow, and the letters vanish | At first start the sheet is already up when Home appears, never dropped over a field in use; if the field was clicked or typed in, no sheet comes by itself, Setup shows the step. Keys count only 600 ms after the last key, not after the sheet appeared |
+| R2 | [ ] | The question at the Composer swallows the first letters of the next thought | Only 1 to 9, the arrows and Return answer, and only while the field is empty. Any other key belongs to the field: the letter is typed and the question waits in Needs you. Every row has a number; no letter keys |
+| R3 | [ ] | A thought sent from New Task shows its question twice, with the keyboard behind the sheet | One place for every Composer, not only Home's |
+| R4 | [ ] | The first step comes down again at every start if it was put away by a click outside or by Open a folder | Putting it away in any way counts as "not now" |
+| R5 | [ ] | Leaving Home and coming back strands the question with no keyboard | On return it waits in Needs you and the field has the keyboard |
+| R6 | [ ] | On the Mac, Tab does not reach the chip, the agent control, the microphone or Setup | Tab reaches every control in the app's own web view; the agent control gets a key |
+| R7 | [ ] | With the usual agent signed out, no other agent can be chosen | The list always opens; signing in is a row in it |
+| R8 | [ ] | In a narrow Composer the chip's reason is cut to "asks y…" | The reason goes whole, then the key hint, then names shorten |
+| R9 | [ ] | Two bright keys in view whenever a sheet is over Home | Behind a sheet, Home's key is quiet |
+| R10 | [ ] | While the question holds the keyboard the bright key says Start and does nothing | The bright key always does what Return does: with a question at the Composer it starts the thought in the first choice and says so |
+| R11 | [ ] | Hide drops the keyboard and does not say where Setup went | The field gets the keyboard; Setup's place says for a moment that it is in Settings |
+| R12 | [ ] | Five things about one thought stack under the Composer after it is placed | One line: where it started, who placed it, Undo; the rest on request |
+| R13 | [ ] | Setup is the heaviest thing under the Composer; uneven buttons; the count in the wrong face | Quiet rows, actions on one edge, "Setup · 1 of 3 done" |
+| R14 | [ ] | Typing "co" in the agent list picks Claude Code | A name that begins with what was typed comes first |
+| R15 | [ ] | The checks would not notice several of these rules being broken | Each rule above gets a check that fails when the rule is broken, tried by breaking it |
+
 ## Layout (owner, same evening)
 
 | # | Done | Finding | Decided fix | Proof |
 | --- | --- | --- | --- | --- |
-| 36 | [ ] | In full screen the content is not in the centre. Should it move with the sidebar, or stay centred whether the sidebar is open or closed? | Being researched: measured on the app, compared with how well-made apps do it, three alternatives rendered; then decided | |
+| 36 | [ ] | In full screen the content is not in the centre. Should it move with the sidebar, or stay centred whether the sidebar is open or closed? | Decided by the owner (2026-11-20): the hybrid. The reading column is centred on the window and the sidebar opens into the margin; in a window too narrow for that the column moves only as far as the sidebar needs. Also fixed: the sidebar never reflows Home, margins do not collapse, a lone row has a readable length | |
 | 37 | [ ] | (the owner asked) Other practices of interface designers that would lift the app | A ranked list of findings on this app, each with a picture, from the same research | |
 
 ## Proposed by Claude

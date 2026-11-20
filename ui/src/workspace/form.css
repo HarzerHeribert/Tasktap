@@ -1,0 +1,3 @@
+/* A form's row (form.tsx Row): its label reads by itself and names what the person decides, so it may take two lines
+   of its column; they are balanced, and no word is left alone on the second. */
+.set>.t{text-wrap:balance}

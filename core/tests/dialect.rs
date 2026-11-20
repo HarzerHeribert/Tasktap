@@ -471,7 +471,7 @@ fn droid_runs_one_task_and_the_end_of_its_turn_is_read_from_its_transcript() {
     let option = &droid.options()[0];
     assert_eq!(
         (option.id, option.name),
-        ("commands", "Installs, builds, tests and local git")
+        ("commands", "Build without asking")
     );
     assert!(agents::option("droid.commands").is_some());
     let files = droid.files(Path::new("/opt/tasktap/tasktap"));

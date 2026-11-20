@@ -223,7 +223,7 @@ fn pi_runs_with_tasktaps_extension_and_reads_a_projects_own_files_only_when_let(
     let option = &pi().options()[0];
     assert_eq!(
         (option.id, option.name),
-        ("project", "A project's own Pi files")
+        ("project", "Load project extensions")
     );
     assert!(option.allows.contains("runs as you"));
     assert!(agents::option("pi.project").is_some() && agents::option("pi.other").is_none());

@@ -7,6 +7,7 @@ import { useEffect, useState } from 'preact/hooks';
 import type { PrefPatch, Shortcut } from '../../../core/proto/protocol.ts';
 import { heldNow, isModifier, keyName, pressed, recorder } from '../keys.ts';
 import { Key } from '../ui.tsx';
+import './form.css';
 import { call, fail, sentence } from './model.ts';
 
 export function Row({ name, hint, children }: { name: string; hint?: ComponentChildren; children: ComponentChildren }) {
@@ -32,9 +33,9 @@ export const Switch = ({ on, name, set }: { on: boolean; name: string; set: (on:
 /** A key combination, recorded: the one in use is shown as a key; a click (or Return, or Space) listens, and the next
  *  combination pressed is tried with `set`. Whoever keeps the key decides whether it may be one: a refusal is shown
  *  under the key in their own words, and the key that was in use stays. Escape stops listening and changes nothing;
- *  so does leaving the control. `own`: the person chose this key, so there is a way back to the default.
- *  `value` null: no key is in use. */
-export function Recorder({ name, value, own, set }: { name: string; value: Shortcut | null; own: boolean; set: (key: Shortcut | null) => Promise<unknown> }) {
+ *  so does leaving the control. `own`: the person chose this key, so there is a way back to the default, named by its
+ *  key (`usual`). `value` null: no key is in use. */
+export function Recorder({ name, value, own, usual, set }: { name: string; value: Shortcut | null; own: boolean; usual?: Shortcut; set: (key: Shortcut | null) => Promise<unknown> }) {
   const [held, hold] = useState<string | null>(null);
   const [said, say] = useState('');
   const listens = held !== null;
@@ -62,7 +63,7 @@ export function Recorder({ name, value, own, set }: { name: string; value: Short
         {listens ? <>{held && <Key k={held} cap />}<span>{held ? 'and a key' : 'Press the keys'}</span><Key k="esc" /></>
           : value ? <><Key k={keyName(value)} cap /><span>Change</span></> : <span>Record a key</span>}
       </button>
-      {own && !listens && <button type="button" class="btn" onClick={() => tries(null)}>Use the default</button>}
+      {own && !listens && <button type="button" class="btn" onClick={() => tries(null)}>{usual ? `Use ${keyName(usual)}` : 'Use the default'}</button>}
       {said && <p class="hint err" role="alert">{said}</p>}
     </>
   );

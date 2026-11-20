@@ -10,9 +10,12 @@
 #
 #   $env:TASKTAP_INSTALL_FROM = '<https address or folder>'  where the release's files are (default: the newest release)
 #   $env:TASKTAP_INSTALL_NO_START = '1'                      do not start Tasktap afterwards
-# What describes this computer comes from whoami, Get-CimInstance and Get-ItemProperty, which scripts/install-check.ps1
-# stands in for with functions of the same names in the PowerShell it runs this in.
+# It runs in your own PowerShell, so nothing from your profile may change it: what it asks of Windows is asked of .NET
+# or of cmdlets named with their module, and strict mode and parameter defaults are its own. scripts/install-check.ps1
+# stands in for what describes the computer in a copy of this script.
 & {
+  Microsoft.PowerShell.Core\Set-StrictMode -Off
+  $PSDefaultParameterValues = @{}
   $ErrorActionPreference = 'Stop'
   $ProgressPreference = 'SilentlyContinue'
   $name = 'Tasktap_x64-setup.exe'
@@ -21,16 +24,16 @@
   $tmp = Join-Path ([IO.Path]::GetTempPath()) ('tasktap-install-' + [guid]::NewGuid().ToString('N').Substring(0, 12))
   $protocols = [Net.ServicePointManager]::SecurityProtocol
   try {
-    # This PowerShell's integrity level: High (S-1-16-12288) or System (S-1-16-16384) is an elevated one.
-    if (@(whoami /groups /fo csv /nh) -match '"S-1-16-(12288|16384)"') {
-      throw 'this PowerShell runs as administrator; paste the line into an ordinary PowerShell window, so that Tasktap is installed for you alone.'
+    if ([Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+      throw ('this PowerShell runs as administrator; paste the line into an ordinary PowerShell window, so that Tasktap is ' +
+        'installed for you alone, or, where every PowerShell runs so, download the installer from https://harzerheribert.github.io/Tasktap/')
     }
     # The processor itself, also when an x64 PowerShell runs on Windows on ARM: 9 is x64, 12 is ARM64.
-    $arch = @(Get-CimInstance -ClassName Win32_Processor)[0].Architecture
+    $arch = @(CimCmdlets\Get-CimInstance -ClassName Win32_Processor)[0].Architecture
     if ($arch -eq 12) { throw 'Tasktap for Windows is built for x64 processors only for now, and this computer has an ARM64 processor; there is no build for it yet.' }
     if ($arch -ne 9) { throw "Tasktap for Windows is built for x64 processors only, and this computer's processor is not one (Win32_Processor.Architecture $arch)." }
-    $session = (Get-Process -Id $PID).SessionId
-    if (Get-Process -Name 'tasktap-app' -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $session }) {
+    $session = (Microsoft.PowerShell.Management\Get-Process -Id $PID).SessionId
+    if (Microsoft.PowerShell.Management\Get-Process -Name 'tasktap-app' -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $session }) {
       throw 'Tasktap is running; quit it first (its icon by the clock, Quit), or update it from Settings > About.'
     }
     $web = $from -like 'https://*'
@@ -46,7 +49,7 @@
         Copy-Item -LiteralPath $path -Destination $tmp
         continue
       }
-      try { Invoke-WebRequest -Uri "$from/$file" -OutFile (Join-Path $tmp $file) -UseBasicParsing }
+      try { Microsoft.PowerShell.Utility\Invoke-WebRequest -Uri "$from/$file" -OutFile (Join-Path $tmp $file) -UseBasicParsing }
       catch {
         if ([int]$_.Exception.Response.StatusCode -eq 404) { throw "this release does not have $file ($from/$file answers 404); it may be older than this line." }
         throw "$file could not be downloaded from $($from): $($_.Exception.Message)"
@@ -66,13 +69,13 @@
       'the installer or the installed app, since neither has a signature, and nothing can be done about that from a script.')
 
     Write-Host 'Installing Tasktap for you alone; the installer also puts a shortcut on the desktop and in the Start menu.'
-    try { $setup = Start-Process -FilePath (Join-Path $tmp $name) -ArgumentList '/S' -PassThru }
+    try { $setup = Microsoft.PowerShell.Management\Start-Process -FilePath (Join-Path $tmp $name) -ArgumentList '/S' -PassThru }
     catch { throw "Windows did not let the installer run ($($_.Exception.Message)); where Smart App Control is on, it refuses a program without a signature." }
     # Waiting for the installer alone: what it starts and leaves running is not waited for.
     $null = $setup.Handle
     $setup.WaitForExit()
     if ($setup.ExitCode -ne 0) { throw "the installer stopped with code $($setup.ExitCode)." }
-    $entry = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Tasktap' -ErrorAction SilentlyContinue
+    $entry = Microsoft.PowerShell.Management\Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Tasktap' -ErrorAction SilentlyContinue
     $dir = "$($entry.InstallLocation)".Trim().Trim('"')
     if (-not $dir) { throw 'the installer finished, but it recorded no place where it put Tasktap.' }
     $exe = Join-Path $dir 'tasktap-app.exe'
@@ -81,7 +84,7 @@
     Write-Host "Installed: $exe. To remove it: Settings > Apps > Installed apps > Tasktap > Uninstall."
     if ($env:TASKTAP_INSTALL_NO_START -eq '1') { Write-Host 'Start Tasktap from the Start menu or the desktop.' }
     else {
-      Start-Process -FilePath $exe
+      Microsoft.PowerShell.Management\Start-Process -FilePath $exe
       Write-Host 'Tasktap is starting. Next time, start it from the Start menu or the desktop.'
     }
   } catch {

@@ -83,6 +83,14 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      # The Mac's install line installs nothing while it names no team, and a release is what it installs.
+      - name: The Mac line names Tasktap's team
+        if: github.ref_type == 'tag'
+        run: |
+          grep -Eq '^TEAM_ID="[A-Z0-9]{10}"$' site/install.sh || {
+            echo "::error::Nothing was built, because TEAM_ID in site/install.sh is empty, so this release's Mac line would install nothing; set it to the team that signs Tasktap."
+            exit 1
+          }
       - id: plan
         env:
           REHEARSE: ${{ inputs.rehearse }}
@@ -210,6 +218,7 @@ jobs:
         if: env.SIGN == 'true'
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          PUBLISH: ${{ needs.plan.outputs.publish }}
         run: |
           from="$RUNNER_TEMP/install-from"; to="$RUNNER_TEMP/install-to"
           mkdir -p "$from" "$to"
@@ -229,7 +238,10 @@ jobs:
           sed "s/^TEAM_ID=\"\"$/TEAM_ID=\"$APPLE_TEAM_ID\"/" site/install.sh > "$RUNNER_TEMP/install.sh"
           TASKTAP_INSTALL_FROM="$from" TASKTAP_INSTALL_TO="$to" TASKTAP_INSTALL_NO_START=1 sh < "$RUNNER_TEMP/install.sh"
           codesign --verify --deep --strict "$to/Tasktap.app"
-          [ -z "$team" ] && echo "::warning::TEAM_ID in site/install.sh is empty, so the Mac's install line installs nothing until it names this team." || true
+          if [ -z "$team" ]; then
+            if [ "$PUBLISH" = true ]; then echo "::error::TEAM_ID in site/install.sh is empty, so the Mac line of the release this run publishes would install nothing."; exit 1; fi
+            echo "::warning::TEAM_ID in site/install.sh is empty, so the Mac's install line installs nothing until it names this team."
+          fi
       - name: What is in the bundle, and its size
         run: |
           app="$(ls -d host/target/release/bundle/macos/*.app)"

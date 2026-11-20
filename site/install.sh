@@ -11,8 +11,9 @@
 #   TASKTAP_INSTALL_FROM=<https address or folder>  where the release's files are (default: the newest release)
 #   TASKTAP_INSTALL_TO=<folder>                     where Tasktap.app goes instead
 #   TASKTAP_INSTALL_NO_START=1                      do not start Tasktap afterwards
-# The tools whose verdict matters are called by their full paths. uname, sysctl, sw_vers, pgrep and id, which only
-# describe this Mac, are found on PATH, where scripts/install-check.sh puts its stand-ins for them.
+# The tools whose verdict matters are called by their full paths. uname, sysctl, sw_vers and pgrep, which only describe
+# this Mac, are found on PATH, where scripts/install-check.sh puts its stand-ins for them. One install at a time: a
+# second one finds the first one's lock in the folder and stops.
 # All of it is one { } block, so that a download cut short runs nothing.
 {
 set -eu
@@ -25,8 +26,9 @@ say() { printf '%s\n' "$*"; }
 refuse() { printf 'Tasktap was not installed: %s\n' "$*" >&2; exit 1; }
 
 # A folder .tasktap-install.* in the place of the app is a replacement under way, or one cut short: the copy it moved
-# away goes back where none stands now, and the folder goes.
+# away goes back where none stands now, and the folder goes. Only a real folder of this person's is touched.
 tidy() {
+  [ -d "$1" ] && [ ! -L "$1" ] && [ "$(stat -f %u "$1")" = "$(/usr/bin/id -u)" ] || return 0
   if [ -d "$1/previous.app" ] && [ ! -e "$dir/Tasktap.app" ]; then
     mv "$1/previous.app" "$dir/Tasktap.app" || { say "The Tasktap.app that was in $dir is in $1/previous.app; move it back."; return 0; }
   fi
@@ -36,6 +38,7 @@ tidy() {
 cleanup() {
   if [ -n "$mounted" ]; then /usr/bin/hdiutil detach -quiet "$mounted" || /usr/bin/hdiutil detach -quiet -force "$mounted" || true; fi
   if [ -n "$stage" ]; then tidy "$stage"; fi
+  if [ -n "$locked" ]; then rmdir "$locked" || true; fi
   if [ -n "$tmp" ]; then rm -rf "$tmp"; fi
 }
 
@@ -70,16 +73,16 @@ notarised() { # <verdict of spctl>
 }
 
 main() {
-  tmp="" stage="" mounted="" dir=""
+  tmp="" stage="" mounted="" dir="" old="" locked="" apps=/Applications
   trap cleanup EXIT
   trap 'exit 1' HUP INT TERM
   [ -n "$TEAM_ID" ] || refuse "this line does not name the team that signs Tasktap yet; download the disk image from https://github.com/HarzerHeribert/Tasktap/releases instead."
-  [ "$(id -u)" != 0 ] || refuse "it was run as root (with sudo); paste the line into Terminal as it is, without sudo, so that Tasktap is installed as you."
+  [ "$(/usr/bin/id -u)" != 0 ] || refuse "it was run as root (with sudo); paste the line into Terminal as it is, without sudo, so that Tasktap is installed as you."
   [ "$(uname -s)" = Darwin ] || refuse "this line is for a Mac; on Windows, use the line for PowerShell on https://harzerheribert.github.io/Tasktap/"
   [ "$(sysctl -n hw.optional.arm64 2>/dev/null || true)" = 1 ] || refuse "Tasktap is built for Macs with Apple silicon only, and this Mac has an Intel processor."
   version="$(sw_vers -productVersion)"
   [ "${version%%.*}" -ge 13 ] || refuse "Tasktap needs macOS 13 or later, and this Mac has macOS $version."
-  if pgrep -U "$(id -u)" -f '/Tasktap\.app/Contents/MacOS/' >/dev/null 2>&1; then
+  if pgrep -U "$(/usr/bin/id -u)" -f '/Tasktap\.app/Contents/MacOS/' >/dev/null 2>&1; then
     refuse "Tasktap is running; quit it first, or update it from Settings > About."
   fi
   from="${TASKTAP_INSTALL_FROM:-https://github.com/HarzerHeribert/Tasktap/releases/latest/download}"
@@ -89,13 +92,23 @@ main() {
   req='anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "'"$TEAM_ID"'"'
 
   if [ -n "${TASKTAP_INSTALL_TO:-}" ]; then dir="${TASKTAP_INSTALL_TO%/}"
-  elif [ -e /Applications/Tasktap.app ] && [ -e "$HOME/Applications/Tasktap.app" ]; then
-    refuse "there is a Tasktap.app in /Applications and another in ~/Applications; move one of them to the Trash, then run the line again."
+  elif [ -e "$apps/Tasktap.app" ] && [ -e "$HOME/Applications/Tasktap.app" ]; then
+    refuse "there is a Tasktap.app in $apps and another in $HOME/Applications; move one of them to the Trash, then run the line again."
   elif [ -e "$HOME/Applications/Tasktap.app" ]; then dir="$HOME/Applications"
-  elif [ -e /Applications/Tasktap.app ] || [ -w /Applications ]; then dir=/Applications
+  elif [ -e "$apps/Tasktap.app" ] || [ -w "$apps" ]; then dir="$apps"
   else dir="$HOME/Applications"; fi
+  for mine in "$dir" "$dir/Tasktap.app"; do
+    if [ -e "$mine" ] && [ ! -w "$mine" ]; then
+      refuse "$mine belongs to $(stat -f %Su "$mine") and is not yours to change; update Tasktap from Settings > About, or ask an administrator of this Mac to replace it."
+    fi
+  done
+  mkdir -p "$dir" || refuse "the folder $dir could not be made."
+  if [ -n "$(find "$dir/.tasktap-install.lock" -maxdepth 0 -mmin +60 2>/dev/null)" ]; then rmdir "$dir/.tasktap-install.lock" || true; fi
+  mkdir "$dir/.tasktap-install.lock" 2>/dev/null ||
+    refuse "another install of Tasktap into $dir is running; wait for it to finish (or, if none runs, remove $dir/.tasktap-install.lock)."
+  locked="$dir/.tasktap-install.lock"
   for old in "$dir"/.tasktap-install.*; do
-    if [ -d "$old" ]; then tidy "$old"; fi
+    if [ "$old" != "$locked" ]; then tidy "$old"; fi
   done
 
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/tasktap-install.XXXXXX")"
@@ -134,6 +147,7 @@ main() {
     mv "$dir/Tasktap.app" "$stage/previous.app" ||
       refuse "the Tasktap.app in $dir could not be replaced. Update it from Settings > About in Tasktap, or allow Terminal under System Settings > Privacy & Security > App Management and run the line again."
   fi
+  [ ! -e "$dir/Tasktap.app" ] || refuse "another Tasktap.app appeared in $dir while this one was being put there; run the line again."
   mv "$stage/Tasktap.app" "$dir/Tasktap.app" || refuse "Tasktap.app could not be put into $dir."
   tidy "$stage"
   stage=""

@@ -16,8 +16,9 @@
 // Writes <out>/<before|after>/..., <out>/diff/... and <out>/report.json; says what differs. Exit status 1 when a
 // still or a motion frame differs that --expect does not name.
 // usage: node scripts/same-look.cjs <out> --before <dist> --after <dist> [--only stills,motion,slide,glow]
-//        [--quick] [--jobs 4] [--gpu] [--hz 240] [--expect name,name-prefix*] [--reuse]
+//        [--quick] [--jobs 4] [--gpu] [--hz 240] [--hz-before n] [--hz-after n] [--forms slats,glyphs,resonator] [--expect name,name-prefix*] [--reuse]
 //   --reuse: the pictures already in <out> are taken as they are (delete one to have it drawn again).
+//   --forms: the forms whose loops the motion compares (in software the rings' program can take minutes to build).
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
@@ -30,7 +31,12 @@ const OUT = path.resolve(argv[0] || '');
 const BUILDS = { before: arg('--before'), after: arg('--after') };
 const ONLY = (arg('--only', 'stills,motion,slide,glow')).split(',');
 const QUICK = has('--quick'), JOBS = Number(arg('--jobs', 4)), HZ = Number(arg('--hz', 240));
+/** Each build's display for the motion: a build on one display against the other on another. */
+const HZS = { before: Number(arg('--hz-before', HZ)), after: Number(arg('--hz-after', HZ)) };
 const EXPECT = (arg('--expect', '')).split(',').filter(Boolean);
+/** In software the web view builds a program on its graphics thread, and on a loaded machine the rings' and the glyphs'
+ *  took longer than the watchdog allows it: every context was lost. */
+const SOFT = ['--disable-gpu-watchdog'];
 if (require.main === module && (!argv[0] || !BUILDS.before || !BUILDS.after)) {
   console.error('usage: node scripts/same-look.cjs <out> --before <dist> --after <dist> [--only stills,motion,slide,glow] [--quick] [--jobs 4] [--gpu] [--hz 240] [--expect a,b*]');
   process.exit(2);
@@ -51,6 +57,12 @@ const INIT = (debug, clock) => {
   const real = { st: setTimeout.bind(window) };
   const q = { T: 1000, raf: [], timers: [], id: 0, frames: 0 };
   performance.now = () => q.T;
+  // The programs the web view is building aside, asked without waiting (KHR_parallel_shader_compile's status).
+  const building = new Set(), link = WebGL2RenderingContext.prototype.linkProgram;
+  WebGL2RenderingContext.prototype.linkProgram = function (p) {
+    building.add([this, p]);
+    return link.call(this, p);
+  };
   window.requestAnimationFrame = (f) => (q.raf.push({ id: ++q.id, f }), q.id);
   window.cancelAnimationFrame = (id) => void (q.raf = q.raf.filter((r) => r.id !== id));
   const later = (f, ms, a, id = ++q.id) => (q.timers.push({ id, at: q.T + Math.max(0, Number(ms) || 0), f: typeof f === 'function' ? () => f(...a) : () => {} }), id);
@@ -95,7 +107,11 @@ const INIT = (debug, clock) => {
     return q.frames;
   };
   window.__clock = { q, run: (ms, hz = 60) => run(ms, hz, false), live: (ms, hz = 60) => run(ms, hz, true), task: (ms = 0) => new Promise((ok) => real.st(ok, ms)),
-    near: () => q.timers.some((t) => t.at - q.T < 300) };
+    near: () => q.timers.some((t) => t.at - q.T < 300),
+    building: () => {
+      for (const b of building) if (b[0].isContextLost() || b[0].getProgramParameter(b[1], 0x91b1) !== false) building.delete(b);
+      return building.size > 0;
+    } };
   if (!debug) return;
   let m;
   Object.defineProperty(window, '__motion', {
@@ -154,15 +170,15 @@ function stills() {
 const geometry = (cutout) => ({ do: 'geometry', width: cutout ? 185 : 120, height: cutout ? 32 : 20, cutout, compact: false, surfaceWidth: 420, surfaceOffset: 0, span: 560,
   pixel: 2, corner: 10, offset: 0, available: 700, collapsed: false });
 
-/** Gives the page's clock real time until the motion stops drawing (it draws in every frame while a style's program is
- *  still being built, which the web view does aside) and no timer is near. Frames asked for by the page's CSS loops
- *  (paced.ts) do not count: they go on for as long as the loop. A minute at most: in software, on a loaded machine,
- *  the rings' program took longer than twenty seconds. */
+/** Gives the page's clock real time until no program is being built (the web view does that aside), the motion has
+ *  stopped drawing and no timer is near. Frames asked for by the page's CSS loops (paced.ts) do not count: they go on
+ *  for as long as the loop. A minute at most: in software, on a loaded machine, the rings' program took longer than
+ *  twenty seconds. */
 async function quiet(page) {
-  const frames = () => page.evaluate(() => window.__motion?.stats.frames ?? 0);
+  const ask = () => page.evaluate(() => [window.__motion?.stats.frames ?? 0, window.__clock.building() || window.__clock.near()]);
   for (let i = 0, was = -1; i < 240; i++) {
-    const now = await frames();
-    if (now === was && !(await page.evaluate(() => window.__clock.near()))) return;
+    const [now, busy] = await ask();
+    if (now === was && !busy) return;
     was = now;
     await page.evaluate(() => window.__clock.live(250));
   }
@@ -252,7 +268,7 @@ async function pool(items, jobs, f) {
   const { chromium } = require('playwright');
   let i = 0;
   await Promise.all(Array.from({ length: jobs }, async () => {
-    const browser = await chromium.launch({ headless: true, ...(has('--gpu') ? { args: GPU } : {}) });
+    const browser = await chromium.launch({ headless: true, args: has('--gpu') ? GPU : SOFT });
     try {
       while (i < items.length) await f(items[i++], browser);
     } finally {
@@ -330,7 +346,7 @@ const DRIVE = async ({ hz, seconds, script, keep }) => {
 
 async function runMotion(browser, report) {
   const runs = [];
-  for (const style of QUICK ? ['slats'] : FORMS) {
+  for (const style of arg('--forms') ? arg('--forms').split(',') : QUICK ? ['slats'] : FORMS) {
     runs.push({ name: `${style}-working`, prefs: { motion_style: style }, script: [[0, 'working']] });
     runs.push({ name: `${style}-needs`, prefs: { motion_style: style }, script: [[0, 'needs']] });
   }
@@ -353,7 +369,7 @@ async function runMotion(browser, report) {
       await page.evaluate((ms) => window.__clock.run(ms, 30), REST);
       await quiet(page);
       await settle(page);
-      const got = await page.evaluate(DRIVE, { hz: HZ, seconds, script: r.script, keep });
+      const got = await page.evaluate(DRIVE, { hz: HZS[tag], seconds, script: r.script, keep });
       for (const [t, , url] of got.frames) if (url) fs.writeFileSync(path.join(OUT, tag, 'motion', `${r.name}-${String(Math.round(t)).padStart(5, '0')}ms.png`), Buffer.from(url.split(',')[1], 'base64'));
       (res[r.name] ??= {})[tag] = got.frames.map(([t, h]) => [t, h]);
       for (const e of page.errors) console.error(`${tag} ${r.name}: ${e}`);
@@ -366,8 +382,8 @@ async function runMotion(browser, report) {
     const a = new Map(before), b = new Map(after);
     const both = [...a.keys()].filter((t) => b.has(t));
     const differ = both.filter((t) => a.get(t) !== b.get(t));
-    out[name] = { seconds, hz: HZ, drawn: { before: before.length / seconds, after: after.length / seconds }, compared: both.length, differ: differ.length, first: differ.slice(0, 5) };
-    console.log(`motion ${name}: at ${HZ} Hz before drew ${out[name].drawn.before.toFixed(1)} and after ${out[name].drawn.after.toFixed(1)} frames a second; ${both.length} moments both drew, ${differ.length} differ`);
+    out[name] = { seconds, hz: HZS, drawn: { before: before.length / seconds, after: after.length / seconds }, compared: both.length, differ: differ.length, first: differ.slice(0, 5) };
+    console.log(`motion ${name}: before at ${HZS.before} Hz drew ${out[name].drawn.before.toFixed(1)} and after at ${HZS.after} Hz ${out[name].drawn.after.toFixed(1)} frames a second; ${both.length} moments both drew, ${differ.length} differ`);
   }
   fs.mkdirSync(path.join(OUT, 'diff', 'motion'), { recursive: true });
   for (const f of fs.readdirSync(path.join(OUT, 'after', 'motion'))) {
@@ -525,7 +541,7 @@ module.exports = { init, picture, quiet, settle, freeze, compare, scene, prefs, 
 if (require.main === module) (async () => {
   const { chromium } = require('playwright');
   fs.mkdirSync(OUT, { recursive: true });
-  const browser = await chromium.launch({ headless: true, ...(has('--gpu') ? { args: GPU } : {}) });
+  const browser = await chromium.launch({ headless: true, args: has('--gpu') ? GPU : SOFT });
   const report = { builds: BUILDS, hz: HZ, quick: QUICK };
   try {
     if (ONLY.includes('stills')) await runStills(report);

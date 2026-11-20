@@ -16,7 +16,7 @@ import { cap, followSpeech } from '../capture.tsx';
 import { AGENT_KEY, open as openAgents } from '../rings.tsx';
 import { type HostUpdate, uuid7 } from '../client.ts';
 import { LevelVoice } from '../speech/level.ts';
-import { live, loudness, recording, talk } from '../speech/record.ts';
+import { audio, live, loudness, recording, talk } from '../speech/record.ts';
 import { Brand, I, Key, Mark, plural } from '../ui.tsx';
 import { COMMANDS, commands, hit, keyName, recorder, tip, watchLayout } from '../keys.ts';
 import { mac, shownPath, titled } from '../system.ts';
@@ -489,6 +489,6 @@ const type = (line: string) => (engines.get(current()?.id ?? '')?.term.input(lin
 Object.assign(window, {
   __ws: { uuid7, ui, records, layout, command, greet, slide, engines, focusSession, show, newTerminal, startAgent, call, echo, burst, text, type, current, dismiss, open, menu, choose, LOOSE, L, follow, refresh },
   __motion: { debug, stats, redraw },
-  __speech: { talk, live, cap },
+  __speech: { talk, live, cap, audio },
   __where: where,
 });

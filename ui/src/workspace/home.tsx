@@ -7,7 +7,7 @@
 import type { Question, Thought } from '../../../core/proto/protocol.ts';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useState } from 'preact/hooks';
-import { Capture, askedHere, cap } from '../capture.tsx';
+import { Capture, atComposer, cap } from '../capture.tsx';
 import { next, pending, running, settle, Status, Told } from '../changes.tsx';
 import { Ask } from '../question.tsx';
 import { I, Mark, Seat, type State, elapsed, said, when } from '../ui.tsx';
@@ -233,8 +233,8 @@ export function Home() {
   const folders = projects().some((p) => p.kind === 'folder');
   // The first-run composition is for a Home with nothing on it yet: no folder open, and nothing asked, running or done.
   const first = !folders && !h.questions.length && !h.waiting.length && !h.running.length && !h.results.length;
-  // A question asked at the Composer, about the thought just sent, is there and not also in Needs you (NOTES §13).
-  const here = ui.sheet?.kind === 'capture' ? undefined : askedHere();
+  // A question asked at a Composer (Home's, or the New Task sheet's over it) is there and not also in Needs you (NOTES §13).
+  const here = atComposer();
   const waits = h.questions.filter((q) => q !== here);
   const asks = h.questions.length > 0;
   const idle = !asks && !h.running.length;

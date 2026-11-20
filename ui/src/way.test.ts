@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Routing, Thought } from '../../core/proto/protocol.ts';
 import {
-  agentState, agreement, back, briefOf, clock, first, hold, into, laterWhy, leave, letters, lettersOf, listed, moved, onWay, ownAgentLacks, fallback, placeWhy, placed, places,
+  agentState, agreement, back, briefOf, clock, first, hold, into, laterWhy, leave, letters, lettersOf, listed, moved, onWay, ownAgentLacks, fallback, placeWhy, placed, placedBy, places,
   placing, proposed, ranked, ring, step,
 } from './way.ts';
 
@@ -32,8 +32,10 @@ test('the Composer\'s list offers every agent that is here and runs on this syst
     a('opencode', 'OpenCode'), a('qwen', 'Qwen Code'), a('gemini', 'Gemini CLI')];
   // Signed out is listed (its row leads to where it is signed in); not here, or not for this system, is not.
   assert.equal(ids(listed(all, (x) => x.name)), 'claude codex aider opencode qwen gemini');
-  // Typing narrows by name or id, whatever the case.
-  assert.equal(ids(listed(all, (x) => x.name, 'CODE')), 'claude codex opencode qwen');
+  // Typing narrows by name or id, whatever the case: a name that begins with it first, then one with a word that does,
+  // then the rest that hold it (the review: "co" chose Claude Code over Codex).
+  assert.equal(ids(listed(all, (x) => x.name, 'CODE')), 'codex claude qwen opencode');
+  assert.equal(ids(listed(all, (x) => x.name, 'co')), 'codex claude qwen opencode');
   assert.equal(ids(listed(all, (x) => x.name, 'gem')), 'gemini');
   assert.equal(ids(listed(all, (x) => x.name, 'nothing')), '');
   assert.equal(ids(listed([], (x: { id: string; name: string; installed: boolean; supported: boolean }) => x.name)), '');
@@ -128,6 +130,18 @@ test('how it came by its place is told from the core\'s word for it, never from 
   // Every word the core has is told from: a new one fails here before it reads as nothing.
   const words: Record<NonNullable<Thought['placed']>, true> = { picked: true, name: true, model: true, follow_up: true, answer: true, kept: true, kept_answer: true, kept_name: true, kept_model: true };
   assert.equal(Object.keys(words).length, 9);
+});
+
+test('the one line under the Composer says who placed a thought in a few words; the rest is behind it', () => {
+  const by = (placed_: Thought['placed'], r: Routing | null = route()) => placedBy(thought({ placed: placed_, route: r }), name);
+  assert.equal(by('model'), 'placed by Claude Code');
+  assert.equal(by('model', route({ by: 'local', model: null })), 'placed by a model');
+  assert.equal(by('name'), 'named in it');
+  assert.equal(by('picked'), 'your choice');
+  assert.equal(by('answer'), 'your answer');
+  // A follow-up says so in its place's name; nothing more is said where nothing is known.
+  assert.equal(by('follow_up'), '');
+  assert.equal(by(null, null), '');
 });
 
 test('why a thought waits in For later: the four reasons, whatever its route says', () => {

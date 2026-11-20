@@ -4,7 +4,8 @@
 import type { AgentHealth } from '../../core/proto/protocol.ts';
 import { cap } from './capture.tsx';
 import { agent, agentName, call, openQuestions, page, records, redraw, runs } from './page.ts';
-import { I, Ring } from './ui.tsx';
+import { spell } from './keys.ts';
+import { I, Key, Ring } from './ui.tsx';
 import { listed, ring } from './way.ts';
 
 /** More agents than this, and the list has a field that narrows it by what is typed. */
@@ -28,24 +29,29 @@ function facts(a: AgentHealth, s: { n: number; s: string }) {
   return [s.n > 0 && `${s.n} working`, s.s === 'asks' && 'one needs you', a.questions === 'terminal' && 'answers in its terminal', a.signed_in === false && 'signed out'].filter(Boolean).join(' · ');
 }
 
-/** The control: the ring of the agent that runs the thought, its name and a chevron; a click (or ↓) opens the list.
- *  A follow-up is its session's agent's, with no choice. The usual agent, signed out, is an open ring in the attention
- *  colour that says so and leads to where it is signed in. Its name gives way where the foot is short of room. */
-export function AgentControl({ session, signIn }: { session?: string; signIn?: () => void }) {
+/** The agent control's key, from anywhere in the Composer (a key no command and no field takes: keys.ts COMMANDS). */
+export const AGENT_KEY = '⌘J';
+
+/** The control: the ring of the agent that runs the thought, its name, a chevron and its key where there is room; a
+ *  click, ↓ or ⌘J opens the list, always, also with the usual agent signed out (then its ring is open in the attention
+ *  colour and it says so; signing in is a row of the list). A follow-up is its session's agent's, with no choice. Its
+ *  name gives way where the foot is short of room. */
+export function AgentControl({ session }: { session?: string }) {
   const { a, fixed } = chosen(session);
   if (!a) return null;
   const s = says().get(a.id) ?? { n: 0, s: '' as const };
   const off = s.s === 'off';
-  const words = `${agentName(a.id)}${a.version ? ` ${a.version}` : ''}, ${off ? 'not signed in: click to sign in' : fixed ? 'runs this follow-up, as it runs its session' : a.id === agent()?.id ? 'runs the next thought. Click to choose another for this one' : 'runs this thought only. Click to choose another'}`;
+  const words = `${agentName(a.id)}${a.version ? ` ${a.version}` : ''}, ${fixed ? 'runs this follow-up, as it runs its session' : off ? 'not signed in. Click to choose another, or to sign in' : a.id === agent()?.id ? 'runs the next thought. Click to choose another for this one' : 'runs this thought only. Click to choose another'}`;
   return (
-    <button type="button" class="cap-agent" data-agent={a.id} data-s={s.s || undefined} aria-haspopup={fixed || off ? undefined : 'listbox'} aria-expanded={fixed || off ? undefined : false} aria-disabled={fixed || undefined}
-      title={words} aria-label={words}
-      onClick={() => (off ? signIn?.() : !fixed && open(true))}
-      onKeyDown={(e) => !fixed && !off && (e.key === 'ArrowDown' || e.key === 'ArrowUp') && (e.preventDefault(), e.stopPropagation(), open(true))}>
+    <button type="button" class="cap-agent" data-agent={a.id} data-s={s.s || undefined} aria-haspopup={fixed ? undefined : 'listbox'} aria-expanded={fixed ? undefined : false} aria-disabled={fixed || undefined}
+      title={fixed ? words : `${words}  ${spell(AGENT_KEY)}`} aria-label={words} aria-keyshortcuts={fixed ? undefined : AGENT_KEY.replace('⌘', 'Meta+')}
+      onClick={() => !fixed && open(true)}
+      onKeyDown={(e) => !fixed && (e.key === 'ArrowDown' || e.key === 'ArrowUp') && (e.preventDefault(), e.stopPropagation(), open(true))}>
       <Ring agent={a.id} s={s.s} turns={s.n > 0} />
       <span class="nm">{agentName(a.id)}</span>
-      {off && <span class="fix">Sign in</span>}
-      {!fixed && !off && <I n="chev" />}
+      {off && <span class="fix">signed out</span>}
+      {!fixed && <I n="chev" />}
+      {!fixed && <Key k={AGENT_KEY} />}
     </button>
   );
 }
@@ -82,11 +88,13 @@ function arrows(e: KeyboardEvent) {
 
 /** The list, in the Composer's foot where the row was, in the family of the chip's list: every usable agent a row (its
  *  ring, its name, what it is working on, that it answers in its terminal, that it is signed out), the one that runs
- *  the thought selected. With more than six a field narrows them by what is typed. Picking one is for this thought
- *  alone; one signed out leads to where it is signed in. */
+ *  the thought selected. With more than six a field narrows them by what is typed, a name that begins with it first.
+ *  Picking one is for this thought alone; one signed out leads to where it is signed in, and so does the list's last
+ *  row while one is. */
 export function AgentList({ signIn }: { signIn?: () => void }) {
   const agents = [...records.agents.values()], name = (a: AgentHealth) => agentName(a.id);
   const all = listed(agents, name), shown = listed(agents, name, cap.findAgent), on = chosen().a?.id, said = says(), words = cap.findAgent.trim();
+  const out = all.filter((a) => said.get(a.id)?.s === 'off');
   return (
     <div key="agents" class="cap-row cap-list agent-list" role="listbox" aria-label="Who runs this thought" data-keys onKeyDown={arrows}
       // A row pressed keeps the keyboard where it is: a WebKit button takes none, and the list would close under it.
@@ -112,6 +120,9 @@ export function AgentList({ signIn }: { signIn?: () => void }) {
         );
       })}
       {words && !shown.length && <p class="cap-none">No agent by that name.</p>}
+      {out.length > 0 && signIn && (
+        <button type="button" class="sign" onClick={() => (open(false), signIn())}><I n="arrow" /><span>{out.some((a) => a.id === on) ? `Sign in to ${agentName(on)}…` : out.length === 1 ? `Sign in to ${agentName(out[0]!.id)}…` : 'Sign in to an agent…'}</span></button>
+      )}
     </div>
   );
 }

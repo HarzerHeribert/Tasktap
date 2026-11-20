@@ -16,21 +16,28 @@
 //   Scratch, is a default anywhere; the chip does not say where the thought goes and why in its few words, or its list
 //   has no Scratch, or marks no row or another than the chip says; a pick holds for more than its thought, or the chip
 //   goes back from it without saying so; or what is sent is not what the chip said;
-// - after the owner's first trial (design/ui-directions/NOTES.md §13): the question about a thought just sent is not
-//   asked at the Composer with the keyboard when the field was empty and had it, or is also in Needs you, or 1, the
-//   arrows with Return, or Escape do not answer it or give the field back; a 1 typed into the next thought begun as it
-//   came is not text; a question in Needs you without the keyboard shows caps; the Composer's key is not the metal key
-//   on Home, empty, typed, asked or on its way; the agent control's list is not reached, narrowed and picked from by
-//   keyboard; the first start's sheet takes a Return in its first 600 ms, or comes down over a thought being typed;
-//   or a real pointer's click on "Open another folder…" or a project in the chip's list does not land (also in
-//   WebKit, the Mac's engine, where Playwright's WebKit is installed).
-// usage: node scripts/composer-check.cjs [--dist folder]   (ui/dist must be built)
+// - after the owner's first trial and its independent review (design/ui-directions/NOTES.md §13, docs/trial-checklist.md
+//   R1–R15): the question about a thought just sent is not asked once, at the Composer it was sent from (Home's, the
+//   New Task sheet's, the notch's), with the field keeping the keyboard; its rows are not numbered 1 to 5 with no
+//   letters; a number, the arrows and Return do not answer it while the field is empty; Return answers it within 600 ms
+//   of its coming, or a key held down does; a letter typed after it came is lost or answers it, or it stays at the
+//   Composer; Escape, Tab or leaving Home does not leave it in Needs you with the field's keyboard; the metal key does
+//   not say and do what Return does; a placed thought is not one line with its brief behind a closed disclosure; Undo
+//   shows ⌘Z while the field holds words; the notch shows caps without the keyboard; the first start's sheet is not in
+//   Home's first picture, comes after a key or a click, takes a key within 600 ms of another, swallows the letters
+//   typed at it, or is not Not now when put away by a click beside it, ⌘O or Escape; Setup does not say "Setup · n of
+//   3 done" with its actions quiet on one edge, or Hide drops the keyboard or does not say where Setup went; the agent
+//   control has no key ⌘J, Tab does not reach the foot's controls, "co" does not put Codex first, or a signed-out usual
+//   agent keeps the list shut; the chip's reason is cut; or a real pointer's click on "Open another folder…" or a
+//   project in the chip's list does not land (also in WebKit, the Mac's engine, where Playwright's WebKit is installed).
+// usage: node scripts/composer-check.cjs [--dist folder] [--review]   (ui/dist must be built)
 const path = require('node:path');
 const { serve, open, findCore } = require('./motion-pages.cjs');
 const { scene, flow } = require('./instrument-fixtures.cjs');
 const dist = path.resolve(process.argv.includes('--dist') ? process.argv[process.argv.indexOf('--dist') + 1] : path.join(__dirname, '../ui/dist'));
 const GEO = { do: 'geometry', width: 104, height: 16, cutout: false, surfaceWidth: 420, surfaceOffset: 0, span: 560, pixel: 1, corner: 10, offset: 0, available: 700, collapsed: false };
 const FIELD = '#capture-input';
+const REVIEW = process.argv.includes('--review');
 
 async function main() {
   const { chromium } = require('playwright');
@@ -47,6 +54,8 @@ async function main() {
   const value = (page) => page.inputValue(FIELD);
   const calls = (page, name) => page.evaluate((n) => window.__fake.calls.filter((c) => c === n).length, name);
   try {
+    // `--review`: the review's rules alone (the last part), for trying each by breaking it.
+    if (!REVIEW) {
     // Typing through a capture, and Return twice.
     let page = await home({ slow: 500 });
     await page.keyboard.type('first thought');
@@ -472,94 +481,347 @@ async function main() {
       for (const e of page.errors) failures.push(`${where}: ${e}`);
       await page.context().close();
     }
-    // ——— After the owner's first trial (NOTES §13) ———
-    // The question about a thought just sent is asked at the Composer and holds the keyboard; what is typed into the
-    // next thought is never an answer; a cap shows only where its key works; the Composer's key is metal in every state
-    // on Home; the agent control by keyboard; nothing typed lands on Allow; "Open another folder…" opens the panel.
+    }
+    // ——— After the owner's first trial and its independent review (NOTES §13; docs/trial-checklist.md R1–R15) ———
+    // The question about a thought just sent is asked at the Composer it was sent from, in one place only; the field
+    // keeps the keyboard, and while it is empty its keys answer: a row's number, the arrows and Return, which takes the
+    // row the arrows are on once 600 ms passed without a key since the question came, and never on a key held down.
+    // Any other key types, and the question waits in Needs you; Escape and Tab give it there. The metal key does what
+    // Return does and says so. The first start's sheet is part of Home's first picture or does not come at all; a key
+    // counts only after 600 ms without one; one it does not take types into the Composer; put away in any way it is
+    // Not now. A cap shows only where its key works.
     {
       const { projects } = require('./projects-fixtures.cjs');
       const NOTES = ['named in it', 'where your last thought went', 'worked on last'];
-      const asking = async (o = {}) => {
-        const page = await open(browser, { label: 'workspace', records: { ...scene('normal'), asks: { notes: NOTES, ...o } }, url: server.url, dpr: 1 });
+      const asking = async (o = {}, extra = {}) => {
+        const page = await open(browser, { label: 'workspace', records: { ...scene('normal'), asks: { notes: NOTES, ...o }, ...extra }, url: server.url, dpr: 1 });
         await page.focus(FIELD);
         return page;
       };
-      const held = (page) => page.evaluate(() => !!document.activeElement?.closest('.capture .cap-ask[data-question]'));
+      const sendIt = async (page, text = 'make the export faster') => (await page.keyboard.type(text), await page.keyboard.press('Enter'));
+      const arrived = (page) => page.waitForFunction(() => document.querySelector('.capture .cap-ask'), null, { timeout: 3000 }).then(() => true, () => false);
+      // Where the question is now: at a Composer (in the sheet or not), in Needs you, and how many times it is shown.
+      const where = (page) => page.evaluate(() => [...document.querySelectorAll('[data-question]')].filter((q) => q.offsetParent).map((q) => `${q.closest('.sheet[role=dialog]') ? 'sheet ' : ''}${q.closest('.capture') ? 'composer' : q.closest('.needs') ? 'needs' : 'elsewhere'}`).join(', '));
+      const inField = (page) => page.evaluate(() => document.activeElement?.id === 'capture-input');
       const caps = (page, sel) => page.evaluate((s) => [...document.querySelectorAll(`${s} kbd.keycap`)].filter((k) => k.offsetParent).map((k) => k.textContent.trim()).join(' '), sel);
       const answered = (page) => page.evaluate(() => window.__fake.answered ?? null);
-      const metal = (page) => page.evaluate(() => {
-        const k = document.querySelector('.home .capture .cap-row:not(.hear) > .key');
-        return !!k && /linear-gradient/.test(getComputedStyle(k).backgroundImage) && getComputedStyle(k).color === 'rgb(13, 13, 14)';
-      });
-      const inNeeds = (page) => page.evaluate(() => !!document.querySelector('.needs [data-question]'));
+      const choice = async (page) => { const a = await answered(page); return !a ? 'none' : a.kind === 'choice' ? a.choice : a.kind; };
+      // A click on what may be missing or not take one (as in the build before): said as a failure, never a crash.
+      const tap = (page, sel, what) => page.click(sel, { timeout: 5000 }).then(() => true, () => (failures.push(`${what}: there is nothing to click (${sel})`), false));
+      const metal = (k) => !!k && /linear-gradient/.test(getComputedStyle(k).backgroundImage) && getComputedStyle(k).color === 'rgb(13, 13, 14)';
+      const key = (page, sel = '.home .capture .cap-row:not(.hear) > .key') => page.evaluate(([s, m]) => { const k = document.querySelector(s); return k ? `${(0, eval)(m)(k) ? 'metal' : 'quiet'} "${k.textContent.trim()}"` : 'none'; }, [sel, String(metal)]);
 
-      // Answered by 1: the question came while the field was empty and had the keyboard, so the keyboard is its.
+      // R2, R10: asked at the Composer, the field keeping the keyboard; its rows numbered 1 to 5, the last two
+      // "Another project…" and "Keep for later"; the metal key says what Return will do.
       let page = await asking();
-      expect(await metal(page), 'Home, empty: the Composer\'s key is not the metal key');
-      await page.keyboard.type('make the export faster');
-      expect(await metal(page), 'Home, typed: the Composer\'s key is not the metal key');
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(700);
-      expect(await held(page), 'a question about the thought just sent, the field empty: it is not asked at the Composer with the keyboard');
-      expect(!(await inNeeds(page)), 'a question asked at the Composer is also in Needs you');
-      expect((await caps(page, '.cap-ask')) === '1 2 3 O L', `the question at the Composer shows the caps "${await caps(page, '.cap-ask')}", not 1 2 3 O L`);
-      expect(await metal(page), 'Home, a question at the Composer: the Composer\'s key is not the metal key');
+      expect((await key(page)).startsWith('metal'), 'Home, empty: the Composer\'s key is not the metal key');
+      await sendIt(page);
+      await page.waitForTimeout(800);
+      expect((await where(page)) === 'composer', `a question about the thought just sent, the field empty: it is shown ${await where(page) || 'nowhere'}, not once at the Composer`);
+      expect(await inField(page), 'a question asked at the Composer took the keyboard from the field');
+      expect((await caps(page, '.cap-ask')) === '1 2 3 4 5', `the question at the Composer shows the caps "${await caps(page, '.cap-ask')}", not 1 2 3 4 5 (every row a number, no letters)`);
+      expect((await key(page)) === 'metal "Start in cuegrid"', `with the question at the Composer its key is ${await key(page)}, not the metal key saying "Start in cuegrid"`);
       expect(await page.evaluate(() => [...document.querySelectorAll('.cap-ask .qa > .ans')].every((a, i, all) => !i || a.getBoundingClientRect().top >= all[i - 1].getBoundingClientRect().bottom - 0.5)), 'the question\'s places are not one under another');
-      expect(!(await page.evaluate(() => document.querySelector('.ways')?.textContent ?? '')).includes('Its question is open'), 'under the Composer a sentence still says where the question is');
       await page.keyboard.press('1');
       await page.waitForTimeout(400);
-      expect(JSON.stringify(await answered(page)) === JSON.stringify({ id: (await page.evaluate(() => window.__fake.asked.id)), kind: 'choice', choice: 0 }), `1 at the Composer's question did not answer with its first place (${JSON.stringify(await answered(page))})`);
-      expect((await value(page)) === '', `1 at the Composer's question typed into the field ("${await value(page)}")`);
-      expect(await page.evaluate(() => document.activeElement?.id === 'capture-input'), 'once answered, the field does not have the keyboard back');
-      expect(await metal(page), 'Home, a thought on its way: the Composer\'s key is not the metal key');
+      expect((await choice(page)) === 0 && (await value(page)) === '' && (await inField(page)), `1 at the Composer's question: answered ${JSON.stringify(await answered(page))}, the field "${await value(page)}", the keyboard ${await inField(page) ? 'in' : 'not in'} it`);
       await page.context().close();
 
-      // Answered by the arrows and Return.
+      // The arrows move the row Return takes, and the key says which; Return takes it.
       page = await asking();
-      await page.keyboard.type('make the export faster');
-      await page.keyboard.press('Enter');
+      await sendIt(page);
+      await page.waitForTimeout(800);
+      await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('ArrowDown');
+      await page.waitForTimeout(100);
+      expect((await key(page)) === 'metal "Start in ledger-api"', `↓ ↓ at the Composer's question: its key says ${await key(page)}, not "Start in ledger-api"`);
       await page.waitForTimeout(700);
-      await page.keyboard.press('ArrowDown');
-      await page.keyboard.press('ArrowDown');
       await page.keyboard.press('Enter');
       await page.waitForTimeout(400);
-      expect((await answered(page))?.choice === 1, `↓ ↓ Return at the Composer's question did not answer with its second place (${JSON.stringify(await answered(page))})`);
+      expect((await choice(page)) === 2, `↓ ↓ then Return at the Composer's question answered ${JSON.stringify(await answered(page))}, not its third place`);
       await page.context().close();
 
-      // Given back by Escape: the field has the keyboard, the question waits in Needs you without caps, and 1 is text.
+      // The key, clicked, does what Return does: the first row.
+      page = await asking();
+      await sendIt(page);
+      await page.waitForTimeout(800);
+      await tap(page, '.home .capture .cap-row > .key', 'the Composer\'s key with the question there');
+      await page.waitForTimeout(400);
+      expect((await choice(page)) === 0, `the Composer's key clicked with the question there answered ${JSON.stringify(await answered(page))}, not its first place`);
+      await page.context().close();
+
+      // Return twice to send: the second, 300 ms after the question came (600 ms after the first), does not answer it;
+      // Return after 600 ms of quiet takes the first row. Timed in the page; a machine too slow to press in time is
+      // tried again rather than taken for a pass.
+      let timed = false;
+      for (let attempt = 0; attempt < 3 && !timed; attempt++) {
+        page = await asking();
+        await page.evaluate(() => {
+          new MutationObserver(() => (window.__came ||= document.querySelector('.capture .cap-ask') ? performance.now() : 0)).observe(document.body, { childList: true, subtree: true });
+          document.addEventListener('keydown', (e) => e.key === 'Enter' && (window.__enters ??= []).push(performance.now()), true);
+        });
+        await sendIt(page);
+        await arrived(page);
+        const wait = await page.evaluate(() => 300 - (performance.now() - window.__came));
+        if (wait > 0) await page.waitForTimeout(wait);
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(80);
+        const [sent, second, came] = await page.evaluate(() => [...window.__enters, window.__came]);
+        if (second - came >= 200 && second - came < 560 && second - sent >= 0) {
+          timed = true;
+          expect((await choice(page)) === 'none', `Return ${Math.round(second - came)} ms after the question came (a Return pressed twice to send) answered it`);
+          await page.waitForTimeout(700);
+          await page.keyboard.press('Enter');
+          await page.waitForTimeout(400);
+          expect((await choice(page)) === 0, `Return after 600 ms of quiet at the Composer's question answered ${JSON.stringify(await answered(page))}, not its first place`);
+        }
+        await page.context().close();
+      }
+      if (!timed) console.log('NOTE  this machine could not press Return 300 ms after the question came, three times; the Return guard was not measured');
+
+      // A Return held down since it sent the thought, the system's repeat slow (a second's delay): never an answer.
       page = await asking();
       await page.keyboard.type('make the export faster');
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(700);
-      await page.keyboard.press('Escape');
+      await page.keyboard.down('Enter');
+      await page.waitForTimeout(1000);
+      await page.keyboard.down('Enter');
       await page.waitForTimeout(200);
-      expect(await page.evaluate(() => document.activeElement?.id === 'capture-input'), 'Escape at the Composer\'s question did not give the field its keyboard back');
-      expect(await inNeeds(page) && !(await page.evaluate(() => !!document.querySelector('.cap-ask'))), 'given back, the question does not wait in Needs you (or is still at the Composer)');
-      expect((await caps(page, '.needs')) === '', `a question in Needs you without the keyboard shows the caps "${await caps(page, '.needs')}"`);
-      await page.keyboard.type('1');
-      await page.waitForTimeout(200);
-      expect((await value(page)) === '1' && !(await answered(page)), `given back, 1 is not text in the field ("${await value(page)}", ${JSON.stringify(await answered(page))})`);
-      // Reached from the list by the arrows it holds the keyboard, and shows its caps.
-      await page.keyboard.press('Backspace');
-      await page.keyboard.press('ArrowDown');
-      await page.waitForTimeout(100);
-      await page.keyboard.press('ArrowDown');
-      await page.waitForTimeout(100);
-      expect((await caps(page, '.needs')).startsWith('1 2 3'), `a question in Needs you reached by the arrows shows the caps "${await caps(page, '.needs')}"`);
+      await page.keyboard.up('Enter');
+      expect((await choice(page)) === 'none' && (await calls(page, 'thought.capture')) === 1, `Return held down from sending, repeating after a second, answered the question (${JSON.stringify(await answered(page))}) or sent twice`);
       await page.context().close();
 
-      // The next thought begun when the question comes: it never takes the keyboard, and 1 stays text.
+      // Letters typed after the question came are the next thought, every one; the question waits in Needs you, its
+      // caps not shown there (the keyboard is the field's). A digit typed after a letter is text.
+      page = await asking();
+      await sendIt(page);
+      await page.waitForTimeout(800);
+      await page.keyboard.type('look at the logs 2', { delay: 30 });
+      await page.waitForTimeout(200);
+      expect((await value(page)) === 'look at the logs 2' && (await choice(page)) === 'none', `typing after the question came: the field holds "${await value(page)}", answered ${JSON.stringify(await answered(page))}`);
+      expect((await where(page)) === 'needs' && (await caps(page, '.needs')) === '', `typing after the question came: it is ${await where(page)} with caps "${await caps(page, '.needs')}", not waiting in Needs you without caps`);
+      expect((await key(page)) === 'metal "Start"', `typing after the question came: the key says ${await key(page)}, not Start again`);
+      await page.context().close();
+
+      // The next thought begun before the question came: it never takes the field, and its digits are text.
       page = await asking({ ms: 900 });
-      await page.keyboard.type('make the export faster');
-      await page.keyboard.press('Enter');
+      await sendIt(page);
       await page.waitForTimeout(150);
       await page.keyboard.type('1 more thing');
       await page.waitForTimeout(1200);
       await page.keyboard.type(' and 2');
-      expect((await value(page)) === '1 more thing and 2', `typing the next thought as the question came: the field holds "${await value(page)}"`);
-      expect(!(await answered(page)) && !(await held(page)), 'typing the next thought as the question came: a key answered it or it took the keyboard');
-      expect(await inNeeds(page) && (await caps(page, '.needs')) === '', 'typing the next thought as the question came: it does not wait in Needs you without caps');
+      expect((await value(page)) === '1 more thing and 2' && (await choice(page)) === 'none' && (await where(page)) === 'needs', `typing the next thought as the question came: the field holds "${await value(page)}", answered ${JSON.stringify(await answered(page))}, the question ${await where(page)}`);
       await page.context().close();
+
+      // Escape and Tab give the field back: the question waits in Needs you, and 1 is text.
+      for (const k of ['Escape', 'Tab']) {
+        page = await asking();
+        await sendIt(page);
+        await page.waitForTimeout(800);
+        await page.keyboard.press(k);
+        await page.waitForTimeout(200);
+        expect((await inField(page)) && (await where(page)) === 'needs', `${k} at the Composer's question: the keyboard ${await inField(page) ? 'is' : 'is not'} in the field, the question ${await where(page)}`);
+        await page.keyboard.type('1');
+        await page.waitForTimeout(150);
+        expect((await value(page)) === '1' && (await choice(page)) === 'none', `after ${k}, 1 is not text in the field ("${await value(page)}", ${JSON.stringify(await answered(page))})`);
+        await page.context().close();
+      }
+
+      // R5: Home left for a workspace and back: the question waits in Needs you, and the field has the keyboard.
+      page = await asking();
+      await sendIt(page);
+      await page.waitForTimeout(800);
+      await page.evaluate(() => (window.__ws.show([...window.__ws.records.projects.values()].find((x) => x.open).id), window.__motion.redraw()));
+      await page.waitForTimeout(300);
+      await page.evaluate(() => (window.__ws.show('home'), window.__motion.redraw()));
+      await page.waitForTimeout(300);
+      expect((await where(page)) === 'needs' && (await inField(page)), `back on Home after a workspace: the question is ${await where(page)}, the keyboard ${await inField(page) ? 'in' : 'not in'} the field`);
+      await page.context().close();
+
+      // R3, R9: a thought sent from New Task: its question in the sheet only, the sheet's field keeping the keyboard;
+      // Home's key quiet behind the sheet, the sheet's the one metal key.
+      page = await asking();
+      await page.keyboard.press('Meta+n');
+      await page.waitForTimeout(300);
+      await sendIt(page);
+      await page.waitForTimeout(800);
+      expect((await where(page)) === 'sheet composer', `a thought sent from New Task: its question is shown ${await where(page) || 'nowhere'}, not once in the sheet`);
+      expect(await page.evaluate(() => document.activeElement?.id === 'capture-input' && !!document.activeElement.closest('.sheet[role=dialog]')), 'a thought sent from New Task: the keyboard is not in the sheet\'s field');
+      expect((await key(page, '.sheet .capture .cap-row > .key')) === 'metal "Start in cuegrid"' && (await key(page)).startsWith('quiet'), `New Task asking: the sheet's key is ${await key(page, '.sheet .capture .cap-row > .key')}, Home's behind it ${await key(page)}`);
+      await page.keyboard.press('1');
+      await page.waitForTimeout(400);
+      expect((await choice(page)) === 0, `1 in the New Task sheet answered ${JSON.stringify(await answered(page))}, not its first place`);
+      await page.context().close();
+
+      // R3: the notch's capture line: the question under its field, its keys the field's, the notch's view unchanged.
+      page = await open(browser, { label: 'notch', records: { ...scene('normal'), asks: { notes: NOTES } }, url: server.url, dpr: 1 });
+      await page.evaluate((g) => window.__fake.emit(g), GEO);
+      await page.evaluate(() => window.__fake.emit({ do: 'capture' }));
+      await page.waitForTimeout(600);
+      await sendIt(page);
+      await page.waitForTimeout(800);
+      expect((await where(page)) === 'composer' && (await inField(page)), `the notch: a thought sent from its capture line has its question ${await where(page) || 'nowhere'}, the keyboard ${await inField(page) ? 'in' : 'not in'} the field`);
+      await page.keyboard.press('2');
+      await page.waitForTimeout(400);
+      expect((await choice(page)) === 1, `the notch: 2 at its capture line's question answered ${JSON.stringify(await answered(page))}, not its second place`);
+      await page.context().close();
+
+      // R12: a thought placed, under the Composer: one line, where it starts, who placed it, Undo; the brief and the
+      // person's words behind one disclosure, closed.
+      page = await open(browser, { label: 'workspace', records: flow(scene('normal'), 'held'), url: server.url, dpr: 1 });
+      await page.waitForTimeout(300);
+      const under = () => page.evaluate(() => {
+        const w = document.querySelector('.home .ways');
+        return { line: w?.querySelector('.way-h')?.innerText.replace(/\s+/g, ' ').trim(), more: [...(w?.querySelectorAll('.way-b, .way-w, .way-n') ?? [])].filter((x) => x.offsetParent).length, open: w?.querySelector('.way-more')?.getAttribute('aria-expanded') };
+      });
+      let u = await under();
+      expect(/^Starting in cuegrid\s*·?\s*placed by Claude Code\b.*Undo$/.test(u.line ?? '') && u.more === 0 && u.open === 'false', `a thought placed: under the Composer "${u.line}", ${u.more} more lines shown, its disclosure ${u.open}`);
+      await tap(page, '.home .way-more', 'a thought placed: its disclosure');
+      await page.waitForTimeout(150);
+      u = await under();
+      expect(u.more >= 2 && u.open === 'true', `a thought placed: its disclosure opened shows ${u.more} lines`);
+      // R15: ⌘Z's cap shows while the field is empty and has the keyboard, and not while it holds words.
+      await page.focus(FIELD);
+      await page.waitForTimeout(100);
+      expect((await caps(page, '.ways')) === '⌘Z', `a thought placed, the field empty: Undo's cap is "${await caps(page, '.ways')}", not ⌘Z`);
+      await page.keyboard.type('abc');
+      await page.waitForTimeout(100);
+      expect((await caps(page, '.ways')) === '', `a thought placed, the field holding words: Undo still shows the cap "${await caps(page, '.ways')}", which is the field's undo now`);
+      await page.context().close();
+
+      // R15: in the notch, a question that opened it by itself shows no caps until the notch has the keyboard.
+      page = await open(browser, { label: 'notch', records: scene('busy'), url: server.url, dpr: 1 });
+      await page.evaluate((g) => window.__fake.emit(g), GEO);
+      await page.waitForTimeout(900);
+      // The page may have put the keyboard on its first answer; the panel itself has none (another app is in front).
+      await page.evaluate(() => (document.querySelector('#sheet [data-question] .ans')?.focus(), (document.hasFocus = () => false), window.dispatchEvent(new Event('blur'))));
+      await page.waitForTimeout(100);
+      const away = await caps(page, '#sheet');
+      await page.evaluate(() => ((document.hasFocus = () => true), document.querySelector('#sheet [data-question] .ans')?.focus(), window.dispatchEvent(new Event('focus'))));
+      await page.waitForTimeout(100);
+      expect(away === '' && (await caps(page, '#sheet')) !== '', `the notch: its question shows the caps "${away}" without the keyboard, and "${await caps(page, '#sheet')}" with it`);
+      await page.context().close();
+
+      // The first start (R1, R4). The sheet is decided from what is stored, before Home's first picture with the
+      // records, and is in that picture; with the core slow to answer, every frame is watched until the records come.
+      const allowed = (page) => page.evaluate(() => window.__fake.records.looks?.some((l) => l.on) ?? false);
+      const notNow = (page) => page.evaluate(() => (window.__fake.records.prefs ?? []).some((p) => p.id === 'setup_hidden') || (window.__fake.records.looks ?? []).length > 0);
+      const sheetUp = (page) => page.evaluate(() => window.__ws.ui.sheet?.kind === 'setup' && window.__ws.ui.sheet.auto === true);
+      const first = async (o = {}) => open(browser, { label: 'workspace', records: { ...projects('first-agents'), ...o }, url: server.url, dpr: 1 });
+      page = await first({ subMs: 900, offerHeld: true });
+      await page.evaluate(() => {
+        const look = () => (window.__ws.ui.ready ? (window.__firstFrame = !!document.querySelector('.sheet[role=dialog]')) : requestAnimationFrame(look));
+        requestAnimationFrame(look);
+      });
+      await page.waitForTimeout(900);
+      expect((await page.evaluate(() => window.__firstFrame)) === true, 'the first start: the projects step\'s sheet is not in Home\'s first picture with the records');
+      expect(/Looking at what is on/.test(await page.evaluate(() => document.querySelector('.sheet')?.textContent ?? '')), 'the first start: the sheet does not say it is looking while the core has not said what there is');
+      await page.evaluate(() => window.__fake.offer());
+      await page.waitForTimeout(300);
+      expect(/Tasktap reads which folders Claude Code.* worked in, and when\..*It never reads what was said\..*And the first lines of each project's README\./.test(await page.evaluate(() => document.querySelector('.sheet')?.textContent ?? '')), 'the first start: the sheet\'s facts did not fill in, or not in their words');
+      await page.context().close();
+
+      // Typing at it: the first letter puts it away (Not now) and types into the Composer, every letter is there, and
+      // Return sends the thought; nothing is allowed.
+      page = await first();
+      await page.waitForTimeout(900);
+      expect(await sheetUp(page), 'the first start: the projects step is not up');
+      await page.keyboard.type('fix the export menu', { delay: 40 });
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(400);
+      expect(!(await allowed(page)) && !(await page.evaluate(() => window.__ws.ui.sheet)) && (await page.evaluate(() => window.__fake.sent?.text)) === 'fix the export menu' && (await notNow(page)),
+        `typing at the first start: allowed ${await allowed(page)}, the sheet ${await page.evaluate(() => window.__ws.ui.sheet?.kind ?? 'gone')}, sent "${await page.evaluate(() => window.__fake.sent?.text)}", kept as Not now ${await notNow(page)}`);
+      await page.context().close();
+
+      // A key counts only after 600 ms without one: Return 300 ms after ← is held back and said so; once quiet it
+      // allows. Timed in the page, tried again on a machine too busy to press in time.
+      let quietMeasured = false;
+      for (let attempt = 0; attempt < 3 && !quietMeasured; attempt++) {
+        page = await first();
+        await page.waitForTimeout(900);
+        await page.evaluate(() => document.addEventListener('keydown', (e) => (window.__keys ??= []).push(performance.now()), true));
+        await page.keyboard.press('ArrowLeft');
+        await page.waitForTimeout(300);
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(80);
+        const [shift, enter] = await page.evaluate(() => window.__keys.slice(-2));
+        if (enter - shift >= 200 && enter - shift < 560) {
+          quietMeasured = true;
+          expect(!(await allowed(page)), `the first start: Return ${Math.round(enter - shift)} ms after another key allowed it`);
+          expect(/press ↩ again/.test(await page.evaluate(() => document.querySelector('.sheet .sh-held')?.textContent ?? '')), 'the first start: a Return held back is not said in the sheet');
+          await page.waitForTimeout(700);
+          await page.keyboard.press('Enter');
+          await page.waitForTimeout(300);
+          expect(await allowed(page), 'the first start: Return after 600 ms of quiet did not allow it');
+        }
+        await page.context().close();
+      }
+      if (!quietMeasured) console.log('NOTE  this machine could not press Return 300 ms after another key, three times; the first start\'s guard was not measured');
+
+      // A key pressed, or a click, before the records came: no sheet comes by itself, then or later. The core is slow
+      // here (4 s), and what was done counts only where it was done before the records came (a busy machine is tried
+      // again rather than taken for a pass or a failure).
+      for (const [how, act] of [['a key', (p) => p.keyboard.press('Escape')], ['a letter in the field', async (p) => (await p.focus(FIELD), await p.keyboard.type('a'))], ['a click in the field', (p) => p.click(FIELD, { timeout: 2000 })]]) {
+        let done = false;
+        for (let attempt = 0; attempt < 3 && !done; attempt++) {
+          page = await first({ subMs: 4000 });
+          const early = await act(page).then(() => page.evaluate(() => !window.__ws.ui.ready), () => false);
+          if (early) {
+            done = true;
+            await page.waitForFunction(() => window.__ws.ui.ready, null, { timeout: 8000 }).catch(() => {});
+            await page.waitForTimeout(1500);
+            expect(!(await page.evaluate(() => window.__ws.ui.sheet)) && (await page.evaluate(() => !!document.querySelector('.setup [data-step=projects]'))), `the first start, ${how} before the records came: a sheet came by itself, or Setup does not show the step`);
+          }
+          await page.context().close();
+        }
+        if (!done) console.log(`NOTE  the first start: ${how} could not be done before the records came, three times; not measured`);
+      }
+
+      // R4: put away by a click beside it, by ⌘O or by Escape, it is Not now, kept.
+      for (const [how, act] of [['a click beside it', (p) => p.mouse.click(1150, 740)], ['⌘O', (p) => p.keyboard.press('Meta+o')], ['Escape', (p) => p.keyboard.press('Escape')]]) {
+        page = await first();
+        await page.waitForTimeout(900);
+        await act(page);
+        await page.waitForTimeout(400);
+        expect((await page.evaluate(() => window.__ws.ui.sheet?.kind !== 'setup')) && (await notNow(page)) && !(await allowed(page)), `the first start put away by ${how}: it is not kept as Not now, and would come again`);
+        await page.context().close();
+      }
+
+      // Setup (R11, R13): "Setup · 1 of 3 done", quiet actions on one edge, its words; Hide gives the field the
+      // keyboard and says for a moment where Setup went.
+      page = await open(browser, { label: 'workspace', records: scene('normal'), url: server.url, dpr: 1 });
+      await page.waitForTimeout(300);
+      const setup = await page.evaluate(() => {
+        const s = document.querySelector('.home .setup'), acts = [...(s?.querySelectorAll('.setup-b [data-step] button') ?? [])];
+        return { head: s?.querySelector('.fold-h')?.innerText.replace(/\s+/g, ' ').trim(), quiet: acts.every((b) => b.matches('.act')), edges: [...new Set(acts.map((b) => Math.round(b.getBoundingClientRect().right * 2) / 2))], placing: s?.querySelector('[data-step=placing] .t')?.textContent };
+      });
+      expect(/^Setup\s*·?\s*\d of \d done/.test(setup.head ?? '') && setup.quiet && setup.edges.length === 1 && setup.placing === 'Let an agent choose the project', `Setup says "${setup.head}", its actions ${setup.quiet ? 'quiet' : 'not all quiet'} on ${setup.edges.length} edges, its placing step "${setup.placing}"`);
+      await tap(page, '.home .setup-h .act', 'Setup\'s Hide');
+      await page.waitForTimeout(300);
+      const gone = await page.evaluate(() => document.querySelector('.home .setup-gone')?.textContent ?? '');
+      expect((await inField(page)) && gone === 'Setup is in Settings › About.' && (await page.evaluate(() => window.__ws.records.prefs.get('setup_hidden')?.value)) === true, `Hide: the keyboard ${await inField(page) ? 'is' : 'is not'} in the field, Setup's place says "${gone}"`);
+      await page.waitForTimeout(5300);
+      expect(!(await page.evaluate(() => !!document.querySelector('.home .setup, .home .setup-gone'))), 'Hide: Setup, or what its place said, is still on Home after a few seconds');
+      await page.evaluate(() => ((window.__ws.ui.sheet = { kind: 'settings', at: 'about' }), window.__motion.redraw()));
+      await page.waitForTimeout(300);
+      const about = await page.evaluate(() => [...document.querySelectorAll('.settings .set')].find((r) => r.querySelector('.t')?.textContent === 'Setup')?.textContent ?? '');
+      expect(/of \d done/.test(about) && /Show on Home/.test(about), `Settings › About does not say where Setup is ("${about}")`);
+      await page.locator('.settings .set button', { hasText: 'Show on Home' }).click({ timeout: 2000 }).catch(() => failures.push('Settings › About has no Show on Home to click'));
+      await page.waitForTimeout(300);
+      expect(await page.evaluate(() => !!document.querySelector('.home .setup')), 'Show on Home does not bring Setup back');
+      await page.context().close();
+
+      // Agreed to placing under older terms: Setup's placing step says so and is not done, and no thought carries the
+      // core's sentence about it (it is said in that one place).
+      {
+        const r = { ...flow(scene('normal'), 'held'), prefs: [{ id: 'route_by', value: { agents: [{ agent: 'claude', model: 'haiku', on: true }], terms: 2 }, rev: 9 }] };
+        for (const t of r.thoughts) if (t.route) t.route = { ...t.route, fallback: 'the agreement was to what was sent before: placing now asks your agents one after another, and asks you again' };
+        page = await open(browser, { label: 'workspace', records: r, url: server.url, dpr: 1 });
+        await page.waitForTimeout(300);
+        const step = await page.evaluate(() => { const s = document.querySelector('.setup [data-step=placing]'); return s ? `${s.hasAttribute('data-done')} ${s.textContent}` : ''; });
+        expect(/^false .*The terms changed\. Agree again to keep it on\./.test(step), `an agreement to older terms: Setup's placing step says "${step}", not that the terms changed, undone`);
+        expect(!(await page.evaluate(() => /the agreement/.test(document.querySelector('.home').innerText))), 'an agreement to older terms: a thought on Home carries the sentence about it');
+        await page.context().close();
+      }
 
       // The agent control by keyboard: six agents, no field; eleven, a field that narrows them.
       const { agents } = require('./home-shots.cjs');
@@ -595,78 +857,56 @@ async function main() {
         await page.context().close();
       }
 
-      // Nothing typed lands on Allow. The first step comes down by itself into a still page, and takes no key for 600 ms:
-      // Return pressed as it comes down (the page notes when the sheet came and when the key reached it, so a machine
-      // too busy to press within 600 ms is tried again rather than taken for a pass or a failure).
-      const allowed = (page) => page.evaluate(() => window.__fake.records.looks?.some((l) => l.on) ?? false);
-      let guarded = false;
-      for (let attempt = 0; attempt < 3 && !guarded; attempt++) {
-        page = await open(browser, { label: 'workspace', records: { ...projects('first-agents'), offerHeld: true }, url: server.url, dpr: 1 });
-        await page.waitForTimeout(1100);
-        await page.evaluate(() => {
-          window.__came = 0;
-          new MutationObserver(() => window.__came ||= document.querySelector('.sheet') ? performance.now() : 0).observe(document.body, { childList: true, subtree: true });
-          document.addEventListener('keydown', (e) => e.key === 'Enter' && (window.__pressed ??= performance.now()), true);
-          window.__fake.offer();
-        });
-        await page.waitForFunction(() => window.__came > 0, null, { timeout: 3000 }).catch(() => {});
-        await page.keyboard.press('Enter');
-        await page.waitForTimeout(100);
-        const at = await page.evaluate(() => window.__pressed - window.__came);
-        expect(await page.evaluate(() => window.__ws.ui.sheet?.kind === 'setup' && window.__ws.ui.sheet.auto === true), 'the first start: the projects step did not come down by itself');
-        if (at >= 0 && at < 600) {
-          guarded = true;
-          expect(!(await allowed(page)), `the first start: Return ${Math.round(at)} ms after the sheet came down allowed it`);
-          await page.waitForTimeout(700);
-          await page.keyboard.press('Enter');
-          await page.waitForTimeout(300);
-          expect(await allowed(page), 'the first start: Return after 600 ms did not allow it');
-        }
-        await page.context().close();
-      }
-      if (!guarded) console.log('NOTE  the first start: this machine could not press Return within 600 ms of the sheet coming down, three times; the guard was not measured');
-      // Typing before it would come down: it does not come down, and Return sends the thought.
-      page = await open(browser, { label: 'workspace', records: { ...projects('first-agents'), offerHeld: true }, url: server.url, dpr: 1 });
+      // The agent control (R6, R7, R14): its key ⌘J, shown where there is room, opens the list from the field; Tab
+      // reaches every control of the foot; typing "co" puts Codex first; with the usual agent signed out the list still
+      // opens, other agents can be picked, and signing in is a row of it.
+      page = await open(browser, { label: 'workspace', records: agents(scene('normal'), 11), url: server.url, dpr: 1 });
       await page.focus(FIELD);
-      await page.keyboard.type('a thought');
-      await page.evaluate(() => window.__fake.offer());
-      await page.waitForTimeout(1300);
-      expect(!(await page.evaluate(() => window.__ws.ui.sheet)), 'typing at the first start: the projects step came down over what was typed');
+      await page.keyboard.type('tidy the export menu');
+      expect((await page.evaluate(() => [...document.querySelectorAll('.home .cap-agent kbd')].filter((k) => k.offsetParent).map((k) => k.textContent).join())) === '⌘J', 'the agent control does not show its key ⌘J at 1180 px');
+      const order = [];
+      for (let i = 0; i < 4; i++) {
+        await page.keyboard.press('Tab');
+        order.push(await page.evaluate(() => { const a = document.activeElement; return a.id || a.className.split(' ')[0]; }));
+      }
+      expect(order.join(' ') === 'dest-chip cap-agent mic key', `Tab from the field reaches ${order.join(', ')}, not the chip, the agent control, the microphone and the key`);
+      await page.focus(FIELD);
+      await page.keyboard.press('Meta+j');
+      await page.waitForTimeout(200);
+      expect(await page.evaluate(() => !!document.querySelector('.agent-list') && document.activeElement?.id === 'agent-find'), '⌘J in the field does not open the agent list with its field');
+      await page.keyboard.type('co');
+      await page.waitForTimeout(150);
+      const firstRow = await page.evaluate(() => document.querySelector('.agent-list [role=option]')?.dataset.agent);
+      expect(firstRow === 'codex', `typing "co" in the agent list puts ${firstRow} first, not Codex`);
       await page.keyboard.press('Enter');
-      await page.waitForTimeout(300);
-      expect(!(await allowed(page)) && (await calls(page, 'thought.capture')) === 1, 'typing at the first start: Return did not send the thought, or allowed reading');
+      await page.waitForTimeout(200);
+      expect((await page.evaluate(() => document.querySelector('.cap-agent')?.dataset.agent)) === 'codex' && (await inField(page)), 'typing "co" and Return does not pick Codex and give the field its keyboard back');
       await page.context().close();
-
-      // Agreed to placing under older terms: Setup's placing step says Agree again and is not done, and no thought
-      // carries the core's sentence about it (it is said in that one place).
       {
-        const r = { ...flow(scene('normal'), 'held'), prefs: [{ id: 'route_by', value: { agents: [{ agent: 'claude', model: 'haiku', on: true }], terms: 2 }, rev: 9 }] };
-        for (const t of r.thoughts) if (t.route) t.route = { ...t.route, fallback: 'the agreement was to what was sent before: placing now asks your agents one after another, and asks you again' };
+        const r = agents(scene('normal'), 6);
+        r.agents[0].signed_in = false;
         page = await open(browser, { label: 'workspace', records: r, url: server.url, dpr: 1 });
-        await page.waitForTimeout(300);
-        const step = await page.evaluate(() => { const s = document.querySelector('.setup [data-step=placing]'); return s ? `${s.hasAttribute('data-done')} ${s.textContent}` : ''; });
-        expect(/^false .*Agree again/.test(step), `an agreement to older terms: Setup's placing step says "${step}", not Agree again, undone`);
-        expect(!(await page.evaluate(() => /the agreement/.test(document.querySelector('.home').innerText))), 'an agreement to older terms: a thought on Home carries the sentence about it');
+        await tap(page, '.home .cap-agent', 'the agent control');
+        await page.waitForTimeout(200);
+        const list = await page.evaluate(() => ({ open: !!document.querySelector('.agent-list'), sheet: window.__ws.ui.sheet?.kind ?? null, sign: [...document.querySelectorAll('.agent-list button')].map((b) => b.textContent.trim()).find((t) => /^Sign in/.test(t)) ?? null }));
+        expect(list.open && !list.sheet && list.sign === 'Sign in to Claude Code…', `the usual agent signed out: a click on the control opens ${list.open ? 'the list' : 'no list'}${list.sheet ? ` and the ${list.sheet} sheet` : ''}, its sign-in row "${list.sign}"`);
+        await tap(page, '.agent-list [data-agent=codex]', 'the usual agent signed out: Codex in the list');
+        await page.waitForTimeout(200);
+        expect((await page.evaluate(() => document.querySelector('.cap-agent')?.dataset.agent)) === 'codex', 'the usual agent signed out: another agent cannot be picked');
         await page.context().close();
       }
 
-      // Setup put away and found again: Hide stores it and it is gone from Home; Settings › About says where it is and
-      // Show on Home brings it back.
-      page = await open(browser, { label: 'workspace', records: scene('normal'), url: server.url, dpr: 1 });
-      await page.waitForTimeout(300);
-      const shown = () => page.evaluate(() => !!document.querySelector('.home .setup'));
-      expect(await shown(), 'Setup is not on Home while a step is not done');
-      await page.click('.home .setup-h .act');
-      await page.waitForTimeout(300);
-      expect(!(await shown()) && (await page.evaluate(() => window.__ws.records.prefs.get('setup_hidden')?.value)) === true, 'Hide does not put Setup away, or keeps nothing of it');
-      await page.evaluate(() => ((window.__ws.ui.sheet = { kind: 'settings', at: 'about' }), window.__motion.redraw()));
-      await page.waitForTimeout(300);
-      const about = await page.evaluate(() => [...document.querySelectorAll('.settings .set')].find((r) => r.querySelector('.t')?.textContent === 'Setup')?.textContent ?? '');
-      expect(/of \d done/.test(about) && /Show on Home/.test(about), `Settings › About does not say where Setup is ("${about}")`);
-      await page.locator('.settings .set button', { hasText: 'Show on Home' }).click();
-      await page.waitForTimeout(300);
-      expect(await shown(), 'Show on Home does not bring Setup back');
-      await page.context().close();
+      // R8: the chip's reason is whole or not there, never cut ("asks y…"), at every width of window, in the sheet and
+      // in the notch.
+      for (const w of [540, 600, 660, 720, 800, 900, 1180]) {
+        page = await open(browser, { label: 'workspace', records: agents(scene('normal'), 6), url: server.url, dpr: 1, viewport: { width: w, height: 700 } });
+        await page.focus(FIELD);
+        await page.keyboard.type('tidy the export menu');
+        await page.waitForTimeout(250);
+        const reasons = await page.evaluate(() => [...document.querySelectorAll('#dest-chip > span')].filter((s) => s.offsetParent && getComputedStyle(s).display !== 'none').map((s) => ({ cut: s.scrollWidth > s.clientWidth + 0.5 || s.getBoundingClientRect().width < 1, text: s.textContent })));
+        for (const r of reasons) expect(!r.cut, `${w} px: the chip's reason "${r.text}" is cut, not whole or gone`);
+        await page.context().close();
+      }
 
       // The notch's capture row follows Home's rules: one agent control, and its key metal with nothing typed.
       page = await open(browser, { label: 'notch', records: agents(scene('normal'), 6), url: server.url, dpr: 1 });
@@ -678,6 +918,10 @@ async function main() {
         return [!!k && /linear-gradient/.test(getComputedStyle(k).backgroundImage) && getComputedStyle(k).color === 'rgb(13, 13, 14)', !!document.querySelector('.cap-agent'), !document.querySelector('.rings, .cap-row select')].join(' ');
       });
       expect(notch === 'true true true', `the notch's capture row: its key metal, one agent control, no rings: ${notch}`);
+      await page.keyboard.type('tidy the export menu');
+      await page.waitForTimeout(200);
+      const cut = await page.evaluate(() => [...document.querySelectorAll('#dest-chip > span')].some((s) => s.offsetParent && getComputedStyle(s).display !== 'none' && (s.scrollWidth > s.clientWidth + 0.5 || s.getBoundingClientRect().width < 1)));
+      expect(!cut, 'the notch: the chip\'s reason is cut');
       await page.context().close();
 
       // On Windows (the page told so), the same key: metal, its arrow in its ink, and its keys in Windows' words.
@@ -726,7 +970,7 @@ async function main() {
     await server.close();
   }
   for (const f of failures) console.log('FAIL  ' + f);
-  console.log(failures.length ? `FAIL  the Composer's field: ${failures.length} things wrong` : 'PASS  the Composer\'s field takes every key while a capture is on its way, keeps what was typed for the next thought, sends a thought once, takes one back with ⌘Z, gets a refused one\'s words back, and is measured only when its words or its width change, growing and shrinking a line at a time; its chip says where a thought goes and why, never defaults to Scratch or the newest thought\'s folder, keeps a workspace\'s folder to the sheet opened there, marks its choice in a list that has Scratch and that a click or the keyboard opens and leaves with the field\'s keyboard back, says when a choice has gone with its thought, places by a name before the workspace and by the one folder open, gives a thought kept for later by its words Undo and Send to a folder, and keeps the microphone\'s key hint whole on its line or drops it before the chip\'s place is cut; asks a just-sent thought\'s question at the Composer with the keyboard (1, the arrows and Return answer, Escape gives the field back), never takes a key of the next thought for an answer, shows no cap where its key does nothing, keeps its key metal, picks an agent from one list by keyboard, lets nothing typed land on Allow, and lands a click on Open another folder…');
+  console.log(failures.length ? `FAIL  the Composer's field: ${failures.length} things wrong` : 'PASS  the Composer\'s field takes every key while a capture is on its way, keeps what was typed for the next thought, sends a thought once, takes one back with ⌘Z, gets a refused one\'s words back, and is measured only when its words or its width change, growing and shrinking a line at a time; its chip says where a thought goes and why, never defaults to Scratch or the newest thought\'s folder, keeps a workspace\'s folder to the sheet opened there, marks its choice in a list that has Scratch and that a click or the keyboard opens and leaves with the field\'s keyboard back, says when a choice has gone with its thought, places by a name before the workspace and by the one folder open, gives a thought kept for later by its words Undo and Send to a folder, and keeps the microphone\'s key hint whole on its line or drops it before the chip\'s place is cut; asks a just-sent thought\'s question once, at the Composer it was sent from, the field keeping the keyboard (a row\'s number, the arrows and Return answer while it is empty, Return only after 600 ms of quiet and never held down; any other key types and leaves it in Needs you), its key saying and doing what Return does; says a placed thought in one line; shows no cap where its key does nothing; puts the first start\'s sheet in Home\'s first picture or not at all, lets nothing typed land on Allow or be lost, keeps it as Not now however it is put away; says Setup quietly and where it went; reaches the agent control by ⌘J, Tab and a list that always opens, Codex first for "co"; never cuts the chip\'s reason; and lands a click on Open another folder…');
   process.exitCode = failures.length ? 1 : 0;
 }
 main().catch((e) => (console.error(e), process.exit(1)));

@@ -126,6 +126,8 @@ kbd .i{width:12px;height:12px}
 .cap-agent:not([aria-disabled]):active{background:var(--sel)}
 .agent-list .ring-o{flex:none}
 .agent-list [data-s=off] span{color:var(--asks)}
+/* Signing in, the list's last row while an agent is signed out: its mark in the rings' column. */
+.agent-list .sign>.i{flex:none;width:20px;height:14px}
 /* A ring is as wide as it is told (--ring-px: ui.tsx Ring's size, or set by the place it stands in; 22 where neither
    says), and its circle is the icons' weight on screen at any size and text size, as every icon's stroke is. */
 .ring-o{width:calc(var(--ring-px,22) * 1px);height:calc(var(--ring-px,22) * 1px);flex:none;overflow:visible}
@@ -191,7 +193,9 @@ kbd .i{width:12px;height:12px}
    reason is gone (capture.tsx marks the foot `data-short`). */
 .cap-row>.mic{flex:none;flex-wrap:nowrap}
 .cap-to .i{flex:none}
-.cap-row[data-short]>.mic>kbd{display:none}
+.cap-row[data-short]>:is(.mic,.cap-agent)>kbd{display:none}
+/* The agent control's key, after its chevron, as the microphone's is after it. */
+.cap-agent>kbd{margin-left:2px}
 .cap-row[data-bare] #dest-chip>span{display:none}
 /* The names are cut last, the place's and the agent's alike: the agent's only once the key hint is gone. */
 .cap-row[data-short]>.cap-agent{flex-shrink:1}
@@ -220,6 +224,9 @@ kbd .i{width:12px;height:12px}
    With nothing to do it is the same key; it only does nothing. */
 .capture .cap-row .key:disabled{background:var(--lit) 0 100%/100% 1px no-repeat,var(--key);color:var(--ink);box-shadow:var(--key-edge)}
 .capture .cap-row .key:disabled:hover{filter:none}
+/* Behind a sheet Home's Composer is not the one in use: its key is quiet, and the sheet's is the one metal key in view
+   (the review's R9). */
+.win.dimmed .home .capture .cap-row .key{background:var(--fill);color:var(--fg3);box-shadow:none;filter:none}
 .cap-said{display:flex;align-items:center;gap:var(--sp2);min-height:var(--row-h);font:var(--f-small);color:var(--fg2)}
 .cap-said b{color:var(--fg)}
 .cap-said .act{height:22px;margin-left:auto}
@@ -247,4 +254,6 @@ kbd .i{width:12px;height:12px}
 .q-quote{margin:2px 0 var(--sp1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:var(--f-small);color:var(--fg2)}
 .cap-ask .qa{margin-top:var(--sp1)}
 .cap-ask:focus-visible{outline:0}
+/* The row Return takes while the field has the keyboard: the first, or where the arrows moved it. */
+.cap-ask[data-held] .qa.rows>.ans.on{background:var(--sel);color:var(--fg)}
 .capture.asks .cap::after{--edge:linear-gradient(90deg,var(--asks),#f3d3a6 40%,var(--asks));opacity:.9}

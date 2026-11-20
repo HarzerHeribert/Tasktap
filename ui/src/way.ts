@@ -83,6 +83,23 @@ export function placed(t: Pick<Thought, 'placed' | 'route'>, agent: (id: string)
   }
 }
 
+/** Who placed a thought, in the few words of its one line under the Composer ("Starting in cuegrid · placed by Claude
+ *  Code · Undo", NOTES §13); the whole of it (`placed`) is behind that line's disclosure. */
+export function placedBy(t: Pick<Thought, 'placed' | 'route'>, agent: (id: string) => string): string {
+  switch (t.placed) {
+    case 'model':
+      return `placed by ${t.route && t.route.by !== 'local' ? agent(t.route.by) : 'a model'}`;
+    case 'name':
+      return 'named in it';
+    case 'picked':
+      return 'your choice';
+    case 'answer':
+      return 'your answer';
+    default:
+      return '';
+  }
+}
+
 /** Why a thought waits in For later: the core's four reasons, in plain words. */
 export function laterWhy(t: Pick<Thought, 'placed' | 'route'>, agent: (id: string) => string): string {
   switch (t.placed) {
@@ -196,7 +213,15 @@ export function agentState(
  *  name or id has what is typed in it. No row of rings and no "+n": every agent is a row of one list. */
 export function listed<A extends { id: string; installed: boolean; supported: boolean }>(agents: A[], name: (a: A) => string, find = ''): A[] {
   const words = find.trim().toLocaleLowerCase();
-  return agents.filter((a) => a.installed && a.supported && (!words || name(a).toLocaleLowerCase().includes(words) || a.id.includes(words)));
+  const here = agents.filter((a) => a.installed && a.supported);
+  if (!words) return here;
+  // What is typed is the start of a name first ("co": Codex), then of a word in it (Claude Code), then anywhere in it
+  // or in its id; in the core's order within each.
+  const rank = (a: A) => {
+    const n = name(a).toLocaleLowerCase();
+    return n.startsWith(words) ? 0 : n.split(/[\s\-_.]+/).some((w) => w.startsWith(words)) ? 1 : n.includes(words) || a.id.includes(words) ? 2 : 3;
+  };
+  return here.map((a, i) => ({ a, i, r: rank(a) })).filter((x) => x.r < 3).sort((x, y) => x.r - y.r || x.i - y.i).map((x) => x.a);
 }
 
 /** The command line of an agent the person adds, checked as the core checks it, so the form can say what is missing

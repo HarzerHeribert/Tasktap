@@ -22,17 +22,27 @@ export function answers(q: Question): string[] {
 const choose = (q: Question, k: number) =>
   q.kind === 'confirm' ? reply(q, { kind: k === 0 ? 'affirm' : 'deny' }) : reply(q, { kind: 'choice', choice: k });
 
+/** The rows of the router's question, in their order, each on its number from 1: the places it could mean, then
+ *  "Another project…", which turns them into a field that finds any project, and "Keep for later". No letter keys:
+ *  every row has a number (NOTES §13). */
+export function routerRows(q: Question): { label: string; does: 'place' | 'session' | 'other' | 'later'; act: () => void }[] {
+  const places = answers(q).map((label, i) => {
+    const p = q.places?.[i];
+    const name = !p ? label : 'session' in p ? sessionName(p.session) : ('project' in p ? records.projects.get(p.project)?.name : records.cards.get(p.card)?.name) || label;
+    return { label: name, does: p && 'session' in p ? ('session' as const) : ('place' as const), act: () => void choose(q, i) };
+  });
+  const more = [
+    ...(q.thought_id ? [{ label: 'Another project…', does: 'other' as const, act: () => ((other.thought = q.thought_id!), redraw()) }] : []),
+    { label: 'Keep for later', does: 'later' as const, act: () => void reply(q, { kind: 'deny' }) },
+  ];
+  return [...places.slice(0, 9 - more.length), ...more];
+}
+
 /** The keys of a question with the keyboard: 1 to 9, Y and N for a yes or no, T to reply, Return for its terminal;
  *  the arrows from one answer to the next (past the first or the last they are the page's again), and Return on one
- *  answers with it. `leave`: Escape and Tab give the keyboard back to where it came from (the Composer's field). */
-export function keys(q: Question, e: KeyboardEvent, terminal?: () => void, leave?: () => void): boolean {
+ *  answers with it. */
+export function keys(q: Question, e: KeyboardEvent, terminal?: () => void): boolean {
   const target = e.target as HTMLElement;
-  if (leave && (e.key === 'Escape' || e.key === 'Tab') && !e.isComposing && !e.metaKey && !e.ctrlKey && !e.altKey && !target.matches('input, textarea')) {
-    e.preventDefault();
-    e.stopPropagation();
-    leave();
-    return true;
-  }
   if (target.matches('input, textarea') || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return false;
   const k = e.key.toLowerCase(), all = answers(q), n = Number(k);
   if (k === 'arrowdown' || k === 'arrowup') {
@@ -43,9 +53,8 @@ export function keys(q: Question, e: KeyboardEvent, terminal?: () => void, leave
   } else if (q.reply_via === 'terminal') {
     if (k !== 'enter' || !terminal || target.closest('button')) return false;
     terminal();
-  } else if (n >= 1 && n <= Math.min(9, all.length)) void choose(q, n - 1);
-  else if (q.source === 'router' && k === 'l') void reply(q, { kind: 'deny' });
-  else if (q.source === 'router' && k === 'o' && q.thought_id) (other.thought = q.thought_id), redraw();
+  } else if (q.source === 'router' && k.length === 1 && n >= 1 && n <= routerRows(q).length) routerRows(q)[n - 1]!.act();
+  else if (q.source !== 'router' && k.length === 1 && n >= 1 && n <= Math.min(9, all.length)) void choose(q, n - 1);
   else if (q.kind === 'confirm' && (k === 'y' || k === 'n')) void choose(q, k === 'y' ? 0 : 1);
   else if (k === 't') focus((e.currentTarget as HTMLElement).querySelector<HTMLElement>('.reply input'));
   else return false;
@@ -55,7 +64,7 @@ export function keys(q: Question, e: KeyboardEvent, terminal?: () => void, leave
 }
 
 /** The answers and the reply field. `cls` is the answer's look: key cap and label, or a ruled row in the notch. */
-export function Answers({ q, terminal, who }: { q: Question; terminal?: () => void; who?: string }) {
+export function Answers({ q, terminal, who, on }: { q: Question; terminal?: () => void; who?: string; on?: number }) {
   if (q.reply_via === 'terminal')
     return (
       <div class="qa">
@@ -83,15 +92,15 @@ export function Answers({ q, terminal, who }: { q: Question; terminal?: () => vo
       const name = 'project' in p ? records.projects.get(p.project)?.name : card?.name;
       return { label: name || label, lead: <I n={'session' in p ? 'term' : 'folder'} />, ...(more ? { more } : {}) };
     };
-    const elsewhere = q.thought_id ? () => ((other.thought = q.thought_id!), redraw()) : undefined;
     // "Another project…" turns the choices into a field that finds any project, which sends the thought there.
     if (q.thought_id && other.thought === q.thought_id) return <Elsewhere q={q} thought={q.thought_id} />;
     // One under another, each whole: a row of places wrapped and cut at the window's edge (the owner, 2026-11-19).
+    // `on`: the row Return takes at the Composer, which the arrows move there.
     return (
       <div class="qa rows">
-        {answers(q).map((label, i) => (i < 9 ? <Answer k={String(i + 1)} {...place(label, i)} onClick={() => void choose(q, i)} /> : null))}
-        {elsewhere && <Answer k="O" label="Another project…" lead={<I n="search" />} onClick={elsewhere} />}
-        <Answer k="L" label="Keep for later" lead={<I n="later" />} onClick={() => void reply(q, { kind: 'deny' })} />
+        {routerRows(q).map((r, i) => (
+          <Answer k={String(i + 1)} cls={on === i ? 'ans on' : 'ans'} {...(r.does === 'other' ? { label: r.label, lead: <I n="search" /> } : r.does === 'later' ? { label: r.label, lead: <I n="later" /> } : place(answers(q)[i]!, i))} onClick={r.act} />
+        ))}
       </div>
     );
   }
@@ -146,7 +155,13 @@ function Elsewhere({ q, thought }: { q: Question; thought: string }) {
     other.thought = '';
     void call('thought.update', { id: thought, ...placeArgs(to) }).catch(fail);
   };
-  const back = () => ((other.thought = ''), redraw(), focus(`[data-question="${q.id}"]`));
+  // Back to the choices, and the keyboard to where it was: the Composer's field, for a question asked at it.
+  const back = () => {
+    other.thought = '';
+    redraw();
+    const at = document.querySelector<HTMLElement>(`[data-question="${q.id}"]`);
+    focus(at?.dataset.keys === 'field' ? at.closest('form')?.querySelector<HTMLElement>('#capture-input') : at);
+  };
   return (
     <div class="qa elsewhere" onKeyDown={(e) => {
       if (e.key === 'Escape') return (e.preventDefault(), e.stopPropagation(), back());
@@ -172,17 +187,24 @@ const other = { thought: '' };
 
 /** The question in full and its answers, inside an element that takes the keyboard for them; their key caps show
  *  while it has it (page.ts markHeld). `cap`: asked at the Composer about the thought just sent (capture.tsx), in the
- *  colour of what needs the person, the thought quoted in one line; `leave` gives the keyboard back to its field. */
-export function Ask({ q, size, terminal, who, class: cls = '', leave }: { q: Question; size: 'home' | 'notch' | 'pane' | 'cap'; terminal?: () => void; who?: string; class?: string; leave?: () => void }) {
+ *  colour of what needs the person, the thought quoted in one line. Its keys are the Composer's field's while that is
+ *  empty (capture.tsx `atComposer`), so its caps show while the field has the keyboard; `on` is the row Return takes. */
+export function Ask({ q, size, terminal, who, class: cls = '', on }: { q: Question; size: 'home' | 'notch' | 'pane' | 'cap'; terminal?: () => void; who?: string; class?: string; on?: number }) {
   // The router's question is about a thought that has no place yet: the thought in full, and its brief so far.
   const said = q.source === 'router' && q.thought_id ? records.thoughts.get(q.thought_id) : undefined;
   const line = said?.text.trim().split('\n')[0] ?? '';
-  return (
-    <div class={`ask-${size} ${cls}`} data-question={q.id} data-keys tabIndex={-1} onKeyDown={(e) => keys(q, e, terminal, leave)}>
-      {size === 'cap' ? <p class="qp"><Mark s="asks" label="" />{q.prompt}</p> : <p class="qp">{q.prompt}</p>}
-      {size === 'cap' && said && <p class="q-quote" title={said.text}>“{line}”</p>}
-      {size !== 'cap' && said && <p class="way-w"><span>You said</span>{said.text}</p>}
-      {size !== 'cap' && said && briefOf(said) && <p class="way-b"><span>Brief so far</span>{briefOf(said)}</p>}
+  return size === 'cap' ? (
+    <div class={`ask-cap ${cls}`} data-question={q.id} data-keys="field">
+      <p class="qp"><Mark s="asks" label="" />{q.prompt}</p>
+      {said && <p class="q-quote" title={said.text}>“{line}”</p>}
+      {q.detail && <p class="q-detail">{q.detail}</p>}
+      <Answers q={q} on={on} />
+    </div>
+  ) : (
+    <div class={`ask-${size} ${cls}`} data-question={q.id} data-keys tabIndex={-1} onKeyDown={(e) => keys(q, e, terminal)}>
+      <p class="qp">{q.prompt}</p>
+      {said && <p class="way-w"><span>You said</span>{said.text}</p>}
+      {said && briefOf(said) && <p class="way-b"><span>Brief so far</span>{briefOf(said)}</p>}
       {q.detail && <p class="q-detail">{q.detail}</p>}
       <Answers q={q} terminal={terminal} who={who} />
     </div>

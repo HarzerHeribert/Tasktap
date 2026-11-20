@@ -603,7 +603,9 @@ async function main() {
     // the hybrid: the reading column is centred on the window and stands still as the sidebar opens and closes, also on
     // every frame of the slide, wherever the window is wide enough (from about 1400 px); narrower, it moves right only
     // as far as the sidebar needs, and never under it.
-    // No row is longer than about 90 characters of its first line, so its time stays near its words.
+    // No row is longer than the column, the Composer's 720 px: about 100 characters of its first line (107 at the small
+    // text size, where the column keeps the Composer's width), so its time stays near its words.
+    const ROOM = process.env.TEXT === 'small' ? 108 : 101;
     const layout = () => {
       const r = (sel) => [...document.querySelectorAll(sel)].filter((e) => e.offsetParent).map((e) => { const b = e.getBoundingClientRect(); return `${b.left.toFixed(1)}+${b.width.toFixed(1)}`; });
       const cap = document.querySelector('.home .capture.raised .cap')?.getBoundingClientRect();
@@ -617,7 +619,7 @@ async function main() {
       const times = {};
       for (const t of document.querySelectorAll('.hx .hr time')) if (t.offsetParent) (times[Math.round(t.closest('.hr').getBoundingClientRect().left)] ??= new Set()).add(Math.round(t.getBoundingClientRect().right));
       return { parts: { column: r('.hx'), composer: r('.home .capture.raised .cap'), headings: r('.hsec > h3'), rows: r('.hrs > .hr'), folds: r('.fold-h'), setup: r('.home .setup') },
-        mid: cap ? cap.left + cap.width / 2 : null, left: document.querySelector('.hx').getBoundingClientRect().left, two: !!document.querySelector('.hx.two'), rows,
+        mid: cap ? cap.left + cap.width / 2 : null, capW: cap?.width ?? null, left: document.querySelector('.hx').getBoundingClientRect().left, two: !!document.querySelector('.hx.two'), rows,
         times: Object.values(times).map((e) => [...e].sort((a, b) => a - b)) };
     };
     for (const width of [1180, 1512, 1728, 2560, 3440])
@@ -637,7 +639,9 @@ async function main() {
             const want = width >= 1400 || state === 'closed' ? width / 2 : null;
             if (want !== null && m.mid !== null && Math.abs(m.mid - want) > 0.5) failures.push(`${at}, the sidebar ${state}: the Composer's centre is at ${m.mid.toFixed(1)}, not ${want.toFixed(1)}`);
             if (state === 'open' && m.left < 224 + 36 - 0.5) failures.push(`${at}, the sidebar open: the column starts at ${m.left.toFixed(1)}, under the sidebar or against it`);
-            for (const row of m.rows) if (row.chars > 92) failures.push(`${at}, the sidebar ${state}: a row's first line has room for ${Math.round(row.chars)} characters ("${row.text}"), more than about 90`);
+            for (const row of m.rows) if (row.chars > ROOM) failures.push(`${at}, the sidebar ${state}: a row's first line has room for ${Math.round(row.chars)} characters ("${row.text}"), more than about ${ROOM}`);
+            // The Composer keeps the width the owner approved, 720 px (tokens.css --cap-w), whatever the column does.
+            if (m.capW !== null && Math.abs(m.capW - 720) > 0.5) failures.push(`${at}, the sidebar ${state}: the Composer is ${m.capW.toFixed(1)} px wide, not its 720`);
             for (const edges of m.times) if (edges.length > 1) failures.push(`${at}, the sidebar ${state}: the rows of one column end their times at ${edges.join(', ')} px, not on one edge`);
             measured.add('every row\'s time on its column\'s edge');
           }

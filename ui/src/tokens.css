@@ -70,7 +70,7 @@
   --sp1:4px; --sp2:8px; --sp3:12px; --sp4:16px; --sp5:24px; --sp6:32px;
   --side-w:224px; --bar-h:38px; --tab-h:30px; --row-h:28px; --rail-h:26px; --ctl-h:24px; --ctl-l:34px; --key-h:max(18px,round(18px*var(--ts),1px));
   --fade:24px;         /* how far content dissolves at an edge it scrolls beyond */
-  --home-wide:calc(var(--row-read) * 11 / 6 + var(--sp6)); --row-read:calc(var(--lead) + 48px + var(--sp3) + round(560px * var(--ts),1px)); --home-w:var(--row-read); --home-row:36px; --home-gutter:36px; --cap-w:720px;
+  --home-wide:calc(var(--cap-w) * 11 / 6 + var(--sp6)); --row-read:calc(var(--lead) + 48px + var(--sp3) + round(560px * var(--ts),1px)); --home-w:var(--cap-w); --home-row:36px; --home-gutter:36px; --cap-w:720px;
   --lead:32px;         /* what leads a row on Home (a seat, a mark, a chevron): one column, one centre line; every word starts after it */
   --notch-w:420px;
   --sheet-s:480px; --sheet-m:640px; --sheet-l:900px;  /* a sheet: a quick decision, a form or a list, a view to read */

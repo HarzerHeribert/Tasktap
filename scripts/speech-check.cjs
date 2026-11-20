@@ -19,7 +19,7 @@ const { scene, flow } = require('./instrument-fixtures.cjs');
 
 const HZ = 440, OF = 574041195;
 /** The row of Settings that says where speech is turned into text. */
-const ROW = '.settings .set:has(.seg[aria-label="Turned into text"])';
+const ROW = '.settings .set:has(.seg[aria-label="Where your speech becomes text"])';
 function tone(file) {
   const rate = 48000, n = rate * 3, wav = Buffer.alloc(44 + 2 * n);
   wav.write('RIFF', 0); wav.writeUInt32LE(36 + 2 * n, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
@@ -78,7 +78,7 @@ async function main() {
     // ——— Settings › Speech, state by state ———
     let page = await start({ supported: true, model: 'none', have: 0, of: OF, error: null }, 'off');
     const settings = () => page.evaluate(() => { window.__ws.ui.sheet = { kind: 'settings', at: 'voice' }; window.__motion.redraw(); });
-    const row = () => page.evaluate(() => [...document.querySelectorAll('.settings .set')].find((r) => r.querySelector('.t')?.textContent === 'Turned into text')?.innerText.replace(/\s+/g, ' ') ?? '');
+    const row = () => page.evaluate(() => [...document.querySelectorAll('.settings .set')].find((r) => r.querySelector('.t')?.textContent === 'Where your speech becomes text')?.innerText.replace(/\s+/g, ' ') ?? '');
     const press = (label) => page.evaluate((l) => [...document.querySelectorAll('.settings .set button')].find((b) => b.textContent === l)?.click(), label);
     const tell = (status) => page.evaluate((s) => (Object.assign(window.__fake.records.speech, s), window.__fake.emit({ ...window.__fake.records.speech }, 'speech')), status);
     await settings();
@@ -88,7 +88,7 @@ async function main() {
     await shot(page, 'settings-service', ROW);
     await press('On this Mac');
     await page.waitForTimeout(150);
-    await hold(row().then((t) => /Needs a model first: Whisper large-v3 turbo, 574 MB/.test(t) && /Download/.test(t) && /huggingface\.co/.test(t) && /Until it is here, OpenAI stays in use/.test(t)), `not set up, the row does not say what it needs: ${await row()}`);
+    await hold(row().then((t) => /Needs a model first: Whisper large-v3 turbo, 574 MB/.test(t) && /Download/.test(t) && /huggingface\.co/.test(t) && /until it is here, OpenAI goes on turning your speech into text/.test(t)), `not set up, the row does not say what it needs: ${await row()}`);
     await hold(page.evaluate(() => !window.__fake.speech.acts.includes('install') && window.__fake.records.prefs.some((p) => p.id === 'speech_by')), 'something was fetched, or the service let go, before the person asked');
     await shot(page, 'settings-needs', ROW);
     await press('Download');
@@ -190,7 +190,7 @@ async function main() {
     await page.keyboard.press('Escape');
     await page.mouse.click(...(await centre(page, '.home .mic')));
     await page.waitForTimeout(900);
-    await hold(state(page).then((s) => !s.hears && !s.live && s.rows === 0 && /missing or damaged\. Download it again in Settings, Speech/.test(s.said)), `a missing model is not said: ${JSON.stringify(await state(page))}`);
+    await hold(state(page).then((s) => !s.hears && !s.live && s.rows === 0 && /missing or damaged\. Download it again in Settings › Voice/.test(s.said)), `a missing model is not said: ${JSON.stringify(await state(page))}`);
     await page.evaluate(() => delete window.__fake.records.speech.refuses);
     await page.keyboard.press('Escape');
 

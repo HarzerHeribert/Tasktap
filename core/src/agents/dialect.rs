@@ -398,9 +398,9 @@ pub const DROID: Dialect = Dialect {
     ),
     options: &[Choice {
         id: "commands",
-        name: "Installs, builds, tests and local git",
-        allows: "Droid runs such commands without asking (its --auto medium). \
-                 Which command is one of them its model says itself.",
+        name: "Build without asking",
+        allows: "Droid then installs packages, builds, tests and makes local Git commits on its own; \
+                 which commands count, its own model decides.",
     }],
     ends: Some(droid_ended),
 };

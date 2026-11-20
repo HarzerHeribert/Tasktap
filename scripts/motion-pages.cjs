@@ -358,6 +358,9 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     }
     // The system's folder panel: what was asked, in order, and the folder `pick` names (none: the person cancelled).
     if (name === 'host.pick') return (window.__fake.picked.push(a), records.pick ?? null);
+    // Windows' tab and the updater, as a scene says them (none: a host without the call).
+    if (name === 'host.tab') return records.tab ?? null;
+    if (name === 'host.update') return records.update ?? null;
     if (name !== 'host.open') return null;
     const real = /^https?:\/\/[^/\s]/i.test(a.target) ? a.target : (records.files || {})[a.target] || null;
     if (real && !a.probe) opened.push({ ...a, real });

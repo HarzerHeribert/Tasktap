@@ -1,14 +1,17 @@
-// Settings: one sheet, its sections listed at its left, one section shown at a time. The sections are what a person
-// comes here to do, the most frequent and the most consequential first: what happens to a thought, how voice becomes
-// text, which agents run the work, how the app looks, how a terminal reads, and what the app is and sends. Each row is
-// one question with its answer readable at a glance (form.tsx Row). Every choice the core keeps is a preference
-// (`prefs`), written at once, so the notch and the workspace both follow; nothing is shown that the core cannot keep.
+// Settings: one sheet, its sections listed at its left, one section shown at a time, each on its key, ⌘1 to ⌘7. The
+// sections are what a person comes here to do, the most frequent and the most consequential first: what happens to a
+// thought, which agents run the work, the projects and how a thought finds one, how voice becomes text, how the app
+// looks, how a terminal reads, and what the app is and sends. Each row is one decision (form.tsx Row): a label that
+// reads by itself and names what the person decides, the answer readable at a glance with its options completing the
+// label's sentence, and one sentence under it of what changes for them, in plain words; a problem says what to do.
+// Every choice the core keeps is a preference (`prefs`), written at once, so the notch and the workspace both follow;
+// nothing is shown that the core cannot keep.
 import { getVersion } from '@tauri-apps/api/app';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import type { MotionAmbient, MotionPalette, MotionStyle, Shortcut, TextSize } from '../../../core/proto/protocol.ts';
 import { routing } from '../capture.tsx';
-import { hit, recorder } from '../keys.ts';
+import { TALK, hit, keyName, recorder } from '../keys.ts';
 import { talkKey } from '../page.ts';
 import { CALM, HERE, KEPT, KEYS_KEPT, MICROPHONE, mac } from '../system.ts';
 import { setVoice } from '../motion/engine.ts';
@@ -21,13 +24,13 @@ import { I, Key } from '../ui.tsx';
 import { placing } from '../way.ts';
 import { AgentsPane } from './agents.tsx';
 import { ProjectsPane } from './projects.tsx';
-import { UpdateRow } from './update.tsx';
+import { ASKS, UpdateRow, update } from './update.tsx';
 import { SetupRow } from './setup.tsx';
-import { Speech, Thoughts, serviceName } from './consent.tsx';
+import { FINDING, Finding, Speech, serviceName } from './consent.tsx';
 import { Choice, Recorder, Row, Switch, setPref } from './form.tsx';
 import { agent, agentName, call, fail, focus, loadTerms, openQuestions, placers, pref, records, redraw, ui } from './model.ts';
 
-export const SECTIONS = [['thoughts', 'Thoughts'], ['projects', 'Projects'], ['voice', 'Voice'], ['agents', 'Agents'], ['appearance', 'Appearance'], ['terminal', 'Terminal'], ['about', 'About']] as const;
+export const SECTIONS = [['thoughts', 'Thoughts'], ['agents', 'Agents'], ['projects', 'Projects'], ['voice', 'Voice'], ['appearance', 'Appearance'], ['terminal', 'Terminal'], ['about', 'About']] as const;
 export type Section = (typeof SECTIONS)[number][0];
 /** The section last shown: Settings opens there again unless a link asks for another. */
 export const shown = { at: 'thoughts' as Section };
@@ -41,14 +44,25 @@ function go(at: Section) {
 const styles: [MotionStyle, string][] = [['slats', 'Slats'], ['glyphs', 'Glyphs'], ['resonator', 'Resonator']];
 const palettes: [MotionPalette, string][] = [['chrome', 'Chrome'], ['chromatic', 'Chromatic'], ['warm', 'Warm'], ['cool', 'Cool'], ['custom', 'Custom']];
 const effects: [MotionAmbient, string][] = [['off', 'Off'], ['still', 'Still'], ['breathing', 'Full']];
-const holds: [number, string][] = [[0, 'At once'], [3, 'After 3 s'], [5, 'After 5 s'], [10, 'After 10 s']];
+const holds: [number, string][] = [[0, 'No wait'], [3, '3 seconds'], [5, '5 seconds'], [10, '10 seconds']];
 // Sizes whose cells differ by a whole pixel in the Default face.
 const sizes: [number, string][] = [12, 14, 15, 16, 18].map((n) => [n, String(n)]);
 const heights: [number, string][] = [[100, '1.0'], [110, '1.1'], [120, '1.2'], [130, '1.3']];
 const FONTS = ['Hack Nerd Font Mono', 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Menlo'];
-const returns: [boolean, string][] = [[true, 'Sends it'], [false, 'Starts a new line']];
-const keeps: [number, string][] = [[0, 'For ever'], [30, '30 days'], [90, '90 days'], [365, 'A year']];
+const returns: [boolean, string][] = [[true, 'Sends the thought'], [false, 'Starts a new line']];
+const keeps: [number, string][] = [[0, 'Never'], [30, '30 days'], [90, '90 days'], [365, 'A year']];
 const texts: [TextSize, string][] = [['small', 'Small'], ['default', 'Default'], ['large', 'Large']];
+/** The days finished thoughts are kept, as a person says them. */
+const daysName = (days: number) => keeps.find(([n]) => n === days)?.[1].toLowerCase() ?? `${days} days`;
+
+/** The capture key while the person has chosen none, as the core has it (records.rs `Shortcut::capture`): Control-
+ *  Option-Space on a Mac, Alt-Shift-Space elsewhere. */
+const USUAL: Shortcut = { control: mac, alt: true, shift: !mac, meta: false, code: 'Space' };
+/** Who else may hold a key: another app, or the system, in its own name. */
+const SYSTEM = mac ? 'macOS' : 'Windows';
+/** The key that takes a thought on its way back, and the key that ends a line. */
+const UNDO = mac ? '⌘Z' : 'Ctrl+Z';
+const RETURN = mac ? 'Return' : 'Enter';
 
 /** The capture key as the host has it: the one the system registered, which is not the stored one when the system
  *  refused that at start. Asked for when the section is shown, and told by every change made here. */
@@ -99,58 +113,65 @@ async function toggleTrial() {
   redraw();
 }
 
-/** What happens to a thought once it is sent: when it starts, and how it finds its folder. */
+/** How a thought gets in and what happens to it once it is sent: the key from any app first, then where the tab
+ *  hangs (Windows), what Return does, how long a sent thought waits, and when finished ones are deleted. */
 function ThoughtsPane() {
   const hold = records.prefs.get('hold');
   const sends = pref('return_sends'), days = pref('keep_days'), stored = pref('capture_key');
   // (One effect, as before the tab: the sections are called inside Settings, so their hooks are its own, in order.)
   useEffect(() => void (askCapture(), mac || askTab()), []);
-  const places: [string, string][] = !tab ? [] : [['main', 'Main display'], ['pointer', 'Where it was last opened'],
+  const places: [string, string][] = !tab ? [] : [['main', 'Main display'], ['pointer', 'Where you last opened it'],
     ...(tab.displays.length > 1 || !['main', 'pointer', 'off'].includes(tab.display)
       ? [...new Set([...tab.displays.map((d) => d.name), ...(['main', 'pointer', 'off'].includes(tab.display) ? [] : [tab.display])])].map((name): [string, string] => [name, displayName(name)])
       : []),
-    ['off', 'Off']];
+    ['off', 'None']];
   // The stored key is not the one in use: the system refused it when the app started.
   const lost = capture !== undefined && stored && !same(stored, capture);
+  const KEY = 'Key to put a thought in, from any app', TAB = 'Display that shows Tasktap’s tab', ENDS = `${RETURN} key when writing a thought`;
+  const WAIT = 'Wait before an agent starts a thought', DELETE = 'Delete finished thoughts after';
+  const held = hold?.id === 'hold' ? hold.value : 5;
   return (
     <>
-      <Row name="A sent thought starts" hint="Until it starts, Undo takes it back.">
-        <Choice name="A sent thought starts" value={hold?.id === 'hold' ? hold.value : 5} all={holds} set={(v) => setPref({ id: 'hold', patch: v })} />
-      </Row>
-      <Thoughts />
-      <Row name="Return in a thought" hint={sends ? `${mac ? 'Shift-Return' : 'Shift+Enter'} starts a new line.` : `${mac ? 'Command-Return' : 'Ctrl+Enter'} sends it.`}>
-        <Choice name="Return in a thought" value={sends} all={returns} set={(v) => setPref({ id: 'return_sends', patch: v })} />
-      </Row>
-      <Row name="From any app" hint={lost ? `The key you chose is taken by the system or another app${capture ? ', so the one shown is in use' : ', so no key is in use'}. Choose another, or use the default.`
-        : capture === null ? 'The usual key is taken by the system or another app, so no key is in use. Record one of your own.'
-          : mac ? 'Opens the notch for a thought, whatever is in front.'
-            : tab?.display === 'off' ? 'Brings Tasktap forward with a new thought, whatever is in front.' : 'Opens the tab at the top of the screen for a thought, whatever is in front.'}>
-        {capture !== undefined && <Recorder name="From any app" value={capture} own={!!stored} set={setCapture} />}
+      <Row name={KEY} hint={lost ? `${keyName(stored!)} is taken by another app or ${SYSTEM}, so ${capture ? `${keyName(capture)} still opens Tasktap; record a different one.` : `no key opens Tasktap; record a different one, or use ${keyName(USUAL)}.`}`
+        : capture === null ? `${keyName(USUAL)} is taken by another app or ${SYSTEM}, so no key opens Tasktap; record a different one.`
+          : mac ? 'Press it in any app and the notch opens with a field for your thought.'
+            : tab?.display === 'off' ? 'Press it in any app and Tasktap’s window comes forward with a field for your thought.' : 'Press it in any app and the tab at the top of the screen opens for your thought.'}>
+        {capture !== undefined && <Recorder name={KEY} value={capture} own={!!stored} usual={USUAL} set={setCapture} />}
       </Row>
       {tab && (
-        <Row name="Tab at the top of the screen" hint={tab.display === 'off' ? 'No tab. The key above brings Tasktap forward instead, and its icon stays in the notification area.'
-          : tab.display === 'main' ? 'Shows what runs and what waits, and opens under the pointer. The key above opens it on the display the pointer is on.'
-            : tab.display === 'pointer' ? 'Stays on the display where the key above last opened it.'
-              : 'On the main display while that one is not connected.'}>
-          <Choice name="Tab at the top of the screen" value={tab.display} all={places} set={setTab} />
+        <Row name={TAB} hint={tab.display === 'off' ? 'No tab: the key brings Tasktap’s window forward, and its icon stays in the notification area.'
+          : tab.display === 'main' ? 'The tab hangs at the top of the main display, and the key opens it on the display the pointer is on.'
+            : tab.display === 'pointer' ? 'The tab stays on the display where the key last opened it.'
+              : `The tab hangs on ${displayName(tab.display)}, and on the main display while that one is not connected.`}>
+          <Choice name={TAB} value={tab.display} all={places} set={setTab} />
         </Row>
       )}
-      <Row name="Finished thoughts are kept" hint={days ? 'Applies from the next start, or within a day. Nothing that waits for you is ever removed.' : undefined}>
-        <Choice name="Finished thoughts are kept" value={days} all={keeps.some(([n]) => n === days) ? keeps : [...keeps, [days, `${days} days`]]} set={(v) => setPref({ id: 'keep_days', patch: v })} />
+      <Row name={ENDS} hint={`${sends ? `Shift${mac ? '-' : '+'}${RETURN} starts a new line instead` : `${mac ? 'Command-Return' : 'Ctrl+Enter'} sends it`}; in a reply to an agent, ${RETURN} always sends.`}>
+        <Choice name={ENDS} value={sends} all={returns} set={(v) => setPref({ id: 'return_sends', patch: v })} />
+      </Row>
+      <Row name={WAIT} hint={held ? `It waits at least this long, longer while its project is still being found, and ${UNDO} takes it back until it starts.`
+        : 'The agent starts as soon as the project is found, so there is no moment to take it back.'}>
+        <Choice name={WAIT} value={held} all={holds} set={(v) => setPref({ id: 'hold', patch: v })} />
+      </Row>
+      <Row name={DELETE} hint={days ? 'Thoughts you have read go that long after they finish, with their answers and terminal history; anything waiting for you stays.'
+        : 'Every finished thought stays, with its answers and the history of the terminal its agent ran in.'}>
+        <Choice name={DELETE} value={days} all={keeps.some(([n]) => n === days) ? keeps : [...keeps, [days, `${days} days`]]} set={(v) => setPref({ id: 'keep_days', patch: v })} />
       </Row>
     </>
   );
 }
 
 /** How voice becomes text (consent.tsx), and the key held to talk: stored as the preference it is, which the core
- *  holds to the rule of a shortcut. */
+ *  holds to the rule of a shortcut. It is the page's own key, heard only while Tasktap has the keyboard. */
 function VoicePane() {
   const setTalk = (key: Shortcut | null) => (key ? call('put', { c: 'prefs', id: 'talk_key', patch: key }) : call('delete', { c: 'prefs', id: 'talk_key' }));
+  const TALKS = 'Key to hold while you talk', set = !!pref('speech_by') || hearsHere();
   return (
     <>
       <Speech />
-      <Row name="Hold to talk" hint="Held in a thought or a reply. Letting go ends it.">
-        <Recorder name="Hold to talk" value={talkKey()} own={!!pref('talk_key')} set={setTalk} />
+      <Row name={TALKS} hint={set ? 'In Tasktap only: in an empty field, letting go sends the thought (E first keeps it to edit); in any other field, your words are typed.'
+        : 'Voice is not set up yet: choose above where your speech becomes text.'}>
+        <Recorder name={TALKS} value={talkKey()} own={!!pref('talk_key')} usual={TALK} set={setTalk} />
       </Row>
     </>
   );
@@ -204,20 +225,26 @@ function AppearancePane() {
 
 /** How a terminal reads: applied at once, to every terminal in every window (main.tsx loadLook). */
 function TerminalPane() {
+  const FONT = 'Font in terminals', SIZE = 'Text size in terminals', LINES = 'Space between lines in terminals';
+  const BOLD = 'Show bold text in brighter colours', READABLE = 'Adjust text that is hard to read';
   return (
     <>
-      <Row name="Font" hint="Any installed monospace family. Prompt symbols come from the Nerd Fonts symbols either way.">
-        <input class="text" list="fonts" placeholder="Default (Hack)" aria-label="Font" spellcheck={false} maxLength={100} defaultValue={pref('terminal_font')}
+      <Row name={FONT} hint={`Any fixed-width font installed on ${HERE}; the symbols in prompts show with whichever you choose.`}>
+        <input class="text" list="fonts" placeholder="Hack (built in)" aria-label={FONT} spellcheck={false} maxLength={100} defaultValue={pref('terminal_font')}
           onChange={(e) => setPref({ id: 'terminal_font', patch: e.currentTarget.value.trim() })} />
         <datalist id="fonts">{FONTS.map((f) => <option value={f} />)}</datalist>
       </Row>
-      <Row name="Size"><Choice name="Size" value={pref('terminal_size')} all={sizes} set={(v) => setPref({ id: 'terminal_size', patch: v })} /></Row>
-      <Row name="Line height"><Choice name="Line height" value={pref('terminal_line_height')} all={heights} set={(v) => setPref({ id: 'terminal_line_height', patch: v })} /></Row>
-      <Row name="Bold text in bright colours" hint="As most terminals draw it. Off, bold text keeps the colour its program gave it.">
-        <Switch on={pref('terminal_bold_bright')} name="Bold text in bright colours" set={(on) => setPref({ id: 'terminal_bold_bright', patch: on })} />
+      <Row name={SIZE} hint="Every terminal changes at once, the agents’ and your own; the rest of Tasktap has its size under Appearance.">
+        <Choice name={SIZE} value={pref('terminal_size')} all={sizes} set={(v) => setPref({ id: 'terminal_size', patch: v })} />
       </Row>
-      <Row name="Keep text readable" hint="A colour too close to what is behind it is lifted until it reads. Off, every colour is exactly what its program asked for.">
-        <Switch on={pref('terminal_contrast')} name="Keep text readable" set={(on) => setPref({ id: 'terminal_contrast', patch: on })} />
+      <Row name={LINES} hint="More space makes long output easier to read, and fewer lines fit.">
+        <Choice name={LINES} value={pref('terminal_line_height')} all={heights} set={(v) => setPref({ id: 'terminal_line_height', patch: v })} />
+      </Row>
+      <Row name={BOLD} hint="As most terminals draw it; off, bold text keeps the colour its program gave it.">
+        <Switch on={pref('terminal_bold_bright')} name={BOLD} set={(on) => setPref({ id: 'terminal_bold_bright', patch: on })} />
+      </Row>
+      <Row name={READABLE} hint="A colour too close to what is behind it is changed until it reads; off, every colour is as its program asked.">
+        <Switch on={pref('terminal_contrast')} name={READABLE} set={(on) => setPref({ id: 'terminal_contrast', patch: on })} />
       </Row>
     </>
   );
@@ -245,32 +272,43 @@ const To = ({ at, children }: { at: Section; children: ComponentChildren }) => <
 let version = '';
 function AboutPane() {
   useEffect(() => void (version || getVersion().then((v) => ((version = v ?? ''), redraw()), () => {})), []);
-  const tools = placers(), by = pref('route_by'), speech = pref('speech_by'), usual = agent();
-  // The agents that place thoughts now, in the person's order.
+  const tools = placers(), by = pref('route_by'), speech = pref('speech_by'), usual = agent(), days = pref('keep_days'), keys = pref('keys').length > 0;
+  // The agents that find a thought's project now, in the person's order.
   const readers = placing(by, tools) !== 'on' ? [] : by!.agents.filter((p) => p.on && tools.some((t) => t.agent === p.agent && t.model === p.model));
   const names = readers.map((p) => agentName(p.agent));
+  // A build made here never asks for a new version; until the host has said, this one may.
+  const asks = update.now.state !== 'off';
+  const kept = `${KEYS_KEPT[0]!.toLowerCase()}${KEYS_KEPT.slice(1)}`;
   return (
     <>
-      <Row name="Tasktap"><span class="v">{version ? `Version ${version}` : 'This build has no version number'}</span></Row>
+      <Row name="Tasktap version"><span class="v">{version || 'This copy has none'}</span></Row>
       <UpdateRow />
       <SetupRow />
       <h3>What leaves {HERE}</h3>
-      <Row name="Your thoughts" hint={`Each goes to the agent that runs it${usual ? `, ${agentName(usual.id)} unless you pick another` : ''}, in a terminal on ${HERE}, under that agent's own sign-in.`}>
-        <span class="v">To the agent</span><To at="agents">Agents</To>
+      <Row name="Your thoughts" hint={`Each goes to the agent that runs it${usual ? ` (${agentName(usual.id)} unless you choose another)` : ''}, in a terminal on ${HERE} under that agent’s own sign-in.`}>
+        <span class="v">To the agent that runs them</span><To at="agents">Agents</To>
       </Row>
-      <Row name="Placing" hint={names.length ? `Each thought that names no folder, with the names of your folders and sessions, is read by ${names[0]}'s small model${names.length > 1 ? `; when it cannot place it, by the next in your order: ${names.slice(1).join(', then ')}` : ''}.` : `Thoughts are placed by name, on ${HERE}.`}>
-        <span class="v">{names.length ? `To ${names.join(', ')}` : 'Nothing'}</span><To at="thoughts">Thoughts</To>
+      <Row name={FINDING} hint={names.length
+        ? `${names[0]}’s model reads each thought naming no single project, and each long one for its summary, with likely projects’ names${names.length > 1 ? `; if it cannot, ${names.slice(1).join(', then ')}` : ''}.`
+        : `Your words are matched to your projects’ names on ${HERE}, and nothing is sent.`}>
+        <span class="v">{names.length ? `To ${names.join(', ')}` : 'Nothing'}</span><To at="projects">Projects</To>
       </Row>
-      <Row name="Voice" hint={speech ? 'Each recording, when you let go. Tasktap keeps none.' : hearsHere() ? `What you say is turned into text on ${HERE}. Its model was downloaded once, from huggingface.co.` : 'Voice is not set up.'}>
+      <Row name="Your voice" hint={speech ? 'Each recording goes when you let go, and Tasktap keeps none.' : hearsHere() ? `What you say becomes text on ${HERE}; only its model came once, from huggingface.co.` : 'Voice is not set up, so nothing is recorded.'}>
         <span class="v">{speech ? `To ${serviceName(speech.server)}` : 'Nothing'}</span><To at="voice">Voice</To>
       </Row>
-      <Row name="Anything else" hint="Tasktap has no account and reports nothing about what you do."><span class="v">Nothing</span></Row>
+      <Row name="Anything else" hint={asks ? `Tasktap asks GitHub for a new version ${ASKS}; it has no account and reports nothing else.` : 'Tasktap has no account and reports nothing about what you do.'}>
+        <span class="v">{asks ? 'A check for new versions' : 'Nothing'}</span>
+      </Row>
       <h3>Kept on {HERE}</h3>
-      <Row name="Thoughts and history" hint={`With these settings, ${KEPT}.`}><span class="v">In a file</span></Row>
-      <Row name="A service's key" hint="Written once and never shown again."><span class="v">{KEYS_KEPT}</span></Row>
+      <Row name="Your thoughts and history" hint={`Kept ${KEPT}; ${days ? `a finished thought goes ${daysName(days)} after it ends` : 'finished ones stay until you choose a time under Thoughts'}.`}>
+        <span class="v">In Tasktap’s folder</span><To at="thoughts">Thoughts</To>
+      </Row>
+      <Row name="Speech service key" hint={keys ? 'Tasktap reads it only to send a recording, and never shows it again.' : `A key you give a speech service is kept ${kept} and never shown again.`}>
+        <span class="v">{keys ? KEYS_KEPT : 'None saved'}</span>
+      </Row>
       <h3>Licences</h3>
       <Licence name="Hack" what="The terminal's font · MIT and Bitstream Vera" file="Hack-3.003-LICENSE.md" />
-      <Licence name="Nerd Fonts symbols" what="Prompt symbols · MIT" file="NerdFonts-3.4.0-LICENSE.txt" />
+      <Licence name="Nerd Fonts symbols" what="Symbols in terminal prompts · MIT" file="NerdFonts-3.4.0-LICENSE.txt" />
       <Licence name="Whisper" what={`The model for speech on ${HERE} · MIT`} file="Whisper-model-LICENSE.txt" />
       <Licence name="whisper.cpp" what="What runs that model · MIT" file="whisper.cpp-1.9.5-LICENSE.txt" />
       <Row name="Libraries" hint="Open source, under the MIT and Apache 2.0 licences; SQLite is in the public domain."><span class="v">xterm.js, Preact, Tauri, Tokio, SQLite</span></Row>
@@ -279,13 +317,14 @@ function AboutPane() {
 }
 
 const PANES: Record<Section, () => ComponentChildren> = {
-  thoughts: () => <ThoughtsPane />, projects: () => <ProjectsPane />, voice: () => <VoicePane />, agents: () => <AgentsPane />, appearance: () => <AppearancePane />, terminal: () => <TerminalPane />, about: () => <AboutPane />,
+  thoughts: () => <ThoughtsPane />, agents: () => <AgentsPane />, projects: () => <><Finding /><ProjectsPane /></>, voice: () => <VoicePane />,
+  appearance: () => <AppearancePane />, terminal: () => <TerminalPane />, about: () => <AboutPane />,
 };
 
 export function Settings({ at }: { at: Section }) {
   shown.at = at;
   useEffect(() => void loadTerms(), []);
-  // A section by its key, ⌘1 to ⌘7, from anywhere in the sheet.
+  // A section by its key, ⌘1 to ⌘7 in the order of the list, from anywhere in the sheet.
   useEffect(() => {
     const keys = (e: KeyboardEvent) => {
       // While a key is recorded every combination is the recorder's.

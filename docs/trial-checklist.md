@@ -62,7 +62,7 @@ Decisions for 32 and 33 (Claude, 2026-11-19; applied once Home and the placing l
 - Words that say something the app does not do are corrected first: About says nothing else is sent, but a released build asks GitHub for a new version; the placing row says only thoughts naming no folder are read by the model, but long ones that name their project are read too, for their summary; "each agent is asked when you look here" is true only of agents never asked before; hold to talk says letting go ends it, where in an empty field it sends the thought, and the key works only while Tasktap is in front.
 - Order: Thoughts, Agents, Projects, Voice, Appearance, Terminal, About; the capture key first in Thoughts; finding the project moves to Projects.
 
-| # | Done | Missing settings a person would look for (proposed by Claude, each needs the owner's yes) |
+| # | Done | Missing settings a person would look for (proposed by Claude; the owner said yes to P2 to P5 on 2026-11-20) |
 | --- | --- | --- |
 | P2 | [ ] | Open Tasktap when the computer starts |
 | P3 | [ ] | Per project: the agent works on its own copy, or in the project itself (exists in the core, shown nowhere) |
@@ -102,7 +102,7 @@ Decisions for 32 and 33 (Claude, 2026-11-19; applied once Home and the placing l
 
 | # | Done | Finding | Decided fix | Proof |
 | --- | --- | --- | --- | --- |
-| 36 | [ ] | In full screen the content is not in the centre. Should it move with the sidebar, or stay centred whether the sidebar is open or closed? | Being researched: measured on the app, compared with how well-made apps do it, three alternatives rendered; then decided | |
+| 36 | [ ] | In full screen the content is not in the centre. Should it move with the sidebar, or stay centred whether the sidebar is open or closed? | Decided by the owner (2026-11-20): the hybrid. The reading column is centred on the window and the sidebar opens into the margin; in a window too narrow for that the column moves only as far as the sidebar needs. Also fixed: the sidebar never reflows Home, margins do not collapse, a lone row has a readable length | |
 | 37 | [ ] | (the owner asked) Other practices of interface designers that would lift the app | A ranked list of findings on this app, each with a picture, from the same research | |
 
 ## Proposed by Claude

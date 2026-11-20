@@ -964,7 +964,7 @@ $rows['11'] = 'In the same app: reads every key hint and tooltip in the workspac
     Start-Sleep -Milliseconds 700
     $read['New Task'] = Js $hints
     $null = Js "(__ws.dismiss(), 1)"
-    foreach ($section in 'thoughts', 'voice', 'agents', 'appearance', 'terminal', 'about') {
+    foreach ($section in 'thoughts', 'agents', 'projects', 'voice', 'appearance', 'terminal', 'about') {
         $null = Js "(__ws.open({ kind: 'settings', at: '$section' }), 1)"
         Start-Sleep -Milliseconds 900
         $read["Settings, $section"] = Js $hints

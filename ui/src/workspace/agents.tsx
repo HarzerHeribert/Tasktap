@@ -7,7 +7,8 @@
 // command line.
 //
 // No agent's program runs as the app starts. Opening this section has the core ask those it has not asked in its
-// life whether they are signed in; "Check again" asks every one.
+// life whether they are signed in, as giving an agent its first thought does (calls.rs `look`); "Check now" asks
+// every one.
 import { useEffect, useState } from 'preact/hooks';
 import type { AgentHealth, OwnAgent } from '../../../core/proto/protocol.ts';
 import { HERE } from '../system.ts';
@@ -41,6 +42,7 @@ const mint = () => `own-${[...crypto.getRandomValues(new Uint8Array(10))].map((b
 /** Writes the person's own agents as they are now; the core says in a sentence what one of them lacks. */
 const keepOwn = (all: OwnAgent[]) => call('put', { c: 'prefs', id: 'own_agents', patch: all });
 
+const NAME = 'Name shown in Tasktap', COMMAND = 'Command that runs it';
 /** The form for an agent of the person's own, new (`at` null) or one of theirs to change or remove. */
 function Own({ at, done }: { at: OwnAgent | null; done: () => void }) {
   const [name, setName] = useState(at?.name ?? ''), [command, setCommand] = useState(at?.command ?? ''), [error, say] = useState('');
@@ -54,9 +56,11 @@ function Own({ at, done }: { at: OwnAgent | null; done: () => void }) {
   const enter = (e: KeyboardEvent) => e.key === 'Enter' && (e.preventDefault(), save());
   return (
     <div class="own" role="group" aria-label={at ? `Change ${at.name}` : 'Add an agent'}>
-      <Row name="Name"><input class="text" id="own-name" aria-label="Name" spellcheck={false} autocomplete="off" maxLength={40} value={name} onInput={(e) => (setName(e.currentTarget.value), say(''))} onKeyDown={enter} /></Row>
-      <Row name="Command" hint={error ? undefined : <>The program and its arguments, with <code>{'{prompt}'}</code> where the thought goes. It should do the work and exit: Tasktap hears only when it ends, and takes exit 0 as done.</>}>
-        <input class="text wide" aria-label="Command" placeholder="goose run -t {prompt}" spellcheck={false} autocomplete="off" maxLength={2000} value={command}
+      <Row name={NAME} hint="Shown wherever you choose who runs a thought, and on the work it has done.">
+        <input class="text" id="own-name" aria-label={NAME} spellcheck={false} autocomplete="off" maxLength={40} value={name} onInput={(e) => (setName(e.currentTarget.value), say(''))} onKeyDown={enter} />
+      </Row>
+      <Row name={COMMAND} hint={error ? undefined : <>Put <code>{'{prompt}'}</code> where the thought goes; Tasktap learns the work is done only when the program exits, with 0 for success.</>}>
+        <input class="text wide" aria-label={COMMAND} placeholder="goose run -t {prompt}" spellcheck={false} autocomplete="off" maxLength={2000} value={command}
           onInput={(e) => (setCommand(e.currentTarget.value), say(''))} onKeyDown={enter} />
         {error && <p class="hint err" role="alert">{error}</p>}
       </Row>
@@ -74,7 +78,7 @@ export function AgentsPane() {
   // The form: closed, open for a new agent (''), or for one of the person's own by its id.
   const [form, setForm] = useState<string | null>(null), [folded, fold] = useState(true);
   const agents = [...records.agents.values()];
-  if (!agents.length) return <p class="note">Looking for agents…</p>;
+  if (!agents.length) return <p class="note">Finding your agents…</p>;
   const usual = agent()?.id, allowed = pref('agent_options'), own = pref('own_agents');
   // Here, or the person's own: one of theirs stays in sight where its program is missing, to be changed.
   const here = agents.filter((a) => runs(a) || a.own), rest = agents.filter((a) => !runs(a) && !a.own);
@@ -99,7 +103,7 @@ export function AgentsPane() {
               <button type="button" class="btn" onClick={() => (dismiss(), newTerminal(LOOSE, { title: `Sign in to ${a.name}`, type: signIn[a.id] }))}>Sign in</button>
             )}
             {a.own && <button type="button" class="btn" onClick={() => setForm(a.id)}>Change</button>}
-            {a.id === usual ? <span class="x def">Default</span> : on && <button type="button" class="btn" onClick={() => setPref({ id: 'agent', patch: a.id })}>Make default</button>}
+            {a.id === usual ? <span class="x def">Runs new thoughts</span> : on && <button type="button" class="btn" onClick={() => setPref({ id: 'agent', patch: a.id })}>Use for new thoughts</button>}
           </span>
         </div>
         {form === a.id && <Own key={a.id} at={own.find((o) => o.id === a.id) ?? null} done={() => setForm(null)} />}
@@ -134,7 +138,7 @@ export function AgentsPane() {
           <div class="line ag" data-s="none" data-agent={o.id}>
             <Ring agent={o.id} s="off" />
             <span class="t">{o.name}</span>
-            <span class="x">removed</span>
+            <span class="x">Removed: its name stays on its past work</span>
             <span class="acts">
               <button type="button" class="btn" onClick={() => void keepOwn(own.map((x) => (x.id === o.id ? { ...x, removed: false } : x))).catch(fail)}>Add back</button>
               <button type="button" class="btn" onClick={() => void keepOwn(own.filter((x) => x.id !== o.id)).catch(fail)}>Forget</button>
@@ -144,14 +148,14 @@ export function AgentsPane() {
         {form === '' ? <Own key="new" at={null} done={() => setForm(null)} /> : (
           <button type="button" class="line fold-l" onClick={() => setForm('')}>
             <I n="plus" />
-            <span class="t">Add an agent</span>
-            <span class="x">Any program that takes a thought as an argument and exits when the work is done</span>
+            <span class="t">Add your own agent</span>
+            <span class="x">Any command-line program that ends when the work is done</span>
           </button>
         )}
       </div>
-      <p class="note">The default runs your thoughts. For one thought, pick another by its ring where you write it.</p>
-      <Row name="Sign-in" hint="Each agent is asked when you look here and when it first runs a thought, not when Tasktap starts.">
-        <button type="button" class="btn" disabled={looking.on} onClick={() => look(true)}>{looking.on ? 'Checking…' : 'Check again'}</button>
+      <p class="note">New thoughts go to the agent that says “Runs new thoughts”; for a single thought, choose another where you write it.</p>
+      <Row name="Check which agents are signed in" hint="Each agent is asked once after Tasktap starts, when you first open Agents or give it a thought; Check now asks all again.">
+        <button type="button" class="btn" disabled={looking.on} onClick={() => look(true)}>{looking.on ? 'Checking…' : 'Check now'}</button>
       </Row>
     </>
   );

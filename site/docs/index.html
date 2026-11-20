@@ -54,10 +54,10 @@
 
       <section id="placing" aria-labelledby="placing-h">
         <h2 id="placing-h">Placing and the brief</h2>
-        <p>At first a thought goes to the folder or the session it names. You can let a model place the thoughts that name nothing. It is the smallest model of your own Claude Code, Codex or Antigravity, and the sheet that asks shows who reads your thoughts, what is sent with each one, and the instructions the model follows. <kbd>↩</kbd> allows it, <kbd>esc</kbd> declines, and Settings turns it off again.</p>
+        <p>At first a thought goes to the folder or the session it names. You can let a model place the thoughts that name nothing. It is the smallest model of your own Claude Code, Codex or Antigravity, and the sheet that asks shows who reads your thoughts, what is sent with each one, and the instructions the model follows. <kbd>↩</kbd> allows it, <kbd>esc</kbd> declines, and Settings › Projects, at Finding the project for a thought, turns it off again. Once allowed, a long thought that names its project is read too, for its summary.</p>
         <p>A thought is placed among the folders you have opened in Tasktap. A map of the projects on your Mac, so that a thought also finds one you have not opened yet, is designed and being built.</p>
         <p>The same model writes the brief, which is what the agent receives. It states the goal, the limits you gave, and what counts as done if you said it. It adds nothing you did not say. Your own words always travel with it. A short, clear thought goes on as it is.</p>
-        <p>Once placed, the thought waits under the field for a few seconds, five unless you change it. You see where it goes, its brief, the words you said, and Undo on <kbd>⌘</kbd><kbd>Z</kbd>. The lit line above it runs out with the time that is left. <kbd>↩</kbd> on the empty field starts it at once.</p>
+        <p>Once placed, the thought waits under the field for a few seconds: five, unless you change Wait before an agent starts a thought in Settings › Thoughts, and longer while its project is still being found. You see where it goes, its brief, the words you said, and Undo on <kbd>⌘</kbd><kbd>Z</kbd>. The lit line above it runs out with the time that is left. <kbd>↩</kbd> on the empty field starts it at once.</p>
         <p>If the model cannot tell where a thought belongs, it asks you: “Where should this go?”, with the folders and sessions it could mean on keys, and <kbd>L</kbd> to keep it for later.</p>
       </section>
 
@@ -95,7 +95,7 @@
 
       <section id="agents" aria-labelledby="agents-h">
         <h2 id="agents-h">Agents</h2>
-        <p>Tasktap starts ten agents: Claude Code, Codex, Antigravity, OpenCode, Pi, Qwen Code, Goose, Crush, Droid and Aider. You install each and sign in to it yourself, on your own subscription; Settings, Agents shows which are installed and signed in, and which one a thought goes to by default. Any other agent that runs from a command line can be added there by its command, such as <code>goose run -t {prompt}</code>.</p>
+        <p>Tasktap starts ten agents: Claude Code, Codex, Antigravity, OpenCode, Pi, Qwen Code, Goose, Crush, Droid and Aider. You install each and sign in to it yourself, on your own subscription; Settings › Agents shows which are installed and signed in, and which one runs new thoughts. Any other agent that runs from a command line can be added there by its command, such as <code>goose run -t {prompt}</code>.</p>
         <dl class="rows">
           <div><dt>Claude Code, OpenCode</dt><dd>Questions, and requests to run a command or change a file, are answered from the notch, Home or the workspace.</dd></div>
           <div><dt>Codex</dt><dd>Its requests are answered there too; its questions in its terminal.</dd></div>
@@ -107,27 +107,29 @@
 
       <section id="voice" aria-labelledby="voice-h">
         <h2 id="voice-h">Voice</h2>
-        <p>Hold <kbd>⌥</kbd><kbd>Space</kbd> in the capture field or in a reply, or press and hold the microphone. A short click on the microphone keeps it on until the next click. While it records, the light on the mark follows your voice.</p>
-        <p>Speech can be turned into text on the Mac itself. Settings, Voice downloads the model once: Whisper large-v3 turbo, 574 MB, checked before it is used. After that what you say is written while you speak, a sentence or two behind, and sent nowhere; nothing of it runs while you are not speaking. It was tried in German and English, and in both mixed in one dictation, as a developer speaks them.</p>
+        <p>Hold <kbd>⌥</kbd><kbd>Space</kbd> in the capture field or in a reply, or press and hold the microphone. The key works while Tasktap is in front; in an empty field, letting go sends the thought, and <kbd>E</kbd> before letting go keeps the words to edit. A short click on the microphone keeps it on until the next click. While it records, the light on the mark follows your voice.</p>
+        <p>Speech can be turned into text on the Mac itself. Settings › Voice, at Where your speech becomes text, downloads the model once: Whisper large-v3 turbo, 574 MB, checked before it is used. After that what you say is written while you speak, a sentence or two behind, and sent nowhere; nothing of it runs while you are not speaking. It was tried in German and English, and in both mixed in one dictation, as a developer speaks them.</p>
         <p>Or speech is turned into text by a service you choose: OpenAI, Groq or another server, with your own key. Before anything is stored, the sheet shows exactly what is sent and where. A recording is at most five minutes. You can name the languages you speak, as a hint.</p>
       </section>
 
       <section id="windows" aria-labelledby="windows-h">
         <h2 id="windows-h">On Windows</h2>
-        <p>Windows is being built, and can be built from source. Windows has no notch: a small tab hangs from the top edge of the screen and opens into the same sheet, and an icon by the clock says what waits and opens it too. The tab hides while a full-screen app or a presentation runs. Settings, Thoughts chooses its display, or turns it off.</p>
+        <p>Windows is being built, and can be built from source. Windows has no notch: a small tab hangs from the top edge of the screen and opens into the same sheet, and an icon by the clock says what waits and opens it too. The tab hides while a full-screen app or a presentation runs. Settings › Thoughts, at Display that shows Tasktap’s tab, chooses its display, or None turns it off.</p>
         <p>Keys follow one rule: Ctrl stands where the Mac has <kbd>⌘</kbd>, and with a letter Shift is held too, so Ctrl and a letter alone stay the terminal’s. New terminal is Ctrl+Shift+T, and Find Ctrl+Shift+F. The capture key is Alt+Shift+Space; hold to talk is Ctrl+Space.</p>
         <p>So far Claude Code, Codex and the agents you add run on Windows. Speech there goes through a speech service. Nothing is signed yet, so Windows asks before a copy built elsewhere runs.</p>
       </section>
 
       <section id="settings" aria-labelledby="settings-h">
         <h2 id="settings-h">Settings</h2>
+        <p><kbd>⌘</kbd><kbd>,</kbd> opens Settings, its sections at its left in this order, on <kbd>⌘</kbd><kbd>1</kbd> to <kbd>⌘</kbd><kbd>7</kbd>. Each row says what you decide, and one sentence under it what changes for you.</p>
         <dl class="rows">
-          <div><dt>Thoughts</dt><dd>When a sent thought starts: at once, or after 3, 5 or 10 seconds. What Return does in a thought. The capture shortcut. How long finished thoughts are kept.</dd></div>
-          <div><dt>Voice</dt><dd>The hold-to-talk key. Speech on this Mac, or the service that turns voice into text, its key, and the languages you speak.</dd></div>
-          <div><dt>Agents</dt><dd>Which agents are installed and signed in, the default one, and the ones you add.</dd></div>
+          <div><dt>Thoughts</dt><dd>Key to put a thought in, from any app. On Windows, the display that shows Tasktap’s tab. Return key when writing a thought: sends the thought, or starts a new line. Wait before an agent starts a thought: no wait, 3, 5 or 10 seconds, at least, since finding the project can take longer; <kbd>⌘</kbd><kbd>Z</kbd> takes it back meanwhile. Delete finished thoughts after: never, 30 days, 90 days or a year, with their answers and the terminal’s history.</dd></div>
+          <div><dt>Agents</dt><dd>Which agents are installed and signed in, which one runs new thoughts, what an agent may do only once you let it, and the ones you add. Check which agents are signed in.</dd></div>
+          <div><dt>Projects</dt><dd>Finding the project for a thought: only thoughts that name their project, or your agents in the order you set, with one agreement for all of them. Where Tasktap finds your projects, and every project it knows.</dd></div>
+          <div><dt>Voice</dt><dd>Where your speech becomes text: on the Mac, or at a speech service with your key. The languages you speak. Key to hold while you talk.</dd></div>
           <div><dt>Appearance</dt><dd>Text size. Effects, the form of the chrome (Slats, Glyphs or Resonator), its colour, and Lumen, the coloured light behind it.</dd></div>
-          <div><dt>Terminal</dt><dd>The font, its size and the line height.</dd></div>
-          <div><dt>About</dt><dd>What Tasktap keeps and what it sends, and the licences of what it ships with.</dd></div>
+          <div><dt>Terminal</dt><dd>Font, text size and space between lines in terminals. Bold text in brighter colours, and text that is hard to read adjusted.</dd></div>
+          <div><dt>About</dt><dd>The version and new versions. What Tasktap keeps and what it sends, the check for a new version at GitHub among it, and the licences of what it ships with.</dd></div>
         </dl>
       </section>
 

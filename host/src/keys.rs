@@ -1,18 +1,23 @@
-//! The global keys (design §12): the capture key, which opens capture from any app, and the three keys that answer a
-//! waiting question from any app (one goes to the question, one says yes, one says no). Each is what its preference
-//! says (`capture_key`, `question_key`, `yes_key`, `no_key`), or with none this system's own (`Shortcut::capture`,
-//! `Shortcut::answer`), and the host registers it whenever the core's records say it changed: the capture key always,
-//! the answer keys only while a question waits, so that they take no keys from other apps the rest of the time. The
-//! system may refuse a combination, because another app holds it: the key registered before then stays registered and
-//! goes on working.
+//! The keys a person records (design §12). Four are global: the capture key, which opens capture from any app, and
+//! the three keys that answer a waiting question from any app (one goes to the question, one says yes, one says no).
+//! The fifth, the key held to talk, is the page's own and heard only in Tasktap. Each is what its preference says
+//! (`capture_key`, `question_key`, `yes_key`, `no_key`, `talk_key`), or with none this system's own
+//! (`Shortcut::usual`). The host registers the global ones whenever the core's records say they changed: the capture
+//! key always, the answer keys only while a question waits, so that they take no keys from other apps the rest of
+//! the time. A review build takes no global key at all, chosen or not: they are the person's own Tasktap's, which it
+//! runs beside, and its pages name none (`takes` in the replies below).
 //!
-//! Settings changes a key with `host.capture_key {key}` or `host.answer_key {which, key}` rather than with a `put` of
-//! its own, so that it hears the refusal at once: the host applies the rule of a shortcut and keeps Tasktap's keys
-//! apart (`tasktap_proto::clash`), asks the system, stores the preference only when the system took the key, and
-//! answers with the keys in use now. An answer key is asked for even while no question waits: registered and let go
-//! at once, only so that a key another app holds is refused when it is recorded, not when the next question comes.
-//! `host.capture_key {}` and `host.answer_key {}` only answer, which is how a page learns that the stored capture key
-//! was refused at start.
+//! Settings records every key through the host (`host.capture_key {key}`, `host.answer_key {which, key}`,
+//! `host.talk_key {key}`) rather than with a `put` of its own, so that it hears a refusal at once and the key in use
+//! stays. Each is held, in this order, to the rule of a shortcut (`Shortcut::refused`), to Tasktap's other keys as they
+//! are now (`tasktap_proto::clash`, whose sentence names the key that has it already), and to the system: a key another
+//! app holds is refused when it is recorded, whichever key it is and whether or not a question waits. The capture key,
+//! and an answer key while a question waits, is registered in place of the old one, which is let go only once the new
+//! one is held; an answer key while none waits, and the talk key, is registered and let go at once, only to ask. A
+//! registration the system refuses is a refusal: "That key is taken by the system or another app", and the key before
+//! stays. Only then is the preference stored; the core's refusal, or its silence, puts back what was before. Without
+//! `key` each call only answers, which is how a page learns the keys in use, and that the stored capture key was
+//! refused at start.
 use crate::Host;
 use serde_json::{json, Value};
 use std::str::FromStr;
@@ -23,14 +28,22 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
 pub const TAKEN: &str = "That key is taken by the system or another app";
+/// What a review build answers when asked to take a global key.
+pub const NONE_HERE: &str = "Tasktap Review takes no keys from other apps";
 
-/// The key registered now: none before the core's records arrived, and while the system refuses
-/// the only key asked for so far.
+/// The capture key registered now: none before the core's records arrived, while the system refuses the only key
+/// asked for so far, and always in a review build.
 pub static CAPTURE: Mutex<Option<Key>> = Mutex::new(None);
 
 /// The answer keys, as the preferences and this system say, and what of them is registered.
 pub static ANSWERS: Mutex<Answers> =
     Mutex::new(Answers { keys: [None, None, None], held: [None, None, None], asking: false });
+
+/// The key held to talk, as the preference says or the pages' own: never registered, only kept apart from the others.
+pub static TALK: Mutex<Option<Key>> = Mutex::new(None);
+
+/// Whether this copy takes global keys: every copy but a review build.
+pub const TAKES: bool = !crate::REVIEW;
 
 /// The key as the system's hot keys name it. Every key the rule of a shortcut lets through is one.
 pub fn system(key: &Key) -> Option<Shortcut> {
@@ -78,6 +91,23 @@ pub fn back(held: &mut Option<Key>, before: Option<Key>, mut set: impl FnMut(&Ke
     }
 }
 
+/// Whether `key` may be the key preference `id` before the system is asked: the rule of a shortcut, then Tasktap's
+/// other keys as they are now (`others`).
+fn allowed(id: PrefKey, key: &Key, others: &[(PrefKey, Key)]) -> Result<(), String> {
+    match key.refused().or_else(|| clash(id, key, others)) {
+        Some(why) => Err(why.into()),
+        None => Ok(()),
+    }
+}
+
+/// Asks the system whether another app holds `key`, as a person records it: registered and let go at once. A
+/// registration that fails is a refusal.
+fn ask_free(key: &Key, mut set: impl FnMut(&Key, bool) -> Result<(), String>) -> Result<(), String> {
+    set(key, true)?;
+    let _ = set(key, false);
+    Ok(())
+}
+
 /// Registers a key with the system, or lets it go. Whatever the system's reason, the person is told
 /// the key is taken; the reason goes to the log, as `event`.
 fn register<'a>(app: &'a AppHandle, event: &'static str) -> impl FnMut(&Key, bool) -> Result<(), String> + 'a {
@@ -94,16 +124,19 @@ fn register<'a>(app: &'a AppHandle, event: &'static str) -> impl FnMut(&Key, boo
     }
 }
 
-/// The key with none chosen: this system's own; in a review build none, so that it never takes the key of the
-/// person's own Tasktap, which it runs beside.
-fn usual() -> Option<Key> {
-    (!crate::REVIEW).then(|| Key::capture(cfg!(target_os = "macos")))
+/// A global key as it is to be: the person's (`stored`) or this system's own (`usual`); in a review build none.
+fn global(stored: Option<Key>, usual: impl FnOnce() -> Key) -> Option<Key> {
+    TAKES.then(|| stored.unwrap_or_else(usual))
 }
 
-/// An answer key with none chosen: this system's own (Control-Option on a Mac, Alt-Shift elsewhere), and in a review
-/// build none, as `usual`.
-fn usual_answer(which: Which) -> Option<Key> {
-    (!crate::REVIEW).then(|| Key::answer(cfg!(target_os = "macos"), which))
+/// The capture key with none chosen.
+fn usual() -> Key {
+    Key::capture(cfg!(target_os = "macos"))
+}
+
+/// The talk key, as the preference says or the pages' own.
+fn talk_key(stored: Option<Key>) -> Key {
+    stored.unwrap_or_else(|| Key::talk(cfg!(target_os = "macos")))
 }
 
 /// Makes `wanted` the registered key as `follow` does, or with none lets the registered one go.
@@ -121,15 +154,64 @@ fn hold(
     }
 }
 
+/// Makes `key` (none: this system's own) the capture key, beside Tasktap's other keys (`others`): the rule, the
+/// others, then the system, which registers it in place of the key before; a refusal leaves that one registered. The
+/// key before.
+fn take_capture(
+    held: &mut Option<Key>,
+    key: Option<Key>,
+    others: &[(PrefKey, Key)],
+    set: impl FnMut(&Key, bool) -> Result<(), String>,
+) -> Result<Option<Key>, String> {
+    if !TAKES {
+        return Err(NONE_HERE.into());
+    }
+    let wanted = key.unwrap_or_else(usual);
+    allowed(PrefKey::CaptureKey, &wanted, others)?;
+    let before = held.clone();
+    follow(held, wanted, set)?;
+    Ok(before)
+}
+
+/// Makes `key` (none: the pages' own) the talk key, beside Tasktap's other keys (`others`): the rule, the others, then
+/// the system, asked whether another app holds it, which would never let it reach Tasktap. The key before.
+fn take_talk(
+    now: &mut Option<Key>,
+    key: Option<Key>,
+    others: &[(PrefKey, Key)],
+    set: impl FnMut(&Key, bool) -> Result<(), String>,
+) -> Result<Option<Key>, String> {
+    let wanted = talk_key(key);
+    allowed(PrefKey::TalkKey, &wanted, others)?;
+    if now.as_ref() != Some(&wanted) {
+        ask_free(&wanted, set)?;
+    }
+    Ok(now.replace(wanted))
+}
+
 /// The preference as the core's records have it now: `None` is the usual key.
 pub fn prefer(app: &AppHandle, key: Option<Key>) {
-    let wanted = key.or_else(usual);
+    let wanted = global(key, usual);
     if *CAPTURE.lock().unwrap() == wanted {
         return;
     }
     if hold(&mut CAPTURE.lock().unwrap(), wanted.clone(), register(app, "capture-key")).is_ok() {
         crate::log(json!({"event": "capture-key", "ok": true, "key": wanted}));
     }
+}
+
+/// The talk key's preference as the core's records have it now.
+pub fn talk(key: Option<Key>) {
+    *TALK.lock().unwrap() = Some(talk_key(key));
+}
+
+/// Tasktap's keys but the one `except` names, as the host has them now: the capture key registered, the answer keys,
+/// the talk key.
+fn others(except: PrefKey) -> Vec<(PrefKey, Key)> {
+    let capture = CAPTURE.lock().unwrap().clone().map(|k| (PrefKey::CaptureKey, k));
+    let talk = TALK.lock().unwrap().clone().map(|k| (PrefKey::TalkKey, k));
+    let answers = ANSWERS.lock().unwrap().in_use();
+    capture.into_iter().chain(answers).chain(talk).filter(|(id, _)| *id != except).collect()
 }
 
 /// Stores a key preference through the host's own connection, `id` set to `key` or with none deleted, and waits for
@@ -149,25 +231,22 @@ fn store(app: &AppHandle, id: PrefKey, key: &Option<Key>) -> Result<(), String> 
     }
 }
 
-/// `host.capture_key {key?}`. With `key`, a shortcut or null for the usual key (`usual`): the rule of a shortcut, then
-/// the answer keys, which it may not be, then the system, and only when the system took it the preference is stored
-/// (or deleted, for null); the core's refusal, or its silence, puts back what was registered before. The reply is
-/// `{key}`, the key registered now, or null when none is.
+/// `host.capture_key {key?}`. With `key`, a shortcut or null for this system's own: `take_capture`, and only when the
+/// system took it the preference is stored (or deleted, for null); the core's refusal, or its silence, puts back what
+/// was registered before. The reply is `{key, takes}`: the key registered now, or null when none is, and whether this
+/// copy takes global keys at all.
 pub fn call(app: &AppHandle, args: &Value) -> Result<Value, String> {
     let Some(key) = args.get("key") else {
-        return Ok(json!({"key": *CAPTURE.lock().unwrap()}));
+        return Ok(json!({"key": *CAPTURE.lock().unwrap(), "takes": TAKES}));
     };
     let key: Option<Key> = serde_json::from_value(key.clone()).map_err(|e| e.to_string())?;
-    let wanted = key.clone().or_else(usual);
-    if let Some(why) = wanted.as_ref().and_then(|w| ANSWERS.lock().unwrap().clash(PrefKey::CaptureKey, w, None)) {
-        return Err(why.into());
-    }
-    let before = CAPTURE.lock().unwrap().clone();
-    hold(&mut CAPTURE.lock().unwrap(), wanted.clone(), register(app, "capture-key"))?;
+    let others = others(PrefKey::CaptureKey);
+    let before = take_capture(&mut CAPTURE.lock().unwrap(), key.clone(), &others, register(app, "capture-key"))?;
+    let now = CAPTURE.lock().unwrap().clone();
     match store(app, PrefKey::CaptureKey, &key) {
         Ok(()) => {
-            crate::log(json!({"event": "capture-key", "ok": true, "key": wanted}));
-            Ok(json!({"key": wanted}))
+            crate::log(json!({"event": "capture-key", "ok": true, "key": now}));
+            Ok(json!({"key": now, "takes": TAKES}))
         }
         Err(refused) => {
             back(&mut CAPTURE.lock().unwrap(), before, register(app, "capture-key"));
@@ -176,10 +255,27 @@ pub fn call(app: &AppHandle, args: &Value) -> Result<Value, String> {
     }
 }
 
+/// `host.talk_key {key?}`. With `key`, a shortcut or null for the pages' own: `take_talk`, then the preference stored
+/// (or deleted, for null); the core's refusal puts back the key before. The reply is `{key}`, the talk key now.
+pub fn talk_call(app: &AppHandle, args: &Value) -> Result<Value, String> {
+    let Some(key) = args.get("key") else {
+        return Ok(json!({"key": *TALK.lock().unwrap()}));
+    };
+    let key: Option<Key> = serde_json::from_value(key.clone()).map_err(|e| e.to_string())?;
+    let others = others(PrefKey::TalkKey);
+    let before = take_talk(&mut TALK.lock().unwrap(), key.clone(), &others, register(app, "talk-key"))?;
+    match store(app, PrefKey::TalkKey, &key) {
+        Ok(()) => Ok(json!({"key": *TALK.lock().unwrap()})),
+        Err(refused) => {
+            *TALK.lock().unwrap() = before;
+            Err(refused)
+        }
+    }
+}
+
 /// The three answer keys, in the order of `Which::ALL`.
 pub struct Answers {
-    /// Each key as it is now: the person's, or this system's own (`usual_answer`); none in a review build until the
-    /// person records one.
+    /// Each key as it is now: the person's, or this system's own; none in a review build.
     keys: [Option<Key>; 3],
     /// What the system holds of them now: each key while a question waits, nothing otherwise.
     held: [Option<Key>; 3],
@@ -192,7 +288,8 @@ impl Answers {
     /// is registered at once and the one before let go. The keys the system refused.
     fn want(&mut self, stored: [Option<Key>; 3], set: impl FnMut(&Key, bool) -> Result<(), String>) -> Vec<Which> {
         for which in Which::ALL {
-            self.keys[which as usize] = stored[which as usize].clone().or_else(|| usual_answer(which));
+            let mac = cfg!(target_os = "macos");
+            self.keys[which as usize] = global(stored[which as usize].clone(), || Key::answer(mac, which));
         }
         let asking = self.asking;
         self.ask(asking, set)
@@ -217,40 +314,35 @@ impl Answers {
         refused
     }
 
-    /// Why `key` cannot be the key preference `id` beside the answer keys as they are and the capture key `capture`
-    /// (none: not asked; the capture key itself is checked by the caller).
-    fn clash(&self, id: PrefKey, key: &Key, capture: Option<&Key>) -> Option<&'static str> {
-        let answers = Which::ALL.into_iter().filter_map(|w| Some((w.pref(), self.keys[w as usize].clone()?)));
-        let in_use: Vec<_> = capture.map(|k| (PrefKey::CaptureKey, k.clone())).into_iter().chain(answers).collect();
-        clash(id, key, &in_use)
+    /// The answer keys as they are now, each by its preference.
+    fn in_use(&self) -> Vec<(PrefKey, Key)> {
+        Which::ALL.into_iter().filter_map(|w| Some((w.pref(), self.keys[w as usize].clone()?))).collect()
     }
 
-    /// Makes `key` (none: this system's own) the `which` key, beside the capture key `capture`: the rule of a
-    /// shortcut, then Tasktap's other keys, then the system. While a question waits it is registered in place of the
-    /// old one; otherwise the system is only asked for it, and it is let go at once. The key it was before.
+    /// Makes `key` (none: this system's own) the `which` key, beside Tasktap's other keys but the answer keys
+    /// (`others`): the rule, every other key, then the system. While a question waits it is registered in place of
+    /// the old one; otherwise the system is asked for it and it is let go at once. A refusal leaves the key before.
+    /// The key it was before.
     fn try_key(
         &mut self,
         which: Which,
         key: Option<Key>,
-        capture: Option<&Key>,
+        others: &[(PrefKey, Key)],
         mut set: impl FnMut(&Key, bool) -> Result<(), String>,
     ) -> Result<Option<Key>, String> {
-        let i = which as usize;
-        let wanted = key.or_else(|| usual_answer(which));
-        if let Some(wanted) = &wanted {
-            if let Some(why) = wanted.refused().or_else(|| self.clash(which.pref(), wanted, capture)) {
-                return Err(why.into());
-            }
-            if self.asking {
-                follow(&mut self.held[i], wanted.clone(), &mut set)?;
-            } else if self.keys[i].as_ref() != Some(wanted) {
-                set(wanted, true)?;
-                let _ = set(wanted, false);
-            }
-        } else if self.asking {
-            back(&mut self.held[i], None, &mut set);
+        if !TAKES {
+            return Err(NONE_HERE.into());
         }
-        Ok(std::mem::replace(&mut self.keys[i], wanted))
+        let i = which as usize;
+        let wanted = key.unwrap_or_else(|| Key::answer(cfg!(target_os = "macos"), which));
+        let all: Vec<_> = others.iter().cloned().chain(self.in_use()).collect();
+        allowed(which.pref(), &wanted, &all)?;
+        if self.asking {
+            follow(&mut self.held[i], wanted.clone(), &mut set)?;
+        } else if self.keys[i].as_ref() != Some(&wanted) {
+            ask_free(&wanted, &mut set)?;
+        }
+        Ok(self.keys[i].replace(wanted))
     }
 
     /// Puts back `before` as the `which` key, after a change the core refused to store.
@@ -262,10 +354,11 @@ impl Answers {
         }
     }
 
-    /// The keys in use, as a page is told them: `{question, yes, no}`, each a shortcut or null.
+    /// The keys in use, as a page is told them: `{question, yes, no, takes}`, each a shortcut or null, and whether
+    /// this copy takes global keys at all.
     fn told(&self) -> Value {
         let [question, yes, no] = &self.keys;
-        json!({"question": question, "yes": yes, "no": no})
+        json!({"question": question, "yes": yes, "no": no, "takes": TAKES})
     }
 }
 
@@ -296,9 +389,9 @@ pub fn answering(shortcut: &Shortcut) -> Option<Which> {
 }
 
 /// `host.answer_key {which?, key?}`. With `which` (`question`, `yes` or `no`) and `key`, a shortcut or null for this
-/// system's own: tried as `Answers::try_key` does, and only when the system took it the preference is stored (or
-/// deleted, for null); the core's refusal, or its silence, puts back the key before. The reply is the keys in use,
-/// `{question, yes, no}`.
+/// system's own: `Answers::try_key`, and only when the system took it the preference is stored (or deleted, for
+/// null); the core's refusal, or its silence, puts back the key before. The reply is the keys in use,
+/// `{question, yes, no, takes}`.
 pub fn answer_call(app: &AppHandle, args: &Value) -> Result<Value, String> {
     let which = match args["which"].as_str() {
         None => return Ok(ANSWERS.lock().unwrap().told()),
@@ -308,8 +401,9 @@ pub fn answer_call(app: &AppHandle, args: &Value) -> Result<Value, String> {
         Some(other) => return Err(format!("there is no answer key {other}")),
     };
     let key: Option<Key> = serde_json::from_value(args["key"].clone()).map_err(|e| e.to_string())?;
-    let capture = CAPTURE.lock().unwrap().clone();
-    let before = ANSWERS.lock().unwrap().try_key(which, key.clone(), capture.as_ref(), register(app, "answer-keys"))?;
+    let mut others = others(which.pref());
+    others.retain(|(id, _)| Which::of(*id).is_none());
+    let before = ANSWERS.lock().unwrap().try_key(which, key.clone(), &others, register(app, "answer-keys"))?;
     match store(app, which.pref(), &key) {
         Ok(()) => {
             let answers = ANSWERS.lock().unwrap();
@@ -331,8 +425,9 @@ mod tests {
         Key { control, alt, shift: false, meta: false, code: code.into() }
     }
 
-    /// The system, for a test: it holds what was registered, and another app holds `taken`. Every request is kept, in
-    /// order, as the call that would be made: the key and whether it is registered or let go.
+    /// The system, for a test: the host's seam where it registers a key or lets it go. It holds what was registered,
+    /// another app holds `taken`, and every request is kept, in order, as the call that would be made: the key and
+    /// whether it is registered or let go. No key of the person's own apps is ever asked for.
     struct System {
         taken: Vec<Key>,
         registered: Vec<Key>,
@@ -358,6 +453,8 @@ mod tests {
         }
     }
 
+    const NEVER: fn(&Key, bool) -> Result<(), String> = |_, _| panic!("the system was asked");
+
     #[test]
     fn a_key_the_system_refuses_leaves_the_old_one_registered_and_says_it_is_taken() {
         let (first, other, taken) = (Key::capture(true), key(true, false, "KeyK"), key(false, true, "Space"));
@@ -367,13 +464,13 @@ mod tests {
         assert_eq!(follow(&mut held, first.clone(), system.set()), Ok(()));
         assert_eq!((held.clone(), system.registered.clone()), (Some(first.clone()), vec![first.clone()]));
         // The same again asks the system for nothing.
-        assert_eq!(follow(&mut held, first.clone(), |_, _| Err("asked".into())), Ok(()));
+        assert_eq!(follow(&mut held, first.clone(), NEVER), Ok(()));
         // Another app has the next one: said so, and the old one is still the registered one.
         assert_eq!(follow(&mut held, taken.clone(), system.set()), Err(TAKEN.into()));
         assert_eq!((held.clone(), system.registered.clone()), (Some(first.clone()), vec![first.clone()]));
         // One the rule of a shortcut refuses never reaches the system.
         let bare = key(false, false, "Space");
-        assert_eq!(follow(&mut held, bare, |_, _| Err("asked".into())), Err(Key::BARE.into()));
+        assert_eq!(follow(&mut held, bare, NEVER), Err(Key::BARE.into()));
         assert_eq!(held, Some(first.clone()));
         // A free one replaces it, and the old one is let go.
         assert_eq!(follow(&mut held, other.clone(), system.set()), Ok(()));
@@ -398,7 +495,7 @@ mod tests {
         back(&mut held, before.clone(), system.set());
         assert_eq!((held.clone(), system.registered.clone()), (Some(first.clone()), vec![first.clone()]));
         // The same key asked for again, and refused by the core: nothing was changed, nothing is put back.
-        back(&mut held, before, |_, _| panic!("the system was asked"));
+        back(&mut held, before, NEVER);
         assert_eq!(held, Some(first.clone()));
         // With none registered before, none is afterwards.
         let (mut held, mut system) = (None, System::new(Vec::new()));
@@ -408,28 +505,30 @@ mod tests {
     }
 
     #[test]
-    fn a_review_build_takes_no_key_until_one_is_chosen() {
-        let other = key(true, false, "KeyK");
-        assert_eq!(usual(), (!crate::REVIEW).then(|| Key::capture(cfg!(target_os = "macos"))));
-        let mut system = System::new(Vec::new());
+    fn a_review_build_takes_no_global_key_chosen_or_not() {
+        let mine = key(true, false, "KeyK");
+        assert_eq!(TAKES, !crate::REVIEW);
+        assert_eq!(global(Some(mine.clone()), usual), TAKES.then(|| mine.clone()));
+        assert_eq!(global(None, usual), TAKES.then(usual));
+        // Every global key a review build is asked to take is refused before the system is asked; the talk key is
+        // the page's own and is not one.
         let mut held = None;
-        hold(&mut held, usual(), system.set()).unwrap();
-        assert_eq!(system.registered.len(), usize::from(!crate::REVIEW));
-        // A key chosen is registered in either build, and the usual one asked for again lets it go in a review build.
-        hold(&mut held, Some(other.clone()), system.set()).unwrap();
-        assert_eq!((held.clone(), system.registered.clone()), (Some(other.clone()), vec![other]));
-        hold(&mut held, usual(), system.set()).unwrap();
-        assert_eq!((held.clone(), system.registered.clone()), (usual(), usual().into_iter().collect::<Vec<_>>()));
-        // Nor an answer key.
-        for which in Which::ALL {
-            assert_eq!(usual_answer(which), (!crate::REVIEW).then(|| Key::answer(cfg!(target_os = "macos"), which)));
+        let capture = take_capture(&mut held, Some(mine.clone()), &[], |_, _| Ok(()));
+        assert_eq!(capture.is_err(), crate::REVIEW);
+        let mut answers = Answers { keys: [None, None, None], held: [None, None, None], asking: false };
+        answers.want([Some(mine.clone()), None, None], NEVER);
+        assert_eq!(answers.in_use().is_empty(), crate::REVIEW);
+        if crate::REVIEW {
+            assert_eq!(capture, Err(NONE_HERE.into()));
+            assert_eq!(answers.try_key(Which::Yes, None, &[], NEVER), Err(NONE_HERE.into()));
+            assert_eq!(answers.ask(true, NEVER), Vec::new());
         }
     }
 
     /// The answer keys with none stored, as the core's records first say them.
     fn defaults() -> Answers {
         let mut answers = Answers { keys: [None, None, None], held: [None, None, None], asking: false };
-        answers.want([None, None, None], |_, _| panic!("the system was asked with no question waiting"));
+        answers.want([None, None, None], NEVER);
         answers
     }
 
@@ -475,25 +574,31 @@ mod tests {
             return;
         }
         let mac = cfg!(target_os = "macos");
-        let capture = Key::capture(mac);
+        let others = [(PrefKey::CaptureKey, Key::capture(mac)), (PrefKey::TalkKey, Key::talk(mac))];
         let (mine, taken) = (key(true, false, "KeyK"), key(true, false, "KeyT"));
         // No question waits: the system is asked for the key and it is let go at once; nothing stays registered.
         let mut answers = defaults();
         let mut system = System::new(vec![taken.clone()]);
-        let old = answers.try_key(Which::Yes, Some(mine.clone()), Some(&capture), system.set());
+        let old = answers.try_key(Which::Yes, Some(mine.clone()), &others, system.set());
         assert_eq!(old, Ok(Some(Key::answer(mac, Which::Yes))));
         assert_eq!(system.asked, vec![(mine.clone(), true), (mine.clone(), false)]);
         assert!(system.registered.is_empty());
         assert_eq!(answers.keys[1], Some(mine.clone()));
-        // The same refusals as the capture key's: taken by another app, no modifier, and Tasktap's own other keys.
-        assert_eq!(answers.try_key(Which::No, Some(taken.clone()), Some(&capture), system.set()), Err(TAKEN.into()));
-        let bare = key(false, false, "KeyN");
-        assert_eq!(answers.try_key(Which::No, Some(bare), Some(&capture), system.set()), Err(Key::BARE.into()));
-        let to_capture = answers.try_key(Which::No, Some(capture.clone()), Some(&capture), system.set());
-        assert_eq!(to_capture, Err(Key::CAPTURES.into()));
-        let to_yes = answers.try_key(Which::Question, Some(mine.clone()), Some(&capture), system.set());
-        assert_eq!(to_yes, Err(Key::ANSWERS.into()));
-        assert_eq!(answers.clash(PrefKey::CaptureKey, &mine, None), Some(Key::ANSWERS));
+        // The same refusals as the capture key's: no modifier, Tasktap's own other keys (each named), and the key
+        // another app holds, also with no question waiting; each leaves the key before, and only the last asks the
+        // system.
+        let refusals = [
+            (key(false, false, "KeyN"), Key::BARE),
+            (Key::capture(mac), Key::taken(PrefKey::CaptureKey).unwrap()),
+            (Key::talk(mac), Key::taken(PrefKey::TalkKey).unwrap()),
+            (mine.clone(), Key::taken(PrefKey::YesKey).unwrap()),
+        ];
+        for (k, why) in refusals {
+            assert_eq!(answers.try_key(Which::No, Some(k.clone()), &others, NEVER), Err(why.into()), "{k:?}");
+        }
+        system.asked.clear();
+        assert_eq!(answers.try_key(Which::No, Some(taken.clone()), &others, system.set()), Err(TAKEN.into()));
+        assert_eq!((system.asked.clone(), system.registered.len()), (vec![(taken.clone(), true)], 0));
         assert_eq!(answers.keys[2], Some(Key::answer(mac, Which::No)), "a refused key changes nothing");
 
         // A question waits: the new key is registered and the one before let go, at once.
@@ -501,14 +606,19 @@ mod tests {
         answers.ask(true, system.set());
         let other = key(true, false, "KeyL");
         system.asked.clear();
-        answers.try_key(Which::Yes, Some(other.clone()), Some(&capture), system.set()).unwrap();
+        answers.try_key(Which::Yes, Some(other.clone()), &others, system.set()).unwrap();
         assert_eq!(system.asked, vec![(other.clone(), true), (mine.clone(), false)]);
         assert!(system.registered.contains(&other) && !system.registered.contains(&mine));
+        // Another app holds the next one while a question waits: refused, and the key before stays registered.
+        let mut busy = System::new(vec![taken.clone()]);
+        busy.registered = system.registered.clone();
+        assert_eq!(answers.try_key(Which::Yes, Some(taken.clone()), &others, busy.set()), Err(TAKEN.into()));
+        assert_eq!((answers.keys[1].clone(), answers.held[1].clone()), (Some(other.clone()), Some(other.clone())));
         // The core refused to store it: the one before is registered again.
         answers.put_back(Which::Yes, Some(mine.clone()), system.set());
         assert!(system.registered.contains(&mine) && !system.registered.contains(&other));
         // Back to this system's own (null), and a preference changed elsewhere follows at once too.
-        answers.try_key(Which::Yes, None, Some(&capture), system.set()).unwrap();
+        answers.try_key(Which::Yes, None, &others, system.set()).unwrap();
         assert_eq!(answers.held[1], Some(Key::answer(mac, Which::Yes)));
         let refused = answers.want([Some(other.clone()), None, None], system.set());
         assert_eq!((refused, answers.held[0].clone()), (Vec::new(), Some(other.clone())));
@@ -517,6 +627,60 @@ mod tests {
         answers.ask(false, system.set());
         assert!(system.registered.is_empty());
         assert_eq!(answers.told()["question"], serde_json::to_value(&other).unwrap());
+        assert_eq!(answers.told()["takes"], json!(true));
+    }
+
+    #[test]
+    fn the_capture_key_another_app_holds_is_refused_and_the_one_before_stays() {
+        if crate::REVIEW {
+            return;
+        }
+        let mac = cfg!(target_os = "macos");
+        let (first, mine, taken) = (Key::capture(mac), key(true, false, "KeyK"), key(true, false, "KeyT"));
+        let others = [(PrefKey::NoKey, Key::answer(mac, Which::No)), (PrefKey::TalkKey, Key::talk(mac))];
+        let mut system = System::new(vec![taken.clone()]);
+        let mut held = None;
+        assert_eq!(take_capture(&mut held, None, &others, system.set()), Ok(None));
+        assert_eq!(system.registered, vec![first.clone()]);
+        // Tasktap's other keys are refused before the system is asked, each named.
+        for (k, id) in [(Key::answer(mac, Which::No), PrefKey::NoKey), (Key::talk(mac), PrefKey::TalkKey)] {
+            assert_eq!(take_capture(&mut held, Some(k), &others, NEVER), Err(Key::taken(id).unwrap().into()));
+        }
+        // Another app's: the registration fails, which is the refusal, and the key before is still the one held.
+        assert_eq!(take_capture(&mut held, Some(taken.clone()), &others, system.set()), Err(TAKEN.into()));
+        assert_eq!((held.clone(), system.registered.clone()), (Some(first.clone()), vec![first.clone()]));
+        // A free one: registered first, then the one before let go.
+        system.asked.clear();
+        assert_eq!(take_capture(&mut held, Some(mine.clone()), &others, system.set()), Ok(Some(first.clone())));
+        assert_eq!(system.asked, vec![(mine.clone(), true), (first, false)]);
+        assert_eq!(held, Some(mine));
+    }
+
+    #[test]
+    fn the_talk_key_another_app_holds_is_refused_and_none_stays_registered() {
+        let mac = cfg!(target_os = "macos");
+        let (mine, taken) = (key(true, false, "KeyK"), key(true, false, "KeyT"));
+        let others = [(PrefKey::CaptureKey, Key::capture(mac)), (PrefKey::YesKey, Key::answer(mac, Which::Yes))];
+        let mut now = Some(Key::talk(mac));
+        // Another app holds it globally, so it would never reach Tasktap: refused, the talk key before stays.
+        let mut system = System::new(vec![taken.clone()]);
+        assert_eq!(take_talk(&mut now, Some(taken.clone()), &others, system.set()), Err(TAKEN.into()));
+        assert_eq!(now, Some(Key::talk(mac)));
+        // Tasktap's other keys, and the rule, are refused before the system is asked.
+        let yes = Key::answer(mac, Which::Yes);
+        assert_eq!(take_talk(&mut now, Some(yes), &others, NEVER), Err(Key::taken(PrefKey::YesKey).unwrap().into()));
+        assert_eq!(take_talk(&mut now, Some(key(false, false, "KeyT")), &others, NEVER), Err(Key::BARE.into()));
+        // A free one: asked for and let go at once; it is the page's own, so nothing stays registered.
+        system.asked.clear();
+        assert_eq!(take_talk(&mut now, Some(mine.clone()), &others, system.set()), Ok(Some(Key::talk(mac))));
+        assert_eq!(
+            (system.asked.clone(), system.registered.len()),
+            (vec![(mine.clone(), true), (mine.clone(), false)], 0)
+        );
+        // The same again, and the pages' own when nothing else holds it.
+        assert_eq!(take_talk(&mut now, Some(mine.clone()), &others, NEVER), Ok(Some(mine.clone())));
+        assert_eq!(take_talk(&mut now, None, &others, system.set()), Ok(Some(mine)));
+        assert_eq!(now, Some(Key::talk(mac)));
     }
 
     #[test]

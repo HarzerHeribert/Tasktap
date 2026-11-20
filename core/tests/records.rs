@@ -736,18 +736,33 @@ fn the_settings_preferences_are_stored_refused_in_a_sentence_and_restored_by_del
         }
         assert_eq!(said(&mut w, id, json!("Control+Space")).0, Code::Invalid);
     }
-    // No two of Tasktap's keys are one, as they are now: the stored ones,
-    // and for one unset this system's own.
-    let answers = tasktap_proto::Shortcut::ANSWERS;
-    let captures = tasktap_proto::Shortcut::CAPTURES;
+    // No two of Tasktap's keys are one, as they are now, in either
+    // direction: the stored ones, and for one unset this system's own; the
+    // sentence names the key that has it already.
+    let taken_by = |id: PrefKey| tasktap_proto::Shortcut::taken(id).unwrap();
     for (id, patch, why) in [
-        ("capture_key", held(true, "KeyN"), answers),
-        ("talk_key", held(true, "KeyJ"), answers),
-        ("question_key", key.clone(), captures),
-        ("yes_key", held(true, "KeyN"), answers),
+        ("capture_key", held(true, "KeyN"), taken_by(PrefKey::NoKey)),
+        (
+            "capture_key",
+            held(true, "Space"),
+            taken_by(PrefKey::TalkKey),
+        ),
+        (
+            "talk_key",
+            held(true, "KeyJ"),
+            taken_by(PrefKey::QuestionKey),
+        ),
+        ("talk_key", key.clone(), taken_by(PrefKey::CaptureKey)),
+        ("question_key", key.clone(), taken_by(PrefKey::CaptureKey)),
+        ("yes_key", held(true, "KeyN"), taken_by(PrefKey::NoKey)),
+        ("no_key", held(true, "Space"), taken_by(PrefKey::TalkKey)),
     ] {
         assert_eq!(said(&mut w, id, patch), invalid(why), "{id}");
     }
+    assert_eq!(
+        taken_by(PrefKey::NoKey),
+        "Tasktap already uses that combination to answer No"
+    );
     // None is this system's own key, which is refused while the capture key is it.
     let mac = cfg!(target_os = "macos");
     let usual = tasktap_proto::Shortcut::answer(mac, tasktap_proto::AnswerKey::No);
@@ -756,7 +771,10 @@ fn the_settings_preferences_are_stored_refused_in_a_sentence_and_restored_by_del
         raw(&mut w, "put", taken),
         tasktap_proto::Outcome::Ok(_)
     ));
-    assert_eq!(said(&mut w, "no_key", json!(null)), invalid(captures));
+    assert_eq!(
+        said(&mut w, "no_key", json!(null)),
+        invalid(taken_by(PrefKey::CaptureKey))
+    );
     let back = json!({"c": "prefs", "id": "capture_key", "patch": key});
     assert!(matches!(
         raw(&mut w, "put", back),

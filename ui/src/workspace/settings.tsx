@@ -68,8 +68,12 @@ const RETURN = mac ? 'Return' : 'Enter';
 /** The capture key as the host has it: the one the system registered, which is not the stored one when the system
  *  refused that at start. Asked for when the section is shown, and told by every change made here. */
 let capture: Shortcut | null | undefined;
-const askCapture = () => call('host.capture_key', {}).then((r) => ((capture = r.key), redraw()), () => {});
+/** Whether this copy takes keys from other apps at all, as the host says: a review build takes none. */
+let takes = true;
+const askCapture = () => call('host.capture_key', {}).then((r) => ((capture = r.key), (takes = r.takes !== false), redraw()), () => {});
 const setCapture = (key: Shortcut | null) => call('host.capture_key', { key }).then((r) => ((capture = r.key), redraw()));
+/** What a row of a global key says in a copy that takes none, in place of its recorder. */
+const NO_KEYS = 'This copy is Tasktap Review, which takes no keys from other apps, so they stay your own Tasktap’s.';
 /** Whether Tasktap opens when the computer starts, as the host reads it from the system each time (login.rs): the
  *  system's own login item on a Mac, the person's Run entry on Windows; never a guess kept here. Null: a host without
  *  the call. */
@@ -181,17 +185,19 @@ function ThoughtsPane() {
   const held = hold?.id === 'hold' ? hold.value : 5;
   return (
     <>
-      <Row name={KEY} hint={lost ? `${keyName(stored!)} is taken by another app or ${SYSTEM}, so ${capture ? `${keyName(capture)} still opens Tasktap; record a different one.` : `no key opens Tasktap; record a different one, or use ${keyName(USUAL)}.`}`
+      {!takes ? <Row name={KEY} hint={NO_KEYS}><span class="v">None for this copy</span></Row> : <Row name={KEY} hint={lost ? `${keyName(stored!)} is taken by another app or ${SYSTEM}, so ${capture ? `${keyName(capture)} still opens Tasktap; record a different one.` : `no key opens Tasktap; record a different one, or use ${keyName(USUAL)}.`}`
         : capture === null ? `${keyName(USUAL)} is taken by another app or ${SYSTEM}, so no key opens Tasktap; record a different one.`
           : mac ? 'Press it in any app and the notch opens with a field for your thought.'
             : tab?.display === 'off' ? 'Press it in any app and Tasktap’s window comes forward with a field for your thought.' : 'Press it in any app and the tab at the top of the screen opens for your thought.'}>
         {capture !== undefined && <Recorder name={KEY} value={capture} own={!!stored} usual={USUAL} set={setCapture} />}
-      </Row>
+      </Row>}
       <LoginRow />
       {answers && ANSWER_ROWS.map(([which, name, hint]) => (
-        <Row key={which} name={name} hint={hint}>
-          <Recorder name={name} value={answers![which]} own={!!pref(`${which}_key`)} usual={answerUsual(which)} set={setAnswer(which)} />
-        </Row>
+        takes ? (
+          <Row key={which} name={name} hint={hint}>
+            <Recorder name={name} value={answers![which]} own={!!pref(`${which}_key`)} usual={answerUsual(which)} set={setAnswer(which)} />
+          </Row>
+        ) : <Row key={which} name={name} hint={NO_KEYS}><span class="v">None for this copy</span></Row>
       ))}
       {tab && (
         <Row name={TAB} hint={tab.display === 'off' ? 'No tab: the key brings Tasktap’s window forward, and its icon stays in the notification area.'
@@ -219,7 +225,8 @@ function ThoughtsPane() {
 /** How voice becomes text (consent.tsx), and the key held to talk: stored as the preference it is, which the core
  *  holds to the rule of a shortcut. It is the page's own key, heard only while Tasktap has the keyboard. */
 function VoicePane() {
-  const setTalk = (key: Shortcut | null) => (key ? call('put', { c: 'prefs', id: 'talk_key', patch: key }) : call('delete', { c: 'prefs', id: 'talk_key' }));
+  // Through the host, as every key a person records: one another app holds would never reach Tasktap (keys.rs).
+  const setTalk = (key: Shortcut | null) => call('host.talk_key', { key });
   const TALKS = 'Key to hold while you talk', set = !!pref('speech_by') || hearsHere();
   return (
     <>

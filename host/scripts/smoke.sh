@@ -820,7 +820,7 @@ until_has workspace "$(key_row "Key to answer No, from any app")" 5 "⌃⌥N | f
 # (The capture key as it is now: the system's own, or ⌃⌥⇧F9 where another app on this Mac holds that.)
 read -r code control alt shift meta <<< "$(js workspace "__ws.call('host.capture_key', {}).then((r) => [r.key.code, r.key.control, r.key.alt, r.key.shift, r.key.meta].join(' '))")"
 record "Key to answer No, from any app" "$code" "$control" "$alt" "$shift" "$meta"
-until_has workspace "$(key_row "Key to answer No, from any app")" 3 "Tasktap puts a thought in with that combination." || fail "the capture key refused as the No key" "$(ask workspace "$(key_row "Key to answer No, from any app")")"
+until_has workspace "$(key_row "Key to answer No, from any app")" 3 "Tasktap already uses that combination to put a thought in." || fail "the capture key refused as the No key" "$(ask workspace "$(key_row "Key to answer No, from any app")")"
 record "Key to answer No, from any app" F8 true true true
 until_has workspace "$(key_row "Key to answer No, from any app")" 5 "⌃⌥⇧F8 | false | " && until_has workspace "$(pref no_key)" 3 '"code":"F8"' \
   && [ "$(js workspace "__ws.call('host.answer_key', {}).then((r) => r.no?.code + ' ' + r.question?.code + ' ' + r.yes?.code)")" = "F8 KeyJ KeyY" ] \

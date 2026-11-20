@@ -18,7 +18,7 @@ import { Ask, routerRows } from './question.tsx';
 import { AGENT_KEY, AgentControl, AgentList, chosen, open as openAgents } from './rings.tsx';
 import { cancel, control, end, follow, mine, needs, place, setAim, talk, voiced } from './speech/record.ts';
 import { Brand, I, Key, Level, Mark, madeAt } from './ui.tsx';
-import { QUIET, agent, agentName, call, fail, focus, keyTimes, openQuestions, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
+import { QUIET, agent, agentName, byPerson, call, fail, focus, keyTimes, openQuestions, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
 import { back, briefOf, clock, first, hold, laterWhy, leave, onWay, placed, placedBy, placing, step } from './way.ts';
 
 /** What was just sent, for what is said of it once it is no longer on its way. `pick`: the place the person chose for
@@ -556,7 +556,9 @@ function Way({ hooks, raised }: { hooks: Hooks; raised: boolean }) {
   const t = sent ? records.thoughts.get(sent.id) : undefined;
   const all = going();
   const failed = [...records.dictations.values()].filter((d) => d.phase === 'failed');
-  useEffect(() => {
+  // Cleared the moment this Composer's sheet goes (a layout effect's end), never after the next frame: a sheet put
+  // away and another opened in the same frame as it is due would be closed by the timer of the one before.
+  useLayoutEffect(() => {
     if (t?.phase !== 'working' || cap.draft || !hooks.started) return undefined;
     const timer = setTimeout(hooks.started, 1600);
     return () => clearTimeout(timer);
@@ -608,9 +610,17 @@ function Way({ hooks, raised }: { hooks: Hooks; raised: boolean }) {
  *  and after the last key pressed before it came (`ready`), so a Return pressed twice to send never answers it; a key
  *  pressed on the question itself (an arrow, a digit) is meant, and Return right after it answers (the review's N2).
  *  Every other key is the field's. */
-const asked = new Map<string, { at: 'here' | 'away'; since: number; on: number; ready: number }>();
+const asked = new Map<string, { at: 'here' | 'away'; since: number; on: number; ready: number; what?: string }>();
 /** Whether Return answers the question at the Composer now (and so whether its key is metal, and a click on it acts). */
 const answers = (q: Question) => performance.now() >= (asked.get(q.id)?.ready ?? Infinity);
+/** The row Return takes, as drawn: when it changes by itself (the core's question changed), Return counts again 600 ms
+ *  from then, as from when the question came; the person's own arrow or digit changes it at once (NOTES §13). */
+function settle(q: Question, row: ReturnType<typeof chosenRow>) {
+  const a = asked.get(q.id), what = `${row.does} ${row.label}`;
+  if (!a || a.what === what) return;
+  if (a.what !== undefined && !byPerson()) a.ready = Math.max(a.ready, performance.now() + QUIET);
+  a.what = what;
+}
 /** The question asked at a Composer of this page now, if one is. `left`: a Composer went while it asked. */
 let shown = '', left = false;
 export function atComposer(): Question | undefined {
@@ -682,6 +692,7 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
   const q = asks ? atComposer() : undefined;
   // With the question at the Composer the key does what Return does, and says so: the row the arrows are on.
   const row = q && !cap.draft ? chosenRow(q) : undefined;
+  if (q && row) settle(q, row);
   const does = row ? (row.does === 'place' ? `Start in ${row.label}` : row.does === 'session' ? `Send to ${row.label}` : row.label)
     : now ? 'Start' : later ? 'Save for later' : session ? 'Send' : 'Start';
   // On the key the place is cut short, and where the foot has no room for it the key says only what it does (`.k-in`
@@ -704,12 +715,13 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
   useEffect(() => () => void (asking.current && (away(asking.current), (left = true))), []);
   useLayoutEffect(() => void (raised && left && ((left = false), (page.focus = '#capture-input'))), []);
   // The field is as high as its words, a line at a time. It is measured when they change, typed or put there, or its
-  // width does, and on no other render: a measure makes the page lay itself out there and then.
-  const area = useRef<HTMLTextAreaElement>(null), fitted = useRef({ text: '', width: -1 });
+  // width or the text size does (set on the page's root once the core has said it, or the person changed it), and on
+  // no other render: a measure makes the page lay itself out there and then.
+  const area = useRef<HTMLTextAreaElement>(null), fitted = useRef({ text: '', width: -1, size: '' });
   const fit = (width = fitted.current.width) => {
-    const el = area.current!;
-    if (el.value === fitted.current.text && width === fitted.current.width) return;
-    fitted.current = { text: el.value, width };
+    const el = area.current!, size = document.documentElement.dataset.text ?? '';
+    if (el.value === fitted.current.text && width === fitted.current.width && size === fitted.current.size) return;
+    fitted.current = { text: el.value, width, size };
     el.style.height = '0';
     el.style.height = `${el.scrollHeight}px`;
   };
@@ -746,7 +758,9 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
   useLayoutEffect(() => {
     const watch = new ResizeObserver(([e]) => fit(e!.contentRect.width));
     watch.observe(area.current!);
-    return () => watch.disconnect();
+    const sized = new MutationObserver(() => fit());
+    sized.observe(document.documentElement, { attributes: true, attributeFilter: ['data-text'] });
+    return () => (watch.disconnect(), sized.disconnect());
   }, []);
   return (
     <form class={`capture${raised ? ' raised' : ''}${cap.draft ? ' has' : ''}${q ? ' asks' : ''}`} aria-busy={cap.sending > 0} data-keys

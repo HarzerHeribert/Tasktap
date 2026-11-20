@@ -775,11 +775,16 @@ async function main() {
       const notNow = (page) => page.evaluate(() => (window.__fake.records.prefs ?? []).some((p) => p.id === 'setup_hidden') || (window.__fake.records.looks ?? []).length > 0);
       const sheetUp = (page) => page.evaluate(() => window.__ws.ui.sheet?.kind === 'setup' && window.__ws.ui.sheet.auto === true);
       const first = async (o = {}) => open(browser, { label: 'workspace', records: { ...projects('first-agents'), ...o }, url: server.url, dpr: 1 });
-      // The sheet that came by itself, up long enough by the page's clock to take a key: 650 ms after the page first
-      // sees it, which is no earlier than it came.
+      // The sheet that came by itself, up long enough by the page's clock to take a key: its answer (the key of its
+      // foot) there and unchanged for 650 ms since the page first saw it so, which is no earlier than it came.
       const settled = (page) => page.evaluate(() => new Promise((done) => {
         const end = performance.now() + 15000;
-        const look = () => (document.querySelector('.sheet[role=dialog]') ? setTimeout(done, 650) : performance.now() > end ? done() : setTimeout(look, 10));
+        let was = null, since = 0;
+        const look = () => {
+          const k = document.querySelector('.sheet[role=dialog] .sh-f .key')?.textContent ?? null;
+          if (k !== was) (was = k, (since = performance.now()));
+          return (k !== null && performance.now() - since >= 650) || performance.now() > end ? done() : setTimeout(look, 10);
+        };
         look();
       }));
       page = await first({ subMs: 900, offerHeld: true });
@@ -802,7 +807,7 @@ async function main() {
       expect(await sheetUp(page), 'the first start: the projects step is not up');
       await page.keyboard.type('fix the export menu', { delay: 40 });
       await page.keyboard.press('Enter');
-      await page.waitForTimeout(400);
+      await until(() => page.evaluate(() => window.__fake.sent?.text), (t) => t === 'fix the export menu');
       expect(!(await allowed(page)) && !(await page.evaluate(() => window.__ws.ui.sheet)) && (await page.evaluate(() => window.__fake.sent?.text)) === 'fix the export menu' && (await notNow(page)),
         `typing at the first start: allowed ${await allowed(page)}, the sheet ${await page.evaluate(() => window.__ws.ui.sheet?.kind ?? 'gone')}, sent "${await page.evaluate(() => window.__fake.sent?.text)}", kept as Not now ${await notNow(page)}`);
       await page.context().close();
@@ -825,8 +830,7 @@ async function main() {
           expect(/press Return again/.test(await page.evaluate(() => document.querySelector('.sheet .sh-held')?.textContent ?? '')), 'the first start: a Return held back is not said in the sheet');
           await page.waitForTimeout(700);
           await page.keyboard.press('Enter');
-          await page.waitForTimeout(300);
-          expect(await allowed(page), 'the first start: Return after 600 ms of quiet did not allow it');
+          expect(await until(() => allowed(page), (v) => v), 'the first start: Return after 600 ms of quiet did not allow it');
         }
         await page.context().close();
       }
@@ -1077,6 +1081,35 @@ async function main() {
         expect(t < 597 ? c === 'none' : t < 604 || c === 0, `${how} ${t} ms after the question came ${c === 'none' ? 'did nothing' : `answered ${JSON.stringify(c)}`}, while the key was ${t < 600 ? 'quiet' : 'metal'}`);
         await page.context().close();
       }
+      // The row Return takes changed by the core (the question's places in another order): the key is quiet again, and
+      // Return 50 ms after it changed does nothing, 650 ms after it answers the row now first. Timed in the page.
+      for (const T of [50, 650]) {
+        let t = Infinity;
+        for (let attempt = 0; attempt < 3 && (T < 600 ? !(t < 597) : !(t >= 604)); attempt++) {
+          page = await asking();
+          await sendIt(page);
+          await ready(page);
+          t = await page.evaluate((T) => new Promise((done) => {
+            const k = document.querySelector('.home .capture .cap-row > .key'), was = k.textContent, q = window.__fake.asked, order = q.choices.map((_, i) => (i < 2 ? 1 - i : i));
+            const watch = new MutationObserver(() => {
+              if (k.textContent === was) return;
+              watch.disconnect();
+              const at = performance.now();
+              setTimeout(() => {
+                document.querySelector('#capture-input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+                done(Math.round(performance.now() - at));
+              }, T);
+            });
+            watch.observe(k, { childList: true, subtree: true, characterData: true });
+            window.__fake.push({ t: 'change', rev: 1e9, sets: [{ c: 'questions', put: [{ ...q, rev: 1e9, choices: order.map((i) => q.choices[i]), places: order.map((i) => q.places[i]), notes: order.map((i) => q.notes[i]) }] }] });
+          }), T);
+          const c = await until(() => choice(page), (v) => v !== 'none', T < 600 ? 600 : 5000);
+          if (T < 600 && t < 597) expect(c === 'none', `the question's first row changed by the core: Return ${t} ms after answered ${JSON.stringify(c)}`);
+          if (T > 600 && t >= 604) expect(c === 0, `the question's first row changed by the core: Return ${t} ms after answered ${JSON.stringify(c)}, not the row now first`);
+          await page.context().close();
+        }
+        if (T < 600 ? !(t < 597) : !(t >= 604)) console.log(`NOTE  this machine could not press Return ${T} ms after the question's row changed, three times (${t} ms); not measured`);
+      }
       page = await asking();
       await sendIt(page);
       await ready(page);
@@ -1091,11 +1124,13 @@ async function main() {
       // within 600 ms of the last key; then Return answers it.
       // (Watched from before the page's own script runs, so the moment it came is known however soon that is.)
       const watchUp = 'addEventListener("DOMContentLoaded", () => new MutationObserver(() => (window.__up ||= document.querySelector(".sheet[role=dialog]") ? performance.now() : 0)).observe(document.body, { childList: true, subtree: true }))';
+      // (And when the sheet's answer, the key of its foot, appeared or last changed: Return counts from then too.)
+      const watchKey = 'addEventListener("DOMContentLoaded", () => { let was = null; new MutationObserver(() => { const k = document.querySelector(".sheet[role=dialog] .sh-f .key")?.textContent ?? null; if (k !== was) ((was = k), (window.__keyAt = k === null ? undefined : performance.now())); }).observe(document.body, { childList: true, subtree: true, characterData: true }); });';
       // Pressed in the page at 55 ms; a machine too busy to press that soon is tried again, never taken for a pass.
       let press, early = Infinity;
       for (let attempt = 0; attempt < 3 && !(early < 500); attempt++) {
       if (attempt) await page.context().close();
-      page = await open(browser, { label: 'workspace', records: { ...projects('first-agents'), subMs: 700 }, url: server.url, dpr: 1, init: watchUp });
+      page = await open(browser, { label: 'workspace', records: { ...projects('first-agents'), subMs: 700 }, url: server.url, dpr: 1, init: `${watchUp};\n${watchKey}` });
       await page.waitForFunction(() => window.__up > 0, null, { timeout: 4000 }).catch(() => {});
       press = (T) => page.evaluate(async (T) => {
         await new Promise((r) => setTimeout(r, Math.max(0, window.__up + T - performance.now())));
@@ -1109,15 +1144,47 @@ async function main() {
       if (!(early < 500)) console.log(`NOTE  this machine could not press Return within 500 ms of the first start's sheet, three times (${early} ms); its own clock was not measured`);
       // (After the early Return, quiet as long as the rule asks, by the page's clock: on a slow page the early one may
       // itself have come late.)
-      const late = await press(Math.max(1400, (early || 0) + 700));
-      await page.waitForTimeout(300);
-      expect(await allowed(page), `the first start's sheet: Return ${late} ms after it came, quiet since, did not allow it`);
+      await page.waitForFunction(() => window.__keyAt > 0, null, { timeout: 15000 }).catch(() => {});
+      const late = await press(Math.max(1400, (early || 0) + 700, Math.round((await page.evaluate(() => window.__keyAt - window.__up)) + 700) || 0));
+      expect(await until(() => allowed(page), (v) => v), `the first start's sheet: Return ${late} ms after it came, quiet since, did not allow it`);
       // What was found: one key puts it away (Done; Escape too), not two that do the same.
       await page.evaluate(() => window.__fake.offer?.());
-      await page.waitForTimeout(600);
+      await until(() => page.evaluate(() => document.querySelector('.sheet #sheet-title')?.textContent ?? ''), (t) => /^Found/.test(t));
       const foot = await page.evaluate(() => [...document.querySelectorAll('.sheet .sh-f :is(.act, .key)')].filter((b) => b.offsetParent).map((b) => b.textContent.trim()));
       expect(!(foot.some((t) => /Close/.test(t)) && foot.some((t) => /Done/.test(t))), `what was found: its foot shows ${foot.join(', ')}, two keys that do the same`);
       await page.context().close();
+
+      // The quiet clock restarts when what Return would do appears or changes by itself: the stand-in core says what
+      // there is 100, 700 and 1500 ms after the first start's sheet came ("Searching…" until then, with nothing for
+      // Return to do); Return 50 ms after the sheet's answer (Allow) appears is held back with the usual sentence, 650 ms
+      // after it allows. In both engines, timed in the page; a machine too busy to press within 597 ms is tried again.
+      for (const [engine, b] of both)
+        for (const D of [100, 700, 1500])
+          for (const T of [50, 650]) {
+            let t = Infinity;
+            for (let attempt = 0; attempt < 3 && (T < 600 ? !(t < 597) : !(t >= 604)); attempt++) {
+              const p = await open(b, { label: 'workspace', records: { ...projects('first-agents'), offerHeld: true }, url: server.url, dpr: 1, init: `${watchUp};\n${watchKey}` });
+              await p.waitForFunction(() => window.__up > 0 && !!window.__fake.offer, null, { timeout: 15000 }).catch(() => {});
+              t = await p.evaluate(([D, T]) => new Promise((done) => {
+                setTimeout(() => window.__fake.offer(), Math.max(0, window.__up + D - performance.now()));
+                const end = performance.now() + 15000;
+                const wait = () => (window.__keyAt > 0 ? setTimeout(() => {
+                  (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+                  done(Math.round(performance.now() - window.__keyAt));
+                }, Math.max(0, window.__keyAt + T - performance.now())) : performance.now() > end ? done(-1) : setTimeout(wait, 2));
+                wait();
+              }), [D, T]);
+              if (t < 0) expect(false, `${engine}: the first start's sheet, the core answering ${D} ms after it came: its answer never appeared`);
+              else if (T < 600 && t < 597) {
+                const said = await until(() => p.evaluate(() => document.querySelector('.sheet .sh-held')?.textContent ?? ''), (x) => !!x, 3000);
+                expect(!(await allowed(p)) && said === 'You were typing: press Return again to allow.',
+                  `${engine}: the first start's sheet, the core answering ${D} ms after it came: Return ${t} ms after Allow appeared ${(await allowed(p)) ? 'allowed it' : 'was held back'}, the sheet saying "${said}"`);
+              } else if (T > 600 && t >= 604)
+                expect(await until(() => allowed(p), (v) => v), `${engine}: the first start's sheet, the core answering ${D} ms after it came: Return ${t} ms after Allow appeared, quiet since, did not allow it`);
+              await p.context().close();
+            }
+            if (T < 600 ? !(t < 597) : !(t >= 604)) console.log(`NOTE  ${engine}: this machine could not press Return ${T} ms after the first start's answer appeared (core at ${D} ms), three times (${t} ms); not measured`);
+          }
 
       // N4: ⌘J on Home wherever the keyboard is: the agent list opens in the Composer; behind a sheet its key is hidden.
       page = await open(browser, { label: 'workspace', records: scene('busy'), url: server.url, dpr: 1 });
@@ -1197,9 +1264,9 @@ async function main() {
       const toFound = async (page) => {
         await settled(page);
         await page.keyboard.press('Enter');
-        await page.waitForTimeout(300);
+        await until(() => allowed(page), (v) => v);
         await page.evaluate(() => window.__fake.offer?.());
-        await page.waitForFunction(() => /^Found/.test(document.querySelector('.sheet #sheet-title')?.textContent ?? ''), null, { timeout: 4000 }).catch(() => {});
+        await page.waitForFunction(() => /^Found/.test(document.querySelector('.sheet #sheet-title')?.textContent ?? ''), null, { timeout: 15000 }).catch(() => {});
       };
       // What was found: the first text typed into the Composer under it puts it away and stays; Return with the field
       // empty is Done.
@@ -1225,12 +1292,11 @@ async function main() {
       // first 600 ms says nothing held back, and is tried again.)
       const heldSays = async (page, untilTitle) => {
         await page.evaluate((t) => new Promise((done) => {
-          const end = performance.now() + 5000;
-          const tick = () => (new RegExp(t).test(document.querySelector('.sheet #sheet-title')?.textContent ?? '') || performance.now() > end ? done() : setTimeout(tick, 4));
+          const end = performance.now() + 15000;
+          const tick = () => ((new RegExp(t).test(document.querySelector('.sheet #sheet-title')?.textContent ?? '') && document.querySelector('.sheet .sh-f .key')) || performance.now() > end ? done() : setTimeout(tick, 4));
           tick();
         }).then(() => (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }))), untilTitle);
-        await page.waitForTimeout(150);
-        return page.evaluate(() => document.querySelector('.sheet .sh-held')?.textContent ?? '');
+        return until(() => page.evaluate(() => document.querySelector('.sheet .sh-held')?.textContent ?? ''), (x) => !!x, 1000);
       };
       for (const [records, title, verb] of [[projects('first-agents'), '^Find your projects', 'allow'], [projects('first-folders'), '^Choose where', 'search there']]) {
         let said = '';

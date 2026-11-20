@@ -104,6 +104,10 @@ export const QUIET = 600;
 /** Whether the key being handled came after `QUIET` ms in which no key was pressed, and `since` (when what it would
  *  answer arrived) is as long ago. A key held down never counts. */
 export const quiet = (e: KeyboardEvent, since = -Infinity) => !e.repeat && performance.now() - Math.max(keyTimes.prev, since) >= QUIET;
+/** Whether what changes now is the person's own doing: it is drawn while their key, click or typing is being handled
+ *  (the browser's event of the moment, which a render in its handler's microtasks still sees), not by a timer or the
+ *  core's answer. What Return would do that changes by itself counts again only `QUIET` ms later (NOTES §13). */
+export const byPerson = () => /^(key|pointer|mouse|click|input|beforeinput|composition|paste|drop|touch)/.test(window.event?.type ?? '');
 /** Keeps `data-held` as the keyboard moves, in this page and between its window and others. */
 export function watchHeld(notch = false) {
   strict = notch;

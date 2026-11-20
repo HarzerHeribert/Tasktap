@@ -264,19 +264,30 @@ pub fn call(app: &AppHandle, args: &Value) -> Result<Value, String> {
 }
 
 /// `host.talk_key {key?}`. With `key`, a shortcut or null for the pages' own: `take_talk`, then the preference stored
-/// (or deleted, for null); the core's refusal puts back the key before. The reply is `{key}`, the talk key now.
+/// (or deleted, for null); the core's refusal puts back the key before. The reply is `{key}`, the talk key now. Each
+/// change goes to the log as `talk-key`, with what was asked when it was refused and how long it took.
 pub fn talk_call(app: &AppHandle, args: &Value) -> Result<Value, String> {
     let Some(key) = args.get("key") else {
         return Ok(json!({"key": *TALK.lock().unwrap()}));
     };
     let key: Option<Key> = serde_json::from_value(key.clone()).map_err(|e| e.to_string())?;
     let others = others(PrefKey::TalkKey);
-    let before = take_talk(&mut TALK.lock().unwrap(), key.clone(), &others, register(app, "talk-key"))?;
-    match store(app, PrefKey::TalkKey, &key) {
-        Ok(()) => Ok(json!({"key": *TALK.lock().unwrap()})),
-        Err(refused) => {
-            *TALK.lock().unwrap() = before;
-            Err(refused)
+    let at = std::time::Instant::now();
+    // (The lock is let go before the store: the core's link may hand the changed preference to `talk` before it hands
+    // over the answer, and `talk` takes the lock.)
+    let taken = take_talk(&mut TALK.lock().unwrap(), key.clone(), &others, register(app, "talk-key"));
+    let done =
+        taken.and_then(|before| store(app, PrefKey::TalkKey, &key).inspect_err(|_| *TALK.lock().unwrap() = before));
+    let now = TALK.lock().unwrap().clone();
+    let ms = at.elapsed().as_millis() as u64;
+    match done {
+        Ok(()) => {
+            crate::log(json!({"event": "talk-key", "ok": true, "key": now, "ms": ms}));
+            Ok(json!({"key": now}))
+        }
+        Err(why) => {
+            crate::log(json!({"event": "talk-key", "ok": false, "asked": key, "key": now, "why": why, "ms": ms}));
+            Err(why)
         }
     }
 }

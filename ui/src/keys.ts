@@ -172,5 +172,11 @@ export const holds = (e: KeyboardEvent, s: Shortcut) => e.code === s.code && e.c
 /** The key held to talk where none is chosen: Option-Space on a Mac. On Windows Control-Space: Alt-Space opens the
  *  window's own menu there, and Control-Alt is AltGr, which types on a German keyboard. */
 export const TALK: Shortcut = { control: !mac, alt: mac, shift: false, meta: false, code: 'Space' };
-/** A recorder is listening for a combination: every key is its own until it has one, so nothing else acts on them. */
-export const recorder = { on: false };
+/** The recorder listening for a combination, while one is (`on`): every key is its own until it has one, so nothing
+ *  else acts on them. It is the one that ends it, never another recorder going (form.tsx `Recorder`). */
+export const recorder = {
+  by: null as object | null,
+  get on() {
+    return this.by !== null;
+  },
+};

@@ -3,7 +3,7 @@
 // under the answer, only where it matters, what the choice means: what is sent, what is stored, what costs power.
 // Every row shares the two columns (window.css .set), so labels stand on one edge and answers on another.
 import type { ComponentChildren } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useLayoutEffect, useState } from 'preact/hooks';
 import type { PrefPatch, Shortcut } from '../../../core/proto/protocol.ts';
 import { heldNow, isModifier, keyName, pressed, recorder } from '../keys.ts';
 import { Key } from '../ui.tsx';
@@ -44,16 +44,24 @@ export function Recorder({ name, value, own, usual, set }: { name: string; value
   const [held, hold] = useState<string | null>(null);
   const [said, say] = useState('');
   const listens = held !== null;
-  const listen = (on: boolean) => (hold(on ? '' : null), (recorder.on = on));
-  useEffect(() => () => void (recorder.on = false), []);
+  // Which recorder listens is kept by the recorder itself: another one going (the section it was in left) leaves it
+  // listening, and its own going ends it there and then. (Preact runs an effect's end after the next frame, and a
+  // window not drawn has none: a recorder of the section left ended the listening of one pressed in the meantime.)
+  const [me] = useState(() => ({}));
+  const listen = (on: boolean) => {
+    hold(on ? '' : null);
+    if (on) recorder.by = me;
+    else if (recorder.by === me) recorder.by = null;
+  };
+  useLayoutEffect(() => () => void (recorder.by === me && (recorder.by = null)), []);
   const tries = (key: Shortcut | null) => {
     listen(false);
     say('');
     set(key).catch((e: unknown) => say(sentence(e instanceof Error ? e.message : String(e))));
   };
   const keys = (e: KeyboardEvent) => {
-    // (The flag as well as the state: a key let go in the moment after one was tried belongs to nobody.)
-    if (!listens || !recorder.on) return;
+    // (Its own as well as the state: a key let go in the moment after one was tried belongs to nobody.)
+    if (!listens || recorder.by !== me) return;
     e.preventDefault();
     e.stopPropagation();
     if (e.type === 'keyup' || isModifier(e)) return hold(heldNow(e));

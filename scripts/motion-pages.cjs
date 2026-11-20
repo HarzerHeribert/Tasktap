@@ -64,7 +64,8 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
   // The rule of a shortcut (core/proto Shortcut::refused), in small: what a scene needs of it.
   const refused = (k) => (!/^(Key[A-Z]|Digit\d|F\d+|Space|Enter|Tab|Escape|Backspace|Delete|Arrow\w+|Minus|Equal|Comma|Period|Slash)$/.test(k.code) ? 'That is not a key a shortcut can end in'
     : !(k.control || k.alt || k.meta) ? 'A shortcut needs Control, Option (Alt) or Command (the Windows key) held with its key'
-      : k.meta && !k.control && !k.alt && ['Space', 'Tab', 'KeyQ', 'KeyW', 'KeyL'].includes(k.code) ? 'The system keeps that combination for itself' : null);
+      : k.meta && !k.control && !k.alt && ['Space', 'Tab', 'KeyQ', 'KeyW', 'KeyL'].includes(k.code) ? 'The system keeps that combination for itself'
+        : ['KeyJ', 'KeyK'].includes(k.code) && !k.alt && ((k.meta && !k.control && !k.shift) || (k.control && k.shift && !k.meta)) ? 'Tasktap uses that combination where you write a thought' : null);
   // What a dictation was heard as: it failed, its words are for a field, or it is its thought.
   const heardAs = (d, said) => {
     const row = (x, del) => push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', ...(del ? { del: [x.id] } : { put: [{ ...x, rev }] }) }] });

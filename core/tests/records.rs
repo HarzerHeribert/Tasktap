@@ -727,6 +727,10 @@ fn the_settings_preferences_are_stored_refused_in_a_sentence_and_restored_by_del
             (held(false, "Space"), tasktap_proto::Shortcut::BARE),
             (held(true, "Hyper"), tasktap_proto::Shortcut::NO_KEY),
             (held(true, "Escape"), tasktap_proto::Shortcut::RESERVED),
+            (
+                json!({"control": false, "alt": false, "shift": false, "meta": true, "code": "KeyJ"}),
+                tasktap_proto::Shortcut::OWN,
+            ),
         ] {
             assert_eq!(said(&mut w, id, patch), invalid(why), "{id}");
         }

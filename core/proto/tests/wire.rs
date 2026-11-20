@@ -1135,7 +1135,7 @@ fn the_keys_the_history_and_the_text_preferences_put_as_the_wire_says() {
         ((true, true, false, false, "Space"), None),
         ((false, true, true, false, "Space"), None),
         ((false, true, false, false, "Space"), None),
-        ((false, false, false, true, "KeyK"), None),
+        ((false, false, false, true, "KeyE"), None),
         ((true, false, true, false, "F5"), None),
         ((true, false, false, false, "Digit1"), None),
         ((true, true, true, true, "Slash"), None),
@@ -1192,6 +1192,13 @@ fn the_keys_the_history_and_the_text_preferences_put_as_the_wire_says() {
         ),
         // With one more modifier it is another combination.
         ((true, false, false, true, "Space"), None),
+        // What Tasktap's own field for a thought keeps: its lists of agents
+        // and of places, on a Mac and on Windows.
+        ((false, false, false, true, "KeyJ"), Some(Shortcut::OWN)),
+        ((false, false, false, true, "KeyK"), Some(Shortcut::OWN)),
+        ((true, false, true, false, "KeyJ"), Some(Shortcut::OWN)),
+        ((true, false, true, false, "KeyK"), Some(Shortcut::OWN)),
+        ((false, true, false, true, "KeyJ"), None),
         // The keys that answer a waiting question are keys like any other:
         // that no two of Tasktap's keys are one is `clash`.
         ((true, true, false, false, "KeyY"), None),

@@ -830,6 +830,19 @@ const RESERVED: [(bool, bool, bool, bool, &str); 18] = [
     (false, false, true, true, "Digit5"),
 ];
 
+/// Combinations Tasktap's own field for a thought keeps for itself, as
+/// control, alt, shift, meta and the key, on a Mac and on Windows alike:
+/// Command-J (Control-Shift-J) opens its list of agents and Command-K
+/// (Control-Shift-K) its list of places. A key of the person's would take
+/// them from it: a global one while it is registered, the talk key while
+/// the field has the keyboard.
+const OWN: [(bool, bool, bool, bool, &str); 4] = [
+    (false, false, false, true, "KeyJ"),
+    (false, false, false, true, "KeyK"),
+    (true, false, true, false, "KeyJ"),
+    (true, false, true, false, "KeyK"),
+];
+
 impl Shortcut {
     pub const NO_KEY: &'static str = "That is not a key a shortcut can end in";
     pub const BARE: &'static str =
@@ -837,6 +850,7 @@ impl Shortcut {
     pub const RESERVED: &'static str = "The system keeps that combination for itself";
     pub const ANSWERS: &'static str = "Tasktap answers a question with that combination";
     pub const CAPTURES: &'static str = "Tasktap puts a thought in with that combination";
+    pub const OWN: &'static str = "Tasktap uses that combination where you write a thought";
 
     /// Why this combination cannot be a shortcut, in a sentence the
     /// interface shows as it is; none when it can. The one rule of every
@@ -858,6 +872,8 @@ impl Shortcut {
             Some(Self::BARE)
         } else if RESERVED.contains(&(held.0, held.1, held.2, held.3, code)) {
             Some(Self::RESERVED)
+        } else if OWN.contains(&(held.0, held.1, held.2, held.3, code)) {
+            Some(Self::OWN)
         } else {
             None
         }

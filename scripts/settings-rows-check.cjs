@@ -196,6 +196,7 @@ async function answerKeys(browser, url, system) {
   await tries('Control+Alt+KeyT', 'That key is taken by the system or another app.', 'a key another app holds');
   await tries(mac ? 'Control+Alt+Space' : 'Alt+Shift+Space', 'Tasktap puts a thought in with that combination.', 'the capture key');
   await tries('Control+Alt+KeyK', 'Tasktap answers a question with that combination.', 'the Yes key');
+  await tries(mac ? 'Meta+KeyJ' : 'Control+Shift+KeyJ', 'Tasktap uses that combination where you write a thought.', `${mac ? '⌘J' : 'Ctrl+Shift+J'}, the field's list of agents`);
   await rec(3).focus();
   await key(page, 'Enter');
   await key(page, 'Escape');

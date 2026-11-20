@@ -848,8 +848,6 @@ impl Shortcut {
     pub const BARE: &'static str =
         "A shortcut needs Control, Option (Alt) or Command (the Windows key) held with its key";
     pub const RESERVED: &'static str = "The system keeps that combination for itself";
-    pub const ANSWERS: &'static str = "Tasktap answers a question with that combination";
-    pub const CAPTURES: &'static str = "Tasktap puts a thought in with that combination";
     pub const OWN: &'static str = "Tasktap uses that combination where you write a thought";
 
     /// Why this combination cannot be a shortcut, in a sentence the
@@ -894,16 +892,57 @@ impl Shortcut {
         }
     }
 
+    /// The key held to talk while the `talk_key` preference is unset, as
+    /// the pages have it (ui/src/keys.ts `TALK`): Option-Space on a Mac,
+    /// Control-Space elsewhere, where Alt-Space opens a window's own menu
+    /// and Control-Alt is AltGr.
+    pub fn talk(mac: bool) -> Shortcut {
+        Shortcut {
+            control: !mac,
+            alt: mac,
+            shift: false,
+            meta: false,
+            code: "Space".into(),
+        }
+    }
+
     /// A key preference's value while it is unset: the capture key and the
-    /// answer keys are this system's own; the talk key is the pages' own,
-    /// which no global key can take, so none.
+    /// answer keys are this system's own, the talk key the pages' own.
     pub fn usual(id: PrefKey, mac: bool) -> Option<Shortcut> {
         match id {
             PrefKey::CaptureKey => Some(Shortcut::capture(mac)),
+            PrefKey::TalkKey => Some(Shortcut::talk(mac)),
             _ => AnswerKey::of(id).map(|which| Shortcut::answer(mac, which)),
         }
     }
+
+    /// What Tasktap already does with the key of the key preference `id`:
+    /// the sentence that refuses another key preference the same key.
+    pub fn taken(id: PrefKey) -> Option<&'static str> {
+        Some(match id {
+            PrefKey::CaptureKey => "Tasktap already uses that combination to put a thought in",
+            PrefKey::QuestionKey => {
+                "Tasktap already uses that combination to go to an agent’s question"
+            }
+            PrefKey::YesKey => "Tasktap already uses that combination to answer Yes",
+            PrefKey::NoKey => "Tasktap already uses that combination to answer No",
+            PrefKey::TalkKey => {
+                "Tasktap already uses that combination as the key to hold while you talk"
+            }
+            _ => return None,
+        })
+    }
 }
+
+/// Every key preference: the capture key, the three answer keys and the
+/// talk key, the keys a person records.
+pub const KEY_PREFS: [PrefKey; 5] = [
+    PrefKey::CaptureKey,
+    PrefKey::QuestionKey,
+    PrefKey::YesKey,
+    PrefKey::NoKey,
+    PrefKey::TalkKey,
+];
 
 /// The keys that answer a waiting question from any app, which the host
 /// registers only while one waits (design §12), in the order of its table.
@@ -958,31 +997,26 @@ impl PrefValue {
     }
 }
 
-/// The global keys as they are now: the capture key and the three answer
-/// keys, each its preference as `stored` has it, or else this system's own.
+/// Every key a person records as it is now (`KEY_PREFS`): each its
+/// preference as `stored` has it, or else this system's own.
 pub fn keys_in_use(
     mac: bool,
     stored: impl Fn(PrefKey) -> Option<Shortcut>,
 ) -> Vec<(PrefKey, Shortcut)> {
-    let ids = [PrefKey::CaptureKey]
-        .into_iter()
-        .chain(AnswerKey::ALL.map(AnswerKey::pref));
-    ids.filter_map(|id| Some((id, stored(id).or_else(|| Shortcut::usual(id, mac))?)))
+    (KEY_PREFS.into_iter())
+        .filter_map(|id| Some((id, stored(id).or_else(|| Shortcut::usual(id, mac))?)))
         .collect()
 }
 
 /// Why `key` cannot be the key preference `id` beside Tasktap's other keys
 /// as they are now (`in_use`, each preference with its key): no two of the
-/// capture key and the three answer keys are one, and the talk key is none
-/// of the answer keys, which would take it from the page while a question
-/// waits. None when it can be.
+/// five are one, whichever is recorded, since one would take it from the
+/// other (a global key from the page's talk key, the capture key from an
+/// answer key while a question waits). The sentence says which key has it
+/// already (`Shortcut::taken`). None when it can be.
 pub fn clash(id: PrefKey, key: &Shortcut, in_use: &[(PrefKey, Shortcut)]) -> Option<&'static str> {
     let other = in_use.iter().find(|(other, k)| *other != id && k == key)?.0;
-    match other {
-        PrefKey::CaptureKey if id != PrefKey::TalkKey => Some(Shortcut::CAPTURES),
-        other if AnswerKey::of(other).is_some() => Some(Shortcut::ANSWERS),
-        _ => None,
-    }
+    Shortcut::taken(other)
 }
 
 impl Shortcut {

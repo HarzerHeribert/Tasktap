@@ -63,8 +63,10 @@ export type HostCalls = {
    *  then stores the preference; refused, by the rule of a shortcut or because another app holds it, the error says
    *  so and the old key goes on working. The reply, and the reply to a call with no `key`, is the key registered
    *  now, or null when none is. */
-  'host.capture_key': { args: { key?: Shortcut | null }; result: { key: Shortcut | null } };
-  'host.answer_key': { args: { which?: 'question' | 'yes' | 'no'; key?: Shortcut | null }; result: { question: Shortcut | null; yes: Shortcut | null; no: Shortcut | null } };
+  // `takes`: whether this copy takes global keys at all (a review build takes none, and names none).
+  'host.capture_key': { args: { key?: Shortcut | null }; result: { key: Shortcut | null; takes?: boolean } };
+  'host.answer_key': { args: { which?: 'question' | 'yes' | 'no'; key?: Shortcut | null }; result: { question: Shortcut | null; yes: Shortcut | null; no: Shortcut | null; takes?: boolean } };
+  'host.talk_key': { args: { key?: Shortcut | null }; result: { key: Shortcut | null } };
   /** What a preview's frame is given (host/src/frames.rs): `base`, the address of this machine a file's whole path
    *  is added to for a frame to load it; and with `listens`, a local web address, whether anything answers there
    *  now. Refused, in a sentence, by a host that cannot hold a frame to this machine. */

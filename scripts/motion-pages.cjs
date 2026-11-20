@@ -342,21 +342,42 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
   };
   // The host's rule for `host.open`, in small: a web address, or a path `files` says exists; what was opened is kept.
   const opened = [];
-  // The capture key: the one registered (`capture`, this system's own unless the scene says another, or none), which a
-  // call changes unless the rule refuses the key or the scene says another app holds it (`taken`, by its code).
-  const usual = /Windows/.test(navigator.userAgent) ? { control: false, alt: true, shift: true, meta: false, code: 'Space' } : { control: true, alt: true, shift: false, meta: false, code: 'Space' };
-  let capture = records.capture === undefined ? ((records.prefs || []).find((p) => p.id === 'capture_key') || { value: usual }).value : records.capture;
+  // The keys a person records, as the host keeps them (host/src/keys.rs): each the scene's preference or this
+  // system's own. A call changes one unless the rule refuses it, the scene says another app holds it (`taken`, by its
+  // code), or another of Tasktap's keys has it already, in the core's sentence that names which. The capture key is
+  // the one registered (`capture`: the system's own unless the scene says another, or none). A scene with
+  // `takes: false` is a copy that takes no global key (a review build): it names none and refuses every one.
+  const win = /Windows/.test(navigator.userAgent), takes = records.takes !== false;
+  const usual = win ? { control: false, alt: true, shift: true, meta: false, code: 'Space' } : { control: true, alt: true, shift: false, meta: false, code: 'Space' };
+  let capture = !takes ? null : records.capture === undefined ? ((records.prefs || []).find((p) => p.id === 'capture_key') || { value: usual }).value : records.capture;
+  const OWN_KEYS = {
+    question: { control: !win, alt: true, shift: win, meta: false, code: 'KeyJ' }, yes: { control: !win, alt: true, shift: win, meta: false, code: 'KeyY' },
+    no: { control: !win, alt: true, shift: win, meta: false, code: 'KeyN' }, talk: { control: win, alt: !win, shift: false, meta: false, code: 'Space' },
+  };
+  const PREF = { capture: 'capture_key', question: 'question_key', yes: 'yes_key', no: 'no_key', talk: 'talk_key' };
+  const DOES = { capture: 'to put a thought in', question: 'to go to an agent’s question', yes: 'to answer Yes', no: 'to answer No', talk: 'as the key to hold while you talk' };
+  const stored = (w) => ((records.prefs || []).find((p) => p.id === PREF[w]) || {}).value;
+  const keyOf = (w) => (w === 'capture' ? capture : w === 'talk' ? stored(w) || OWN_KEYS.talk : takes ? stored(w) || OWN_KEYS[w] : null);
+  const same = (x, y) => !!x && !!y && ['control', 'alt', 'shift', 'meta', 'code'].every((k) => x[k] === y[k]);
+  const answers = () => ({ question: keyOf('question'), yes: keyOf('yes'), no: keyOf('no'), takes });
+  /** Tries `key` as the key `which`, and stores it: the reply's sentence when refused. */
+  const record = (which, given) => {
+    if (which !== 'talk' && !takes) throw 'Tasktap Review takes no keys from other apps';
+    const key = given || (which === 'capture' ? usual : OWN_KEYS[which]);
+    const other = Object.keys(PREF).find((w) => w !== which && same(keyOf(w), key));
+    const why = refused(key) || (other && `Tasktap already uses that combination ${DOES[other]}`) || ((records.taken || []).includes(key.code) && 'That key is taken by the system or another app');
+    if (why) throw why;
+    if (which === 'capture') capture = key;
+    const id = PREF[which];
+    rev++;
+    records.prefs = (records.prefs || []).filter((p) => p.id !== id).concat(given ? [{ id, value: key, rev }] : []);
+    push({ t: 'change', rev, sets: [{ c: 'prefs', ...(given ? { put: [{ id, value: key, rev }] } : { del: [id] }) }] });
+    return key;
+  };
   const hostValue = (name, a) => {
-    if (name === 'host.capture_key') {
-      if (a.key === undefined) return { key: capture };
-      const key = a.key || usual, why = refused(key) || ((records.taken || []).includes(key.code) && 'That key is taken by the system or another app');
-      if (why) throw why;
-      capture = key;
-      rev++;
-      records.prefs = (records.prefs || []).filter((p) => p.id !== 'capture_key').concat(a.key ? [{ id: 'capture_key', value: key, rev }] : []);
-      push({ t: 'change', rev, sets: [{ c: 'prefs', ...(a.key ? { put: [{ id: 'capture_key', value: key, rev }] } : { del: ['capture_key'] }) }] });
-      return { key };
-    }
+    if (name === 'host.capture_key') return a.key === undefined ? { key: capture, takes } : { key: record('capture', a.key), takes };
+    if (name === 'host.talk_key') return { key: a.key === undefined ? keyOf('talk') : record('talk', a.key) };
+    if (name === 'host.answer_key') return (a.which && record(a.which, a.key), answers());
     // Opening at login, as the scene says the system has it (`login`; none: a host without the call). Every call is kept
     // (`logins`); a change is the system's at once, or, with `approve`, waits for the person to allow it.
     if (name === 'host.login') {
@@ -366,25 +387,6 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
         records.login = { state: a.on ? (records.approve ? 'approve' : 'on') : 'off' };
       }
       return records.login ?? null;
-    }
-    // The keys that answer a waiting question: each the scene's preference or this system's own, which a call
-    // changes unless the rule refuses it, the scene says another app holds it (`taken`), or Tasktap's other keys have it.
-    if (name === 'host.answer_key') {
-      const ids = { question: 'question_key', yes: 'yes_key', no: 'no_key' };
-      const win = /Windows/.test(navigator.userAgent);
-      const own = (w) => ({ control: !win, alt: true, shift: win, meta: false, code: { question: 'KeyJ', yes: 'KeyY', no: 'KeyN' }[w] });
-      const now = () => Object.fromEntries(Object.entries(ids).map(([w, id]) => [w, ((records.prefs || []).find((p) => p.id === id) || { value: own(w) }).value]));
-      if (!a.which) return now();
-      const key = a.key || own(a.which), same = (x, y) => !!x && !!y && ['control', 'alt', 'shift', 'meta', 'code'].every((k) => x[k] === y[k]);
-      const why = refused(key) || ((records.taken || []).includes(key.code) && 'That key is taken by the system or another app')
-        || (same(key, capture) && 'Tasktap puts a thought in with that combination')
-        || (Object.entries(now()).some(([w, k]) => w !== a.which && same(key, k)) && 'Tasktap answers a question with that combination');
-      if (why) throw why;
-      const id = ids[a.which];
-      rev++;
-      records.prefs = (records.prefs || []).filter((p) => p.id !== id).concat(a.key ? [{ id, value: key, rev }] : []);
-      push({ t: 'change', rev, sets: [{ c: 'prefs', ...(a.key ? { put: [{ id, value: key, rev }] } : { del: [id] }) }] });
-      return now();
     }
     // A preview's frame: where it loads a file from (`frames`, a server of the check's own), whether a local address
     // is answered (`listens`), or the host's refusal (`noframes`).

@@ -12,7 +12,10 @@
 //       to begin with (Control-Option on a Mac, Alt-Shift on Windows); a key recorded by the pointer and real key
 //       presses, stored through `host.answer_key`; the refusals by the keyboard (no modifier, taken by another app, the
 //       capture key, another answer key) with the key before kept; Escape changes nothing; Use the default; and the
-//       title bar's line to a waiting question naming the key recorded.
+//       title bar's line to a waiting question naming the key recorded. Each refusal names the key that has the
+//       combination already, the key held to talk among them, and the other way round in Voice; there a key another
+//       app holds is refused too. A copy that takes no keys from other apps (a review build) has no recorder in the
+//       four rows and says why, and its title-bar line names no key.
 //   P5  About, Check for new versions: on by default, About shown asks the host to look; the switch by the pointer
 //       writes `update_checks` false, after which About asks nothing, Anything else says Nothing, and Check now (by
 //       the keyboard) asks once, as the person's word (`now`); on again asks at once. A build made here says so and
@@ -194,8 +197,9 @@ async function answerKeys(browser, url, system) {
   };
   await tries('KeyN', 'A shortcut needs Control, Option (Alt) or Command (the Windows key) held with its key.', 'a key with no modifier');
   await tries('Control+Alt+KeyT', 'That key is taken by the system or another app.', 'a key another app holds');
-  await tries(mac ? 'Control+Alt+Space' : 'Alt+Shift+Space', 'Tasktap puts a thought in with that combination.', 'the capture key');
-  await tries('Control+Alt+KeyK', 'Tasktap answers a question with that combination.', 'the Yes key');
+  await tries(mac ? 'Control+Alt+Space' : 'Alt+Shift+Space', 'Tasktap already uses that combination to put a thought in.', 'the capture key');
+  await tries('Control+Alt+KeyK', 'Tasktap already uses that combination to answer Yes.', 'the Yes key');
+  await tries(mac ? 'Alt+Space' : 'Control+Space', 'Tasktap already uses that combination as the key to hold while you talk.', 'the key held to talk');
   await tries(mac ? 'Meta+KeyJ' : 'Control+Shift+KeyJ', 'Tasktap uses that combination where you write a thought.', `${mac ? '⌘J' : 'Ctrl+Shift+J'}, the field's list of agents`);
   await rec(3).focus();
   await key(page, 'Enter');
@@ -214,6 +218,48 @@ async function answerKeys(browser, url, system) {
   await page.waitForTimeout(300);
   const line = await page.evaluate(() => document.querySelector('.asks-line [data-keys] kbd')?.textContent ?? '');
   expect(line === (mac ? '⌃⇧Q' : 'Ctrl+Shift+Q'), `${at}: the title bar's line to a waiting question names the key recorded: "${line}"`);
+
+  // The other way round: the key held to talk may be none of Tasktap's other keys either, and one another app holds
+  // is refused too (it would never reach Tasktap); each refusal leaves the key before.
+  await section(page, 'voice');
+  const talk = page.locator('.set-pane .set:has(> .t:text-is("Key to hold while you talk"))');
+  const talkTries = async (keys, why, what) => {
+    await talk.locator('.rec').focus();
+    await key(page, 'Enter');
+    await key(page, keys);
+    const err = await talk.locator('.hint.err').textContent().catch(() => '');
+    expect(err === why && await stored('talk_key') === 'null', `${at}: as the key held to talk, ${what} is refused: "${err}"`);
+  };
+  await talkTries(mac ? 'Control+Alt+KeyN' : 'Alt+Shift+KeyN', 'Tasktap already uses that combination to answer No.', 'the No key');
+  await talkTries('Control+Shift+KeyQ', 'Tasktap already uses that combination to go to an agent’s question.', 'the key recorded to go to the question');
+  await talkTries(mac ? 'Control+Alt+Space' : 'Alt+Shift+Space', 'Tasktap already uses that combination to put a thought in.', 'the capture key');
+  await talkTries('Control+Shift+KeyT', 'That key is taken by the system or another app.', 'a key another app holds');
+  await talk.locator('.rec').focus();
+  await key(page, 'Enter');
+  await key(page, 'Control+Shift+KeyM');
+  expect(await stored('talk_key') === JSON.stringify({ control: true, alt: false, shift: true, meta: false, code: 'KeyM' }), `${at}: a free key held to talk is stored through the host`);
+  for (const e of page.errors) failures.push(`${at}: page: ${e}`);
+  await page.context().close();
+}
+
+// ——— A copy that takes no keys from other apps (a review build) names none ———
+async function noKeys(browser, url, system) {
+  const at = `${system}, a copy that takes no keys from other apps`;
+  const page = await open(browser, { label: 'workspace', records: { ...scene('busy'), takes: false }, url, dpr: 2, system });
+  await section(page, 'thoughts');
+  const NO = 'This copy is Tasktap Review, which takes no keys from other apps, so they stay your own Tasktap’s.';
+  for (const name of ['Key to put a thought in, from any app', 'Key to go to an agent’s question, from any app', 'Key to answer Yes, from any app', 'Key to answer No, from any app']) {
+    const row = page.locator(`.set-pane .set:has(> .t:text-is("${name}"))`);
+    const v = await row.locator('.v').textContent().catch(() => ''), hint = await row.locator('.hint').textContent().catch(() => '');
+    expect(await row.locator('.rec').count() === 0 && v === 'None for this copy' && hint === NO, `${at}: "${name}" has no recorder and says so: "${v}" / "${hint}"`);
+  }
+  await picture(page, 'thoughts-no-keys', system);
+  await page.evaluate(() => ((window.__ws.ui.sheet = null), window.__motion.redraw()));
+  const q = await page.evaluate(() => [...window.__ws.records.questions.values()].find((x) => x.state === 'open')?.id);
+  await page.evaluate((id) => window.__fake.emit({ do: 'where', place: 'line', question: id, front: true }), q);
+  await page.waitForTimeout(300);
+  const line = await page.evaluate(() => (b => b && [b.querySelectorAll('kbd').length, b.title].join(' | '))(document.querySelector('.asks-line')));
+  expect(/^0 \| Show the question/.test(line ?? '') && !/[⌃⌥]|Alt\+|Ctrl\+/.test(line ?? ''), `${at}: the title bar's line to a waiting question names no key: "${line}"`);
   for (const e of page.errors) failures.push(`${at}: page: ${e}`);
   await page.context().close();
 }
@@ -279,6 +325,7 @@ async function main() {
       await login(browser, server.url, system);
       await where(browser, server.url, system);
       await answerKeys(browser, server.url, system);
+      await noKeys(browser, server.url, system);
       await versions(browser, server.url, system);
     }
   } finally {

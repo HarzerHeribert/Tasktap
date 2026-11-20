@@ -33,12 +33,21 @@ pub struct Prefs {
     pub checks: bool,
     /// `question_key`, `yes_key`, `no_key`, in the order of `AnswerKey::ALL`: none for this system's own.
     pub answers: [Option<Shortcut>; 3],
+    /// `talk_key`: none for the pages' own. The host never registers it; it keeps the others apart from it.
+    pub talk: Option<Shortcut>,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        let mut prefs = Prefs { capture: None, checks: false, answers: [None, None, None] };
-        for key in [PrefKey::CaptureKey, PrefKey::UpdateChecks, PrefKey::QuestionKey, PrefKey::YesKey, PrefKey::NoKey] {
+        let mut prefs = Prefs { capture: None, checks: false, answers: [None, None, None], talk: None };
+        for key in [
+            PrefKey::CaptureKey,
+            PrefKey::UpdateChecks,
+            PrefKey::QuestionKey,
+            PrefKey::YesKey,
+            PrefKey::NoKey,
+            PrefKey::TalkKey,
+        ] {
             prefs.take(key.default());
         }
         prefs
@@ -54,6 +63,7 @@ impl Prefs {
             PrefValue::QuestionKey(key) => self.answers[0] = key,
             PrefValue::YesKey(key) => self.answers[1] = key,
             PrefValue::NoKey(key) => self.answers[2] = key,
+            PrefValue::TalkKey(key) => self.talk = key,
             _ => return false,
         }
         true

@@ -216,6 +216,9 @@ pub struct CardPatch {
     pub hidden: Option<bool>,
     /// This copy is the project, not another of its copies.
     pub main: Option<bool>,
+    /// Where its agent works: kept on the card, and given to its workspace
+    /// too, now or when it is made.
+    pub isolate: Option<Isolate>,
 }
 
 /// What the person changes of a look.

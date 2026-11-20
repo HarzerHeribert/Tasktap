@@ -218,7 +218,7 @@ Never Scratch, never an arbitrary first, never a folder the chip does not name. 
 | `look.add {id, folder, any?}` | Checks the folder may be named, lists it off the core's thread, writes the look and its cards. Idempotent by `id`, as `project.add`. |
 | `look.again {id?}` | Lists one look, or every look whose stamp changed. |
 | `delete {c: looks, id}` | Removes the look and its cards that are not workspaces. |
-| `put {c: cards, id, patch}` | `names` and `hidden` only. |
+| `put {c: cards, id, patch}` | `names`, `hidden`, `main`, and `isolate` (where its agent works, which its workspace follows: core-design §7, "Isolation"). |
 | `card.forget {id?}` | Empties `terms` and the learned names of one card, or of all. |
 | `route.hint` | Answers with a card as well as a project: `to: {card}`, and the words that named it. Still no model call per keystroke. |
 | `thought.capture {card_id?}` | The person's choice of a known project. |
@@ -383,7 +383,7 @@ Each promise the build makes, and what proves it. "Test" names are in `core/test
 
 **Core** (`core/src/map.rs`, records in `core/proto/src/records.rs`, schema 3 in `core/src/store.rs`).
 
-- Records `looks` (an agent's history, or a folder to look in: `on`, `state`, `found`, `looked`, `note`, `stamp`) and `cards` (one per folder: `name`, `names` with `given` and `dropped`, `about` and `about_from`, `why` as evidence, `agents`, `repo`, `root`, `copy_of`, `inside`, `project_id`, `used`, `looks`, `hidden`, `main`, `available`). Schema 3 adds the two tables and touches nothing else. `thoughts` gain `card_id`; router questions gain `notes` (why each choice).
+- Records `looks` (an agent's history, or a folder to look in: `on`, `state`, `found`, `looked`, `note`, `stamp`) and `cards` (one per folder: `name`, `names` with `given` and `dropped`, `about` and `about_from`, `why` as evidence, `agents`, `repo`, `root`, `copy_of`, `inside`, `project_id`, `used`, `looks`, `hidden`, `main`, `available`, `isolate`: where its agent works, as the person chose it in Settings › Projects). Schema 3 adds the two tables and touches nothing else. `thoughts` gain `card_id`; router questions gain `notes` (why each choice).
 - Calls: `look.add`, `projects.offer` (by `stat` only), `projects.look`, `projects.find` (`thought`: for a whole thought, the places its words point at; else what is typed, by name); `put` and `delete` on `cards` (names, not a project, this copy) and `looks` (on, off, remove a folder).
 - The agents' histories through one optional method of the agent trait, `Agent::history`, answered by Claude Code and Codex (`core/src/agents/claude.rs`, `codex.rs`). Claude Code: `<config>/projects/<folder>/`, the `cwd` of the newest of the newest three session files, read 16 KiB at a time up to 128 KiB until the field, dated by the file. `~/.claude.json` is not read (it holds the account). Codex: `<home>/sessions/<y>/<m>/<d>/`, newest first, the first line's `cwd` within 4 KiB, dated by the file; `config.toml` is not read. 5,000 files and 3 s per agent at most. Only regular files are opened, without waiting.
 - The root rule follows a `.git` file to its repository (a worktree's `commondir`, a submodule's `.git/modules`), walking up from any folder in it; outside the home folder it holds below a volume's root.

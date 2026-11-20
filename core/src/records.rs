@@ -570,6 +570,7 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
                 names,
                 hidden,
                 main,
+                isolate,
             } = patch;
             if let Some(names) = names {
                 let names: Vec<String> = (names.iter())
@@ -616,6 +617,19 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
                     }
                 }
                 c.main = main;
+            }
+            // Where its agent works: the card keeps it for the workspace made
+            // from it (`state::open_card`), and the workspace it has follows.
+            if let Some(isolate) = isolate {
+                c.isolate = isolate;
+                let workspace = match c.project_id {
+                    Some(p) => tx.project(p).map_err(fail)?,
+                    None => tx.project_by_folder(&c.folder).map_err(fail)?,
+                };
+                if let Some(mut p) = workspace.filter(|p| p.isolate != isolate) {
+                    p.isolate = isolate;
+                    tx.update_project(&p).map_err(fail)?;
+                }
             }
             tx.put_card(&c).and_then(|()| crate::map::copies(&mut tx))
         }

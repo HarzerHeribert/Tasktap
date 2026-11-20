@@ -367,7 +367,13 @@ main: boolean,
 /**
  * Its folder was there the last time Tasktap looked.
  */
-available: boolean, };
+available: boolean,
+/**
+ * Where its agent works (design §7, "Isolation"), as the person chose
+ * it in Settings: its workspace takes it when it is made, and follows
+ * it whenever it is changed (`put cards`).
+ */
+isolate: Isolate, };
 
 /**
  * A UUID v7 in text, minted by whoever creates the record.
@@ -390,7 +396,12 @@ hidden?: boolean | null,
 /**
  * This copy is the project, not another of its copies.
  */
-main?: boolean | null, };
+main?: boolean | null,
+/**
+ * Where its agent works: kept on the card, and given to its workspace
+ * too, now or when it is made.
+ */
+isolate?: Isolate | null, };
 
 /**
  * One committed transaction, or one chunk of a snapshot.

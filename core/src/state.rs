@@ -1235,7 +1235,7 @@ impl Machine<'_, '_> {
                     color: String::new(),
                     aliases: Vec::new(),
                     git: card.why.contains(&Evidence::Git),
-                    isolate: Isolate::Busy,
+                    isolate: card.isolate,
                     open: true,
                     available: true,
                 };

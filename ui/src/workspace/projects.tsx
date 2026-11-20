@@ -7,13 +7,13 @@
 // Everything shown is the core's: where it looks (`records.looks`), what it knows of each folder (`records.cards`), and
 // what could be looked at, found by `stat` alone with nothing inside read (`projects.offer`). The page keeps only what
 // the person did here a moment ago.
-import type { AddLook, Card, Look, Offer } from '../../../core/proto/protocol.ts';
+import type { AddLook, Card, Isolate, Look, Offer, Project } from '../../../core/proto/protocol.ts';
 import { Component, type ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { uuid7 } from '../client.ts';
 import { HERE, shownPath } from '../system.ts';
 import { I, Key, Mark, Ring, ago, plural } from '../ui.tsx';
-import { Switch } from './form.tsx';
+import { Choice, Switch } from './form.tsx';
 import { agentName, call, dismiss, fail, open, records, redraw } from './model.ts';
 import { type Act, Frame } from './sheets.tsx';
 
@@ -427,6 +427,7 @@ function ProjectRow({ c, open: isOpen, show, cards }: RowProps) {
               {inside.map((x) => <span class="pj-l" key={x.id}><span class="mono">{shownPath(x.folder)}</span>{x.agents.length > 0 && <span class="dim">{worked(x, 'there')}</span>}</span>)}
             </Fact>
           )}
+          <Where c={c} ws={ws} />
           <Fact k="In the sidebar"><span>{ws?.open ? 'Yes, open' : ws ? 'Closed; a thought for it opens it again' : 'Not yet; a thought for it adds it'}</span></Fact>
           <div class="pj-a">
             <button type="button" class="btn" onClick={() => void call('put', { c: 'cards', id: c.id, patch: { hidden: true } }).catch(fail)}>Not a project</button>
@@ -440,6 +441,31 @@ function ProjectRow({ c, open: isOpen, show, cards }: RowProps) {
 }
 
 const Fact = ({ k, children }: { k: string; children: ComponentChildren }) => <div class="pj-k"><span class="k">{k}</span><span class="v">{children}</span></div>;
+
+/** Where a project's agent works (core: `isolate`, docs/core-design.md §7): on a copy of the project of its own, whose
+ *  changes come back with Keep or go with Discard, or in the project itself. The card keeps the choice, and the
+ *  workspace made from it follows (`put cards`); only a Git repository has copies, so any other folder has no choice. */
+const WHERE = 'Where its agent works';
+const places: [Isolate, string][] = [['busy', 'On its own copy when another agent is working there'], ['always', 'Always on its own copy'], ['never', 'In the project itself']];
+const placed: Record<Isolate, string> = {
+  busy: 'While another agent works here, the next one gets a copy of its own, whose changes come back with Keep or go with Discard.',
+  always: 'Every agent gets a copy of its own, whose changes come back to the project with Keep or go with Discard.',
+  never: 'Every agent works in your files directly, so two working here at once can overwrite each other’s changes.',
+};
+function Where({ c, ws }: { c: Card; ws: Project | undefined }) {
+  const [said, say] = useState('');
+  const git = ws ? ws.git && ws.kind === 'folder' : c.why.includes('git');
+  const now = ws?.isolate ?? c.isolate ?? 'busy';
+  const set = (to: Isolate) => void call('put', { c: 'cards', id: c.id, patch: { isolate: to } }).then(() => say(''), (e: unknown) => say(e instanceof Error ? e.message : String(e)));
+  if (!git) return <Fact k={WHERE}><span>In the project itself</span><span class="dim says">It is not a Git repository, so there is no copy to give an agent: it works in the folder itself.</span></Fact>;
+  return (
+    <Fact k={WHERE}>
+      <Choice name={WHERE} value={now} all={places} set={set} />
+      <span class="dim says">{placed[now]}</span>
+      {said && <span class="hint err" role="alert">{said}</span>}
+    </Fact>
+  );
+}
 
 /** What a project is called: its folder's name, the names it goes by, and a name the person adds, for how they say
  *  it ("queue grid"). A name of theirs goes again with its cross. */

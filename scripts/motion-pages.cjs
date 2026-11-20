@@ -57,6 +57,8 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     callbacks.get(channel)({ index: index++, message: out.buffer });
   };
   const calls = [];
+  // What every `put` asked for, in order (settings-rows-check.cjs).
+  const puts = [];
   // The sizes terminals were opened at and asked to take, in order (terminal-size-check.cjs).
   const sizes = [];
   // The rule of a shortcut (core/proto Shortcut::refused), in small: what a scene needs of it.
@@ -77,6 +79,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
   const answer = (call) => {
     const { id, name, args } = call;
     calls.push(name);
+    if (name === 'put') puts.push(args);
     if (name === 'terminal.open' || name === 'terminal.resize') sizes.push({ call: name, id: args.id, cols: args.cols, rows: args.rows });
     // A terminal's screen from `screens`, a diff from `diffs`; the page's own history call gets an empty page.
     if (name === 'terminal.open') {
@@ -263,6 +266,9 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       const next = { ...row, ...Object.fromEntries(Object.entries(args.patch).filter(([, v]) => v !== null && v !== undefined)), rev: ++rev };
       push({ t: 'change', rev, sets: [{ c: args.c, put: [next] }] });
       if (args.c === 'looks' && next.on && !row.on) look(next);
+      // Where its agent works: the card's workspace follows, as in the core (records.rs `PutTarget::Cards`).
+      const ws = args.c === 'cards' && args.patch.isolate && (records.projects || []).find((p) => p.id === row.project_id || p.folder === row.folder);
+      if (ws) push({ t: 'change', rev: ++rev, sets: [{ c: 'projects', put: [{ ...ws, rev, isolate: args.patch.isolate }] }] });
       return reply(id, { rev });
     }
     if (name === 'delete' && (args.c === 'cards' || args.c === 'looks')) return push({ t: 'change', rev: ++rev, sets: [{ c: args.c, del: [args.id] }] }), reply(id, { rev });
@@ -377,7 +383,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     if (d) push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', del: [d.id] }] });
     toCore({ t: 'close', s: Number(s), why: 'gone' });
   };
-  window.__fake = { emit, push, records, heard, calls, sizes, close, opened, picked: [] };
+  window.__fake = { emit, push, records, heard, calls, puts, sizes, close, opened, picked: [] };
   // The keyboard's layout, as the web view says it (keys.ts watchLayout): the records' (`layout`, what each key
   // prints by its place), else a US keyboard's, so that a picture is the same on every machine the checks run on.
   const US = Object.fromEntries([...'abcdefghijklmnopqrstuvwxyz'].map((c) => [`Key${c.toUpperCase()}`, c]).concat([...'0123456789'].map((d) => [`Digit${d}`, d]),

@@ -475,6 +475,9 @@ fn add_found(
         if let Some(p) = tx.project_by_folder(&folder).map_err(stored)? {
             return reopen(tx, p);
         }
+        // Where its agent works, as the person chose it for the folder in
+        // Settings › Projects before it was opened.
+        let card = tx.card_by_folder(&folder).map_err(stored)?;
         let project = Project {
             id: args.id,
             rev: Rev::ZERO,
@@ -484,7 +487,7 @@ fn add_found(
             color: String::new(),
             aliases: Vec::new(),
             git,
-            isolate: Isolate::Busy,
+            isolate: card.map_or(Isolate::Busy, |c| c.isolate),
             open: true,
             available: true,
         };

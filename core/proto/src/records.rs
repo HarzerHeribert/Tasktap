@@ -326,6 +326,11 @@ pub struct Card {
     pub main: bool,
     /// Its folder was there the last time Tasktap looked.
     pub available: bool,
+    /// Where its agent works (design §7, "Isolation"), as the person chose
+    /// it in Settings: its workspace takes it when it is made, and follows
+    /// it whenever it is changed (`put cards`).
+    #[serde(default)]
+    pub isolate: Isolate,
 }
 
 words! {
@@ -397,7 +402,8 @@ words! {
 words! {
     /// When a thought gets its own worktree; `busy` means when the project has
     /// a session that is not idle or ended.
-    pub enum Isolate { Busy, Always, Never }
+    #[derive(Default)]
+    pub enum Isolate { #[default] Busy, Always, Never }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -652,6 +652,7 @@ fn a_name_the_person_gives_keeps_its_project_and_one_taken_away_stays_away() {
             names: Some(names.iter().map(|n| (*n).into()).collect()),
             hidden: None,
             main: None,
+            isolate: None,
         };
         let target = PutTarget::Cards { id: card.id, patch };
         w.ok::<call::Put>(&Put {
@@ -695,6 +696,7 @@ fn a_name_the_person_gives_keeps_its_project_and_one_taken_away_stays_away() {
             names: None,
             hidden: Some(true),
             main: None,
+            isolate: None,
         },
     };
     w.ok::<call::Put>(&Put {
@@ -708,6 +710,108 @@ fn a_name_the_person_gives_keeps_its_project_and_one_taken_away_stays_away() {
     assert_eq!(e.code, Code::Invalid, "{e}");
     w.sync();
     assert!(!w.model.projects.values().any(|p| p.folder == card.folder));
+}
+
+/// Settings › Projects, a project's details: where its agent works is set
+/// with `put cards {isolate}`, the call the page makes, before the project
+/// has a workspace and after. The card keeps it; a workspace made from the
+/// card, by a thought or by opening the folder, takes it; the workspace it
+/// has follows each change; and the run decides by it (core/tests/isolate.rs
+/// `the_setting_and_git_decide_where_a_run_works`).
+#[test]
+fn where_a_projects_agent_works_is_set_on_its_card_and_its_workspace_follows() {
+    let t = Folder::new("where");
+    let (home, data) = (t.0.join("home"), t.0.join("data"));
+    mkdir(&data);
+    repo(&home.join("projects/cuegrid"), "Cue sheets.", None);
+    repo(&home.join("projects/lightdesk"), "Light cues.", None);
+    let home_text = real(&home).to_str().unwrap().to_owned();
+    let core = Core::start_env(&data, &[], &[("HOME", &home_text)]);
+    let mut w = core.watch();
+    w.ok::<call::LookAdd>(&AddLook {
+        id: LookId::mint(),
+        folder: Some(format!("{home_text}/projects")),
+        agent: None,
+        on: None,
+    });
+    w.ok::<call::ProjectsLook>(&Empty {});
+    w.sync();
+    let card = |w: &Watch, name: &str| {
+        w.model
+            .cards
+            .values()
+            .find(|c| c.name == name)
+            .unwrap()
+            .clone()
+    };
+    let (cuegrid, lightdesk) = (card(&w, "cuegrid"), card(&w, "lightdesk"));
+    assert_eq!(
+        (cuegrid.isolate, lightdesk.isolate),
+        (Isolate::Busy, Isolate::Busy),
+        "the default: a copy while another agent works there"
+    );
+    let set = |w: &mut Watch, c: &Card, how: Isolate| {
+        let patch = CardPatch {
+            isolate: Some(how),
+            ..CardPatch::default()
+        };
+        w.ok::<call::Put>(&Put {
+            target: PutTarget::Cards { id: c.id, patch },
+            if_rev: None,
+        });
+        w.sync();
+    };
+    let workspace = |w: &Watch, c: &Card| {
+        w.model
+            .projects
+            .values()
+            .find(|p| p.folder == c.folder)
+            .cloned()
+    };
+
+    // Chosen before there is a workspace: the card keeps it, and nothing is opened.
+    set(&mut w, &cuegrid, Isolate::Always);
+    assert_eq!(card(&w, "cuegrid").isolate, Isolate::Always);
+    assert!(workspace(&w, &cuegrid).is_none(), "choosing opens nothing");
+    // Opened as a folder: the workspace takes it.
+    let id = w.ok::<call::ProjectAdd>(&AddProject {
+        id: ProjectId::mint(),
+        folder: cuegrid.folder.clone(),
+        name: None,
+    });
+    w.sync();
+    assert_eq!(w.model.projects[&id].isolate, Isolate::Always);
+    assert!(w.model.projects[&id].git);
+    // Changed afterwards: the card and its workspace both.
+    set(&mut w, &cuegrid, Isolate::Never);
+    assert_eq!(
+        (card(&w, "cuegrid").isolate, w.model.projects[&id].isolate),
+        (Isolate::Never, Isolate::Never)
+    );
+    set(&mut w, &cuegrid, Isolate::Busy);
+    assert_eq!(
+        (card(&w, "cuegrid").isolate, w.model.projects[&id].isolate),
+        (Isolate::Busy, Isolate::Busy)
+    );
+
+    // A thought placed in the other: the workspace made as it starts takes the card's choice.
+    set(&mut w, &lightdesk, Isolate::Never);
+    let thought = ThoughtId::mint();
+    w.ok::<call::ThoughtCapture>(&Capture {
+        agent: Some("fixture-silent".into()),
+        card_id: Some(lightdesk.id),
+        ..typed(thought, "tidy the cue list")
+    });
+    w.ok::<call::ThoughtStart>(&Start {
+        id: thought,
+        attempt: AttemptId::mint(),
+    });
+    w.until("its workspace is made", |m| {
+        m.projects.values().any(|p| p.folder == lightdesk.folder)
+    });
+    assert_eq!(workspace(&w, &lightdesk).unwrap().isolate, Isolate::Never);
+    // The other's choice was not touched.
+    assert_eq!(card(&w, "cuegrid").isolate, Isolate::Busy);
 }
 
 #[test]

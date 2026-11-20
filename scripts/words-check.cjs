@@ -12,6 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { serve, open } = require('./motion-pages.cjs');
 const { scene, flow } = require('./instrument-fixtures.cjs');
+const { projects } = require('./projects-fixtures.cjs');
 
 /** The labels the rows had before, which did not read by themselves or did not name what the person decides. */
 const OLD = ['From any app', 'A sent thought starts', 'Placing', 'Return in a thought', 'Finished thoughts are kept', 'Tab at the top of the screen', 'Turned into text', 'Key',
@@ -56,6 +57,8 @@ function states() {
     ...[['off'], ['current', '1.3.0'], ['available', '1.3.0'], ['downloading', '1.3.0'], ['installing', '1.3.0'], ['failed', '1.3.0']]
       .map(([state, version]) => [`update ${state}`, update({ state, version, notes: '', percent: 40, why: 'GitHub could not be reached' }), ['about']]),
     ['agents of every kind', agents, ['agents']],
+    // A project's details opened: where its agent works, with Git and without.
+    ['a project\'s details', () => projects('settings'), ['projects']], ['a project\'s details, no Git', () => projects('settings'), ['projects']],
     ['finished thoughts kept 30 days, a key kept', () => { const r = flow(scene('busy'), 'plain'); r.prefs.push({ id: 'keep_days', rev: 9, value: 30 }, { id: 'hold', rev: 9, value: 0 }, { id: 'return_sends', rev: 9, value: false }); return r; }, ['thoughts', 'about', 'voice']],
     ['the capture key taken', () => ({ ...scene('busy'), capture: null }), ['thoughts']],
     ['Windows', busy, SECTIONS, 'windows'], ['Windows, the tab on Display 2', tab('\\\\.\\DISPLAY2'), ['thoughts'], 'windows'],
@@ -101,6 +104,12 @@ async function main() {
         if (at === 'agents' && state === 'agents of every kind') {
           await page.evaluate(() => [...document.querySelectorAll('.set-pane .fold-l')].forEach((b) => b.click()));
           await page.waitForTimeout(250);
+        }
+        if (state.startsWith('a project\'s details')) {
+          const name = state.endsWith('no Git') ? 'dotfiles' : 'cuegrid';
+          await page.evaluate((n) => [...document.querySelectorAll('.set-pane .line.pj')].find((b) => b.querySelector('.t')?.textContent === n)?.click(), name);
+          await page.waitForTimeout(250);
+          if (!await page.evaluate(() => document.querySelector('.pj-c')?.textContent.includes('Where its agent works'))) failures.add(`${state}: no Where its agent works`);
         }
         const where = `${state}, ${at}`;
         const found = await page.evaluate(rows);

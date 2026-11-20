@@ -1265,6 +1265,7 @@ pub fn merge(tx: &mut Tx, out: Output, now: Time) -> store::Result<u32> {
                 hidden: false,
                 main: false,
                 available: true,
+                isolate: tasktap_proto::Isolate::Busy,
             })
         };
         let mut c = match cards.remove(&m.folder) {

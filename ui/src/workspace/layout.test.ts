@@ -72,6 +72,9 @@ test('moving a tab: between panes, before another tab, to an edge, and out of it
   assert.deepEqual(shape(m), ['x', 50, 'c', 'a,b']);
   // A pane's only tab cannot move to its own edge.
   assert.equal(move(m, 'c', paneOf(m, 'c')!.id, { edge: 'right' }, id), m);
+  // A tab sharing its own pane: that pane splits, the tab beside the rest.
+  m = move(l, 'b', left, { edge: 'right' }, id);
+  assert.deepEqual(shape(m), ['x', 50, ['x', 50, 'a', 'b'], 'c']);
 });
 
 test('a divider resizes within 10 to 90 percent and balances at 50', () => {

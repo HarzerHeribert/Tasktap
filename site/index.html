@@ -51,7 +51,7 @@
       <figcaption>
         <span class="sr">Tasktap at the top of your screen, in the notch, with one task from start to finish: it is handed off to the project cuegrid, worked on by Claude Code, which asks one question, and comes back done, for you to keep or discard.</span>
         <span class="steps" role="group" aria-label="One task, step by step" hidden>
-          <button type="button" data-step="say">Say it</button>
+          <button type="button" data-step="say">Say the task</button>
           <button type="button" data-step="place">Handed off</button>
           <button type="button" data-step="work">Working</button>
           <button type="button" data-step="ask">Needs you</button>
@@ -104,7 +104,7 @@
       <p>While agents work, you see a small count at the top of your screen and nothing else. When an agent has a question, the question opens there in full. Answer with one key and go back to what you were doing.</p>
       <p class="note">One list shows everything: what needs you, what is finished, and what is still running.</p>
       <h3>Several tasks in one project, and no task in another task’s way.</h3>
-      <p>Nothing is merged or deleted until you say so.</p>
+      <p>In a git project where a task is already running, a new task gets its own copy of the project and its own branch. When a task that ran in its own copy is finished, you look at its changes and keep or discard them. Nothing is merged or deleted until you say so.</p>
     </div>
     <figure class="shot bare pan" tabindex="-1">
       <img src="app/shots/home.webp" srcset="app/shots/home.webp 1x, app/shots/home@2x.webp 2x" width="720" height="670" loading="lazy" decoding="async"
@@ -118,7 +118,7 @@
   <div class="pair">
     <h2 id="workspace-h">Every agent runs in a real terminal.</h2>
     <div class="text">
-      <p>You can open that terminal, read it and type into it, exactly as if you had started the agent yourself. Split it, keep tabs, send a session to the background and bring it back.</p>
+      <p>You can open that terminal, read it and type into it, exactly as if you had started the agent yourself. Split the terminal, keep tabs, send a session to the background and bring it back.</p>
       <p>A page, a picture or a PDF that an agent made opens beside its terminal.</p>
       <p class="note">Questions and finished work show right under the terminal they belong to.</p>
     </div>
@@ -175,8 +175,8 @@
   <p class="sec-label" id="details-h">Details</p>
   <dl class="rows">
     <div><dt>Voice</dt><dd>Hold <kbd>⌥Space</kbd> and talk. Your voice can be turned into text on the Mac itself and sent nowhere (a 574 MB download, made once); it was tried in German, in English, and in both mixed. Or use a speech service of your choice with your own key.</dd></div>
-    <div><dt>Privacy</dt><dd>Before a task goes to a model or a recording to a speech service, you read exactly what would be sent.</dd></div>
-    <div><dt>Effects</dt><dd>The moving light is one setting: Full, Still or Off. The moving light follows Reduce Motion and Low Power Mode.</dd></div>
+    <div><dt>Privacy</dt><dd>Tasktap sends your words nowhere by itself. Before a task goes to a model, or a recording to a speech service, you read exactly what would be sent. The one thing Tasktap fetches without asking is the check for a new version, which you can turn off in Settings › About.</dd></div>
+    <div><dt>Effects</dt><dd>The moving light is one setting, Full, Still or Off, and follows Reduce Motion and Low Power Mode.</dd></div>
     <div><dt>Platforms</dt><dd>macOS 13 or later. Windows is being built: there a tab at the top edge of the screen and an icon by the clock stand in for the notch, and so far Claude Code, Codex and the agents you add run there. Speech on Windows goes through a speech service.</dd></div>
   </dl>
 </section>

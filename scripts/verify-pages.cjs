@@ -224,7 +224,7 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
     const notch = live.frameLocator('.notch iframe');
     await live.locator('.stage.live').waitFor();
     // It plays: the thought is typed into the app's own capture line.
-    await live.locator('.steps [aria-current]').filter({ hasText: 'Say it' }).waitFor();
+    await live.locator('.steps [aria-current]').filter({ hasText: 'Say the task' }).waitFor();
     await live.waitForFunction(() => document.querySelector('.notch iframe').contentDocument.querySelector('#capture-input')?.value.length > 4);
     assert.notEqual(await live.evaluate(() => document.activeElement?.tagName), 'IFRAME', 'the notch never takes the keyboard');
     // Paused, it holds where it is.

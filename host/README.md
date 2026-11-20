@@ -79,6 +79,7 @@ Previews of a folder, of sound and of film, Notebook, Session history and Activi
     cd host && cargo clippy -- -D warnings && cargo fmt --check && cargo test
     host/scripts/smoke.sh        # the notch and the workspace with the core's fixture agent; PASS or FAIL lines
     SPEECH_MODEL=<ggml-large-v3-turbo-q5_0.bin> host/scripts/smoke.sh   # the same, and speech on this Mac with the real model, from a file you fetched
+    host/scripts/smoke.sh --only Settings   # the app's start and the sections whose names hold these words (comma between several); no headless checks: a step that fails now and then, in a loop
     node scripts/speech-check.cjs && node scripts/speech-app-check.cjs   # speech on this Mac alone: the page (headless), then the app
     node scripts/placing-check.cjs <folder>   # the Placing sheet and its group in Settings by the keyboard (headless, fixture records), pictures in the folder
     host/scripts/measure.sh      # idle cost with the workspace on one idle terminal, launch, typing delay, a burst; after build.sh

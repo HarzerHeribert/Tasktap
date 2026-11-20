@@ -16,7 +16,9 @@
 //       title bar's line to a waiting question naming the key recorded. Each refusal names the key that has the
 //       combination already, the key held to talk among them, and the other way round in Voice; there a key another
 //       app holds is refused too. A copy that takes no keys from other apps (a review build) has no recorder in the
-//       four rows and says why, and its title-bar line names no key.
+//       four rows and says why, and its title-bar line names no key. A recorder pressed the moment its section is
+//       shown, before the page's next frame (Voice from Thoughts, whose four recorders go meanwhile), takes the keys
+//       pressed next.
 //   P5  About, Check for new versions: on by default, About shown asks the host to look; the switch by the pointer
 //       writes `update_checks` false, after which About asks nothing, Anything else says Nothing, and Check now (by
 //       the keyboard) asks once, as the person's word (`now`); on again asks at once. A build made here says so and
@@ -273,6 +275,33 @@ async function answerKeys(browser, url, system) {
   await page.context().close();
 }
 
+// ——— A recorder pressed the moment its section is shown ———
+// Another section's recorders go when it is left, and the page lets their last work wait for the next frame: on a
+// busy page or in a window not drawn a click on Change can come first. The key pressed after it is still the key.
+async function atOnce(browser, url, system) {
+  const at = `${system}, a recorder pressed the moment its section is shown`;
+  const page = await open(browser, { label: 'workspace', records: scene('busy'), url, dpr: 2, system });
+  await section(page, 'thoughts');
+  const talk = page.locator('.set-pane .set:has(> .t:text-is("Key to hold while you talk")) .rec');
+  // Thoughts' recorders settled first (a page that is not in front may not have had the frame their start waits for:
+  // drawn again, they have), then Voice chosen in the list and Change pressed in one go, before the page's next frame.
+  await page.evaluate(async () => {
+    window.__motion.redraw();
+    await new Promise((done) => queueMicrotask(done));
+    document.querySelector('#set-tab-voice').click();
+    await new Promise((done) => queueMicrotask(done));
+    [...document.querySelectorAll('.set-pane .set')].find((r) => r.querySelector('.t').textContent === 'Key to hold while you talk').querySelector('.rec').click();
+  });
+  await page.waitForTimeout(400);
+  expect(await talk.getAttribute('aria-pressed') === 'true', `${at}: Change listens`);
+  await key(page, 'Control+Shift+KeyY');
+  const stored = await page.evaluate(() => JSON.stringify((window.__fake.records.prefs || []).find((p) => p.id === 'talk_key')?.value ?? null));
+  expect(stored === JSON.stringify({ control: true, alt: false, shift: true, meta: false, code: 'KeyY' }) && await talk.getAttribute('aria-pressed') === 'false',
+    `${at}: the keys pressed next are the key held to talk, though Thoughts' four recorders went in the meantime (${stored}, listening: ${await talk.getAttribute('aria-pressed')})`);
+  for (const e of page.errors) failures.push(`${at}: page: ${e}`);
+  await page.context().close();
+}
+
 // ——— A copy that takes no keys from other apps (a review build) names none ———
 async function noKeys(browser, url, system) {
   const at = `${system}, a copy that takes no keys from other apps`;
@@ -443,6 +472,7 @@ async function main() {
           await login(browser, server.url, system);
           await where(browser, server.url, system);
           await answerKeys(browser, server.url, system);
+          await atOnce(browser, server.url, system);
           await noKeys(browser, server.url, system);
           await versions(browser, server.url, system);
         }

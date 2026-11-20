@@ -8,7 +8,7 @@
 // nothing is shown that the core cannot keep.
 import { getVersion } from '@tauri-apps/api/app';
 import type { ComponentChildren } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useState } from 'preact/hooks';
 import type { MotionAmbient, MotionPalette, MotionStyle, Shortcut, TextSize } from '../../../core/proto/protocol.ts';
 import type { HostLogin } from '../client.ts';
 import { routing } from '../capture.tsx';
@@ -247,8 +247,9 @@ function AppearancePane() {
   const state = motionState({
     thoughts: records.thoughts.values(), sessions: records.sessions.values(), questions: openQuestions().length, routing: routing(), voice: ui.voice,
   });
-  // Leaving the section, or the sheet, ends the trial.
-  useEffect(() => () => void (trial && stopTrial()), []);
+  // Leaving the section, or the sheet, ends the trial there and then (not after the next frame, which a window not
+  // drawn may be long without).
+  useLayoutEffect(() => () => void (trial && stopTrial()), []);
   return (
     <>
       <Row name="Text size" hint="Of everything but a terminal, which has its own.">
@@ -388,8 +389,9 @@ const PANES: Record<Section, () => ComponentChildren> = {
 export function Settings({ at }: { at: Section }) {
   shown.at = at;
   useEffect(() => void loadTerms(), []);
-  // A section by its key, ⌘1 to ⌘7 in the order of the list, from anywhere in the sheet.
-  useEffect(() => {
+  // A section by its key, ⌘1 to ⌘7 in the order of the list, from anywhere in the sheet, and only while it is up: the
+  // keys go with it the moment it goes (a key pressed right after ⌘W would bring it back).
+  useLayoutEffect(() => {
     const keys = (e: KeyboardEvent) => {
       // While a key is recorded every combination is the recorder's.
       const to = !recorder.on ? SECTIONS.find((_, i) => hit(`⌘${i + 1}`, e)) : undefined;

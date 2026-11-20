@@ -701,7 +701,7 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
   // the field has the keyboard (the review's R5), not the question that waits there.
   const asking = useRef('');
   asking.current = q?.id ?? '';
-  useEffect(() => () => void (asking.current && (away(asking.current), (left = true))), []);
+  useLayoutEffect(() => () => void (asking.current && (away(asking.current), (left = true))), []);
   useLayoutEffect(() => void (raised && left && ((left = false), (page.focus = '#capture-input'))), []);
   // The field is as high as its words, a line at a time. It is measured when they change, typed or put there, or its
   // width does, and on no other render: a measure makes the page lay itself out there and then.

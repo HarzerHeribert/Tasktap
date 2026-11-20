@@ -95,7 +95,7 @@ jobs:
         working-directory: ui
       # Chromium and WebKit, the Mac's engine, in which a click on a button gives it no keyboard: three defects in a
       # row were of that kind. Where CI is set a check that cannot start WebKit fails (composer-check,
-      # settings-rows-check); at a desk without it, it says so in a NOTE.
+      # settings-rows-check, late-cleanup-check); at a desk without it, it says so in a NOTE.
       - uses: actions/cache@v4
         with:
           path: ~/Library/Caches/ms-playwright
@@ -117,6 +117,10 @@ jobs:
       # links-check, frame-check, voice-check and speech-check in the host job.)
       - name: Settings' rows by the pointer and the keyboard, in Chromium and WebKit
         run: node scripts/settings-rows-check.cjs "$RUNNER_TEMP/pages/rows"
+      # What a part of a page undoes when it goes, undone that moment, never after the next frame (the hold-to-talk
+      # recorder's defect was of that kind).
+      - name: What goes with a part of a page goes at once, in Chromium and WebKit
+        run: node scripts/late-cleanup-check.cjs
       - name: Settings › Projects at every size of window and text
         run: node scripts/projects-shots.cjs "$RUNNER_TEMP/pages/projects" --check --sizes
       - name: Placing by a model, its sheet and its order

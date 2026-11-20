@@ -9,7 +9,7 @@
 // the person did here a moment ago.
 import type { AddLook, Card, Isolate, Look, Offer, Project } from '../../../core/proto/protocol.ts';
 import { Component, type ComponentChildren } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { uuid7 } from '../client.ts';
 import { HERE, shownPath } from '../system.ts';
 import { I, Key, Mark, Ring, ago, plural } from '../ui.tsx';
@@ -156,9 +156,10 @@ export function ProjectsSheet({ auto }: { auto?: boolean }) {
   const o = useOffer();
   const at = step(o);
   const other: Act = { k: '⌘O', label: 'Open a folder…', do: () => open({ kind: 'open-workspace' }) };
-  // Not now, as the step stands when the sheet goes, whichever way it goes; nothing once it was answered here.
+  // Not now, as the step stands when the sheet goes, whichever way it goes, the moment it goes (after the next frame it
+  // could come after an answer given in a sheet opened again); nothing once it was answered here.
   const notNow = useRef<() => void>(() => {});
-  useEffect(() => () => notNow.current(), []);
+  useLayoutEffect(() => () => notNow.current(), []);
   const once = (f: () => void) => () => ((notNow.current = () => {}), f());
   // A key the sheet does not take is the Composer's: the sheet goes as Not now, and the field has the keyboard before
   // the key types, so what it types is there.

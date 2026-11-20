@@ -51,7 +51,7 @@ Agreed with the owner on 2026-11-16 and 2026-11-17.
 Chosen by the plan's author, open to change before Phase 1 starts:
 
 - **Core language: Rust.** One binary, no Python requirement, terminals on Mac and Windows through one library (`portable-pty`), and the same language as the Windows host (Tauri).
-- **UI: TypeScript, strict, with Preact and Vite.** Nobody reads this code by hand, so the type checker is the reviewer that never tires.
+- **UI: TypeScript, strict, with Preact and Vite.** Nobody reads this code by hand, so the type checker is the reviewer that never tires. One rule the type checker cannot hold: Preact runs the end of an effect after the next frame, which a window not drawn may be long without, so what a part of a page undoes when it goes (a thing of the whole page it began, a listener on the document, the microphone) is undone in a layout effect's end, the moment it goes, and a thing of the whole page names the part that holds it, which alone ends it (`scripts/late-cleanup-check.cjs`).
 
 ## Target structure
 

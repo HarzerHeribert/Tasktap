@@ -414,8 +414,9 @@ export function Sheets() {
     const self = d.kind === 'setup' && d.auto ? document.querySelector<HTMLElement>('.home #capture-input') : null;
     focus(self ?? sheet?.querySelector<HTMLElement>('#capture-input, #find-text, .field input, .ask-notch .ans, .reply input, [role=tab][aria-selected=true]') ?? sheet);
   }, [key]);
-  // Tab stays inside the sheet.
-  useEffect(() => {
+  // Tab stays inside the sheet, from the moment it is there; the trap of the sheet before goes the same moment (one
+  // that came by itself would give Shift-Tab to the Composer behind this one).
+  useLayoutEffect(() => {
     if (!d) return undefined;
     const trap = (e: KeyboardEvent) => {
       const sheet = document.querySelector<HTMLElement>('.sheet');

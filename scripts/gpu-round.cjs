@@ -41,7 +41,7 @@ const PASSIVE = !!process.env.GPU_ROUND_PASSIVE;
 // graphics processor's power over the floor (mW, judged only with powermetrics' log). Effects Full, and Still and Off
 // where they were measured (rest and working); elsewhere Still and Off are held to Full's. An app figure of 0 is
 // exactly zero in every second, at every level: at rest without the caret and the notch at rest (item 35). The notch
-// at rest has no power guard: with no work of the app's, its power over the floor is the floor's own noise (-6 mW that
+// at rest and the notch open have no power guard: their power over the floor is within the floor's own noise (-6 mW and 8 mW that
 // day). Windows keeps its own limits (scripts/winvm).
 const GUARDS = {
   rest: { app: 7.4, mW: 231, //                4.904 ms/s, 154 mW
@@ -49,7 +49,7 @@ const GUARDS = {
     off: { app: 7.8, mW: 156 } }, //           5.170, 104
   'rest-unfocused': { app: 0, mW: 89 }, //     0, 59
   'notch-rest': { app: 0, mW: null }, //       0, -6
-  'notch-open': { app: 7.7, mW: 12 }, //       5.102, 8
+  'notch-open': { app: 7.7, mW: null }, //     5.102, 8 (16 in the round before it: within the floor's own ±15)
   sidebar: { app: 76.6, mW: 1940 }, //         51.086, 1293
   terminal: { app: 37.0, mW: 165 }, //         24.692, 110
   listening: { app: 58.7, mW: 2255 }, //       39.133, 1503

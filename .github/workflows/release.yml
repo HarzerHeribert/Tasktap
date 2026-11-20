@@ -212,8 +212,9 @@ jobs:
           host/scripts/check-signed.sh "$app" $([ "$SIGN" = true ] && echo --developer-id --notarised)
       # The Mac's install line accepts only an image Apple notarised, so its accepting path is tried here, on the image
       # just notarised: site/install.sh as a person runs it, from a folder of the run's own, into another, the app not
-      # started; first with another team's identifier in it, which must be refused with nothing installed. Its TEAM_ID
-      # must be this team; while it is empty the team from the secret stands in for it here.
+      # started; first with another team's identifier in place of whatever it names, which must be refused with nothing
+      # installed. Its TEAM_ID must be this team, and the script is run as it is; while it is empty, the team from the
+      # secret stands in for it here.
       - name: The Mac line installs the disk image just notarised
         if: env.SIGN == 'true'
         env:
@@ -228,14 +229,19 @@ jobs:
           if [ -n "$team" ] && [ "$team" != "$APPLE_TEAM_ID" ]; then
             echo "::error::TEAM_ID in site/install.sh is not the team APPLE_TEAM_ID names."; exit 1
           fi
-          sed 's/^TEAM_ID=""$/TEAM_ID="AAAAAAAAAA"/' site/install.sh > "$RUNNER_TEMP/install-other.sh"
+          if [ "$team" = AAAAAAAAAA ]; then
+            echo "::error::TEAM_ID in site/install.sh is AAAAAAAAAA, the team this step uses as another team's; choose another one for this step."; exit 1
+          fi
+          sed -E 's/^TEAM_ID="[A-Z0-9]*"$/TEAM_ID="AAAAAAAAAA"/' site/install.sh > "$RUNNER_TEMP/install-other.sh"
+          grep -q '^TEAM_ID="AAAAAAAAAA"$' "$RUNNER_TEMP/install-other.sh" || { echo "::error::TEAM_ID in site/install.sh could not be replaced for the other team's trial."; exit 1; }
           if TASKTAP_INSTALL_FROM="$from" TASKTAP_INSTALL_TO="$to" TASKTAP_INSTALL_NO_START=1 sh < "$RUNNER_TEMP/install-other.sh" 2> "$RUNNER_TEMP/other.txt"; then
             echo "::error::The Mac line installed an image whose team is not the one it names."; exit 1
           fi
           cat "$RUNNER_TEMP/other.txt"
           grep -q "not signed with a Developer ID of Tasktap's team (AAAAAAAAAA)" "$RUNNER_TEMP/other.txt" || { echo "::error::The Mac line refused another team's image for another reason."; exit 1; }
           [ -z "$(ls -A "$to")" ] || { echo "::error::The Mac line left something in $to after refusing."; exit 1; }
-          sed "s/^TEAM_ID=\"\"$/TEAM_ID=\"$APPLE_TEAM_ID\"/" site/install.sh > "$RUNNER_TEMP/install.sh"
+          if [ -n "$team" ]; then cp site/install.sh "$RUNNER_TEMP/install.sh"
+          else sed "s/^TEAM_ID=\"\"$/TEAM_ID=\"$APPLE_TEAM_ID\"/" site/install.sh > "$RUNNER_TEMP/install.sh"; fi
           TASKTAP_INSTALL_FROM="$from" TASKTAP_INSTALL_TO="$to" TASKTAP_INSTALL_NO_START=1 sh < "$RUNNER_TEMP/install.sh"
           codesign --verify --deep --strict "$to/Tasktap.app"
           if [ -z "$team" ]; then

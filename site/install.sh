@@ -19,7 +19,7 @@
 set -eu
 
 # The team whose Developer ID signs Tasktap. While it is empty, this script installs nothing.
-TEAM_ID=""
+TEAM_ID="JCURKSLDV6"
 IMAGE=Tasktap_aarch64.dmg
 
 say() { printf '%s\n' "$*"; }

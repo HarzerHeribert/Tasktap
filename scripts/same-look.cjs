@@ -95,7 +95,7 @@ const INIT = (debug, clock) => {
     return q.frames;
   };
   window.__clock = { q, run: (ms, hz = 60) => run(ms, hz, false), live: (ms, hz = 60) => run(ms, hz, true), task: (ms = 0) => new Promise((ok) => real.st(ok, ms)),
-    quiet: () => !q.raf.length && !q.timers.some((t) => t.at - q.T < 300) };
+    near: () => q.timers.some((t) => t.at - q.T < 300) };
   if (!debug) return;
   let m;
   Object.defineProperty(window, '__motion', {
@@ -154,11 +154,18 @@ function stills() {
 const geometry = (cutout) => ({ do: 'geometry', width: cutout ? 185 : 120, height: cutout ? 32 : 20, cutout, compact: false, surfaceWidth: 420, surfaceOffset: 0, span: 560,
   pixel: 2, corner: 10, offset: 0, available: 700, collapsed: false });
 
-/** Gives the page's clock real time until it asks for no frame and no timer is near: what the web view does aside
- *  (building a style's program, which the motion waits for frame by frame) has come in. A minute at most: in software,
- *  on a loaded machine, the rings' program took longer than twenty seconds. */
+/** Gives the page's clock real time until the motion stops drawing (it draws in every frame while a style's program is
+ *  still being built, which the web view does aside) and no timer is near. Frames asked for by the page's CSS loops
+ *  (paced.ts) do not count: they go on for as long as the loop. A minute at most: in software, on a loaded machine,
+ *  the rings' program took longer than twenty seconds. */
 async function quiet(page) {
-  for (let i = 0; i < 240 && !(await page.evaluate(() => window.__clock.quiet())); i++) await page.evaluate(() => window.__clock.live(250));
+  const frames = () => page.evaluate(() => window.__motion?.stats.frames ?? 0);
+  for (let i = 0, was = -1; i < 240; i++) {
+    const now = await frames();
+    if (now === was && !(await page.evaluate(() => window.__clock.near()))) return;
+    was = now;
+    await page.evaluate(() => window.__clock.live(250));
+  }
 }
 /** Waits until nothing the compositor runs changes any more (transitions and finite animations, on real time) and the
  *  fonts are in; the page's own clock does not move meanwhile. */

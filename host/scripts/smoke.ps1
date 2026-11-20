@@ -2,8 +2,9 @@
 # of its own), with a core that has the fixture agent, drives it only through its debug channel (one command per
 # line on standard input), and says PASS or FAIL for:
 #   - the core starting and the host reaching it over its pipe, the workspace page running and having the core's
-#     records through the bridge, a folder becoming a workspace, a terminal with the system's shell answering what
-#     is typed into it;
+#     records through the bridge, the first start's Setup sheet coming down by itself and Not now putting it away, a
+#     folder becoming a workspace, a terminal with the system's shell answering what is typed into it; closing a
+#     terminal: a program running in it named in the sheet that asks, an idle shell closed without a question;
 #   - a thought end to end: typed on Home and sent, placed in the open folder, the fixture agent working in a
 #     terminal of the workspace, its folder-trust prompt and its question in the pane's strip and on Home, the
 #     question answered as the global shortcut answers it, its result marked; then runs in a copy of the project
@@ -13,7 +14,7 @@
 #   - the tab at the top edge: its window made with the notch's own page in it, opened and folded as the pointer
 #     and the capture key would, told through the debug channel (a passive run's tab takes neither; what the real
 #     pointer and keys do is the desktop round's, scripts\winvm\desktop.ps1);
-#   - the capture key, and the app quitting with nothing left running.
+#   - the capture key and the keys that answer a question from any app, and the app quitting with nothing left running.
 #   pwsh host\scripts\build.ps1 -Fixtures
 #   pwsh host\scripts\smoke.ps1
 # The runs need git, the previews Node (for the check's own web server); without one, that part is said and not
@@ -66,6 +67,9 @@ Start-App (Join-Path $App 'tasktap-app.exe') @{
     PATH = "$tmp\agents;$env:PATH"
     GIT_CONFIG_GLOBAL = "$tmp\gitconfig"
     GIT_CONFIG_NOSYSTEM = '1'
+    # No agent's history to offer, so that the first start is the same on every machine (as smoke.sh gives it).
+    CLAUDE_CONFIG_DIR = "$tmp\no-history\claude"
+    CODEX_HOME = "$tmp\no-history\codex"
 } $Seconds
 
 # Waits until a page expression's value contains $want; what it last was is kept for the failure's line.
@@ -114,6 +118,24 @@ try {
     $project = $null
     if ($page -eq 'object') {
         if (Has "String(__ws.records.prefs !== undefined && __ws.records.projects !== undefined)" 'true' 6) { Pass 'the page has the core''s records through the bridge' } else { Fail "the page has the core's records (it said: $last)" }
+        # First start (design/ui-directions/NOTES.md §13), as smoke.sh tries it but for where things stand on the
+        # screen: Setup's first step comes down by itself as a sheet, "Choose where your projects are", three facts,
+        # and behind "What exactly is read" all it would read and what a model would get. Not now is an answer; Home is
+        # then the Composer, its key the metal one, and Setup under it with nothing else. (Compared in the page: what
+        # the app prints is read here in the console's code page, which has no middle dot.)
+        $chip = "[...document.querySelectorAll('#dest-chip > b, #dest-chip > span')].map(e => e.textContent).join(' \u00b7 ') === 'No projects yet \u00b7 saved for later'"
+        $first = (Has (Text '.sheet') 'Choose where your projects are' 8) -and "$(Js "String(__ws.ui.sheet?.kind === 'setup' && __ws.ui.sheet.auto === true && document.querySelectorAll('.sheet .facts > li').length <= 3)" 2)" -eq 'true'
+        $null = Js "(document.querySelector('.sheet .more-l')?.click(), 1)"
+        $all = if ($first -and (Has (Text '.sheet .facts-all') 'first lines of its README' 4)) { $last } else { "$last" }
+        if ($first -and $all.Contains('asks Git for its first commit') -and $all.Contains('up to 8 likely projects') -and "$(Js "String($chip)" 2)" -eq 'true') {
+            Pass 'the first start brings down Setup''s first sheet by itself: where the projects are, in three facts, and behind one line all it would read and what a model would get'
+        } else { Fail 'the first start''s sheet' "is it Setup's, by itself: $first; behind the line: $all" }
+        $null = Js "([...document.querySelectorAll('.sheet .sh-f .act')].find(b => b.textContent.includes('Not now'))?.click(), 1)"
+        $metal = "(k => /linear-gradient/.test(getComputedStyle(k).backgroundImage) && getComputedStyle(k).color === 'rgb(13, 13, 14)')(document.querySelector('.home .cap-row .key'))"
+        $composed = "String($chip && $metal && (b => b.textContent === 'Save for later' && b.disabled)(document.querySelector('.home .cap-row .key')) && !document.querySelector('.hx.first > :not(.capture, .setup, .cols)') && /0 of [23] done/.test(document.querySelector('.setup .setup-n')?.textContent))"
+        if ((Has "String(!__ws.ui.sheet && !!document.querySelector('.home .setup'))" 'true' 5) -and "$(Js $composed 2)" -eq 'true') {
+            Pass 'after Not now, Home is the Composer, its place saying No projects yet, saved for later, its key the metal key that Return saves for later with, and Setup under it with nothing else'
+        } else { Fail 'Home after the first start''s Not now' "no sheet, Setup on Home: $last; the rest: $(Js $composed 2); under the Composer: $(Js (Text '.home .hx') 2)" }
         # A core built with its fixtures detects its agents when asked, as a normal one does at start.
         Call 'put' '{"c":"prefs","id":"agent","patch":"fixture"}'
         Call 'put' '{"c":"prefs","id":"hold","patch":2}'
@@ -136,7 +158,24 @@ try {
             # The fixture agent is on the PATH of the terminals, as a tool a person installed is.
             Line 'where fixture-agent'
             if (Has "__ws.text().replace(/\s+/g, '')" "$tmp\agents\fixture-agent.exe" 6) { Pass 'a terminal finds the fixture agent on its PATH' } else { Fail 'a terminal finds the fixture agent on its PATH' (Js '__ws.text()' 2) }
-            $null = Js "(__ws.call('terminal.stop', { id: '$terminal' }), 1)"
+            # A program in front in the shell: closing its tab asks, naming it as the core says it (terminal.runs; on
+            # Windows a program as a person types it, PING for PING.EXE). Ctrl+Backspace there stops the session.
+            Line 'ping -n 600 127.0.0.1'
+            if (-not (Has "__ws.call('terminal.runs', { id: '$terminal' }).then(r => r.state + ' ' + r.what.join(','))" 'running PING' 8)) { Fail 'the core says what runs in the shell' $last }
+            $null = Js "(__ws.command('close-tab'), 1)"
+            if ((Has (Text '.sheet') 'Keep running in background' 5) -and $last.Contains('Stop session') -and $last.Contains('PING is running in it.')) { Pass 'closing the tab of a shell where a program runs offers Keep running, Stop and Cancel in a sheet that names the program' } else { Fail 'the close sheet' $last }
+            Press '.sheet' 'Backspace' 'true'
+            if (Has "__ws.records.terminals.get('$terminal')?.state ?? ''" 'exited' 8) { Pass 'Ctrl+Backspace in it stops the session' } else { Fail 'stopping from the close sheet' $last }
+            # A shell with nothing running in it closes at once, by its key and by its row's cross in the sidebar, and ends.
+            foreach ($how in 'key', 'cross') {
+                $idle = Js "__ws.newTerminal('$project')" 5
+                if (-not (Has "__ws.call('terminal.runs', { id: '$idle' }).then(r => r.state)" 'idle' 10)) { Fail 'the core says a new shell is idle' $last }
+                $close = if ($how -eq 'key') { "(__ws.focusSession('$idle'), __ws.command('close-tab'), 1)" } else { "(document.querySelector(`".srow[data-id='$idle'] > .x`")?.click(), 1)" }
+                $null = Js $close
+                Start-Sleep -Milliseconds 500
+                $gone = Js "String(!__ws.ui.sheet && !__ws.L.tabs(__ws.layout('$project')).includes('$idle') && !__ws.layout('$project').background.includes('$idle'))" 3
+                if ("$gone" -eq 'true' -and (Has "__ws.records.terminals.get('$idle')?.state ?? ''" 'exited' 5)) { Pass "closing a shell with nothing running in it by its $how asks nothing, takes its tab away and ends it" } else { Fail "closing an idle shell by its $how" "no sheet, no tab: $gone; its state: $last; the sheet: $(Js (Text '.sheet') 2)" }
+            }
         }
     }
 
@@ -176,7 +215,8 @@ try {
         if (Has (Thought 'write:kept.txt:hello' 'workdir?.changes') 'pending' 40) { Pass 'a run in its own copy of the project ends with its changes pending' } else { Fail 'a run''s changes come back pending' $last }
         $null = Js "(__ws.show('home'), 1)"
         if ((Has (Text '.waiting') '1 file' 8) -and $last.Contains('Keep') -and $last.Contains('Discard')) { Pass 'Home lists it under Changes waiting, with its diffstat and Keep, Discard and Review changes' } else { Fail 'Changes waiting on Home' $last }
-        $null = Js "(document.querySelector('.waiting .key')?.click(), 1)"
+        # Keep is the row's first quiet button.
+        $null = Js "(document.querySelector('.waiting .hr-a .btn')?.click(), 1)"
         if ((Has (Thought 'write:kept.txt:hello' 'workdir?.changes') 'kept' 40) -and (Test-Path "$tmp\project\kept.txt")) { Pass 'Keep brings the changes into the project''s branch' } else { Fail 'Keep' "$last; kept.txt in the project: $(Test-Path "$tmp\project\kept.txt")" }
         # A run whose agent is still running when its changes come back: Discard stops it first, once confirmed.
         Run 'Write a scratch file'
@@ -288,6 +328,10 @@ try {
             $taken = Js "__ws.call('host.capture_key', { key: { control: true, alt: true, shift: false, meta: false, code: 'KeyT' } }).then(JSON.stringify, $refused)"
             if ($key -eq '{"key":null}' -and "$taken" -match '^refused: .*taken') { Pass 'no desktop here (session 0): the host holds no capture key and says that one asked for is taken' } else { Fail "the capture key without a desktop (the host said: $key, then: $taken)" }
         }
+        # The keys that answer an agent's question from any app (host\src\keys.rs), held only while one waits: this
+        # system's own, Alt-Shift with J (to the question), Y and N, since Control-Alt is AltGr on Windows.
+        $answers = Js "__ws.call('host.answer_key', {}).then(r => ['question', 'yes', 'no'].map(w => (k => k ? [k.control, k.alt, k.shift, k.meta, k.code].join(' ') : 'none')(r[w])).join(' | '), $refused)"
+        if ("$answers" -eq 'false true true false KeyJ | false true true false KeyY | false true true false KeyN') { Pass 'the answer keys are Windows'' own: Alt-Shift-J goes to the question, Alt-Shift-Y and Alt-Shift-N answer it' } else { Fail 'the answer keys' "the host said (Control Alt Shift Windows key): $answers" }
     }
     # The tab at the top edge (host\src\edge.rs): the notch's own page in a window of its own. A passive run's tab
     # takes neither the pointer nor the keyboard, so what they do is told to it here, as smoke.sh tells the notch.

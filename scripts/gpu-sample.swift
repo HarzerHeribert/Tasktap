@@ -111,8 +111,9 @@ func cpuTime(_ pid: pid_t) -> UInt64? {
 }
 /// The app's processes: the app, those the system holds it responsible for, those running from its data folder, and
 /// everything any of them started. An app started from a terminal is not responsible for itself: the terminal is, and
-/// for the WebKit processes the app's web views ask for too. Those are the WebKit processes the app's responsible
-/// process has had since the app began.
+/// for the WebKit processes the app's web views ask for too. Those are the system's WebKit processes the app's
+/// responsible process has had since the app began. Not a WebKit of another program's own, as Playwright's that the
+/// headless checks run from the same terminal (on 2026-11-20 its nine seconds were counted as the app's at rest).
 func family(_ root: pid_t, _ data: String, _ all: [pid_t: Proc]) -> Set<pid_t> {
   guard root > 0, let app = all[root] else { return [] }
   let above = responsible?(root) ?? root
@@ -122,7 +123,7 @@ func family(_ root: pid_t, _ data: String, _ all: [pid_t: Proc]) -> Set<pid_t> {
     if r == root { mine.insert(pid); continue }
     let file = path(pid)
     if !data.isEmpty, file.hasPrefix(data) { mine.insert(pid) }
-    else if r == above, above != root, p.start >= app.start - 0.5, file.contains("/com.apple.WebKit.") { mine.insert(pid) }
+    else if r == above, above != root, p.start >= app.start - 0.5, file.hasPrefix("/System/"), file.contains("/com.apple.WebKit.") { mine.insert(pid) }
   }
   var grew = true
   while grew {

@@ -108,6 +108,9 @@ fn hold(
 /// The preference as the core's records have it now: `None` is the usual key.
 pub fn prefer(app: &AppHandle, key: Option<Key>) {
     let wanted = key.or_else(usual);
+    if *CAPTURE.lock().unwrap() == wanted {
+        return;
+    }
     if hold(&mut CAPTURE.lock().unwrap(), wanted.clone(), register(app)).is_ok() {
         crate::log(json!({"event": "capture-key", "ok": true, "key": wanted}));
     }

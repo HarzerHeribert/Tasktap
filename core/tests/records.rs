@@ -683,6 +683,7 @@ fn the_settings_preferences_are_stored_refused_in_a_sentence_and_restored_by_del
         ("terminal_bold_bright", json!(false)),
         ("terminal_contrast", json!(false)),
         ("text_size", json!("small")),
+        ("update_checks", json!(false)),
     ];
     for (id, value) in &settings {
         let args = json!({"c": "prefs", "id": id, "patch": value});
@@ -733,6 +734,7 @@ fn the_settings_preferences_are_stored_refused_in_a_sentence_and_restored_by_del
         ("terminal_bold_bright", json!(1)),
         ("terminal_contrast", json!(null)),
         ("text_size", json!("huge")),
+        ("update_checks", json!("never")),
     ] {
         assert_eq!(said(&mut w, id, patch).0, Code::Invalid, "{id}");
     }

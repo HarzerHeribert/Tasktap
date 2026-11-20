@@ -718,6 +718,10 @@ pub enum PrefValue {
     /// its one-time offers stay in Settings, and Home shows it no more.
     /// False: Home shows it while one of its steps is not done.
     SetupHidden(bool),
+    /// Tasktap asks GitHub for a new version by itself (host/src/update.rs):
+    /// when About is shown and at the first capture of a day. False: never
+    /// unless the person asks for one check (`host.update {look, now}`).
+    UpdateChecks(bool),
 }
 
 /// An agent the person added (design §7): any program that takes what it is
@@ -926,7 +930,7 @@ words! {
         Hold, Agent, RouteBy, MotionStyle, MotionPalette, MotionHue, MotionLumen, MotionAmbient,
         TerminalFont, TerminalSize, TerminalLineHeight, SpeechBy, SpeechLanguages, Keys,
         ReturnSends, CaptureKey, TalkKey, KeepDays, TerminalBoldBright, TerminalContrast, TextSize,
-        AgentOptions, OwnAgents, SetupHidden
+        AgentOptions, OwnAgents, SetupHidden, UpdateChecks
     }
 }
 
@@ -982,6 +986,7 @@ impl PrefKey {
             PrefKey::AgentOptions => PrefValue::AgentOptions(Vec::new()),
             PrefKey::OwnAgents => PrefValue::OwnAgents(Vec::new()),
             PrefKey::SetupHidden => PrefValue::SetupHidden(false),
+            PrefKey::UpdateChecks => PrefValue::UpdateChecks(true),
         }
     }
 }
@@ -1013,6 +1018,7 @@ impl PrefValue {
             PrefValue::AgentOptions(_) => PrefKey::AgentOptions,
             PrefValue::OwnAgents(_) => PrefKey::OwnAgents,
             PrefValue::SetupHidden(_) => PrefKey::SetupHidden,
+            PrefValue::UpdateChecks(_) => PrefKey::UpdateChecks,
         }
     }
 }

@@ -19,11 +19,43 @@ use tasktap_proto::{
     Welcome, VERSION,
 };
 
-/// What the host's own connection watches: `glance`, the folders, the capture key among the preferences, and the
+/// What the host's own connection watches: `glance`, the folders, the preferences the host acts on (`Prefs`), and the
 /// open questions, which the answer keys and the rule of where Tasktap shows itself need to know (presence.rs).
 const WATCHED: [&str; 4] = ["glance", "projects", "prefs", "questions"];
 
-/// What the host's own connection hears besides `glance` and the capture key.
+/// The preferences the host acts on, as the core's records have them: the global keys it registers (keys.rs) and
+/// whether it asks for new versions by itself (update.rs). A preference with no row is its default.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Prefs {
+    /// `capture_key`: none while it is unset, which is the system's own key.
+    pub capture: Option<Shortcut>,
+    /// `update_checks`.
+    pub checks: bool,
+}
+
+impl Default for Prefs {
+    fn default() -> Self {
+        let mut prefs = Prefs { capture: None, checks: false };
+        for key in [PrefKey::CaptureKey, PrefKey::UpdateChecks] {
+            prefs.take(key.default());
+        }
+        prefs
+    }
+}
+
+impl Prefs {
+    /// Takes a row's value; whether the host acts on that preference.
+    fn take(&mut self, value: PrefValue) -> bool {
+        match value {
+            PrefValue::CaptureKey(key) => self.capture = key,
+            PrefValue::UpdateChecks(on) => self.checks = on,
+            _ => return false,
+        }
+        true
+    }
+}
+
+/// What the host's own connection hears besides `glance` and the preferences.
 pub enum Heard {
     /// The open questions changed.
     Questions,
@@ -197,12 +229,12 @@ impl Core {
 
 type Waiter = Box<dyn FnOnce(Outcome) + Send>;
 
-/// The host's own connection: `glance`, the folders the person opened, the capture key, and calls.
+/// The host's own connection: `glance`, the folders the person opened, the preferences it acts on, and calls.
 pub struct Link {
     /// Every project's folder, as the core has them: what `host.open` may open is inside one.
     pub folders: Mutex<Vec<(tasktap_proto::ProjectId, PathBuf)>>,
-    /// The `capture_key` preference as stored; none while it is unset.
-    capture: Mutex<Option<Shortcut>>,
+    /// The preferences the host acts on, as stored.
+    prefs: Mutex<Prefs>,
     /// The open questions, as the rule needs them.
     pub questions: Mutex<HashMap<QuestionId, crate::presence::Asks>>,
     writer: Mutex<Option<Stream>>,
@@ -212,18 +244,18 @@ pub struct Link {
 
 impl Link {
     /// Connects, retires a running core of another build that has no terminals so this app's
-    /// core starts instead, and from then on hands every `glance` to `glance`, and the capture key
-    /// the preferences name to `capture`: once the records have arrived, and whenever it changes.
+    /// core starts instead, and from then on hands every `glance` to `glance`, and the preferences
+    /// the host acts on to `prefs`: once the records have arrived, and whenever one of them changes.
     /// The connection is made again whenever it ends.
     pub fn start(
         core: Arc<Core>,
         glance: impl Fn(Glance) + Send + 'static,
-        capture: impl Fn(Option<Shortcut>) + Send + 'static,
+        prefs: impl Fn(Prefs) + Send + 'static,
         heard: impl Fn(Heard) + Send + 'static,
     ) -> io::Result<Arc<Link>> {
         let link = Arc::new(Link {
             folders: Mutex::default(),
-            capture: Mutex::default(),
+            prefs: Mutex::default(),
             questions: Mutex::default(),
             writer: Mutex::new(None),
             waiting: Mutex::default(),
@@ -233,7 +265,7 @@ impl Link {
         let mut stream = Self::open(&core, &link, &mut decoder)?;
         let me = link.clone();
         std::thread::spawn(move || loop {
-            me.read(&mut stream, &mut decoder, &glance, &capture, &heard);
+            me.read(&mut stream, &mut decoder, &glance, &prefs, &heard);
             me.writer.lock().unwrap().take();
             for (_, waiter) in me.waiting.lock().unwrap().drain() {
                 waiter(Outcome::Err(tasktap_proto::Error::new(tasktap_proto::Code::Gone, "the core went away")));
@@ -271,7 +303,7 @@ impl Link {
             };
             *link.writer.lock().unwrap() = Some(stream.try_clone()?);
             // A snapshot holds only the preferences that are stored, and only the questions open now.
-            *link.capture.lock().unwrap() = None;
+            *link.prefs.lock().unwrap() = Prefs::default();
             link.questions.lock().unwrap().clear();
             if welcome.build == core.build || retired {
                 link.call("sub", json!({"collections": WATCHED}), |_| {});
@@ -325,7 +357,7 @@ impl Link {
         stream: &mut Stream,
         decoder: &mut Decoder,
         glance: &impl Fn(Glance),
-        capture: &impl Fn(Option<Shortcut>),
+        prefs: &impl Fn(Prefs),
         heard: &impl Fn(Heard),
     ) {
         let mut buf = vec![0u8; 64 << 10];
@@ -357,20 +389,19 @@ impl Link {
                         }
                     }
                     Ok(Some(Frame::Control(Control::Change(c)))) => {
-                        // The key is known once a snapshot is whole, stored or not, and anew when its row changes.
-                        let mut key = c.snap && !c.more;
+                        // The preferences are known once a snapshot is whole, stored or not, and anew when a row
+                        // the host acts on changes.
+                        let mut changed = c.snap && !c.more;
                         let mut asked = false;
                         for set in c.sets {
                             match set {
                                 Set::Prefs(rows) => {
-                                    let mut stored = self.capture.lock().unwrap();
-                                    if rows.del.contains(&PrefKey::CaptureKey) {
-                                        (*stored, key) = (None, true);
+                                    let mut stored = self.prefs.lock().unwrap();
+                                    for key in rows.del {
+                                        changed |= stored.take(key.default());
                                     }
                                     for pref in rows.put {
-                                        if let PrefValue::CaptureKey(now) = pref.value {
-                                            (*stored, key) = (now, true);
-                                        }
+                                        changed |= stored.take(pref.value);
                                     }
                                 }
                                 Set::Glance { put } => put.into_iter().for_each(glance),
@@ -404,8 +435,8 @@ impl Link {
                                 _ => {}
                             }
                         }
-                        if key {
-                            capture(self.capture.lock().unwrap().clone());
+                        if changed {
+                            prefs(self.prefs.lock().unwrap().clone());
                         }
                         if asked {
                             heard(Heard::Questions);

@@ -365,7 +365,12 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     if (name === 'host.pick') return (window.__fake.picked.push(a), records.pick ?? null);
     // Windows' tab and the updater, as a scene says them (none: a host without the call).
     if (name === 'host.tab') return records.tab ?? null;
-    if (name === 'host.update') return records.update ?? null;
+    // What the page asked of the updater is kept (`updates`); the person's own check (`now`) finds what `checked` says.
+    if (name === 'host.update') {
+      window.__fake.updates.push(a);
+      if (a.look && a.now && records.checked) records.update = records.checked;
+      return records.update ?? null;
+    }
     if (name !== 'host.open') return null;
     const real = /^https?:\/\/[^/\s]/i.test(a.target) ? a.target : (records.files || {})[a.target] || null;
     if (real && !a.probe) opened.push({ ...a, real });
@@ -383,7 +388,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     if (d) push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', del: [d.id] }] });
     toCore({ t: 'close', s: Number(s), why: 'gone' });
   };
-  window.__fake = { emit, push, records, heard, calls, puts, sizes, close, opened, picked: [] };
+  window.__fake = { emit, push, records, heard, calls, puts, sizes, close, opened, picked: [], updates: [] };
   // The keyboard's layout, as the web view says it (keys.ts watchLayout): the records' (`layout`, what each key
   // prints by its place), else a US keyboard's, so that a picture is the same on every machine the checks run on.
   const US = Object.fromEntries([...'abcdefghijklmnopqrstuvwxyz'].map((c) => [`Key${c.toUpperCase()}`, c]).concat([...'0123456789'].map((d) => [`Digit${d}`, d]),

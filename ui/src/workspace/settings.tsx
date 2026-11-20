@@ -24,7 +24,7 @@ import { I, Key } from '../ui.tsx';
 import { placing } from '../way.ts';
 import { AgentsPane } from './agents.tsx';
 import { ProjectsPane } from './projects.tsx';
-import { ASKS, UpdateRow, update } from './update.tsx';
+import { ASKS, UpdateRow, checks, update } from './update.tsx';
 import { SetupRow } from './setup.tsx';
 import { FINDING, Finding, Speech, serviceName } from './consent.tsx';
 import { Choice, Recorder, Row, Switch, setPref } from './form.tsx';
@@ -276,8 +276,9 @@ function AboutPane() {
   // The agents that find a thought's project now, in the person's order.
   const readers = placing(by, tools) !== 'on' ? [] : by!.agents.filter((p) => p.on && tools.some((t) => t.agent === p.agent && t.model === p.model));
   const names = readers.map((p) => agentName(p.agent));
-  // A build made here never asks for a new version; until the host has said, this one may.
-  const asks = update.now.state !== 'off';
+  // A build made here never asks for a new version, nor one whose switch the person turned off; until the host has
+  // said, this one may.
+  const asks = update.now.state !== 'off' && checks();
   const kept = `${KEYS_KEPT[0]!.toLowerCase()}${KEYS_KEPT.slice(1)}`;
   return (
     <>

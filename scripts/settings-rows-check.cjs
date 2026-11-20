@@ -4,6 +4,10 @@
 //   P3  a project's details, Where its agent works: the three choices by the pointer and by the keyboard, each a
 //       `put cards {isolate}`, the call the core keeps it by, with the sentence for each; a project with no workspace
 //       yet chooses too; a folder that is no Git repository says it works in itself and offers no choice.
+//   P5  About, Check for new versions: on by default, About shown asks the host to look; the switch by the pointer
+//       writes `update_checks` false, after which About asks nothing, Anything else says Nothing, and Check now (by
+//       the keyboard) asks once, as the person's word (`now`); on again asks at once. A build made here says so and
+//       has no switch.
 // Pictures of each row into <outdir>, named by system and text size.
 // usage: node scripts/settings-rows-check.cjs <outdir>   (TEXT=small or large for that text size; ui/dist must be built)
 const fs = require('node:fs');
@@ -11,6 +15,7 @@ const path = require('node:path');
 const { chromium } = require('playwright');
 const { serve, open, TEXT } = require('./motion-pages.cjs');
 const { projects } = require('./projects-fixtures.cjs');
+const { scene } = require('./instrument-fixtures.cjs');
 
 const failures = [];
 const expect = (ok, what) => (console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}`), ok || failures.push(what));
@@ -91,12 +96,66 @@ async function where(browser, url, system) {
   await page.context().close();
 }
 
+// ——— P5: look for new versions ———
+async function versions(browser, url, system) {
+  const at = `${system}, Check for new versions`;
+  const records = { ...scene('busy'), update: { state: 'current', version: '1.3.0' }, checked: { state: 'current', version: '1.3.1' } };
+  const page = await open(browser, { label: 'workspace', records, url, dpr: 2, system });
+  // (The window asks where things stand as it starts, for the rail's line.)
+  await page.evaluate(() => window.__fake.updates.splice(0));
+  await section(page, 'about');
+  const row = page.locator('.set-pane .set:has(> .t:text-is("Check for new versions"))');
+  const toggle = row.locator('[role=switch]');
+  const asked = () => page.evaluate(() => JSON.stringify(window.__fake.updates.splice(0)));
+  const value = (name) => page.locator(`.set-pane .set:has(> .t:text-is("${name}")) .v`).first().textContent();
+  const pref = () => page.evaluate(() => JSON.stringify(window.__fake.puts.filter((p) => p.c === 'prefs' && p.id === 'update_checks').map((p) => p.patch)));
+
+  expect(await toggle.getAttribute('aria-checked') === 'true', `${at}: on by default`);
+  expect(await asked() === JSON.stringify([{ look: true }]), `${at}: About shown asks the host to look`);
+  expect(await value('Check for new versions') === 'Up to date' && await row.locator('button.btn').count() === 0, `${at}: on, it says Up to date and offers no Check now`);
+  expect(await value('Anything else') === 'A check for new versions', `${at}: on, Anything else names the check`);
+  await picture(page, 'about', system);
+
+  await click(page, toggle);
+  expect(await pref() === '[false]' && await toggle.getAttribute('aria-checked') === 'false', `${at}: the pointer on the switch writes update_checks false`);
+  expect(await value('Anything else') === 'Nothing', `${at}: off, Anything else says Nothing`);
+  expect(/only when you check now\.$/.test(await row.locator('.hint').textContent()), `${at}: off, the sentence says it asks only at Check now`);
+  await section(page, 'thoughts');
+  await section(page, 'about');
+  expect(await asked() === JSON.stringify([{}]), `${at}: off, About shown again asks the host nothing`);
+  await picture(page, 'about-off', system);
+
+  // Check now by the keyboard: the switch has the keyboard after its click; Tab goes to Check now, Return presses it.
+  await toggle.focus();
+  await key(page, 'Tab');
+  expect(await focused(page) === 'Check now', `${at}: Tab from the switch reaches Check now`);
+  await key(page, 'Enter');
+  expect(await asked() === JSON.stringify([{ look: true, now: true }]), `${at}: Return on Check now asks the host once, as the person's word`);
+  expect(/^Version 1\.3\.1 is the newest/.test(await row.locator('.hint').textContent()), `${at}: what the check found is shown`);
+
+  // On again by the keyboard: Space on the switch, which asks at once.
+  await toggle.focus();
+  await key(page, 'Space');
+  expect(await pref() === '[false,true]' && await asked() === JSON.stringify([{ look: true, now: true }]), `${at}: Space turns it on again and asks at once`);
+  for (const e of page.errors) failures.push(`${at}: page: ${e}`);
+  await page.context().close();
+
+  // A build made on this computer: no switch, and why.
+  const here = await open(browser, { label: 'workspace', records: { ...scene('busy'), update: { state: 'off' } }, url, dpr: 2, system });
+  await section(here, 'about');
+  const mine = here.locator('.set-pane .set:has(> .t:text-is("Check for new versions"))');
+  expect(await mine.locator('[role=switch]').count() === 0 && await mine.locator('.v').textContent() === 'Not for this copy', `${at}: a build made here has no switch and says so`);
+  expect(await mine.locator('button').count() === 0 && /built on this computer, so it never checks for new versions\.$/.test(await mine.locator('.hint').textContent()), `${at}: nor a Check now, as the host never asks GitHub in such a build (update.rs \`asks\`)`);
+  await here.context().close();
+}
+
 async function main() {
   const server = await serve(path.resolve(__dirname, '../ui/dist'));
   const browser = await chromium.launch({ headless: true });
   try {
     for (const system of ['mac', 'windows']) {
       await where(browser, server.url, system);
+      await versions(browser, server.url, system);
     }
   } finally {
     await browser.close();

@@ -571,10 +571,12 @@ fn main() {
             },
             // The capture key is registered once the core's records say which it is, and again
             // whenever they change. A key the system refuses leaves the app running without it,
-            // so that the person can choose another in Settings.
-            |key| {
+            // so that the person can choose another in Settings. The updater asks GitHub by itself
+            // only while the person lets it.
+            |prefs| {
                 let app = APP.wait();
-                let _ = app.run_on_main_thread(move || keys::prefer(app, key));
+                update::allow(prefs.checks);
+                let _ = app.run_on_main_thread(move || keys::prefer(app, prefs.capture));
             },
             |told| {
                 let app = APP.wait();

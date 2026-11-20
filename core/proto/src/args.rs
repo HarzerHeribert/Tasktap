@@ -117,6 +117,7 @@ pub enum PrefPatch {
         Vec<crate::records::OwnAgent>,
     ),
     SetupHidden(bool),
+    UpdateChecks(bool),
 }
 
 /// A font family's name, as JSON, is at most this many bytes.
@@ -178,6 +179,7 @@ impl From<PrefPatch> for PrefValue {
             PrefPatch::AgentOptions(v) => PrefValue::AgentOptions(v),
             PrefPatch::OwnAgents(v) => PrefValue::OwnAgents(v),
             PrefPatch::SetupHidden(v) => PrefValue::SetupHidden(v),
+            PrefPatch::UpdateChecks(v) => PrefValue::UpdateChecks(v),
         }
     }
 }

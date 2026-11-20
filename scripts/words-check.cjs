@@ -56,6 +56,12 @@ function states() {
       .map(([name, s]) => [`speech here ${name}`, speech({ model: 'none', ...s }), ['voice', 'about']]),
     ...[['off'], ['current', '1.3.0'], ['available', '1.3.0'], ['downloading', '1.3.0'], ['installing', '1.3.0'], ['failed', '1.3.0']]
       .map(([state, version]) => [`update ${state}`, update({ state, version, notes: '', percent: 40, why: 'GitHub could not be reached' }), ['about']]),
+    // The person turned off asking by itself: never checked, checking once at their word, and found nothing newer.
+    ...[['unknown'], ['looking'], ['current', '1.3.0'], ['available', '1.3.0']].map(([state, version]) => [`update ${state}, asking by itself off`, () => {
+      const r = update({ state, version, notes: '', percent: 40, why: '' })();
+      r.prefs = [...(r.prefs || []), { id: 'update_checks', rev: 9, value: false }];
+      return r;
+    }, ['about']]),
     ['agents of every kind', agents, ['agents']],
     // A project's details opened: where its agent works, with Git and without.
     ['a project\'s details', () => projects('settings'), ['projects']], ['a project\'s details, no Git', () => projects('settings'), ['projects']],

@@ -93,18 +93,36 @@ jobs:
       - name: Build the pages
         run: npm run build
         working-directory: ui
-      - name: Install the headless browser
+      # Chromium and WebKit, the Mac's engine, in which a click on a button gives it no keyboard: three defects in a
+      # row were of that kind. Where CI is set a check that cannot start WebKit fails (composer-check,
+      # settings-rows-check); at a desk without it, it says so in a NOTE.
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install the headless browsers
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
-          npx --no-install playwright install chromium
+          npx --no-install playwright install chromium webkit
       - name: The page scripts parse
         run: for file in scripts/*.cjs; do node --check "$file"; done
+      # Each check a step of its own, so that what each takes is in the run (scripts/ci.sh --steps).
       - name: Every list keeps its columns
         run: node scripts/align-check.cjs
       - name: The notch and the workspace render in every state without a page error
         run: |
           node scripts/motion-pages.cjs "$RUNNER_TEMP/pages/states"
           node scripts/instrument-shots.cjs "$RUNNER_TEMP/pages/instrument" 1
+      # Run by workers, and until now nowhere in the workflow. (The smoke runs words-check, composer-check, type-check,
+      # links-check, frame-check, voice-check and speech-check in the host job.)
+      - name: Settings' rows by the pointer and the keyboard, in Chromium and WebKit
+        run: node scripts/settings-rows-check.cjs "$RUNNER_TEMP/pages/rows"
+      - name: Settings › Projects at every size of window and text
+        run: node scripts/projects-shots.cjs "$RUNNER_TEMP/pages/projects" --check --sizes
+      - name: Placing by a model, its sheet and its order
+        run: node scripts/placing-check.cjs "$RUNNER_TEMP/pages/placing"
+      - name: Closing a terminal asks only when something runs
+        run: node scripts/closing-check.cjs --pictures "$RUNNER_TEMP/pages/closing"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -113,9 +131,9 @@ jobs:
           if-no-files-found: ignore
 
   host:
-    name: Host on macOS (lint, release build, smoke)
+    name: Host on macOS (lint, release build)
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
         with:
@@ -150,10 +168,38 @@ jobs:
           # Sealed ad hoc as a release seals it with the Developer ID (release.yml): the hardened runtime and each
           # program's own entitlements, no program left unsigned.
           host/scripts/sign-mac.sh "$app"
-      - name: Install the headless browser
+
+  # The smoke in a job of its own: with the release build, the lint and the host's tests before it, one job took 2611
+  # of its 2700 s (run 44698235184), and the smoke builds what it runs itself.
+  smoke:
+    name: Smoke on macOS (the real app on the fixture agent)
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Install the pages' tools
+        run: npm ci --no-audit --no-fund
+        working-directory: ui
+      # WebKit too: the smoke's composer-check tries the Mac's engine, and fails where CI is set without it.
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install the headless browsers
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
-          npx --no-install playwright install chromium
+          npx --no-install playwright install chromium webkit
       - name: Smoke (the real app on the fixture agent, passive, in a temporary data folder)
         # The smoke run expects the Mac's default shell, zsh: it looks for a terminal named after it
         # and for a bracketed paste, which the system's bash does not do. The runner's account

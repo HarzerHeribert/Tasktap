@@ -1,7 +1,7 @@
 // A workspace on screen: panes placed from the layout tree, each a tab bar over its terminal, with the question or
-// the result its session has in a strip under the terminal; dividers that resize and balance; tabs that drag to
-// another pane or to one's edge. Nothing else: no per-pane toolbar, no status strip, no outline. Its menus are the
-// system's (menu.ts), and the window's menu and keys carry the rest.
+// the result its session has in a strip under the terminal; dividers that resize and balance; tabs that drag onto a
+// terminal to share its space, or onto tabs to join them. Nothing else: no per-pane toolbar, no status strip, no
+// outline. Its menus are the system's (menu.ts), and the window's menu and keys carry the rest.
 import type { Question, Thought } from '../../../core/proto/protocol.ts';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { next, pending, running, settle, settling, Status, Told } from '../changes.tsx';
@@ -212,7 +212,7 @@ function Tab({ project, pane, id }: { project: string; pane: L.Pane; id: string 
   return (
     <div class={`tabw${active ? ' on' : ''}${c.s === 'shell' && !shows ? ' shl' : ''}`}>
       <button type="button" role="tab" class="tab" data-id={id} aria-selected={active} tabIndex={active ? 0 : -1}
-        title={[name, c.words, how].filter(Boolean).join('\n')} aria-description="Drag to move it to another pane. Right-click for its commands"
+        title={[name, c.words, how].filter(Boolean).join('\n')} aria-description="Drag onto a terminal to share its space, onto tabs to join them. Right-click for its commands"
         onPointerDown={(e) => grab(e, project, pane.id, id)}
         onClick={() => {
           if (dragged) return;
@@ -263,15 +263,15 @@ function dropTarget(project: string, from: string, x: number, y: number): Target
       const left = Math.max(bar.left, Math.min(bar.right, next?.getBoundingClientRect().left ?? end));
       return { pane, before: next?.querySelector<HTMLElement>('.tab')?.dataset.id, box: { left: left - 1, top: bar.top, width: 2, height: bar.height } };
     }
+    // Anywhere on the content shares the pane: the top or bottom half within reach of those edges, else the left or
+    // right half the pointer is in. A pane's only tab has nothing to share its own pane with.
+    if (pane === from && L.panes(layout(project)).find((p) => p.id === pane)?.tabs.length === 1) return null;
     const content = { left: r.left, top: bar.bottom, width: r.width, height: r.bottom - bar.bottom };
-    const reach = (n: number) => Math.min(72, n * 0.23);
-    const near = ([['left', (x - r.left) / reach(r.width)], ['right', (r.right - x) / reach(r.width)], ['top', (y - bar.bottom) / reach(content.height)],
-      ['bottom', (r.bottom - y) / reach(content.height)]] as [L.Edge, number][]).sort((a, b) => a[1] - b[1])[0]!;
-    const edge = near[1] < 1 ? near[0] : undefined;
-    if (edge && pane === from && L.panes(layout(project)).find((p) => p.id === pane)?.tabs.length === 1) return null;
+    const reach = Math.min(72, content.height * 0.23);
+    const edge: L.Edge = y - content.top < reach ? 'top' : r.bottom - y < reach ? 'bottom' : x < r.left + r.width / 2 ? 'left' : 'right';
     const box = { ...content };
     if (edge === 'left' || edge === 'right') (box.width /= 2, edge === 'right' && (box.left += box.width));
-    if (edge === 'top' || edge === 'bottom') (box.height /= 2, edge === 'bottom' && (box.top += box.height));
+    else (box.height /= 2, edge === 'bottom' && (box.top += box.height));
     return { pane, edge, box };
   }
   return null;

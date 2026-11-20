@@ -10,8 +10,16 @@
 //   when something does, by name, and for a row in the background with Stop);
 // - closing a workspace asks more than once, or does not name what runs where, or asks at all when only shells with
 //   nothing running in them are left, which then close with it.
+// And dragging a tab (README, Arrange your workspace), with a real pointer in Chromium and in WebKit, the Mac's engine
+// (where CI is set a missing WebKit fails; at a desk it says so in a NOTE). It fails when
+// - a tab dropped anywhere on a pane's content does not share that pane: the half it takes (the top or bottom half
+//   within reach of those edges, else the left or right half the pointer is in) is not the one lit while dragging, or
+//   is not where it lands, for its own pane and another's alike; or it joins the other pane's tabs instead; or the
+//   terminal moved does not have the keyboard;
+// - a tab dropped on a pane's tab strip does not join its tabs there;
+// - a pane's only tab dragged over its own content offers anything, or changes anything when dropped there.
 // With --pictures DIR it also writes the rows at rest, under the pointer and with focus, and both questions, at 1x
-// and 2x.
+// and 2x, and the half a dragged tab would take, lit, in each engine.
 // usage: node scripts/closing-check.cjs [--dist folder] [--pictures folder]   (ui/dist must be built)
 const path = require('node:path');
 const fs = require('node:fs');
@@ -22,8 +30,9 @@ const dist = path.resolve(arg('--dist') || path.join(__dirname, '../ui/dist'));
 const pictures = arg('--pictures') && path.resolve(arg('--pictures'));
 
 /** The busy scene, with a program running in its dev server's shell, an idle shell in the background of its first
- *  workspace, and a fourth workspace that holds two idle shells only. */
-function records() {
+ *  workspace, and a fourth workspace that holds two idle shells only; with `panes`, a third beside them in a pane of
+ *  its own. */
+function records(panes = false) {
   const r = scene('busy');
   const cuegrid = r.ids.projects.cuegrid;
   const term = (title, project) => ({ id: `0199a000-0000-7000-8000-${String(r.terminals.length).padStart(12, '0')}`, rev: 3, project_id: project, kind: 'shell', title, cwd: '', argv: [], cols: 100, rows: 30, state: 'running', exit: null });
@@ -38,13 +47,115 @@ function records() {
   r.terminals.push(a);
   const b = term('bash', quiet.id);
   r.terminals.push(b);
-  r.layouts.push({ id: quiet.id, rev: 6, tree: { tree: { id: 'pq', tabs: [a.id, b.id], active: a.id }, selected: 'pq', focus: false, background: [], sizes: {} } });
+  let tree = { id: 'pq', tabs: [a.id, b.id], active: a.id }, c = null;
+  if (panes) {
+    c = term('sh', quiet.id);
+    r.terminals.push(c);
+    tree = { id: 'sq', axis: 'x', ratio: 50, first: tree, second: { id: 'pr', tabs: [c.id], active: c.id } };
+  }
+  r.layouts.push({ id: quiet.id, rev: 6, tree: { tree, selected: 'pq', focus: false, background: [], sizes: {} } });
   r.runs = { [dev.id]: { state: 'running', what: ['npm run dev'], session: null } };
-  return { r, ids: { cuegrid, quiet: quiet.id, dev: dev.id, zsh: zsh.id, spare: spare.id } };
+  return { r, ids: { cuegrid, quiet: quiet.id, dev: dev.id, zsh: zsh.id, spare: spare.id, a: a.id, b: b.id, c: c?.id } };
+}
+
+/** Dragging a tab, in the notes workspace laid out as zsh and bash in one pane and sh in a second beside it. Each
+ *  case on a page of its own: a tab is pressed, moved past the drag threshold, then to `to` (a point relative to a
+ *  pane's content, the space under its tabs), where the lit half is read before the release. */
+async function dragging(browser, url, engine, failures) {
+  const check = (ok, what) => (console.log(`${ok ? 'ok  ' : 'FAIL'} [${engine}] ${what}`), ok || failures.push(`[${engine}] ${what}`));
+  const near = (p, q) => !!p && !!q && ['left', 'top', 'width', 'height'].every((k) => Math.abs(p[k] - q[k]) <= 1.5);
+  const say = (b) => (b ? `${Math.round(b.left)},${Math.round(b.top)} ${Math.round(b.width)}×${Math.round(b.height)}` : 'nothing');
+  async function attempt(name, { tab, over, at, picture }, judge) {
+    const { r, ids } = records(true);
+    const page = await open(browser, { label: 'workspace', records: r, url, dpr: 1 });
+    await page.locator(`section.ws[data-workspace="${ids.quiet}"] .row.w .name`).click();
+    await page.waitForTimeout(300);
+    // A pane's content, and its halves, by a tab in it.
+    const content = (id) => page.evaluate((i) => {
+      const p = document.querySelector(`.tab[data-id="${i}"]`).closest('.pane'), r = p.getBoundingClientRect();
+      const bar = p.querySelector('.tabs').getBoundingClientRect();
+      return { left: r.left, top: bar.bottom, width: r.width, height: r.bottom - bar.bottom, strip: { top: bar.top, height: bar.height }, end: p.querySelector('.tabw:last-of-type').getBoundingClientRect().right };
+    }, id);
+    const state = () => page.evaluate((project) => {
+      const panes = [...document.querySelectorAll('.pane:not([hidden])')].map((p) => {
+        const b = p.getBoundingClientRect();
+        return { tabs: [...p.querySelectorAll('.tab')].map((t) => t.dataset.id), left: b.left, top: b.top };
+      });
+      const keys = [...window.__ws.engines].find(([, e]) => e.element.contains(document.activeElement))?.[0] ?? null;
+      return { panes, keys, layout: JSON.stringify(window.__ws.layout(project).tree) };
+    }, ids.quiet);
+    const c = await content(ids[over]);
+    const before = await state();
+    const t = await page.locator(`.tab[data-id="${ids[tab]}"]`).boundingBox();
+    await page.mouse.move(t.x + t.width / 2, t.y + t.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(t.x + t.width / 2 + 8, t.y + t.height / 2 + 8, { steps: 2 });
+    const point = at(c);
+    await page.mouse.move(point.x, point.y, { steps: 10 });
+    await page.waitForTimeout(60);
+    const lit = await page.evaluate(() => {
+      const m = document.querySelector('.drop');
+      if (!m || m.hidden) return null;
+      const b = m.getBoundingClientRect();
+      return { left: b.left, top: b.top, width: b.width, height: b.height };
+    });
+    if (picture && pictures) await page.screenshot({ path: path.join(pictures, `drag-${picture}-${engine}.png`) });
+    await page.mouse.up();
+    await page.waitForTimeout(350);
+    const after = await state();
+    const pane = (id) => after.panes.find((p) => p.tabs.includes(ids[id]));
+    judge({ name, c, lit, before, after, pane, ids, check, near, say });
+    check(!page.errors.length, `${name}: the page said nothing wrong (${page.errors.join('; ')})`);
+    await page.context().close();
+  }
+  const half = (c, side) => (side === 'left' || side === 'right'
+    ? { left: c.left + (side === 'right' ? c.width / 2 : 0), top: c.top, width: c.width / 2, height: c.height }
+    : { left: c.left, top: c.top + (side === 'bottom' ? c.height / 2 : 0), width: c.width, height: c.height / 2 });
+
+  // 1 and 2. Its own pane, a little right and a little left of the middle: that half, the pane shared side by side.
+  for (const [n, side, dx] of [[1, 'right', 40], [2, 'left', -40]]) {
+    await attempt(`${n}. bash dragged a little ${side} of the middle of its own pane`, { tab: 'b', over: 'b', at: (c) => ({ x: c.left + c.width / 2 + dx, y: c.top + c.height / 2 }), picture: n === 1 && 'own-pane-right' },
+      ({ name, c, lit, after, pane, ids }) => {
+        check(near(lit, half(c, side)), `${name}: the ${side} half is lit (${say(lit)}; the half is ${say(half(c, side))})`);
+        const a = pane('a'), b = pane('b');
+        check(a && b && a !== b && b.tabs.length === 1 && Math.abs(a.top - b.top) < 2 && (side === 'right' ? b.left > a.left : b.left < a.left),
+          `${name}: on release zsh and bash share the space side by side, bash on the ${side} (${JSON.stringify(after.panes.map((p) => [p.tabs.length, Math.round(p.left), Math.round(p.top)]))})`);
+        check(after.keys === ids.b, `${name}: bash has the keyboard (${after.keys === ids.a ? 'zsh' : after.keys === ids.c ? 'sh' : after.keys})`);
+      });
+  }
+  // 3. Another pane's content, a little right of its middle: that pane shared, not joined as a tab.
+  await attempt('3. bash dragged to the middle of the other pane', { tab: 'b', over: 'c', at: (c) => ({ x: c.left + c.width / 2 + 40, y: c.top + c.height / 2 }) },
+    ({ name, c, lit, after, pane, ids }) => {
+      check(near(lit, half(c, 'right')), `${name}: the right half of that pane is lit (${say(lit)}; the half is ${say(half(c, 'right'))})`);
+      const s = pane('c'), b = pane('b');
+      check(s && b && s !== b && s.tabs.length === 1 && b.tabs.length === 1 && b.left > s.left && Math.abs(b.top - s.top) < 2 && pane('a')?.tabs.length === 1,
+        `${name}: on release sh and bash share that space, bash on the right, not joined as a tab (${JSON.stringify(after.panes.map((p) => [p.tabs.length, Math.round(p.left), Math.round(p.top)]))})`);
+      check(after.keys === ids.b, `${name}: bash has the keyboard`);
+    });
+  // 4. The other pane's tab strip, after its tab: it joins those tabs there.
+  await attempt('4. bash dropped on the other pane\'s tabs', { tab: 'b', over: 'c', at: (c) => ({ x: c.end + 30, y: c.strip.top + c.strip.height / 2 }) },
+    ({ name, lit, after, pane, ids }) => {
+      check(!!lit && lit.width <= 3, `${name}: a place between tabs is lit (${say(lit)})`);
+      check(after.panes.length === 2 && JSON.stringify(pane('c')?.tabs) === JSON.stringify([ids.c, ids.b]) && JSON.stringify(pane('a')?.tabs) === JSON.stringify([ids.a]),
+        `${name}: on release bash is a tab after sh (${JSON.stringify(after.panes.map((p) => p.tabs.length))})`);
+    });
+  // 5. Within reach of its own pane's bottom edge: the bottom half.
+  await attempt('5. bash dragged near the bottom of its own pane', { tab: 'b', over: 'b', at: (c) => ({ x: c.left + c.width / 2, y: c.top + c.height - 24 }), picture: 'own-pane-bottom' },
+    ({ name, c, lit, after, pane }) => {
+      check(near(lit, half(c, 'bottom')), `${name}: the bottom half is lit (${say(lit)}; the half is ${say(half(c, 'bottom'))})`);
+      const a = pane('a'), b = pane('b');
+      check(a && b && a !== b && Math.abs(a.left - b.left) < 2 && b.top > a.top, `${name}: on release bash is under zsh`);
+    });
+  // 6. A pane's only tab over its own content: nothing offered, nothing changed.
+  await attempt('6. sh, the only tab of its pane, dragged over its own content', { tab: 'c', over: 'c', at: (c) => ({ x: c.left + c.width / 2 + 40, y: c.top + c.height / 2 }) },
+    ({ name, lit, before, after }) => {
+      check(!lit, `${name}: nothing is lit (${say(lit)})`);
+      check(after.layout === before.layout, `${name}: on release nothing changed`);
+    });
 }
 
 async function main() {
-  const { chromium } = require('playwright');
+  const { chromium, webkit } = require('playwright');
   const server = await serve(dist), browser = await chromium.launch({ headless: true }), failures = [], measured = {};
   const expect = (ok, what) => ok || (failures.push(what), console.error(`FAIL ${what}`));
   if (pictures) fs.mkdirSync(pictures, { recursive: true });
@@ -190,7 +301,13 @@ async function main() {
     expect(!page.errors.length, `${at}: the page said ${page.errors.join('; ')}`);
     await page.context().close();
   }
+  await dragging(browser, server.url, 'chromium', failures);
   await browser.close();
+  const apple = await webkit.launch({ headless: true }).catch(() => {
+    if (process.env.CI) expect(false, 'WebKit is not installed for Playwright, so dragging was not tried in the Mac\'s engine');
+    else console.log('NOTE  WebKit is not installed for Playwright: dragging tried in Chromium only');
+  });
+  if (apple) await dragging(apple, server.url, 'webkit', failures).finally(() => apple.close());
   server.close();
   console.log(JSON.stringify(measured, null, 1));
   if (failures.length) {

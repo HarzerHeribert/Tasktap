@@ -340,9 +340,9 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
   };
   // The host's rule for `host.open`, in small: a web address, or a path `files` says exists; what was opened is kept.
   const opened = [];
-  // The capture key: the one registered (`capture`, the system's own unless the scene says another, or none), which a
+  // The capture key: the one registered (`capture`, this system's own unless the scene says another, or none), which a
   // call changes unless the rule refuses the key or the scene says another app holds it (`taken`, by its code).
-  const usual = { control: true, alt: true, shift: false, meta: false, code: 'Space' };
+  const usual = /Windows/.test(navigator.userAgent) ? { control: false, alt: true, shift: true, meta: false, code: 'Space' } : { control: true, alt: true, shift: false, meta: false, code: 'Space' };
   let capture = records.capture === undefined ? ((records.prefs || []).find((p) => p.id === 'capture_key') || { value: usual }).value : records.capture;
   const hostValue = (name, a) => {
     if (name === 'host.capture_key') {
@@ -354,6 +354,25 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       records.prefs = (records.prefs || []).filter((p) => p.id !== 'capture_key').concat(a.key ? [{ id: 'capture_key', value: key, rev }] : []);
       push({ t: 'change', rev, sets: [{ c: 'prefs', ...(a.key ? { put: [{ id: 'capture_key', value: key, rev }] } : { del: ['capture_key'] }) }] });
       return { key };
+    }
+    // The keys that answer a waiting question: each the scene's preference or this system's own, which a call
+    // changes unless the rule refuses it, the scene says another app holds it (`taken`), or Tasktap's other keys have it.
+    if (name === 'host.answer_key') {
+      const ids = { question: 'question_key', yes: 'yes_key', no: 'no_key' };
+      const win = /Windows/.test(navigator.userAgent);
+      const own = (w) => ({ control: !win, alt: true, shift: win, meta: false, code: { question: 'KeyJ', yes: 'KeyY', no: 'KeyN' }[w] });
+      const now = () => Object.fromEntries(Object.entries(ids).map(([w, id]) => [w, ((records.prefs || []).find((p) => p.id === id) || { value: own(w) }).value]));
+      if (!a.which) return now();
+      const key = a.key || own(a.which), same = (x, y) => !!x && !!y && ['control', 'alt', 'shift', 'meta', 'code'].every((k) => x[k] === y[k]);
+      const why = refused(key) || ((records.taken || []).includes(key.code) && 'That key is taken by the system or another app')
+        || (same(key, capture) && 'Tasktap puts a thought in with that combination')
+        || (Object.entries(now()).some(([w, k]) => w !== a.which && same(key, k)) && 'Tasktap answers a question with that combination');
+      if (why) throw why;
+      const id = ids[a.which];
+      rev++;
+      records.prefs = (records.prefs || []).filter((p) => p.id !== id).concat(a.key ? [{ id, value: key, rev }] : []);
+      push({ t: 'change', rev, sets: [{ c: 'prefs', ...(a.key ? { put: [{ id, value: key, rev }] } : { del: [id] }) }] });
+      return now();
     }
     // A preview's frame: where it loads a file from (`frames`, a server of the check's own), whether a local address
     // is answered (`listens`), or the host's refusal (`noframes`).

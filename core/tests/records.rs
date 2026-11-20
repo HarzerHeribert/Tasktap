@@ -684,6 +684,12 @@ fn the_settings_preferences_are_stored_refused_in_a_sentence_and_restored_by_del
         ("terminal_contrast", json!(false)),
         ("text_size", json!("small")),
         ("update_checks", json!(false)),
+        ("question_key", held(true, "KeyJ")),
+        (
+            "yes_key",
+            json!({"control": false, "alt": true, "shift": true, "meta": false, "code": "KeyY"}),
+        ),
+        ("no_key", held(true, "KeyN")),
     ];
     for (id, value) in &settings {
         let args = json!({"c": "prefs", "id": id, "patch": value});
@@ -710,20 +716,48 @@ fn the_settings_preferences_are_stored_refused_in_a_sentence_and_restored_by_del
         ok => panic!("{id} took {ok:?}"),
     };
     let invalid = |why: &str| (Code::Invalid, why.to_owned());
-    for id in ["capture_key", "talk_key"] {
+    for id in [
+        "capture_key",
+        "talk_key",
+        "question_key",
+        "yes_key",
+        "no_key",
+    ] {
         for (patch, why) in [
             (held(false, "Space"), tasktap_proto::Shortcut::BARE),
             (held(true, "Hyper"), tasktap_proto::Shortcut::NO_KEY),
             (held(true, "Escape"), tasktap_proto::Shortcut::RESERVED),
-            (
-                json!({"control": true, "alt": true, "shift": false, "meta": false, "code": "KeyY"}),
-                tasktap_proto::Shortcut::ANSWERS,
-            ),
         ] {
             assert_eq!(said(&mut w, id, patch), invalid(why), "{id}");
         }
         assert_eq!(said(&mut w, id, json!("Control+Space")).0, Code::Invalid);
     }
+    // No two of Tasktap's keys are one, as they are now: the stored ones,
+    // and for one unset this system's own.
+    let answers = tasktap_proto::Shortcut::ANSWERS;
+    let captures = tasktap_proto::Shortcut::CAPTURES;
+    for (id, patch, why) in [
+        ("capture_key", held(true, "KeyN"), answers),
+        ("talk_key", held(true, "KeyJ"), answers),
+        ("question_key", key.clone(), captures),
+        ("yes_key", held(true, "KeyN"), answers),
+    ] {
+        assert_eq!(said(&mut w, id, patch), invalid(why), "{id}");
+    }
+    // None is this system's own key, which is refused while the capture key is it.
+    let mac = cfg!(target_os = "macos");
+    let usual = tasktap_proto::Shortcut::answer(mac, tasktap_proto::AnswerKey::No);
+    let taken = json!({"c": "prefs", "id": "capture_key", "patch": usual});
+    assert!(matches!(
+        raw(&mut w, "put", taken),
+        tasktap_proto::Outcome::Ok(_)
+    ));
+    assert_eq!(said(&mut w, "no_key", json!(null)), invalid(captures));
+    let back = json!({"c": "prefs", "id": "capture_key", "patch": key});
+    assert!(matches!(
+        raw(&mut w, "put", back),
+        tasktap_proto::Outcome::Ok(_)
+    ));
     assert_eq!(
         said(&mut w, "keep_days", json!(3651)),
         invalid("Finished thoughts are kept for 1 to 3650 days, or for ever with 0")

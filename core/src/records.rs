@@ -20,9 +20,30 @@ use tasktap_proto::call::{Code, Error};
 use tasktap_proto::{
     AgentHealth, CardPatch, Change, Collection, Control, Delete, Dictation, DictationId, Glance,
     History, HistoryPage, Layout, LookPatch, MAX_LINE, NotePatch, PrefKey, PrefValue, ProjectPatch,
-    Put, PutTarget, Rev, Revision, Rows, SessionId, Set, Subscribe, Thought, ThoughtId,
+    Put, PutTarget, Rev, Revision, Rows, SessionId, Set, Shortcut, Subscribe, Thought, ThoughtId,
     encode_control, json_len,
 };
+
+/// The rule of a shortcut for a key preference `id` set to `key` (none: its
+/// default), and that it is none of Tasktap's other keys as they are now
+/// (`tasktap_proto::clash`), on this system.
+fn keyed(tx: &crate::store::Tx, id: PrefKey, key: Option<&Shortcut>) -> Result<(), String> {
+    if let Some(why) = key.and_then(Shortcut::refused) {
+        return Err(why.into());
+    }
+    let mac = cfg!(target_os = "macos");
+    let Some(wanted) = key.cloned().or_else(|| Shortcut::usual(id, mac)) else {
+        return Ok(());
+    };
+    let stored = |k: PrefKey| {
+        let row = tx.pref(k).ok().flatten()?;
+        row.value.shortcut().flatten().cloned()
+    };
+    match tasktap_proto::clash(id, &wanted, &tasktap_proto::keys_in_use(mac, stored)) {
+        Some(why) => Err(why.into()),
+        None => Ok(()),
+    }
+}
 
 /// Most bytes of JSON in one snapshot chunk (design §1).
 pub const CHUNK: usize = 256 << 10;
@@ -661,10 +682,9 @@ pub fn put(cx: &mut Cx, args: Put) -> Result<Revision, Error> {
             match &value {
                 PrefValue::SpeechBy(Some(by)) => crate::speech::consented(by),
                 PrefValue::SpeechLanguages(languages) => crate::speech::spoken(languages),
-                // One rule for both keys, which the host shares (design §12).
-                PrefValue::CaptureKey(Some(key)) | PrefValue::TalkKey(Some(key)) => {
-                    key.refused().map_or(Ok(()), |why| Err(why.into()))
-                }
+                // One rule for every key, which the host shares (design §12),
+                // and no two of Tasktap's keys alike, as they are with this one.
+                v if v.shortcut().is_some() => keyed(&tx, value.key(), v.shortcut().flatten()),
                 // Each names something an agent of this core does when let.
                 PrefValue::AgentOptions(allowed) => {
                     let known = |o: &String| crate::agents::option(o).is_some();

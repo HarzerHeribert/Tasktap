@@ -11,7 +11,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import type { MotionAmbient, MotionPalette, MotionStyle, Shortcut, TextSize } from '../../../core/proto/protocol.ts';
 import { routing } from '../capture.tsx';
-import { TALK, hit, keyName, recorder } from '../keys.ts';
+import { type Answering, TALK, answerUsual, hit, keyName, recorder } from '../keys.ts';
 import { talkKey } from '../page.ts';
 import { CALM, HERE, KEPT, KEYS_KEPT, MICROPHONE, mac } from '../system.ts';
 import { setVoice } from '../motion/engine.ts';
@@ -69,6 +69,17 @@ const RETURN = mac ? 'Return' : 'Enter';
 let capture: Shortcut | null | undefined;
 const askCapture = () => call('host.capture_key', {}).then((r) => ((capture = r.key), redraw()), () => {});
 const setCapture = (key: Shortcut | null) => call('host.capture_key', { key }).then((r) => ((capture = r.key), redraw()));
+/** The keys that answer a waiting question from any app, as the host has them (keys.rs): the person's, or this
+ *  system's own, registered only while a question waits. Asked for when the section is shown, and told by every change
+ *  made here. */
+let answers: Record<Answering, Shortcut | null> | undefined;
+const askAnswers = () => call('host.answer_key', {}).then((r) => ((answers = r), redraw()), () => {});
+const setAnswer = (which: Answering) => (key: Shortcut | null) => call('host.answer_key', { which, key }).then((r) => ((answers = r), redraw()));
+const ANSWER_ROWS: [Answering, string, string][] = [
+  ['question', 'Key to go to an agent’s question, from any app', 'While an agent waits for you, it shows the question from any app, with the keyboard on its answers; Tasktap takes the key only then.'],
+  ['yes', 'Key to answer Yes, from any app', 'While an agent asks yes or no, it answers Yes from any app; Tasktap takes the key only while a question waits.'],
+  ['no', 'Key to answer No, from any app', 'While an agent asks something, it answers No from any app; Tasktap takes the key only while a question waits.'],
+];
 /** Windows: where the tab at the top of the screen hangs, as the host has it, and the displays there are. Kept by
  *  the host: a display belongs to this machine. Undefined on a Mac, whose notch is where its camera is. */
 let tab: { display: string; displays: { name: string; primary: boolean; width: number; height: number }[] } | undefined;
@@ -119,7 +130,7 @@ function ThoughtsPane() {
   const hold = records.prefs.get('hold');
   const sends = pref('return_sends'), days = pref('keep_days'), stored = pref('capture_key');
   // (One effect, as before the tab: the sections are called inside Settings, so their hooks are its own, in order.)
-  useEffect(() => void (askCapture(), mac || askTab()), []);
+  useEffect(() => void (askCapture(), askAnswers(), mac || askTab()), []);
   const places: [string, string][] = !tab ? [] : [['main', 'Main display'], ['pointer', 'Where you last opened it'],
     ...(tab.displays.length > 1 || !['main', 'pointer', 'off'].includes(tab.display)
       ? [...new Set([...tab.displays.map((d) => d.name), ...(['main', 'pointer', 'off'].includes(tab.display) ? [] : [tab.display])])].map((name): [string, string] => [name, displayName(name)])
@@ -138,6 +149,11 @@ function ThoughtsPane() {
             : tab?.display === 'off' ? 'Press it in any app and Tasktap’s window comes forward with a field for your thought.' : 'Press it in any app and the tab at the top of the screen opens for your thought.'}>
         {capture !== undefined && <Recorder name={KEY} value={capture} own={!!stored} usual={USUAL} set={setCapture} />}
       </Row>
+      {answers && ANSWER_ROWS.map(([which, name, hint]) => (
+        <Row key={which} name={name} hint={hint}>
+          <Recorder name={name} value={answers![which]} own={!!pref(`${which}_key`)} usual={answerUsual(which)} set={setAnswer(which)} />
+        </Row>
+      ))}
       {tab && (
         <Row name={TAB} hint={tab.display === 'off' ? 'No tab: the key brings Tasktap’s window forward, and its icon stays in the notification area.'
           : tab.display === 'main' ? 'The tab hangs at the top of the main display, and the key opens it on the display the pointer is on.'

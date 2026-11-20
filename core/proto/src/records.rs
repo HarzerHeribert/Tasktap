@@ -693,6 +693,14 @@ pub enum PrefValue {
     /// The key held to talk in the Composer, which the pages read. None:
     /// the pages' own, Option-Space.
     TalkKey(Option<Shortcut>),
+    /// The key that goes to a waiting question from any app, which the host
+    /// registers only while a question waits (design §12). None: the
+    /// system's own, [`Shortcut::answer`].
+    QuestionKey(Option<Shortcut>),
+    /// The key that answers Yes from any app, as `question_key` is.
+    YesKey(Option<Shortcut>),
+    /// The key that answers No from any app, as `question_key` is.
+    NoKey(Option<Shortcut>),
     /// Days a finished thought is kept after it last changed, with its
     /// questions and results and what its session left (design §5,
     /// "pruned"). 0: forever.
@@ -828,11 +836,13 @@ impl Shortcut {
         "A shortcut needs Control, Option (Alt) or Command (the Windows key) held with its key";
     pub const RESERVED: &'static str = "The system keeps that combination for itself";
     pub const ANSWERS: &'static str = "Tasktap answers a question with that combination";
+    pub const CAPTURES: &'static str = "Tasktap puts a thought in with that combination";
 
     /// Why this combination cannot be a shortcut, in a sentence the
-    /// interface shows as it is; none when it can. The one rule of the
-    /// `capture_key` and `talk_key` preferences, which the core applies
-    /// to a `put` and the host before it asks the system.
+    /// interface shows as it is; none when it can. The one rule of every
+    /// key preference (`capture_key`, `talk_key` and the three answer
+    /// keys), which the core applies to a `put` and the host before it asks
+    /// the system. That two of Tasktap's keys are not one is [`clash`].
     pub fn refused(&self) -> Option<&'static str> {
         let code = self.code.as_str();
         let after = |prefix: &str| code.strip_prefix(prefix).map(str::as_bytes);
@@ -848,14 +858,118 @@ impl Shortcut {
             Some(Self::BARE)
         } else if RESERVED.contains(&(held.0, held.1, held.2, held.3, code)) {
             Some(Self::RESERVED)
-        } else if held == (true, true, false, false) && ["KeyY", "KeyN", "KeyJ"].contains(&code) {
-            // The host binds these while a question waits (design §12).
-            Some(Self::ANSWERS)
         } else {
             None
         }
     }
 
+    /// The key that answers a waiting question while its preference is
+    /// unset (design §12): J goes to the question, Y says yes and N says
+    /// no, with Control-Option on a Mac, as in 1.2. Elsewhere Alt-Shift, as
+    /// the capture key there: Control-Alt is AltGr on a German keyboard,
+    /// among others, and a key with it would type a character there.
+    pub fn answer(mac: bool, which: AnswerKey) -> Shortcut {
+        Shortcut {
+            control: mac,
+            alt: true,
+            shift: !mac,
+            meta: false,
+            code: which.code().into(),
+        }
+    }
+
+    /// A key preference's value while it is unset: the capture key and the
+    /// answer keys are this system's own; the talk key is the pages' own,
+    /// which no global key can take, so none.
+    pub fn usual(id: PrefKey, mac: bool) -> Option<Shortcut> {
+        match id {
+            PrefKey::CaptureKey => Some(Shortcut::capture(mac)),
+            _ => AnswerKey::of(id).map(|which| Shortcut::answer(mac, which)),
+        }
+    }
+}
+
+/// The keys that answer a waiting question from any app, which the host
+/// registers only while one waits (design §12), in the order of its table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum AnswerKey {
+    /// Goes to the question: the notch, or the window, with the keyboard
+    /// on its answers.
+    Question,
+    Yes,
+    No,
+}
+
+impl AnswerKey {
+    pub const ALL: [AnswerKey; 3] = [AnswerKey::Question, AnswerKey::Yes, AnswerKey::No];
+
+    /// The preference that holds it.
+    pub fn pref(self) -> PrefKey {
+        match self {
+            AnswerKey::Question => PrefKey::QuestionKey,
+            AnswerKey::Yes => PrefKey::YesKey,
+            AnswerKey::No => PrefKey::NoKey,
+        }
+    }
+
+    /// The answer key a preference holds, if it holds one.
+    pub fn of(id: PrefKey) -> Option<AnswerKey> {
+        AnswerKey::ALL.into_iter().find(|which| which.pref() == id)
+    }
+
+    /// The key it ends in while its preference is unset.
+    fn code(self) -> &'static str {
+        match self {
+            AnswerKey::Question => "KeyJ",
+            AnswerKey::Yes => "KeyY",
+            AnswerKey::No => "KeyN",
+        }
+    }
+}
+
+impl PrefValue {
+    /// A key preference's key: none for any other preference, and for a key
+    /// preference that is unset `Some(None)`.
+    pub fn shortcut(&self) -> Option<Option<&Shortcut>> {
+        match self {
+            PrefValue::CaptureKey(k)
+            | PrefValue::TalkKey(k)
+            | PrefValue::QuestionKey(k)
+            | PrefValue::YesKey(k)
+            | PrefValue::NoKey(k) => Some(k.as_ref()),
+            _ => None,
+        }
+    }
+}
+
+/// The global keys as they are now: the capture key and the three answer
+/// keys, each its preference as `stored` has it, or else this system's own.
+pub fn keys_in_use(
+    mac: bool,
+    stored: impl Fn(PrefKey) -> Option<Shortcut>,
+) -> Vec<(PrefKey, Shortcut)> {
+    let ids = [PrefKey::CaptureKey]
+        .into_iter()
+        .chain(AnswerKey::ALL.map(AnswerKey::pref));
+    ids.filter_map(|id| Some((id, stored(id).or_else(|| Shortcut::usual(id, mac))?)))
+        .collect()
+}
+
+/// Why `key` cannot be the key preference `id` beside Tasktap's other keys
+/// as they are now (`in_use`, each preference with its key): no two of the
+/// capture key and the three answer keys are one, and the talk key is none
+/// of the answer keys, which would take it from the page while a question
+/// waits. None when it can be.
+pub fn clash(id: PrefKey, key: &Shortcut, in_use: &[(PrefKey, Shortcut)]) -> Option<&'static str> {
+    let other = in_use.iter().find(|(other, k)| *other != id && k == key)?.0;
+    match other {
+        PrefKey::CaptureKey if id != PrefKey::TalkKey => Some(Shortcut::CAPTURES),
+        other if AnswerKey::of(other).is_some() => Some(Shortcut::ANSWERS),
+        _ => None,
+    }
+}
+
+impl Shortcut {
     /// The capture key while the `capture_key` preference is unset:
     /// Control-Option-Space on a Mac, as in 1.2. Elsewhere Alt-Shift-Space:
     /// Control-Alt is AltGr on a German keyboard, among others, and the
@@ -930,7 +1044,7 @@ words! {
         Hold, Agent, RouteBy, MotionStyle, MotionPalette, MotionHue, MotionLumen, MotionAmbient,
         TerminalFont, TerminalSize, TerminalLineHeight, SpeechBy, SpeechLanguages, Keys,
         ReturnSends, CaptureKey, TalkKey, KeepDays, TerminalBoldBright, TerminalContrast, TextSize,
-        AgentOptions, OwnAgents, SetupHidden, UpdateChecks
+        AgentOptions, OwnAgents, SetupHidden, UpdateChecks, QuestionKey, YesKey, NoKey
     }
 }
 
@@ -987,6 +1101,9 @@ impl PrefKey {
             PrefKey::OwnAgents => PrefValue::OwnAgents(Vec::new()),
             PrefKey::SetupHidden => PrefValue::SetupHidden(false),
             PrefKey::UpdateChecks => PrefValue::UpdateChecks(true),
+            PrefKey::QuestionKey => PrefValue::QuestionKey(None),
+            PrefKey::YesKey => PrefValue::YesKey(None),
+            PrefKey::NoKey => PrefValue::NoKey(None),
         }
     }
 }
@@ -1019,6 +1136,9 @@ impl PrefValue {
             PrefValue::OwnAgents(_) => PrefKey::OwnAgents,
             PrefValue::SetupHidden(_) => PrefKey::SetupHidden,
             PrefValue::UpdateChecks(_) => PrefKey::UpdateChecks,
+            PrefValue::QuestionKey(_) => PrefKey::QuestionKey,
+            PrefValue::YesKey(_) => PrefKey::YesKey,
+            PrefValue::NoKey(_) => PrefKey::NoKey,
         }
     }
 }

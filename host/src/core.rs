@@ -31,12 +31,14 @@ pub struct Prefs {
     pub capture: Option<Shortcut>,
     /// `update_checks`.
     pub checks: bool,
+    /// `question_key`, `yes_key`, `no_key`, in the order of `AnswerKey::ALL`: none for this system's own.
+    pub answers: [Option<Shortcut>; 3],
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        let mut prefs = Prefs { capture: None, checks: false };
-        for key in [PrefKey::CaptureKey, PrefKey::UpdateChecks] {
+        let mut prefs = Prefs { capture: None, checks: false, answers: [None, None, None] };
+        for key in [PrefKey::CaptureKey, PrefKey::UpdateChecks, PrefKey::QuestionKey, PrefKey::YesKey, PrefKey::NoKey] {
             prefs.take(key.default());
         }
         prefs
@@ -49,6 +51,9 @@ impl Prefs {
         match value {
             PrefValue::CaptureKey(key) => self.capture = key,
             PrefValue::UpdateChecks(on) => self.checks = on,
+            PrefValue::QuestionKey(key) => self.answers[0] = key,
+            PrefValue::YesKey(key) => self.answers[1] = key,
+            PrefValue::NoKey(key) => self.answers[2] = key,
             _ => return false,
         }
         true

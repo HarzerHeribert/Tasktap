@@ -4,6 +4,11 @@
 //   P3  a project's details, Where its agent works: the three choices by the pointer and by the keyboard, each a
 //       `put cards {isolate}`, the call the core keeps it by, with the sentence for each; a project with no workspace
 //       yet chooses too; a folder that is no Git repository says it works in itself and offers no choice.
+//   P4  Thoughts, the three keys that answer a waiting question from any app, after the capture key: each system's own
+//       to begin with (Control-Option on a Mac, Alt-Shift on Windows); a key recorded by the pointer and real key
+//       presses, stored through `host.answer_key`; the refusals by the keyboard (no modifier, taken by another app, the
+//       capture key, another answer key) with the key before kept; Escape changes nothing; Use the default; and the
+//       title bar's line to a waiting question naming the key recorded.
 //   P5  About, Check for new versions: on by default, About shown asks the host to look; the switch by the pointer
 //       writes `update_checks` false, after which About asks nothing, Anything else says Nothing, and Check now (by
 //       the keyboard) asks once, as the person's word (`now`); on again asks at once. A build made here says so and
@@ -96,6 +101,67 @@ async function where(browser, url, system) {
   await page.context().close();
 }
 
+// ——— P4: the keys that answer a question from any app ———
+async function answerKeys(browser, url, system) {
+  const at = `${system}, the answer keys`;
+  const mac = system === 'mac';
+  const records = { ...scene('busy'), taken: ['KeyT'] };
+  const page = await open(browser, { label: 'workspace', records, url, dpr: 2, system });
+  await section(page, 'thoughts');
+  const LABELS = ['Key to put a thought in, from any app', 'Key to go to an agent’s question, from any app', 'Key to answer Yes, from any app', 'Key to answer No, from any app'];
+  const labels = await page.evaluate(() => [...document.querySelectorAll('.set-pane .set > .t')].map((t) => t.textContent));
+  expect(JSON.stringify(labels.slice(0, 4)) === JSON.stringify(LABELS), `${at}: the three rows follow the capture key (${labels.slice(0, 4).join(' | ')})`);
+  const row = (n) => page.locator(`.set-pane .set:has(> .t:text-is("${LABELS[n]}"))`);
+  const rec = (n) => row(n).locator('.rec');
+  const shown = async (n) => /: (.*)\. Press/.exec(await rec(n).getAttribute('aria-label'))?.[1];
+  const said = (n) => row(n).locator('.hint.err').textContent().catch(() => '');
+  const stored = (id) => page.evaluate((i) => JSON.stringify((window.__fake.records.prefs || []).find((p) => p.id === i)?.value ?? null), id);
+  const own = mac ? ['⌃⌥J', '⌃⌥Y', '⌃⌥N'] : ['Alt+Shift+J', 'Alt+Shift+Y', 'Alt+Shift+N'];
+  expect(JSON.stringify([await shown(1), await shown(2), await shown(3)]) === JSON.stringify(own), `${at}: each system's own to begin with: ${own.join(', ')}`);
+  await picture(page, 'thoughts', system);
+
+  // Yes, recorded by the pointer and the keys pressed.
+  await click(page, rec(2));
+  expect(await rec(2).getAttribute('aria-pressed') === 'true', `${at}: a click on the Yes key listens`);
+  await key(page, 'Control+Alt+KeyK');
+  const mine = { control: true, alt: true, shift: false, meta: false, code: 'KeyK' };
+  expect(await stored('yes_key') === JSON.stringify(mine) && await shown(2) === (mac ? '⌃⌥K' : 'Ctrl+Alt+K'), `${at}: Control-Alt-K pressed is the Yes key, stored and shown`);
+  const back = row(2).locator('button.btn');
+  expect(await back.textContent() === `Use ${own[1]}`, `${at}: a key of the person's own offers the default back, by its key`);
+  await picture(page, 'thoughts-recorded', system);
+
+  // No, by the keyboard: Return listens, and each refusal says why, the key before kept.
+  const tries = async (keys, why, what) => {
+    await rec(3).focus();
+    await key(page, 'Enter');
+    await key(page, keys);
+    expect(await said(3) === why && await shown(3) === own[2] && await stored('no_key') === 'null', `${at}: ${what} is refused: "${await said(3)}"`);
+  };
+  await tries('KeyN', 'A shortcut needs Control, Option (Alt) or Command (the Windows key) held with its key.', 'a key with no modifier');
+  await tries('Control+Alt+KeyT', 'That key is taken by the system or another app.', 'a key another app holds');
+  await tries(mac ? 'Control+Alt+Space' : 'Alt+Shift+Space', 'Tasktap puts a thought in with that combination.', 'the capture key');
+  await tries('Control+Alt+KeyK', 'Tasktap answers a question with that combination.', 'the Yes key');
+  await rec(3).focus();
+  await key(page, 'Enter');
+  await key(page, 'Escape');
+  expect(await rec(3).getAttribute('aria-pressed') === 'false' && await shown(3) === own[2], `${at}: Escape stops listening and changes nothing`);
+
+  // The default again, by the pointer.
+  await click(page, back);
+  expect(await stored('yes_key') === 'null' && await shown(2) === own[1], `${at}: Use ${own[1]} deletes the preference and shows the default`);
+
+  // The key to the question, recorded, names itself in the title bar's line to a waiting question.
+  await click(page, rec(1));
+  await key(page, 'Control+Shift+KeyQ');
+  const q = await page.evaluate(() => [...window.__ws.records.questions.values()].find((x) => x.state === 'open')?.id);
+  await page.evaluate((id) => window.__fake.emit({ do: 'where', place: 'line', question: id, front: true }), q);
+  await page.waitForTimeout(300);
+  const line = await page.evaluate(() => document.querySelector('.asks-line [data-keys] kbd')?.textContent ?? '');
+  expect(line === (mac ? '⌃⇧Q' : 'Ctrl+Shift+Q'), `${at}: the title bar's line to a waiting question names the key recorded: "${line}"`);
+  for (const e of page.errors) failures.push(`${at}: page: ${e}`);
+  await page.context().close();
+}
+
 // ——— P5: look for new versions ———
 async function versions(browser, url, system) {
   const at = `${system}, Check for new versions`;
@@ -155,6 +221,7 @@ async function main() {
   try {
     for (const system of ['mac', 'windows']) {
       await where(browser, server.url, system);
+      await answerKeys(browser, server.url, system);
       await versions(browser, server.url, system);
     }
   } finally {

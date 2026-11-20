@@ -36,6 +36,10 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
       res.writeHead(404).end();
     }
   });
+  // What the site shows of the app is made from the app as it is: the sources scripts/render-site.cjs makes site/app from
+  // hash as they did when it was made (its SOURCE). Anything else there would make other pictures or another notch.
+  const { inputs, stamped } = require('./render-site.cjs');
+  assert.equal(stamped(path.join(root, 'app')), inputs(), 'site/app is older than the app: run (cd ui && npm run build) && node scripts/render-site.cjs on a Mac, look at the result, and commit it');
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const origin = 'http://127.0.0.1:' + server.address().port, url = origin + prefix;
   const shots = process.env.TASKTAP_SCREENSHOTS;

@@ -30,7 +30,7 @@
     ],
     agents: [agent('claude', '2.1.326'), agent('codex', '0.169.0')],
     prefs: [
-      { id: 'route_by', value: { agent: 'claude', model: 'haiku' }, rev: 2 },
+      { id: 'route_by', value: { agents: [{ agent: 'claude', model: 'haiku', on: true }], terms: 3 }, rev: 2 },
       { id: 'speech_by', value: { server: 'https://api.openai.com', model: 'gpt-transcribe' }, rev: 2 },
       { id: 'keys', value: ['https://api.openai.com'], rev: 2 },
       { id: 'speech_languages', value: ['en'], rev: 2 },
@@ -64,11 +64,11 @@
     id: ids.session, project_id: P.cuegrid, agent: 'claude', terminal_id: ids.terminal, adopted: false, state, thought_id: ids.thought, turn: 1, resume: null, name: null, named_at: null,
     model: null, cwd: '', exit: null, error: null, activity,
   });
-  const held = (ms) => thought({ phase: 'routed', status: 'routed', project_id: P.cuegrid, brief: TEXT, route: ROUTE, hold_until: Date.now() + ms });
-  const running = (o) => thought({ phase: 'working', status: 'working', live: true, project_id: P.cuegrid, session_id: ids.session, brief: TEXT, route: ROUTE, ...o });
+  const held = (ms) => thought({ phase: 'routed', status: 'routed', project_id: P.cuegrid, brief: TEXT, route: ROUTE, placed: 'model', hold_until: Date.now() + ms });
+  const running = (o) => thought({ phase: 'working', status: 'working', live: true, project_id: P.cuegrid, session_id: ids.session, brief: TEXT, route: ROUTE, placed: 'model', ...o });
   const workdir = (changes) => ({ path: '/Users/example/Library/Application Support/Tasktap/worktrees/cuegrid-timer-digits', branch: 'tasktap/cuegrid-timer-digits', destination: 'main', base: '4f2a91c',
     left_out: false, changes, files: 3, insertions: 21, deletions: 6 });
-  const finished = (o) => thought({ phase: 'done', status: 'done', project_id: P.cuegrid, session_id: ids.session, brief: TEXT, route: ROUTE, workdir: workdir('pending'), ...o });
+  const finished = (o) => thought({ phase: 'done', status: 'done', project_id: P.cuegrid, session_id: ids.session, brief: TEXT, route: ROUTE, placed: 'model', workdir: workdir('pending'), ...o });
   const question = () => ({ id: ids.question, thought_id: ids.thought, session_id: ids.session, turn: 1, source: 'agent', prompt: ASK, detail: null, reply_via: 'core', state: 'open', answer: null, kind: 'choice', choices: CHOICES });
   const result = () => ({ id: ids.result, thought_id: ids.thought, session_id: ids.session, turn: 1, kind: 'changes', summary: SUMMARY });
 

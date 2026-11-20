@@ -82,36 +82,35 @@
       <h2 id="placing-h">Say it the way you think it.</h2>
       <p>Type a line, or hold a key and talk, from the notch or with a shortcut in whatever app you are in. Tasktap works out which of your projects, and which session in it, the thought belongs to.</p>
       <p>From rambling speech it writes a brief for the agent: the goal, the limits you gave, and what counts as done if you said it. Your own words always go along with it, and the brief adds nothing you did not say.</p>
-      <p class="note">For a few seconds you see where it goes and can take it back. A thought that could mean two places becomes one question to you. One with no folder to go to is saved for later.</p>
-      <p class="note">Today a thought finds the projects you have opened in Tasktap. Coming: a map of the projects on your Mac, so it also finds one you have not opened yet.</p>
     </div>
-    <figure class="shot held pan" tabindex="-1">
-      <img src="app/shots/held.webp" srcset="app/shots/held.webp 1x, app/shots/held@2x.webp 2x" width="640" height="334" loading="lazy" decoding="async"
-        alt="The Composer on Home in Tasktap: the field that says “Put a thought in”, where it goes (Tasktap decides), the agents’ rings, the key to talk and Start. Under it, a spoken thought on its way to the folder cuegrid, with Undo. Its brief reads: Make the rehearsal timer's digits fit on one line on phones; they currently wrap onto two. Keep the keyboard shortcuts working. Do not change the desktop layout. Below it, under “You said”, the rambling words as they were spoken, and “Placed by Claude Code · haiku”.">
-    </figure>
+    <div class="aside">
+      <figure class="shot held pan" tabindex="-1">
+        <img src="app/shots/held.webp" srcset="app/shots/held.webp 1x, app/shots/held@2x.webp 2x" width="640" height="186" loading="lazy" decoding="async"
+          alt="The Composer on Home in Tasktap: the field that says “Put a thought in”, where it goes (Tasktap decides), the agent that runs it (Claude Code, with its ring), the key to talk and Start. Under it, a spoken thought on its way: Starting in cuegrid, placed by Claude Code, its brief one click away under Brief, and Undo.">
+      </figure>
+      <div class="text">
+        <p class="note">For a few seconds you see where it goes, with the brief and your own words under Brief, and can take it back. A thought that could mean two places becomes one question to you. One with no folder to go to is saved for later.</p>
+        <p class="note">A thought finds its project among every folder Tasktap knows, not only the ones you opened. Find your projects learns them, at the first start or in Settings › Projects, from where your agents worked and from folders you choose, reading names and the first lines of each README, never what was said, and keeping it all on your Mac.</p>
+      </div>
+    </div>
   </div>
 </section>
 
 <section class="sec wrap" id="home" aria-labelledby="home-h">
   <p class="sec-label">Home</p>
-  <div class="pair">
+  <div class="beside">
     <div class="text">
       <h2 id="home-h">It comes back when it needs you.</h2>
-      <p>While agents work, the notch shows a count and nothing else. When one of them needs an answer, the notch opens by itself with the question, first and in full, its answers on keys. Answer it there, in the window, or in your own words.</p>
+      <p>While agents work, the notch shows a count and nothing else. When one of them needs an answer, the notch opens by itself with the question, first and in full. Answer it there with a click or a key, in the window, or in your own words.</p>
       <p class="note">On Home every thought is one row, led by its agent’s ring: what it is, where it runs, and what the agent is doing now.</p>
-    </div>
-    <div class="text">
       <h3>Several thoughts, one project.</h3>
       <p>In a git project that already has work running, a new thought gets its own copy of the project and its own branch, so two runs cannot overwrite each other. Its changes come back with Keep and Discard. Tasktap merges or deletes only when you press one of them.</p>
     </div>
+    <figure class="shot bare pan" tabindex="-1">
+      <img src="app/shots/home.webp" srcset="app/shots/home.webp 1x, app/shots/home@2x.webp 2x" width="720" height="670" loading="lazy" decoding="async"
+        alt="Home in Tasktap, one column in three parts, each row led by its agent’s ring. Needs you: a question from Claude Code in the folder ledger-api, in full, with the answers Yes and No on the keys 1 and 2 and a reply in your own words; two more questions as one line each. Changes waiting: “Export the cue sheet as PDF” in cuegrid, 4 files, with Keep, Discard and Review changes. Running: four thoughts in fieldnotes, cuegrid and ledger-api, each with what its agent is doing now.">
+    </figure>
   </div>
-  <figure class="shot bare pan" tabindex="-1">
-    <picture>
-      <source media="(max-width:1135px)" srcset="app/shots/home-640.webp 1x, app/shots/home-640@2x.webp 2x" width="640" height="670">
-      <img src="app/shots/home.webp" srcset="app/shots/home.webp 1x, app/shots/home@2x.webp 2x" width="1040" height="514" loading="lazy" decoding="async"
-        alt="Home in Tasktap, in three parts, each row led by its agent’s ring. Needs you: a question from Claude Code in the folder ledger-api, in full, with the answers Yes and No on the keys 1 and 2 and a reply in your own words; two more questions as one line each. Changes waiting: “Export the cue sheet as PDF” in cuegrid, 4 files, with Keep, Discard and Review changes. Running: four thoughts in fieldnotes, cuegrid and ledger-api, each with what its agent is doing now.">
-    </picture>
-  </figure>
 </section>
 
 <section class="sec wrap" id="workspace" aria-labelledby="workspace-h">
@@ -136,14 +135,14 @@
 <section class="sec wrap" id="agents" aria-labelledby="agents-h">
   <p class="sec-label">Agents</p>
   <div class="pair">
-    <h2 id="agents-h">Ten agents, and any you add.</h2>
+    <h2 id="agents-h">Eleven agents, and any you add.</h2>
     <div class="text">
-      <p>Claude Code, Codex, Antigravity, OpenCode, Pi, Qwen Code, Goose, Crush, Droid and Aider, installed and signed in by you, on your own subscription. Any other agent that runs from a command line can be added in Settings by its command. Tasktap starts them in terminals; it does not replace them.</p>
+      <p>Claude Code, Codex, Antigravity, OpenCode, Pi, Qwen Code, Goose, Crush, Droid, Copilot and Aider, installed and signed in by you, on your own subscription. Any other agent that runs from a command line can be added in Settings by its command. Tasktap starts them in terminals; it does not replace them.</p>
     </div>
   </div>
   <dl class="rows">
-    <div><dt>Answered from the notch</dt><dd>Claude Code and OpenCode: their questions and their requests to run a command or change a file. Codex: its requests.</dd></div>
-    <div><dt>Answered in their terminal</dt><dd>What Antigravity, Pi and Qwen Code ask, and Codex’s questions. Tasktap shows that they wait and leads you to the terminal.</dd></div>
+    <div><dt>Answered from the notch</dt><dd>Claude Code and OpenCode: their questions and their requests to run a command or change a file. Codex and Copilot: their requests.</dd></div>
+    <div><dt>Answered in their terminal</dt><dd>What Antigravity, Pi and Qwen Code ask, and the questions of Codex and Copilot. Tasktap shows that they wait and leads you to the terminal.</dd></div>
     <div><dt>One task, then done</dt><dd>Goose, Crush, Droid and Aider run a thought to its end and ask nothing on the way. A follow-up waits for that end.</dd></div>
     <div><dt>Placing</dt><dd>Where a thought goes and its brief can be worked out by the smallest model of Claude Code, Codex or Antigravity, once you allow it.</dd></div>
   </dl>
@@ -175,7 +174,7 @@
 <section class="sec wrap" id="details" aria-labelledby="details-h">
   <p class="sec-label" id="details-h">Details</p>
   <dl class="rows">
-    <div><dt>Voice</dt><dd>Hold <kbd>⌥</kbd><kbd>Space</kbd> and talk. Speech can be turned into text on the Mac itself and sent nowhere, by Whisper large-v3 turbo, a 574 MB download made once. It was tried in German and English, and in both mixed in one dictation. Or by a speech service you choose, with your own key.</dd></div>
+    <div><dt>Voice</dt><dd>Hold <kbd>⌥Space</kbd> and talk. Speech can be turned into text on the Mac itself and sent nowhere, by Whisper large-v3 turbo, a 574 MB download made once. It was tried in German and English, and in both mixed in one dictation. Or by a speech service you choose, with your own key.</dd></div>
     <div><dt>What leaves the Mac</dt><dd>A thought goes to a model for placing, and a recording to a speech service, only after you have read exactly what is sent and allowed it. Until then a thought goes to the folder or session it names, and speech on the Mac sends nothing.</dd></div>
     <div><dt>Effects</dt><dd>The light and the chrome are one setting: Full, Still or Off. They follow Reduce Motion and Low Power Mode.</dd></div>
     <div><dt>Platforms</dt><dd>macOS 13 or later. Windows is being built: there a tab at the top edge of the screen and an icon by the clock stand in for the notch, and so far Claude Code, Codex and the agents you add run there. Speech on Windows goes through a speech service.</dd></div>

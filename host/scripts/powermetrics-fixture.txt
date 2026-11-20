@@ -1,0 +1,64 @@
+Machine model: Mac16,8
+OS version: 26A434
+Boot arguments:
+Boot time: Thu Oct 22 23:20:11 2026
+
+
+
+*** Sampled system activity (Thu Nov 19 23:40:01 2026 +0100) (1003.52ms elapsed) ***
+
+*** Running tasks ***
+
+Name                               ID     CPU ms/s  User%  Deadlines (<2 ms, 2-5 ms)  Wakeups (Intr, Pkg idle)  GPU ms/s
+WindowServer                       607    10.52     31.20  0.00    0.00               118.58  59.29             6.10
+com.apple.WebKit.GPU               4242   3.10      40.00  0.00    0.00               12.00   5.00              2.40
+tasktap-app                        4200   1.20      60.00  0.00    0.00               4.00    2.00              0.00
+com.apple.WebKit.WebContent        4243   0.80      70.00  0.00    0.00               2.00    1.00              0.00
+Code Helper (GPU)                  5120   0.40      55.00  0.00    0.00               3.00    0.00              0.75
+node 18                            5300   0.20      90.00  0.00    0.00               1.00    1.00              0.00
+DEAD_TASKS                         -1     0.00      0.00   0.00    0.00               0.00    0.00              0.00
+ALL_TASKS                          -2     40.11     45.02  0.00    0.00               420.33  180.12            9.25
+
+**** GPU usage ****
+
+GPU HW active frequency: 338 MHz
+GPU HW active residency:   1.53% (338 MHz: 1.5% 618 MHz:   0% 796 MHz:   0% 924 MHz:   0% 952 MHz:   0% 1056 MHz:   0% 1062 MHz:   0% 1182 MHz:   0% 1182 MHz:   0% 1312 MHz:   0% 1242 MHz:   0% 1380 MHz:   0% 1326 MHz:   0% 1470 MHz:   0% 1578 MHz:   0%)
+GPU SW requested state: (P1 : 100% P2 :   0% P3 :   0% P4 :   0% P5 :   0% P6 :   0% P7 :   0% P8 :   0% P9 :   0% P10 :   0% P11 :   0% P12 :   0% P13 :   0% P14 :   0% P15 :   0%)
+GPU SW state: (SW_P1 : 1.5% SW_P2 :   0% SW_P3 :   0% SW_P4 :   0% SW_P5 :   0% SW_P6 :   0% SW_P7 :   0% SW_P8 :   0% SW_P9 :   0% SW_P10 :   0% SW_P11 :   0% SW_P12 :   0% SW_P13 :   0% SW_P14 :   0% SW_P15 :   0%)
+GPU idle residency:  98.47%
+GPU Power: 14 mW
+
+
+*** Sampled system activity (Thu Nov 19 23:40:02 2026 +0100) (1001.08ms elapsed) ***
+
+*** Running tasks ***
+
+Name                               ID     CPU ms/s  User%  Deadlines (<2 ms, 2-5 ms)  Wakeups (Intr, Pkg idle)  GPU ms/s
+WindowServer                       607    12.01     30.00  0.00    0.00               120.88  61.00             7.30
+com.apple.WebKit.GPU               4242   4.50      41.00  0.00    0.00               14.98   6.99              3.60
+tasktap-app                        4200   1.00      62.00  0.00    0.00               4.00    2.00              0.20
+ALL_TASKS                          -2     38.90     44.10  0.00    0.00               401.12  170.40            11.10
+
+**** GPU usage ****
+
+GPU HW active frequency: 389 MHz
+GPU HW active residency:   2.10% (338 MHz: 1.8% 618 MHz: .30%)
+GPU idle residency:  97.90%
+GPU Power: 31 mW
+
+
+*** Sampled system activity (Thu Nov  5 09:03:04 2026 -0800) (998.40ms elapsed) ***
+
+*** Running tasks ***
+
+Name                               ID     CPU ms/s  User%  Deadlines (<2 ms, 2-5 ms)  Wakeups (Intr, Pkg idle)  GPU ms/s
+WindowServer                       607    2.00      30.00  0.00    0.00               20.00   10.00             0.00
+ALL_TASKS                          -2     8.00      44.10  0.00    0.00               100.00  50.00             0.00
+
+**** GPU usage ****
+
+GPU HW active frequency: 0 MHz
+GPU HW active residency:   0.00% (338 MHz:   0%)
+GPU idle residency: 100.00%
+GPU Power: 0 mW
+

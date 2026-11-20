@@ -1,0 +1,2 @@
+# powermetrics output kept as the tool writes it, blank line at its end and all (scripts/gpu-round.cjs --self-test)
+host/scripts/powermetrics-fixture.txt -whitespace

@@ -20,6 +20,15 @@
     new ResizeObserver(mark).observe(el);
   }
 
+  // A line to paste: Copy puts it on the clipboard and says so for a moment; where it cannot, the line is selected.
+  for (const button of document.querySelectorAll('.copy')) {
+    const line = button.previousElementSibling;
+    button.addEventListener('click', () => navigator.clipboard.writeText(line.textContent).then(() => {
+      button.textContent = 'Copied';
+      setTimeout(() => (button.textContent = 'Copy'), 2000);
+    }, () => getSelection().selectAllChildren(line)));
+  }
+
   const top = $('.top'), stage = $('#stage');
   if (!top || !stage) return;
   const light = $('.light'), steps = $('.steps'), hold = $('.hold'), mark = $('.brand .mark'), bandEl = $('#band'), slot = $('.notch');

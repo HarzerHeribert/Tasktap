@@ -61,6 +61,13 @@ jobs:
           if ($lent) { throw "Unix tools still on the PATH: $($lent -join ', ')" }
           git --version
           cargo test --workspace --no-fail-fast
+      # The Windows install line (site/install.ps1) in Windows PowerShell 5.1 and PowerShell 7, with a stand-in
+      # installer and a stand-in running app; nothing is installed for the runner's account.
+      - name: The Windows install line (stand-ins only)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: .
+        run: ./scripts/install-check.ps1
 
   interface:
     name: Interface (types, tests, build, pages)
@@ -84,6 +91,10 @@ jobs:
             ui/package-lock.json
       - name: No whitespace errors in this change
         run: git diff --check HEAD^ HEAD
+      # With stand-ins only: nothing is installed or started. Its accepting path needs a notarised image and is tried by
+      # a signed run of release.yml.
+      - name: The Mac's install line refuses what it must
+        run: scripts/install-check.sh
       - name: Install
         run: npm ci --no-audit --no-fund
         working-directory: ui

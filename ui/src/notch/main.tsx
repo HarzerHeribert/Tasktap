@@ -12,7 +12,7 @@ import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Answer, FIRST } from './answer.tsx';
 import { Art, look, place } from './art.tsx';
 import { Home } from './home.tsx';
-import { atComposer, cap, followSpeech, toAsk } from '../capture.tsx';
+import { atComposer, cap, followSpeech, toAsk, typedPast } from '../capture.tsx';
 import { live, talk } from '../speech/record.ts';
 import { effectsOf, lookOf, power } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
@@ -90,7 +90,8 @@ records.onchange = () => {
   const open = openQuestions();
   // The question about the thought just sent from the open notch's capture line is asked there, under its field, as at
   // every Composer (capture.tsx atComposer): it opens nothing else.
-  const fresh = open.some((q) => !known.has(q.id) && !(ui.mode !== 'closed' && ui.view === 'home' && toAsk(q)));
+  // So is it while the next thought is typed there (capture.tsx typedPast): nothing typed moves the keyboard.
+  const fresh = open.some((q) => !known.has(q.id) && !(ui.mode !== 'closed' && ui.view === 'home' && (toAsk(q) || typedPast(q))));
   known.clear();
   for (const q of open) known.add(q.id);
   // A notch the last question opened by itself is still its own to fold: a new question that
@@ -178,9 +179,10 @@ function App() {
   const open = ui.mode !== 'closed';
   const shown = open || ui.retracting;
   // The question about the thought just sent from the capture line is asked there, under its field (capture.tsx
-  // atComposer): the notch's own view of questions leaves it out while it is.
+  // atComposer): the notch's own view of questions leaves it out while it is, and while the next thought is typed
+  // after it (typedPast): it shows once the field is empty again, so the keyboard stays in the field (the review's N1).
   const here = open && ui.view === 'home' ? atComposer() : undefined;
-  const questions = openQuestions().filter((q) => q !== here);
+  const questions = openQuestions().filter((q) => q !== here && !(open && ui.view === 'home' && typedPast(q)));
   // Whenever a question is open the notch shows it, never a line that only says one waits.
   const answering = shown && questions.length > 0;
   const g = records.glance;

@@ -124,7 +124,9 @@ function audit([LISTS, KEY]) {
   const own = document.querySelector('.home .capture .cap-row:not(.hear) > .key'), sheetUp = document.querySelector('.sheet[role=dialog]');
   if (document.querySelector('.home .capture .cap-row:not(.hear,.cap-list)')) {
     seen.add(sheetUp ? 'Home\'s Composer key quiet behind a sheet' : 'the Composer\'s key metal on Home');
-    if (!sheetUp && (!own || !metal(own))) bad.push(`Home's Composer key is not the metal key${own ? ` ("${own.textContent.trim()}", ${getComputedStyle(own).backgroundImage.slice(0, 30)})` : ''}`);
+    // (A question just come: the key says what Return will do, quiet until Return does it, metal from then on.)
+    if (own?.hasAttribute('data-waits') && metal(own)) bad.push(`Home's Composer key is metal while Return does nothing yet ("${own.textContent.trim()}")`);
+    if (!sheetUp && (!own || (!metal(own) && !own.hasAttribute('data-waits')))) bad.push(`Home's Composer key is not the metal key${own ? ` ("${own.textContent.trim()}", ${getComputedStyle(own).backgroundImage.slice(0, 30)})` : ''}`);
     // Behind a sheet Home's key is quiet: the sheet's is the one in use (the review's R9).
     if (sheetUp && own && metal(own)) bad.push(`Home's Composer key is metal behind the sheet "${sheetUp.querySelector('#sheet-title')?.textContent ?? ''}"`);
   }
@@ -609,8 +611,12 @@ async function main() {
         const per = ctx.measureText(sample).width / sample.length;
         return { chars: t.getBoundingClientRect().width / per, text: t.textContent.trim().slice(0, 30) };
       });
+      // Every row's time, by the column it stands in (its left edge): one right edge in each.
+      const times = {};
+      for (const t of document.querySelectorAll('.hx .hr time')) if (t.offsetParent) (times[Math.round(t.closest('.hr').getBoundingClientRect().left)] ??= new Set()).add(Math.round(t.getBoundingClientRect().right));
       return { parts: { column: r('.hx'), composer: r('.home .capture.raised .cap'), headings: r('.hsec > h3'), rows: r('.hrs > .hr'), folds: r('.fold-h'), setup: r('.home .setup') },
-        mid: cap ? cap.left + cap.width / 2 : null, left: document.querySelector('.hx').getBoundingClientRect().left, two: !!document.querySelector('.hx.two'), rows };
+        mid: cap ? cap.left + cap.width / 2 : null, left: document.querySelector('.hx').getBoundingClientRect().left, two: !!document.querySelector('.hx.two'), rows,
+        times: Object.values(times).map((e) => [...e].sort((a, b) => a - b)) };
     };
     for (const width of [1180, 1512, 1728, 2560, 3440])
         for (const sc of ['busy', 'normal']) {
@@ -630,6 +636,8 @@ async function main() {
             if (want !== null && m.mid !== null && Math.abs(m.mid - want) > 0.5) failures.push(`${at}, the sidebar ${state}: the Composer's centre is at ${m.mid.toFixed(1)}, not ${want.toFixed(1)}`);
             if (state === 'open' && m.left < 224 + 36 - 0.5) failures.push(`${at}, the sidebar open: the column starts at ${m.left.toFixed(1)}, under the sidebar or against it`);
             for (const row of m.rows) if (row.chars > 92) failures.push(`${at}, the sidebar ${state}: a row's first line has room for ${Math.round(row.chars)} characters ("${row.text}"), more than about 90`);
+            for (const edges of m.times) if (edges.length > 1) failures.push(`${at}, the sidebar ${state}: the rows of one column end their times at ${edges.join(', ')} px, not on one edge`);
+            measured.add('every row\'s time on its column\'s edge');
           }
           // On every frame of the slide the column stands where it is, where it is centred on the window.
           if (width >= 1400) {

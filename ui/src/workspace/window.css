@@ -384,9 +384,9 @@ body.dragging,body.dragging *{cursor:grabbing!important}
    question where the thought would be. */
 .hrs{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr));column-gap:var(--sp6)}
 .hrs>.hr:only-child{grid-column:1/-1}
-/* However much room there is, a row is as long as about 90 characters of its first line and its time, so the time
-   stays near its words (checklist item 36). */
-.hrs>.hr{max-width:var(--row-read)}
+/* A row is as long as the column, every row: the column itself is as wide as about 90 characters of a row's first
+   line and its time (tokens.css --home-w), so the time stays near its words and every time stands on one edge
+   (checklist item 36; the review's second pass). */
 .hr{display:grid;grid-template-columns:var(--lead) minmax(0,1fr) auto 48px;align-items:baseline;align-content:start;min-width:0;padding:8px 0 9px;border-bottom:1px solid var(--line);font:var(--f-small);color:var(--fg2);text-align:left}
 .hr:hover{background:var(--hover)}
 .hr:active{background:var(--sel)}

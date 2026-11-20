@@ -186,6 +186,9 @@ kbd .i{width:12px;height:12px}
 .capture:not(.raised) :is(.cap-to,.cap-list button,.cap-agent,.mic){border-radius:var(--r-in)}
 .cap-to,.cap-list button{display:inline-flex;align-items:center;gap:6px;height:var(--row-h);padding:0 var(--sp2) 0 6px;border-radius:var(--r1);font:var(--f-small);color:var(--fg2);white-space:nowrap}
 .cap-to{min-width:0;margin-left:-6px;padding-right:5px}
+/* The chip never narrower than its arrow and three characters of its place (the review's N5). */
+.cap-to{min-width:calc(6px + 14px + 6px + 4ch + 6px + 12px + 5px)}
+.cap-to b{min-width:4ch}
 .cap-to b{overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
 .cap-to span::before{content:"·";margin-right:6px;color:var(--fg3)}
 /* Where the row is crowded, why it goes there gives way before where: the place's share of the shrink stays below what
@@ -197,6 +200,8 @@ kbd .i{width:12px;height:12px}
 .cap-row>.mic{flex:none;flex-wrap:nowrap}
 .cap-to .i{flex:none}
 .cap-row[data-short]>:is(.mic,.cap-agent)>kbd{display:none}
+/* Where the foot has no room for the place on the key, the key says only what Return does (the review's N5). */
+.cap-row[data-tight]>.key .k-in{display:none}
 /* The agent control's key, after its chevron, as the microphone's is after it. */
 .cap-agent>kbd{margin-left:2px}
 .cap-row[data-bare] #dest-chip>span{display:none}
@@ -230,6 +235,12 @@ kbd .i{width:12px;height:12px}
 /* Behind a sheet Home's Composer is not the one in use: its key is quiet, and the sheet's is the one metal key in view
    (the review's R9). */
 .win.dimmed .home .capture .cap-row .key{background:var(--fill);color:var(--fg3);box-shadow:none;filter:none}
+/* A question just come to the Composer: its key says what Return will do, quiet until Return does it (capture.tsx
+   `answers`; the review's N2), so the key is metal exactly when Return acts. */
+.capture .cap-row .key[data-waits]{background:var(--fill);color:var(--fg3);box-shadow:none;filter:none}
+/* Behind a sheet Home's keys are not Home's: its caps and the agent control's key go (the review's N4), in place. */
+.win.dimmed .home [data-keys] kbd.keycap{display:none}
+.win.dimmed .home .cap-agent>kbd{visibility:hidden}
 .cap-said{display:flex;align-items:center;gap:var(--sp2);min-height:var(--row-h);font:var(--f-small);color:var(--fg2)}
 .cap-said b{color:var(--fg)}
 .cap-said .act{height:22px;margin-left:auto}

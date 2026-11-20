@@ -289,10 +289,16 @@ pub fn modified(meta: &std::fs::Metadata) -> u64 {
     at.map_or(0, |d| d.as_millis() as u64)
 }
 
-/// The person's home folder.
+/// The person's home folder: on Windows the profile's (`USERPROFILE`), where
+/// the agents keep their histories and terminals start, whatever `HOME` a
+/// tool of Unix's set there; elsewhere `HOME`.
 pub fn home() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
-    let home = PathBuf::from(home);
+    let keys: &[&str] = match cfg!(windows) {
+        true => &["USERPROFILE", "HOME"],
+        false => &["HOME"],
+    };
+    let mut set = keys.iter().filter_map(std::env::var_os);
+    let home = PathBuf::from(set.find(|h| !h.is_empty())?);
     Some(std::fs::canonicalize(&home).map_or(home, crate::terminal::folder))
 }
 

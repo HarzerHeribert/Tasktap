@@ -182,7 +182,9 @@ pub fn resolve(target: &str, cwd: Option<&str>, roots: &[PathBuf]) -> Result<Pat
         let why = "A preview shows a file in a folder you opened, or a web address of this machine: this is neither";
         return Err(invalid(why.into()));
     }
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    // `~` is the home folder the system names: on Windows the profile's,
+    // as the host reads it.
+    let home = crate::map::home();
     let Some(asked) = whole(target, cwd, home.as_deref()) else {
         let why = format!("{target} is not a whole path, and its terminal's folder is not known");
         return Err(invalid(why));

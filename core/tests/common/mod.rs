@@ -162,9 +162,18 @@ impl Core {
         // Every shell a test's core starts, also the one that follows an
         // agent's end, is `sh` in a home of the test's own: never the
         // person's shell with their files, whose history it would write.
+        // On Windows the home folder is the profile's: a home a test names
+        // is named there too, unless the test names that one apart.
         let home = data.join("home");
         std::fs::create_dir_all(&home).unwrap();
         serve.env("HOME", &home).env("SHELL", "/bin/sh");
+        if cfg!(windows) {
+            let named = env.iter().find(|(key, _)| *key == "HOME");
+            serve.env(
+                "USERPROFILE",
+                named.map_or(home.as_os_str(), |(_, h)| h.as_ref()),
+            );
+        }
         serve.envs(env.iter().copied());
         let child = client::start(serve).unwrap();
         note(&format!("core {} started", child.id()));

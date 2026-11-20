@@ -725,6 +725,49 @@ fn a_name_the_person_gives_keeps_its_project_and_one_taken_away_stays_away() {
     assert!(!w.model.projects.values().any(|p| p.folder == card.folder));
 }
 
+/// The home folder is the one the system names: on Windows the profile's
+/// (`USERPROFILE`), where the agents keep their histories, whatever `HOME` a
+/// tool of Unix's set there; elsewhere `HOME`.
+#[test]
+fn the_home_folder_is_the_one_the_system_names() {
+    let t = Folder::new("home-named");
+    let (home, other, data) = (t.0.join("home"), t.0.join("other"), t.0.join("data"));
+    mkdir(&data);
+    repo(&home.join("projects/cuegrid"), "Cue sheets.", None);
+    repo(
+        &other.join("projects/kiln"),
+        "A static site generator.",
+        None,
+    );
+    let home_text = real(&home).to_str().unwrap().to_owned();
+    let other_text = real(&other).to_str().unwrap().to_owned();
+    let (named, unnamed) = match cfg!(windows) {
+        true => ("USERPROFILE", "HOME"),
+        false => ("HOME", "USERPROFILE"),
+    };
+    let env = [(unnamed, other_text.as_str()), (named, home_text.as_str())];
+    let core = Core::start_env(&data, &[], &env);
+    let mut w = core.watch();
+    let look = |folder: &str| AddLook {
+        id: LookId::mint(),
+        folder: Some(under(folder, "projects")),
+        agent: None,
+        on: None,
+    };
+    w.ok::<call::LookAdd>(&look(&home_text));
+    w.ok::<call::ProjectsLook>(&Empty {});
+    w.sync();
+    let found: Vec<&Path> = w
+        .model
+        .cards
+        .values()
+        .map(|c| Path::new(&c.folder))
+        .collect();
+    assert_eq!(found, [real(&home).join("projects").join("cuegrid")]);
+    let e = w.refused::<call::LookAdd>(&look(&other_text));
+    assert_eq!(e.code, Code::Invalid, "{e}");
+}
+
 /// Settings › Projects, a project's details: where its agent works is set
 /// with `put cards {isolate}`, the call the page makes, before the project
 /// has a workspace and after. The card keeps it; a workspace made from the

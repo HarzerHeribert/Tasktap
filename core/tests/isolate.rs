@@ -1239,7 +1239,26 @@ fn a_project_moved_on_disk_does_not_stop_the_core() {
     isolate(&mut s, Isolate::Always);
     let t = pending(&mut s, "write:m.txt:m");
     let w = workdir(&s, t);
-    std::fs::rename(&repo, work.path("moved")).unwrap();
+    // The run's terminal goes on as a shell in the project's folder, and
+    // Windows moves no folder a program works in (for the person neither):
+    // it is stopped first, on every system.
+    let session = s.w.model.thought(t).session_id.unwrap();
+    let run = s.w.model.session(session).terminal_id.unwrap();
+    s.w.until("the run's terminal went on as a shell", |m| {
+        m.terminals[&run].kind == tasktap_proto::TerminalKind::Shell
+    });
+    s.w.ok::<call::TerminalStop>(&Ref { id: run });
+    s.w.until("the run's shell ended", |m| {
+        m.terminals[&run].state != tasktap_proto::TerminalState::Running
+    });
+    // What only looks at a file, a virus scanner, may hold it a moment.
+    let mut moved = std::fs::rename(&repo, work.path("moved"));
+    let until = std::time::Instant::now() + Duration::from_secs(10);
+    while moved.is_err() && std::time::Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(100));
+        moved = std::fs::rename(&repo, work.path("moved"));
+    }
+    moved.unwrap();
     let e = settle(&mut s, t, true).unwrap_err();
     assert!(e.message.contains("not there"), "{e}");
     let mut s = crashed(s, &work, &work.path("elsewhere"));

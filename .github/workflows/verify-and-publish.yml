@@ -43,7 +43,24 @@ jobs:
           cargo build --quiet
           ./scripts/conpty.ps1 -Target x86_64 -Into target/debug
       - name: Test
+        if: runner.os != 'Windows'
         run: cargo test --workspace --no-fail-fast
+      # On Windows the whole suite runs as a person's Windows has it, and as the tower runs it
+      # (scripts/winvm/run.ps1): in PowerShell, with no HOME, and with none of the Unix tools Git
+      # brings (cp, mkfifo, sh) on the PATH. Git Bash lent the tests all three, and a test that
+      # needed one passed here and failed there.
+      - name: Test (Windows, without Git Bash's HOME and tools)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Remove-Item Env:HOME -ErrorAction SilentlyContinue
+          $unix = '\\Git\\(usr\\bin|bin|mingw64\\bin)\\?$'
+          $env:PATH = (($env:PATH -split ';') | Where-Object { $_ -and $_ -notmatch $unix }) -join ';'
+          if (-not (Get-Command git -ErrorAction SilentlyContinue)) { $env:PATH += ";$env:ProgramFiles\Git\cmd" }
+          $lent = @('cp', 'mkfifo', 'sh') | Where-Object { Get-Command $_ -CommandType Application -ErrorAction SilentlyContinue }
+          if ($lent) { throw "Unix tools still on the PATH: $($lent -join ', ')" }
+          git --version
+          cargo test --workspace --no-fail-fast
 
   interface:
     name: Interface (types, tests, build, pages)

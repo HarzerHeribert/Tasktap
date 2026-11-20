@@ -240,7 +240,10 @@ fn an_empty_start_has_only_the_scratch_project_and_a_core_id() {
     let [scratch] = rows.put.as_slice() else {
         panic!("{rows:?}")
     };
+    // Canonical, and on Windows as a person writes it: without the `\\?\`.
     let folder = fs::canonicalize(dir.0.join("scratch")).unwrap();
+    let folder = folder.to_str().unwrap();
+    let folder = Path::new(folder.strip_prefix(r"\\?\").unwrap_or(folder));
     assert_eq!(
         (scratch.kind, scratch.folder.as_str()),
         (ProjectKind::Scratch, folder.to_str().unwrap())

@@ -18,22 +18,27 @@ export function Row({ name, hint, children }: { name: string; hint?: ComponentCh
     </div>
   );
 }
+/** A press of a control takes the keyboard to it, as Chromium does by itself and WebKit, the Mac's engine, does not: so
+ *  that the keys after a click (Tab to the next choice, Space again) start where the person pressed. */
+export const taking = (e: MouseEvent) => (e.currentTarget as HTMLElement).focus();
 /** One of a few: the choices side by side, the chosen one marked. */
 export function Choice<T extends string | number | boolean>({ name, value, all, set }: { name: string; value: T; all: [T, ComponentChildren][]; set: (v: T) => void }) {
   return (
     <div class="seg" role="radiogroup" aria-label={name}>
-      {all.map(([id, label]) => <button type="button" role="radio" aria-checked={value === id} onClick={() => set(id)}>{label}</button>)}
+      {all.map(([id, label]) => <button type="button" role="radio" aria-checked={value === id} onClick={(e) => (taking(e), set(id))}>{label}</button>)}
     </div>
   );
 }
 export const Switch = ({ on, name, set }: { on: boolean; name: string; set: (on: boolean) => void }) => (
-  <button type="button" role="switch" class="switch" aria-checked={on} aria-label={name} onClick={() => set(!on)}><span /></button>
+  <button type="button" role="switch" class="switch" aria-checked={on} aria-label={name} onClick={(e) => (taking(e), set(!on))}><span /></button>
 );
 
 /** A key combination, recorded: the one in use is shown as a key; a click (or Return, or Space) listens, and the next
- *  combination pressed is tried with `set`. Whoever keeps the key decides whether it may be one: a refusal is shown
- *  under the key in their own words, and the key that was in use stays. Escape stops listening and changes nothing;
- *  so does leaving the control. `own`: the person chose this key, so there is a way back to the default, named by its
+ *  combination pressed is tried with `set`. Starting to listen takes the keyboard to the recorder itself: WebKit, the
+ *  Mac's engine, gives none to a button it clicked, and the keys would go past it to the sheet (Escape would close it).
+ *  Whoever keeps the key decides whether it may be one: a refusal is shown under the key in their own words, and the
+ *  key that was in use stays. Escape stops listening and changes nothing, and goes no further; so does leaving the
+ *  control, or the sheet closing. `own`: the person chose this key, so there is a way back to the default, named by its
  *  key (`usual`). `value` null: no key is in use. */
 export function Recorder({ name, value, own, usual, set }: { name: string; value: Shortcut | null; own: boolean; usual?: Shortcut; set: (key: Shortcut | null) => Promise<unknown> }) {
   const [held, hold] = useState<string | null>(null);
@@ -59,7 +64,7 @@ export function Recorder({ name, value, own, usual, set }: { name: string; value
   return (
     <>
       <button type="button" class="rec" aria-pressed={listens} aria-label={`${name}: ${value ? keyName(value) : 'no key'}. ${listens ? 'Press the keys, or Escape to leave it' : 'Press to change it'}`}
-        onClick={() => listen(!listens)} onKeyDown={keys} onKeyUp={keys} onBlur={() => listens && listen(false)}>
+        onClick={(e) => (listens ? listen(false) : (taking(e), listen(true)))} onKeyDown={keys} onKeyUp={keys} onBlur={() => listens && listen(false)}>
         {listens ? <>{held && <Key k={held} cap />}<span>{held ? 'and a key' : 'Press the keys'}</span><Key k="esc" /></>
           : value ? <><Key k={keyName(value)} cap /><span>Change</span></> : <span>Record a key</span>}
       </button>

@@ -1,6 +1,7 @@
 // The settings a person looked for and did not find (docs/trial-checklist.md, P2 to P5), each row of Settings driven as
-// a person drives it, by real pointer and key events in headless Chromium, on fixture records with the host's calls
-// stood in for (motion-pages.cjs), on a Mac and on Windows:
+// a person drives it, by real pointer and key events, on fixture records with the host's calls stood in for
+// (motion-pages.cjs): in Chromium on a Mac and on Windows (WebView2 is Chromium), and in WebKit, the Mac's own engine,
+// which gives no keyboard to a button it clicked:
 //   P2  Thoughts, Open Tasktap when the computer starts, right under the capture key: off as the system says, on by
 //       the pointer and off again by Space, each `host.login {on}` with the state read back from the host; on a Mac,
 //       macOS waiting for the person to allow it, with Open Login Items; a copy that cannot (no signed app, not
@@ -20,17 +21,22 @@
 //       writes `update_checks` false, after which About asks nothing, Anything else says Nothing, and Check now (by
 //       the keyboard) asks once, as the person's word (`now`); on again asks at once. A build made here says so and
 //       has no switch.
-// Pictures of each row into <outdir>, named by system and text size.
+//   And a sweep in WebKit by the pointer alone of every control in Settings that acts on a click and then takes keys:
+//   each recorder, the project's choice, Add your own agent, a project's other name, the font field, the field that
+//   finds a project, a section's tab with the arrows, a switch with Space, and Check now.
+// Pictures of each row into <outdir>, named by system (and -webkit) and text size.
 // usage: node scripts/settings-rows-check.cjs <outdir>   (TEXT=small or large for that text size; ui/dist must be built)
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require('playwright');
+const { chromium, webkit } = require('playwright');
 const { serve, open, TEXT } = require('./motion-pages.cjs');
 const { projects } = require('./projects-fixtures.cjs');
 const { scene } = require('./instrument-fixtures.cjs');
 
 const failures = [];
-const expect = (ok, what) => (console.log(`${ok ? 'ok  ' : 'FAIL'} ${what}`), ok || failures.push(what));
+/** The engine the rows run in now. */
+let ENGINE = 'chromium';
+const expect = (ok, what) => (console.log(`${ok ? 'ok  ' : 'FAIL'} [${ENGINE}] ${what}`), ok || failures.push(`[${ENGINE}] ${what}`));
 const out = path.resolve(process.argv[2] || 'settings-rows');
 
 /** A press of the pointer as a person makes it: moved to the middle of the element and pressed there. */
@@ -50,9 +56,16 @@ const section = async (page, at) => {
 };
 const lastPut = (page) => page.evaluate(() => JSON.stringify(window.__fake.puts.at(-1) ?? null));
 const focused = (page) => page.evaluate(() => document.activeElement?.textContent?.trim() ?? '');
+/** Tab, to a button: Playwright's WebKit moves it only between fields, as Safari does unless told otherwise (the app's
+ *  own web view lets it reach every button, host/src/native.rs); there the check takes the keyboard to the control
+ *  Tab would reach, and holds the rest of the way by the keys. */
+async function tab(page, to, back = false) {
+  if (ENGINE === 'webkit') return to.focus();
+  await key(page, back ? 'Shift+Tab' : 'Tab');
+}
 async function picture(page, name, system) {
   fs.mkdirSync(out, { recursive: true });
-  await page.locator('.sheet').screenshot({ path: path.join(out, `${name}-${system}-${TEXT}.png`) });
+  await page.locator('.sheet').screenshot({ path: path.join(out, `${name}-${system}${ENGINE === 'webkit' ? '-webkit' : ''}-${TEXT}.png`) });
 }
 
 // ——— P2: open Tasktap when the computer starts ———
@@ -119,26 +132,37 @@ async function where(browser, url, system) {
   const cuegrid = records.cards.find((c) => c.name === 'cuegrid' && !c.copy_of);
   const at = `${system}, Where its agent works`;
 
+  // Opened below what the pane shows, its details come into view by the pane's own scrolling, its row still in view.
+  await page.evaluate(() => (document.querySelector('.set-pane').scrollTop = 0));
   await click(page, row('cuegrid'));
+  await page.waitForTimeout(400);
+  const seen = await page.evaluate(() => {
+    const pane = document.querySelector('.set-pane').getBoundingClientRect(), open = document.querySelector('.pj-c').getBoundingClientRect();
+    const head = document.querySelector('.line.pj[aria-expanded=true]').getBoundingClientRect();
+    return open.bottom <= pane.bottom + 1 && head.top >= pane.top - 1;
+  });
+  expect(seen, `${at}: a project's details opened below the pane's view are scrolled into it, with its row`);
   expect(await radios.count() === 3, `${at}: a Git project with a workspace offers three choices`);
   expect(await checked() === 'On its own copy when another agent is working there', `${at}: the default is a copy while another agent works there`);
-  expect(/copy of its own, whose changes come back with Keep or go with Discard\.$/.test(await says()), `${at}: the default says what a copy is: "${await says()}"`);
+  expect(await says() === 'While another agent works here, the next one works on a copy; when it finishes you choose Keep to bring its changes in, or Discard.', `${at}: the default says what a copy is: "${await says()}"`);
   await fact.scrollIntoViewIfNeeded();
   await picture(page, 'project-details', system);
 
   await click(page, radios.filter({ hasText: 'Always on its own copy' }));
   expect(await lastPut(page) === JSON.stringify({ c: 'cards', id: cuegrid.id, patch: { isolate: 'always' } }), `${at}: the pointer on Always sends put cards {isolate: always}`);
   expect(await checked() === 'Always on its own copy', `${at}: Always is shown chosen, from the workspace's record`);
-  expect(/^Every agent gets a copy of its own/.test(await says()), `${at}: Always says every agent gets a copy`);
+  expect(await says() === 'Every agent works on a copy of the project; when it finishes you choose Keep to bring its changes in, or Discard.', `${at}: Always says every agent works on a copy: "${await says()}"`);
 
-  // The keyboard: the next choice by Tab, taken by Space; back two by Shift-Tab, taken by Return.
-  await key(page, 'Tab');
+  // The click gave the choice the keyboard. Then the next choice by Tab, taken by Space; back two by Shift-Tab, taken by
+  // Return.
+  expect(await focused(page) === 'Always on its own copy', `${at}: a click on a choice gives it the keyboard`);
+  await tab(page, radios.filter({ hasText: 'In the project itself' }));
   expect(await focused(page) === 'In the project itself', `${at}: Tab reaches In the project itself`);
   await key(page, 'Space');
   expect(await lastPut(page) === JSON.stringify({ c: 'cards', id: cuegrid.id, patch: { isolate: 'never' } }), `${at}: Space on it sends put cards {isolate: never}`);
   expect(/two working here at once can overwrite each other’s changes\.$/.test(await says()), `${at}: In the project itself says two agents can overwrite each other: "${await says()}"`);
-  await key(page, 'Shift+Tab');
-  await key(page, 'Shift+Tab');
+  if (ENGINE === 'webkit') await radios.first().focus();
+  else await key(page, 'Shift+Tab'), await key(page, 'Shift+Tab');
   await key(page, 'Enter');
   expect(await lastPut(page) === JSON.stringify({ c: 'cards', id: cuegrid.id, patch: { isolate: 'busy' } }), `${at}: Return on the first choice sends put cards {isolate: busy}`);
 
@@ -163,7 +187,7 @@ async function where(browser, url, system) {
 async function answerKeys(browser, url, system) {
   const at = `${system}, the answer keys`;
   const mac = system === 'mac';
-  const records = { ...scene('busy'), taken: ['KeyT'] };
+  const records = { ...scene('busy'), taken: ['KeyT', 'KeyG'] };
   const page = await open(browser, { label: 'workspace', records, url, dpr: 2, system });
   await section(page, 'thoughts');
   const LABELS = ['Key to put a thought in, from any app', 'Key to go to an agent’s question, from any app', 'Key to answer Yes, from any app', 'Key to answer No, from any app'];
@@ -200,7 +224,12 @@ async function answerKeys(browser, url, system) {
   await tries(mac ? 'Control+Alt+Space' : 'Alt+Shift+Space', 'Tasktap already uses that combination to put a thought in.', 'the capture key');
   await tries('Control+Alt+KeyK', 'Tasktap already uses that combination to answer Yes.', 'the Yes key');
   await tries(mac ? 'Alt+Space' : 'Control+Space', 'Tasktap already uses that combination as the key to hold while you talk.', 'the key held to talk');
-  await tries(mac ? 'Meta+KeyJ' : 'Control+Shift+KeyJ', 'Tasktap uses that combination where you write a thought.', `${mac ? '⌘J' : 'Ctrl+Shift+J'}, the field's list of agents`);
+  // Tasktap's own window's keys, named; and the system's command modifier alone, which every app has.
+  await tries(mac ? 'Meta+KeyJ' : 'Control+Shift+KeyJ', `Tasktap uses ${mac ? '⌘J' : 'Ctrl+Shift+J'} for the list of agents.`, `${mac ? '⌘J' : 'Ctrl+Shift+J'}`);
+  await tries(mac ? 'Meta+KeyN' : 'Control+Shift+KeyN', `Tasktap uses ${mac ? '⌘N' : 'Ctrl+Shift+N'} for New task.`, `${mac ? '⌘N' : 'Ctrl+Shift+N'}`);
+  await tries(mac ? 'Meta+Comma' : 'Control+Comma', `Tasktap uses ${mac ? '⌘,' : 'Ctrl+,'} for Settings.`, `${mac ? '⌘,' : 'Ctrl+,'}`);
+  await tries(mac ? 'Meta+Digit3' : 'Control+Digit3', `Tasktap uses ${mac ? '⌘3' : 'Ctrl+3'} for Projects in Settings.`, `${mac ? '⌘3' : 'Ctrl+3'}`);
+  await tries(mac ? 'Meta+KeyB' : 'Control+KeyB', mac ? 'Other apps use ⌘ with a single key: hold Control or Option as well.' : 'Other apps use Ctrl with a single key: hold Alt or Shift as well.', `${mac ? '⌘B' : 'Ctrl+B'}, which every app has`);
   await rec(3).focus();
   await key(page, 'Enter');
   await key(page, 'Escape');
@@ -233,7 +262,9 @@ async function answerKeys(browser, url, system) {
   await talkTries(mac ? 'Control+Alt+KeyN' : 'Alt+Shift+KeyN', 'Tasktap already uses that combination to answer No.', 'the No key');
   await talkTries('Control+Shift+KeyQ', 'Tasktap already uses that combination to go to an agent’s question.', 'the key recorded to go to the question');
   await talkTries(mac ? 'Control+Alt+Space' : 'Alt+Shift+Space', 'Tasktap already uses that combination to put a thought in.', 'the capture key');
-  await talkTries('Control+Shift+KeyT', 'That key is taken by the system or another app.', 'a key another app holds');
+  await talkTries('Control+Shift+KeyG', 'That key is taken by the system or another app.', 'a key another app holds');
+  await talkTries(mac ? 'Meta+KeyT' : 'Control+Shift+KeyT', `Tasktap uses ${mac ? '⌘T' : 'Ctrl+Shift+T'} for New terminal.`, `${mac ? '⌘T' : 'Ctrl+Shift+T'}`);
+  await talkTries(mac ? 'Meta+KeyA' : 'Control+KeyA', `A text field uses ${mac ? '⌘A' : 'Ctrl+A'} for Select all.`, `${mac ? '⌘A' : 'Ctrl+A'}, a text field's own`);
   await talk.locator('.rec').focus();
   await key(page, 'Enter');
   await key(page, 'Control+Shift+KeyM');
@@ -295,7 +326,7 @@ async function versions(browser, url, system) {
 
   // Check now by the keyboard: the switch has the keyboard after its click; Tab goes to Check now, Return presses it.
   await toggle.focus();
-  await key(page, 'Tab');
+  await tab(page, row.locator('button.btn'));
   expect(await focused(page) === 'Check now', `${at}: Tab from the switch reaches Check now`);
   await key(page, 'Enter');
   expect(await asked() === JSON.stringify([{ look: true, now: true }]), `${at}: Return on Check now asks the host once, as the person's word`);
@@ -317,22 +348,105 @@ async function versions(browser, url, system) {
   await here.context().close();
 }
 
+// ——— WebKit, by the pointer alone: every control that acts on a click and then takes keys ———
+async function sweep(browser, url) {
+  const at = 'mac, the pointer and then keys';
+  const page = await open(browser, { label: 'workspace', records: { ...projects('settings'), login: { state: 'off' }, update: { state: 'current', version: '1.3.0' }, prefs: [{ id: 'update_checks', value: false, rev: 1 }] }, url, dpr: 2, system: 'mac' });
+  const stored = (id) => page.evaluate((i) => JSON.stringify((window.__fake.records.prefs || []).find((p) => p.id === i)?.value ?? null), id);
+  const row = (name) => page.locator(`.set-pane .set:has(> .t:text-is("${name}"))`);
+  // Each recorder: a click, then the keys pressed, are the key.
+  await section(page, 'thoughts');
+  for (const [name, id, combo, code] of [['Key to put a thought in, from any app', 'capture_key', 'Control+Alt+KeyU', 'KeyU'], ['Key to go to an agent’s question, from any app', 'question_key', 'Control+Alt+KeyI', 'KeyI'],
+    ['Key to answer Yes, from any app', 'yes_key', 'Control+Alt+KeyO', 'KeyO'], ['Key to answer No, from any app', 'no_key', 'Control+Alt+KeyP', 'KeyP']]) {
+    await click(page, row(name).locator('.rec'));
+    await key(page, combo);
+    expect(JSON.parse(await stored(id))?.code === code, `${at}: "${name}": a click on Change, then ${combo}, is the key`);
+  }
+  // Escape after a click ends only the listening: the sheet stays open.
+  await click(page, row('Key to answer No, from any app').locator('.rec'));
+  await key(page, 'Escape');
+  expect(await page.evaluate(() => window.__ws.ui.sheet?.kind) === 'settings' && await row('Key to answer No, from any app').locator('.rec').getAttribute('aria-pressed') === 'false', `${at}: Escape after a click on Change ends the listening and leaves Settings open`);
+  // A switch, then Space: the switch again.
+  const opens = row('Open Tasktap when the computer starts').locator('[role=switch]');
+  await click(page, opens);
+  await key(page, 'Space');
+  expect(await opens.getAttribute('aria-checked') === 'false', `${at}: a click on the switch to open at login, then Space, turns it back off`);
+  // A section's tab, then the arrows.
+  await click(page, page.locator('#set-tab-voice'));
+  await key(page, 'ArrowDown');
+  expect(await page.evaluate(() => window.__ws.ui.sheet?.at) === 'appearance', `${at}: a click on Voice in the list, then the down arrow, shows Appearance`);
+  await section(page, 'voice');
+  await click(page, row('Key to hold while you talk').locator('.rec'));
+  await key(page, 'Control+Shift+KeyY');
+  expect(JSON.parse(await stored('talk_key'))?.code === 'KeyY', `${at}: the key held to talk: a click on Change, then the keys, is the key`);
+  // The terminals' font: a click in the field, words, Tab.
+  await section(page, 'terminal');
+  await click(page, row('Font in terminals').locator('input'));
+  await page.keyboard.type('Menlo');
+  await key(page, 'Tab');
+  expect(JSON.parse(await stored('terminal_font')) === 'Menlo', `${at}: a click in the font field, a name and Tab set the terminals' font`);
+  // Add your own agent: a click, then its name, Tab, its command and Return.
+  await section(page, 'agents');
+  await click(page, page.locator('.set-pane button.fold-l:has-text("Add your own agent")'));
+  await page.keyboard.type('My tool');
+  await key(page, 'Tab');
+  await page.keyboard.type('mytool {prompt}');
+  await key(page, 'Enter');
+  const added = JSON.parse(await stored('own_agents')) ?? [];
+  expect(added.some((a) => a.name === 'My tool' && a.command === 'mytool {prompt}'), `${at}: a click on Add your own agent, then its name, Tab, its command and Return add it (${JSON.stringify(added)})`);
+  // Settings › Projects: find by typing after a click, a project's other name, and its choice then Tab.
+  await section(page, 'projects');
+  await click(page, page.locator('.set-pane .field input'));
+  const all = await page.locator('.set-pane .line.pj').count();
+  await page.keyboard.type('cuegr');
+  await page.waitForTimeout(300);
+  const found = await page.locator('.set-pane .line.pj > .t').allTextContents();
+  expect(found.includes('cuegrid') && found.length < all, `${at}: a click in Find a project, then words, finds it (${found.join(', ')} of ${all})`);
+  await click(page, page.locator('.set-pane .line.pj').first());
+  await click(page, page.locator('.pj-c button.btn:has-text("Add a name for it")'));
+  await page.keyboard.type('stage cues');
+  await key(page, 'Enter');
+  const named = await page.evaluate(() => JSON.stringify(window.__fake.puts.filter((p) => p.c === 'cards' && p.patch.names).at(-1)?.patch.names ?? null));
+  expect(/stage cues/.test(named), `${at}: a click on Add a name for it, then the name and Return, add it (${named})`);
+  const choice = page.locator('.pj-c [role=radio]');
+  await click(page, choice.filter({ hasText: 'Always on its own copy' }));
+  expect(await focused(page) === 'Always on its own copy', `${at}: a click on a choice of where its agent works gives it the keyboard, for Tab to go on from`);
+  await key(page, 'Space');
+  expect(await page.evaluate(() => JSON.stringify(window.__fake.puts.at(-1)?.patch ?? null)) === JSON.stringify({ isolate: 'always' }), `${at}: and Space on it chooses it again`);
+  // Check now: a click asks once.
+  await section(page, 'about');
+  await page.evaluate(() => window.__fake.updates.splice(0));
+  await click(page, row('Check for new versions').locator('button.btn:has-text("Check now")'));
+  expect(await page.evaluate(() => JSON.stringify(window.__fake.updates)) === JSON.stringify([{ look: true, now: true }]), `${at}: a click on Check now asks once`);
+  for (const e of page.errors) failures.push(`${at}: page: ${e}`);
+  await page.context().close();
+}
+
 async function main() {
   const server = await serve(path.resolve(__dirname, '../ui/dist'));
-  const browser = await chromium.launch({ headless: true });
+  // Chromium on both systems; WebKit, the Mac's engine, on the Mac.
+  const engines = [['chromium', chromium, ['mac', 'windows']], ['webkit', webkit, ['mac']]];
   try {
-    for (const system of ['mac', 'windows']) {
-      await login(browser, server.url, system);
-      await where(browser, server.url, system);
-      await answerKeys(browser, server.url, system);
-      await noKeys(browser, server.url, system);
-      await versions(browser, server.url, system);
+    for (const [name, launcher, systems] of engines) {
+      ENGINE = name;
+      const browser = await launcher.launch({ headless: true });
+      try {
+        for (const system of systems) {
+          await login(browser, server.url, system);
+          await where(browser, server.url, system);
+          await answerKeys(browser, server.url, system);
+          await noKeys(browser, server.url, system);
+          await versions(browser, server.url, system);
+        }
+        if (name === 'webkit') await sweep(browser, server.url);
+      } finally {
+        await browser.close();
+      }
     }
   } finally {
-    await browser.close();
     await server.close();
   }
-  console.log(failures.length ? `FAIL  ${failures.length} of the rows' checks` : `PASS  every row driven by the pointer and the keyboard, on a Mac and on Windows, at text size ${TEXT}; pictures in ${out}`);
+  console.log(failures.length ? `FAIL  ${failures.length} of the rows' checks` : `PASS  every row driven by the pointer and the keyboard, in Chromium on a Mac and on Windows and in WebKit on a Mac, with WebKit's sweep of the controls a click hands keys to, at text size ${TEXT}; pictures in ${out}`);
   process.exitCode = failures.length ? 1 : 0;
 }
 main().catch((e) => (console.error(e), process.exit(1)));

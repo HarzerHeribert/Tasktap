@@ -9,6 +9,7 @@ const { execFileSync } = require('node:child_process');
 const os = require('node:os');
 const path = require('node:path');
 const { serve } = require('./motion-pages.cjs');
+const { microphone, wavSamples } = require('./page-microphone.cjs');
 const root = path.resolve(__dirname, '..');
 const { chromium } = require('playwright');
 
@@ -205,12 +206,14 @@ async function main(out) {
     for (const [i, scale] of [1, .5, .25].entries()) await rp.locator('.motion').nth(i).screenshot({ path: path.join(out, `resolution-${scale}.png`) });
     await rp.close();
 
-    // The voice: what reading the microphone costs a frame, with Chromium's fake device playing speech from say(1).
+    // The voice: what reading the microphone costs a frame, with the page's own microphone
+    // (page-microphone.cjs) playing speech from say(1).
     const wav = path.join(out, 'speech.wav');
     execFileSync('say', ['-o', path.join(out, 'speech.aiff'), 'Move the sync retry to an exponential back off, and tell me when the tests pass on the first try.']);
     execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-i', path.join(out, 'speech.aiff'), '-ar', '48000', '-ac', '1', wav]);
-    const mic = await chromium.launch({ headless: true, args: [...GPU, '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', `--use-file-for-fake-audio-capture=${wav}`, '--autoplay-policy=no-user-gesture-required'] });
+    const mic = await chromium.launch({ headless: true, args: [...GPU, '--autoplay-policy=no-user-gesture-required', '--disable-audio-output'] });
     const vp = await mic.newPage();
+    await microphone(vp, wavSamples(wav));
     await vp.goto(app.url);
     await vp.waitForFunction(() => window.app);
     report.voice = await vp.evaluate(async () => {

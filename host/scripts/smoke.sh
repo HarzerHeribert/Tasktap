@@ -98,10 +98,10 @@ section "Links in terminals (headless, a real pointer and real keys, a host that
 if out="$(node "$root/scripts/links-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "links in terminals"; fi
 if out="$(node "$root/scripts/frame-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "a page in a preview's frame"; fi
 
-section "Voice, recorded by the page (headless, a microphone that is a file)"
+section "Voice, recorded by the page (headless, a microphone made in the page)"
 if out="$(node "$root/scripts/voice-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "voice in the page"; fi
 
-section "Speech on this Mac, in the page (headless, a microphone that is a file, a helper the check plays)"
+section "Speech on this Mac, in the page (headless, a microphone made in the page, a helper the check plays)"
 if out="$(node "$root/scripts/speech-check.cjs" 2>&1)"; then pass "$(echo "$out" | tail -1 | sed 's/^PASS  //')"; else echo "$out" | grep '^FAIL' | sed 's/^FAIL  /  /'; fail "speech on this Mac in the page"; fi
 
 section "Speech on this Mac, in the app (a short launch of its own; a tone and generated recordings, never the microphone)"

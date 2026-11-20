@@ -1,5 +1,5 @@
-// Speech on this Mac, as the page has it, checked in headless Chromium with a microphone that is a file (a 440 Hz
-// tone the browser plays into getUserMedia; no real microphone is opened and nothing is played), the fake core of
+// Speech on this Mac, as the page has it, checked in headless Chromium with a microphone made in the page (a 440 Hz
+// tone, page-microphone.cjs: Chromium is never asked for a microphone, and nothing is played), the fake core of
 // motion-pages.cjs and a host whose helper the check plays itself: it decides what the helper "says" and keeps what it
 // was fed. It holds the page to what is promised of it:
 // - Settings › Speech says what "On this Mac" needs, how far the download is, that it is ready and how large, why it
@@ -12,48 +12,30 @@
 //   said in words with what to do: nothing set up, the model missing or damaged, the helper failing, nothing heard.
 // usage: node scripts/speech-check.cjs [shots folder]   (exit status 1 on a failure; ui/dist must be built)
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { serve, open } = require('./motion-pages.cjs');
+const { microphone, askedForVoice } = require('./page-microphone.cjs');
 const { scene, flow } = require('./instrument-fixtures.cjs');
 
 const HZ = 440, OF = 574041195;
 /** The row of Settings that says where speech is turned into text. */
 const ROW = '.settings .set:has(.seg[aria-label="Where your speech becomes text"])';
-function tone(file) {
-  const rate = 48000, n = rate * 3, wav = Buffer.alloc(44 + 2 * n);
-  wav.write('RIFF', 0); wav.writeUInt32LE(36 + 2 * n, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
-  wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(2 * rate, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(2 * n, 40);
-  for (let i = 0; i < n; i++) wav.writeInt16LE(Math.round(0.5 * 32767 * Math.sin((2 * Math.PI * HZ * i) / rate)), 44 + 2 * i);
-  fs.writeFileSync(file, wav);
-}
-const watch = () => {
-  window.__mics = [];
-  const ask = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-  navigator.mediaDevices.getUserMedia = async (c) => {
-    const s = await ask(c);
-    window.__mics.push(s);
-    return s;
-  };
-  window.__hears = () => window.__mics.some((s) => s.getTracks().some((t) => t.readyState === 'live'));
-};
-/** What the helper was fed: its length, loudest sample and the pitch of its zero crossings. */
+/** What the helper was fed: its length, loudest sample and the pitch of its zero crossings, from the first to the last
+ *  (the microphone made in the page is silent for its first moment; a gap after that still lowers the pitch). */
 const fed = () => {
   const bytes = Uint8Array.from(window.__fake.speech.fed), view = new DataView(bytes.buffer), s = [];
   for (let i = 0; i + 1 < bytes.length; i += 2) s.push(view.getInt16(i, true));
-  let crossings = 0;
-  for (let i = 1; i < s.length; i++) if (s[i - 1] < 0 !== s[i] < 0) crossings++;
-  return { odd: bytes.length % 2, seconds: s.length / 16000, hz: crossings / 2 / (s.length / 16000 || 1), peak: s.reduce((m, v) => Math.max(m, Math.abs(v)), 0) };
+  let crossings = 0, first = 0, last = 0;
+  for (let i = 1; i < s.length; i++) if (s[i - 1] < 0 !== s[i] < 0) (crossings++ || (first = i), (last = i));
+  return { odd: bytes.length % 2, seconds: s.length / 16000, hz: crossings > 1 ? (crossings - 1) / 2 / ((last - first) / 16000) : 0, peak: s.reduce((m, v) => Math.max(m, Math.abs(v)), 0) };
 };
 
 async function main() {
   const { chromium } = require('playwright');
   const shots = process.argv[2];
   if (shots) fs.mkdirSync(shots, { recursive: true });
-  const wav = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tasktap-speech-')), 'tone.wav');
-  tone(wav);
   const server = await serve(path.resolve(__dirname, '../ui/dist'));
-  const browser = await chromium.launch({ headless: true, args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', `--use-file-for-fake-audio-capture=${wav}`, '--autoplay-policy=no-user-gesture-required'] });
+  const browser = await chromium.launch({ headless: true, args: ['--autoplay-policy=no-user-gesture-required', '--disable-audio-output'] });
   const failures = [];
   const hold = async (ok, said) => { if (!(await ok)) failures.push(said); };
   const centre = async (page, sel) => { const b = await page.locator(sel).first().boundingBox(); return [b.x + b.width / 2, b.y + b.height / 2]; };
@@ -61,7 +43,7 @@ async function main() {
     const records = Object.assign(flow(scene(sceneName), kind, { voice: kind !== 'no-service' }), { speech });
     if (kind === 'no-service') records.prefs.push({ id: 'speech_languages', value: ['de', 'en'], rev: 50 });
     const page = await open(browser, { label: 'workspace', records, url: server.url, dpr: 2, permissions: ['microphone'] });
-    await page.addInitScript(watch);
+    await microphone(page, { hz: HZ, gain: 0.5 });
     await page.reload();
     await page.waitForTimeout(700);
     return page;
@@ -137,15 +119,15 @@ async function main() {
     await page.mouse.move(...(await centre(page, '.home .mic')));
     await page.mouse.down();
     // Held from when the microphone hears, which on a busy machine is a moment after the press. One that never hears
-    // ends the check, said as what it is: Chromium opens this Mac's own microphone even with a file standing in for
-    // it, and macOS holds that, and getUserMedia with it, while the screen is locked.
+    // ends the check, said as what it is: nothing after it could be checked.
     if (!(await page.waitForFunction(() => window.__hears(), null, { timeout: 5000 }).then(() => true, () => false))) {
       const s = await state(page);
-      throw new Error(`the microphone has not started 5 s after the press (${s.asked ? 'its track is not live' : 'getUserMedia has not answered'}: ${JSON.stringify(s)}); on a Mac, is the screen locked? macOS holds the microphone, the file Chromium plays as one too, until it is unlocked`);
+      throw new Error(`the microphone has not started 5 s after the press (${s.asked ? 'its track is not live' : 'no microphone was given to the page'}: ${JSON.stringify(s)})`);
     }
     const pressed = Date.now();
     await page.waitForTimeout(2200);
     await hold(state(page).then((s) => s.asked === 1 && s.hears && s.live && s.rows === 1 && s.calls.includes('dictation.start')), 'holding the microphone control does not record');
+    await hold(page.evaluate(() => window.__asked).then(askedForVoice), `the microphone was not asked for once, for its sound alone in one channel with no voice processing: ${JSON.stringify(await page.evaluate(() => window.__asked))}`);
     await hold(page.evaluate(() => { const sp = window.__fake.speech, d = window.__fake.records.dictations[0]; return sp.id === d.id && sp.languages.join() === 'de,en' && d.level > 50 && window.__fake.calls.includes('dictation.report'); }),
       'the helper was not started for this dictation with the languages, or the level is not reported');
     await hold(page.evaluate(() => Number(document.querySelector('.home .hear .lvl')?.style.getPropertyValue('--l')) > 0.3), 'the row does not show the level');
@@ -268,7 +250,6 @@ async function main() {
   } finally {
     await browser.close();
     await server.close();
-    fs.rmSync(path.dirname(wav), { recursive: true, force: true });
   }
   for (const f of failures) console.log('FAIL  ' + f);
   console.log(failures.length ? `FAIL  speech on this Mac: ${failures.length} things wrong`

@@ -67,6 +67,12 @@ function states() {
     ['a project\'s details', () => projects('settings'), ['projects']], ['a project\'s details, no Git', () => projects('settings'), ['projects']],
     ['finished thoughts kept 30 days, a key kept', () => { const r = flow(scene('busy'), 'plain'); r.prefs.push({ id: 'keep_days', rev: 9, value: 30 }, { id: 'hold', rev: 9, value: 0 }, { id: 'return_sends', rev: 9, value: false }); return r; }, ['thoughts', 'about', 'voice']],
     ['the capture key taken', () => ({ ...scene('busy'), capture: null }), ['thoughts']],
+    // Opening at login, in each state the system can be in, and each copy that cannot.
+    ...[{ state: 'off' }, { state: 'on' }, { state: 'approve' }, ...['review', 'check', 'unsigned'].map((why) => ({ state: 'unavailable', why }))]
+      .map((login) => [`opening at login ${login.state}${login.why ? `, ${login.why}` : ''}`, () => ({ ...scene('busy'), login }), ['thoughts']]),
+    ...[{ state: 'off' }, { state: 'on' }, { state: 'unavailable', why: 'uninstalled' }]
+      .map((login) => [`Windows, opening at login ${login.state}`, () => ({ ...scene('busy'), login }), ['thoughts'], 'windows']),
+    ['Windows, opening at login, no tab', () => ({ ...tab('off')(), login: { state: 'on' } }), ['thoughts'], 'windows'],
     ['Windows', busy, SECTIONS, 'windows'], ['Windows, the tab on Display 2', tab('\\\\.\\DISPLAY2'), ['thoughts'], 'windows'],
     ['Windows, no tab', tab('off'), ['thoughts'], 'windows'], ['Windows, the tab where last opened', tab('pointer'), ['thoughts'], 'windows'],
   ];

@@ -1,6 +1,10 @@
 // The settings a person looked for and did not find (docs/trial-checklist.md, P2 to P5), each row of Settings driven as
 // a person drives it, by real pointer and key events in headless Chromium, on fixture records with the host's calls
 // stood in for (motion-pages.cjs), on a Mac and on Windows:
+//   P2  Thoughts, Open Tasktap when the computer starts, right under the capture key: off as the system says, on by
+//       the pointer and off again by Space, each `host.login {on}` with the state read back from the host; on a Mac,
+//       macOS waiting for the person to allow it, with Open Login Items; a copy that cannot (no signed app, not
+//       installed, Tasktap Review) says so and has no switch.
 //   P3  a project's details, Where its agent works: the three choices by the pointer and by the keyboard, each a
 //       `put cards {isolate}`, the call the core keeps it by, with the sentence for each; a project with no workspace
 //       yet chooses too; a folder that is no Git repository says it works in itself and offers no choice.
@@ -46,6 +50,57 @@ const focused = (page) => page.evaluate(() => document.activeElement?.textConten
 async function picture(page, name, system) {
   fs.mkdirSync(out, { recursive: true });
   await page.locator('.sheet').screenshot({ path: path.join(out, `${name}-${system}-${TEXT}.png`) });
+}
+
+// ——— P2: open Tasktap when the computer starts ———
+async function login(browser, url, system) {
+  const at = `${system}, Open Tasktap when the computer starts`;
+  const mac = system === 'mac';
+  const NAME = 'Open Tasktap when the computer starts';
+  const start = async (records) => {
+    const page = await open(browser, { label: 'workspace', records: { ...scene('busy'), ...records }, url, dpr: 2, system });
+    await section(page, 'thoughts');
+    return page;
+  };
+  const page = await start({ login: { state: 'off' } });
+  const labels = await page.evaluate(() => [...document.querySelectorAll('.set-pane .set > .t')].map((t) => t.textContent));
+  expect(labels[0] === 'Key to put a thought in, from any app' && labels[1] === NAME, `${at}: right under the capture key (${labels.slice(0, 3).join(' | ')})`);
+  const row = page.locator(`.set-pane .set:has(> .t:text-is("${NAME}"))`);
+  const toggle = row.locator('[role=switch]');
+  const asked = () => page.evaluate(() => JSON.stringify(window.__fake.logins.splice(0)));
+  expect(await toggle.getAttribute('aria-checked') === 'false' && await asked() === '[{}]', `${at}: off, as the host read it from the system when Thoughts was shown`);
+  const hint = await row.locator('.hint').textContent();
+  expect(mac ? /^When you log in, Tasktap opens without a window, only the notch, .*System Settings lists it under Login Items\.$/.test(hint)
+    : /^When you sign in, Tasktap opens without a window, only its tab and icon, .*Windows lists it under Startup apps\.$/.test(hint), `${at}: it says what changes: "${hint}"`);
+  await click(page, toggle);
+  expect(await asked() === JSON.stringify([{ on: true }]) && await toggle.getAttribute('aria-checked') === 'true', `${at}: the pointer turns it on through host.login {on: true}, shown as the system then says`);
+  await picture(page, 'thoughts-login-on', system);
+  await toggle.focus();
+  await key(page, 'Space');
+  expect(await asked() === JSON.stringify([{ on: false }]) && await toggle.getAttribute('aria-checked') === 'false', `${at}: Space turns it off again through host.login {on: false}`);
+  for (const e of page.errors) failures.push(`${at}: page: ${e}`);
+  await page.context().close();
+
+  // On a Mac, macOS may ask the person first: the row says so and opens Login Items.
+  if (mac) {
+    const waits = await start({ login: { state: 'off' }, approve: true });
+    const r = waits.locator(`.set-pane .set:has(> .t:text-is("${NAME}"))`);
+    await click(waits, r.locator('[role=switch]'));
+    expect(await r.locator('.v').textContent() === 'Waiting for you to allow it', `${at}: macOS waiting for the person to allow it is said`);
+    await waits.evaluate(() => window.__fake.logins.splice(0));
+    await click(waits, r.locator('button.btn'));
+    expect(await waits.evaluate(() => JSON.stringify(window.__fake.logins)) === JSON.stringify([{ open: true }]), `${at}: Open Login Items asks the host to show them`);
+    await picture(waits, 'thoughts-login-approve', system);
+    await waits.context().close();
+  }
+  // A copy that cannot: no switch, and why.
+  for (const why of mac ? ['unsigned', 'review'] : ['uninstalled', 'review']) {
+    const not = await start({ login: { state: 'unavailable', why } });
+    const r = not.locator(`.set-pane .set:has(> .t:text-is("${NAME}"))`);
+    expect(await r.locator('[role=switch]').count() === 0 && await r.locator('.v').textContent() === 'Not for this copy', `${at}: a copy that cannot (${why}) has no switch and says so: "${await r.locator('.hint').textContent()}"`);
+    if (why !== 'review') await picture(not, 'thoughts-login-not-here', system);
+    await not.context().close();
+  }
 }
 
 // ——— P3: where a project's agent works ———
@@ -220,6 +275,7 @@ async function main() {
   const browser = await chromium.launch({ headless: true });
   try {
     for (const system of ['mac', 'windows']) {
+      await login(browser, server.url, system);
       await where(browser, server.url, system);
       await answerKeys(browser, server.url, system);
       await versions(browser, server.url, system);

@@ -15,6 +15,8 @@ mod edge;
 mod frames;
 mod geometry;
 mod keys;
+// Opening Tasktap when the computer starts: the system's own login item, or Run entry on Windows.
+mod login;
 #[cfg_attr(windows, path = "windows.rs")]
 mod native;
 mod notch;
@@ -206,6 +208,8 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
         "host.capture_key" => keys::call(app, args),
         // The keys that answer a waiting question from any app: the ones in use, or one changed (keys.rs).
         "host.answer_key" => keys::answer_call(app, args),
+        // Whether Tasktap opens when the computer starts, as the system says; or set (login.rs).
+        "host.login" => login::call(args),
         // Where Tasktap shows itself; with `shows`, what the workspace window shows now (presence.rs).
         "host.where" => Ok(presence::call(app, args)),
         // New versions: what is known, a look (About is shown), or the install the person asked for (update.rs).
@@ -699,7 +703,15 @@ fn main() {
                     }
                 });
             }
-            workspace::show(app.handle(), None)?;
+            // Opened by the system at login: no window, only the notch (on Windows the tab, made now as the window's
+            // first picture would have made it) and the icon. The capture key and the icon bring the window.
+            if login::started_at_login() {
+                log(json!({"event": "login-start"}));
+                #[cfg(windows)]
+                edge::ready(app.handle());
+            } else {
+                workspace::show(app.handle(), None)?;
+            }
             let (core, link) = starting.join().expect("the core's start panicked")?;
             log(json!({"event": "ready", "data": core.data}));
             app.manage(Host { core, link, pages: Mutex::default(), question: Mutex::default() });

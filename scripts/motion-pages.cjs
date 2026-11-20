@@ -355,6 +355,16 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
       push({ t: 'change', rev, sets: [{ c: 'prefs', ...(a.key ? { put: [{ id: 'capture_key', value: key, rev }] } : { del: ['capture_key'] }) }] });
       return { key };
     }
+    // Opening at login, as the scene says the system has it (`login`; none: a host without the call). Every call is kept
+    // (`logins`); a change is the system's at once, or, with `approve`, waits for the person to allow it.
+    if (name === 'host.login') {
+      window.__fake.logins.push(a);
+      if (records.login && a.on !== undefined) {
+        if (records.login.state === 'unavailable') throw 'macOS can open only a signed Tasktap app when you log in';
+        records.login = { state: a.on ? (records.approve ? 'approve' : 'on') : 'off' };
+      }
+      return records.login ?? null;
+    }
     // The keys that answer a waiting question: each the scene's preference or this system's own, which a call
     // changes unless the rule refuses it, the scene says another app holds it (`taken`), or Tasktap's other keys have it.
     if (name === 'host.answer_key') {
@@ -407,7 +417,7 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     if (d) push({ t: 'change', rev: ++rev, sets: [{ c: 'dictations', del: [d.id] }] });
     toCore({ t: 'close', s: Number(s), why: 'gone' });
   };
-  window.__fake = { emit, push, records, heard, calls, puts, sizes, close, opened, picked: [], updates: [] };
+  window.__fake = { emit, push, records, heard, calls, puts, sizes, close, opened, picked: [], updates: [], logins: [] };
   // The keyboard's layout, as the web view says it (keys.ts watchLayout): the records' (`layout`, what each key
   // prints by its place), else a US keyboard's, so that a picture is the same on every machine the checks run on.
   const US = Object.fromEntries([...'abcdefghijklmnopqrstuvwxyz'].map((c) => [`Key${c.toUpperCase()}`, c]).concat([...'0123456789'].map((d) => [`Digit${d}`, d]),

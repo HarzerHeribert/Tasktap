@@ -73,8 +73,11 @@ export type HostCalls = {
    *  `install`, the version found is downloaded and installed, which the person asked for. The host says every change
    *  as the `ui` event `update`. */
   'host.update': { args: { look?: boolean; now?: boolean; install?: boolean }; result: HostUpdate };
+  'host.login': { args: { on?: boolean; open?: boolean }; result: HostLogin };
 };
 /** What the host knows of new versions: `off` in a build that does not update itself. */
+/** Whether Tasktap opens when the computer starts, as the system says (host/src/login.rs); or why this copy cannot. */
+export type HostLogin = { state: 'off' | 'on' | 'approve' } | { state: 'unavailable'; why: 'review' | 'check' | 'unsigned' | 'uninstalled' };
 export type HostUpdate =
   | { state: 'off' | 'unknown' | 'looking' }
   | { state: 'current'; version: string }

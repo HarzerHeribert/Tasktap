@@ -10,9 +10,12 @@
 //   - the live notch (the app's own page): it plays, it can be paused and stepped, it never takes the keyboard, and
 //     it rests while the top is out of sight
 //   - every word keeps the app's floor of 4.5 : 1 against what it stands on
+//   - what it shows of the app (site/app) is made from the app as it is: the sources scripts/render-site.cjs makes it
+//     from hash as they did when it was made (site/app/SOURCE). Stale pictures are a NOTE, so work on the interface
+//     goes on; with --fresh they fail the run, as where the site is published or a release made (the workflows).
+// usage: node scripts/verify-pages.cjs [--fresh] [--stamp]   (--stamp: that last check alone, with no build or browser)
 // TASKTAP_SCREENSHOTS=<dir> keeps pictures of what was checked.
 const assert = require('node:assert/strict');
-const { chromium } = require('playwright');
 const { createServer } = require('node:http');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -25,6 +28,17 @@ const RETIRED = /Python|Notebook|Activity view|Session history|review[- ]first|t
 const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [640, 450]];
 
 (async () => {
+  // What the site shows of the app is made from the app as it is. Anything else there would make other pictures or
+  // another notch: never published (--fresh), only noted while the interface is being worked on.
+  const args = process.argv.slice(2);
+  const { inputs, stamped } = require('./render-site.cjs');
+  if (stamped() !== inputs()) {
+    const stale = 'the site\'s pictures of the app (site/app) were made from other sources than these: run (cd ui && npm run build) && node scripts/render-site.cjs on a Mac, look at the result, and commit it';
+    if (args.includes('--fresh')) (console.error('FAIL: ' + stale), process.exit(1));
+    console.log('NOTE: ' + stale);
+  } else if (args.includes('--stamp')) console.log('PASS: the site\'s pictures of the app are made from the app as it is');
+  if (args.includes('--stamp')) return;
+  const { chromium } = require('playwright');
   const server = createServer(async (req, res) => {
     const name = new URL(req.url, 'http://localhost').pathname;
     if (!name.startsWith(prefix)) return void res.writeHead(404).end();
@@ -36,10 +50,6 @@ const SIZES = [[1440, 1000], [1024, 800], [820, 900], [390, 844], [320, 780], [6
       res.writeHead(404).end();
     }
   });
-  // What the site shows of the app is made from the app as it is: the sources scripts/render-site.cjs makes site/app from
-  // hash as they did when it was made (its SOURCE). Anything else there would make other pictures or another notch.
-  const { inputs, stamped } = require('./render-site.cjs');
-  assert.equal(stamped(path.join(root, 'app')), inputs(), 'site/app is older than the app: run (cd ui && npm run build) && node scripts/render-site.cjs on a Mac, look at the result, and commit it');
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const origin = 'http://127.0.0.1:' + server.address().port, url = origin + prefix;
   const shots = process.env.TASKTAP_SCREENSHOTS;

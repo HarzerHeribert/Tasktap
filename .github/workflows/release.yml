@@ -91,6 +91,14 @@ jobs:
             echo "::error::Nothing was built, because TEAM_ID in site/install.sh is empty, so this release's Mac line would install nothing; set it to the team that signs Tasktap."
             exit 1
           }
+      # The site published with this release shows the app it is: its pictures are made from these sources.
+      - name: The site's pictures show this app
+        if: github.ref_type == 'tag'
+        run: |
+          node scripts/verify-pages.cjs --fresh --stamp || {
+            echo "::error::Nothing was built, because the site's pictures of the app are older than the app; run scripts/render-site.cjs on a Mac, commit the pictures, and tag again."
+            exit 1
+          }
       - id: plan
         env:
           REHEARSE: ${{ inputs.rehearse }}

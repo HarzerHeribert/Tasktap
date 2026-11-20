@@ -29,7 +29,7 @@ import { ASKS, UpdateRow, checks, update } from './update.tsx';
 import { SetupRow } from './setup.tsx';
 import { FINDING, Finding, Speech, serviceName } from './consent.tsx';
 import { Choice, Recorder, Row, Switch, setPref } from './form.tsx';
-import { agent, agentName, call, fail, focus, loadTerms, openQuestions, placers, pref, records, redraw, sentence, ui } from './model.ts';
+import { agent, agentName, call, fail, loadTerms, openQuestions, page, placers, pref, records, redraw, sentence, ui } from './model.ts';
 
 export const SECTIONS = [['thoughts', 'Thoughts'], ['agents', 'Agents'], ['projects', 'Projects'], ['voice', 'Voice'], ['appearance', 'Appearance'], ['terminal', 'Terminal'], ['about', 'About']] as const;
 export type Section = (typeof SECTIONS)[number][0];
@@ -38,8 +38,9 @@ export const shown = { at: 'thoughts' as Section };
 /** Shows a section. The keyboard goes to its place in the list: what had it may be a control of the section left. */
 function go(at: Section) {
   ui.sheet = { kind: 'settings', at };
+  // Once it has rendered, not in the next frame: a window that is not drawn (a locked screen, a runner) has none.
+  page.focus = `#set-tab-${at}`;
   redraw();
-  requestAnimationFrame(() => focus(`#set-tab-${at}`));
 }
 
 const styles: [MotionStyle, string][] = [['slats', 'Slats'], ['glyphs', 'Glyphs'], ['resonator', 'Resonator']];

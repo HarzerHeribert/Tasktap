@@ -502,7 +502,13 @@ async function main() {
         return page;
       };
       const sendIt = async (page, text = 'make the export faster') => (await page.keyboard.type(text), await page.keyboard.press('Enter'));
-      const arrived = (page) => page.waitForFunction(() => document.querySelector('.capture .cap-ask'), null, { timeout: 3000 }).then(() => true, () => false);
+      // Waits by the page, never by the script's clock (a slow machine runs both at its own pace): the question come,
+      // and the moment its Return acts, which the page says by the key no longer waiting (capture.tsx `answers`).
+      const arrived = (page) => page.waitForFunction(() => document.querySelector('.capture .cap-ask'), null, { timeout: 15000 }).then(() => true, () => false);
+      const ready = (page, sel = '.home .capture .cap-row > .key') => page.waitForFunction((s) => {
+        const k = document.querySelector(s);
+        return !!document.querySelector('.capture .cap-ask') && !!k && !k.hasAttribute('data-waits');
+      }, sel, { timeout: 15000 }).then(() => true, () => false);
       // Where the question is now: at a Composer (in the sheet or not), in Needs you, and how many times it is shown.
       const where = (page) => page.evaluate(() => [...document.querySelectorAll('[data-question]')].filter((q) => q.offsetParent).map((q) => `${q.closest('.sheet[role=dialog]') ? 'sheet ' : ''}${q.closest('.capture') ? 'composer' : q.closest('.needs') ? 'needs' : 'elsewhere'}`).join(', '));
       const inField = (page) => page.evaluate(() => document.activeElement?.id === 'capture-input');
@@ -519,11 +525,11 @@ async function main() {
       let page = await asking();
       expect((await key(page)).startsWith('metal'), 'Home, empty: the Composer\'s key is not the metal key');
       await sendIt(page);
-      await page.waitForTimeout(800);
+      await arrived(page);
       expect((await where(page)) === 'composer', `a question about the thought just sent, the field empty: it is shown ${await where(page) || 'nowhere'}, not once at the Composer`);
       expect(await inField(page), 'a question asked at the Composer took the keyboard from the field');
       expect((await caps(page, '.cap-ask')) === '1 2 3 4 5', `the question at the Composer shows the caps "${await caps(page, '.cap-ask')}", not 1 2 3 4 5 (every row a number, no letters)`);
-      await page.waitForTimeout(500);
+      await ready(page);
       expect((await key(page)) === 'metal "Start in cuegrid"', `with the question at the Composer its key is ${await key(page)}, not the metal key saying "Start in cuegrid"`);
       expect(await page.evaluate(() => [...document.querySelectorAll('.cap-ask .qa > .ans')].every((a, i, all) => !i || a.getBoundingClientRect().top >= all[i - 1].getBoundingClientRect().bottom - 0.5)), 'the question\'s places are not one under another');
       await page.keyboard.press('1');
@@ -534,7 +540,7 @@ async function main() {
       // The arrows move the row Return takes, and the key says which; Return takes it.
       page = await asking();
       await sendIt(page);
-      await page.waitForTimeout(800);
+      await ready(page);
       await page.keyboard.press('ArrowDown');
       await page.keyboard.press('ArrowDown');
       await page.waitForTimeout(100);
@@ -548,7 +554,7 @@ async function main() {
       // The key, clicked, does what Return does: the first row.
       page = await asking();
       await sendIt(page);
-      await page.waitForTimeout(1300);
+      await ready(page);
       await tap(page, '.home .capture .cap-row > .key', 'the Composer\'s key with the question there');
       await page.waitForTimeout(400);
       expect((await choice(page)) === 0, `the Composer's key clicked with the question there answered ${JSON.stringify(await answered(page))}, not its first place`);
@@ -598,7 +604,7 @@ async function main() {
       // caps not shown there (the keyboard is the field's). A digit typed after a letter is text.
       page = await asking();
       await sendIt(page);
-      await page.waitForTimeout(800);
+      await arrived(page);
       await page.keyboard.type('look at the logs 2', { delay: 30 });
       await page.waitForTimeout(200);
       expect((await value(page)) === 'look at the logs 2' && (await choice(page)) === 'none', `typing after the question came: the field holds "${await value(page)}", answered ${JSON.stringify(await answered(page))}`);
@@ -620,7 +626,7 @@ async function main() {
       for (const k of ['Escape', 'Tab']) {
         page = await asking();
         await sendIt(page);
-        await page.waitForTimeout(800);
+        await arrived(page);
         await page.keyboard.press(k);
         await page.waitForTimeout(200);
         expect((await inField(page)) && (await where(page)) === 'needs', `${k} at the Composer's question: the keyboard ${await inField(page) ? 'is' : 'is not'} in the field, the question ${await where(page)}`);
@@ -633,7 +639,7 @@ async function main() {
       // R5: Home left for a workspace and back: the question waits in Needs you, and the field has the keyboard.
       page = await asking();
       await sendIt(page);
-      await page.waitForTimeout(800);
+      await arrived(page);
       await page.evaluate(() => (window.__ws.show([...window.__ws.records.projects.values()].find((x) => x.open).id), window.__motion.redraw()));
       await page.waitForTimeout(300);
       await page.evaluate(() => (window.__ws.show('home'), window.__motion.redraw()));
@@ -647,10 +653,10 @@ async function main() {
       await page.keyboard.press('Meta+n');
       await page.waitForTimeout(300);
       await sendIt(page);
-      await page.waitForTimeout(800);
+      await arrived(page);
       expect((await where(page)) === 'sheet composer', `a thought sent from New Task: its question is shown ${await where(page) || 'nowhere'}, not once in the sheet`);
       expect(await page.evaluate(() => document.activeElement?.id === 'capture-input' && !!document.activeElement.closest('.sheet[role=dialog]')), 'a thought sent from New Task: the keyboard is not in the sheet\'s field');
-      await page.waitForTimeout(500);
+      await ready(page, '.sheet .capture .cap-row > .key');
       expect((await key(page, '.sheet .capture .cap-row > .key')) === 'metal "Start in cuegrid"' && (await key(page)).startsWith('quiet'), `New Task asking: the sheet's key is ${await key(page, '.sheet .capture .cap-row > .key')}, Home's behind it ${await key(page)}`);
       await page.keyboard.press('1');
       await page.waitForTimeout(400);
@@ -663,7 +669,7 @@ async function main() {
       await page.evaluate(() => window.__fake.emit({ do: 'capture' }));
       await page.waitForTimeout(600);
       await sendIt(page);
-      await page.waitForTimeout(800);
+      await arrived(page);
       expect((await where(page)) === 'composer' && (await inField(page)), `the notch: a thought sent from its capture line has its question ${await where(page) || 'nowhere'}, the keyboard ${await inField(page) ? 'in' : 'not in'} the field`);
       await page.keyboard.press('2');
       await page.waitForTimeout(400);
@@ -712,6 +718,13 @@ async function main() {
       const notNow = (page) => page.evaluate(() => (window.__fake.records.prefs ?? []).some((p) => p.id === 'setup_hidden') || (window.__fake.records.looks ?? []).length > 0);
       const sheetUp = (page) => page.evaluate(() => window.__ws.ui.sheet?.kind === 'setup' && window.__ws.ui.sheet.auto === true);
       const first = async (o = {}) => open(browser, { label: 'workspace', records: { ...projects('first-agents'), ...o }, url: server.url, dpr: 1 });
+      // The sheet that came by itself, up long enough by the page's clock to take a key: 650 ms after the page first
+      // sees it, which is no earlier than it came.
+      const settled = (page) => page.evaluate(() => new Promise((done) => {
+        const end = performance.now() + 15000;
+        const look = () => (document.querySelector('.sheet[role=dialog]') ? setTimeout(done, 650) : performance.now() > end ? done() : setTimeout(look, 10));
+        look();
+      }));
       page = await first({ subMs: 900, offerHeld: true });
       await page.evaluate(() => {
         const look = () => (window.__ws.ui.ready ? (window.__firstFrame = !!document.querySelector('.sheet[role=dialog]')) : requestAnimationFrame(look));
@@ -728,7 +741,7 @@ async function main() {
       // Typing at it: the first letter puts it away (Not now) and types into the Composer, every letter is there, and
       // Return sends the thought; nothing is allowed.
       page = await first();
-      await page.waitForTimeout(900);
+      await settled(page);
       expect(await sheetUp(page), 'the first start: the projects step is not up');
       await page.keyboard.type('fix the export menu', { delay: 40 });
       await page.keyboard.press('Enter');
@@ -742,7 +755,7 @@ async function main() {
       let quietMeasured = false;
       for (let attempt = 0; attempt < 3 && !quietMeasured; attempt++) {
         page = await first();
-        await page.waitForTimeout(900);
+        await settled(page);
         await page.evaluate(() => document.addEventListener('keydown', (e) => (window.__keys ??= []).push(performance.now()), true));
         await page.keyboard.press('ArrowLeft');
         await page.waitForTimeout(300);
@@ -784,7 +797,7 @@ async function main() {
       // R4: put away by a click beside it, by ⌘O or by Escape, it is Not now, kept.
       for (const [how, act] of [['a click beside it', (p) => { const v = p.viewportSize(); return p.mouse.click(v.width - 20, v.height - 40); }], ['⌘O', (p) => p.keyboard.press('Meta+o')], ['Escape', (p) => p.keyboard.press('Escape')]]) {
         page = await first();
-        await page.waitForTimeout(900);
+        await settled(page);
         await act(page);
         await page.waitForTimeout(400);
         expect((await page.evaluate(() => window.__ws.ui.sheet?.kind !== 'setup')) && (await notNow(page)) && !(await allowed(page)), `the first start put away by ${how}: it is not kept as Not now, and would come again`);
@@ -954,7 +967,7 @@ async function main() {
           for (const [text, delay] of NEXT) {
             const p = await surface(b, at);
             await sendIt(p);
-            await p.waitForTimeout(900);
+            await arrived(p);
             for (const ch of text) (await p.keyboard.type(ch), delay && (await p.waitForTimeout(delay)));
             await p.waitForTimeout(400);
             const got = await p.evaluate((sel) => ({ field: document.querySelector(sel)?.value ?? null, keyboard: document.activeElement === document.querySelector(sel), view: document.querySelector('#sheet')?.getAttribute('aria-label') ?? '' }), at === 'sheet' ? `.sheet ${FIELD}` : FIELD);
@@ -1002,8 +1015,7 @@ async function main() {
       }
       page = await asking();
       await sendIt(page);
-      await arrived(page);
-      await page.waitForTimeout(900);
+      await ready(page);
       await page.keyboard.press('ArrowDown');
       const down = await key(page);
       await page.keyboard.press('Enter');
@@ -1043,7 +1055,7 @@ async function main() {
 
       // N4: ⌘J on Home wherever the keyboard is: the agent list opens in the Composer; behind a sheet its key is hidden.
       page = await open(browser, { label: 'workspace', records: scene('busy'), url: server.url, dpr: 1 });
-      await page.waitForTimeout(500);
+      await page.waitForSelector('.home .hx .hr', { timeout: 15000 }).catch(() => {});
       // A control of Home outside the Composer (a row's answer, a heading's fold, Setup's line).
       await page.evaluate(() => [...document.querySelectorAll('.home .hx button, .home .hx [tabindex="0"]')].find((b) => !b.closest('form.capture') && b.offsetParent)?.focus());
       const from = await page.evaluate(() => (document.activeElement?.closest('form.capture') ? 'the Composer (wrong) ' : '') + (document.activeElement?.textContent.trim().slice(0, 30) || document.activeElement?.tagName));
@@ -1084,7 +1096,8 @@ async function main() {
           else if (at === 'sheet') (await p.evaluate(() => ((window.__ws.ui.sheet = { kind: 'capture' }), window.__motion.redraw())), await p.waitForTimeout(500), await p.focus(`.sheet ${FIELD}`));
           else await p.focus(FIELD);
           await sendIt(p);
-          await p.waitForTimeout(900);
+          await arrived(p);
+          await p.waitForTimeout(100);
           const f = await footOf(p, at === 'sheet' ? '.sheet' : at === 'home' ? '.home' : '');
           expect(['Start in customer-portal-f…', 'Start'].includes(f.says.replace(/^\S*\s*(?=Start)/, '')) && !f.bad.length,
             `${engine}, ${SURFACES[at]} at ${w} px, "${LONG}" first: the key says "${f.says}"${f.bad.length ? `; ${f.bad.join('; ')}` : ''}`);
@@ -1101,7 +1114,7 @@ async function main() {
           ['a paste', (p) => p.keyboard.insertText('pasted thought'), (v) => v === 'pasted thought'],
         ]) {
           const p = await open(b, { label: 'workspace', records: projects('first-agents'), url: server.url, dpr: 1 });
-          await p.waitForTimeout(1200);
+          await settled(p);
           await act(p);
           await p.waitForTimeout(300);
           const v = await value(p);
@@ -1116,7 +1129,7 @@ async function main() {
       const firstUp = (records = projects('first-agents')) => open(browser, { label: 'workspace', records, url: server.url, dpr: 1 });
       const sheetSays = (page) => page.evaluate(() => document.querySelector('.sheet #sheet-title')?.textContent ?? '');
       const toFound = async (page) => {
-        await page.waitForTimeout(1300);
+        await settled(page);
         await page.keyboard.press('Enter');
         await page.waitForTimeout(300);
         await page.evaluate(() => window.__fake.offer?.());
@@ -1166,7 +1179,7 @@ async function main() {
       for (let attempt = 0; attempt < 3 && !foundSaid; attempt++) {
         if (attempt) await page.context().close();
         page = await firstUp();
-        await page.waitForTimeout(1300);
+        await settled(page);
         await page.keyboard.press('Enter');
         await page.waitForTimeout(300);
         await page.evaluate(() => window.__fake.offer?.());
@@ -1178,7 +1191,8 @@ async function main() {
       // With the keyboard in the Composer under it, the sheet is not modal, the field is described by it, and its
       // arrival is said once; Tab into it makes it modal; Shift-Tab from its first control gives the Composer back.
       page = await firstUp();
-      await page.waitForTimeout(1300);
+      await settled(page);
+      await page.waitForTimeout(150);
       const aria = () => page.evaluate(() => {
         const s = document.querySelector('.sheet[role=dialog]'), f = document.querySelector('.home #capture-input'), by = f?.getAttribute('aria-describedby') ?? '';
         return { modal: s?.getAttribute('aria-modal'), field: document.activeElement === f, by, described: !!by && by.split(' ').every((id) => document.getElementById(id)?.textContent.trim()), said: document.getElementById('sheet-said')?.textContent ?? '' };
@@ -1202,7 +1216,7 @@ async function main() {
       // An answered thought on its way says who chose: "you chose it".
       page = await asking();
       await sendIt(page);
-      await page.waitForTimeout(1300);
+      await arrived(page);
       await page.keyboard.press('1');
       await page.waitForTimeout(600);
       const chose = await page.evaluate(() => document.querySelector('.home .way-h')?.innerText.replace(/\s+/g, ' ').trim() ?? '');

@@ -447,7 +447,7 @@ $rows['1'] = 'Starts the app as Explorer would, with no debug channel and its ow
     Start-Sleep -Seconds 4
     $menu = [Tasktap.Desk]::Menu($window.Handle) -join ', '
     Check 1 'the window has no menu bar of the system''s' (-not $menu) "menu bar: $(if ($menu) { $menu } else { 'none' })"
-    Say 'LOOK' 1 'the window with Home in it: one dark surface, the page''s top row as its title bar' (Capture $window.Handle 'row1-window' -Screen)
+    Say 'LOOK' 1 'the window with Home in it, and over Home Setup''s first sheet while this account''s first start was never answered: one dark surface, the page''s top row as its title bar' (Capture $window.Handle 'row1-window' -Screen)
     # The faint light at the foot of Home and of the sidebar, point by point; and the same window through the drawing
     # library, as the rounds before this check took their pictures.
     $picture = Picture $window.Handle; $specks = Specks $picture; $picture.Dispose()
@@ -500,6 +500,7 @@ $rows['3'] = 'Starts the app on a data folder of its own. The tab''s window must
     New-Item -ItemType Directory -Force "$tmp\data3", "$tmp\project3" | Out-Null
     $window = Start-Own @{ TASKTAP_DATA = "$tmp\data3"; TASKTAP_PICK = "$tmp\project3" } 420
     if ($window -eq [IntPtr]::Zero) { Say 'FAIL' 3 'the app shows no window'; End-Own 'row3-app.txt'; return }
+    First-Start 3 -New
     $made = @($seen | Where-Object { $_ -match '"made":' })[-1]
     if (-not $made) { $made = Until '"made":' 15 }
     $page = Soon 'typeof __records' 'object' 20 'notch'
@@ -1020,6 +1021,15 @@ function Start-Own($environment, $seconds) {
     $state = Until '"event":"state"' 5
     if ($state) { [IntPtr][long](ConvertFrom-Json $state).workspace } else { [IntPtr]::Zero }
 }
+# A data folder's first start: unless what is stored says the step was seen, Setup's first step comes down by itself as
+# a sheet over Home (design/ui-directions/NOTES.md §13; smoke.sh, "First start"). It is put away with Not now, as a
+# person would, before the row goes on; on a new data folder ($New) that is a check of the row's.
+function First-Start($row, [switch]$New) {
+    $sheet = Soon "String(__ws.ui.sheet?.kind === 'setup' && __ws.ui.sheet.auto === true)" 'true' $(if ($New) { 15 } else { 4 })
+    if ($sheet -eq 'true') { $null = Js "([...document.querySelectorAll('.sheet .sh-f .act')].find(b => b.textContent.includes('Not now'))?.click(), 1)" }
+    $quiet = Soon "String(!__ws.ui.sheet && !!document.querySelector('.home .setup'))" 'true' 10
+    if ($New) { Check $row 'a new data folder is a first start: Setup''s first sheet comes down over Home by itself, and Not now leaves Setup under the Composer' ($sheet -eq 'true' -and $quiet -eq 'true') "Setup's sheet by itself: $sheet; after Not now, no sheet and Setup on Home: $quiet" }
+}
 # The row's app told to quit, and what it said kept.
 function End-Own($name) {
     if ($proc -and -not $proc.HasExited) {
@@ -1048,6 +1058,7 @@ $rows['9'] = 'Starts the app with no folder named for it. With its window in fro
     New-Item -ItemType Directory -Force "$tmp\data9", "$tmp\chosen folder" | Out-Null
     $window = Start-Own @{ TASKTAP_DATA = "$tmp\data9" } 180
     if ($window -eq [IntPtr]::Zero) { Say 'FAIL' 9 'the app shows no window'; End-Own 'row9-app.txt'; return }
+    First-Start 9 -New
     Start-Sleep -Seconds 2
     # Open Workspace by its key and the sheet's Return, with real keys; then the dialog, a window of the app's process.
     function Ask-Folder {
@@ -1123,6 +1134,7 @@ $rows['14'] = 'Starts the app with the core that has the fixture agent, the agen
     Copy-Item "$fixtures\tasktap.exe" "$tmp\agents\fixture.exe"
     $window = Start-Own @{ TASKTAP_DATA = "$tmp\data14"; TASKTAP_PICK = "$tmp\project14"; TASKTAP_CORE_EXE = "$fixtures\tasktap.exe"; TASKTAP_CORE_BUILD = (Get-Content "$fixtures\build.txt" -Raw).Trim(); PATH = "$tmp\agents;$env:PATH" } 300
     if ($window -eq [IntPtr]::Zero) { Say 'FAIL' 14 'the app shows no window'; End-Own 'row14-app.txt'; return }
+    First-Start 14 -New
     foreach ($call in 'put {"c":"prefs","id":"agent","patch":"fixture"}', 'put {"c":"prefs","id":"hold","patch":2}', 'agents.detect {}') { Send "call $call"; $null = Until '"event":"reply"' 5 }
     $null = Js "(__ws.call('project.add', { id: __ws.uuid7(), folder: '$("$tmp\project14".Replace('\', '\\'))' }), 1)"
     $project = Soon "[...__ws.records.projects.values()].find((p) => p.kind === 'folder')?.id ?? ''" '-' 10
@@ -1226,6 +1238,8 @@ $rows['13'] = 'Starts the app once more with the system''s own title bar in the 
     $state = Until '"event":"state"' 5
     $native = if ($state) { [IntPtr][long](ConvertFrom-Json $state).workspace } else { [IntPtr]::Zero }
     if ($native -eq [IntPtr]::Zero) { Say 'FAIL' 13 'the app with the system''s title bar shows no window'; return }
+    # Row 4's data folder, its first start answered there unless this row runs alone.
+    First-Start 13
     Start-Sleep -Seconds 2
     $null = Front $native
     Start-Sleep -Milliseconds 500
@@ -1301,6 +1315,7 @@ try {
                 $state = Until '"event":"state"' 5
                 if ($state) { $workspace = [IntPtr][long](ConvertFrom-Json $state).workspace }
                 Check 4 'the app starts with its debug channel and its page runs' ($ready -and $page -eq 'object' -and $workspace -ne [IntPtr]::Zero) "window $workspace"
+                if ($page -eq 'object') { First-Start 4 -New }
             }
             if ($row -in '4', '5', '8', '10', '11', '12' -and ($proc.HasExited -or $workspace -eq [IntPtr]::Zero)) { Say 'FAIL' $row 'not run: the app of rows 4 to 12 is not running'; continue }
             if ($row -eq '+' -and $proc -and -not $proc.HasExited) {

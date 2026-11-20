@@ -114,6 +114,31 @@ fn a_folder_moves_whole_with_its_records_rewritten_and_a_copy_of_its_database_ke
     Store::open(&to.join("core.db"), Time::new(1).unwrap()).unwrap();
 }
 
+/// Windows takes a folder's name in any case and the records name it as the
+/// system does: a folder given in another case moves with them rewritten.
+/// Only there: Linux keeps such names apart.
+#[cfg(windows)]
+#[test]
+fn a_folder_named_in_another_case_moves_with_its_records_rewritten() {
+    let dir = Dir::new("case");
+    let (from, to) = (dir.0.join("Tasktap Next"), dir.0.join("Tasktap"));
+    fixture(&from);
+    let named = PathBuf::from(from.to_str().unwrap().to_uppercase());
+    let moved = relocate::run(&named, &to).unwrap();
+    assert_eq!(moved.records, 2);
+    let db = Connection::open(to.join("core.db")).unwrap();
+    let scratch: String = db
+        .query_row(
+            "SELECT folder FROM projects WHERE data ->> 'kind' = 'scratch'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(Path::new(&scratch), to.join("scratch"));
+    let doc = read(&to);
+    assert_eq!(PathBuf::from(doc["folder"].as_str().unwrap()), to);
+}
+
 #[test]
 fn nothing_moves_while_a_core_holds_the_folder_or_is_starting_there() {
     let dir = Dir::new("held");

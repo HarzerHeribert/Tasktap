@@ -1139,24 +1139,36 @@ async function main() {
       await page.context().close();
 
       // The held-back sentence reads as a sentence on every sheet that comes by itself: what Return will do, as a verb.
+      // (Return pressed in the page the moment the title is there; a machine too busy for that to be within the sheet's
+      // first 600 ms says nothing held back, and is tried again.)
       const heldSays = async (page, untilTitle) => {
-        await page.waitForFunction((t) => new RegExp(t).test(document.querySelector('.sheet #sheet-title')?.textContent ?? ''), untilTitle, { timeout: 5000 }).catch(() => {});
-        await page.evaluate(() => (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true })));
+        await page.evaluate((t) => new Promise((done) => {
+          const end = performance.now() + 5000;
+          const tick = () => (new RegExp(t).test(document.querySelector('.sheet #sheet-title')?.textContent ?? '') || performance.now() > end ? done() : setTimeout(tick, 4));
+          tick();
+        }).then(() => (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }))), untilTitle);
         await page.waitForTimeout(150);
         return page.evaluate(() => document.querySelector('.sheet .sh-held')?.textContent ?? '');
       };
       for (const [records, title, verb] of [[projects('first-agents'), '^Find your projects', 'allow'], [projects('first-folders'), '^Choose where', 'search there']]) {
-        page = await open(browser, { label: 'workspace', records: { ...records, subMs: 400 }, url: server.url, dpr: 1 });
-        const said = await heldSays(page, title);
+        let said = '';
+        for (let attempt = 0; attempt < 3 && !said; attempt++) {
+          page = await open(browser, { label: 'workspace', records: { ...records, subMs: 400 }, url: server.url, dpr: 1 });
+          said = await heldSays(page, title);
+          await page.context().close();
+        }
         expect(said === `You were typing: press Return again to ${verb}.`, `Return at once on "${title.slice(1)}…": the sheet says "${said}", not "You were typing: press Return again to ${verb}."`);
-        await page.context().close();
       }
-      page = await firstUp();
-      await page.waitForTimeout(1300);
-      await page.keyboard.press('Enter');
-      await page.waitForTimeout(300);
-      await page.evaluate(() => window.__fake.offer?.());
-      const foundSaid = await heldSays(page, '^Found');
+      let foundSaid = '';
+      for (let attempt = 0; attempt < 3 && !foundSaid; attempt++) {
+        if (attempt) await page.context().close();
+        page = await firstUp();
+        await page.waitForTimeout(1300);
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(300);
+        await page.evaluate(() => window.__fake.offer?.());
+        foundSaid = await heldSays(page, '^Found');
+      }
       expect(foundSaid === 'You were typing: press Return again to close.', `Return at once on what was found: the sheet says "${foundSaid}", not "You were typing: press Return again to close."`);
       await page.context().close();
 

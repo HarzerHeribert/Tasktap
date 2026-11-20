@@ -207,6 +207,7 @@ pub fn show(app: &AppHandle, at: Option<&str>) -> tauri::Result<()> {
     {
         let rules = with(|st| st.path.with_file_name("frames"));
         window.with_webview(move |view| {
+            crate::native::tab_to_controls(view.inner());
             crate::native::confine(view.inner(), crate::frames::RULES, &rules, |ok| {
                 CONFINED.store(ok, Ordering::Relaxed);
                 crate::log(json!({"event": "frame", "confined": ok}));

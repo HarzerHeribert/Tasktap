@@ -51,8 +51,16 @@ export const asksHere = (here: 'notch' | 'window') => (here === 'window' ? where
 /** The core's words, shown as they are, as a sentence: begun with a capital and ended with a stop. */
 export const sentence = (s: string) => s.replace(/^./, (c) => c.toUpperCase()).replace(/([^.!?…])$/, '$1.');
 
-/** A focus move made by script never shows the keyboard ring (rebuild plan, Phase 0 findings). */
+/** A focus move made by script never shows the keyboard ring (rebuild plan, Phase 0 findings). A sheet of the window
+ *  is over all else and holds the keyboard: what is named is the one in it (the New Task sheet's field, not Home's
+ *  behind it), and nothing behind it is given the keyboard by name while it is up. */
 export function focus(target: string | HTMLElement | null | undefined) {
+  const sheet = typeof target === 'string' ? document.querySelector('.sheet[role=dialog]') : null;
+  if (sheet && typeof target === 'string') {
+    const el = [...sheet.querySelectorAll<HTMLElement>(target)][0];
+    el?.focus({ preventScroll: true, focusVisible: false });
+    return true;
+  }
   const el = typeof target === 'string' ? document.querySelector<HTMLElement>(target) : target;
   el?.focus({ preventScroll: true, focusVisible: false });
   return !!el;
@@ -72,8 +80,22 @@ let strict = false;
 export function markHeld() {
   const on = !strict || document.hasFocus(), at = on ? document.activeElement : null;
   for (const el of document.querySelectorAll<HTMLElement>('[data-keys]'))
-    el.toggleAttribute('data-held', el.dataset.keys === 'window' ? on : !!at && at !== document.body && el.contains(at));
+    el.toggleAttribute('data-held', el.dataset.keys === 'window' ? on : !!at && at !== document.body && (el.contains(at)
+      // `field`: the keys act from the Composer's field it stands under too (a question asked at the Composer).
+      || (el.dataset.keys === 'field' && at.id === 'capture-input' && !!el.closest('form')?.contains(at))));
 }
+
+/** When keys were pressed in this page, anywhere: `last` is the key being handled now, `prev` the one before it. A
+ *  key that answers something that came by itself counts only after 600 ms of quiet (`quiet`), so nothing the person
+ *  was typing, nor a Return pressed twice, lands on an answer (design/ui-directions/NOTES.md §13). */
+export const keyTimes = { last: -Infinity, prev: -Infinity };
+// A modifier pressed alone is not a key here: ⌘ before O is one press, ⌘O.
+const MODIFIERS = new Set(['Shift', 'Meta', 'Control', 'Alt', 'AltGraph', 'CapsLock', 'Fn', 'OS']);
+addEventListener('keydown', (e) => MODIFIERS.has(e.key) || ((keyTimes.prev = keyTimes.last), (keyTimes.last = performance.now())), true);
+export const QUIET = 600;
+/** Whether the key being handled came after `QUIET` ms in which no key was pressed, and `since` (when what it would
+ *  answer arrived) is as long ago. A key held down never counts. */
+export const quiet = (e: KeyboardEvent, since = -Infinity) => !e.repeat && performance.now() - Math.max(keyTimes.prev, since) >= QUIET;
 /** Keeps `data-held` as the keyboard moves, in this page and between its window and others. */
 export function watchHeld(notch = false) {
   strict = notch;

@@ -1,6 +1,7 @@
 // The Composer, the same in the notch, the capture sheet and on Home: the thought on lines of its own; under it, inside
-// the field, where it will go and why (`where`), the agents as rings (the seated one runs this thought: the usual one,
-// or another picked for it alone), the microphone, and the key that says what Return does.
+// the field, where it will go and why (`where`), who runs it (rings.tsx: the usual agent, or another picked for this
+// thought alone), the microphone, and the key that says what Return does. The question about the thought it sent last
+// is asked under it (`atComposer`).
 // A thought with no folder to go to is saved for later: it waits on Home until it is sent to one.
 //
 // Under the row is what is on its way, by one mechanism for typing and for voice (way.ts): speech being heard and
@@ -13,12 +14,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef } from 'preact/hooks';
 import { uuid7 } from './client.ts';
 import { hit, keyName, spell } from './keys.ts';
 import { talkKey } from './page.ts';
-import { Ask } from './question.tsx';
-import { AgentControl, AgentList, chosen } from './rings.tsx';
+import { Ask, routerRows } from './question.tsx';
+import { AGENT_KEY, AgentControl, AgentList, chosen, open as openAgents } from './rings.tsx';
 import { cancel, control, end, follow, mine, needs, place, setAim, talk, voiced } from './speech/record.ts';
 import { Brand, I, Key, Level, Mark, madeAt } from './ui.tsx';
-import { agent, agentName, call, fail, focus, openQuestions, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
-import { back, briefOf, clock, first, hold, laterWhy, leave, onWay, placed, placing, step } from './way.ts';
+import { agent, agentName, call, fail, focus, openQuestions, page, placeArgs, placers, pref, projectName, projects, quiet, records, redraw, sentence, sessionName, why } from './page.ts';
+import { back, briefOf, clock, first, hold, laterWhy, leave, onWay, placed, placedBy, placing, step } from './way.ts';
 
 /** What was just sent, for what is said of it once it is no longer on its way. `pick`: the place the person chose for
  *  it, which Undo gives back with its words. How it came by its place is the thought's own to say (`placed`). */
@@ -479,26 +480,49 @@ function Hold({ t }: { t: Thought }) {
   return <i class="way-hold" key={t.hold_until ?? 0} data-open={!h || undefined} style={h ? { '--from': String(h.share), '--ms': `${Math.round(h.ms)}ms` } : undefined} />;
 }
 
-/** A thought on its way, with the way to take it back. The newest is `open`: where it goes and what the work is
- *  called, the brief in full when it says the words differently, the person's own words under it, and how it was
- *  placed. Any other is its first line. */
+/** The thoughts whose line under the Composer was opened to show the rest (`More`): its brief, the person's words and
+ *  how it was placed. Closed by default. */
+const unfolded = new Set<string>();
+/** The rest of a thought's line, behind one quiet disclosure on it: the brief, the person's own words, how it was
+ *  placed in full. */
+function More({ t }: { t: Thought }) {
+  const brief = briefOf(t), note = placed(t, agentName);
+  if (!brief && t.source !== 'voice' && !note) return null;
+  const on = unfolded.has(t.id);
+  return <button type="button" class="way-more" aria-expanded={on} onClick={() => (on ? unfolded.delete(t.id) : unfolded.add(t.id), redraw())}><I n="chev" /><span>{brief ? 'Brief' : 'Details'}</span></button>;
+}
+function Told({ t }: { t: Thought }) {
+  const brief = briefOf(t), note = placed(t, agentName);
+  if (!unfolded.has(t.id)) return null;
+  return (
+    <div class="way-told">
+      {brief && <p class="way-b"><span>Brief{t.route?.title && <b>{t.route.title}</b>}</span>{brief}</p>}
+      {(brief || t.source === 'voice') && <p class="way-w"><span>You said</span>{t.text}</p>}
+      {note && <p class="way-n">{note}</p>}
+    </div>
+  );
+}
+
+/** A thought on its way, with the way to take it back. The newest is `open`: one line (NOTES §13, the review's R12):
+ *  where it starts, who placed it, the rest behind one quiet disclosure, and Undo. Any other is its first line. */
 function Going({ t, open }: { t: Thought; open: boolean }) {
-  const at = step(t), brief = briefOf(t);
-  const note = placed(t, agentName);
+  const at = step(t), by = placedBy(t, agentName);
   return (
     <section class="way" data-step={at} data-thought={t.id} aria-label="On its way">
       <Hold t={t} />
       <p class="way-h">
         {at === 'placing' ? <><Mark s="working" label="" /><b>Placing…</b></> : (
-          <><I n={t.session_id ? 'term' : 'arrow'} /><b>{t.session_id ? `Follow-up: ${sessionName(t.session_id)}` : projectName(t.project_id ?? t.card_id)}</b>{t.card_id && <em class="way-new">new here</em>}</>
+          <><I n={t.session_id ? 'term' : 'arrow'} />
+            {t.session_id ? <b>Follow-up: {sessionName(t.session_id)}</b> : <span class="way-to">Starting in <b>{projectName(t.project_id ?? t.card_id)}</b></span>}
+            {t.card_id && <em class="way-new">new here</em>}
+            {open && by && <span class="way-by">{by}</span>}</>
         )}
         {at === 'briefing' && <em>Writing the brief…</em>}
+        {open && at !== 'placing' && <More t={t} />}
         {/* ⌘Z is the field's own undo while it holds words: then the cap is not shown. */}
         <button type="button" class="act" onClick={() => void undo(t)}>{!cap.draft && <Key k="⌘Z" cap />}<span>Undo</span></button>
       </p>
-      {open && brief && <p class="way-b"><span>Brief{t.route?.title && <b>{t.route.title}</b>}</span>{brief}</p>}
-      {open && (brief || t.source === 'voice') && <p class="way-w"><span>You said</span>{t.text}</p>}
-      {open && note && at !== 'placing' && <p class="way-n">{note}</p>}
+      {open && <Told t={t} />}
     </section>
   );
 }
@@ -538,7 +562,7 @@ function Way({ hooks, raised }: { hooks: Hooks; raised: boolean }) {
     return () => clearTimeout(timer);
   });
   const line = (words: ComponentChildren, more?: ComponentChildren) => <p class="cap-said" role="status"><span>{words}</span>{more}</p>;
-  const at = step(t), note = t && placed(t, agentName);
+  const at = step(t), by = t ? placedBy(t, agentName) : '';
   // Where a thought started is said once, for a few seconds: after that its row says it, and nothing stands under the
   // Composer. (What still needs the person stays: a question, a failure, why it waits, and Undo while it can be undone.)
   const began = at === 'started' && sent ? (told.id === sent.id ? told : (told = { id: sent.id, at: Date.now() })).at : 0;
@@ -567,42 +591,62 @@ function Way({ hooks, raised }: { hooks: Hooks; raised: boolean }) {
             <button type="button" class="act" onClick={() => void undo('later')}>{!cap.draft && <Key k="⌘Z" cap />}<span>Undo</span></button>
           </>)
             : at === 'failed' ? line(`${why(t)} in ${projectName(t.project_id)}.`)
-              : fresh ? line(<>Started in <b>{projectName(t.project_id)}</b>{t.card_id && <i>new here</i>}{note && <i>{note}</i>}</>) : null
+              : fresh ? <>{line(<>Started in <b>{projectName(t.project_id)}</b>{t.card_id && <i>new here</i>}{by && <i>{by}</i>}</>, <More t={t} />)}<Told t={t} /></> : null
       )}
     </div>
   );
 }
 
-/** The router's question about the thought this Composer sent last, as it was first seen (NOTES §13): asked at the
- *  Composer with the keyboard (`held`: the field was empty and had it, or nothing had it), at the Composer without it
- *  (`here`: the keyboard was on something else, a row of Home), or waiting in Needs you (`away`: the next thought was
- *  begun when it came, or the person gave the field back with Escape or Tab). Decided once for each question, so a
- *  key typed into the next thought is never taken for an answer. */
-const asked = new Map<string, 'held' | 'here' | 'away'>();
-/** The question asked at a Composer of this page now, if one is (Home's Needs you then leaves it out). */
-let held = '';
-export function askedHere(): Question | undefined {
+/** The router's question about the thought this page's Composer sent last (NOTES §13), the one rule for every
+ *  Composer (Home's, the New Task sheet's, the notch's capture row): it is asked at the Composer the thought was sent
+ *  from, under its field, and nowhere else (Home's Needs you leaves it out), or it waits in Needs you with the rest.
+ *  Decided when it is first seen: at the Composer while the field is empty, in Needs you when the next thought was
+ *  already begun. It leaves the Composer for Needs you for good as soon as a key types into the field, when the field
+ *  is given back (Escape, Tab), and when the Composer it is asked at goes (Home left for a workspace, the sheet put
+ *  away). While it is at the Composer and the field is empty, the field's keys answer it: a row's number, the arrows
+ *  and Return, which takes the row the arrows are on (the first) once 600 ms passed without a key since it came, so
+ *  a Return pressed twice to send never answers it (`since`). Every other key is the field's. */
+const asked = new Map<string, { at: 'here' | 'away'; since: number; on: number }>();
+/** The question asked at a Composer of this page now, if one is. `left`: a Composer went while it asked. */
+let shown = '', left = false;
+export function atComposer(): Question | undefined {
   const sent = cap.sent;
   const q = sent && openQuestions().find((x) => x.source === 'router' && x.thought_id === sent.id);
-  // Answered while it had the keyboard: the keyboard is the field's again, for the next thought (and ⌘Z).
+  // Answered or gone with the keyboard on it (a row clicked): the keyboard is the field's again, for the next thought.
   const now = document.activeElement;
-  if (held && held !== q?.id && (!now || now === document.body || now.closest(`[data-question="${held}"]`))) page.focus = '#capture-input';
-  held = q && asked.get(q.id) !== 'away' ? q.id : '';
-  if (!q) return undefined;
-  let at = asked.get(q.id);
-  if (!at) {
-    const now = document.activeElement;
-    at = cap.draft.trim() ? 'away' : !now || now === document.body || now.closest('.capture') ? 'held' : 'here';
-    asked.set(q.id, at);
-    if (at === 'held') page.focus = `[data-question="${q.id}"]`;
+  if (shown && shown !== q?.id && (!now || now === document.body || now.closest(`[data-question="${shown}"]`))) page.focus = '#capture-input';
+  let a = q && asked.get(q.id);
+  if (q && !a) {
+    asked.set(q.id, (a = { at: cap.draft.trim() ? 'away' : 'here', since: performance.now(), on: 0 }));
+    // Where nothing has the keyboard, the field takes it, and with it the question's keys.
+    if (a.at === 'here' && (!now || now === document.body)) page.focus = '#capture-input';
   }
-  return at === 'away' ? undefined : q;
+  shown = q && a?.at === 'here' ? q.id : '';
+  return shown && q ? q : undefined;
 }
-/** Gives the field its keyboard back: the question waits in Needs you. */
-function giveBack(q: Question) {
-  asked.set(q.id, 'away');
-  page.focus = '#capture-input';
+/** Whether a question that just came will be asked at the Composer, before it is drawn (the notch keeps its capture
+ *  line for it, rather than opening the question's own view). */
+export const toAsk = (q: Question) => q.source === 'router' && !!cap.sent && q.thought_id === cap.sent.id && (asked.get(q.id)?.at ?? (cap.draft.trim() ? 'away' : 'here')) === 'here';
+/** The question leaves the Composer and waits in Needs you; the field keeps the keyboard. */
+function away(q: Question | string | undefined) {
+  const a = q && asked.get(typeof q === 'string' ? q : q.id);
+  if (a) a.at = 'away';
+}
+/** The row the arrows are on, which Return takes, with the question at the Composer. */
+const rowOn = (q: Question) => Math.min(asked.get(q.id)?.on ?? 0, routerRows(q).length - 1);
+const chosenRow = (q: Question) => routerRows(q)[rowOn(q)]!;
+/** The field's keys while a question is asked at its Composer and it is empty. True: the key was the question's. */
+function answerKey(q: Question, e: KeyboardEvent): boolean {
+  const a = asked.get(q.id)!, rows = routerRows(q), n = Number(e.key);
+  if (e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return false;
+  if (e.key.length === 1 && n >= 1 && n <= rows.length) rows[n - 1]!.act();
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') a.on = Math.max(0, Math.min(rows.length - 1, a.on + (e.key === 'ArrowDown' ? 1 : -1)));
+  else if (e.key === 'Escape' || e.key === 'Tab') away(q);
+  else return false;
+  e.preventDefault();
+  e.stopPropagation();
   redraw();
+  return true;
 }
 
 /** The Composer. `raised` is Home's: a surface of its own, the thought at 20 px, up to six lines; elsewhere it sits on
@@ -618,13 +662,22 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
   // What Return does, which the key says: with a thought in the field it sends that; with none it starts the one that
   // waits, if one does; and while the last is still on its way to the core and nothing new is typed, it shows that it works.
   const has = !!cap.draft.trim(), now = !has && !!waiting(), busy = !has && cap.sending > 0;
-  const does = now ? 'Start' : later ? 'Save for later' : session ? 'Send' : 'Start';
   const d = mine(), service = voiced();
   const hearing = here() && (talk.asking || d?.phase === 'recording' || d?.phase === 'transcribing');
   // In the notch and the sheet the row is narrow, and a spoken new thought's own line is empty: that line says what
   // the dictation is doing, beside the mark that follows the voice, and the row keeps the time, the keys and the way out.
   const said = hearing && !raised && talk.kind === 'thought' && !cap.draft;
-  const q = asks ? askedHere() : undefined;
+  const q = asks ? atComposer() : undefined;
+  // With the question at the Composer the key does what Return does, and says so: the row the arrows are on.
+  const row = q && !cap.draft ? chosenRow(q) : undefined;
+  const does = row ? (row.does === 'place' ? `Start in ${row.label}` : row.does === 'session' ? `Send to ${row.label}` : row.label)
+    : now ? 'Start' : later ? 'Save for later' : session ? 'Send' : 'Start';
+  // A Composer that goes while it asks (Home left, the sheet put away) leaves its question in Needs you; back on Home,
+  // the field has the keyboard (the review's R5), not the question that waits there.
+  const asking = useRef('');
+  asking.current = q?.id ?? '';
+  useEffect(() => () => void (asking.current && (away(asking.current), (left = true))), []);
+  useLayoutEffect(() => void (raised && left && ((left = false), (page.focus = '#capture-input'))), []);
   // The field is as high as its words, a line at a time. It is measured when they change, typed or put there, or its
   // width does, and on no other render: a measure makes the page lay itself out there and then.
   const area = useRef<HTMLTextAreaElement>(null), fitted = useRef({ text: '', width: -1 });
@@ -646,17 +699,15 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
     if (!row) return undefined;
     const room = () => {
       const place = row.querySelector<HTMLElement>('#dest-chip b'), reason = row.querySelector<HTMLElement>('#dest-chip span'), who = row.querySelector<HTMLElement>('.cap-agent .nm');
-      if (!place || !reason || !row.querySelector('.mic kbd')) return;
+      if (!place || !reason) return;
       const cut = (el: HTMLElement | null) => !!el && el.scrollWidth > el.clientWidth + 0.5;
-      const wide = () => place.getBoundingClientRect().width + reason.getBoundingClientRect().width + (who?.getBoundingClientRect().width ?? 0);
       row.removeAttribute('data-short');
-      // A reason squeezed to its dot says nothing: it goes whole.
       row.removeAttribute('data-bare');
-      if (reason.getBoundingClientRect().width < 18) row.setAttribute('data-bare', '');
-      if (!row.hasAttribute('data-bare') && !cut(place)) return;
-      const was = wide();
-      row.setAttribute('data-short', '');
-      if (wide() <= was) row.removeAttribute('data-short');
+      // The reason is whole or not there: one that would be cut ("asks y…") goes, whole (the review's R8).
+      if (!cut(reason)) return;
+      row.setAttribute('data-bare', '');
+      // Then the key hints, the microphone's and the agent control's, where a name is still cut without them.
+      if (cut(place) || cut(who)) row.setAttribute('data-short', '');
     };
     room();
     const watch = new ResizeObserver(room);
@@ -669,7 +720,8 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
     return () => watch.disconnect();
   }, []);
   return (
-    <form class={`capture${raised ? ' raised' : ''}${cap.draft ? ' has' : ''}${q ? ' asks' : ''}`} aria-busy={cap.sending > 0} data-keys onSubmit={(e) => send(e, hooks)}
+    <form class={`capture${raised ? ' raised' : ''}${cap.draft ? ' has' : ''}${q ? ' asks' : ''}`} aria-busy={cap.sending > 0} data-keys
+      onSubmit={(e) => (row ? (e.preventDefault(), row.act()) : void send(e, hooks))}
       onKeyDown={(e) => {
         // ⌘Z takes back what this Composer sent, wherever the keyboard is in it, unless a field with words has it:
         // then it is that field's own undo (and Undo shows no cap).
@@ -677,6 +729,10 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
         if (hit('⌘Z', e) && !cap.draft && (!target.matches('input, textarea') || target.id === 'capture-input') && (cap.sending || going().length || kept())) {
           e.preventDefault();
           void undo();
+        } else if (hit(AGENT_KEY, e) && !chosen(session).fixed && !hearing) {
+          // Who runs it, from anywhere in the Composer (the agent control's key).
+          e.preventDefault();
+          openAgents(!cap.agents);
         }
       }}>
       <div class="cap" onPointerDown={(e) => e.target === e.currentTarget && (e.preventDefault(), focus('#capture-input'))}>
@@ -690,13 +746,20 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
             fit();
             if (cap.undone && !cap.draft.trim()) drop();
             askRoute();
+            // A key that types leaves the question to Needs you, at once: what it typed is the next thought's.
+            if (q && cap.draft) return (away(q), redraw());
             // The first of a thought: the key says at once what Return now does.
             if (first) redraw();
           }}
           onKeyDown={(e) => {
             // Return sends, once however long it is held, and Shift-Return starts a new line; or, as the person set it
             // (`return_sends`), Return starts a new line and Command-Return sends (Control-Return off the Mac).
-            if (e.key === 'Enter' && !e.isComposing && (pref('return_sends') ? !e.shiftKey : e.metaKey || e.ctrlKey)) e.repeat ? e.preventDefault() : void send(e, hooks);
+            const sends = e.key === 'Enter' && !e.isComposing && (pref('return_sends') ? !e.shiftKey : e.metaKey || e.ctrlKey);
+            if (q && !cap.draft) {
+              if (sends) return (e.preventDefault(), quiet(e, asked.get(q.id)!.since) && chosenRow(q).act());
+              if (answerKey(q, e)) return;
+            }
+            if (sends) e.repeat ? e.preventDefault() : void send(e, hooks);
             else if (hit('⌘K', e)) {
               // The list, from the field: where it goes, chosen without the pointer.
               e.preventDefault();
@@ -725,7 +788,7 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
               <span>{why}</span>
               <I n="chev" />
             </button>
-            <AgentControl session={session} signIn={hooks.agents} />
+            <AgentControl session={session} />
             <button type="button" class="mic" data-off={!service || undefined} aria-label="Talk"
               title={service ? `Hold to talk, or hold ${keyName(talkKey())}. A click keeps it on until the next` : 'Voice needs setting up first'}
               onPointerDown={(e) => control.down(e, area.current)} onClick={(e) => control.key(e, area.current)}>
@@ -734,12 +797,12 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
             {/* The metal key always, also with nothing to do (NOTES §13): Home's one key, and the Composer's in the notch
                 and the capture sheet. Its arrow is in the key's own ink (its class was `sends` once, which the placing
                 sheet's list of what it sends also is, and took that list's pale colour). */}
-            <button type="submit" class={`key${raised ? ' lg' : ''}`} disabled={!has && !now && !busy} aria-busy={busy || undefined} title={now ? 'Start it now' : undefined}>
+            <button type="submit" class={`key${raised ? ' lg' : ''}`} disabled={!has && !now && !busy && !row} aria-busy={busy || undefined} title={row ? `The answer Return gives: ${row.label}` : now ? 'Start it now' : undefined}>
               {busy ? <Mark s="working" label="" /> : <i class="key-ret">{!pref('return_sends') && spell('⌘↩').replace('↩', '')}<I n="ret" /></i>}<span>{does}</span>
             </button>
           </div>
         )}
-        {q && <Ask q={q} size="cap" class="cap-ask" leave={() => giveBack(q)} />}
+        {q && <Ask q={q} size="cap" class="cap-ask" on={row ? rowOn(q) : undefined} />}
       </div>
       <Way hooks={hooks} raised={raised} />
     </form>

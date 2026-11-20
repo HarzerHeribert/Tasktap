@@ -121,12 +121,18 @@ function audit([LISTS, KEY]) {
   // On Home the Composer's key is the metal key, in every state, also with nothing to do (NOTES §13); every other
   // action on Home is quiet. (A sheet has its own, and Home is behind it.)
   const metal = (k) => /linear-gradient/.test(getComputedStyle(k).backgroundImage) && getComputedStyle(k).color === 'rgb(13, 13, 14)';
-  const own = document.querySelector('.home .capture .cap-row:not(.hear) > .key');
+  const own = document.querySelector('.home .capture .cap-row:not(.hear) > .key'), sheetUp = document.querySelector('.sheet[role=dialog]');
   if (document.querySelector('.home .capture .cap-row:not(.hear,.cap-list)')) {
-    seen.add('the Composer\'s key metal on Home');
-    if (!own || !metal(own)) bad.push(`Home's Composer key is not the metal key${own ? ` ("${own.textContent.trim()}", ${getComputedStyle(own).backgroundImage.slice(0, 30)})` : ''}`);
+    seen.add(sheetUp ? 'Home\'s Composer key quiet behind a sheet' : 'the Composer\'s key metal on Home');
+    if (!sheetUp && (!own || !metal(own))) bad.push(`Home's Composer key is not the metal key${own ? ` ("${own.textContent.trim()}", ${getComputedStyle(own).backgroundImage.slice(0, 30)})` : ''}`);
+    // Behind a sheet Home's key is quiet: the sheet's is the one in use (the review's R9).
+    if (sheetUp && own && metal(own)) bad.push(`Home's Composer key is metal behind the sheet "${sheetUp.querySelector('#sheet-title')?.textContent ?? ''}"`);
   }
   for (const k of document.querySelectorAll('.home .key')) if (k.offsetParent && !k.closest('.capture') && metal(k)) bad.push(`a second metal key on Home: "${k.textContent.trim()}"`);
+  // One metal key in view at most, the window and a sheet over it counted together.
+  const lit = [...document.querySelectorAll('.key')].filter((k) => k.offsetParent && metal(k));
+  if (lit.length > 1) bad.push(`${lit.length} metal keys in view: ${lit.map((k) => `"${k.textContent.trim()}"${k.closest('.sheet[role=dialog]') ? ' (in the sheet)' : ''}`).join(', ')}`);
+  else if (sheetUp) seen.add('one metal key in view, window and sheet together');
   // A key cap shows only where pressing its key does something now: inside the element whose keys act while it has the
   // keyboard (\`data-keys\`), while it has it; or the window's own (\`data-keys="window"\`). Nothing else answers a key.
   const at = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
@@ -135,7 +141,8 @@ function audit([LISTS, KEY]) {
     seen.add('key caps only where their keys work');
     const scope = k.closest('[data-keys]');
     if (!scope) bad.push(`the cap ${k.textContent.trim()} has nothing that answers its key (in .${(k.parentElement?.className || '').split(' ')[0]})`);
-    else if (scope.dataset.keys !== 'window' && !(at && scope.contains(at))) bad.push(`the cap ${k.textContent.trim()} shows where its key does nothing now: the keyboard is not in .${String(scope.className).split(' ')[0] || scope.tagName}`);
+    // (`field`: a question asked at the Composer, whose keys are its field's while that has the keyboard.)
+    else if (scope.dataset.keys !== 'window' && !(at && (scope.contains(at) || (scope.dataset.keys === 'field' && at.id === 'capture-input' && scope.closest('form')?.contains(at))))) bad.push(`the cap ${k.textContent.trim()} shows where its key does nothing now: the keyboard is not in .${String(scope.className).split(' ')[0] || scope.tagName}`);
   }
   // The composition. The Composer is centred on the lists under it, in one column or two.
   const mid = (el) => box(el).left + box(el).width / 2, cap = document.querySelector('.home .capture.raised .cap'), cols = document.querySelector('.hx .cols');
@@ -587,6 +594,60 @@ async function main() {
         }
         await page.context().close();
       }
+    // Home's column is the window's (checklist item 36). Whether it has one column or two, and how wide, is the window's
+    // width alone: the sidebar's toggle reflows nothing on Home at any width. Where it stands is the owner's choice,
+    // the hybrid: the reading column is centred on the window and stands still as the sidebar opens and closes, also on
+    // every frame of the slide, wherever the window is wide enough (from about 1400 px); narrower, it moves right only
+    // as far as the sidebar needs, and never under it.
+    // No row is longer than about 90 characters of its first line, so its time stays near its words.
+    const layout = () => {
+      const r = (sel) => [...document.querySelectorAll(sel)].filter((e) => e.offsetParent).map((e) => { const b = e.getBoundingClientRect(); return `${b.left.toFixed(1)}+${b.width.toFixed(1)}`; });
+      const cap = document.querySelector('.home .capture.raised .cap')?.getBoundingClientRect();
+      const ctx = document.createElement('canvas').getContext('2d'), sample = 'Make the rehearsal timer readable on mobile, and check the export menu at 390 px';
+      const rows = [...document.querySelectorAll('.hr-t')].filter((e) => e.offsetParent).map((t) => {
+        ctx.font = getComputedStyle(t).font;
+        const per = ctx.measureText(sample).width / sample.length;
+        return { chars: t.getBoundingClientRect().width / per, text: t.textContent.trim().slice(0, 30) };
+      });
+      return { parts: { column: r('.hx'), composer: r('.home .capture.raised .cap'), headings: r('.hsec > h3'), rows: r('.hrs > .hr'), folds: r('.fold-h'), setup: r('.home .setup') },
+        mid: cap ? cap.left + cap.width / 2 : null, left: document.querySelector('.hx').getBoundingClientRect().left, two: !!document.querySelector('.hx.two'), rows };
+    };
+    for (const width of [1180, 1512, 1728, 2560, 3440])
+        for (const sc of ['busy', 'normal']) {
+          const page = await open(browser, { label: 'workspace', records: scene(sc), url: server.url, dpr: 1, viewport: { width, height: 900 } });
+          const at = `Home (${sc}) at ${width} px`;
+          const side = async (on) => (await page.evaluate((on) => ((window.__ws.ui.sidebar = on), window.__motion.redraw()), on), await page.waitForTimeout(250), measure(page, layout));
+          const open_ = await side(true), shut = await side(false);
+          measured.add('Home\'s column the window\'s');
+          if (open_.two !== shut.two) failures.push(`${at}: the sidebar's toggle turns ${shut.two ? 'one column into two' : 'two columns into one'}`);
+          for (const [name, list] of Object.entries(open_.parts)) {
+            const was = shut.parts[name], widths = (l) => l.map((x) => x.split('+')[1]).join();
+            if (widths(list) !== widths(was)) failures.push(`${at}: the sidebar's toggle reflows the ${name} (${widths(list).slice(0, 60)} wide with it open, ${widths(was).slice(0, 60)} closed)`);
+            else if (width >= 1400 && list.join() !== was.join()) failures.push(`${at}: the sidebar's toggle moves the ${name} (${list.join(' ').slice(0, 60)} open, ${was.join(' ').slice(0, 60)} closed)`);
+          }
+          for (const [state, m] of [['open', open_], ['closed', shut]]) {
+            const want = width >= 1400 || state === 'closed' ? width / 2 : null;
+            if (want !== null && m.mid !== null && Math.abs(m.mid - want) > 0.5) failures.push(`${at}, the sidebar ${state}: the Composer's centre is at ${m.mid.toFixed(1)}, not ${want.toFixed(1)}`);
+            if (state === 'open' && m.left < 224 + 36 - 0.5) failures.push(`${at}, the sidebar open: the column starts at ${m.left.toFixed(1)}, under the sidebar or against it`);
+            for (const row of m.rows) if (row.chars > 92) failures.push(`${at}, the sidebar ${state}: a row's first line has room for ${Math.round(row.chars)} characters ("${row.text}"), more than about 90`);
+          }
+          // On every frame of the slide the column stands where it is, where it is centred on the window.
+          if (width >= 1400) {
+            await page.evaluate(() => ((window.__ws.ui.sidebar = true), window.__motion.redraw()));
+            await page.waitForTimeout(250);
+            const frames = await page.evaluate(() => new Promise((done) => {
+              const at = () => document.querySelector('.home .capture.raised .cap')?.getBoundingClientRect().left ?? -1;
+              const seen = [at()];
+              window.__ws.command('sidebar');
+              const tick = () => (seen.push(at()), window.__ws.ui.slide || seen.length < 3 ? requestAnimationFrame(tick) : done(seen));
+              requestAnimationFrame(tick);
+              setTimeout(() => done(seen), 3000);
+            }));
+            measured.add('Home still while the sidebar slides');
+            if (Math.max(...frames) - Math.min(...frames) > 0.5) failures.push(`${at}: the Composer moves while the sidebar slides (${Math.min(...frames).toFixed(1)} to ${Math.max(...frames).toFixed(1)} over ${frames.length} frames)`);
+          }
+          await page.context().close();
+        }
     for (const [a, sc, kind, opts, then] of [
       ['answer', 'busy'], ['capture', 'normal'], ['capture', 'busy'], ['hover-enter', 'normal'],
       ['capture', 'normal', 'held', { lang: 'de', long: true }], ['capture', 'normal', 'two'], ['answer', 'normal', 'asked'], ['capture', 'normal', 'recording', {}, (w) => mine(w, 'thought', true)], ['capture', 'normal', 'failed-heard', {}, (w) => mine(w)],

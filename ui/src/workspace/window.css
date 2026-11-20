@@ -283,11 +283,21 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .rail button:hover{background:var(--hover);color:var(--fg)}
 .rail .newer{color:var(--fg2)} /* a new version waits (update.tsx): quiet, a step above the rest */
 
-/* ——— Home: one column, centred, as wide as its rows read well; two where the window is wide (home.tsx) ——— */
-.room{position:relative;min-height:0;display:grid;background:var(--bg);overflow:hidden}
-.home{position:relative;z-index:1;min-height:0;overflow:auto;container-type:inline-size}
-.hx{position:relative;z-index:1;max-width:calc(var(--home-w) + 2 * var(--home-gutter));margin:0 auto;padding:22px var(--home-gutter) 44px}
-.hx.two{max-width:calc(var(--home-wide) + 2 * var(--home-gutter))}
+/* ——— Home: one column, as wide as its rows read well; two where the window is wide (home.tsx) ———
+   Whether Home has one column or two, and how wide it is, is the window's width alone, never the room beside the
+   sidebar: opening or closing the sidebar never reflows Home (checklist item 36). Two only where both columns and
+   their margins fit. Where it stands is the owner's choice, the hybrid (2026-11-20): the reading column (the
+   Composer, the lists, the first start, Earlier) is centred on the window, and the sidebar opens into its margin; in a
+   window too narrow for that (about 1400 px and below) the column moves right only as far as the sidebar needs. It is
+   placed from the window's width (100vw) and the room Home has now (100cqw of .room), so it stands still on every
+   frame of the sidebar's slide. Below 800 px the sidebar lies over Home, which keeps the window's width. Terminals
+   fill the room beside the sidebar, and sheets stay on the window's centre. */
+.room{position:relative;min-height:0;display:grid;background:var(--bg);overflow:hidden;container-type:inline-size}
+.home{position:relative;z-index:1;min-height:0;overflow:auto}
+.hx{--cw:min(var(--home-w),calc(100vw - var(--side-w) - 2 * var(--home-gutter)));--at:max(var(--home-gutter),calc((100vw - var(--cw)) / 2 - (100vw - 100cqw)));
+  position:relative;z-index:1;width:var(--cw);margin:0 0 0 var(--at);padding:22px 0 44px}
+.hx.two{--cw:min(var(--home-wide),calc(100vw - 2 * (var(--side-w) + var(--home-gutter))))}
+@media(max-width:799px){.hx{--cw:calc(100vw - 36px);--at:18px}}
 .hx.two .cols{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:0 var(--sp6);align-items:start}
 .hx.two .folds{margin-top:26px}
 .col{min-width:0;container-type:inline-size}
@@ -321,24 +331,29 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .capture.raised .cap-agent .ring-o{--ring-px:24}
 .capture.raised .agent-list .ring-o{--ring-px:22}
 .capture.raised .cap-said{margin-top:var(--sp2);padding:0 var(--sp3) 0 22px}
-/* Setup (setup.tsx, NOTES §13): one quiet fold under the Composer, on its edges, "Setup · 1 of 3"; open, a line a
-   step: whether it is done, what it is, what it says now, and its one quiet action. Hide is beside its name. */
+/* Setup (setup.tsx, NOTES §13): one quiet fold under the Composer, on its edges, "Setup · 1 of 3 done" in the words'
+   face; open, a quiet line a step: whether it is done, what it is, what it says now, and its one action, a quiet word
+   on the right edge, the same for every step (the review's R13). Hide is beside its name. Hidden, its place says for a
+   moment where it went. */
 .setup{width:min(100%,var(--cap-w));margin:0 auto 6px}
 .setup-h{display:flex;align-items:center;gap:var(--sp2);border-top:1px solid var(--line)}
 .setup:not(.open) .setup-h{border-bottom:1px solid var(--line)}
 .setup .fold-h{flex:1;width:auto;border-top:0;grid-template-columns:var(--lead) auto auto minmax(0,1fr)}
-.setup .fold-c{padding:0 var(--sp4) 0 var(--sp2)}
+.setup-n{padding:0 var(--sp4) 0 0;font:var(--f-small);color:var(--fg3)}
+.setup-n::before{content:"·";margin:0 var(--sp2)}
 .setup.open .fold-h .i{transform:rotate(90deg)}
 .setup.open .fold-h b{color:var(--fg)}
 .setup-h .act{height:var(--ctl-h);margin-right:6px;font:var(--f-small);color:var(--fg3)}
 .setup-b{display:grid;grid-template-columns:var(--lead) max-content minmax(0,1fr) auto;border-top:1px solid var(--line)}
 .setup-b>.line.st{grid-column:1/-1;grid-template-columns:subgrid;padding:0 6px 0 0}
 .line.st>:is(.i,.todo){justify-self:center}
-.line.st>.i{width:14px;height:14px;color:var(--fg2)}
+.line.st>.i{width:14px;height:14px;color:var(--fg3)}
 .line.st>.todo{width:10px;height:10px;border-radius:50%;box-shadow:inset 0 0 0 var(--i-w) var(--fg3)}
-.line.st .x{padding-left:var(--sp4)}
-.line.st[data-done] .t{color:var(--fg2)}
-.line.st[data-done] .x{color:var(--fg3)}
+.line.st .t{font:var(--f-text);color:var(--fg2)}
+.line.st .x{padding-left:var(--sp4);color:var(--fg3)}
+.line.st>.act{justify-self:end;height:var(--ctl-h);padding:0 var(--sp2);font:var(--f-small);color:var(--fg2)}
+.line.st[data-done] .t{color:var(--fg3)}
+.setup-gone{width:min(100%,var(--cap-w));margin:0 auto 6px;padding:0 0 0 var(--lead);border-block:1px solid var(--line);font:var(--f-small);line-height:calc(var(--home-row) - 2px);color:var(--fg2)}
 .hx.first{padding-top:max(22px,calc(44vh - 118px))}
 .hx.first .cols{width:min(100%,var(--cap-w));margin-inline:auto}
 .hsec{margin-top:26px}
@@ -369,6 +384,9 @@ body.dragging,body.dragging *{cursor:grabbing!important}
    question where the thought would be. */
 .hrs{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,420px),1fr));column-gap:var(--sp6)}
 .hrs>.hr:only-child{grid-column:1/-1}
+/* However much room there is, a row is as long as about 90 characters of its first line and its time, so the time
+   stays near its words (checklist item 36). */
+.hrs>.hr{max-width:var(--row-read)}
 .hr{display:grid;grid-template-columns:var(--lead) minmax(0,1fr) auto 48px;align-items:baseline;align-content:start;min-width:0;padding:8px 0 9px;border-bottom:1px solid var(--line);font:var(--f-small);color:var(--fg2);text-align:left}
 .hr:hover{background:var(--hover)}
 .hr:active{background:var(--sel)}
@@ -421,7 +439,6 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .find:focus-within{border-image:var(--lit) 1}
 .none{margin-top:26px;font:var(--f-small);color:var(--fg2)}
 /* A narrow column: the rows keep their mark, thought and time. */
-@media(max-width:799px){.hx{padding-inline:18px}}
 @container (max-width:640px){
   .fold-h{width:calc(100% - 36px);grid-template-columns:var(--lead) round(72px * var(--ts),1px) minmax(0,1fr) 48px}
   .fold-p{display:none}
@@ -453,6 +470,8 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 .sh-r{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:var(--sp1);margin-left:auto}
 .sh-f .act{color:var(--fg2)}
 .sh-f .key{margin-left:6px}
+/* A key the sheet held back while the person was typing (Frame `guard`), said where its keys are. */
+.sh-held{min-width:0;padding:0 var(--sp2);font:var(--f-small);color:var(--asks);text-wrap:pretty}
 /* Answers that are a list of their own: where to move, where to send. */
 .choices{display:flex;flex-direction:column;padding:0 10px 8px}
 .choices .act{width:100%;height:32px;gap:10px;color:var(--fg)}

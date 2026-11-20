@@ -9,7 +9,7 @@
    shows its ring and chevron alone. */
 .cap{container:cap/inline-size}
 @container cap (max-width:540px){
-  .cap-agent .nm{display:none}
+  .cap-agent :is(.nm,kbd){display:none}
 }
 
 /* The microphone: quiet, its key beside it. Without a speech service it is dimmer, and says why when pressed. */
@@ -76,6 +76,18 @@
 .cap-said>span{min-width:0;text-wrap:pretty}
 .cap-said .btn{flex:none;margin-left:auto}
 .cap-said .btn+.act{margin-left:0}
+/* A thought placed, in one line (NOTES §13): where it starts, who placed it, the rest behind one quiet disclosure, and
+   Undo at the end. The place's name gives way before who placed it; nothing wraps. */
+.way-h>.way-to{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.way-to>b{font:var(--f-label);color:var(--fg)}
+.way-h>.way-by{flex:none;white-space:nowrap}
+.way-h>.way-by::before{content:"·";margin-right:var(--sp2);color:var(--fg3)}
+.way-more{display:inline-flex;flex:none;align-items:center;gap:4px;height:22px;padding:0 6px;border-radius:var(--r1);font:var(--f-small);color:var(--fg3)}
+.way-more:hover{background:var(--hover);color:var(--fg)}
+.way-more .i{width:12px;height:12px;transition:transform var(--t-fast)}
+.way-more[aria-expanded=true] .i{transform:rotate(90deg)}
+.way-told{padding-bottom:var(--sp1)}
+.way-told>.way-b:first-child{margin-top:2px}
 
 /* How a thought was placed, on its row on Home, where a model was asked and could not be used: the core's sentence in full. */
 .hr-n{grid-column:2/-1;margin:4px 0 0;font:var(--f-cap);color:var(--fg3);white-space:normal;text-wrap:pretty}

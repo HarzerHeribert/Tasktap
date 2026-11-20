@@ -116,7 +116,7 @@ export function Home() {
   });
   const first = ui.capturing || !top || going().length > 0 || !!talk.id || talk.asking;
   const rows = [...working, ...(first ? finished : rest)].slice(0, 4);
-  const capture = <div class="capture-block"><Capture {...hooks} /></div>;
+  const capture = <div class="capture-block"><Capture {...hooks} asks /></div>;
   // What an agent of the plain tier ran has ended and is no result: counted apart, in that word.
   const fresh = finished.filter((t) => !t.read), ended = fresh.filter(unheard).length;
   const words = [working.length && `${working.length} working`, fresh.length - ended && plural(fresh.length - ended, 'new result', 'new results'), ended && `${ended} ended`]

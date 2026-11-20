@@ -68,8 +68,8 @@ function shots() {
     'setup-done': { records: speech(answered(looked(scene('normal'))), 'ready'), act: wait(400) },
     'setup-hidden': { records: speech({ ...looked(scene('normal')), prefs: [{ id: 'setup_hidden', value: true, rev: 9 }] }), act: wait(400) },
     'setup-closed': { records: speech(looked(scene('normal'))), act: both(wait(300), click('.setup .fold-h'), wait(200)) },
-    'setup-placing': { records: speech(looked(scene('normal'))), act: both(wait(300), click('.setup [data-step=placing] .btn'), wait(300)) },
-    'setup-speech': { records: speech(answered(looked(scene('normal')))), act: both(wait(300), click('.setup [data-step=speech] .btn'), wait(300)) },
+    'setup-placing': { records: speech(looked(scene('normal'))), act: both(wait(300), click('.setup [data-step=placing] :is(.btn,.act)'), wait(300)) },
+    'setup-speech': { records: speech(answered(looked(scene('normal')))), act: both(wait(300), click('.setup [data-step=speech] :is(.btn,.act)'), wait(300)) },
     'settings-about': { records: speech({ ...answered(looked(scene('normal'))), prefs: [{ id: 'setup_hidden', value: true, rev: 9 }, { id: 'route_by', value: null, rev: 9 }] }),
       act: (p) => p.evaluate(() => ((window.__ws.ui.sheet = { kind: 'settings', at: 'about' }), window.__motion.redraw())) },
     // ——— 2 and 3. A thought sent: where it went, or its question ———
@@ -122,6 +122,44 @@ function shots() {
     await p.evaluate(() => window.__fake.emit({ do: 'geometry', width: 104, height: 16, cutout: false, surfaceWidth: 420, surfaceOffset: 0, span: 560, pixel: 1, corner: 10, offset: 0, available: 700, collapsed: false }));
     await p.waitForTimeout(900);
   };
+  // ——— The review's findings (docs/trial-checklist.md R1–R15), each in the state it was found in ———
+  const NOTES = ['named in it', 'where your last thought went', 'worked on last'];
+  const asked = (o = {}) => speech({ ...looked(scene('normal')), asks: { notes: NOTES, ...o } });
+  Object.assign(s, {
+    // R1: typed at the first start's sheet: the letters are the Composer's, the sheet put away as Not now.
+    'first-typed': { records: speech(projects('first-agents')), act: both(wait(900), (p) => p.keyboard.type('fix the export menu', { delay: 40 }), wait(300)) },
+    // R1: Return 300 ms after another key: held back, and said so.
+    'first-held': { records: speech(projects('first-agents')), act: both(wait(900), press('ArrowLeft'), wait(300), press('Enter'), wait(200)) },
+    // R2: letters typed after the question came: all of them in the field, the question in Needs you.
+    'sent-asked-typed-after': { records: asked(), act: both(send('make the export faster'), wait(900), (p) => p.keyboard.type('look at the logs', { delay: 30 }), wait(300)) },
+    // R3: sent from New Task: the question in the sheet only, its keys there.
+    'sheet-asked': { records: asked(), act: both((p) => p.focus('#capture-input'), press('Meta+n'), wait(300), (p) => p.keyboard.type('make the export faster'), press('Enter'), wait(900)) },
+    // R4: the first step put away by a click beside it: Not now, and Setup says Skipped.
+    'first-clicked-away': { records: speech(projects('first-agents')), act: both(wait(900), (p) => { const v = p.viewportSize(); return p.mouse.click(v.width - 20, v.height - 40); }, wait(500)) },
+    // R5: Home left for a workspace and back with the question at the Composer.
+    'back-home': { records: asked(), act: both(send('make the export faster'), wait(900),
+      (p) => p.evaluate(() => (window.__ws.show([...window.__ws.records.projects.values()].find((x) => x.open).id), window.__motion.redraw())), wait(300),
+      (p) => p.evaluate(() => (window.__ws.show('home'), window.__motion.redraw())), wait(400)) },
+    // R6: Tab from the field to the agent control, its key beside it.
+    'foot-tab': { records: agents(answered(looked(scene('normal'))), 6), act: both(type('tidy the export menu'), press('Tab'), press('Tab'), wait(200)), clip: near('.home .capture') },
+    // R7: the usual agent signed out: the list opens, signing in a row of it.
+    'agents-signed-out': { records: (() => { const r = agents(answered(looked(scene('normal'))), 6); r.agents[0].signed_in = false; return r; })(), act: both(type('tidy the export menu'), click('.cap-agent'), wait(300)), clip: near('.home .capture') },
+    // R11: Setup hidden a moment ago: its place says where it went.
+    'setup-hidden-now': { records: speech(looked(scene('normal'))), act: both(wait(300), click('.home .setup-h .act'), wait(400)) },
+    // R12: a thought placed, its disclosure opened.
+    'sent-placed-open': { records: speech(answered(looked(flow(scene('normal'), 'held')))), act: both(wait(300), click('.home .way-more, .home .way-h + .way-b'), wait(200)) },
+  });
+  // R3: a thought sent from the notch's capture line, asked about there.
+  s['notch-asked'] = { label: 'notch', records: asked(), act: both(s['notch-capture'].act, press('Enter'), wait(900)) };
+  // R8: the foot at the narrow widths where the reason was cut.
+  for (const w of [540, 600, 660]) s[`foot-at-${w}`] = { records: agents(answered(looked(scene('normal'))), 6), act: both(type('tidy the export menu'), wait(300)), viewport: { width: w, height: 600 }, clip: near('.home .capture') };
+  // Home at four windows, the sidebar open and closed (checklist item 36): the column and its place are the window's.
+  const sidebar = (on) => (p) => p.evaluate((on) => ((window.__ws.ui.sidebar = on), window.__motion.redraw()), on);
+  for (const w of [1512, 1728, 2560, 3440])
+    for (const on of [true, false]) {
+      s[`layout-${w}-${on ? 'open' : 'closed'}`] = { records: answered(looked(scene('busy'))), act: both(sidebar(on), wait(400)), viewport: { width: w, height: 900 }, dpr: 1 };
+      s[`layout-quiet-${w}-${on ? 'open' : 'closed'}`] = { records: answered(looked(scene('normal'))), act: both(sidebar(on), wait(400)), viewport: { width: w, height: 900 }, dpr: 1 };
+    }
   s['notch-question'] = { label: 'notch', records: scene('busy'), act: asks };
   s['notch-question-held'] = { label: 'notch', records: scene('busy'), act: both(asks, (p) => p.focus('#sheet [data-question] .ans'), wait(200)) };
   return s;

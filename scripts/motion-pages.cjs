@@ -276,8 +276,9 @@ function fakeRuntime({ label, records: records0, welcome, terms }) {
     if (name === 'put' && args.c !== 'prefs') return reply(id, { rev: ++rev });
     if (name === 'sub') {
       const sets = (args.collections || []).map((c) => c === 'glance' ? { c, put: records.glance ? [records.glance] : [] } : { c, put: records[c] || [] });
-      push({ t: 'change', rev, snap: true, sets });
-      return reply(id, { rev });
+      // `subMs`: the records come this long after the page asked (a core slow to answer at the first start).
+      const answer = () => (push({ t: 'change', rev, snap: true, sets }), reply(id, { rev }));
+      return void (records.subMs ? setTimeout(answer, records.subMs) : answer());
     }
     // What runs in a terminal, as the core says when it is closed (`terminal.runs`): what `runs` holds for it, else
     // the rule in small: an agent's live session runs, a shell with none is idle, one not running has ended.

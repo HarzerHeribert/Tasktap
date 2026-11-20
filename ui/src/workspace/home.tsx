@@ -7,7 +7,7 @@
 import type { Question, Thought } from '../../../core/proto/protocol.ts';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useLayoutEffect, useState } from 'preact/hooks';
-import { Capture, askedHere, cap } from '../capture.tsx';
+import { Capture, atComposer, cap } from '../capture.tsx';
 import { next, pending, running, settle, Status, Told } from '../changes.tsx';
 import { Ask } from '../question.tsx';
 import { I, Mark, Seat, type State, elapsed, said, when } from '../ui.tsx';
@@ -233,8 +233,8 @@ export function Home() {
   const folders = projects().some((p) => p.kind === 'folder');
   // The first-run composition is for a Home with nothing on it yet: no folder open, and nothing asked, running or done.
   const first = !folders && !h.questions.length && !h.waiting.length && !h.running.length && !h.results.length;
-  // A question asked at the Composer, about the thought just sent, is there and not also in Needs you (NOTES §13).
-  const here = ui.sheet?.kind === 'capture' ? undefined : askedHere();
+  // A question asked at a Composer (Home's, or the New Task sheet's over it) is there and not also in Needs you (NOTES §13).
+  const here = atComposer();
   const waits = h.questions.filter((q) => q !== here);
   const asks = h.questions.length > 0;
   const idle = !asks && !h.running.length;
@@ -319,21 +319,20 @@ export function Home() {
   );
 }
 
-/** Whether Home is wide enough for two columns of rows that keep all their parts. While the sidebar slides it is the
- *  width Home will have when the slide is over that counts (the window's, less the sidebar where it stays), from
- *  the slide's first frame: the columns change before anything moves, and nothing reflows on the way. */
-const WIDE = 1480;
+/** Whether Home has two columns: the window's width alone decides, never the room beside the sidebar, so opening or
+ *  closing the sidebar never reflows Home (checklist item 36). Two only where both columns keep their rows whole and
+ *  the column they make stays clear of the sidebar on both sides of the window's centre (window.css `.hx.two`): its
+ *  narrowest, 1168 px (two columns of 520 px and more), and the sidebar's width and Home's margin on each side. */
+const side = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--side-w')) || 224;
+const twoAt = () => 1168 + 2 * (side() + 36);
 function useWide() {
-  const [wide, setWide] = useState(false);
-  const side = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--side-w')) || 0;
-  useLayoutEffect(() => {
-    const el = document.querySelector<HTMLElement>('.room');
-    if (!el) return undefined;
-    const watch = new ResizeObserver(([e]) => setWide((e?.contentRect.width ?? 0) >= WIDE));
-    watch.observe(el);
-    return () => watch.disconnect();
+  const [wide, setWide] = useState(() => innerWidth >= twoAt());
+  useEffect(() => {
+    const fit = () => setWide(innerWidth >= twoAt());
+    addEventListener('resize', fit);
+    return () => removeEventListener('resize', fit);
   }, []);
-  return ui.slide ? innerWidth - (ui.slide === 'in' ? side() : 0) >= WIDE : wide;
+  return wide;
 }
 
 // ——— Earlier: every result by day, with ideas and a find field ———

@@ -11,7 +11,7 @@ import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Answer, FIRST } from './answer.tsx';
 import { Art, look, place } from './art.tsx';
 import { Home } from './home.tsx';
-import { cap, followSpeech } from '../capture.tsx';
+import { atComposer, cap, followSpeech, toAsk } from '../capture.tsx';
 import { live, talk } from '../speech/record.ts';
 import { lookOf } from '../motion/motion.tsx';
 import { stops } from '../motion/palette.ts';
@@ -87,7 +87,9 @@ const known = new Set<string>();
 records.onchange = () => {
   followSpeech();
   const open = openQuestions();
-  const fresh = open.some((q) => !known.has(q.id));
+  // The question about the thought just sent from the open notch's capture line is asked there, under its field, as at
+  // every Composer (capture.tsx atComposer): it opens nothing else.
+  const fresh = open.some((q) => !known.has(q.id) && !(ui.mode !== 'closed' && ui.view === 'home' && toAsk(q)));
   known.clear();
   for (const q of open) known.add(q.id);
   // A notch the last question opened by itself is still its own to fold: a new question that
@@ -174,7 +176,10 @@ function App() {
   onRedraw(() => tick((n) => n + 1));
   const open = ui.mode !== 'closed';
   const shown = open || ui.retracting;
-  const questions = openQuestions();
+  // The question about the thought just sent from the capture line is asked there, under its field (capture.tsx
+  // atComposer): the notch's own view of questions leaves it out while it is.
+  const here = open && ui.view === 'home' ? atComposer() : undefined;
+  const questions = openQuestions().filter((q) => q !== here);
   // Whenever a question is open the notch shows it, never a line that only says one waits.
   const answering = shown && questions.length > 0;
   const g = records.glance;

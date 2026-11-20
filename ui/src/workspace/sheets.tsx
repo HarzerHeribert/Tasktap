@@ -14,12 +14,12 @@ import { uuid7 } from '../client.ts';
 import { type Review, Told, lost, next, pending, review, running, settle } from '../changes.tsx';
 import { Ask } from '../question.tsx';
 import { Answer, Diffstat, I, Key } from '../ui.tsx';
-import { hit } from '../keys.ts';
+import { hit, spell } from '../keys.ts';
 import { mac, plain, shownPath } from '../system.ts';
 import * as L from './layout.ts';
 import {
   agentName, call, dismiss, fail, finishClose, focus, focusTerminal, keepInBackground, label, layout, open, openWorkspace,
-  pickFolder, projectName, projects, records, setLayout, stop, title, ui,
+  pickFolder, projectName, projects, quiet, records, setLayout, stop, title, ui,
 } from './model.ts';
 import { PlacingSheet, SpeechSheet } from './consent.tsx';
 import { SetupSheet } from './setup.tsx';
@@ -36,24 +36,38 @@ export type Act = { k: string; label: string; do: () => void; kind?: 'primary' |
 /** The frame of every sheet. `size`: a quick decision (the default), a form or a list (`md`), a view to read (`lg`).
  *  `choices`: answers that are a list of their own (where to move, where to send), each a row of the body with its
  *  key. `acts`: the foot. The way out (Esc) is always there, "Close" unless the sheet names it. `bare`: the body is
- *  the Composer, which has its own key, so there is no title to read and no foot. `guard`: a sheet that came down by
- *  itself takes no key for this many milliseconds, and never a key held down since before, so nothing the person was
- *  typing lands on its answer (NOTES §13); a click is the person's at once. */
-export function Frame({ title: name, aside, children, choices = [], acts = [], size = 'sm', bare, guard = 0 }: {
-  title: ComponentChildren; aside?: ComponentChildren; children?: ComponentChildren; choices?: Act[]; acts?: Act[]; size?: 'sm' | 'md' | 'lg'; bare?: boolean; guard?: number;
+ *  the Composer, which has its own key, so there is no title to read and no foot. `guard`: the sheet came by itself
+ *  (Setup's first step at the first start), so a key answers it only after 600 ms in which no key was pressed anywhere,
+ *  and never one held down (page.ts quiet), so nothing the person was typing, and no Return pressed twice, lands on
+ *  its answer; one it holds back is said in its foot, and a key it does not take at all is the Composer's, given to it
+ *  by `typed`, never swallowed (NOTES §13). Escape, which only puts it away, and a click are the person's at once. */
+export function Frame({ title: name, aside, children, choices = [], acts = [], size = 'sm', bare, guard = false, typed }: {
+  title: ComponentChildren; aside?: ComponentChildren; children?: ComponentChildren; choices?: Act[]; acts?: Act[]; size?: 'sm' | 'md' | 'lg'; bare?: boolean; guard?: boolean;
+  typed?: () => void;
 }) {
-  const [since] = useState(() => performance.now());
+  const [held, hold] = useState('');
   const out = acts.find((x) => x.k === 'esc') ?? { k: 'esc', label: 'Close', do: dismiss };
   const rest = acts.filter((x) => x.k !== 'esc');
   // The answer: the one Return gives, else the only one there is, unless the answers are a list of their own.
   const main = rest.find((x) => x.kind === 'primary') ?? (rest.length === 1 && !choices.length ? rest[0] : undefined);
   const keys = (e: KeyboardEvent) => {
-    if (guard && (e.repeat || performance.now() - since < guard)) return (e.preventDefault(), e.stopPropagation());
     const typing = (e.target as HTMLElement).matches('input, textarea');
     const act = [...choices, ...rest, out].find((x) => matches(x.k, e, typing));
-    if (!act) return;
+    // Return or Space on a button of it is the browser's press of that button, and held back the same.
+    const press = !act && (e.key === 'Enter' || e.key === ' ') && !!(e.target as HTMLElement).closest('button');
+    if (guard && (act ? act !== out : press) && !quiet(e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return hold(act ? `You were typing: press ${spell(act.k)} again to ${act.label.replace(/…$/, '').toLowerCase()}.` : 'You were typing: press it again.');
+    }
+    if (!act) {
+      // A letter, a digit, a sign: the Composer's, with the keyboard, the sheet put away (as Not now).
+      if (guard && typed && !typing && e.key.length === 1 && e.key !== ' ' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.isComposing) typed();
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
+    hold('');
     act.do();
   };
   const answer = (x: Act) => <Answer cls="act" k={x.k} label={x.label} danger={x.kind === 'danger'} onClick={x.do} />;
@@ -67,6 +81,7 @@ export function Frame({ title: name, aside, children, choices = [], acts = [], s
       {!bare && (
         <footer class="sh-f">
           {rest.filter((x) => x !== main).map(answer)}
+          {held && <span class="sh-held" role="status">{held}</span>}
           <span class="sh-r">
             {answer(out)}
             {main && (main.kind !== 'primary' ? answer(main)
@@ -340,7 +355,7 @@ export function Sheets() {
     if (!d) return;
     const sheet = document.querySelector<HTMLElement>('.sheet');
     // It comes down plainly, a short way from behind the bar, as the window dims; one that replaces another is there at once.
-    if (sheet && !wasOpen && !reduced.matches) {
+    if (sheet && !wasOpen && !reduced.matches && !(d.kind === 'setup' && d.auto)) {
       const drop = { duration: 160, easing: 'cubic-bezier(.19,.76,.19,1)' };
       sheet.animate({ opacity: [0, 1], transform: ['translate(-50%,-14px)', 'translate(-50%,0)'] }, drop);
       sheet.previousElementSibling?.animate({ opacity: [0, 1] }, drop);

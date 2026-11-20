@@ -24,6 +24,7 @@ import { apply, fontsReady, look } from './appearance.ts';
 import { Deck, startAgent } from './deck.tsx';
 import { follow, refresh, reload, stop, swap } from './preview.tsx';
 import { Earlier, Home, homeCounts } from './home.tsx';
+import { firstStart } from './setup.tsx';
 import { effects, power, wakeLook } from './light.tsx';
 import { setVoice, stats } from '../motion/engine.ts';
 import { debug } from '../motion/motion.tsx';
@@ -433,8 +434,12 @@ watchHeld();
 render(<App />, document.body);
 // Whether the window is the one in use: in front, as the host says it to both pages (followWhere).
 void call('host.where', {}).then(followWhere, () => {});
-// The window shows once the page has laid out its first frame (a hidden window draws nothing).
-setTimeout(() => void call('host.ready', {}).catch(() => {}));
+// The window shows once the page has laid out its first frame with the records in it (a hidden window draws nothing),
+// so its first picture is Home as it is, with the first start's sheet where there is one (setup.tsx firstStart). A
+// core that is slow to answer does not keep the window away for longer than a moment.
+let visible = false;
+const ready = () => void (visible || ((visible = true), call('host.ready', {}).catch(() => {})));
+setTimeout(ready, 1500);
 void client
   .sub(['thoughts', 'projects', 'cards', 'looks', 'sessions', 'terminals', 'questions', 'results', 'layouts', 'prefs', 'agents', 'dictations', 'previews'], records)
   .then(() => {
@@ -443,9 +448,13 @@ void client
     const at = new URLSearchParams(location.search).get('focus');
     if (at) arrive(at);
     else show(ui.view);
+    firstStart();
+    redraw();
+    // Once that render is laid out (a timer, not a frame: a hidden window draws none).
+    setTimeout(ready);
     void loadTerms();
   })
-  .catch(fail);
+  .catch((e) => (fail(e), ready()));
 
 // For the debug channel's checks and measurements (host/scripts/smoke.sh, measure.sh).
 /** A terminal's screen as text (the WebGL renderer has no text in the page to read). */

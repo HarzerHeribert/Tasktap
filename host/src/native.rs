@@ -324,6 +324,54 @@ pub fn snapshot(webview: *mut std::ffi::c_void, path: PathBuf, done: impl Fn(boo
     };
 }
 
+/// Tab reaches every control of the app's own pages, its buttons too, and not only its fields: a WKWebView leaves
+/// buttons and links out of Tab's reach unless the person turned on the system's keyboard navigation, and every
+/// control of the pages is a button (the review found the Composer's chip, agent control and microphone out of reach).
+/// WKPreferences `tabFocusesLinks` is the web view's own word for it; the page's preferences follow it at once.
+pub fn tab_to_controls(webview: *mut std::ffi::c_void) {
+    use objc2::runtime::AnyObject;
+    // SAFETY: `webview` is the window's WKWebView; its configuration holds the preferences its pages run under, the
+    // same object the view keeps, so setting one there sets it for the view.
+    unsafe {
+        let configuration: *mut AnyObject = msg_send![webview as *mut AnyObject, configuration];
+        let preferences: *mut AnyObject = msg_send![configuration, preferences];
+        let _: () = msg_send![preferences, setTabFocusesLinks: true];
+    }
+}
+
+/// Tab (Shift-Tab with `back`) pressed in a web view, handed to that view as the keyboard would hand it, and to nothing
+/// else: the debug channel's `tabkey`, so a check sees where Tab takes the keyboard in the app's own engine without
+/// the system's keyboard or the app in front.
+pub fn press_tab(webview: *mut std::ffi::c_void, back: bool) {
+    use objc2::runtime::AnyObject;
+    use objc2_app_kit::{NSEventModifierFlags, NSEventType};
+    let tab = objc2_foundation::NSString::from_str("\t");
+    let flags = if back { NSEventModifierFlags::Shift } else { NSEventModifierFlags::empty() };
+    // SAFETY: `webview` is the window's WKWebView, an NSView in that window; a key event made for its window.
+    unsafe {
+        let window: *mut AnyObject = msg_send![webview as *mut AnyObject, window];
+        let number: isize = if window.is_null() { 0 } else { msg_send![window, windowNumber] };
+        // The view is its window's first responder, as it is once clicked: within the window only, the app in front
+        // and the system's keyboard untouched.
+        if !window.is_null() {
+            let _: bool = msg_send![window, makeFirstResponder: webview as *mut AnyObject];
+        }
+        for down in [true, false] {
+            let kind = if down { NSEventType::KeyDown } else { NSEventType::KeyUp };
+            let Some(event) = NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
+                kind, NSPoint::new(0.0, 0.0), flags, 0.0, number, None, &tab, &tab, false, 48,
+            ) else {
+                continue;
+            };
+            if down {
+                let _: () = msg_send![webview as *mut AnyObject, keyDown: &*event];
+            } else {
+                let _: () = msg_send![webview as *mut AnyObject, keyUp: &*event];
+            }
+        }
+    }
+}
+
 /// Holds a web view to `rules`, a content rule list (frames.rs): compiled into `store`, a folder of this app's data,
 /// and added to the view's own controller, so it holds for every load in every frame from then on. `done` hears
 /// whether it holds.

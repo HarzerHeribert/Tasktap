@@ -61,6 +61,13 @@ jobs:
           if ($lent) { throw "Unix tools still on the PATH: $($lent -join ', ')" }
           git --version
           cargo test --workspace --no-fail-fast
+      # The Windows install line (site/install.ps1) in Windows PowerShell 5.1 and PowerShell 7, with a stand-in
+      # installer and a stand-in running app; nothing is installed for the runner's account.
+      - name: The Windows install line (stand-ins only)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: .
+        run: ./scripts/install-check.ps1
 
   interface:
     name: Interface (types, tests, build, pages)
@@ -84,6 +91,10 @@ jobs:
             ui/package-lock.json
       - name: No whitespace errors in this change
         run: git diff --check HEAD^ HEAD
+      # With stand-ins only: nothing is installed or started. Its accepting path needs a notarised image and is tried by
+      # a signed run of release.yml.
+      - name: The Mac's install line refuses what it must
+        run: scripts/install-check.sh
       - name: Install
         run: npm ci --no-audit --no-fund
         working-directory: ui
@@ -258,10 +269,14 @@ jobs:
         with:
           path: build/pages
 
+  # Only when every check passed, the install lines' included (interface, core); from main, on a push to it or by hand
+  # (Run workflow on main). The order at a release: publish the release, then merge into main.
   deploy:
     name: Publish GitHub Pages
-    needs: [site]
+    needs: [site, interface, core]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    outputs:
+      published: ${{ steps.ready.outputs.publish }}
     runs-on: ubuntu-latest
     permissions:
       pages: write
@@ -273,6 +288,51 @@ jobs:
       group: tasktap-pages
       cancel-in-progress: false
     steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      # The site offers the newest release's files by fixed names, which only a release made by release.yml has, and
+      # the Mac's line, which installs nothing while it names no team. Until both hold, the site that is up stays up and
+      # this job says why, in green; it publishes on the next push to main, or when run by hand. A range of one byte,
+      # since a signed asset address may refuse HEAD.
+      - name: The newest release has what the site offers, and the Mac line names Tasktap's team
+        id: ready
+        run: |
+          why=""
+          grep -Eq '^TEAM_ID="[A-Z0-9]{10}"$' site/install.sh || why="TEAM_ID in site/install.sh is empty, so the Mac line would install nothing"
+          missing=""
+          for name in Tasktap_aarch64.dmg Tasktap_x64-setup.exe SHA256SUMS; do
+            curl -fsL --retry 3 --proto '=https' --range 0-0 -o /dev/null "https://github.com/HarzerHeribert/Tasktap/releases/latest/download/$name" || missing="$missing $name"
+          done
+          [ -z "$missing" ] || why="${why:+$why, and }the newest published release has no$missing"
+          if [ -n "$why" ]; then
+            echo "::notice::The site was not published, and the one that is up stays up, because $why."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Deploy checked Pages artifact
+        if: steps.ready.outputs.publish == 'true'
         id: publish
         uses: actions/deploy-pages@v4
+
+  # Once the site is published, the Mac's line as a person runs it (the shipped script, nothing substituted) on the newest
+  # published release, into a folder of the run's own, the app not started: the only place its downloads and Apple's
+  # real verdicts are tried end to end. Red when it cannot install. The Windows line is not tried here: GitHub's Windows
+  # runners are elevated, where it refuses by design; a Windows machine with an ordinary account tries it
+  # (scripts/install-check.ps1 says what it runs).
+  mac-line:
+    name: The Mac line installs the newest release
+    needs: [deploy]
+    if: needs.deploy.outputs.published == 'true'
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: The Mac line, into a folder of this run's
+        run: |
+          to="$RUNNER_TEMP/apps"
+          TASKTAP_INSTALL_TO="$to" TASKTAP_INSTALL_NO_START=1 sh < site/install.sh
+          codesign --verify --deep --strict --verbose=2 "$to/Tasktap.app"

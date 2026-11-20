@@ -173,7 +173,14 @@ h3{font:var(--f-sub);letter-spacing:var(--ls-thought);padding-top:6px}
 .rows dt{font:var(--f-label);color:var(--fg);padding-top:4px}
 .rows dd{text-wrap:pretty}
 
-/* get it */
+/* get it: the download and the line for a terminal, for each system, the visitor's first */
+.build{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--sp6)}
+.build .acts{margin-top:0}
+.build h3+*,.build h3+.acts{margin-top:var(--sp4)}
+.build .fine+*{margin-top:var(--sp5)}
+.line{display:flex;align-items:center;gap:var(--sp2)}
+.build .line pre{flex:1 1 auto;min-width:0;font:var(--f-code);line-height:22px}
+html:not(.js) .copy{display:none}
 .build pre{padding:var(--sp3) var(--sp4);border-radius:var(--r2);box-shadow:inset 0 0 0 1px var(--line);font:var(--f-term);color:var(--fg);line-height:22px;-webkit-user-select:all;user-select:all}
 .build .fine{margin-top:var(--sp3)}
 
@@ -181,8 +188,8 @@ h3{font:var(--f-sub);letter-spacing:var(--ls-thought);padding-top:6px}
 .foot::before{content:"";grid-column:1/-1;height:1px;background:var(--line);margin-bottom:var(--sp1)}
 .foot .license{font:var(--f-small);color:var(--fg2);text-wrap:pretty}
 .foot nav{display:flex;gap:var(--sp1);margin:-6px calc(-1 * var(--sp2)) 0 0}
-:is(.license,.doc article) a:not(.key,.btn){color:var(--fg);text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:3px;text-decoration-thickness:1px}
-:is(.license,.doc article) a:not(.key,.btn):hover{text-decoration-color:var(--fg2)}
+:is(.license,.doc article,.get) a:not(.key,.btn){color:var(--fg);text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:3px;text-decoration-thickness:1px}
+:is(.license,.doc article,.get) a:not(.key,.btn):hover{text-decoration-color:var(--fg2)}
 
 /* ——— the guide: its chapters in the column the product page's pictures stand in, their list beside them ——— */
 .doc{padding-top:clamp(104px,15vw,168px)}

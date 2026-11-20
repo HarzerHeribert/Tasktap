@@ -12,6 +12,8 @@ import sys
 root = Path(__file__).resolve().parents[1]
 site = root / 'site'
 out = root / 'build' / 'pages'
+# The install lines' scripts (site/install.sh, site/install.ps1), published as they are and as a .txt copy to read.
+SCRIPTS = ('install.sh', 'install.ps1')
 
 # Everything the pages name must be there: a picture or a script that is missing fails here, not on the public site.
 missing = []
@@ -29,11 +31,14 @@ for page in (site / 'index.html', site / 'docs' / 'index.html', site / 'app' / '
         target = (page.parent / name)
         if name.endswith('/'):
             target = target / 'index.html'
-        if not target.exists():
+        if not target.exists() and name not in [f'{s}.txt' for s in SCRIPTS]:
             missing.append(f'{page.relative_to(root)} names {name}')
 for name in ('stage.js', 'chrome.js', 'tokens.css'):
     if not (site / 'app' / name).is_file():
         missing.append(f'site/app/{name}')
+for name in SCRIPTS:
+    if not (site / name).is_file():
+        missing.append(f'site/{name}')
 if missing:
     sys.exit('The site is incomplete. Run: (cd ui && npm run build) && node scripts/render-site.cjs\n  ' + '\n  '.join(missing))
 
@@ -41,7 +46,7 @@ if missing:
 private = re.compile(r'/Users/(?!example/)[^\s"\'<>]*|/private/tmp/[^\s"\'<>]*|/home/[a-z][^\s"\'<>]*|[\w.-]+/\.claude/')
 found = []
 for file in sorted(site.rglob('*')):
-    if file.is_file() and file.suffix in ('.html', '.css', '.js', '.ts', '.json', '.svg', '.txt', '.xml', '.md', ''):
+    if file.is_file() and file.suffix in ('.html', '.css', '.js', '.ts', '.json', '.svg', '.txt', '.xml', '.md', '.sh', '.ps1', ''):
         for hit in private.findall(file.read_text(errors='replace')):
             found.append(f'{file.relative_to(root)}: {hit}')
 if found:
@@ -57,4 +62,8 @@ if out.exists():
 # site/src holds what site/app is made from; it is not part of the site.
 shutil.copytree(site, out, ignore=shutil.ignore_patterns('src', '.DS_Store'))
 (out / '.nojekyll').touch()
+# The install lines' scripts are served as they are; GitHub Pages gives .sh and .ps1 a type a browser downloads, so a
+# copy of each as .txt is what the page links for reading.
+for name in SCRIPTS:
+    shutil.copyfile(site / name, out / f'{name}.txt')
 print(out)

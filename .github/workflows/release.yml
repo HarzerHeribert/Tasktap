@@ -1,8 +1,11 @@
 name: Release Tasktap
 # A tag v<x.y.z> makes a release: the Mac app (Apple silicon) signed with the Developer ID, notarised and stapled, as a
 # disk image and as the updater's pack; Windows (x64) as an installer and a zip, not code-signed; the updater's feed,
-# latest.json, with every package's signature checked against the updater's public key. All of it goes to a draft
-# GitHub Release of that tag, which the owner publishes; until then the app's updater does not see it.
+# latest.json, with every package's signature checked against the updater's public key; copies of the disk image and
+# the installer by names without the version (Tasktap_aarch64.dmg, Tasktap_x64-setup.exe), which the install lines on
+# the site (site/install.sh, site/install.ps1) take through releases/latest/download/, and SHA256SUMS, the SHA-256 of
+# every file of the release. All of it goes to a draft GitHub Release of that tag, which the owner publishes; until
+# then the app's updater and the install lines do not see it.
 #
 # Run by hand (Actions > Release Tasktap > Run workflow, or `gh workflow run release.yml --ref <branch>`), or by a
 # push to the branch release-dry-run, it is a dry run: every step that needs no secret runs as in a release, signed ad
@@ -80,6 +83,14 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      # The Mac's install line installs nothing while it names no team, and a release is what it installs.
+      - name: The Mac line names Tasktap's team
+        if: github.ref_type == 'tag'
+        run: |
+          grep -Eq '^TEAM_ID="[A-Z0-9]{10}"$' site/install.sh || {
+            echo "::error::Nothing was built, because TEAM_ID in site/install.sh is empty, so this release's Mac line would install nothing; set it to the team that signs Tasktap."
+            exit 1
+          }
       - id: plan
         env:
           REHEARSE: ${{ inputs.rehearse }}
@@ -199,6 +210,38 @@ jobs:
           echo "== xcrun stapler validate (disk image)"; xcrun stapler validate "$dmg" 2>&1 || true
           echo "== spctl -a -vv -t open (disk image)"; spctl -a -vv -t open --context context:primary-signature "$dmg" 2>&1 || true
           host/scripts/check-signed.sh "$app" $([ "$SIGN" = true ] && echo --developer-id --notarised)
+      # The Mac's install line accepts only an image Apple notarised, so its accepting path is tried here, on the image
+      # just notarised: site/install.sh as a person runs it, from a folder of the run's own, into another, the app not
+      # started; first with another team's identifier in it, which must be refused with nothing installed. Its TEAM_ID
+      # must be this team; while it is empty the team from the secret stands in for it here.
+      - name: The Mac line installs the disk image just notarised
+        if: env.SIGN == 'true'
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          PUBLISH: ${{ needs.plan.outputs.publish }}
+        run: |
+          from="$RUNNER_TEMP/install-from"; to="$RUNNER_TEMP/install-to"
+          mkdir -p "$from" "$to"
+          cp host/target/release/dist/*_aarch64.dmg "$from/Tasktap_aarch64.dmg"
+          (cd "$from" && shasum -a 256 Tasktap_aarch64.dmg > SHA256SUMS)
+          team="$(sed -n 's/^TEAM_ID="\(.*\)"$/\1/p' site/install.sh)"
+          if [ -n "$team" ] && [ "$team" != "$APPLE_TEAM_ID" ]; then
+            echo "::error::TEAM_ID in site/install.sh is not the team APPLE_TEAM_ID names."; exit 1
+          fi
+          sed 's/^TEAM_ID=""$/TEAM_ID="AAAAAAAAAA"/' site/install.sh > "$RUNNER_TEMP/install-other.sh"
+          if TASKTAP_INSTALL_FROM="$from" TASKTAP_INSTALL_TO="$to" TASKTAP_INSTALL_NO_START=1 sh < "$RUNNER_TEMP/install-other.sh" 2> "$RUNNER_TEMP/other.txt"; then
+            echo "::error::The Mac line installed an image whose team is not the one it names."; exit 1
+          fi
+          cat "$RUNNER_TEMP/other.txt"
+          grep -q "not signed with a Developer ID of Tasktap's team (AAAAAAAAAA)" "$RUNNER_TEMP/other.txt" || { echo "::error::The Mac line refused another team's image for another reason."; exit 1; }
+          [ -z "$(ls -A "$to")" ] || { echo "::error::The Mac line left something in $to after refusing."; exit 1; }
+          sed "s/^TEAM_ID=\"\"$/TEAM_ID=\"$APPLE_TEAM_ID\"/" site/install.sh > "$RUNNER_TEMP/install.sh"
+          TASKTAP_INSTALL_FROM="$from" TASKTAP_INSTALL_TO="$to" TASKTAP_INSTALL_NO_START=1 sh < "$RUNNER_TEMP/install.sh"
+          codesign --verify --deep --strict "$to/Tasktap.app"
+          if [ -z "$team" ]; then
+            if [ "$PUBLISH" = true ]; then echo "::error::TEAM_ID in site/install.sh is empty, so the Mac line of the release this run publishes would install nothing."; exit 1; fi
+            echo "::warning::TEAM_ID in site/install.sh is empty, so the Mac's install line installs nothing until it names this team."
+          fi
       - name: What is in the bundle, and its size
         run: |
           app="$(ls -d host/target/release/bundle/macos/*.app)"
@@ -304,6 +347,19 @@ jobs:
           node scripts/release-feed.cjs --version "$VERSION" --dir release --notes "$RUNNER_TEMP/notes.md" --out release/latest.json
           ls -l release
           { echo '### The feed'; echo '```json'; cut -c1-160 release/latest.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      # What the install lines take (site/install.sh, site/install.ps1): the disk image and the installer by names
+      # without the version, and the SHA-256 of every file of the release, checked here on a dry run as on a release.
+      - name: Copies by fixed names, and SHA256SUMS over every file
+        working-directory: release
+        run: |
+          cp "Tasktap_${VERSION}_aarch64.dmg" Tasktap_aarch64.dmg
+          cp "Tasktap_${VERSION}_x64-setup.exe" Tasktap_x64-setup.exe
+          sha256sum -- * > "$RUNNER_TEMP/SHA256SUMS"
+          mv "$RUNNER_TEMP/SHA256SUMS" SHA256SUMS
+          sha256sum --check --strict SHA256SUMS
+          listed="$(awk '{ print $2 }' SHA256SUMS | sort)"; here="$(ls | grep -vx SHA256SUMS | sort)"
+          [ "$listed" = "$here" ] || { echo "::error::SHA256SUMS does not list every file of the release"; exit 1; }
+          { echo '### SHA256SUMS'; echo '```'; cat SHA256SUMS; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: A draft release of the tag, which the owner publishes
         if: needs.plan.outputs.publish == 'true'
         env:
@@ -319,5 +375,7 @@ jobs:
         if: needs.plan.outputs.publish != 'true'
         with:
           name: feed
-          path: release/latest.json
+          path: |
+            release/latest.json
+            release/SHA256SUMS
           retention-days: 7

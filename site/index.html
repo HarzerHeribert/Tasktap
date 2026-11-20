@@ -14,7 +14,7 @@
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 <link rel="stylesheet" href="app/tokens.css">
 <link rel="stylesheet" href="site.css">
-<script>document.documentElement.classList.add('js')</script>
+<script>document.documentElement.classList.add('js');if(/Windows/.test(navigator.userAgent))document.documentElement.classList.add('win')</script>
 <script src="site.js" defer></script>
 </head>
 <body>
@@ -37,10 +37,10 @@
       <h1 id="top-h">Put a thought in.</h1>
       <p class="lead">Say it or type it, from any app. Tasktap works out where it belongs, starts a coding agent on it in a real terminal, and comes back only when it needs you or has a result.</p>
       <p class="acts">
-        <a class="key lg" href="#get"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M12.75 3.5v4.75H3.5M6.75 5L3.5 8.25l3.25 3.25"/></svg>Build from source</a>
+        <a class="key lg" href="#get"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M12.75 3.5v4.75H3.5M6.75 5L3.5 8.25l3.25 3.25"/></svg>Get Tasktap</a>
         <a class="btn lg" href="docs/">How it works</a>
       </p>
-      <p class="fine">In development, with no download yet. A Mac app; Windows is being built.</p>
+      <p class="fine">For Macs with Apple silicon, and for Windows on x64, where it is still being built.</p>
     </div>
     <figure class="stage" id="stage">
       <span class="band" aria-hidden="true"><span class="motion" id="band"><picture><source media="(max-width:699px), (min-width:1000px) and (max-width:1135px)" srcset="app/shots/band-s.webp 1x, app/shots/band-s@2x.webp 2x"><img src="app/shots/band.webp" srcset="app/shots/band.webp 1x, app/shots/band@2x.webp 2x" width="860" height="380" alt="" decoding="async"></picture></span></span>
@@ -186,15 +186,25 @@
   <p class="sec-label">Get it</p>
   <div class="split">
     <div class="text">
-      <h2 id="get-h">In development.</h2>
-      <p>There is no download yet: nothing is signed, and there is no installer or updater. Tasktap can be built from source on a Mac with Rust, Node 22 and macOS 13 or later.</p>
-      <p class="acts"><a class="key lg" href="https://github.com/HarzerHeribert/Tasktap"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M12.75 3.5v4.75H3.5M6.75 5L3.5 8.25l3.25 3.25"/></svg>Open the repository</a></p>
+      <h2 id="get-h">A download, or one line.</h2>
+      <p>For a Mac with Apple silicon and macOS 13 or later, and for Windows on x64, installed for you alone with no administrator. Tasktap updates itself from Settings › About.</p>
+      <p>Or build it from source: <a href="https://github.com/HarzerHeribert/Tasktap">the repository</a> says how.</p>
     </div>
     <div class="build">
-      <pre class="pan" tabindex="0" aria-label="Commands to build Tasktap"><code>git clone https://github.com/HarzerHeribert/Tasktap.git
-cd Tasktap
-host/scripts/build.sh --open</code></pre>
-      <p class="fine">The script builds the pages, the core and the app, and opens it. For now the app is named Tasktap Next. On Windows, <code>pwsh host\scripts\build.ps1</code> builds it, with Rust, Node and Visual Studio’s build tools.</p>
+      <div class="for-mac">
+        <h3>On a Mac</h3>
+        <p class="acts"><a class="key lg" href="https://github.com/HarzerHeribert/Tasktap/releases/latest/download/Tasktap_aarch64.dmg"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M12.75 3.5v4.75H3.5M6.75 5L3.5 8.25l3.25 3.25"/></svg>Download for Mac</a></p>
+        <p class="fine">A disk image, signed by its developer and notarised by Apple: open it and drag Tasktap to Applications.</p>
+        <div class="line"><pre class="pan" tabindex="0" aria-label="The line for Terminal"><code>curl -fsSL https://harzerheribert.github.io/Tasktap/install.sh | sh</code></pre><button type="button" class="btn copy">Copy</button></div>
+        <p class="fine">In Terminal, this line downloads the newest release from GitHub, checks its SHA-256 and that Apple notarised it, and copies Tasktap to Applications. <a href="install.sh.txt">Read the script</a>.</p>
+      </div>
+      <div class="for-win">
+        <h3>On Windows</h3>
+        <div class="line"><pre class="pan" tabindex="0" aria-label="The line for PowerShell"><code>irm https://harzerheribert.github.io/Tasktap/install.ps1 | iex</code></pre><button type="button" class="btn copy">Copy</button></div>
+        <p class="fine">In PowerShell, this line downloads the newest installer from GitHub, checks its SHA-256 against the release’s list and installs Tasktap for you alone. <a href="install.ps1.txt">Read the script</a>.</p>
+        <p class="acts"><a class="btn lg" href="https://github.com/HarzerHeribert/Tasktap/releases/latest/download/Tasktap_x64-setup.exe">Download the installer</a></p>
+        <p class="fine">The installer is not code-signed, so SmartScreen stops a copy downloaded in a browser until you choose More info, then Run anyway.</p>
+      </div>
     </div>
   </div>
 </section>

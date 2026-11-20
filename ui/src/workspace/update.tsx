@@ -52,7 +52,7 @@ export function UpdateRow() {
   switch (u.state) {
     case 'unknown':
       return on ? <Row name={NAME} hint={`Tasktap asks GitHub ${ASKS}, and installs one only when you say.`}>{toggle}<span class="v">Checking…</span></Row>
-        : <Row name={NAME} hint="Tasktap never asks GitHub by itself; Check now asks once, and nothing is installed unless you say.">{toggle}<span class="v">Off</span>{now}</Row>;
+        : <Row name={NAME} hint="Tasktap never asks GitHub by itself; Check now asks once, and nothing is installed unless you say.">{toggle}<span class="v">Not checked</span>{now}</Row>;
     case 'looking':
       return <Row name={NAME} hint={on ? `Tasktap asks GitHub ${ASKS}, and installs one only when you say.` : 'Tasktap asks GitHub this once, and installs a new version only when you say.'}>{toggle}<span class="v">Checking…</span></Row>;
     case 'current':

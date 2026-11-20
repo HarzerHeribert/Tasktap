@@ -799,6 +799,40 @@ case "$back" in
   *) fail "back to the default key" "$back" ;;
 esac
 shot settings-key-default workspace
+# Opening at login: a check's run never asks the system, and its row says so.
+until_has workspace "eval (r => r ? r.querySelector('.v')?.textContent + ' | ' + r.querySelector('.hint')?.textContent + ' | ' + r.querySelectorAll('[role=switch]').length : 'none')($(setting "Open Tasktap when the computer starts"))" 5 \
+  "Not for this copy | This copy runs for a check, so it never opens by itself. | 0" && [ "$(js workspace "__ws.call('host.login', { on: true }).then(() => 'took it', (e) => e.message)")" = "A check's run never opens by itself" ] \
+  && ! grep -q '"event":"login"' "$log" \
+  && pass "opening at login: the host never asks the system in a check's run, refuses to be set, and the row says why with no switch" || fail "opening at login in a check's run" "$(js workspace "__ws.call('host.login', {}).then(JSON.stringify)")"
+# The keys that answer a question from any app: recorded through the host as the capture key is, refused when one
+# would be another of Tasktap's keys, and back to the system's own. (No, whose key is N on the usual layouts, where Y
+# is Z on a German one.)
+until_has workspace "$(key_row "Key to answer No, from any app")" 5 "⌃⌥N | false | " || fail "the No key's row"
+# (The capture key as it is now: the system's own, or ⌃⌥⇧F9 where another app on this Mac holds that.)
+read -r code control alt shift meta <<< "$(js workspace "__ws.call('host.capture_key', {}).then((r) => [r.key.code, r.key.control, r.key.alt, r.key.shift, r.key.meta].join(' '))")"
+record "Key to answer No, from any app" "$code" "$control" "$alt" "$shift" "$meta"
+until_has workspace "$(key_row "Key to answer No, from any app")" 3 "Tasktap puts a thought in with that combination." || fail "the capture key refused as the No key" "$(ask workspace "$(key_row "Key to answer No, from any app")")"
+record "Key to answer No, from any app" F8 true true true
+until_has workspace "$(key_row "Key to answer No, from any app")" 5 "⌃⌥⇧F8 | false | " && until_has workspace "$(pref no_key)" 3 '"code":"F8"' \
+  && [ "$(js workspace "__ws.call('host.answer_key', {}).then((r) => r.no?.code + ' ' + r.question?.code + ' ' + r.yes?.code)")" = "F8 KeyJ KeyY" ] \
+  && grep -q '"event":"answer-keys".*"code":"F8"' "$log" \
+  && pass "an answer key pressed in its recorder is asked of the system through the host, stored as its preference and in use at once (⌃⌥⇧F8 for No)" || fail "a No key of the person's own" "$(ask workspace "$(key_row "Key to answer No, from any app")")"
+shot settings-answer-key workspace
+js workspace "(r => ([...r.querySelectorAll('.btn')].find((b) => b.textContent === 'Use ⌃⌥N').click(), 1))($(setting "Key to answer No, from any app"))" >/dev/null
+sleep 1
+back="$(ask workspace "$(key_row "Key to answer No, from any app")")"
+case "$back" in
+  "⌃⌥N | false | ") [ "$(ask workspace "$(pref no_key)")" = null ] && pass "Use ⌃⌥N gives No the system's own key again and removes the preference" || fail "the No key's default" "$back" ;;
+  *"That key is taken by the system or another app."*) [ "$(ask workspace "$(pref no_key)")" != null ] \
+    && pass "⌃⌥N is held by another app on this Mac now (the person's own Tasktap holds it while its question waits): the recorder says so, and ⌃⌥⇧F8 stays" || fail "a taken No key" "$back" ;;
+  *) fail "the No key's default" "$back" ;;
+esac
+# Checking for new versions: a build made here never does, says so and has no switch; nothing else leaves for it.
+js workspace "(__ws.open({ kind: 'settings', at: 'about' }), 1)" >/dev/null
+until_has workspace "eval (r => r.querySelector('.v').textContent + ' | ' + r.querySelectorAll('[role=switch]').length)($(setting "Check for new versions"))" 5 "Not for this copy | 0" \
+  && until_has workspace "eval $(setting "Anything else").querySelector('.v').textContent" 3 "Nothing" \
+  && pass "a build made here never checks for new versions, says so with no switch, and About's Anything else says Nothing" || fail "Check for new versions in a build made here"
+js workspace "(__ws.open({ kind: 'settings', at: 'thoughts' }), 1)" >/dev/null
 # When finished thoughts are deleted.
 choose_in "Delete finished thoughts after" "30 days"
 until_has workspace "$(pref keep_days)" 3 "30" && ask workspace "text .set-pane" | grep -q "Thoughts you have read go that long after they finish, with their answers and terminal history; anything waiting for you stays." \

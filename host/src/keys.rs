@@ -165,7 +165,10 @@ pub fn call(app: &AppHandle, args: &Value) -> Result<Value, String> {
     let before = CAPTURE.lock().unwrap().clone();
     hold(&mut CAPTURE.lock().unwrap(), wanted.clone(), register(app, "capture-key"))?;
     match store(app, PrefKey::CaptureKey, &key) {
-        Ok(()) => Ok(json!({"key": wanted})),
+        Ok(()) => {
+            crate::log(json!({"event": "capture-key", "ok": true, "key": wanted}));
+            Ok(json!({"key": wanted}))
+        }
         Err(refused) => {
             back(&mut CAPTURE.lock().unwrap(), before, register(app, "capture-key"));
             Err(refused)
@@ -308,7 +311,11 @@ pub fn answer_call(app: &AppHandle, args: &Value) -> Result<Value, String> {
     let capture = CAPTURE.lock().unwrap().clone();
     let before = ANSWERS.lock().unwrap().try_key(which, key.clone(), capture.as_ref(), register(app, "answer-keys"))?;
     match store(app, which.pref(), &key) {
-        Ok(()) => Ok(ANSWERS.lock().unwrap().told()),
+        Ok(()) => {
+            let answers = ANSWERS.lock().unwrap();
+            crate::log(json!({"event": "answer-keys", "keys": answers.told(), "on": answers.asking, "ok": true}));
+            Ok(answers.told())
+        }
         Err(refused) => {
             ANSWERS.lock().unwrap().put_back(which, before, register(app, "answer-keys"));
             Err(refused)

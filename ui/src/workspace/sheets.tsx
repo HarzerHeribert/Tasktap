@@ -46,23 +46,36 @@ export function Frame({ title: name, aside, children, choices = [], acts = [], s
   typed?: () => void;
 }) {
   const [held, hold] = useState('');
+  // A sheet that came by itself is guarded whoever draws it, from the moment it came.
+  const self = guard || (ui.sheet?.kind === 'setup' && !!ui.sheet.auto);
+  const [born] = useState(() => performance.now());
   const out = acts.find((x) => x.k === 'esc') ?? { k: 'esc', label: 'Close', do: dismiss };
   const rest = acts.filter((x) => x.k !== 'esc');
   // The answer: the one Return gives, else the only one there is, unless the answers are a list of their own.
   const main = rest.find((x) => x.kind === 'primary') ?? (rest.length === 1 && !choices.length ? rest[0] : undefined);
-  const keys = (e: KeyboardEvent) => {
-    const typing = (e.target as HTMLElement).matches('input, textarea');
-    const act = [...choices, ...rest, out].find((x) => matches(x.k, e, typing));
+  // Escape does what the answer does (a sheet that only reports): one key is shown, the answer's; Escape still works.
+  const one = !!main && main.do === out.do;
+  /** `beside`: the key was pressed in the Composer's field, which keeps the keyboard while a sheet that came by itself
+   *  is over it, so that whatever the person types, however (a dead key, an input method, a paste, a space), goes there:
+   *  then Return with the field empty is the sheet's answer, and Escape and the sheet's ⌘ keys are the sheet's. */
+  const keys = (e: KeyboardEvent, beside = false) => {
+    if (beside && (e.isComposing || (e.target as HTMLTextAreaElement).value?.trim())) return;
+    const typing = !beside && (e.target as HTMLElement).matches('input, textarea');
+    const act = [...choices, ...rest, out].find((x) => (beside && x.k === '↩' ? e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey : matches(x.k, e, typing || (beside && x.k.length === 1))));
     // Return or Space on a button of it is the browser's press of that button, and held back the same.
-    const press = !act && (e.key === 'Enter' || e.key === ' ') && !!(e.target as HTMLElement).closest('button');
-    if (guard && (act ? act !== out : press) && !quiet(e)) {
+    const press = !beside && !act && (e.key === 'Enter' || e.key === ' ') && !!(e.target as HTMLElement).closest('button');
+    // Two clocks (the review's N3): no key in the sheet's first 600 ms, nor within 600 ms of the last key anywhere.
+    if (self && (act ? act !== out : press) && !quiet(e, born)) {
       e.preventDefault();
       e.stopPropagation();
-      return hold(act ? `You were typing: press ${spell(act.k)} again to ${act.label.replace(/…$/, '').toLowerCase()}.` : 'You were typing: press it again.');
+      const k = act ? act.k : e.key === ' ' ? 'Space' : '↩';
+      return hold(`You were typing: press ${said(k)} again${act ? ` to ${act.label.replace(/…$/, '').toLowerCase()}` : ''}.`);
     }
     if (!act) {
-      // A letter, a digit, a sign: the Composer's, with the keyboard, the sheet put away (as Not now).
-      if (guard && typed && !typing && e.key.length === 1 && e.key !== ' ' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.isComposing) typed();
+      // Text, typed with the keyboard on the sheet (after Tab, or a click): the Composer's, with the keyboard, the
+      // sheet put away (as Not now). A character with Option or AltGr, a dead key or an input method's first key too.
+      const text = (e.key.length === 1 && !e.metaKey && !(e.ctrlKey && !e.altKey)) || e.key === 'Dead' || e.key === 'Process' || e.keyCode === 229;
+      if (self && typed && !typing && !beside && !press && text) typed();
       return;
     }
     e.preventDefault();
@@ -70,9 +83,21 @@ export function Frame({ title: name, aside, children, choices = [], acts = [], s
     hold('');
     act.do();
   };
+  // A sheet that came by itself leaves the keyboard in the Composer's field (Sheets): its keys are taken there, and
+  // the first text that lands in the field (typed, composed, pasted, dropped) puts the sheet away as Not now.
+  useLayoutEffect(() => {
+    if (!self) return undefined;
+    const inField = (e: Event) => (e.target as HTMLElement)?.id === 'capture-input' && !(e.target as HTMLElement).closest('.sheet');
+    const down = (e: KeyboardEvent) => inField(e) && keys(e, true);
+    // After the field's own handler has taken the text (so the render that puts the sheet away keeps it).
+    const input = (e: Event) => inField(e) && (e.target as HTMLTextAreaElement).value && queueMicrotask(() => typed?.());
+    document.addEventListener('keydown', down, true);
+    document.addEventListener('input', input);
+    return () => (document.removeEventListener('keydown', down, true), document.removeEventListener('input', input));
+  });
   const answer = (x: Act) => <Answer cls="act" k={x.k} label={x.label} danger={x.kind === 'danger'} onClick={x.do} />;
   return (
-    <div class={`sheet ${size}${bare ? ' bare' : ''}`} role="dialog" aria-modal="true" aria-labelledby="sheet-title" tabIndex={-1} data-keys onKeyDown={keys}>
+    <div class={`sheet ${size}${bare ? ' bare' : ''}`} role="dialog" aria-modal="true" aria-labelledby="sheet-title" tabIndex={-1} data-keys={self ? 'composer' : true} onKeyDown={(e) => keys(e)}>
       <header class="sh-h"><h2 id="sheet-title">{name}</h2>{aside}</header>
       <div class="sh-b">
         {children}
@@ -83,7 +108,7 @@ export function Frame({ title: name, aside, children, choices = [], acts = [], s
           {rest.filter((x) => x !== main).map(answer)}
           {held && <span class="sh-held" role="status">{held}</span>}
           <span class="sh-r">
-            {answer(out)}
+            {!one && answer(out)}
             {main && (main.kind !== 'primary' ? answer(main)
               : <button type="button" class="key" onClick={main.do}>{main.k === '↩' && <I n="ret" />}<span>{main.label}</span>{main.k !== '↩' && <Key k={main.k} />}</button>)}
           </span>
@@ -95,6 +120,8 @@ export function Frame({ title: name, aside, children, choices = [], acts = [], s
 const cancel: Act = { k: 'esc', label: 'Cancel', do: dismiss };
 /** Whether a key press is the one a choice's key cap shows. Return never presses a choice while a button or a field
  *  has the keyboard: those take it themselves. */
+/** A key as a sentence says it: Return (Enter off the Mac), Space, Escape, else as its cap spells it. */
+const said = (k: string) => (k === '↩' ? (mac ? 'Return' : 'Enter') : k === 'Space' ? 'Space' : k === 'esc' ? 'Escape' : spell(k));
 function matches(k: string, e: KeyboardEvent, typing: boolean) {
   if (e.isComposing) return false;
   const on = (e.target as HTMLElement).closest('button');
@@ -363,7 +390,9 @@ export function Sheets() {
     wasOpen = true;
     // The sheet takes the keyboard at once, without the ring a key press would show: the first thing a person would
     // use where there is one (a field, the first answer, Settings' open section), else the sheet, whose keys then act.
-    focus(sheet?.querySelector<HTMLElement>('#capture-input, #find-text, .field input, .ask-notch .ans, .reply input, [role=tab][aria-selected=true]') ?? sheet);
+    // One that came by itself leaves it in Home's Composer, where whatever the person types goes (Frame).
+    const self = d.kind === 'setup' && d.auto ? document.querySelector<HTMLElement>('.home #capture-input') : null;
+    focus(self ?? sheet?.querySelector<HTMLElement>('#capture-input, #find-text, .field input, .ask-notch .ans, .reply input, [role=tab][aria-selected=true]') ?? sheet);
   }, [key]);
   // Tab stays inside the sheet.
   useEffect(() => {

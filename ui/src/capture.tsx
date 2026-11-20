@@ -18,7 +18,7 @@ import { Ask, routerRows } from './question.tsx';
 import { AGENT_KEY, AgentControl, AgentList, chosen, open as openAgents } from './rings.tsx';
 import { cancel, control, end, follow, mine, needs, place, setAim, talk, voiced } from './speech/record.ts';
 import { Brand, I, Key, Level, Mark, madeAt } from './ui.tsx';
-import { agent, agentName, call, fail, focus, openQuestions, page, placeArgs, placers, pref, projectName, projects, quiet, records, redraw, sentence, sessionName, why } from './page.ts';
+import { QUIET, agent, agentName, call, fail, focus, keyTimes, openQuestions, page, placeArgs, placers, pref, projectName, projects, records, redraw, sentence, sessionName, why } from './page.ts';
 import { back, briefOf, clock, first, hold, laterWhy, leave, onWay, placed, placedBy, placing, step } from './way.ts';
 
 /** What was just sent, for what is said of it once it is no longer on its way. `pick`: the place the person chose for
@@ -604,9 +604,13 @@ function Way({ hooks, raised }: { hooks: Hooks; raised: boolean }) {
  *  already begun. It leaves the Composer for Needs you for good as soon as a key types into the field, when the field
  *  is given back (Escape, Tab), and when the Composer it is asked at goes (Home left for a workspace, the sheet put
  *  away). While it is at the Composer and the field is empty, the field's keys answer it: a row's number, the arrows
- *  and Return, which takes the row the arrows are on (the first) once 600 ms passed without a key since it came, so
- *  a Return pressed twice to send never answers it (`since`). Every other key is the field's. */
-const asked = new Map<string, { at: 'here' | 'away'; since: number; on: number }>();
+ *  and Return, which takes the row the arrows are on (the first). Return counts from 600 ms after the question came
+ *  and after the last key pressed before it came (`ready`), so a Return pressed twice to send never answers it; a key
+ *  pressed on the question itself (an arrow, a digit) is meant, and Return right after it answers (the review's N2).
+ *  Every other key is the field's. */
+const asked = new Map<string, { at: 'here' | 'away'; since: number; on: number; ready: number }>();
+/** Whether Return answers the question at the Composer now (and so whether its key is metal, and a click on it acts). */
+const answers = (q: Question) => performance.now() >= (asked.get(q.id)?.ready ?? Infinity);
 /** The question asked at a Composer of this page now, if one is. `left`: a Composer went while it asked. */
 let shown = '', left = false;
 export function atComposer(): Question | undefined {
@@ -617,7 +621,8 @@ export function atComposer(): Question | undefined {
   if (shown && shown !== q?.id && (!now || now === document.body || now.closest(`[data-question="${shown}"]`))) page.focus = '#capture-input';
   let a = q && asked.get(q.id);
   if (q && !a) {
-    asked.set(q.id, (a = { at: cap.draft.trim() ? 'away' : 'here', since: performance.now(), on: 0 }));
+    const came = performance.now();
+    asked.set(q.id, (a = { at: cap.draft.trim() ? 'away' : 'here', since: came, on: 0, ready: Math.max(came, keyTimes.last) + QUIET }));
     // Where nothing has the keyboard, the field takes it, and with it the question's keys.
     if (a.at === 'here' && (!now || now === document.body)) page.focus = '#capture-input';
   }
@@ -627,6 +632,13 @@ export function atComposer(): Question | undefined {
 /** Whether a question that just came will be asked at the Composer, before it is drawn (the notch keeps its capture
  *  line for it, rather than opening the question's own view). */
 export const toAsk = (q: Question) => q.source === 'router' && !!cap.sent && q.thought_id === cap.sent.id && (asked.get(q.id)?.at ?? (cap.draft.trim() ? 'away' : 'here')) === 'here';
+/** The question about the thought just sent while the next one is being typed: it has left the Composer, and the
+ *  notch shows it in its own list only once the field is empty again (sent, or its words taken out), so nothing the
+ *  person types moves the keyboard (the review's N1). */
+export const typedPast = (q: Question) => q.source === 'router' && !!cap.sent && q.thought_id === cap.sent.id && !!cap.draft;
+/** A place's name as the key says it: cut after 16 characters (one more where the cut would end on a separator, never
+ *  for one character), so "customer-portal-frontend" is "customer-portal-f…" (the review's N5). */
+export const keyName16 = (s: string) => (s.length <= 17 ? s : `${s.slice(0, /[-_. ]/.test(s[15]!) ? 17 : 16)}…`);
 /** The question leaves the Composer and waits in Needs you; the field keeps the keyboard. */
 function away(q: Question | string | undefined) {
   const a = q && asked.get(typeof q === 'string' ? q : q.id);
@@ -672,6 +684,19 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
   const row = q && !cap.draft ? chosenRow(q) : undefined;
   const does = row ? (row.does === 'place' ? `Start in ${row.label}` : row.does === 'session' ? `Send to ${row.label}` : row.label)
     : now ? 'Start' : later ? 'Save for later' : session ? 'Send' : 'Start';
+  // On the key the place is cut short, and where the foot has no room for it the key says only what it does (`.k-in`
+  // goes, parts.css); the row the arrows are on says where. Quiet until Return answers, metal from then on.
+  const verb = row && (row.does === 'place' || row.does === 'session') ? (row.does === 'place' ? 'Start' : 'Send') : '';
+  const waits = !!q && !!row && !answers(q);
+  const ready = q ? (asked.get(q.id)?.ready ?? 0) : 0;
+  useEffect(() => {
+    if (!waits) return undefined;
+    // Drawn metal the moment Return acts (a timer may fire a little early by the page's clock: then once more).
+    let t = 0;
+    const lit = () => (performance.now() >= ready ? redraw() : (t = window.setTimeout(lit, ready - performance.now() + 1)));
+    t = window.setTimeout(lit, Math.max(0, ready - performance.now()) + 1);
+    return () => clearTimeout(t);
+  }, [waits, ready]);
   // A Composer that goes while it asks (Home left, the sheet put away) leaves its question in Needs you; back on Home,
   // the field has the keyboard (the review's R5), not the question that waits there.
   const asking = useRef('');
@@ -701,19 +726,23 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
       const place = row.querySelector<HTMLElement>('#dest-chip b'), reason = row.querySelector<HTMLElement>('#dest-chip span'), who = row.querySelector<HTMLElement>('.cap-agent .nm');
       if (!place || !reason) return;
       const cut = (el: HTMLElement | null) => !!el && el.scrollWidth > el.clientWidth + 0.5;
+      const over = () => row.scrollWidth > row.clientWidth + 0.5;
       row.removeAttribute('data-short');
       row.removeAttribute('data-bare');
+      row.removeAttribute('data-tight');
       // The reason is whole or not there: one that would be cut ("asks y…") goes, whole (the review's R8).
-      if (!cut(reason)) return;
+      if (!cut(reason) && !over()) return;
       row.setAttribute('data-bare', '');
       // Then the key hints, the microphone's and the agent control's, where a name is still cut without them.
-      if (cut(place) || cut(who)) row.setAttribute('data-short', '');
+      if (cut(place) || cut(who) || over()) row.setAttribute('data-short', '');
+      // Then the place on the key (the review's N5): the key says only what Return does, and the chip has the room.
+      if (row.querySelector('.key .k-in') && (cut(place) || over())) row.setAttribute('data-tight', '');
     };
     room();
     const watch = new ResizeObserver(room);
     watch.observe(row);
     return () => watch.disconnect();
-  }, [name, why, back, does, busy, hearing, cap.choosing, cap.agents, runs]);
+  }, [name, why, back, does, busy, hearing, cap.choosing, cap.agents, runs, waits]);
   useLayoutEffect(() => {
     const watch = new ResizeObserver(([e]) => fit(e!.contentRect.width));
     watch.observe(area.current!);
@@ -721,7 +750,7 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
   }, []);
   return (
     <form class={`capture${raised ? ' raised' : ''}${cap.draft ? ' has' : ''}${q ? ' asks' : ''}`} aria-busy={cap.sending > 0} data-keys
-      onSubmit={(e) => (row ? (e.preventDefault(), row.act()) : void send(e, hooks))}
+      onSubmit={(e) => (row && q ? (e.preventDefault(), answers(q) && row.act()) : void send(e, hooks))}
       onKeyDown={(e) => {
         // ⌘Z takes back what this Composer sent, wherever the keyboard is in it, unless a field with words has it:
         // then it is that field's own undo (and Undo shows no cap).
@@ -756,7 +785,7 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
             // (`return_sends`), Return starts a new line and Command-Return sends (Control-Return off the Mac).
             const sends = e.key === 'Enter' && !e.isComposing && (pref('return_sends') ? !e.shiftKey : e.metaKey || e.ctrlKey);
             if (q && !cap.draft) {
-              if (sends) return (e.preventDefault(), quiet(e, asked.get(q.id)!.since) && chosenRow(q).act());
+              if (sends) return (e.preventDefault(), !e.repeat && answers(q) && chosenRow(q).act());
               if (answerKey(q, e)) return;
             }
             if (sends) e.repeat ? e.preventDefault() : void send(e, hooks);
@@ -797,8 +826,9 @@ export function Capture({ raised = false, asks = false, ...hooks }: Hooks & { ra
             {/* The metal key always, also with nothing to do (NOTES §13): Home's one key, and the Composer's in the notch
                 and the capture sheet. Its arrow is in the key's own ink (its class was `sends` once, which the placing
                 sheet's list of what it sends also is, and took that list's pale colour). */}
-            <button type="submit" class={`key${raised ? ' lg' : ''}`} disabled={!has && !now && !busy && !row} aria-busy={busy || undefined} title={row ? `The answer Return gives: ${row.label}` : now ? 'Start it now' : undefined}>
-              {busy ? <Mark s="working" label="" /> : <i class="key-ret">{!pref('return_sends') && spell('⌘↩').replace('↩', '')}<I n="ret" /></i>}<span>{does}</span>
+            <button type="submit" class={`key${raised ? ' lg' : ''}`} disabled={!has && !now && !busy && !row} aria-busy={busy || undefined} data-waits={waits || undefined} title={row ? `The answer Return gives: ${row.label}` : now ? 'Start it now' : undefined}>
+              {busy ? <Mark s="working" label="" /> : <i class="key-ret">{!pref('return_sends') && spell('⌘↩').replace('↩', '')}<I n="ret" /></i>}
+              <span>{verb ? <>{verb}<span class="k-in">{` ${verb === 'Start' ? 'in' : 'to'} ${keyName16(row!.label)}`}</span></> : does}</span>
             </button>
           </div>
         )}

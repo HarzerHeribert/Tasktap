@@ -321,10 +321,11 @@ export function Home() {
 
 /** Whether Home has two columns: the window's width alone decides, never the room beside the sidebar, so opening or
  *  closing the sidebar never reflows Home (checklist item 36). Two only where both columns keep their rows whole and
- *  the column they make stays clear of the sidebar on both sides of the window's centre (window.css `.hx.two`): its
- *  narrowest, 1168 px (two columns of 520 px and more), and the sidebar's width and Home's margin on each side. */
+ *  the column they make stays clear of the sidebar on both sides of the window's centre (window.css `.hx.two`): the
+ *  pair at its own width, 1352 px (the wider column the Composer's 720 px, tokens.css `--home-wide`), and the
+ *  sidebar's width and Home's margin on each side. */
 const side = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--side-w')) || 224;
-const twoAt = () => 1168 + 2 * (side() + 36);
+const twoAt = () => 1352 + 2 * (side() + 36);
 function useWide() {
   const [wide, setWide] = useState(() => innerWidth >= twoAt());
   useEffect(() => {

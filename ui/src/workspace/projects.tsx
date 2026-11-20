@@ -381,7 +381,7 @@ function FolderLook({ look, cards }: { look: Look; cards: Card[] }) {
     : look.state === 'failed' ? 'Could not be read' : look.found ? `${plural(look.found, 'project', 'projects')}${look.looked ? ` · read ${ago(look.looked)}` : ''}` : 'No projects in it';
   // The row says what happened in a few words; the line under it says the rest.
   const note = look.state === 'gone' ? `${kept.length ? `Its ${plural(kept.length, 'project is', 'projects are')}` : 'What it held is'} kept for when it is back.`
-    : look.state === 'many' ? 'It holds over 2,000 folders, too many for a folder of projects; add the folder inside it that holds them instead.'
+    : look.state === 'many' ? 'Over 2,000 folders: too many. Add the folder inside it that holds your projects.'
       : look.state === 'failed' ? (look.note ?? 'Tasktap could not read it.')
         : look.state === 'ready' && !look.found ? 'A folder counts as a project when it has Git or a package file in it.' : '';
   return (
@@ -395,7 +395,7 @@ function FolderLook({ look, cards }: { look: Look; cards: Card[] }) {
       {note && !asks && <p class="line-n">{note}</p>}
       {asks && (
         <div class="line-n ask">
-          <span>{goes ? `Tasktap stops searching there and forgets the ${plural(goes, 'project', 'projects')} only this folder found; open ones stay.` : 'Tasktap stops searching there; every project it found there is known from elsewhere too, and stays.'}</span>
+          <span>{goes ? `Tasktap stops searching there and forgets the ${plural(goes, 'project', 'projects')} only this folder found; open ones stay.` : 'Tasktap stops searching there. Its projects stay: they are found elsewhere too.'}</span>
           <button type="button" class="btn" onClick={() => ask(false)}>Cancel</button>
           <button type="button" class="btn warn" onClick={() => void call('delete', { c: 'looks', id: look.id }).catch(fail)}>Remove</button>
         </div>
@@ -451,7 +451,7 @@ function ProjectRow({ c, open: isOpen, show, cards }: RowProps) {
             </Fact>
           )}
           <Where c={c} ws={ws} />
-          <Fact k="In the sidebar"><span>{ws?.open ? 'Yes, open' : ws ? 'Closed; a thought for it opens it again' : 'Not yet; a thought for it adds it'}</span></Fact>
+          <Fact k="In the sidebar"><span>{ws?.open ? 'Yes, open' : ws ? 'Closed. Name it in a thought to open it again.' : 'Not yet. Name it in a thought to open it.'}</span></Fact>
           <div class="pj-a">
             <button type="button" class="btn" onClick={() => void call('put', { c: 'cards', id: c.id, patch: { hidden: true } }).catch(fail)}>Not a project</button>
             <button type="button" class="btn" onClick={() => void call('delete', { c: 'cards', id: c.id }).catch(fail)}>Forget</button>

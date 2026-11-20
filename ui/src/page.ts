@@ -88,7 +88,9 @@ export function markHeld() {
   for (const el of document.querySelectorAll<HTMLElement>('[data-keys]'))
     el.toggleAttribute('data-held', el.dataset.keys === 'window' ? on : !!at && at !== document.body && (el.contains(at)
       // `field`: the keys act from the Composer's field it stands under too (a question asked at the Composer).
-      || (el.dataset.keys === 'field' && at.id === 'capture-input' && !!el.closest('form')?.contains(at))));
+      || (el.dataset.keys === 'field' && at.id === 'capture-input' && !!el.closest('form')?.contains(at))
+      // `composer`: a sheet that came by itself, whose keys act from Home's Composer, which keeps the keyboard.
+      || (el.dataset.keys === 'composer' && at.id === 'capture-input' && !!at.closest('.home'))));
 }
 
 /** When keys were pressed in this page, anywhere: `last` is the key being handled now, `prev` the one before it. A

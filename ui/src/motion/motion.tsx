@@ -2,7 +2,7 @@
 // element the engine draws into.
 import type { ComponentChildren } from 'preact';
 import { useLayoutEffect, useRef } from 'preact/hooks';
-import { PREF_DEFAULTS, type Pref } from '../../../core/proto/protocol.ts';
+import { type MotionAmbient, PREF_DEFAULTS, type Pref } from '../../../core/proto/protocol.ts';
 import { type Look, type Options, View } from './engine.ts';
 import type { MotionState } from './state.ts';
 
@@ -32,3 +32,13 @@ export const debug = {
   active: null as boolean | null,
   saving: null as boolean | null,
 };
+
+/** The level of the effects, in both pages: the person's choice (the core's `motion_ambient`: off, still, breathing),
+ *  with Full held at Still while the system asks for less: Reduce Motion, or Low Power Mode (which the host tells both
+ *  pages). The window's light follows it (light.tsx), and so do the notch's glow and marks of work (notch/main.tsx). */
+export type Effects = 'off' | 'still' | 'full';
+export const power = { low: false };
+const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+export function effectsOf(chosen: MotionAmbient): Effects {
+  return chosen === 'off' ? 'off' : chosen === 'still' || reduce.matches || (debug.saving ?? power.low) ? 'still' : 'full';
+}

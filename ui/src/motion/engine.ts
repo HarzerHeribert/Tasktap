@@ -6,7 +6,7 @@
 // and a hidden page draw nothing at all, and with no view ever shown no context is made. All of its timing is time
 // passed, never a count of frames, so it runs alike on every display, whatever its rate and however that varies.
 // What moves is shown in one of two ways. A change (states blending, a result's moment, the voice, a clearing coming
-// in) is drawn by the page in every frame it is given, up to about 60 a second (the loop at the foot). A calm view's
+// in) is drawn by the page in every frame it is given, up to 60 a second (the loop at the foot). A calm view's
 // lasting loop (agents working, a question waiting) is carried by the compositor: the page draws only keyframes of
 // it, a few a second, each a whole interval before it is due, and the compositor fades each into the next at the
 // display's own rate (View.carry), so the page is given no frames while the loop lasts.
@@ -14,6 +14,7 @@
 // drawn there just before it, as the lab draws its small sizes.
 import { HEAD } from './head.ts';
 import { LUMEN } from './lumen.ts';
+import { pace as cadence } from './pace.ts';
 import { lights, type PaletteId } from './palette.ts';
 import { STATES, type MotionState } from './state.ts';
 import { STYLES, type Size, type StyleId } from './styles.ts';
@@ -795,17 +796,17 @@ function wake() {
   if (!raf && !document.hidden) raf = requestAnimationFrame(frame);
 }
 
-/** The frames a page is given come at whatever pace the display and the web view choose, and not evenly: 60, 120,
- *  144 or 240 a second, or a pace that varies from one frame to the next (the built-in panel hands this web view
- *  frames 13 to 19 ms apart). Nothing here asks what that pace is. A frame of the motion is drawn in every frame
- *  given, except one that comes within three fifths of a sixtieth of a second (10 ms) of the last drawn: so about
- *  `stats.rate` a second on a stream of that pace however uneven, every second frame of 120 or 144 a second,
- *  every third of 240; no faster cadence can be seen, and each costs. Everything moves by the time that passed,
- *  never by a count of frames. Never paced by a timer: a web view slows chains of timers down the longer they
- *  run. A timer only ends a rest, and draws a carried view's keyframes, each a whole interval early. */
+/** The frames a page is given come at whatever pace the display and the web view choose, and not evenly. The motion
+ *  is drawn in at most `stats.rate` of them a second (60), and on a display of about that many in every one, however
+ *  uneven: every second frame of 120 a second, every fourth of 240, two of every five of 144 (pace.ts, which the
+ *  page's CSS loops share, so that all of it is drawn in the same frames). No faster cadence can be seen, and each
+ *  costs. Everything moves by the time that passed, never by a count of frames. Never paced by a timer: a web view
+ *  slows chains of timers down the longer they run. A timer only ends a rest, and draws a carried view's keyframes,
+ *  each a whole interval early. */
 function frame(at: number) {
   raf = 0;
-  if (drew && at - drew < 600 / stats.rate) return void (raf = requestAnimationFrame(frame));
+  cadence.rate = stats.rate;
+  if (!cadence.take(at)) return void (raf = requestAnimationFrame(frame));
   const shown = [...views].filter((v) => v.shown());
   if (!shown.length || !context()) return void (drew = 0);
   const began = performance.now(), ms = drew ? Math.min(50, at - drew) : 1000 / 60, gap = slept ? Math.max(0, at - slept) : 0, main = surfaces[0]!;

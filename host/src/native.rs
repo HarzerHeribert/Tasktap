@@ -224,6 +224,26 @@ fn observe(
     }
 }
 
+/// Calls `changed` with whether the window `ptr` can be seen at all, whenever AppKit says that changed: none of it is
+/// on screen while it is minimised, hidden with the app, on another Space, or wholly covered. The app can stay the
+/// active one, and the window the key one, through a switch to an empty Space. The observer lives as long as the app,
+/// and hears only that window.
+pub fn watch_seen(ptr: usize, changed: impl Fn(bool) + 'static) {
+    let block = RcBlock::new(move |notice: NonNull<objc2_foundation::NSNotification>| {
+        // SAFETY: AppKit hands the notice on the main queue; its object is the window it is about, alive while it says so.
+        let window = unsafe { notice.as_ref() }.object().and_then(|o| o.downcast::<NSWindow>().ok());
+        changed(window.is_none_or(|w| w.occlusionState().contains(objc2_app_kit::NSWindowOcclusionState::Visible)));
+    });
+    let center = objc2_foundation::NSNotificationCenter::defaultCenter();
+    let name = objc2_foundation::NSString::from_str("NSWindowDidChangeOcclusionStateNotification");
+    let queue = objc2_foundation::NSOperationQueue::mainQueue();
+    let object: &objc2::runtime::AnyObject = unsafe { &*(ptr as *const NSWindow) }.as_ref();
+    // SAFETY: the block takes the notification as AppKit hands it, on the main queue.
+    std::mem::forget(unsafe {
+        center.addObserverForName_object_queue_usingBlock(Some(&name), Some(object), Some(&queue), &block)
+    });
+}
+
 /// Calls `changed` when this app becomes the active one (true) or stops being it (false), as the system says it: a
 /// non-activating panel taking the keyboard is neither.
 pub fn watch_active(changed: impl Fn(bool) + 'static) {

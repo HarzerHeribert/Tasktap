@@ -697,10 +697,10 @@ fn main() {
             #[cfg(windows)]
             edge::start(passive);
 
-            // The workspace's effects rest while the Mac is in Low Power Mode.
+            // The effects rest while the Mac is in Low Power Mode: the window's light and the notch's glow.
             let handle = app.handle().clone();
             native::watch_power(move || {
-                let _ = handle.emit_to(workspace::LABEL, "ui", json!({"do": "power", "low": native::low_power()}));
+                let _ = handle.emit("ui", json!({"do": "power", "low": native::low_power()}));
             });
 
             if std::env::var_os("TASKTAP_DEBUG").is_some() {

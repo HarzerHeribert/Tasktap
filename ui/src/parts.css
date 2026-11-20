@@ -72,6 +72,9 @@ i{font-style:normal}
 @keyframes pass-1{0%{opacity:0}33.3%,100%{opacity:1}}
 @keyframes pass-2{0%,33.3%{opacity:0}66.7%,100%{opacity:1}}
 @keyframes pass-3{0%,66.7%{opacity:0}100%{opacity:1}}
+/* Below Full on the effects control (motion.tsx effectsOf) the marks of work hold a pose, in the window and the notch
+   alike: the mark at rest, and an agent's ring without its turning arc's motion. */
+:root:is([data-effects=still],[data-effects=off]) :is(.brand-m>img,.ring-o .turn){animation:none}
 
 /* ——— Materials (tokens.css; NOTES §5). Every control is one of these ———
    Metal: the key and the caps that show a key. Two sizes of key: 24 px, and 34 px on Home's surface. Its face is flat;

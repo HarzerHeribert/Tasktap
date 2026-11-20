@@ -76,7 +76,7 @@ Decisions for 32 and 33 (Claude, 2026-11-19; applied once Home and the placing l
 | # | Done | Finding | Decided fix | Proof |
 | --- | --- | --- | --- | --- |
 | 34 | [ ] | What the app costs the graphics processor was never measured; only the main processor, memory and wake-ups were | Measure it in every state (at rest, agents working, listening, the sidebar moving, effects Off, Still and Full) with the window on screen, on the Mac and on the Windows tower, and set a limit for each | |
-| 35 | [ ] | (follows) At rest the figure is zero, and a check keeps it so | | |
+| 35 | [ ] | (follows) At rest the figure is zero, and a check keeps it so | At rest with Tasktap not in front, or with no caret, exactly zero; with the caret in Home's field, at most 0.01 % (its blink, which stays while the person is in the field with Tasktap in front; when Tasktap is not in front nothing blinks). The host knows a minimised window is not in front (edge.rs), so nothing draws unseen | `scripts/winvm/gpu.sh --rest` asserts it by its meaning: with no caret or with Tasktap not in front, no frame of the page in any second and at most 0.01 % in every second, both figures said, and "exactly zero" when it is so; with the caret, at most 0.01 % on average. The tower with its display awake (58f4708): all four pass (the caret 0.007 %; behind another program and minimised exactly zero; no caret at most 0.008 % in a second). At the merged head with the display asleep: behind and minimised pass, no caret (0.051 % in one second) and the caret (0.011 %) fail; a round with the display awake is owed (scripts/winvm/README.md) |
 
 ## Found by the independent review of the Home rework (item 24)
 

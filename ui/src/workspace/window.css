@@ -626,6 +626,8 @@ button.line.fold-l{grid-template-columns:28px 190px minmax(0,1fr)}
 /* ——— the light (light.tsx): pools of the person's colour, dithered, breathing only by opacity; one low band of
    chrome, kept from under the words, dimmer as the page fills ——— */
 .light{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none}
+/* The pools together: the light's own size, and laid out at another while the sidebar slides (light.tsx useSlide). */
+.pools{position:absolute;inset:0}
 .pool{position:absolute;border-radius:50%;opacity:.88;transition:opacity 1.2s ease,background-color 1.2s ease;
   -webkit-mask-image:radial-gradient(closest-side,#000,rgb(0 0 0/.8) 18%,rgb(0 0 0/.5) 42%,rgb(0 0 0/.2) 68%,rgb(0 0 0/.05) 88%,transparent);
   mask-image:radial-gradient(closest-side,#000,rgb(0 0 0/.8) 18%,rgb(0 0 0/.5) 42%,rgb(0 0 0/.2) 68%,rgb(0 0 0/.05) 88%,transparent)}
@@ -688,8 +690,8 @@ button.line.fold-l{grid-template-columns:28px 190px minmax(0,1fr)}
 @starting-style{.turn canvas{opacity:0}}
 /* The effects control (Settings; light.tsx effects). Below Full nothing moves by itself: the marks of work hold a
    pose, the Composer's lit rim and its glow come and go at once, and the light, where it is shown, is a picture.
-   What the interface does to show a change of its own (a sheet dropping, the sidebar sliding) stays. */
-:root:is([data-effects=still],[data-effects=off]) :is(.brand-m>img,.ring-o .turn){animation:none}
+   What the interface does to show a change of its own (a sheet dropping, the sidebar sliding) stays. The marks of work
+   hold their pose by the same rule in the notch (parts.css). */
 :root:is([data-effects=still],[data-effects=off]) :is(.capture.raised::before,.capture.raised .cap,.capture.raised .cap::after,.pool,.glyph,.turn canvas){transition:none}
 
 /* ——— Projects (projects.tsx): Setup's first step, a sheet, and Settings › Projects ——— */

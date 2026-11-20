@@ -14,7 +14,8 @@ import { type RefObject } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { routing } from '../capture.tsx';
 import { built, still } from '../motion/engine.ts';
-import { Motion, debug, lookOf } from '../motion/motion.tsx';
+import { Motion, debug, effectsOf, lookOf } from '../motion/motion.tsx';
+import { wake as stir } from '../motion/paced.ts';
 import { type RGB, lights } from '../motion/palette.ts';
 import { type MotionState, motionState } from '../motion/state.ts';
 import { openQuestions, pref, records, redraw, ui } from './model.ts';
@@ -90,14 +91,9 @@ let settle = 0;
 // Out of sight it is still, and moves again when it is seen.
 document.addEventListener('visibilitychange', redraw);
 
-/** The level of the effects: the person's choice (the core's `motion_ambient`: off, still, breathing), with Full
- *  held at Still while the system asks for less: Reduce Motion, or Low Power Mode (which the host tells, main.tsx). */
-export type Effects = 'off' | 'still' | 'full';
-export const power = { low: false };
-export function effects(): Effects {
-  const chosen = pref('motion_ambient');
-  return chosen === 'off' ? 'off' : chosen === 'still' || reduce.matches || (debug.saving ?? power.low) ? 'still' : 'full';
-}
+/** The level of the effects (motion.tsx effectsOf), as this window's records have the person's choice. */
+export { power, type Effects } from '../motion/motion.tsx';
+export const effects = () => effectsOf(pref('motion_ambient'));
 reduce.addEventListener('change', redraw);
 
 /** The look the wake's glyphs take, or none below Full. */
@@ -160,10 +156,51 @@ function noise() {
   return grain;
 }
 
+/** While the sidebar slides, Home's column narrows or widens in every frame, and what is drawn to fit it would be drawn
+ *  again in every frame of the slide: the band's form at a new size, its canvas given that size each time (67 times
+ *  a second on the tower, at Still too), and the pools, large masked gradients, painted anew. Instead each takes the
+ *  size it will have when the slide is over, once, as it starts, and the compositor carries it there. The band rides
+ *  the column's centre, drawn once, the words it keeps clear moving with it (Home's column is centred). The pools are
+ *  stretched from the column's width now to its width at the end on the slide's own curve: their places and sizes are
+ *  shares of the column's width, so each frame is the one the column's width then would have painted. Where it is at
+ *  rest nothing of this is left. */
+function useSlide(band: RefObject<HTMLElement | null>, pools: RefObject<HTMLElement | null>) {
+  useLayoutEffect(() => {
+    const el = band.current?.querySelector<HTMLElement>('.motion'), main = band.current?.closest<HTMLElement>('.main'), win = main?.closest<HTMLElement>('.win');
+    const p = pools.current;
+    if (!el || !main || !win || !band.current || !p) return;
+    if (!ui.slide) {
+      for (const k of ['width', 'left']) el.style.removeProperty(k);
+      for (const k of ['width', 'right', 'transform-origin']) p.style.removeProperty(k);
+      p.getAnimations().forEach((a) => a.cancel());
+      return;
+    }
+    // The column's width at the end: the window's, less the sidebar's where it opens.
+    const side = parseFloat(getComputedStyle(win).getPropertyValue('--side-w')) || 0;
+    const now = band.current.getBoundingClientRect().width, end = now + win.getBoundingClientRect().width - (ui.slide === 'in' ? side : 0) - main.getBoundingClientRect().width;
+    // The band: its place and width as shares of the band's (window.css .band .motion), at the end's size, about the
+    // centre.
+    const width = el.offsetWidth / now, left = el.offsetLeft / now;
+    el.style.width = `${width * end}px`;
+    el.style.left = `calc(50% + ${(left - 0.5) * end}px)`;
+    // The pools: laid out at the end's width and stretched about the column's left edge on the slide's curve, from its
+    // start (window.css side-in, side-out: the column's width moves on that curve, as a straight share of it).
+    const s = getComputedStyle(win), slide = win.getAnimations().find((a) => (a as CSSAnimation).animationName?.startsWith('side-'));
+    if (!slide) return;
+    Object.assign(p.style, { width: `${end}px`, right: 'auto', transformOrigin: '0 0' });
+    const stretch = p.animate([{ transform: `scaleX(${now / end})` }, { transform: 'none' }], { duration: parseFloat(s.animationDuration) * 1000, easing: s.animationTimingFunction, fill: 'both' });
+    void Promise.all([slide.ready, stretch.ready]).then(() => (stretch.startTime = slide.startTime));
+  }, [ui.slide]);
+}
+
 /** Home's light: three pools and the chrome band, behind the column. `load` dims the chrome as the page fills. */
 export function Light({ load }: { load: 'quiet' | 'busy' | 'asks' | 'paged' }) {
   const l = useLight();
+  const band = useRef<HTMLSpanElement>(null), pools = useRef<HTMLElement>(null);
   useEffect(() => void document.documentElement.style.setProperty('--noise', noise()), []);
+  useSlide(band, pools);
+  // Its pools breathe while it moves: the page moves them, at the motion's pace (paced.ts).
+  useLayoutEffect(() => stir(), [l.moves]);
   if (l.level === 'off') return null;
   // Its chrome stands in the icon's S, never on a level row (engine.ts pose), and stays there. While agents think or
   // work its form drifts in its own slow way and, every breath or so, a pulse swells its heights from the centre
@@ -175,8 +212,8 @@ export function Light({ load }: { load: 'quiet' | 'busy' | 'asks' | 'paged' }) {
   const full = l.level === 'full';
   return (
     <div class="light" data-state={l.state} data-moves={String(l.moves)} data-stir={ui.greet === 'main' || l.lift || undefined} data-load={load} style={l.vars} aria-hidden="true">
-      <i class="pool a" /><i class="pool b" /><i class="pool c" />
-      <span class="band">
+      <i class="pools" ref={pools}><i class="pool a" /><i class="pool b" /><i class="pool c" /></i>
+      <span class="band" ref={band}>
         <Motion look={l.look} state={l.state} pace={full ? 'calm' : 'still'} rest={!l.active} primary soft pose={1} pulse={full ? amount() : 0}
           every={l.moves && (l.state === 'thinking' || l.state === 'working') ? 1.25 * tempo() : 0} kick={greets} tempo={pace()} clear=".hx" pad={10} feather={30} />
       </span>
@@ -238,6 +275,7 @@ export function Spark() {
     return () => watch.disconnect();
   }, []);
   useSway(ref, l.moves);
+  useLayoutEffect(() => stir(), [l.moves]);
   return (
     <div class="spark" ref={ref} data-state={l.state} data-moves={String(l.moves)} data-away={l.active ? undefined : ''} style={l.vars} aria-hidden="true">
       {l.level !== 'off' && <i class="pool s" />}

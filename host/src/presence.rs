@@ -211,6 +211,9 @@ struct State {
     active: bool,
     /// The workspace window has the keyboard, as it said last.
     key: bool,
+    /// Some of the workspace window is on screen, as the Mac says it (native.rs `watch_seen`); Windows asks it with the
+    /// window in front (edge.rs).
+    seen: bool,
     /// A check's run says where the window is instead of the system, which never puts a passive run in front.
     told: Option<bool>,
     /// While the window's own dialog is open (the folder chooser) the window stays as it was.
@@ -228,6 +231,7 @@ struct State {
 static STATE: Mutex<State> = Mutex::new(State {
     active: false,
     key: false,
+    seen: true,
     told: None,
     paused: false,
     front: false,
@@ -289,7 +293,7 @@ pub fn told(app: &AppHandle, active: Option<bool>, key: Option<bool>) {
     let moved = with(|st| {
         st.active = active.unwrap_or(st.active);
         st.key = key.unwrap_or(st.key);
-        let front = st.told.unwrap_or(st.active && st.key);
+        let front = st.told.unwrap_or(st.active && st.key && st.seen);
         let moved = !st.paused && front != st.front;
         if moved {
             st.front = front;
@@ -298,6 +302,14 @@ pub fn told(app: &AppHandle, active: Option<bool>, key: Option<bool>) {
     });
     if moved {
         changed(app);
+    }
+}
+
+/// Whether any of the workspace window can be seen (the Mac): a window on another Space, minimised or hidden is not in
+/// front, whatever has the keyboard.
+pub fn seen(app: &AppHandle, seen: bool) {
+    if with(|st| std::mem::replace(&mut st.seen, seen)) != seen {
+        told(app, None, None);
     }
 }
 
@@ -317,7 +329,7 @@ pub fn closed(app: &AppHandle) {
 pub fn tell(app: &AppHandle, front: Option<bool>) {
     with(|st| {
         st.told = front;
-        st.front = front.unwrap_or(st.active && st.key);
+        st.front = front.unwrap_or(st.active && st.key && st.seen);
     });
     changed(app);
 }
@@ -385,8 +397,8 @@ pub fn call(app: &AppHandle, args: &Value) -> Value {
 /// What a check may know.
 pub fn state() -> Value {
     let s = situation();
-    let (active, key, told) = with(|st| (st.active, st.key, st.told));
-    json!({"front": s.front, "active": active, "key": key, "told": told, "full": s.full, "open": s.open,
+    let (active, key, seen, told) = with(|st| (st.active, st.key, st.seen, st.told));
+    json!({"front": s.front, "active": active, "key": key, "seen": seen, "told": told, "full": s.full, "open": s.open,
         "notch": s.notch(), "shows": format!("{:?}", s.shows), "place": s.question().map(Place::word),
         "question": s.question.as_ref().map(|q| q.id.clone())})
 }

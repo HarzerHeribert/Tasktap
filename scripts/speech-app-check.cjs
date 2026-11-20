@@ -70,11 +70,30 @@ function page(app) {
    *  keyboard, each of which ends a recording (record.ts `lost`). */
   const watch = () => ask(`(window.__covered = 0, ((lost) => (document.addEventListener('visibilitychange', () => document.hidden && lost()), addEventListener('blur', lost), addEventListener('pagehide', lost)))(() => (window.__holding || __speech.live() || __speech.talk.asking) && __covered++), 1)`);
   const covered = () => ask(`window.__covered`);
+  /** From now on, what the page sees, with its time since: the keyboard and the window coming and going, the
+   *  pointer let go or cancelled, and each change of the recording (live or not) and of its row (its phase and the
+   *  core's error), polled every 20 ms for 15 s; with each, whether the page still had the keyboard. */
+  const trace = () => ask(`(window.__trace = [], window.__t0 = performance.now(), ((note) => {
+    for (const e of ['blur', 'focus', 'pagehide']) addEventListener(e, () => note(e));
+    document.addEventListener('visibilitychange', () => note(document.hidden ? 'hidden' : 'shown'));
+    for (const e of ['pointerup', 'pointercancel']) document.addEventListener(e, (ev) => note(e + (ev.isTrusted ? ' (the system)' : ' (the check)')), true);
+    let live = null, row = null;
+    const poll = () => {
+      const l = __speech.live(), d = [...__ws.records.dictations.values()].pop(), r = d ? d.phase + (d.error ? ' ' + d.error : '') : 'none';
+      if (l !== live) note('live ' + l);
+      if (r !== row) note('row ' + r);
+      (live = l), (row = r);
+      if (performance.now() - __t0 < 15000) setTimeout(poll, 20);
+    };
+    poll();
+  })((what) => __trace.push(Math.round(performance.now() - __t0) + ' ms ' + what + (document.hasFocus() ? '' : ' (no keyboard)'))), 1)`.replace(/\n\s*/g, ' '));
+  /** What `trace` saw, and what the page last said. */
+  const traced = () => ask(`(window.__trace ?? []).join(', ') + '; said: ' + (__speech.talk.said || 'nothing')`);
   /** Whether the page is seen; a covered window comes forward first, until `back`. False behind a locked screen. */
   let forward = false;
   const seen = async () => !(await ask(`document.hidden`)) || (app.send('front'), (forward = true), app.until('workspace', `String(document.hidden)`, 'false', 3));
   const back = () => forward && (app.send('back'), (forward = false));
-  return { ask, row, press, settings, home, down, up, type, field, spoken, quiet, undo, watch, covered, seen, back };
+  return { ask, row, press, settings, home, down, up, type, field, spoken, quiet, undo, watch, covered, seen, back, trace, traced };
 }
 
 async function withFixture(shots) {
@@ -136,11 +155,16 @@ async function withFixture(shots) {
     await p.ask(`(document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })), __speech.talk.source = 'tone')`);
     // A thought spoken (a tone made in the page): through the page, the host and the helper, and it is a thought.
     await p.type('');
+    // What the page and the app saw meanwhile is said with a failure: what ended a recording that ended early.
+    const since = app.events.length;
+    await p.trace();
     await p.down();
     const listening = await app.until('workspace', `document.querySelector('.home .hear')?.innerText ?? ''`, 'Listening', 5);
     const level = await app.until('workspace', `String([...__ws.records.dictations.values()][0]?.level > 20 && __speech.live())`, 'true', 5);
     const words = await app.until('workspace', `document.querySelector('.home .hear .hear-t')?.textContent ?? ''`, 'Make the header', 5);
-    check(listening && level && words, 'while the tone sounds the row says Listening, the level the page reports moves the wave, and the helper\'s words so far show');
+    const saw = async () => `the page saw: ${await p.traced()}; the app said: ${app.events.slice(since).filter((e) => e.event !== 'report').map((e) => JSON.stringify(e).slice(0, 160)).join(' ') || 'nothing'}`;
+    check(listening && level && words, 'while the tone sounds the row says Listening, the level the page reports moves the wave, and the helper\'s words so far show',
+      listening && level && words ? '' : `Listening: ${!!listening}, the level: ${!!level}, the words: ${!!words}; ${await saw()}`);
     check(running(helper).length === 1, 'one helper runs while it records', String(running(helper).length));
     if (shots) await app.snapshot('workspace', path.join(shots, 'app-listening.png'));
     await p.up();
@@ -149,7 +173,8 @@ async function withFixture(shots) {
     await sleep(300);
     check(running(helper).length === 0, 'the helper is gone once it has answered', running(helper).join(' '));
     const [languages, seconds, peak, hz] = fs.readFileSync(log, 'utf8').trim().split('\n').pop().split(' ');
-    check(languages === 'de,en' && seconds > 1 && seconds < 8 && peak > 3000 && hz > 200 && hz < 240, `the helper was fed what the page recorded: 16 kHz, one channel, 16 bits, with the tone in it, and the languages (${languages}, ${seconds} s, peak ${peak}, ${hz} Hz)`);
+    const fed = languages === 'de,en' && seconds > 1 && seconds < 8 && peak > 3000 && hz > 200 && hz < 240;
+    check(fed, `the helper was fed what the page recorded: 16 kHz, one channel, 16 bits, with the tone in it, and the languages (${languages}, ${seconds} s, peak ${peak}, ${hz} Hz)`, fed ? '' : await saw());
     if (shots) await app.snapshot('workspace', path.join(shots, 'app-thought.png'));
     await p.undo();
     // Into a field that holds text: the words go to its caret, and nothing is sent.

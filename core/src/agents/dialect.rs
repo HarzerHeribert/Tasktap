@@ -250,11 +250,20 @@ pub const GOOSE: Dialect = Dialect {
     },
     environment: |home| {
         // Where the person's own Goose keeps what they chose: read, never written.
-        let config = std::env::var_os("XDG_CONFIG_HOME")
-            .filter(|folder| !folder.is_empty())
-            .map(std::path::PathBuf::from)
-            .or_else(|| Some(Path::new(&std::env::var_os("HOME")?).join(".config")));
-        let own = config.map(|folder| folder.join("goose/config.yaml"));
+        // On Windows in the roaming application data (`%APPDATA%\Block\goose\
+        // config`), where no `HOME` is set; elsewhere in the XDG folder.
+        let set = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
+        let own = match cfg!(windows) {
+            true => set("APPDATA").map(|folder| {
+                let parts = ["Block", "goose", "config", "config.yaml"];
+                parts
+                    .iter()
+                    .fold(std::path::PathBuf::from(folder), |p, part| p.join(part))
+            }),
+            false => (set("XDG_CONFIG_HOME").map(std::path::PathBuf::from))
+                .or_else(|| Some(Path::new(&set("HOME")?).join(".config")))
+                .map(|folder| folder.join("goose/config.yaml")),
+        };
         let mut all = vec![
             ("GOOSE_PATH_ROOT", home.to_string_lossy().into_owned()),
             ("GOOSE_MODE", "auto".to_owned()),

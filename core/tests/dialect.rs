@@ -290,8 +290,13 @@ fn goose_runs_one_task_in_a_root_of_tasktaps_and_its_hooks_say_what_it_does() {
     assert_eq!(value("GOOSE_PATH_ROOT"), home.to_str());
     assert_eq!(value("GOOSE_MODE"), Some("auto"));
     assert_eq!(value("GOOSE_TELEMETRY_OFF"), Some("1"));
+    // Goose's own place for it: on Windows in the roaming application data.
     let own = value("GOOSE_ADDITIONAL_CONFIG_FILES").unwrap();
-    assert!(Path::new(own).ends_with("goose/config.yaml"), "{own}");
+    let place = match cfg!(windows) {
+        true => "Block/goose/config/config.yaml",
+        false => "goose/config.yaml",
+    };
+    assert!(Path::new(own).ends_with(place), "{own}");
     let detect = goose.detect();
     assert_eq!((detect.version_of)(" 1.60.1\n").as_deref(), Some("1.60.1"));
 }

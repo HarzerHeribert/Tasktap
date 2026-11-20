@@ -64,8 +64,12 @@ jobs:
 
   interface:
     name: Interface (types, tests, build, pages)
-    runs-on: ubuntu-24.04 # held: the page checks' browser does not install on the newer image yet
-    timeout-minutes: 15
+    # On a Mac: the page checks measure text in the system's face, which is the app's on a Mac (SF) and on
+    # Windows (Segoe UI) and neither on Linux. There system-ui is DejaVu Sans, and Chromium on Linux lends a
+    # pixel of its ascent to its descent at 2x (subpixel positioning), so each label stood 1.5 to 2 px off the
+    # mark that leads it: 37 things out of line on the Linux runner that are in line in the app.
+    runs-on: macos-26
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
         with:
@@ -92,7 +96,7 @@ jobs:
       - name: Install the headless browser
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
-          npx --no-install playwright install --with-deps chromium
+          npx --no-install playwright install chromium
       - name: The page scripts parse
         run: for file in scripts/*.cjs; do node --check "$file"; done
       - name: Every list keeps its columns

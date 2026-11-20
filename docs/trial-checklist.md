@@ -6,35 +6,35 @@ What the owner found when he first tried the build with the project map (2026-11
 
 | # | Done | Finding | Decided fix | Proof |
 | --- | --- | --- | --- | --- |
-| 1 | [ ] | The first start shows a long paragraph nobody reads | A short sheet: a headline, at most three facts, the full sentence behind "What exactly is read" | |
-| 2 | [ ] | It can be clicked away, or allowed, without reading | The sheet takes no key for its first 600 ms, and nothing typed into the Composer can land on Allow. No reading timer (Claude's advice; the owner may overrule) | |
-| 3 | [ ] | "Open another folder…" does nothing | Find the cause and fix it | |
-| 4 | [ ] | The Composer's lower row is "a bit wild" | Four things in a fixed order: folder, agent, microphone, Start | |
-| 5 | [ ] | The Return sign on the Start key is white on white | The sign in the key's own dark ink | |
-| 6 | [ ] | Pressing 1 at "Where should this go?" types a 1 into the field | The question for a thought just sent is asked at the Composer and holds the keyboard | |
-| 7 | [ ] | It is not clear that the question needs him | The question sits where he just typed, in the colour of "needs you" | |
-| 8 | [ ] | The agents' rings with "+3" | One agent control that opens a list in the app's own style | |
-| 9 | [ ] | The Start key turns black | On Home the Composer's key is always the bright key | |
+| 1 | [x] | The first start shows a long paragraph nobody reads | A short sheet: a headline, at most three facts, the full sentence behind "What exactly is read" | |
+| 2 | [x] | It can be clicked away, or allowed, without reading | The sheet takes no key for its first 600 ms, and nothing typed into the Composer can land on Allow. No reading timer (Claude's advice; the owner may overrule) | |
+| 3 | [x] | "Open another folder…" does nothing | Find the cause and fix it | |
+| 4 | [x] | The Composer's lower row is "a bit wild" | Four things in a fixed order: folder, agent, microphone, Start | |
+| 5 | [x] | The Return sign on the Start key is white on white | The sign in the key's own dark ink | |
+| 6 | [x] | Pressing 1 at "Where should this go?" types a 1 into the field | The question for a thought just sent is asked at the Composer and holds the keyboard | |
+| 7 | [x] | It is not clear that the question needs him | The question sits where he just typed, in the colour of "needs you" | |
+| 8 | [x] | The agents' rings with "+3" | One agent control that opens a list in the app's own style | |
+| 9 | [x] | The Start key turns black | On Home the Composer's key is always the bright key | |
 | 10 | [x] | Placing by a model should be chosen by the app: the cheapest that works, and one with quota left | Tasktap proposes the order among his agents: included in a subscription first, then the fastest | core test of the default order; `scripts/placing-check.cjs`; picture placing-proposed |
 | 11 | [x] | He wants to rank them 1, 2, 3 | A ranked list he can reorder, each agent on or off | `scripts/placing-check.cjs` (move by keys and drag, switches, saved on Return); smoke |
-| 12 | [ ] | Offers and tips appear loose under the Composer | One place for them, "Setup", on Home | |
+| 12 | [x] | Offers and tips appear loose under the Composer | One place for them, "Setup", on Home | |
 
 ## What follows from it
 
 | # | Done | Consequence | Proof |
 | --- | --- | --- | --- |
-| 13 | [ ] | Under the Composer is only for the thought just sent: where it went with Undo, or its question. No pile of sentences | |
-| 14 | [ ] | A key is shown only where pressing it works right now, on Home and in the notch | |
-| 15 | [ ] | The question's choices stand one under another and are never cut off at the window's edge | |
-| 16 | [ ] | A waiting question is in one place only: at the Composer, or in Needs you, never both | |
-| 17 | [ ] | "Found n projects" and its list are shown in the setup sheet, not loose on Home | |
-| 18 | [ ] | Setup can be hidden and found again | |
+| 13 | [x] | Under the Composer is only for the thought just sent: where it went with Undo, or its question. No pile of sentences | |
+| 14 | [x] | A key is shown only where pressing it works right now, on Home and in the notch | |
+| 15 | [x] | The question's choices stand one under another and are never cut off at the window's edge | |
+| 16 | [x] | A waiting question is in one place only: at the Composer, or in Needs you, never both | |
+| 17 | [x] | "Found n projects" and its list are shown in the setup sheet, not loose on Home | |
+| 18 | [x] | Setup can be hidden and found again | |
 | 19 | [x] | If the first agent cannot place (signed out, out of quota, no answer), the next is asked; if none can, Tasktap asks him. The thought says who placed it | core tests: the next agent places, none can so the person is asked, a limit skips an agent until its time, the 8 s budget |
 | 20 | [x] | An agreement given to the old wording is asked again | store test (old agreement read as a list of one and refused), `placing-check` "Agree again"; the Setup row for it is still open with item 12 |
-| 21 | [ ] | The notch's capture row follows the same rules (agent control, keys, the bright key) | |
+| 21 | [x] | The notch's capture row follows the same rules (agent control, keys, the bright key) | |
 | 22 | [ ] | The same on Windows: the key's ink, the keys' names | |
-| 23 | [ ] | Each finding has a check that would have caught it | |
-| 24 | [ ] | An independent review of both pieces before the owner sees them | |
+| 23 | [x] | Each finding has a check that would have caught it | |
+| 24 | [x] | An independent review of both pieces before the owner sees them | |
 | 25 | [ ] | A new review build, and the owner tries his six pictures again | |
 
 ## Closing terminals (owner, same evening)
@@ -52,8 +52,8 @@ What the owner found when he first tried the build with the project map (2026-11
 
 | # | Done | Finding | Decided fix | Proof |
 | --- | --- | --- | --- | --- |
-| 32 | [ ] | "From any app" does not say what it sets; Settings in general do not say what a setting does for the person | Every setting has a label that can be read by itself and one sentence saying what changes for the person | |
-| 33 | [ ] | (follows) The same words in the guide's Settings chapter and wherever a sheet or Setup names a setting | | |
+| 32 | [x] | "From any app" does not say what it sets; Settings in general do not say what a setting does for the person | Every setting has a label that can be read by itself and one sentence saying what changes for the person | |
+| 33 | [x] | (follows) The same words in the guide's Settings chapter and wherever a sheet or Setup names a setting | | |
 
 Decisions for 32 and 33 (Claude, 2026-11-19; applied once Home and the placing list are merged). A worker listed all 46 rows with proposed words; the rules: a label reads alone and names what the person decides, one sentence says what changes for them, options complete the label's sentence, a problem is said with what to do.
 
@@ -65,9 +65,9 @@ Decisions for 32 and 33 (Claude, 2026-11-19; applied once Home and the placing l
 | # | Done | Missing settings a person would look for (proposed by Claude; the owner said yes to P2 to P5 on 2026-11-20) |
 | --- | --- | --- |
 | P2 | [ ] | Open Tasktap when the computer starts |
-| P3 | [ ] | Per project: the agent works on its own copy, or in the project itself (exists in the core, shown nowhere) |
+| P3 | [x] | Per project: the agent works on its own copy, or in the project itself (exists in the core, shown nowhere) |
 | P4 | [ ] | The keys that answer a question from any app can be recorded (also ends the AltGr clash on German Windows keyboards) |
-| P5 | [ ] | Look for new versions: on or off |
+| P5 | [x] | Look for new versions: on or off |
 | later | | Which microphone; which display shows the notch; a switch for the one notification |
 | P6 | [ ] | The owner's idea: "Sign in with ChatGPT", so that finding the project is one direct call on the person's own subscription, with no agent's program started. Researched 2026-11-19 (a worker's reading of OpenAI's pages, not yet tried): it is an official preview, open to open-source apps that run on the person's own machine without an application; the app registers itself, the person signs in in the browser, and calls go to the Responses endpoint on their plan. Unknown until tried: how fast it is, whether a small model is offered, whether a fixed answer format works, what a call costs of the plan. Borrowing Codex's own sign-in is not the official way and is not used. Anthropic and Google do not allow the equivalent; GitHub Copilot has a kit for it. Next: a trial outside the product that measures those unknowns on the owner's own sign-in; then decide whether it becomes a row in the ranked list |
 
@@ -82,27 +82,27 @@ Decisions for 32 and 33 (Claude, 2026-11-19; applied once Home and the placing l
 
 | # | Done | Finding | Decided fix |
 | --- | --- | --- | --- |
-| R1 | [ ] | Someone typing at first start ends on Allow, and the letters vanish | At first start the sheet is already up when Home appears, never dropped over a field in use; if the field was clicked or typed in, no sheet comes by itself, Setup shows the step. Keys count only 600 ms after the last key, not after the sheet appeared |
-| R2 | [ ] | The question at the Composer swallows the first letters of the next thought | Only 1 to 9, the arrows and Return answer, and only while the field is empty. Any other key belongs to the field: the letter is typed and the question waits in Needs you. Every row has a number; no letter keys |
-| R3 | [ ] | A thought sent from New Task shows its question twice, with the keyboard behind the sheet | One place for every Composer, not only Home's |
-| R4 | [ ] | The first step comes down again at every start if it was put away by a click outside or by Open a folder | Putting it away in any way counts as "not now" |
-| R5 | [ ] | Leaving Home and coming back strands the question with no keyboard | On return it waits in Needs you and the field has the keyboard |
-| R6 | [ ] | On the Mac, Tab does not reach the chip, the agent control, the microphone or Setup | Tab reaches every control in the app's own web view; the agent control gets a key |
-| R7 | [ ] | With the usual agent signed out, no other agent can be chosen | The list always opens; signing in is a row in it |
-| R8 | [ ] | In a narrow Composer the chip's reason is cut to "asks y…" | The reason goes whole, then the key hint, then names shorten |
-| R9 | [ ] | Two bright keys in view whenever a sheet is over Home | Behind a sheet, Home's key is quiet |
-| R10 | [ ] | While the question holds the keyboard the bright key says Start and does nothing | The bright key always does what Return does: with a question at the Composer it starts the thought in the first choice and says so |
-| R11 | [ ] | Hide drops the keyboard and does not say where Setup went | The field gets the keyboard; Setup's place says for a moment that it is in Settings |
-| R12 | [ ] | Five things about one thought stack under the Composer after it is placed | One line: where it started, who placed it, Undo; the rest on request |
-| R13 | [ ] | Setup is the heaviest thing under the Composer; uneven buttons; the count in the wrong face | Quiet rows, actions on one edge, "Setup · 1 of 3 done" |
-| R14 | [ ] | Typing "co" in the agent list picks Claude Code | A name that begins with what was typed comes first |
-| R15 | [ ] | The checks would not notice several of these rules being broken | Each rule above gets a check that fails when the rule is broken, tried by breaking it |
+| R1 | [x] | Someone typing at first start ends on Allow, and the letters vanish | At first start the sheet is already up when Home appears, never dropped over a field in use; if the field was clicked or typed in, no sheet comes by itself, Setup shows the step. Keys count only 600 ms after the last key, not after the sheet appeared |
+| R2 | [x] | The question at the Composer swallows the first letters of the next thought | Only 1 to 9, the arrows and Return answer, and only while the field is empty. Any other key belongs to the field: the letter is typed and the question waits in Needs you. Every row has a number; no letter keys |
+| R3 | [x] | A thought sent from New Task shows its question twice, with the keyboard behind the sheet | One place for every Composer, not only Home's |
+| R4 | [x] | The first step comes down again at every start if it was put away by a click outside or by Open a folder | Putting it away in any way counts as "not now" |
+| R5 | [x] | Leaving Home and coming back strands the question with no keyboard | On return it waits in Needs you and the field has the keyboard |
+| R6 | [x] | On the Mac, Tab does not reach the chip, the agent control, the microphone or Setup | Tab reaches every control in the app's own web view; the agent control gets a key |
+| R7 | [x] | With the usual agent signed out, no other agent can be chosen | The list always opens; signing in is a row in it |
+| R8 | [x] | In a narrow Composer the chip's reason is cut to "asks y…" | The reason goes whole, then the key hint, then names shorten |
+| R9 | [x] | Two bright keys in view whenever a sheet is over Home | Behind a sheet, Home's key is quiet |
+| R10 | [x] | While the question holds the keyboard the bright key says Start and does nothing | The bright key always does what Return does: with a question at the Composer it starts the thought in the first choice and says so |
+| R11 | [x] | Hide drops the keyboard and does not say where Setup went | The field gets the keyboard; Setup's place says for a moment that it is in Settings |
+| R12 | [x] | Five things about one thought stack under the Composer after it is placed | One line: where it started, who placed it, Undo; the rest on request |
+| R13 | [x] | Setup is the heaviest thing under the Composer; uneven buttons; the count in the wrong face | Quiet rows, actions on one edge, "Setup · 1 of 3 done" |
+| R14 | [x] | Typing "co" in the agent list picks Claude Code | A name that begins with what was typed comes first |
+| R15 | [x] | The checks would not notice several of these rules being broken | Each rule above gets a check that fails when the rule is broken, tried by breaking it |
 
 ## Layout (owner, same evening)
 
 | # | Done | Finding | Decided fix | Proof |
 | --- | --- | --- | --- | --- |
-| 36 | [ ] | In full screen the content is not in the centre. Should it move with the sidebar, or stay centred whether the sidebar is open or closed? | Decided by the owner (2026-11-20): the hybrid. The reading column is centred on the window and the sidebar opens into the margin; in a window too narrow for that the column moves only as far as the sidebar needs. Also fixed: the sidebar never reflows Home, margins do not collapse, a lone row has a readable length | |
+| 36 | [x] | In full screen the content is not in the centre. Should it move with the sidebar, or stay centred whether the sidebar is open or closed? | Decided by the owner (2026-11-20): the hybrid. The reading column is centred on the window and the sidebar opens into the margin; in a window too narrow for that the column moves only as far as the sidebar needs. Also fixed: the sidebar never reflows Home, margins do not collapse, a lone row has a readable length | |
 | 37 | [ ] | (the owner asked) Other practices of interface designers that would lift the app | A ranked list of findings on this app, each with a picture, from the same research | |
 
 ## Proposed by Claude

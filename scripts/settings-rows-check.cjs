@@ -425,11 +425,19 @@ async function sweep(browser, url) {
 async function main() {
   const server = await serve(path.resolve(__dirname, '../ui/dist'));
   // Chromium on both systems; WebKit, the Mac's engine, on the Mac.
-  const engines = [['chromium', chromium, ['mac', 'windows']], ['webkit', webkit, ['mac']]];
+  const engines = [['chromium', chromium, ['mac', 'windows']], ['webkit', webkit, ['mac']]], tried = [];
   try {
     for (const [name, launcher, systems] of engines) {
       ENGINE = name;
-      const browser = await launcher.launch({ headless: true });
+      // WebKit not installed for Playwright: a NOTE at a desk, a failure where CI is set, which must try the Mac's engine.
+      const browser = await launcher.launch({ headless: true }).catch((e) => {
+        if (name !== 'webkit') throw e;
+        if (process.env.CI) expect(false, 'WebKit is not installed for Playwright, so the rows were not tried in the Mac\'s engine');
+        else console.log('NOTE  WebKit is not installed for Playwright: the rows are tried in Chromium only');
+        return null;
+      });
+      if (!browser) continue;
+      tried.push(name);
       try {
         for (const system of systems) {
           await login(browser, server.url, system);
@@ -446,7 +454,7 @@ async function main() {
   } finally {
     await server.close();
   }
-  console.log(failures.length ? `FAIL  ${failures.length} of the rows' checks` : `PASS  every row driven by the pointer and the keyboard, in Chromium on a Mac and on Windows and in WebKit on a Mac, with WebKit's sweep of the controls a click hands keys to, at text size ${TEXT}; pictures in ${out}`);
+  console.log(failures.length ? `FAIL  ${failures.length} of the rows' checks` : `PASS  every row driven by the pointer and the keyboard, in Chromium on a Mac and on Windows${tried.includes('webkit') ? ' and in WebKit on a Mac, with WebKit\'s sweep of the controls a click hands keys to' : ' (not in WebKit, which is not installed here)'}, at text size ${TEXT}; pictures in ${out}`);
   process.exitCode = failures.length ? 1 : 0;
 }
 main().catch((e) => (console.error(e), process.exit(1)));

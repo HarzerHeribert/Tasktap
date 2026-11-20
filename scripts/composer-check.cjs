@@ -29,7 +29,8 @@
 //   3 done" with its actions quiet on one edge, or Hide drops the keyboard or does not say where Setup went; the agent
 //   control has no key ⌘J, Tab does not reach the foot's controls, "co" does not put Codex first, or a signed-out usual
 //   agent keeps the list shut; the chip's reason is cut; or a real pointer's click on "Open another folder…" or a
-//   project in the chip's list does not land (also in WebKit, the Mac's engine, where Playwright's WebKit is installed).
+//   project in the chip's list does not land (also in WebKit, the Mac's engine, where Playwright's WebKit is installed:
+//   at a desk without it a NOTE says what was not tried; where CI is set a missing WebKit is a failure).
 // usage: node scripts/composer-check.cjs [--dist folder] [--review]   (ui/dist must be built)
 const path = require('node:path');
 const { serve, open, findCore } = require('./motion-pages.cjs');
@@ -45,6 +46,8 @@ async function main() {
   findCore();
   const server = await serve(dist), browser = await chromium.launch({ headless: true }), failures = [];
   const expect = (ok, what) => ok || failures.push(what);
+  /** WebKit is not there for Playwright: a NOTE at a desk, a failure where CI is set, which must try the Mac's engine. */
+  const noWebKit = (what) => (process.env.CI ? failures.push(`WebKit is not installed for Playwright, so ${what}`) : console.log(`NOTE  WebKit is not installed for Playwright: ${what}`));
   // Home, with a thought that waits (held) and a core that answers as `core` says.
   const home = async (core) => {
     const page = await open(browser, { label: 'workspace', records: { ...flow(scene('normal'), 'held'), ...core }, url: server.url, dpr: 1 });
@@ -930,7 +933,7 @@ async function main() {
       // sheet that came by itself on two clocks, ⌘J from anywhere on Home, a long place's name, and every way of
       // putting text in at the first start ———
       const wk = await require('playwright').webkit.launch({ headless: true }).catch(() => null);
-      if (!wk) console.log('NOTE  WebKit is not installed for Playwright: the second pass is checked in Chromium only');
+      if (!wk) noWebKit('the second pass is checked in Chromium only');
       const both = [['chromium', browser], ...(wk ? [['webkit', wk]] : [])];
       const at0 = (page) => page.evaluate(() => new MutationObserver(() => (window.__came ||= document.querySelector('.capture .cap-ask') ? performance.now() : 0)).observe(document.body, { childList: true, subtree: true }));
 
@@ -1127,7 +1130,7 @@ async function main() {
       try {
         engines.push(['webkit', await require('playwright').webkit.launch({ headless: true })]);
       } catch {
-        console.log('NOTE  WebKit is not installed for Playwright: "Open another folder…" is clicked in Chromium only');
+        noWebKit('"Open another folder…" is clicked in Chromium only');
       }
       for (const [name, b] of engines) {
         page = await open(b, { label: 'workspace', records: { ...scene('normal'), pick: '/Users/example/projects/inkwell' }, url: server.url, dpr: 1 });

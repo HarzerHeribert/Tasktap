@@ -1,6 +1,7 @@
 #!/bin/bash
 # host/scripts/smoke.sh: builds Tasktap with a core that has the fixture agent, runs it on a
-# temporary data folder and drives it through its debug channel: the notch (a thought saved for
+# temporary data folder and drives it through its debug channel: a core ten seconds slow to start (the window shown
+# before it is there, and a quit while it starts leaving nothing running), the notch (a thought saved for
 # later before any folder is open and sent to one, capture, Undo, a run, a trust prompt, a question,
 # affirm, the result; where Tasktap shows itself: the notch put away while the window is in front, a question in
 # the strip, Needs you or a line in the title bar, the capture key and the answer keys by the rule, the notch that folds
@@ -149,14 +150,24 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Starts the app on the same data folder each time; its input is a new pipe on descriptor 3.
+# A core slow to start, as a first start's can be (its new copy looked at by the system or a virus scanner, a slow
+# disk): a stand-in that waits SMOKE_CORE_DELAY seconds (none unless a launch sets it) and then becomes the fixture
+# core. The app copies it into its data folder and starts it from there, as it does the core it bundles. What it becomes
+# is a copy, as the app's own core is: the fixture agent is the fixture core under another name, and the agents' shims,
+# links to the core, pass over a file that is the core itself.
+cp "$host/binaries/fixtures/tasktap" "$tmp/fixture-core"
+printf '#!/usr/bin/perl\n# A core that starts late: it waits, then becomes the fixture core.\nsleep($ENV{SMOKE_CORE_DELAY} || 0);\nexec("%s", @ARGV) or die "$!";\n' \
+  "$tmp/fixture-core" > "$tmp/slow-core" && chmod +x "$tmp/slow-core"
+
+# Starts the app on the same data folder each time (or on $1, its core $2 seconds late, its lines in $3); its input is a
+# new pipe on descriptor 3.
 launch() {
   rm -f "$tmp/in"
   mkfifo "$tmp/in"
-  env HOME="$tmp/home" PATH="$tmp/agents:$PATH" TASKTAP_DEBUG=1 TASKTAP_PASSIVE=1 TASKTAP_DATA="$tmp/data" TASKTAP_PICK="$tmp/project" TASKTAP_OPEN="$tmp/opener" \
-    CLAUDE_CONFIG_DIR="$tmp/no-history/claude" CODEX_HOME="$tmp/no-history/codex" \
-    TASKTAP_CORE_EXE="$host/binaries/fixtures/tasktap" TASKTAP_CORE_BUILD="$(cat "$host/binaries/fixtures/build.txt")" \
-    "$host/target/debug/tasktap-app" < "$tmp/in" >> "$log" 2>&1 &
+  env HOME="$tmp/home" PATH="$tmp/agents:$PATH" TASKTAP_DEBUG=1 TASKTAP_PASSIVE=1 TASKTAP_DATA="${1:-$tmp/data}" TASKTAP_PICK="$tmp/project" TASKTAP_OPEN="$tmp/opener" \
+    CLAUDE_CONFIG_DIR="$tmp/no-history/claude" CODEX_HOME="$tmp/no-history/codex" SMOKE_CORE_DELAY="${2:-0}" \
+    TASKTAP_CORE_EXE="$tmp/slow-core" TASKTAP_CORE_BUILD="$(cat "$host/binaries/fixtures/build.txt")" \
+    "$host/target/debug/tasktap-app" < "$tmp/in" >> "${3:-$log}" 2>&1 &
   app=$!
   exec 3>"$tmp/in"
 }
@@ -206,9 +217,33 @@ screen() { echo "eval __ws.text()"; }
 press() { js "$1" "(()=>{const t=document.querySelector('$2');t?.focus();t?.dispatchEvent(new KeyboardEvent('keydown',{key:'$3',bubbles:true,cancelable:true,metaKey:${4:-false}}));return !!t})()"; }
 thought() { echo "eval [...__ws.records.thoughts.values()].find(t=>t.text==='$1')?.$2"; }
 
+if part "Quit while the core starts (a short launch of its own, its core ten seconds slow)"; then
+# Quit two seconds in, the core still starting: the app ends, the core is ended with it, and none starts after it has
+# gone (by then the stand-in would have become the core). A folder of its own, so that a core is started, not found.
+early="$tmp/quit-early"
+launch "$early" 10 "$tmp/quit-early.log"
+sleep 2
+quit && ended=at-once || ended="not within 3 s"
+sleep 9
+left="$(pgrep -fl "$early" | cut -c1-120 | tr '\n' ';')"
+[ "$ended" = at-once ] && [ -z "$left" ] \
+  && pass "quit two seconds into a core's ten-second start: the app ends at once, and no core is left behind or starts after it" \
+  || fail "quit while the core starts" "the app ended $ended; running from its folder 12 s after launch: ${left:-nothing}"
+kill "$app" 2>/dev/null; pkill -f "$early" 2>/dev/null
+fi
+
 section "Driving the app on $tmp/data"
-launch
-for _ in $(seq 1 100); do grep -q '"event":"ready"' "$log" && break; sleep 0.1; done
+# Its first start's core is slow too: ten seconds pass before it listens. The window does not wait for it: it is shown
+# by the host's fallback, 3 s after the window is made (a moment into the launch), since the page's own word that it has
+# drawn waits for the core; and the page has the core once it is there, for all that follows.
+launch "$tmp/data" 10
+for _ in $(seq 1 50); do grep -q '"event":"window"' "$log" && break; sleep 0.1; done
+shown="$(grep -o '"event":"window","ms":[0-9]*' "$log" | head -1 | grep -o '[0-9]*$')"
+shot core-starting workspace
+[ -n "$shown" ] && [ "$shown" -le 3500 ] && ! grep -q '"event":"ready"' "$log" \
+  && pass "with a core ten seconds slow to start, the window is shown before it is there, by the 3 s fallback ($shown ms after the launch)" \
+  || fail "the window does not wait for the core" "window at ${shown:-no} ms after the launch; the core $(grep -q '"event":"ready"' "$log" && echo was || echo "was not") there first"
+for _ in $(seq 1 200); do grep -q '"event":"ready"' "$log" && break; sleep 0.1; done
 # FRONT=1: the app's window in front of the other apps' for the run (the keyboard stays where it is), so that what a
 # covered window would not draw is checked too.
 [ -n "${FRONT:-}" ] && send front

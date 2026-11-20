@@ -91,6 +91,28 @@ fn dial(data: &Path) -> io::Result<Stream> {
     return Stream::connect(data);
 }
 
+/// A core this app is starting, until it says it listens; or none to start any more, the app having quit first.
+enum Start {
+    Idle,
+    Running(std::process::Child),
+    Abandoned,
+}
+static START: Mutex<Start> = Mutex::new(Start::Idle);
+
+/// Ends a core this app started that has not yet said it listens, and any start after this: the app is quitting,
+/// and no core is to start after it has gone. A core that listens already is left to idle out as always.
+pub fn abandon() {
+    if let Start::Running(mut child) = std::mem::replace(&mut *START.lock().unwrap(), Start::Abandoned) {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+/// Whether the app gave up the core's start as it quit.
+pub fn abandoned() -> bool {
+    matches!(*START.lock().unwrap(), Start::Abandoned)
+}
+
 pub struct Core {
     pub data: PathBuf,
     exe: PathBuf,
@@ -189,16 +211,29 @@ impl Core {
         serve.process_group(0);
         #[cfg(windows)]
         crate::native::detach(&mut serve);
-        let mut child = serve.spawn()?;
+        {
+            let mut start = START.lock().unwrap();
+            if matches!(*start, Start::Abandoned) {
+                return Err(io::Error::other("the app quit before the core started"));
+            }
+            *start = Start::Running(serve.spawn()?);
+        }
         drop(serve);
         let mut said = String::new();
+        let read = BufReader::new(reader).read_line(&mut said);
+        // Reaped here when it exits, so it never lingers as a zombie of the host; ended already if the app quit.
+        let mut start = START.lock().unwrap();
+        let Start::Running(mut child) = std::mem::replace(&mut *start, Start::Idle) else {
+            *start = Start::Abandoned;
+            return Err(io::Error::other("the app quit before the core listened"));
+        };
+        drop(start);
+        std::thread::spawn(move || child.wait());
         // On Windows a pipe whose other end closed is an error, not an end.
-        match BufReader::new(reader).read_line(&mut said) {
+        match read {
             Err(e) if e.kind() != io::ErrorKind::BrokenPipe => return Err(e),
             _ => {}
         }
-        // Reaped here when it exits, so it never lingers as a zombie of the host.
-        std::thread::spawn(move || child.wait());
         match said.trim_end() {
             "ready" => Ok(()),
             "" => Err(io::Error::other("the core ended before it listened")),

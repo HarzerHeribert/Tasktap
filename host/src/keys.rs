@@ -231,7 +231,10 @@ fn store(app: &AppHandle, id: PrefKey, key: &Option<Key>) -> Result<(), String> 
         None => ("delete", json!({"c": "prefs", "id": id})),
     };
     let (tell, told) = std::sync::mpsc::channel();
-    app.state::<Host>().link.call(name, stored, move |outcome| drop(tell.send(outcome)));
+    let Some(link) = app.state::<Host>().link.get().cloned() else {
+        return Err("Tasktap's core is still starting, so the key was not changed".into());
+    };
+    link.call(name, stored, move |outcome| drop(tell.send(outcome)));
     match told.recv_timeout(Duration::from_secs(2)) {
         Ok(Outcome::Ok(_)) => Ok(()),
         Ok(Outcome::Err(e)) => Err(e.message),

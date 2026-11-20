@@ -51,9 +51,11 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent};
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{Shortcut, ShortcutState};
 
+/// The app's own state. The core and the host's connection to it are there once the core has started, which the
+/// app does not wait for: its windows show what their pages draw meanwhile, and what needs the core waits for it.
 struct Host {
-    core: Arc<Core>,
-    link: Arc<Link>,
+    core: OnceLock<Arc<Core>>,
+    link: OnceLock<Arc<Link>>,
     /// Each page's connection to the core, by window label.
     pages: Mutex<HashMap<String, Stream>>,
     /// The question `glance` names, which affirm and deny act on.
@@ -75,27 +77,45 @@ fn log(value: Value) {
 /// The app, for window events that carry none, set once its state is managed; and when it started, for the launch
 /// measure.
 static APP: OnceLock<AppHandle> = OnceLock::new();
+/// The app once the core has started: what the host's connection hears is acted on from then on, as it was when the
+/// app waited for the core before its event loop ran.
+fn up() -> &'static AppHandle {
+    let app = APP.wait();
+    app.state::<Host>().link.wait();
+    app
+}
 static START: OnceLock<Instant> = OnceLock::new();
 fn since_start() -> u128 {
     START.get().map_or(0, |s| s.elapsed().as_millis())
 }
 
 /// Opens this page's connection; the core's bytes reach the page on `frames` as they arrive,
-/// whole frames or not. An empty message means the connection ended.
+/// whole frames or not. An empty message means the connection ended. Made on a thread of its own once the core is
+/// there, which at a start may be a while: the page waits for its welcome, and the app does not.
 #[tauri::command]
-fn bridge_open(
-    webview: tauri::Webview,
-    frames: Channel<InvokeResponseBody>,
-    host: tauri::State<Host>,
-) -> Result<(), String> {
+fn bridge_open(webview: tauri::Webview, frames: Channel<InvokeResponseBody>, app: AppHandle) -> Result<(), String> {
     let label = webview.label().to_owned();
-    let (stream, first) = host.core.connect(Role::Page, &format!("tasktap-app {label}")).map_err(|e| e.to_string())?;
-    let mut reader = stream.try_clone().map_err(|e| e.to_string())?;
-    if let Some(old) = host.pages.lock().unwrap().insert(label, stream) {
-        let _ = old.shutdown(Shutdown::Both);
-    }
-    let _ = frames.send(InvokeResponseBody::Raw(first));
     std::thread::spawn(move || {
+        let host = app.state::<Host>();
+        let opened = host.core.wait().connect(Role::Page, &format!("tasktap-app {label}"));
+        let Ok((stream, first)) = opened else {
+            // As a refused connection always ended: the page starts over a moment later.
+            let _ = frames.send(InvokeResponseBody::Raw(Vec::new()));
+            return;
+        };
+        // A window closed while its page waited does not hold a connection the core would keep streams for.
+        if app.get_webview_window(&label).is_none() {
+            let _ = stream.shutdown(Shutdown::Both);
+            return;
+        }
+        let Ok(mut reader) = stream.try_clone() else {
+            let _ = frames.send(InvokeResponseBody::Raw(Vec::new()));
+            return;
+        };
+        if let Some(old) = host.pages.lock().unwrap().insert(label, stream) {
+            let _ = old.shutdown(Shutdown::Both);
+        }
+        let _ = frames.send(InvokeResponseBody::Raw(first));
         let mut buf = vec![0u8; 64 << 10];
         while let Ok(n @ 1..) = reader.read(&mut buf) {
             if frames.send(InvokeResponseBody::Raw(buf[..n].to_vec())).is_err() {
@@ -198,13 +218,14 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
         #[cfg(target_os = "macos")]
         "host.layout" => Ok(Value::Object(native::layout())),
         // A web address, or what is inside a folder the person opened or a copy Tasktap made of one (open.rs).
-        "host.open" => {
-            let host = app.state::<Host>();
-            let mut roots: Vec<_> =
-                host.link.folders.lock().unwrap().iter().map(|(_, folder)| folder.clone()).collect();
-            roots.push(host.core.data.join("worktrees"));
-            open::open(args, &roots, notch::NOTCH.lock().unwrap().passive)
-        }
+        "host.open" => match started(app) {
+            Some((core, link)) => {
+                let mut roots: Vec<_> = link.folders.lock().unwrap().iter().map(|(_, folder)| folder.clone()).collect();
+                roots.push(core.data.join("worktrees"));
+                open::open(args, &roots, notch::NOTCH.lock().unwrap().passive)
+            }
+            None => Err(STARTING.into()),
+        },
         "host.capture_key" => keys::call(app, args),
         // The keys that answer a waiting question from any app: the ones in use, or one changed (keys.rs).
         "host.answer_key" => keys::answer_call(app, args),
@@ -225,8 +246,8 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
             Err("Showing a page here is not ready yet".into())
         }
         "host.frame" => {
-            let host = app.state::<Host>();
-            let (link, worktrees) = (host.link.clone(), host.core.data.join("worktrees"));
+            let Some((core, link)) = started(app) else { return reply_to(&id, Err(STARTING.into())) };
+            let worktrees = core.data.join("worktrees");
             frames::base(move || {
                 let mut roots: Vec<_> = link.folders.lock().unwrap().iter().map(|(_, folder)| folder.clone()).collect();
                 roots.push(worktrees.clone());
@@ -240,6 +261,11 @@ fn host_call(app: &AppHandle, page: &str, frame: &str) -> String {
         }
         name => Err(format!("this host has no {name}")),
     };
+    reply_to(&id, outcome)
+}
+
+/// What a page's `host.*` call is answered with, as a frame.
+fn reply_to(id: &Value, outcome: Result<Value, String>) -> String {
     match outcome {
         Ok(ok) => json!({"t": "reply", "id": id, "ok": ok}),
         Err(message) => json!({"t": "reply", "id": id, "err": {"code": "unknown", "message": message}}),
@@ -252,12 +278,22 @@ fn debug_report(label: String, data: Value) {
     log(json!({"event": "report", "label": label, "data": data}));
 }
 
+/// The core and the host's connection to it, once the core has started.
+fn started(app: &AppHandle) -> Option<(Arc<Core>, Arc<Link>)> {
+    let host = app.state::<Host>();
+    Some((host.core.get()?.clone(), host.link.get()?.clone()))
+}
+
+/// What a call that needs the core is told while it starts.
+const STARTING: &str = "Tasktap's core is still starting";
+
 /// Affirm and deny act on the question `glance` names, from any app.
 fn input(app: &AppHandle, action: &str) {
     let host = app.state::<Host>();
     let Some(question) = *host.question.lock().unwrap() else { return };
+    let Some(link) = host.link.get() else { return };
     let action = action.to_owned();
-    host.link.call("input", json!({"action": action, "question": question}), move |outcome| {
+    link.call("input", json!({"action": action, "question": question}), move |outcome| {
         log(json!({"event": "input", "action": action, "outcome": outcome}))
     });
 }
@@ -267,7 +303,7 @@ fn input(app: &AppHandle, action: &str) {
 fn asks(app: &AppHandle) -> Option<presence::Asks> {
     let host = app.state::<Host>();
     let id = (*host.question.lock().unwrap())?;
-    let known = host.link.questions.lock().unwrap().get(&id).cloned();
+    let known = host.link.get().and_then(|link| link.questions.lock().unwrap().get(&id).cloned());
     Some(known.unwrap_or(presence::Asks { id: id.uuid().to_string(), session: None, terminal: false, confirm: true }))
 }
 
@@ -276,8 +312,10 @@ fn heard(app: &AppHandle, heard: core::Heard) {
     match heard {
         core::Heard::Questions => {
             presence::question(app, asks(app));
-            let open: Vec<String> =
-                app.state::<Host>().link.questions.lock().unwrap().values().map(|q| q.id.clone()).collect();
+            let open: Vec<String> = match app.state::<Host>().link.get() {
+                Some(link) => link.questions.lock().unwrap().values().map(|q| q.id.clone()).collect(),
+                None => Vec::new(),
+            };
             notify::settle(&open);
         }
         core::Heard::Notify(args) => notify::asked(&args),
@@ -500,11 +538,14 @@ fn command(app: &AppHandle, line: &str) {
         "call" => {
             let (name, args) = rest.split_once(' ').unwrap_or((rest, "{}"));
             let name = name.to_owned();
-            app.state::<Host>().link.call(
-                &name.clone(),
-                serde_json::from_str(args).unwrap_or_default(),
-                move |outcome| log(json!({"event": "reply", "name": name, "outcome": outcome})),
-            );
+            match app.state::<Host>().link.get() {
+                Some(link) => {
+                    link.call(&name.clone(), serde_json::from_str(args).unwrap_or_default(), move |outcome| {
+                        log(json!({"event": "reply", "name": name, "outcome": outcome}))
+                    })
+                }
+                None => log(json!({"event": "reply", "name": name, "refused": STARTING})),
+            }
         }
         "quit" => {
             workspace::quit();
@@ -571,7 +612,7 @@ fn main() {
         let link = Link::start(
             core.clone(),
             |g| {
-                let app = APP.wait();
+                let app = up();
                 let _ = app.run_on_main_thread(move || glance(app, g));
             },
             // The capture key is registered once the core's records say which it is, and again
@@ -579,7 +620,7 @@ fn main() {
             // so that the person can choose another in Settings. The updater asks GitHub by itself
             // only while the person lets it.
             |prefs| {
-                let app = APP.wait();
+                let app = up();
                 update::allow(prefs.checks);
                 keys::talk(prefs.talk);
                 let _ = app.run_on_main_thread(move || {
@@ -588,7 +629,7 @@ fn main() {
                 });
             },
             |told| {
-                let app = APP.wait();
+                let app = up();
                 let _ = app.run_on_main_thread(move || heard(app, told));
             },
         )?;
@@ -715,6 +756,14 @@ fn main() {
                     }
                 });
             }
+            // The app's state, there before any window: the core and the link join it once the core has started.
+            app.manage(Host {
+                core: OnceLock::new(),
+                link: OnceLock::new(),
+                pages: Mutex::default(),
+                question: Mutex::default(),
+            });
+            let _ = APP.set(app.handle().clone());
             // Opened by the system at login: no window, only the notch (on Windows the tab, made now as the window's
             // first picture would have made it) and the icon. The capture key and the icon bring the window.
             if login::started_at_login() {
@@ -724,14 +773,32 @@ fn main() {
             } else {
                 workspace::show(app.handle(), None)?;
             }
-            let (core, link) = starting.join().expect("the core's start panicked")?;
-            log(json!({"event": "ready", "data": core.data}));
-            app.manage(Host { core, link, pages: Mutex::default(), question: Mutex::default() });
-            let _ = APP.set(app.handle().clone());
-            // Said once the window is there: what the first start did with Tasktap Next's folder.
-            if let Some(words) = moved.filter(|_| !passive) {
-                let _ = app.run_on_main_thread(move || takeover::tell(&words));
-            }
+            // The core may take a while to start (a first start's copy of it, a virus scanner's first look at it): nothing
+            // here waits for it, so the event loop runs and the window shows as soon as its page has drawn, or after
+            // 3 s. A core that cannot start ends the app as it always has, with why on standard error.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || match starting.join() {
+                Ok(Ok((core, link))) => {
+                    log(json!({"event": "ready", "data": core.data}));
+                    // The link first: a page connects once the core is there, and finds the link there too.
+                    let host = handle.state::<Host>();
+                    let _ = host.link.set(link);
+                    let _ = host.core.set(core);
+                    // Said once the window is there: what the first start did with Tasktap Next's folder.
+                    if let Some(words) = moved.filter(|_| !passive) {
+                        let _ = handle.run_on_main_thread(move || takeover::tell(&words));
+                    }
+                }
+                Ok(Err(e)) if !core::abandoned() => {
+                    eprintln!("Tasktap failed to start: {e}");
+                    std::process::exit(101);
+                }
+                Ok(Err(_)) => {}
+                Err(_) => {
+                    eprintln!("Tasktap failed to start: the core's start panicked");
+                    std::process::exit(101);
+                }
+            });
             Ok(())
         })
         .build(context)
@@ -751,10 +818,14 @@ fn main() {
             api.prevent_exit()
         }
         RunEvent::ExitRequested { .. } => {
+            // A core still starting is ended: none starts after the app that asked for it has gone. Here already,
+            // and not only at the end, since over SSH (no desktop) the event loop is never seen to end.
+            core::abandon();
             workspace::quit();
             log(json!({"event": "quitting"}))
         }
         RunEvent::Exit => {
+            core::abandon();
             #[cfg(windows)]
             edge::end();
             log(json!({"event": "quit"}))

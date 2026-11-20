@@ -850,8 +850,20 @@ fn two_thoughts_launched_at_once_in_one_project_each_get_their_own_terminal() {
     s.tick(HOLD_MS);
     launched(&mut s, a);
     launched(&mut s, b);
+    // Both launched: neither failed, as one did when both wrote the agent's
+    // files at once through one temporary file (`agents::checks::whole`).
     let run = |t: ThoughtId| {
-        let session = s.w.model.thought(t).session_id.unwrap();
+        let th = s.w.model.thought(t);
+        let why: Vec<_> = (s.w.model.results_of(t).iter())
+            .map(|r| r.summary.clone())
+            .collect();
+        assert_ne!(
+            th.status,
+            Status::Failed,
+            "{:?} did not launch: {why:?}",
+            th.text
+        );
+        let session = th.session_id.unwrap();
         (session, s.w.model.session(session).terminal_id.unwrap())
     };
     let (first, second) = (run(a), run(b));

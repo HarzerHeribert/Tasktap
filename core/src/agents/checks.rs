@@ -6,8 +6,9 @@
 //! core's own variables, and are found on the same PATH.
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
@@ -183,10 +184,30 @@ pub fn said(data: &Path) -> Vec<Said> {
 
 /// Keeps what the agents' commands said, whole or not at all.
 pub fn keep_said(data: &Path, said: &[Said]) -> std::io::Result<()> {
-    let file = said_file(data);
-    let new = file.with_extension(format!("{}.new", std::process::id()));
-    std::fs::write(&new, serde_json::to_vec(said)?)?;
-    std::fs::rename(&new, &file)
+    whole(&said_file(data), &serde_json::to_vec(said)?)
+}
+
+/// Writes `content` to `file` whole or not at all: to a file of its own
+/// first, then put in place, so what reads it now finds the old or the new.
+/// That file is this write's alone, named for the process and the write:
+/// two runs of one agent launched at once write its files at once, on two
+/// threads of one core, and with one name for both the second's rename
+/// found the file gone, moved by the first's, and its run failed.
+pub(crate) fn whole(file: &Path, content: &[u8]) -> std::io::Result<()> {
+    static WRITES: AtomicU64 = AtomicU64::new(0);
+    let new = temporary(file, WRITES.fetch_add(1, Ordering::Relaxed));
+    let written = std::fs::write(&new, content).and_then(|()| std::fs::rename(&new, file));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&new);
+    }
+    written
+}
+
+/// Where write `n` of this process puts `file` before it is in place.
+fn temporary(file: &Path, n: u64) -> PathBuf {
+    let mut name = file.file_name().unwrap_or_default().to_owned();
+    name.push(format!(".{}.{n}.new", std::process::id()));
+    file.with_file_name(name)
 }
 
 /// [`detect`] for each of `agents`, all at once, each on a thread of its own.
@@ -218,10 +239,8 @@ pub fn keep(home: &Path, files: &[(&'static str, String)]) -> Result<(), String>
             continue;
         }
         let folder = file.parent().unwrap_or(home);
-        let new = file.with_extension(format!("{}.new", std::process::id()));
         std::fs::create_dir_all(folder)
-            .and_then(|()| std::fs::write(&new, content))
-            .and_then(|()| std::fs::rename(&new, &file))
+            .and_then(|()| whole(&file, content.as_bytes()))
             .map_err(|e| format!("{} could not be written: {e}", file.display()))?;
     }
     Ok(())
@@ -306,10 +325,8 @@ pub fn ask(
     let file = folder.join("schema.json");
     // Written whole or not at all, since another question may read it now.
     if std::fs::read_to_string(&file).ok().as_deref() != Some(schema) {
-        let new = folder.join(format!("schema.{}.json", std::process::id()));
         std::fs::create_dir_all(folder)
-            .and_then(|()| std::fs::write(&new, schema))
-            .and_then(|()| std::fs::rename(&new, &file))
+            .and_then(|()| whole(&file, schema.as_bytes()))
             .map_err(|e| format!("its folder could not be written: {e}"))?;
     }
     let schema = Schema {
@@ -468,4 +485,48 @@ fn end(child: &mut Child, tree: &crate::sys::Tree) {
     tree.kill();
     let _ = child.kill();
     let _ = child.wait();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two writes of one file never share the file they write first.
+    #[test]
+    fn two_writes_of_one_file_have_files_of_their_own() {
+        let file = Path::new("/agents/fixture/kept/note.txt");
+        let (one, two) = (temporary(file, 1), temporary(file, 2));
+        assert_ne!(one, two);
+        assert_eq!(one.parent(), file.parent());
+    }
+
+    /// An agent's files, written by as many runs as start at once, from
+    /// nothing each time: every write succeeds and leaves them whole.
+    #[test]
+    fn runs_launched_at_once_all_keep_their_agents_files() {
+        let home = std::env::temp_dir().join(format!("tt-keep-{}", std::process::id()));
+        let files = [("kept/note.txt", "kept for the fixture agent\n".to_owned())];
+        let at_once = std::sync::Barrier::new(8);
+        for _ in 0..50 {
+            let _ = std::fs::remove_dir_all(&home);
+            std::thread::scope(|scope| {
+                let runs: Vec<_> = (0..8)
+                    .map(|_| {
+                        scope.spawn(|| {
+                            at_once.wait();
+                            keep(&home, &files)
+                        })
+                    })
+                    .collect();
+                for run in runs {
+                    assert_eq!(run.join().unwrap(), Ok(()));
+                }
+            });
+            let kept = std::fs::read_to_string(home.join("kept/note.txt")).unwrap();
+            assert_eq!(kept, files[0].1);
+            let left = std::fs::read_dir(home.join("kept")).unwrap().count();
+            assert_eq!(left, 1, "a write left its own file behind");
+        }
+        let _ = std::fs::remove_dir_all(&home);
+    }
 }

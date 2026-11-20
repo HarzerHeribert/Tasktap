@@ -17,7 +17,7 @@
 // still or a motion frame differs that --expect does not name.
 // usage: node scripts/same-look.cjs <out> --before <dist> --after <dist> [--only stills,motion,slide,glow]
 //        [--quick] [--jobs 4] [--gpu] [--hz 240] [--expect name,name-prefix*] [--reuse]
-//   --reuse: the before build's pictures already in <out> are taken as they are.
+//   --reuse: the pictures already in <out> are taken as they are (delete one to have it drawn again).
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
@@ -155,9 +155,10 @@ const geometry = (cutout) => ({ do: 'geometry', width: cutout ? 185 : 120, heigh
   pixel: 2, corner: 10, offset: 0, available: 700, collapsed: false });
 
 /** Gives the page's clock real time until it asks for no frame and no timer is near: what the web view does aside
- *  (building a style's program, which the motion waits for frame by frame) has come in. */
+ *  (building a style's program, which the motion waits for frame by frame) has come in. A minute at most: in software,
+ *  on a loaded machine, the rings' program took longer than twenty seconds. */
 async function quiet(page) {
-  for (let i = 0; i < 80 && !(await page.evaluate(() => window.__clock.quiet())); i++) await page.evaluate(() => window.__clock.live(250));
+  for (let i = 0; i < 240 && !(await page.evaluate(() => window.__clock.quiet())); i++) await page.evaluate(() => window.__clock.live(250));
 }
 /** Waits until nothing the compositor runs changes any more (transitions and finite animations, on real time) and the
  *  fonts are in; the page's own clock does not move meanwhile. */
@@ -262,7 +263,7 @@ async function runStills(report) {
     let done = 0;
     await pool(list, JOBS, async (s, browser) => {
       const file = path.join(OUT, tag, 'stills', `${s.name}.png`);
-      if (has('--reuse') && tag === 'before' && fs.existsSync(file)) return;
+      if (has('--reuse') && fs.existsSync(file)) return;
       // Once more where it failed (a page held up under load); the second failure is the run's.
       const errs = await picture(browser, server.url, s, file).catch((e) => (console.error(`${tag} ${s.name}: again after ${String(e).split('\n')[0]}`), picture(browser, server.url, s, file)));
       for (const e of errs) out.errors.push(`${tag} ${s.name}: ${e}`);

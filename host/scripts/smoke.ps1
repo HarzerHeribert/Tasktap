@@ -378,7 +378,7 @@ try {
         } else {
             # (Not $asked: that is app.ps1's count of the questions asked of a page.)
             $taken = Js "__ws.call('host.capture_key', { key: { control: true, alt: true, shift: false, meta: false, code: 'KeyT' } }).then(JSON.stringify, $refused)"
-            if ($key -eq '{"key":null}' -and "$taken" -match '^refused: .*taken') { Pass 'no desktop here (session 0): the host holds no capture key and says that one asked for is taken' } else { Fail "the capture key without a desktop (the host said: $key, then: $taken)" }
+            if ("$key" -match '^\{"key":null[,}]' -and "$taken" -match '^refused: .*taken') { Pass 'no desktop here (session 0): the host holds no capture key and says that one asked for is taken' } else { Fail "the capture key without a desktop (the host said: $key, then: $taken)" }
         }
         # The keys that answer an agent's question from any app (host\src\keys.rs), held only while one waits: this
         # system's own, Alt-Shift with J (to the question), Y and N, since Control-Alt is AltGr on Windows.
